@@ -4,6 +4,7 @@ import type { PgDatabase } from "drizzle-orm/pg-core";
 import type { Db } from "../db/client.js";
 import type * as schema from "../db/schema.js";
 import { events, writeRequests, type Actor, type Project } from "../db/schema.js";
+import { bus, type PlaniaEvent } from "../events.js";
 import { ToolError } from "./errors.js";
 
 // A Db or an open transaction. Reads that run inside writeTx must use the transaction.
@@ -27,14 +28,22 @@ export type Emit = (
 ) => Promise<void>;
 
 // Every write runs here: one transaction per call, serialized per project, with its events
-// committed or rolled back together with the change.
+// committed or rolled back together with the change. Once it commits, live screens hear about it
+// (one change per task touched), whether the write came from an agent, CI or the screen.
 export async function writeTx<T>(
   db: Db,
-  project: Pick<Project, "id">,
+  project: Pick<Project, "id" | "slug">,
   ctx: Ctx,
   fn: (tx: Q, emit: Emit) => Promise<T>,
 ): Promise<T> {
-  return db.transaction(async (tx) => {
+  const changes = new Map<string, PlaniaEvent>();
+  const touched = (type: string, taskKey: string | null) => {
+    const change: PlaniaEvent = taskKey
+      ? { type: "task", project: project.slug, key: taskKey }
+      : { type: type.startsWith("decision.") ? "decision" : "project", project: project.slug };
+    changes.set(JSON.stringify(change), change);
+  };
+  const result = await db.transaction(async (tx) => {
     // Serializes writers of one project, so event ids commit in order (list_events cursors stay safe).
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${project.id}::text))`);
     if (ctx.requestId) {
@@ -45,8 +54,9 @@ export async function writeTx<T>(
       if (seen && seen.tool !== ctx.tool) throw new ToolError("REQUEST_ID_REUSED", { tool: seen.tool });
       if (seen) return seen.response as T;
     }
-    await reapExpiredLeases(tx, project.id);
+    for (const key of await reapExpiredLeases(tx, project.id)) touched("claim.expired", key);
     const emit: Emit = async (type, task, payload = {}) => {
+      touched(type, task?.key ?? null);
       await tx.insert(events).values({
         projectId: project.id,
         taskId: task?.id ?? null,
@@ -70,12 +80,14 @@ export async function writeTx<T>(
     }
     return result;
   });
+  for (const change of changes.values()) bus.publish(change);
+  return result;
 }
 
 // Leases expire lazily: reads treat lease_until < now() as free, and the first write in the project
 // afterwards clears the owner (In progress goes back to Ready) and logs claim.expired.
 // The workspace stays, so whoever claims next knows where the code is.
-async function reapExpiredLeases(tx: Q, projectId: string): Promise<void> {
+async function reapExpiredLeases(tx: Q, projectId: string): Promise<string[]> {
   const expired = await tx.execute<{ id: string; key: string; owner: Actor; from: string; to: string }>(sql`
     with expired as (
       select id, owner, status from tasks
@@ -98,6 +110,7 @@ async function reapExpiredLeases(tx: Q, projectId: string): Promise<void> {
       payload: { owner: r.owner, from: r.from, to: r.to },
     });
   }
+  return expired.rows.map((r) => r.key);
 }
 
 // Every timestamp leaves the server as ISO-8601 UTC.

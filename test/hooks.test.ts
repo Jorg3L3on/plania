@@ -118,12 +118,12 @@ describe("POST /hooks/env", () => {
   });
 });
 
-describe("GET /export/:slug.json", () => {
+describe("GET /api/export/:slug.json", () => {
   const get = (path: string, token?: string) =>
     app.request(path, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
 
   test("a token of scope rw or ro downloads the whole project; ci and nobody may not", async () => {
-    const res = await get("/export/filmia.json", TEST_READ_TOKEN);
+    const res = await get("/api/export/filmia.json", TEST_READ_TOKEN);
     assert.equal(res.status, 200);
     assert.match(res.headers.get("content-disposition") ?? "", /attachment; filename="plania-filmia-\d{4}-\d{2}-\d{2}\.json"/);
     const data = (await res.json()) as Json;
@@ -133,9 +133,9 @@ describe("GET /export/:slug.json", () => {
     assert.equal(data.tasks[0].results.length, 1);
     assert.equal(data.env.prod.migrations_applied, 8);
     assert.ok(data.events.length >= 4);
-    assert.equal((await get("/export/filmia.json", TEST_BEARER)).status, 200);
-    assert.equal((await get("/export/filmia.json", TEST_CI_TOKEN)).status, 401);
-    assert.equal((await get("/export/filmia.json")).status, 401);
-    assert.equal((await get("/export/nope.json", TEST_BEARER)).status, 404);
+    assert.equal((await get("/api/export/filmia.json", TEST_BEARER)).status, 200);
+    assert.equal((await get("/api/export/filmia.json", TEST_CI_TOKEN)).status, 401);
+    assert.equal((await get("/api/export/filmia.json")).status, 401);
+    assert.equal((await get("/api/export/nope.json", TEST_BEARER)).status, 404);
   });
 });

@@ -6,7 +6,7 @@ sessions at once: leased claims, versioned writes, an event log with who did wha
 
 - App: Hono on Vercel Hobby (`iad1`), one Node function at `api/index.ts`.
 - DB: Neon Free (`aws-us-east-1`), Drizzle over `pg`, one pool per request.
-- Screen: server-rendered HTML, password login (argon2id + `plania_session` cookie).
+- Screen: React SPA (Vite, shadcn/ui) in `ui/`, served by the same app; password login (argon2id + `plania_session` cookie).
 - Agents: `POST /mcp` with `Authorization: Bearer <MCP_BEARER_TOKEN>` (or the read-only token).
 - CI: `POST /hooks/*` with `Authorization: Bearer <PLANIA_CI_TOKEN>`.
 
@@ -71,13 +71,26 @@ shows `legacy_body` for a task whose scope is still empty, and `get_resume` show
 ## Dev
 
 ```bash
-pnpm dev     # http://localhost:3737, reloads on change
-pnpm start   # same server, no watch
-pnpm build   # typecheck
-pnpm test    # MCP, screen, hooks, seed and backfill tests; rebuilds a local plania_test database each run
+pnpm dev     # API on 3738 (tsx watch) + Vite on http://localhost:5173 with hot reload
+pnpm build   # typecheck server and UI, then build the SPA into dist/ui
+pnpm start   # serve API, MCP and the built SPA on http://localhost:3737
+pnpm test    # MCP, API, live-event, hooks, seed and backfill tests; rebuilds this checkout's local plania_test_<hash> database each run
 ```
 
 Port 3737 avoids the 3000 that product repos use. The server only listens on 127.0.0.1.
+In dev, Vite proxies `/api` and `/mcp` to the dev API on 3738, so the service on 3737 keeps running.
+
+Each checkout and worktree gets its own test database, `plania_test_` plus a six-character hash of the repo's absolute path,
+so test runs in different worktrees can run at the same time. Tests only ever drop databases named `plania_test_*`, never `plania`.
+Databases from deleted worktrees stay behind. To list and remove them:
+
+```bash
+psql -l | grep plania_test_
+```
+
+```bash
+dropdb plania_test_3f9a2c
+```
 
 ## Running locally as a service
 
@@ -91,7 +104,7 @@ Plania currently runs on this Mac instead of Vercel.
   Claude Code (user scope), Cursor (`~/.cursor/mcp.json`), Codex (`~/.codex/config.toml`).
 
 ```bash
-launchctl kickstart -k gui/$(id -u)/com.plania.server   # restart after code or .env changes
+pnpm build && launchctl kickstart -k gui/$(id -u)/com.plania.server   # deploy code changes locally
 launchctl bootout gui/$(id -u)/com.plania.server        # stop and unload
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.plania.server.plist  # load again
 tail -f ~/Library/Logs/plania/server.log
@@ -224,7 +237,7 @@ Inbound integrations, JSON with real HTTP status codes, `Authorization: Bearer <
 
 ## Export
 
-`GET /export/<slug>.json` downloads a whole project (tasks with checks, results and questions, docs, decisions,
+`GET /api/export/<slug>.json` downloads a whole project (tasks with checks, results and questions, docs, decisions,
 env, reservations, every event). Jorge's session, `MCP_BEARER_TOKEN` or `MCP_READ_TOKEN`; the project page links it.
 
 ## Clients
@@ -268,14 +281,43 @@ Follow the protocol in the Plania server's instructions and the project's rules 
 
 ## Screen
 
-`http://localhost:3737`, password login. Times show in `PLANIA_TZ`. `/` lists projects with one generated line
-(open questions first, then live claims, else what is next). `/p/<slug>` shows, in order:
+`http://localhost:3737`, password login. React 19, Tailwind 4 and shadcn/ui, in light, dark or system theme.
+Times arrive as UTC and show in the browser's local time.
 
-- Questions agents asked, each answerable with one click or free text (`POST /p/<slug>/questions/<id>/answer`).
-- The generated resume per initiative, and the v1 card folded away while it exists.
-- Open initiatives and tickets, with who holds each lease (Liberar frees it) and Done on In review tickets
-  and open initiatives. Done carries the version shown; if the task moved meanwhile, nothing changes and the page says so.
-- Decisions, reversed ones struck through; the latest events.
+- `/` lists projects with one generated line (live claims, else what is next) and how many questions wait for Jorge.
+- `/p/<slug>` shows, in order: questions agents asked (answer with one click or free text; the answer becomes a
+  decision); the generated resume per initiative (claims, next, pinned decisions) and the v1 card folded away while
+  it exists; the work grouped by initiative with status and priority filters and a toggle for closed items; the
+  decisions, reversed ones struck through. A link downloads the project as JSON.
+- Rows show codes only for initiatives; tickets are known by title, since inside a project every key shares
+  the same prefix. The side panel header still shows a ticket's key for talking to agents.
+- Status and priority change from menus on each row, as Jorge: any move is allowed, Done included, and leases do
+  not stop him. Each change carries the version on screen; if an agent changed the task meanwhile, nothing is
+  overwritten and a toast says so. Blocked asks for its note. Every change offers Undo for 8 seconds.
+- A ticket with a live lease shows who holds it and until when; Liberar frees it.
+- Clicking a task's title opens a side panel: scope (Markdown), Done when checks, evidence, docs, questions,
+  blockers (tasks and env conditions, each satisfied or not), branch, worktree, PR and its history. The open task is in
+  the URL (`?task=MIC-01-F2`), so it can be linked; Back and Escape close it.
+- **Live:** writes from agents, CI or the screen appear within a second and briefly highlight the row. The header
+  shows "En vivo" while the event stream is connected.
+
+How live updates flow: every write runs in `writeTx` (`src/mcp/tx.ts`), which after commit publishes one change per
+task it touched on the in-process bus in `src/events.ts`. `GET /api/events` streams those as server-sent events, and
+the UI refetches what changed.
+
+### JSON API (cookie only)
+
+| Route | Purpose |
+|---|---|
+| `POST /api/login`, `POST /api/logout`, `GET /api/session` | Session |
+| `GET /api/projects` | Projects with their generated line and open question count |
+| `GET /api/projects/:slug` | Generated resume, decisions, and all tasks without scope (with version and lease) |
+| `GET /api/projects/:slug/tasks/:key` | One task, in the `get_task` shape |
+| `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note?, version }`, as Jorge through `set_task` |
+| `POST /api/projects/:slug/tasks/:key/release` | Free a lease |
+| `POST /api/projects/:slug/questions/:id/answer` | `{ answer }` |
+| `GET /api/export/:slug.json` | The whole project (also with an MCP token, rw or ro) |
+| `GET /api/events` | Server-sent change events |
 
 ## Edge cases
 
@@ -302,12 +344,19 @@ Follow the protocol in the Plania server's instructions and the project's rules 
   criteria, and ADRs only in the product repo. `update_resume`, `create_initiative` and `set_initiative` are gone
   (`create_task` and `set_task` cover initiatives; the resume is generated).
 
+- **UI v2, decided by Jorge on 2026-10-07:** the screen is a React SPA with shadcn/ui instead of server-rendered HTML,
+  and it changes status and priority inline. That adds a cookie-only JSON API under `/api` and a server-sent event
+  stream, which the handoff did not have. Counts are still not on screen.
+
 ## Open
 
 - The cleanup migration (drop `tasks.body`, the `projects.resume_*` card and `design_pages`) waits until the
   v2 backfill is confirmed on the real database.
 - Nothing feeds `/hooks/*` yet; GitHub and Vercel cannot reach a localhost server.
-- `api/index.ts` only receives `/api/*` on Vercel by default. `/`, `/login`, `/mcp`, `/hooks` and `/export` need
-  a rewrite to `/api`, which `vercel.json` does not have.
+- Live updates use an in-process bus. On Vercel each request may run in a different function, so the bus in
+  `src/events.ts` must become polling or a hosted pub/sub. The UI does not change.
+- The built SPA in `dist/ui` must be served by Vercel as static output, with `/api`, `/mcp` and `/hooks` routed to the function.
+- `api/index.ts` only receives `/api/*` on Vercel by default. `/mcp` and `/hooks` need a rewrite to the function,
+  which `vercel.json` does not have.
 - `hono/vercel`'s `handle` takes a Web `Request`. On the Node runtime, a bare `export default` may receive
   Node's `req, res` instead. Hono's Node examples export named `GET`/`POST` handlers. Confirm on a preview.

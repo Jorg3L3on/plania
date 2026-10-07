@@ -5,8 +5,8 @@ import { bearerScope, type Scope } from "./auth/bearer.js";
 import { makeDb } from "./db/client.js";
 import { hooks } from "./hooks/routes.js";
 import { createMcpServer } from "./mcp/register.js";
+import { api } from "./api/routes.js";
 import { exporter } from "./web/export.js";
-import { web } from "./web/routes.js";
 
 export const app = new Hono<{ Variables: { scope: Scope } }>();
 
@@ -44,4 +44,4 @@ app.on(["GET", "DELETE"], "/mcp", (c) => c.json({ error: "METHOD_NOT_ALLOWED" },
 
 app.route("/", hooks);
 app.route("/", exporter);
-app.route("/", web);
+app.route("/api", api);

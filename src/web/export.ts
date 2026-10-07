@@ -15,7 +15,7 @@ import { iso } from "../mcp/tx.js";
 // token (read-write or read-only) may download it; the CI token may not.
 export const exporter = new Hono();
 
-exporter.get("/export/:file", async (c) => {
+exporter.get("/api/export/:file", async (c) => {
   const file = c.req.param("file");
   if (!file.endsWith(".json")) return c.json({ error: "NOT_FOUND" }, 404);
   const scope = bearerScope(c.req.header("Authorization"));

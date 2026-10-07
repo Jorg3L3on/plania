@@ -1,5 +1,5 @@
-// Integration tests for the 12 MCP tools against a throwaway local database.
-// Run: pnpm test  (needs a local Postgres; rebuilds plania_test from the migrations each run)
+// Integration tests for the MCP tools (v2 contract) against a throwaway local database.
+// Run: pnpm test  (needs a local Postgres; rebuilds this checkout's plania_test_<hash> database from the migrations each run)
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -11,6 +11,7 @@ useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
 const { app } = await import("../src/app.js");
+const { bus } = await import("../src/events.js");
 
 let client: Client;
 let raw: pg.Client;
@@ -1149,5 +1150,31 @@ describe("v2 D2: ticket template", () => {
     assert.match(bucket.warnings[0], /^no phase/);
     const empty = await call("create_task", { ...P, kind: "initiative", key: "WRK-T2", title: "No PRD" });
     assert.match(empty.warnings[0], /^no scope/);
+  });
+});
+
+describe("live events", () => {
+  test("every committed write publishes one change per task it touched; failures and reads publish none", async () => {
+    const seen: Json[] = [];
+    const unsubscribe = bus.subscribe((e) => seen.push(e));
+    try {
+      const P = { project: "workia" };
+      await call("create_task", { ...P, kind: "initiative", key: "WRK-LV", title: "x" });
+      await call("create_task", { ...P, key: "WRK-LV-F1", title: "x", parent_key: "WRK-LV" });
+      await call("set_task", { ...P, key: "WRK-LV-F1", status: "Ready", note: "go" });
+      await call("add_decision", { ...P, text: "x" });
+      await call("set_env", { ...P, env: "prod", migrations_applied: 1 });
+      await call("set_task", { ...P, key: "NOPE", status: "Ready" }); // fails: no change
+      await call("get_project", P); // read: no change
+    } finally {
+      unsubscribe();
+    }
+    assert.deepEqual(seen, [
+      { type: "task", project: "workia", key: "WRK-LV" },
+      { type: "task", project: "workia", key: "WRK-LV-F1" },
+      { type: "task", project: "workia", key: "WRK-LV-F1" },
+      { type: "decision", project: "workia" },
+      { type: "project", project: "workia" },
+    ]);
   });
 });
