@@ -1,18 +1,13 @@
 // Integration tests for the 12 MCP tools against a throwaway local database.
 // Run: pnpm test  (needs a local Postgres; rebuilds plania_test from the migrations each run)
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
-import { userInfo } from "node:os";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import pg from "pg";
+import type pg from "pg";
+import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
 
-const ADMIN_URL = `postgres://${userInfo().username}@localhost:5432/postgres`;
-const TEST_DB = "plania_test";
-process.env.DATABASE_URL = `postgres://${userInfo().username}@localhost:5432/${TEST_DB}`;
-process.env.MCP_BEARER_TOKEN = "test-token";
-
+useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
 const { app } = await import("../src/app.js");
@@ -41,21 +36,7 @@ async function resolvedAt(key: string): Promise<Date | null> {
 }
 
 before(async () => {
-  const admin = new pg.Client({ connectionString: ADMIN_URL });
-  await admin.connect();
-  await admin.query(`drop database if exists ${TEST_DB} with (force)`);
-  await admin.query(`create database ${TEST_DB}`);
-  await admin.end();
-
-  raw = new pg.Client({ connectionString: process.env.DATABASE_URL });
-  await raw.connect();
-  const dir = new URL("../drizzle/migrations/", import.meta.url);
-  for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
-    await raw.query(readFileSync(new URL(f, dir), "utf8"));
-  }
-  await raw.query(
-    "insert into projects (slug, title) values ('micasa','MiCasa'), ('workia','Workia'), ('filmia','Filmia'), ('zigzag','Zigzag')",
-  );
+  raw = await resetTestDb();
 
   const { db, close } = makeDb();
   closeDb = close;
@@ -84,7 +65,7 @@ describe("HTTP /mcp", () => {
   const headers = { "Content-Type": "application/json", Accept: "application/json, text/event-stream" };
 
   test("rejects a missing or wrong Bearer with 401", async () => {
-    for (const auth of [undefined, "Bearer nope", "test-token"]) {
+    for (const auth of [undefined, "Bearer nope", TEST_BEARER]) {
       const res = await app.request("/mcp", {
         method: "POST",
         headers: auth ? { ...headers, Authorization: auth } : headers,
@@ -98,7 +79,7 @@ describe("HTTP /mcp", () => {
   test("serves tools/list with the right Bearer", async () => {
     const res = await app.request("/mcp", {
       method: "POST",
-      headers: { ...headers, Authorization: "Bearer test-token" },
+      headers: { ...headers, Authorization: `Bearer ${TEST_BEARER}` },
       body: JSON.stringify(rpc),
     });
     assert.equal(res.status, 200);
