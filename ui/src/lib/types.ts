@@ -8,7 +8,7 @@ export type Resume = {
   must_keep_decision: string;
 };
 
-export type ProjectSummary = { slug: string; title: string; resume: Resume };
+export type ProjectSummary = { slug: string; title: string; resume: Resume; tasks: TaskRow[] };
 
 export type TaskRow = {
   key: string;
@@ -20,6 +20,8 @@ export type TaskRow = {
   parent_key: string | null;
   blocked_note: string | null;
   pr_url: string | null;
+  branch: string | null;
+  base_branch: string | null;
   updated_at: string;
 };
 
@@ -29,8 +31,6 @@ export type TaskDetail = TaskRow & {
   origin: string | null;
   child_keys: string[];
   blocked_by: string[];
-  base_branch: string | null;
-  branch: string | null;
 };
 
 export type ProjectDetail = { slug: string; title: string; resume: Resume; tasks: TaskRow[] };

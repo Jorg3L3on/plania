@@ -91,9 +91,16 @@ describe("reads", () => {
   test("GET /api/projects lists projects with their resume card", async () => {
     const list = (await (await req("GET", "/api/projects")).json()) as Json[];
     assert.deepEqual(list.map((p) => p.slug), ["filmia", "micasa", "workia", "zigzag"]);
-    assert.deepEqual(list.find((p) => p.slug === "micasa")!.resume, {
+    const micasa = list.find((p) => p.slug === "micasa")!;
+    assert.deepEqual(micasa.resume, {
       project: "micasa", in_progress: "ip", next_action: "na", branch_or_prod: "main", must_keep_decision: "",
     });
+    // Each project carries its tasks without bodies, in the same shape as GET /api/projects/:slug.
+    const detail = (await (await req("GET", "/api/projects/micasa")).json()) as Json;
+    assert.deepEqual(micasa.tasks, detail.tasks);
+    assert.ok(!JSON.stringify(list).includes("secret body"));
+    assert.ok(!JSON.stringify(list).includes("project_id"));
+    assert.deepEqual(list.find((p) => p.slug === "zigzag")!.tasks, []);
   });
 
   test("GET /api/projects/:slug returns every task without bodies, P0 first", async () => {
@@ -104,9 +111,12 @@ describe("reads", () => {
     assert.deepEqual(p.tasks.map((t: Json) => t.key), ["MIC-01-F2", "MIC-B-01", "MIC-01-F1", "MIC-01"]);
     const f1 = p.tasks.find((t: Json) => t.key === "MIC-01-F1");
     assert.deepEqual(Object.keys(f1).sort(), [
-      "blocked_note", "key", "kind", "parent_key", "pr_url", "priority", "status", "summary", "title", "updated_at",
+      "base_branch", "blocked_note", "branch", "key", "kind", "parent_key", "pr_url", "priority", "status", "summary",
+      "title", "updated_at",
     ]);
     assert.equal(f1.parent_key, "MIC-01");
+    // Branches feed the "Rama y prod" graph: initiatives carry their base branch.
+    assert.equal(p.tasks.find((t: Json) => t.key === "MIC-01").base_branch, "main");
     assert.ok(!JSON.stringify(p).includes("secret body"));
   });
 

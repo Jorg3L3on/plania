@@ -193,6 +193,7 @@ export function createMcpServer(db: Db): McpServer {
         "Update a ticket, or an initiative's text fields. Only the fields you pass change; blocked_by replaces the whole list.",
         "Claim: status 'In progress' with note 'claimed by <agent>'.",
         "Blocked requires a note, stored as blocked_note. Any other note is appended to body as '- YYYY-MM-DD · <note>'.",
+        "Waiting on Jorge (a migration to apply, a deploy, a decision): status Blocked with a note starting 'Jorge: ' and the ask, e.g. 'Jorge: aplicar 0009 en Neon'. It shows on his screen under 'Te toca a ti'.",
         "Finishing a phase: status 'In review' (committed, not merged), set branch and pr_url, and append a Result line as the note.",
         "Result format: 'Result: <✓|⚠|✗> <unit|integration|test|live|grep|subagent> — <cite>'.",
         "Do not set Done unless Jorge asks: Jorge marks Done after merging.",

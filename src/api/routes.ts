@@ -61,16 +61,28 @@ api.get("/session", (c) => c.body(null, 204));
 
 // ---- Projects
 
+// Every project with its resume card and all its tasks without bodies: the index draws lanes per project.
 api.get("/projects", async (c) => {
-  const rows = await withDb((db) => db.select().from(projects).orderBy(asc(projects.slug)));
-  return c.json(rows.map((p) => ({ slug: p.slug, title: p.title, resume: resumeShape(p) })));
+  const data = await withDb(async (db) => {
+    const rows = await db.select().from(projects).orderBy(asc(projects.slug));
+    const all = await screenTasks(db);
+    return rows.map((p) => ({
+      slug: p.slug,
+      title: p.title,
+      resume: resumeShape(p),
+      tasks: all.filter((t) => t.project_id === p.id).map(({ project_id: _, ...t }) => t),
+    }));
+  });
+  return c.json(data);
 });
 
-// All tasks without bodies, ordered like list_tasks: P0..P3, null last, then most recently updated.
-async function screenTasks(db: Db, projectId: string) {
+// Tasks without bodies, ordered like list_tasks: P0..P3, null last, then most recently updated.
+// One project, or every project when projectId is omitted.
+async function screenTasks(db: Db, projectId?: string) {
   const parent = alias(tasks, "parent");
   return db
     .select({
+      project_id: tasks.projectId,
       key: tasks.key,
       kind: tasks.kind,
       title: tasks.title,
@@ -80,11 +92,13 @@ async function screenTasks(db: Db, projectId: string) {
       parent_key: parent.key,
       blocked_note: tasks.blockedNote,
       pr_url: tasks.prUrl,
+      branch: tasks.branch,
+      base_branch: tasks.baseBranch,
       updated_at: tasks.updatedAt,
     })
     .from(tasks)
     .leftJoin(parent, eq(parent.id, tasks.parentId))
-    .where(eq(tasks.projectId, projectId))
+    .where(projectId ? eq(tasks.projectId, projectId) : undefined)
     .orderBy(sql`${tasks.priority} asc nulls last`, desc(tasks.updatedAt));
 }
 
@@ -92,7 +106,8 @@ api.get("/projects/:slug", async (c) => {
   try {
     const data = await withDb(async (db) => {
       const p = await findProject(db, c.req.param("slug"));
-      return { slug: p.slug, title: p.title, resume: resumeShape(p), tasks: await screenTasks(db, p.id) };
+      const rows = await screenTasks(db, p.id);
+      return { slug: p.slug, title: p.title, resume: resumeShape(p), tasks: rows.map(({ project_id: _, ...t }) => t) };
     });
     return c.json(data);
   } catch (e) {
