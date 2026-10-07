@@ -1,4 +1,4 @@
-// JSON API for the screen and the live event stream (UI v2, phase 2).
+// JSON API for the screen and the live event stream, on the v2 contract.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type pg from "pg";
@@ -10,6 +10,10 @@ const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js")
 const { makeDb } = await import("../src/db/client.js");
 const writes = await import("../src/mcp/writes.js");
 const { hashPassword } = await import("../src/auth/password.js");
+const { ask } = await import("../src/mcp/questions.js");
+const { addDecision } = await import("../src/mcp/decisions.js");
+const ctx = { actor: { agent: "test-agent", session_id: "s1" } };
+const T = { scope: "s", checks: ["c"] };
 
 let raw: pg.Client;
 let cookie: string;
@@ -24,7 +28,7 @@ function req(method: string, path: string, opts: { body?: unknown; cookie?: stri
 }
 
 async function row(key: string) {
-  const { rows } = await raw.query("select status, priority, blocked_note, resolved_at from tasks where key = $1", [key]);
+  const { rows } = await raw.query("select status, priority, blocked_note, resolved_at, version from tasks where key = $1", [key]);
   return rows[0];
 }
 
@@ -34,11 +38,14 @@ before(async () => {
   cookie = `${SESSION_COOKIE}=${createSession()}`;
   const { db, close } = makeDb();
   try {
-    await writes.updateResume(db, "micasa", { in_progress: "ip", next_action: "na", branch_or_prod: "main", must_keep_decision: "" });
-    await writes.createInitiative(db, { project: "micasa", key: "MIC-01", title: "Init", body: "PRD", summary: "one line" });
-    await writes.createTask(db, { project: "micasa", key: "MIC-01-F1", title: "F1", body: "secret body", parent_key: "MIC-01" });
-    await writes.createTask(db, { project: "micasa", key: "MIC-01-F2", title: "F2", body: "", parent_key: "MIC-01", priority: "P0" });
-    await writes.createTask(db, { project: "micasa", key: "MIC-B-01", title: "Spec", body: "", status: "Done" });
+    await raw.query("update projects set resume_in_progress = 'ip' where slug = 'micasa'");
+    await writes.createTask(db, { project: "micasa", kind: "initiative", key: "MIC-01", title: "Init", scope: "PRD", summary: "one line", next_action: "na" }, ctx);
+    await writes.createTask(db, { project: "micasa", key: "MIC-01-F1", title: "F1", scope: "secret scope", checks: ["c"], parent_key: "MIC-01" }, ctx);
+    await writes.createTask(db, { project: "micasa", key: "MIC-01-F2", title: "F2", ...T, parent_key: "MIC-01", priority: "P0" }, ctx);
+    await writes.createTask(db, { project: "micasa", key: "MIC-B-01", title: "Spec", ...T }, ctx);
+    await writes.createTask(db, { project: "micasa", key: "MIC-B-02", title: "Held", ...T }, ctx);
+    await writes.claim(db, { project: "micasa", key: "MIC-B-02" }, ctx);
+    await addDecision(db, { project: "micasa", text: "Solo PDF", task_key: "MIC-01", pin: true }, ctx);
   } finally {
     await close();
   }
@@ -88,40 +95,52 @@ describe("session", () => {
 });
 
 describe("reads", () => {
-  test("GET /api/projects lists projects with their resume card", async () => {
+  test("GET /api/projects lists projects with a generated line and open questions", async () => {
     const list = (await (await req("GET", "/api/projects")).json()) as Json[];
     assert.deepEqual(list.map((p) => p.slug), ["filmia", "micasa", "workia", "zigzag"]);
-    assert.deepEqual(list.find((p) => p.slug === "micasa")!.resume, {
-      project: "micasa", in_progress: "ip", next_action: "na", branch_or_prod: "main", must_keep_decision: "",
-    });
+    const micasa = list.find((p) => p.slug === "micasa")!;
+    assert.equal(micasa.line, "En curso: MIC-B-02 (test-agent)");
+    assert.equal(micasa.open_questions, 0);
+    assert.equal(list.find((p) => p.slug === "zigzag")!.line, "Sin ficha.");
   });
 
-  test("GET /api/projects/:slug returns every task without bodies, P0 first", async () => {
+  test("GET /api/projects/:slug returns the generated resume, decisions and every task without scope, P0 first", async () => {
     const res = await req("GET", "/api/projects/micasa");
     assert.equal(res.status, 200);
     const p = (await res.json()) as Json;
     assert.equal(p.title, "MiCasa");
-    assert.deepEqual(p.tasks.map((t: Json) => t.key), ["MIC-01-F2", "MIC-B-01", "MIC-01-F1", "MIC-01"]);
+    assert.equal(p.tasks[0].key, "MIC-01-F2");
+    assert.equal(p.tasks.at(-1).key, "MIC-01");
     const f1 = p.tasks.find((t: Json) => t.key === "MIC-01-F1");
     assert.deepEqual(Object.keys(f1).sort(), [
-      "blocked_note", "key", "kind", "parent_key", "pr_url", "priority", "status", "summary", "title", "updated_at",
+      "blocked_note", "claimed_by", "key", "kind", "lease_until", "parent_key", "pr_url", "priority", "status", "summary",
+      "title", "updated_at", "version", "work_type",
     ]);
     assert.equal(f1.parent_key, "MIC-01");
-    assert.ok(!JSON.stringify(p).includes("secret body"));
+    assert.match(f1.updated_at, /Z$/);
+    const held = p.tasks.find((t: Json) => t.key === "MIC-B-02");
+    assert.equal(held.claimed_by.session_id, "s1");
+    assert.ok(!JSON.stringify(p.tasks).includes("secret scope"));
+    const init = p.resume.initiatives.find((i: Json) => i.key === "MIC-01");
+    assert.equal(init.next_action.note, "na");
+    assert.deepEqual(init.must_keep.map((d: Json) => d.text), ["Solo PDF"]);
+    assert.equal(p.resume.legacy_card.in_progress, "ip");
+    assert.deepEqual(p.decisions.map((d: Json) => d.text), ["Solo PDF"]);
   });
 
-  test("GET /api/projects/:slug/tasks/:key returns the get_task shape with the body", async () => {
+  test("GET /api/projects/:slug/tasks/:key returns the get_task shape", async () => {
     const res = await req("GET", "/api/projects/micasa/tasks/MIC-01");
     assert.equal(res.status, 200);
     const t = (await res.json()) as Json;
-    assert.equal(t.body, "PRD");
+    assert.equal(t.scope, "PRD");
     assert.equal(t.kind, "initiative");
     assert.deepEqual(t.child_keys, ["MIC-01-F1", "MIC-01-F2"]);
     assert.equal(t.base_branch, "main");
     assert.ok(t.updated_at);
     const f1 = (await (await req("GET", "/api/projects/micasa/tasks/MIC-01-F1")).json()) as Json;
-    assert.equal(f1.body, "secret body");
+    assert.equal(f1.scope, "secret scope");
     assert.equal(f1.parent_key, "MIC-01");
+    assert.deepEqual(f1.checks.map((c: Json) => c.text), ["c"]);
     const missing = await req("GET", "/api/projects/micasa/tasks/NOPE");
     assert.equal(missing.status, 404);
     assert.deepEqual(await missing.json(), { error: "TASK_NOT_FOUND" });
@@ -137,19 +156,32 @@ describe("reads", () => {
 });
 
 describe("PATCH /api/projects/:slug/tasks/:key", () => {
-  const patch = (key: string, body: unknown) => req("PATCH", `/api/projects/micasa/tasks/${key}`, { body });
+  const patch = async (key: string, body: Json, version?: number) =>
+    req("PATCH", `/api/projects/micasa/tasks/${key}`, {
+      body: { ...body, ...("version" in body ? {} : { version: version ?? (await row(key))?.version ?? 1 }) },
+    });
 
-  test("changes status and priority and returns the get_task shape", async () => {
-    const res = await patch("MIC-01-F1", { status: "In progress", priority: "P1" });
-    assert.equal(res.status, 200);
+  test("Jorge changes status and priority as jorge, with the version on screen", async () => {
+    const res = await patch("MIC-01-F1", { status: "In review", priority: "P1" });
+    assert.equal(res.status, 200, "the screen may make any move, without evidence");
     const t = (await res.json()) as Json;
-    assert.equal(t.status, "In progress");
+    assert.equal(t.status, "In review");
     assert.equal(t.priority, "P1");
-    assert.equal(t.body, "secret body", "get_task shape includes the body");
+    assert.equal(t.scope, "secret scope", "get_task shape");
+    assert.equal(t.log.at(-1).actor.agent, "jorge");
     assert.equal((await row("MIC-01-F1")).priority, "P1");
   });
 
-  test("Blocked needs a note; Done stamps resolved_at; initiatives take their own statuses", async () => {
+  test("a stale version changes nothing and says so", async () => {
+    const res = await patch("MIC-01-F1", { priority: "P3", version: 1 });
+    assert.equal(res.status, 409);
+    const body = (await res.json()) as Json;
+    assert.equal(body.error, "STALE_VERSION");
+    assert.equal(body.current_version, (await row("MIC-01-F1")).version);
+    assert.equal((await row("MIC-01-F1")).priority, "P1");
+  });
+
+  test("Blocked needs a note; Done stamps resolved_at; Done works on a claimed ticket; initiatives take their own statuses", async () => {
     let res = await patch("MIC-01-F2", { status: "Blocked" });
     assert.equal(res.status, 400);
     assert.deepEqual(await res.json(), { error: "BLOCKED_REQUIRES_NOTE" });
@@ -164,17 +196,59 @@ describe("PATCH /api/projects/:slug/tasks/:key", () => {
   });
 
   test("error codes map to HTTP statuses", async () => {
-    const cases: [string, unknown, number, string][] = [
+    const cases: [string, Json, number, string][] = [
       ["MIC-01-F2", { status: "Planning" }, 400, "INVALID_STATUS"],
       ["MIC-01-F2", { priority: "P9" }, 400, "INVALID_PRIORITY"],
-      ["NOPE", { status: "Done" }, 404, "TASK_NOT_FOUND"],
+      ["NOPE", { status: "Done", version: 1 }, 404, "TASK_NOT_FOUND"],
       ["MIC-01-F2", { status: 7 }, 400, "INVALID_BODY"],
     ];
     for (const [key, body, status, error] of cases) {
       const res = await patch(key, body);
       assert.equal(res.status, status, JSON.stringify(body));
-      assert.deepEqual(await res.json(), { error });
+      assert.equal(((await res.json()) as Json).error, error);
     }
+  });
+});
+
+describe("leases and questions from the screen", () => {
+  test("Liberar frees a lease", async () => {
+    const res = await req("POST", "/api/projects/micasa/tasks/MIC-B-02/release");
+    assert.equal(res.status, 200);
+    const t = (await res.json()) as Json;
+    assert.equal(t.claim, null);
+    assert.equal(t.status, "Ready");
+  });
+
+  test("Jorge answers a question; it becomes a decision and the ticket goes back", async () => {
+    const { db, close } = makeDb();
+    let id = "";
+    try {
+      await writes.claim(db, { project: "micasa", key: "MIC-B-02" }, ctx);
+      id = (await ask(db, { project: "micasa", key: "MIC-B-02", question: "¿CSV también?", options: ["Sí", "No"] }, ctx)).question.id;
+    } finally {
+      await close();
+    }
+    const p = (await (await req("GET", "/api/projects/micasa")).json()) as Json;
+    assert.deepEqual(p.resume.open_questions.map((q: Json) => q.question), ["¿CSV también?"]);
+    const list = (await (await req("GET", "/api/projects")).json()) as Json[];
+    assert.equal(list.find((x) => x.slug === "micasa")!.open_questions, 1);
+
+    assert.equal((await req("POST", `/api/projects/micasa/questions/${id}/answer`, { body: { answer: "  " } })).status, 400);
+    const res = await req("POST", `/api/projects/micasa/questions/${id}/answer`, { body: { answer: "Sí" } });
+    assert.equal(res.status, 200);
+    const out = (await res.json()) as Json;
+    assert.equal(out.decision.text, "¿CSV también? → Sí");
+    assert.equal(out.decision.actor.agent, "jorge");
+    assert.equal(out.task.status, "In progress");
+    const again = await req("POST", `/api/projects/micasa/questions/${id}/answer`, { body: { answer: "No" } });
+    assert.equal(again.status, 409);
+  });
+
+  test("export downloads the project with the session cookie", async () => {
+    const res = await req("GET", "/api/export/micasa.json");
+    assert.equal(res.status, 200);
+    assert.equal(((await res.json()) as Json).project.slug, "micasa");
+    assert.equal((await req("GET", "/api/export/micasa.json", { cookie: null })).status, 401);
   });
 });
 
@@ -209,12 +283,12 @@ describe("GET /api/events", () => {
 
     // An agent write, through the same function the set_task tool calls.
     const { db, close } = makeDb();
-    await writes.setTask(db, { project: "micasa", key: "MIC-B-01", status: "In review" });
+    await writes.setTask(db, { project: "micasa", key: "MIC-B-01", status: "Ready", version: (await row("MIC-B-01")).version }, ctx);
     await close();
     assert.deepEqual(await nextEvent(reader, "change"), { type: "task", project: "micasa", key: "MIC-B-01" });
 
     // A screen write through the API.
-    await req("PATCH", "/api/projects/micasa/tasks/MIC-B-01", { body: { priority: "P3" } });
+    await req("PATCH", "/api/projects/micasa/tasks/MIC-B-01", { body: { priority: "P3", version: (await row("MIC-B-01")).version } });
     assert.deepEqual(await nextEvent(reader, "change"), { type: "task", project: "micasa", key: "MIC-B-01" });
 
     await reader.cancel();

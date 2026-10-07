@@ -26,15 +26,12 @@ export function ProjectsPage() {
                     {p.title}
                     <span className="font-mono text-xs font-normal text-muted-foreground">{p.slug}</span>
                   </CardTitle>
-                  <CardDescription className="line-clamp-2">
-                    {p.resume.in_progress || p.resume.next_action || "Sin ficha."}
-                  </CardDescription>
-                  {p.resume.in_progress && p.resume.next_action && (
-                    <p className="line-clamp-1 text-sm">
-                      <span className="text-muted-foreground">Siguiente: </span>
-                      {p.resume.next_action}
+                  {p.open_questions > 0 && (
+                    <p className="text-sm font-medium text-orange-600 dark:text-orange-400">
+                      {p.open_questions} {p.open_questions === 1 ? "pregunta" : "preguntas"} para ti
                     </p>
                   )}
+                  <CardDescription className="line-clamp-2">{p.line}</CardDescription>
                 </CardHeader>
               </Card>
             </Link>

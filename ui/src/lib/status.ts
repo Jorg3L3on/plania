@@ -8,6 +8,7 @@ const DOT: Record<string, string> = {
   "In review": "bg-violet-500",
   Shipping: "bg-violet-500",
   Blocked: "bg-red-500",
+  "Needs Jorge": "bg-orange-500",
   Done: "bg-emerald-500",
   "On hold": "bg-zinc-300 dark:bg-zinc-600",
   "Won't do": "bg-zinc-300 dark:bg-zinc-600",

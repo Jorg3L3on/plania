@@ -1,36 +1,34 @@
-import { timingSafeEqual } from "node:crypto";
 import { StreamableHTTPTransport } from "@hono/mcp";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
+import { bearerScope, type Scope } from "./auth/bearer.js";
 import { makeDb } from "./db/client.js";
+import { hooks } from "./hooks/routes.js";
 import { createMcpServer } from "./mcp/register.js";
 import { api } from "./api/routes.js";
+import { exporter } from "./web/export.js";
 
-export const app = new Hono();
+export const app = new Hono<{ Variables: { scope: Scope } }>();
 
 app.get("/health", (c) => c.json({ ok: true }));
 
 // POST /mcp only, JSON responses, stateless: no sessions, no GET listen stream.
 
-function tokenMatches(header: string | undefined): boolean {
-  const expected = process.env.MCP_BEARER_TOKEN;
-  if (!expected || !header?.startsWith("Bearer ")) return false;
-  const a = Buffer.from(header.slice("Bearer ".length));
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
+// The screen cookie never counts here; only a Bearer token of an allowed scope does.
+const requireScope = (...allowed: Scope[]) =>
+  createMiddleware<{ Variables: { scope: Scope } }>(async (c, next) => {
+    const scope = bearerScope(c.req.header("Authorization"));
+    if (!scope || !allowed.includes(scope)) return c.json({ error: "UNAUTHORIZED" }, 401);
+    c.set("scope", scope);
+    await next();
+  });
 
-// The screen cookie never counts here; only the Bearer token does.
-const requireBearer = createMiddleware(async (c, next) => {
-  if (!tokenMatches(c.req.header("Authorization"))) return c.json({ error: "UNAUTHORIZED" }, 401);
-  await next();
-});
-
-app.use("/mcp", requireBearer);
+app.use("/mcp", requireScope("rw", "ro"));
+app.use("/hooks/*", requireScope("ci"));
 
 app.post("/mcp", async (c) => {
   const { db, close } = makeDb();
-  const server = createMcpServer(db);
+  const server = createMcpServer(db, { readOnly: c.get("scope") === "ro" });
   const transport = new StreamableHTTPTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   try {
     await server.connect(transport);
@@ -44,4 +42,6 @@ app.post("/mcp", async (c) => {
 
 app.on(["GET", "DELETE"], "/mcp", (c) => c.json({ error: "METHOD_NOT_ALLOWED" }, 405));
 
+app.route("/", hooks);
+app.route("/", exporter);
 app.route("/api", api);

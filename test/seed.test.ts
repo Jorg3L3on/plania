@@ -9,7 +9,6 @@ import { resetTestDb, useTestEnv } from "./helpers.js";
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
-const { updateResume } = await import("../src/mcp/writes.js");
 const { SEED, seedProjects } = await import("../scripts/seed.js");
 
 let raw: pg.Client;
@@ -31,40 +30,49 @@ after(async () => {
   await raw?.end();
 });
 
-test("fills empty slice 1 rows with the handoff bodies and cards", async () => {
+async function pinned(slug: string): Promise<string[]> {
+  const { rows } = await raw.query(
+    "select d.line from decisions d join projects p on p.id = d.project_id where p.slug = $1 and d.pinned order by d.created_at",
+    [slug],
+  );
+  return rows.map((r) => r.line);
+}
+
+test("fills empty slice 1 rows with the handoff bodies and pins each must-keep decision", async () => {
   const result = await seedProjects(db);
   assert.deepEqual(result.map((r) => r.slug), ["micasa", "workia", "filmia", "zigzag"]);
-  assert.ok(result.every((r) => r.resumeWritten));
+  assert.ok(result.every((r) => r.pinned));
   const micasa = await project("micasa");
   assert.match(micasa.body, /^Finanzas personal y del hogar centrada en quincenas/);
   assert.match(micasa.body, /Repo: https:\/\/github.com\/Jorg3L3on\/micasa\./);
-  assert.equal(micasa.resume_branch_or_prod, "main (prod); sandbox un commit adelante (npm audit).");
+  assert.equal(micasa.resume_in_progress, "", "v2 writes no hand-written card");
+  assert.deepEqual(await pinned("zigzag"), ["El nombre nuevo espera; slug zigzag se queda en v1."]);
   const zigzag = await project("zigzag");
   assert.equal(zigzag.body, "App de recibos; nombre nuevo fuera de v1.");
-  assert.equal(zigzag.resume_in_progress, "");
-  assert.equal(zigzag.resume_must_keep_decision, "El nombre nuevo espera; slug zigzag se queda en v1.");
 });
 
 test("inserts missing projects on an empty table", async () => {
   await raw.query("delete from projects");
   const result = await seedProjects(db);
-  assert.ok(result.every((r) => r.resumeWritten));
+  assert.ok(result.every((r) => r.pinned));
   const { rows } = await raw.query("select slug from projects order by slug");
   assert.deepEqual(rows.map((r) => r.slug), ["filmia", "micasa", "workia", "zigzag"]);
 });
 
-test("a rerun restores the body but keeps a card an agent wrote, and leaves rules alone", async () => {
+test("a rerun restores the body, does not duplicate decisions, and leaves rules alone", async () => {
   await raw.query("update projects set body = 'edited by hand', rules_text = 'Jorge corre las migraciones' where slug = 'micasa'");
-  const card = { in_progress: "MIC-01-F2", next_action: "Abrir PR", branch_or_prod: "feat/x", must_keep_decision: "" };
-  await updateResume(db, "micasa", card);
-
   const result = await seedProjects(db);
-  assert.equal(result.find((r) => r.slug === "micasa")!.resumeWritten, false);
+  assert.equal(result.find((r) => r.slug === "micasa")!.pinned, false);
   const micasa = await project("micasa");
   assert.equal(micasa.body, SEED[0]!.body);
   assert.equal(micasa.rules_text, "Jorge corre las migraciones");
-  assert.equal(micasa.resume_in_progress, "MIC-01-F2");
-  assert.equal(micasa.resume_next_action, "Abrir PR");
+  assert.equal((await pinned("micasa")).length, 1);
+});
+
+test("once set_project edited a project, the seed leaves its text alone", async () => {
+  await raw.query("update projects set body = 'edited with set_project', version = 2 where slug = 'workia'");
+  await seedProjects(db);
+  assert.equal((await project("workia")).body, "edited with set_project");
 });
 
 test("get_project micasa returns the body (slice 6 done-when)", async () => {

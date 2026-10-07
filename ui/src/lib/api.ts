@@ -1,9 +1,10 @@
-import type { ProjectDetail, ProjectSummary, TaskDetail, TaskRow } from "./types";
+import type { ProjectDetail, ProjectSummary, TaskDetail } from "./types";
 
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
+    readonly detail: Record<string, unknown> = {},
   ) {
     super(code);
   }
@@ -17,8 +18,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) {
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new ApiError(res.status, data.error ?? `HTTP_${res.status}`);
+    const { error, ...detail } = (await res.json().catch(() => ({}))) as { error?: string } & Record<string, unknown>;
+    throw new ApiError(res.status, error ?? `HTTP_${res.status}`, detail);
   }
   return (res.status === 204 ? undefined : await res.json()) as T;
 }
@@ -32,8 +33,14 @@ export const api = {
   project: (slug: string) => request<ProjectDetail>("GET", `/projects/${encodeURIComponent(slug)}`),
   task: (slug: string, key: string) =>
     request<TaskDetail>("GET", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}`),
-  patchTask: (slug: string, key: string, patch: { status?: string; priority?: string; note?: string }) =>
-    request<TaskRow>("PATCH", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}`, patch),
+  // version is the one shown on screen; if the task moved since, the server answers STALE_VERSION.
+  patchTask: (slug: string, key: string, patch: { status?: string; priority?: string; note?: string; version: number }) =>
+    request<TaskDetail>("PATCH", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}`, patch),
+  release: (slug: string, key: string) =>
+    request<TaskDetail>("POST", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/release`),
+  answer: (slug: string, questionId: string, answer: string) =>
+    request<unknown>("POST", `/projects/${encodeURIComponent(slug)}/questions/${encodeURIComponent(questionId)}/answer`, { answer }),
+  exportUrl: (slug: string) => `/api/export/${encodeURIComponent(slug)}.json`,
 };
 
 export const isUnauthorized = (e: unknown) => e instanceof ApiError && e.status === 401;

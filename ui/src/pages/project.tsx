@@ -11,31 +11,8 @@ import { TaskControls } from "@/components/task-controls";
 import { TaskRow } from "@/components/task-row";
 import { TaskSheet } from "@/components/task-sheet";
 import { api, ApiError } from "@/lib/api";
-import { CLOSED_STATUSES, PRIORITIES, TICKET_STATUSES, type Resume, type TaskRow as Task } from "@/lib/types";
-
-const RESUME_FIELDS: [keyof Resume, string][] = [
-  ["in_progress", "En curso"],
-  ["next_action", "Siguiente"],
-  ["branch_or_prod", "Rama / prod"],
-  ["must_keep_decision", "Decisión fija"],
-];
-
-function ResumeCard({ resume }: { resume: Resume }) {
-  return (
-    <Card>
-      <CardContent className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
-        {RESUME_FIELDS.map(([field, label]) => (
-          <div key={field} className="grid gap-1">
-            <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</span>
-            <span className={resume[field] ? "whitespace-pre-wrap" : "text-muted-foreground"}>
-              {resume[field] || "—"}
-            </span>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  );
-}
+import { DecisionList, QuestionsPanel, ResumeView } from "@/components/resume";
+import { CLOSED_STATUSES, PRIORITIES, TICKET_STATUSES, type TaskRow as Task } from "@/lib/types";
 
 type Filters = { status: string; priority: string; showClosed: boolean };
 
@@ -87,18 +64,23 @@ export function ProjectPage() {
           <ChevronLeftIcon className="size-4" /> Proyectos
         </Link>
         {project.data ? (
-          <h1 className="flex items-baseline gap-3 text-2xl font-semibold tracking-tight">
+          <h1 className="flex flex-wrap items-baseline gap-3 text-2xl font-semibold tracking-tight">
             {project.data.title}
             <span className="font-mono text-sm font-normal text-muted-foreground">{project.data.slug}</span>
+            <a href={api.exportUrl(project.data.slug)} className="text-sm font-normal text-muted-foreground underline underline-offset-4">
+              Exportar JSON
+            </a>
           </h1>
         ) : (
           <Skeleton className="h-8 w-48" />
         )}
       </div>
 
+      {project.data && <QuestionsPanel slug={slug} questions={project.data.resume.open_questions} onOpen={openTask} />}
+
       <section className="grid gap-3">
         <h2 className="text-sm font-medium text-muted-foreground">Ficha</h2>
-        {project.data ? <ResumeCard resume={project.data.resume} /> : <Skeleton className="h-36 rounded-xl" />}
+        {project.data ? <ResumeView resume={project.data.resume} onOpen={openTask} /> : <Skeleton className="h-36 rounded-xl" />}
       </section>
 
       <section className="grid gap-3">
@@ -176,6 +158,8 @@ export function ProjectPage() {
           </Card>
         )}
       </section>
+
+      {project.data && <DecisionList decisions={project.data.decisions} onOpen={openTask} />}
 
       <TaskSheet slug={slug} taskKey={openKey} onOpen={openTask} onClose={closeTask} />
     </div>
