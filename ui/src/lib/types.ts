@@ -23,6 +23,16 @@ export type TaskRow = {
   updated_at: string;
 };
 
+// One task with its body: the get_task shape plus updated_at.
+export type TaskDetail = TaskRow & {
+  body: string;
+  origin: string | null;
+  child_keys: string[];
+  blocked_by: string[];
+  base_branch: string | null;
+  branch: string | null;
+};
+
 export type ProjectDetail = { slug: string; title: string; resume: Resume; tasks: TaskRow[] };
 
 export type LiveEvent = { type: "task" | "project" | "decision"; project: string; key?: string };

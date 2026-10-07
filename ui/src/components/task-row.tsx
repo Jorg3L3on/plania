@@ -28,11 +28,15 @@ export function TaskRow({
   slug,
   task,
   nested = false,
+  selected = false,
+  onOpen,
   controls,
 }: {
   slug: string;
   task: Task;
   nested?: boolean;
+  selected?: boolean;
+  onOpen: (key: string) => void;
   controls: ReactNode;
 }) {
   const { isFresh } = useLive();
@@ -43,12 +47,22 @@ export function TaskRow({
       className={cn(
         "flex flex-col gap-2 px-4 py-3 transition-colors duration-700 sm:flex-row sm:items-start sm:justify-between sm:gap-4",
         nested && "sm:pl-9",
+        selected && "bg-muted/60",
         fresh && "bg-amber-100/70 dark:bg-amber-500/15",
       )}
     >
       <div className="min-w-0">
         <div className="flex flex-wrap items-baseline gap-x-2">
-          <span className={cn("font-medium", task.kind === "initiative" && "font-semibold")}>{task.title}</span>
+          <button
+            type="button"
+            onClick={() => onOpen(task.key)}
+            className={cn(
+              "text-left font-medium underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none",
+              task.kind === "initiative" && "font-semibold",
+            )}
+          >
+            {task.title}
+          </button>
           <span className="font-mono text-xs text-muted-foreground">{task.key}</span>
         </div>
         {task.summary && <p className="text-sm text-muted-foreground">{task.summary}</p>}

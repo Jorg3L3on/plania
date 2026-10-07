@@ -1,4 +1,4 @@
-import type { ProjectDetail, ProjectSummary, TaskRow } from "./types";
+import type { ProjectDetail, ProjectSummary, TaskDetail, TaskRow } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -30,6 +30,8 @@ export const api = {
   session: () => request<void>("GET", "/session").then(() => true),
   projects: () => request<ProjectSummary[]>("GET", "/projects"),
   project: (slug: string) => request<ProjectDetail>("GET", `/projects/${encodeURIComponent(slug)}`),
+  task: (slug: string, key: string) =>
+    request<TaskDetail>("GET", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}`),
   patchTask: (slug: string, key: string, patch: { status?: string; priority?: string; note?: string }) =>
     request<TaskRow>("PATCH", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}`, patch),
 };

@@ -10,7 +10,7 @@ import { SESSION_COOKIE, createSession, sessionCookieOptions, verifySession } fr
 import { withDb, type Db } from "../db/client.js";
 import { projects, tasks } from "../db/schema.js";
 import { bus } from "../events.js";
-import { ToolError, findProject, resumeShape } from "../mcp/queries.js";
+import { ToolError, findProject, findTask, resumeShape, taskShape } from "../mcp/queries.js";
 import { setTask } from "../mcp/writes.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
@@ -93,6 +93,21 @@ api.get("/projects/:slug", async (c) => {
     const data = await withDb(async (db) => {
       const p = await findProject(db, c.req.param("slug"));
       return { slug: p.slug, title: p.title, resume: resumeShape(p), tasks: await screenTasks(db, p.id) };
+    });
+    return c.json(data);
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
+
+// One task with its body, in the same shape the get_task MCP tool returns.
+api.get("/projects/:slug/tasks/:key", async (c) => {
+  try {
+    const data = await withDb(async (db) => {
+      const p = await findProject(db, c.req.param("slug"));
+      const t = await findTask(db, p.id, c.req.param("key"));
+      if (!t) throw new ToolError("TASK_NOT_FOUND", 404);
+      return { ...(await taskShape(db, t)), updated_at: t.updatedAt };
     });
     return c.json(data);
   } catch (e) {

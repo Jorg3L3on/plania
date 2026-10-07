@@ -110,6 +110,24 @@ describe("reads", () => {
     assert.ok(!JSON.stringify(p).includes("secret body"));
   });
 
+  test("GET /api/projects/:slug/tasks/:key returns the get_task shape with the body", async () => {
+    const res = await req("GET", "/api/projects/micasa/tasks/MIC-01");
+    assert.equal(res.status, 200);
+    const t = (await res.json()) as Json;
+    assert.equal(t.body, "PRD");
+    assert.equal(t.kind, "initiative");
+    assert.deepEqual(t.child_keys, ["MIC-01-F1", "MIC-01-F2"]);
+    assert.equal(t.base_branch, "main");
+    assert.ok(t.updated_at);
+    const f1 = (await (await req("GET", "/api/projects/micasa/tasks/MIC-01-F1")).json()) as Json;
+    assert.equal(f1.body, "secret body");
+    assert.equal(f1.parent_key, "MIC-01");
+    const missing = await req("GET", "/api/projects/micasa/tasks/NOPE");
+    assert.equal(missing.status, 404);
+    assert.deepEqual(await missing.json(), { error: "TASK_NOT_FOUND" });
+    assert.equal((await req("GET", "/api/projects/micasa/tasks/MIC-01", { cookie: null })).status, 401);
+  });
+
   test("unknown project or path is a JSON 404", async () => {
     const res = await req("GET", "/api/projects/nope");
     assert.equal(res.status, 404);

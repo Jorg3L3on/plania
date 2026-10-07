@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeftIcon } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { TaskControls } from "@/components/task-controls";
 import { TaskRow } from "@/components/task-row";
+import { TaskSheet } from "@/components/task-sheet";
 import { api, ApiError } from "@/lib/api";
 import { CLOSED_STATUSES, PRIORITIES, TICKET_STATUSES, type Resume, type TaskRow as Task } from "@/lib/types";
 
@@ -59,6 +60,10 @@ function groupTasks(tasks: Task[], f: Filters) {
 export function ProjectPage() {
   const { slug = "" } = useParams();
   const project = useQuery({ queryKey: ["project", slug], queryFn: () => api.project(slug) });
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openKey = searchParams.get("task");
+  const openTask = (key: string) => setSearchParams({ task: key });
+  const closeTask = () => setSearchParams({}, { replace: false });
   const [filters, setFilters] = useState<Filters>({ status: "all", priority: "all", showClosed: false });
   const { groups, loose } = useMemo(
     () => groupTasks(project.data?.tasks ?? [], filters),
@@ -135,9 +140,23 @@ export function ProjectPage() {
         )}
         {groups.map(({ initiative, children }) => (
           <Card key={initiative.key} className="gap-0 divide-y py-0">
-            <TaskRow slug={slug} task={initiative} controls={<TaskControls slug={slug} task={initiative} />} />
+            <TaskRow
+              slug={slug}
+              task={initiative}
+              selected={openKey === initiative.key}
+              onOpen={openTask}
+              controls={<TaskControls slug={slug} task={initiative} />}
+            />
             {children.map((t) => (
-              <TaskRow key={t.key} slug={slug} task={t} nested controls={<TaskControls slug={slug} task={t} />} />
+              <TaskRow
+                key={t.key}
+                slug={slug}
+                task={t}
+                nested
+                selected={openKey === t.key}
+                onOpen={openTask}
+                controls={<TaskControls slug={slug} task={t} />}
+              />
             ))}
           </Card>
         ))}
@@ -145,11 +164,20 @@ export function ProjectPage() {
           <Card className="gap-0 divide-y py-0">
             <div className="px-4 py-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">Sin iniciativa</div>
             {loose.map((t) => (
-              <TaskRow key={t.key} slug={slug} task={t} controls={<TaskControls slug={slug} task={t} />} />
+              <TaskRow
+                key={t.key}
+                slug={slug}
+                task={t}
+                selected={openKey === t.key}
+                onOpen={openTask}
+                controls={<TaskControls slug={slug} task={t} />}
+              />
             ))}
           </Card>
         )}
       </section>
+
+      <TaskSheet slug={slug} taskKey={openKey} onOpen={openTask} onClose={closeTask} />
     </div>
   );
 }

@@ -152,6 +152,9 @@ The plan for this product lives in Plania (MCP server `plania`, project `<slug>`
   with status and priority filters and a toggle for closed items.
 - Status and priority change from menus on each row. Blocked asks for its note. Done is one click on In review
   tickets and open initiatives. Every change offers Undo for 8 seconds.
+- Clicking a task's title opens a side panel with its full body rendered as Markdown (PRD, scope, Done when
+  checklists, notes and Result lines), plus its initiative, phases, blockers, branch and PR. The open task is in
+  the URL (`?task=MIC-01-F2`), so it can be linked; Back and Escape close it.
 - **Live:** agent writes over MCP appear within a second and briefly highlight the row. The header shows "En vivo"
   while the event stream is connected.
 
@@ -165,6 +168,7 @@ How live updates flow: every write in `src/mcp/writes.ts` publishes on the in-pr
 | `POST /api/login`, `POST /api/logout`, `GET /api/session` | Session |
 | `GET /api/projects` | Projects with resume cards |
 | `GET /api/projects/:slug` | Resume card and all tasks, without bodies |
+| `GET /api/projects/:slug/tasks/:key` | One task with its body, in the `get_task` shape |
 | `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note? }`, same rules as `set_task` |
 | `GET /api/events` | Server-sent change events |
 
