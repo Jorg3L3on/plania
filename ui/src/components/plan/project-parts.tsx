@@ -74,16 +74,18 @@ export function ProjectHeader({
         <p className="mt-1 text-[17px] text-muted-foreground">{laneSentence(lanes)}</p>
       </div>
       <div className="flex flex-wrap items-center gap-7">
-        <div className="flex items-center gap-3.5">
-          <ProgressRing closed={progress.closed} total={progress.total} />
-          <div className="flex flex-col">
-            <span className="font-display text-[26px] leading-none font-bold">
-              {progress.closed}
-              <span className="text-lg font-medium text-muted-foreground">/{progress.total}</span>
-            </span>
-            <span className="mt-1 text-xs text-muted-foreground">tickets cerrados</span>
+        {progress.total > 0 && (
+          <div className="flex items-center gap-3.5">
+            <ProgressRing closed={progress.closed} total={progress.total} />
+            <div className="flex flex-col">
+              <span className="font-display text-[26px] leading-none font-bold">
+                {progress.closed}
+                <span className="text-lg font-medium text-muted-foreground">/{progress.total}</span>
+              </span>
+              <span className="mt-1 text-xs text-muted-foreground">tickets cerrados</span>
+            </div>
           </div>
-        </div>
+        )}
         {legend.length > 0 && (
           <ul className="grid gap-1.5 text-[13px] text-foreground/80">
             {legend.map((l) => (

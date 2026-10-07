@@ -125,13 +125,22 @@ export function ProjectPage() {
           {view === "lista" ? (
             <TaskList slug={slug} tasks={project.data.tasks} openKey={openKey} onOpen={openTask} />
           ) : derived.lanes.length === 0 ? (
-            <section className="grid animate-rise gap-3 rounded-[20px] border border-dashed bg-card/50 px-6 py-8">
-              <Kicker className="text-muted-foreground">Nada abierto</Kicker>
-              <p className="font-display text-2xl font-bold tracking-tight">
-                {firstLine(project.data.resume.next_action) || "Sin iniciativas ni tickets abiertos."}
-              </p>
-              {project.data.resume.next_action && <span className="text-sm text-muted-foreground">Siguiente, según la ficha.</span>}
-            </section>
+            <div className="flex flex-wrap items-start gap-7">
+              <section className="grid min-w-0 flex-[999_1_560px] animate-rise gap-3 rounded-[20px] border border-dashed bg-card/50 px-6 py-8">
+                <Kicker className="text-muted-foreground">Nada abierto</Kicker>
+                {project.data.resume.in_progress && (
+                  <p className="text-[15px] text-muted-foreground">{firstLine(project.data.resume.in_progress)}</p>
+                )}
+                <Kicker className="mt-2 text-status-ready">Siguiente</Kicker>
+                <p className="font-display text-2xl font-bold tracking-tight">
+                  {firstLine(project.data.resume.next_action) || "Sin iniciativas ni tickets abiertos."}
+                </p>
+              </section>
+              <aside className="grid min-w-[280px] flex-[1_1_320px] gap-4">
+                <BranchGraph edges={derived.edges} text={project.data.resume.branch_or_prod} onFicha={() => setFichaOpen(true)} />
+                <FixedDecisions text={project.data.resume.must_keep_decision} onFicha={() => setFichaOpen(true)} />
+              </aside>
+            </div>
           ) : (
             <>
               <section className="grid gap-3.5">
