@@ -5,7 +5,7 @@ The plan lives here, not in each product repo.
 
 - App: Hono on Vercel Hobby (`iad1`), one Node function at `api/index.ts`.
 - DB: Neon Free (`aws-us-east-1`), Drizzle over `pg`, one pool per request.
-- Screen: server-rendered HTML, password login (argon2id + `plania_session` cookie).
+- Screen: React SPA (Vite, shadcn/ui) in `ui/`, served by the same app; password login (argon2id + `plania_session` cookie).
 - Agents: `POST /mcp` with `Authorization: Bearer <MCP_BEARER_TOKEN>`.
 
 ## Setup
@@ -45,13 +45,16 @@ with their bodies and resume cards. It is safe to rerun:
 ## Dev
 
 ```bash
-pnpm dev     # http://localhost:3737, reloads on change
-pnpm start   # same server, no watch
-pnpm build   # typecheck
-pnpm test    # MCP, screen and seed tests; rebuilds a local plania_test database each run
+pnpm dev     # API on 3738 (tsx watch) + Vite on http://localhost:5173 with hot reload
+pnpm build   # typecheck server and UI, then build the SPA into dist/ui
+pnpm start   # serve API, MCP and the built SPA on http://localhost:3737
+pnpm test    # MCP, API, live-event and seed tests; rebuilds a local plania_test database each run
 ```
 
 Port 3737 avoids the 3000 that product repos use. The server only listens on 127.0.0.1.
+In dev, Vite proxies `/api` and `/mcp` to the dev API on 3738, so the service on 3737 keeps running.
+
+`plania_test` is shared by every checkout and worktree on this Mac, so two test runs at the same time clobber each other.
 
 ## Running locally as a service
 
@@ -65,7 +68,7 @@ Plania currently runs on this Mac instead of Vercel.
   Claude Code (user scope), Cursor (`~/.cursor/mcp.json`), Codex (`~/.codex/config.toml`).
 
 ```bash
-launchctl kickstart -k gui/$(id -u)/com.plania.server   # restart after code or .env changes
+pnpm build && launchctl kickstart -k gui/$(id -u)/com.plania.server   # deploy code changes locally
 launchctl bootout gui/$(id -u)/com.plania.server        # stop and unload
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.plania.server.plist  # load again
 tail -f ~/Library/Logs/plania/server.log
@@ -133,9 +136,27 @@ The plan for this product lives in Plania (MCP server `plania`, project `<slug>`
 
 ## Screen
 
-`http://localhost:3737`, password login. `/` lists projects with one line of their resume card.
-`/p/<slug>` shows the card and the open initiatives and tickets. Done appears on In review tickets
-(with their PR link) and on open initiatives.
+`http://localhost:3737`, password login. React 19, Tailwind 4 and shadcn/ui, in light, dark or system theme.
+
+- `/` lists projects with their resume line. `/p/<slug>` shows the resume card and the work grouped by initiative,
+  with status and priority filters and a toggle for closed items.
+- Status and priority change from menus on each row. Blocked asks for its note. Done is one click on In review
+  tickets and open initiatives. Every change offers Undo for 8 seconds.
+- **Live:** agent writes over MCP appear within a second and briefly highlight the row. The header shows "En vivo"
+  while the event stream is connected.
+
+How live updates flow: every write in `src/mcp/writes.ts` publishes on the in-process bus in `src/events.ts`.
+`GET /api/events` streams those as server-sent events, and the UI refetches what changed.
+
+### JSON API (cookie only)
+
+| Route | Purpose |
+|---|---|
+| `POST /api/login`, `POST /api/logout`, `GET /api/session` | Session |
+| `GET /api/projects` | Projects with resume cards |
+| `GET /api/projects/:slug` | Resume card and all tasks, without bodies |
+| `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note? }`, same rules as `set_task` |
+| `GET /api/events` | Server-sent change events |
 
 ## Deviations from the handoff
 
@@ -143,6 +164,11 @@ The plan for this product lives in Plania (MCP server `plania`, project `<slug>`
   Plania uses the latest 1.x with `@hono/mcp`, approved by Jorge on 2026-10-06.
 - Contract errors listed as HTTP codes (404, 409, 400) are returned inside the MCP tool result,
   because JSON-RPC calls share one HTTP 200 response. Only the missing-Bearer case is a real HTTP 401.
+
+- **UI v2, decided by Jorge on 2026-10-07:** the screen is a React SPA with shadcn/ui instead of server-rendered HTML,
+  and it changes status and priority inline. That adds a cookie-only JSON API under `/api` and a server-sent event
+  stream, which the handoff did not have. The handoff's screen routes (`GET /p/:slug` as HTML and the two POST Done
+  routes) are replaced by the SPA and `PATCH /api/projects/:slug/tasks/:key`. Counts are still not on screen.
 
 ## Edge cases the contract does not spell out
 
@@ -158,6 +184,10 @@ Resolved with existing error codes, no new ones. Revisit if Asistente rules othe
 - Note dates use the server's local calendar day.
 
 ## Open before deploy
+
+- Live updates use an in-process bus. On Vercel each request may run in a different function, so the bus in
+  `src/events.ts` must become polling or a hosted pub/sub. The UI does not change.
+- The built SPA in `dist/ui` must be served by Vercel as static output, with `/api` and `/mcp` routed to the function.
 
 - `api/index.ts` only receives `/api/*` on Vercel by default. `/`, `/login` and `/mcp` need a rewrite
   to `/api`, which `vercel.json` (fixed by the handoff as regions only) does not have.

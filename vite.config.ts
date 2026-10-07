@@ -14,6 +14,8 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/ui"),
     emptyOutDir: true,
+    // One local, single-user app: a ~500 kB bundle (160 kB gzipped) is fine without code splitting.
+    chunkSizeWarningLimit: 700,
   },
   server: {
     port: 5173,
