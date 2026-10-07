@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeftIcon, ListIcon, WaypointsIcon } from "lucide-react";
+import { ChevronLeftIcon, DownloadIcon, ListIcon, WaypointsIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,16 +11,19 @@ import {
   InitiativeLine,
   ProjectHeader,
   SectionTitle,
-  YourTurnStrip,
 } from "@/components/plan/project-parts";
+import { QuestionsPanel } from "@/components/resume";
 import { TaskList } from "@/components/plan/task-list";
 import { Kicker } from "@/components/plan/visuals";
 import { TaskSheet } from "@/components/task-sheet";
 import { api, ApiError } from "@/lib/api";
-import { branchEdges, buildLanes, firstLine, projectProgress, statusCounts, yourTurn } from "@/lib/lanes";
+import { branchEdges, buildLanes, firstLine, projectProgress, statements, statusCounts } from "@/lib/lanes";
 import { cn } from "@/lib/utils";
 
 type View = "lanes" | "lista";
+
+// The v1 card often repeats a pinned decision; compare without the final period.
+const dedupe = (items: string[]) => [...new Map(items.map((t) => [t.replace(/[.\s]+$/, ""), t])).values()];
 
 function ViewToggle({ view, onChange }: { view: View; onChange: (v: View) => void }) {
   const options: { value: View; label: string; icon: typeof ListIcon }[] = [
@@ -83,10 +86,25 @@ export function ProjectPage() {
       lanes: buildLanes(all),
       progress: projectProgress(all),
       counts: statusCounts(all),
-      turn: yourTurn(all),
       edges: branchEdges(all),
     };
   }, [tasks]);
+
+  const resume = project.data?.resume;
+  // Pinned decisions that still stand, project-wide and per initiative; the v1 card's decision while it exists.
+  const fixed = resume
+    ? dedupe([
+        ...[...new Map([...resume.must_keep, ...resume.initiatives.flatMap((i) => i.must_keep)].map((d) => [d.id, d])).values()]
+          .filter((d) => !d.superseded_by)
+          .map((d) => d.text),
+        ...statements(resume.legacy_card?.must_keep_decision ?? ""),
+      ])
+    : [];
+  const branchText = resume?.legacy_card?.branch_or_prod ?? "";
+  const nowText = resume
+    ? resume.claims.map((c) => `${c.title} (${c.owner?.agent ?? "?"})`).join(", ") || firstLine(resume.legacy_card?.in_progress ?? "")
+    : "";
+  const nextText = resume ? resume.next_claimable?.title ?? firstLine(resume.legacy_card?.next_action ?? "") : "";
 
   if (project.isError) {
     const notFound = project.error instanceof ApiError && project.error.status === 404;
@@ -106,7 +124,15 @@ export function ProjectPage() {
         <Link to="/" className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground">
           <ChevronLeftIcon className="size-4" /> Proyectos
         </Link>
-        <ViewToggle view={view} onChange={(v) => setParam("view", v === "lista" ? "lista" : null)} />
+        <div className="flex flex-wrap items-center gap-3">
+          <a
+            href={api.exportUrl(slug)}
+            className="inline-flex min-h-11 items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground"
+          >
+            <DownloadIcon className="size-3.5" aria-hidden /> JSON
+          </a>
+          <ViewToggle view={view} onChange={(v) => setParam("view", v === "lista" ? "lista" : null)} />
+        </div>
       </div>
 
       {!project.data ? (
@@ -120,7 +146,8 @@ export function ProjectPage() {
             progress={derived.progress}
             counts={derived.counts}
           />
-          <YourTurnStrip items={derived.turn} onOpen={(item) => openTask(item.task.key)} />
+          {/* Questions agents asked Jorge (Needs Jorge): answer in place; the answer becomes a decision. */}
+          <QuestionsPanel slug={slug} questions={project.data.resume.open_questions} onOpen={openTask} />
 
           {view === "lista" ? (
             <TaskList slug={slug} tasks={project.data.tasks} openKey={openKey} onOpen={openTask} />
@@ -128,17 +155,13 @@ export function ProjectPage() {
             <div className="flex flex-wrap items-start gap-7">
               <section className="grid min-w-0 flex-[999_1_560px] animate-rise gap-3 rounded-[20px] border border-dashed bg-card/50 px-6 py-8">
                 <Kicker className="text-muted-foreground">Nada abierto</Kicker>
-                {project.data.resume.in_progress && (
-                  <p className="text-[15px] text-muted-foreground">{firstLine(project.data.resume.in_progress)}</p>
-                )}
+                {nowText && <p className="text-[15px] text-muted-foreground">{nowText}</p>}
                 <Kicker className="mt-2 text-ink-ready">Siguiente</Kicker>
-                <p className="font-display text-2xl font-bold tracking-tight">
-                  {firstLine(project.data.resume.next_action) || "Sin iniciativas ni tickets abiertos."}
-                </p>
+                <p className="font-display text-2xl font-bold tracking-tight">{nextText || "Sin iniciativas ni tickets abiertos."}</p>
               </section>
               <aside className="grid min-w-[280px] flex-[1_1_320px] gap-4">
-                <BranchGraph edges={derived.edges} text={project.data.resume.branch_or_prod} onFicha={() => setFichaOpen(true)} />
-                <FixedDecisions text={project.data.resume.must_keep_decision} onFicha={() => setFichaOpen(true)} />
+                <BranchGraph edges={derived.edges} text={branchText} onFicha={() => setFichaOpen(true)} />
+                <FixedDecisions items={fixed} onFicha={() => setFichaOpen(true)} />
               </aside>
             </div>
           ) : (
@@ -168,14 +191,21 @@ export function ProjectPage() {
                 </section>
                 <aside className="grid min-w-[280px] flex-[1_1_320px] gap-4">
                   <SectionTitle>Contexto</SectionTitle>
-                  <BranchGraph edges={derived.edges} text={project.data.resume.branch_or_prod} onFicha={() => setFichaOpen(true)} />
-                  <FixedDecisions text={project.data.resume.must_keep_decision} onFicha={() => setFichaOpen(true)} />
+                  <BranchGraph edges={derived.edges} text={branchText} onFicha={() => setFichaOpen(true)} />
+                  <FixedDecisions items={fixed} onFicha={() => setFichaOpen(true)} />
                 </aside>
               </div>
             </>
           )}
 
-          <FichaSheet resume={project.data.resume} title={project.data.title} open={fichaOpen} onOpenChange={setFichaOpen} />
+          <FichaSheet
+            resume={project.data.resume}
+            decisions={project.data.decisions}
+            title={project.data.title}
+            open={fichaOpen}
+            onOpenChange={setFichaOpen}
+            onOpen={openTask}
+          />
         </>
       )}
 

@@ -11,6 +11,7 @@ export const TONE_BG: Record<StationTone, string> = {
   now: "bg-status-now",
   review: "bg-status-review",
   blocked: "bg-status-blocked",
+  jorge: "bg-status-jorge",
   ready: "bg-status-ready",
   pending: "bg-status-pending",
 };
@@ -20,6 +21,7 @@ export const TONE_TEXT: Record<StationTone, string> = {
   now: "text-ink-now",
   review: "text-ink-review",
   blocked: "text-ink-blocked",
+  jorge: "text-ink-jorge",
   ready: "text-ink-ready",
   pending: "text-muted-foreground",
 };
@@ -29,6 +31,7 @@ const TONE_VAR: Record<StationTone, string> = {
   now: "var(--status-now)",
   review: "var(--status-review)",
   blocked: "var(--status-blocked)",
+  jorge: "var(--status-jorge)",
   ready: "var(--status-ready)",
   pending: "var(--status-pending)",
 };
@@ -41,6 +44,7 @@ const WORD: Record<string, string> = {
   "In progress": "en curso",
   "In review": "en revisión",
   Blocked: "bloqueado",
+  "Needs Jorge": "te espera",
   Done: "hecho",
   "Won't do": "descartado",
   Planning: "planeando",
@@ -52,6 +56,7 @@ export const statusWord = (status: string) => WORD[status] ?? status.toLowerCase
 
 export const LANE_STATE: Record<LaneState, { word: string; tone: StationTone }> = {
   moving: { word: "en marcha", tone: "now" },
+  jorge: { word: "te espera", tone: "jorge" },
   blocked: { word: "bloqueada", tone: "blocked" },
   waiting: { word: "esperando", tone: "pending" },
   paused: { word: "en pausa", tone: "pending" },

@@ -100,9 +100,15 @@ describe("buildLanes", () => {
       t("B-01-1", "Backlog", { parent_key: "B-01" }),
       init("C-01", "On hold"),
       t("C-01-1", "In progress", { parent_key: "C-01" }),
+      init("J-01"),
+      t("J-01-1", "Blocked", { parent_key: "J-01", blocked_note: "x" }),
+      t("J-01-2", "Needs Jorge", { parent_key: "J-01" }),
     ]);
     const state = Object.fromEntries(lanes.map((l) => [l.id, l.state]));
-    assert.deepEqual(state, { "A-01": "blocked", "B-01": "waiting", "C-01": "paused" });
+    assert.deepEqual(state, { "A-01": "blocked", "B-01": "waiting", "C-01": "paused", "J-01": "jorge" });
+    const j = lanes.find((l) => l.id === "J-01")!;
+    assert.deepEqual(j.now.map((x) => x.key), ["J-01-2", "J-01-1"], "Needs Jorge before Blocked");
+    assert.equal(j.stations[0]!.tone, "jorge");
     assert.equal(lanes.find((l) => l.id === "A-01")!.stations[0]!.here, true, "a blocked ticket is still where the lane is");
   });
 
@@ -118,6 +124,8 @@ describe("buildLanes", () => {
       t("M-01-1", "In progress", { parent_key: "M-01", priority: "P3" }),
     ]);
     assert.deepEqual(lanes.map((l) => l.id), ["M-01", "S-01", "A-01", "P-01", "H-01"]);
+    const withJorge = buildLanes([init("W-01"), t("W-01-1", "Ready", { parent_key: "W-01" }), init("X-01"), t("X-01-1", "Needs Jorge", { parent_key: "X-01" })]);
+    assert.deepEqual(withJorge.map((l) => l.id), ["X-01", "W-01"], "a lane waiting on Jorge comes before a still one");
   });
 
   test("closed initiatives get no lane; their open tickets fall into Sueltos; Won't do is hidden", () => {
@@ -141,21 +149,20 @@ describe("summaries", () => {
   test("progress and counts ignore initiatives and Won't do", () => {
     const tasks = [...filmia(), t("FIL-99", "Won't do")];
     assert.deepEqual(projectProgress(tasks), { closed: 1, total: 10 });
-    assert.deepEqual(statusCounts(tasks), { inProgress: 1, inReview: 2, ready: 1, blocked: 0 });
+    assert.deepEqual(projectProgress([...tasks, t("FIL-98", "Needs Jorge")]), { closed: 1, total: 11 });
+    assert.deepEqual(statusCounts([...tasks, t("FIL-98", "Needs Jorge")]), { inProgress: 1, inReview: 2, ready: 1, needsJorge: 1, blocked: 0 });
   });
 
-  test("yourTurn lists only Blocked tickets whose note starts with Jorge", () => {
+  test("yourTurn lists Needs Jorge tickets, best priority first", () => {
     const items = yourTurn([
-      t("A", "Blocked", { blocked_note: "Jorge: aplicar 0009 en Neon", priority: "P2" }),
+      t("A", "Needs Jorge", { title: "¿Aplicar 0009 ya?", priority: "P2" }),
       t("B", "Blocked", { blocked_note: "esperando al banco" }),
-      t("C", "Blocked", { blocked_note: "jorge - decide sandbox → main", priority: "P1" }),
-      t("D", "Backlog", { blocked_note: "Jorge: viejo" }),
-      t("E", "Blocked", { blocked_note: "Jorge:" }),
+      t("C", "Needs Jorge", { title: "¿sandbox → main?", priority: "P1" }),
+      init("D", "Active"),
     ]);
     assert.deepEqual(items.map((i) => [i.task.key, i.ask]), [
-      ["C", "decide sandbox → main"],
-      ["A", "aplicar 0009 en Neon"],
-      ["E", "E"],
+      ["C", "¿sandbox → main?"],
+      ["A", "¿Aplicar 0009 ya?"],
     ]);
   });
 

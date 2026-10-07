@@ -22,9 +22,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { PriorityLabel, StatusLabel } from "@/components/task-row";
 import { statusDot } from "@/lib/status";
-import { CLOSED_STATUSES, INITIATIVE_STATUSES, PRIORITIES, TICKET_STATUSES, type TaskRow } from "@/lib/types";
+import { CLOSED_STATUSES, INITIATIVE_STATUSES, PRIORITIES, TICKET_STATUSES, type TaskRow as Row } from "@/lib/types";
 import { useTaskPatch } from "@/lib/use-task-patch";
 import { cn } from "@/lib/utils";
+
+// What the controls need from a task: a list row and the side panel's full task both have it.
+type TaskRow = Pick<Row, "key" | "title" | "kind" | "status" | "priority" | "blocked_note" | "version">;
 
 function BlockedDialog({
   task,

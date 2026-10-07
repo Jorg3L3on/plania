@@ -68,7 +68,7 @@ function DoneCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx })
 }
 
 function NowRow({ task, onOpen, ctx }: { task: LaneTask; onOpen: Open; ctx: Ctx }) {
-  const tone = task.status === "In review" ? "review" : task.status === "Blocked" ? "blocked" : "now";
+  const tone = task.status === "In review" ? "review" : task.status === "Blocked" ? "blocked" : waitsOnJorge(task) ? "jorge" : "now";
   return (
     <Glide slug={ctx.slug} taskKey={task.key} scope={ctx.scope} className="flex items-start gap-2.5">
       <Glyph tone={tone} size={9} className="mt-1.5" />
@@ -80,20 +80,20 @@ function NowRow({ task, onOpen, ctx }: { task: LaneTask; onOpen: Open; ctx: Ctx 
         </TicketButton>
         <span className={cn("flex items-center gap-1.5 text-xs", TONE_TEXT[tone])}>
           {statusWord(task.status)}
+          {task.claimed_by && <span className="text-muted-foreground">· {task.claimed_by.agent}</span>}
           {task.status === "In review" && task.pr_url && (
             <a href={task.pr_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-foreground">
               PR <ExternalLinkIcon className="size-3" />
             </a>
           )}
         </span>
+        {waitsOnJorge(task) && (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-ink-jorge">
+            <HandIcon className="size-3" aria-hidden /> te toca a ti
+          </span>
+        )}
         {task.status === "Blocked" && task.blocked_note && (
-          waitsOnJorge(task) ? (
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-ink-ready">
-              <HandIcon className="size-3" aria-hidden /> te toca a ti
-            </span>
-          ) : (
-            <span className="line-clamp-2 text-xs text-muted-foreground">{task.blocked_note}</span>
-          )
+          <span className="line-clamp-2 text-xs text-muted-foreground">{task.blocked_note}</span>
         )}
       </div>
     </Glide>
@@ -121,7 +121,9 @@ function NowCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx }) 
         "flex h-full flex-col justify-center gap-2.5 rounded-[18px] border px-4 py-3.5",
         moving
           ? "animate-now-pulse border-status-now/55 bg-[linear-gradient(160deg,color-mix(in_oklab,var(--status-now)_14%,var(--card)),var(--card)_70%)]"
-          : "border-status-blocked/40 bg-card",
+          : lane.state === "jorge"
+            ? "border-status-jorge/50 bg-[color-mix(in_oklab,var(--status-jorge)_8%,var(--card))]"
+            : "border-status-blocked/40 bg-card",
       )}
     >
       {lane.now.map((t) => <NowRow key={t.key} task={t} onOpen={onOpen} ctx={ctx} />)}

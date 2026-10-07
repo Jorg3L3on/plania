@@ -17,7 +17,14 @@ export function ProjectsPage() {
   const derived = useMemo(() => {
     const list = projects.data ?? [];
     const tracks: TrackProject[] = list
-      .map((p) => ({ slug: p.slug, title: p.title, resume: p.resume, lanes: buildLanes(p.tasks), progress: projectProgress(p.tasks) }))
+      .map((p) => ({
+        slug: p.slug,
+        title: p.title,
+        line: p.line,
+        openQuestions: p.open_questions,
+        lanes: buildLanes(p.tasks),
+        progress: projectProgress(p.tasks),
+      }))
       .sort((a, b) => projectRank(a) - projectRank(b) || a.slug.localeCompare(b.slug));
     const counts = list.map((p) => statusCounts(p.tasks));
     const turn: TurnItem[] = list.flatMap((p) => yourTurn(p.tasks).map((i) => ({ ...i, slug: p.slug, projectTitle: p.title })));
@@ -28,6 +35,7 @@ export function ProjectsPage() {
       moving,
       inProgress: counts.reduce((n, c) => n + c.inProgress, 0),
       inReview: counts.reduce((n, c) => n + c.inReview, 0),
+      questions: list.reduce((n, p) => n + p.open_questions, 0),
     };
   }, [projects.data]);
 
@@ -59,9 +67,10 @@ export function ProjectsPage() {
                 <Glyph tone="review" size={7} />{derived.inReview} en revisión
               </li>
             )}
-            {derived.turn.length > 0 && (
-              <li className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.07] px-3 py-2 text-foreground/80">
-                {derived.turn.length === 1 ? "1 cosa espera" : `${derived.turn.length} cosas esperan`} a Jorge
+            {derived.questions > 0 && (
+              <li className="inline-flex items-center gap-2 rounded-full bg-status-jorge/12 px-3 py-2 text-ink-jorge">
+                <Glyph tone="jorge" size={7} />
+                {derived.questions === 1 ? "1 pregunta para ti" : `${derived.questions} preguntas para ti`}
               </li>
             )}
           </ul>

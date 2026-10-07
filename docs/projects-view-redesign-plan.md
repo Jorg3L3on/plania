@@ -11,6 +11,10 @@ Differences from the plan:
 - Lane order ends on the initiative key, not on recency, so rows do not swap on every agent write.
 - Text in a status colour uses separate "ink" tokens, darker than the fills in light mode, so it passes 4.5:1.
 - Project accents are mixed toward the foreground in light mode for the same reason.
+- Merged with Plania v2 (main, 2026-10-07). "Te toca a ti" now uses v2's Needs Jorge status and open questions
+  instead of the Blocked-with-"Jorge:" convention, which was dropped. Needs Jorge is its own orange tone and lane
+  state. The fixed decisions read v2's pinned decisions; "Ver la ficha completa" opens v2's generated resume and
+  decision log; the index shows v2's generated line and question count.
 
 ## Principles carried over from the design
 

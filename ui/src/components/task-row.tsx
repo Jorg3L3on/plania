@@ -1,7 +1,12 @@
-import { ExternalLinkIcon } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ExternalLinkIcon, LockIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
 import { useLive } from "@/lib/live";
+import { localTime } from "@/lib/time";
 import { priorityTone, statusDot } from "@/lib/status";
 import type { TaskRow as Task } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -20,6 +25,29 @@ export function PriorityLabel({ priority }: { priority: string }) {
     <Badge variant="outline" className={cn("font-mono", priorityTone(priority))}>
       {priority}
     </Badge>
+  );
+}
+
+// Who holds the ticket's lease and until when; Liberar frees a lease left by a session that is gone.
+export function ClaimLine({ slug, task }: { slug: string; task: Pick<Task, "key" | "title" | "claimed_by" | "lease_until"> }) {
+  const queryClient = useQueryClient();
+  const release = useMutation({
+    mutationFn: () => api.release(slug, task.key),
+    onSuccess: () => toast(`${task.title}: lease liberado`),
+    onError: () => toast.error("No se pudo liberar."),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["project", slug] }),
+  });
+  if (!task.claimed_by || !task.lease_until) return null;
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+      <LockIcon className="size-3" />
+      <span>
+        {task.claimed_by.agent} <span className="font-mono">{task.claimed_by.session_id}</span> hasta {localTime(task.lease_until)}
+      </span>
+      <Button size="xs" variant="ghost" disabled={release.isPending} onClick={() => release.mutate()}>
+        Liberar
+      </Button>
+    </p>
   );
 }
 
@@ -71,6 +99,7 @@ export function TaskRow({
         {task.status === "Blocked" && task.blocked_note && (
           <p className="mt-1 text-sm text-ink-blocked">{task.blocked_note}</p>
         )}
+        <ClaimLine slug={slug} task={task} />
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {task.status === "In review" && task.pr_url && (

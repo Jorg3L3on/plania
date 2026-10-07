@@ -17,9 +17,9 @@ import {
   TONE_TEXT,
   toneVar,
 } from "@/components/plan/visuals";
+import { DecisionList, ResumeView } from "@/components/resume";
 import type { BranchEdge, Lane, YourTurnItem } from "@/lib/lanes";
-import { statements } from "@/lib/lanes";
-import type { Resume } from "@/lib/types";
+import type { Decision, Resume } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type Open = (key: string) => void;
@@ -55,12 +55,13 @@ export function ProjectHeader({
   title: string;
   lanes: Lane[];
   progress: { closed: number; total: number };
-  counts: { inProgress: number; inReview: number; ready: number; blocked: number };
+  counts: { inProgress: number; inReview: number; ready: number; needsJorge: number; blocked: number };
 }) {
   const [from, to] = projectAccent(slug);
   const legend = [
     { n: counts.inProgress, label: "en curso", tone: "now" as const },
     { n: counts.inReview, label: "en revisión", tone: "review" as const },
+    { n: counts.needsJorge, label: counts.needsJorge === 1 ? "te espera" : "te esperan", tone: "jorge" as const },
     { n: counts.ready, label: counts.ready === 1 ? "listo para empezar" : "listos para empezar", tone: "ready" as const },
     { n: counts.blocked, label: counts.blocked === 1 ? "bloqueado" : "bloqueados", tone: "blocked" as const },
   ].filter((l) => l.n > 0);
@@ -107,10 +108,10 @@ export function YourTurnStrip({ items, onOpen, prefix }: { items: YourTurnItem[]
   return (
     <section
       aria-label="Te toca a ti"
-      className="flex animate-rise flex-wrap items-center gap-3 rounded-[18px] border border-status-ready/20 bg-status-ready/[0.07] px-5 py-3.5"
+      className="flex animate-rise flex-wrap items-center gap-3 rounded-[18px] border border-status-jorge/25 bg-status-jorge/[0.07] px-5 py-3.5"
       style={rise(1)}
     >
-      <Kicker className="text-ink-ready">
+      <Kicker className="text-ink-jorge">
         <HandIcon className="size-3.5" aria-hidden />
         Te toca a ti
       </Kicker>
@@ -257,8 +258,8 @@ function FichaLink({ onClick, className }: { onClick: () => void; className?: st
   );
 }
 
-export function FixedDecisions({ text, onFicha }: { text: string; onFicha: () => void }) {
-  const items = statements(text);
+/** Pinned decisions (v2), or the v1 card's decision split into statements while it exists. */
+export function FixedDecisions({ items, onFicha }: { items: string[]; onFicha: () => void }) {
   return (
     <section
       className="lift grid animate-rise gap-3 rounded-[20px] border border-status-review/30 bg-[linear-gradient(160deg,color-mix(in_oklab,var(--status-review)_10%,var(--card)),var(--card)_70%)] px-5 pt-5 pb-2"
@@ -286,29 +287,37 @@ export function FixedDecisions({ text, onFicha }: { text: string; onFicha: () =>
   );
 }
 
-const RESUME_FIELDS: [keyof Resume, string][] = [
-  ["in_progress", "En curso"],
-  ["next_action", "Siguiente"],
-  ["branch_or_prod", "Rama / prod"],
-  ["must_keep_decision", "Decisión fija"],
-];
-
-export function FichaSheet({ resume, title, open, onOpenChange }: { resume: Resume; title: string; open: boolean; onOpenChange: (open: boolean) => void }) {
+/** "Ver la ficha completa": the generated resume per initiative and the decision log, from v2. */
+export function FichaSheet({
+  resume,
+  decisions,
+  title,
+  open,
+  onOpenChange,
+  onOpen,
+}: {
+  resume: Resume;
+  decisions: Decision[];
+  title: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onOpen: Open;
+}) {
+  const openTask = (key: string) => {
+    onOpenChange(false);
+    onOpen(key);
+  };
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="gap-0 overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
+      <SheetContent className="gap-0 overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-2xl">
         <SheetHeader className="pr-12">
           <SheetDescription>Ficha del proyecto</SheetDescription>
           <SheetTitle className="font-display text-2xl">{title}</SheetTitle>
         </SheetHeader>
-        <dl className="grid gap-5 px-4 pb-8">
-          {RESUME_FIELDS.map(([field, label]) => (
-            <div key={field} className="grid gap-1">
-              <dt className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{label}</dt>
-              <dd className={cn("text-sm whitespace-pre-wrap", !resume[field] && "text-muted-foreground")}>{resume[field] || "—"}</dd>
-            </div>
-          ))}
-        </dl>
+        <div className="grid gap-8 px-4 pb-8">
+          <ResumeView resume={resume} onOpen={openTask} />
+          <DecisionList decisions={decisions} onOpen={openTask} />
+        </div>
       </SheetContent>
     </Sheet>
   );

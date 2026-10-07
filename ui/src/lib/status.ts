@@ -1,7 +1,8 @@
 // Status colours come from the --status-* tokens in index.css, so both themes share one map.
-// A tone is the meaning on screen: done, now, review, ready, blocked, pending (not started) or idle (parked).
+// A tone is the meaning on screen: done, now, review, ready, blocked, jorge (waits on Jorge), pending (not started)
+// or idle (parked).
 
-export type Tone = "done" | "now" | "review" | "ready" | "blocked" | "pending" | "idle";
+export type Tone = "done" | "now" | "review" | "ready" | "blocked" | "jorge" | "pending" | "idle";
 
 const TONE: Record<string, Tone> = {
   Backlog: "pending",
@@ -12,6 +13,7 @@ const TONE: Record<string, Tone> = {
   "In review": "review",
   Shipping: "review",
   Blocked: "blocked",
+  "Needs Jorge": "jorge",
   Done: "done",
   "On hold": "idle",
   "Won't do": "idle",
@@ -26,6 +28,7 @@ const DOT: Record<Tone, string> = {
   review: "bg-status-review",
   ready: "bg-status-ready",
   blocked: "bg-status-blocked",
+  jorge: "bg-status-jorge",
   pending: "bg-status-pending",
   idle: "bg-status-idle/60",
 };

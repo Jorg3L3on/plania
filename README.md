@@ -1,12 +1,14 @@
 # Plania
 
-Source of the plan for Jorge and his agents. A short resume card per project on screen, long bodies over MCP.
-The plan lives here, not in each product repo.
+Source of the plan for Jorge and his agents. A generated resume per project on screen, the rest over MCP.
+The plan lives here, not in each product repo. v2 (approved 2026-10-06) makes it safe for several agent
+sessions at once: leased claims, versioned writes, an event log with who did what, and server time everywhere.
 
 - App: Hono on Vercel Hobby (`iad1`), one Node function at `api/index.ts`.
 - DB: Neon Free (`aws-us-east-1`), Drizzle over `pg`, one pool per request.
 - Screen: React SPA (Vite, shadcn/ui) in `ui/`, served by the same app; password login (argon2id + `plania_session` cookie).
-- Agents: `POST /mcp` with `Authorization: Bearer <MCP_BEARER_TOKEN>`.
+- Agents: `POST /mcp` with `Authorization: Bearer <MCP_BEARER_TOKEN>` (or the read-only token).
+- CI: `POST /hooks/*` with `Authorization: Bearer <PLANIA_CI_TOKEN>`.
 
 ## Setup
 
@@ -24,23 +26,47 @@ Fill `.env`:
 | `MCP_BEARER_TOKEN` | Random token, e.g. `openssl rand -hex 32`. Clients use it as `PLANIA_MCP_TOKEN`. |
 | `SESSION_SECRET` | At least 32 bytes, e.g. `openssl rand -base64 48` |
 | `PLANIA_PASSWORD_HASH` | Output of `pnpm hash-password`. Quote it in `.env`. Never a plain password. |
+| `MCP_READ_TOKEN` | Optional. A second token for planning sessions: read tools only. |
+| `PLANIA_CI_TOKEN` | Optional. Token for `/hooks/*` only; it cannot use `/mcp`. |
+| `PLANIA_TZ` | Optional. Time zone the screen shows times in. Default `America/Mexico_City`. |
 
 ## Database
 
-Migrations are generated here and applied by Jorge.
+Migrations are generated here (`pnpm db:generate`) and applied by Jorge, in order:
 
 ```bash
-pnpm db:generate
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f drizzle/migrations/0000_curvy_wolfpack.sql
+for f in drizzle/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done   # fresh database
 pnpm seed
 ```
 
-`pnpm seed` loads the day-one data from the handoff: `micasa`, `workia`, `filmia`, `zigzag`,
-with their bodies and resume cards. It is safe to rerun:
+`pnpm seed` loads the day-one projects `micasa`, `workia`, `filmia`, `zigzag`. It is safe to rerun:
 
-- Title and body belong to the seed. Every run rewrites them, so fix a body in `scripts/seed.ts` and rerun.
-- A resume card is written only while all four fields are empty. Cards that agents updated are kept.
-- `rules_text` and design pages are not in the handoff seed. Load them by editing the seed or with SQL.
+- Title and body belong to the seed until someone edits them with `set_project`; after that the seed leaves them alone.
+- Each project's handoff "must keep" line is added once as a pinned decision.
+- Rules and design docs are not seeded: write them with `set_project` and `attach_doc`.
+
+### Upgrading a v1 database to v2
+
+Migrations `0001`–`0014` only add (tables, columns, defaults); the v1 columns stay, so the old server keeps
+working until the restart. Then move the v1 data with the backfill, stage by stage, dry-run first:
+
+```bash
+for f in drizzle/migrations/00{01..14}_*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done
+pnpm backfill-v2 --stage body                    # bodies → scope, phase, checks, dated notes, results
+pnpm backfill-v2 --stage decisions               # typed dates → decided_on; one named key → task; flags wrong days
+pnpm backfill-v2 --stage resume                  # the card's must-keep → pinned decision; card stays as legacy_card
+pnpm backfill-v2 --stage sequences               # lists the numbers each ticket mentions
+pnpm backfill-v2 --stage claims                  # In progress tickets → a 24h legacy lease from their claim note
+# each again with --apply once the dry run looks right. Two take a mapping you write:
+pnpm backfill-v2 --stage sequences --project filmia --map migration:0008=FIL-02,0009=FIL-01-F1,0010=FIL-01-F3 --apply
+pnpm backfill-v2 --stage decisions --project filmia --map <new-id-prefix>:<old-id-prefix> --apply   # reversals
+launchctl kickstart -k gui/$(id -u)/com.plania.server
+```
+
+Run the stages in that order (notes from bodies land in the log before the later stages' events). A stage
+that already ran for a project is skipped. The backfill never changes `tasks.body` or the v1 card; a later
+cleanup migration drops them (and `design_pages`) once the backfill is confirmed. Until then `get_task`
+shows `legacy_body` for a task whose scope is still empty, and `get_resume` shows `legacy_card`.
 
 ## Dev
 
@@ -48,7 +74,7 @@ with their bodies and resume cards. It is safe to rerun:
 pnpm dev     # API on 3738 (tsx watch) + Vite on http://localhost:5173 with hot reload
 pnpm build   # typecheck server and UI, then build the SPA into dist/ui
 pnpm start   # serve API, MCP and the built SPA on http://localhost:3737
-pnpm test    # MCP, API, live-event and seed tests; rebuilds this checkout's local plania_test_<hash> database each run
+pnpm test    # MCP, API, live-event, hooks, seed and backfill tests; rebuilds this checkout's local plania_test_<hash> database each run
 ```
 
 Port 3737 avoids the 3000 that product repos use. The server only listens on 127.0.0.1.
@@ -89,16 +115,130 @@ Change the screen password with `pnpm hash-password`, paste the result into `.en
 
 ## MCP
 
-`POST /mcp`, stateless JSON (no sessions, no GET listen stream). Every call needs
-`Authorization: Bearer <MCP_BEARER_TOKEN>`; otherwise `401 {"error":"UNAUTHORIZED"}`.
-The screen cookie is never accepted here.
+`POST /mcp`, stateless JSON (no sessions, no GET listen stream). Every call needs a Bearer token;
+otherwise `401 {"error":"UNAUTHORIZED"}`. The screen cookie is never accepted here.
+`MCP_BEARER_TOKEN` sees every tool; `MCP_READ_TOKEN` sees only the read tools.
 
-Read: `get_resume`, `get_project`, `list_tasks`, `get_task`, `get_memory`, `get_next`.
-Write: `update_resume`, `create_initiative`, `create_task`, `set_task`, `set_initiative`, `add_decision`.
-That is the full ceiling of 12 tools.
+The working protocol (claim, versions, evidence, never Done) is served as the server's `instructions`
+on `initialize`, versioned (`PROTOCOL_VERSION` in `src/mcp/protocol.ts`, also in `get_project`). Project-specific
+additions are the project's `rules` (`set_project`). Product repos point here instead of copying the rules.
+
+| Read | |
+|---|---|
+| `get_resume` | Generated: live claims, next claimable, per open initiative its notes, claims, next ticket and pinned decisions; open questions; latest events |
+| `get_project` | Body, rules, protocol version, counts, `env` per environment, reserved sequence numbers |
+| `list_tasks` | Filters: parent, status, kind, work_type, owner, unblocked, updated_since, search, limit |
+| `get_task` | Scope, phase, checks, results, docs, questions, blockers with `satisfied`, claim, workspace, version, log; `include_children` |
+| `get_memory` | Rules, project docs, decisions (filters: task, initiative, tag, superseded) |
+| `get_doc` | One doc's markdown |
+| `get_next` | Next claimable ticket (expired leases included as `stale_claim`) |
+| `list_events` | The change feed, with a cursor |
+
+| Write | |
+|---|---|
+| `create_task` | Ticket (default) or initiative; scope, checks, phase, work_type, blocked_by |
+| `set_task` | Fields with `version`; status through the state machine; a note alone needs no version |
+| `claim` | claim / heartbeat / release a lease (default 30 min), with workspace |
+| `set_check` | Tick one Done when item |
+| `add_result` | Evidence: kind, verdict, cite, url; can tick checks |
+| `attach_doc` | A spec, plan or design doc on a task or the project |
+| `add_decision` | One line; task, tags, pin, supersedes, ADR body |
+| `ask` / `answer` | Questions for Jorge; the answer becomes a decision |
+| `reserve_sequence` | Next free number of a sequence (e.g. migrations), bound to a ticket |
+| `set_env` | What an environment runs: commit, branch, migrations applied, deployed at |
+| `set_project` | Title, body, rules, with version |
+
+Rules every write follows:
+
+- **Actor.** `actor: {agent, session_id, machine?, model?}` is required and lands in the event log.
+  `session_id` owns leases. `jorge` is reserved for the screen.
+- **Events.** Every write records one or more events in the same transaction; `get_task.log` and
+  `list_events` read them. Writes are serialized per project, so a `list_events` cursor never skips one.
+- **Time.** Every timestamp is ISO-8601 UTC from the server. Agents never type dates.
+- **Versions.** `set_task`, `set_project` and doc replaces carry the version read; a mismatch is `STALE_VERSION`.
+  Appends (notes, results, checks, questions) need none.
+- **Leases.** `claim` is the only way into In progress. While a session holds a live lease, other sessions
+  may add notes and results but not change the task (`NOT_OWNER`). An expired lease is free; the next write in
+  the project releases it (`claim.expired`, In progress → Ready).
+- **States.** Tickets: Backlog ⇄ Ready → (claim) In progress → In review; Blocked (with a note) from any open
+  state; Needs Jorge through `ask` only. Initiatives: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold.
+  Done and Won't do (and reopening) are Jorge's: on screen, or `confirm_by_jorge` + `reason` when he asked.
+- **Evidence.** In review needs a result recorded during the current claim: code a passing
+  unit|integration|test|live|ci; ops live|verify|ci; research any result or a doc; decision-needed never.
+- **Template.** A ticket needs a scope; code and ops tickets need a check. Conventions only warn.
+- **Idempotency.** A write with `request_id` that is retried returns the first response and writes nothing.
+  Without it, `create_task` with an existing key is `KEY_EXISTS`. Request ids are kept 30 days.
+- **Limits.** Title 200, summary 300, scope/body 50 000, note 4 000, decision 2 000, check 500 × 50,
+  blocked_by 50, doc 200 000, ADR 100 000 characters (`src/mcp/limits.ts`); over it is `TOO_LARGE {field, max}`.
 
 Contract errors come back as an MCP tool error (`isError: true`) whose text is
-`{"error":"<CODE>","status":<404|409|400>}`, e.g. `{"error":"PROJECT_NOT_FOUND","status":404}`.
+`{"error":"<CODE>","status":<400|403|404|409>, ...detail}`, e.g. `{"error":"STALE_VERSION","status":409,"current_version":4}`.
+Input that does not match a tool's schema (a missing `actor`, a wrong type) is rejected by the MCP SDK
+before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is generated from
+`src/mcp/errors.ts` with `pnpm error-catalog`:
+
+<!-- errors:start -->
+| Code | Status | When |
+|---|---|---|
+| `BLOCKED_REQUIRES_NOTE` | 400 | status Blocked without a note (create_task cannot block: it takes no note) |
+| `BLOCKER_NOT_FOUND` | 400 | a blocked_by key does not exist in this project, or names the task itself |
+| `BODY_REMOVED` | 400 | body is gone in v2: use scope, checks, and note (the log) |
+| `FIELD_NOT_ALLOWED` | 400 | a field of the other kind: priority/parent_key/origin/work_type/phase on an initiative, base_branch/next_action/in_progress_note on a ticket |
+| `INVALID_ENV` | 400 | set_env: env is not lowercase [a-z][a-z0-9_-]*, a commit is not 7-40 hex, or migrations_applied is not a count |
+| `INVALID_ENV_CONDITION` | 400 | an env blocker's condition or value is wrong (contains_commit <sha>, migration_gte <n>, deployed_after [ISO]) |
+| `INVALID_FILTER` | 400 | a list filter is malformed (detail: field), e.g. updated_since is not an ISO-8601 time |
+| `INVALID_PHASE` | 400 | phase is not an integer 0..999 |
+| `INVALID_PRIORITY` | 400 | priority is not P0, P1, P2 or P3 |
+| `INVALID_QUESTION` | 400 | ask with an empty question, or answer with an empty answer |
+| `INVALID_RESULT` | 400 | add_result kind, verdict or cite is not valid, or check_ns with a verdict other than pass |
+| `INVALID_SEQUENCE` | 400 | sequence name is not lowercase [a-z][a-z0-9_-]*, or a number is out of range |
+| `INVALID_STATUS` | 400 | status is not in the task kind's vocabulary, or not allowed at creation |
+| `INVALID_TTL` | 400 | ttl_minutes outside 5..240 |
+| `INVALID_WORK_TYPE` | 400 | work_type is not code, ops, research or decision-needed |
+| `OVERRIDE_REQUIRES_REASON` | 400 | confirm_by_jorge without a reason |
+| `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
+| `RESERVED_ACTOR` | 400 | actor.agent is jorge: only the screen writes as Jorge |
+| `TEMPLATE_INVALID` | 400 | create_task: a ticket without scope, or a code/ops ticket without checks (detail: missing) |
+| `TEXT_HAS_DATE` | 400 | decision text starts with a date: the server stamps dates |
+| `TOO_LARGE` | 400 | a text field exceeds its limit (detail: field, max) |
+| `VERSION_REQUIRED` | 400 | set_task changes fields without the version you read |
+| `HUMAN_ONLY` | 403 | Done, Won't do or reopening them: Jorge's call, on screen or with confirm_by_jorge + reason |
+| `CHECK_NOT_FOUND` | 404 | no check with that n on this task |
+| `DECISION_NOT_FOUND` | 404 | supersedes names no decision of this project |
+| `DOC_NOT_FOUND` | 404 | no doc with that id in the project, or replacing (version given) a title that does not exist |
+| `INITIATIVE_NOT_FOUND` | 404 | get_next initiative_key is not an initiative of this project |
+| `PROJECT_NOT_FOUND` | 404 | unknown project slug |
+| `QUESTION_NOT_FOUND` | 404 | no question with that id in this project |
+| `RESULT_NOT_FOUND` | 404 | evidence_id is not a result of this task |
+| `TASK_NOT_FOUND` | 404 | unknown key in this project (also an unknown parent_key or task_key) |
+| `ALREADY_ANSWERED` | 409 | the question was answered already (detail: answer, answered_by) |
+| `ALREADY_SUPERSEDED` | 409 | the decision named in supersedes was already reversed (detail: superseded_by) |
+| `CLAIM_HELD` | 409 | another session holds a live lease (detail: owner, lease_until, workspace) |
+| `DOC_EXISTS` | 409 | attach_doc without version for a title that exists (detail: doc_id, version): pass version to replace |
+| `EVIDENCE_REQUIRED` | 409 | In review without evidence for the work_type from the current claim (detail: accepts, since) |
+| `INVALID_TRANSITION` | 409 | the status change is not allowed from the current status (detail: from, to, hint) |
+| `KEY_EXISTS` | 409 | create with a key that exists; creates are not idempotent without request_id |
+| `LEASE_EXPIRED` | 409 | heartbeat after your lease ran out: claim again |
+| `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
+| `NOT_OWNER` | 409 | another session holds a live lease on this task (detail: owner, lease_until) |
+| `REQUEST_ID_REUSED` | 409 | request_id was already used by a different tool in this project |
+| `SEQUENCE_TAKEN` | 409 | the requested sequence value is held by another live ticket |
+| `STALE_VERSION` | 409 | the task (or doc) changed since you read it (detail: current_version) |
+<!-- errors:end -->
+
+## Hooks
+
+Inbound integrations, JSON with real HTTP status codes, `Authorization: Bearer <PLANIA_CI_TOKEN>`.
+`request_id` is required; a redelivery is a no-op. Nothing posts to them yet: Plania listens on localhost.
+
+- `POST /hooks/result` `{project, key, verdict, cite, url?, kind? (ci), pr_url?, branch?, request_id}`: a result as
+  actor `ci`, plus the PR link and branch.
+- `POST /hooks/env` `{project, env, commit?, branch?, migrations_applied?, commits?, deployed?, request_id}`: `set_env`.
+
+## Export
+
+`GET /api/export/<slug>.json` downloads a whole project (tasks with checks, results and questions, docs, decisions,
+env, reservations, every event). Jorge's session, `MCP_BEARER_TOKEN` or `MCP_READ_TOKEN`; the project page links it.
 
 ## Clients
 
@@ -130,91 +270,102 @@ For Vercel, swap the URL for the canonical one.
 
 ### In a product repo
 
-Add something like this to the repo's `CLAUDE.md` (or `AGENTS.md`) so agents look in Plania, not in the repo, for the plan:
+Add this to the repo's `CLAUDE.md` (or `AGENTS.md`). The rules themselves come from Plania, so they do not drift:
 
 ```markdown
 ## Plan
 
 The plan for this product lives in Plania (MCP server `plania`, project `<slug>`), not in this repo.
-- Start: `get_next` or `get_resume` + `get_project` + `get_memory`, then `get_task`.
-- Claim: `set_task` status "In progress", note "claimed by <agent>".
-- Finish a phase: `set_task` status "In review" with branch, pr_url and a note
-  `Result: <✓|⚠|✗> <unit|integration|test|live|grep|subagent> — <cite>`; then `update_resume`.
-- Never mark Done. Jorge does that after merging.
-- Decisions: `add_decision` with one line; the full ADR stays in `docs/adr/`.
+Follow the protocol in the Plania server's instructions and the project's rules (`get_project`).
 ```
 
 ## Screen
 
 `http://localhost:3737`, password login. React 19, Tailwind 4 and shadcn/ui. Dark ("Noche") by default, with light and
-system themes. The design and plan are in `docs/projects-view-redesign-plan.md`.
+system themes. Times arrive as UTC and show in the browser's local time. The design and plan are in
+`docs/projects-view-redesign-plan.md`.
 
 - **Lanes, not steps.** Each open initiative is a lane, plus "Sueltos" for tickets without one. Every lane has the
-  same four columns: Hecho (Done), Ahora (In progress, In review, Blocked), Siguiente (Ready, or else the top Backlog
-  ticket) and Después (the rest of the Backlog). Only lanes with work in motion pulse. The rules live in
-  `ui/src/lib/lanes.ts` and are tested in `test/lanes.test.ts`.
-- `/` shows one track per project: progress, then an Ahora → Siguiente row per lane. Past four initiatives, lanes
-  that have been still for a week fold behind "Ver todas". Projects without initiatives show the resume's lines.
-- `/p/<slug>` shows the lane grid, each initiative's line of stations, a branch graph built from initiatives'
-  `branch` and `base_branch`, and the fixed decisions. "Ver la ficha completa" opens all four resume fields.
-- **Te toca a ti:** tickets that wait on Jorge. Agents mark them Blocked with a note that starts with `Jorge:`
-  (the `set_task` description says so). They show in a strip on both pages.
-- `?view=lista` switches to the original list grouped by initiative, with status and priority filters and a toggle
-  for closed items. Status and priority change from menus on each row. Blocked asks for its note. Done is one click
-  on In review tickets and open initiatives. Every change offers Undo for 8 seconds.
-- Clicking any ticket opens a side panel with its full body rendered as Markdown (PRD, scope, Done when
-  checklists, notes and Result lines), plus its initiative, phases, blockers, branch and PR. The open task is in
+  same four columns: Hecho (Done), Ahora (In progress, In review, Needs Jorge, Blocked), Siguiente (Ready, or else
+  the top Backlog ticket) and Después (the rest of the Backlog). Only lanes with work in motion pulse. The rules
+  live in `ui/src/lib/lanes.ts` and are tested in `test/lanes.test.ts`.
+- `/` shows one track per project: progress, then an Ahora → Siguiente row per lane, and how many questions wait
+  for Jorge. Past four initiatives, lanes still for a week fold behind "Ver todas". Projects without initiatives
+  show their generated line. A "Te toca a ti" strip lists Needs Jorge tickets across projects.
+- `/p/<slug>` shows, in order: questions agents asked (answer with one click or free text; the answer becomes a
+  decision); the lane grid; each initiative's line of stations; a branch graph built from initiatives' `branch`
+  and `base_branch`; and the pinned decisions. "Ver la ficha completa" opens the generated resume per initiative
+  (claims, next, pinned decisions, the v1 card folded away while it exists) and the decision log, reversed ones
+  struck through. A link downloads the project as JSON.
+- `?view=lista` switches to the list grouped by initiative, with status and priority filters and a toggle for
+  closed items. Rows show codes only for initiatives; the side panel header still shows a ticket's key.
+- Status and priority change from menus on each row, as Jorge: any move is allowed, Done included, and leases do
+  not stop him. Each change carries the version on screen; if an agent changed the task meanwhile, nothing is
+  overwritten and a toast says so. Blocked asks for its note. Every change offers Undo for 8 seconds.
+- A ticket with a live lease shows who holds it and until when; Liberar frees it.
+- Clicking any ticket opens a side panel: scope (Markdown), Done when checks, evidence, docs, questions,
+  blockers (tasks and env conditions, each satisfied or not), branch, worktree, PR and its history. The open task is in
   the URL (`?task=MIC-01-F2`), so it can be linked; Back and Escape close it.
-- **Live:** agent writes over MCP appear within a second. A ticket that changed column glides to its new place and
-  glows briefly. The header shows "En vivo" while the event stream is connected. Animations stop under the
-  system's reduced-motion setting.
+- **Live:** writes from agents, CI or the screen appear within a second. A ticket that changed column glides to
+  its new place and glows briefly. The header shows "En vivo" while the event stream is connected. Animations
+  stop under the system's reduced-motion setting.
 
-How live updates flow: every write in `src/mcp/writes.ts` publishes on the in-process bus in `src/events.ts`.
-`GET /api/events` streams those as server-sent events, and the UI refetches what changed.
+How live updates flow: every write runs in `writeTx` (`src/mcp/tx.ts`), which after commit publishes one change per
+task it touched on the in-process bus in `src/events.ts`. `GET /api/events` streams those as server-sent events, and
+the UI refetches what changed.
 
 ### JSON API (cookie only)
 
 | Route | Purpose |
 |---|---|
 | `POST /api/login`, `POST /api/logout`, `GET /api/session` | Session |
-| `GET /api/projects` | Projects with resume cards and all their tasks, without bodies |
-| `GET /api/projects/:slug` | Resume card and all tasks, without bodies (with `branch` and `base_branch`) |
-| `GET /api/projects/:slug/tasks/:key` | One task with its body, in the `get_task` shape |
-| `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note? }`, same rules as `set_task` |
+| `GET /api/projects` | Projects with their generated line, open question count, and all tasks without scope |
+| `GET /api/projects/:slug` | Generated resume, decisions, and all tasks without scope (with version, lease, `branch` and `base_branch`) |
+| `GET /api/projects/:slug/tasks/:key` | One task, in the `get_task` shape |
+| `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note?, version }`, as Jorge through `set_task` |
+| `POST /api/projects/:slug/tasks/:key/release` | Free a lease |
+| `POST /api/projects/:slug/questions/:id/answer` | `{ answer }` |
+| `GET /api/export/:slug.json` | The whole project (also with an MCP token, rw or ro) |
 | `GET /api/events` | Server-sent change events |
+
+## Edge cases
+
+- Blockers must be in the same project; a task naming itself is `BLOCKER_NOT_FOUND`. `blocked_by` replaces task and env blockers together.
+- `create_task` cannot create a Blocked ticket (it takes no note): `BLOCKED_REQUIRES_NOTE`.
+- `set_task` with `parent_key: null` turns a ticket into a standalone spec. Moving a ticket keeps its origin.
+- Leaving Blocked clears `blocked_note`. Leaving Done clears `resolved_at`; re-marking Done keeps the first one.
+- Any move out of In progress releases the lease, except to Needs Jorge. An answered question returns the ticket
+  to its previous status; In progress whose lease ran out meanwhile returns to Ready.
+- An expired lease stays on the row until the next write in that project; reads already treat it as free.
+- Evidence counts from the current claim: rework after In review needs new results.
+- `reserve_sequence` gives one above the highest number reserved, so an explicit `value` can leave a gap.
+- Env `contains_commit` matches a sha prefix among the commits reported with `set_env` (Plania does not read git).
+  `deployed_after` without a value means the next deploy after the blocker was set.
 
 ## Deviations from the handoff
 
 - The handoff says "SDK MCP v2". No 2.x of `@modelcontextprotocol/sdk` is published.
   Plania uses the latest 1.x with `@hono/mcp`, approved by Jorge on 2026-10-06.
-- Contract errors listed as HTTP codes (404, 409, 400) are returned inside the MCP tool result,
-  because JSON-RPC calls share one HTTP 200 response. Only the missing-Bearer case is a real HTTP 401.
+- Contract errors listed as HTTP codes are returned inside the MCP tool result,
+  because JSON-RPC calls share one HTTP 200 response. Only a missing Bearer is a real HTTP 401.
+- **v2 (approved by Jorge on 2026-10-06)** replaces the handoff's single-operator rules: the 12-tool ceiling,
+  claims as notes with last write winning, the hand-written resume card, one markdown body per task, text-only
+  criteria, and ADRs only in the product repo. `update_resume`, `create_initiative` and `set_initiative` are gone
+  (`create_task` and `set_task` cover initiatives; the resume is generated).
 
 - **UI v2, decided by Jorge on 2026-10-07:** the screen is a React SPA with shadcn/ui instead of server-rendered HTML,
   and it changes status and priority inline. That adds a cookie-only JSON API under `/api` and a server-sent event
-  stream, which the handoff did not have. The handoff's screen routes (`GET /p/:slug` as HTML and the two POST Done
-  routes) are replaced by the SPA and `PATCH /api/projects/:slug/tasks/:key`. Counts are still not on screen.
+  stream, which the handoff did not have. Counts are still not on screen.
 
-## Edge cases the contract does not spell out
+## Open
 
-Resolved with existing error codes, no new ones. Revisit if Asistente rules otherwise.
-
-- `create_task` with status `Blocked` returns `BLOCKED_REQUIRES_NOTE`, because the tool takes no note.
-- `create_task` with a `parent_key` that does not exist returns `TASK_NOT_FOUND`.
-- A task listing itself in `blocked_by` returns `BLOCKER_NOT_FOUND`. Blockers must be in the same project.
-- `set_task` on an initiative edits summary, body, branch, pr_url and notes. Its status must be an initiative status.
-  Passing `priority` returns `INVALID_PRIORITY`, and passing `parent_key` returns `PARENT_MUST_BE_INITIATIVE`.
-- `set_task` with `parent_key: null` turns a ticket into a standalone spec. Moving a ticket keeps its origin.
-- Leaving `Blocked` clears `blocked_note`. Leaving `Done` clears `resolved_at`. Re-marking Done keeps the first timestamp.
-- Note dates use the server's local calendar day.
-
-## Open before deploy
-
+- The cleanup migration (drop `tasks.body`, the `projects.resume_*` card and `design_pages`) waits until the
+  v2 backfill is confirmed on the real database.
+- Nothing feeds `/hooks/*` yet; GitHub and Vercel cannot reach a localhost server.
 - Live updates use an in-process bus. On Vercel each request may run in a different function, so the bus in
   `src/events.ts` must become polling or a hosted pub/sub. The UI does not change.
-- The built SPA in `dist/ui` must be served by Vercel as static output, with `/api` and `/mcp` routed to the function.
-
-- `api/index.ts` only receives `/api/*` on Vercel by default. `/`, `/login` and `/mcp` need a rewrite
-  to `/api`, which `vercel.json` (fixed by the handoff as regions only) does not have.
+- The built SPA in `dist/ui` must be served by Vercel as static output, with `/api`, `/mcp` and `/hooks` routed to the function.
+- `api/index.ts` only receives `/api/*` on Vercel by default. `/mcp` and `/hooks` need a rewrite to the function,
+  which `vercel.json` does not have.
 - `hono/vercel`'s `handle` takes a Web `Request`. On the Node runtime, a bare `export default` may receive
   Node's `req, res` instead. Hono's Node examples export named `GET`/`POST` handlers. Confirm on a preview.

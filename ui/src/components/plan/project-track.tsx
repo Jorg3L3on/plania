@@ -4,9 +4,8 @@ import { ArrowRightIcon } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { accentInk, FlowArrow, Glyph, LANE_STATE, projectAccent, rise, TONE_TEXT } from "@/components/plan/visuals";
-import { firstLine, foldLanes, type Lane } from "@/lib/lanes";
+import { foldLanes, type Lane } from "@/lib/lanes";
 import { useLive } from "@/lib/live";
-import type { Resume } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 function MiniLine({ lane }: { lane: Lane }) {
@@ -71,12 +70,22 @@ function LaneRow({ slug, lane }: { slug: string; lane: Lane }) {
   );
 }
 
-export type TrackProject = { slug: string; title: string; resume: Resume; lanes: Lane[]; progress: { closed: number; total: number } };
+export type TrackProject = {
+  slug: string;
+  title: string;
+  /** The generated one-liner (resumeLine on the server); "Sin ficha." when there is nothing to say. */
+  line: string;
+  openQuestions: number;
+  lanes: Lane[];
+  progress: { closed: number; total: number };
+};
+
+const NO_CARD = "Sin ficha.";
 
 export function projectRank(p: TrackProject) {
   if (p.lanes.some((l) => l.state === "moving")) return 0;
-  if (p.lanes.length > 0) return 1;
-  if (p.resume.in_progress.trim()) return 2;
+  if (p.openQuestions > 0 || p.lanes.length > 0) return 1;
+  if (p.line && p.line !== NO_CARD) return 2;
   return 3;
 }
 
@@ -159,24 +168,22 @@ export function ProjectTrack({ project, index, nowMs }: { project: TrackProject;
               )}
             </>
           ) : (
-            <div className="flex flex-wrap items-center gap-3.5">
-              {!paused && (
-                <>
-                  <span className="flex min-w-[160px] flex-1 flex-col gap-1">
-                    <span className="text-[11px] font-bold tracking-[0.14em] text-muted-foreground uppercase">Ahora</span>
-                    <span className="text-[15px] leading-snug text-foreground/80">{firstLine(project.resume.in_progress)}</span>
-                  </span>
-                  <FlowArrow tone="ready" moving={false} />
-                </>
-              )}
-              <span className="flex min-w-[160px] flex-1 flex-col gap-1">
-                <span className={cn("text-[11px] font-bold tracking-[0.14em] uppercase", paused ? "text-muted-foreground" : "text-ink-ready")}>Siguiente</span>
-                <span className="text-[15px] leading-snug font-medium">{firstLine(project.resume.next_action) || "Sin siguiente paso en la ficha."}</span>
+            <span className="flex flex-col gap-1">
+              <span className="text-[11px] font-bold tracking-[0.14em] text-muted-foreground uppercase">
+                {paused ? "En pausa" : "Sin iniciativas"}
               </span>
-            </div>
+              <span className={cn("text-[15px] leading-snug", paused ? "text-muted-foreground" : "font-medium")}>
+                {paused ? "Nada abierto ni ficha todavía." : project.line}
+              </span>
+            </span>
           )}
         </div>
 
+        {project.openQuestions > 0 && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-status-jorge/12 px-3 py-1.5 text-xs font-semibold text-ink-jorge">
+            {project.openQuestions} {project.openQuestions === 1 ? "pregunta" : "preguntas"} para ti
+          </span>
+        )}
         <ArrowRightIcon
           aria-hidden
           className="size-5 shrink-0 opacity-50 transition duration-300 group-hover/track:translate-x-1.5 group-hover/track:opacity-100"
