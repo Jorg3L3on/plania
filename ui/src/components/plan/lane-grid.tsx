@@ -18,14 +18,14 @@ function LaneLabel({ lane, onOpen }: { lane: Lane; onOpen: Open }) {
   const state = LANE_STATE[lane.state];
   if (!lane.initiative) {
     return (
-      <div className="flex flex-col justify-center gap-1 py-3 pr-4">
+      <div className="flex flex-col justify-center gap-1 py-2 pr-4">
         <span className="font-display text-[17px] leading-tight font-bold text-muted-foreground">Sueltos</span>
         <span className="text-[11px] text-muted-foreground">sin iniciativa</span>
       </div>
     );
   }
   return (
-    <div className="flex flex-col justify-center gap-1.5 py-3 pr-4">
+    <div className="flex flex-col justify-center gap-1 py-2 pr-4">
       <TicketButton taskKey={lane.initiative.key} onOpen={onOpen} className="text-left">
         <span className="line-clamp-2 font-display text-[17px] leading-tight font-bold tracking-tight underline-offset-4 group-hover/ticket:underline">
           {lane.initiative.title}
@@ -42,7 +42,7 @@ function LaneLabel({ lane, onOpen }: { lane: Lane; onOpen: Open }) {
 
 function Empty({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-16 items-center justify-center rounded-2xl border border-dashed border-foreground/10 px-4 py-3 text-xs text-muted-foreground">
+    <div className="flex h-full min-h-16 items-center justify-center rounded-2xl border border-dashed border-foreground/10 px-4 py-3 text-xs text-muted-foreground">
       {children}
     </div>
   );
@@ -56,7 +56,7 @@ function DoneCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx })
     <TicketButton
       taskKey={last.key}
       onOpen={onOpen}
-      className="lift flex h-full w-full flex-col justify-center gap-1 rounded-2xl border bg-card px-4 py-3 text-left"
+      className="lift flex h-full w-full flex-col justify-center gap-1 rounded-2xl border bg-card px-4 py-2.5 text-left"
     >
       <span className="line-clamp-2 text-sm leading-snug font-semibold">{last.title}</span>
       <span className="text-xs text-muted-foreground">
@@ -118,7 +118,7 @@ function NowCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx }) 
   return (
     <div
       className={cn(
-        "flex h-full flex-col justify-center gap-2.5 rounded-[18px] border px-4 py-3.5",
+        "flex h-full flex-col justify-center gap-2.5 rounded-[18px] border px-4 py-3",
         moving
           ? "animate-now-pulse border-status-now/55 bg-[linear-gradient(160deg,color-mix(in_oklab,var(--status-now)_14%,var(--card)),var(--card)_70%)]"
           : lane.state === "jorge"
@@ -206,7 +206,7 @@ export function LaneGrid({ slug, lanes, onOpen }: { slug: string; lanes: Lane[];
         <div
           role="table"
           aria-label="Iniciativas en paralelo"
-          className="grid min-w-[980px] grid-cols-[176px_minmax(0,1fr)_44px_minmax(0,1.45fr)_44px_minmax(0,1.35fr)_44px_minmax(0,1fr)] gap-y-3.5"
+          className="grid min-w-[960px] grid-cols-[200px_minmax(0,1fr)_32px_minmax(0,1.45fr)_32px_minmax(0,1.35fr)_32px_minmax(0,1fr)] gap-y-2.5"
         >
           <div role="row" className="contents">
             <span role="columnheader" className="sr-only">Iniciativa</span>
