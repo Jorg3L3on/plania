@@ -225,7 +225,7 @@ export async function taskSummary(db: Q, t: Task) {
     phase: t.phase,
     parent_key: await parentKeyOf(db, t),
     child_keys: await childKeysOf(db, t),
-    checks: (await taskChecks(db, t.id)).map((c) => ({ n: c.n, text: c.text, done: c.done })),
+    checks: (await taskChecks(db, t.id)).map((c) => ({ n: c.n, text: c.text, done: c.done, waived: !!c.waived })),
     blocked_by: await blockerList(db, t),
     blocked_note: t.blockedNote,
     branch: t.branch,
