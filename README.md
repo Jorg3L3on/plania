@@ -43,6 +43,7 @@ pnpm seed
 pnpm dev     # http://localhost:3737, reloads on change
 pnpm start   # same server, no watch
 pnpm build   # typecheck
+pnpm test    # MCP integration tests; rebuilds a local plania_test database each run
 ```
 
 Port 3737 avoids the 3000 that product repos use. The server only listens on 127.0.0.1.
@@ -74,8 +75,9 @@ Change the screen password with `pnpm hash-password`, paste the result into `.en
 `Authorization: Bearer <MCP_BEARER_TOKEN>`; otherwise `401 {"error":"UNAUTHORIZED"}`.
 The screen cookie is never accepted here.
 
-Read tools (slice 3): `get_resume`, `get_project`, `list_tasks`, `get_task`, `get_memory`, `get_next`.
-Write tools arrive in slice 4. The ceiling is 12 tools.
+Read: `get_resume`, `get_project`, `list_tasks`, `get_task`, `get_memory`, `get_next`.
+Write: `update_resume`, `create_initiative`, `create_task`, `set_task`, `set_initiative`, `add_decision`.
+That is the full ceiling of 12 tools.
 
 Contract errors come back as an MCP tool error (`isError: true`) whose text is
 `{"error":"<CODE>","status":<404|409|400>}`, e.g. `{"error":"PROJECT_NOT_FOUND","status":404}`.
@@ -92,6 +94,19 @@ claude mcp add --transport http plania http://localhost:3000/mcp --header "Autho
   Plania uses the latest 1.x with `@hono/mcp`, approved by Jorge on 2026-10-06.
 - Contract errors listed as HTTP codes (404, 409, 400) are returned inside the MCP tool result,
   because JSON-RPC calls share one HTTP 200 response. Only the missing-Bearer case is a real HTTP 401.
+
+## Edge cases the contract does not spell out
+
+Resolved with existing error codes, no new ones. Revisit if Asistente rules otherwise.
+
+- `create_task` with status `Blocked` returns `BLOCKED_REQUIRES_NOTE`, because the tool takes no note.
+- `create_task` with a `parent_key` that does not exist returns `TASK_NOT_FOUND`.
+- A task listing itself in `blocked_by` returns `BLOCKER_NOT_FOUND`. Blockers must be in the same project.
+- `set_task` on an initiative edits summary, body, branch, pr_url and notes. Its status must be an initiative status.
+  Passing `priority` returns `INVALID_PRIORITY`, and passing `parent_key` returns `PARENT_MUST_BE_INITIATIVE`.
+- `set_task` with `parent_key: null` turns a ticket into a standalone spec. Moving a ticket keeps its origin.
+- Leaving `Blocked` clears `blocked_note`. Leaving `Done` clears `resolved_at`. Re-marking Done keeps the first timestamp.
+- Note dates use the server's local calendar day.
 
 ## Open before deploy
 

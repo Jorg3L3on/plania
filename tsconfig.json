@@ -11,5 +11,5 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["api", "src", "scripts", "drizzle.config.ts"]
+  "include": ["api", "src", "scripts", "test", "drizzle.config.ts"]
 }
