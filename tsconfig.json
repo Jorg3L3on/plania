@@ -8,8 +8,22 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
-    "types": ["node"],
-    "noEmit": true
+    "types": [
+      "node"
+    ],
+    "noEmit": true,
+    "paths": {
+      "@/*": [
+        "./ui/src/*"
+      ]
+    }
   },
-  "include": ["api", "src", "scripts", "test", "drizzle.config.ts"]
+  "include": [
+    "api",
+    "src",
+    "scripts",
+    "test",
+    "drizzle.config.ts",
+    "vite.config.ts"
+  ]
 }
