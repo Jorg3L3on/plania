@@ -69,7 +69,7 @@ export function TaskRow({
         </div>
         {task.summary && <p className="text-sm text-muted-foreground">{task.summary}</p>}
         {task.status === "Blocked" && task.blocked_note && (
-          <p className="mt-1 text-sm text-status-blocked">{task.blocked_note}</p>
+          <p className="mt-1 text-sm text-ink-blocked">{task.blocked_note}</p>
         )}
       </div>
       <div className="flex shrink-0 items-center gap-2">

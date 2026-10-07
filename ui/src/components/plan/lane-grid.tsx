@@ -88,7 +88,7 @@ function NowRow({ task, onOpen, ctx }: { task: LaneTask; onOpen: Open; ctx: Ctx 
         </span>
         {task.status === "Blocked" && task.blocked_note && (
           waitsOnJorge(task) ? (
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-status-ready">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-ink-ready">
               <HandIcon className="size-3" aria-hidden /> te toca a ti
             </span>
           ) : (
@@ -140,7 +140,7 @@ function NextCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx })
             aria-hidden
             className={cn(
               "inline-flex size-[22px] shrink-0 items-center justify-center rounded-full text-xs font-bold",
-              i === 0 ? "bg-status-ready text-background" : "border-2 border-status-ready text-status-ready",
+              i === 0 ? "bg-status-ready text-background" : "border-2 border-status-ready text-ink-ready",
             )}
           >
             {i + 1}
@@ -188,9 +188,9 @@ function arrowsFor(lane: Lane) {
 }
 
 const HEADERS = [
-  { label: "Hecho", glyph: "done" as const, className: "text-status-done" },
-  { label: "Ahora", glyph: "now" as const, className: "text-status-now" },
-  { label: "Siguiente", glyph: "ready" as const, className: "text-status-ready" },
+  { label: "Hecho", glyph: "done" as const, className: "text-ink-done" },
+  { label: "Ahora", glyph: "now" as const, className: "text-ink-now" },
+  { label: "Siguiente", glyph: "ready" as const, className: "text-ink-ready" },
   { label: "Después", glyph: "pending" as const, className: "text-muted-foreground" },
 ];
 
@@ -250,10 +250,10 @@ export function LaneGrid({ slug, lanes, onOpen }: { slug: string; lanes: Lane[];
               style={rise(i)}
             >
               <LaneLabel lane={lane} onOpen={onOpen} />
-              <Kicker className="text-status-now"><Glyph tone="now" size={8} />Ahora</Kicker>
+              <Kicker className="text-ink-now"><Glyph tone="now" size={8} />Ahora</Kicker>
               <NowCell lane={lane} onOpen={onOpen} ctx={stack} />
               <FlowArrowDown tone="now" moving={moving} />
-              <Kicker className="text-status-ready"><Glyph tone="ready" size={8} />Siguiente</Kicker>
+              <Kicker className="text-ink-ready"><Glyph tone="ready" size={8} />Siguiente</Kicker>
               <NextCell lane={lane} onOpen={onOpen} ctx={stack} />
               {(lane.later.length > 0 || lane.done.length > 0) && (
                 <p className="pt-2 text-xs text-muted-foreground">

@@ -131,7 +131,7 @@ export function ProjectPage() {
                 {project.data.resume.in_progress && (
                   <p className="text-[15px] text-muted-foreground">{firstLine(project.data.resume.in_progress)}</p>
                 )}
-                <Kicker className="mt-2 text-status-ready">Siguiente</Kicker>
+                <Kicker className="mt-2 text-ink-ready">Siguiente</Kicker>
                 <p className="font-display text-2xl font-bold tracking-tight">
                   {firstLine(project.data.resume.next_action) || "Sin iniciativas ni tickets abiertos."}
                 </p>
@@ -144,7 +144,14 @@ export function ProjectPage() {
           ) : (
             <>
               <section className="grid gap-3.5">
-                <SectionTitle hint="una fila por iniciativa; cada una avanza por su cuenta, de izquierda a derecha">
+                <SectionTitle
+                  hint={
+                    <>
+                      una fila por iniciativa; cada una avanza por su cuenta
+                      <span className="hidden md:inline">, de izquierda a derecha</span>
+                    </>
+                  }
+                >
                   En paralelo
                 </SectionTitle>
                 <LaneGrid slug={slug} lanes={derived.lanes} onOpen={openTask} />

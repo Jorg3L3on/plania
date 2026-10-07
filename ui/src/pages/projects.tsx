@@ -50,12 +50,12 @@ export function ProjectsPage() {
         {projects.data && (
           <ul className="flex flex-wrap gap-2.5 text-xs font-semibold">
             {derived.inProgress > 0 && (
-              <li className="inline-flex items-center gap-2 rounded-full bg-status-now/12 px-3 py-2 text-status-now">
+              <li className="inline-flex items-center gap-2 rounded-full bg-status-now/12 px-3 py-2 text-ink-now">
                 <Glyph tone="now" size={7} />{derived.inProgress} en curso
               </li>
             )}
             {derived.inReview > 0 && (
-              <li className="inline-flex items-center gap-2 rounded-full bg-status-review/14 px-3 py-2 text-status-review">
+              <li className="inline-flex items-center gap-2 rounded-full bg-status-review/14 px-3 py-2 text-ink-review">
                 <Glyph tone="review" size={7} />{derived.inReview} en revisión
               </li>
             )}

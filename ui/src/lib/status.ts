@@ -33,7 +33,7 @@ const DOT: Record<Tone, string> = {
 export const statusDot = (status: string) => DOT[statusTone(status)];
 
 const PRIORITY: Record<string, string> = {
-  P0: "border-status-blocked/40 text-status-blocked",
+  P0: "border-status-blocked/40 text-ink-blocked",
   P1: "border-status-now/50 text-foreground",
   P2: "border-border text-muted-foreground",
   P3: "border-border text-muted-foreground/70",

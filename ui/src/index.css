@@ -21,6 +21,12 @@
     --color-status-blocked: var(--status-blocked);
     --color-status-pending: var(--status-pending);
     --color-status-idle: var(--status-idle);
+    /* Text in a status colour uses ink, which is darker than the fill in light mode (4.5:1). */
+    --color-ink-done: var(--ink-done);
+    --color-ink-now: var(--ink-now);
+    --color-ink-review: var(--ink-review);
+    --color-ink-ready: var(--ink-ready);
+    --color-ink-blocked: var(--ink-blocked);
     --color-surface-raised: var(--surface-raised);
     --color-surface-sunken: var(--surface-sunken);
     --color-sidebar-ring: var(--sidebar-ring);
@@ -106,6 +112,12 @@
     --status-pending: #b8bdcb;
     --status-idle: #8a90a2;
     --orb-1: rgb(255 95 162 / 0.10);
+    --ink-done: #0b7a53;
+    --ink-now: #8a5a00;
+    --ink-review: #6d4fe0;
+    --ink-ready: #0a6fa8;
+    --ink-blocked: #c22a52;
+    --accent-ink: 42%;
     --orb-2: rgb(94 200 255 / 0.12);
 }
 
@@ -151,6 +163,12 @@
     --status-pending: #4a5068;
     --status-idle: #8d94aa;
     --orb-1: rgb(255 95 162 / 0.20);
+    --ink-done: var(--status-done);
+    --ink-now: var(--status-now);
+    --ink-review: var(--status-review);
+    --ink-ready: var(--status-ready);
+    --ink-blocked: var(--status-blocked);
+    --accent-ink: 100%;
     --orb-2: rgb(94 200 255 / 0.13);
 }
 

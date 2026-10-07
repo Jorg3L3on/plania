@@ -9,6 +9,7 @@ import {
   Kicker,
   LANE_STATE,
   ProgressRing,
+  accentInk,
   projectAccent,
   rise,
   shortLabel,
@@ -27,7 +28,7 @@ export function SectionTitle({ children, hint }: { children: ReactNode; hint?: R
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
       <h2 className="font-display text-[15px] font-bold tracking-[0.08em] text-muted-foreground uppercase">{children}</h2>
-      {hint && <span className="text-[13px] text-muted-foreground/80">{hint}</span>}
+      {hint && <span className="text-[13px] text-muted-foreground">{hint}</span>}
     </div>
   );
 }
@@ -66,7 +67,7 @@ export function ProjectHeader({
   return (
     <header className="flex animate-rise flex-wrap items-end justify-between gap-8">
       <div className="grid gap-2">
-        <span className="inline-flex items-center gap-2.5 text-xs font-semibold tracking-[0.14em] uppercase" style={{ color: from }}>
+        <span className="inline-flex items-center gap-2.5 text-xs font-semibold tracking-[0.14em] uppercase" style={{ color: accentInk(from) }}>
           <span aria-hidden className="size-2.5 rounded-[3px]" style={{ background: `linear-gradient(135deg, ${from}, ${to})` }} />
           Proyecto · {slug}
         </span>
@@ -109,7 +110,7 @@ export function YourTurnStrip({ items, onOpen, prefix }: { items: YourTurnItem[]
       className="flex animate-rise flex-wrap items-center gap-3 rounded-[18px] border border-status-ready/20 bg-status-ready/[0.07] px-5 py-3.5"
       style={rise(1)}
     >
-      <Kicker className="text-status-ready">
+      <Kicker className="text-ink-ready">
         <HandIcon className="size-3.5" aria-hidden />
         Te toca a ti
       </Kicker>
@@ -169,7 +170,7 @@ export function InitiativeLine({ lane, onOpen, index }: { lane: Lane; onOpen: Op
                   className="relative flex w-20 shrink-0 flex-col items-center gap-2.5 text-center"
                 >
                   {s.here && (
-                    <span className="absolute -top-6 text-[10px] font-bold tracking-[0.14em] text-status-now uppercase">Aquí</span>
+                    <span className="absolute -top-6 text-[10px] font-bold tracking-[0.14em] text-ink-now uppercase">Aquí</span>
                   )}
                   <Glyph tone={s.tone} size={s.here ? 22 : 18} pulse={s.here && lane.state === "moving"} className={s.here ? "-mt-0.5 ring-[3px] ring-background" : undefined} />
                   <span className="text-xs leading-tight text-muted-foreground">
@@ -246,7 +247,7 @@ function FichaLink({ onClick, className }: { onClick: () => void; className?: st
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex min-h-11 w-fit items-center gap-1.5 rounded-md text-[13px] font-medium text-status-review hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+        "inline-flex min-h-11 w-fit items-center gap-1.5 rounded-md text-[13px] font-medium text-ink-review hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
         className,
       )}
     >
@@ -263,7 +264,7 @@ export function FixedDecisions({ text, onFicha }: { text: string; onFicha: () =>
       className="lift grid animate-rise gap-3 rounded-[20px] border border-status-review/30 bg-[linear-gradient(160deg,color-mix(in_oklab,var(--status-review)_10%,var(--card)),var(--card)_70%)] px-5 pt-5 pb-2"
       style={rise(5)}
     >
-      <Kicker className="text-status-review">
+      <Kicker className="text-ink-review">
         <PinIcon className="size-3.5" aria-hidden />
         Decisiones fijas
       </Kicker>
@@ -273,7 +274,7 @@ export function FixedDecisions({ text, onFicha }: { text: string; onFicha: () =>
         <ul className="grid gap-2 text-[13px] leading-snug">
           {items.slice(0, 4).map((s) => (
             <li key={s} className="flex gap-2.5">
-              <span aria-hidden className="text-status-review">—</span>
+              <span aria-hidden className="text-ink-review">—</span>
               {s}
             </li>
           ))}

@@ -3,7 +3,7 @@
 import { ArrowRightIcon } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
-import { FlowArrow, Glyph, LANE_STATE, projectAccent, rise, TONE_TEXT } from "@/components/plan/visuals";
+import { accentInk, FlowArrow, Glyph, LANE_STATE, projectAccent, rise, TONE_TEXT } from "@/components/plan/visuals";
 import { firstLine, foldLanes, type Lane } from "@/lib/lanes";
 import { useLive } from "@/lib/live";
 import type { Resume } from "@/lib/types";
@@ -170,7 +170,7 @@ export function ProjectTrack({ project, index, nowMs }: { project: TrackProject;
                 </>
               )}
               <span className="flex min-w-[160px] flex-1 flex-col gap-1">
-                <span className={cn("text-[11px] font-bold tracking-[0.14em] uppercase", paused ? "text-muted-foreground" : "text-status-ready")}>Siguiente</span>
+                <span className={cn("text-[11px] font-bold tracking-[0.14em] uppercase", paused ? "text-muted-foreground" : "text-ink-ready")}>Siguiente</span>
                 <span className="text-[15px] leading-snug font-medium">{firstLine(project.resume.next_action) || "Sin siguiente paso en la ficha."}</span>
               </span>
             </div>
@@ -180,7 +180,7 @@ export function ProjectTrack({ project, index, nowMs }: { project: TrackProject;
         <ArrowRightIcon
           aria-hidden
           className="size-5 shrink-0 opacity-50 transition duration-300 group-hover/track:translate-x-1.5 group-hover/track:opacity-100"
-          style={{ color: paused ? "var(--muted-foreground)" : from }}
+          style={{ color: paused ? "var(--muted-foreground)" : accentInk(from) }}
         />
       </div>
     </article>

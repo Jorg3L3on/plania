@@ -16,11 +16,11 @@ export const TONE_BG: Record<StationTone, string> = {
 };
 
 export const TONE_TEXT: Record<StationTone, string> = {
-  done: "text-status-done",
-  now: "text-status-now",
-  review: "text-status-review",
-  blocked: "text-status-blocked",
-  ready: "text-status-ready",
+  done: "text-ink-done",
+  now: "text-ink-now",
+  review: "text-ink-review",
+  blocked: "text-ink-blocked",
+  ready: "text-ink-ready",
   pending: "text-muted-foreground",
 };
 
@@ -171,6 +171,9 @@ const ACCENTS: [string, string][] = [
   ["#5ec8ff", "#3ddc97"],
   ["#ff6b8a", "#b094ff"],
 ];
+/** An accent as text: full strength on dark, mixed toward the foreground on light so it passes 4.5:1. */
+export const accentInk = (color: string) => `color-mix(in oklab, ${color} var(--accent-ink), var(--foreground))`;
+
 export function projectAccent(slug: string): [string, string] {
   let h = 0;
   for (const ch of slug) h = (h * 31 + ch.charCodeAt(0)) >>> 0;

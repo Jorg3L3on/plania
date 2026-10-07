@@ -146,19 +146,28 @@ The plan for this product lives in Plania (MCP server `plania`, project `<slug>`
 
 ## Screen
 
-`http://localhost:3737`, password login. React 19, Tailwind 4 and shadcn/ui, in light, dark or system theme.
+`http://localhost:3737`, password login. React 19, Tailwind 4 and shadcn/ui. Dark ("Noche") by default, with light and
+system themes. The design and plan are in `docs/projects-view-redesign-plan.md`.
 
-- `/` lists projects with their resume line. `/p/<slug>` shows the resume card and the work grouped by initiative,
-  with status and priority filters and a toggle for closed items.
-- Rows show codes only for initiatives; tickets are known by title, since inside a project every key shares
-  the same prefix. The side panel header still shows a ticket's key for talking to agents.
-- Status and priority change from menus on each row. Blocked asks for its note. Done is one click on In review
-  tickets and open initiatives. Every change offers Undo for 8 seconds.
-- Clicking a task's title opens a side panel with its full body rendered as Markdown (PRD, scope, Done when
+- **Lanes, not steps.** Each open initiative is a lane, plus "Sueltos" for tickets without one. Every lane has the
+  same four columns: Hecho (Done), Ahora (In progress, In review, Blocked), Siguiente (Ready, or else the top Backlog
+  ticket) and Después (the rest of the Backlog). Only lanes with work in motion pulse. The rules live in
+  `ui/src/lib/lanes.ts` and are tested in `test/lanes.test.ts`.
+- `/` shows one track per project: progress, then an Ahora → Siguiente row per lane. Past four initiatives, lanes
+  that have been still for a week fold behind "Ver todas". Projects without initiatives show the resume's lines.
+- `/p/<slug>` shows the lane grid, each initiative's line of stations, a branch graph built from initiatives'
+  `branch` and `base_branch`, and the fixed decisions. "Ver la ficha completa" opens all four resume fields.
+- **Te toca a ti:** tickets that wait on Jorge. Agents mark them Blocked with a note that starts with `Jorge:`
+  (the `set_task` description says so). They show in a strip on both pages.
+- `?view=lista` switches to the original list grouped by initiative, with status and priority filters and a toggle
+  for closed items. Status and priority change from menus on each row. Blocked asks for its note. Done is one click
+  on In review tickets and open initiatives. Every change offers Undo for 8 seconds.
+- Clicking any ticket opens a side panel with its full body rendered as Markdown (PRD, scope, Done when
   checklists, notes and Result lines), plus its initiative, phases, blockers, branch and PR. The open task is in
   the URL (`?task=MIC-01-F2`), so it can be linked; Back and Escape close it.
-- **Live:** agent writes over MCP appear within a second and briefly highlight the row. The header shows "En vivo"
-  while the event stream is connected.
+- **Live:** agent writes over MCP appear within a second. A ticket that changed column glides to its new place and
+  glows briefly. The header shows "En vivo" while the event stream is connected. Animations stop under the
+  system's reduced-motion setting.
 
 How live updates flow: every write in `src/mcp/writes.ts` publishes on the in-process bus in `src/events.ts`.
 `GET /api/events` streams those as server-sent events, and the UI refetches what changed.
@@ -168,8 +177,8 @@ How live updates flow: every write in `src/mcp/writes.ts` publishes on the in-pr
 | Route | Purpose |
 |---|---|
 | `POST /api/login`, `POST /api/logout`, `GET /api/session` | Session |
-| `GET /api/projects` | Projects with resume cards |
-| `GET /api/projects/:slug` | Resume card and all tasks, without bodies |
+| `GET /api/projects` | Projects with resume cards and all their tasks, without bodies |
+| `GET /api/projects/:slug` | Resume card and all tasks, without bodies (with `branch` and `base_branch`) |
 | `GET /api/projects/:slug/tasks/:key` | One task with its body, in the `get_task` shape |
 | `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note? }`, same rules as `set_task` |
 | `GET /api/events` | Server-sent change events |

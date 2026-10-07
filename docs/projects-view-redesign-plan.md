@@ -3,6 +3,15 @@
 Design: https://claude.ai/artifact/PkDTA81k3sgjTjq2H2rDUF, artboards "A · Proyectos" and "A · Proyecto (Filmia)".
 Branch: `jl/projects-view-redesign-464059`. Scope is the screen only: `ui/` plus two small additions to `src/api/routes.ts`.
 
+## Status (2026-10-07)
+
+All six phases are done on this branch, one commit each, plus a separate fix for a session-check loop.
+Differences from the plan:
+
+- Lane order ends on the initiative key, not on recency, so rows do not swap on every agent write.
+- Text in a status colour uses separate "ink" tokens, darker than the fills in light mode, so it passes 4.5:1.
+- Project accents are mixed toward the foreground in light mode for the same reason.
+
 ## Principles carried over from the design
 
 - An initiative is a **lane**, never a step. Several lanes move at once.
