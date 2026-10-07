@@ -29,6 +29,7 @@ export const TEXT_LIMITS: Record<string, number> = {
   text: 2_000,
   cite: 2_000,
   note: 4_000,
+  state_note: 4_000,
   question: 4_000,
   answer: 4_000,
   scope: 50_000,

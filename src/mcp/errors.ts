@@ -41,12 +41,13 @@ export const ERRORS = {
   // 404: something named does not exist.
   APPROVAL_NOT_FOUND: [404, "no approval with that id in this project"],
   CHECK_NOT_FOUND: [404, "no check with that n on this task"],
+  UNKNOWN_BRANCH: [404, "get_context: no initiative or ticket is on that branch (detail: known)"],
   DECISION_NOT_FOUND: [404, "supersedes names no decision of this project"],
   DOC_NOT_FOUND: [404, "no doc with that id in the project, or replacing (version given) a title that does not exist"],
   INITIATIVE_NOT_FOUND: [404, "get_next initiative_key is not an initiative of this project"],
   PROJECT_NOT_FOUND: [404, "unknown project slug"],
   QUESTION_NOT_FOUND: [404, "no question with that id in this project"],
-  RESULT_NOT_FOUND: [404, "evidence_id is not a result of this task"],
+  RESULT_NOT_FOUND: [404, "evidence_id is not a result of this project"],
   TASK_NOT_FOUND: [404, "unknown key in this project (also an unknown parent_key or task_key)"],
   // 409: the state changed or is held by someone else; re-read, then decide.
   ALREADY_SUPERSEDED: [409, "the decision named in supersedes was already reversed (detail: superseded_by)"],
@@ -62,6 +63,7 @@ export const ERRORS = {
   LEGACY_CARD_EMPTY: [409, "archive_legacy_card: the project has no v1 card left"],
   ALREADY_ANSWERED: [409, "the question was answered already (detail: answer, answered_by)"],
   CLAIM_HELD: [409, "another session holds a live lease (detail: owner, lease_until, workspace)"],
+  HANDOFF_HELD: [409, "the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note)"],
   DOC_EXISTS: [409, "attach_doc without version for a title that exists (detail: doc_id, version): pass version to replace"],
   EVIDENCE_REQUIRED: [409, "In review without evidence for the work_type from the current claim (detail: accepts, since)"],
   INVALID_TRANSITION: [409, "the status change is not allowed from the current status (detail: from, to, hint)"],

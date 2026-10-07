@@ -4,6 +4,7 @@ import { branches, pollState, projects, pullRequests, tasks, type Project, type 
 import { touchBranch } from "../mcp/branches.js";
 import { addResult } from "../mcp/evidence.js";
 import { findTask } from "../mcp/queries.js";
+import { recordRelease } from "../mcp/releases.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
 import { setTask, setTaskLinks } from "../mcp/writes.js";
 import type { Job } from "./index.js";
@@ -271,11 +272,16 @@ export async function releaseMerged(db: Db, p: Project, contains?: (mergeSha: st
     let ok = !!known || state.commit.startsWith(merge) || merge.startsWith(state.commit);
     if (!ok && contains) ok = await contains(merge, state.commit);
     if (!ok) continue;
+    const sys = { actor: { ...SYSTEM_ACTOR, machine: "poller" }, system: true, requestId: `release:${t.key}:${env}:${state.commit}`, tool: "jobs.release" };
     await setTask(
       db,
       { project: p.slug, key: t.key, status: "Released", note: `${env} runs ${state.commit.slice(0, 7)}, which contains the merge commit ${merge.slice(0, 7)}` },
-      { actor: { ...SYSTEM_ACTOR, machine: "poller" }, system: true, requestId: `release:${t.key}:${env}:${state.commit}`, tool: "jobs.release" },
+      sys,
     );
+    await writeTx(db, p, { ...sys, requestId: `${sys.requestId}:record` }, async (tx, emit) => {
+      await recordRelease(tx, p, env, t.key);
+      await emit("release.recorded", { id: t.id, key: t.key }, { env, commit: state.commit });
+    });
     released++;
   }
   return released;

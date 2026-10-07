@@ -117,13 +117,16 @@ export async function assertReviewEvidence(tx: Q, t: Task, hasDoc: (tx: Q, t: Ta
   });
 }
 
-export async function validateEvidence(tx: Q, t: Task, id: string): Promise<void> {
+// R-14: evidence may come from any task of the project (an initiative check proven by a child's result).
+export async function validateEvidence(tx: Q, t: Task, id: string): Promise<{ source: string }> {
   const [r] = await tx
-    .select({ id: results.id })
+    .select({ id: results.id, key: tasks.key })
     .from(results)
-    .where(and(eq(results.taskId, t.id), sql`${results.id}::text = ${id}`))
+    .innerJoin(tasks, eq(tasks.id, results.taskId))
+    .where(and(eq(tasks.projectId, t.projectId), sql`${results.id}::text = ${id}`))
     .limit(1);
   if (!r) throw new ToolError("RESULT_NOT_FOUND", { evidence_id: id });
+  return { source: r.key };
 }
 
 export type AddResultInput = {

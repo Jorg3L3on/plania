@@ -192,10 +192,14 @@ export async function taskFull(db: Q, t: Task, opts: ShapeOptions = {}) {
     blocked_by: await blockerList(db, t),
     blocked_note: t.blockedNote,
     base_branch: t.baseBranch,
-    ...(t.kind === "initiative" ? { in_progress_note: t.inProgressNote, next_action: t.nextAction } : {}),
+    ...(t.kind === "initiative"
+      ? { in_progress_note: t.inProgressNote, next_action: t.nextAction, state_note: await stateNoteShape(db, t) }
+      : {}),
     branch: t.branch,
     pr_url: t.prUrl,
     areas: t.areas,
+    handoff: t.handoff && new Date(t.handoff.until) > new Date() ? t.handoff : null,
+    workspace_history: await workspaceHistory(db, t.id),
     ...(t.workType === "bug" ? { severity: t.severity, found_in: t.foundIn, introduced_by: t.introducedBy, regression: t.regression } : {}),
     ...(t.workType === "debt" ? { cost_note: t.costNote } : {}),
     claim: claimShape(t),
@@ -206,6 +210,33 @@ export async function taskFull(db: Q, t: Task, opts: ShapeOptions = {}) {
     resolved_at: iso(t.resolvedAt),
     ...log,
   };
+}
+
+// R-16: where an initiative stands, apart from its spec; stale once a ticket of it (or it) moved later.
+async function stateNoteShape(db: Q, t: Task) {
+  if (!t.stateNote) return { text: "", at: null, stale: false };
+  const [last] = await db
+    .select({ at: sql<Date | null>`max(${tasks.statusChangedAt})` })
+    .from(tasks)
+    .where(sql`${tasks.parentId} = ${t.id} or ${tasks.id} = ${t.id}`);
+  const stale = !!t.stateNoteAt && !!last?.at && new Date(last.at) > t.stateNoteAt;
+  return { text: t.stateNote, at: iso(t.stateNoteAt), stale };
+}
+
+// R-06: every workspace the ticket has used, oldest first (claims and handoffs).
+async function workspaceHistory(db: Q, taskId: string) {
+  const rows = await db
+    .select({ at: events.createdAt, type: events.type, actor: events.actor, payload: events.payload })
+    .from(events)
+    .where(and(eq(events.taskId, taskId), sql`${events.type} in ('claim.acquired', 'claim.workspace', 'claim.handoff')`))
+    .orderBy(asc(events.id));
+  const out: { at: string; by: Actor; workspace: unknown; handoff?: string }[] = [];
+  for (const r of rows) {
+    const ws = (r.payload as { workspace?: unknown }).workspace;
+    if (r.type === "claim.handoff") out.push({ at: iso(r.at), by: r.actor, workspace: null, handoff: String((r.payload as { note?: string }).note ?? "") });
+    else if (ws) out.push({ at: iso(r.at), by: r.actor, workspace: ws });
+  }
+  return out;
 }
 
 // get_task view "summary": what an agent needs to decide, under 2 KB. Counts stand in for the lists.

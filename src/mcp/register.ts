@@ -42,7 +42,10 @@ import { SEVERITIES } from "./lifecycle.js";
 import { writeTx } from "./tx.js";
 import { PROTOCOL_VERSION, instructions } from "./protocol.js";
 import { answer, ask } from "./questions.js";
-import { TTL, claim, createTask, setTask } from "./writes.js";
+import { TTL, claim, createTask, handoff, setTask } from "./writes.js";
+import { runAudit } from "./audit.js";
+import { getContext } from "./context.js";
+import { projectReleases } from "./releases.js";
 
 // v2 contract (approved 2026-10-06; supersedes the v1 handoff's 12-tool ceiling).
 // Agents see slugs and human keys only, never uuids. Every write takes an actor.
@@ -151,6 +154,7 @@ const createFields = {
   work_type: z.string().optional().describe(`Tickets: ${WORK_TYPES.join(" | ")}; default code`),
   base_branch: z.string().min(1).optional().describe("Initiatives only; defaults to main"),
   next_action: z.string().optional().describe("Initiatives only: what comes next, shown in get_resume"),
+  state_note: z.string().optional().describe("Initiatives only: where it stands, apart from the scope"),
   integration_branch: z.string().min(1).optional().describe("Initiatives only: the branch its phases build on (one PR per initiative). Registered to it: BRANCH_IN_USE for another live initiative unless share_branch"),
   share_branch: z.boolean().optional().describe("Initiatives: build on a branch another initiative owns, with share_reason"),
   share_reason: z.string().optional(),
@@ -173,14 +177,15 @@ const setTaskFields = {
   summary: z.string().optional(),
   scope: z.string().optional().describe("Replaces the scope whole; the old text stays in the log"),
   checks: z
-    .array(z.object({ n: z.number().int().optional(), text: z.string() }))
+    .array(z.object({ n: z.number().int().optional(), text: z.string(), derived_from: z.string().nullable().optional() }))
     .optional()
-    .describe("Replaces the Done when list. Keep n to keep an item (and its done state); omit n for a new one"),
+    .describe("Replaces the Done when list. Keep n to keep an item (and its done state); omit n for a new one. derived_from: a child ticket's key; the check ticks itself when that ticket is Done"),
   phase: z.number().int().nullable().optional().describe("Tickets only"),
   body: z.string().optional().describe("Removed in v2 (BODY_REMOVED): use scope, checks and note"),
   base_branch: z.string().min(1).optional().describe("Initiatives only"),
   next_action: z.string().optional().describe("Initiatives only"),
   in_progress_note: z.string().optional().describe("Initiatives only"),
+  state_note: z.string().optional().describe("Initiatives only: where it stands, apart from the scope (the spec). The server flags it stale once a ticket moves after it"),
   work_type: z.string().optional().describe(`Tickets only: ${WORK_TYPES.join(" | ")}`),
   integration_branch: z.string().min(1).optional().describe("Initiatives only: the branch its phases build on; BRANCH_IN_USE when another live initiative owns it unless share_branch"),
   share_branch: z.boolean().optional(),
@@ -330,6 +335,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
           branches: await projectBranches(db, p.id),
           resources: await projectResources(db, p),
           metrics: await projectMetricsOf(db, p.id),
+          releases: await projectReleases(db, p.id),
           ...(await projectSequences(db, p.id)),
         };
       }),
@@ -522,7 +528,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "set_check",
     {
       description:
-        "Tick (or untick) one Done when item by its n, amend its text, or lift a waiver. Needs no version and does not bump it. While another session holds the lease, only it can tick (NOT_OWNER). evidence_id links the add_result that proves it.",
+        "Tick (or untick) one Done when item by its n, amend its text, or lift a waiver. Needs no version and does not bump it. While another session holds the lease, only it can tick (NOT_OWNER). evidence_id links the add_result that proves it (any result of the project; the reply says its source task).",
       inputSchema: { project, actor, request_id, verbose, ...setCheckFields },
       annotations: { ...write, idempotentHint: true },
     },
@@ -801,6 +807,51 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       annotations: readOnly,
     },
     ({ project }) => run(async () => inbox(db, project === "all" ? "all" : await findProject(db, project))),
+  );
+
+  server.registerTool(
+    "audit",
+    {
+      description: [
+        "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_STATE_NOTE_STALE, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
+        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, LEGACY_CARD_PRESENT.",
+        "Each finding has key, detail and fix_hint. It also runs every ten minutes; get_resume.status.audit_findings is the last count.",
+      ].join(" "),
+      inputSchema: { project },
+      annotations: readOnly,
+    },
+    ({ project }) => run(async () => runAudit(db, await findProject(db, project))),
+  );
+
+  server.registerTool(
+    "get_context",
+    {
+      description: [
+        "One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note),",
+        "the pinned decisions that apply, open questions and pending approvals on those tickets, and the events since since_cursor that touch them. UNKNOWN_BRANCH when nothing is on the branch.",
+      ].join(" "),
+      inputSchema: {
+        project,
+        workspace: z.object({ branch: z.string().optional(), worktree_path: z.string().optional(), machine: z.string().optional() }),
+        session_id: z.string().optional(),
+        since_cursor: z.number().int().min(0).optional(),
+      },
+      annotations: readOnly,
+    },
+    ({ project, workspace, session_id, since_cursor }) => run(async () => getContext(db, await findProject(db, project), { workspace, session_id, since_cursor })),
+  );
+
+  server.registerTool(
+    "handoff",
+    {
+      description: [
+        "Hand your claim to another session (its session_id) or to anyone ('open'), with a note: what is done, what is next, the branch head (head_sha). Your lease ends; In progress goes to Ready.",
+        "The receiver claims and gets the note back; for ten minutes nobody else may (HANDOFF_HELD). get_task shows every workspace the ticket has used.",
+      ].join(" "),
+      inputSchema: { project, actor, request_id, verbose, key, to: z.string().min(1).describe("A session_id, or open"), note: z.string().min(1), head_sha: z.string().optional() },
+      annotations: write,
+    },
+    writeHandler("handoff", (input, ctx) => handoff(db, input, ctx)),
   );
 
   server.registerTool(

@@ -2,13 +2,13 @@
 // repo reads the same version. Project-specific additions live in the project's rules (set_project).
 // Bump PROTOCOL_VERSION whenever the text changes meaning.
 
-export const PROTOCOL_VERSION = "2.2";
+export const PROTOCOL_VERSION = "2.3";
 
 const PROTOCOL = `Plania protocol ${PROTOCOL_VERSION}. Plania is the source of the plan; product repos hold code and conventions, not plans.
 
 Identity. Every write takes actor {agent, session_id, machine, model}. Use one session_id for your whole session: it owns your claims. Never write as jorge. An agent token (issued on screen) fills agent and machine and refuses values that disagree.
 
-Start. get_resume (headline, status: what each env runs and whether it trails the branches, per initiative counts, next claimable, what waits on Jorge, what is in review with its PR state; live claims; must-keep decisions; open questions), get_project (stack, settings, env, branches, resources, reserved sequence numbers, project rules), get_memory (rules, design docs, decisions), then get_task. Or get_next. get_inbox tells you what waits on Jorge.
+Start. On a branch with work: get_context {workspace, session_id, since_cursor} gives the initiative, the tickets, your claims and what changed. Otherwise get_resume (headline, status: what each env runs and whether it trails the branches, per initiative counts, next claimable, what waits on Jorge, what is in review with its PR state; live claims; must-keep decisions; open questions), get_project (stack, settings, env, branches, resources, reserved sequence numbers, project rules), get_memory (rules, design docs, decisions), then get_task. Or get_next. get_inbox tells you what waits on Jorge; audit lists what the data says is wrong.
 
 Keys. The server assigns them: omit key on create_task. PREFIX-I<n> is an initiative, PREFIX-<nn> a standalone ticket, <initiative>-<n> a phase (phase is its own field). A moved ticket gets a new key and keeps the old one as an alias; every tool accepts aliases and answers with the canonical key. Every task reference carries kind and parent_key.
 
@@ -21,7 +21,7 @@ Work a ticket.
 4. Need a number that must not collide (a migration)? reserve_sequence. Need a shared thing (a dev port, the production migrate step)? lease_resource, release_resource when done; an API budget: consume. Need Jorge? ask (the ticket waits in Needs Jorge). When he answers in chat, record it with answer, quoting him; add decision_text only when the answer settles something worth keeping.
 5. Decisions: add_decision, one line, with task_key; pin it if it must be kept; supersedes (one id or several) when it reverses earlier ones; retire_decision when one no longer holds. Specs, plans and ADRs: attach_doc, never a plan file on one machine.
 6. Blocked by something other than a ticket? blocked_by takes {env, condition, value}, {human_action: {text}} (Jorge's inbox), {env_flag: {env, flag, equals}}, {time_after: ISO} or {metric_gte: {name, value}}; the server moves the ticket back to Ready when they hold. After a deploy you ran, set_env with the deploy's {provider, deployment_id, url}, the migration tags and flags (never secrets).
-7. Finish: add_result, then set_task status In review with branch and pr_url (this releases the lease; every check must be done or waived: CHECKS_OPEN). Put "Plania: <KEY>" in the PR body. The pollers move it to Merged when the PR merges and to Released when the release target runs the merge commit. Update the initiative's next_action / in_progress_note, and the project headline (set_project) if the picture changed.
+7. Leaving mid-ticket? handoff {to: session_id | open, note, head_sha}: the next session gets the note with its claim. Finish: add_result, then set_task status In review with branch and pr_url (this releases the lease; every check must be done or waived: CHECKS_OPEN). Put "Plania: <KEY>" in the PR body. The pollers move it to Merged when the PR merges and to Released when the release target runs the merge commit. Update the initiative's next_action / in_progress_note / state_note (never a status section inside scope), and the project headline (set_project) if the picture changed.
 8. Never set Done or Won't do yourself: request_approval (done | wont_do | reopen) and, once Jorge grants it on screen, pass the approval_id to set_task. It is spent on that one move.
 
 Never type dates: the server stamps everything in UTC. Before acting on a ticket you read a while ago, list_events since your last cursor. Pass request_id on writes you may retry after a timeout.

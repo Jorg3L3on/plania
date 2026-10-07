@@ -245,6 +245,11 @@ export const tasks = pgTable(
     statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
     // v2.1: the claim.expiring warning was sent for the current lease (cleared by a heartbeat).
     expiringWarnedAt: timestamp("expiring_warned_at", { withTimezone: true }),
+    // v2.3 (R-16): where the initiative stands, apart from its spec (scope); stale when older than the last move.
+    stateNote: text("state_note").notNull().default(""),
+    stateNoteAt: timestamp("state_note_at", { withTimezone: true }),
+    // v2.3 (R-06): a claim handed to a session (or "open") with a note; the hold lasts ten minutes.
+    handoff: jsonb("handoff").$type<Handoff>(),
     ...timestamps,
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   },
@@ -369,6 +374,8 @@ export const checks = pgTable(
     doneAt: timestamp("done_at", { withTimezone: true }),
     doneBy: jsonb("done_by").$type<Actor>(),
     evidenceId: uuid("evidence_id").references(() => results.id, { onDelete: "set null" }),
+    // v2.3 (R-14): an initiative check that ticks itself when this child reaches Done.
+    derivedFrom: text("derived_from"),
     // v2.1: a check that will not be done, with why and (once In review or later) who approved it.
     waivedAt: timestamp("waived_at", { withTimezone: true }),
     waivedBy: jsonb("waived_by").$type<Actor>(),
@@ -581,6 +588,37 @@ export const pullRequests = pgTable(
   (t) => [primaryKey({ columns: [t.projectId, t.repo, t.number] }), index("pull_requests_task_idx").on(t.taskId)],
 );
 
+// v2.3 (R-31): the last audit run per project, so the status block can show the count.
+export const auditRuns = pgTable("audit_runs", {
+  projectId: uuid("project_id")
+    .primaryKey()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  count: integer("count").notNull().default(0),
+  findings: jsonb("findings").$type<{ code: string; key: string | null; detail: string; fix_hint: string }[]>().notNull().default([]),
+});
+
+// v2.3 (R-22): what a deploy shipped, computed when tickets reach Released.
+export const releases = pgTable(
+  "releases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    env: text("env").notNull(),
+    commit: text("commit").notNull(),
+    deployedAt: timestamp("deployed_at", { withTimezone: true }),
+    source: jsonb("source").$type<DeploySource>(),
+    taskKeys: text("task_keys").array().notNull().default(sql`'{}'::text[]`),
+    prs: text("prs").array().notNull().default(sql`'{}'::text[]`),
+    migrations: text("migrations").array().notNull().default(sql`'{}'::text[]`),
+    notes: text("notes").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("releases_env_commit_unique").on(t.projectId, t.env, t.commit)],
+);
+
 // v2.2: where each poller got to (cursors, etags, caches) and its last error.
 export const pollState = pgTable(
   "poll_state",
@@ -637,6 +675,9 @@ export type Actor = { agent: string; session_id: string; machine?: string; model
 
 // Where a ticket's code is checked out.
 export type Workspace = { machine?: string; worktree_path?: string; branch?: string };
+
+// A claim handed to another session (or anyone) with what is done and what is next.
+export type Handoff = { to: string; note: string; head_sha?: string; from: Actor; at: string; until: string };
 
 // Where an environment's deployed_at came from.
 export type DeploySource = { provider: string; deployment_id: string; url?: string };

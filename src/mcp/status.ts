@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { approvals, blockers, branches, envStates, pullRequests, questions, tasks, type Project, type Task } from "../db/schema.js";
+import { lastAudit } from "./audit.js";
 import { envShape } from "./env.js";
 import { nextTask } from "./queries.js";
 import { iso, type Q } from "./tx.js";
@@ -93,7 +94,8 @@ export async function statusBlock(db: Q, p: Project) {
     released_waiting_done: released.map((t) => t.key),
     standalone_waiting_on_jorge: standaloneWaiting,
     s1_s2_bugs: bugs.map((t) => ({ key: t.key, severity: t.severity, title: t.title, status: t.status })),
-    audit_findings: null as number | null,
+    audit: await lastAudit(db, p.id),
+    audit_findings: (await lastAudit(db, p.id))?.count ?? null,
   };
 }
 

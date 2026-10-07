@@ -46,6 +46,11 @@ pnpm seed
 - Each project's handoff "must keep" line is added once as a pinned decision.
 - Rules and design docs are not seeded: write them with `set_project` and `attach_doc`.
 
+### Upgrading to 2.3 (audit, context, handoff)
+
+Migration `0018` adds `audit_runs`, `releases`, `tasks.state_note` / `state_note_at` / `handoff` and `checks.derived_from`.
+Nothing to backfill. The audit job starts with the server; `audit(project)` runs it on demand.
+
 ### Upgrading to 2.2 (branches, typed blockers, pollers)
 
 Migration `0017` adds `projects.settings`, the typed `blockers` table (the old `env_blockers` rows are copied in),
@@ -149,7 +154,9 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | Read | |
 |---|---|
 | `get_resume` | Generated: headline, the status block (per env what runs there and its drift; per initiative counts, next claimable, who waits on Jorge, what is in review with its PR state; queues), live claims, next claimable, per open initiative its notes, claims, next ticket and pinned decisions; open questions; latest events. `include_legacy` adds the v1 card while one exists |
-| `get_inbox` | Everything waiting on Jorge (pending approvals, open questions), for one project or `all` |
+| `get_inbox` | Everything waiting on Jorge (pending approvals, open questions, human actions, Released tickets), for one project or `all` |
+| `get_context` | One call for a session opening a worktree: the initiative and tickets on the branch, your claims (with any handoff note), pinned decisions, open questions, pending approvals, events since a cursor |
+| `audit` | What the data says is wrong: findings with a code, key, detail and fix hint (also every ten minutes; the count is in `get_resume.status`) |
 | `get_project` | Body, rules, settings, protocol version, counts, `env` per environment (with flags, migrations and the deploy's source), `branches`, `resources`, `metrics`, reserved sequence numbers |
 | `list_tasks` | Filters: parent, status, kind, work_type, severity, owner, unblocked, updated_since, search, limit |
 | `get_task` | By key or alias. `view` full (default) or summary (≤ 2 KB); `fields` picks keys; `include_log` adds the last 50 events; `include_children` |
@@ -161,9 +168,10 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | Write | |
 |---|---|
 | `create_task` | Ticket (default) or initiative; scope, checks, phase, work_type, blocked_by. The key is assigned unless given |
-| `set_task` | Fields with `version`; status through the state machine; a note alone needs no version; `parent_key` moves a ticket (new key, old one as alias) |
+| `set_task` | Fields with `version`; status through the state machine; a note alone needs no version; `parent_key` moves a ticket (new key, old one as alias); `state_note` for where an initiative stands; `checks[].derived_from` ties an initiative check to a ticket |
 | `batch` | Several of create_task, set_task, set_check, add_result, add_decision, note in one call; atomic by default |
 | `claim` | claim / heartbeat / release a lease (default 30 min), with workspace |
+| `handoff` | Hand a claim to a session (or anyone) with a note; the receiver's claim carries it back; a ten-minute hold |
 | `set_check` | Tick one Done when item, amend its text, or lift a waiver |
 | `waive_check` | Mark a check as not going to be done, with why (an approval once In review or later) |
 | `request_approval` | Ask Jorge for one move: done, wont_do, reopen, waive_check, runbook_step, lease_resource |
@@ -210,6 +218,19 @@ Rules every write follows:
   that looks like a secret (`SECRET_LIKE_VALUE`); `migrations` is the list of tags applied.
 - **Resources.** `lease_resource` holds a name (a port gets `@machine`); `RESOURCE_HELD` names the holder. Policies in
   `settings.resources` may require an approval; `settings.quotas` give `consume` a daily budget (`QUOTA_EXCEEDED`).
+- **Handoffs.** `handoff {to, note, head_sha}` ends your lease and holds the ticket for the receiver for ten minutes
+  (`HANDOFF_HELD` for anyone else); the receiver's `claim` reply carries the note, and `get_task.workspace_history`
+  lists every workspace the ticket has used.
+- **State notes.** `scope` is the spec; `state_note` (initiatives) says where things stand and is flagged `stale` once
+  a ticket moves after it. A status heading inside `scope` only warns.
+- **Derived checks.** An initiative check with `derived_from: <ticket key>` ticks itself when that ticket is Done, and
+  `set_check evidence_id` accepts any result of the project (the reply names its `source`).
+- **Audit.** `audit` finds, from data: tickets in review whose PR merged, Done with open checks, initiatives closed with
+  open tickets, stale state notes, decisions citing commits or PRs the release target has moved past, environments
+  without a deploy time, drift, Blocked tickets whose blockers hold, gated scopes without a typed blocker, expired
+  claims with commits, merged branches still on origin, branches without a ticket, missing PRs, the v1 card.
+- **Releases.** When a ticket reaches Released, the deploy's record collects it (`get_project.releases`: env, commit,
+  deployed_at and source, tickets, PRs, migrations new since the previous release).
 - **Bugs and debt.** `work_type: bug` needs a `severity` (S1–S4) and may carry `found_in`, `introduced_by`,
   `regression`; `debt` carries `cost_note`. S1 and S2 bugs show in the status block.
 - **Actor.** `actor: {agent?, session_id, machine?, model?}` lands in the event log; `session_id` owns leases.
@@ -296,8 +317,9 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `INITIATIVE_NOT_FOUND` | 404 | get_next initiative_key is not an initiative of this project |
 | `PROJECT_NOT_FOUND` | 404 | unknown project slug |
 | `QUESTION_NOT_FOUND` | 404 | no question with that id in this project |
-| `RESULT_NOT_FOUND` | 404 | evidence_id is not a result of this task |
+| `RESULT_NOT_FOUND` | 404 | evidence_id is not a result of this project |
 | `TASK_NOT_FOUND` | 404 | unknown key in this project (also an unknown parent_key or task_key) |
+| `UNKNOWN_BRANCH` | 404 | get_context: no initiative or ticket is on that branch (detail: known) |
 | `ALREADY_ANSWERED` | 409 | the question was answered already (detail: answer, answered_by) |
 | `ALREADY_SUPERSEDED` | 409 | the decision named in supersedes was already reversed (detail: superseded_by) |
 | `APPROVAL_NOT_GRANTED` | 409 | the approval is pending, rejected or expired (detail: state) |
@@ -310,6 +332,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `DOC_EXISTS` | 409 | attach_doc without version for a title that exists (detail: doc_id, version): pass version to replace |
 | `EVIDENCE_REQUIRED` | 409 | In review without evidence for the work_type from the current claim (detail: accepts, since) |
 | `EVIDENCE_STALE` | 409 | In review needs a pass recorded against the branch's current head; the passes found are for older commits (detail: head, results) |
+| `HANDOFF_HELD` | 409 | the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note) |
 | `INITIATIVE_CHILDREN_OPEN` | 409 | an initiative cannot be Done or Won't do while a ticket of it is in another state (detail: open) |
 | `INVALID_TRANSITION` | 409 | the status change is not allowed from the current status (detail: from, to, hint) |
 | `KEY_BELOW_COUNTER` | 409 | an explicit key with a number already issued for that scope (detail: next); omit key to get the next one |
@@ -475,8 +498,11 @@ the UI refetches what changed.
   and deletions; READY deployments → `set_env` with Vercel's time and id → Released. `/hooks/*` stays for a CI that can
   reach the server.
 - Background jobs run inside `pnpm start` (`src/jobs/`): the two pollers, lease warnings (`claim.expiring`, five minutes
-  before a lease ends), `time_after` blockers and the legacy card archiver. `PLANIA_JOBS=0` turns them off (tests,
-  `pnpm dev:api`).
+  before a lease ends), `time_after` blockers, the audit (every ten minutes) and the legacy card archiver.
+  `PLANIA_JOBS=0` turns them off (tests, `pnpm dev:api`).
+- Not built from the Filmia requests: test plans and QA runs as tables (R-18: use a "Test plan" doc and `qa_run`-style
+  results), runbooks with approval steps (R-23), rule proposals (R-26), shared rules across projects (R-27) and the
+  v1 data cleanup (R-32: it waits until every legacy card is archived on the real database).
 - Live updates use an in-process bus. On Vercel each request may run in a different function, so the bus in
   `src/events.ts` must become polling or a hosted pub/sub. The UI does not change.
 - The built SPA in `dist/ui` must be served by Vercel as static output, with `/api`, `/mcp` and `/hooks` routed to the function.

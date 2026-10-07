@@ -25,7 +25,7 @@ import {
 import { loadApproval, useApproval } from "./approvals.js";
 import { parseBlockers, promoteUnblocked, replaceBlockers, resolveTaskBlockers, unsatisfiedBlockers, type BlockerInput } from "./blockers.js";
 import { assertBranchName, assertTicketBranch, registerIntegrationBranch } from "./branches.js";
-import { assertChecksClosed, replaceChecks, type CheckInput } from "./checks.js";
+import { assertChecksClosed, replaceChecks, tickDerived, type CheckInput } from "./checks.js";
 import { hasDoc } from "./docs.js";
 import { assertReviewEvidence } from "./evidence.js";
 import { addAlias, assignKey } from "./keys.js";
@@ -124,7 +124,7 @@ function rejectFields(kind: string, input: Record<string, unknown>, fields: stri
 const TICKET_ONLY = ["parent_key", "priority", "origin", "work_type", "phase", "severity", "found_in", "introduced_by", "regression", "cost_note"];
 // A ticket is born Backlog or Ready; anything else is reached through the state machine.
 const CREATE_STATUSES = ["Backlog", "Ready"];
-const INITIATIVE_ONLY = ["base_branch", "next_action", "in_progress_note", "integration_branch", "share_branch", "share_reason"];
+const INITIATIVE_ONLY = ["base_branch", "next_action", "in_progress_note", "integration_branch", "share_branch", "share_reason", "state_note"];
 
 // v2 dropped the markdown body; a caller still sending it would lose notes silently, so it is an error.
 function rejectBody(input: { body?: unknown }): void {
@@ -164,7 +164,11 @@ export type CreateInput = {
   introduced_by?: string;
   regression?: boolean;
   cost_note?: string;
+  state_note?: string;
 };
+
+// A scope is the spec; status lines belong in state_note (R-16). Only a warning.
+const STATUS_HEADING = /^#{1,3}\s*(estado|status)\b/im;
 
 // Bug tickets carry a severity; debt tickets a cost note; neither field fits the other types.
 function checkTyped(input: { work_type?: string; severity?: string; found_in?: string; introduced_by?: string; regression?: boolean; cost_note?: string }, workType: string) {
@@ -223,6 +227,7 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
   }
   const integrationBranch = input.integration_branch?.trim();
   if (integrationBranch) assertBranchName(p, integrationBranch);
+  if (input.scope && STATUS_HEADING.test(input.scope)) warnings.push("scope has a status section: keep scope as the spec and put where things stand in state_note");
 
   if (input.key !== undefined && (await findTask(tx, p.id, input.key))) throw new ToolError("KEY_EXISTS");
   const parent = input.parent_key ? await resolveParent(tx, p.id, input.parent_key) : undefined;
@@ -241,7 +246,14 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
   };
   const values: TaskInsert =
     kind === "initiative"
-      ? { ...common, baseBranch: input.base_branch ?? "main", nextAction: input.next_action ?? "", branch: integrationBranch ?? null }
+      ? {
+          ...common,
+          baseBranch: input.base_branch ?? "main",
+          nextAction: input.next_action ?? "",
+          branch: integrationBranch ?? null,
+          stateNote: input.state_note ?? "",
+          stateNoteAt: input.state_note ? new Date() : null,
+        }
       : {
           ...common,
           parentId: parent?.id ?? null,
@@ -287,6 +299,7 @@ const FIELD_NAMES: Partial<Record<keyof Task, string>> = {
   baseBranch: "base_branch",
   nextAction: "next_action",
   inProgressNote: "in_progress_note",
+  stateNote: "state_note",
   areas: "areas",
   severity: "severity",
   foundIn: "found_in",
@@ -357,6 +370,7 @@ export type SetTaskInput = {
   introduced_by?: string;
   regression?: boolean;
   cost_note?: string;
+  state_note?: string;
 };
 
 // An initiative closes only once every ticket of it is Done or Won't do (Jorge included).
@@ -478,6 +492,12 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   if (input.base_branch !== undefined) patch.baseBranch = input.base_branch;
   if (input.next_action !== undefined) patch.nextAction = input.next_action;
   if (input.in_progress_note !== undefined) patch.inProgressNote = input.in_progress_note;
+  if (input.state_note !== undefined) {
+    patch.stateNote = input.state_note;
+    patch.stateNoteAt = input.state_note.trim() ? new Date() : null;
+  }
+  const warnings: string[] = [];
+  if (input.scope && STATUS_HEADING.test(input.scope)) warnings.push("scope has a status section: keep scope as the spec and put where things stand in state_note");
 
   for (const [field, name] of Object.entries(FIELD_NAMES) as [keyof Task, string][]) {
     const before = t[field];
@@ -509,6 +529,8 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     }
     // The headline talks about where things stand; an initiative moving or a ticket closing dates it.
     if (t.kind === "initiative" || patch.status === "Done") await markHeadlineStale(tx, p.id);
+    // An initiative check derived from this ticket ticks itself when the ticket is Done.
+    if (patch.status === "Done" && t.kind === "ticket") await tickDerived(tx, emit, u, ctx.actor);
     // A ticket reaching In review or later may be what a Blocked ticket waited for.
     await promoteUnblocked(tx, emit, p.id);
   }
@@ -526,7 +548,31 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   }
   // Blocked with blockers that already hold goes straight back to Ready.
   if (patch.status === "Blocked") await promoteUnblocked(tx, emit, p.id);
-  return writeReply(tx, u, ctx, changedNames, rekey ? { previous_key: rekey[0] } : {});
+  return writeReply(tx, u, ctx, changedNames, rekey ? { previous_key: rekey[0] } : {}, warnings);
+}
+
+// R-06: hand a claim to another session (or "open" to anyone) with what is done, what is next and the
+// branch head. The receiver claims within ten minutes; meanwhile nobody else may. After that, open to all.
+export const HANDOFF_HOLD_MIN = 10;
+
+export async function handoff(
+  db: Db,
+  input: { project: string; key: string; to: string; note: string; head_sha?: string },
+  ctx: Ctx,
+) {
+  if (!input.note.trim()) throw new ToolError("INVALID_QUESTION", { field: "note", hint: "say what is done, what is next and the branch head" });
+  const p = await findProject(db, input.project);
+  return writeTx(db, p, ctx, async (tx, emit) => {
+    const t = await requireTask(tx, p.id, input.key);
+    const owner = liveOwner(t);
+    if (owner && owner.session_id !== ctx.actor.session_id && !ctx.human) throw new ToolError("NOT_OWNER", { owner, lease_until: iso(t.leaseUntil) });
+    const until = new Date(Date.now() + HANDOFF_HOLD_MIN * 60_000);
+    const record = { to: input.to.trim() || "open", note: input.note.trim(), ...(input.head_sha ? { head_sha: input.head_sha } : {}), from: ctx.actor, at: new Date().toISOString(), until: until.toISOString() };
+    const to = t.status === "In progress" ? "Ready" : t.status;
+    const u = await updateTask(tx, t, { ...NO_LEASE, status: to, handoff: record }, true);
+    await emit("claim.handoff", u, { ...record, from_status: t.status });
+    return writeReply(tx, u, ctx, ["claim", "handoff", ...(to !== t.status ? ["status"] : [])], { handoff: record });
+  });
 }
 
 export async function setTask(db: Db, input: SetTaskInput, ctx: Ctx) {
@@ -627,6 +673,12 @@ export async function claimInTx(tx: Q, emit: Emit, p: Project, input: ClaimInput
 
   if (action === "heartbeat") throw new ToolError("LEASE_EXPIRED", { hint: "claim again" });
   if (!CLAIMABLE_FROM.includes(t.status)) throw new ToolError("NOT_CLAIMABLE", { status: t.status });
+  // A handoff holds the ticket for its receiver for a while; the receiver gets the note back.
+  const hold = t.handoff && new Date(t.handoff.until) > new Date() ? t.handoff : null;
+  if (hold && hold.to !== "open" && hold.to !== ctx.actor.session_id && !ctx.human) {
+    throw new ToolError("HANDOFF_HELD", { to: hold.to, until: hold.until, note: hold.note });
+  }
+  if (t.handoff) warnings.push(`handoff from ${t.handoff.from.agent} (${t.handoff.from.session_id}): ${t.handoff.note}`);
   const blockers = await unsatisfiedBlockers(tx, t);
   if (blockers.length) throw new ToolError("NOT_CLAIMABLE", { blocked_by: blockers });
   // A phase works on its initiative's integration branch unless told otherwise (R-09).
@@ -657,12 +709,13 @@ export async function claimInTx(tx: Q, emit: Emit, p: Project, input: ClaimInput
       status: "In progress",
       blockedNote: null,
       expiringWarnedAt: null,
+      handoff: null,
       ...(workspace ? { workspace } : {}),
     },
     true,
   );
-  await emit("claim.acquired", u, { from: t.status, ttl_minutes: minutes, lease_until: iso(u.leaseUntil), workspace: u.workspace });
-  return reply(u, ["claim", "status"]);
+  await emit("claim.acquired", u, { from: t.status, ttl_minutes: minutes, lease_until: iso(u.leaseUntil), workspace: u.workspace, ...(t.handoff ? { handoff: t.handoff } : {}) });
+  return writeReply(tx, u, ctx, ["claim", "status"], { claim: claimShape(u), workspace: u.workspace, ...(t.handoff ? { handoff: t.handoff } : {}) }, warnings);
 }
 
 export async function claim(db: Db, input: ClaimInput, ctx: Ctx) {

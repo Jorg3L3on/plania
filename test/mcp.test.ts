@@ -141,10 +141,10 @@ after(async () => {
 
 // The full tool surface. Update with the contract.
 const TOOLS = [
-  "add_decision", "add_result", "answer", "archive_legacy_card", "ask", "attach_doc", "batch", "claim", "consume", "create_task", "get_doc",
-  "get_inbox", "get_memory", "get_next", "get_project", "get_resume", "get_task", "lease_resource", "list_events", "list_tasks",
-  "release_resource", "request_approval", "reserve_sequence", "retire_decision", "set_check", "set_env", "set_metric", "set_project",
-  "set_task", "waive_check",
+  "add_decision", "add_result", "answer", "archive_legacy_card", "ask", "attach_doc", "audit", "batch", "claim", "consume", "create_task",
+  "get_context", "get_doc", "get_inbox", "get_memory", "get_next", "get_project", "get_resume", "get_task", "handoff", "lease_resource",
+  "list_events", "list_tasks", "release_resource", "request_approval", "reserve_sequence", "retire_decision", "set_check", "set_env",
+  "set_metric", "set_project", "set_task", "waive_check",
 ];
 
 test("exposes exactly the contract tools", async () => {
@@ -886,9 +886,11 @@ describe("v2 B3: evidence", () => {
     await expectError("set_task", { ...P, key: "WRK-E-04", status: "In review", open_checks: true }, "EVIDENCE_REQUIRED", 409);
   });
 
-  test("set_check with evidence_id needs a result of the same task; bad results are INVALID_RESULT", async () => {
+  test("set_check with evidence_id needs a result of the project (any task, with its source); bad results are INVALID_RESULT", async () => {
+    await expectError("set_check", { ...P, key: "WRK-E-02", n: 1, done: true, evidence_id: "00000000-0000-0000-0000-000000000000" }, "RESULT_NOT_FOUND", 404);
     const other = (await call("get_task", { ...P, key: "WRK-E-01" })).results[0].id;
-    await expectError("set_check", { ...P, key: "WRK-E-02", n: 1, done: true, evidence_id: other }, "RESULT_NOT_FOUND", 404);
+    const cross = await call("set_check", { ...P, key: "WRK-E-02", n: 1, done: true, evidence_id: other });
+    assert.equal(cross.check.source, "WRK-E-01", "evidence from another task names its source");
     const mine = (await call("get_task", { ...P, key: "WRK-E-02" })).results[0].id;
     const t = await call("set_check", { ...P, key: "WRK-E-02", n: 1, done: true, evidence_id: mine });
     assert.equal(t.checks[0].evidence_id, mine);
@@ -1134,11 +1136,11 @@ describe("v2 C2: list_events", () => {
 describe("v2 C4: protocol and project text", () => {
   test("the protocol comes with initialize, versioned", async () => {
     const text = client.getInstructions() ?? "";
-    assert.match(text, /^Plania protocol 2\.2\./);
+    assert.match(text, /^Plania protocol 2\.3\./);
     assert.match(text, /Never set Done or Won't do/);
-    assert.equal(client.getServerVersion()?.version, "2.2.0");
+    assert.equal(client.getServerVersion()?.version, "2.3.0");
     const p = await call("get_project", { project: "zigzag" });
-    assert.equal(p.protocol_version, "2.2");
+    assert.equal(p.protocol_version, "2.3");
   });
 
   test("set_project edits body and rules with the version; rules_version follows the rules", async () => {

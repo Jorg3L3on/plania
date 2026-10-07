@@ -127,6 +127,13 @@
       "when": 1791412836711,
       "tag": "0017_silent_tigra",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791413869178,
+      "tag": "0018_nosy_vargas",
+      "breakpoints": true
     }
   ]
 }

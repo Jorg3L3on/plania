@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { checks, tasks, type Project, type Task } from "../db/schema.js";
+import { checks, tasks, type Actor, type Project, type Task } from "../db/schema.js";
 import { loadApproval, useApproval } from "./approvals.js";
 import { GATED_STATUSES } from "./lifecycle.js";
 import { ToolError, findProject, liveOwner, requireTask, writeReply } from "./queries.js";
@@ -9,7 +9,7 @@ import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 // "Done when" as data. Each check has a stable n; set_check ticks one without touching the rest,
 // and set_task checks replaces the list (an item that keeps its n keeps its done state).
 
-export type CheckInput = { n?: number; text: string };
+export type CheckInput = { n?: number; text: string; derived_from?: string | null };
 
 export async function taskChecks(db: Q, taskId: string) {
   const rows = await db.select().from(checks).where(eq(checks.taskId, taskId)).orderBy(asc(checks.position));
@@ -20,8 +20,24 @@ export async function taskChecks(db: Q, taskId: string) {
     done_at: iso(c.doneAt),
     done_by: c.doneBy,
     evidence_id: c.evidenceId,
+    derived_from: c.derivedFrom,
     waived: c.waivedAt ? { at: iso(c.waivedAt), by: c.waivedBy, reason: c.waiveReason, approval_id: c.approvalId } : null,
   }));
+}
+
+// R-14: an initiative check derived from a child ticks itself when that child reaches Done.
+export async function tickDerived(tx: Q, emit: Emit, child: Task, by: Actor): Promise<void> {
+  if (!child.parentId) return;
+  const rows = await tx
+    .select()
+    .from(checks)
+    .where(and(eq(checks.taskId, child.parentId), eq(checks.done, false), sql`${checks.derivedFrom} = ${child.key} or ${checks.derivedFrom} in (select alias from task_aliases where task_id = ${child.id})`));
+  if (!rows.length) return;
+  const [parent] = await tx.select().from(tasks).where(eq(tasks.id, child.parentId)).limit(1);
+  for (const c of rows) {
+    await tx.update(checks).set({ done: true, doneAt: sql`now()`, doneBy: by }).where(eq(checks.id, c.id));
+    await emit("check.set", { id: parent!.id, key: parent!.key }, { n: c.n, text: c.text, done: true, derived_from: child.key }, by);
+  }
 }
 
 // Entering In review, Merged, Released or Done needs every check done or waived (R-13).
@@ -57,10 +73,11 @@ export async function replaceChecks(tx: Q, taskId: string, items: CheckInput[]):
   const removed = existing.filter((c) => !kept.has(c.n)).map((c) => c.id);
   for (const id of removed) await tx.delete(checks).where(eq(checks.id, id));
   for (const [position, item] of items.entries()) {
+    const derived = item.derived_from === undefined ? {} : { derivedFrom: item.derived_from?.trim() || null };
     if (item.n !== undefined) {
-      await tx.update(checks).set({ text: item.text, position }).where(and(eq(checks.taskId, taskId), eq(checks.n, item.n)));
+      await tx.update(checks).set({ text: item.text, position, ...derived }).where(and(eq(checks.taskId, taskId), eq(checks.n, item.n)));
     } else {
-      await tx.insert(checks).values({ taskId, n: next++, position, text: item.text });
+      await tx.insert(checks).values({ taskId, n: next++, position, text: item.text, ...derived });
     }
   }
   const before = existing.map((c) => c.text);
@@ -87,12 +104,12 @@ export async function setCheckInTx(
   p: Project,
   input: SetCheckInput,
   ctx: Ctx,
-  // Set by B3: validates that evidence_id is a result of this task.
-  validateEvidence?: (tx: Q, t: Task, id: string) => Promise<void>,
+  // Validates that evidence_id is a result of this project and says which task it came from.
+  validateEvidence?: (tx: Q, t: Task, id: string) => Promise<{ source: string }>,
 ) {
   const t = await requireTask(tx, p.id, input.key);
   checkOwner(t, ctx);
-  if (input.evidence_id && validateEvidence) await validateEvidence(tx, t, input.evidence_id);
+  const evidence = input.evidence_id && validateEvidence ? await validateEvidence(tx, t, input.evidence_id) : undefined;
   const [before] = await tx.select().from(checks).where(and(eq(checks.taskId, t.id), eq(checks.n, input.n))).limit(1);
   if (!before) throw new ToolError("CHECK_NOT_FOUND", { n: input.n });
   const amended = input.text !== undefined && input.text.trim() && input.text !== before.text ? input.text : undefined;
@@ -109,10 +126,10 @@ export async function setCheckInTx(
     .where(eq(checks.id, before.id))
     .returning();
   const u = await touch(tx, t);
-  if (input.done !== undefined) await emit("check.set", u, { n: c!.n, text: c!.text, done: c!.done, evidence_id: c!.evidenceId });
+  if (input.done !== undefined) await emit("check.set", u, { n: c!.n, text: c!.text, done: c!.done, evidence_id: c!.evidenceId, ...(evidence ? { source: evidence.source } : {}) });
   if (amended !== undefined) await emit("check.amended", u, { n: c!.n, from: before.text, to: amended });
   if (input.waived === false && before.waivedAt) await emit("check.unwaived", u, { n: c!.n });
-  return writeReply(tx, u, ctx, ["checks"], { check: { n: c!.n, done: c!.done, evidence_id: c!.evidenceId, waived: !!c!.waivedAt } });
+  return writeReply(tx, u, ctx, ["checks"], { check: { n: c!.n, done: c!.done, evidence_id: c!.evidenceId, ...(evidence ? { source: evidence.source } : {}), waived: !!c!.waivedAt } });
 }
 
 export type WaiveCheckInput = { project: string; key: string; n: number; reason: string; approval_id?: string };
@@ -152,7 +169,7 @@ export async function setCheck(
   db: Db,
   input: SetCheckInput,
   ctx: Ctx,
-  validateEvidence?: (tx: Q, t: Task, id: string) => Promise<void>,
+  validateEvidence?: (tx: Q, t: Task, id: string) => Promise<{ source: string }>,
 ) {
   const p = await findProject(db, input.project);
   return writeTx(db, p, ctx, (tx, emit) => setCheckInTx(tx, emit, p, input, ctx, validateEvidence));
