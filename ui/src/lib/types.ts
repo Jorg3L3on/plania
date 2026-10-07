@@ -67,7 +67,7 @@ export type Resume = {
 // Everything waiting on Jorge (GET /api/inbox).
 export type InboxItem = {
   id: string;
-  kind: "approval" | "question";
+  kind: "approval" | "question" | "human_action" | "released";
   project: string;
   key: string | null;
   task_kind: string | null;
@@ -119,8 +119,12 @@ export type TaskRow = {
 };
 
 export type Blocker =
-  | { task: string; status: string; satisfied: boolean }
-  | { env: string; condition: string; value: string; current: unknown; satisfied: boolean };
+  | { type: "task"; task: string; status: string; satisfied: boolean }
+  | { type: "env"; env: string; condition: string; value: string; current: unknown; satisfied: boolean }
+  | { type: "human_action"; id: string; assignee: string; text: string; satisfied: boolean; satisfied_at: string | null }
+  | { type: "env_flag"; env: string; flag: string; equals: unknown; current: unknown; satisfied: boolean }
+  | { type: "time_after"; at: string; satisfied: boolean }
+  | { type: "metric_gte"; name: string; value: number; current: number | null; satisfied: boolean };
 
 export type Check = {
   n: number;
@@ -162,7 +166,7 @@ export type ProjectDetail = { slug: string; title: string; version: number; resu
 export type LiveEvent = { type: "task" | "project" | "decision"; project: string; key?: string };
 
 // Same sets the server validates against (src/db/schema.ts).
-export const TICKET_STATUSES = ["Backlog", "Ready", "In progress", "In review", "Blocked", "Needs Jorge", "Done", "Won't do"] as const;
+export const TICKET_STATUSES = ["Backlog", "Ready", "In progress", "In review", "Merged", "Released", "Blocked", "Needs Jorge", "Done", "Won't do"] as const;
 export const INITIATIVE_STATUSES = ["Planning", "Active", "Shipping", "Done", "On hold", "Won't do"] as const;
 export const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
 export const CLOSED_STATUSES = new Set(["Done", "Won't do"]);

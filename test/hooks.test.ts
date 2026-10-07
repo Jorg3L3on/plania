@@ -106,13 +106,19 @@ describe("POST /hooks/result", () => {
 
 describe("POST /hooks/env", () => {
   test("records what prod runs", async () => {
+    const bare = await post("/hooks/env", TEST_CI_TOKEN, { project: "filmia", env: "prod", deployed: true, request_id: "deploy-0" });
+    assert.equal(bare.status, 400, "deployed needs its source");
+    assert.equal(((await bare.json()) as Json).error, "DEPLOY_SOURCE_REQUIRED");
     const res = await post("/hooks/env", TEST_CI_TOKEN, {
-      project: "filmia", env: "prod", commit: "ab8f69c", branch: "main", migrations_applied: 8, deployed: true, request_id: "deploy-1",
+      project: "filmia", env: "prod", commit: "ab8f69c", branch: "main", migrations_applied: 8,
+      deployed: { provider: "github", deployment_id: "1234", url: "https://github.com/x/y/deployments/1234" }, request_id: "deploy-1",
     });
     assert.equal(res.status, 200);
     const { env } = (await res.json()) as Json;
     assert.equal(env.migrations_applied, 8);
     assert.equal(env.by.agent, "ci");
+    assert.equal(env.source.provider, "github");
+    assert.match(env.deployed_at, /Z$/);
     const bad = await post("/hooks/env", TEST_CI_TOKEN, { project: "filmia", env: "prod", migrations_applied: "8", request_id: "d2" });
     assert.equal(bad.status, 400);
   });

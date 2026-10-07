@@ -4,6 +4,10 @@ import {
   INITIATIVE_STATUSES,
   PRIORITIES,
   TICKET_STATUSES,
+  envCommits,
+  envStates,
+  pullRequests,
+  results,
   tasks,
   type Task,
   type Workspace,
@@ -19,12 +23,13 @@ import {
   writeReply,
 } from "./queries.js";
 import { loadApproval, useApproval } from "./approvals.js";
-import { parseBlockers, replaceBlockers, resolveTaskBlockers, unsatisfiedBlockers, type BlockerInput } from "./blockers.js";
+import { parseBlockers, promoteUnblocked, replaceBlockers, resolveTaskBlockers, unsatisfiedBlockers, type BlockerInput } from "./blockers.js";
+import { assertBranchName, assertTicketBranch, registerIntegrationBranch } from "./branches.js";
 import { assertChecksClosed, replaceChecks, type CheckInput } from "./checks.js";
 import { hasDoc } from "./docs.js";
 import { assertReviewEvidence } from "./evidence.js";
 import { addAlias, assignKey } from "./keys.js";
-import { GATED_STATUSES, TERMINAL, WORK_TYPES, actionForMove, assertTransition } from "./lifecycle.js";
+import { GATED_STATUSES, SEVERITIES, TERMINAL, WORK_TYPES, actionForMove, assertTransition } from "./lifecycle.js";
 import { markHeadlineStale } from "./project.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
@@ -116,10 +121,10 @@ function rejectFields(kind: string, input: Record<string, unknown>, fields: stri
   }
 }
 
-const TICKET_ONLY = ["parent_key", "priority", "origin", "work_type", "phase"];
+const TICKET_ONLY = ["parent_key", "priority", "origin", "work_type", "phase", "severity", "found_in", "introduced_by", "regression", "cost_note"];
 // A ticket is born Backlog or Ready; anything else is reached through the state machine.
 const CREATE_STATUSES = ["Backlog", "Ready"];
-const INITIATIVE_ONLY = ["base_branch", "next_action", "in_progress_note"];
+const INITIATIVE_ONLY = ["base_branch", "next_action", "in_progress_note", "integration_branch", "share_branch", "share_reason"];
 
 // v2 dropped the markdown body; a caller still sending it would lose notes silently, so it is an error.
 function rejectBody(input: { body?: unknown }): void {
@@ -150,7 +155,29 @@ export type CreateInput = {
   work_type?: string;
   base_branch?: string;
   next_action?: string;
+  integration_branch?: string;
+  share_branch?: boolean;
+  share_reason?: string;
+  areas?: string[];
+  severity?: string;
+  found_in?: string;
+  introduced_by?: string;
+  regression?: boolean;
+  cost_note?: string;
 };
+
+// Bug tickets carry a severity; debt tickets a cost note; neither field fits the other types.
+function checkTyped(input: { work_type?: string; severity?: string; found_in?: string; introduced_by?: string; regression?: boolean; cost_note?: string }, workType: string) {
+  const bugOnly = ["severity", "found_in", "introduced_by", "regression"] as const;
+  if (workType === "bug") {
+    if (!input.severity || !(SEVERITIES as readonly string[]).includes(input.severity)) throw new ToolError("INVALID_SEVERITY", { allowed: SEVERITIES });
+  } else {
+    for (const f of bugOnly) if (input[f] !== undefined) throw new ToolError("INVALID_SEVERITY", { field: f, hint: "bugs only" });
+  }
+  if (workType !== "debt" && input.cost_note !== undefined) throw new ToolError("INVALID_SEVERITY", { field: "cost_note", hint: "debt only" });
+}
+
+const normalizeAreas = (areas: string[] | undefined) => (areas ? [...new Set(areas.map((a) => a.trim()).filter(Boolean))] : undefined);
 
 // The ticket template. Hard rules: a scope, and for code and ops at least one Done when check.
 // Conventions only warn: a child without phase may be a phase that forgot to say so (bucket
@@ -189,10 +216,13 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
     rejectFields(kind, input, INITIATIVE_ONLY);
     checkPriority(input.priority ?? "P2");
     checkWorkType(input.work_type ?? "code");
+    checkTyped(input, input.work_type ?? "code");
     // create_task has no note, so it cannot satisfy "Blocked requires a note".
     if (status === "Blocked") throw new ToolError("BLOCKED_REQUIRES_NOTE");
     if (!CREATE_STATUSES.includes(status)) throw new ToolError("INVALID_STATUS");
   }
+  const integrationBranch = input.integration_branch?.trim();
+  if (integrationBranch) assertBranchName(p, integrationBranch);
 
   if (input.key !== undefined && (await findTask(tx, p.id, input.key))) throw new ToolError("KEY_EXISTS");
   const parent = input.parent_key ? await resolveParent(tx, p.id, input.parent_key) : undefined;
@@ -207,10 +237,11 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
     summary: input.summary ?? "",
     scope: input.scope ?? "",
     status,
+    areas: normalizeAreas(input.areas) ?? [],
   };
   const values: TaskInsert =
     kind === "initiative"
-      ? { ...common, baseBranch: input.base_branch ?? "main", nextAction: input.next_action ?? "" }
+      ? { ...common, baseBranch: input.base_branch ?? "main", nextAction: input.next_action ?? "", branch: integrationBranch ?? null }
       : {
           ...common,
           parentId: parent?.id ?? null,
@@ -218,6 +249,11 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
           workType: input.work_type ?? "code",
           phase: input.phase ?? null,
           origin: input.origin ?? (parent && IN_FLIGHT_PARENT.includes(parent.status) ? "discovered" : "chartered"),
+          severity: input.severity ?? null,
+          foundIn: input.found_in ?? null,
+          introducedBy: input.introduced_by ?? null,
+          regression: input.regression ?? null,
+          costNote: input.cost_note ?? null,
         };
   let t: Task;
   try {
@@ -226,8 +262,9 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
     if (isUniqueViolation(e)) throw new ToolError("KEY_EXISTS");
     throw e;
   }
-  await replaceBlockers(tx, t.id, blockerIds, blockedBy.env);
+  await replaceBlockers(tx, t.id, blockerIds, blockedBy.typed);
   await replaceChecks(tx, t.id, (input.checks ?? []).map((text) => ({ text })));
+  if (integrationBranch) await registerIntegrationBranch(tx, emit, p, t, integrationBranch, input);
   await emit("task.created", t, { kind, status, parent_key: parent?.key ?? null, key_assigned: assigned.assigned });
   return writeReply(tx, t, ctx, ["created"], { kind, parent_key: parent?.key ?? null }, warnings);
 }
@@ -250,7 +287,45 @@ const FIELD_NAMES: Partial<Record<keyof Task, string>> = {
   baseBranch: "base_branch",
   nextAction: "next_action",
   inProgressNote: "in_progress_note",
+  areas: "areas",
+  severity: "severity",
+  foundIn: "found_in",
+  introducedBy: "introduced_by",
+  regression: "regression",
+  costNote: "cost_note",
 };
+
+// Merged and Released by hand (R-12): only with proof. Merged needs a ci pass naming the merge
+// commit (the PR's merge_sha when the poller knows the PR); Released needs the release target
+// environment to contain that commit.
+async function assertMergeEvidence(tx: Q, p: Project, t: Task, to: string): Promise<void> {
+  const [pr] = await tx.select().from(pullRequests).where(eq(pullRequests.taskId, t.id)).orderBy(sql`${pullRequests.updatedAt} desc`).limit(1);
+  const passes = await tx
+    .select({ commit: results.commit })
+    .from(results)
+    .where(and(eq(results.taskId, t.id), eq(results.kind, "ci"), eq(results.verdict, "pass"), sql`${results.commit} is not null`));
+  const commits = passes.map((r) => r.commit!);
+  const mergeSha = pr?.mergeSha ?? null;
+  const cited = mergeSha ? commits.find((c) => mergeSha.startsWith(c) || c.startsWith(mergeSha)) : commits[0];
+  if (!cited) {
+    throw new ToolError("EVIDENCE_REQUIRED", {
+      work_type: t.workType,
+      hint: mergeSha ? `a ci pass result with commit ${mergeSha.slice(0, 7)} (the PR's merge commit)` : "a ci pass result that names the merge commit",
+      accepts: ["ci pass with commit"],
+    });
+  }
+  if (to === "Released") {
+    const env = p.settings.release_target ?? "prod";
+    const [state] = await tx.select().from(envStates).where(and(eq(envStates.projectId, p.id), eq(envStates.env, env))).limit(1);
+    const [known] = await tx
+      .select({ sha: envCommits.sha })
+      .from(envCommits)
+      .where(and(eq(envCommits.projectId, p.id), eq(envCommits.env, env), sql`${envCommits.sha} like ${cited} || '%' or ${cited} like ${envCommits.sha} || '%'`))
+      .limit(1);
+    const deployed = state?.commit && (state.commit.startsWith(cited) || cited.startsWith(state.commit));
+    if (!known && !deployed) throw new ToolError("EVIDENCE_REQUIRED", { hint: `${env} does not contain ${cited.slice(0, 7)} yet (set_env commits, or the deploy poller)`, env });
+  }
+}
 
 export type SetTaskInput = {
   project: string;
@@ -273,6 +348,15 @@ export type SetTaskInput = {
   note?: string;
   version?: number;
   approval_id?: string;
+  integration_branch?: string;
+  share_branch?: boolean;
+  share_reason?: string;
+  areas?: string[];
+  severity?: string;
+  found_in?: string;
+  introduced_by?: string;
+  regression?: boolean;
+  cost_note?: string;
 };
 
 // An initiative closes only once every ticket of it is Done or Won't do (Jorge included).
@@ -294,8 +378,9 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   const noteOnly = Object.values(fields).every((v) => v === undefined);
   const t = await requireTask(tx, p.id, input.key);
   rejectFields(t.kind, input, t.kind === "initiative" ? TICKET_ONLY : INITIATIVE_ONLY);
-  checkVersion(t.version, input.version, !noteOnly);
-  if (!noteOnly) checkOwner(t, ctx);
+  // The pollers write what GitHub and the deploys say: no version to carry, no lease to respect.
+  checkVersion(t.version, input.version, !noteOnly && !ctx.system);
+  if (!noteOnly && !ctx.system) checkOwner(t, ctx);
   const patch: TaskPatch = {};
   let approved = false;
   const approval = input.approval_id ? await loadApproval(tx, p.id, input.approval_id) : undefined;
@@ -309,15 +394,17 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     }
     approved = assertTransition(t.kind, t.status, input.status, {
       human: ctx.human,
-      via: "set_task",
+      via: ctx.system ? "system" : "set_task",
       approval: approval ? { action: approval.action } : null,
     });
     // The approval is checked (and spent) before the gates: a wrong or used one is refused first.
     if (approved && approval && needed) await useApproval(tx, emit, approval, t, needed, {}, ctx);
-    if (input.status === "In review" && t.kind === "ticket" && t.status !== "In review" && !ctx.human) {
+    if (input.status === "In review" && t.kind === "ticket" && t.status !== "In review" && !ctx.human && !ctx.system) {
       await assertReviewEvidence(tx, t, hasDoc);
     }
-    if ((GATED_STATUSES as readonly string[]).includes(input.status) && input.status !== t.status) await assertChecksClosed(tx, t);
+    // The pollers move on what GitHub and the deploys say (reality wins); the audit flags open checks.
+    if ((GATED_STATUSES as readonly string[]).includes(input.status) && input.status !== t.status && !ctx.system) await assertChecksClosed(tx, t);
+    if ((input.status === "Merged" || input.status === "Released") && input.status !== t.status && !ctx.human && !ctx.system) await assertMergeEvidence(tx, p, t, input.status);
     if (t.kind === "initiative" && (TERMINAL as readonly string[]).includes(input.status) && input.status !== t.status) {
       await assertChildrenClosed(tx, t);
     }
@@ -342,6 +429,27 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     checkWorkType(input.work_type);
     patch.workType = input.work_type;
   }
+  if (t.kind === "ticket") {
+    const workType = input.work_type ?? t.workType ?? "code";
+    const typed = { severity: input.severity, found_in: input.found_in, introduced_by: input.introduced_by, regression: input.regression, cost_note: input.cost_note };
+    if (Object.values(typed).some((v) => v !== undefined) || (input.work_type !== undefined && input.work_type !== t.workType)) {
+      checkTyped({ ...typed, severity: input.severity ?? (workType === "bug" ? (t.severity ?? undefined) : undefined) }, workType);
+    }
+    if (input.severity !== undefined) patch.severity = input.severity;
+    if (input.found_in !== undefined) patch.foundIn = input.found_in;
+    if (input.introduced_by !== undefined) patch.introducedBy = input.introduced_by;
+    if (input.regression !== undefined) patch.regression = input.regression;
+    if (input.cost_note !== undefined) patch.costNote = input.cost_note;
+  }
+  const areas = normalizeAreas(input.areas);
+  if (areas !== undefined) patch.areas = areas;
+  // An initiative's integration branch is its `branch`; registering it enforces the naming rule and ownership.
+  const integrationBranch = t.kind === "initiative" ? (input.integration_branch ?? input.branch)?.trim() : undefined;
+  if (integrationBranch !== undefined) {
+    await registerIntegrationBranch(tx, emit, p, t, integrationBranch, input);
+    patch.branch = integrationBranch;
+  }
+  if (t.kind === "ticket" && input.branch !== undefined && input.branch.trim()) await assertTicketBranch(tx, p, t, input.branch.trim());
 
   // Moving under another initiative (or out to standalone) gives the ticket a key under its new
   // parent; the old key stays as an alias so every reference keeps resolving.
@@ -362,7 +470,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
 
   const blockerIds = blockedBy ? await resolveTaskBlockers(tx, p.id, blockedBy.keys, t.key) : undefined;
 
-  if (input.branch !== undefined) patch.branch = input.branch;
+  if (input.branch !== undefined && t.kind === "ticket") patch.branch = input.branch;
   if (input.pr_url !== undefined) patch.prUrl = input.pr_url;
   if (input.summary !== undefined) patch.summary = input.summary;
   if (input.scope !== undefined) patch.scope = input.scope;
@@ -372,15 +480,18 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   if (input.in_progress_note !== undefined) patch.inProgressNote = input.in_progress_note;
 
   for (const [field, name] of Object.entries(FIELD_NAMES) as [keyof Task, string][]) {
-    if (!(field in patch) || patch[field as keyof TaskPatch] === t[field]) continue;
-    changes[name] = field === "parentId" ? parentKeys! : [t[field], patch[field as keyof TaskPatch]];
+    const before = t[field];
+    const after = patch[field as keyof TaskPatch];
+    if (!(field in patch)) continue;
+    if (Array.isArray(before) && Array.isArray(after) ? JSON.stringify(before) === JSON.stringify(after) : after === before) continue;
+    changes[name] = field === "parentId" ? parentKeys! : [before, after];
   }
 
   const u = await updateTask(tx, t, patch, !noteOnly);
   if (rekey) await addAlias(tx, p.id, t.id, rekey[0]);
   if (blockedBy && blockerIds) {
-    await replaceBlockers(tx, t.id, blockerIds, blockedBy.env);
-    changes.blocked_by = [null, [...blockedBy.keys.sort(), ...blockedBy.env]];
+    await replaceBlockers(tx, t.id, blockerIds, blockedBy.typed);
+    changes.blocked_by = [null, [...blockedBy.keys.sort(), ...blockedBy.typed]];
   }
   if (input.checks !== undefined) {
     const changed = await replaceChecks(tx, t.id, input.checks);
@@ -398,6 +509,8 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     }
     // The headline talks about where things stand; an initiative moving or a ticket closing dates it.
     if (t.kind === "initiative" || patch.status === "Done") await markHeadlineStale(tx, p.id);
+    // A ticket reaching In review or later may be what a Blocked ticket waited for.
+    await promoteUnblocked(tx, emit, p.id);
   }
   if (rekey) {
     changedNames.push("key");
@@ -411,6 +524,8 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     changedNames.push("note");
     await addNote(emit, u, input.note);
   }
+  // Blocked with blockers that already hold goes straight back to Ready.
+  if (patch.status === "Blocked") await promoteUnblocked(tx, emit, p.id);
   return writeReply(tx, u, ctx, changedNames, rekey ? { previous_key: rekey[0] } : {});
 }
 
@@ -447,6 +562,14 @@ export async function setTaskLinks(
 }
 
 const CLAIMABLE_FROM = ["Backlog", "Ready", "In progress", "In review", "Blocked"];
+
+// Two path globs overlap when one's fixed prefix (up to its first wildcard) starts the other's.
+export function areasOverlap(a: string, b: string): boolean {
+  const prefix = (g: string) => g.split(/[*?[{]/)[0]!.replace(/\/+$/, "");
+  const pa = prefix(a);
+  const pb = prefix(b);
+  return pa.startsWith(pb) || pb.startsWith(pa);
+}
 export const TTL = { default: 30, min: 5, max: 240 } as const;
 
 function ttlMinutes(ttl: number | undefined): number {
@@ -476,8 +599,9 @@ export async function claimInTx(tx: Q, emit: Emit, p: Project, input: ClaimInput
   const owner = liveOwner(t);
   const mine = owner?.session_id === ctx.actor.session_id;
   const held = () => new ToolError("CLAIM_HELD", { owner, lease_until: iso(t.leaseUntil), workspace: t.workspace });
-  const workspace = input.workspace ? { machine: ctx.actor.machine, ...input.workspace } : undefined;
-  const reply = (u: Task, changed: string[]) => writeReply(tx, u, ctx, changed, { claim: claimShape(u), workspace: u.workspace });
+  let workspace = input.workspace ? { machine: ctx.actor.machine, ...input.workspace } : undefined;
+  const warnings: string[] = [];
+  const reply = (u: Task, changed: string[]) => writeReply(tx, u, ctx, changed, { claim: claimShape(u), workspace: u.workspace }, warnings);
 
   if (action === "release") {
     if (!t.owner) return reply(t, []); // nothing held: releasing again is a no-op
@@ -505,6 +629,22 @@ export async function claimInTx(tx: Q, emit: Emit, p: Project, input: ClaimInput
   if (!CLAIMABLE_FROM.includes(t.status)) throw new ToolError("NOT_CLAIMABLE", { status: t.status });
   const blockers = await unsatisfiedBlockers(tx, t);
   if (blockers.length) throw new ToolError("NOT_CLAIMABLE", { blocked_by: blockers });
+  // A phase works on its initiative's integration branch unless told otherwise (R-09).
+  const parent = t.parentId ? (await tx.select().from(tasks).where(eq(tasks.id, t.parentId)).limit(1))[0] : undefined;
+  if (workspace && !workspace.branch && parent?.branch) workspace = { ...workspace, branch: parent.branch };
+  if (!workspace && parent?.branch) workspace = { machine: ctx.actor.machine, branch: parent.branch };
+  if (workspace?.branch) await assertTicketBranch(tx, p, t, workspace.branch);
+  // Other live claims on overlapping code areas are a warning, never a block (R-11).
+  if (t.areas.length) {
+    const live = await tx
+      .select({ key: tasks.key, areas: tasks.areas, owner: tasks.owner })
+      .from(tasks)
+      .where(and(eq(tasks.projectId, p.id), sql`${tasks.leaseUntil} > now()`, sql`${tasks.id} <> ${t.id}`));
+    for (const other of live) {
+      const overlap = other.areas.filter((a) => t.areas.some((b) => areasOverlap(a, b)));
+      if (overlap.length) warnings.push(`${other.key} (${other.owner?.agent ?? "?"}) also works on ${overlap.join(", ")}`);
+    }
+  }
 
   const u = await updateTask(
     tx,

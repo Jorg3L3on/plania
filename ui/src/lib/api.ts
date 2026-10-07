@@ -50,6 +50,10 @@ export const api = {
   waiveCheck: (slug: string, key: string, n: number, reason: string) =>
     request<TaskDetail>("POST", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/checks/${n}/waive`, { reason }),
   inbox: (project?: string) => request<Inbox>("GET", project ? `/inbox?project=${encodeURIComponent(project)}` : "/inbox"),
+  resolveBlocker: (slug: string, id: string) =>
+    request<{ key: string }>("POST", `/projects/${encodeURIComponent(slug)}/blockers/${encodeURIComponent(id)}/resolve`),
+  markDone: (slug: string, key: string) =>
+    request<TaskDetail>("POST", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/done`),
   decide: (ids: string[], decision: "grant" | "reject", note?: string) =>
     request<{ results: { id: string; ok: boolean; error?: string }[]; decided: number }>("POST", "/approvals/decide", { ids, decision, note }),
   tokens: () => request<AgentToken[]>("GET", "/tokens"),

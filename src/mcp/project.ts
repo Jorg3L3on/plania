@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { projects, type Project } from "../db/schema.js";
+import { projects, type Project, type ProjectSettings } from "../db/schema.js";
 import { ToolError } from "./errors.js";
 import { TEXT_LIMITS } from "./limits.js";
 import { findProject, legacyCard } from "./queries.js";
@@ -10,9 +10,34 @@ import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 // additions to the protocol) and the headline (one line on where it stands, ≤ 280 chars).
 // Replaced with the version you read; rules_version moves with the rules, headline_version with the headline.
 
+const SETTING_KEYS = ["release_target", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel"] as const;
+
+// settings merge key by key; null removes one. Secrets never: integrations name env vars.
+function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>): ProjectSettings {
+  const next: Record<string, unknown> = { ...current };
+  for (const [k, v] of Object.entries(patch)) {
+    if (!(SETTING_KEYS as readonly string[]).includes(k)) throw new ToolError("INVALID_FILTER", { field: `settings.${k}`, allowed: SETTING_KEYS });
+    if (v === null) delete next[k];
+    else next[k] = v;
+  }
+  if (next.claim_from !== undefined && !["backlog", "ready"].includes(String(next.claim_from))) throw new ToolError("INVALID_FILTER", { field: "settings.claim_from", allowed: ["backlog", "ready"] });
+  if (next.branch_pattern !== undefined) {
+    try {
+      new RegExp(String(next.branch_pattern));
+    } catch {
+      throw new ToolError("INVALID_FILTER", { field: "settings.branch_pattern", hint: "a valid regular expression" });
+    }
+  }
+  if (next.release_target !== undefined && !/^[a-z][a-z0-9_-]{0,29}$/.test(String(next.release_target))) throw new ToolError("INVALID_FILTER", { field: "settings.release_target" });
+  for (const [name, q] of Object.entries((next.quotas as Record<string, { daily?: unknown }> | undefined) ?? {})) {
+    if (!Number.isInteger(q?.daily) || (q.daily as number) < 1) throw new ToolError("INVALID_FILTER", { field: `settings.quotas.${name}.daily`, hint: "a positive integer" });
+  }
+  return next as ProjectSettings;
+}
+
 export async function setProject(
   db: Db,
-  input: { project: string; version?: number; title?: string; body?: string; rules?: string; headline?: string },
+  input: { project: string; version?: number; title?: string; body?: string; rules?: string; headline?: string; settings?: Record<string, unknown> },
   ctx: Ctx,
 ) {
   const p = await findProject(db, input.project);
@@ -29,6 +54,8 @@ export async function setProject(
     if (input.rules !== undefined && input.rules !== current.rulesText) changes.rules = [current.rulesText, input.rules];
     const headline = input.headline?.trim();
     if (headline !== undefined && headline !== current.headline) changes.headline = [current.headline, headline];
+    const settings = input.settings ? mergeSettings(current.settings, input.settings) : undefined;
+    if (settings && JSON.stringify(settings) !== JSON.stringify(current.settings)) changes.settings = [current.settings, settings];
     if (!Object.keys(changes).length) return projectShape(current);
     const [u] = await tx
       .update(projects)
@@ -39,6 +66,7 @@ export async function setProject(
         ...(changes.headline
           ? { headline, headlineVersion: sql`${projects.headlineVersion} + 1`, headlineAt: sql`now()`, headlineStale: false }
           : {}),
+        ...(changes.settings ? { settings } : {}),
         version: sql`${projects.version} + 1`,
         updatedAt: sql`now()`,
       })
@@ -61,6 +89,7 @@ function projectShape(p: Project) {
     rules: p.rulesText,
     rules_version: p.rulesVersion,
     headline: headlineShape(p),
+    settings: p.settings,
     version: p.version,
   };
 }

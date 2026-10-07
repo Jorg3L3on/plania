@@ -1,0 +1,4 @@
+[
+  { "name": "main", "commit": { "sha": "9999999" } },
+  { "name": "jl/catalog-split", "commit": { "sha": "bbbbbbb222222222222222222222222222222222" } }
+]

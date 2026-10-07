@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { checks, events, projects, taskAliases, tasks, type Actor, type Project, type Task } from "../db/schema.js";
 import { blockerList, hasUnsatisfiedBlocker } from "./blockers.js";
@@ -183,7 +183,7 @@ export async function taskFull(db: Q, t: Task, opts: ShapeOptions = {}) {
     work_type: t.workType,
     phase: t.phase,
     checks: await taskChecks(db, t.id),
-    results: await taskResults(db, t.id),
+    results: await taskResults(db, t),
     docs: await taskDocs(db, t.id),
     questions: await taskQuestions(db, t),
     origin: t.origin,
@@ -195,6 +195,9 @@ export async function taskFull(db: Q, t: Task, opts: ShapeOptions = {}) {
     ...(t.kind === "initiative" ? { in_progress_note: t.inProgressNote, next_action: t.nextAction } : {}),
     branch: t.branch,
     pr_url: t.prUrl,
+    areas: t.areas,
+    ...(t.workType === "bug" ? { severity: t.severity, found_in: t.foundIn, introduced_by: t.introducedBy, regression: t.regression } : {}),
+    ...(t.workType === "debt" ? { cost_note: t.costNote } : {}),
     claim: claimShape(t),
     workspace: t.workspace,
     version: t.version,
@@ -294,6 +297,7 @@ export type TaskFilters = {
   status?: string;
   kind?: string;
   workType?: string;
+  severity?: string[];
   owner?: string; // a live lease held by this session_id or agent; "none" for unclaimed
   unblocked?: boolean;
   updatedSince?: string;
@@ -313,6 +317,7 @@ export async function listTasks(db: Q, projectId: string, filters: TaskFilters) 
   if (filters.status !== undefined) where.push(eq(tasks.status, filters.status));
   if (filters.kind !== undefined) where.push(eq(tasks.kind, filters.kind));
   if (filters.workType !== undefined) where.push(eq(tasks.workType, filters.workType));
+  if (filters.severity?.length) where.push(inArray(tasks.severity, filters.severity));
   if (filters.owner === "none") where.push(sql`not coalesce(${live}, false)`);
   else if (filters.owner !== undefined) {
     where.push(sql`${live} and (${tasks.owner}->>'session_id' = ${filters.owner} or ${tasks.owner}->>'agent' = ${filters.owner})`);
@@ -343,6 +348,7 @@ export async function listTasks(db: Q, projectId: string, filters: TaskFilters) 
       work_type: tasks.workType,
       parent_key: parent.key,
       origin: tasks.origin,
+      severity: tasks.severity,
       version: tasks.version,
       claimed_by: sql<Actor | null>`case when ${live} then ${tasks.owner} end`,
       updated_at: sql<string>`to_char(${tasks.updatedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
@@ -364,12 +370,15 @@ export async function getMemory(db: Q, p: Project, filters: DecisionFilters = {}
 
 // Read-only. Claimable: ticket in Backlog|Ready whose blockers are all In review|Done.
 export async function nextTask(db: Q, projectId: string, initiativeKey?: string) {
+  const [p] = await db.select({ settings: projects.settings }).from(projects).where(eq(projects.id, projectId)).limit(1);
   const where: SQL[] = [
     eq(tasks.projectId, projectId),
     eq(tasks.kind, "ticket"),
     claimableNow,
     sql`not ${hasUnsatisfiedBlocker(tasks.id)}`,
   ];
+  // settings.claim_from: "ready" means only Ready tickets (and stale claims) are offered.
+  if (p?.settings.claim_from === "ready") where.push(sql`${tasks.status} <> 'Backlog'`);
   if (initiativeKey !== undefined) {
     const initiative = await findTask(db, projectId, initiativeKey);
     if (!initiative || initiative.kind !== "initiative") throw new ToolError("INITIATIVE_NOT_FOUND");

@@ -11,6 +11,8 @@ const TONE: Record<string, Tone> = {
   "In progress": "now",
   Active: "now",
   "In review": "review",
+  Merged: "review",
+  Released: "review",
   Shipping: "review",
   Blocked: "blocked",
   "Needs Jorge": "jorge",

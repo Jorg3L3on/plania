@@ -43,6 +43,8 @@ const WORD: Record<string, string> = {
   Ready: "listo",
   "In progress": "en curso",
   "In review": "en revisión",
+  Merged: "integrado",
+  Released: "desplegado",
   Blocked: "bloqueado",
   "Needs Jorge": "te espera",
   Done: "hecho",

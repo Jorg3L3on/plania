@@ -141,9 +141,10 @@ after(async () => {
 
 // The full tool surface. Update with the contract.
 const TOOLS = [
-  "add_decision", "add_result", "answer", "archive_legacy_card", "ask", "attach_doc", "batch", "claim", "create_task", "get_doc", "get_inbox",
-  "get_memory", "get_next", "get_project", "get_resume", "get_task", "list_events", "list_tasks", "request_approval", "reserve_sequence",
-  "retire_decision", "set_check", "set_env", "set_project", "set_task", "waive_check",
+  "add_decision", "add_result", "answer", "archive_legacy_card", "ask", "attach_doc", "batch", "claim", "consume", "create_task", "get_doc",
+  "get_inbox", "get_memory", "get_next", "get_project", "get_resume", "get_task", "lease_resource", "list_events", "list_tasks",
+  "release_resource", "request_approval", "reserve_sequence", "retire_decision", "set_check", "set_env", "set_metric", "set_project",
+  "set_task", "waive_check",
 ];
 
 test("exposes exactly the contract tools", async () => {
@@ -269,7 +270,7 @@ describe("handoff cycle: create → get_next → In progress → In review", () 
     const f2 = await call("create_task", {
       project: "filmia", key: "FIL-01-F2", title: "F2", scope: "Phase 2", parent_key: "FIL-01", blocked_by: ["FIL-01-F1"],
     });
-    assert.deepEqual(f2.blocked_by, [{ task: "FIL-01-F1", status: "Backlog", satisfied: false }]);
+    assert.deepEqual(f2.blocked_by, [{ type: "task", task: "FIL-01-F1", status: "Backlog", satisfied: false }]);
 
     assert.equal((await call("get_next", { project: "filmia" })).task.key, "FIL-01-F1");
 
@@ -298,7 +299,7 @@ describe("handoff cycle: create → get_next → In progress → In review", () 
 
     const next = await call("get_next", { project: "filmia" });
     assert.equal(next.task.key, "FIL-01-F2", "In review unblocks");
-    assert.deepEqual(next.task.blocked_by, [{ task: "FIL-01-F1", status: "In review", satisfied: true }]);
+    assert.deepEqual(next.task.blocked_by, [{ type: "task", task: "FIL-01-F1", status: "In review", satisfied: true }]);
 
     const counts = (await call("get_project", { project: "filmia" })).counts;
     assert.deepEqual(counts, { chartered: 2, charteredSettled: 1, found: 0, foundOpen: 0 });
@@ -985,12 +986,12 @@ describe("v2 B6: environments", () => {
       blocked_by: [{ env: "prod", condition: "migration_gte", value: "0009" }],
     });
     let t = await call("get_task", { ...P, key: "WRK-V-01" });
-    assert.deepEqual(t.blocked_by, [{ env: "prod", condition: "migration_gte", value: "9", current: null, satisfied: false }]);
+    assert.deepEqual(t.blocked_by, [{ type: "env", env: "prod", condition: "migration_gte", value: "9", current: null, satisfied: false }]);
     await expectError("claim", { ...P, key: "WRK-V-01" }, "NOT_CLAIMABLE", 409);
     const { rows } = await raw.query("select status from tasks where key = 'WRK-V-01'");
     assert.equal(rows[0].status, "Backlog");
 
-    const { env } = await call("set_env", { ...P, env: "prod", commit: "abc1234", branch: "main", migrations_applied: 9, deployed: true });
+    const { env } = await call("set_env", { ...P, env: "prod", commit: "abc1234", branch: "main", migrations_applied: 9, deployed: { provider: "manual", deployment_id: "d-0" } });
     assert.equal(env.migrations_applied, 9);
     assert.match(env.deployed_at, /Z$/);
     assert.equal(env.by.session_id, "s1");
@@ -1009,7 +1010,7 @@ describe("v2 B6: environments", () => {
     });
     let t = await call("get_task", { ...P, key: "WRK-V-02" });
     assert.deepEqual(t.blocked_by.map((b: Json) => b.satisfied), [false, false, false]);
-    await call("set_env", { ...P, env: "prod", commits: ["deadbeef1234567"], deployed: true });
+    await call("set_env", { ...P, env: "prod", commits: ["deadbeef1234567"], deployed: { provider: "manual", deployment_id: "d-1" } });
     t = await call("get_task", { ...P, key: "WRK-V-02" });
     assert.deepEqual(t.blocked_by.map((b: Json) => [b.task ?? b.condition, b.satisfied]), [
       ["WRK-V-01", false], ["contains_commit", true], ["deployed_after", true],
@@ -1133,11 +1134,11 @@ describe("v2 C2: list_events", () => {
 describe("v2 C4: protocol and project text", () => {
   test("the protocol comes with initialize, versioned", async () => {
     const text = client.getInstructions() ?? "";
-    assert.match(text, /^Plania protocol 2\.1\./);
+    assert.match(text, /^Plania protocol 2\.2\./);
     assert.match(text, /Never set Done or Won't do/);
-    assert.equal(client.getServerVersion()?.version, "2.1.0");
+    assert.equal(client.getServerVersion()?.version, "2.2.0");
     const p = await call("get_project", { project: "zigzag" });
-    assert.equal(p.protocol_version, "2.1");
+    assert.equal(p.protocol_version, "2.2");
   });
 
   test("set_project edits body and rules with the version; rules_version follows the rules", async () => {

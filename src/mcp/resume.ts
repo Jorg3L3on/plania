@@ -4,6 +4,7 @@ import { listDecisions } from "./decisions.js";
 import { legacyCard, liveOwner, nextTask } from "./queries.js";
 import { headlineShape } from "./project.js";
 import { openQuestions } from "./questions.js";
+import { statusBlock } from "./status.js";
 import { iso, type Q } from "./tx.js";
 
 // get_resume: generated, never hand-written. One block per open initiative (what is claimed, what is
@@ -84,6 +85,7 @@ export async function resumeDigest(db: Q, p: Project, opts: ResumeOptions = {}) 
     project: p.slug,
     generated_at: new Date().toISOString(),
     headline: headlineShape(p),
+    status: await statusBlock(db, p),
     claims: claimed.map(claimLine),
     next_claimable: (await nextTask(db, p.id)).task,
     initiatives,

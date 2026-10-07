@@ -57,6 +57,33 @@ function ApprovalRow({ item, checked, onToggle }: { item: InboxItem; checked: bo
   );
 }
 
+// A human action a ticket waits on, or a Released ticket waiting for Done: one button each.
+function ActionRow({ item }: { item: InboxItem }) {
+  const queryClient = useQueryClient();
+  const act = useMutation({
+    mutationFn: () => (item.kind === "human_action" ? api.resolveBlocker(item.project, item.id) : api.markDone(item.project, item.key ?? "")),
+    onSuccess: () => toast(item.kind === "human_action" ? "Marcado como hecho" : `${item.key} → Done`),
+    onError: () => toast.error("No se pudo guardar."),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["inbox"] });
+      void queryClient.invalidateQueries({ queryKey: ["project", item.project] });
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
+  return (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm">
+      <Link to={`/p/${item.project}?task=${encodeURIComponent(item.key ?? "")}`} className="font-mono text-xs underline-offset-4 hover:underline">{item.key}</Link>
+      <span className="font-medium">{item.title}</span>
+      <span className="text-muted-foreground">{item.kind === "human_action" ? `te toca: ${item.why}` : "desplegado; falta Done"}</span>
+      <span className="text-xs text-muted-foreground">espera {waitText(item.wait_s)}</span>
+      {item.pr_url && <a href={item.pr_url} target="_blank" rel="noreferrer" className="text-xs underline underline-offset-4">PR</a>}
+      <Button size="sm" variant={item.kind === "released" ? "default" : "outline"} className="ml-auto" disabled={act.isPending} onClick={() => act.mutate()}>
+        {item.kind === "human_action" ? "Hecho" : "Done"}
+      </Button>
+    </li>
+  );
+}
+
 export function InboxPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -86,6 +113,7 @@ export function InboxPage() {
       project,
       approvals: items.filter((i) => i.project === project && i.kind === "approval"),
       questions: items.filter((i) => i.project === project && i.kind === "question"),
+      actions: items.filter((i) => i.project === project && (i.kind === "human_action" || i.kind === "released")),
     }));
   }, [inbox.data]);
 
@@ -141,7 +169,7 @@ export function InboxPage() {
         </div>
       )}
 
-      {grouped.map(({ project, approvals, questions }) => (
+      {grouped.map(({ project, approvals, questions, actions }) => (
         <section key={project} className="grid gap-3">
           <h2 className="font-display text-[15px] font-bold tracking-[0.08em] text-muted-foreground uppercase">
             <Link to={`/p/${project}`} className="underline-offset-4 hover:underline">{project}</Link>
@@ -152,6 +180,13 @@ export function InboxPage() {
                 <ul className="divide-y">
                   {approvals.map((item) => <ApprovalRow key={item.id} item={item} checked={selected.has(item.id)} onToggle={() => toggle(item.id)} />)}
                 </ul>
+              </CardContent>
+            </Card>
+          )}
+          {actions.length > 0 && (
+            <Card className="gap-0 divide-y py-0">
+              <CardContent className="px-0">
+                <ul className="divide-y">{actions.map((item) => <ActionRow key={item.id} item={item} />)}</ul>
               </CardContent>
             </Card>
           )}

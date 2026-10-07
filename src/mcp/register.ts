@@ -34,8 +34,12 @@ import { attachDoc, getDoc } from "./docs.js";
 import { REVIEW_EVIDENCE, RESULT_KINDS, VERDICTS, addResult, validateEvidence } from "./evidence.js";
 import { checkSizes } from "./limits.js";
 import type { Ctx } from "./tx.js";
-import { ENV_CONDITIONS } from "./blockers.js";
+import { ENV_CONDITIONS, projectMetricsOf, setMetricInTx } from "./blockers.js";
+import { projectBranches } from "./branches.js";
 import { projectEnv, setEnv } from "./env.js";
+import { consume, leaseResource, projectResources, releaseResource } from "./resources.js";
+import { SEVERITIES } from "./lifecycle.js";
+import { writeTx } from "./tx.js";
 import { PROTOCOL_VERSION, instructions } from "./protocol.js";
 import { answer, ask } from "./questions.js";
 import { TTL, claim, createTask, setTask } from "./writes.js";
@@ -78,10 +82,14 @@ const blockedBy = z
         condition: z.string().describe(ENV_CONDITIONS.join(" | ")),
         value: z.union([z.string(), z.number()]).optional().describe("sha | migration number | ISO time (omit for the next deploy)"),
       }),
+      z.object({ human_action: z.object({ assignee: z.string().optional(), text: z.string() }) }).describe("Something Jorge has to do; shows in his inbox"),
+      z.object({ env_flag: z.object({ env: z.string(), flag: z.string(), equals: z.union([z.string(), z.number(), z.boolean()]) }) }).describe("A flag set with set_env"),
+      z.object({ time_after: z.string() }).describe("Not before this ISO-8601 time"),
+      z.object({ metric_gte: z.object({ name: z.string(), value: z.number() }) }).describe("A metric reported with set_metric or on a result"),
     ]),
   )
   .describe(
-    "What must happen first: a task key (it must reach In review or Done), or an environment condition, e.g. {env: 'prod', condition: 'migration_gte', value: 9}. Replaces the whole list",
+    "What must happen first: a task key (it must reach In review or later), an environment condition {env, condition, value}, a human action, an env flag, a time, or a metric. Replaces the whole list. Once every blocker holds, a Blocked ticket goes back to Ready on its own",
   );
 
 const actor = z
@@ -143,6 +151,15 @@ const createFields = {
   work_type: z.string().optional().describe(`Tickets: ${WORK_TYPES.join(" | ")}; default code`),
   base_branch: z.string().min(1).optional().describe("Initiatives only; defaults to main"),
   next_action: z.string().optional().describe("Initiatives only: what comes next, shown in get_resume"),
+  integration_branch: z.string().min(1).optional().describe("Initiatives only: the branch its phases build on (one PR per initiative). Registered to it: BRANCH_IN_USE for another live initiative unless share_branch"),
+  share_branch: z.boolean().optional().describe("Initiatives: build on a branch another initiative owns, with share_reason"),
+  share_reason: z.string().optional(),
+  areas: z.array(z.string()).optional().describe("Path globs the work touches (e.g. drizzle/**); claim warns when another live claim overlaps"),
+  severity: z.enum(SEVERITIES).optional().describe("Bugs only (required for work_type bug)"),
+  found_in: z.string().optional().describe("Bugs: the environment it showed up in"),
+  introduced_by: z.string().optional().describe("Bugs: the key or sha that caused it"),
+  regression: z.boolean().optional().describe("Bugs: it used to work"),
+  cost_note: z.string().optional().describe("Debt: what it costs while it stays"),
 };
 
 const setTaskFields = {
@@ -165,6 +182,15 @@ const setTaskFields = {
   next_action: z.string().optional().describe("Initiatives only"),
   in_progress_note: z.string().optional().describe("Initiatives only"),
   work_type: z.string().optional().describe(`Tickets only: ${WORK_TYPES.join(" | ")}`),
+  integration_branch: z.string().min(1).optional().describe("Initiatives only: the branch its phases build on; BRANCH_IN_USE when another live initiative owns it unless share_branch"),
+  share_branch: z.boolean().optional(),
+  share_reason: z.string().optional(),
+  areas: z.array(z.string()).optional().describe("Path globs the work touches; replaces the list"),
+  severity: z.enum(SEVERITIES).optional().describe("Bugs only"),
+  found_in: z.string().optional(),
+  introduced_by: z.string().optional(),
+  regression: z.boolean().optional(),
+  cost_note: z.string().optional().describe("Debt only"),
   approval_id: z.string().optional().describe("For Done, Won't do or reopening: the id of an approval Jorge granted (request_approval). Spent on this move"),
   note: z.string().optional(),
   version: z.number().int().optional().describe("The version you read. Required unless note is the only field"),
@@ -186,6 +212,17 @@ const addResultFields = {
   cite: z.string().describe("e.g. 'pnpm test: 84 pass' or 'Playwright at 375px, sheet opens'"),
   url: z.string().optional(),
   check_ns: z.array(z.number().int()).optional().describe("Done when items this result proves (pass only)"),
+  commit: z.string().optional().describe("The commit the run was against (7-40 hex). With branch, the server marks the result stale_for_head once the branch moves on"),
+  branch: z.string().optional(),
+  env: z.string().optional().describe("The environment it ran against, e.g. prod"),
+  command: z.string().optional().describe("What ran, e.g. pnpm test"),
+  exit_code: z.number().int().optional(),
+  counts: z.object({ pass: z.number().int().optional(), fail: z.number().int().optional(), skip: z.number().int().optional() }).optional(),
+  duration_s: z.number().int().optional(),
+  attachments: z.array(z.string()).optional().describe("Links to screenshots, logs or traces (Plania stores no files)"),
+  viewport: z.string().optional().describe("UI checks: e.g. 375x812"),
+  device: z.string().optional(),
+  metrics: z.record(z.string(), z.number()).optional().describe("Values this run measured, for metric_gte blockers, e.g. {pickevent_nights: 31}"),
 };
 
 const addDecisionFields = {
@@ -213,7 +250,7 @@ const batchOp = z.discriminatedUnion("op", [
 export type ServerOptions = { scopes?: Scope[]; identity?: Identity; readOnly?: boolean };
 
 // Writes that touch what runs where or shared numbers: ops scope only.
-export const OPS_TOOLS = new Set(["set_env", "reserve_sequence"]);
+export const OPS_TOOLS = new Set(["set_env", "set_metric", "reserve_sequence", "lease_resource", "release_resource", "consume"]);
 
 export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
   const scopes = opts.readOnly ? ["read"] : (opts.scopes ?? ["read", "write", "ops"]);
@@ -266,8 +303,10 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
   server.registerTool(
     "get_project",
     {
-      description:
-        "Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, ticket counts, env (per environment: commit, branch, migrations_applied, deployed_at), and reserved sequence numbers (e.g. migrations) with the ticket holding each.",
+      description: [
+        "Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline, settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel),",
+        "ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, and reserved sequence numbers with the ticket holding each.",
+      ].join(" "),
       inputSchema: { project },
       annotations: readOnly,
     },
@@ -281,12 +320,16 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
           rules: p.rulesText,
           rules_version: p.rulesVersion,
           headline: headlineShape(p),
+          settings: p.settings,
           protocol_version: PROTOCOL_VERSION,
           version: p.version,
           key_prefix: p.keyPrefix || p.slug.slice(0, 3).toUpperCase(),
           next_keys: await nextKeys(db, p),
           counts: await projectCounts(db, p.id),
           env: await projectEnv(db, p.id),
+          branches: await projectBranches(db, p.id),
+          resources: await projectResources(db, p),
+          metrics: await projectMetricsOf(db, p.id),
           ...(await projectSequences(db, p.id)),
         };
       }),
@@ -306,6 +349,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         status: z.string().optional(),
         kind: z.enum(KINDS).optional(),
         work_type: z.string().optional(),
+        severity: z.array(z.enum(SEVERITIES)).optional().describe("Bugs of these severities"),
         owner: z.string().optional(),
         unblocked: z.boolean().optional(),
         updated_since: z.string().optional(),
@@ -314,11 +358,11 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       },
       annotations: readOnly,
     },
-    ({ project, parent_key, work_type, updated_since, ...f }) =>
+    ({ project, parent_key, work_type, updated_since, severity, ...f }) =>
       run(async () => {
         const p = await findProject(db, project);
         return {
-          tasks: await listTasks(db, p.id, { ...f, parentKey: parent_key, workType: work_type, updatedSince: updated_since }),
+          tasks: await listTasks(db, p.id, { ...f, parentKey: parent_key, workType: work_type, severity, updatedSince: updated_since }),
         };
       }),
   );
@@ -463,6 +507,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Initiative moves: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold; next_action and in_progress_note feed get_resume.",
         "Anything else is INVALID_TRANSITION with the allowed moves.",
         "Finishing a phase: add_result first, then status 'In review' (committed, not merged) with branch and pr_url; without fitting evidence it is EVIDENCE_REQUIRED.",
+        "Merged and Released are the pollers' (GitHub merge, deploy); by hand they need a ci pass result naming the merge commit (and, for Released, the release target env containing it).",
         "Done and Won't do (and reopening them) are Jorge's: HUMAN_ONLY. Ask with request_approval; once he grants it on screen, pass approval_id here (it is spent on this move).",
         "In review (and later Done) needs every check done or waived: CHECKS_OPEN lists the open numbers. An initiative needs every ticket closed: INITIATIVE_CHILDREN_OPEN.",
         "The reply is {key, status, version, changed}; verbose: true adds the full task.",
@@ -488,7 +533,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "add_result",
     {
       description: [
-        "Record evidence on a task: kind, verdict pass|warn|fail, cite (what ran and what it showed), url (CI run, screenshot, recording).",
+        "Record evidence on a task: kind, verdict pass|warn|fail, cite (what ran and what it showed), url (CI run, screenshot, recording), and the structured fields: commit, branch, env, command, exit_code, counts, duration_s, attachments, viewport, device, metrics.",
+        "A result that names a commit on a branch the poller tracks is marked stale_for_head once the branch moves; In review then needs a fresh pass (EVIDENCE_STALE).",
         "Anyone may add results: the owner, a QA session, CI. A pass with check_ns also ticks those Done when items, linked to this result.",
         `In review needs a pass recorded during the current claim: code ${REVIEW_EVIDENCE.code!.join("|")}; ops ${REVIEW_EVIDENCE.ops!.join("|")}; research any result or a doc; decision-needed never (it is answered).`,
       ].join(" "),
@@ -643,6 +689,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       description: [
         "Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline.",
         "headline: one line (≤ 280 chars) on where the project stands, shown first in get_resume; the server marks it stale when an env, an initiative or a Done moves after it.",
+        "settings merge key by key (null removes one): release_target (env a Released ticket reached, default prod), branch_pattern (regex), claim_from (backlog | ready, what get_next offers),",
+        "resources ({'port:*': {needs_approval, ttl_max}}), quotas ({'quota:omdb': {daily}}), github ({repo, token_env}), vercel ({project_id, team_id, token_env, targets}). Never a secret: integrations name env vars.",
         "Pass the version from get_project; STALE_VERSION if it moved. The old text stays in the log.",
       ].join(" "),
       inputSchema: {
@@ -654,6 +702,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         body: z.string().optional(),
         rules: z.string().optional(),
         headline: z.string().optional(),
+        settings: z.record(z.string(), z.unknown()).optional(),
       },
       annotations: write,
     },
@@ -664,19 +713,22 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "set_env",
     {
       description: [
-        "Record what an environment runs, as data other sessions can check: commit and branch deployed, migrations_applied (highest migration number applied), deployed: true stamps deployed_at now.",
-        "commits adds shas known to be in that environment (for contains_commit blockers). Only the fields you pass change; get_project shows env.",
+        "Record what an environment runs, as data other sessions can check: commit and branch deployed, migrations (the tags applied, e.g. ['0009_x']; migrations_applied is derived), flags (configuration state, never secret values: {google_oauth: false, omdb_key: 'valid'}; null removes one).",
+        "deployed takes {provider, deployment_id, url}: the server stamps deployed_at and keeps where it came from (DEPLOY_SOURCE_REQUIRED otherwise).",
+        "commits adds shas known to be in that environment (for contains_commit blockers). Only the fields you pass change; get_project shows env. Blocked tickets whose env_flag or env blockers now hold move to Ready.",
       ].join(" "),
       inputSchema: {
         project,
         actor,
         request_id,
-        env: z.string().describe("e.g. prod"),
+        env: z.string().describe("e.g. prod, sandbox, preview, local-db"),
         commit: z.string().optional(),
         branch: z.string().optional(),
-        migrations_applied: z.number().int().optional(),
+        migrations_applied: z.number().int().optional().describe("Deprecated: pass migrations"),
+        migrations: z.array(z.string()).optional().describe("Every migration tag applied, replaces the list"),
+        flags: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
         commits: z.array(z.string()).optional(),
-        deployed: z.boolean().optional(),
+        deployed: z.union([z.boolean(), z.object({ provider: z.string(), deployment_id: z.string(), url: z.string().optional() })]).optional(),
       },
       annotations: write,
     },
@@ -749,6 +801,60 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       annotations: readOnly,
     },
     ({ project }) => run(async () => inbox(db, project === "all" ? "all" : await findProject(db, project))),
+  );
+
+  server.registerTool(
+    "set_metric",
+    {
+      description: "Report a measured value (e.g. pickevent_nights 31) for metric_gte blockers; a result's metrics field does the same. Blocked tickets whose blockers now hold move to Ready.",
+      inputSchema: { project, actor, request_id, name: z.string().min(1), value: z.number().int() },
+      annotations: write,
+    },
+    writeHandler("set_metric", async (input, ctx) => {
+      const p = await findProject(db, input.project);
+      return writeTx(db, p, ctx, (tx, emit) => setMetricInTx(tx, emit, p.id, input.name, input.value, ctx.actor));
+    }),
+  );
+
+  server.registerTool(
+    "lease_resource",
+    {
+      description: [
+        "Hold a shared thing for a while so no other session uses it: a dev port (port:3001, scoped to your machine automatically), the production migrate step (neon-prod:migrate), anything by name.",
+        "RESOURCE_HELD says who has it and until when. Leasing again extends it. Names matching a settings.resources policy with needs_approval need an approval_id (request_approval, action lease_resource, target {name}) on a key-less approval: ask on the initiative.",
+      ].join(" "),
+      inputSchema: {
+        project,
+        actor,
+        request_id,
+        name: z.string().min(1),
+        ttl_minutes: z.number().int().optional().describe("Default 30, max 1440"),
+        purpose: z.string().optional(),
+        approval_id: z.string().optional(),
+      },
+      annotations: write,
+    },
+    writeHandler("lease_resource", (input, ctx) => leaseResource(db, input, ctx)),
+  );
+
+  server.registerTool(
+    "release_resource",
+    {
+      description: "Give a leased resource back. Releasing what you do not hold is a no-op.",
+      inputSchema: { project, actor, request_id, name: z.string().min(1) },
+      annotations: write,
+    },
+    writeHandler("release_resource", (input, ctx) => releaseResource(db, input, ctx)),
+  );
+
+  server.registerTool(
+    "consume",
+    {
+      description: "Count n (default 1) against a daily quota from settings.quotas (e.g. quota:omdb with daily 1000). QUOTA_EXCEEDED says what is left; the day is UTC.",
+      inputSchema: { project, actor, request_id, name: z.string().min(1), n: z.number().int().optional() },
+      annotations: write,
+    },
+    writeHandler("consume", (input, ctx) => consume(db, input, ctx)),
   );
 
   server.registerTool(

@@ -1,0 +1,14 @@
+[
+  {
+    "number": 130,
+    "html_url": "https://github.com/Jorg3L3on/filmia/pull/130",
+    "title": "Catalog split F1: additive migration",
+    "state": "closed",
+    "body": "Adds the new tables.\n\nPlania: FIL-I1-1\n",
+    "merged_at": "2026-10-07T21:00:00Z",
+    "merge_commit_sha": "ccccccc333333333333333333333333333333333",
+    "updated_at": "2026-10-07T21:00:00Z",
+    "head": { "sha": "bbbbbbb222222222222222222222222222222222", "ref": "jl/catalog-split" },
+    "base": { "ref": "sandbox" }
+  }
+]

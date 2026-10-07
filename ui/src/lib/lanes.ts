@@ -35,7 +35,7 @@ export type Lane = {
   state: LaneState;
   /** Done tickets, most recent first. */
   done: LaneTask[];
-  /** In progress, In review, Needs Jorge, Blocked. */
+  /** In progress, In review, Merged, Released, Needs Jorge, Blocked. */
   now: LaneTask[];
   /** Ready by priority; if none, the single best Backlog ticket. */
   next: LaneTask[];
@@ -51,8 +51,8 @@ export type Lane = {
 export const LOOSE_LANE_ID = "__loose";
 
 const CLOSED = new Set(["Done", "Won't do"]);
-const ACTIVE_WORK = new Set(["In progress", "In review"]);
-const NOW_ORDER: Record<string, number> = { "In progress": 0, "In review": 1, "Needs Jorge": 2, Blocked: 3 };
+const ACTIVE_WORK = new Set(["In progress", "In review", "Merged", "Released"]);
+const NOW_ORDER: Record<string, number> = { "In progress": 0, "In review": 1, Merged: 2, Released: 3, "Needs Jorge": 4, Blocked: 5 };
 const INITIATIVE_ORDER: Record<string, number> = { Active: 0, Shipping: 0, Planning: 1, "On hold": 2 };
 const STATE_ORDER: Record<LaneState, number> = { moving: 0, jorge: 1, blocked: 2, waiting: 3, paused: 4 };
 
@@ -65,7 +65,7 @@ const latest = (ts: LaneTask[]) => ts.reduce((m, t) => (t.updated_at > m ? t.upd
 function stationTone(t: LaneTask): StationTone {
   if (t.status === "Done") return "done";
   if (t.status === "In progress") return "now";
-  if (t.status === "In review") return "review";
+  if (t.status === "In review" || t.status === "Merged" || t.status === "Released") return "review";
   if (t.status === "Needs Jorge") return "jorge";
   if (t.status === "Blocked") return "blocked";
   if (t.status === "Ready") return "ready";
@@ -153,7 +153,7 @@ export function statusCounts(tasks: LaneTask[]) {
   const count = (s: string) => tickets.filter((t) => t.status === s).length;
   return {
     inProgress: count("In progress"),
-    inReview: count("In review"),
+    inReview: count("In review") + count("Merged") + count("Released"),
     ready: count("Ready"),
     needsJorge: count("Needs Jorge"),
     blocked: count("Blocked"),

@@ -1,6 +1,9 @@
 import { withDb, type Db } from "../db/client.js";
+import { blockersJob } from "./blockers.js";
+import { githubJob } from "./github.js";
 import { legacyJob } from "./legacy.js";
 import { leasesJob } from "./leases.js";
+import { vercelJob } from "./vercel.js";
 
 // Background jobs for the local server (2.1). Each job runs on its own interval with a fresh pool,
 // skips a tick while the previous one is still running, and writes through the normal tool
@@ -10,7 +13,7 @@ import { leasesJob } from "./leases.js";
 export type JobSummary = Record<string, number>;
 export type Job = { name: string; intervalMs: number; runOnce: (db: Db, now: Date) => Promise<JobSummary> };
 
-export const JOBS: Job[] = [leasesJob, legacyJob];
+export const JOBS: Job[] = [leasesJob, blockersJob, githubJob, vercelJob, legacyJob];
 
 export function startJobs(opts: { every?: Partial<Record<string, number>>; log?: (line: string) => void } = {}): () => void {
   const log = opts.log ?? ((line: string) => console.log(line));

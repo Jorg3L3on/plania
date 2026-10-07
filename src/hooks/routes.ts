@@ -1,6 +1,9 @@
 import { Hono, type Context } from "hono";
 import { withDb } from "../db/client.js";
-import { setEnv } from "../mcp/env.js";
+import { setMetricInTx } from "../mcp/blockers.js";
+import { setEnv, type SetEnvInput } from "../mcp/env.js";
+import { findProject } from "../mcp/queries.js";
+import { writeTx } from "../mcp/tx.js";
 import { ToolError } from "../mcp/errors.js";
 import { addResult } from "../mcp/evidence.js";
 import { checkSizes } from "../mcp/limits.js";
@@ -69,17 +72,21 @@ hooks.post("/hooks/result", (c) =>
   }),
 );
 
-// A deploy finished: what the environment runs now.
+// A deploy finished: what the environment runs now. deployed carries the provider's record
+// ({provider, deployment_id, url}); flags and migrations as in set_env.
 hooks.post("/hooks/env", (c) =>
   handle(c, (body) => {
     const requestId = str(body, "request_id", true)!;
     const m = body.migrations_applied;
     if (m !== undefined && typeof m !== "number") throw new BadInput("migrations_applied");
-    const commits = body.commits;
-    if (commits !== undefined && !(Array.isArray(commits) && commits.every((x) => typeof x === "string"))) {
-      throw new BadInput("commits");
-    }
-    if (body.deployed !== undefined && typeof body.deployed !== "boolean") throw new BadInput("deployed");
+    const strings = (field: string) => {
+      const v = body[field];
+      if (v !== undefined && !(Array.isArray(v) && v.every((x) => typeof x === "string"))) throw new BadInput(field);
+      return v as string[] | undefined;
+    };
+    const deployed = body.deployed;
+    if (deployed !== undefined && typeof deployed !== "boolean" && !(deployed && typeof deployed === "object")) throw new BadInput("deployed");
+    if (body.flags !== undefined && (!body.flags || typeof body.flags !== "object" || Array.isArray(body.flags))) throw new BadInput("flags");
     return withDb((db) =>
       setEnv(
         db,
@@ -89,11 +96,26 @@ hooks.post("/hooks/env", (c) =>
           commit: str(body, "commit"),
           branch: str(body, "branch"),
           migrations_applied: m as number | undefined,
-          commits: commits as string[] | undefined,
-          deployed: body.deployed as boolean | undefined,
+          migrations: strings("migrations"),
+          flags: body.flags as Record<string, string | number | boolean | null> | undefined,
+          commits: strings("commits"),
+          deployed: deployed as SetEnvInput["deployed"],
         },
         ciCtx(requestId, "hooks.env"),
       ),
     );
+  }),
+);
+
+// A metric measured outside Plania (a cron, a dashboard export), for metric_gte blockers.
+hooks.post("/hooks/metric", (c) =>
+  handle(c, (body) => {
+    const requestId = str(body, "request_id", true)!;
+    if (typeof body.value !== "number") throw new BadInput("value");
+    return withDb(async (db) => {
+      const p = await findProject(db, str(body, "project", true)!);
+      const ctx = ciCtx(requestId, "hooks.metric");
+      return writeTx(db, p, ctx, (tx, emit) => setMetricInTx(tx, emit, p.id, str(body, "name", true)!, body.value as number, ctx.actor));
+    });
   }),
 );

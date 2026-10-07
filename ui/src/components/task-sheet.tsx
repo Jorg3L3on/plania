@@ -163,10 +163,18 @@ function Details({ slug, task, onOpen }: { slug: string; task: TaskDetail; onOpe
               {task.blocked_by.map((b, i) => (
                 <span key={i} className={cn("inline-flex items-center gap-2", b.satisfied && "text-muted-foreground")}>
                   {b.satisfied ? "✓" : "○"}
-                  {"task" in b ? (
+                  {b.type === "task" ? (
                     <TaskLink slug={slug} taskKey={b.task} onOpen={onOpen} />
-                  ) : (
+                  ) : b.type === "env" ? (
                     <span className="font-mono text-xs">{b.env} {b.condition} {b.value}</span>
+                  ) : b.type === "human_action" ? (
+                    <span>{b.assignee}: {b.text}</span>
+                  ) : b.type === "env_flag" ? (
+                    <span className="font-mono text-xs">{b.env} {b.flag} = {String(b.equals)}{b.current !== null && b.current !== undefined ? ` (ahora ${String(b.current)})` : ""}</span>
+                  ) : b.type === "time_after" ? (
+                    <span className="text-xs">desde {localTime(b.at)}</span>
+                  ) : (
+                    <span className="font-mono text-xs">{b.name} ≥ {b.value}{b.current !== null ? ` (ahora ${b.current})` : ""}</span>
                   )}
                 </span>
               ))}

@@ -13,7 +13,8 @@ export type Q = PgDatabase<NodePgQueryResultHKT, typeof schema>;
 // Who is writing and through which channel. human is true only for Jorge's screen (cookie),
 // never inferred from the actor value. requestId + tool make a retry replay the first response.
 // verbose: writes return the full task besides the compact {key, status, version, changed} reply.
-export type Ctx = { actor: Actor; human?: boolean; requestId?: string; tool?: string; verbose?: boolean; tokenId?: string };
+// system: a poller acting on GitHub or deploy data (moves In review → Merged → Released, no gates).
+export type Ctx = { actor: Actor; human?: boolean; system?: boolean; requestId?: string; tool?: string; verbose?: boolean; tokenId?: string };
 
 const REQUEST_TTL = "30 days";
 
@@ -22,10 +23,12 @@ export const WEB_ACTOR: Actor = { agent: "jorge", session_id: "web", machine: "s
 export const SYSTEM_ACTOR: Actor = { agent: "plania", session_id: "system" };
 export const webCtx: Ctx = { actor: WEB_ACTOR, human: true };
 
+// actor: the system actor for moves the server makes inside an agent's write (a blocker satisfied).
 export type Emit = (
   type: string,
   task: { id: string; key: string } | null,
   payload?: Record<string, unknown>,
+  actor?: Actor,
 ) => Promise<void>;
 
 // Every write runs here: one transaction per call, serialized per project, with its events
@@ -53,18 +56,18 @@ export async function writeTx<T>(
         .from(writeRequests)
         .where(and(eq(writeRequests.projectId, project.id), eq(writeRequests.requestId, ctx.requestId)));
       if (seen && seen.tool !== ctx.tool) throw new ToolError("REQUEST_ID_REUSED", { tool: seen.tool });
-      if (seen) return seen.response as T;
+      if (seen) return ((seen.response as { __void?: boolean })?.__void ? undefined : seen.response) as T;
     }
     for (const key of await reapExpiredLeases(tx, project.id)) touched("claim.expired", key);
-    const emit: Emit = async (type, task, payload = {}) => {
+    const emit: Emit = async (type, task, payload = {}, actor = ctx.actor) => {
       touched(type, task?.key ?? null);
       await tx.insert(events).values({
         projectId: project.id,
         taskId: task?.id ?? null,
         taskKey: task?.key ?? null,
         type,
-        actor: ctx.actor,
-        tokenId: ctx.tokenId ?? null,
+        actor,
+        tokenId: actor === ctx.actor ? (ctx.tokenId ?? null) : null,
         payload,
       });
     };
@@ -77,7 +80,8 @@ export async function writeTx<T>(
         projectId: project.id,
         requestId: ctx.requestId,
         tool: ctx.tool ?? "",
-        response: JSON.parse(JSON.stringify(result)),
+        // A write with nothing to return (a poller's event) still replays as "done".
+        response: result === undefined ? { __void: true } : JSON.parse(JSON.stringify(result)),
       });
     }
     return result;

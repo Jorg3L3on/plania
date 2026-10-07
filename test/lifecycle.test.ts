@@ -23,8 +23,15 @@ test("ticket moves an agent makes with set_task", () => {
     "Backlog → Blocked", "Backlog → Ready",
     "Blocked → Backlog", "Blocked → Ready",
     "In progress → Backlog", "In progress → Blocked", "In progress → In review", "In progress → Ready",
-    "In review → Backlog", "In review → Blocked", "In review → Ready",
+    "In review → Backlog", "In review → Blocked", "In review → Merged", "In review → Ready",
+    "Merged → In review", "Merged → Released",
     "Ready → Backlog", "Ready → Blocked",
+  ]);
+});
+
+test("the pollers (via system) make only the merge and release moves", () => {
+  assert.deepEqual(allowed("ticket", TICKET_STATUSES, { via: "system" }), [
+    "In review → Merged", "In review → Ready", "Merged → Released", "Released → Merged",
   ]);
 });
 

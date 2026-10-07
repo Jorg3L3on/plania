@@ -2,10 +2,12 @@ import { ToolError } from "./errors.js";
 
 // The status machine, enforced on every write. Two vocabularies:
 //
-// Ticket:     Backlog ⇄ Ready → (claim) In progress → In review → Done (Jorge)
+// Ticket:     Backlog ⇄ Ready → (claim) In progress → In review → Merged → Released → Done (Jorge)
 //             Blocked from Backlog, Ready, In progress or In review; back to Backlog or Ready.
 //             Needs Jorge only through ask; it leaves only through answer.
 //             In review goes back to In progress through claim (rework).
+//             Merged and Released are the server's (the GitHub and Vercel pollers, via "system");
+//             an agent sets them only with a ci result that names the merge commit (writes.ts).
 // Initiative: Planning ⇄ Active ⇄ Shipping, any of them ⇄ On hold.
 //
 // Done and Won't do, and reopening either, are Jorge's: on screen, or by an agent holding an
@@ -20,9 +22,18 @@ const TICKET_MOVES: Record<string, string[]> = {
   Backlog: ["Ready", "Blocked"],
   Ready: ["Backlog", "Blocked"],
   "In progress": ["In review", "Blocked", "Ready", "Backlog"],
-  "In review": ["Ready", "Backlog", "Blocked"],
+  "In review": ["Ready", "Backlog", "Blocked", "Merged"],
+  Merged: ["Released", "In review"],
+  Released: [],
   Blocked: ["Backlog", "Ready"],
   "Needs Jorge": [],
+};
+
+// What the pollers may do on their own, from GitHub and deploy data.
+const SYSTEM_MOVES: Record<string, string[]> = {
+  "In review": ["Merged", "Ready"],
+  Merged: ["Released"],
+  Released: ["Merged"],
 };
 
 const INITIATIVE_MOVES: Record<string, string[]> = {
@@ -39,7 +50,7 @@ export type ApprovalAction = "done" | "wont_do" | "reopen" | "waive_check" | "ru
 
 export type TransitionCtx = {
   human?: boolean; // Jorge's screen
-  via?: "set_task" | "claim" | "ask" | "answer";
+  via?: "set_task" | "claim" | "ask" | "answer" | "system";
   approval?: { action: string } | null; // an approval the caller holds
 };
 
@@ -57,6 +68,10 @@ export function actionForMove(from: string, to: string): ApprovalAction | null {
 export function assertTransition(kind: string, from: string, to: string, ctx: TransitionCtx): boolean {
   if (from === to) return false;
   if (ctx.human) return false;
+  if (ctx.via === "system") {
+    if (!(SYSTEM_MOVES[from] ?? []).includes(to)) throw new ToolError("INVALID_TRANSITION", { from, to, hint: "not a system move" });
+    return false;
+  }
   const needed = actionForMove(from, to);
   if (needed) {
     if (ctx.approval?.action === needed) return true;
@@ -82,5 +97,6 @@ export function assertTransition(kind: string, from: string, to: string, ctx: Tr
   return false;
 }
 
-export const WORK_TYPES = ["code", "ops", "research", "decision-needed"] as const;
+export const WORK_TYPES = ["code", "ops", "research", "decision-needed", "bug", "debt"] as const;
+export const SEVERITIES = ["S1", "S2", "S3", "S4"] as const;
 export type WorkType = (typeof WORK_TYPES)[number];
