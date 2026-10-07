@@ -7,14 +7,19 @@ import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { verifyPassword } from "../auth/password.js";
 import { SESSION_COOKIE, createSession, sessionCookieOptions, verifySession } from "../auth/session.js";
+import { issueToken, listTokens, revokeToken, TOKEN_SCOPES } from "../auth/tokens.js";
 import { withDb, type Db } from "../db/client.js";
 import { projects, tasks, type Actor } from "../db/schema.js";
 import { bus } from "../events.js";
+import { decideApproval } from "../mcp/approvals.js";
+import { waiveCheck } from "../mcp/checks.js";
 import { listDecisions } from "../mcp/decisions.js";
+import { inbox } from "../mcp/inbox.js";
+import { setProject } from "../mcp/project.js";
 import { ToolError, findProject, findTask, taskFull } from "../mcp/queries.js";
 import { answer } from "../mcp/questions.js";
 import { resumeDigest, type ResumeDigest } from "../mcp/resume.js";
-import { webCtx } from "../mcp/tx.js";
+import { WEB_ACTOR, webCtx } from "../mcp/tx.js";
 import { claim, setTask } from "../mcp/writes.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
@@ -35,7 +40,7 @@ export function resumeLine(d: ResumeDigest): string {
   const noted = d.initiatives.find((i) => i.next_action.note);
   if (noted) return `${noted.key}: ${noted.next_action.note}`;
   if (d.next_claimable) return `Siguiente: ${d.next_claimable.key} · ${d.next_claimable.title}`;
-  return d.legacy_card?.in_progress || d.legacy_card?.next_action || "Sin ficha.";
+  return d.headline.text || d.legacy_card?.in_progress || d.legacy_card?.next_action || "Sin ficha.";
 }
 
 const DECISIONS_LIMIT = 30;
@@ -84,7 +89,7 @@ api.get("/projects", async (c) => {
     const allTasks = await screenTasks(db);
     return Promise.all(
       all.map(async (p) => {
-        const digest = await resumeDigest(db, p);
+        const digest = await resumeDigest(db, p, { includeLegacy: true });
         return {
           slug: p.slug,
           title: p.title,
@@ -139,12 +144,25 @@ api.get("/projects/:slug", async (c) => {
       return {
         slug: p.slug,
         title: p.title,
-        resume: await resumeDigest(db, p),
+        version: p.version,
+        resume: await resumeDigest(db, p, { includeLegacy: true }),
         tasks: rows.map(({ project_id: _, ...t }) => t),
-        decisions: await listDecisions(db, p.id, { limit: DECISIONS_LIMIT }),
+        decisions: await listDecisions(db, p.id, { limit: DECISIONS_LIMIT, includeSuperseded: true, includeRetired: true }),
       };
     });
     return c.json(data);
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
+
+// The headline: one line on where the project stands, with the project version on screen.
+api.patch("/projects/:slug", async (c) => {
+  const body = await readJson(c, z.object({ headline: z.string().max(280), version: z.number().int() }));
+  if (body instanceof Response) return body;
+  try {
+    const result = await withDb((db) => setProject(db, { project: c.req.param("slug"), ...body }, webCtx));
+    return c.json(result);
   } catch (e) {
     return errorResponse(c, e);
   }
@@ -188,6 +206,20 @@ api.patch("/projects/:slug/tasks/:key", async (c) => {
   }
 });
 
+// Jorge waives a check (no approval needed on screen); the note says why.
+api.post("/projects/:slug/tasks/:key/checks/:n/waive", async (c) => {
+  const body = await readJson(c, z.object({ reason: z.string().trim().min(1) }));
+  if (body instanceof Response) return body;
+  const n = Number(c.req.param("n"));
+  if (!Number.isInteger(n)) return c.json({ error: "INVALID_BODY" }, 400);
+  try {
+    const result = await withDb((db) => waiveCheck(db, { project: c.req.param("slug"), key: c.req.param("key"), n, reason: body.reason }, screenCtx));
+    return c.json(result.task);
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
+
 // Jorge frees a lease held by a session that is gone.
 api.post("/projects/:slug/tasks/:key/release", async (c) => {
   try {
@@ -216,6 +248,65 @@ api.post("/projects/:slug/questions/:id/answer", async (c) => {
   } catch (e) {
     return errorResponse(c, e);
   }
+});
+
+// ---- Inbox and approvals
+
+// Everything waiting on Jorge, for one project or all of them.
+api.get("/inbox", async (c) => {
+  const which = c.req.query("project") || "all";
+  try {
+    const data = await withDb(async (db) => inbox(db, which === "all" ? "all" : await findProject(db, which)));
+    return c.json(data);
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
+
+// Grant or reject approvals, several at once: each is its own write and its own event.
+api.post("/approvals/decide", async (c) => {
+  const body = await readJson(c, z.object({ ids: z.array(z.string().min(1)).min(1).max(100), decision: z.enum(["grant", "reject"]), note: z.string().optional() }));
+  if (body instanceof Response) return body;
+  const results = await withDb(async (db) =>
+    Promise.all(
+      body.ids.map(async (id) => {
+        try {
+          const { approval } = await decideApproval(db, { approval_id: id, decision: body.decision, note: body.note }, webCtx);
+          return { id, ok: true, state: approval.state };
+        } catch (e) {
+          if (e instanceof ToolError) return { id, ok: false, error: e.code, ...e.detail };
+          throw e;
+        }
+      }),
+    ),
+  );
+  return c.json({ results, decided: results.filter((r) => r.ok).length });
+});
+
+// ---- Agent tokens (issued here only; the secret is shown once)
+
+api.get("/tokens", async (c) => c.json(await withDb((db) => listTokens(db))));
+
+api.post("/tokens", async (c) => {
+  const body = await readJson(
+    c,
+    z.object({
+      name: z.string().trim().min(1).max(80),
+      agent: z.string().trim().min(1).max(60),
+      machine: z.string().trim().max(120).optional(),
+      scopes: z.array(z.enum(TOKEN_SCOPES)).min(1),
+    }),
+  );
+  if (body instanceof Response) return body;
+  if (body.agent.toLowerCase() === "jorge") return c.json({ error: "RESERVED_ACTOR" }, 400);
+  const out = await withDb((db) => issueToken(db, body, WEB_ACTOR));
+  return c.json(out, 201);
+});
+
+api.delete("/tokens/:id", async (c) => {
+  const token = await withDb((db) => revokeToken(db, c.req.param("id"), c.req.query("reason")));
+  if (!token) return c.json({ error: "NOT_FOUND" }, 404);
+  return c.json(token);
 });
 
 // ---- Live updates

@@ -20,7 +20,13 @@ let closeDb: () => Promise<void>;
 
 async function call(name: string, args: Json): Promise<Json> {
   const r = (await client.callTool({ name, arguments: { actor: A, ...args } })) as { isError?: boolean; content: { text: string }[] };
-  const data = JSON.parse(r.content[0]!.text);
+  const text = r.content[0]!.text;
+  let data: Json;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return { __error: "INVALID_INPUT", __text: text }; // the SDK refused the input before Plania ran
+  }
   return r.isError ? { __error: data.error, __status: data.status, ...data } : data;
 }
 

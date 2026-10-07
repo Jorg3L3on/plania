@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "pnpm run --parallel \"/^dev:/\"",
-    "dev:api": "tsx watch --env-file=.env scripts/dev.ts --port 3738",
+    "dev:api": "PLANIA_JOBS=0 tsx watch --env-file=.env scripts/dev.ts --port 3738",
     "dev:ui": "vite",
     "start": "tsx --env-file=.env scripts/dev.ts",
     "build": "tsc --noEmit && tsc -p ui && vite build",

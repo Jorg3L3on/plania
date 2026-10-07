@@ -5,6 +5,8 @@ export type Workspace = { machine?: string; worktree_path?: string; branch?: str
 
 export type ProjectSummary = { slug: string; title: string; line: string; open_questions: number; tasks: TaskRow[] };
 
+export type Headline = { text: string; version: number; at: string | null; stale: boolean };
+
 export type Claim = { key: string; title: string; owner: Actor | null; lease_until: string | null; workspace: Workspace | null };
 
 export type NextTicket = { key: string; title: string } | null;
@@ -15,8 +17,9 @@ export type Decision = {
   task_key: string | null;
   tags: string[];
   pinned: boolean;
-  supersedes: string | null;
+  supersedes: string[];
   superseded_by: string | null;
+  retired: { at: string; by: Actor | null; reason: string | null } | null;
   adr_url: string | null;
   adr_doc_id: string | null;
   decided_on: string | null;
@@ -41,6 +44,7 @@ export type LegacyCard = { in_progress: string; next_action: string; branch_or_p
 
 // get_resume: generated from the data, never hand-written.
 export type Resume = {
+  headline: Headline;
   claims: Claim[];
   next_claimable: NextTicket;
   initiatives: {
@@ -56,7 +60,43 @@ export type Resume = {
   standalone: { open: number; claims: Claim[] };
   must_keep: Decision[];
   open_questions: Question[];
-  legacy_card: LegacyCard | null;
+  legacy_card_present: boolean;
+  legacy_card?: LegacyCard | null;
+};
+
+// Everything waiting on Jorge (GET /api/inbox).
+export type InboxItem = {
+  id: string;
+  kind: "approval" | "question";
+  project: string;
+  key: string | null;
+  task_kind: string | null;
+  parent_key: string | null;
+  title: string | null;
+  why: string;
+  options?: string[];
+  action?: string;
+  target?: Record<string, unknown>;
+  waiting_since: string;
+  wait_s: number;
+  evidence: { last_pass: { kind: string; cite: string; at: string } | null; open_checks: number } | null;
+  pr_url: string | null;
+  action_hint: string;
+};
+export type Inbox = { items: InboxItem[]; count: number; by_project: Record<string, number> };
+
+// Agent tokens (GET /api/tokens). The secret is only ever in the create response.
+export type AgentToken = {
+  id: string;
+  name: string;
+  agent: string;
+  machine: string | null;
+  scopes: string[];
+  prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  revoked_reason: string | null;
 };
 
 export type TaskRow = {
@@ -82,7 +122,15 @@ export type Blocker =
   | { task: string; status: string; satisfied: boolean }
   | { env: string; condition: string; value: string; current: unknown; satisfied: boolean };
 
-export type Check = { n: number; text: string; done: boolean; done_at: string | null; done_by: Actor | null; evidence_id: string | null };
+export type Check = {
+  n: number;
+  text: string;
+  done: boolean;
+  done_at: string | null;
+  done_by: Actor | null;
+  evidence_id: string | null;
+  waived: { at: string; by: Actor | null; reason: string | null; approval_id: string | null } | null;
+};
 export type Result = { id: string; kind: string; verdict: string; cite: string; url: string | null; actor: Actor; at: string };
 export type LogEntry = { id: number; at: string; type: string; actor: Actor; payload: Record<string, unknown> };
 
@@ -109,7 +157,7 @@ export type TaskDetail = Omit<TaskRow, "claimed_by" | "lease_until"> & {
   log_total: number;
 };
 
-export type ProjectDetail = { slug: string; title: string; resume: Resume; tasks: TaskRow[]; decisions: Decision[] };
+export type ProjectDetail = { slug: string; title: string; version: number; resume: Resume; tasks: TaskRow[]; decisions: Decision[] };
 
 export type LiveEvent = { type: "task" | "project" | "decision"; project: string; key?: string };
 

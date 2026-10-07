@@ -27,6 +27,11 @@ function req(method: string, path: string, opts: { body?: unknown; cookie?: stri
   return app.request(path, { method, headers, body: opts.body === undefined ? undefined : JSON.stringify(opts.body) });
 }
 
+// In review and Done need every check closed; the screen tests tick them first.
+async function tickAll(key: string) {
+  await raw.query("update checks set done = true where task_id = (select id from tasks where key = $1)", [key]);
+}
+
 async function row(key: string) {
   const { rows } = await raw.query("select status, priority, blocked_note, resolved_at, version from tasks where key = $1", [key]);
   return rows[0];
@@ -169,6 +174,7 @@ describe("PATCH /api/projects/:slug/tasks/:key", () => {
     });
 
   test("Jorge changes status and priority as jorge, with the version on screen", async () => {
+    await tickAll("MIC-01-F1");
     const res = await patch("MIC-01-F1", { status: "In review", priority: "P1" });
     assert.equal(res.status, 200, "the screen may make any move, without evidence");
     const t = (await res.json()) as Json;

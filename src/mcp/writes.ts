@@ -18,12 +18,14 @@ import {
   requireTask,
   writeReply,
 } from "./queries.js";
+import { loadApproval, useApproval } from "./approvals.js";
 import { parseBlockers, replaceBlockers, resolveTaskBlockers, unsatisfiedBlockers, type BlockerInput } from "./blockers.js";
-import { replaceChecks, type CheckInput } from "./checks.js";
+import { assertChecksClosed, replaceChecks, type CheckInput } from "./checks.js";
 import { hasDoc } from "./docs.js";
 import { assertReviewEvidence } from "./evidence.js";
 import { addAlias, assignKey } from "./keys.js";
-import { WORK_TYPES, assertTransition, type Override } from "./lifecycle.js";
+import { GATED_STATUSES, TERMINAL, WORK_TYPES, actionForMove, assertTransition } from "./lifecycle.js";
+import { markHeadlineStale } from "./project.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
 // Write side. Every write runs in writeTx and records what it changed as events.
@@ -72,9 +74,15 @@ type TaskPatch = { [K in keyof TaskInsert]?: TaskInsert[K] | SQL };
 
 // Conditional UPDATE: zero rows means the version moved since it was read.
 async function updateTask(tx: Q, t: Task, patch: TaskPatch, bump: boolean): Promise<Task> {
+  const moved = patch.status !== undefined && patch.status !== t.status;
   const [u] = await tx
     .update(tasks)
-    .set({ ...patch, ...(bump ? { version: sql`${tasks.version} + 1` } : {}), updatedAt: sql`now()` })
+    .set({
+      ...patch,
+      ...(moved ? { statusChangedAt: sql`now()` } : {}),
+      ...(bump ? { version: sql`${tasks.version} + 1` } : {}),
+      updatedAt: sql`now()`,
+    })
     .where(and(eq(tasks.id, t.id), eq(tasks.version, t.version)))
     .returning();
   if (!u) throw new ToolError("STALE_VERSION", { current_version: (await findTaskById(tx, t.id)).version });
@@ -264,13 +272,24 @@ export type SetTaskInput = {
   work_type?: string;
   note?: string;
   version?: number;
-} & Override;
+  approval_id?: string;
+};
+
+// An initiative closes only once every ticket of it is Done or Won't do (Jorge included).
+async function assertChildrenClosed(tx: Q, t: Task): Promise<void> {
+  const open = await tx
+    .select({ key: tasks.key })
+    .from(tasks)
+    .where(and(eq(tasks.parentId, t.id), sql`${tasks.status} not in ('Done', 'Won''t do')`))
+    .orderBy(tasks.key);
+  if (open.length) throw new ToolError("INITIATIVE_CHILDREN_OPEN", { open: open.map((c) => c.key) });
+}
 
 export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskInput, ctx: Ctx) {
   rejectBody(input);
   checkPhase(input.phase);
   const blockedBy = input.blocked_by !== undefined ? parseBlockers(input.blocked_by) : undefined;
-  const { project: _p, key: _k, note: _n, version: _v, confirm_by_jorge: _c, reason: _r, ...fields } = input;
+  const { project: _p, key: _k, note: _n, version: _v, approval_id: _a, ...fields } = input;
   // A note alone is an append and needs no version; any field change does.
   const noteOnly = Object.values(fields).every((v) => v === undefined);
   const t = await requireTask(tx, p.id, input.key);
@@ -278,18 +297,29 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   checkVersion(t.version, input.version, !noteOnly);
   if (!noteOnly) checkOwner(t, ctx);
   const patch: TaskPatch = {};
-  let overridden = false;
+  let approved = false;
+  const approval = input.approval_id ? await loadApproval(tx, p.id, input.approval_id) : undefined;
+  const needed = input.status !== undefined ? actionForMove(t.status, input.status) : null;
   const changes: Record<string, [unknown, unknown]> = {};
 
   if (input.status !== undefined) {
     checkStatus(t.kind, input.status);
-    overridden = assertTransition(t.kind, t.status, input.status, {
+    if (approval && needed && approval.action !== needed) {
+      throw new ToolError("APPROVAL_MISMATCH", { approval_id: approval.id, expected: { key: approval.taskKey, action: approval.action, target: approval.target } });
+    }
+    approved = assertTransition(t.kind, t.status, input.status, {
       human: ctx.human,
       via: "set_task",
-      override: { confirm_by_jorge: input.confirm_by_jorge, reason: input.reason },
+      approval: approval ? { action: approval.action } : null,
     });
+    // The approval is checked (and spent) before the gates: a wrong or used one is refused first.
+    if (approved && approval && needed) await useApproval(tx, emit, approval, t, needed, {}, ctx);
     if (input.status === "In review" && t.kind === "ticket" && t.status !== "In review" && !ctx.human) {
       await assertReviewEvidence(tx, t, hasDoc);
+    }
+    if ((GATED_STATUSES as readonly string[]).includes(input.status) && input.status !== t.status) await assertChecksClosed(tx, t);
+    if (t.kind === "initiative" && (TERMINAL as readonly string[]).includes(input.status) && input.status !== t.status) {
+      await assertChildrenClosed(tx, t);
     }
     if (input.status === "Blocked") {
       if (!input.note?.trim()) throw new ToolError("BLOCKED_REQUIRES_NOTE");
@@ -361,11 +391,13 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   if (patch.status !== undefined && patch.status !== t.status) {
     changedNames.push("status");
     await emit("task.status", u, { from: t.status, to: patch.status, ...(patch.blockedNote ? { note: patch.blockedNote } : {}) });
-    if (overridden) await emit("task.human_override", u, { from: t.status, to: patch.status, reason: input.reason });
+    if (approved && approval) await emit("task.approved_move", u, { from: t.status, to: patch.status, approval_id: approval.id });
     if (t.owner) {
       changedNames.push("claim");
       await emit("claim.released", u, { owner: t.owner, reason: "status" });
     }
+    // The headline talks about where things stand; an initiative moving or a ticket closing dates it.
+    if (t.kind === "initiative" || patch.status === "Done") await markHeadlineStale(tx, p.id);
   }
   if (rekey) {
     changedNames.push("key");
@@ -462,7 +494,7 @@ export async function claimInTx(tx: Q, emit: Emit, p: Project, input: ClaimInput
     // Heartbeat, or a repeated claim: extend the lease without bumping the version.
     const [u] = await tx
       .update(tasks)
-      .set({ leaseUntil: leaseEnd(minutes), lastSeenAt: sql`now()`, ...(workspace ? { workspace } : {}) })
+      .set({ leaseUntil: leaseEnd(minutes), lastSeenAt: sql`now()`, expiringWarnedAt: null, ...(workspace ? { workspace } : {}) })
       .where(eq(tasks.id, t.id))
       .returning();
     if (workspace) await emit("claim.workspace", u!, { workspace });
@@ -484,6 +516,7 @@ export async function claimInTx(tx: Q, emit: Emit, p: Project, input: ClaimInput
       lastSeenAt: sql`now()`,
       status: "In progress",
       blockedNote: null,
+      expiringWarnedAt: null,
       ...(workspace ? { workspace } : {}),
     },
     true,

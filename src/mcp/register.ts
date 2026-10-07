@@ -1,8 +1,15 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import type { Scope } from "../auth/bearer.js";
+import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
 import { KINDS, ORIGINS } from "../db/schema.js";
+import { APPROVAL_ACTIONS, requestApproval } from "./approvals.js";
+import { inbox } from "./inbox.js";
+import { waiveCheck } from "./checks.js";
+import { addDecision, retireDecision } from "./decisions.js";
+import { archiveLegacyCard, headlineShape, setProject } from "./project.js";
 import {
   ToolError,
   findProject,
@@ -28,9 +35,7 @@ import { REVIEW_EVIDENCE, RESULT_KINDS, VERDICTS, addResult, validateEvidence } 
 import { checkSizes } from "./limits.js";
 import type { Ctx } from "./tx.js";
 import { ENV_CONDITIONS } from "./blockers.js";
-import { addDecision } from "./decisions.js";
 import { projectEnv, setEnv } from "./env.js";
-import { setProject } from "./project.js";
 import { PROTOCOL_VERSION, instructions } from "./protocol.js";
 import { answer, ask } from "./questions.js";
 import { TTL, claim, createTask, setTask } from "./writes.js";
@@ -81,9 +86,9 @@ const blockedBy = z
 
 const actor = z
   .object({
-    agent: z.string().min(1).max(60).describe("Your client, e.g. Claude Code, Codex, Cursor"),
+    agent: z.string().min(1).max(60).optional().describe("Your client, e.g. Claude Code, Codex, Cursor. Filled from your agent token when it has one"),
     session_id: z.string().min(1).max(120).describe("Stable id of this session. It owns your claims; reuse it on every call"),
-    machine: z.string().max(120).optional().describe("Host name of the machine you run on"),
+    machine: z.string().max(120).optional().describe("Host name of the machine you run on. Filled from your agent token when it has one"),
     model: z.string().max(120).optional(),
   })
   .describe("Who is writing. Required on every write; recorded in the event log");
@@ -101,21 +106,23 @@ const verbose = z
 
 type WriteInput = { actor: z.infer<typeof actor>; request_id?: string; verbose?: boolean } & Record<string, unknown>;
 
-// Every write: size limits, the actor ("jorge" is reserved for the screen) and the idempotency key.
-function writeCtx(tool: string, input: WriteInput): Ctx {
+// Every write: size limits, the actor ("jorge" is reserved for the screen; an agent token fills
+// agent and machine and refuses values that disagree) and the idempotency key.
+function writeCtx(tool: string, input: WriteInput, identity: Identity | undefined): Ctx {
   checkSizes(input);
-  if (input.actor.agent.trim().toLowerCase() === "jorge") throw new ToolError("RESERVED_ACTOR");
-  return { actor: input.actor, requestId: input.request_id, tool, verbose: input.verbose };
-}
-
-// Registers a write tool: adds actor, request_id and verbose to its schema and builds its Ctx.
-function writeHandler<I extends WriteInput>(tool: string, fn: (input: Omit<I, "actor" | "request_id" | "verbose">, ctx: Ctx) => Promise<unknown>) {
-  return (input: I) =>
-    run(() => {
-      const ctx = writeCtx(tool, input);
-      const { actor: _a, request_id: _r, verbose: _v, ...rest } = input;
-      return fn(rest, ctx);
-    });
+  let { agent, machine } = input.actor;
+  if (identity) {
+    if (agent !== undefined && agent !== identity.agent) throw new ToolError("ACTOR_MISMATCH", { field: "agent", expected: identity.agent });
+    if (machine !== undefined && identity.machine && machine !== identity.machine) {
+      throw new ToolError("ACTOR_MISMATCH", { field: "machine", expected: identity.machine });
+    }
+    agent = identity.agent;
+    machine = identity.machine ?? machine;
+  }
+  if (!agent?.trim()) throw new ToolError("ACTOR_REQUIRED");
+  if (agent.trim().toLowerCase() === "jorge") throw new ToolError("RESERVED_ACTOR");
+  const actorOut = { ...input.actor, agent, ...(machine !== undefined ? { machine } : {}) };
+  return { actor: actorOut, requestId: input.request_id, tool, verbose: input.verbose, tokenId: identity?.tokenId };
 }
 
 // Field schemas shared by a tool and its batch op (keys.ts assigns keys; see create_task).
@@ -158,8 +165,7 @@ const setTaskFields = {
   next_action: z.string().optional().describe("Initiatives only"),
   in_progress_note: z.string().optional().describe("Initiatives only"),
   work_type: z.string().optional().describe(`Tickets only: ${WORK_TYPES.join(" | ")}`),
-  confirm_by_jorge: z.boolean().optional().describe("Only when Jorge asked you to set Done or Won't do"),
-  reason: z.string().optional().describe("Required with confirm_by_jorge: what Jorge said"),
+  approval_id: z.string().optional().describe("For Done, Won't do or reopening: the id of an approval Jorge granted (request_approval). Spent on this move"),
   note: z.string().optional(),
   version: z.number().int().optional().describe("The version you read. Required unless note is the only field"),
 };
@@ -167,8 +173,10 @@ const setTaskFields = {
 const setCheckFields = {
   key,
   n: z.number().int(),
-  done: z.boolean(),
+  done: z.boolean().optional(),
   evidence_id: z.string().nullable().optional(),
+  text: z.string().optional().describe("Amend the check's text; the old text stays in the log"),
+  waived: z.boolean().optional().describe("false lifts a waiver (waive_check sets one)"),
 };
 
 const addResultFields = {
@@ -184,7 +192,7 @@ const addDecisionFields = {
   text: z.string().min(1),
   task_key: z.string().optional(),
   tags: z.array(z.string()).optional(),
-  supersedes: z.string().optional().describe("id of the decision this one reverses"),
+  supersedes: z.union([z.string(), z.array(z.string())]).optional().describe("id, or ids, of the decisions this one reverses"),
   adr_body: z.string().optional().describe("Full ADR in markdown"),
   adr_url: z.string().optional(),
   pin: z.boolean().optional(),
@@ -200,23 +208,43 @@ const batchOp = z.discriminatedUnion("op", [
   z.object({ op: z.literal("note"), key, text: z.string().min(1) }),
 ]);
 
-export type ServerOptions = { readOnly?: boolean };
+// scopes: what the token may do (read tools; writes; ops tools). identity: the agent token behind
+// the connection, when there is one. Without options the server is wide open (tests, local tools).
+export type ServerOptions = { scopes?: Scope[]; identity?: Identity; readOnly?: boolean };
+
+// Writes that touch what runs where or shared numbers: ops scope only.
+export const OPS_TOOLS = new Set(["set_env", "reserve_sequence"]);
 
 export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
+  const scopes = opts.readOnly ? ["read"] : (opts.scopes ?? ["read", "write", "ops"]);
+  const canWrite = scopes.includes("write");
+  const canOps = scopes.includes("ops");
+  const identity = opts.identity;
   const server = new McpServer(
     { name: "plania", version: `${PROTOCOL_VERSION}.0` },
-    { instructions: instructions(!!opts.readOnly) },
+    { instructions: instructions(!canWrite) },
   );
 
-  // A read-only token (planning sessions) gets the read tools only: every tool not marked
-  // readOnlyHint is dropped as soon as it is registered, so it never shows in tools/list.
-  if (opts.readOnly) {
+  // Tools the token may not use are dropped as soon as they are registered, so they never show
+  // in tools/list: writes without the write scope, ops tools without the ops scope.
+  if (!canWrite || !canOps) {
     const register = server.registerTool.bind(server);
     server.registerTool = ((name: string, config: { annotations?: { readOnlyHint?: boolean } }, cb: never) => {
       const tool = register(name, config as never, cb);
-      if (!config.annotations?.readOnlyHint) tool.remove();
+      const isRead = !!config.annotations?.readOnlyHint;
+      if ((!isRead && !canWrite) || (OPS_TOOLS.has(name) && !canOps)) tool.remove();
       return tool;
     }) as typeof server.registerTool;
+  }
+
+  // Registers a write tool: adds actor, request_id and verbose to its schema and builds its Ctx.
+  function writeHandler<I extends WriteInput>(tool: string, fn: (input: Omit<I, "actor" | "request_id" | "verbose">, ctx: Ctx) => Promise<unknown>) {
+    return (input: I) =>
+      run(() => {
+        const ctx = writeCtx(tool, input, identity);
+        const { actor: _a, request_id: _r, verbose: _v, ...rest } = input;
+        return fn(rest, ctx);
+      });
   }
 
   server.registerTool(
@@ -225,13 +253,14 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       description: [
         "Where the project stands, generated from data: live claims (who, until when, where), the next claimable ticket,",
         "and per open initiative its in_progress note and claims, next_action note and next_claimable, must_keep (pinned decisions) and status counts.",
-        "Also project-wide pinned decisions and the latest events. legacy_card is the old hand-written v1 card, read-only.",
-        "Nobody writes this directly: update an initiative's next_action / in_progress_note with set_task, pin decisions with add_decision.",
+        "Also the headline (one line Jorge or an agent wrote with set_project; stale: true once an env, an initiative or a Done moved after it),",
+        "project-wide pinned decisions and the latest events. The old hand-written v1 card is left out unless include_legacy: true (legacy_card_present says whether one is left).",
+        "Nobody writes the rest directly: update an initiative's next_action / in_progress_note with set_task, pin decisions with add_decision.",
       ].join(" "),
-      inputSchema: { project },
+      inputSchema: { project, include_legacy: z.boolean().optional() },
       annotations: readOnly,
     },
-    ({ project }) => run(async () => resumeDigest(db, await findProject(db, project))),
+    ({ project, include_legacy }) => run(async () => resumeDigest(db, await findProject(db, project), { includeLegacy: include_legacy })),
   );
 
   server.registerTool(
@@ -251,6 +280,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
           body: p.body,
           rules: p.rulesText,
           rules_version: p.rulesVersion,
+          headline: headlineShape(p),
           protocol_version: PROTOCOL_VERSION,
           version: p.version,
           key_prefix: p.keyPrefix || p.slug.slice(0, 3).toUpperCase(),
@@ -329,8 +359,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Fixed memory: rules, design_docs (project docs, with markdown; view summary lists them without it), and the decision log, newest first (limit default 100, max 500).",
-        "Filter decisions by task_key, initiative_key (the initiative and its tickets), tag, or include_superseded false.",
-        "A reversed decision has superseded_by; read the one that replaced it.",
+        "Filter decisions by task_key, initiative_key (the initiative and its tickets) or tag.",
+        "Reversed (superseded_by) and retired decisions are left out unless include_superseded / include_retired is true.",
       ].join(" "),
       inputSchema: {
         project,
@@ -338,18 +368,20 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         initiative_key: z.string().optional(),
         tag: z.string().optional(),
         include_superseded: z.boolean().optional(),
+        include_retired: z.boolean().optional(),
         view: z.enum(["summary", "full"]).optional(),
         limit: z.number().int().min(1).max(500).optional(),
       },
       annotations: readOnly,
     },
-    ({ project, task_key, initiative_key, tag, include_superseded, view, limit }) =>
+    ({ project, task_key, initiative_key, tag, include_superseded, include_retired, view, limit }) =>
       run(async () => {
         const memory = await getMemory(db, await findProject(db, project), {
           taskKey: task_key,
           initiativeKey: initiative_key,
           tag,
           includeSuperseded: include_superseded,
+          includeRetired: include_retired,
           limit,
         });
         if (view !== "summary") return memory;
@@ -431,7 +463,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Initiative moves: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold; next_action and in_progress_note feed get_resume.",
         "Anything else is INVALID_TRANSITION with the allowed moves.",
         "Finishing a phase: add_result first, then status 'In review' (committed, not merged) with branch and pr_url; without fitting evidence it is EVIDENCE_REQUIRED.",
-        "Done and Won't do (and reopening them) are Jorge's: HUMAN_ONLY. Only if he asked you, pass confirm_by_jorge: true with reason; it is logged.",
+        "Done and Won't do (and reopening them) are Jorge's: HUMAN_ONLY. Ask with request_approval; once he grants it on screen, pass approval_id here (it is spent on this move).",
+        "In review (and later Done) needs every check done or waived: CHECKS_OPEN lists the open numbers. An initiative needs every ticket closed: INITIATIVE_CHILDREN_OPEN.",
         "The reply is {key, status, version, changed}; verbose: true adds the full task.",
       ].join(" "),
       inputSchema: { project, actor, request_id, verbose, ...setTaskFields },
@@ -444,7 +477,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "set_check",
     {
       description:
-        "Tick (or untick) one Done when item by its n. Needs no version and does not bump it. While another session holds the lease, only it can tick (NOT_OWNER). evidence_id links the add_result that proves it.",
+        "Tick (or untick) one Done when item by its n, amend its text, or lift a waiver. Needs no version and does not bump it. While another session holds the lease, only it can tick (NOT_OWNER). evidence_id links the add_result that proves it.",
       inputSchema: { project, actor, request_id, verbose, ...setCheckFields },
       annotations: { ...write, idempotentHint: true },
     },
@@ -525,7 +558,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       description: [
         "Append one decision to the log. Do not type a date: the server stamps it (TEXT_HAS_DATE).",
         "task_key ties it to a ticket or initiative; tags group it. pin makes it a must_keep in get_resume, under its initiative or project-wide.",
-        "When it reverses an earlier decision, pass that decision's id as supersedes: the old one is marked superseded (it inherits task and pin unless you say otherwise).",
+        "When it reverses earlier decisions, pass their ids as supersedes (one or several): each old one is marked superseded (the new one inherits task and pin from the first unless you say otherwise).",
+        "A decision that no longer holds and has no replacement is retired with retire_decision.",
         "adr_body stores the full ADR as a project doc (adr_doc_id, read with get_doc); adr_url links one kept elsewhere.",
       ].join(" "),
       inputSchema: { project, actor, request_id, ...addDecisionFields },
@@ -606,8 +640,11 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
   server.registerTool(
     "set_project",
     {
-      description:
-        "Edit the project's title, body (stack, repo, prod, constraints) or rules (project-specific additions to the protocol). Pass the version from get_project; STALE_VERSION if it moved. The old text stays in the log.",
+      description: [
+        "Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline.",
+        "headline: one line (≤ 280 chars) on where the project stands, shown first in get_resume; the server marks it stale when an env, an initiative or a Done moves after it.",
+        "Pass the version from get_project; STALE_VERSION if it moved. The old text stays in the log.",
+      ].join(" "),
       inputSchema: {
         project,
         actor,
@@ -616,6 +653,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         title: z.string().min(1).optional(),
         body: z.string().optional(),
         rules: z.string().optional(),
+        headline: z.string().optional(),
       },
       annotations: write,
     },
@@ -643,6 +681,74 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       annotations: write,
     },
     writeHandler("set_env", (input, ctx) => setEnv(db, input, ctx)),
+  );
+
+  server.registerTool(
+    "request_approval",
+    {
+      description: [
+        "Ask Jorge to approve one move you cannot make yourself: action done | wont_do | reopen (a status change), waive_check (target {n}, once In review or later), runbook_step, lease_resource.",
+        "It shows in his inbox; he grants or rejects it on screen. Then pass the approval_id to set_task / waive_check: it unlocks that one move and is spent.",
+        "Asking again for the same task, action and target while one is pending returns it (existing: true).",
+      ].join(" "),
+      inputSchema: {
+        project,
+        actor,
+        request_id,
+        key,
+        action: z.enum(APPROVAL_ACTIONS),
+        reason: z.string().min(1).describe("Why: what is done, what the evidence shows"),
+        target: z.record(z.string(), z.unknown()).optional().describe("e.g. {n: 3} for waive_check"),
+      },
+      annotations: write,
+    },
+    writeHandler("request_approval", (input, ctx) => requestApproval(db, input, ctx)),
+  );
+
+  server.registerTool(
+    "waive_check",
+    {
+      description: [
+        "Mark one Done when item as not going to be done, with the reason (it then counts as closed for In review and Done).",
+        "Free while the ticket is still being worked; once it is In review or later it needs an approval Jorge granted (request_approval action waive_check, target {n}) as approval_id: APPROVAL_REQUIRED otherwise.",
+      ].join(" "),
+      inputSchema: { project, actor, request_id, verbose, key, n: z.number().int(), reason: z.string().min(1), approval_id: z.string().optional() },
+      annotations: write,
+    },
+    writeHandler("waive_check", (input, ctx) => waiveCheck(db, input, ctx)),
+  );
+
+  server.registerTool(
+    "retire_decision",
+    {
+      description: "Retire a decision that no longer holds and has no replacement (to replace one, add_decision with supersedes). Hidden from get_memory and must_keep from then on; the text stays in the log.",
+      inputSchema: { project, actor, request_id, decision_id: z.string().min(1), reason: z.string().min(1) },
+      annotations: write,
+    },
+    writeHandler("retire_decision", (input, ctx) => retireDecision(db, input, ctx)),
+  );
+
+  server.registerTool(
+    "archive_legacy_card",
+    {
+      description: "Move the old hand-written v1 card into the event log (legacy_card.archived, with its full text) and remove it for good. LEGACY_CARD_EMPTY when there is none left.",
+      inputSchema: { project, actor, request_id, reason: z.string().min(1) },
+      annotations: write,
+    },
+    writeHandler("archive_legacy_card", (input, ctx) => archiveLegacyCard(db, input, ctx)),
+  );
+
+  server.registerTool(
+    "get_inbox",
+    {
+      description: [
+        "Everything waiting on Jorge, oldest first per kind: pending approvals and open questions (more kinds come with later releases).",
+        "Each item says why it waits, how long (wait_s), the latest passing evidence and the PR. project: a slug, or 'all'. Empty means nothing needs him.",
+      ].join(" "),
+      inputSchema: { project: z.string().min(1).describe("Project slug, or all") },
+      annotations: readOnly,
+    },
+    ({ project }) => run(async () => inbox(db, project === "all" ? "all" : await findProject(db, project))),
   );
 
   server.registerTool(

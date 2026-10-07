@@ -27,6 +27,7 @@ export function useTestEnv(): void {
   process.env.MCP_READ_TOKEN = TEST_READ_TOKEN;
   process.env.PLANIA_CI_TOKEN = TEST_CI_TOKEN;
   process.env.SESSION_SECRET = "test-session-secret-that-is-at-least-32-bytes";
+  process.env.PLANIA_JOBS = "0";
 }
 
 // Drops and recreates this checkout's test database, applies every migration, inserts the four projects.

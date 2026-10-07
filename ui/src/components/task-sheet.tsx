@@ -1,6 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLinkIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Separator } from "@/components/ui/separator";
@@ -10,8 +13,52 @@ import { TaskControls } from "@/components/task-controls";
 import { ClaimLine } from "@/components/task-row";
 import { localTime } from "@/lib/time";
 import { api, ApiError } from "@/lib/api";
-import type { TaskDetail } from "@/lib/types";
+import type { Check, TaskDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+// One Done when item: done, waived (with why), or open with a way for Jorge to waive it.
+function CheckLine({ slug, taskKey, check }: { slug: string; taskKey: string; check: Check }) {
+  const queryClient = useQueryClient();
+  const [waiving, setWaiving] = useState(false);
+  const [reason, setReason] = useState("");
+  const waive = useMutation({
+    mutationFn: () => api.waiveCheck(slug, taskKey, check.n, reason.trim()),
+    onSuccess: () => {
+      toast(`Punto ${check.n} eximido`);
+      setWaiving(false);
+      setReason("");
+    },
+    onError: () => toast.error("No se pudo eximir el punto."),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["project", slug, "task", taskKey] });
+      void queryClient.invalidateQueries({ queryKey: ["project", slug] });
+    },
+  });
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    if (reason.trim()) waive.mutate();
+  }
+  const closed = check.done || !!check.waived;
+  return (
+    <li className="grid gap-1">
+      <div className="flex gap-2">
+        <span aria-label={check.done ? "hecho" : check.waived ? "eximido" : "pendiente"}>{check.done ? "☑" : check.waived ? "⊘" : "☐"}</span>
+        <span className={cn("min-w-0 flex-1", closed && "text-muted-foreground", check.waived && "line-through")}>{check.text}</span>
+        {!closed && !waiving && (
+          <button type="button" onClick={() => setWaiving(true)} className="text-xs text-muted-foreground underline-offset-4 hover:underline">eximir</button>
+        )}
+      </div>
+      {check.waived && <span className="pl-6 text-xs text-muted-foreground">eximido: {check.waived.reason}</span>}
+      {waiving && (
+        <form onSubmit={submit} className="flex gap-2 pl-6">
+          <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Por qué no hace falta" aria-label="Razón" autoFocus />
+          <Button type="submit" size="sm" disabled={!reason.trim() || waive.isPending}>Eximir</Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => setWaiving(false)}>Cancelar</Button>
+        </form>
+      )}
+    </li>
+  );
+}
 
 // Side panel with one task: its scope, Done when checks, evidence, questions and history. The open task lives in the URL (?task=KEY),
 // so it can be linked and the back button closes it. Live changes refetch it like the list.
@@ -164,12 +211,7 @@ function Details({ slug, task, onOpen }: { slug: string; task: TaskDetail; onOpe
       {task.checks.length > 0 && (
         <Section title="Done when">
           <ul className="grid gap-1 text-sm">
-            {task.checks.map((c) => (
-              <li key={c.n} className="flex gap-2">
-                <span aria-label={c.done ? "hecho" : "pendiente"}>{c.done ? "☑" : "☐"}</span>
-                <span className={cn(c.done && "text-muted-foreground")}>{c.text}</span>
-              </li>
-            ))}
+            {task.checks.map((c) => <CheckLine key={c.n} slug={slug} taskKey={task.key} check={c} />)}
           </ul>
         </Section>
       )}

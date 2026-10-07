@@ -7,7 +7,8 @@ sessions at once: leased claims, versioned writes, an event log with who did wha
 - App: Hono on Vercel Hobby (`iad1`), one Node function at `api/index.ts`.
 - DB: Neon Free (`aws-us-east-1`), Drizzle over `pg`, one pool per request.
 - Screen: React SPA (Vite, shadcn/ui) in `ui/`, served by the same app; password login (argon2id + `plania_session` cookie).
-- Agents: `POST /mcp` with `Authorization: Bearer <MCP_BEARER_TOKEN>` (or the read-only token).
+- Agents: `POST /mcp` with `Authorization: Bearer <token>`: an agent token issued on screen (`/tokens`), or the
+  static `MCP_BEARER_TOKEN` / `MCP_READ_TOKEN` from `.env`.
 - CI: `POST /hooks/*` with `Authorization: Bearer <PLANIA_CI_TOKEN>`.
 
 ## Setup
@@ -45,9 +46,11 @@ pnpm seed
 - Each project's handoff "must keep" line is added once as a pinned decision.
 - Rules and design docs are not seeded: write them with `set_project` and `attach_doc`.
 
-### Upgrading to 2.1 (keys)
+### Upgrading to 2.1 (keys, approvals, tokens)
 
-Migration `0015` adds the key counters and aliases and sets each project's `key_prefix`. Then move the keys of a
+Migrations `0015` and `0016` add the key counters and aliases (and set each project's `key_prefix`), agent tokens,
+approvals, check waivers, decision retirement, the headline and `events.token_id`; `0016` also copies the old
+single `supersedes_id` into `decision_supersessions`. Then move the keys of a
 project to the 2.1 scheme once (initiatives `FIL-I1`, phases `FIL-I1-1`, standalone tickets unchanged); every old key
 stays as an alias and each rename is a `task.rekeyed` event:
 
@@ -136,11 +139,12 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 
 | Read | |
 |---|---|
-| `get_resume` | Generated: live claims, next claimable, per open initiative its notes, claims, next ticket and pinned decisions; open questions; latest events |
+| `get_resume` | Generated: headline, live claims, next claimable, per open initiative its notes, claims, next ticket and pinned decisions; open questions; latest events. `include_legacy` adds the v1 card while one exists |
+| `get_inbox` | Everything waiting on Jorge (pending approvals, open questions), for one project or `all` |
 | `get_project` | Body, rules, protocol version, counts, `env` per environment, reserved sequence numbers |
 | `list_tasks` | Filters: parent, status, kind, work_type, owner, unblocked, updated_since, search, limit |
 | `get_task` | By key or alias. `view` full (default) or summary (≤ 2 KB); `fields` picks keys; `include_log` adds the last 50 events; `include_children` |
-| `get_memory` | Rules, project docs, decisions (filters: task, initiative, tag, superseded) |
+| `get_memory` | Rules, project docs, decisions (filters: task, initiative, tag; reversed and retired ones only with `include_superseded` / `include_retired`) |
 | `get_doc` | One doc's markdown |
 | `get_next` | Next claimable ticket (expired leases included as `stale_claim`) |
 | `list_events` | The change feed, with a cursor |
@@ -151,14 +155,18 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | `set_task` | Fields with `version`; status through the state machine; a note alone needs no version; `parent_key` moves a ticket (new key, old one as alias) |
 | `batch` | Several of create_task, set_task, set_check, add_result, add_decision, note in one call; atomic by default |
 | `claim` | claim / heartbeat / release a lease (default 30 min), with workspace |
-| `set_check` | Tick one Done when item |
+| `set_check` | Tick one Done when item, amend its text, or lift a waiver |
+| `waive_check` | Mark a check as not going to be done, with why (an approval once In review or later) |
+| `request_approval` | Ask Jorge for one move: done, wont_do, reopen, waive_check, runbook_step, lease_resource |
 | `add_result` | Evidence: kind, verdict, cite, url; can tick checks |
 | `attach_doc` | A spec, plan or design doc on a task or the project |
-| `add_decision` | One line; task, tags, pin, supersedes, ADR body |
+| `add_decision` | One line; task, tags, pin, supersedes (one id or several), ADR body |
+| `retire_decision` | A decision that no longer holds and has no replacement |
+| `archive_legacy_card` | Move the v1 card into the event log and remove it (a job does it once v2 data exists) |
 | `ask` / `answer` | Questions for Jorge; `answer` with `decision_text` also writes a decision |
 | `reserve_sequence` | Next free number of a sequence (e.g. migrations), bound to a ticket |
 | `set_env` | What an environment runs: commit, branch, migrations applied, deployed at |
-| `set_project` | Title, body, rules, with version |
+| `set_project` | Title, body, rules, headline (≤ 280 chars), with version |
 
 Rules every write follows:
 
@@ -174,8 +182,20 @@ Rules every write follows:
 - **Batch.** `batch {ops[], atomic}` runs several writes in one transaction; the first failure is `BATCH_FAILED
   {index, op, failed}` and nothing is written. `atomic: false` commits op by op, failures inline, and a retry with the
   same `request_id` replays the ops that went through. An op on a key an earlier op changed may omit `version`.
-- **Actor.** `actor: {agent, session_id, machine?, model?}` is required and lands in the event log.
-  `session_id` owns leases. `jorge` is reserved for the screen.
+- **Actor.** `actor: {agent?, session_id, machine?, model?}` lands in the event log; `session_id` owns leases.
+  An agent token fills `agent` and `machine` and refuses values that disagree (`ACTOR_MISMATCH`); with a static token
+  `agent` is required (`ACTOR_REQUIRED`). `jorge` is reserved for the screen. Every event records `token_id`.
+- **Tokens.** Issued on screen at `/tokens`, shown once, stored hashed: name, agent, machine and scopes `read`
+  (read tools), `write` (every write but ops), `ops` (`set_env`, `reserve_sequence`). Revoking one stops its next call.
+  The static `.env` tokens keep working, unbound.
+- **Approvals.** Done, Won't do and reopening are Jorge's. An agent asks with `request_approval` (also for a waiver
+  once In review, a runbook step or a gated resource); Jorge grants or rejects in the inbox, one event per decision;
+  the granted `approval_id` unlocks exactly one move (`APPROVAL_MISMATCH`, `APPROVAL_NOT_GRANTED`, `APPROVAL_USED`)
+  and expires after 7 days. `confirm_by_jorge` is gone. Jorge's own moves on screen need no approval.
+- **Checks.** Entering In review, Merged, Released or Done needs every check done or waived (`CHECKS_OPEN` lists the
+  numbers), Jorge included; an initiative needs every ticket closed (`INITIATIVE_CHILDREN_OPEN`).
+- **Headline.** One line (≤ 280 chars) on where the project stands, written with `set_project` or on screen and
+  versioned; the server marks it `stale` when an env changes, an initiative moves or a ticket reaches Done after it.
 - **Events.** Every write records one or more events in the same transaction; `get_task.log` and
   `list_events` read them. Writes are serialized per project, so a `list_events` cursor never skips one.
 - **Time.** Every timestamp is ISO-8601 UTC from the server. Agents never type dates.
@@ -204,10 +224,12 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 <!-- errors:start -->
 | Code | Status | When |
 |---|---|---|
+| `ACTOR_REQUIRED` | 400 | actor.agent is missing and no agent token identifies the caller |
 | `BLOCKED_REQUIRES_NOTE` | 400 | status Blocked without a note (create_task cannot block: it takes no note) |
 | `BLOCKER_NOT_FOUND` | 400 | a blocked_by key does not exist in this project, or names the task itself |
 | `BODY_REMOVED` | 400 | body is gone in v2: use scope, checks, and note (the log) |
 | `FIELD_NOT_ALLOWED` | 400 | a field of the other kind: priority/parent_key/origin/work_type/phase on an initiative, base_branch/next_action/in_progress_note on a ticket |
+| `INVALID_APPROVAL` | 400 | request_approval action is not done, wont_do, reopen, waive_check, runbook_step or lease_resource |
 | `INVALID_BATCH_OP` | 400 | batch: an op is not set_task, set_check, add_result, add_decision, create_task or note |
 | `INVALID_ENV` | 400 | set_env: env is not lowercase [a-z][a-z0-9_-]*, a commit is not 7-40 hex, or migrations_applied is not a count |
 | `INVALID_ENV_CONDITION` | 400 | an env blocker's condition or value is wrong (contains_commit <sha>, migration_gte <n>, deployed_after [ISO]) |
@@ -220,14 +242,17 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `INVALID_STATUS` | 400 | status is not in the task kind's vocabulary, or not allowed at creation |
 | `INVALID_TTL` | 400 | ttl_minutes outside 5..240 |
 | `INVALID_WORK_TYPE` | 400 | work_type is not code, ops, research or decision-needed |
-| `OVERRIDE_REQUIRES_REASON` | 400 | confirm_by_jorge without a reason |
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
 | `RESERVED_ACTOR` | 400 | actor.agent is jorge: only the screen writes as Jorge |
 | `TEMPLATE_INVALID` | 400 | create_task: a ticket without scope, or a code/ops ticket without checks (detail: missing) |
 | `TEXT_HAS_DATE` | 400 | decision text starts with a date: the server stamps dates |
 | `TOO_LARGE` | 400 | a text field exceeds its limit (detail: field, max) |
 | `VERSION_REQUIRED` | 400 | set_task changes fields without the version you read |
-| `HUMAN_ONLY` | 403 | Done, Won't do or reopening them: Jorge's call, on screen or with confirm_by_jorge + reason |
+| `ACTOR_MISMATCH` | 403 | actor.agent or actor.machine disagrees with the agent token's (detail: expected) |
+| `APPROVAL_MISMATCH` | 403 | the approval_id is for another task, action or target (detail: expected) |
+| `APPROVAL_REQUIRED` | 403 | this needs an approval_id: request_approval first (detail: action, target) |
+| `HUMAN_ONLY` | 403 | Done, Won't do or reopening them: Jorge's call, on screen or with an approval_id he granted (request_approval) |
+| `APPROVAL_NOT_FOUND` | 404 | no approval with that id in this project |
 | `CHECK_NOT_FOUND` | 404 | no check with that n on this task |
 | `DECISION_NOT_FOUND` | 404 | supersedes names no decision of this project |
 | `DOC_NOT_FOUND` | 404 | no doc with that id in the project, or replacing (version given) a title that does not exist |
@@ -238,14 +263,20 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `TASK_NOT_FOUND` | 404 | unknown key in this project (also an unknown parent_key or task_key) |
 | `ALREADY_ANSWERED` | 409 | the question was answered already (detail: answer, answered_by) |
 | `ALREADY_SUPERSEDED` | 409 | the decision named in supersedes was already reversed (detail: superseded_by) |
+| `APPROVAL_NOT_GRANTED` | 409 | the approval is pending, rejected or expired (detail: state) |
+| `APPROVAL_USED` | 409 | the approval already unlocked one move (detail: used_at) |
 | `BATCH_FAILED` | 409 | an atomic batch rolled back because one op failed (detail: index, op, failed: {error, status, ...}) |
+| `CHECKS_OPEN` | 409 | In review, Merged, Released or Done while a check is neither done nor waived (detail: open, the check numbers) |
 | `CLAIM_HELD` | 409 | another session holds a live lease (detail: owner, lease_until, workspace) |
+| `DECISION_RETIRED` | 409 | the decision was retired: it cannot be superseded, pinned or retired again |
 | `DOC_EXISTS` | 409 | attach_doc without version for a title that exists (detail: doc_id, version): pass version to replace |
 | `EVIDENCE_REQUIRED` | 409 | In review without evidence for the work_type from the current claim (detail: accepts, since) |
+| `INITIATIVE_CHILDREN_OPEN` | 409 | an initiative cannot be Done or Won't do while a ticket of it is in another state (detail: open) |
 | `INVALID_TRANSITION` | 409 | the status change is not allowed from the current status (detail: from, to, hint) |
 | `KEY_BELOW_COUNTER` | 409 | an explicit key with a number already issued for that scope (detail: next); omit key to get the next one |
 | `KEY_EXISTS` | 409 | create with a key that exists (or is an alias of one); creates are not idempotent without request_id |
 | `LEASE_EXPIRED` | 409 | heartbeat after your lease ran out: claim again |
+| `LEGACY_CARD_EMPTY` | 409 | archive_legacy_card: the project has no v1 card left |
 | `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
 | `NOT_OWNER` | 409 | another session holds a live lease on this task (detail: owner, lease_until) |
 | `REQUEST_ID_REUSED` | 409 | request_id was already used by a different tool in this project |
@@ -319,7 +350,9 @@ system themes. Times arrive as UTC and show in the browser's local time. The des
 - `/` shows one track per project: progress, then an Ahora → Siguiente row per lane, and how many questions wait
   for Jorge. Past four initiatives, lanes still for a week fold behind "Ver todas". Projects without initiatives
   show their generated line. A "Te toca a ti" strip lists Needs Jorge tickets across projects.
-- `/p/<slug>` shows, in order: questions agents asked (answer with one click or free text, with an optional line for
+- `/inbox` lists everything waiting on Jorge: approvals (grant or reject several at once, one event each) and open
+  questions. The header shows the count. `/tokens` issues and revokes agent tokens.
+- `/p/<slug>` shows the headline first (editable, "desactualizado" when the server marked it stale), then, in order: questions agents asked (answer with one click or free text, with an optional line for
   the decision log); the lane grid; each initiative's line of stations; a branch graph built from initiatives' `branch`
   and `base_branch`; and the pinned decisions. "Ver la ficha completa" opens the generated resume per initiative
   (claims, next, pinned decisions, the v1 card folded away while it exists) and the decision log, reversed ones
@@ -349,7 +382,11 @@ the UI refetches what changed.
 | `GET /api/projects` | Projects with their generated line, open question count, and all tasks without scope |
 | `GET /api/projects/:slug` | Generated resume, decisions, and all tasks without scope (with version, lease, `branch` and `base_branch`) |
 | `GET /api/projects/:slug/tasks/:key` | One task, in the `get_task` shape |
+| `PATCH /api/projects/:slug` | `{ headline, version }` |
 | `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note?, version }`, as Jorge through `set_task` |
+| `POST /api/projects/:slug/tasks/:key/checks/:n/waive` | `{ reason }` |
+| `GET /api/inbox?project=` | Everything waiting on Jorge; `POST /api/approvals/decide` `{ ids, decision, note? }` grants or rejects, one event each |
+| `GET /api/tokens`, `POST /api/tokens`, `DELETE /api/tokens/:id` | Agent tokens (the secret is in the create response only) |
 | `POST /api/projects/:slug/tasks/:key/release` | Free a lease |
 | `POST /api/projects/:slug/questions/:id/answer` | `{ answer, decision_text? }` |
 | `GET /api/export/:slug.json` | The whole project (also with an MCP token, rw or ro) |
@@ -388,7 +425,9 @@ the UI refetches what changed.
 
 - The cleanup migration (drop `tasks.body`, the `projects.resume_*` card and `design_pages`) waits until the
   v2 backfill is confirmed on the real database.
-- Nothing feeds `/hooks/*` yet; GitHub and Vercel cannot reach a localhost server.
+- Nothing feeds `/hooks/*` yet; GitHub and Vercel cannot reach a localhost server. 2.2 polls them from here instead.
+- Background jobs run inside `pnpm start` (`src/jobs/`): lease warnings (`claim.expiring`, five minutes before a lease
+  ends) and the legacy card archiver. `PLANIA_JOBS=0` turns them off (tests, `pnpm dev:api`).
 - Live updates use an in-process bus. On Vercel each request may run in a different function, so the bus in
   `src/events.ts` must become polling or a hosted pub/sub. The UI does not change.
 - The built SPA in `dist/ui` must be served by Vercel as static output, with `/api`, `/mcp` and `/hooks` routed to the function.

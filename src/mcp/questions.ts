@@ -72,7 +72,7 @@ export async function ask(
       // The lease stays: the asker keeps the ticket while Jorge thinks (heartbeat to keep it).
       await tx
         .update(tasks)
-        .set({ status: "Needs Jorge", version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
+        .set({ status: "Needs Jorge", statusChangedAt: sql`now()`, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
         .where(eq(tasks.id, t.id));
       await emit("task.status", t, { from: t.status, to: "Needs Jorge" });
     }
@@ -137,7 +137,7 @@ export async function answer(
       assertTransition(t.kind, t.status, to, { via: "answer" });
       await tx
         .update(tasks)
-        .set({ status: to, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
+        .set({ status: to, statusChangedAt: sql`now()`, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
         .where(eq(tasks.id, t.id));
       await emit("task.status", t, { from: t.status, to });
       changed.push("status");

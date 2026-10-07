@@ -168,9 +168,10 @@ export function DecisionList({ decisions, onOpen }: { decisions: Decision[]; onO
       <Card className="gap-0 divide-y py-0">
         {decisions.map((d) => (
           <div key={d.id} className="grid gap-1 px-4 py-3">
-            <p className={cn("whitespace-pre-wrap", d.superseded_by && "text-muted-foreground line-through")}>{d.text}</p>
+            <p className={cn("whitespace-pre-wrap", (d.superseded_by || d.retired) && "text-muted-foreground line-through")}>{d.text}</p>
             <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-              {d.pinned && !d.superseded_by && <span className="text-amber-600 dark:text-amber-400">fija</span>}
+              {d.pinned && !d.superseded_by && !d.retired && <span className="text-amber-600 dark:text-amber-400">fija</span>}
+              {d.retired && <span title={d.retired.reason ?? undefined}>retirada</span>}
               {d.task_key && (
                 <button type="button" className="font-mono underline-offset-4 hover:underline" onClick={() => onOpen(d.task_key!)}>{d.task_key}</button>
               )}

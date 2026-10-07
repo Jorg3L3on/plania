@@ -145,7 +145,7 @@ export function ProjectPage() {
             lanes={derived.lanes}
             progress={derived.progress}
             counts={derived.counts}
-          />
+           headline={resume?.headline} version={project.data?.version} />
           {/* Questions agents asked Jorge (Needs Jorge): answer in place; the answer becomes a decision. */}
           <QuestionsPanel slug={slug} questions={project.data.resume.open_questions} onOpen={openTask} />
 

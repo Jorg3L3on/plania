@@ -12,6 +12,8 @@ const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
 const { app } = await import("../src/app.js");
 const { bus } = await import("../src/events.js");
+const { requestApproval, decideApproval } = await import("../src/mcp/approvals.js");
+const { webCtx } = await import("../src/mcp/tx.js");
 
 let client: Client;
 let raw: pg.Client;
@@ -62,6 +64,19 @@ async function call(name: string, args: Json): Promise<Json> {
     args = rest;
   }
   if (name === "get_task" && args.include_log === undefined) args = { ...args, include_log: true };
+  // In review and Done need every check closed (2.1). Tests that are not about that get them ticked;
+  // open_checks: true leaves them as they are.
+  if (name === "set_task" && (args.status === "In review" || args.status === "Done") && args.open_checks !== true) {
+    await raw.query(
+      `update checks set done = true where done = false and waived_at is null and task_id = (
+         select t.id from tasks t join projects p on p.id = t.project_id where p.slug = $1 and t.key = $2)`,
+      [args.project, args.key],
+    );
+  }
+  if (args.open_checks !== undefined) {
+    const { open_checks: _, ...rest } = args;
+    args = rest;
+  }
   if (args.include_log === "default") {
     const { include_log: _, ...rest } = args;
     args = rest;
@@ -90,6 +105,18 @@ async function eventCount(): Promise<number> {
 
 const lastLog = async (project: string, key: string): Promise<Json> => (await logOf(project, key)).at(-1)!;
 
+// Jorge grants an approval for one move, as the screen would.
+async function approve(project: string, key: string, action: string, target: Json = {}): Promise<string> {
+  const { db, close } = makeDb();
+  try {
+    const { approval } = await requestApproval(db, { project, key, action, reason: "test", target }, { actor: A });
+    await decideApproval(db, { approval_id: approval.id, decision: "grant" }, webCtx);
+    return approval.id;
+  } finally {
+    await close();
+  }
+}
+
 async function resolvedAt(key: string): Promise<Date | null> {
   const { rows } = await raw.query("select resolved_at from tasks where key = $1", [key]);
   return rows[0].resolved_at;
@@ -114,8 +141,9 @@ after(async () => {
 
 // The full tool surface. Update with the contract.
 const TOOLS = [
-  "add_decision", "add_result", "answer", "ask", "attach_doc", "batch", "claim", "create_task", "get_doc", "get_memory", "get_next",
-  "get_project", "get_resume", "get_task", "list_events", "list_tasks", "reserve_sequence", "set_check", "set_env", "set_project", "set_task",
+  "add_decision", "add_result", "answer", "archive_legacy_card", "ask", "attach_doc", "batch", "claim", "create_task", "get_doc", "get_inbox",
+  "get_memory", "get_next", "get_project", "get_resume", "get_task", "list_events", "list_tasks", "request_approval", "reserve_sequence",
+  "retire_decision", "set_check", "set_env", "set_project", "set_task", "waive_check",
 ];
 
 test("exposes exactly the contract tools", async () => {
@@ -289,13 +317,12 @@ describe("set_task", () => {
   });
 
   test("Done sets resolved_at; leaving Done clears it", async () => {
-    const asked = { confirm_by_jorge: true, reason: "Jorge: merged, mark it Done" };
-    await call("set_task", { project: "micasa", key: "MIC-B-01", status: "Done", ...asked });
+    await call("set_task", { project: "micasa", key: "MIC-B-01", status: "Done", approval_id: await approve("micasa", "MIC-B-01", "done") });
     const first = await resolvedAt("MIC-B-01");
     assert.ok(first instanceof Date);
     await call("set_task", { project: "micasa", key: "MIC-B-01", status: "Done", summary: "again" });
     assert.deepEqual(await resolvedAt("MIC-B-01"), first, "re-marking Done keeps the first timestamp");
-    await call("set_task", { project: "micasa", key: "MIC-B-01", status: "Ready", ...asked });
+    await call("set_task", { project: "micasa", key: "MIC-B-01", status: "Ready", approval_id: await approve("micasa", "MIC-B-01", "reopen") });
     assert.equal(await resolvedAt("MIC-B-01"), null);
   });
 
@@ -359,13 +386,15 @@ describe("set_task", () => {
 });
 
 describe("initiative status through set_task", () => {
-  test("sets initiative statuses and stamps Done", async () => {
-    const asked = { confirm_by_jorge: true, reason: "Jorge asked" };
-    const t = await call("set_task", { project: "micasa", key: "MIC-01", status: "Done", ...asked });
+  test("sets initiative statuses and stamps Done; an initiative with open tickets cannot close", async () => {
+    const r = await call("set_task", { project: "micasa", key: "MIC-01", status: "Done", approval_id: await approve("micasa", "MIC-01", "done") });
+    assert.equal(r.__error, "INITIATIVE_CHILDREN_OPEN");
+    await call("create_task", { project: "micasa", kind: "initiative", key: "MIC-I-DONE", title: "Closed out", scope: "PRD" });
+    const t = await call("set_task", { project: "micasa", key: "MIC-I-DONE", status: "Done", approval_id: await approve("micasa", "MIC-I-DONE", "done") });
     assert.equal(t.status, "Done");
-    assert.ok((await resolvedAt("MIC-01")) instanceof Date);
-    await call("set_task", { project: "micasa", key: "MIC-01", status: "On hold", ...asked });
-    assert.equal(await resolvedAt("MIC-01"), null);
+    assert.ok((await resolvedAt("MIC-I-DONE")) instanceof Date);
+    await call("set_task", { project: "micasa", key: "MIC-I-DONE", status: "On hold", approval_id: await approve("micasa", "MIC-I-DONE", "reopen") });
+    assert.equal(await resolvedAt("MIC-I-DONE"), null);
   });
 
   test("errors", async () => {
@@ -586,7 +615,7 @@ describe("v2 A4: generated resume", () => {
     await call("add_decision", { ...P, text: "Not pinned", task_key: "FIL-09" });
     await raw.query("update projects set resume_in_progress = 'old card' where slug = 'filmia'");
 
-    const r = await call("get_resume", P);
+    const r = await call("get_resume", { ...P, include_legacy: true });
     assert.match(r.generated_at, /Z$/);
     const i = r.initiatives.find((x: Json) => x.key === "FIL-09");
     assert.equal(i.in_progress.note, "F4 first");
@@ -598,6 +627,8 @@ describe("v2 A4: generated resume", () => {
     assert.deepEqual(r.must_keep.map((d: Json) => d.text), ["Plania is the source of the plan"]);
     assert.ok(r.claims.some((c: Json) => c.key === "FIL-09-F4"));
     assert.equal(r.legacy_card.in_progress, "old card");
+    assert.equal(r.legacy_card_present, true);
+    assert.equal((await call("get_resume", P)).legacy_card, undefined, "hidden unless asked for");
     assert.ok(r.recent.length > 0 && r.recent[0].at.endsWith("Z"));
   });
 
@@ -732,16 +763,19 @@ describe("v2 B1: state machine and work types", () => {
     }
   });
 
-  test("Done is Jorge's: HUMAN_ONLY, unless he asked and the agent says so", async () => {
+  test("Done is Jorge's: HUMAN_ONLY, unless he granted an approval the agent passes", async () => {
     await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Done" }, "HUMAN_ONLY", 403);
     await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Won't do" }, "HUMAN_ONLY", 403);
     await expectError("set_task", { ...P, key: "ZIG-M-I", status: "Done" }, "HUMAN_ONLY", 403);
-    await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Done", confirm_by_jorge: true }, "OVERRIDE_REQUIRES_REASON", 400);
-    const t = await call("set_task", { ...P, key: "ZIG-M-01", status: "Done", confirm_by_jorge: true, reason: "Jorge: ship it" });
+    // confirm_by_jorge is gone: the schema drops it and the move is still Jorge's.
+    await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Done", confirm_by_jorge: true, reason: "x" }, "HUMAN_ONLY", 403);
+    const id = await approve("zigzag", "ZIG-M-01", "done");
+    const t = await call("set_task", { ...P, key: "ZIG-M-01", status: "Done", approval_id: id });
     assert.equal(t.status, "Done");
-    const override = (await logOf("zigzag", "ZIG-M-01")).find((e: Json) => e.type === "task.human_override");
-    assert.deepEqual(override!.payload, { from: "In progress", to: "Done", reason: "Jorge: ship it" });
+    const moved = (await logOf("zigzag", "ZIG-M-01")).find((e: Json) => e.type === "task.approved_move");
+    assert.deepEqual(moved!.payload, { from: "In progress", to: "Done", approval_id: id });
     await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Ready" }, "HUMAN_ONLY", 403);
+    await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Ready", approval_id: id }, "APPROVAL_MISMATCH", 403);
   });
 
   test("work_type defaults to code, can be set on tickets, and is checked", async () => {
@@ -814,10 +848,10 @@ describe("v2 B3: evidence", () => {
 
   test("code needs a passing unit|integration|test|live|ci result from this claim", async () => {
     await ticket("WRK-E-01", "code");
-    await expectError("set_task", { ...P, key: "WRK-E-01", status: "In review" }, "EVIDENCE_REQUIRED", 409);
+    await expectError("set_task", { ...P, key: "WRK-E-01", status: "In review", open_checks: true }, "EVIDENCE_REQUIRED", 409);
     await call("add_result", { ...P, key: "WRK-E-01", kind: "grep", verdict: "pass", cite: "no TODO left" });
     await call("add_result", { ...P, key: "WRK-E-01", kind: "test", verdict: "fail", cite: "2 failing" });
-    await expectError("set_task", { ...P, key: "WRK-E-01", status: "In review" }, "EVIDENCE_REQUIRED", 409);
+    await expectError("set_task", { ...P, key: "WRK-E-01", status: "In review", open_checks: true }, "EVIDENCE_REQUIRED", 409);
     const { result, task } = await call("add_result", {
       ...P, key: "WRK-E-01", kind: "ci", verdict: "pass", cite: "CI green", url: "https://ci.example/run/1", check_ns: [1], actor: B,
     });
@@ -832,13 +866,13 @@ describe("v2 B3: evidence", () => {
     await call("claim", { ...P, key: "WRK-E-01" });
     await raw.query("update results set created_at = now() - interval '1 hour' where task_id = (select id from tasks where key = 'WRK-E-01')");
     await raw.query("update tasks set claimed_at = now() - interval '1 minute' where key = 'WRK-E-01'");
-    await expectError("set_task", { ...P, key: "WRK-E-01", status: "In review" }, "EVIDENCE_REQUIRED", 409);
+    await expectError("set_task", { ...P, key: "WRK-E-01", status: "In review", open_checks: true }, "EVIDENCE_REQUIRED", 409);
   });
 
   test("ops accepts live|verify|ci; research accepts any result; decision-needed never", async () => {
     await ticket("WRK-E-02", "ops");
     await call("add_result", { ...P, key: "WRK-E-02", kind: "unit", verdict: "pass", cite: "n/a" });
-    await expectError("set_task", { ...P, key: "WRK-E-02", status: "In review" }, "EVIDENCE_REQUIRED", 409);
+    await expectError("set_task", { ...P, key: "WRK-E-02", status: "In review", open_checks: true }, "EVIDENCE_REQUIRED", 409);
     await call("add_result", { ...P, key: "WRK-E-02", kind: "verify", verdict: "pass", cite: "0008 applied on Neon" });
     assert.equal((await call("set_task", { ...P, key: "WRK-E-02", status: "In review" })).status, "In review");
 
@@ -848,7 +882,7 @@ describe("v2 B3: evidence", () => {
 
     await ticket("WRK-E-04", "decision-needed");
     await call("add_result", { ...P, key: "WRK-E-04", kind: "test", verdict: "pass", cite: "x" });
-    await expectError("set_task", { ...P, key: "WRK-E-04", status: "In review" }, "EVIDENCE_REQUIRED", 409);
+    await expectError("set_task", { ...P, key: "WRK-E-04", status: "In review", open_checks: true }, "EVIDENCE_REQUIRED", 409);
   });
 
   test("set_check with evidence_id needs a result of the same task; bad results are INVALID_RESULT", async () => {
@@ -891,7 +925,7 @@ describe("v2 B4: docs", () => {
   test("a research ticket can enter In review with a doc and no result", async () => {
     await call("create_task", { ...P, key: "MIC-R-01", title: "Compare OCR libs", work_type: "research" });
     await call("claim", { ...P, key: "MIC-R-01" });
-    await expectError("set_task", { ...P, key: "MIC-R-01", status: "In review" }, "EVIDENCE_REQUIRED", 409);
+    await expectError("set_task", { ...P, key: "MIC-R-01", status: "In review", open_checks: true }, "EVIDENCE_REQUIRED", 409);
     await call("attach_doc", { ...P, key: "MIC-R-01", title: "Findings", markdown: "Tesseract wins" });
     assert.equal((await call("set_task", { ...P, key: "MIC-R-01", status: "In review" })).status, "In review");
   });
@@ -904,14 +938,14 @@ describe("v2 B5: decisions", () => {
     const old = (await call("add_decision", { ...P, text: "Quitar de Filmia with strong confirm", task_key: "FIL-09-F4", tags: ["UX", "delete"], pin: true })).decision;
     assert.deepEqual(old.tags, ["ux", "delete"]);
     const neu = (await call("add_decision", { ...P, text: "No delete at all; orphans are kept", supersedes: old.id })).decision;
-    assert.equal(neu.supersedes, old.id);
+    assert.deepEqual(neu.supersedes, [old.id]);
     assert.equal(neu.task_key, "FIL-09-F4", "a reversal inherits the task");
     assert.equal(neu.pinned, true, "and the pin");
     const r = await call("add_decision", { ...P, text: "again", supersedes: old.id });
     assert.equal(r.__error, "ALREADY_SUPERSEDED");
     await expectError("add_decision", { ...P, text: "x", supersedes: "00000000-0000-0000-0000-000000000000" }, "DECISION_NOT_FOUND", 404);
 
-    const m = await call("get_memory", { ...P, task_key: "FIL-09-F4" });
+    const m = await call("get_memory", { ...P, task_key: "FIL-09-F4", include_superseded: true });
     assert.deepEqual(m.decisions.map((d: Json) => [d.text, d.superseded_by]), [
       ["No delete at all; orphans are kept", null],
       ["Quitar de Filmia with strong confirm", neu.id],
@@ -926,9 +960,10 @@ describe("v2 B5: decisions", () => {
     const byInitiative = await call("get_memory", { ...P, initiative_key: "FIL-09" });
     assert.ok(byInitiative.decisions.length >= 3);
     assert.ok(byInitiative.decisions.every((d: Json) => d.task_key?.startsWith("FIL-09")));
-    const tagged = await call("get_memory", { ...P, tag: "UX" });
+    assert.deepEqual((await call("get_memory", { ...P, tag: "UX" })).decisions, [], "reversed decisions are hidden by default");
+    const tagged = await call("get_memory", { ...P, tag: "UX", include_superseded: true });
     assert.deepEqual(tagged.decisions.map((d: Json) => d.text), ["Quitar de Filmia with strong confirm"]);
-    const current = await call("get_memory", { ...P, task_key: "FIL-09-F4", include_superseded: false });
+    const current = await call("get_memory", { ...P, task_key: "FIL-09-F4" });
     assert.equal(current.decisions.length, 1);
     await expectError("get_memory", { ...P, initiative_key: "FIL-09-F4" }, "INITIATIVE_NOT_FOUND", 404);
   });

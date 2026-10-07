@@ -1,4 +1,4 @@
-import type { ProjectDetail, ProjectSummary, TaskDetail } from "./types";
+import type { AgentToken, Inbox, ProjectDetail, ProjectSummary, TaskDetail } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -44,6 +44,19 @@ export const api = {
       ...(decisionText ? { decision_text: decisionText } : {}),
     }),
   exportUrl: (slug: string) => `/api/export/${encodeURIComponent(slug)}.json`,
+  // The headline carries the project version on screen, like a task's.
+  patchProject: (slug: string, headline: string, version: number) =>
+    request<{ version: number }>("PATCH", `/projects/${encodeURIComponent(slug)}`, { headline, version }),
+  waiveCheck: (slug: string, key: string, n: number, reason: string) =>
+    request<TaskDetail>("POST", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/checks/${n}/waive`, { reason }),
+  inbox: (project?: string) => request<Inbox>("GET", project ? `/inbox?project=${encodeURIComponent(project)}` : "/inbox"),
+  decide: (ids: string[], decision: "grant" | "reject", note?: string) =>
+    request<{ results: { id: string; ok: boolean; error?: string }[]; decided: number }>("POST", "/approvals/decide", { ids, decision, note }),
+  tokens: () => request<AgentToken[]>("GET", "/tokens"),
+  createToken: (input: { name: string; agent: string; machine?: string; scopes: string[] }) =>
+    request<{ token: AgentToken; secret: string }>("POST", "/tokens", input),
+  revokeToken: (id: string, reason?: string) =>
+    request<AgentToken>("DELETE", `/tokens/${encodeURIComponent(id)}${reason ? `?reason=${encodeURIComponent(reason)}` : ""}`),
 };
 
 export const isUnauthorized = (e: unknown) => e instanceof ApiError && e.status === 401;

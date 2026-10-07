@@ -13,7 +13,7 @@ export type Q = PgDatabase<NodePgQueryResultHKT, typeof schema>;
 // Who is writing and through which channel. human is true only for Jorge's screen (cookie),
 // never inferred from the actor value. requestId + tool make a retry replay the first response.
 // verbose: writes return the full task besides the compact {key, status, version, changed} reply.
-export type Ctx = { actor: Actor; human?: boolean; requestId?: string; tool?: string; verbose?: boolean };
+export type Ctx = { actor: Actor; human?: boolean; requestId?: string; tool?: string; verbose?: boolean; tokenId?: string };
 
 const REQUEST_TTL = "30 days";
 
@@ -64,6 +64,7 @@ export async function writeTx<T>(
         taskKey: task?.key ?? null,
         type,
         actor: ctx.actor,
+        tokenId: ctx.tokenId ?? null,
         payload,
       });
     };
@@ -98,6 +99,8 @@ async function reapExpiredLeases(tx: Q, projectId: string): Promise<string[]> {
     update tasks t set
       owner = null, claimed_at = null, lease_until = null,
       status = case when t.status = 'In progress' then 'Ready' else t.status end,
+      status_changed_at = case when t.status = 'In progress' then now() else t.status_changed_at end,
+      expiring_warned_at = null,
       version = t.version + 1, updated_at = now()
     from expired e where t.id = e.id
     returning t.id, t.key, e.owner, e.status as "from", t.status as "to"`);

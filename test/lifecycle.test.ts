@@ -37,10 +37,13 @@ test("initiative moves an agent makes with set_task", () => {
   ]);
 });
 
-test("Jorge on screen may make any move; an override only opens Done, Won't do and reopening", () => {
+test("Jorge on screen may make any move; an approval only opens the one move it is for", () => {
   assert.equal(allowed("ticket", TICKET_STATUSES, { human: true }).length, TICKET_STATUSES.length * (TICKET_STATUSES.length - 1));
-  const asked = allowed("ticket", TICKET_STATUSES, { override: { confirm_by_jorge: true, reason: "asked" } });
-  assert.ok(asked.includes("In review → Done"));
-  assert.ok(asked.includes("Done → Ready"));
-  assert.ok(!asked.includes("Backlog → In review"));
+  const done = allowed("ticket", TICKET_STATUSES, { approval: { action: "done" } });
+  assert.ok(done.includes("In review → Done"));
+  assert.ok(!done.includes("In review → Won't do"));
+  assert.ok(!done.includes("Done → Ready"));
+  const reopen = allowed("ticket", TICKET_STATUSES, { approval: { action: "reopen" } });
+  assert.ok(reopen.includes("Done → Ready"));
+  assert.ok(!reopen.includes("Backlog → In review"));
 });

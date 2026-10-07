@@ -3,6 +3,7 @@ import type { Db } from "../db/client.js";
 import { envCommits, envStates } from "../db/schema.js";
 import { ENV_NAME } from "./blockers.js";
 import { ToolError } from "./errors.js";
+import { markHeadlineStale } from "./project.js";
 import { findProject } from "./queries.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 
@@ -68,6 +69,7 @@ export async function setEnv(
         .values(shas.map((sha) => ({ projectId: p.id, env: input.env, sha })))
         .onConflictDoNothing();
     }
+    await markHeadlineStale(tx, p.id);
     await emit("env.set", null, {
       env: input.env,
       commit: row!.commit,

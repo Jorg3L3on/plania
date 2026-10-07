@@ -1,7 +1,12 @@
 // Project page sections around the lane grid: header, "Te toca a ti", initiative lines,
 // branch graph, fixed decisions and the full resume (ficha) panel.
-import { ArrowRightIcon, GitBranchIcon, HandIcon, PinIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ArrowRightIcon, GitBranchIcon, HandIcon, PencilIcon, PinIcon } from "lucide-react";
+import { useState, type FormEvent, type ReactNode } from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { api } from "@/lib/api";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { TicketButton } from "@/components/plan/ticket-button";
 import {
@@ -19,8 +24,59 @@ import {
 } from "@/components/plan/visuals";
 import { DecisionList, ResumeView } from "@/components/resume";
 import type { BranchEdge, Lane, YourTurnItem } from "@/lib/lanes";
-import type { Decision, Resume } from "@/lib/types";
+import type { Decision, Headline, Resume } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+// One line on where the project stands. Anyone writes it (set_project or here); the server marks it
+// stale when an env, an initiative or a Done moved after it was written.
+function HeadlineLine({ slug, headline, version }: { slug: string; headline: Headline; version: number }) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(headline.text);
+  const save = useMutation({
+    mutationFn: () => api.patchProject(slug, text.trim(), version),
+    onSuccess: () => {
+      setEditing(false);
+      toast("Titular guardado");
+    },
+    onError: () => toast.error("No se pudo guardar el titular; recarga y vuelve a intentarlo."),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ["project", slug] }),
+  });
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    if (text.trim() !== headline.text) save.mutate();
+    else setEditing(false);
+  }
+  if (editing) {
+    return (
+      <form onSubmit={submit} className="grid max-w-2xl gap-2">
+        <Textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 280))} rows={2} autoFocus aria-label="Titular" />
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>{text.length}/280</span>
+          <Button type="submit" size="sm" disabled={save.isPending}>Guardar</Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => { setText(headline.text); setEditing(false); }}>Cancelar</Button>
+        </div>
+      </form>
+    );
+  }
+  return (
+    <p className="mt-1 flex max-w-2xl flex-wrap items-baseline gap-x-2 text-[17px]">
+      {headline.text ? (
+        <span className={cn(headline.stale && "text-muted-foreground")}>{headline.text}</span>
+      ) : (
+        <span className="text-muted-foreground">Sin titular.</span>
+      )}
+      {headline.stale && (
+        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400" title="Algo cambió desde que se escribió">
+          desactualizado
+        </span>
+      )}
+      <button type="button" onClick={() => { setText(headline.text); setEditing(true); }} className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:underline" aria-label="Editar titular">
+        <PencilIcon className="size-3" aria-hidden /> editar
+      </button>
+    </p>
+  );
+}
 
 type Open = (key: string) => void;
 
@@ -50,12 +106,16 @@ export function ProjectHeader({
   lanes,
   progress,
   counts,
+  headline,
+  version,
 }: {
   slug: string;
   title: string;
   lanes: Lane[];
   progress: { closed: number; total: number };
   counts: { inProgress: number; inReview: number; ready: number; needsJorge: number; blocked: number };
+  headline?: Headline;
+  version?: number;
 }) {
   const [from, to] = projectAccent(slug);
   const legend = [
@@ -73,7 +133,8 @@ export function ProjectHeader({
           Proyecto · {slug}
         </span>
         <h1 className="font-display text-5xl leading-[0.95] font-extrabold tracking-[-0.03em] sm:text-7xl">{title}</h1>
-        <p className="mt-1 text-[17px] text-muted-foreground">{laneSentence(lanes)}</p>
+        {headline && version !== undefined && <HeadlineLine slug={slug} headline={headline} version={version} />}
+        <p className="mt-1 text-[15px] text-muted-foreground">{laneSentence(lanes)}</p>
       </div>
       <div className="flex flex-wrap items-center gap-7">
         {progress.total > 0 && (

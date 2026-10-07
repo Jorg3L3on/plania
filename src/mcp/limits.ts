@@ -10,6 +10,8 @@ export const TEXT_LIMITS: Record<string, number> = {
   name: 40,
   title: 200,
   summary: 300,
+  headline: 280,
+  reason: 2_000,
   branch: 200,
   base_branch: 200,
   pr_url: 500,

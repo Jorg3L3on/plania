@@ -41,8 +41,66 @@ export const projects = pgTable("projects", {
   // v2.1: the project's key prefix (FIL for filmia). Keys are PREFIX-I<n> (initiatives),
   // PREFIX-<n> (standalone tickets) and <initiative key>-<n> (phases); see src/mcp/keys.ts.
   keyPrefix: text("key_prefix").notNull().default(""),
+  // v2.1: one human-readable line about where the project stands (set_project headline, ≤ 280 chars).
+  // The server flags it stale when an env, an initiative's status or a Done moves after it was written.
+  headline: text("headline").notNull().default(""),
+  headlineVersion: integer("headline_version").notNull().default(0),
+  headlineAt: timestamp("headline_at", { withTimezone: true }),
+  headlineStale: boolean("headline_stale").notNull().default(false),
   ...timestamps,
 });
+
+// v2.1: per-agent tokens issued on screen. The server fills actor.agent/machine from the token and
+// records token_id on every event. Static env tokens keep working as unbound fallbacks.
+export const agentTokens = pgTable("agent_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  agent: text("agent").notNull(),
+  machine: text("machine"),
+  scopes: text("scopes").array().notNull().default(sql`'{}'::text[]`), // read | write | ops
+  tokenHash: text("token_hash").notNull().unique(),
+  prefix: text("prefix").notNull(), // the first characters, to tell tokens apart on screen
+  createdBy: jsonb("created_by").$type<Actor>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  revokedReason: text("revoked_reason"),
+});
+
+// v2.1: Jorge's approvals. An agent asks (request_approval); Jorge grants or rejects on screen; the
+// granted id unlocks one move (Done, Won't do, reopen, a waiver...) once, then it is used.
+export const approvals = pgTable(
+  "approvals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id").references((): AnyPgColumn => tasks.id, { onDelete: "set null" }),
+    taskKey: text("task_key"),
+    action: text("action").notNull(), // done | wont_do | reopen | waive_check | runbook_step | lease_resource
+    target: jsonb("target").$type<Record<string, unknown>>().notNull().default({}),
+    reason: text("reason").notNull(),
+    requestedBy: jsonb("requested_by").$type<Actor>().notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    state: text("state").notNull().default("pending"), // pending | granted | rejected | expired
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedBy: jsonb("decided_by").$type<Actor>(),
+    decisionNote: text("decision_note"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    usedBy: jsonb("used_by").$type<Actor>(),
+  },
+  (t) => [
+    index("approvals_project_pending_idx").on(t.projectId).where(sql`${t.state} = 'pending'`),
+    index("approvals_task_idx").on(t.taskId),
+    check(
+      "approvals_action_check",
+      sql`${t.action} in ('done', 'wont_do', 'reopen', 'waive_check', 'runbook_step', 'lease_resource')`,
+    ),
+    check("approvals_state_check", sql`${t.state} in ('pending', 'granted', 'rejected', 'expired')`),
+  ],
+);
 
 // v2.1: one counter per key scope ("initiative", "standalone", or a parent initiative's id).
 // Counters only move up, so a number is never reissued after a rename, move or delete.
@@ -99,8 +157,12 @@ export const decisions = pgTable(
     taskId: uuid("task_id").references((): AnyPgColumn => tasks.id, { onDelete: "set null" }),
     pinned: boolean("pinned").notNull().default(false),
     tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
-    // A decision that reverses another names it; the old one renders struck through.
+    // v2.0 single reversal, replaced by decision_supersessions in 2.1. Kept until the cleanup migration.
     supersedesId: uuid("supersedes_id").references((): AnyPgColumn => decisions.id, { onDelete: "set null" }),
+    // v2.1: retired without a replacement (retire_decision). Hidden by default, like superseded ones.
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    retiredBy: jsonb("retired_by").$type<Actor>(),
+    retiredReason: text("retired_reason"),
     // The full ADR, stored as a project doc.
     docId: uuid("doc_id").references((): AnyPgColumn => docs.id, { onDelete: "set null" }),
     // v1 decisions carried a typed date in the line; the backfill moves it here.
@@ -111,8 +173,22 @@ export const decisions = pgTable(
   (t) => [
     index("decisions_project_created_idx").on(t.projectId, t.createdAt.desc()),
     index("decisions_task_idx").on(t.taskId),
-    uniqueIndex("decisions_supersedes_unique").on(t.supersedesId).where(sql`${t.supersedesId} is not null`),
   ],
+);
+
+// v2.1: a decision may reverse several earlier ones (add_decision supersedes: [...]); each old one is
+// reversed at most once, so the unique index keeps ALREADY_SUPERSEDED meaningful.
+export const decisionSupersessions = pgTable(
+  "decision_supersessions",
+  {
+    decisionId: uuid("decision_id")
+      .notNull()
+      .references((): AnyPgColumn => decisions.id, { onDelete: "cascade" }),
+    supersedesId: uuid("supersedes_id")
+      .notNull()
+      .references((): AnyPgColumn => decisions.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.decisionId, t.supersedesId] }), uniqueIndex("decision_supersessions_old_unique").on(t.supersedesId)],
 );
 
 export const tasks = pgTable(
@@ -154,6 +230,10 @@ export const tasks = pgTable(
     leaseUntil: timestamp("lease_until", { withTimezone: true }),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     workspace: jsonb("workspace").$type<Workspace>(),
+    // v2.1: when the status last moved (the inbox shows how long something has waited).
+    statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
+    // v2.1: the claim.expiring warning was sent for the current lease (cleared by a heartbeat).
+    expiringWarnedAt: timestamp("expiring_warned_at", { withTimezone: true }),
     ...timestamps,
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   },
@@ -266,6 +346,11 @@ export const checks = pgTable(
     doneAt: timestamp("done_at", { withTimezone: true }),
     doneBy: jsonb("done_by").$type<Actor>(),
     evidenceId: uuid("evidence_id").references(() => results.id, { onDelete: "set null" }),
+    // v2.1: a check that will not be done, with why and (once In review or later) who approved it.
+    waivedAt: timestamp("waived_at", { withTimezone: true }),
+    waivedBy: jsonb("waived_by").$type<Actor>(),
+    waiveReason: text("waive_reason"),
+    approvalId: uuid("approval_id"),
   },
   (t) => [unique("checks_task_n_unique").on(t.taskId, t.n)],
 );
@@ -381,6 +466,7 @@ export const events = pgTable(
     taskKey: text("task_key"), // kept when the task row is gone
     type: text("type").notNull(),
     actor: jsonb("actor").$type<Actor>().notNull(),
+    tokenId: uuid("token_id"), // v2.1: the agent token behind the write, when one was used
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

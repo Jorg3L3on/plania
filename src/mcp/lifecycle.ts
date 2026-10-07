@@ -8,10 +8,13 @@ import { ToolError } from "./errors.js";
 //             In review goes back to In progress through claim (rework).
 // Initiative: Planning ⇄ Active ⇄ Shipping, any of them ⇄ On hold.
 //
-// Done and Won't do, and reopening either, are Jorge's: on screen, or by an agent he asked, which
-// must say so (confirm_by_jorge + reason) and is logged as task.human_override.
+// Done and Won't do, and reopening either, are Jorge's: on screen, or by an agent holding an
+// approval he granted (request_approval → approval_id), which is spent on that one move.
 
 export const TERMINAL = ["Done", "Won't do"] as const;
+
+// Entering any of these needs every check done or waived (CHECKS_OPEN).
+export const GATED_STATUSES = ["In review", "Merged", "Released", "Done"] as const;
 
 const TICKET_MOVES: Record<string, string[]> = {
   Backlog: ["Ready", "Blocked"],
@@ -32,29 +35,36 @@ const INITIATIVE_MOVES: Record<string, string[]> = {
 // Moves that only one tool makes.
 const VIA_TOOL: Record<string, string> = { "In progress": "claim", "Needs Jorge": "ask" };
 
-export type Override = { confirm_by_jorge?: boolean; reason?: string };
+export type ApprovalAction = "done" | "wont_do" | "reopen" | "waive_check" | "runbook_step" | "lease_resource";
 
 export type TransitionCtx = {
   human?: boolean; // Jorge's screen
   via?: "set_task" | "claim" | "ask" | "answer";
-  override?: Override;
+  approval?: { action: string } | null; // an approval the caller holds
 };
 
 const isTerminal = (s: string) => (TERMINAL as readonly string[]).includes(s);
 
-// Throws if the move is not allowed. Returns true when it went through Jorge's override.
+// The approval action a move needs, or null when it needs none.
+export function actionForMove(from: string, to: string): ApprovalAction | null {
+  if (to === "Done") return "done";
+  if (to === "Won't do") return "wont_do";
+  if (isTerminal(from)) return "reopen";
+  return null;
+}
+
+// Throws if the move is not allowed. Returns true when it went through an approval.
 export function assertTransition(kind: string, from: string, to: string, ctx: TransitionCtx): boolean {
   if (from === to) return false;
   if (ctx.human) return false;
-  if (isTerminal(to) || isTerminal(from)) {
-    if (ctx.override?.confirm_by_jorge) {
-      if (!ctx.override.reason?.trim()) throw new ToolError("OVERRIDE_REQUIRES_REASON");
-      return true;
-    }
+  const needed = actionForMove(from, to);
+  if (needed) {
+    if (ctx.approval?.action === needed) return true;
     throw new ToolError("HUMAN_ONLY", {
       from,
       to,
-      hint: "Jorge marks Done and Won't do on screen. If he asked you to, pass confirm_by_jorge: true with a reason.",
+      needs: needed,
+      hint: "Jorge marks Done and Won't do on screen. Ask him with request_approval and pass the granted approval_id.",
     });
   }
   // answer puts a ticket back where it was before the question, whatever that was.

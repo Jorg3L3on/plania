@@ -182,7 +182,8 @@ describe("decisions", () => {
     ]);
     await runStage(db, stage("decisions"), { apply: true, project: "filmia", map: `${newer!.slice(0, 8)}:${older!.slice(0, 8)}` });
     const { rows: after } = await raw.query(
-      `select line, to_char(decided_on, 'YYYY-MM-DD') as day, task_id is not null as has_task, supersedes_id
+      `select line, to_char(decided_on, 'YYYY-MM-DD') as day, task_id is not null as has_task,
+         (select ds.supersedes_id from decision_supersessions ds where ds.decision_id = decisions.id) as supersedes_id
        from decisions where project_id = (select id from projects where slug = 'filmia') order by created_at`,
     );
     assert.deepEqual(after.map((r) => [r.line, r.day, r.has_task]), [
