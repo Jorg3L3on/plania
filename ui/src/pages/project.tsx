@@ -87,7 +87,7 @@ export function ProjectPage() {
           <ChevronLeftIcon className="size-4" /> Proyectos
         </Link>
         {project.data ? (
-          <h1 className="flex items-baseline gap-3 text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-baseline gap-3 font-display text-4xl font-extrabold tracking-tight">
             {project.data.title}
             <span className="font-mono text-sm font-normal text-muted-foreground">{project.data.slug}</span>
           </h1>

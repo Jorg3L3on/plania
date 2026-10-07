@@ -48,7 +48,7 @@ export function TaskRow({
         "flex flex-col gap-2 px-4 py-3 transition-colors duration-700 sm:flex-row sm:items-start sm:justify-between sm:gap-4",
         nested && "sm:pl-9",
         selected && "bg-muted/60",
-        fresh && "bg-amber-100/70 dark:bg-amber-500/15",
+        fresh && "bg-status-now/15",
       )}
     >
       <div className="min-w-0">
@@ -69,7 +69,7 @@ export function TaskRow({
         </div>
         {task.summary && <p className="text-sm text-muted-foreground">{task.summary}</p>}
         {task.status === "Blocked" && task.blocked_note && (
-          <p className="mt-1 text-sm text-red-600 dark:text-red-400">{task.blocked_note}</p>
+          <p className="mt-1 text-sm text-status-blocked">{task.blocked_note}</p>
         )}
       </div>
       <div className="flex shrink-0 items-center gap-2">

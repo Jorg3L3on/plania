@@ -9,7 +9,7 @@ export function ProjectsPage() {
 
   return (
     <div className="grid gap-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Proyectos</h1>
+      <h1 className="font-display text-4xl font-extrabold tracking-tight">Proyectos</h1>
       {projects.isPending && (
         <div className="grid gap-3 sm:grid-cols-2">
           {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}

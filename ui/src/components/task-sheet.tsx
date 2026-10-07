@@ -55,7 +55,7 @@ function Details({ slug, task, onOpen }: { slug: string; task: TaskDetail; onOpe
       </div>
 
       {task.status === "Blocked" && task.blocked_note && (
-        <p className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-400">
+        <p className="rounded-lg border border-status-blocked/30 bg-status-blocked/5 px-3 py-2 text-sm text-status-blocked">
           {task.blocked_note}
         </p>
       )}
