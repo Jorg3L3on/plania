@@ -10,6 +10,7 @@ import {
   tasks,
   type Task,
 } from "../db/schema.js";
+import { bus } from "../events.js";
 import { ToolError, findProject, findTask, resumeShape, taskShape } from "./queries.js";
 
 // Handoff §3, write side. Every write that returns a task returns the get_task shape.
@@ -94,6 +95,7 @@ export async function updateResume(
     .where(eq(projects.slug, slug))
     .returning();
   if (!row) throw new ToolError("PROJECT_NOT_FOUND", 404);
+  bus.publish({ type: "project", project: slug });
   return resumeShape(row);
 }
 
@@ -116,6 +118,7 @@ export async function createInitiative(
         baseBranch: input.base_branch ?? "main",
       })
       .returning();
+    bus.publish({ type: "task", project: p.slug, key: input.key });
     return taskShape(db, row!);
   } catch (e) {
     if (isUniqueViolation(e)) throw new ToolError("KEY_EXISTS", 409);
@@ -172,6 +175,7 @@ export async function createTask(
       await replaceBlockers(tx, t!.id, blockerIds);
       return t!;
     });
+    bus.publish({ type: "task", project: p.slug, key: input.key });
     return taskShape(db, row);
   } catch (e) {
     if (isUniqueViolation(e)) throw new ToolError("KEY_EXISTS", 409);
@@ -244,6 +248,7 @@ export async function setTask(
     if (blockerIds !== undefined) await replaceBlockers(tx, t.id, blockerIds);
     return u!;
   });
+  bus.publish({ type: "task", project: p.slug, key: t.key });
   return taskShape(db, row);
 }
 
@@ -261,6 +266,7 @@ export async function setInitiative(db: Db, input: { project: string; key: strin
     })
     .where(eq(tasks.id, t.id))
     .returning();
+  bus.publish({ type: "task", project: p.slug, key: t.key });
   return taskShape(db, row!);
 }
 
@@ -273,6 +279,7 @@ export async function addDecision(
     .insert(decisions)
     .values({ projectId: p.id, line: input.line, adrUrl: input.adr_url ?? null })
     .returning({ id: decisions.id, line: decisions.line, adr_url: decisions.adrUrl, created_at: decisions.createdAt });
+  bus.publish({ type: "decision", project: p.slug });
   if (!input.pin_to_resume) return { decision: d! };
   const resume = await updateResume(db, p.slug, {
     in_progress: p.resumeInProgress,

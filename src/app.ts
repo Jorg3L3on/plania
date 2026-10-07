@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { makeDb } from "./db/client.js";
 import { createMcpServer } from "./mcp/register.js";
-import { web } from "./web/routes.js";
+import { api } from "./api/routes.js";
 
 export const app = new Hono();
 
@@ -44,4 +44,4 @@ app.post("/mcp", async (c) => {
 
 app.on(["GET", "DELETE"], "/mcp", (c) => c.json({ error: "METHOD_NOT_ALLOWED" }, 405));
 
-app.route("/", web);
+app.route("/api", api);

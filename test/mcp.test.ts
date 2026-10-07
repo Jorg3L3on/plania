@@ -11,6 +11,7 @@ useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
 const { app } = await import("../src/app.js");
+const { bus } = await import("../src/events.js");
 
 let client: Client;
 let raw: pg.Client;
@@ -330,5 +331,33 @@ describe("add_decision", () => {
 
   test("unknown project is PROJECT_NOT_FOUND", async () => {
     await expectError("add_decision", { project: "nope", line: "x" }, "PROJECT_NOT_FOUND", 404);
+  });
+});
+
+describe("live events", () => {
+  test("every write tool publishes one change for its project", async () => {
+    const seen: Json[] = [];
+    const unsubscribe = bus.subscribe((e) => seen.push(e));
+    try {
+      const card = { in_progress: "", next_action: "", branch_or_prod: "", must_keep_decision: "" };
+      await call("update_resume", { project: "workia", ...card });
+      await call("create_initiative", { project: "workia", key: "WRK-01", title: "x", body: "" });
+      await call("create_task", { project: "workia", key: "WRK-01-F1", title: "x", body: "", parent_key: "WRK-01" });
+      await call("set_task", { project: "workia", key: "WRK-01-F1", status: "Ready" });
+      await call("set_initiative", { project: "workia", key: "WRK-01", status: "Active" });
+      await call("add_decision", { project: "workia", line: "x" });
+      await call("set_task", { project: "workia", key: "NOPE", status: "Ready" }); // fails: no event
+      await call("get_project", { project: "workia" }); // read: no event
+    } finally {
+      unsubscribe();
+    }
+    assert.deepEqual(seen, [
+      { type: "project", project: "workia" },
+      { type: "task", project: "workia", key: "WRK-01" },
+      { type: "task", project: "workia", key: "WRK-01-F1" },
+      { type: "task", project: "workia", key: "WRK-01-F1" },
+      { type: "task", project: "workia", key: "WRK-01" },
+      { type: "decision", project: "workia" },
+    ]);
   });
 });
