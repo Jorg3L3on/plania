@@ -156,9 +156,11 @@ const YOUR_TURN = /^\s*jorge\s*[:,-]\s*/i;
 
 export type YourTurnItem = { task: LaneTask; ask: string };
 
+export const waitsOnJorge = (t: LaneTask) => t.kind === "ticket" && t.status === "Blocked" && YOUR_TURN.test(t.blocked_note ?? "");
+
 export function yourTurn(tasks: LaneTask[]): YourTurnItem[] {
   return tasks
-    .filter((t) => t.kind === "ticket" && t.status === "Blocked" && YOUR_TURN.test(t.blocked_note ?? ""))
+    .filter(waitsOnJorge)
     .sort(byPriorityThenKey)
     .map((task) => ({ task, ask: (task.blocked_note ?? "").replace(YOUR_TURN, "").trim() || task.title }));
 }
