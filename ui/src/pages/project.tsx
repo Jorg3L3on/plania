@@ -147,7 +147,7 @@ export function ProjectPage() {
                 <SectionTitle hint="una fila por iniciativa; cada una avanza por su cuenta, de izquierda a derecha">
                   En paralelo
                 </SectionTitle>
-                <LaneGrid lanes={derived.lanes} onOpen={openTask} />
+                <LaneGrid slug={slug} lanes={derived.lanes} onOpen={openTask} />
               </section>
 
               <div className="flex flex-wrap items-start gap-7">

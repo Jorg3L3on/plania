@@ -1,4 +1,5 @@
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MotionConfig } from "motion/react";
 import { ThemeProvider } from "next-themes";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -28,9 +29,12 @@ createRoot(document.getElementById("root")!).render(
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
-          <BrowserRouter>
-            <App />
-          </BrowserRouter>
+          {/* Layout animations follow the system's reduced-motion setting. */}
+          <MotionConfig reducedMotion="user">
+            <BrowserRouter>
+              <App />
+            </BrowserRouter>
+          </MotionConfig>
           <Toaster />
         </TooltipProvider>
       </QueryClientProvider>

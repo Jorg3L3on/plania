@@ -84,6 +84,14 @@ describe("buildLanes", () => {
     assert.equal(catalog.total, 5);
   });
 
+  test("rows keep their order when only recency changes", () => {
+    const a = [init("B-01"), t("B-01-1", "In progress", { parent_key: "B-01", updated_at: "2026-10-01T00:00:00Z" })];
+    const b = [init("A-01"), t("A-01-1", "In progress", { parent_key: "A-01", updated_at: "2026-10-09T00:00:00Z" })];
+    assert.deepEqual(buildLanes([...a, ...b]).map((l) => l.id), ["A-01", "B-01"]);
+    b[1]!.updated_at = "2026-09-01T00:00:00Z";
+    assert.deepEqual(buildLanes([...a, ...b]).map((l) => l.id), ["A-01", "B-01"]);
+  });
+
   test("blocked, waiting and paused lanes", () => {
     const lanes = buildLanes([
       init("A-01"),

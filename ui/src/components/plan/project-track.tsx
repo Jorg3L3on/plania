@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { FlowArrow, Glyph, LANE_STATE, projectAccent, rise, TONE_TEXT } from "@/components/plan/visuals";
 import { firstLine, foldLanes, type Lane } from "@/lib/lanes";
+import { useLive } from "@/lib/live";
 import type { Resume } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -32,13 +33,22 @@ function MiniLine({ lane }: { lane: Lane }) {
   );
 }
 
-function LaneRow({ lane }: { lane: Lane }) {
+function LaneRow({ slug, lane }: { slug: string; lane: Lane }) {
+  const { isFresh } = useLive();
+  // An agent just changed something in this lane: glow for a moment.
+  const fresh = [lane.initiative, ...lane.now, ...lane.next, ...lane.later, ...lane.done].some((t) => t && isFresh(slug, t.key));
   const state = LANE_STATE[lane.state];
   const now = lane.now[0];
   const next = lane.next[0];
   const moving = lane.state === "moving";
   return (
-    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1.5 rounded-[14px] bg-foreground/[0.04] px-3.5 py-2.5">
+    <div
+      data-fresh={fresh || undefined}
+      className={cn(
+        "flex flex-wrap items-center gap-x-3.5 gap-y-1.5 rounded-[14px] bg-foreground/[0.04] px-3.5 py-2.5 transition-shadow duration-700",
+        fresh && "shadow-[0_0_0_2px_var(--status-now),0_0_28px_color-mix(in_oklab,var(--status-now)_40%,transparent)]",
+      )}
+    >
       <span className="flex w-[132px] shrink-0 flex-col gap-0.5">
         <span className="truncate font-display text-[13px] font-bold" title={lane.initiative?.title}>
           {lane.initiative?.title ?? "Sueltos"}
@@ -137,7 +147,7 @@ export function ProjectTrack({ project, index, nowMs }: { project: TrackProject;
         <div className="flex min-w-0 flex-[999_1_420px] flex-col gap-2.5">
           {lanes.length > 0 ? (
             <>
-              {lanes.map((lane) => <LaneRow key={lane.id} lane={lane} />)}
+              {lanes.map((lane) => <LaneRow key={lane.id} slug={project.slug} lane={lane} />)}
               {folded.length > 0 && (
                 <button
                   type="button"

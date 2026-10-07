@@ -5,9 +5,12 @@ import type { ReactNode } from "react";
 import { FlowArrow, FlowArrowDown, Glyph, Kicker, LANE_STATE, rise, statusWord, TONE_TEXT } from "@/components/plan/visuals";
 import { LOOSE_LANE_ID, waitsOnJorge, type Lane, type LaneTask } from "@/lib/lanes";
 import { cn } from "@/lib/utils";
+import { Glide } from "@/components/plan/glide";
 import { TicketButton } from "@/components/plan/ticket-button";
 
 type Open = (key: string) => void;
+// slug and scope let each ticket glide between columns when it changes (glide.tsx).
+type Ctx = { slug: string; scope: string };
 
 const LATER_CHIPS = 4;
 
@@ -45,27 +48,29 @@ function Empty({ children }: { children: ReactNode }) {
   );
 }
 
-function DoneCell({ lane, onOpen }: { lane: Lane; onOpen: Open }) {
+function DoneCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx }) {
   const last = lane.done[0];
   if (!last) return <Empty>nada aún</Empty>;
   return (
+    <Glide slug={ctx.slug} taskKey={last.key} scope={ctx.scope} className="h-full rounded-2xl">
     <TicketButton
       taskKey={last.key}
       onOpen={onOpen}
-      className="lift flex h-full flex-col justify-center gap-1 rounded-2xl border bg-card px-4 py-3 text-left"
+      className="lift flex h-full w-full flex-col justify-center gap-1 rounded-2xl border bg-card px-4 py-3 text-left"
     >
       <span className="line-clamp-2 text-sm leading-snug font-semibold">{last.title}</span>
       <span className="text-xs text-muted-foreground">
         {lane.done.length > 1 ? `y ${lane.done.length - 1} más hechos` : "hecho"}
       </span>
     </TicketButton>
+    </Glide>
   );
 }
 
-function NowRow({ task, onOpen }: { task: LaneTask; onOpen: Open }) {
+function NowRow({ task, onOpen, ctx }: { task: LaneTask; onOpen: Open; ctx: Ctx }) {
   const tone = task.status === "In review" ? "review" : task.status === "Blocked" ? "blocked" : "now";
   return (
-    <div className="flex items-start gap-2.5">
+    <Glide slug={ctx.slug} taskKey={task.key} scope={ctx.scope} className="flex items-start gap-2.5">
       <Glyph tone={tone} size={9} className="mt-1.5" />
       <div className="min-w-0 flex-1">
         <TicketButton taskKey={task.key} onOpen={onOpen} className="text-left">
@@ -91,11 +96,11 @@ function NowRow({ task, onOpen }: { task: LaneTask; onOpen: Open }) {
           )
         )}
       </div>
-    </div>
+    </Glide>
   );
 }
 
-function NowCell({ lane, onOpen }: { lane: Lane; onOpen: Open }) {
+function NowCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx }) {
   if (lane.now.length === 0) {
     return (
       <div className="flex h-full items-center gap-3 rounded-2xl border bg-card px-4 py-3">
@@ -119,18 +124,18 @@ function NowCell({ lane, onOpen }: { lane: Lane; onOpen: Open }) {
           : "border-status-blocked/40 bg-card",
       )}
     >
-      {lane.now.map((t) => <NowRow key={t.key} task={t} onOpen={onOpen} />)}
+      {lane.now.map((t) => <NowRow key={t.key} task={t} onOpen={onOpen} ctx={ctx} />)}
     </div>
   );
 }
 
-function NextCell({ lane, onOpen }: { lane: Lane; onOpen: Open }) {
+function NextCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx }) {
   if (lane.next.length === 0) return <Empty>—</Empty>;
   const shown = lane.next.slice(0, 3);
   return (
     <div className="lift flex h-full flex-col justify-center gap-2 rounded-2xl border border-status-ready/40 bg-[color-mix(in_oklab,var(--status-ready)_7%,var(--card))] px-4 py-3">
       {shown.map((t, i) => (
-        <div key={t.key} className="flex items-start gap-2.5">
+        <Glide key={t.key} slug={ctx.slug} taskKey={t.key} scope={ctx.scope} className="flex items-start gap-2.5">
           <span
             aria-hidden
             className={cn(
@@ -143,28 +148,29 @@ function NextCell({ lane, onOpen }: { lane: Lane; onOpen: Open }) {
           <TicketButton taskKey={t.key} onOpen={onOpen} className="min-w-0 pt-0.5 text-left">
             <span className="line-clamp-2 text-sm leading-snug underline-offset-4 group-hover/ticket:underline">{t.title}</span>
           </TicketButton>
-        </div>
+        </Glide>
       ))}
       {lane.next.length > shown.length && <span className="pl-8 text-xs text-muted-foreground">y {lane.next.length - shown.length} más listos</span>}
     </div>
   );
 }
 
-function LaterCell({ lane, onOpen }: { lane: Lane; onOpen: Open }) {
+function LaterCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx }) {
   if (lane.later.length === 0) return <Empty>—</Empty>;
   return (
     <div className="flex h-full flex-col justify-center gap-2 rounded-2xl border border-dashed border-foreground/15 bg-surface-sunken px-4 py-3">
       <div className="flex flex-wrap gap-1.5">
         {lane.later.slice(0, LATER_CHIPS).map((t) => (
+          <Glide key={t.key} slug={ctx.slug} taskKey={t.key} scope={ctx.scope} className="max-w-full rounded-full">
           <TicketButton
-            key={t.key}
             taskKey={t.key}
             onOpen={onOpen}
             title={t.title}
-            className="max-w-full truncate rounded-full bg-foreground/[0.07] px-2.5 py-1 text-xs text-foreground/80 transition hover:-translate-y-px hover:bg-foreground/[0.12]"
+            className="block max-w-full truncate rounded-full bg-foreground/[0.07] px-2.5 py-1 text-xs text-foreground/80 transition hover:-translate-y-px hover:bg-foreground/[0.12]"
           >
             {t.title}
           </TicketButton>
+          </Glide>
         ))}
       </div>
       {lane.later.length > LATER_CHIPS && <span className="text-xs text-muted-foreground">y {lane.later.length - LATER_CHIPS} más</span>}
@@ -188,7 +194,9 @@ const HEADERS = [
   { label: "Después", glyph: "pending" as const, className: "text-muted-foreground" },
 ];
 
-export function LaneGrid({ lanes, onOpen }: { lanes: Lane[]; onOpen: Open }) {
+export function LaneGrid({ slug, lanes, onOpen }: { slug: string; lanes: Lane[]; onOpen: Open }) {
+  const grid = { slug, scope: "grid" };
+  const stack = { slug, scope: "stack" };
   return (
     <>
       {/* md and up: one shared grid so every lane's columns line up. */}
@@ -216,13 +224,13 @@ export function LaneGrid({ lanes, onOpen }: { lanes: Lane[]; onOpen: Open }) {
                 <div role="rowheader" className="animate-rise border-t" style={rise(i * 2)}>
                   <LaneLabel lane={lane} onOpen={onOpen} />
                 </div>
-                <div role="cell" className="animate-rise" style={rise(i * 2 + 1)}><DoneCell lane={lane} onOpen={onOpen} /></div>
+                <div role="cell" className="animate-rise" style={rise(i * 2 + 1)}><DoneCell lane={lane} onOpen={onOpen} ctx={grid} /></div>
                 <FlowArrow {...a.afterDone} className="self-center" />
-                <div role="cell" className="animate-rise" style={rise(i * 2 + 2)}><NowCell lane={lane} onOpen={onOpen} /></div>
+                <div role="cell" className="animate-rise" style={rise(i * 2 + 2)}><NowCell lane={lane} onOpen={onOpen} ctx={grid} /></div>
                 <FlowArrow {...a.afterNow} className="self-center" />
-                <div role="cell" className="animate-rise" style={rise(i * 2 + 3)}><NextCell lane={lane} onOpen={onOpen} /></div>
+                <div role="cell" className="animate-rise" style={rise(i * 2 + 3)}><NextCell lane={lane} onOpen={onOpen} ctx={grid} /></div>
                 <FlowArrow {...a.afterNext} className="self-center" />
-                <div role="cell" className="animate-rise" style={rise(i * 2 + 4)}><LaterCell lane={lane} onOpen={onOpen} /></div>
+                <div role="cell" className="animate-rise" style={rise(i * 2 + 4)}><LaterCell lane={lane} onOpen={onOpen} ctx={grid} /></div>
               </div>
             );
           })}
@@ -243,10 +251,10 @@ export function LaneGrid({ lanes, onOpen }: { lanes: Lane[]; onOpen: Open }) {
             >
               <LaneLabel lane={lane} onOpen={onOpen} />
               <Kicker className="text-status-now"><Glyph tone="now" size={8} />Ahora</Kicker>
-              <NowCell lane={lane} onOpen={onOpen} />
+              <NowCell lane={lane} onOpen={onOpen} ctx={stack} />
               <FlowArrowDown tone="now" moving={moving} />
               <Kicker className="text-status-ready"><Glyph tone="ready" size={8} />Siguiente</Kicker>
-              <NextCell lane={lane} onOpen={onOpen} />
+              <NextCell lane={lane} onOpen={onOpen} ctx={stack} />
               {(lane.later.length > 0 || lane.done.length > 0) && (
                 <p className="pt-2 text-xs text-muted-foreground">
                   {[lane.done.length > 0 && `${lane.done.length} hechos`, lane.later.length > 0 && `${lane.later.length} después`]

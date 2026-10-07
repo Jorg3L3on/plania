@@ -107,7 +107,7 @@ function buildLane(id: string, initiative: LaneTask | null, tickets: LaneTask[])
 
 /**
  * Lanes in display order: Active and Shipping initiatives, then Planning, then On hold. Within each,
- * lanes with work in motion come first, then by best open priority, then most recently moved. Sueltos last.
+ * lanes with work in motion come first, then by best open priority, then by key so rows stay put. Sueltos last.
  */
 export function buildLanes(tasks: LaneTask[]): Lane[] {
   const initiatives = tasks.filter((t) => t.kind === "initiative" && !CLOSED.has(t.status));
@@ -121,7 +121,8 @@ export function buildLanes(tasks: LaneTask[]): Lane[] {
       (INITIATIVE_ORDER[a.initiative!.status] ?? 1) - (INITIATIVE_ORDER[b.initiative!.status] ?? 1) ||
       STATE_ORDER[a.state] - STATE_ORDER[b.state] ||
       bestPriority(a) - bestPriority(b) ||
-      b.lastMovedAt.localeCompare(a.lastMovedAt),
+      // Stable last: recency would swap rows on every agent write.
+      byKey(a.initiative!, b.initiative!),
   );
 
   const loose = buildLane(
