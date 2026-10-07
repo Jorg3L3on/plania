@@ -102,6 +102,11 @@ describe("reads", () => {
     assert.equal(micasa.line, "En curso: MIC-B-02 (test-agent)");
     assert.equal(micasa.open_questions, 0);
     assert.equal(list.find((p) => p.slug === "zigzag")!.line, "Sin ficha.");
+    // Each project carries its tasks without scope, in the same shape as GET /api/projects/:slug.
+    const detail = (await (await req("GET", "/api/projects/micasa")).json()) as Json;
+    assert.deepEqual(micasa.tasks, detail.tasks);
+    assert.ok(!JSON.stringify(list).includes("project_id"));
+    assert.deepEqual(list.find((p) => p.slug === "zigzag")!.tasks, []);
   });
 
   test("GET /api/projects/:slug returns the generated resume, decisions and every task without scope, P0 first", async () => {
@@ -113,10 +118,12 @@ describe("reads", () => {
     assert.equal(p.tasks.at(-1).key, "MIC-01");
     const f1 = p.tasks.find((t: Json) => t.key === "MIC-01-F1");
     assert.deepEqual(Object.keys(f1).sort(), [
-      "blocked_note", "claimed_by", "key", "kind", "lease_until", "parent_key", "pr_url", "priority", "status", "summary",
-      "title", "updated_at", "version", "work_type",
+      "base_branch", "blocked_note", "branch", "claimed_by", "key", "kind", "lease_until", "parent_key", "pr_url", "priority",
+      "status", "summary", "title", "updated_at", "version", "work_type",
     ]);
     assert.equal(f1.parent_key, "MIC-01");
+    // Branches feed the "Rama y prod" graph: initiatives carry their base branch.
+    assert.equal(p.tasks.find((t: Json) => t.key === "MIC-01").base_branch, "main");
     assert.match(f1.updated_at, /Z$/);
     const held = p.tasks.find((t: Json) => t.key === "MIC-B-02");
     assert.equal(held.claimed_by.session_id, "s1");

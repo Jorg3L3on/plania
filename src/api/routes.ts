@@ -77,13 +77,22 @@ api.get("/session", (c) => c.body(null, 204));
 
 // ---- Projects
 
+// Every project with its generated line, open question count, and all its tasks without scope.
 api.get("/projects", async (c) => {
   const rows = await withDb(async (db) => {
     const all = await db.select().from(projects).orderBy(asc(projects.slug));
+    const allTasks = await screenTasks(db);
     return Promise.all(
       all.map(async (p) => {
         const digest = await resumeDigest(db, p);
-        return { slug: p.slug, title: p.title, line: resumeLine(digest), open_questions: digest.open_questions.length };
+        return {
+          slug: p.slug,
+          title: p.title,
+          line: resumeLine(digest),
+          open_questions: digest.open_questions.length,
+          // The index draws one lane per initiative, so it needs every project's tasks.
+          tasks: allTasks.filter((t) => t.project_id === p.id).map(({ project_id: _, ...t }) => t),
+        };
       }),
     );
   });
@@ -92,10 +101,12 @@ api.get("/projects", async (c) => {
 
 // All tasks without scope, ordered like list_tasks: P0..P3, null last, then most recently updated.
 // version goes back with every change; claimed_by is the live lease, if any.
-async function screenTasks(db: Db, projectId: string) {
+// One project, or every project when projectId is omitted.
+async function screenTasks(db: Db, projectId?: string) {
   const parent = alias(tasks, "parent");
   return db
     .select({
+      project_id: tasks.projectId,
       key: tasks.key,
       kind: tasks.kind,
       title: tasks.title,
@@ -106,6 +117,8 @@ async function screenTasks(db: Db, projectId: string) {
       parent_key: parent.key,
       blocked_note: tasks.blockedNote,
       pr_url: tasks.prUrl,
+      branch: tasks.branch,
+      base_branch: tasks.baseBranch,
       version: tasks.version,
       claimed_by: sql<Actor | null>`case when ${tasks.leaseUntil} > now() then ${tasks.owner} end`,
       lease_until: sql<string | null>`case when ${tasks.leaseUntil} > now()
@@ -114,7 +127,7 @@ async function screenTasks(db: Db, projectId: string) {
     })
     .from(tasks)
     .leftJoin(parent, eq(parent.id, tasks.parentId))
-    .where(eq(tasks.projectId, projectId))
+    .where(projectId ? eq(tasks.projectId, projectId) : undefined)
     .orderBy(sql`${tasks.priority} asc nulls last`, desc(tasks.updatedAt));
 }
 
@@ -122,11 +135,12 @@ api.get("/projects/:slug", async (c) => {
   try {
     const data = await withDb(async (db) => {
       const p = await findProject(db, c.req.param("slug"));
+      const rows = await screenTasks(db, p.id);
       return {
         slug: p.slug,
         title: p.title,
         resume: await resumeDigest(db, p),
-        tasks: await screenTasks(db, p.id),
+        tasks: rows.map(({ project_id: _, ...t }) => t),
         decisions: await listDecisions(db, p.id, { limit: DECISIONS_LIMIT }),
       };
     });

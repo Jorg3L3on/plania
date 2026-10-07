@@ -1,24 +1,43 @@
-// One colour per status, used as a small dot next to the label.
-const DOT: Record<string, string> = {
-  Backlog: "bg-zinc-400",
-  Planning: "bg-zinc-400",
-  Ready: "bg-sky-500",
-  "In progress": "bg-amber-500",
-  Active: "bg-amber-500",
-  "In review": "bg-violet-500",
-  Shipping: "bg-violet-500",
-  Blocked: "bg-red-500",
-  "Needs Jorge": "bg-orange-500",
-  Done: "bg-emerald-500",
-  "On hold": "bg-zinc-300 dark:bg-zinc-600",
-  "Won't do": "bg-zinc-300 dark:bg-zinc-600",
+// Status colours come from the --status-* tokens in index.css, so both themes share one map.
+// A tone is the meaning on screen: done, now, review, ready, blocked, jorge (waits on Jorge), pending (not started)
+// or idle (parked).
+
+export type Tone = "done" | "now" | "review" | "ready" | "blocked" | "jorge" | "pending" | "idle";
+
+const TONE: Record<string, Tone> = {
+  Backlog: "pending",
+  Planning: "pending",
+  Ready: "ready",
+  "In progress": "now",
+  Active: "now",
+  "In review": "review",
+  Shipping: "review",
+  Blocked: "blocked",
+  "Needs Jorge": "jorge",
+  Done: "done",
+  "On hold": "idle",
+  "Won't do": "idle",
 };
 
-export const statusDot = (status: string) => DOT[status] ?? "bg-zinc-400";
+export const statusTone = (status: string): Tone => TONE[status] ?? "pending";
+
+// Literal class names so Tailwind sees every one of them.
+const DOT: Record<Tone, string> = {
+  done: "bg-status-done",
+  now: "bg-status-now",
+  review: "bg-status-review",
+  ready: "bg-status-ready",
+  blocked: "bg-status-blocked",
+  jorge: "bg-status-jorge",
+  pending: "bg-status-pending",
+  idle: "bg-status-idle/60",
+};
+
+export const statusDot = (status: string) => DOT[statusTone(status)];
 
 const PRIORITY: Record<string, string> = {
-  P0: "border-red-500/40 text-red-600 dark:text-red-400",
-  P1: "border-amber-500/40 text-amber-700 dark:text-amber-400",
+  P0: "border-status-blocked/40 text-ink-blocked",
+  P1: "border-status-now/50 text-foreground",
   P2: "border-border text-muted-foreground",
   P3: "border-border text-muted-foreground/70",
 };

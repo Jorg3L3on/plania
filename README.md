@@ -281,25 +281,34 @@ Follow the protocol in the Plania server's instructions and the project's rules 
 
 ## Screen
 
-`http://localhost:3737`, password login. React 19, Tailwind 4 and shadcn/ui, in light, dark or system theme.
-Times arrive as UTC and show in the browser's local time.
+`http://localhost:3737`, password login. React 19, Tailwind 4 and shadcn/ui. Dark ("Noche") by default, with light and
+system themes. Times arrive as UTC and show in the browser's local time. The design and plan are in
+`docs/projects-view-redesign-plan.md`.
 
-- `/` lists projects with one generated line (live claims, else what is next) and how many questions wait for Jorge.
+- **Lanes, not steps.** Each open initiative is a lane, plus "Sueltos" for tickets without one. Every lane has the
+  same four columns: Hecho (Done), Ahora (In progress, In review, Needs Jorge, Blocked), Siguiente (Ready, or else
+  the top Backlog ticket) and Después (the rest of the Backlog). Only lanes with work in motion pulse. The rules
+  live in `ui/src/lib/lanes.ts` and are tested in `test/lanes.test.ts`.
+- `/` shows one track per project: progress, then an Ahora → Siguiente row per lane, and how many questions wait
+  for Jorge. Past four initiatives, lanes still for a week fold behind "Ver todas". Projects without initiatives
+  show their generated line. A "Te toca a ti" strip lists Needs Jorge tickets across projects.
 - `/p/<slug>` shows, in order: questions agents asked (answer with one click or free text; the answer becomes a
-  decision); the generated resume per initiative (claims, next, pinned decisions) and the v1 card folded away while
-  it exists; the work grouped by initiative with status and priority filters and a toggle for closed items; the
-  decisions, reversed ones struck through. A link downloads the project as JSON.
-- Rows show codes only for initiatives; tickets are known by title, since inside a project every key shares
-  the same prefix. The side panel header still shows a ticket's key for talking to agents.
+  decision); the lane grid; each initiative's line of stations; a branch graph built from initiatives' `branch`
+  and `base_branch`; and the pinned decisions. "Ver la ficha completa" opens the generated resume per initiative
+  (claims, next, pinned decisions, the v1 card folded away while it exists) and the decision log, reversed ones
+  struck through. A link downloads the project as JSON.
+- `?view=lista` switches to the list grouped by initiative, with status and priority filters and a toggle for
+  closed items. Rows show codes only for initiatives; the side panel header still shows a ticket's key.
 - Status and priority change from menus on each row, as Jorge: any move is allowed, Done included, and leases do
   not stop him. Each change carries the version on screen; if an agent changed the task meanwhile, nothing is
   overwritten and a toast says so. Blocked asks for its note. Every change offers Undo for 8 seconds.
 - A ticket with a live lease shows who holds it and until when; Liberar frees it.
-- Clicking a task's title opens a side panel: scope (Markdown), Done when checks, evidence, docs, questions,
+- Clicking any ticket opens a side panel: scope (Markdown), Done when checks, evidence, docs, questions,
   blockers (tasks and env conditions, each satisfied or not), branch, worktree, PR and its history. The open task is in
   the URL (`?task=MIC-01-F2`), so it can be linked; Back and Escape close it.
-- **Live:** writes from agents, CI or the screen appear within a second and briefly highlight the row. The header
-  shows "En vivo" while the event stream is connected.
+- **Live:** writes from agents, CI or the screen appear within a second. A ticket that changed column glides to
+  its new place and glows briefly. The header shows "En vivo" while the event stream is connected. Animations
+  stop under the system's reduced-motion setting.
 
 How live updates flow: every write runs in `writeTx` (`src/mcp/tx.ts`), which after commit publishes one change per
 task it touched on the in-process bus in `src/events.ts`. `GET /api/events` streams those as server-sent events, and
@@ -310,8 +319,8 @@ the UI refetches what changed.
 | Route | Purpose |
 |---|---|
 | `POST /api/login`, `POST /api/logout`, `GET /api/session` | Session |
-| `GET /api/projects` | Projects with their generated line and open question count |
-| `GET /api/projects/:slug` | Generated resume, decisions, and all tasks without scope (with version and lease) |
+| `GET /api/projects` | Projects with their generated line, open question count, and all tasks without scope |
+| `GET /api/projects/:slug` | Generated resume, decisions, and all tasks without scope (with version, lease, `branch` and `base_branch`) |
 | `GET /api/projects/:slug/tasks/:key` | One task, in the `get_task` shape |
 | `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note?, version }`, as Jorge through `set_task` |
 | `POST /api/projects/:slug/tasks/:key/release` | Free a lease |

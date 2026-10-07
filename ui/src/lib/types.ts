@@ -3,7 +3,7 @@
 export type Actor = { agent: string; session_id: string; machine?: string; model?: string };
 export type Workspace = { machine?: string; worktree_path?: string; branch?: string };
 
-export type ProjectSummary = { slug: string; title: string; line: string; open_questions: number };
+export type ProjectSummary = { slug: string; title: string; line: string; open_questions: number; tasks: TaskRow[] };
 
 export type Claim = { key: string; title: string; owner: Actor | null; lease_until: string | null; workspace: Workspace | null };
 
@@ -70,6 +70,8 @@ export type TaskRow = {
   parent_key: string | null;
   blocked_note: string | null;
   pr_url: string | null;
+  branch: string | null;
+  base_branch: string | null;
   version: number;
   claimed_by: Actor | null;
   lease_until: string | null;
