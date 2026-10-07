@@ -14,14 +14,21 @@ import { cn } from "@/lib/utils";
 // Side panel with one task's full body. The open task lives in the URL (?task=KEY),
 // so it can be linked and the back button closes it. Live changes refetch it like the list.
 
-function TaskLink({ taskKey, onOpen }: { taskKey: string; onOpen: (key: string) => void }) {
+function TaskLink({ slug, taskKey, onOpen }: { slug: string; taskKey: string; onOpen: (key: string) => void }) {
+  // Titles come from the project list already in the cache; the key is the fallback.
+  const project = useQuery({ queryKey: ["project", slug], queryFn: () => api.project(slug) });
+  const title = project.data?.tasks.find((t) => t.key === taskKey)?.title;
   return (
     <button
       type="button"
+      title={taskKey}
       onClick={() => onOpen(taskKey)}
-      className="font-mono text-sm underline decoration-muted-foreground/40 underline-offset-4 hover:decoration-foreground"
+      className={cn(
+        "text-left text-sm underline decoration-muted-foreground/40 underline-offset-4 hover:decoration-foreground",
+        !title && "font-mono",
+      )}
     >
-      {taskKey}
+      {title ?? taskKey}
     </button>
   );
 }
@@ -37,8 +44,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function Details({ slug, task, onOpen }: { slug: string; task: TaskDetail; onOpen: (key: string) => void }) {
   const links = (keys: string[]) => (
-    <span className="flex flex-wrap gap-x-3 gap-y-1">
-      {keys.map((k) => <TaskLink key={k} taskKey={k} onOpen={onOpen} />)}
+    <span className="flex flex-col items-start gap-1">
+      {keys.map((k) => <TaskLink key={k} slug={slug} taskKey={k} onOpen={onOpen} />)}
     </span>
   );
   return (
@@ -54,7 +61,7 @@ function Details({ slug, task, onOpen }: { slug: string; task: TaskDetail; onOpe
       )}
 
       <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2">
-        {task.parent_key && <Field label="Iniciativa"><TaskLink taskKey={task.parent_key} onOpen={onOpen} /></Field>}
+        {task.parent_key && <Field label="Iniciativa"><TaskLink slug={slug} taskKey={task.parent_key} onOpen={onOpen} /></Field>}
         {task.child_keys.length > 0 && <Field label="Fases">{links(task.child_keys)}</Field>}
         {task.blocked_by.length > 0 && <Field label="Bloqueado por">{links(task.blocked_by)}</Field>}
         {task.origin && <Field label="Origen">{task.origin}</Field>}

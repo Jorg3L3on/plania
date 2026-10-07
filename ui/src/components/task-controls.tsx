@@ -49,7 +49,7 @@ function BlockedDialog({
       <DialogContent>
         <form onSubmit={submit} className="grid gap-4">
           <DialogHeader>
-            <DialogTitle>Bloquear {task.key}</DialogTitle>
+            <DialogTitle>Bloquear «{task.title}»</DialogTitle>
             <DialogDescription>Di qué lo bloquea. La nota se muestra en la lista y la leen los agentes.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
@@ -83,13 +83,13 @@ export function TaskControls({ slug, task }: { slug: string; task: TaskRow }) {
   function chooseStatus(next: string) {
     if (next === task.status) return;
     if (next === "Blocked") setBlocking(true);
-    else setStatus(task.key, from, next);
+    else setStatus(task, from, next);
   }
 
   return (
     <>
       {offerDone && (
-        <Button size="sm" variant="outline" onClick={() => setStatus(task.key, from, "Done")}>
+        <Button size="sm" variant="outline" onClick={() => setStatus(task, from, "Done")}>
           <CheckIcon /> Done
         </Button>
       )}
@@ -98,14 +98,14 @@ export function TaskControls({ slug, task }: { slug: string; task: TaskRow }) {
         <DropdownMenu>
           <DropdownMenuTrigger
             className="rounded-4xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-            aria-label={`Prioridad de ${task.key}: ${task.priority}`}
+            aria-label={`Prioridad de ${task.title}: ${task.priority}`}
           >
             <PriorityLabel priority={task.priority} />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuLabel>Prioridad</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuRadioGroup value={task.priority} onValueChange={(p) => p !== task.priority && setPriority(task.key, p)}>
+            <DropdownMenuRadioGroup value={task.priority} onValueChange={(p) => p !== task.priority && setPriority(task, p)}>
               {PRIORITIES.map((p) => (
                 <DropdownMenuRadioItem key={p} value={p} className="font-mono">{p}</DropdownMenuRadioItem>
               ))}
@@ -116,7 +116,7 @@ export function TaskControls({ slug, task }: { slug: string; task: TaskRow }) {
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm" className="px-2" aria-label={`Estado de ${task.key}: ${task.status}`}>
+          <Button variant="ghost" size="sm" className="px-2" aria-label={`Estado de ${task.title}: ${task.status}`}>
             <StatusLabel status={task.status} />
           </Button>
         </DropdownMenuTrigger>
@@ -140,7 +140,7 @@ export function TaskControls({ slug, task }: { slug: string; task: TaskRow }) {
         onOpenChange={setBlocking}
         onConfirm={(note) => {
           setBlocking(false);
-          setStatus(task.key, from, "Blocked", note);
+          setStatus(task, from, "Blocked", note);
         }}
       />
     </>

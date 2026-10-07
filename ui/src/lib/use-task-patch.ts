@@ -23,17 +23,17 @@ export function useTaskPatch(slug: string) {
   const queryKey = ["project", slug];
 
   // Undo calls the API directly: the row that offered it may already be gone (e.g. hidden once Done).
-  function undoTo(key: string, patch: Patch) {
+  function undoTo(key: string, title: string, patch: Patch) {
     markLocal(slug, key);
     api
       .patchTask(slug, key, patch)
-      .then(() => toast(`${key} → ${patch.status}`))
+      .then(() => toast(`${title} → ${patch.status}`))
       .catch((e: unknown) => toast.error(describe(e)))
       .finally(() => void queryClient.invalidateQueries({ queryKey }));
   }
 
   const mutation = useMutation({
-    mutationFn: ({ key, patch }: { key: string; patch: Patch; undo?: Patch }) => api.patchTask(slug, key, patch),
+    mutationFn: ({ key, patch }: { key: string; title: string; patch: Patch; undo?: Patch }) => api.patchTask(slug, key, patch),
     onMutate: async ({ key, patch }) => {
       markLocal(slug, key); // our own echo from the live stream should not flash the row
       await queryClient.cancelQueries({ queryKey });
@@ -58,11 +58,11 @@ export function useTaskPatch(slug: string) {
       return { previous };
     },
     // Lives on the mutation, not on mutate(): it still runs if the row unmounted meanwhile.
-    onSuccess: (_data, { key, patch, undo }) => {
+    onSuccess: (_data, { key, title, patch, undo }) => {
       if (!undo) return;
-      toast(`${key} → ${patch.status}`, {
+      toast(`${title} → ${patch.status}`, {
         duration: 8000,
-        action: { label: "Deshacer", onClick: () => undoTo(key, undo) },
+        action: { label: "Deshacer", onClick: () => undoTo(key, title, undo) },
       });
     },
     onError: (error, _vars, context) => {
@@ -73,12 +73,18 @@ export function useTaskPatch(slug: string) {
   });
 
   // Status changes get an undo that puts the previous status back (with its note, if it was Blocked).
-  function setStatus(key: string, from: { status: string; note: string | null }, to: string, note?: string) {
+  function setStatus(
+    { key, title }: { key: string; title: string },
+    from: { status: string; note: string | null },
+    to: string,
+    note?: string,
+  ) {
     const undo: Patch = { status: from.status, ...(from.status === "Blocked" && from.note ? { note: from.note } : {}) };
-    mutation.mutate({ key, patch: { status: to, note }, undo });
+    mutation.mutate({ key, title, patch: { status: to, note }, undo });
   }
 
-  const setPriority = (key: string, priority: string) => mutation.mutate({ key, patch: { priority } });
+  const setPriority = ({ key, title }: { key: string; title: string }, priority: string) =>
+    mutation.mutate({ key, title, patch: { priority } });
 
   return { setStatus, setPriority, pending: mutation.isPending };
 }

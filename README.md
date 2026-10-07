@@ -150,6 +150,8 @@ The plan for this product lives in Plania (MCP server `plania`, project `<slug>`
 
 - `/` lists projects with their resume line. `/p/<slug>` shows the resume card and the work grouped by initiative,
   with status and priority filters and a toggle for closed items.
+- Rows show codes only for initiatives; tickets are known by title, since inside a project every key shares
+  the same prefix. The side panel header still shows a ticket's key for talking to agents.
 - Status and priority change from menus on each row. Blocked asks for its note. Done is one click on In review
   tickets and open initiatives. Every change offers Undo for 8 seconds.
 - Clicking a task's title opens a side panel with its full body rendered as Markdown (PRD, scope, Done when

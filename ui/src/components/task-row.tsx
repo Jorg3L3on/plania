@@ -63,7 +63,9 @@ export function TaskRow({
           >
             {task.title}
           </button>
-          <span className="font-mono text-xs text-muted-foreground">{task.key}</span>
+          {/* Inside a project every key shares its prefix, so ticket codes read like initiative codes.
+              Only initiatives show theirs; tickets are known by title (the side panel still shows the key). */}
+          {task.kind === "initiative" && <span className="font-mono text-xs text-muted-foreground">{task.key}</span>}
         </div>
         {task.summary && <p className="text-sm text-muted-foreground">{task.summary}</p>}
         {task.status === "Blocked" && task.blocked_note && (
