@@ -27,7 +27,7 @@ const str = (body: Json, field: string, required = false): string | undefined =>
 };
 
 function ciCtx(requestId: string, tool: string): Ctx {
-  return { actor: { agent: "ci", session_id: requestId, machine: "hooks" }, requestId, tool };
+  return { actor: { agent: "ci", session_id: requestId, machine: "hooks" }, requestId, tool, verbose: true };
 }
 
 async function handle(c: Context, fn: (body: Json) => Promise<unknown>) {
@@ -63,8 +63,8 @@ hooks.post("/hooks/result", (c) =>
     return withDb(async (db) => {
       const out = await addResult(db, input, ciCtx(requestId, "hooks.result"));
       if (!links.pr_url && !links.branch) return out;
-      const task = await setTaskLinks(db, { project: input.project, key: input.key, ...links }, ciCtx(`${requestId}:links`, "hooks.links"));
-      return { result: out.result, task };
+      const linked = await setTaskLinks(db, { project: input.project, key: input.key, ...links }, ciCtx(`${requestId}:links`, "hooks.links"));
+      return { ...linked, result: out.result };
     });
   }),
 );

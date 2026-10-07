@@ -38,8 +38,11 @@ export const api = {
     request<TaskDetail>("PATCH", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}`, patch),
   release: (slug: string, key: string) =>
     request<TaskDetail>("POST", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/release`),
-  answer: (slug: string, questionId: string, answer: string) =>
-    request<unknown>("POST", `/projects/${encodeURIComponent(slug)}/questions/${encodeURIComponent(questionId)}/answer`, { answer }),
+  answer: (slug: string, questionId: string, answer: string, decisionText?: string) =>
+    request<unknown>("POST", `/projects/${encodeURIComponent(slug)}/questions/${encodeURIComponent(questionId)}/answer`, {
+      answer,
+      ...(decisionText ? { decision_text: decisionText } : {}),
+    }),
   exportUrl: (slug: string) => `/api/export/${encodeURIComponent(slug)}.json`,
 };
 

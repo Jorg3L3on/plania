@@ -38,6 +38,9 @@ export const ITEM_LIMITS: Record<string, { items: number; each: number }> = {
   tags: { items: 20, each: 40 },
   options: { items: 10, each: 300 },
   commits: { items: 200, each: 64 },
+  // batch ops: each op is checked again on its own, with the limits of its fields.
+  ops: { items: 50, each: 200_000 },
+  fields: { items: 50, each: 60 },
 };
 
 function checkText(field: string, value: string, max: number): void {

@@ -106,6 +106,13 @@
       "when": 1791354814407,
       "tag": "0014_aromatic_katie_power",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1791410133385,
+      "tag": "0015_simple_silver_sable",
+      "breakpoints": true
     }
   ]
 }

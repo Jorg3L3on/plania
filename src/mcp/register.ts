@@ -11,12 +11,16 @@ import {
   listEvents,
   listTasks,
   nextTask,
+  pickFields,
   projectCounts,
-  taskShape,
+  taskFull,
+  taskSummary,
   taskWithChildren,
 } from "./queries.js";
 import { resumeDigest } from "./resume.js";
 import { projectSequences, reserveSequence } from "./sequences.js";
+import { nextKeys } from "./keys.js";
+import { runBatch } from "./batch.js";
 import { WORK_TYPES } from "./lifecycle.js";
 import { setCheck } from "./checks.js";
 import { attachDoc, getDoc } from "./docs.js";
@@ -90,24 +94,111 @@ const request_id = z
   .optional()
   .describe("Optional idempotency key. Retrying a write with the same request_id returns the first response instead of writing again");
 
-type WriteInput = { actor: z.infer<typeof actor>; request_id?: string } & Record<string, unknown>;
+const verbose = z
+  .boolean()
+  .optional()
+  .describe("Writes answer {key, status, version, changed} by default; true adds task, the full get_task shape (without log)");
+
+type WriteInput = { actor: z.infer<typeof actor>; request_id?: string; verbose?: boolean } & Record<string, unknown>;
 
 // Every write: size limits, the actor ("jorge" is reserved for the screen) and the idempotency key.
 function writeCtx(tool: string, input: WriteInput): Ctx {
   checkSizes(input);
   if (input.actor.agent.trim().toLowerCase() === "jorge") throw new ToolError("RESERVED_ACTOR");
-  return { actor: input.actor, requestId: input.request_id, tool };
+  return { actor: input.actor, requestId: input.request_id, tool, verbose: input.verbose };
 }
 
-// Registers a write tool: adds actor and request_id to its schema and builds its Ctx.
-function writeHandler<I extends WriteInput>(tool: string, fn: (input: Omit<I, "actor" | "request_id">, ctx: Ctx) => Promise<unknown>) {
+// Registers a write tool: adds actor, request_id and verbose to its schema and builds its Ctx.
+function writeHandler<I extends WriteInput>(tool: string, fn: (input: Omit<I, "actor" | "request_id" | "verbose">, ctx: Ctx) => Promise<unknown>) {
   return (input: I) =>
     run(() => {
       const ctx = writeCtx(tool, input);
-      const { actor: _a, request_id: _r, ...rest } = input;
+      const { actor: _a, request_id: _r, verbose: _v, ...rest } = input;
       return fn(rest, ctx);
     });
 }
+
+// Field schemas shared by a tool and its batch op (keys.ts assigns keys; see create_task).
+const createFields = {
+  key: key.optional().describe("Omit it: the server assigns PREFIX-I<n> (initiative), PREFIX-<nn> (standalone ticket) or <initiative>-<n> (phase)"),
+  kind: z.enum(KINDS).optional().describe("ticket (default) | initiative"),
+  title: z.string().min(1),
+  scope: z.string().optional().describe("What it is: PRD and plan (initiative) or the phase's scope (ticket). Markdown"),
+  checks: z.array(z.string()).optional().describe("Done when, one item per string"),
+  phase: z.number().int().optional().describe("Tickets: Phase N within the initiative"),
+  body: z.string().optional().describe("Removed in v2 (BODY_REMOVED): use scope and checks"),
+  summary: z.string().optional().describe("The one line shown in lists"),
+  parent_key: z.string().nullable().optional().describe("Tickets: initiative key; omit or null for a standalone spec"),
+  priority: z.string().optional().describe("Tickets: P0 | P1 | P2 | P3"),
+  origin: z.enum(ORIGINS).optional().describe("Tickets only"),
+  blocked_by: blockedBy.optional(),
+  status: z.string().optional().describe("Tickets: Backlog | Ready. Initiatives always start in Planning"),
+  work_type: z.string().optional().describe(`Tickets: ${WORK_TYPES.join(" | ")}; default code`),
+  base_branch: z.string().min(1).optional().describe("Initiatives only; defaults to main"),
+  next_action: z.string().optional().describe("Initiatives only: what comes next, shown in get_resume"),
+};
+
+const setTaskFields = {
+  key,
+  status: z.string().optional(),
+  priority: z.string().optional().describe("P0 | P1 | P2 | P3, tickets only"),
+  parent_key: z.string().nullable().optional().describe("Tickets: move under another initiative (null makes it standalone). The ticket gets a key under its new parent; the old one stays as an alias"),
+  blocked_by: blockedBy.optional(),
+  branch: z.string().optional(),
+  pr_url: z.string().optional(),
+  summary: z.string().optional(),
+  scope: z.string().optional().describe("Replaces the scope whole; the old text stays in the log"),
+  checks: z
+    .array(z.object({ n: z.number().int().optional(), text: z.string() }))
+    .optional()
+    .describe("Replaces the Done when list. Keep n to keep an item (and its done state); omit n for a new one"),
+  phase: z.number().int().nullable().optional().describe("Tickets only"),
+  body: z.string().optional().describe("Removed in v2 (BODY_REMOVED): use scope, checks and note"),
+  base_branch: z.string().min(1).optional().describe("Initiatives only"),
+  next_action: z.string().optional().describe("Initiatives only"),
+  in_progress_note: z.string().optional().describe("Initiatives only"),
+  work_type: z.string().optional().describe(`Tickets only: ${WORK_TYPES.join(" | ")}`),
+  confirm_by_jorge: z.boolean().optional().describe("Only when Jorge asked you to set Done or Won't do"),
+  reason: z.string().optional().describe("Required with confirm_by_jorge: what Jorge said"),
+  note: z.string().optional(),
+  version: z.number().int().optional().describe("The version you read. Required unless note is the only field"),
+};
+
+const setCheckFields = {
+  key,
+  n: z.number().int(),
+  done: z.boolean(),
+  evidence_id: z.string().nullable().optional(),
+};
+
+const addResultFields = {
+  key,
+  kind: z.string().describe(RESULT_KINDS.join(" | ")),
+  verdict: z.string().describe(VERDICTS.join(" | ")),
+  cite: z.string().describe("e.g. 'pnpm test: 84 pass' or 'Playwright at 375px, sheet opens'"),
+  url: z.string().optional(),
+  check_ns: z.array(z.number().int()).optional().describe("Done when items this result proves (pass only)"),
+};
+
+const addDecisionFields = {
+  text: z.string().min(1),
+  task_key: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  supersedes: z.string().optional().describe("id of the decision this one reverses"),
+  adr_body: z.string().optional().describe("Full ADR in markdown"),
+  adr_url: z.string().optional(),
+  pin: z.boolean().optional(),
+};
+
+// batch ops: the same fields as the tool, plus op; project, actor and request_id come from the batch.
+const batchOp = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("create_task"), ...createFields }),
+  z.object({ op: z.literal("set_task"), ...setTaskFields }),
+  z.object({ op: z.literal("set_check"), ...setCheckFields }),
+  z.object({ op: z.literal("add_result"), ...addResultFields }),
+  z.object({ op: z.literal("add_decision"), ...addDecisionFields }),
+  z.object({ op: z.literal("note"), key, text: z.string().min(1) }),
+]);
 
 export type ServerOptions = { readOnly?: boolean };
 
@@ -162,6 +253,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
           rules_version: p.rulesVersion,
           protocol_version: PROTOCOL_VERSION,
           version: p.version,
+          key_prefix: p.keyPrefix || p.slug.slice(0, 3).toUpperCase(),
+          next_keys: await nextKeys(db, p),
           counts: await projectCounts(db, p.id),
           env: await projectEnv(db, p.id),
           ...(await projectSequences(db, p.id)),
@@ -203,23 +296,31 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
   server.registerTool(
     "get_task",
     {
-      description:
-        "Full initiative or ticket: blocked_by with satisfied per blocker, scope, phase, checks (Done when, with n), children, blockers, claim and workspace, version, and log (its last 50 events, oldest first: notes, status changes, claims, checks; log_total counts all).",
+      description: [
+        "One initiative or ticket, by its key or any former key (aliases). view full (default): scope, checks (Done when, with n), results, docs, questions, blocked_by with satisfied per blocker, children, claim and workspace, version.",
+        "view summary (under 2 KB): the same without scope, results, docs and questions, with counts instead. fields picks top-level keys.",
+        "The log is not included: read it with list_events {key, since}; include_log: true adds the last 50 events (log_total counts all).",
+      ].join(" "),
       inputSchema: {
         project,
         key,
+        view: z.enum(["summary", "full"]).optional(),
+        fields: z.array(z.string()).optional().describe("Only these top-level keys"),
+        include_log: z.boolean().optional(),
         include_children: z.boolean().optional().describe("Also return every child's full shape (one call for an initiative and its phases)"),
       },
       annotations: readOnly,
     },
-    ({ project, key, include_children }) =>
+    ({ project, key, view, fields, include_log, include_children }) =>
       run(async () => {
         const p = await findProject(db, project).catch(() => {
           throw new ToolError("TASK_NOT_FOUND");
         });
         const t = await findTask(db, p.id, key);
         if (!t) throw new ToolError("TASK_NOT_FOUND");
-        return include_children ? taskWithChildren(db, t) : taskShape(db, t);
+        const opts = { log: !!include_log };
+        const shape = include_children ? await taskWithChildren(db, t, opts) : view === "summary" ? await taskSummary(db, t) : await taskFull(db, t, opts);
+        return pickFields(shape, fields);
       }),
   );
 
@@ -227,7 +328,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_memory",
     {
       description: [
-        "Fixed memory: rules, design_docs (project docs, with markdown), and the decision log, newest first (limit default 100, max 500).",
+        "Fixed memory: rules, design_docs (project docs, with markdown; view summary lists them without it), and the decision log, newest first (limit default 100, max 500).",
         "Filter decisions by task_key, initiative_key (the initiative and its tickets), tag, or include_superseded false.",
         "A reversed decision has superseded_by; read the one that replaced it.",
       ].join(" "),
@@ -237,20 +338,23 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         initiative_key: z.string().optional(),
         tag: z.string().optional(),
         include_superseded: z.boolean().optional(),
+        view: z.enum(["summary", "full"]).optional(),
         limit: z.number().int().min(1).max(500).optional(),
       },
       annotations: readOnly,
     },
-    ({ project, task_key, initiative_key, tag, include_superseded, limit }) =>
-      run(async () =>
-        getMemory(db, await findProject(db, project), {
+    ({ project, task_key, initiative_key, tag, include_superseded, view, limit }) =>
+      run(async () => {
+        const memory = await getMemory(db, await findProject(db, project), {
           taskKey: task_key,
           initiativeKey: initiative_key,
           tag,
           includeSuperseded: include_superseded,
           limit,
-        }),
-      ),
+        });
+        if (view !== "summary") return memory;
+        return { ...memory, design_docs: memory.design_docs.map(({ markdown: _m, ...d }) => ({ ...d, chars: _m.length })) };
+      }),
   );
 
   server.registerTool(
@@ -304,29 +408,11 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Ticket with parent_key: a phase of that initiative, with phase N, its scope (without copying the PRD) and checks (the Done when list, one string each). Without parent_key: a standalone spec.",
         "Tickets: priority defaults to P2, status to Backlog (or Ready), work_type to code. origin defaults to discovered when the parent is Active or Shipping, otherwise chartered.",
         "Every ticket needs a scope; code and ops tickets need at least one check (TEMPLATE_INVALID lists what is missing). Convention slips come back as warnings.",
-        "A field of the other kind is FIELD_NOT_ALLOWED. A key that exists is KEY_EXISTS (409); pass request_id to retry safely.",
+        "Keys are the server's: omit key and the reply carries the one assigned (PREFIX-I<n> for an initiative, PREFIX-<nn> for a standalone ticket, <initiative>-<n> under a parent).",
+        "An explicit key is accepted for imports; one that fits the scheme must be at or above the counter (KEY_BELOW_COUNTER). A key that exists is KEY_EXISTS (409); pass request_id to retry safely.",
+        "A field of the other kind is FIELD_NOT_ALLOWED.",
       ].join(" "),
-      inputSchema: {
-        project,
-        actor,
-        request_id,
-        key,
-        kind: z.enum(KINDS).optional().describe("ticket (default) | initiative"),
-        title: z.string().min(1),
-        scope: z.string().optional().describe("What it is: PRD and plan (initiative) or the phase's scope (ticket). Markdown"),
-        checks: z.array(z.string()).optional().describe("Done when, one item per string"),
-        phase: z.number().int().optional().describe("Tickets: Phase N within the initiative"),
-        body: z.string().optional().describe("Removed in v2 (BODY_REMOVED): use scope and checks"),
-        summary: z.string().optional().describe("The one line shown in lists"),
-        parent_key: z.string().nullable().optional().describe("Tickets: initiative key; omit or null for a standalone spec"),
-        priority: z.string().optional().describe("Tickets: P0 | P1 | P2 | P3"),
-        origin: z.enum(ORIGINS).optional().describe("Tickets only"),
-        blocked_by: blockedBy.optional(),
-        status: z.string().optional().describe("Tickets: Backlog | Ready. Initiatives always start in Planning"),
-        work_type: z.string().optional().describe(`Tickets: ${WORK_TYPES.join(" | ")}; default code`),
-        base_branch: z.string().min(1).optional().describe("Initiatives only; defaults to main"),
-        next_action: z.string().optional().describe("Initiatives only: what comes next, shown in get_resume"),
-      },
+      inputSchema: { project, actor, request_id, verbose, ...createFields },
       annotations: write,
     },
     writeHandler("create_task", (input, ctx) => createTask(db, input, ctx)),
@@ -346,35 +432,9 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Anything else is INVALID_TRANSITION with the allowed moves.",
         "Finishing a phase: add_result first, then status 'In review' (committed, not merged) with branch and pr_url; without fitting evidence it is EVIDENCE_REQUIRED.",
         "Done and Won't do (and reopening them) are Jorge's: HUMAN_ONLY. Only if he asked you, pass confirm_by_jorge: true with reason; it is logged.",
+        "The reply is {key, status, version, changed}; verbose: true adds the full task.",
       ].join(" "),
-      inputSchema: {
-        project,
-        actor,
-        request_id,
-        key,
-        status: z.string().optional(),
-        priority: z.string().optional().describe("P0 | P1 | P2 | P3, tickets only"),
-        parent_key: z.string().nullable().optional().describe("Tickets: move under another initiative; null makes it a standalone spec"),
-        blocked_by: blockedBy.optional(),
-        branch: z.string().optional(),
-        pr_url: z.string().optional(),
-        summary: z.string().optional(),
-        scope: z.string().optional().describe("Replaces the scope whole; the old text stays in the log"),
-        checks: z
-          .array(z.object({ n: z.number().int().optional(), text: z.string() }))
-          .optional()
-          .describe("Replaces the Done when list. Keep n to keep an item (and its done state); omit n for a new one"),
-        phase: z.number().int().nullable().optional().describe("Tickets only"),
-        body: z.string().optional().describe("Removed in v2 (BODY_REMOVED): use scope, checks and note"),
-        base_branch: z.string().min(1).optional().describe("Initiatives only"),
-        next_action: z.string().optional().describe("Initiatives only"),
-        in_progress_note: z.string().optional().describe("Initiatives only"),
-        work_type: z.string().optional().describe(`Tickets only: ${WORK_TYPES.join(" | ")}`),
-        confirm_by_jorge: z.boolean().optional().describe("Only when Jorge asked you to set Done or Won't do"),
-        reason: z.string().optional().describe("Required with confirm_by_jorge: what Jorge said"),
-        note: z.string().optional(),
-        version: z.number().int().optional().describe("The version you read. Required unless note is the only field"),
-      },
+      inputSchema: { project, actor, request_id, verbose, ...setTaskFields },
       annotations: write,
     },
     writeHandler("set_task", (input, ctx) => setTask(db, input, ctx)),
@@ -385,15 +445,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description:
         "Tick (or untick) one Done when item by its n. Needs no version and does not bump it. While another session holds the lease, only it can tick (NOT_OWNER). evidence_id links the add_result that proves it.",
-      inputSchema: {
-        project,
-        actor,
-        request_id,
-        key,
-        n: z.number().int(),
-        done: z.boolean(),
-        evidence_id: z.string().nullable().optional(),
-      },
+      inputSchema: { project, actor, request_id, verbose, ...setCheckFields },
       annotations: { ...write, idempotentHint: true },
     },
     writeHandler("set_check", (input, ctx) => setCheck(db, input, ctx, validateEvidence)),
@@ -407,17 +459,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Anyone may add results: the owner, a QA session, CI. A pass with check_ns also ticks those Done when items, linked to this result.",
         `In review needs a pass recorded during the current claim: code ${REVIEW_EVIDENCE.code!.join("|")}; ops ${REVIEW_EVIDENCE.ops!.join("|")}; research any result or a doc; decision-needed never (it is answered).`,
       ].join(" "),
-      inputSchema: {
-        project,
-        actor,
-        request_id,
-        key,
-        kind: z.string().describe(RESULT_KINDS.join(" | ")),
-        verdict: z.string().describe(VERDICTS.join(" | ")),
-        cite: z.string().describe("e.g. 'pnpm test: 84 pass' or 'Playwright at 375px, sheet opens'"),
-        url: z.string().optional(),
-        check_ns: z.array(z.number().int()).optional().describe("Done when items this result proves (pass only)"),
-      },
+      inputSchema: { project, actor, request_id, verbose, ...addResultFields },
       annotations: write,
     },
     writeHandler("add_result", (input, ctx) => addResult(db, input, ctx)),
@@ -459,6 +501,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         project,
         actor,
         request_id,
+        verbose,
         key,
         action: z.enum(["claim", "heartbeat", "release"]).optional(),
         ttl_minutes: z.number().int().optional(),
@@ -485,18 +528,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "When it reverses an earlier decision, pass that decision's id as supersedes: the old one is marked superseded (it inherits task and pin unless you say otherwise).",
         "adr_body stores the full ADR as a project doc (adr_doc_id, read with get_doc); adr_url links one kept elsewhere.",
       ].join(" "),
-      inputSchema: {
-        project,
-        actor,
-        request_id,
-        text: z.string().min(1),
-        task_key: z.string().optional(),
-        tags: z.array(z.string()).optional(),
-        supersedes: z.string().optional().describe("id of the decision this one reverses"),
-        adr_body: z.string().optional().describe("Full ADR in markdown"),
-        adr_url: z.string().optional(),
-        pin: z.boolean().optional(),
-      },
+      inputSchema: { project, actor, request_id, ...addDecisionFields },
       annotations: write,
     },
     writeHandler("add_decision", (input, ctx) => addDecision(db, input, ctx)),
@@ -539,6 +571,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         project,
         actor,
         request_id,
+        verbose,
         key,
         question: z.string(),
         options: z.array(z.string()).optional(),
@@ -553,14 +586,17 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Record Jorge's answer to a question (he answers on screen, or tells you in chat and you record it here, quoting him).",
-        "The answer is logged as a decision on the task (tag answer); when no question is left open the ticket returns to its previous status (In progress without a live lease returns to Ready).",
+        "Pass decision_text when the answer settles something worth keeping: that line goes to the decision log (tag answer). Without it no decision is written.",
+        "When no question is left open the ticket returns to its previous status (In progress without a live lease returns to Ready).",
       ].join(" "),
       inputSchema: {
         project,
         actor,
         request_id,
+        verbose,
         question_id: z.string().min(1),
         answer: z.string(),
+        decision_text: z.string().optional().describe("One line for the decision log, if the answer decided something"),
       },
       annotations: write,
     },
@@ -607,6 +643,28 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       annotations: write,
     },
     writeHandler("set_env", (input, ctx) => setEnv(db, input, ctx)),
+  );
+
+  server.registerTool(
+    "batch",
+    {
+      description: [
+        "Several writes in one call: ops of create_task, set_task, set_check, add_result, add_decision or note ({op: 'note', key, text}), each with the fields of its tool (project, actor and request_id come from the batch).",
+        "atomic (default true): one transaction; the first failing op rolls everything back and the error is BATCH_FAILED {index, op, failed: {error, ...}}.",
+        "atomic false: each op commits on its own and a failed one shows inline as {error, status} in results; a retry with the same request_id replays the ops that went through.",
+        "Versions chain: an op on a key an earlier op in the batch already changed may omit version. Reply: {applied, results[]} in op order.",
+      ].join(" "),
+      inputSchema: {
+        project,
+        actor,
+        request_id,
+        verbose,
+        atomic: z.boolean().optional(),
+        ops: z.array(batchOp).min(1).max(50),
+      },
+      annotations: write,
+    },
+    writeHandler("batch", (input, ctx) => runBatch(db, input, ctx)),
   );
 
   return server;

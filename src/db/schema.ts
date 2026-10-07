@@ -38,8 +38,42 @@ export const projects = pgTable("projects", {
   version: integer("version").notNull().default(1),
   // Bumped when rules_text changes, so agents can tell they hold an old copy.
   rulesVersion: integer("rules_version").notNull().default(1),
+  // v2.1: the project's key prefix (FIL for filmia). Keys are PREFIX-I<n> (initiatives),
+  // PREFIX-<n> (standalone tickets) and <initiative key>-<n> (phases); see src/mcp/keys.ts.
+  keyPrefix: text("key_prefix").notNull().default(""),
   ...timestamps,
 });
+
+// v2.1: one counter per key scope ("initiative", "standalone", or a parent initiative's id).
+// Counters only move up, so a number is never reissued after a rename, move or delete.
+export const keyCounters = pgTable(
+  "key_counters",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    scope: text("scope").notNull(),
+    next: integer("next").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.projectId, t.scope] })],
+);
+
+// v2.1: former keys of a task (after a move between initiatives, or the rekey migration).
+// Every tool accepts an alias; responses and events carry the canonical key.
+export const taskAliases = pgTable(
+  "task_aliases",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    alias: text("alias").notNull(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references((): AnyPgColumn => tasks.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.projectId, t.alias] }), index("task_aliases_task_idx").on(t.taskId)],
+);
 
 export const designPages = pgTable("design_pages", {
   id: uuid("id").primaryKey().defaultRandom(),

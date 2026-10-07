@@ -175,7 +175,8 @@ describe("PATCH /api/projects/:slug/tasks/:key", () => {
     assert.equal(t.status, "In review");
     assert.equal(t.priority, "P1");
     assert.equal(t.scope, "secret scope", "get_task shape");
-    assert.equal(t.log.at(-1).actor.agent, "jorge");
+    const full = (await (await req("GET", "/api/projects/micasa/tasks/MIC-01-F1")).json()) as Json;
+    assert.equal(full.log.at(-1).actor.agent, "jorge");
     assert.equal((await row("MIC-01-F1")).priority, "P1");
   });
 
@@ -241,10 +242,10 @@ describe("leases and questions from the screen", () => {
     assert.equal(list.find((x) => x.slug === "micasa")!.open_questions, 1);
 
     assert.equal((await req("POST", `/api/projects/micasa/questions/${id}/answer`, { body: { answer: "  " } })).status, 400);
-    const res = await req("POST", `/api/projects/micasa/questions/${id}/answer`, { body: { answer: "Sí" } });
+    const res = await req("POST", `/api/projects/micasa/questions/${id}/answer`, { body: { answer: "Sí", decision_text: "CSV también" } });
     assert.equal(res.status, 200);
     const out = (await res.json()) as Json;
-    assert.equal(out.decision.text, "¿CSV también? → Sí");
+    assert.equal(out.decision.text, "CSV también");
     assert.equal(out.decision.actor.agent, "jorge");
     assert.equal(out.task.status, "In progress");
     const again = await req("POST", `/api/projects/micasa/questions/${id}/answer`, { body: { answer: "No" } });

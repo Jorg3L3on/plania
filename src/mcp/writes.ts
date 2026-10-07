@@ -8,23 +8,28 @@ import {
   type Task,
   type Workspace,
 } from "../db/schema.js";
+import type { Project } from "../db/schema.js";
 import {
   ToolError,
+  claimShape,
   findProject,
   findTask,
   liveOwner,
   requireTask,
-  taskShape,
+  writeReply,
 } from "./queries.js";
 import { parseBlockers, replaceBlockers, resolveTaskBlockers, unsatisfiedBlockers, type BlockerInput } from "./blockers.js";
 import { replaceChecks, type CheckInput } from "./checks.js";
 import { hasDoc } from "./docs.js";
 import { assertReviewEvidence } from "./evidence.js";
+import { addAlias, assignKey } from "./keys.js";
 import { WORK_TYPES, assertTransition, type Override } from "./lifecycle.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
 // Write side. Every write runs in writeTx and records what it changed as events.
-// Every write that returns a task returns the get_task shape.
+// Each write has an *InTx body (so batch can run several in one transaction) and a thin wrapper.
+// Writes return the compact reply from writeReply: {key, status, version, changed}, plus the full
+// task when the caller asked for verbose.
 
 // Children created while the parent is in flight were found along the way.
 const IN_FLIGHT_PARENT = ["Active", "Shipping"];
@@ -119,9 +124,9 @@ function checkPhase(phase: number | null | undefined): void {
   }
 }
 
-type CreateInput = {
+export type CreateInput = {
   project: string;
-  key: string;
+  key?: string;
   title: string;
   body?: string;
   scope?: string;
@@ -140,8 +145,8 @@ type CreateInput = {
 };
 
 // The ticket template. Hard rules: a scope, and for code and ops at least one Done when check.
-// Conventions only warn: a phase child is keyed <parent>-F<phase>, and a child without phase may be
-// a phase that forgot to say so (bucket initiatives like "post-QA" have children without phases).
+// Conventions only warn: a child without phase may be a phase that forgot to say so (bucket
+// initiatives like "post-QA" have children without phases). Keys are the server's (keys.ts).
 const NEEDS_CHECKS = ["code", "ops"];
 
 function templateWarnings(input: CreateInput, kind: string): string[] {
@@ -156,20 +161,17 @@ function templateWarnings(input: CreateInput, kind: string): string[] {
   if (NEEDS_CHECKS.includes(workType) && !input.checks?.some((c) => c.trim())) missing.push("checks");
   if (missing.length) throw new ToolError("TEMPLATE_INVALID", { missing, work_type: workType });
   if (input.parent_key && input.phase === undefined) warnings.push("no phase: pass phase if this ticket is a phase of its initiative");
-  if (input.parent_key && input.phase !== undefined && input.key !== `${input.parent_key}-F${input.phase}`) {
-    warnings.push(`key does not follow the convention ${input.parent_key}-F${input.phase}`);
-  }
   return warnings;
 }
 
 // One create for both kinds. Initiatives start in Planning; tickets in Backlog unless told Ready.
-export async function createTask(db: Db, input: CreateInput, ctx: Ctx) {
+// The key is assigned here unless the caller passed one (keys.ts).
+export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: CreateInput, ctx: Ctx) {
   rejectBody(input);
   checkPhase(input.phase);
   const blockedBy = parseBlockers(input.blocked_by ?? []);
   const kind = input.kind ?? "ticket";
   const warnings = templateWarnings(input, kind);
-  const p = await findProject(db, input.project);
   const status = input.status ?? (kind === "initiative" ? "Planning" : "Backlog");
   checkStatus(kind, status);
   if (kind === "initiative") {
@@ -184,41 +186,47 @@ export async function createTask(db: Db, input: CreateInput, ctx: Ctx) {
     if (!CREATE_STATUSES.includes(status)) throw new ToolError("INVALID_STATUS");
   }
 
+  if (input.key !== undefined && (await findTask(tx, p.id, input.key))) throw new ToolError("KEY_EXISTS");
+  const parent = input.parent_key ? await resolveParent(tx, p.id, input.parent_key) : undefined;
+  const assigned = await assignKey(tx, p, kind, parent, input.key);
+  warnings.push(...assigned.warnings);
+  const blockerIds = await resolveTaskBlockers(tx, p.id, blockedBy.keys, assigned.key);
+  const common = {
+    projectId: p.id,
+    kind,
+    key: assigned.key,
+    title: input.title,
+    summary: input.summary ?? "",
+    scope: input.scope ?? "",
+    status,
+  };
+  const values: TaskInsert =
+    kind === "initiative"
+      ? { ...common, baseBranch: input.base_branch ?? "main", nextAction: input.next_action ?? "" }
+      : {
+          ...common,
+          parentId: parent?.id ?? null,
+          priority: input.priority ?? "P2",
+          workType: input.work_type ?? "code",
+          phase: input.phase ?? null,
+          origin: input.origin ?? (parent && IN_FLIGHT_PARENT.includes(parent.status) ? "discovered" : "chartered"),
+        };
+  let t: Task;
   try {
-    return await writeTx(db, p, ctx, async (tx, emit) => {
-      if (await findTask(tx, p.id, input.key)) throw new ToolError("KEY_EXISTS");
-      const parent = input.parent_key ? await resolveParent(tx, p.id, input.parent_key) : undefined;
-      const blockerIds = await resolveTaskBlockers(tx, p.id, blockedBy.keys, input.key);
-      const common = {
-        projectId: p.id,
-        kind,
-        key: input.key,
-        title: input.title,
-        summary: input.summary ?? "",
-        scope: input.scope ?? "",
-        status,
-      };
-      const values: TaskInsert =
-        kind === "initiative"
-          ? { ...common, baseBranch: input.base_branch ?? "main", nextAction: input.next_action ?? "" }
-          : {
-              ...common,
-              parentId: parent?.id ?? null,
-              priority: input.priority ?? "P2",
-              workType: input.work_type ?? "code",
-              phase: input.phase ?? null,
-              origin: input.origin ?? (parent && IN_FLIGHT_PARENT.includes(parent.status) ? "discovered" : "chartered"),
-            };
-      const [t] = await tx.insert(tasks).values(values).returning();
-      await replaceBlockers(tx, t!.id, blockerIds, blockedBy.env);
-      await replaceChecks(tx, t!.id, (input.checks ?? []).map((text) => ({ text })));
-      await emit("task.created", t!, { kind, status, parent_key: parent?.key ?? null });
-      return { ...(await taskShape(tx, t!)), ...(warnings.length ? { warnings } : {}) };
-    });
+    [t] = (await tx.insert(tasks).values(values).returning()) as [Task];
   } catch (e) {
     if (isUniqueViolation(e)) throw new ToolError("KEY_EXISTS");
     throw e;
   }
+  await replaceBlockers(tx, t.id, blockerIds, blockedBy.env);
+  await replaceChecks(tx, t.id, (input.checks ?? []).map((text) => ({ text })));
+  await emit("task.created", t, { kind, status, parent_key: parent?.key ?? null, key_assigned: assigned.assigned });
+  return writeReply(tx, t, ctx, ["created"], { kind, parent_key: parent?.key ?? null }, warnings);
+}
+
+export async function createTask(db: Db, input: CreateInput, ctx: Ctx) {
+  const p = await findProject(db, input.project);
+  return writeTx(db, p, ctx, (tx, emit) => createTaskInTx(tx, emit, p, input, ctx));
 }
 
 // Field names as agents see them, for task.updated payloads.
@@ -236,121 +244,147 @@ const FIELD_NAMES: Partial<Record<keyof Task, string>> = {
   inProgressNote: "in_progress_note",
 };
 
-export async function setTask(
-  db: Db,
-  input: {
-    project: string;
-    key: string;
-    status?: string;
-    priority?: string;
-    parent_key?: string | null;
-    blocked_by?: BlockerInput[];
-    branch?: string;
-    pr_url?: string;
-    summary?: string;
-    body?: string;
-    scope?: string;
-    checks?: CheckInput[];
-    phase?: number | null;
-    base_branch?: string;
-    next_action?: string;
-    in_progress_note?: string;
-    work_type?: string;
-    note?: string;
-    version?: number;
-  } & Override,
-  ctx: Ctx,
-) {
-  const p = await findProject(db, input.project);
+export type SetTaskInput = {
+  project: string;
+  key: string;
+  status?: string;
+  priority?: string;
+  parent_key?: string | null;
+  blocked_by?: BlockerInput[];
+  branch?: string;
+  pr_url?: string;
+  summary?: string;
+  body?: string;
+  scope?: string;
+  checks?: CheckInput[];
+  phase?: number | null;
+  base_branch?: string;
+  next_action?: string;
+  in_progress_note?: string;
+  work_type?: string;
+  note?: string;
+  version?: number;
+} & Override;
+
+export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskInput, ctx: Ctx) {
   rejectBody(input);
   checkPhase(input.phase);
   const blockedBy = input.blocked_by !== undefined ? parseBlockers(input.blocked_by) : undefined;
   const { project: _p, key: _k, note: _n, version: _v, confirm_by_jorge: _c, reason: _r, ...fields } = input;
   // A note alone is an append and needs no version; any field change does.
   const noteOnly = Object.values(fields).every((v) => v === undefined);
-  return writeTx(db, p, ctx, async (tx, emit) => {
-    const t = await requireTask(tx, p.id, input.key);
-    rejectFields(t.kind, input, t.kind === "initiative" ? TICKET_ONLY : INITIATIVE_ONLY);
-    checkVersion(t.version, input.version, !noteOnly);
-    if (!noteOnly) checkOwner(t, ctx);
-    const patch: TaskPatch = {};
-    let overridden = false;
-    const changes: Record<string, [unknown, unknown]> = {};
+  const t = await requireTask(tx, p.id, input.key);
+  rejectFields(t.kind, input, t.kind === "initiative" ? TICKET_ONLY : INITIATIVE_ONLY);
+  checkVersion(t.version, input.version, !noteOnly);
+  if (!noteOnly) checkOwner(t, ctx);
+  const patch: TaskPatch = {};
+  let overridden = false;
+  const changes: Record<string, [unknown, unknown]> = {};
 
-    if (input.status !== undefined) {
-      checkStatus(t.kind, input.status);
-      overridden = assertTransition(t.kind, t.status, input.status, {
-        human: ctx.human,
-        via: "set_task",
-        override: { confirm_by_jorge: input.confirm_by_jorge, reason: input.reason },
-      });
-      if (input.status === "In review" && t.kind === "ticket" && t.status !== "In review" && !ctx.human) {
-        await assertReviewEvidence(tx, t, hasDoc);
-      }
-      if (input.status === "Blocked") {
-        if (!input.note?.trim()) throw new ToolError("BLOCKED_REQUIRES_NOTE");
-        patch.blockedNote = input.note;
-      } else {
-        // The note only means something while the task is Blocked.
-        patch.blockedNote = null;
-      }
-      // Re-marking Done keeps the first timestamp.
-      patch.resolvedAt = input.status === "Done" ? (t.resolvedAt ?? new Date()) : null;
-      patch.status = input.status;
-      if (t.owner && input.status !== t.status) Object.assign(patch, NO_LEASE);
+  if (input.status !== undefined) {
+    checkStatus(t.kind, input.status);
+    overridden = assertTransition(t.kind, t.status, input.status, {
+      human: ctx.human,
+      via: "set_task",
+      override: { confirm_by_jorge: input.confirm_by_jorge, reason: input.reason },
+    });
+    if (input.status === "In review" && t.kind === "ticket" && t.status !== "In review" && !ctx.human) {
+      await assertReviewEvidence(tx, t, hasDoc);
     }
+    if (input.status === "Blocked") {
+      if (!input.note?.trim()) throw new ToolError("BLOCKED_REQUIRES_NOTE");
+      patch.blockedNote = input.note;
+    } else {
+      // The note only means something while the task is Blocked.
+      patch.blockedNote = null;
+    }
+    // Re-marking Done keeps the first timestamp.
+    patch.resolvedAt = input.status === "Done" ? (t.resolvedAt ?? new Date()) : null;
+    patch.status = input.status;
+    if (t.owner && input.status !== t.status) Object.assign(patch, NO_LEASE);
+  }
 
-    if (input.priority !== undefined) {
-      checkPriority(input.priority);
-      patch.priority = input.priority;
-    }
-    if (input.work_type !== undefined) {
-      checkWorkType(input.work_type);
-      patch.workType = input.work_type;
-    }
+  if (input.priority !== undefined) {
+    checkPriority(input.priority);
+    patch.priority = input.priority;
+  }
+  if (input.work_type !== undefined) {
+    checkWorkType(input.work_type);
+    patch.workType = input.work_type;
+  }
 
-    let parentKeys: [string | null, string | null] | undefined;
-    if (input.parent_key !== undefined) {
-      const [old] = t.parentId ? await tx.select({ key: tasks.key }).from(tasks).where(eq(tasks.id, t.parentId)) : [];
-      patch.parentId = input.parent_key === null ? null : (await resolveParent(tx, p.id, input.parent_key)).id;
-      parentKeys = [old?.key ?? null, input.parent_key];
+  // Moving under another initiative (or out to standalone) gives the ticket a key under its new
+  // parent; the old key stays as an alias so every reference keeps resolving.
+  let parentKeys: [string | null, string | null] | undefined;
+  let rekey: [string, string] | undefined;
+  if (input.parent_key !== undefined) {
+    const [old] = t.parentId ? await tx.select({ key: tasks.key }).from(tasks).where(eq(tasks.id, t.parentId)) : [];
+    const newParent = input.parent_key === null ? undefined : await resolveParent(tx, p.id, input.parent_key);
+    const newParentId = newParent?.id ?? null;
+    if (newParentId !== t.parentId) {
+      patch.parentId = newParentId;
+      parentKeys = [old?.key ?? null, newParent?.key ?? null];
+      const assigned = await assignKey(tx, p, "ticket", newParent, undefined);
+      patch.key = assigned.key;
+      rekey = [t.key, assigned.key];
     }
+  }
 
-    const blockerIds = blockedBy ? await resolveTaskBlockers(tx, p.id, blockedBy.keys, t.key) : undefined;
+  const blockerIds = blockedBy ? await resolveTaskBlockers(tx, p.id, blockedBy.keys, t.key) : undefined;
 
-    if (input.branch !== undefined) patch.branch = input.branch;
-    if (input.pr_url !== undefined) patch.prUrl = input.pr_url;
-    if (input.summary !== undefined) patch.summary = input.summary;
-    if (input.scope !== undefined) patch.scope = input.scope;
-    if (input.phase !== undefined) patch.phase = input.phase;
-    if (input.base_branch !== undefined) patch.baseBranch = input.base_branch;
-    if (input.next_action !== undefined) patch.nextAction = input.next_action;
-    if (input.in_progress_note !== undefined) patch.inProgressNote = input.in_progress_note;
+  if (input.branch !== undefined) patch.branch = input.branch;
+  if (input.pr_url !== undefined) patch.prUrl = input.pr_url;
+  if (input.summary !== undefined) patch.summary = input.summary;
+  if (input.scope !== undefined) patch.scope = input.scope;
+  if (input.phase !== undefined) patch.phase = input.phase;
+  if (input.base_branch !== undefined) patch.baseBranch = input.base_branch;
+  if (input.next_action !== undefined) patch.nextAction = input.next_action;
+  if (input.in_progress_note !== undefined) patch.inProgressNote = input.in_progress_note;
 
-    for (const [field, name] of Object.entries(FIELD_NAMES) as [keyof Task, string][]) {
-      if (!(field in patch) || patch[field as keyof TaskPatch] === t[field]) continue;
-      changes[name] = field === "parentId" ? parentKeys! : [t[field], patch[field as keyof TaskPatch]];
+  for (const [field, name] of Object.entries(FIELD_NAMES) as [keyof Task, string][]) {
+    if (!(field in patch) || patch[field as keyof TaskPatch] === t[field]) continue;
+    changes[name] = field === "parentId" ? parentKeys! : [t[field], patch[field as keyof TaskPatch]];
+  }
+
+  const u = await updateTask(tx, t, patch, !noteOnly);
+  if (rekey) await addAlias(tx, p.id, t.id, rekey[0]);
+  if (blockedBy && blockerIds) {
+    await replaceBlockers(tx, t.id, blockerIds, blockedBy.env);
+    changes.blocked_by = [null, [...blockedBy.keys.sort(), ...blockedBy.env]];
+  }
+  if (input.checks !== undefined) {
+    const changed = await replaceChecks(tx, t.id, input.checks);
+    if (changed) changes.checks = changed;
+  }
+
+  const changedNames: string[] = [];
+  if (patch.status !== undefined && patch.status !== t.status) {
+    changedNames.push("status");
+    await emit("task.status", u, { from: t.status, to: patch.status, ...(patch.blockedNote ? { note: patch.blockedNote } : {}) });
+    if (overridden) await emit("task.human_override", u, { from: t.status, to: patch.status, reason: input.reason });
+    if (t.owner) {
+      changedNames.push("claim");
+      await emit("claim.released", u, { owner: t.owner, reason: "status" });
     }
+  }
+  if (rekey) {
+    changedNames.push("key");
+    await emit("task.rekeyed", u, { from: rekey[0], to: rekey[1], reason: "moved" });
+  }
+  if (Object.keys(changes).length) {
+    changedNames.push(...Object.keys(changes));
+    await emit("task.updated", u, { changes });
+  }
+  if (input.status !== "Blocked" && input.note?.trim()) {
+    changedNames.push("note");
+    await addNote(emit, u, input.note);
+  }
+  return writeReply(tx, u, ctx, changedNames, rekey ? { previous_key: rekey[0] } : {});
+}
 
-    const u = await updateTask(tx, t, patch, !noteOnly);
-    if (blockedBy && blockerIds) {
-      await replaceBlockers(tx, t.id, blockerIds, blockedBy.env);
-      changes.blocked_by = [null, [...blockedBy.keys.sort(), ...blockedBy.env]];
-    }
-    if (input.checks !== undefined) {
-      const changed = await replaceChecks(tx, t.id, input.checks);
-      if (changed) changes.checks = changed;
-    }
-
-    if (patch.status !== undefined && patch.status !== t.status) {
-      await emit("task.status", t, { from: t.status, to: patch.status, ...(patch.blockedNote ? { note: patch.blockedNote } : {}) });
-      if (overridden) await emit("task.human_override", t, { from: t.status, to: patch.status, reason: input.reason });
-      if (t.owner) await emit("claim.released", t, { owner: t.owner, reason: "status" });
-    }
-    if (Object.keys(changes).length) await emit("task.updated", t, { changes });
-    if (input.status !== "Blocked") await addNote(emit, t, input.note);
-    return taskShape(tx, u);
-  });
+export async function setTask(db: Db, input: SetTaskInput, ctx: Ctx) {
+  const p = await findProject(db, input.project);
+  return writeTx(db, p, ctx, (tx, emit) => setTaskInTx(tx, emit, p, input, ctx));
 }
 
 // CI reports where a ticket's code is: pr_url and branch. Trusted and commutative with agent edits,
@@ -373,10 +407,10 @@ export async function setTaskLinks(
       patch.branch = input.branch;
       changes.branch = [t.branch, input.branch];
     }
-    if (!Object.keys(changes).length) return taskShape(tx, t);
+    if (!Object.keys(changes).length) return writeReply(tx, t, ctx, []);
     const u = await updateTask(tx, t, patch, true);
-    await emit("task.updated", t, { changes });
-    return taskShape(tx, u);
+    await emit("task.updated", u, { changes });
+    return writeReply(tx, u, ctx, Object.keys(changes));
   });
 }
 
@@ -391,73 +425,74 @@ function ttlMinutes(ttl: number | undefined): number {
 
 const leaseEnd = (minutes: number) => sql`now() + make_interval(mins => ${minutes})`;
 
+export type ClaimInput = {
+  project: string;
+  key: string;
+  action?: "claim" | "heartbeat" | "release";
+  ttl_minutes?: number;
+  workspace?: Workspace;
+  release_to?: "Ready" | "Backlog";
+};
+
 // claim: take the ticket (In progress) for ttl minutes; claiming it again from the same session extends it.
 // heartbeat: extend your lease. release: give it back (In progress goes to release_to, default Ready).
-export async function claim(
-  db: Db,
-  input: {
-    project: string;
-    key: string;
-    action?: "claim" | "heartbeat" | "release";
-    ttl_minutes?: number;
-    workspace?: Workspace;
-    release_to?: "Ready" | "Backlog";
-  },
-  ctx: Ctx,
-) {
+export async function claimInTx(tx: Q, emit: Emit, p: Project, input: ClaimInput, ctx: Ctx) {
   const action = input.action ?? "claim";
   const minutes = ttlMinutes(input.ttl_minutes);
+  const t = await requireTask(tx, p.id, input.key);
+  if (t.kind !== "ticket") throw new ToolError("NOT_CLAIMABLE", { reason: "initiatives are not claimed" });
+  const owner = liveOwner(t);
+  const mine = owner?.session_id === ctx.actor.session_id;
+  const held = () => new ToolError("CLAIM_HELD", { owner, lease_until: iso(t.leaseUntil), workspace: t.workspace });
+  const workspace = input.workspace ? { machine: ctx.actor.machine, ...input.workspace } : undefined;
+  const reply = (u: Task, changed: string[]) => writeReply(tx, u, ctx, changed, { claim: claimShape(u), workspace: u.workspace });
+
+  if (action === "release") {
+    if (!t.owner) return reply(t, []); // nothing held: releasing again is a no-op
+    if (!mine && !ctx.human) throw new ToolError("NOT_OWNER", { owner, lease_until: iso(t.leaseUntil) });
+    const to = t.status === "In progress" ? (input.release_to ?? "Ready") : t.status;
+    const u = await updateTask(tx, t, { ...NO_LEASE, status: to }, true);
+    await emit("claim.released", u, { owner: t.owner, from: t.status, to });
+    return reply(u, to !== t.status ? ["claim", "status"] : ["claim"]);
+  }
+
+  if (owner && !mine) throw held();
+
+  if (mine) {
+    // Heartbeat, or a repeated claim: extend the lease without bumping the version.
+    const [u] = await tx
+      .update(tasks)
+      .set({ leaseUntil: leaseEnd(minutes), lastSeenAt: sql`now()`, ...(workspace ? { workspace } : {}) })
+      .where(eq(tasks.id, t.id))
+      .returning();
+    if (workspace) await emit("claim.workspace", u!, { workspace });
+    return reply(u!, workspace ? ["claim", "workspace"] : ["claim"]);
+  }
+
+  if (action === "heartbeat") throw new ToolError("LEASE_EXPIRED", { hint: "claim again" });
+  if (!CLAIMABLE_FROM.includes(t.status)) throw new ToolError("NOT_CLAIMABLE", { status: t.status });
+  const blockers = await unsatisfiedBlockers(tx, t);
+  if (blockers.length) throw new ToolError("NOT_CLAIMABLE", { blocked_by: blockers });
+
+  const u = await updateTask(
+    tx,
+    t,
+    {
+      owner: ctx.actor,
+      claimedAt: sql`now()`,
+      leaseUntil: leaseEnd(minutes),
+      lastSeenAt: sql`now()`,
+      status: "In progress",
+      blockedNote: null,
+      ...(workspace ? { workspace } : {}),
+    },
+    true,
+  );
+  await emit("claim.acquired", u, { from: t.status, ttl_minutes: minutes, lease_until: iso(u.leaseUntil), workspace: u.workspace });
+  return reply(u, ["claim", "status"]);
+}
+
+export async function claim(db: Db, input: ClaimInput, ctx: Ctx) {
   const p = await findProject(db, input.project);
-  return writeTx(db, p, ctx, async (tx, emit) => {
-    const t = await requireTask(tx, p.id, input.key);
-    if (t.kind !== "ticket") throw new ToolError("NOT_CLAIMABLE", { reason: "initiatives are not claimed" });
-    const owner = liveOwner(t);
-    const mine = owner?.session_id === ctx.actor.session_id;
-    const held = () => new ToolError("CLAIM_HELD", { owner, lease_until: iso(t.leaseUntil), workspace: t.workspace });
-    const workspace = input.workspace ? { machine: ctx.actor.machine, ...input.workspace } : undefined;
-
-    if (action === "release") {
-      if (!t.owner) return taskShape(tx, t); // nothing held: releasing again is a no-op
-      if (!mine && !ctx.human) throw new ToolError("NOT_OWNER", { owner, lease_until: iso(t.leaseUntil) });
-      const to = t.status === "In progress" ? (input.release_to ?? "Ready") : t.status;
-      const u = await updateTask(tx, t, { ...NO_LEASE, status: to }, true);
-      await emit("claim.released", t, { owner: t.owner, from: t.status, to });
-      return taskShape(tx, u);
-    }
-
-    if (owner && !mine) throw held();
-
-    if (mine) {
-      // Heartbeat, or a repeated claim: extend the lease without bumping the version.
-      const [u] = await tx
-        .update(tasks)
-        .set({ leaseUntil: leaseEnd(minutes), lastSeenAt: sql`now()`, ...(workspace ? { workspace } : {}) })
-        .where(eq(tasks.id, t.id))
-        .returning();
-      if (workspace) await emit("claim.workspace", t, { workspace });
-      return taskShape(tx, u!);
-    }
-
-    if (action === "heartbeat") throw new ToolError("LEASE_EXPIRED", { hint: "claim again" });
-    if (!CLAIMABLE_FROM.includes(t.status)) throw new ToolError("NOT_CLAIMABLE", { status: t.status });
-    const blockers = await unsatisfiedBlockers(tx, t);
-    if (blockers.length) throw new ToolError("NOT_CLAIMABLE", { blocked_by: blockers });
-
-    const u = await updateTask(
-      tx,
-      t,
-      {
-        owner: ctx.actor,
-        claimedAt: sql`now()`,
-        leaseUntil: leaseEnd(minutes),
-        lastSeenAt: sql`now()`,
-        status: "In progress",
-        blockedNote: null,
-        ...(workspace ? { workspace } : {}),
-      },
-      true,
-    );
-    await emit("claim.acquired", t, { from: t.status, ttl_minutes: minutes, lease_until: iso(u.leaseUntil), workspace: u.workspace });
-    return taskShape(tx, u);
-  });
+  return writeTx(db, p, ctx, (tx, emit) => claimInTx(tx, emit, p, input, ctx));
 }

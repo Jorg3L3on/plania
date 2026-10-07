@@ -1,8 +1,8 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { checks, tasks, type Task } from "../db/schema.js";
-import { ToolError, findProject, liveOwner, requireTask, taskShape } from "./queries.js";
-import { iso, writeTx, type Ctx, type Q } from "./tx.js";
+import { checks, tasks, type Project, type Task } from "../db/schema.js";
+import { ToolError, findProject, liveOwner, requireTask, writeReply } from "./queries.js";
+import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
 // "Done when" as data. Each check has a stable n; set_check ticks one without touching the rest,
 // and set_task checks replaces the list (an item that keeps its n keeps its done state).
@@ -46,36 +46,47 @@ export async function replaceChecks(tx: Q, taskId: string, items: CheckInput[]):
   return JSON.stringify(before) === JSON.stringify(after) && removed.length === 0 ? null : [before, after];
 }
 
+export type SetCheckInput = { project: string; key: string; n: number; done: boolean; evidence_id?: string | null };
+
 // Marks one check done or not. Commutative: needs no version and does not bump it.
 // While another session holds a live lease, only the owner (or Jorge) ticks its checks.
-export async function setCheck(
-  db: Db,
-  input: { project: string; key: string; n: number; done: boolean; evidence_id?: string | null },
+export async function setCheckInTx(
+  tx: Q,
+  emit: Emit,
+  p: Project,
+  input: SetCheckInput,
   ctx: Ctx,
   // Set by B3: validates that evidence_id is a result of this task.
   validateEvidence?: (tx: Q, t: Task, id: string) => Promise<void>,
 ) {
+  const t = await requireTask(tx, p.id, input.key);
+  const owner = liveOwner(t);
+  if (owner && owner.session_id !== ctx.actor.session_id && !ctx.human) {
+    throw new ToolError("NOT_OWNER", { owner, lease_until: iso(t.leaseUntil) });
+  }
+  if (input.evidence_id && validateEvidence) await validateEvidence(tx, t, input.evidence_id);
+  const [c] = await tx
+    .update(checks)
+    .set({
+      done: input.done,
+      doneAt: input.done ? sql`now()` : null,
+      doneBy: input.done ? ctx.actor : null,
+      ...(input.evidence_id !== undefined ? { evidenceId: input.evidence_id } : {}),
+    })
+    .where(and(eq(checks.taskId, t.id), eq(checks.n, input.n)))
+    .returning();
+  if (!c) throw new ToolError("CHECK_NOT_FOUND", { n: input.n });
+  const [u] = (await tx.update(tasks).set({ updatedAt: sql`now()` }).where(eq(tasks.id, t.id)).returning()) as [Task];
+  await emit("check.set", u, { n: c.n, text: c.text, done: c.done, evidence_id: c.evidenceId });
+  return writeReply(tx, u, ctx, ["checks"], { check: { n: c.n, done: c.done, evidence_id: c.evidenceId } });
+}
+
+export async function setCheck(
+  db: Db,
+  input: SetCheckInput,
+  ctx: Ctx,
+  validateEvidence?: (tx: Q, t: Task, id: string) => Promise<void>,
+) {
   const p = await findProject(db, input.project);
-  return writeTx(db, p, ctx, async (tx, emit) => {
-    const t = await requireTask(tx, p.id, input.key);
-    const owner = liveOwner(t);
-    if (owner && owner.session_id !== ctx.actor.session_id && !ctx.human) {
-      throw new ToolError("NOT_OWNER", { owner, lease_until: iso(t.leaseUntil) });
-    }
-    if (input.evidence_id && validateEvidence) await validateEvidence(tx, t, input.evidence_id);
-    const [c] = await tx
-      .update(checks)
-      .set({
-        done: input.done,
-        doneAt: input.done ? sql`now()` : null,
-        doneBy: input.done ? ctx.actor : null,
-        ...(input.evidence_id !== undefined ? { evidenceId: input.evidence_id } : {}),
-      })
-      .where(and(eq(checks.taskId, t.id), eq(checks.n, input.n)))
-      .returning();
-    if (!c) throw new ToolError("CHECK_NOT_FOUND", { n: input.n });
-    await tx.update(tasks).set({ updatedAt: sql`now()` }).where(eq(tasks.id, t.id));
-    await emit("check.set", t, { n: c.n, text: c.text, done: c.done, evidence_id: c.evidenceId });
-    return taskShape(tx, (await requireTask(tx, p.id, input.key)));
-  });
+  return writeTx(db, p, ctx, (tx, emit) => setCheckInTx(tx, emit, p, input, ctx, validateEvidence));
 }

@@ -12,7 +12,8 @@ export type Q = PgDatabase<NodePgQueryResultHKT, typeof schema>;
 
 // Who is writing and through which channel. human is true only for Jorge's screen (cookie),
 // never inferred from the actor value. requestId + tool make a retry replay the first response.
-export type Ctx = { actor: Actor; human?: boolean; requestId?: string; tool?: string };
+// verbose: writes return the full task besides the compact {key, status, version, changed} reply.
+export type Ctx = { actor: Actor; human?: boolean; requestId?: string; tool?: string; verbose?: boolean };
 
 const REQUEST_TTL = "30 days";
 

@@ -45,7 +45,7 @@ export async function resetTestDb(): Promise<pg.Client> {
     await raw.query(readFileSync(new URL(f, dir), "utf8"));
   }
   await raw.query(
-    "insert into projects (slug, title) values ('micasa','MiCasa'), ('workia','Workia'), ('filmia','Filmia'), ('zigzag','Zigzag')",
+    "insert into projects (slug, title, key_prefix) values ('micasa','MiCasa','MIC'), ('workia','Workia','WRK'), ('filmia','Filmia','FIL'), ('zigzag','Zigzag','ZIG')",
   );
   return raw;
 }

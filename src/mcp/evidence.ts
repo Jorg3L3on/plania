@@ -1,8 +1,8 @@
 import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { checks, results, tasks, type Task } from "../db/schema.js";
-import { ToolError, findProject, requireTask, taskShape } from "./queries.js";
-import { iso, writeTx, type Ctx, type Q } from "./tx.js";
+import { checks, results, tasks, type Project, type Task } from "../db/schema.js";
+import { ToolError, findProject, requireTask, writeReply } from "./queries.js";
+import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
 // Evidence as records. Anyone may add a result (the owner, a QA session, CI); In review needs one
 // that fits the ticket's work_type and was recorded during the current claim.
@@ -59,34 +59,34 @@ export async function validateEvidence(tx: Q, t: Task, id: string): Promise<void
   if (!r) throw new ToolError("RESULT_NOT_FOUND", { evidence_id: id });
 }
 
-export async function addResult(
-  db: Db,
-  input: { project: string; key: string; kind: string; verdict: string; cite: string; url?: string; check_ns?: number[] },
-  ctx: Ctx,
-) {
+export type AddResultInput = { project: string; key: string; kind: string; verdict: string; cite: string; url?: string; check_ns?: number[] };
+
+export async function addResultInTx(tx: Q, emit: Emit, p: Project, input: AddResultInput, ctx: Ctx) {
   if (!(RESULT_KINDS as readonly string[]).includes(input.kind)) throw new ToolError("INVALID_RESULT", { field: "kind", allowed: RESULT_KINDS });
   if (!(VERDICTS as readonly string[]).includes(input.verdict)) throw new ToolError("INVALID_RESULT", { field: "verdict", allowed: VERDICTS });
   if (!input.cite.trim()) throw new ToolError("INVALID_RESULT", { field: "cite" });
   if (input.check_ns?.length && input.verdict !== "pass") throw new ToolError("INVALID_RESULT", { field: "check_ns", hint: "only a pass ticks checks" });
-  const p = await findProject(db, input.project);
-  return writeTx(db, p, ctx, async (tx, emit) => {
-    const t = await requireTask(tx, p.id, input.key);
-    const [r] = await tx
-      .insert(results)
-      .values({ taskId: t.id, kind: input.kind, verdict: input.verdict, cite: input.cite, url: input.url ?? null, actor: ctx.actor })
+  const t = await requireTask(tx, p.id, input.key);
+  const [r] = await tx
+    .insert(results)
+    .values({ taskId: t.id, kind: input.kind, verdict: input.verdict, cite: input.cite, url: input.url ?? null, actor: ctx.actor })
+    .returning();
+  const ticked: number[] = [];
+  for (const n of new Set(input.check_ns ?? [])) {
+    const [c] = await tx
+      .update(checks)
+      .set({ done: true, doneAt: sql`now()`, doneBy: ctx.actor, evidenceId: r!.id })
+      .where(and(eq(checks.taskId, t.id), eq(checks.n, n)))
       .returning();
-    const ticked: number[] = [];
-    for (const n of new Set(input.check_ns ?? [])) {
-      const [c] = await tx
-        .update(checks)
-        .set({ done: true, doneAt: sql`now()`, doneBy: ctx.actor, evidenceId: r!.id })
-        .where(and(eq(checks.taskId, t.id), eq(checks.n, n)))
-        .returning();
-      if (!c) throw new ToolError("CHECK_NOT_FOUND", { n });
-      ticked.push(n);
-    }
-    await tx.update(tasks).set({ updatedAt: sql`now()` }).where(eq(tasks.id, t.id));
-    await emit("result.added", t, { result_id: r!.id, kind: r!.kind, verdict: r!.verdict, cite: r!.cite, url: r!.url, checks: ticked });
-    return { result: resultShape(r!), task: await taskShape(tx, await requireTask(tx, p.id, input.key)) };
-  });
+    if (!c) throw new ToolError("CHECK_NOT_FOUND", { n });
+    ticked.push(n);
+  }
+  const [u] = (await tx.update(tasks).set({ updatedAt: sql`now()` }).where(eq(tasks.id, t.id)).returning()) as [Task];
+  await emit("result.added", u, { result_id: r!.id, kind: r!.kind, verdict: r!.verdict, cite: r!.cite, url: r!.url, checks: ticked });
+  return writeReply(tx, u, ctx, ticked.length ? ["results", "checks"] : ["results"], { result: resultShape(r!) });
+}
+
+export async function addResult(db: Db, input: AddResultInput, ctx: Ctx) {
+  const p = await findProject(db, input.project);
+  return writeTx(db, p, ctx, (tx, emit) => addResultInTx(tx, emit, p, input, ctx));
 }

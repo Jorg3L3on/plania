@@ -88,6 +88,7 @@ export type LogEntry = { id: number; at: string; type: string; actor: Actor; pay
 
 // The get_task shape.
 export type TaskDetail = Omit<TaskRow, "claimed_by" | "lease_until"> & {
+  aliases: string[];
   scope: string;
   legacy_body?: string;
   phase: number | null;

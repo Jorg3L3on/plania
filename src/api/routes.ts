@@ -11,7 +11,7 @@ import { withDb, type Db } from "../db/client.js";
 import { projects, tasks, type Actor } from "../db/schema.js";
 import { bus } from "../events.js";
 import { listDecisions } from "../mcp/decisions.js";
-import { ToolError, findProject, findTask, taskShape } from "../mcp/queries.js";
+import { ToolError, findProject, findTask, taskFull } from "../mcp/queries.js";
 import { answer } from "../mcp/questions.js";
 import { resumeDigest, type ResumeDigest } from "../mcp/resume.js";
 import { webCtx } from "../mcp/tx.js";
@@ -157,13 +157,16 @@ api.get("/projects/:slug/tasks/:key", async (c) => {
       const p = await findProject(db, c.req.param("slug"));
       const t = await findTask(db, p.id, c.req.param("key"));
       if (!t) throw new ToolError("TASK_NOT_FOUND");
-      return taskShape(db, t);
+      return taskFull(db, t, { log: true });
     });
     return c.json(data);
   } catch (e) {
     return errorResponse(c, e);
   }
 });
+
+// Writes from the screen ask for the full task back (verbose), so the panel can refresh in place.
+const screenCtx = { ...webCtx, verbose: true };
 
 // Status and priority changes from the screen go through the same set_task path agents use, as Jorge:
 // any move is allowed (Done included) and leases do not stop him, but the version shown must be current.
@@ -178,8 +181,8 @@ api.patch("/projects/:slug/tasks/:key", async (c) => {
   const body = await readJson(c, taskPatch);
   if (body instanceof Response) return body;
   try {
-    const result = await withDb((db) => setTask(db, { project: c.req.param("slug"), key: c.req.param("key"), ...body }, webCtx));
-    return c.json(result);
+    const result = await withDb((db) => setTask(db, { project: c.req.param("slug"), key: c.req.param("key"), ...body }, screenCtx));
+    return c.json(result.task);
   } catch (e) {
     return errorResponse(c, e);
   }
@@ -189,21 +192,25 @@ api.patch("/projects/:slug/tasks/:key", async (c) => {
 api.post("/projects/:slug/tasks/:key/release", async (c) => {
   try {
     const result = await withDb((db) =>
-      claim(db, { project: c.req.param("slug"), key: c.req.param("key"), action: "release" }, webCtx),
+      claim(db, { project: c.req.param("slug"), key: c.req.param("key"), action: "release" }, screenCtx),
     );
-    return c.json(result);
+    return c.json(result.task);
   } catch (e) {
     return errorResponse(c, e);
   }
 });
 
-// Jorge answers a question an agent asked; the answer becomes a decision on the task.
+// Jorge answers a question an agent asked; with decision_text the answer is also logged as a decision.
 api.post("/projects/:slug/questions/:id/answer", async (c) => {
-  const body = await readJson(c, z.object({ answer: z.string().trim().min(1) }));
+  const body = await readJson(c, z.object({ answer: z.string().trim().min(1), decision_text: z.string().trim().optional() }));
   if (body instanceof Response) return body;
   try {
     const result = await withDb((db) =>
-      answer(db, { project: c.req.param("slug"), question_id: c.req.param("id"), answer: body.answer }, webCtx),
+      answer(
+        db,
+        { project: c.req.param("slug"), question_id: c.req.param("id"), answer: body.answer, decision_text: body.decision_text || undefined },
+        screenCtx,
+      ),
     );
     return c.json(result);
   } catch (e) {

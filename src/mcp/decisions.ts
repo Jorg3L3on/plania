@@ -1,10 +1,10 @@
 import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "../db/client.js";
-import { decisions, tasks } from "../db/schema.js";
+import { decisions, tasks, type Project } from "../db/schema.js";
 import { putDoc } from "./docs.js";
 import { ToolError, findProject, findTask, requireTask } from "./queries.js";
-import { iso, writeTx, type Ctx, type Q } from "./tx.js";
+import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
 // The decision log. One line each, tied to a task when it is about one, tagged, and able to name
 // the decision it reverses (supersedes). The full ADR, when there is one, is a project doc.
@@ -77,24 +77,21 @@ function rejectLeadingDate(text: string): void {
   if (/^\s*\d{4}-\d{2}-\d{2}\b/.test(text)) throw new ToolError("TEXT_HAS_DATE");
 }
 
-export async function addDecision(
-  db: Db,
-  input: {
-    project: string;
-    text: string;
-    task_key?: string;
-    tags?: string[];
-    supersedes?: string;
-    adr_body?: string;
-    adr_url?: string;
-    pin?: boolean;
-    question_id?: string;
-  },
-  ctx: Ctx,
-) {
+export type AddDecisionInput = {
+  project: string;
+  text: string;
+  task_key?: string;
+  tags?: string[];
+  supersedes?: string;
+  adr_body?: string;
+  adr_url?: string;
+  pin?: boolean;
+  question_id?: string;
+};
+
+export async function addDecisionInTx(tx: Q, emit: Emit, p: Project, input: AddDecisionInput, ctx: Ctx) {
   rejectLeadingDate(input.text);
-  const p = await findProject(db, input.project);
-  return writeTx(db, p, ctx, async (tx, emit) => {
+  {
     let old: DecisionRow | undefined;
     if (input.supersedes) {
       [old] = await tx
@@ -141,5 +138,10 @@ export async function addDecision(
       ...(old ? { supersedes: old.id } : {}),
     });
     return { decision: decisionShape(decision, task?.key ?? null) };
-  });
+  }
+}
+
+export async function addDecision(db: Db, input: AddDecisionInput, ctx: Ctx) {
+  const p = await findProject(db, input.project);
+  return writeTx(db, p, ctx, (tx, emit) => addDecisionInTx(tx, emit, p, input, ctx));
 }

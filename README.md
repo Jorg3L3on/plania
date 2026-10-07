@@ -45,6 +45,17 @@ pnpm seed
 - Each project's handoff "must keep" line is added once as a pinned decision.
 - Rules and design docs are not seeded: write them with `set_project` and `attach_doc`.
 
+### Upgrading to 2.1 (keys)
+
+Migration `0015` adds the key counters and aliases and sets each project's `key_prefix`. Then move the keys of a
+project to the 2.1 scheme once (initiatives `FIL-I1`, phases `FIL-I1-1`, standalone tickets unchanged); every old key
+stays as an alias and each rename is a `task.rekeyed` event:
+
+```bash
+pnpm rekey --project filmia            # dry run: prints the plan
+pnpm rekey --project filmia --apply    # writes it, in one transaction
+```
+
 ### Upgrading a v1 database to v2
 
 Migrations `0001`–`0014` only add (tables, columns, defaults); the v1 columns stay, so the old server keeps
@@ -128,7 +139,7 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | `get_resume` | Generated: live claims, next claimable, per open initiative its notes, claims, next ticket and pinned decisions; open questions; latest events |
 | `get_project` | Body, rules, protocol version, counts, `env` per environment, reserved sequence numbers |
 | `list_tasks` | Filters: parent, status, kind, work_type, owner, unblocked, updated_since, search, limit |
-| `get_task` | Scope, phase, checks, results, docs, questions, blockers with `satisfied`, claim, workspace, version, log; `include_children` |
+| `get_task` | By key or alias. `view` full (default) or summary (≤ 2 KB); `fields` picks keys; `include_log` adds the last 50 events; `include_children` |
 | `get_memory` | Rules, project docs, decisions (filters: task, initiative, tag, superseded) |
 | `get_doc` | One doc's markdown |
 | `get_next` | Next claimable ticket (expired leases included as `stale_claim`) |
@@ -136,20 +147,33 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 
 | Write | |
 |---|---|
-| `create_task` | Ticket (default) or initiative; scope, checks, phase, work_type, blocked_by |
-| `set_task` | Fields with `version`; status through the state machine; a note alone needs no version |
+| `create_task` | Ticket (default) or initiative; scope, checks, phase, work_type, blocked_by. The key is assigned unless given |
+| `set_task` | Fields with `version`; status through the state machine; a note alone needs no version; `parent_key` moves a ticket (new key, old one as alias) |
+| `batch` | Several of create_task, set_task, set_check, add_result, add_decision, note in one call; atomic by default |
 | `claim` | claim / heartbeat / release a lease (default 30 min), with workspace |
 | `set_check` | Tick one Done when item |
 | `add_result` | Evidence: kind, verdict, cite, url; can tick checks |
 | `attach_doc` | A spec, plan or design doc on a task or the project |
 | `add_decision` | One line; task, tags, pin, supersedes, ADR body |
-| `ask` / `answer` | Questions for Jorge; the answer becomes a decision |
+| `ask` / `answer` | Questions for Jorge; `answer` with `decision_text` also writes a decision |
 | `reserve_sequence` | Next free number of a sequence (e.g. migrations), bound to a ticket |
 | `set_env` | What an environment runs: commit, branch, migrations applied, deployed at |
 | `set_project` | Title, body, rules, with version |
 
 Rules every write follows:
 
+- **Keys.** The server assigns them (omit `key`): `PREFIX-I<n>` for an initiative, `PREFIX-<nn>` for a standalone ticket,
+  `<initiative>-<n>` for a phase (`phase` stays a field). One counter per scope, bumped under the project lock, so
+  concurrent creates never collide and a number is never reissued. An explicit key is accepted for imports: when it fits
+  its scope's pattern it must be at or above the counter (`KEY_BELOW_COUNTER`); otherwise it only warns. Moving a ticket
+  (`set_task parent_key`) gives it a key under its new parent and keeps the old one as an alias; every tool accepts
+  aliases, answers with the canonical key (`aliases` lists the old ones) and logs the canonical key.
+- **Replies.** Writes answer `{key, status, version, changed}` plus the id they made (`result`, `decision`, `question`,
+  `claim`); `verbose: true` adds `task`, the full shape without the log. Reads: `get_task view summary` for the cheap
+  read, `fields` to pick keys, `list_events {key, since}` for the log. Every task reference carries `kind` and `parent_key`.
+- **Batch.** `batch {ops[], atomic}` runs several writes in one transaction; the first failure is `BATCH_FAILED
+  {index, op, failed}` and nothing is written. `atomic: false` commits op by op, failures inline, and a retry with the
+  same `request_id` replays the ops that went through. An op on a key an earlier op changed may omit `version`.
 - **Actor.** `actor: {agent, session_id, machine?, model?}` is required and lands in the event log.
   `session_id` owns leases. `jorge` is reserved for the screen.
 - **Events.** Every write records one or more events in the same transaction; `get_task.log` and
@@ -184,6 +208,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `BLOCKER_NOT_FOUND` | 400 | a blocked_by key does not exist in this project, or names the task itself |
 | `BODY_REMOVED` | 400 | body is gone in v2: use scope, checks, and note (the log) |
 | `FIELD_NOT_ALLOWED` | 400 | a field of the other kind: priority/parent_key/origin/work_type/phase on an initiative, base_branch/next_action/in_progress_note on a ticket |
+| `INVALID_BATCH_OP` | 400 | batch: an op is not set_task, set_check, add_result, add_decision, create_task or note |
 | `INVALID_ENV` | 400 | set_env: env is not lowercase [a-z][a-z0-9_-]*, a commit is not 7-40 hex, or migrations_applied is not a count |
 | `INVALID_ENV_CONDITION` | 400 | an env blocker's condition or value is wrong (contains_commit <sha>, migration_gte <n>, deployed_after [ISO]) |
 | `INVALID_FILTER` | 400 | a list filter is malformed (detail: field), e.g. updated_since is not an ISO-8601 time |
@@ -213,11 +238,13 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `TASK_NOT_FOUND` | 404 | unknown key in this project (also an unknown parent_key or task_key) |
 | `ALREADY_ANSWERED` | 409 | the question was answered already (detail: answer, answered_by) |
 | `ALREADY_SUPERSEDED` | 409 | the decision named in supersedes was already reversed (detail: superseded_by) |
+| `BATCH_FAILED` | 409 | an atomic batch rolled back because one op failed (detail: index, op, failed: {error, status, ...}) |
 | `CLAIM_HELD` | 409 | another session holds a live lease (detail: owner, lease_until, workspace) |
 | `DOC_EXISTS` | 409 | attach_doc without version for a title that exists (detail: doc_id, version): pass version to replace |
 | `EVIDENCE_REQUIRED` | 409 | In review without evidence for the work_type from the current claim (detail: accepts, since) |
 | `INVALID_TRANSITION` | 409 | the status change is not allowed from the current status (detail: from, to, hint) |
-| `KEY_EXISTS` | 409 | create with a key that exists; creates are not idempotent without request_id |
+| `KEY_BELOW_COUNTER` | 409 | an explicit key with a number already issued for that scope (detail: next); omit key to get the next one |
+| `KEY_EXISTS` | 409 | create with a key that exists (or is an alias of one); creates are not idempotent without request_id |
 | `LEASE_EXPIRED` | 409 | heartbeat after your lease ran out: claim again |
 | `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
 | `NOT_OWNER` | 409 | another session holds a live lease on this task (detail: owner, lease_until) |
@@ -232,7 +259,7 @@ Inbound integrations, JSON with real HTTP status codes, `Authorization: Bearer <
 `request_id` is required; a redelivery is a no-op. Nothing posts to them yet: Plania listens on localhost.
 
 - `POST /hooks/result` `{project, key, verdict, cite, url?, kind? (ci), pr_url?, branch?, request_id}`: a result as
-  actor `ci`, plus the PR link and branch.
+  actor `ci`, plus the PR link and branch. Answers the write reply with `result` and the full `task`.
 - `POST /hooks/env` `{project, env, commit?, branch?, migrations_applied?, commits?, deployed?, request_id}`: `set_env`.
 
 ## Export
@@ -292,8 +319,8 @@ system themes. Times arrive as UTC and show in the browser's local time. The des
 - `/` shows one track per project: progress, then an Ahora → Siguiente row per lane, and how many questions wait
   for Jorge. Past four initiatives, lanes still for a week fold behind "Ver todas". Projects without initiatives
   show their generated line. A "Te toca a ti" strip lists Needs Jorge tickets across projects.
-- `/p/<slug>` shows, in order: questions agents asked (answer with one click or free text; the answer becomes a
-  decision); the lane grid; each initiative's line of stations; a branch graph built from initiatives' `branch`
+- `/p/<slug>` shows, in order: questions agents asked (answer with one click or free text, with an optional line for
+  the decision log); the lane grid; each initiative's line of stations; a branch graph built from initiatives' `branch`
   and `base_branch`; and the pinned decisions. "Ver la ficha completa" opens the generated resume per initiative
   (claims, next, pinned decisions, the v1 card folded away while it exists) and the decision log, reversed ones
   struck through. A link downloads the project as JSON.
@@ -324,7 +351,7 @@ the UI refetches what changed.
 | `GET /api/projects/:slug/tasks/:key` | One task, in the `get_task` shape |
 | `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note?, version }`, as Jorge through `set_task` |
 | `POST /api/projects/:slug/tasks/:key/release` | Free a lease |
-| `POST /api/projects/:slug/questions/:id/answer` | `{ answer }` |
+| `POST /api/projects/:slug/questions/:id/answer` | `{ answer, decision_text? }` |
 | `GET /api/export/:slug.json` | The whole project (also with an MCP token, rw or ro) |
 | `GET /api/events` | Server-sent change events |
 

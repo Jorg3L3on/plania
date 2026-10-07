@@ -27,7 +27,8 @@ const READ_TOOLS = new Set(["get_resume", "get_project", "list_tasks", "get_task
 // filled in; version: "none" sends the call without one.
 async function currentVersion(project: string, key: string): Promise<number | undefined> {
   const { rows } = await raw.query(
-    "select t.version from tasks t join projects p on p.id = t.project_id where p.slug = $1 and t.key = $2",
+    `select t.version from tasks t join projects p on p.id = t.project_id
+     where p.slug = $1 and (t.key = $2 or t.id = (select a.task_id from task_aliases a where a.project_id = p.id and a.alias = $2))`,
     [project, key],
   );
   return rows[0]?.version;
@@ -44,6 +45,9 @@ function withTemplate(args: Json): Json {
   return { ...args, scope: args.scope ?? "Test scope", checks: args.checks ?? ["Done"] };
 }
 
+// Writes answer {key, status, version, changed, ...} by default (2.1). Tests that are not about the
+// reply shape ask for verbose and get the full task merged in; verbose: "default" sends the call as is.
+// get_task leaves the log out by default; tests read it with include_log unless they say "default".
 async function call(name: string, args: Json): Promise<Json> {
   if (!READ_TOOLS.has(name) && !("actor" in args)) args = { ...args, actor: A };
   if (name === "create_task") args = withTemplate(args);
@@ -52,9 +56,25 @@ async function call(name: string, args: Json): Promise<Json> {
     const { version: _, ...rest } = args;
     args = rest;
   }
+  if (!READ_TOOLS.has(name) && args.verbose === undefined) args = { ...args, verbose: true };
+  if (args.verbose === "default") {
+    const { verbose: _, ...rest } = args;
+    args = rest;
+  }
+  if (name === "get_task" && args.include_log === undefined) args = { ...args, include_log: true };
+  if (args.include_log === "default") {
+    const { include_log: _, ...rest } = args;
+    args = rest;
+  }
   const r = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: { text: string }[] };
   const data = JSON.parse(r.content[0]!.text);
-  return r.isError ? { __error: data.error, __status: data.status } : data;
+  if (r.isError) return { __error: data.error, __status: data.status };
+  return data.task ? { ...data, ...data.task } : data;
+}
+
+// The last log line of a task, read back (writes no longer embed the log).
+async function logOf(project: string, key: string): Promise<Json[]> {
+  return (await call("get_task", { project, key })).log;
 }
 
 async function expectError(name: string, args: Json, code: string, status: number) {
@@ -68,7 +88,7 @@ async function eventCount(): Promise<number> {
   return rows[0].n;
 }
 
-const lastLog = (t: Json) => t.log.at(-1);
+const lastLog = async (project: string, key: string): Promise<Json> => (await logOf(project, key)).at(-1)!;
 
 async function resolvedAt(key: string): Promise<Date | null> {
   const { rows } = await raw.query("select resolved_at from tasks where key = $1", [key]);
@@ -94,8 +114,8 @@ after(async () => {
 
 // The full tool surface. Update with the contract.
 const TOOLS = [
-  "add_decision", "add_result", "answer", "ask", "attach_doc", "claim", "create_task", "get_doc", "get_memory", "get_next", "get_project",
-  "get_resume", "get_task", "list_events", "list_tasks", "reserve_sequence", "set_check", "set_env", "set_project", "set_task",
+  "add_decision", "add_result", "answer", "ask", "attach_doc", "batch", "claim", "create_task", "get_doc", "get_memory", "get_next",
+  "get_project", "get_resume", "get_task", "list_events", "list_tasks", "reserve_sequence", "set_check", "set_env", "set_project", "set_task",
 ];
 
 test("exposes exactly the contract tools", async () => {
@@ -229,10 +249,10 @@ describe("handoff cycle: create → get_next → In progress → In review", () 
     const claimed = await call("claim", { project: "filmia", key: "FIL-01-F1" });
     assert.equal(claimed.status, "In progress");
     assert.deepEqual(claimed.claim.owner, A);
-    assert.equal(lastLog(claimed).type, "claim.acquired");
+    assert.equal((await lastLog("filmia", "FIL-01-F1")).type, "claim.acquired");
     const noted = await call("set_task", { project: "filmia", key: "FIL-01-F1", note: "started", version: "none" });
     assert.equal(noted.scope, "Phase 1", "notes never touch scope");
-    assert.equal(lastLog(noted).payload.text, "started");
+    assert.equal((await lastLog("filmia", "FIL-01-F1")).payload.text, "started");
 
     assert.deepEqual(await call("get_next", { project: "filmia" }), { task: null }, "F2 stays blocked while F1 is In progress");
 
@@ -245,7 +265,7 @@ describe("handoff cycle: create → get_next → In progress → In review", () 
     assert.equal(reviewed.claim, null, "In review releases the lease");
     assert.equal(reviewed.branch, "feat/f1");
     assert.equal(reviewed.pr_url, "https://github.com/Jorg3L3on/filmia/pull/1");
-    assert.equal(lastLog(reviewed).payload.text, "Result: ✓ unit — 12 tests pass");
+    assert.equal((await lastLog("filmia", "FIL-01-F1")).payload.text, "Result: ✓ unit — 12 tests pass");
     assert.equal(await resolvedAt("FIL-01-F1"), null, "In review is not Done");
 
     const next = await call("get_next", { project: "filmia" });
@@ -304,8 +324,10 @@ describe("set_task", () => {
   test("scope replace, then the note goes to the log", async () => {
     const t = await call("set_task", { project: "micasa", key: "MIC-02-F2", scope: "New scope\n", note: "re-scoped" });
     assert.equal(t.scope, "New scope\n");
-    assert.deepEqual(t.log.slice(-2).map((e: Json) => e.type), ["task.updated", "note"]);
-    assert.deepEqual(lastLog(t).actor, A);
+    assert.deepEqual(t.changed, ["scope", "note"]);
+    const log = await logOf("micasa", "MIC-02-F2");
+    assert.deepEqual(log.slice(-2).map((e: Json) => e.type), ["task.updated", "note"]);
+    assert.deepEqual(log.at(-1)!.actor, A);
   });
 
   test("initiatives take their own fields but not ticket-only fields", async () => {
@@ -396,9 +418,9 @@ describe("v2 A1: actor, events, UTC time", () => {
 
   test("every write records an event with its actor; a failed write records none", async () => {
     const before = await eventCount();
-    const t = await call("create_task", { project: "zigzag", key: "ZIG-B-01", title: "x" });
+    await call("create_task", { project: "zigzag", key: "ZIG-B-01", title: "x" });
     assert.equal(await eventCount(), before + 1);
-    assert.deepEqual(t.log.map((e: Json) => [e.type, e.actor.session_id]), [["task.created", "s1"]]);
+    assert.deepEqual((await logOf("zigzag", "ZIG-B-01")).map((e: Json) => [e.type, e.actor.session_id]), [["task.created", "s1"]]);
     await expectError("create_task", { project: "zigzag", key: "ZIG-B-02", title: "x", blocked_by: ["NOPE"] }, "BLOCKER_NOT_FOUND", 400);
     await expectError("set_task", { project: "zigzag", key: "ZIG-B-01", status: "Nope" }, "INVALID_STATUS", 400);
     assert.equal(await eventCount(), before + 1);
@@ -479,8 +501,8 @@ describe("v2 A3: leases", () => {
 
   test("while A holds it, B cannot change fields but can add a note", async () => {
     await expectError("set_task", { ...P, key: "WRK-L-01", summary: "x", actor: B }, "NOT_OWNER", 409);
-    const t = await call("set_task", { ...P, key: "WRK-L-01", note: "QA saw it", actor: B, version: "none" });
-    assert.equal(lastLog(t).actor.session_id, "s2");
+    await call("set_task", { ...P, key: "WRK-L-01", note: "QA saw it", actor: B, version: "none" });
+    assert.equal((await lastLog("workia", "WRK-L-01")).actor.session_id, "s2");
   });
 
   test("heartbeat extends without bumping the version; only the owner may", async () => {
@@ -506,9 +528,10 @@ describe("v2 A3: leases", () => {
 
     const t = await call("claim", { ...P, key: "WRK-L-01", actor: B });
     assert.deepEqual(t.claim.owner, B);
-    const types = t.log.slice(-2).map((e: Json) => [e.type, e.actor.session_id]);
+    const log = await logOf("workia", "WRK-L-01");
+    const types = log.slice(-2).map((e: Json) => [e.type, e.actor.session_id]);
     assert.deepEqual(types, [["claim.expired", "system"], ["claim.acquired", "s2"]]);
-    assert.equal(t.log.at(-2).payload.owner.session_id, "s1");
+    assert.equal(log.at(-2)!.payload.owner.session_id, "s1");
     assert.equal(t.workspace.worktree_path, "/w/one", "the workspace outlives the lease");
   });
 
@@ -523,7 +546,7 @@ describe("v2 A3: leases", () => {
     const t = await call("claim", { ...P, key: "WRK-L-01", action: "release", release_to: "Backlog", actor: B });
     assert.equal(t.status, "Backlog");
     assert.equal(t.claim, null);
-    assert.equal(lastLog(t).type, "claim.released");
+    assert.equal((await lastLog("workia", "WRK-L-01")).type, "claim.released");
     const again = await call("claim", { ...P, key: "WRK-L-01", action: "release", actor: B });
     assert.equal(again.version, t.version);
   });
@@ -716,8 +739,8 @@ describe("v2 B1: state machine and work types", () => {
     await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Done", confirm_by_jorge: true }, "OVERRIDE_REQUIRES_REASON", 400);
     const t = await call("set_task", { ...P, key: "ZIG-M-01", status: "Done", confirm_by_jorge: true, reason: "Jorge: ship it" });
     assert.equal(t.status, "Done");
-    const override = t.log.find((e: Json) => e.type === "task.human_override");
-    assert.deepEqual(override.payload, { from: "In progress", to: "Done", reason: "Jorge: ship it" });
+    const override = (await logOf("zigzag", "ZIG-M-01")).find((e: Json) => e.type === "task.human_override");
+    assert.deepEqual(override!.payload, { from: "In progress", to: "Done", reason: "Jorge: ship it" });
     await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Ready" }, "HUMAN_ONLY", 403);
   });
 
@@ -758,7 +781,7 @@ describe("v2 B2: scope, checks, log", () => {
     assert.deepEqual(t.checks.map((c: Json) => c.done), [false, true]);
     assert.equal(t.checks[1].done_by.session_id, "s1");
     assert.match(t.checks[1].done_at, /Z$/);
-    assert.deepEqual(t.log.slice(-2).map((e: Json) => e.type), ["note", "check.set"]);
+    assert.deepEqual((await logOf("zigzag", "ZIG-02-F1")).slice(-2).map((e: Json) => e.type), ["note", "check.set"]);
     await expectError("set_check", { ...P, key: "ZIG-02-F1", n: 9, done: true }, "CHECK_NOT_FOUND", 404);
   });
 
@@ -768,7 +791,7 @@ describe("v2 B2: scope, checks, log", () => {
       checks: [{ n: 2, text: "PR to sandbox (green)" }, { text: "OCR at 95%" }],
     });
     assert.deepEqual(t.checks.map((c: Json) => [c.n, c.text, c.done]), [[2, "PR to sandbox (green)", true], [3, "OCR at 95%", false]]);
-    const changes = t.log.at(-1).payload.changes;
+    const changes = (await lastLog("zigzag", "ZIG-02-F1")).payload.changes;
     assert.deepEqual(changes.scope, ["Scan receipts", "Scan and OCR receipts"]);
     assert.deepEqual(changes.checks[1], ["PR to sandbox (green)", "OCR at 95%"]);
     await expectError("set_task", { ...P, key: "ZIG-02-F1", checks: [{ n: 99, text: "x" }] }, "CHECK_NOT_FOUND", 404);
@@ -993,19 +1016,22 @@ describe("v2 C1: questions", () => {
     const second = (await call("ask", { ...P, key: "MIC-Q-01", question: "Max file size?", actor: B })).question;
     assert.equal((await call("get_resume", P)).open_questions.length, 2);
 
-    const a = await call("answer", { ...P, question_id: question.id, answer: "Yes, BBVA too" });
-    assert.equal(a.decision.text, "Support BBVA's CSV too? → Yes, BBVA too");
+    const a = await call("answer", { ...P, question_id: question.id, answer: "Yes, BBVA too", decision_text: "Importar también el CSV de BBVA" });
+    assert.equal(a.decision.text, "Importar también el CSV de BBVA");
     assert.deepEqual(a.decision.tags, ["answer"]);
     assert.equal(a.decision.task_key, "MIC-Q-01");
+    assert.equal(a.question.decision_id, a.decision.id);
     assert.equal(a.task.status, "Needs Jorge", "one question is still open");
     const b = await call("answer", { ...P, question_id: second.id, answer: "10 MB" });
+    assert.equal(b.decision, null, "an answer without decision_text writes no decision");
+    assert.equal(b.question.decision_id, null);
     assert.equal(b.task.status, "In progress");
     assert.equal(b.task.claim.live, true);
     await expectError("answer", { ...P, question_id: second.id, answer: "again" }, "ALREADY_ANSWERED", 409);
     await expectError("answer", { ...P, question_id: "00000000-0000-0000-0000-000000000000", answer: "x" }, "QUESTION_NOT_FOUND", 404);
     await expectError("ask", { ...P, key: "MIC-Q-01", question: "  " }, "INVALID_QUESTION", 400);
     const m = await call("get_memory", { ...P, task_key: "MIC-Q-01" });
-    assert.equal(m.decisions.length, 2);
+    assert.equal(m.decisions.length, 1);
   });
 
   test("In progress whose lease ran out comes back as Ready", async () => {
@@ -1072,11 +1098,11 @@ describe("v2 C2: list_events", () => {
 describe("v2 C4: protocol and project text", () => {
   test("the protocol comes with initialize, versioned", async () => {
     const text = client.getInstructions() ?? "";
-    assert.match(text, /^Plania protocol 2\.0\./);
+    assert.match(text, /^Plania protocol 2\.1\./);
     assert.match(text, /Never set Done or Won't do/);
-    assert.equal(client.getServerVersion()?.version, "2.0.0");
+    assert.equal(client.getServerVersion()?.version, "2.1.0");
     const p = await call("get_project", { project: "zigzag" });
-    assert.equal(p.protocol_version, "2.0");
+    assert.equal(p.protocol_version, "2.1");
   });
 
   test("set_project edits body and rules with the version; rules_version follows the rules", async () => {
@@ -1137,7 +1163,9 @@ describe("v2 D2: ticket template", () => {
     assert.deepEqual(JSON.parse(text).missing, ["checks"]);
     const research = await call("create_task", { ...P, key: "WRK-T-02", title: "x", scope: "Compare", work_type: "research" });
     assert.equal(research.key, "WRK-T-02");
-    assert.equal(research.warnings, undefined);
+    assert.deepEqual(research.warnings, ["key does not follow the scheme WRK-<n>: omit key to get the next one"]);
+    const assigned = await call("create_task", { ...P, title: "x", scope: "Compare", work_type: "research" });
+    assert.equal(assigned.warnings, undefined);
   });
 
   test("conventions only warn", async () => {
@@ -1145,7 +1173,7 @@ describe("v2 D2: ticket template", () => {
     const ok = await call("create_task", { ...P, key: "WRK-T-F1", title: "F1", parent_key: "WRK-T", phase: 1, scope: "s", checks: ["c"] });
     assert.equal(ok.warnings, undefined);
     const odd = await call("create_task", { ...P, key: "WRK-T-X", title: "F2", parent_key: "WRK-T", phase: 2, scope: "s", checks: ["c"] });
-    assert.deepEqual(odd.warnings, ["key does not follow the convention WRK-T-F2"]);
+    assert.deepEqual(odd.warnings, ["key does not follow the scheme WRK-T-<n>: omit key to get the next one"]);
     const bucket = await call("create_task", { ...P, key: "WRK-T-Y", title: "loose end", parent_key: "WRK-T", scope: "s", checks: ["c"] });
     assert.match(bucket.warnings[0], /^no phase/);
     const empty = await call("create_task", { ...P, kind: "initiative", key: "WRK-T2", title: "No PRD" });

@@ -52,7 +52,7 @@ exporter.get("/api/export/:file", async (c) => {
       },
       tasks: await Promise.all(
         rows.map(async (t) => {
-          const { log: _log, log_total: _total, ...shape } = await taskShape(db, t);
+          const { log_total: _total, ...shape } = await taskShape(db, t);
           return { ...shape, legacy_body: t.body || undefined };
         }),
       ),

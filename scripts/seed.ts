@@ -12,31 +12,35 @@ import { withDb, type Db } from "../src/db/client.js";
 import { decisions, projects, type Actor } from "../src/db/schema.js";
 import { writeTx } from "../src/mcp/tx.js";
 
-type Seed = { slug: string; title: string; body: string; must_keep: string };
+type Seed = { slug: string; title: string; prefix: string; body: string; must_keep: string };
 
 const SEED_ACTOR: Actor = { agent: "seed", session_id: "seed" };
 
 export const SEED: Seed[] = [
   {
     slug: "micasa",
+    prefix: "MIC",
     title: "MiCasa",
     body: "Finanzas personal y del hogar centrada en quincenas (FIRST: días 1–15, SECOND: 16–fin de mes) como unidad de planeación, con soporte para contexto usuario o casa compartida. Stack: Next.js 16, React 19, TypeScript, PostgreSQL, Prisma 7 (Neon prod), NextAuth v5, Tailwind v4, Zod, Vitest. Módulos: Finanzas (quincenas, panel, gastos, operaciones, presupuestos, billeteras, tarjetas, importación estados de cuenta, proyección liquidez), Despensa, Tareas del hogar. Repo: https://github.com/Jorg3L3on/micasa. Casa real: Leon Solórzano (no Sandbox). Jorge corre las migraciones. Sin deploy prod salvo que diga lo contrario.",
     must_keep: "La herramienta Plania es la fuente del plan; no Markdown de trabajo en el repo.",
   },
   {
     slug: "workia",
+    prefix: "WRK",
     title: "Workia",
     body: "Producto Workia. Repo: https://github.com/Jorg3L3on/workia. Dueño de producto: el bot Workia. Taller implementa, revisa y shippea. Solo deploys a producción en Vercel (sin preview). Linear ya no es la fuente del plan.",
     must_keep: "Plania es la fuente del plan.",
   },
   {
     slug: "filmia",
+    prefix: "FIL",
     title: "Filmia",
     body: "Tracker personal de películas y series. Repo: https://github.com/Jorg3L3on/filmia. Neon + Vercel (proyecto pausado en Vercel hasta nuevo aviso; flujo de código vía rama sandbox). Solo deploys a producción cuando haya deploy. Linear ya no es la fuente del plan.",
     must_keep: "Plania es la fuente del plan.",
   },
   {
     slug: "zigzag",
+    prefix: "ZIG",
     title: "Zigzag",
     body: "App de recibos; nombre nuevo fuera de v1.",
     must_keep: "El nombre nuevo espera; slug zigzag se queda en v1.",
@@ -49,11 +53,11 @@ export async function seedProjects(db: Db): Promise<{ slug: string; pinned: bool
   for (const s of SEED) {
     const [p] = await db
       .insert(projects)
-      .values({ slug: s.slug, title: s.title, body: s.body })
+      .values({ slug: s.slug, title: s.title, body: s.body, keyPrefix: s.prefix })
       // Once set_project edited the project (version > 1), its text belongs to the project, not the seed.
       .onConflictDoUpdate({
         target: projects.slug,
-        set: { title: s.title, body: s.body, updatedAt: sql`now()` },
+        set: { title: s.title, body: s.body, keyPrefix: s.prefix, updatedAt: sql`now()` },
         setWhere: sql`${projects.version} = 1`,
       })
       .returning();
