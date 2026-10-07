@@ -1,5 +1,5 @@
 // Integration tests for the 12 MCP tools against a throwaway local database.
-// Run: pnpm test  (needs a local Postgres; rebuilds plania_test from the migrations each run)
+// Run: pnpm test  (needs a local Postgres; rebuilds this checkout's plania_test_<hash> database from the migrations each run)
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";

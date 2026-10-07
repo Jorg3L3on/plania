@@ -48,13 +48,23 @@ with their bodies and resume cards. It is safe to rerun:
 pnpm dev     # API on 3738 (tsx watch) + Vite on http://localhost:5173 with hot reload
 pnpm build   # typecheck server and UI, then build the SPA into dist/ui
 pnpm start   # serve API, MCP and the built SPA on http://localhost:3737
-pnpm test    # MCP, API, live-event and seed tests; rebuilds a local plania_test database each run
+pnpm test    # MCP, API, live-event and seed tests; rebuilds this checkout's local plania_test_<hash> database each run
 ```
 
 Port 3737 avoids the 3000 that product repos use. The server only listens on 127.0.0.1.
 In dev, Vite proxies `/api` and `/mcp` to the dev API on 3738, so the service on 3737 keeps running.
 
-`plania_test` is shared by every checkout and worktree on this Mac, so two test runs at the same time clobber each other.
+Each checkout and worktree gets its own test database, `plania_test_` plus a six-character hash of the repo's absolute path,
+so test runs in different worktrees can run at the same time. Tests only ever drop databases named `plania_test_*`, never `plania`.
+Databases from deleted worktrees stay behind. To list and remove them:
+
+```bash
+psql -l | grep plania_test_
+```
+
+```bash
+dropdb plania_test_3f9a2c
+```
 
 ## Running locally as a service
 
