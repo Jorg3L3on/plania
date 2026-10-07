@@ -9,10 +9,7 @@ import {
   Kicker,
   LANE_STATE,
   ProgressRing,
-  accentInk,
-  projectAccent,
   rise,
-  shortLabel,
   statusWord,
   TONE_TEXT,
   toneVar,
@@ -45,19 +42,16 @@ function laneSentence(lanes: Lane[]) {
 }
 
 export function ProjectHeader({
-  slug,
   title,
   lanes,
   progress,
   counts,
 }: {
-  slug: string;
   title: string;
   lanes: Lane[];
   progress: { closed: number; total: number };
   counts: { inProgress: number; inReview: number; ready: number; needsJorge: number; blocked: number };
 }) {
-  const [from, to] = projectAccent(slug);
   const legend = [
     { n: counts.inProgress, label: "en curso", tone: "now" as const },
     { n: counts.inReview, label: "en revisión", tone: "review" as const },
@@ -66,21 +60,17 @@ export function ProjectHeader({
     { n: counts.blocked, label: counts.blocked === 1 ? "bloqueado" : "bloqueados", tone: "blocked" as const },
   ].filter((l) => l.n > 0);
   return (
-    <header className="flex animate-rise flex-wrap items-end justify-between gap-8">
-      <div className="grid gap-2">
-        <span className="inline-flex items-center gap-2.5 text-xs font-semibold tracking-[0.14em] uppercase" style={{ color: accentInk(from) }}>
-          <span aria-hidden className="size-2.5 rounded-[3px]" style={{ background: `linear-gradient(135deg, ${from}, ${to})` }} />
-          Proyecto · {slug}
-        </span>
-        <h1 className="font-display text-5xl leading-[0.95] font-extrabold tracking-[-0.03em] sm:text-7xl">{title}</h1>
-        <p className="mt-1 text-[17px] text-muted-foreground">{laneSentence(lanes)}</p>
+    <header className="flex animate-rise flex-wrap items-center justify-between gap-x-8 gap-y-3">
+      <div className="grid gap-1">
+        <h1 className="font-display text-3xl leading-none font-extrabold tracking-[-0.03em] sm:text-4xl">{title}</h1>
+        <p className="text-[15px] text-muted-foreground">{laneSentence(lanes)}</p>
       </div>
-      <div className="flex flex-wrap items-center gap-7">
+      <div className="flex flex-wrap items-center gap-x-7 gap-y-3 rounded-[20px] border bg-card/60 px-5 py-3">
         {progress.total > 0 && (
           <div className="flex items-center gap-3.5">
-            <ProgressRing closed={progress.closed} total={progress.total} />
+            <ProgressRing closed={progress.closed} total={progress.total} size={52} />
             <div className="flex flex-col">
-              <span className="font-display text-[26px] leading-none font-bold">
+              <span className="font-display text-[22px] leading-none font-bold">
                 {progress.closed}
                 <span className="text-lg font-medium text-muted-foreground">/{progress.total}</span>
               </span>
@@ -89,7 +79,7 @@ export function ProjectHeader({
           </div>
         )}
         {legend.length > 0 && (
-          <ul className="grid gap-1.5 text-[13px] text-foreground/80">
+          <ul className="flex flex-wrap gap-x-5 gap-y-1 text-[13px] text-foreground/80 sm:grid sm:grid-flow-col sm:grid-rows-2">
             {legend.map((l) => (
               <li key={l.label} className="inline-flex items-center gap-2">
                 <Glyph tone={l.tone} size={8} />
@@ -131,71 +121,67 @@ export function YourTurnStrip({ items, onOpen, prefix }: { items: YourTurnItem[]
   );
 }
 
-/** One initiative as a subway line: filled stations behind, a beating "Aquí", hollow ones ahead. */
-export function InitiativeLine({ lane, onOpen, index }: { lane: Lane; onOpen: Open; index: number }) {
-  const initiative = lane.initiative!;
-  const state = LANE_STATE[lane.state];
+/** All initiatives at a glance: status, progress and the station where each one stands. */
+export function InitiativeTable({ lanes, onOpen }: { lanes: Lane[]; onOpen: Open }) {
   return (
-    <article className="lift grid animate-rise gap-5 rounded-[20px] border bg-card px-6 pt-5 pb-5" style={rise(index + 3)}>
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid min-w-0 gap-1">
-          <TicketButton taskKey={initiative.key} onOpen={onOpen} className="text-left">
-            <span className="font-display text-xl font-bold tracking-tight underline-offset-4 group-hover/ticket:underline">
-              {initiative.title}
-            </span>
-            <span className="ml-2 font-mono text-xs text-muted-foreground">{initiative.key}</span>
-          </TicketButton>
-          {initiative.summary && <span className="line-clamp-2 text-[13px] text-muted-foreground">{initiative.summary}</span>}
-        </div>
-        <span
-          className={cn("inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold", TONE_TEXT[state.tone])}
-          style={{ background: `color-mix(in oklab, ${toneVar(state.tone)} 13%, transparent)` }}
-        >
-          <Glyph tone={state.tone} size={7} />
-          {statusWord(initiative.status)} · {lane.closed} de {lane.total}
-        </span>
-      </div>
-      {lane.stations.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Sin tickets todavía.</p>
-      ) : (
-        <ol className="flex overflow-x-auto px-1 pt-7 pb-1" aria-label={`Fases de ${initiative.title}`}>
-          {lane.stations.map((s, i) => {
-            const nextStation = lane.stations[i + 1];
-            const solid = nextStation && s.tone !== "pending" && s.tone !== "ready" && nextStation.tone !== "pending" && nextStation.tone !== "ready";
+    <div className="lift animate-rise overflow-x-auto rounded-[20px] border bg-card">
+      <table className="w-full min-w-[560px] border-collapse text-left text-[13px]">
+        <thead>
+          <tr className="border-b bg-foreground/[0.03] text-[11px] font-bold tracking-[0.12em] text-muted-foreground uppercase">
+            <th className="px-5 py-3 font-bold">Iniciativa</th>
+            <th className="px-3 py-3 font-bold">Estado</th>
+            <th className="px-3 py-3 font-bold">Avance</th>
+            <th className="px-5 py-3 font-bold">Aquí</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lanes.map((lane) => {
+            const initiative = lane.initiative!;
+            const state = LANE_STATE[lane.state];
+            const here = lane.stations.find((s) => s.here)?.task;
+            const pct = lane.total === 0 ? 0 : Math.round((lane.closed / lane.total) * 100);
             return (
-              <li key={s.task.key} className={cn("flex items-start", nextStation ? "min-w-[108px] flex-1" : "flex-none")}>
-                <TicketButton
-                  taskKey={s.task.key}
-                  onOpen={onOpen}
-                  title={s.task.title}
-                  className="relative flex w-20 shrink-0 flex-col items-center gap-2.5 text-center"
-                >
-                  {s.here && (
-                    <span className="absolute -top-6 text-[10px] font-bold tracking-[0.14em] text-ink-now uppercase">Aquí</span>
-                  )}
-                  <Glyph tone={s.tone} size={s.here ? 22 : 18} pulse={s.here && lane.state === "moving"} className={s.here ? "-mt-0.5 ring-[3px] ring-background" : undefined} />
-                  <span className="text-xs leading-tight text-muted-foreground">
-                    <b className={cn("block font-semibold", s.tone === "pending" ? "text-foreground/75" : "text-foreground")}>{shortLabel(s.task.title)}</b>
-                    {statusWord(s.task.status)}
-                  </span>
-                </TicketButton>
-                {nextStation && (
+              <tr key={lane.id} className="border-b transition-colors last:border-b-0 hover:bg-foreground/[0.04]">
+                <td className="max-w-[320px] px-5 py-3">
+                  <TicketButton taskKey={initiative.key} onOpen={onOpen} className="text-left">
+                    <span className="font-semibold underline-offset-4 group-hover/ticket:underline">{initiative.title}</span>
+                    <span className="ml-2 font-mono text-xs text-muted-foreground">{initiative.key}</span>
+                  </TicketButton>
+                </td>
+                <td className="px-3 py-3">
                   <span
-                    aria-hidden
-                    className="mt-2 h-[3px] min-w-6 flex-1 rounded-full"
-                    style={{
-                      background: solid
-                        ? `linear-gradient(90deg, ${toneVar(s.tone)}, ${toneVar(nextStation.tone)})`
-                        : "repeating-linear-gradient(90deg, var(--status-pending) 0 8px, transparent 8px 14px)",
-                    }}
-                  />
-                )}
-              </li>
+                    className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", TONE_TEXT[state.tone])}
+                    style={{ background: `color-mix(in oklab, ${toneVar(state.tone)} 13%, transparent)` }}
+                  >
+                    <Glyph tone={state.tone} size={7} pulse={lane.state === "moving"} />
+                    {statusWord(initiative.status)}
+                  </span>
+                </td>
+                <td className="px-3 py-3 whitespace-nowrap">
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-1.5 w-24 overflow-hidden rounded-full bg-foreground/10" aria-hidden>
+                      <div className="h-full rounded-full" style={{ width: `${pct}%`, background: `linear-gradient(90deg, var(--status-done), ${toneVar(state.tone)})` }} />
+                    </div>
+                    <span className="text-muted-foreground tabular-nums">
+                      {lane.closed} de {lane.total}
+                    </span>
+                  </div>
+                </td>
+                <td className="max-w-[300px] px-5 py-3">
+                  {here ? (
+                    <TicketButton taskKey={here.key} onOpen={onOpen} title={here.title} className="text-left">
+                      <span className="line-clamp-1 text-foreground/85 underline-offset-4 group-hover/ticket:underline">{here.title}</span>
+                    </TicketButton>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
+              </tr>
             );
           })}
-        </ol>
-      )}
-    </article>
+        </tbody>
+      </table>
+    </div>
   );
 }
 

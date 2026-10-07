@@ -40,7 +40,6 @@ export const api = {
     request<TaskDetail>("POST", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/release`),
   answer: (slug: string, questionId: string, answer: string) =>
     request<unknown>("POST", `/projects/${encodeURIComponent(slug)}/questions/${encodeURIComponent(questionId)}/answer`, { answer }),
-  exportUrl: (slug: string) => `/api/export/${encodeURIComponent(slug)}.json`,
 };
 
 export const isUnauthorized = (e: unknown) => e instanceof ApiError && e.status === 401;

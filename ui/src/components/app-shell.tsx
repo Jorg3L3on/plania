@@ -46,7 +46,7 @@ export function AppShell() {
           <div className="absolute top-32 -right-52 size-[700px] animate-orb-drift rounded-full bg-[radial-gradient(closest-side,var(--orb-2),transparent)] [animation-delay:-4s]" />
         </div>
         <header className="sticky top-0 z-10 border-b bg-background/70 backdrop-blur-md">
-          <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-10">
+          <div className="mx-auto flex h-12 max-w-[1480px] items-center justify-between px-4 sm:px-8">
             <Link to="/" className="font-display text-lg font-extrabold tracking-tight">Plania</Link>
             <div className="flex items-center gap-2">
               <LiveIndicator />
@@ -57,7 +57,7 @@ export function AppShell() {
             </div>
           </div>
         </header>
-        <main className="mx-auto max-w-6xl px-4 py-8 sm:px-10">
+        <main className="mx-auto max-w-[1480px] px-4 py-5 sm:px-8">
           <Outlet />
         </main>
       </div>
