@@ -40,9 +40,33 @@ pnpm seed
 ## Dev
 
 ```bash
-pnpm dev     # http://localhost:3000
+pnpm dev     # http://localhost:3737, reloads on change
+pnpm start   # same server, no watch
 pnpm build   # typecheck
 ```
+
+Port 3737 avoids the 3000 that product repos use. The server only listens on 127.0.0.1.
+
+## Running locally as a service
+
+Plania currently runs on this Mac instead of Vercel.
+
+- Database: local Postgres 14 (Homebrew service), database `plania`.
+- Server: launchd agent `com.plania.server` at `~/Library/LaunchAgents/com.plania.server.plist`.
+  It starts at login, restarts on crash, and logs to `~/Library/Logs/plania/server.log`.
+  It runs nvm's Node by absolute path, so update the plist after switching Node versions.
+- Clients, all pointing at `http://localhost:3737/mcp` with the Bearer from `.env`:
+  Claude Code (user scope), Cursor (`~/.cursor/mcp.json`), Codex (`~/.codex/config.toml`).
+
+```bash
+launchctl kickstart -k gui/$(id -u)/com.plania.server   # restart after code or .env changes
+launchctl bootout gui/$(id -u)/com.plania.server        # stop and unload
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.plania.server.plist  # load again
+tail -f ~/Library/Logs/plania/server.log
+```
+
+Change the screen password with `pnpm hash-password`, paste the result into `.env` as
+`PLANIA_PASSWORD_HASH='...'`, then restart. Rotating `MCP_BEARER_TOKEN` means updating all three client configs.
 
 ## MCP
 
