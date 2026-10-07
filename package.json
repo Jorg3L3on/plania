@@ -13,6 +13,8 @@
     "build": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "seed": "tsx --env-file=.env scripts/seed.ts",
+    "backfill-v2": "tsx --env-file=.env scripts/backfill-v2.ts",
+    "error-catalog": "tsx scripts/error-catalog.ts",
     "hash-password": "tsx scripts/hash-password.ts",
     "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts"
   },
