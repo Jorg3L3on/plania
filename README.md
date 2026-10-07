@@ -35,7 +35,12 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f drizzle/migrations/0000_curvy_wolfpac
 pnpm seed
 ```
 
-`pnpm seed` is idempotent: it inserts `micasa`, `workia`, `filmia`, `zigzag` if missing.
+`pnpm seed` loads the day-one data from the handoff: `micasa`, `workia`, `filmia`, `zigzag`,
+with their bodies and resume cards. It is safe to rerun:
+
+- Title and body belong to the seed. Every run rewrites them, so fix a body in `scripts/seed.ts` and rerun.
+- A resume card is written only while all four fields are empty. Cards that agents updated are kept.
+- `rules_text` and design pages are not in the handoff seed. Load them by editing the seed or with SQL.
 
 ## Dev
 
@@ -43,7 +48,7 @@ pnpm seed
 pnpm dev     # http://localhost:3737, reloads on change
 pnpm start   # same server, no watch
 pnpm build   # typecheck
-pnpm test    # MCP integration tests; rebuilds a local plania_test database each run
+pnpm test    # MCP, screen and seed tests; rebuilds a local plania_test database each run
 ```
 
 Port 3737 avoids the 3000 that product repos use. The server only listens on 127.0.0.1.
@@ -82,11 +87,55 @@ That is the full ceiling of 12 tools.
 Contract errors come back as an MCP tool error (`isError: true`) whose text is
 `{"error":"<CODE>","status":<404|409|400>}`, e.g. `{"error":"PROJECT_NOT_FOUND","status":404}`.
 
-Local client against the dev server:
+## Clients
+
+`PLANIA_MCP_TOKEN` is the same value as `MCP_BEARER_TOKEN`. Local URL: `http://localhost:3737/mcp`.
+Canonical URL once deployed: `https://plania.vercel.app/mcp`. On this Mac all three clients are already set up for local.
+
+Claude Code, available in every project:
 
 ```bash
-claude mcp add --transport http plania http://localhost:3000/mcp --header "Authorization: Bearer ${PLANIA_MCP_TOKEN}"
+claude mcp add --scope user --transport http plania http://localhost:3737/mcp --header "Authorization: Bearer ${PLANIA_MCP_TOKEN}"
 ```
+
+Cursor, in `~/.cursor/mcp.json`:
+
+```json
+{"mcpServers":{"plania":{"url":"http://localhost:3737/mcp","headers":{"Authorization":"Bearer ${env:PLANIA_MCP_TOKEN}"}}}}
+```
+
+Codex, in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.plania]
+url = "http://localhost:3737/mcp"
+bearer_token_env_var = "PLANIA_MCP_TOKEN"
+```
+
+The local configs on this Mac hold the token literally, because apps launched from the Dock do not see shell variables.
+For Vercel, swap the URL for the canonical one.
+
+### In a product repo
+
+Add something like this to the repo's `CLAUDE.md` (or `AGENTS.md`) so agents look in Plania, not in the repo, for the plan:
+
+```markdown
+## Plan
+
+The plan for this product lives in Plania (MCP server `plania`, project `<slug>`), not in this repo.
+- Start: `get_next` or `get_resume` + `get_project` + `get_memory`, then `get_task`.
+- Claim: `set_task` status "In progress", note "claimed by <agent>".
+- Finish a phase: `set_task` status "In review" with branch, pr_url and a note
+  `Result: <✓|⚠|✗> <unit|integration|test|live|grep|subagent> — <cite>`; then `update_resume`.
+- Never mark Done. Jorge does that after merging.
+- Decisions: `add_decision` with one line; the full ADR stays in `docs/adr/`.
+```
+
+## Screen
+
+`http://localhost:3737`, password login. `/` lists projects with one line of their resume card.
+`/p/<slug>` shows the card and the open initiatives and tickets. Done appears on In review tickets
+(with their PR link) and on open initiatives.
 
 ## Deviations from the handoff
 
