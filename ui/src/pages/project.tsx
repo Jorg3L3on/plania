@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeftIcon, DownloadIcon, ListIcon, WaypointsIcon } from "lucide-react";
+import { ChevronLeftIcon, ListIcon, WaypointsIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,7 +8,7 @@ import {
   BranchGraph,
   FichaSheet,
   FixedDecisions,
-  InitiativeLine,
+  InitiativeTable,
   ProjectHeader,
   SectionTitle,
 } from "@/components/plan/project-parts";
@@ -119,18 +119,12 @@ export function ProjectPage() {
   const initiativeLanes = derived.lanes.filter((l) => l.initiative);
 
   return (
-    <div className="grid gap-9">
+    <div className="grid gap-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <Link to="/" className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground">
+        <Link to="/" className="inline-flex min-h-9 items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground">
           <ChevronLeftIcon className="size-4" /> Proyectos
         </Link>
         <div className="flex flex-wrap items-center gap-3">
-          <a
-            href={api.exportUrl(slug)}
-            className="inline-flex min-h-11 items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground"
-          >
-            <DownloadIcon className="size-3.5" aria-hidden /> JSON
-          </a>
           <ViewToggle view={view} onChange={(v) => setParam("view", v === "lista" ? "lista" : null)} />
         </div>
       </div>
@@ -140,13 +134,15 @@ export function ProjectPage() {
       ) : (
         <>
           <ProjectHeader
-            slug={project.data.slug}
+            slug={slug}
             title={project.data.title}
             lanes={derived.lanes}
             progress={derived.progress}
             counts={derived.counts}
-           headline={resume?.headline} version={project.data?.version} />
-          {/* Questions agents asked Jorge (Needs Jorge): answer in place; the answer becomes a decision. */}
+            headline={resume?.headline}
+            version={project.data.version}
+          />
+          {/* Questions agents asked Jorge (Needs Jorge): answer in place, with an optional line for the decision log. */}
           <QuestionsPanel slug={slug} questions={project.data.resume.open_questions} onOpen={openTask} />
 
           {view === "lista" ? (
@@ -166,7 +162,7 @@ export function ProjectPage() {
             </div>
           ) : (
             <>
-              <section className="grid gap-3.5">
+              <section className="grid gap-3">
                 <SectionTitle
                   hint={
                     <>
@@ -180,19 +176,21 @@ export function ProjectPage() {
                 <LaneGrid slug={slug} lanes={derived.lanes} onOpen={openTask} />
               </section>
 
-              <div className="flex flex-wrap items-start gap-7">
-                <section className="grid min-w-0 flex-[999_1_560px] gap-4">
+              <div className="grid gap-6">
+                <section className="grid min-w-0 gap-3">
                   <SectionTitle hint="las fases de cada iniciativa; el punto que late es donde estás">Líneas de trabajo</SectionTitle>
                   {initiativeLanes.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Sin iniciativas abiertas; solo tickets sueltos.</p>
                   ) : (
-                    initiativeLanes.map((lane, i) => <InitiativeLine key={lane.id} lane={lane} onOpen={openTask} index={i} />)
+                    <InitiativeTable lanes={initiativeLanes} onOpen={openTask} />
                   )}
                 </section>
-                <aside className="grid min-w-[280px] flex-[1_1_320px] gap-4">
+                <aside className="grid gap-3">
                   <SectionTitle>Contexto</SectionTitle>
-                  <BranchGraph edges={derived.edges} text={branchText} onFicha={() => setFichaOpen(true)} />
-                  <FixedDecisions items={fixed} onFicha={() => setFichaOpen(true)} />
+                  <div className="grid items-start gap-4 md:grid-cols-2">
+                    <BranchGraph edges={derived.edges} text={branchText} onFicha={() => setFichaOpen(true)} />
+                    <FixedDecisions items={fixed} onFicha={() => setFichaOpen(true)} />
+                  </div>
                 </aside>
               </div>
             </>

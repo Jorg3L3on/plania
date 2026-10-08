@@ -100,7 +100,7 @@ New components in `ui/src/components/project/`:
 - `ProjectHeader`: kicker, big title, one-line body summary, progress ring, and count legend.
 - `YourTurnStrip`: Blocked tickets from Gap 1. Hidden when empty.
 - `LaneGrid`: column headers, then one row per lane with animated arrow connectors. Arrows are dashed and moving after a moving cell, dotted and still after a waiting one.
-- `InitiativeLine`: subway line per initiative with an "Aquí" label on the current station.
+- `InitiativeTable`: one row per initiative with status, progress and the station where it stands ("Aquí").
 - `BranchGraph`: the graph from Gap 2.
 - `FixedDecisions`: the first lines of `must_keep_decision`, plus a "Ver la ficha completa" button that opens a sheet with all four resume fields.
 - A "Lanes / Lista" toggle at the top. Lista is today's grouped list with filters and closed tickets, kept as is for search and bulk review.

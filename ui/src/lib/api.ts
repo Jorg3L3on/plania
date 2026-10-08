@@ -43,7 +43,6 @@ export const api = {
       answer,
       ...(decisionText ? { decision_text: decisionText } : {}),
     }),
-  exportUrl: (slug: string) => `/api/export/${encodeURIComponent(slug)}.json`,
   // The headline carries the project version on screen, like a task's.
   patchProject: (slug: string, headline: string, version: number) =>
     request<{ version: number }>("PATCH", `/projects/${encodeURIComponent(slug)}`, { headline, version }),
