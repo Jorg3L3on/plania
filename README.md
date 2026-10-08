@@ -147,14 +147,14 @@ Change the screen password with `pnpm hash-password`, paste the result into `.en
 otherwise `401 {"error":"UNAUTHORIZED"}`. The screen cookie is never accepted here.
 `MCP_BEARER_TOKEN` sees every tool; `MCP_READ_TOKEN` sees only the read tools.
 
-The working protocol (claim, versions, evidence, never Done) is served as the server's `instructions`
+The working protocol (claim, versions, evidence, closing finished work) is served as the server's `instructions`
 on `initialize`, versioned (`PROTOCOL_VERSION` in `src/mcp/protocol.ts`, also in `get_project`). Project-specific
 additions are the project's `rules` (`set_project`). Product repos point here instead of copying the rules.
 
 | Read | |
 |---|---|
 | `get_resume` | Generated: headline, the status block (per env what runs there and its drift; per initiative counts, next claimable, who waits on Jorge, what is in review with its PR state; queues), live claims, next claimable, per open initiative its notes, claims, next ticket and pinned decisions; open questions; latest events. `include_legacy` adds the v1 card while one exists |
-| `get_inbox` | Everything waiting on Jorge (pending approvals, open questions, human actions, Released tickets), for one project or `all` |
+| `get_inbox` | Everything waiting on Jorge (pending approvals, open questions, human actions), for one project or `all` |
 | `get_context` | One call for a session opening a worktree: the initiative and tickets on the branch, your claims (with any handoff note), pinned decisions, open questions, pending approvals, events since a cursor |
 | `audit` | What the data says is wrong: findings with a code, key, detail and fix hint (also every ten minutes; the count is in `get_resume.status`) |
 | `get_project` | Body, rules, settings, protocol version, counts, `env` per environment (with flags, migrations and the deploy's source), `branches`, `resources`, `metrics`, reserved sequence numbers |
@@ -174,7 +174,7 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | `handoff` | Hand a claim to a session (or anyone) with a note; the receiver's claim carries it back; a ten-minute hold |
 | `set_check` | Tick one Done when item, amend its text, or lift a waiver |
 | `waive_check` | Mark a check as not going to be done, with why (an approval once In review or later) |
-| `request_approval` | Ask Jorge for one move: done, wont_do, reopen, waive_check, runbook_step, lease_resource |
+| `request_approval` | Ask Jorge for one move: wont_do, reopen, waive_check, runbook_step, lease_resource |
 | `add_result` | Evidence: kind, verdict, cite, url, and the facts (commit, branch, env, command, exit_code, counts, duration_s, attachments as links, viewport, device, metrics); can tick checks |
 | `attach_doc` | A spec, plan or design doc on a task or the project |
 | `add_decision` | One line; task, tags, pin, supersedes (one id or several), ADR body |
@@ -213,7 +213,7 @@ Rules every write follows:
   head is `stale_for_head`; In review then needs a fresh pass (`EVIDENCE_STALE`).
 - **Merged and Released.** The pollers move In review → Merged when the PR merges and Merged → Released when the
   `settings.release_target` environment runs a commit containing the merge; by hand they need a ci pass naming the
-  merge commit. Done stays Jorge's: Released tickets wait in the inbox.
+  merge commit. Agents close them: Done is theirs once the work is finished (see States).
 - **Environments.** `deployed` takes the provider's record; `flags` hold configuration state and refuse anything
   that looks like a secret (`SECRET_LIKE_VALUE`); `migrations` is the list of tags applied.
 - **Resources.** `lease_resource` holds a name (a port gets `@machine`); `RESOURCE_HELD` names the holder. Policies in
@@ -239,7 +239,7 @@ Rules every write follows:
 - **Tokens.** Issued on screen at `/tokens`, shown once, stored hashed: name, agent, machine and scopes `read`
   (read tools), `write` (every write but ops), `ops` (`set_env`, `reserve_sequence`). Revoking one stops its next call.
   The static `.env` tokens keep working, unbound.
-- **Approvals.** Done, Won't do and reopening are Jorge's. An agent asks with `request_approval` (also for a waiver
+- **Approvals.** Won't do and reopening a closed task are Jorge's. An agent asks with `request_approval` (also for a waiver
   once In review, a runbook step or a gated resource); Jorge grants or rejects in the inbox, one event per decision;
   the granted `approval_id` unlocks exactly one move (`APPROVAL_MISMATCH`, `APPROVAL_NOT_GRANTED`, `APPROVAL_USED`)
   and expires after 7 days. `confirm_by_jorge` is gone. Jorge's own moves on screen need no approval.
@@ -257,7 +257,10 @@ Rules every write follows:
   the project releases it (`claim.expired`, In progress → Ready).
 - **States.** Tickets: Backlog ⇄ Ready → (claim) In progress → In review → Merged → Released; Blocked (with a note)
   from any open state; Needs Jorge through `ask` only. Initiatives: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold.
-  Done and Won't do (and reopening) are Jorge's: on screen, or `confirm_by_jorge` + `reason` when he asked.
+  Done is the agents' once the work is finished: code, bug and debt tickets from Merged or Released; ops and research
+  from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open
+  status once its tickets are closed. Elsewhere it is `INVALID_TRANSITION` with `allowed_from`. Won't do and reopening
+  are Jorge's: on screen, or with an approval he granted.
 - **Evidence.** In review needs a result recorded during the current claim: code a passing
   unit|integration|test|live|ci; ops live|verify|ci; research any result or a doc; decision-needed never.
 - **Template.** A ticket needs a scope; code and ops tickets need a check. Conventions only warn.
@@ -282,7 +285,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `BRANCH_NAME_INVALID` | 400 | the branch name does not match the project's branch_pattern (detail: pattern) |
 | `DEPLOY_SOURCE_REQUIRED` | 400 | set_env deployed needs a source {provider, deployment_id, url}: the server stores where the time came from |
 | `FIELD_NOT_ALLOWED` | 400 | a field of the other kind: priority/parent_key/origin/work_type/phase on an initiative, base_branch/next_action/in_progress_note on a ticket |
-| `INVALID_APPROVAL` | 400 | request_approval action is not done, wont_do, reopen, waive_check, runbook_step or lease_resource |
+| `INVALID_APPROVAL` | 400 | request_approval action is not wont_do, reopen, waive_check, runbook_step or lease_resource |
 | `INVALID_BATCH_OP` | 400 | batch: an op is not set_task, set_check, add_result, add_decision, create_task or note |
 | `INVALID_BLOCKER` | 400 | a blocked_by entry is malformed (detail: type, hint): human_action {assignee, text}, env_flag {env, flag, equals}, time_after {at}, metric_gte {name, value} |
 | `INVALID_ENV` | 400 | set_env: env is not lowercase [a-z][a-z0-9_-]*, a commit is not 7-40 hex, or migrations_applied is not a count |
@@ -309,7 +312,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `ACTOR_MISMATCH` | 403 | actor.agent or actor.machine disagrees with the agent token's (detail: expected) |
 | `APPROVAL_MISMATCH` | 403 | the approval_id is for another task, action or target (detail: expected) |
 | `APPROVAL_REQUIRED` | 403 | this needs an approval_id: request_approval first (detail: action, target) |
-| `HUMAN_ONLY` | 403 | Done, Won't do or reopening them: Jorge's call, on screen or with an approval_id he granted (request_approval) |
+| `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: Jorge's call, on screen or with an approval_id he granted (request_approval) |
 | `APPROVAL_NOT_FOUND` | 404 | no approval with that id in this project |
 | `CHECK_NOT_FOUND` | 404 | no check with that n on this task |
 | `DECISION_NOT_FOUND` | 404 | supersedes names no decision of this project |

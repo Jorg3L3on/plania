@@ -14,6 +14,7 @@ const { app } = await import("../src/app.js");
 const { bus } = await import("../src/events.js");
 const { requestApproval, decideApproval } = await import("../src/mcp/approvals.js");
 const { webCtx } = await import("../src/mcp/tx.js");
+const { setTask } = await import("../src/mcp/writes.js");
 
 let client: Client;
 let raw: pg.Client;
@@ -112,6 +113,21 @@ async function approve(project: string, key: string, action: string, target: Jso
     const { approval } = await requestApproval(db, { project, key, action, reason: "test", target }, { actor: A });
     await decideApproval(db, { approval_id: approval.id, decision: "grant" }, webCtx);
     return approval.id;
+  } finally {
+    await close();
+  }
+}
+
+// A move from the screen, as Jorge: any status, no approval. Checks still gate Done, so they get ticked.
+async function asJorge(project: string, key: string, status: string): Promise<void> {
+  await raw.query(
+    `update checks set done = true where done = false and waived_at is null and task_id = (
+       select t.id from tasks t join projects p on p.id = t.project_id where p.slug = $1 and t.key = $2)`,
+    [project, key],
+  );
+  const { db, close } = makeDb();
+  try {
+    await setTask(db, { project, key, status, version: await currentVersion(project, key) }, webCtx);
   } finally {
     await close();
   }
@@ -318,7 +334,7 @@ describe("set_task", () => {
   });
 
   test("Done sets resolved_at; leaving Done clears it", async () => {
-    await call("set_task", { project: "micasa", key: "MIC-B-01", status: "Done", approval_id: await approve("micasa", "MIC-B-01", "done") });
+    await asJorge("micasa", "MIC-B-01", "Done");
     const first = await resolvedAt("MIC-B-01");
     assert.ok(first instanceof Date);
     await call("set_task", { project: "micasa", key: "MIC-B-01", status: "Done", summary: "again" });
@@ -388,10 +404,10 @@ describe("set_task", () => {
 
 describe("initiative status through set_task", () => {
   test("sets initiative statuses and stamps Done; an initiative with open tickets cannot close", async () => {
-    const r = await call("set_task", { project: "micasa", key: "MIC-01", status: "Done", approval_id: await approve("micasa", "MIC-01", "done") });
+    const r = await call("set_task", { project: "micasa", key: "MIC-01", status: "Done" });
     assert.equal(r.__error, "INITIATIVE_CHILDREN_OPEN");
     await call("create_task", { project: "micasa", kind: "initiative", key: "MIC-I-DONE", title: "Closed out", scope: "PRD" });
-    const t = await call("set_task", { project: "micasa", key: "MIC-I-DONE", status: "Done", approval_id: await approve("micasa", "MIC-I-DONE", "done") });
+    const t = await call("set_task", { project: "micasa", key: "MIC-I-DONE", status: "Done" });
     assert.equal(t.status, "Done");
     assert.ok((await resolvedAt("MIC-I-DONE")) instanceof Date);
     await call("set_task", { project: "micasa", key: "MIC-I-DONE", status: "On hold", approval_id: await approve("micasa", "MIC-I-DONE", "reopen") });
@@ -764,17 +780,16 @@ describe("v2 B1: state machine and work types", () => {
     }
   });
 
-  test("Done is Jorge's: HUMAN_ONLY, unless he granted an approval the agent passes", async () => {
-    await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Done" }, "HUMAN_ONLY", 403);
+  test("Done is the agent's once the work merged; Won't do is Jorge's unless he granted an approval", async () => {
+    await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Done" }, "INVALID_TRANSITION", 409);
     await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Won't do" }, "HUMAN_ONLY", 403);
-    await expectError("set_task", { ...P, key: "ZIG-M-I", status: "Done" }, "HUMAN_ONLY", 403);
     // confirm_by_jorge is gone: the schema drops it and the move is still Jorge's.
-    await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Done", confirm_by_jorge: true, reason: "x" }, "HUMAN_ONLY", 403);
-    const id = await approve("zigzag", "ZIG-M-01", "done");
-    const t = await call("set_task", { ...P, key: "ZIG-M-01", status: "Done", approval_id: id });
-    assert.equal(t.status, "Done");
+    await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Won't do", confirm_by_jorge: true, reason: "x" }, "HUMAN_ONLY", 403);
+    const id = await approve("zigzag", "ZIG-M-01", "wont_do");
+    const t = await call("set_task", { ...P, key: "ZIG-M-01", status: "Won't do", approval_id: id });
+    assert.equal(t.status, "Won't do");
     const moved = (await logOf("zigzag", "ZIG-M-01")).find((e: Json) => e.type === "task.approved_move");
-    assert.deepEqual(moved!.payload, { from: "In progress", to: "Done", approval_id: id });
+    assert.deepEqual(moved!.payload, { from: "In progress", to: "Won't do", approval_id: id });
     await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Ready" }, "HUMAN_ONLY", 403);
     await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Ready", approval_id: id }, "APPROVAL_MISMATCH", 403);
   });
@@ -1136,11 +1151,12 @@ describe("v2 C2: list_events", () => {
 describe("v2 C4: protocol and project text", () => {
   test("the protocol comes with initialize, versioned", async () => {
     const text = client.getInstructions() ?? "";
-    assert.match(text, /^Plania protocol 2\.3\./);
-    assert.match(text, /Never set Done or Won't do/);
-    assert.equal(client.getServerVersion()?.version, "2.3.0");
+    assert.match(text, /^Plania protocol 2\.4\./);
+    assert.match(text, /set_task status Done once the ticket is Merged or Released/);
+    assert.match(text, /Never set Won't do or reopen a closed task yourself/);
+    assert.equal(client.getServerVersion()?.version, "2.4.0");
     const p = await call("get_project", { project: "zigzag" });
-    assert.equal(p.protocol_version, "2.3");
+    assert.equal(p.protocol_version, "2.4");
   });
 
   test("set_project edits body and rules with the version; rules_version follows the rules", async () => {

@@ -5,12 +5,12 @@ import { openHumanActions } from "./blockers.js";
 import { iso, type Q } from "./tx.js";
 
 // Jorge's inbox (R-28): everything waiting on him, in one list, oldest first within each kind:
-// pending approvals, open questions, human actions a ticket is blocked on, and Released tickets
-// waiting for Done. Later: runbook steps and S1/S2 bugs.
+// pending approvals, open questions and human actions a ticket is blocked on. Released tickets
+// are not his: agents close them. Later: runbook steps and S1/S2 bugs.
 
 export type InboxItem = {
   id: string;
-  kind: "approval" | "question" | "human_action" | "released";
+  kind: "approval" | "question" | "human_action";
   project: string;
   key: string | null;
   task_kind: string | null;
@@ -113,28 +113,6 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
       evidence: await evidenceOf(db, t.id),
       pr_url: t.prUrl,
       action_hint: "mark done",
-    });
-  }
-  const released = await db
-    .select()
-    .from(tasks)
-    .where(and(eq(tasks.projectId, p.id), eq(tasks.status, "Released")))
-    .orderBy(asc(tasks.statusChangedAt));
-  for (const t of released) {
-    items.push({
-      id: t.id,
-      kind: "released",
-      project: p.slug,
-      key: t.key,
-      task_kind: t.kind,
-      parent_key: await parentKeyOf(db, t.parentId),
-      title: t.title,
-      why: "deployed; waiting for Done",
-      waiting_since: iso(t.statusChangedAt ?? t.updatedAt),
-      wait_s: waitSeconds(t.statusChangedAt ?? t.updatedAt),
-      evidence: await evidenceOf(db, t.id),
-      pr_url: t.prUrl,
-      action_hint: "approve: done",
     });
   }
   return items;

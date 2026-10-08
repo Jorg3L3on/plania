@@ -11,7 +11,7 @@ import { issueToken, listTokens, revokeToken, TOKEN_SCOPES } from "../auth/token
 import { withDb, type Db } from "../db/client.js";
 import { projects, tasks, type Actor } from "../db/schema.js";
 import { bus } from "../events.js";
-import { decideApproval, requestApproval } from "../mcp/approvals.js";
+import { decideApproval } from "../mcp/approvals.js";
 import { resolveHumanAction } from "../mcp/blockers.js";
 import { waiveCheck } from "../mcp/checks.js";
 import { listDecisions } from "../mcp/decisions.js";
@@ -229,25 +229,6 @@ api.post("/projects/:slug/blockers/:id/resolve", async (c) => {
       return writeTx(db, p, webCtx, (tx, emit) => resolveHumanAction(tx, emit, p.id, c.req.param("id"), WEB_ACTOR));
     });
     return c.json(result);
-  } catch (e) {
-    return errorResponse(c, e);
-  }
-});
-
-// A Released ticket to Done from the inbox: one approval, granted and spent, one approved move.
-api.post("/projects/:slug/tasks/:key/done", async (c) => {
-  try {
-    const result = await withDb(async (db) => {
-      const slug = c.req.param("slug");
-      const key = c.req.param("key");
-      const { approval } = await requestApproval(db, { project: slug, key, action: "done", reason: "approved from the inbox" }, { actor: WEB_ACTOR });
-      if (approval.state === "pending") await decideApproval(db, { approval_id: approval.id, decision: "grant" }, webCtx);
-      const p = await findProject(db, slug);
-      const t = await findTask(db, p.id, key);
-      if (!t) throw new ToolError("TASK_NOT_FOUND");
-      return setTask(db, { project: slug, key, status: "Done", version: t.version, approval_id: approval.id }, { actor: WEB_ACTOR, verbose: true });
-    });
-    return c.json(result.task);
   } catch (e) {
     return errorResponse(c, e);
   }

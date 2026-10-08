@@ -2,7 +2,7 @@
 // repo reads the same version. Project-specific additions live in the project's rules (set_project).
 // Bump PROTOCOL_VERSION whenever the text changes meaning.
 
-export const PROTOCOL_VERSION = "2.3";
+export const PROTOCOL_VERSION = "2.4";
 
 const PROTOCOL = `Plania protocol ${PROTOCOL_VERSION}. Plania is the source of the plan; product repos hold code and conventions, not plans.
 
@@ -22,7 +22,7 @@ Work a ticket.
 5. Decisions: add_decision, one line, with task_key; pin it if it must be kept; supersedes (one id or several) when it reverses earlier ones; retire_decision when one no longer holds. Specs, plans and ADRs: attach_doc, never a plan file on one machine.
 6. Blocked by something other than a ticket? blocked_by takes {env, condition, value}, {human_action: {text}} (Jorge's inbox), {env_flag: {env, flag, equals}}, {time_after: ISO} or {metric_gte: {name, value}}; the server moves the ticket back to Ready when they hold. After a deploy you ran, set_env with the deploy's {provider, deployment_id, url}, the migration tags and flags (never secrets).
 7. Leaving mid-ticket? handoff {to: session_id | open, note, head_sha}: the next session gets the note with its claim. Finish: add_result, then set_task status In review with branch and pr_url (this releases the lease; every check must be done or waived: CHECKS_OPEN). Put "Plania: <KEY>" in the PR body. The pollers move it to Merged when the PR merges and to Released when the release target runs the merge commit. Update the initiative's next_action / in_progress_note / state_note (never a status section inside scope), and the project headline (set_project) if the picture changed.
-8. Never set Done or Won't do yourself: request_approval (done | wont_do | reopen) and, once Jorge grants it on screen, pass the approval_id to set_task. It is spent on that one move.
+8. Close what you finished: set_task status Done once the ticket is Merged or Released (ops and research: from In review on; a decision once answered), every check done or waived. get_resume status.released_waiting_done lists Released tickets nobody closed: close them. An initiative is Done once all its tickets are closed. Never set Won't do or reopen a closed task yourself: request_approval (wont_do | reopen) and, once Jorge grants it on screen, pass the approval_id to set_task. It is spent on that one move.
 
 Never type dates: the server stamps everything in UTC. Before acting on a ticket you read a while ago, list_events since your last cursor. Pass request_id on writes you may retry after a timeout.
 Errors come back as {error, status, ...detail}; 409 means the state moved or someone else holds it: re-read before deciding.`;

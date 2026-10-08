@@ -26,7 +26,7 @@ export const ERRORS = {
   INVALID_WORK_TYPE: [400, "work_type is not code, ops, research, decision-needed, bug or debt"],
   INVALID_BATCH_OP: [400, "batch: an op is not set_task, set_check, add_result, add_decision, create_task or note"],
   ACTOR_REQUIRED: [400, "actor.agent is missing and no agent token identifies the caller"],
-  INVALID_APPROVAL: [400, "request_approval action is not done, wont_do, reopen, waive_check, runbook_step or lease_resource"],
+  INVALID_APPROVAL: [400, "request_approval action is not wont_do, reopen, waive_check, runbook_step or lease_resource"],
   PARENT_MUST_BE_INITIATIVE: [400, "parent_key names a ticket"],
   RESERVED_ACTOR: [400, "actor.agent is jorge: only the screen writes as Jorge"],
   TEMPLATE_INVALID: [400, "create_task: a ticket without scope, or a code/ops ticket without checks (detail: missing)"],
@@ -37,7 +37,7 @@ export const ERRORS = {
   ACTOR_MISMATCH: [403, "actor.agent or actor.machine disagrees with the agent token's (detail: expected)"],
   APPROVAL_MISMATCH: [403, "the approval_id is for another task, action or target (detail: expected)"],
   APPROVAL_REQUIRED: [403, "this needs an approval_id: request_approval first (detail: action, target)"],
-  HUMAN_ONLY: [403, "Done, Won't do or reopening them: Jorge's call, on screen or with an approval_id he granted (request_approval)"],
+  HUMAN_ONLY: [403, "Won't do or reopening a closed task: Jorge's call, on screen or with an approval_id he granted (request_approval)"],
   // 404: something named does not exist.
   APPROVAL_NOT_FOUND: [404, "no approval with that id in this project"],
   CHECK_NOT_FOUND: [404, "no check with that n on this task"],

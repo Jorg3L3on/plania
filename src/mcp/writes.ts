@@ -410,6 +410,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
       human: ctx.human,
       via: ctx.system ? "system" : "set_task",
       approval: approval ? { action: approval.action } : null,
+      workType: input.work_type ?? t.workType,
     });
     // The approval is checked (and spent) before the gates: a wrong or used one is refused first.
     if (approved && approval && needed) await useApproval(tx, emit, approval, t, needed, {}, ctx);

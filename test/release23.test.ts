@@ -88,7 +88,9 @@ describe("state_note and derived checks", () => {
     await call("set_check", { ...P, key: "FIL-I1", n: 2, done: false });
     await call("set_task", { ...P, key: "FIL-I1-1", status: "In review", version: await version("FIL-I1-1") });
     assert.deepEqual((await call("get_task", { ...P, key: "FIL-I1" })).checks.map((c: Json) => [c.n, c.done, c.derived_from]), [[1, false, "FIL-I1-1"], [2, false, "FIL-I1-2"]]);
-    await call("set_task", { ...P, key: "FIL-I1-1", status: "Done", version: await version("FIL-I1-1"), approval_id: await approve("FIL-I1-1", "done") });
+    await call("add_result", { ...P, key: "FIL-I1-1", kind: "ci", verdict: "pass", cite: "merge commit green", commit: "dddddddd1" });
+    await call("set_task", { ...P, key: "FIL-I1-1", status: "Merged", version: await version("FIL-I1-1") });
+    assert.equal((await call("set_task", { ...P, key: "FIL-I1-1", status: "Done", version: await version("FIL-I1-1") })).status, "Done", "the agent closes it");
     const checks = (await call("get_task", { ...P, key: "FIL-I1" })).checks;
     assert.deepEqual(checks.map((c: Json) => [c.n, c.done]), [[1, true], [2, false]]);
     assert.equal(checks[0].done_by.agent, "test-agent");

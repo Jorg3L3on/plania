@@ -245,17 +245,13 @@ describe("evidence and the review gate", () => {
     await call("set_env", { ...P, env: "prod", commit: "cccccccc1", deployed: { provider: "vercel", deployment_id: "dpl_2" } });
     const released = await call("set_task", { ...P, key: "FIL-I1-1", status: "Released", version: await v() });
     assert.equal(released.status, "Released");
-    assert.equal((await call("set_task", { ...P, key: "FIL-I1-1", status: "Done", version: await v() })).__error, "HUMAN_ONLY", "Done stays Jorge's");
     const status = (await call("get_resume", P)).status;
     assert.deepEqual(status.released_waiting_done, ["FIL-I1-1"]);
     const inbox = (await (await req("GET", "/api/inbox?project=filmia")).json()) as Json;
-    const row = inbox.items.find((i: Json) => i.kind === "released");
-    assert.equal(row.key, "FIL-I1-1");
-    const done = await req("POST", "/api/projects/filmia/tasks/FIL-I1-1/done");
-    assert.equal(done.status, 200);
-    assert.equal(((await done.json()) as Json).status, "Done");
-    const { rows } = await raw.query("select count(*)::int as n from events where type in ('approval.granted', 'task.approved_move') and task_key = 'FIL-I1-1'");
-    assert.equal(rows[0].n, 2);
+    assert.equal(inbox.items.find((i: Json) => i.key === "FIL-I1-1"), undefined, "a Released ticket does not wait on Jorge");
+    const done = await call("set_task", { ...P, key: "FIL-I1-1", status: "Done", version: await v() });
+    assert.equal(done.status, "Done", "the agent closes it, no approval");
+    assert.deepEqual((await call("get_resume", P)).status.released_waiting_done, []);
   });
 });
 

@@ -196,7 +196,7 @@ const setTaskFields = {
   introduced_by: z.string().optional(),
   regression: z.boolean().optional(),
   cost_note: z.string().optional().describe("Debt only"),
-  approval_id: z.string().optional().describe("For Done, Won't do or reopening: the id of an approval Jorge granted (request_approval). Spent on this move"),
+  approval_id: z.string().optional().describe("For Won't do or reopening: the id of an approval Jorge granted (request_approval). Spent on this move"),
   note: z.string().optional(),
   version: z.number().int().optional().describe("The version you read. Required unless note is the only field"),
 };
@@ -514,7 +514,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Anything else is INVALID_TRANSITION with the allowed moves.",
         "Finishing a phase: add_result first, then status 'In review' (committed, not merged) with branch and pr_url; without fitting evidence it is EVIDENCE_REQUIRED.",
         "Merged and Released are the pollers' (GitHub merge, deploy); by hand they need a ci pass result naming the merge commit (and, for Released, the release target env containing it).",
-        "Done and Won't do (and reopening them) are Jorge's: HUMAN_ONLY. Ask with request_approval; once he grants it on screen, pass approval_id here (it is spent on this move).",
+        "Done is yours once the work is finished: code, bug and debt tickets from Merged or Released; ops and research from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open status. Elsewhere it is INVALID_TRANSITION with allowed_from.",
+        "Won't do and reopening a closed task are Jorge's: HUMAN_ONLY. Ask with request_approval; once he grants it on screen, pass approval_id here (it is spent on this move).",
         "In review (and later Done) needs every check done or waived: CHECKS_OPEN lists the open numbers. An initiative needs every ticket closed: INITIATIVE_CHILDREN_OPEN.",
         "The reply is {key, status, version, changed}; verbose: true adds the full task.",
       ].join(" "),
@@ -745,7 +746,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "request_approval",
     {
       description: [
-        "Ask Jorge to approve one move you cannot make yourself: action done | wont_do | reopen (a status change), waive_check (target {n}, once In review or later), runbook_step, lease_resource.",
+        "Ask Jorge to approve one move you cannot make yourself: action wont_do | reopen (a status change), waive_check (target {n}, once In review or later), runbook_step, lease_resource. Done needs no approval: set it yourself.",
         "It shows in his inbox; he grants or rejects it on screen. Then pass the approval_id to set_task / waive_check: it unlocks that one move and is spent.",
         "Asking again for the same task, action and target while one is pending returns it (existing: true).",
       ].join(" "),

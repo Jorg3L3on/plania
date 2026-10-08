@@ -6,11 +6,12 @@ import { type ApprovalAction } from "./lifecycle.js";
 import { findProject, requireTask } from "./queries.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
-// Approvals (2.1, R-05). Done, Won't do, reopening, a waiver once In review: an agent asks with
+// Approvals (2.1, R-05). Won't do, reopening, a waiver once In review: an agent asks with
 // request_approval, Jorge decides on screen (one event per decision), and the granted id unlocks
 // exactly one move. No code an agent could fake: only the cookie API decides.
 
-export const APPROVAL_ACTIONS = ["done", "wont_do", "reopen", "waive_check", "runbook_step", "lease_resource"] as const;
+// "done" is gone: agents close finished work themselves (lifecycle.ts DONE_FROM). Old rows keep it.
+export const APPROVAL_ACTIONS = ["wont_do", "reopen", "waive_check", "runbook_step", "lease_resource"] as const;
 export type { ApprovalAction };
 
 const GRANT_TTL = "7 days";

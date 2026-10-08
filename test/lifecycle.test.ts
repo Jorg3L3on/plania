@@ -24,9 +24,21 @@ test("ticket moves an agent makes with set_task", () => {
     "Blocked → Backlog", "Blocked → Ready",
     "In progress → Backlog", "In progress → Blocked", "In progress → In review", "In progress → Ready",
     "In review → Backlog", "In review → Blocked", "In review → Merged", "In review → Ready",
-    "Merged → In review", "Merged → Released",
+    "Merged → Done", "Merged → In review", "Merged → Released",
     "Ready → Backlog", "Ready → Blocked",
+    "Released → Done",
   ]);
+});
+
+test("where an agent may set Done depends on the work type", () => {
+  const doneFrom = (workType: string) =>
+    allowed("ticket", TICKET_STATUSES, { workType }).filter((m) => m.endsWith("→ Done")).map((m) => m.split(" → ")[0]);
+  assert.deepEqual(doneFrom("code"), ["Merged", "Released"]);
+  assert.deepEqual(doneFrom("bug"), ["Merged", "Released"]);
+  assert.deepEqual(doneFrom("debt"), ["Merged", "Released"]);
+  assert.deepEqual(doneFrom("ops"), ["In review", "Merged", "Released"]);
+  assert.deepEqual(doneFrom("research"), ["In review", "Merged", "Released"]);
+  assert.deepEqual(doneFrom("decision-needed"), ["Backlog", "In progress", "Ready"]);
 });
 
 test("the pollers (via system) make only the merge and release moves", () => {
@@ -37,19 +49,19 @@ test("the pollers (via system) make only the merge and release moves", () => {
 
 test("initiative moves an agent makes with set_task", () => {
   assert.deepEqual(allowed("initiative", INITIATIVE_STATUSES), [
-    "Active → On hold", "Active → Planning", "Active → Shipping",
-    "On hold → Active", "On hold → Planning", "On hold → Shipping",
-    "Planning → Active", "Planning → On hold",
-    "Shipping → Active", "Shipping → On hold",
+    "Active → Done", "Active → On hold", "Active → Planning", "Active → Shipping",
+    "On hold → Active", "On hold → Done", "On hold → Planning", "On hold → Shipping",
+    "Planning → Active", "Planning → Done", "Planning → On hold",
+    "Shipping → Active", "Shipping → Done", "Shipping → On hold",
   ]);
 });
 
 test("Jorge on screen may make any move; an approval only opens the one move it is for", () => {
   assert.equal(allowed("ticket", TICKET_STATUSES, { human: true }).length, TICKET_STATUSES.length * (TICKET_STATUSES.length - 1));
-  const done = allowed("ticket", TICKET_STATUSES, { approval: { action: "done" } });
-  assert.ok(done.includes("In review → Done"));
-  assert.ok(!done.includes("In review → Won't do"));
-  assert.ok(!done.includes("Done → Ready"));
+  const wontDo = allowed("ticket", TICKET_STATUSES, { approval: { action: "wont_do" } });
+  assert.ok(wontDo.includes("In review → Won't do"));
+  assert.ok(!wontDo.includes("In review → Done"), "Done never takes an approval: it is where the work stands");
+  assert.ok(!wontDo.includes("Done → Ready"));
   const reopen = allowed("ticket", TICKET_STATUSES, { approval: { action: "reopen" } });
   assert.ok(reopen.includes("Done → Ready"));
   assert.ok(!reopen.includes("Backlog → In review"));

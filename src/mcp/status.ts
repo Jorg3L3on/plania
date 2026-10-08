@@ -39,7 +39,6 @@ export async function statusBlock(db: Q, p: Project) {
     if (t.status === "Needs Jorge" || openQ.some((q) => q.taskId === t.id)) why.push("question");
     for (const a of pending.filter((a) => a.taskId === t.id)) why.push(`approval:${a.action}`);
     if (humanActions.some((h) => h.taskId === t.id)) why.push("human_action");
-    if (t.status === "Released") why.push("done");
     return why;
   };
 

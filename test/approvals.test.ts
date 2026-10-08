@@ -106,7 +106,8 @@ describe("check gates", () => {
     assert.equal(again.existing, true);
     assert.equal(again.approval.id, approval.id);
     assert.equal((await call("request_approval", { ...P, key: "FIL-I1-1", action: "ship", reason: "x" })).__error, "INVALID_INPUT", "the schema refuses unknown actions");
-    assert.equal((await call("request_approval", { ...P, key: "FIL-I1-1", action: "done", reason: "  " })).__error, "INVALID_APPROVAL");
+    assert.equal((await call("request_approval", { ...P, key: "FIL-I1-1", action: "done", reason: "x" })).__error, "INVALID_INPUT", "Done needs no approval");
+    assert.equal((await call("request_approval", { ...P, key: "FIL-I1-1", action: "wont_do", reason: "  " })).__error, "INVALID_APPROVAL");
 
     const inbox = await call("get_inbox", { project: "filmia" });
     assert.equal(inbox.count, 1);
@@ -133,41 +134,39 @@ describe("check gates", () => {
   });
 });
 
-describe("approvals for Done", () => {
+describe("approvals for Won't do", () => {
   test("request, reject, request again, grant, use once; mismatches are refused", async () => {
     const v = async () => (await call("get_task", { ...P, key: "FIL-I1-1", view: "summary" })).version;
-    assert.equal((await call("set_task", { ...P, key: "FIL-I1-1", status: "Done", version: await v() })).__error, "HUMAN_ONLY");
-    const { approval: first } = await call("request_approval", { ...P, key: "FIL-I1-1", action: "done", reason: "merged and deployed" });
+    assert.equal((await call("set_task", { ...P, key: "FIL-I1-1", status: "Won't do", version: await v() })).__error, "HUMAN_ONLY");
+    const { approval: first } = await call("request_approval", { ...P, key: "FIL-I1-1", action: "wont_do", reason: "superseded by FIL-I1-2" });
     const rejected = await decide([first.id], "reject", "not yet");
     assert.equal(rejected.results[0].state, "rejected");
-    const r1 = await call("set_task", { ...P, key: "FIL-I1-1", status: "Done", version: await v(), approval_id: first.id });
+    const r1 = await call("set_task", { ...P, key: "FIL-I1-1", status: "Won't do", version: await v(), approval_id: first.id });
     assert.equal(r1.__error, "APPROVAL_NOT_GRANTED");
     assert.equal(r1.state, "rejected");
     assert.equal((await decide([first.id], "grant")).results[0].error, "APPROVAL_NOT_GRANTED", "a decided approval is final");
-    assert.equal((await call("set_task", { ...P, key: "FIL-I1-1", status: "Done", version: await v(), approval_id: "00000000-0000-0000-0000-000000000000" })).__error, "APPROVAL_NOT_FOUND");
+    assert.equal((await call("set_task", { ...P, key: "FIL-I1-1", status: "Won't do", version: await v(), approval_id: "00000000-0000-0000-0000-000000000000" })).__error, "APPROVAL_NOT_FOUND");
 
-    const { approval: second } = await call("request_approval", { ...P, key: "FIL-I1-1", action: "done", reason: "merged and deployed" });
+    const { approval: second } = await call("request_approval", { ...P, key: "FIL-I1-1", action: "wont_do", reason: "superseded by FIL-I1-2" });
     assert.notEqual(second.id, first.id);
     await decide([second.id], "grant");
-    const wrongAction = await call("set_task", { ...P, key: "FIL-I1-1", status: "Won't do", version: await v(), approval_id: second.id });
-    assert.equal(wrongAction.__error, "APPROVAL_MISMATCH");
+    const notDone = await call("set_task", { ...P, key: "FIL-I1-1", status: "Done", version: await v(), approval_id: second.id });
+    assert.equal(notDone.__error, "INVALID_TRANSITION", "an approval does not make unfinished work Done");
     await call("create_task", { ...P, title: "Other", ...T, parent_key: "FIL-I1", phase: 2 }); // FIL-I1-2
-    const wrongKey = await call("set_task", { ...P, key: "FIL-I1-2", status: "Done", version: 1, approval_id: second.id });
+    const wrongKey = await call("set_task", { ...P, key: "FIL-I1-2", status: "Won't do", version: 1, approval_id: second.id });
     assert.equal(wrongKey.__error, "APPROVAL_MISMATCH");
 
-    const done = await call("set_task", { ...P, key: "FIL-I1-1", status: "Done", version: await v(), approval_id: second.id });
-    assert.equal(done.status, "Done");
+    const closed = await call("set_task", { ...P, key: "FIL-I1-1", status: "Won't do", version: await v(), approval_id: second.id });
+    assert.equal(closed.status, "Won't do");
     assert.equal(await eventsOf("approval.used"), 2);
     assert.equal(await eventsOf("task.approved_move"), 1);
     const reopen = await call("set_task", { ...P, key: "FIL-I1-1", status: "Ready", version: await v(), approval_id: second.id });
-    assert.equal(reopen.__error, "APPROVAL_MISMATCH", "a done approval does not reopen");
+    assert.equal(reopen.__error, "APPROVAL_MISMATCH", "a wont_do approval does not reopen");
   });
 
   test("an initiative closes only once its tickets are closed", async () => {
-    const { approval } = await call("request_approval", { ...P, key: "FIL-I1", action: "done", reason: "shipped" });
-    await decide([approval.id], "grant");
     const v = (await call("get_task", { ...P, key: "FIL-I1", view: "summary" })).version;
-    const r = await call("set_task", { ...P, key: "FIL-I1", status: "Done", version: v, approval_id: approval.id });
+    const r = await call("set_task", { ...P, key: "FIL-I1", status: "Done", version: v });
     assert.equal(r.__error, "INITIATIVE_CHILDREN_OPEN");
     assert.deepEqual(r.open, ["FIL-I1-2"]);
   });

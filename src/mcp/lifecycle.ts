@@ -2,7 +2,7 @@ import { ToolError } from "./errors.js";
 
 // The status machine, enforced on every write. Two vocabularies:
 //
-// Ticket:     Backlog ⇄ Ready → (claim) In progress → In review → Merged → Released → Done (Jorge)
+// Ticket:     Backlog ⇄ Ready → (claim) In progress → In review → Merged → Released → Done
 //             Blocked from Backlog, Ready, In progress or In review; back to Backlog or Ready.
 //             Needs Jorge only through ask; it leaves only through answer.
 //             In review goes back to In progress through claim (rework).
@@ -10,8 +10,9 @@ import { ToolError } from "./errors.js";
 //             an agent sets them only with a ci result that names the merge commit (writes.ts).
 // Initiative: Planning ⇄ Active ⇄ Shipping, any of them ⇄ On hold.
 //
-// Done and Won't do, and reopening either, are Jorge's: on screen, or by an agent holding an
-// approval he granted (request_approval → approval_id), which is spent on that one move.
+// Done is the agents' once the work is finished (DONE_FROM, by work type); the gates still apply
+// (checks closed, an initiative's tickets closed). Won't do and reopening are Jorge's: on screen,
+// or by an agent holding an approval he granted (request_approval → approval_id), spent on that one move.
 
 export const TERMINAL = ["Done", "Won't do"] as const;
 
@@ -43,6 +44,22 @@ const INITIATIVE_MOVES: Record<string, string[]> = {
   "On hold": ["Planning", "Active", "Shipping"],
 };
 
+// Where an agent may close a ticket: code-like work once it merged, ops and research once in
+// review, a decision once answered (it leaves Needs Jorge first). An initiative from any open status.
+const DONE_FROM: Record<string, string[]> = {
+  code: ["Merged", "Released"],
+  bug: ["Merged", "Released"],
+  debt: ["Merged", "Released"],
+  ops: ["In review", "Merged", "Released"],
+  research: ["In review", "Merged", "Released"],
+  "decision-needed": ["Backlog", "Ready", "In progress"],
+};
+const INITIATIVE_DONE_FROM = ["Planning", "Active", "Shipping", "On hold"];
+
+export function doneFrom(kind: string, workType?: string | null): string[] {
+  return kind === "initiative" ? INITIATIVE_DONE_FROM : (DONE_FROM[workType ?? "code"] ?? DONE_FROM.code!);
+}
+
 // Moves that only one tool makes.
 const VIA_TOOL: Record<string, string> = { "In progress": "claim", "Needs Jorge": "ask" };
 
@@ -52,13 +69,13 @@ export type TransitionCtx = {
   human?: boolean; // Jorge's screen
   via?: "set_task" | "claim" | "ask" | "answer" | "system";
   approval?: { action: string } | null; // an approval the caller holds
+  workType?: string | null; // the ticket's, for where Done may come from
 };
 
 const isTerminal = (s: string) => (TERMINAL as readonly string[]).includes(s);
 
 // The approval action a move needs, or null when it needs none.
 export function actionForMove(from: string, to: string): ApprovalAction | null {
-  if (to === "Done") return "done";
   if (to === "Won't do") return "wont_do";
   if (isTerminal(from)) return "reopen";
   return null;
@@ -73,13 +90,20 @@ export function assertTransition(kind: string, from: string, to: string, ctx: Tr
     return false;
   }
   const needed = actionForMove(from, to);
+  if (to === "Done" && !needed) {
+    const allowed = doneFrom(kind, ctx.workType);
+    if (!allowed.includes(from)) {
+      throw new ToolError("INVALID_TRANSITION", { from, to, allowed_from: allowed, hint: kind === "initiative" ? "an initiative closes from an open status" : `a ${ctx.workType ?? "code"} ticket is Done from ${allowed.join(", ")}` });
+    }
+    return false;
+  }
   if (needed) {
     if (ctx.approval?.action === needed) return true;
     throw new ToolError("HUMAN_ONLY", {
       from,
       to,
       needs: needed,
-      hint: "Jorge marks Done and Won't do on screen. Ask him with request_approval and pass the granted approval_id.",
+      hint: "Won't do and reopening are Jorge's. Ask him with request_approval and pass the granted approval_id.",
     });
   }
   // answer puts a ticket back where it was before the question, whatever that was.

@@ -67,7 +67,7 @@ export type Resume = {
 // Everything waiting on Jorge (GET /api/inbox).
 export type InboxItem = {
   id: string;
-  kind: "approval" | "question" | "human_action" | "released";
+  kind: "approval" | "question" | "human_action";
   project: string;
   key: string | null;
   task_kind: string | null;
