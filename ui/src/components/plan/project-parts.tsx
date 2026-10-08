@@ -202,7 +202,10 @@ export function InitiativeTable({ lanes, onOpen }: { lanes: Lane[]; onOpen: Open
             const initiative = lane.initiative!;
             const state = LANE_STATE[lane.state];
             const here = lane.stations.find((s) => s.here)?.task;
-            const pct = lane.total === 0 ? 0 : Math.round((lane.closed / lane.total) * 100);
+            // In review, Merged and Released count as advanced: done in green, then the review stretch in violet.
+            const share = (n: number) => (lane.total === 0 ? 0 : (n / lane.total) * 100);
+            const inReview = lane.review.length;
+            const advanced = lane.closed + inReview;
             return (
               <tr key={lane.id} className="border-b transition-colors last:border-b-0 hover:bg-foreground/[0.04]">
                 <td className="max-w-[320px] px-5 py-3">
@@ -222,11 +225,16 @@ export function InitiativeTable({ lanes, onOpen }: { lanes: Lane[]; onOpen: Open
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap">
                   <div className="flex items-center gap-2.5">
-                    <div className="h-1.5 w-24 overflow-hidden rounded-full bg-foreground/10" aria-hidden>
-                      <div className="h-full rounded-full" style={{ width: `${pct}%`, background: `linear-gradient(90deg, var(--status-done), ${toneVar(state.tone)})` }} />
+                    <div className="flex h-1.5 w-24 overflow-hidden rounded-full bg-foreground/10" aria-hidden>
+                      <div className="h-full bg-status-done" style={{ width: `${share(lane.closed)}%` }} />
+                      <div className="h-full bg-status-review" style={{ width: `${share(inReview)}%` }} />
                     </div>
-                    <span className="text-muted-foreground tabular-nums">
-                      {lane.closed} de {lane.total}
+                    <span
+                      className="text-muted-foreground tabular-nums"
+                      title={`${lane.closed} cerrados, ${inReview} en revisión, ${lane.total} en total`}
+                    >
+                      {advanced} de {lane.total}
+                      {inReview > 0 && <span className="text-ink-review"> · {inReview} en revisión</span>}
                     </span>
                   </div>
                 </td>
