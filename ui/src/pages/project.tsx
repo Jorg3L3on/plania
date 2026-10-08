@@ -119,7 +119,8 @@ export function ProjectPage() {
   const initiativeLanes = derived.lanes.filter((l) => l.initiative);
 
   return (
-    <div className="grid gap-6">
+    // grid-cols-1 keeps the track at the viewport: no section can widen the page on phones.
+    <div className="grid grid-cols-1 gap-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <Link to="/" className="inline-flex min-h-9 items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground">
           <ChevronLeftIcon className="size-4" /> Proyectos
@@ -176,7 +177,7 @@ export function ProjectPage() {
                 <LaneGrid slug={slug} lanes={derived.lanes} onOpen={openTask} />
               </section>
 
-              <div className="grid gap-6">
+              <div className="grid grid-cols-1 gap-6">
                 <section className="grid min-w-0 gap-3">
                   <SectionTitle hint="las fases de cada iniciativa; el punto que late es donde estás">Líneas de trabajo</SectionTitle>
                   {initiativeLanes.length === 0 ? (
@@ -187,7 +188,7 @@ export function ProjectPage() {
                 </section>
                 <aside className="grid gap-3">
                   <SectionTitle>Contexto</SectionTitle>
-                  <div className="grid items-start gap-4 md:grid-cols-2">
+                  <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
                     <BranchGraph edges={derived.edges} text={branchText} onFicha={() => setFichaOpen(true)} />
                     <FixedDecisions items={fixed} onFicha={() => setFichaOpen(true)} />
                   </div>

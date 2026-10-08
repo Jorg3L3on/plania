@@ -252,21 +252,22 @@ export function InitiativeTable({ lanes, onOpen }: { lanes: Lane[]; onOpen: Open
 export function BranchGraph({ edges, text, onFicha }: { edges: BranchEdge[]; text: string; onFicha: () => void }) {
   const bases = [...new Set(edges.map((e) => e.base))];
   return (
-    <section className="lift grid animate-rise gap-4 rounded-[20px] border bg-card px-5 py-5" style={rise(4)}>
+    // grid-cols-1 (minmax(0,1fr)) all the way down, or the truncated branch names set the width on phones.
+    <section className="lift grid animate-rise grid-cols-1 gap-4 rounded-[20px] border bg-card px-5 py-5" style={rise(4)}>
       <Kicker className="text-muted-foreground">
         <GitBranchIcon className="size-3.5" aria-hidden />
         Rama y prod
       </Kicker>
       {bases.length > 0 && (
-        <ul className="grid gap-3">
+        <ul className="grid grid-cols-1 gap-3">
           {bases.map((base) => (
-            <li key={base} className="grid">
+            <li key={base} className="grid grid-cols-1">
               <span className="flex min-h-8 items-center gap-3.5">
                 <span aria-hidden className="size-3.5 shrink-0 rounded-full bg-status-done shadow-[0_0_0_4px_color-mix(in_oklab,var(--status-done)_15%,transparent)]" />
-                <span className="font-mono text-[13px] font-medium">{base}</span>
+                <span className="truncate font-mono text-[13px] font-medium">{base}</span>
               </span>
               {edges.filter((e) => e.base === base).map((e) => (
-                <span key={e.branch} className="grid">
+                <span key={e.branch} className="grid grid-cols-1">
                   <span aria-hidden className="ml-[6px] h-4 w-0.5 bg-[linear-gradient(var(--status-done),var(--status-review))]" />
                   <span className="flex min-h-8 items-center gap-3.5">
                     <span aria-hidden className="size-3.5 shrink-0 rounded-full bg-status-review" />
@@ -311,7 +312,7 @@ function FichaLink({ onClick, className }: { onClick: () => void; className?: st
 export function FixedDecisions({ items, onFicha }: { items: string[]; onFicha: () => void }) {
   return (
     <section
-      className="lift grid animate-rise gap-3 rounded-[20px] border border-status-review/30 bg-[linear-gradient(160deg,color-mix(in_oklab,var(--status-review)_10%,var(--card)),var(--card)_70%)] px-5 pt-5 pb-2"
+      className="lift grid animate-rise grid-cols-1 gap-3 rounded-[20px] border border-status-review/30 bg-[linear-gradient(160deg,color-mix(in_oklab,var(--status-review)_10%,var(--card)),var(--card)_70%)] px-5 pt-5 pb-2"
       style={rise(5)}
     >
       <Kicker className="text-ink-review">
@@ -321,11 +322,12 @@ export function FixedDecisions({ items, onFicha }: { items: string[]; onFicha: (
       {items.length === 0 ? (
         <p className="text-[13px] text-muted-foreground">Ninguna todavía.</p>
       ) : (
-        <ul className="grid gap-2 text-[13px] leading-snug">
+        <ul className="grid grid-cols-1 gap-2 text-[13px] leading-snug">
           {items.slice(0, 4).map((s) => (
             <li key={s} className="flex gap-2.5">
               <span aria-hidden className="text-ink-review">—</span>
-              {s}
+              {/* Decisions often carry a long artifact URL; let it wrap anywhere. */}
+              <span className="min-w-0 [overflow-wrap:anywhere]">{s}</span>
             </li>
           ))}
           {items.length > 4 && <li className="pl-5 text-muted-foreground">y {items.length - 4} más</li>}
