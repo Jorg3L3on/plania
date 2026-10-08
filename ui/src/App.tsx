@@ -2,9 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { AppShell } from "@/components/app-shell";
 import { api, isUnauthorized } from "@/lib/api";
+import { InboxPage } from "@/pages/inbox";
 import { LoginPage } from "@/pages/login";
 import { ProjectPage } from "@/pages/project";
 import { ProjectsPage } from "@/pages/projects";
+import { TokensPage } from "@/pages/tokens";
 
 // Sends anyone without a valid session to /login, remembering where they were going.
 function RequireSession({ children }: { children: React.ReactNode }) {
@@ -25,6 +27,8 @@ export function App() {
       <Route element={<RequireSession><AppShell /></RequireSession>}>
         <Route index element={<ProjectsPage />} />
         <Route path="/p/:slug" element={<ProjectPage />} />
+        <Route path="/inbox" element={<InboxPage />} />
+        <Route path="/tokens" element={<TokensPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

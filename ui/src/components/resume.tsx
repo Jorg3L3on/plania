@@ -102,9 +102,10 @@ export function ResumeView({ resume, onOpen }: { resume: Resume; onOpen: (key: s
 function QuestionCard({ slug, q, onOpen }: { slug: string; q: Question; onOpen: (key: string) => void }) {
   const queryClient = useQueryClient();
   const [free, setFree] = useState("");
+  const [decision, setDecision] = useState("");
   const send = useMutation({
-    mutationFn: (answer: string) => api.answer(slug, q.id, answer),
-    onSuccess: () => toast("Respuesta guardada como decisión"),
+    mutationFn: (answer: string) => api.answer(slug, q.id, answer, decision.trim() || undefined),
+    onSuccess: () => toast(decision.trim() ? "Respuesta guardada como decisión" : "Respuesta guardada"),
     onError: () => toast.error("No se pudo guardar la respuesta."),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["project", slug] });
@@ -130,9 +131,18 @@ function QuestionCard({ slug, q, onOpen }: { slug: string; q: Question; onOpen: 
             ))}
           </div>
         )}
-        <form onSubmit={submit} className="flex gap-2">
-          <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" />
-          <Button type="submit" size="sm" disabled={!free.trim() || send.isPending}>Responder</Button>
+        <form onSubmit={submit} className="grid gap-2">
+          <div className="flex gap-2">
+            <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" />
+            <Button type="submit" size="sm" disabled={!free.trim() || send.isPending}>Responder</Button>
+          </div>
+          <Input
+            value={decision}
+            onChange={(e) => setDecision(e.target.value)}
+            placeholder="Si esto decide algo, una línea para el registro de decisiones (opcional)"
+            aria-label="Decisión"
+            className="text-xs"
+          />
         </form>
       </CardContent>
     </Card>
@@ -158,9 +168,10 @@ export function DecisionList({ decisions, onOpen }: { decisions: Decision[]; onO
       <Card className="gap-0 divide-y py-0">
         {decisions.map((d) => (
           <div key={d.id} className="grid gap-1 px-4 py-3">
-            <p className={cn("whitespace-pre-wrap", d.superseded_by && "text-muted-foreground line-through")}>{d.text}</p>
+            <p className={cn("whitespace-pre-wrap", (d.superseded_by || d.retired) && "text-muted-foreground line-through")}>{d.text}</p>
             <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-              {d.pinned && !d.superseded_by && <span className="text-amber-600 dark:text-amber-400">fija</span>}
+              {d.pinned && !d.superseded_by && !d.retired && <span className="text-amber-600 dark:text-amber-400">fija</span>}
+              {d.retired && <span title={d.retired.reason ?? undefined}>retirada</span>}
               {d.task_key && (
                 <button type="button" className="font-mono underline-offset-4 hover:underline" onClick={() => onOpen(d.task_key!)}>{d.task_key}</button>
               )}

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "pnpm run --parallel \"/^dev:/\"",
-    "dev:api": "tsx watch --env-file=.env scripts/dev.ts --port 3738",
+    "dev:api": "PLANIA_JOBS=0 tsx watch --env-file=.env scripts/dev.ts --port 3738",
     "dev:ui": "vite",
     "start": "tsx --env-file=.env scripts/dev.ts",
     "build": "tsc --noEmit && tsc -p ui && vite build",
@@ -17,6 +17,7 @@
     "db:generate": "drizzle-kit generate",
     "seed": "tsx --env-file=.env scripts/seed.ts",
     "backfill-v2": "tsx --env-file=.env scripts/backfill-v2.ts",
+    "rekey": "tsx --env-file=.env scripts/rekey-v3.ts",
     "error-catalog": "tsx scripts/error-catalog.ts",
     "hash-password": "tsx scripts/hash-password.ts"
   },

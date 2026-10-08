@@ -10,6 +10,14 @@ export const TEXT_LIMITS: Record<string, number> = {
   name: 40,
   title: 200,
   summary: 300,
+  headline: 280,
+  reason: 2_000,
+  purpose: 300,
+  command: 1_000,
+  cost_note: 2_000,
+  introduced_by: 200,
+  found_in: 40,
+  share_reason: 500,
   branch: 200,
   base_branch: 200,
   pr_url: 500,
@@ -21,6 +29,7 @@ export const TEXT_LIMITS: Record<string, number> = {
   text: 2_000,
   cite: 2_000,
   note: 4_000,
+  state_note: 4_000,
   question: 4_000,
   answer: 4_000,
   scope: 50_000,
@@ -38,6 +47,12 @@ export const ITEM_LIMITS: Record<string, { items: number; each: number }> = {
   tags: { items: 20, each: 40 },
   options: { items: 10, each: 300 },
   commits: { items: 200, each: 64 },
+  // batch ops: each op is checked again on its own, with the limits of its fields.
+  ops: { items: 50, each: 200_000 },
+  fields: { items: 50, each: 60 },
+  attachments: { items: 10, each: 500 },
+  areas: { items: 30, each: 200 },
+  migrations: { items: 500, each: 120 },
 };
 
 function checkText(field: string, value: string, max: number): void {

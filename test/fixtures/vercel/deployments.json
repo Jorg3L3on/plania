@@ -1,0 +1,5 @@
+{ "deployments": [
+  { "uid": "dpl_B", "url": "filmia-abc.vercel.app", "state": "READY", "target": "production", "created": 1791400000000, "meta": { "githubCommitSha": "FFFFFFF777777777777777777777777777777777", "githubCommitRef": "main" } },
+  { "uid": "dpl_A", "url": "filmia-old.vercel.app", "state": "READY", "target": "production", "created": 1791300000000, "meta": { "githubCommitSha": "ccccccc333333333333333333333333333333333", "githubCommitRef": "main" } },
+  { "uid": "dpl_P", "url": "filmia-pr.vercel.app", "state": "READY", "target": null, "created": 1791350000000, "meta": { "githubCommitSha": "aaaaaaa111111111111111111111111111111111", "githubCommitRef": "jl/catalog-split" } }
+] }

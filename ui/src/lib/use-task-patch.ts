@@ -13,6 +13,8 @@ const MESSAGES: Record<string, string> = {
   INVALID_PRIORITY: "Esa prioridad no aplica aquí.",
   TASK_NOT_FOUND: "La tarea ya no existe.",
   STALE_VERSION: "Cambió mientras la veías. Ya está al día: revisa y vuelve a intentarlo.",
+  CHECKS_OPEN: "Quedan puntos del Done when sin cerrar: márcalos o exímelos en la ficha.",
+  INITIATIVE_CHILDREN_OPEN: "La iniciativa tiene tickets abiertos; ciérralos primero.",
 };
 
 const describe = (e: unknown) =>

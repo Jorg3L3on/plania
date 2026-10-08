@@ -1,13 +1,17 @@
 import { timingSafeEqual } from "node:crypto";
+import type { Db } from "../db/client.js";
+import { findToken, type Identity, type TokenScope } from "./tokens.js";
 
-// Three Bearer tokens, three scopes: rw for agents (MCP_BEARER_TOKEN), ro for planning sessions that
-// must not write (MCP_READ_TOKEN), ci for inbound hooks only (PLANIA_CI_TOKEN). An unset token matches nothing.
-export type Scope = "rw" | "ro" | "ci";
+// What a Bearer token may do. Agent tokens (agent_tokens, issued on screen) carry their scopes and
+// identify the agent; the three static env tokens keep working, unbound: MCP_BEARER_TOKEN is
+// read+write+ops, MCP_READ_TOKEN read only, PLANIA_CI_TOKEN the inbound hooks only.
+export type Scope = TokenScope | "hooks";
+export type Auth = { scopes: Scope[]; identity?: Identity };
 
-const SCOPE_TOKENS: [Scope, string][] = [
-  ["rw", "MCP_BEARER_TOKEN"],
-  ["ro", "MCP_READ_TOKEN"],
-  ["ci", "PLANIA_CI_TOKEN"],
+const STATIC: [string, Scope[]][] = [
+  ["MCP_BEARER_TOKEN", ["read", "write", "ops"]],
+  ["MCP_READ_TOKEN", ["read"]],
+  ["PLANIA_CI_TOKEN", ["hooks"]],
 ];
 
 function same(a: string, b: string): boolean {
@@ -16,12 +20,19 @@ function same(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-export function bearerScope(header: string | undefined): Scope | null {
-  if (!header?.startsWith("Bearer ")) return null;
-  const token = header.slice("Bearer ".length);
-  for (const [scope, env] of SCOPE_TOKENS) {
+export function staticScopes(token: string): Scope[] | null {
+  for (const [env, scopes] of STATIC) {
     const expected = process.env[env];
-    if (expected && same(token, expected)) return scope;
+    if (expected && same(token, expected)) return scopes;
   }
   return null;
+}
+
+export async function resolveBearer(db: Db, header: string | undefined): Promise<Auth | null> {
+  if (!header?.startsWith("Bearer ")) return null;
+  const token = header.slice("Bearer ".length);
+  const scopes = staticScopes(token);
+  if (scopes) return { scopes };
+  const identity = await findToken(db, token);
+  return identity ? { scopes: identity.scopes, identity } : null;
 }

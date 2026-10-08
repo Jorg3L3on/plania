@@ -27,6 +27,7 @@ export function useTestEnv(): void {
   process.env.MCP_READ_TOKEN = TEST_READ_TOKEN;
   process.env.PLANIA_CI_TOKEN = TEST_CI_TOKEN;
   process.env.SESSION_SECRET = "test-session-secret-that-is-at-least-32-bytes";
+  process.env.PLANIA_JOBS = "0";
 }
 
 // Drops and recreates this checkout's test database, applies every migration, inserts the four projects.
@@ -45,7 +46,7 @@ export async function resetTestDb(): Promise<pg.Client> {
     await raw.query(readFileSync(new URL(f, dir), "utf8"));
   }
   await raw.query(
-    "insert into projects (slug, title) values ('micasa','MiCasa'), ('workia','Workia'), ('filmia','Filmia'), ('zigzag','Zigzag')",
+    "insert into projects (slug, title, key_prefix) values ('micasa','MiCasa','MIC'), ('workia','Workia','WRK'), ('filmia','Filmia','FIL'), ('zigzag','Zigzag','ZIG')",
   );
   return raw;
 }

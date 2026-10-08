@@ -106,6 +106,34 @@
       "when": 1791354814407,
       "tag": "0014_aromatic_katie_power",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1791410133385,
+      "tag": "0015_simple_silver_sable",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791411269878,
+      "tag": "0016_wild_blue_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791412836711,
+      "tag": "0017_silent_tigra",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791413869178,
+      "tag": "0018_nosy_vargas",
+      "breakpoints": true
     }
   ]
 }

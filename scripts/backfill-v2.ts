@@ -17,8 +17,7 @@ import {
   sequences,
   tasks,
   type Actor,
-  type Project,
-} from "../src/db/schema.js";
+  type Project, decisionSupersessions } from "../src/db/schema.js";
 import { writeTx, type Emit, type Q } from "../src/mcp/tx.js";
 
 export const BACKFILL_ACTOR: Actor = { agent: "backfill", session_id: "v2" };
@@ -199,7 +198,7 @@ const decisionsStage: Stage = {
       if (!a || !b) throw new Error(`--map needs two decision id prefixes (8+ chars) of this project: ${pair}`);
       out.push(`${a.id.slice(0, 8)} supersedes ${b.id.slice(0, 8)}`);
       if (!apply) continue;
-      await tx.update(decisions).set({ supersedesId: b.id }).where(eq(decisions.id, a.id));
+      await tx.insert(decisionSupersessions).values({ decisionId: a.id, supersedesId: b.id }).onConflictDoNothing();
       await emit("decision.superseded", null, { decision_id: b.id, superseded_by: a.id, legacy: true });
     }
     return out;

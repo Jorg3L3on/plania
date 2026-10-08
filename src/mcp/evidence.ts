@@ -1,35 +1,88 @@
-import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { checks, results, tasks, type Task } from "../db/schema.js";
-import { ToolError, findProject, requireTask, taskShape } from "./queries.js";
-import { iso, writeTx, type Ctx, type Q } from "./tx.js";
+import { checks, results, tasks, type Project, type Task } from "../db/schema.js";
+import { setMetricInTx } from "./blockers.js";
+import { ToolError, findProject, requireTask, writeReply } from "./queries.js";
+import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
 // Evidence as records. Anyone may add a result (the owner, a QA session, CI); In review needs one
 // that fits the ticket's work_type and was recorded during the current claim.
 
-export const RESULT_KINDS = ["unit", "integration", "test", "verify", "live", "grep", "subagent", "ci"] as const;
+export const RESULT_KINDS = [
+  "unit", "integration", "test", "verify", "live", "grep", "subagent", "ci",
+  "e2e", "visual", "a11y", "perf", "security", "migration",
+] as const;
 export const VERDICTS = ["pass", "warn", "fail"] as const;
 
 // What In review accepts per work_type: a passing result of one of these kinds.
 // research also accepts any result or an attached doc; decision-needed never goes to In review.
 export const REVIEW_EVIDENCE: Record<string, readonly string[]> = {
-  code: ["unit", "integration", "test", "live", "ci"],
-  ops: ["live", "verify", "ci"],
+  code: ["unit", "integration", "test", "live", "ci", "e2e", "visual", "a11y", "perf", "security"],
+  ops: ["live", "verify", "ci", "migration", "security", "perf"],
+  bug: ["unit", "integration", "test", "live", "ci", "e2e", "visual"],
+  debt: ["unit", "integration", "test", "live", "ci", "grep"],
   research: RESULT_KINDS,
 };
 
 type Result = typeof results.$inferSelect;
 
-export function resultShape(r: Result) {
-  return { id: r.id, kind: r.kind, verdict: r.verdict, cite: r.cite, url: r.url, actor: r.actor, at: iso(r.createdAt) };
+// stale_for_head: the result's commit is no longer the branch head (the poller tracks heads); null
+// when the result names no commit, or the head is unknown.
+export function resultShape(r: Result, head: string | null = null) {
+  const stale = r.commit && head ? !head.startsWith(r.commit) && !r.commit.startsWith(head) : null;
+  return {
+    id: r.id,
+    kind: r.kind,
+    verdict: r.verdict,
+    cite: r.cite,
+    url: r.url,
+    commit: r.commit,
+    branch: r.branch,
+    env: r.env,
+    command: r.command,
+    exit_code: r.exitCode,
+    counts: r.counts,
+    duration_s: r.durationS,
+    attachments: r.attachments,
+    viewport: r.viewport,
+    device: r.device,
+    metrics: r.metrics,
+    stale_for_head: stale,
+    actor: r.actor,
+    at: iso(r.createdAt),
+  };
 }
 
-export async function taskResults(db: Q, taskId: string) {
-  const rows = await db.select().from(results).where(eq(results.taskId, taskId)).orderBy(asc(results.createdAt));
-  return rows.map(resultShape);
+// The head of a result's branch: what the poller saw, else the newest commit any result reported on it.
+export async function headFor(db: Q, t: Pick<Task, "projectId">, branch: string | null): Promise<string | null> {
+  if (!branch) return null;
+  const { branchHead } = await import("./branches.js");
+  const known = await branchHead(db, t.projectId, branch);
+  if (known) return known;
+  const [latest] = await db
+    .select({ commit: results.commit })
+    .from(results)
+    .innerJoin(tasks, eq(tasks.id, results.taskId))
+    .where(and(eq(tasks.projectId, t.projectId), eq(results.branch, branch), sql`${results.commit} is not null`))
+    .orderBy(desc(results.createdAt))
+    .limit(1);
+  return latest?.commit ?? null;
 }
 
-// Throws EVIDENCE_REQUIRED unless the ticket may enter In review. hasDoc is for research tickets.
+export async function taskResults(db: Q, t: Pick<Task, "id" | "projectId" | "branch">) {
+  const rows = await db.select().from(results).where(eq(results.taskId, t.id)).orderBy(asc(results.createdAt));
+  const heads = new Map<string, string | null>();
+  const out = [];
+  for (const r of rows) {
+    const b = r.branch ?? t.branch ?? null;
+    if (b && !heads.has(b)) heads.set(b, await headFor(db, t, b));
+    out.push(resultShape(r, b ? (heads.get(b) ?? null) : null));
+  }
+  return out;
+}
+
+// Throws EVIDENCE_REQUIRED unless the ticket may enter In review, or EVIDENCE_STALE when every
+// fitting pass names a commit the branch has moved past. hasDoc is for research tickets.
 export async function assertReviewEvidence(tx: Q, t: Task, hasDoc: (tx: Q, t: Task) => Promise<boolean>): Promise<void> {
   const workType = t.workType ?? "code";
   if (workType === "decision-needed") {
@@ -40,8 +93,22 @@ export async function assertReviewEvidence(tx: Q, t: Task, hasDoc: (tx: Q, t: Ta
   if (workType !== "research") where.push(eq(results.verdict, "pass"));
   // Evidence counts from the current claim on; a new session proves its own work.
   if (t.claimedAt) where.push(gte(results.createdAt, t.claimedAt));
-  const [found] = await tx.select({ id: results.id }).from(results).where(and(...where)).limit(1);
-  if (found) return;
+  const found = await tx.select().from(results).where(and(...where)).orderBy(desc(results.createdAt));
+  if (found.length) {
+    const fresh = [];
+    for (const r of found) {
+      const b = r.branch ?? t.branch ?? null;
+      const head = b ? await headFor(tx, t, b) : null;
+      if (resultShape(r, head).stale_for_head !== true) fresh.push(r);
+    }
+    if (fresh.length) return;
+    throw new ToolError("EVIDENCE_STALE", {
+      branch: found[0]!.branch ?? t.branch,
+      head: await headFor(tx, t, found[0]!.branch ?? t.branch ?? null),
+      results: found.map((r) => ({ id: r.id, kind: r.kind, commit: r.commit })),
+      hint: "add a passing result for the current head",
+    });
+  }
   if (workType === "research" && (await hasDoc(tx, t))) return;
   throw new ToolError("EVIDENCE_REQUIRED", {
     work_type: workType,
@@ -50,43 +117,112 @@ export async function assertReviewEvidence(tx: Q, t: Task, hasDoc: (tx: Q, t: Ta
   });
 }
 
-export async function validateEvidence(tx: Q, t: Task, id: string): Promise<void> {
+// R-14: evidence may come from any task of the project (an initiative check proven by a child's result).
+export async function validateEvidence(tx: Q, t: Task, id: string): Promise<{ source: string }> {
   const [r] = await tx
-    .select({ id: results.id })
+    .select({ id: results.id, key: tasks.key })
     .from(results)
-    .where(and(eq(results.taskId, t.id), sql`${results.id}::text = ${id}`))
+    .innerJoin(tasks, eq(tasks.id, results.taskId))
+    .where(and(eq(tasks.projectId, t.projectId), sql`${results.id}::text = ${id}`))
     .limit(1);
   if (!r) throw new ToolError("RESULT_NOT_FOUND", { evidence_id: id });
+  return { source: r.key };
 }
 
-export async function addResult(
-  db: Db,
-  input: { project: string; key: string; kind: string; verdict: string; cite: string; url?: string; check_ns?: number[] },
-  ctx: Ctx,
-) {
+export type AddResultInput = {
+  project: string;
+  key: string;
+  kind: string;
+  verdict: string;
+  cite: string;
+  url?: string;
+  check_ns?: number[];
+  commit?: string;
+  branch?: string;
+  env?: string;
+  command?: string;
+  exit_code?: number;
+  counts?: { pass?: number; fail?: number; skip?: number };
+  duration_s?: number;
+  attachments?: string[];
+  viewport?: string;
+  device?: string;
+  metrics?: Record<string, number>;
+};
+
+const SHA = /^[0-9a-f]{7,40}$/;
+
+export async function addResultInTx(tx: Q, emit: Emit, p: Project, input: AddResultInput, ctx: Ctx) {
   if (!(RESULT_KINDS as readonly string[]).includes(input.kind)) throw new ToolError("INVALID_RESULT", { field: "kind", allowed: RESULT_KINDS });
   if (!(VERDICTS as readonly string[]).includes(input.verdict)) throw new ToolError("INVALID_RESULT", { field: "verdict", allowed: VERDICTS });
   if (!input.cite.trim()) throw new ToolError("INVALID_RESULT", { field: "cite" });
   if (input.check_ns?.length && input.verdict !== "pass") throw new ToolError("INVALID_RESULT", { field: "check_ns", hint: "only a pass ticks checks" });
-  const p = await findProject(db, input.project);
-  return writeTx(db, p, ctx, async (tx, emit) => {
-    const t = await requireTask(tx, p.id, input.key);
-    const [r] = await tx
-      .insert(results)
-      .values({ taskId: t.id, kind: input.kind, verdict: input.verdict, cite: input.cite, url: input.url ?? null, actor: ctx.actor })
-      .returning();
-    const ticked: number[] = [];
-    for (const n of new Set(input.check_ns ?? [])) {
-      const [c] = await tx
-        .update(checks)
-        .set({ done: true, doneAt: sql`now()`, doneBy: ctx.actor, evidenceId: r!.id })
-        .where(and(eq(checks.taskId, t.id), eq(checks.n, n)))
-        .returning();
-      if (!c) throw new ToolError("CHECK_NOT_FOUND", { n });
-      ticked.push(n);
+  const commit = input.commit?.trim().toLowerCase();
+  if (commit !== undefined && !SHA.test(commit)) throw new ToolError("INVALID_RESULT", { field: "commit", hint: "7-40 hex" });
+  if (input.exit_code !== undefined && !Number.isInteger(input.exit_code)) throw new ToolError("INVALID_RESULT", { field: "exit_code" });
+  if (input.duration_s !== undefined && (!Number.isInteger(input.duration_s) || input.duration_s < 0)) throw new ToolError("INVALID_RESULT", { field: "duration_s" });
+  if (input.counts) {
+    for (const [k, v] of Object.entries(input.counts)) {
+      if (!["pass", "fail", "skip"].includes(k) || !Number.isInteger(v) || (v as number) < 0) throw new ToolError("INVALID_RESULT", { field: "counts", hint: "{pass, fail, skip} as counts" });
     }
-    await tx.update(tasks).set({ updatedAt: sql`now()` }).where(eq(tasks.id, t.id));
-    await emit("result.added", t, { result_id: r!.id, kind: r!.kind, verdict: r!.verdict, cite: r!.cite, url: r!.url, checks: ticked });
-    return { result: resultShape(r!), task: await taskShape(tx, await requireTask(tx, p.id, input.key)) };
+  }
+  if (input.attachments?.some((a) => !/^https?:\/\//.test(a))) throw new ToolError("INVALID_RESULT", { field: "attachments", hint: "links only (https://...)" });
+  if (input.metrics) {
+    for (const [k, v] of Object.entries(input.metrics)) {
+      if (!/^[a-z][a-z0-9_-]{0,39}$/.test(k) || !Number.isInteger(v)) throw new ToolError("INVALID_RESULT", { field: "metrics", hint: "{name: integer}" });
+    }
+  }
+  const t = await requireTask(tx, p.id, input.key);
+  const [r] = await tx
+    .insert(results)
+    .values({
+      taskId: t.id,
+      kind: input.kind,
+      verdict: input.verdict,
+      cite: input.cite,
+      url: input.url ?? null,
+      commit: commit ?? null,
+      branch: input.branch?.trim() || null,
+      env: input.env?.trim() || null,
+      command: input.command ?? null,
+      exitCode: input.exit_code ?? null,
+      counts: input.counts ?? null,
+      durationS: input.duration_s ?? null,
+      attachments: input.attachments ?? [],
+      viewport: input.viewport ?? null,
+      device: input.device ?? null,
+      metrics: input.metrics ?? null,
+      actor: ctx.actor,
+    })
+    .returning();
+  // Reported metrics feed metric_gte blockers.
+  for (const [name, value] of Object.entries(input.metrics ?? {})) await setMetricInTx(tx, emit, p.id, name, value, ctx.actor);
+  const ticked: number[] = [];
+  for (const n of new Set(input.check_ns ?? [])) {
+    const [c] = await tx
+      .update(checks)
+      .set({ done: true, doneAt: sql`now()`, doneBy: ctx.actor, evidenceId: r!.id })
+      .where(and(eq(checks.taskId, t.id), eq(checks.n, n)))
+      .returning();
+    if (!c) throw new ToolError("CHECK_NOT_FOUND", { n });
+    ticked.push(n);
+  }
+  const [u] = (await tx.update(tasks).set({ updatedAt: sql`now()` }).where(eq(tasks.id, t.id)).returning()) as [Task];
+  await emit("result.added", u, {
+    result_id: r!.id,
+    kind: r!.kind,
+    verdict: r!.verdict,
+    cite: r!.cite,
+    url: r!.url,
+    ...(commit ? { commit } : {}),
+    ...(r!.branch ? { branch: r!.branch } : {}),
+    checks: ticked,
   });
+  const head = await headFor(tx, t, r!.branch ?? t.branch ?? null);
+  return writeReply(tx, u, ctx, ticked.length ? ["results", "checks"] : ["results"], { result: resultShape(r!, head) });
+}
+
+export async function addResult(db: Db, input: AddResultInput, ctx: Ctx) {
+  const p = await findProject(db, input.project);
+  return writeTx(db, p, ctx, (tx, emit) => addResultInTx(tx, emit, p, input, ctx));
 }

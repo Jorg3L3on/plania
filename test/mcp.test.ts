@@ -12,6 +12,8 @@ const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
 const { app } = await import("../src/app.js");
 const { bus } = await import("../src/events.js");
+const { requestApproval, decideApproval } = await import("../src/mcp/approvals.js");
+const { webCtx } = await import("../src/mcp/tx.js");
 
 let client: Client;
 let raw: pg.Client;
@@ -27,7 +29,8 @@ const READ_TOOLS = new Set(["get_resume", "get_project", "list_tasks", "get_task
 // filled in; version: "none" sends the call without one.
 async function currentVersion(project: string, key: string): Promise<number | undefined> {
   const { rows } = await raw.query(
-    "select t.version from tasks t join projects p on p.id = t.project_id where p.slug = $1 and t.key = $2",
+    `select t.version from tasks t join projects p on p.id = t.project_id
+     where p.slug = $1 and (t.key = $2 or t.id = (select a.task_id from task_aliases a where a.project_id = p.id and a.alias = $2))`,
     [project, key],
   );
   return rows[0]?.version;
@@ -44,6 +47,9 @@ function withTemplate(args: Json): Json {
   return { ...args, scope: args.scope ?? "Test scope", checks: args.checks ?? ["Done"] };
 }
 
+// Writes answer {key, status, version, changed, ...} by default (2.1). Tests that are not about the
+// reply shape ask for verbose and get the full task merged in; verbose: "default" sends the call as is.
+// get_task leaves the log out by default; tests read it with include_log unless they say "default".
 async function call(name: string, args: Json): Promise<Json> {
   if (!READ_TOOLS.has(name) && !("actor" in args)) args = { ...args, actor: A };
   if (name === "create_task") args = withTemplate(args);
@@ -52,9 +58,38 @@ async function call(name: string, args: Json): Promise<Json> {
     const { version: _, ...rest } = args;
     args = rest;
   }
+  if (!READ_TOOLS.has(name) && args.verbose === undefined) args = { ...args, verbose: true };
+  if (args.verbose === "default") {
+    const { verbose: _, ...rest } = args;
+    args = rest;
+  }
+  if (name === "get_task" && args.include_log === undefined) args = { ...args, include_log: true };
+  // In review and Done need every check closed (2.1). Tests that are not about that get them ticked;
+  // open_checks: true leaves them as they are.
+  if (name === "set_task" && (args.status === "In review" || args.status === "Done") && args.open_checks !== true) {
+    await raw.query(
+      `update checks set done = true where done = false and waived_at is null and task_id = (
+         select t.id from tasks t join projects p on p.id = t.project_id where p.slug = $1 and t.key = $2)`,
+      [args.project, args.key],
+    );
+  }
+  if (args.open_checks !== undefined) {
+    const { open_checks: _, ...rest } = args;
+    args = rest;
+  }
+  if (args.include_log === "default") {
+    const { include_log: _, ...rest } = args;
+    args = rest;
+  }
   const r = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: { text: string }[] };
   const data = JSON.parse(r.content[0]!.text);
-  return r.isError ? { __error: data.error, __status: data.status } : data;
+  if (r.isError) return { __error: data.error, __status: data.status };
+  return data.task ? { ...data, ...data.task } : data;
+}
+
+// The last log line of a task, read back (writes no longer embed the log).
+async function logOf(project: string, key: string): Promise<Json[]> {
+  return (await call("get_task", { project, key })).log;
 }
 
 async function expectError(name: string, args: Json, code: string, status: number) {
@@ -68,7 +103,19 @@ async function eventCount(): Promise<number> {
   return rows[0].n;
 }
 
-const lastLog = (t: Json) => t.log.at(-1);
+const lastLog = async (project: string, key: string): Promise<Json> => (await logOf(project, key)).at(-1)!;
+
+// Jorge grants an approval for one move, as the screen would.
+async function approve(project: string, key: string, action: string, target: Json = {}): Promise<string> {
+  const { db, close } = makeDb();
+  try {
+    const { approval } = await requestApproval(db, { project, key, action, reason: "test", target }, { actor: A });
+    await decideApproval(db, { approval_id: approval.id, decision: "grant" }, webCtx);
+    return approval.id;
+  } finally {
+    await close();
+  }
+}
 
 async function resolvedAt(key: string): Promise<Date | null> {
   const { rows } = await raw.query("select resolved_at from tasks where key = $1", [key]);
@@ -94,8 +141,10 @@ after(async () => {
 
 // The full tool surface. Update with the contract.
 const TOOLS = [
-  "add_decision", "add_result", "answer", "ask", "attach_doc", "claim", "create_task", "get_doc", "get_memory", "get_next", "get_project",
-  "get_resume", "get_task", "list_events", "list_tasks", "reserve_sequence", "set_check", "set_env", "set_project", "set_task",
+  "add_decision", "add_result", "answer", "archive_legacy_card", "ask", "attach_doc", "audit", "batch", "claim", "consume", "create_task",
+  "get_context", "get_doc", "get_inbox", "get_memory", "get_next", "get_project", "get_resume", "get_task", "handoff", "lease_resource",
+  "list_events", "list_tasks", "release_resource", "request_approval", "reserve_sequence", "retire_decision", "set_check", "set_env",
+  "set_metric", "set_project", "set_task", "waive_check",
 ];
 
 test("exposes exactly the contract tools", async () => {
@@ -221,7 +270,7 @@ describe("handoff cycle: create → get_next → In progress → In review", () 
     const f2 = await call("create_task", {
       project: "filmia", key: "FIL-01-F2", title: "F2", scope: "Phase 2", parent_key: "FIL-01", blocked_by: ["FIL-01-F1"],
     });
-    assert.deepEqual(f2.blocked_by, [{ task: "FIL-01-F1", status: "Backlog", satisfied: false }]);
+    assert.deepEqual(f2.blocked_by, [{ type: "task", task: "FIL-01-F1", status: "Backlog", satisfied: false }]);
 
     assert.equal((await call("get_next", { project: "filmia" })).task.key, "FIL-01-F1");
 
@@ -229,10 +278,10 @@ describe("handoff cycle: create → get_next → In progress → In review", () 
     const claimed = await call("claim", { project: "filmia", key: "FIL-01-F1" });
     assert.equal(claimed.status, "In progress");
     assert.deepEqual(claimed.claim.owner, A);
-    assert.equal(lastLog(claimed).type, "claim.acquired");
+    assert.equal((await lastLog("filmia", "FIL-01-F1")).type, "claim.acquired");
     const noted = await call("set_task", { project: "filmia", key: "FIL-01-F1", note: "started", version: "none" });
     assert.equal(noted.scope, "Phase 1", "notes never touch scope");
-    assert.equal(lastLog(noted).payload.text, "started");
+    assert.equal((await lastLog("filmia", "FIL-01-F1")).payload.text, "started");
 
     assert.deepEqual(await call("get_next", { project: "filmia" }), { task: null }, "F2 stays blocked while F1 is In progress");
 
@@ -245,12 +294,12 @@ describe("handoff cycle: create → get_next → In progress → In review", () 
     assert.equal(reviewed.claim, null, "In review releases the lease");
     assert.equal(reviewed.branch, "feat/f1");
     assert.equal(reviewed.pr_url, "https://github.com/Jorg3L3on/filmia/pull/1");
-    assert.equal(lastLog(reviewed).payload.text, "Result: ✓ unit — 12 tests pass");
+    assert.equal((await lastLog("filmia", "FIL-01-F1")).payload.text, "Result: ✓ unit — 12 tests pass");
     assert.equal(await resolvedAt("FIL-01-F1"), null, "In review is not Done");
 
     const next = await call("get_next", { project: "filmia" });
     assert.equal(next.task.key, "FIL-01-F2", "In review unblocks");
-    assert.deepEqual(next.task.blocked_by, [{ task: "FIL-01-F1", status: "In review", satisfied: true }]);
+    assert.deepEqual(next.task.blocked_by, [{ type: "task", task: "FIL-01-F1", status: "In review", satisfied: true }]);
 
     const counts = (await call("get_project", { project: "filmia" })).counts;
     assert.deepEqual(counts, { chartered: 2, charteredSettled: 1, found: 0, foundOpen: 0 });
@@ -269,13 +318,12 @@ describe("set_task", () => {
   });
 
   test("Done sets resolved_at; leaving Done clears it", async () => {
-    const asked = { confirm_by_jorge: true, reason: "Jorge: merged, mark it Done" };
-    await call("set_task", { project: "micasa", key: "MIC-B-01", status: "Done", ...asked });
+    await call("set_task", { project: "micasa", key: "MIC-B-01", status: "Done", approval_id: await approve("micasa", "MIC-B-01", "done") });
     const first = await resolvedAt("MIC-B-01");
     assert.ok(first instanceof Date);
     await call("set_task", { project: "micasa", key: "MIC-B-01", status: "Done", summary: "again" });
     assert.deepEqual(await resolvedAt("MIC-B-01"), first, "re-marking Done keeps the first timestamp");
-    await call("set_task", { project: "micasa", key: "MIC-B-01", status: "Ready", ...asked });
+    await call("set_task", { project: "micasa", key: "MIC-B-01", status: "Ready", approval_id: await approve("micasa", "MIC-B-01", "reopen") });
     assert.equal(await resolvedAt("MIC-B-01"), null);
   });
 
@@ -304,8 +352,10 @@ describe("set_task", () => {
   test("scope replace, then the note goes to the log", async () => {
     const t = await call("set_task", { project: "micasa", key: "MIC-02-F2", scope: "New scope\n", note: "re-scoped" });
     assert.equal(t.scope, "New scope\n");
-    assert.deepEqual(t.log.slice(-2).map((e: Json) => e.type), ["task.updated", "note"]);
-    assert.deepEqual(lastLog(t).actor, A);
+    assert.deepEqual(t.changed, ["scope", "note"]);
+    const log = await logOf("micasa", "MIC-02-F2");
+    assert.deepEqual(log.slice(-2).map((e: Json) => e.type), ["task.updated", "note"]);
+    assert.deepEqual(log.at(-1)!.actor, A);
   });
 
   test("initiatives take their own fields but not ticket-only fields", async () => {
@@ -337,13 +387,15 @@ describe("set_task", () => {
 });
 
 describe("initiative status through set_task", () => {
-  test("sets initiative statuses and stamps Done", async () => {
-    const asked = { confirm_by_jorge: true, reason: "Jorge asked" };
-    const t = await call("set_task", { project: "micasa", key: "MIC-01", status: "Done", ...asked });
+  test("sets initiative statuses and stamps Done; an initiative with open tickets cannot close", async () => {
+    const r = await call("set_task", { project: "micasa", key: "MIC-01", status: "Done", approval_id: await approve("micasa", "MIC-01", "done") });
+    assert.equal(r.__error, "INITIATIVE_CHILDREN_OPEN");
+    await call("create_task", { project: "micasa", kind: "initiative", key: "MIC-I-DONE", title: "Closed out", scope: "PRD" });
+    const t = await call("set_task", { project: "micasa", key: "MIC-I-DONE", status: "Done", approval_id: await approve("micasa", "MIC-I-DONE", "done") });
     assert.equal(t.status, "Done");
-    assert.ok((await resolvedAt("MIC-01")) instanceof Date);
-    await call("set_task", { project: "micasa", key: "MIC-01", status: "On hold", ...asked });
-    assert.equal(await resolvedAt("MIC-01"), null);
+    assert.ok((await resolvedAt("MIC-I-DONE")) instanceof Date);
+    await call("set_task", { project: "micasa", key: "MIC-I-DONE", status: "On hold", approval_id: await approve("micasa", "MIC-I-DONE", "reopen") });
+    assert.equal(await resolvedAt("MIC-I-DONE"), null);
   });
 
   test("errors", async () => {
@@ -396,9 +448,9 @@ describe("v2 A1: actor, events, UTC time", () => {
 
   test("every write records an event with its actor; a failed write records none", async () => {
     const before = await eventCount();
-    const t = await call("create_task", { project: "zigzag", key: "ZIG-B-01", title: "x" });
+    await call("create_task", { project: "zigzag", key: "ZIG-B-01", title: "x" });
     assert.equal(await eventCount(), before + 1);
-    assert.deepEqual(t.log.map((e: Json) => [e.type, e.actor.session_id]), [["task.created", "s1"]]);
+    assert.deepEqual((await logOf("zigzag", "ZIG-B-01")).map((e: Json) => [e.type, e.actor.session_id]), [["task.created", "s1"]]);
     await expectError("create_task", { project: "zigzag", key: "ZIG-B-02", title: "x", blocked_by: ["NOPE"] }, "BLOCKER_NOT_FOUND", 400);
     await expectError("set_task", { project: "zigzag", key: "ZIG-B-01", status: "Nope" }, "INVALID_STATUS", 400);
     assert.equal(await eventCount(), before + 1);
@@ -479,8 +531,8 @@ describe("v2 A3: leases", () => {
 
   test("while A holds it, B cannot change fields but can add a note", async () => {
     await expectError("set_task", { ...P, key: "WRK-L-01", summary: "x", actor: B }, "NOT_OWNER", 409);
-    const t = await call("set_task", { ...P, key: "WRK-L-01", note: "QA saw it", actor: B, version: "none" });
-    assert.equal(lastLog(t).actor.session_id, "s2");
+    await call("set_task", { ...P, key: "WRK-L-01", note: "QA saw it", actor: B, version: "none" });
+    assert.equal((await lastLog("workia", "WRK-L-01")).actor.session_id, "s2");
   });
 
   test("heartbeat extends without bumping the version; only the owner may", async () => {
@@ -506,9 +558,10 @@ describe("v2 A3: leases", () => {
 
     const t = await call("claim", { ...P, key: "WRK-L-01", actor: B });
     assert.deepEqual(t.claim.owner, B);
-    const types = t.log.slice(-2).map((e: Json) => [e.type, e.actor.session_id]);
+    const log = await logOf("workia", "WRK-L-01");
+    const types = log.slice(-2).map((e: Json) => [e.type, e.actor.session_id]);
     assert.deepEqual(types, [["claim.expired", "system"], ["claim.acquired", "s2"]]);
-    assert.equal(t.log.at(-2).payload.owner.session_id, "s1");
+    assert.equal(log.at(-2)!.payload.owner.session_id, "s1");
     assert.equal(t.workspace.worktree_path, "/w/one", "the workspace outlives the lease");
   });
 
@@ -523,7 +576,7 @@ describe("v2 A3: leases", () => {
     const t = await call("claim", { ...P, key: "WRK-L-01", action: "release", release_to: "Backlog", actor: B });
     assert.equal(t.status, "Backlog");
     assert.equal(t.claim, null);
-    assert.equal(lastLog(t).type, "claim.released");
+    assert.equal((await lastLog("workia", "WRK-L-01")).type, "claim.released");
     const again = await call("claim", { ...P, key: "WRK-L-01", action: "release", actor: B });
     assert.equal(again.version, t.version);
   });
@@ -563,7 +616,7 @@ describe("v2 A4: generated resume", () => {
     await call("add_decision", { ...P, text: "Not pinned", task_key: "FIL-09" });
     await raw.query("update projects set resume_in_progress = 'old card' where slug = 'filmia'");
 
-    const r = await call("get_resume", P);
+    const r = await call("get_resume", { ...P, include_legacy: true });
     assert.match(r.generated_at, /Z$/);
     const i = r.initiatives.find((x: Json) => x.key === "FIL-09");
     assert.equal(i.in_progress.note, "F4 first");
@@ -575,6 +628,8 @@ describe("v2 A4: generated resume", () => {
     assert.deepEqual(r.must_keep.map((d: Json) => d.text), ["Plania is the source of the plan"]);
     assert.ok(r.claims.some((c: Json) => c.key === "FIL-09-F4"));
     assert.equal(r.legacy_card.in_progress, "old card");
+    assert.equal(r.legacy_card_present, true);
+    assert.equal((await call("get_resume", P)).legacy_card, undefined, "hidden unless asked for");
     assert.ok(r.recent.length > 0 && r.recent[0].at.endsWith("Z"));
   });
 
@@ -709,16 +764,19 @@ describe("v2 B1: state machine and work types", () => {
     }
   });
 
-  test("Done is Jorge's: HUMAN_ONLY, unless he asked and the agent says so", async () => {
+  test("Done is Jorge's: HUMAN_ONLY, unless he granted an approval the agent passes", async () => {
     await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Done" }, "HUMAN_ONLY", 403);
     await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Won't do" }, "HUMAN_ONLY", 403);
     await expectError("set_task", { ...P, key: "ZIG-M-I", status: "Done" }, "HUMAN_ONLY", 403);
-    await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Done", confirm_by_jorge: true }, "OVERRIDE_REQUIRES_REASON", 400);
-    const t = await call("set_task", { ...P, key: "ZIG-M-01", status: "Done", confirm_by_jorge: true, reason: "Jorge: ship it" });
+    // confirm_by_jorge is gone: the schema drops it and the move is still Jorge's.
+    await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Done", confirm_by_jorge: true, reason: "x" }, "HUMAN_ONLY", 403);
+    const id = await approve("zigzag", "ZIG-M-01", "done");
+    const t = await call("set_task", { ...P, key: "ZIG-M-01", status: "Done", approval_id: id });
     assert.equal(t.status, "Done");
-    const override = t.log.find((e: Json) => e.type === "task.human_override");
-    assert.deepEqual(override.payload, { from: "In progress", to: "Done", reason: "Jorge: ship it" });
+    const moved = (await logOf("zigzag", "ZIG-M-01")).find((e: Json) => e.type === "task.approved_move");
+    assert.deepEqual(moved!.payload, { from: "In progress", to: "Done", approval_id: id });
     await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Ready" }, "HUMAN_ONLY", 403);
+    await expectError("set_task", { ...P, key: "ZIG-M-01", status: "Ready", approval_id: id }, "APPROVAL_MISMATCH", 403);
   });
 
   test("work_type defaults to code, can be set on tickets, and is checked", async () => {
@@ -758,7 +816,7 @@ describe("v2 B2: scope, checks, log", () => {
     assert.deepEqual(t.checks.map((c: Json) => c.done), [false, true]);
     assert.equal(t.checks[1].done_by.session_id, "s1");
     assert.match(t.checks[1].done_at, /Z$/);
-    assert.deepEqual(t.log.slice(-2).map((e: Json) => e.type), ["note", "check.set"]);
+    assert.deepEqual((await logOf("zigzag", "ZIG-02-F1")).slice(-2).map((e: Json) => e.type), ["note", "check.set"]);
     await expectError("set_check", { ...P, key: "ZIG-02-F1", n: 9, done: true }, "CHECK_NOT_FOUND", 404);
   });
 
@@ -768,7 +826,7 @@ describe("v2 B2: scope, checks, log", () => {
       checks: [{ n: 2, text: "PR to sandbox (green)" }, { text: "OCR at 95%" }],
     });
     assert.deepEqual(t.checks.map((c: Json) => [c.n, c.text, c.done]), [[2, "PR to sandbox (green)", true], [3, "OCR at 95%", false]]);
-    const changes = t.log.at(-1).payload.changes;
+    const changes = (await lastLog("zigzag", "ZIG-02-F1")).payload.changes;
     assert.deepEqual(changes.scope, ["Scan receipts", "Scan and OCR receipts"]);
     assert.deepEqual(changes.checks[1], ["PR to sandbox (green)", "OCR at 95%"]);
     await expectError("set_task", { ...P, key: "ZIG-02-F1", checks: [{ n: 99, text: "x" }] }, "CHECK_NOT_FOUND", 404);
@@ -791,10 +849,10 @@ describe("v2 B3: evidence", () => {
 
   test("code needs a passing unit|integration|test|live|ci result from this claim", async () => {
     await ticket("WRK-E-01", "code");
-    await expectError("set_task", { ...P, key: "WRK-E-01", status: "In review" }, "EVIDENCE_REQUIRED", 409);
+    await expectError("set_task", { ...P, key: "WRK-E-01", status: "In review", open_checks: true }, "EVIDENCE_REQUIRED", 409);
     await call("add_result", { ...P, key: "WRK-E-01", kind: "grep", verdict: "pass", cite: "no TODO left" });
     await call("add_result", { ...P, key: "WRK-E-01", kind: "test", verdict: "fail", cite: "2 failing" });
-    await expectError("set_task", { ...P, key: "WRK-E-01", status: "In review" }, "EVIDENCE_REQUIRED", 409);
+    await expectError("set_task", { ...P, key: "WRK-E-01", status: "In review", open_checks: true }, "EVIDENCE_REQUIRED", 409);
     const { result, task } = await call("add_result", {
       ...P, key: "WRK-E-01", kind: "ci", verdict: "pass", cite: "CI green", url: "https://ci.example/run/1", check_ns: [1], actor: B,
     });
@@ -809,13 +867,13 @@ describe("v2 B3: evidence", () => {
     await call("claim", { ...P, key: "WRK-E-01" });
     await raw.query("update results set created_at = now() - interval '1 hour' where task_id = (select id from tasks where key = 'WRK-E-01')");
     await raw.query("update tasks set claimed_at = now() - interval '1 minute' where key = 'WRK-E-01'");
-    await expectError("set_task", { ...P, key: "WRK-E-01", status: "In review" }, "EVIDENCE_REQUIRED", 409);
+    await expectError("set_task", { ...P, key: "WRK-E-01", status: "In review", open_checks: true }, "EVIDENCE_REQUIRED", 409);
   });
 
   test("ops accepts live|verify|ci; research accepts any result; decision-needed never", async () => {
     await ticket("WRK-E-02", "ops");
     await call("add_result", { ...P, key: "WRK-E-02", kind: "unit", verdict: "pass", cite: "n/a" });
-    await expectError("set_task", { ...P, key: "WRK-E-02", status: "In review" }, "EVIDENCE_REQUIRED", 409);
+    await expectError("set_task", { ...P, key: "WRK-E-02", status: "In review", open_checks: true }, "EVIDENCE_REQUIRED", 409);
     await call("add_result", { ...P, key: "WRK-E-02", kind: "verify", verdict: "pass", cite: "0008 applied on Neon" });
     assert.equal((await call("set_task", { ...P, key: "WRK-E-02", status: "In review" })).status, "In review");
 
@@ -825,12 +883,14 @@ describe("v2 B3: evidence", () => {
 
     await ticket("WRK-E-04", "decision-needed");
     await call("add_result", { ...P, key: "WRK-E-04", kind: "test", verdict: "pass", cite: "x" });
-    await expectError("set_task", { ...P, key: "WRK-E-04", status: "In review" }, "EVIDENCE_REQUIRED", 409);
+    await expectError("set_task", { ...P, key: "WRK-E-04", status: "In review", open_checks: true }, "EVIDENCE_REQUIRED", 409);
   });
 
-  test("set_check with evidence_id needs a result of the same task; bad results are INVALID_RESULT", async () => {
+  test("set_check with evidence_id needs a result of the project (any task, with its source); bad results are INVALID_RESULT", async () => {
+    await expectError("set_check", { ...P, key: "WRK-E-02", n: 1, done: true, evidence_id: "00000000-0000-0000-0000-000000000000" }, "RESULT_NOT_FOUND", 404);
     const other = (await call("get_task", { ...P, key: "WRK-E-01" })).results[0].id;
-    await expectError("set_check", { ...P, key: "WRK-E-02", n: 1, done: true, evidence_id: other }, "RESULT_NOT_FOUND", 404);
+    const cross = await call("set_check", { ...P, key: "WRK-E-02", n: 1, done: true, evidence_id: other });
+    assert.equal(cross.check.source, "WRK-E-01", "evidence from another task names its source");
     const mine = (await call("get_task", { ...P, key: "WRK-E-02" })).results[0].id;
     const t = await call("set_check", { ...P, key: "WRK-E-02", n: 1, done: true, evidence_id: mine });
     assert.equal(t.checks[0].evidence_id, mine);
@@ -868,7 +928,7 @@ describe("v2 B4: docs", () => {
   test("a research ticket can enter In review with a doc and no result", async () => {
     await call("create_task", { ...P, key: "MIC-R-01", title: "Compare OCR libs", work_type: "research" });
     await call("claim", { ...P, key: "MIC-R-01" });
-    await expectError("set_task", { ...P, key: "MIC-R-01", status: "In review" }, "EVIDENCE_REQUIRED", 409);
+    await expectError("set_task", { ...P, key: "MIC-R-01", status: "In review", open_checks: true }, "EVIDENCE_REQUIRED", 409);
     await call("attach_doc", { ...P, key: "MIC-R-01", title: "Findings", markdown: "Tesseract wins" });
     assert.equal((await call("set_task", { ...P, key: "MIC-R-01", status: "In review" })).status, "In review");
   });
@@ -881,14 +941,14 @@ describe("v2 B5: decisions", () => {
     const old = (await call("add_decision", { ...P, text: "Quitar de Filmia with strong confirm", task_key: "FIL-09-F4", tags: ["UX", "delete"], pin: true })).decision;
     assert.deepEqual(old.tags, ["ux", "delete"]);
     const neu = (await call("add_decision", { ...P, text: "No delete at all; orphans are kept", supersedes: old.id })).decision;
-    assert.equal(neu.supersedes, old.id);
+    assert.deepEqual(neu.supersedes, [old.id]);
     assert.equal(neu.task_key, "FIL-09-F4", "a reversal inherits the task");
     assert.equal(neu.pinned, true, "and the pin");
     const r = await call("add_decision", { ...P, text: "again", supersedes: old.id });
     assert.equal(r.__error, "ALREADY_SUPERSEDED");
     await expectError("add_decision", { ...P, text: "x", supersedes: "00000000-0000-0000-0000-000000000000" }, "DECISION_NOT_FOUND", 404);
 
-    const m = await call("get_memory", { ...P, task_key: "FIL-09-F4" });
+    const m = await call("get_memory", { ...P, task_key: "FIL-09-F4", include_superseded: true });
     assert.deepEqual(m.decisions.map((d: Json) => [d.text, d.superseded_by]), [
       ["No delete at all; orphans are kept", null],
       ["Quitar de Filmia with strong confirm", neu.id],
@@ -903,9 +963,10 @@ describe("v2 B5: decisions", () => {
     const byInitiative = await call("get_memory", { ...P, initiative_key: "FIL-09" });
     assert.ok(byInitiative.decisions.length >= 3);
     assert.ok(byInitiative.decisions.every((d: Json) => d.task_key?.startsWith("FIL-09")));
-    const tagged = await call("get_memory", { ...P, tag: "UX" });
+    assert.deepEqual((await call("get_memory", { ...P, tag: "UX" })).decisions, [], "reversed decisions are hidden by default");
+    const tagged = await call("get_memory", { ...P, tag: "UX", include_superseded: true });
     assert.deepEqual(tagged.decisions.map((d: Json) => d.text), ["Quitar de Filmia with strong confirm"]);
-    const current = await call("get_memory", { ...P, task_key: "FIL-09-F4", include_superseded: false });
+    const current = await call("get_memory", { ...P, task_key: "FIL-09-F4" });
     assert.equal(current.decisions.length, 1);
     await expectError("get_memory", { ...P, initiative_key: "FIL-09-F4" }, "INITIATIVE_NOT_FOUND", 404);
   });
@@ -927,12 +988,12 @@ describe("v2 B6: environments", () => {
       blocked_by: [{ env: "prod", condition: "migration_gte", value: "0009" }],
     });
     let t = await call("get_task", { ...P, key: "WRK-V-01" });
-    assert.deepEqual(t.blocked_by, [{ env: "prod", condition: "migration_gte", value: "9", current: null, satisfied: false }]);
+    assert.deepEqual(t.blocked_by, [{ type: "env", env: "prod", condition: "migration_gte", value: "9", current: null, satisfied: false }]);
     await expectError("claim", { ...P, key: "WRK-V-01" }, "NOT_CLAIMABLE", 409);
     const { rows } = await raw.query("select status from tasks where key = 'WRK-V-01'");
     assert.equal(rows[0].status, "Backlog");
 
-    const { env } = await call("set_env", { ...P, env: "prod", commit: "abc1234", branch: "main", migrations_applied: 9, deployed: true });
+    const { env } = await call("set_env", { ...P, env: "prod", commit: "abc1234", branch: "main", migrations_applied: 9, deployed: { provider: "manual", deployment_id: "d-0" } });
     assert.equal(env.migrations_applied, 9);
     assert.match(env.deployed_at, /Z$/);
     assert.equal(env.by.session_id, "s1");
@@ -951,7 +1012,7 @@ describe("v2 B6: environments", () => {
     });
     let t = await call("get_task", { ...P, key: "WRK-V-02" });
     assert.deepEqual(t.blocked_by.map((b: Json) => b.satisfied), [false, false, false]);
-    await call("set_env", { ...P, env: "prod", commits: ["deadbeef1234567"], deployed: true });
+    await call("set_env", { ...P, env: "prod", commits: ["deadbeef1234567"], deployed: { provider: "manual", deployment_id: "d-1" } });
     t = await call("get_task", { ...P, key: "WRK-V-02" });
     assert.deepEqual(t.blocked_by.map((b: Json) => [b.task ?? b.condition, b.satisfied]), [
       ["WRK-V-01", false], ["contains_commit", true], ["deployed_after", true],
@@ -993,19 +1054,22 @@ describe("v2 C1: questions", () => {
     const second = (await call("ask", { ...P, key: "MIC-Q-01", question: "Max file size?", actor: B })).question;
     assert.equal((await call("get_resume", P)).open_questions.length, 2);
 
-    const a = await call("answer", { ...P, question_id: question.id, answer: "Yes, BBVA too" });
-    assert.equal(a.decision.text, "Support BBVA's CSV too? → Yes, BBVA too");
+    const a = await call("answer", { ...P, question_id: question.id, answer: "Yes, BBVA too", decision_text: "Importar también el CSV de BBVA" });
+    assert.equal(a.decision.text, "Importar también el CSV de BBVA");
     assert.deepEqual(a.decision.tags, ["answer"]);
     assert.equal(a.decision.task_key, "MIC-Q-01");
+    assert.equal(a.question.decision_id, a.decision.id);
     assert.equal(a.task.status, "Needs Jorge", "one question is still open");
     const b = await call("answer", { ...P, question_id: second.id, answer: "10 MB" });
+    assert.equal(b.decision, null, "an answer without decision_text writes no decision");
+    assert.equal(b.question.decision_id, null);
     assert.equal(b.task.status, "In progress");
     assert.equal(b.task.claim.live, true);
     await expectError("answer", { ...P, question_id: second.id, answer: "again" }, "ALREADY_ANSWERED", 409);
     await expectError("answer", { ...P, question_id: "00000000-0000-0000-0000-000000000000", answer: "x" }, "QUESTION_NOT_FOUND", 404);
     await expectError("ask", { ...P, key: "MIC-Q-01", question: "  " }, "INVALID_QUESTION", 400);
     const m = await call("get_memory", { ...P, task_key: "MIC-Q-01" });
-    assert.equal(m.decisions.length, 2);
+    assert.equal(m.decisions.length, 1);
   });
 
   test("In progress whose lease ran out comes back as Ready", async () => {
@@ -1072,11 +1136,11 @@ describe("v2 C2: list_events", () => {
 describe("v2 C4: protocol and project text", () => {
   test("the protocol comes with initialize, versioned", async () => {
     const text = client.getInstructions() ?? "";
-    assert.match(text, /^Plania protocol 2\.0\./);
+    assert.match(text, /^Plania protocol 2\.3\./);
     assert.match(text, /Never set Done or Won't do/);
-    assert.equal(client.getServerVersion()?.version, "2.0.0");
+    assert.equal(client.getServerVersion()?.version, "2.3.0");
     const p = await call("get_project", { project: "zigzag" });
-    assert.equal(p.protocol_version, "2.0");
+    assert.equal(p.protocol_version, "2.3");
   });
 
   test("set_project edits body and rules with the version; rules_version follows the rules", async () => {
@@ -1137,7 +1201,9 @@ describe("v2 D2: ticket template", () => {
     assert.deepEqual(JSON.parse(text).missing, ["checks"]);
     const research = await call("create_task", { ...P, key: "WRK-T-02", title: "x", scope: "Compare", work_type: "research" });
     assert.equal(research.key, "WRK-T-02");
-    assert.equal(research.warnings, undefined);
+    assert.deepEqual(research.warnings, ["key does not follow the scheme WRK-<n>: omit key to get the next one"]);
+    const assigned = await call("create_task", { ...P, title: "x", scope: "Compare", work_type: "research" });
+    assert.equal(assigned.warnings, undefined);
   });
 
   test("conventions only warn", async () => {
@@ -1145,7 +1211,7 @@ describe("v2 D2: ticket template", () => {
     const ok = await call("create_task", { ...P, key: "WRK-T-F1", title: "F1", parent_key: "WRK-T", phase: 1, scope: "s", checks: ["c"] });
     assert.equal(ok.warnings, undefined);
     const odd = await call("create_task", { ...P, key: "WRK-T-X", title: "F2", parent_key: "WRK-T", phase: 2, scope: "s", checks: ["c"] });
-    assert.deepEqual(odd.warnings, ["key does not follow the convention WRK-T-F2"]);
+    assert.deepEqual(odd.warnings, ["key does not follow the scheme WRK-T-<n>: omit key to get the next one"]);
     const bucket = await call("create_task", { ...P, key: "WRK-T-Y", title: "loose end", parent_key: "WRK-T", scope: "s", checks: ["c"] });
     assert.match(bucket.warnings[0], /^no phase/);
     const empty = await call("create_task", { ...P, kind: "initiative", key: "WRK-T2", title: "No PRD" });

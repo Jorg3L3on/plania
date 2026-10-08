@@ -1,7 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 import { getCookie } from "hono/cookie";
 import { Hono } from "hono";
-import { bearerScope } from "../auth/bearer.js";
+import { resolveBearer } from "../auth/bearer.js";
 import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { docs, envCommits, projects, tasks } from "../db/schema.js";
@@ -18,8 +18,8 @@ export const exporter = new Hono();
 exporter.get("/api/export/:file", async (c) => {
   const file = c.req.param("file");
   if (!file.endsWith(".json")) return c.json({ error: "NOT_FOUND" }, 404);
-  const scope = bearerScope(c.req.header("Authorization"));
-  if (!verifySession(getCookie(c, SESSION_COOKIE)) && scope !== "rw" && scope !== "ro") {
+  const auth = await withDb((db) => resolveBearer(db, c.req.header("Authorization")));
+  if (!verifySession(getCookie(c, SESSION_COOKIE)) && !auth?.scopes.includes("read")) {
     return c.json({ error: "UNAUTHORIZED" }, 401);
   }
   const slug = file.slice(0, -".json".length);
@@ -52,7 +52,7 @@ exporter.get("/api/export/:file", async (c) => {
       },
       tasks: await Promise.all(
         rows.map(async (t) => {
-          const { log: _log, log_total: _total, ...shape } = await taskShape(db, t);
+          const { log_total: _total, ...shape } = await taskShape(db, t);
           return { ...shape, legacy_body: t.body || undefined };
         }),
       ),

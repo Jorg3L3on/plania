@@ -33,6 +33,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       const event = JSON.parse((msg as MessageEvent).data) as LiveEvent;
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
       void queryClient.invalidateQueries({ queryKey: ["project", event.project] });
+      void queryClient.invalidateQueries({ queryKey: ["inbox"] });
       if (!event.key) return;
       const id = `${event.project}/${event.key}`;
       if (Date.now() - (local.current.get(id) ?? 0) < LOCAL_ECHO_MS) return; // our own write

@@ -4,12 +4,12 @@ import { decisions, questions, tasks, type Task } from "../db/schema.js";
 import { decisionShape } from "./decisions.js";
 import { ToolError } from "./errors.js";
 import { TERMINAL, assertTransition } from "./lifecycle.js";
-import { findProject, liveOwner, requireTask, taskShape } from "./queries.js";
+import { findProject, liveOwner, requireTask, writeReply } from "./queries.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 
 // Questions for Jorge live in Plania, not in one session's chat. ask puts a ticket in Needs Jorge
-// (initiatives keep their status); answer records the reply, logs it as a decision on the task and,
-// once no question is left open, puts the ticket back where it was.
+// (initiatives keep their status); answer records the reply, logs a decision on the task when the
+// caller gives decision_text and, once no question is left open, puts the ticket back where it was.
 
 type QuestionRow = typeof questions.$inferSelect;
 
@@ -72,16 +72,21 @@ export async function ask(
       // The lease stays: the asker keeps the ticket while Jorge thinks (heartbeat to keep it).
       await tx
         .update(tasks)
-        .set({ status: "Needs Jorge", version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
+        .set({ status: "Needs Jorge", statusChangedAt: sql`now()`, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
         .where(eq(tasks.id, t.id));
       await emit("task.status", t, { from: t.status, to: "Needs Jorge" });
     }
     await emit("question.asked", t, { question_id: q!.id, question: q!.question, options: q!.options });
-    return { question: questionShape(q!, t.key), task: await taskShape(tx, await requireTask(tx, p.id, input.key)) };
+    const u = await requireTask(tx, p.id, t.key);
+    return writeReply(tx, u, ctx, moves ? ["questions", "status"] : ["questions"], { question: questionShape(q!, t.key) });
   });
 }
 
-export async function answer(db: Db, input: { project: string; question_id: string; answer: string }, ctx: Ctx) {
+export async function answer(
+  db: Db,
+  input: { project: string; question_id: string; answer: string; decision_text?: string },
+  ctx: Ctx,
+) {
   if (!input.answer.trim()) throw new ToolError("INVALID_QUESTION", { field: "answer" });
   const p = await findProject(db, input.project);
   return writeTx(db, p, ctx, async (tx, emit) => {
@@ -95,18 +100,23 @@ export async function answer(db: Db, input: { project: string; question_id: stri
     const { q, t } = row;
     if (q.answeredAt) throw new ToolError("ALREADY_ANSWERED", { answer: q.answer, answered_by: q.answeredBy });
 
-    const text = `${q.question} → ${input.answer}`.slice(0, 2_000);
-    const [d] = await tx
-      .insert(decisions)
-      .values({ projectId: p.id, line: text, taskId: t.id, tags: ["answer"], actor: ctx.actor })
-      .returning();
+    // 2.1: an answer is a decision only when the caller says what was decided (decision_text);
+    // otherwise the answer stays on the question and the decision log keeps its signal.
+    let d: typeof decisions.$inferSelect | undefined;
+    if (input.decision_text?.trim()) {
+      if (/^\s*\d{4}-\d{2}-\d{2}\b/.test(input.decision_text)) throw new ToolError("TEXT_HAS_DATE");
+      [d] = await tx
+        .insert(decisions)
+        .values({ projectId: p.id, line: input.decision_text.trim().slice(0, 2_000), taskId: t.id, tags: ["answer"], actor: ctx.actor })
+        .returning();
+    }
     const [answered] = await tx
       .update(questions)
-      .set({ answer: input.answer, answeredBy: ctx.actor, answeredAt: sql`now()`, decisionId: d!.id })
+      .set({ answer: input.answer, answeredBy: ctx.actor, answeredAt: sql`now()`, decisionId: d?.id ?? null })
       .where(eq(questions.id, q.id))
       .returning();
-    await emit("question.answered", t, { question_id: q.id, answer: input.answer, decision_id: d!.id });
-    await emit("decision.added", t, { decision_id: d!.id, text, tags: ["answer"] });
+    await emit("question.answered", t, { question_id: q.id, answer: input.answer, decision_id: d?.id ?? null });
+    if (d) await emit("decision.added", t, { decision_id: d.id, text: d.line, tags: ["answer"] });
 
     // Back to where it was once nothing is left open. In progress without a live lease is Ready.
     const [first] = await tx
@@ -120,20 +130,22 @@ export async function answer(db: Db, input: { project: string; question_id: stri
       .from(questions)
       .where(and(eq(questions.taskId, t.id), isNull(questions.answeredAt)))
       .limit(1);
+    const changed = ["questions"];
     if (t.status === "Needs Jorge" && !stillOpen) {
       let to = first?.statusBefore ?? "Ready";
       if (to === "In progress" && !liveOwner(t)) to = "Ready";
       assertTransition(t.kind, t.status, to, { via: "answer" });
       await tx
         .update(tasks)
-        .set({ status: to, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
+        .set({ status: to, statusChangedAt: sql`now()`, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
         .where(eq(tasks.id, t.id));
       await emit("task.status", t, { from: t.status, to });
+      changed.push("status");
     }
-    return {
+    const u = await requireTask(tx, p.id, t.key);
+    return writeReply(tx, u, ctx, changed, {
       question: questionShape(answered!, t.key),
-      decision: decisionShape(d!, t.key),
-      task: await taskShape(tx, await requireTask(tx, p.id, t.key)),
-    };
+      decision: d ? decisionShape(d, t.key) : null,
+    });
   });
 }

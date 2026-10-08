@@ -23,8 +23,15 @@ test("ticket moves an agent makes with set_task", () => {
     "Backlog → Blocked", "Backlog → Ready",
     "Blocked → Backlog", "Blocked → Ready",
     "In progress → Backlog", "In progress → Blocked", "In progress → In review", "In progress → Ready",
-    "In review → Backlog", "In review → Blocked", "In review → Ready",
+    "In review → Backlog", "In review → Blocked", "In review → Merged", "In review → Ready",
+    "Merged → In review", "Merged → Released",
     "Ready → Backlog", "Ready → Blocked",
+  ]);
+});
+
+test("the pollers (via system) make only the merge and release moves", () => {
+  assert.deepEqual(allowed("ticket", TICKET_STATUSES, { via: "system" }), [
+    "In review → Merged", "In review → Ready", "Merged → Released", "Released → Merged",
   ]);
 });
 
@@ -37,10 +44,13 @@ test("initiative moves an agent makes with set_task", () => {
   ]);
 });
 
-test("Jorge on screen may make any move; an override only opens Done, Won't do and reopening", () => {
+test("Jorge on screen may make any move; an approval only opens the one move it is for", () => {
   assert.equal(allowed("ticket", TICKET_STATUSES, { human: true }).length, TICKET_STATUSES.length * (TICKET_STATUSES.length - 1));
-  const asked = allowed("ticket", TICKET_STATUSES, { override: { confirm_by_jorge: true, reason: "asked" } });
-  assert.ok(asked.includes("In review → Done"));
-  assert.ok(asked.includes("Done → Ready"));
-  assert.ok(!asked.includes("Backlog → In review"));
+  const done = allowed("ticket", TICKET_STATUSES, { approval: { action: "done" } });
+  assert.ok(done.includes("In review → Done"));
+  assert.ok(!done.includes("In review → Won't do"));
+  assert.ok(!done.includes("Done → Ready"));
+  const reopen = allowed("ticket", TICKET_STATUSES, { approval: { action: "reopen" } });
+  assert.ok(reopen.includes("Done → Ready"));
+  assert.ok(!reopen.includes("Backlog → In review"));
 });
