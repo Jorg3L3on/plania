@@ -7,3 +7,5 @@ node_modules
 .DS_Store
 dist
 .claude/
+# Plans, requests and replies live in Plania or chat, not in the repo.
+docs/

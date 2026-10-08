@@ -407,8 +407,7 @@ Follow the protocol in the Plania server's instructions and the project's rules 
 ## Screen
 
 `http://localhost:3737`, password login. React 19, Tailwind 4 and shadcn/ui. Dark ("Noche") by default, with light and
-system themes. Times arrive as UTC and show in the browser's local time. The design and plan are in
-`docs/projects-view-redesign-plan.md`.
+system themes. Times arrive as UTC and show in the browser's local time.
 
 - **Lanes, not steps.** Each open initiative is a lane, plus "Sueltos" for tickets without one. Every lane has the
   same four columns: Hecho (Done), Ahora (In progress, In review, Needs Jorge, Blocked), Siguiente (Ready, or else
