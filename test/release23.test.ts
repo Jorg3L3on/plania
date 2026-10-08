@@ -145,6 +145,10 @@ describe("audit and releases", () => {
     for (const code of ["LEGACY_CARD_PRESENT", "ENV_DEPLOYED_AT_MISSING", "BRANCH_MERGED_NOT_DELETED", "INITIATIVE_STATE_NOTE_STALE", "TASK_MISSING_PR_URL"]) {
       assert.ok(codes.includes(code), `${code} in ${codes}`);
     }
+    // FIL-I1-1 is Done and has no blockers; a Done ticket blocked by a Done ticket is not "blocked but satisfied" either.
+    await call("create_task", { ...P, title: "After ratings", ...T, parent_key: "FIL-I1", blocked_by: ["FIL-I1-1"] });
+    const again = await call("audit", P);
+    assert.ok(!again.findings.some((f: Json) => f.code === "BLOCKED_BUT_SATISFIED"), "only Blocked tickets count");
     const hint = r.findings.find((f: Json) => f.code === "BRANCH_MERGED_NOT_DELETED");
     assert.equal(hint.fix_hint, "git push origin --delete jl/post-qa");
     assert.equal(hint.key, "FIL-I1");

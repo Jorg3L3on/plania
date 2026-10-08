@@ -92,7 +92,7 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   }
   // Blocked tickets whose blockers all hold; claimable tickets that say "not before".
   const blockedButFree = all.length
-    ? await db.select({ key: tasks.key }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.status, "Blocked"), sql`not ${hasUnsatisfiedBlocker(tasks.id)}`, sql`exists (select 1 from ${blockers} b where b.task_id = ${tasks.id}) or exists (select 1 from task_blockers tb where tb.task_id = ${tasks.id})`))
+    ? await db.select({ key: tasks.key }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.status, "Blocked"), sql`not ${hasUnsatisfiedBlocker(tasks.id)}`, sql`(exists (select 1 from ${blockers} b where b.task_id = ${tasks.id}) or exists (select 1 from task_blockers tb where tb.task_id = ${tasks.id}))`))
     : [];
   for (const t of blockedButFree) out.push({ code: "BLOCKED_BUT_SATISFIED", key: t.key, detail: "every blocker holds", fix_hint: "the server promotes it on the next write; or set_task Ready" });
   for (const t of all.filter((t) => t.kind === "ticket" && ["Backlog", "Ready"].includes(t.status))) {
