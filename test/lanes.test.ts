@@ -5,11 +5,13 @@ import {
   LOOSE_LANE_ID,
   branchEdges,
   buildLanes,
+  emptyColumns,
   firstLine,
   foldLanes,
   projectProgress,
   statements,
   statusCounts,
+  waitsLabel,
   yourTurn,
   type LaneTask,
 } from "../ui/src/lib/lanes.js";
@@ -54,13 +56,14 @@ function filmia(): LaneTask[] {
 }
 
 describe("buildLanes", () => {
-  test("one lane per open initiative plus Sueltos, with the four columns", () => {
+  test("one lane per open initiative plus Sueltos, with the five columns", () => {
     const lanes = buildLanes(filmia());
     assert.deepEqual(lanes.map((l) => l.id), ["FIL-01", "FIL-07", LOOSE_LANE_ID]);
 
     const [catalog, postQa, loose] = lanes;
     assert.deepEqual(keys(catalog!.done), ["FIL-01-F4"]);
-    assert.deepEqual(keys(catalog!.now), ["FIL-01-F2", "FIL-01-F1"], "In progress before In review");
+    assert.deepEqual(keys(catalog!.review), ["FIL-01-F1"], "In review has its own column");
+    assert.deepEqual(keys(catalog!.now), ["FIL-01-F2"]);
     assert.deepEqual(keys(catalog!.next), ["FIL-01-F3"], "no Ready ticket: the first Backlog one by key");
     assert.deepEqual(keys(catalog!.later), ["FIL-01-F5"]);
     assert.equal(catalog!.state, "moving");
@@ -71,17 +74,54 @@ describe("buildLanes", () => {
     assert.equal(postQa!.state, "waiting");
 
     assert.equal(loose!.initiative, null);
-    assert.deepEqual(keys(loose!.now), ["FIL-05"]);
+    assert.deepEqual(keys(loose!.review), ["FIL-05"]);
+    assert.deepEqual(keys(loose!.now), []);
     assert.deepEqual(keys(loose!.next), ["FIL-06"]);
   });
 
-  test("the initiative line runs done, now, next, later and marks one station as here", () => {
+  test("the initiative line runs done, review, now, next, later and marks one station as here", () => {
     const catalog = buildLanes(filmia())[0]!;
-    assert.deepEqual(keys(catalog.stations.map((s) => s.task)), ["FIL-01-F4", "FIL-01-F2", "FIL-01-F1", "FIL-01-F3", "FIL-01-F5"]);
-    assert.deepEqual(catalog.stations.map((s) => s.tone), ["done", "now", "review", "pending", "pending"]);
+    assert.deepEqual(keys(catalog.stations.map((s) => s.task)), ["FIL-01-F4", "FIL-01-F1", "FIL-01-F2", "FIL-01-F3", "FIL-01-F5"]);
+    assert.deepEqual(catalog.stations.map((s) => s.tone), ["done", "review", "now", "pending", "pending"]);
     assert.deepEqual(catalog.stations.filter((s) => s.here).map((s) => s.task.key), ["FIL-01-F2"]);
     assert.equal(catalog.closed, 1);
     assert.equal(catalog.total, 5);
+  });
+
+  test("tickets blocked only by other tickets queue in Siguiente, in work order", () => {
+    // Shaped like Ficha cinemática (FIL-I4) on 2026-10-08.
+    const lane = buildLanes([
+      init("FIL-I4"),
+      t("FIL-I4-1", "In review", { parent_key: "FIL-I4", title: "F1 · Canvas" }),
+      t("FIL-I4-2", "In progress", { parent_key: "FIL-I4", title: "F2 · Personas" }),
+      t("FIL-I4-3", "In progress", { parent_key: "FIL-I4", title: "F3 · Volver" }),
+      t("FIL-I4-5", "Blocked", { parent_key: "FIL-I4", title: "F5 · Rail", waits_on: ["FIL-I4-2", "FIL-I3-3"] }),
+      t("FIL-I4-4", "Blocked", { parent_key: "FIL-I4", title: "F4 · Ficha", waits_on: ["FIL-I4-1", "FIL-I4-3"] }),
+      t("FIL-I4-7", "Blocked", { parent_key: "FIL-I4", title: "F7 · Env", waits_on: ["FIL-I4-1"], held: true }),
+      t("FIL-I4-8", "Blocked", { parent_key: "FIL-I4", title: "F8 · Nota", blocked_note: "esperando al banco" }),
+      t("FIL-I4-6", "Ready", { parent_key: "FIL-I4", title: "F6 · Volver" }),
+      t("FIL-I4-9", "Backlog", { parent_key: "FIL-I4", title: "F9 · Luego" }),
+    ])[0]!;
+    assert.deepEqual(keys(lane.review), ["FIL-I4-1"]);
+    assert.deepEqual(keys(lane.now), ["FIL-I4-2", "FIL-I4-3", "FIL-I4-7", "FIL-I4-8"], "a typed blocker or only a note keeps it in En curso");
+    assert.deepEqual(keys(lane.next), ["FIL-I4-6", "FIL-I4-4", "FIL-I4-5"], "Ready first, then queued by key");
+    assert.deepEqual(keys(lane.later), ["FIL-I4-9"], "a queued ticket counts as next, so Backlog waits");
+    assert.equal(lane.stations.find((s) => s.task.key === "FIL-I4-4")!.tone, "pending");
+    assert.equal(waitsLabel(lane.next[1]!, lane), "F1 · F3");
+    assert.equal(waitsLabel(lane.next[2]!, lane), "F2 · FIL-I3-3", "another lane's ticket shows its key");
+  });
+
+  test("a lane with only reviewed work is still moving and its here is the first review", () => {
+    const lane = buildLanes([init("A-01"), t("A-01-1", "Merged", { parent_key: "A-01" }), t("A-01-2", "In review", { parent_key: "A-01" })])[0]!;
+    assert.equal(lane.state, "moving");
+    assert.deepEqual(keys(lane.review), ["A-01-2", "A-01-1"], "In review before Merged");
+    assert.deepEqual(lane.stations.filter((s) => s.here).map((s) => s.task.key), ["A-01-2"]);
+  });
+
+  test("emptyColumns names the columns with nothing in any lane", () => {
+    assert.deepEqual([...emptyColumns(buildLanes(filmia()))], []);
+    const lanes = buildLanes([init("A-01"), t("A-01-1", "In progress", { parent_key: "A-01" }), t("A-01-2", "Ready", { parent_key: "A-01" })]);
+    assert.deepEqual([...emptyColumns(lanes)].sort(), ["done", "later", "review"]);
   });
 
   test("rows keep their order when only recency changes", () => {

@@ -123,9 +123,11 @@ describe("reads", () => {
     assert.equal(p.tasks.at(-1).key, "MIC-01");
     const f1 = p.tasks.find((t: Json) => t.key === "MIC-01-F1");
     assert.deepEqual(Object.keys(f1).sort(), [
-      "base_branch", "blocked_note", "branch", "claimed_by", "key", "kind", "lease_until", "parent_key", "pr_url", "priority",
-      "status", "summary", "title", "updated_at", "version", "work_type",
+      "base_branch", "blocked_note", "branch", "claimed_by", "held", "key", "kind", "lease_until", "parent_key", "pr_url", "priority",
+      "status", "summary", "title", "updated_at", "version", "waits_on", "work_type",
     ]);
+    assert.deepEqual(f1.waits_on, []);
+    assert.equal(f1.held, false);
     assert.equal(f1.parent_key, "MIC-01");
     // Branches feed the "Rama y prod" graph: initiatives carry their base branch.
     assert.equal(p.tasks.find((t: Json) => t.key === "MIC-01").base_branch, "main");
@@ -157,6 +159,25 @@ describe("reads", () => {
     assert.equal(missing.status, 404);
     assert.deepEqual(await missing.json(), { error: "TASK_NOT_FOUND" });
     assert.equal((await req("GET", "/api/projects/micasa/tasks/MIC-01", { cookie: null })).status, 401);
+  });
+
+  test("task rows say which tickets they still wait on and whether another blocker holds them", async () => {
+    const { db, close } = makeDb();
+    try {
+      await writes.createTask(db, { project: "workia", key: "WRK-W1", title: "first", ...T }, ctx);
+      await writes.createTask(db, { project: "workia", key: "WRK-W2", title: "second", ...T }, ctx);
+      await writes.createTask(db, { project: "workia", key: "WRK-W3", title: "queued", ...T, blocked_by: ["WRK-W2", "WRK-W1"] }, ctx);
+      await writes.createTask(db, { project: "workia", key: "WRK-W4", title: "held", ...T, blocked_by: ["WRK-W1", { human_action: { text: "Crear la llave" } }] }, ctx);
+      await raw.query("update tasks set status = 'In review' where key = 'WRK-W2'");
+    } finally {
+      await close();
+    }
+    const tasks = ((await (await req("GET", "/api/projects/workia")).json()) as Json).tasks as Json[];
+    const row = (key: string) => tasks.find((t) => t.key === key)!;
+    assert.deepEqual(row("WRK-W3").waits_on, ["WRK-W1"], "In review counts as settled");
+    assert.equal(row("WRK-W3").held, false);
+    assert.deepEqual(row("WRK-W4").waits_on, ["WRK-W1"]);
+    assert.equal(row("WRK-W4").held, true, "an open human action holds it");
   });
 
   test("unknown project or path is a JSON 404", async () => {

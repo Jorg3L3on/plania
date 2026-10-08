@@ -413,9 +413,12 @@ Follow the protocol in the Plania server's instructions and the project's rules 
 system themes. Times arrive as UTC and show in the browser's local time.
 
 - **Lanes, not steps.** Each open initiative is a lane, plus "Sueltos" for tickets without one. Every lane has the
-  same four columns: Hecho (Done), Ahora (In progress, In review, Needs Jorge, Blocked), Siguiente (Ready, or else
-  the top Backlog ticket) and Después (the rest of the Backlog). Only lanes with work in motion pulse. The rules
-  live in `ui/src/lib/lanes.ts` and are tested in `test/lanes.test.ts`.
+  same five columns: Hecho (Done), En revisión (In review, Merged, Released: one PR per initiative, so phases wait
+  on its branch), En curso (In progress, Needs Jorge, and Blocked by anything but tickets), Siguiente (Ready, then
+  Blocked tickets that only wait on other tickets, shown as "espera F1 · F3"; or else the top Backlog ticket) and
+  Después (the rest of the Backlog). A column empty in every lane narrows to a strip. Only lanes with work in motion
+  pulse. Task rows carry `waits_on` (unsettled ticket blockers) and `held` (any other open blocker) for this. The
+  rules live in `ui/src/lib/lanes.ts` and are tested in `test/lanes.test.ts`.
 - `/` shows one track per project: progress, then an Ahora → Siguiente row per lane, and how many questions wait
   for Jorge. Past four initiatives, lanes still for a week fold behind "Ver todas". Projects without initiatives
   show their generated line. A "Te toca a ti" strip lists Needs Jorge tickets across projects.
@@ -449,7 +452,7 @@ the UI refetches what changed.
 |---|---|
 | `POST /api/login`, `POST /api/logout`, `GET /api/session` | Session |
 | `GET /api/projects` | Projects with their generated line, open question count, and all tasks without scope |
-| `GET /api/projects/:slug` | Generated resume, decisions, and all tasks without scope (with version, lease, `branch` and `base_branch`) |
+| `GET /api/projects/:slug` | Generated resume, decisions, and all tasks without scope (with version, lease, `branch`, `base_branch`, `waits_on` and `held`) |
 | `GET /api/projects/:slug/tasks/:key` | One task, in the `get_task` shape |
 | `PATCH /api/projects/:slug` | `{ headline, version }` |
 | `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note?, version }`, as Jorge through `set_task` |

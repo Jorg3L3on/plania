@@ -35,7 +35,7 @@ function MiniLine({ lane }: { lane: Lane }) {
 function LaneRow({ slug, lane }: { slug: string; lane: Lane }) {
   const { isFresh } = useLive();
   // An agent just changed something in this lane: glow for a moment.
-  const fresh = [lane.initiative, ...lane.now, ...lane.next, ...lane.later, ...lane.done].some((t) => t && isFresh(slug, t.key));
+  const fresh = [lane.initiative, ...lane.review, ...lane.now, ...lane.next, ...lane.later, ...lane.done].some((t) => t && isFresh(slug, t.key));
   const state = LANE_STATE[lane.state];
   const now = lane.now[0];
   const next = lane.next[0];
@@ -58,8 +58,9 @@ function LaneRow({ slug, lane }: { slug: string; lane: Lane }) {
         </span>
       </span>
       <span className={cn("line-clamp-2 min-w-[120px] flex-1 text-sm leading-snug", !now && "text-muted-foreground")}>
-        {now ? now.title : "Nadie trabaja aquí"}
+        {now ? now.title : lane.review.length > 0 ? "Nada en curso" : "Nadie trabaja aquí"}
         {lane.now.length > 1 && <span className="text-muted-foreground"> y {lane.now.length - 1} más</span>}
+        {lane.review.length > 0 && <span className="text-ink-review"> · {lane.review.length} en revisión</span>}
       </span>
       <FlowArrow tone="ready" moving={moving && !!next} className="size-9" />
       <span className={cn("line-clamp-2 min-w-[120px] flex-1 text-sm leading-snug", next ? "text-foreground/90" : "text-muted-foreground")}>
