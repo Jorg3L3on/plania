@@ -17,6 +17,10 @@ export type LaneTask = {
   base_branch?: string | null;
   /** Live lease holder, if any (v2). */
   claimed_by?: { agent: string } | null;
+  /** Keys of tasks it still waits on. */
+  waits_on?: string[];
+  /** Held by a blocker other than a task. */
+  held?: boolean;
 };
 
 /**
@@ -35,9 +39,11 @@ export type Lane = {
   state: LaneState;
   /** Done tickets, most recent first. */
   done: LaneTask[];
-  /** In progress, In review, Merged, Released, Needs Jorge, Blocked. */
+  /** Finished, waiting on review or release: In review, Merged, Released. */
+  review: LaneTask[];
+  /** In progress, Needs Jorge, and Blocked by something other than tickets. */
   now: LaneTask[];
-  /** Ready by priority; if none, the single best Backlog ticket. */
+  /** Ready by priority, then tickets queued behind other tickets; if none, the single best Backlog ticket. */
   next: LaneTask[];
   /** The rest of the Backlog. */
   later: LaneTask[];
@@ -51,8 +57,10 @@ export type Lane = {
 export const LOOSE_LANE_ID = "__loose";
 
 const CLOSED = new Set(["Done", "Won't do"]);
-const ACTIVE_WORK = new Set(["In progress", "In review", "Merged", "Released"]);
-const NOW_ORDER: Record<string, number> = { "In progress": 0, "In review": 1, Merged: 2, Released: 3, "Needs Jorge": 4, Blocked: 5 };
+const REVIEW = new Set(["In review", "Merged", "Released"]);
+const ACTIVE_WORK = new Set(["In progress", ...REVIEW]);
+const NOW_ORDER: Record<string, number> = { "In progress": 0, "Needs Jorge": 1, Blocked: 2 };
+const REVIEW_ORDER: Record<string, number> = { "In review": 0, Merged: 1, Released: 2 };
 const INITIATIVE_ORDER: Record<string, number> = { Active: 0, Shipping: 0, Planning: 1, "On hold": 2 };
 const STATE_ORDER: Record<LaneState, number> = { moving: 0, jorge: 1, blocked: 2, waiting: 3, paused: 4 };
 
@@ -62,7 +70,16 @@ const byPriorityThenKey = (a: LaneTask, b: LaneTask) => priorityRank(a.priority)
 const newestFirst = (a: LaneTask, b: LaneTask) => b.updated_at.localeCompare(a.updated_at);
 const latest = (ts: LaneTask[]) => ts.reduce((m, t) => (t.updated_at > m ? t.updated_at : m), "");
 
-function stationTone(t: LaneTask): StationTone {
+/**
+ * Blocked only by unfinished tickets (this lane's or another's): it waits its turn, it is not stuck.
+ * A typed blocker (env, flag, metric, time, human action) or only a note keeps it in En curso as blocked.
+ */
+export function isQueued(t: LaneTask): boolean {
+  return t.status === "Blocked" && !t.held && (t.waits_on ?? []).length > 0;
+}
+
+function stationTone(t: LaneTask, queued: boolean): StationTone {
+  if (queued) return "pending";
   if (t.status === "Done") return "done";
   if (t.status === "In progress") return "now";
   if (t.status === "In review" || t.status === "Merged" || t.status === "Released") return "review";
@@ -74,27 +91,33 @@ function stationTone(t: LaneTask): StationTone {
 
 function buildLane(id: string, initiative: LaneTask | null, tickets: LaneTask[]): Lane {
   const live = tickets.filter((t) => t.status !== "Won't do");
+  const queued = new Set(live.filter(isQueued));
   const done = live.filter((t) => t.status === "Done").sort(newestFirst);
+  const review = live
+    .filter((t) => REVIEW.has(t.status))
+    .sort((a, b) => REVIEW_ORDER[a.status]! - REVIEW_ORDER[b.status]! || byKey(a, b));
   const now = live
-    .filter((t) => t.status in NOW_ORDER)
+    .filter((t) => t.status in NOW_ORDER && !queued.has(t))
     .sort((a, b) => NOW_ORDER[a.status]! - NOW_ORDER[b.status]! || byPriorityThenKey(a, b));
   const ready = live.filter((t) => t.status === "Ready").sort(byPriorityThenKey);
+  // Queued tickets follow work order (key), so F4 shows before F5.
+  const lined = [...ready, ...[...queued].sort(byKey)];
   const backlog = live.filter((t) => t.status === "Backlog").sort(byPriorityThenKey);
-  const next = ready.length > 0 ? ready : backlog.slice(0, 1);
-  const later = ready.length > 0 ? backlog : backlog.slice(1);
+  const next = lined.length > 0 ? lined : backlog.slice(0, 1);
+  const later = lined.length > 0 ? backlog : backlog.slice(1);
 
   let state: LaneState;
   if (initiative?.status === "On hold") state = "paused";
-  else if (now.some((t) => ACTIVE_WORK.has(t.status))) state = "moving";
+  else if (review.length > 0 || now.some((t) => ACTIVE_WORK.has(t.status))) state = "moving";
   else if (now.some(waitsOnJorge)) state = "jorge";
   else if (now.length > 0) state = "blocked";
   else state = "waiting";
 
-  const firstNow = now.find((t) => ACTIVE_WORK.has(t.status)) ?? now[0];
-  const stations: Station[] = [...[...done].reverse(), ...now, ...next, ...later].map((task) => ({
+  const here = now.find((t) => t.status === "In progress") ?? review[0] ?? now[0];
+  const stations: Station[] = [...[...done].reverse(), ...review, ...now, ...next, ...later].map((task) => ({
     task,
-    tone: stationTone(task),
-    here: task === firstNow,
+    tone: stationTone(task, queued.has(task)),
+    here: task === here,
   }));
 
   return {
@@ -102,6 +125,7 @@ function buildLane(id: string, initiative: LaneTask | null, tickets: LaneTask[])
     initiative,
     state,
     done,
+    review,
     now,
     next,
     later,
@@ -122,7 +146,7 @@ export function buildLanes(tasks: LaneTask[]): Lane[] {
   const tickets = tasks.filter((t) => t.kind === "ticket");
 
   const lanes = initiatives.map((i) => buildLane(i.key, i, tickets.filter((t) => t.parent_key === i.key)));
-  const bestPriority = (l: Lane) => Math.min(4, ...[...l.now, ...l.next, ...l.later].map((t) => priorityRank(t.priority)));
+  const bestPriority = (l: Lane) => Math.min(4, ...[...l.review, ...l.now, ...l.next, ...l.later].map((t) => priorityRank(t.priority)));
   lanes.sort(
     (a, b) =>
       (INITIATIVE_ORDER[a.initiative!.status] ?? 1) - (INITIATIVE_ORDER[b.initiative!.status] ?? 1) ||
@@ -137,7 +161,7 @@ export function buildLanes(tasks: LaneTask[]): Lane[] {
     null,
     tickets.filter((t) => !t.parent_key || !shown.has(t.parent_key)),
   );
-  if (loose.now.length + loose.next.length + loose.later.length > 0) lanes.push(loose);
+  if (loose.review.length + loose.now.length + loose.next.length + loose.later.length > 0) lanes.push(loose);
   return lanes;
 }
 
@@ -181,6 +205,25 @@ export function foldLanes(lanes: Lane[], nowMs: number) {
   if (initiativeLanes.length <= FOLD_AFTER) return { visible: lanes, folded: [] as Lane[] };
   const fresh = (l: Lane) => !l.initiative || l.state === "moving" || nowMs - Date.parse(l.lastMovedAt) < WEEK_MS;
   return { visible: lanes.filter(fresh), folded: lanes.filter((l) => !fresh(l)) };
+}
+
+export const LANE_COLUMNS = ["done", "review", "now", "next", "later"] as const;
+export type LaneColumn = (typeof LANE_COLUMNS)[number];
+
+/** Columns with nothing in any lane: the grid narrows them to a strip so busy columns get the room. */
+export function emptyColumns(lanes: Lane[]): Set<LaneColumn> {
+  return new Set(LANE_COLUMNS.filter((c) => lanes.every((l) => l[c].length === 0)));
+}
+
+/** Short name for a ticket: the "F2" a phase title starts with, else its key. */
+export function shortName(t: Pick<LaneTask, "key" | "title">): string {
+  return t.title.match(/^(F\d+)\s*·/)?.[1] ?? t.key;
+}
+
+/** "F1 · F3" for the tickets a queued one waits on; another lane's ticket shows its key. */
+export function waitsLabel(t: LaneTask, lane: Lane): string {
+  const all = [...lane.done, ...lane.review, ...lane.now, ...lane.next, ...lane.later];
+  return (t.waits_on ?? []).map((k) => shortName(all.find((x) => x.key === k) ?? { key: k, title: "" })).join(" · ");
 }
 
 export type BranchEdge = { branch: string; base: string; lanes: string[] };

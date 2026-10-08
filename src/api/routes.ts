@@ -12,7 +12,7 @@ import { withDb, type Db } from "../db/client.js";
 import { projects, tasks, type Actor } from "../db/schema.js";
 import { bus } from "../events.js";
 import { decideApproval } from "../mcp/approvals.js";
-import { resolveHumanAction } from "../mcp/blockers.js";
+import { resolveHumanAction, SETTLED_STATUSES } from "../mcp/blockers.js";
 import { waiveCheck } from "../mcp/checks.js";
 import { listDecisions } from "../mcp/decisions.js";
 import { inbox } from "../mcp/inbox.js";
@@ -130,6 +130,13 @@ async function screenTasks(db: Db, projectId?: string) {
       lease_until: sql<string | null>`case when ${tasks.leaseUntil} > now()
         then to_char(${tasks.leaseUntil} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') end`,
       updated_at: sql<string>`to_char(${tasks.updatedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+      // Tasks this one still waits on (not yet settled), so the screen can queue it behind them.
+      waits_on: sql<string[]>`coalesce((select array_agg(bt.key order by bt.key) from task_blockers tb
+        join tasks bt on bt.id = tb.blocker_id
+        where tb.task_id = ${tasks.id} and bt.status not in (${sql.join(SETTLED_STATUSES.map((s) => sql`${s}`), sql`, `)})), '{}')`,
+      // Any typed blocker (env, flag, metric, time, an open human action) holds it outside the initiative.
+      held: sql<boolean>`exists (select 1 from blockers bx where bx.task_id = ${tasks.id}
+        and not (bx.type = 'human_action' and bx.satisfied_at is not null))`,
     })
     .from(tasks)
     .leftJoin(parent, eq(parent.id, tasks.parentId))

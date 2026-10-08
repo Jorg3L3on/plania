@@ -116,6 +116,10 @@ export type TaskRow = {
   claimed_by: Actor | null;
   lease_until: string | null;
   updated_at: string;
+  /** Keys of tasks it still waits on. */
+  waits_on: string[];
+  /** Held by a blocker other than a task (env, flag, metric, time, human action). */
+  held: boolean;
 };
 
 export type Blocker =
