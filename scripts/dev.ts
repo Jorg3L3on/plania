@@ -31,6 +31,16 @@ server.use(
   }),
 );
 
+// The few unhashed files from ui/public: the manifest and service worker must be re-checked on
+// every load so updates reach installed apps; icons can sit in a cache for a day.
+const publicFiles = (cacheControl: string) =>
+  serveStatic({ root: path.relative(process.cwd(), distDir), onFound: (_path, c) => c.header("Cache-Control", cacheControl) });
+server.get("/sw.js", publicFiles("no-cache"));
+server.get("/manifest.webmanifest", publicFiles("no-cache"));
+for (const p of ["/icons/*", "/favicon.svg", "/favicon-16.png", "/favicon-32.png", "/apple-touch-icon.png"]) {
+  server.get(p, publicFiles("public, max-age=86400"));
+}
+
 // SPA fallback: any other GET that no route claimed gets index.html, except API and MCP paths.
 server.get("*", (c) => {
   if (c.req.path.startsWith("/api/") || c.req.path === "/mcp") return c.notFound();

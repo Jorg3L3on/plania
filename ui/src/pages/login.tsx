@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PlaniaMark } from "@/components/plania-mark";
 import { api, isUnauthorized } from "@/lib/api";
 
 export function LoginPage() {
@@ -28,10 +29,11 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-muted/40 px-4">
+    <div className="flex min-h-svh items-center justify-center bg-muted/40 px-4 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-xl">Plania</CardTitle>
+          <PlaniaMark className="mb-2 size-10" />
+          <CardTitle className="font-display text-xl font-extrabold tracking-tight">Plania</CardTitle>
           <CardDescription>Entra para ver tus proyectos.</CardDescription>
         </CardHeader>
         <CardContent>
