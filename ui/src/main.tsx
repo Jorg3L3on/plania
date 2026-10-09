@@ -4,9 +4,11 @@ import { ThemeProvider } from "next-themes";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
+import { ThemeColor } from "@/components/theme-toggle";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { isUnauthorized } from "@/lib/api";
+import { registerServiceWorker } from "@/lib/pwa";
 import { App } from "./App";
 import "./index.css";
 
@@ -27,6 +29,7 @@ const queryClient: QueryClient = new QueryClient({
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+      <ThemeColor />
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           {/* Layout animations follow the system's reduced-motion setting. */}
@@ -41,3 +44,5 @@ createRoot(document.getElementById("root")!).render(
     </ThemeProvider>
   </StrictMode>,
 );
+
+registerServiceWorker();

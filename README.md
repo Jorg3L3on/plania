@@ -442,6 +442,27 @@ system themes. Times arrive as UTC and show in the browser's local time.
   its new place and glows briefly. The header shows "En vivo" while the event stream is connected. Animations
   stop under the system's reduced-motion setting.
 
+### On the phone
+
+The screen works at phone width (from 320 px) and installs as a home-screen app. Below `sm` the header keeps the
+mark, Bandeja and the live dot, and folds Tokens, Tema and Salir into a "⋯" menu. Wide tables become stacked rows, and
+buttons grow to touch size on coarse pointers only, so the desktop layout does not change. The page pads for the notch
+and the home indicator (`viewport-fit=cover` and `env(safe-area-inset-*)`, with the `gutter` utility for side padding).
+
+- **Icons and manifest** live in `ui/public/`. Vite copies them to `dist/ui`, and `scripts/dev.ts` serves them before the
+  SPA fallback. `manifest.webmanifest` and `sw.js` are sent with `no-cache` and the icons for a day. The
+  `theme-color` follows the theme toggle, so the status bar matches Claro or Oscuro.
+- **Offline:** the build writes `dist/ui/sw.js` from `ui/sw.js` with the list of hashed files (the plugin is in
+  `vite.config.ts`). It precaches the app shell, so the app still opens without a network and shows "Sin conexión".
+  It retries when the network returns. Pages load network-first, so an online open always gets the latest build.
+  `/api`, `/mcp`, `/hooks` and `/health` never go through it, so data and the live stream are never cached. The live
+  stream reopens when the app returns to the foreground.
+- **Install:** iOS Safari → Compartir → Agregar a inicio. Android Chrome → menu → Instalar app.
+- **Reaching it from the phone is still open.** The server listens on 127.0.0.1 only. Service workers, Android's
+  install and the `secure` session cookie all need HTTPS, so the likely route is `tailscale serve` in front of :3737.
+  Plain HTTP on the LAN would not keep the login. A home-screen app on iOS keeps its own cookies, so you sign in
+  once inside it.
+
 How live updates flow: every write runs in `writeTx` (`src/mcp/tx.ts`), which after commit publishes one change per
 task it touched on the in-process bus in `src/events.ts`. `GET /api/events` streams those as server-sent events, and
 the UI refetches what changed.

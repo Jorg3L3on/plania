@@ -184,74 +184,103 @@ export function YourTurnStrip({ items, onOpen, prefix }: { items: YourTurnItem[]
   );
 }
 
-/** All initiatives at a glance: status, progress and the station where each one stands. */
+function InitiativeStatus({ lane }: { lane: Lane }) {
+  const state = LANE_STATE[lane.state];
+  return (
+    <span
+      className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", TONE_TEXT[state.tone])}
+      style={{ background: `color-mix(in oklab, ${toneVar(state.tone)} 13%, transparent)` }}
+    >
+      <Glyph tone={state.tone} size={7} pulse={lane.state === "moving"} />
+      {statusWord(lane.initiative!.status)}
+    </span>
+  );
+}
+
+// In review, Merged and Released count as advanced: done in green, then the review stretch in violet.
+function InitiativeProgress({ lane, barClassName }: { lane: Lane; barClassName?: string }) {
+  const share = (n: number) => (lane.total === 0 ? 0 : (n / lane.total) * 100);
+  const inReview = lane.review.length;
+  const advanced = lane.closed + inReview;
+  return (
+    <div className="flex items-center gap-2.5">
+      <div className={cn("flex h-1.5 w-24 overflow-hidden rounded-full bg-foreground/10", barClassName)} aria-hidden>
+        <div className="h-full bg-status-done" style={{ width: `${share(lane.closed)}%` }} />
+        <div className="h-full bg-status-review" style={{ width: `${share(inReview)}%` }} />
+      </div>
+      <span
+        className="whitespace-nowrap text-muted-foreground tabular-nums"
+        title={`${lane.closed} cerrados, ${inReview} en revisión, ${lane.total} en total`}
+      >
+        {advanced} de {lane.total}
+        {inReview > 0 && <span className="text-ink-review"> · {inReview} en revisión</span>}
+      </span>
+    </div>
+  );
+}
+
+function InitiativeHere({ lane, onOpen, clamp }: { lane: Lane; onOpen: Open; clamp: string }) {
+  const here = lane.stations.find((s) => s.here)?.task;
+  if (!here) return <span className="text-muted-foreground">—</span>;
+  return (
+    <TicketButton taskKey={here.key} onOpen={onOpen} title={here.title} className="text-left">
+      <span className={cn("text-foreground/85 underline-offset-4 group-hover/ticket:underline", clamp)}>{here.title}</span>
+    </TicketButton>
+  );
+}
+
+function InitiativeName({ lane, onOpen }: { lane: Lane; onOpen: Open }) {
+  const initiative = lane.initiative!;
+  return (
+    <TicketButton taskKey={initiative.key} onOpen={onOpen} className="text-left">
+      <span className="font-semibold underline-offset-4 group-hover/ticket:underline">{initiative.title}</span>
+      <span className="ml-2 font-mono text-xs text-muted-foreground">{initiative.key}</span>
+    </TicketButton>
+  );
+}
+
+/** All initiatives at a glance: status, progress and the station where each one stands.
+ *  A table from sm up; on a phone, one stacked row per initiative instead of a sideways scroll. */
 export function InitiativeTable({ lanes, onOpen }: { lanes: Lane[]; onOpen: Open }) {
   return (
-    <div className="lift animate-rise overflow-x-auto rounded-[20px] border bg-card">
-      <table className="w-full min-w-[560px] border-collapse text-left text-[13px]">
-        <thead>
-          <tr className="border-b bg-foreground/[0.03] text-[11px] font-bold tracking-[0.12em] text-muted-foreground uppercase">
-            <th className="px-5 py-3 font-bold">Iniciativa</th>
-            <th className="px-3 py-3 font-bold">Estado</th>
-            <th className="px-3 py-3 font-bold">Avance</th>
-            <th className="px-5 py-3 font-bold">Aquí</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lanes.map((lane) => {
-            const initiative = lane.initiative!;
-            const state = LANE_STATE[lane.state];
-            const here = lane.stations.find((s) => s.here)?.task;
-            // In review, Merged and Released count as advanced: done in green, then the review stretch in violet.
-            const share = (n: number) => (lane.total === 0 ? 0 : (n / lane.total) * 100);
-            const inReview = lane.review.length;
-            const advanced = lane.closed + inReview;
-            return (
+    <div className="lift animate-rise overflow-hidden rounded-[20px] border bg-card">
+      <ul className="divide-y text-[13px] sm:hidden">
+        {lanes.map((lane) => (
+          <li key={lane.id} className="grid gap-2 px-4 py-3.5">
+            <div className="flex items-start justify-between gap-3">
+              <InitiativeName lane={lane} onOpen={onOpen} />
+              <InitiativeStatus lane={lane} />
+            </div>
+            <InitiativeProgress lane={lane} barClassName="w-auto flex-1" />
+            <div className="flex min-w-0 gap-2">
+              <span className="text-[11px] font-bold tracking-[0.12em] text-muted-foreground uppercase">Aquí</span>
+              <InitiativeHere lane={lane} onOpen={onOpen} clamp="line-clamp-2" />
+            </div>
+          </li>
+        ))}
+      </ul>
+      <div className="hidden overflow-x-auto sm:block">
+        <table className="w-full min-w-[560px] border-collapse text-left text-[13px]">
+          <thead>
+            <tr className="border-b bg-foreground/[0.03] text-[11px] font-bold tracking-[0.12em] text-muted-foreground uppercase">
+              <th className="px-5 py-3 font-bold">Iniciativa</th>
+              <th className="px-3 py-3 font-bold">Estado</th>
+              <th className="px-3 py-3 font-bold">Avance</th>
+              <th className="px-5 py-3 font-bold">Aquí</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lanes.map((lane) => (
               <tr key={lane.id} className="border-b transition-colors last:border-b-0 hover:bg-foreground/[0.04]">
-                <td className="max-w-[320px] px-5 py-3">
-                  <TicketButton taskKey={initiative.key} onOpen={onOpen} className="text-left">
-                    <span className="font-semibold underline-offset-4 group-hover/ticket:underline">{initiative.title}</span>
-                    <span className="ml-2 font-mono text-xs text-muted-foreground">{initiative.key}</span>
-                  </TicketButton>
-                </td>
-                <td className="px-3 py-3">
-                  <span
-                    className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", TONE_TEXT[state.tone])}
-                    style={{ background: `color-mix(in oklab, ${toneVar(state.tone)} 13%, transparent)` }}
-                  >
-                    <Glyph tone={state.tone} size={7} pulse={lane.state === "moving"} />
-                    {statusWord(initiative.status)}
-                  </span>
-                </td>
-                <td className="px-3 py-3 whitespace-nowrap">
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-1.5 w-24 overflow-hidden rounded-full bg-foreground/10" aria-hidden>
-                      <div className="h-full bg-status-done" style={{ width: `${share(lane.closed)}%` }} />
-                      <div className="h-full bg-status-review" style={{ width: `${share(inReview)}%` }} />
-                    </div>
-                    <span
-                      className="text-muted-foreground tabular-nums"
-                      title={`${lane.closed} cerrados, ${inReview} en revisión, ${lane.total} en total`}
-                    >
-                      {advanced} de {lane.total}
-                      {inReview > 0 && <span className="text-ink-review"> · {inReview} en revisión</span>}
-                    </span>
-                  </div>
-                </td>
-                <td className="max-w-[300px] px-5 py-3">
-                  {here ? (
-                    <TicketButton taskKey={here.key} onOpen={onOpen} title={here.title} className="text-left">
-                      <span className="line-clamp-1 text-foreground/85 underline-offset-4 group-hover/ticket:underline">{here.title}</span>
-                    </TicketButton>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </td>
+                <td className="max-w-[320px] px-5 py-3"><InitiativeName lane={lane} onOpen={onOpen} /></td>
+                <td className="px-3 py-3"><InitiativeStatus lane={lane} /></td>
+                <td className="px-3 py-3"><InitiativeProgress lane={lane} /></td>
+                <td className="max-w-[300px] px-5 py-3"><InitiativeHere lane={lane} onOpen={onOpen} clamp="line-clamp-1" /></td>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

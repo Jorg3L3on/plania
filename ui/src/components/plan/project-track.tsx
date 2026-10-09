@@ -44,11 +44,11 @@ function LaneRow({ slug, lane }: { slug: string; lane: Lane }) {
     <div
       data-fresh={fresh || undefined}
       className={cn(
-        "flex flex-wrap items-center gap-x-3.5 gap-y-1.5 rounded-[14px] bg-foreground/[0.04] px-3.5 py-2.5 transition-shadow duration-700",
+        "flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-[14px] sm:gap-x-3.5 bg-foreground/[0.04] px-3.5 py-2.5 transition-shadow duration-700",
         fresh && "shadow-[0_0_0_2px_var(--status-now),0_0_28px_color-mix(in_oklab,var(--status-now)_40%,transparent)]",
       )}
     >
-      <span className="flex w-[132px] shrink-0 flex-col gap-0.5">
+      <span className="flex w-full min-w-0 shrink-0 flex-col gap-0.5 sm:w-[132px]">
         <span className="truncate font-display text-[13px] font-bold" title={lane.initiative?.title}>
           {lane.initiative?.title ?? "Sueltos"}
         </span>
@@ -57,13 +57,13 @@ function LaneRow({ slug, lane }: { slug: string; lane: Lane }) {
           {state.word}
         </span>
       </span>
-      <span className={cn("line-clamp-2 min-w-[120px] flex-1 text-sm leading-snug", !now && "text-muted-foreground")}>
+      <span className={cn("line-clamp-2 min-w-[100px] flex-1 text-sm leading-snug sm:min-w-[120px]", !now && "text-muted-foreground")}>
         {now ? now.title : lane.review.length > 0 ? "Nada en curso" : "Nadie trabaja aquí"}
         {lane.now.length > 1 && <span className="text-muted-foreground"> y {lane.now.length - 1} más</span>}
         {lane.review.length > 0 && <span className="text-ink-review"> · {lane.review.length} en revisión</span>}
       </span>
-      <FlowArrow tone="ready" moving={moving && !!next} className="size-9" />
-      <span className={cn("line-clamp-2 min-w-[120px] flex-1 text-sm leading-snug", next ? "text-foreground/90" : "text-muted-foreground")}>
+      <FlowArrow tone="ready" moving={moving && !!next} className="size-7 sm:size-9" />
+      <span className={cn("line-clamp-2 min-w-[100px] flex-1 text-sm leading-snug sm:min-w-[120px]", next ? "text-foreground/90" : "text-muted-foreground")}>
         {next ? next.title : "—"}
       </span>
       <span className="hidden lg:block"><MiniLine lane={lane} /></span>
@@ -121,8 +121,8 @@ export function ProjectTrack({ project, index, nowMs }: { project: TrackProject;
             : `linear-gradient(${from}, ${to})`,
         }}
       />
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-6 py-5 pr-6 pl-6">
-        <div className="flex w-[200px] min-w-[170px] flex-col gap-1.5">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-4 px-4 py-5 sm:gap-6 sm:px-6">
+        <div className="flex w-full flex-col gap-1.5 sm:w-[200px] sm:min-w-[170px]">
           {/* The name is the link; it stretches over the whole track so the card is one big target. */}
           <Link
             to={`/p/${project.slug}`}

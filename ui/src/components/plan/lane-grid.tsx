@@ -155,7 +155,7 @@ function NowCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx }) 
             {lane.review.length > 0
               ? "lo hecho espera revisión"
               : lane.next.length > 0
-                ? "lo siguiente está a la derecha"
+                ? <><span className="md:hidden">lo siguiente está debajo</span><span className="hidden md:inline">lo siguiente está a la derecha</span></>
                 : "no hay nada abierto"}
           </span>
         </span>

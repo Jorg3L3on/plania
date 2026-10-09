@@ -100,8 +100,8 @@ export function TokensPage() {
           {secret && (
             <div className="mt-4 grid gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
               <p>Copia el token ahora: no se vuelve a mostrar.</p>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 overflow-x-auto rounded bg-muted px-2 py-1 font-mono text-xs">{secret}</code>
+              <div className="flex flex-wrap items-center gap-2">
+                <code className="min-w-0 basis-full overflow-x-auto rounded sm:flex-1 sm:basis-auto bg-muted px-2 py-1 font-mono text-xs">{secret}</code>
                 <Button size="sm" variant="outline" onClick={() => void navigator.clipboard.writeText(secret).then(() => toast("Copiado"))}>
                   <CopyIcon /> Copiar
                 </Button>

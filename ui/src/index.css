@@ -184,9 +184,16 @@
     }
   body {
     @apply bg-background text-foreground;
+    /* Feel like an app on phones: no grey tap flash, no rubber-band past the page. */
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
     }
   html {
     @apply font-sans;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* The sticky header's height, including the notch inset once the app runs full screen. */
+    --header-h: calc(3rem + env(safe-area-inset-top));
     }
 }
 /* ---- Motion (direction A). Every animation here stops under prefers-reduced-motion. */
@@ -232,21 +239,34 @@
   }
 }
 
+/* Page side padding: 1rem on phones, 2rem from sm, never less than the notch inset in landscape. */
+@utility gutter {
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+  @media (width >= 40rem) {
+    padding-left: max(2rem, env(safe-area-inset-left));
+    padding-right: max(2rem, env(safe-area-inset-right));
+  }
+}
+
 @utility flow-dash {
   stroke-dasharray: 7 7;
   animation: var(--animate-dash-flow);
 }
 
-/* Hover lift for cards that open something. */
+/* Hover lift for cards that open something. Only where there is a real hover, so a tap
+   on a phone doesn't leave the card raised. */
 @utility lift {
   transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
-  &:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 18px 44px rgb(0 0 0 / 0.18);
-  }
-  .dark &:hover {
-    box-shadow: 0 18px 44px rgb(0 0 0 / 0.45);
-    border-color: rgb(255 255 255 / 0.18);
+  @media (hover: hover) {
+    &:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 18px 44px rgb(0 0 0 / 0.18);
+    }
+    .dark &:hover {
+      box-shadow: 0 18px 44px rgb(0 0 0 / 0.45);
+      border-color: rgb(255 255 255 / 0.18);
+    }
   }
 }
 

@@ -153,11 +153,11 @@ export function InboxPage() {
       </header>
 
       {allApprovals.length > 0 && (
-        <div className="sticky top-14 z-10 flex flex-wrap items-center gap-2 rounded-2xl border bg-background/80 p-3 backdrop-blur-md">
+        <div className="sticky top-[calc(var(--header-h)+0.5rem)] z-10 flex flex-wrap items-center gap-2 rounded-2xl border bg-background/80 p-3 backdrop-blur-md">
           <Button variant="outline" size="sm" onClick={() => setSelected(new Set(selected.size === allApprovals.length ? [] : allApprovals))}>
             {selected.size === allApprovals.length ? "Ninguna" : "Todas"}
           </Button>
-          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Nota (opcional)" className="max-w-xs" aria-label="Nota" />
+          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Nota (opcional)" className="min-w-0 flex-1 basis-40 sm:max-w-xs" aria-label="Nota" />
           <div className="ml-auto flex gap-2">
             <Button size="sm" variant="destructive" disabled={!selected.size || decide.isPending} onClick={() => decide.mutate({ decision: "reject" })}>
               Rechazar ({selected.size})
