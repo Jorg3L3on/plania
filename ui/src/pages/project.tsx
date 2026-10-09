@@ -150,13 +150,13 @@ export function ProjectPage() {
             <TaskList slug={slug} tasks={project.data.tasks} openKey={openKey} onOpen={openTask} />
           ) : derived.lanes.length === 0 ? (
             <div className="flex flex-wrap items-start gap-7">
-              <section className="grid min-w-0 flex-[999_1_560px] animate-rise gap-3 rounded-[20px] border border-dashed bg-card/50 px-6 py-8">
+              <section className="grid min-w-0 flex-[999_1_560px] animate-rise gap-3 rounded-[20px] border border-dashed bg-card/50 px-5 py-6 sm:px-6 sm:py-8">
                 <Kicker className="text-muted-foreground">Nada abierto</Kicker>
                 {nowText && <p className="text-[15px] text-muted-foreground">{nowText}</p>}
                 <Kicker className="mt-2 text-ink-ready">Siguiente</Kicker>
                 <p className="font-display text-2xl font-bold tracking-tight">{nextText || "Sin iniciativas ni tickets abiertos."}</p>
               </section>
-              <aside className="grid min-w-[280px] flex-[1_1_320px] gap-4">
+              <aside className="grid min-w-0 flex-[1_1_320px] gap-4 sm:min-w-[280px]">
                 <BranchGraph edges={derived.edges} text={branchText} onFicha={() => setFichaOpen(true)} />
                 <FixedDecisions items={fixed} onFicha={() => setFichaOpen(true)} />
               </aside>

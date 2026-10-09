@@ -86,7 +86,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
       <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 text-sm break-words">{children}</dd>
+      <dd className="min-w-0 text-sm [overflow-wrap:anywhere]">{children}</dd>
     </>
   );
 }
@@ -146,7 +146,7 @@ function Details({ slug, task, onOpen }: { slug: string; task: TaskDetail; onOpe
         />
       )}
 
-      <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2">
+      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2 sm:gap-x-6">
         {task.parent_key && <Field label="Iniciativa"><TaskLink slug={slug} taskKey={task.parent_key} onOpen={onOpen} /></Field>}
         {task.phase !== null && <Field label="Fase">{task.phase}</Field>}
         {task.work_type && <Field label="Tipo">{task.work_type}</Field>}

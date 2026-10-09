@@ -127,7 +127,7 @@ function QuestionCard({ slug, q, onOpen }: { slug: string; q: Question; onOpen: 
         {q.options.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {q.options.map((o) => (
-              <Button key={o} size="sm" variant="outline" disabled={send.isPending} onClick={() => send.mutate(o)}>{o}</Button>
+              <Button key={o} size="sm" variant="outline" className="h-auto min-h-7 py-1 text-left whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-9" disabled={send.isPending} onClick={() => send.mutate(o)}>{o}</Button>
             ))}
           </div>
         )}
@@ -141,7 +141,7 @@ function QuestionCard({ slug, q, onOpen }: { slug: string; q: Question; onOpen: 
             onChange={(e) => setDecision(e.target.value)}
             placeholder="Si esto decide algo, una línea para el registro de decisiones (opcional)"
             aria-label="Decisión"
-            className="text-xs"
+            className="text-base md:text-xs"
           />
         </form>
       </CardContent>
