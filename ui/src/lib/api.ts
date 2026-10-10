@@ -1,4 +1,4 @@
-import type { AgentToken, Inbox, ProjectDetail, ProjectSummary, TaskDetail } from "./types";
+import type { AgentToken, Inbox, Machine, ProjectDetail, ProjectSummary, TaskDetail } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -53,6 +53,7 @@ export const api = {
     request<{ key: string }>("POST", `/projects/${encodeURIComponent(slug)}/blockers/${encodeURIComponent(id)}/resolve`),
   decide: (ids: string[], decision: "grant" | "reject", note?: string) =>
     request<{ results: { id: string; ok: boolean; error?: string }[]; decided: number }>("POST", "/approvals/decide", { ids, decision, note }),
+  machine: () => request<Machine>("GET", "/machine"),
   tokens: () => request<AgentToken[]>("GET", "/tokens"),
   createToken: (input: { name: string; agent: string; machine?: string; scopes: string[] }) =>
     request<{ token: AgentToken; secret: string }>("POST", "/tokens", input),

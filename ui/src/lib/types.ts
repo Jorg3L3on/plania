@@ -167,10 +167,44 @@ export type TaskDetail = Omit<TaskRow, "claimed_by" | "lease_until"> & {
 
 export type ProjectDetail = { slug: string; title: string; version: number; resume: Resume; tasks: TaskRow[]; decisions: Decision[] };
 
-export type LiveEvent = { type: "task" | "project" | "decision"; project: string; key?: string };
+export type LiveEvent = { type: "task" | "project" | "decision" | "footprint"; project: string; key?: string };
 
 // Same sets the server validates against (src/db/schema.ts).
 export const TICKET_STATUSES = ["Backlog", "Ready", "In progress", "In review", "Merged", "Released", "Blocked", "Needs Jorge", "Done", "Won't do"] as const;
 export const INITIATIVE_STATUSES = ["Planning", "Active", "Shipping", "Done", "On hold", "Won't do"] as const;
 export const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
 export const CLOSED_STATUSES = new Set(["Done", "Won't do"]);
+
+// GET /api/machine: what runs and is stored on this Mac for agent work (src/jobs/machine).
+export type FootprintKind = "worktree" | "server" | "db_server" | "database" | "container" | "browser" | "service" | "tunnel" | "cache";
+export type FootprintState = "live" | "orphan" | "stale" | "ghost" | "gone" | "released" | "self" | "system";
+
+export type FootprintItem = {
+  id: string;
+  machine: string;
+  kind: FootprintKind;
+  locator: string;
+  project: string | null;
+  /** The repo directory ("plania"), set even when it is not a project. */
+  repo: string | null;
+  task_key: string | null;
+  task_title: string | null;
+  initiative_key: string | null;
+  initiative_title: string | null;
+  session_id: string | null;
+  holder: Actor | null;
+  source: "observed" | "declared" | "both";
+  purpose: string;
+  teardown: string;
+  details: Record<string, unknown>;
+  state: FootprintState;
+  /** A live lease_resource on this server's port: who holds it and why. */
+  lease: { name: string; project: string; holder: Actor; purpose: string; lease_until: string } | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  declared_at: string | null;
+  released_at: string | null;
+};
+
+export type MachineTotals = { servers: number; databases: number; worktree_kb: number; orphan: number; stale: number };
+export type Machine = { machine: string; totals: MachineTotals; items: FootprintItem[] };

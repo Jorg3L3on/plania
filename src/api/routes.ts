@@ -11,6 +11,7 @@ import { issueToken, listTokens, revokeToken, TOKEN_SCOPES } from "../auth/token
 import { withDb, type Db } from "../db/client.js";
 import { projects, tasks, type Actor } from "../db/schema.js";
 import { bus } from "../events.js";
+import { machineInventory, machineTotals, thisMachine } from "../jobs/machine/index.js";
 import { decideApproval } from "../mcp/approvals.js";
 import { resolveHumanAction, SETTLED_STATUSES } from "../mcp/blockers.js";
 import { waiveCheck } from "../mcp/checks.js";
@@ -302,6 +303,16 @@ api.post("/approvals/decide", async (c) => {
     ),
   );
   return c.json({ results, decided: results.filter((r) => r.ok).length });
+});
+
+// ---- Machine
+
+// What runs and is stored on this Mac for agent work (the machine job's footprints plus declarations),
+// every unreleased row with its project, initiative, ticket and session, and the header totals.
+// Read-only: the screen never stops or deletes anything.
+api.get("/machine", async (c) => {
+  const items = await withDb((db) => machineInventory(db));
+  return c.json({ machine: thisMachine(), totals: machineTotals(items), items });
 });
 
 // ---- Agent tokens (issued here only; the secret is shown once)

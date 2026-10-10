@@ -9,6 +9,7 @@ import { api, isUnauthorized } from "@/lib/api";
 import { useOnline } from "@/lib/live";
 import { InboxPage } from "@/pages/inbox";
 import { LoginPage } from "@/pages/login";
+import { MachinePage } from "@/pages/machine";
 import { ProjectPage } from "@/pages/project";
 import { ProjectsPage } from "@/pages/projects";
 import { TokensPage } from "@/pages/tokens";
@@ -60,6 +61,7 @@ export function App() {
         <Route index element={<ProjectsPage />} />
         <Route path="/p/:slug" element={<ProjectPage />} />
         <Route path="/inbox" element={<InboxPage />} />
+        <Route path="/machine" element={<MachinePage />} />
         <Route path="/tokens" element={<TokensPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
