@@ -14,6 +14,8 @@ export const TEXT_LIMITS: Record<string, number> = {
   reason: 2_000,
   purpose: 300,
   command: 1_000,
+  teardown: 1_000,
+  locator: 300,
   cost_note: 2_000,
   introduced_by: 200,
   found_in: 40,

@@ -159,7 +159,7 @@ after(async () => {
 const TOOLS = [
   "add_decision", "add_result", "answer", "archive_legacy_card", "ask", "attach_doc", "audit", "batch", "claim", "consume", "create_task",
   "get_context", "get_doc", "get_inbox", "get_memory", "get_next", "get_project", "get_resume", "get_task", "handoff", "lease_resource",
-  "list_events", "list_tasks", "release_resource", "request_approval", "reserve_sequence", "retire_decision", "set_check", "set_env",
+  "list_events", "list_tasks", "register_footprint", "release_footprint", "release_resource", "request_approval", "reserve_sequence", "retire_decision", "set_check", "set_env",
   "set_metric", "set_project", "set_task", "waive_check",
 ];
 
@@ -1151,12 +1151,12 @@ describe("v2 C2: list_events", () => {
 describe("v2 C4: protocol and project text", () => {
   test("the protocol comes with initialize, versioned", async () => {
     const text = client.getInstructions() ?? "";
-    assert.match(text, /^Plania protocol 2\.4\./);
+    assert.match(text, /^Plania protocol 2\.6\./);
     assert.match(text, /set_task status Done once the ticket is Merged or Released/);
     assert.match(text, /Never set Won't do or reopen a closed task yourself/);
-    assert.equal(client.getServerVersion()?.version, "2.4.0");
+    assert.equal(client.getServerVersion()?.version, "2.6.0");
     const p = await call("get_project", { project: "zigzag" });
-    assert.equal(p.protocol_version, "2.4");
+    assert.equal(p.protocol_version, "2.6");
   });
 
   test("set_project edits body and rules with the version; rules_version follows the rules", async () => {

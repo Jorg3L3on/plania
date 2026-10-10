@@ -1,0 +1,37 @@
+[
+  {
+    "name": "mysql",
+    "status": "none",
+    "user": null,
+    "file": "/opt/homebrew/opt/mysql/homebrew.mxcl.mysql.plist",
+    "exit_code": null
+  },
+  {
+    "name": "postgresql@14",
+    "status": "started",
+    "user": "jorgeleon",
+    "file": "/Users/jorgeleon/Library/LaunchAgents/homebrew.mxcl.postgresql@14.plist",
+    "exit_code": null
+  },
+  {
+    "name": "postgresql@16",
+    "status": "none",
+    "user": null,
+    "file": "/opt/homebrew/opt/postgresql@16/sh.brew.postgresql@16.plist",
+    "exit_code": null
+  },
+  {
+    "name": "postgresql@17",
+    "status": "started",
+    "user": "jorgeleon",
+    "file": "/Users/jorgeleon/Library/LaunchAgents/sh.brew.postgresql@17.plist",
+    "exit_code": null
+  },
+  {
+    "name": "unbound",
+    "status": "none",
+    "user": null,
+    "file": "/opt/homebrew/opt/unbound/homebrew.mxcl.unbound.plist",
+    "exit_code": null
+  }
+]

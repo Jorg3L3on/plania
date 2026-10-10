@@ -11,10 +11,12 @@ import { issueToken, listTokens, revokeToken, TOKEN_SCOPES } from "../auth/token
 import { withDb, type Db } from "../db/client.js";
 import { projects, tasks, type Actor } from "../db/schema.js";
 import { bus } from "../events.js";
+import { machineInventory, machineTotals, thisMachine } from "../jobs/machine/index.js";
 import { decideApproval } from "../mcp/approvals.js";
 import { resolveHumanAction, SETTLED_STATUSES } from "../mcp/blockers.js";
 import { waiveCheck } from "../mcp/checks.js";
 import { listDecisions } from "../mcp/decisions.js";
+import { footprintFindings } from "../mcp/footprint-audit.js";
 import { inbox } from "../mcp/inbox.js";
 import { setProject } from "../mcp/project.js";
 import { ToolError, findProject, findTask, taskFull } from "../mcp/queries.js";
@@ -208,7 +210,8 @@ api.patch("/projects/:slug/tasks/:key", async (c) => {
   if (body instanceof Response) return body;
   try {
     const result = await withDb((db) => setTask(db, { project: c.req.param("slug"), key: c.req.param("key"), ...body }, screenCtx));
-    return c.json(result.task);
+    // warnings ride along: closing a ticket that still has things running on the Mac names each one.
+    return c.json(result.warnings?.length ? { ...result.task, warnings: result.warnings } : result.task);
   } catch (e) {
     return errorResponse(c, e);
   }
@@ -302,6 +305,20 @@ api.post("/approvals/decide", async (c) => {
     ),
   );
   return c.json({ results, decided: results.filter((r) => r.ok).length });
+});
+
+// ---- Machine
+
+// What runs and is stored on this Mac for agent work (the machine job's footprints plus declarations),
+// every unreleased row with its project, initiative, ticket and session, and the header totals.
+// Read-only: the screen never stops or deletes anything.
+api.get("/machine", async (c) => {
+  const { items, findings } = await withDb(async (db) => ({
+    items: await machineInventory(db),
+    // What no project audit can hold: rows without a project (Plania's own repo, shared servers, nobody's).
+    findings: await footprintFindings(db, { projectless: true }),
+  }));
+  return c.json({ machine: thisMachine(), totals: machineTotals(items), findings, items });
 });
 
 // ---- Agent tokens (issued here only; the secret is shown once)

@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CloudOffIcon, EllipsisIcon, InboxIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
+import { CloudOffIcon, CpuIcon, EllipsisIcon, InboxIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import {
@@ -101,6 +101,25 @@ function InboxLink() {
   );
 }
 
+// What runs on the Mac. Icon only on phones, where the header is tight.
+function MachineLink() {
+  return (
+    <NavLink
+      to="/machine"
+      aria-label="Máquina"
+      className={({ isActive }) =>
+        cn(
+          "inline-flex min-h-9 items-center gap-1.5 rounded-full px-2.5 text-[13px] font-medium transition hover:text-foreground sm:px-3",
+          isActive ? "bg-foreground text-background" : "text-muted-foreground",
+        )
+      }
+    >
+      <CpuIcon className="size-4" aria-hidden />
+      <span className="hidden sm:inline">Máquina</span>
+    </NavLink>
+  );
+}
+
 export function AppShell() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -128,6 +147,7 @@ export function AppShell() {
             </Link>
             <div className="flex items-center gap-1 sm:gap-2">
               <InboxLink />
+              <MachineLink />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Link to="/tokens" aria-label="Tokens de agentes" className="hidden size-9 items-center justify-center rounded-full text-muted-foreground hover:text-foreground sm:inline-flex">

@@ -1,0 +1,18 @@
+ 1002     1 Sat Sep 12 20:58:11 2026     /usr/libexec/rapportd
+ 1106     1 Sat Sep 12 20:58:17 2026     /System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter
+ 1331     1 Sat Sep 12 20:58:49 2026     /opt/homebrew/opt/postgresql@14/bin/postgres -D /opt/homebrew/var/postgresql@14
+ 1500  1331 Sat Sep 12 20:58:54 2026     postgres: checkpointer   
+ 1828  1724 Fri Oct  9 17:59:19 2026     npm exec @modelcontextprotocol/server-postgres postgresql://jorgeleon:@localhost:5432/micasa    
+ 2176  1830 Fri Oct  9 17:59:20 2026     node /Users/jorgeleon/.npm/_npx/9833c18b2d85bc59/node_modules/.bin/playwright-mcp
+10318 10301 Fri Oct  9 19:58:33 2026     node /Users/jorgeleon/Developer/Projects/zigzag/node_modules/.bin/next dev --turbopack -p 3069
+10319 10318 Fri Oct  9 19:58:34 2026     next-server (v16.2.6) 
+12206     1 Thu Oct  8 19:58:11 2026     /Applications/Claude.app/Contents/Frameworks/Electron Framework.framework/Helpers/chrome_crashpad_handler --no-rate-limit --monitor-self-annotation=ptype=crashpad-handler --database=/Users/jorgeleon/Library/Application 
+13632 10319 Fri Oct  9 20:24:08 2026     node /Users/jorgeleon/Developer/Projects/zigzag/.next/dev/build/postcss.js 56674
+28049 28034 Thu Oct  8 11:34:38 2026     /Applications/Spotify.app/Contents/Frameworks/Spotify Helper.app/Contents/MacOS/Spotify Helper --type=gpu-process --start-stack-profiler --user-data-dir=/Users/jorgeleon/Library/Caches/com.spotify.client --log-severity=
+41152     1 Thu Oct  8 23:57:18 2026     /opt/homebrew/opt/postgresql@17/bin/postgres -D /opt/homebrew/var/postgresql@17
+80211 80155 Fri Oct  9 15:13:56 2026     /Applications/Dia.app/Contents/Resources/agent-server-resources/dist/agent-server --app-name Dia --data-dir /Users/jorgeleon/Library/Application Support/Dia/User Data/Default/AgentServer --agents-dir /Applications/Dia.a
+86729     1 Fri Oct  9 15:51:08 2026     /Users/jorgeleon/.nvm/versions/node/v24.21.0/bin/node --env-file=.env --import tsx scripts/dev.ts
+ 1002     1 Sat Sep 12 20:58:11 2026     /usr/libexec/rapportd
+ 1106     1 Sat Sep 12 20:58:17 2026     /System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter
+ 1247     1 Sat Sep 12 20:58:40 2026     /System/Library/ExtensionKit/Extensions/ControlCenterSettingsIntents.appex/Contents/MacOS/ControlCenterSettingsIntents -LaunchArguments eyJlbmhhbmNlZFNlY3VyaXR
+80211 80155 Fri Oct  9 15:13:56 2026     /Applications/Dia.app/Contents/Resources/agent-server-resources/dist/agent-server --app-name Dia --data-dir /Users/jorgeleon/Library/Application Support/Dia/Us

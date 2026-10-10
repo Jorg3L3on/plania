@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { events, tasks, type Project, type Task } from "../db/schema.js";
 import { listDecisions } from "./decisions.js";
+import { machineLine } from "./footprint-read.js";
 import { legacyCard, liveOwner, nextTask } from "./queries.js";
 import { headlineShape } from "./project.js";
 import { openQuestions } from "./questions.js";
@@ -86,6 +87,8 @@ export async function resumeDigest(db: Q, p: Project, opts: ResumeOptions = {}) 
     generated_at: new Date().toISOString(),
     headline: headlineShape(p),
     status: await statusBlock(db, p),
+    // What this project's agents have running on the Mac, in one line (null when nothing is).
+    machine: await machineLine(db, p.id),
     claims: claimed.map(claimLine),
     next_claimable: (await nextTask(db, p.id)).task,
     initiatives,

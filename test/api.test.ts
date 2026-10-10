@@ -329,3 +329,37 @@ describe("GET /api/events", () => {
     await reader.cancel();
   });
 });
+
+describe("GET /api/machine", () => {
+  test("needs the session cookie", async () => {
+    const res = await req("GET", "/api/machine", { cookie: null });
+    assert.equal(res.status, 401);
+    assert.deepEqual(await res.json(), { error: "UNAUTHORIZED" });
+  });
+
+  test("returns the machine, the header totals and every unreleased row with its ticket, initiative and lease", async () => {
+    await raw.query(`insert into footprints (machine, kind, locator, project_id, task_id, session_id, source, state, details, first_seen_at, last_seen_at, teardown)
+      select 'test-mac', 'server', 'port:3069', t.project_id, t.id, 's1', 'observed', 'live', '{"port":3069,"pid":10319}', now(), now(), 'kill 10319' from tasks t where t.key = 'MIC-01-F1'`);
+    await raw.query(`insert into footprints (machine, kind, locator, source, state, details, first_seen_at, last_seen_at) values
+      ('test-mac', 'worktree', '/w/a', 'observed', 'stale', '{"size_kb": 2048, "repo": "plania"}', now(), now()),
+      ('test-mac', 'database', 'x@127.0.0.1:5432', 'observed', 'orphan', '{}', now(), now()),
+      ('test-mac', 'server', 'port:4000', 'observed', 'gone', '{}', now(), now() - interval '1 hour')`);
+    await raw.query(`insert into footprints (machine, kind, locator, source, state, released_at) values ('test-mac', 'server', 'port:4100', 'observed', 'released', now())`);
+    await raw.query(`insert into resources (project_id, name, holder, purpose, lease_until)
+      select id, 'port:3069@test-mac', '{"agent":"claude","session_id":"s1"}', 'micasa dev', now() + interval '10 minutes' from projects where slug = 'micasa'`);
+
+    const res = await req("GET", "/api/machine");
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as Json;
+    assert.equal(typeof body.machine, "string");
+    assert.deepEqual(body.totals, { servers: 1, databases: 1, worktree_kb: 2048, orphan: 1, stale: 1 });
+    assert.equal(body.items.length, 4, "released rows are out");
+    const dev = body.items.find((i: Json) => i.locator === "port:3069");
+    assert.deepEqual([dev.project, dev.task_key, dev.initiative_key, dev.session_id, dev.teardown, dev.lease.purpose], ["micasa", "MIC-01-F1", "MIC-01", "s1", "kill 10319", "micasa dev"]);
+    assert.equal(body.items.find((i: Json) => i.locator === "/w/a").repo, "plania");
+    assert.equal(body.items.find((i: Json) => i.locator === "port:4000").state, "gone");
+    // the findings the project audits cannot hold: rows without a project (the stale worktree, the orphan database)
+    assert.deepEqual(body.findings.map((f: Json) => f.code).sort(), ["FOOTPRINT_ORPHAN", "WORKTREE_MERGED_NOT_REMOVED"]);
+    assert.ok(body.findings.every((f: Json) => typeof f.detail === "string" && typeof f.fix_hint === "string"));
+  });
+});

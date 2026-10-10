@@ -1,0 +1,7 @@
+com.epicgames.launcher.plist
+com.google.GoogleUpdater.wake.plist
+com.google.keystone.agent.plist
+com.google.keystone.xpcservice.plist
+com.plania.server.plist
+homebrew.mxcl.postgresql@14.plist
+sh.brew.postgresql@17.plist

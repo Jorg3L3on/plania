@@ -1,0 +1,5 @@
+ 31001     1 Fri Oct  9 21:02:11 2026     /Users/jorgeleon/Library/Caches/ms-playwright/chromium-1187/chrome-mac/Chromium.app/Contents/MacOS/Chromium --headless --remote-debugging-pipe --user-data-dir=/var/folders/xx/T/playwright_chromiumdev_profile-AbC
+ 31002 31001 Fri Oct  9 21:02:12 2026     /Users/jorgeleon/Library/Caches/ms-playwright/chromium-1187/chrome-mac/Chromium.app/Contents/Frameworks/Chromium Helper.app/Contents/MacOS/Chromium Helper --type=renderer --headless
+ 31010     1 Fri Oct  9 21:05:40 2026     ngrok http 3069 --log=stdout
+ 31011     1 Fri Oct  9 21:05:41 2026     /opt/homebrew/bin/cloudflared tunnel --url http://localhost:3000
+ 31020   902 Fri Oct  9 21:06:00 2026     npm exec @playwright/mcp@latest

@@ -562,6 +562,53 @@ export const quotaUsage = pgTable(
   (t) => [primaryKey({ columns: [t.projectId, t.name, t.day] })],
 );
 
+// Machine footprint (PLA-I1-2): what runs or is stored on a Mac for agent work: dev servers, database
+// servers and their databases, worktrees, services, headless browsers, tunnels, containers. Rows come
+// from the machine job (source observed), from agents that declare what they create (declared) or
+// both. Apart from `resources`, which stays the short-lived lock table. project_id is null for what
+// no project owns (a Postgres server, a repo that is not a project yet: details.repo names it).
+// locator is unique per machine and kind while the row is not released; kind-specific facts live in
+// details. misses counts consecutive runs of the item's collector that did not see it (2 = gone).
+export const footprints = pgTable(
+  "footprints",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    machine: text("machine").notNull(),
+    kind: text("kind").notNull(), // worktree | server | db_server | database | container | browser | service | tunnel | cache
+    locator: text("locator").notNull(), // port:3069, db@127.0.0.1:5433, a path, pid:123, brew:postgresql@17
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    taskId: uuid("task_id").references((): AnyPgColumn => tasks.id, { onDelete: "set null" }),
+    sessionId: text("session_id"),
+    holder: jsonb("holder").$type<Actor>(), // who declared it (declared and both)
+    source: text("source").notNull().default("observed"), // observed | declared | both
+    purpose: text("purpose").notNull().default(""),
+    // A command that removes it. For observed rows the job fills in a suggestion; nothing runs it.
+    teardown: text("teardown").notNull().default(""),
+    details: jsonb("details").$type<Record<string, unknown>>().notNull().default({}),
+    state: text("state").notNull().default("orphan"), // live | orphan | stale | ghost | gone | released | self | system
+    misses: integer("misses").notNull().default(0),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    declaredAt: timestamp("declared_at", { withTimezone: true }),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("footprints_live_locator_idx").on(t.machine, t.kind, t.locator).where(sql`${t.releasedAt} is null`),
+    index("footprints_project_idx").on(t.projectId),
+    index("footprints_task_idx").on(t.taskId),
+    check(
+      "footprints_kind_check",
+      sql`${t.kind} in ('worktree', 'server', 'db_server', 'database', 'container', 'browser', 'service', 'tunnel', 'cache')`,
+    ),
+    check("footprints_source_check", sql`${t.source} in ('observed', 'declared', 'both')`),
+    check(
+      "footprints_state_check",
+      sql`${t.state} in ('live', 'orphan', 'stale', 'ghost', 'gone', 'released', 'self', 'system')`,
+    ),
+  ],
+);
+
 // v2.2 (R-21): pull requests the GitHub poller has seen, linked to the ticket they belong to.
 export const pullRequests = pgTable(
   "pull_requests",
@@ -677,7 +724,8 @@ export type Actor = { agent: string; session_id: string; machine?: string; model
 export type Workspace = { machine?: string; worktree_path?: string; branch?: string };
 
 // A claim handed to another session (or anyone) with what is done and what is next.
-export type Handoff = { to: string; note: string; head_sha?: string; from: Actor; at: string; until: string };
+// footprint: what the ticket still has running on the Mac (register_footprint / the machine job), so the receiver knows.
+export type Handoff = { to: string; note: string; head_sha?: string; from: Actor; at: string; until: string; footprint?: Record<string, unknown>[] };
 
 // Where an environment's deployed_at came from.
 export type DeploySource = { provider: string; deployment_id: string; url?: string };
@@ -691,6 +739,8 @@ export type ProjectSettings = {
   quotas?: Record<string, { daily: number }>;
   github?: { repo: string; token_env?: string };
   vercel?: { project_id: string; team_id?: string; token_env?: string; targets?: Record<string, string> };
+  // Where the project's repo lives on the Mac the machine job runs on (default <PLANIA_PROJECTS_ROOT>/<slug>).
+  local?: { repo_path?: string };
 };
 
 export type Project = typeof projects.$inferSelect;

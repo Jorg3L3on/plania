@@ -71,6 +71,14 @@ export function useTaskPatch(slug: string) {
     // Lives on the mutation, not on mutate(): it still runs if the row unmounted meanwhile.
     onSuccess: (data, { target, patch, undo }) => {
       setVersion(target.key, data.version);
+      // Closing with things still running on the Mac: say what and how to remove each (Plania never runs them).
+      const live = (data.warnings ?? []).filter((w): w is Exclude<typeof w, string> => typeof w !== "string" && w.code === "FOOTPRINT_LIVE");
+      if (live.length) {
+        toast.warning(`${target.title} sigue con ${live.length === 1 ? "algo corriendo" : `${live.length} cosas corriendo`}`, {
+          duration: 15000,
+          description: live.map((w) => `${w.kind} ${w.locator}${w.teardown ? `: ${w.teardown}` : ""}`).join("\n"),
+        });
+      }
       if (!undo) return;
       toast(`${target.title} → ${patch.status}`, {
         duration: 8000,

@@ -2,13 +2,14 @@ import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { approvals, branches, questions, tasks, type Project, type Task, type Workspace } from "../db/schema.js";
 import { listDecisions } from "./decisions.js";
 import { ToolError } from "./errors.js";
+import { footprintsOf, sessionFootprint } from "./footprint-read.js";
 import { listEvents, liveOwner, taskSummary } from "./queries.js";
 import { iso, type Q } from "./tx.js";
 
 // get_context (R-03): one call for a session opening a worktree. From the branch (and machine /
 // worktree) it finds the initiative or tickets on it, the caller's live claims, the pinned decisions
 // that apply, unanswered questions and pending approvals on those tickets, and the events since the
-// cursor that touch them. UNKNOWN_BRANCH when nothing is on that branch.
+// cursor that touch them, plus the footprint on the Mac (src/mcp/footprint.ts) of those tickets and of the calling session. UNKNOWN_BRANCH when nothing is on that branch.
 
 export async function getContext(
   db: Q,
@@ -50,6 +51,9 @@ export async function getContext(
     ? await db.select().from(approvals).where(and(eq(approvals.projectId, p.id), sql`${approvals.taskId} in ${[...family]}`, sql`${approvals.state} in ('pending', 'granted')`, isNull(approvals.usedAt)))
     : [];
   const events = input.since_cursor !== undefined ? await listEvents(db, p.id, { since: input.since_cursor, limit: 500 }) : null;
+  // What is running on the Mac for these tickets (each row says which), and what this session registered.
+  const footprint = await footprintsOf(db, [...family]);
+  const keyById = new Map([...tickets, ...(initiative ? [initiative] : [])].map((t) => [t.id, t.key]));
   const keys = new Set([...tickets.map((t) => t.key), ...(initiative ? [initiative.key] : [])]);
   return {
     project: p.slug,
@@ -59,6 +63,8 @@ export async function getContext(
     my_claims: mine.map((t) => ({ key: t.key, lease_until: iso(t.leaseUntil), workspace: t.workspace, handoff: t.handoff })),
     pinned_decisions: decisions,
     open_questions: open.map(({ q, key }) => ({ id: q.id, key, question: q.question, options: q.options, asked_at: iso(q.askedAt) })),
+    footprint: footprint.map(({ taskId, ...f }) => ({ task_key: keyById.get(taskId!) ?? null, ...f })),
+    my_footprint: input.session_id ? await sessionFootprint(db, p.id, input.session_id, input.workspace.machine) : [],
     approvals: pending.map((a) => ({ id: a.id, key: a.taskKey, action: a.action, target: a.target, state: a.state, expires_at: iso(a.expiresAt) })),
     events: events ? { items: events.events.filter((e) => e.task_key && keys.has(e.task_key)), next_cursor: events.next_cursor, more: events.more } : null,
   };

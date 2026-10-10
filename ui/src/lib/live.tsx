@@ -53,6 +53,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         void queryClient.invalidateQueries({ queryKey: ["projects"] });
         void queryClient.invalidateQueries({ queryKey: ["project", event.project] });
         void queryClient.invalidateQueries({ queryKey: ["inbox"] });
+        // The machine job and register/release_footprint tell every screen the inventory changed.
+        if (event.type === "footprint") void queryClient.invalidateQueries({ queryKey: ["machine"] });
         if (!event.key) return;
         const id = `${event.project}/${event.key}`;
         if (Date.now() - (local.current.get(id) ?? 0) < LOCAL_ECHO_MS) return; // our own write
