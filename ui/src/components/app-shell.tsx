@@ -168,7 +168,7 @@ export function AppShell() {
           </div>
           <OfflineBanner />
         </header>
-        <main className="mx-auto max-w-[1480px] gutter pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <main className="mx-auto max-w-[1480px] gutter pt-5 tiny:pt-2 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           <Outlet />
         </main>
       </div>
