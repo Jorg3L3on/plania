@@ -286,6 +286,10 @@ export function pickFields<T extends Record<string, unknown>>(shape: T, fields: 
   return Object.fromEntries(fields.map((f) => [f, shape[f]])) as Partial<T>;
 }
 
+// Most warnings are a sentence. A structured one carries a code and what the caller needs to act on it:
+// FOOTPRINT_LIVE {kind, locator, teardown} when a ticket closes with something still running.
+export type WriteWarning = string | { code: string; [k: string]: unknown };
+
 // What every write returns: the key, where the task stands, the version to pass next time and what
 // changed. extra carries the id a tool just made (a result, a decision, a question, the claim).
 // verbose: true (ctx) adds the full task without its log.
@@ -295,7 +299,7 @@ export async function writeReply<E extends Record<string, unknown>>(
   ctx: Pick<Ctx, "verbose">,
   changed: string[],
   extra: E = {} as E,
-  warnings?: string[],
+  warnings?: WriteWarning[],
 ) {
   return {
     key: t.key,

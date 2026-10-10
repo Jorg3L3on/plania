@@ -724,7 +724,8 @@ export type Actor = { agent: string; session_id: string; machine?: string; model
 export type Workspace = { machine?: string; worktree_path?: string; branch?: string };
 
 // A claim handed to another session (or anyone) with what is done and what is next.
-export type Handoff = { to: string; note: string; head_sha?: string; from: Actor; at: string; until: string };
+// footprint: what the ticket still has running on the Mac (register_footprint / the machine job), so the receiver knows.
+export type Handoff = { to: string; note: string; head_sha?: string; from: Actor; at: string; until: string; footprint?: Record<string, unknown>[] };
 
 // Where an environment's deployed_at came from.
 export type DeploySource = { provider: string; deployment_id: string; url?: string };

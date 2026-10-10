@@ -21,12 +21,14 @@ import {
   liveOwner,
   requireTask,
   writeReply,
+  type WriteWarning,
 } from "./queries.js";
 import { loadApproval, useApproval } from "./approvals.js";
 import { parseBlockers, promoteUnblocked, replaceBlockers, resolveTaskBlockers, unsatisfiedBlockers, type BlockerInput } from "./blockers.js";
 import { assertBranchName, assertTicketBranch, registerIntegrationBranch } from "./branches.js";
 import { assertChecksClosed, replaceChecks, tickDerived, type CheckInput } from "./checks.js";
 import { hasDoc } from "./docs.js";
+import { liveTaskFootprint } from "./footprint-read.js";
 import { assertReviewEvidence } from "./evidence.js";
 import { addAlias, assignKey } from "./keys.js";
 import { GATED_STATUSES, SEVERITIES, TERMINAL, WORK_TYPES, actionForMove, assertTransition } from "./lifecycle.js";
@@ -497,7 +499,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     patch.stateNote = input.state_note;
     patch.stateNoteAt = input.state_note.trim() ? new Date() : null;
   }
-  const warnings: string[] = [];
+  const warnings: WriteWarning[] = [];
   if (input.scope && STATUS_HEADING.test(input.scope)) warnings.push("scope has a status section: keep scope as the spec and put where things stand in state_note");
 
   for (const [field, name] of Object.entries(FIELD_NAMES) as [keyof Task, string][]) {
@@ -527,6 +529,11 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     if (t.owner) {
       changedNames.push("claim");
       await emit("claim.released", u, { owner: t.owner, reason: "status" });
+    }
+    // Closing with something still running on the Mac is allowed (agents own Done), but each item is named
+    // with its teardown so the closer, or Jorge on the screen, can clean up.
+    if (patch.status === "Done" || patch.status === "Won't do") {
+      for (const f of await liveTaskFootprint(tx, t.id)) warnings.push({ code: "FOOTPRINT_LIVE", kind: f.kind, locator: f.locator, teardown: f.teardown });
     }
     // The headline talks about where things stand; an initiative moving or a ticket closing dates it.
     if (t.kind === "initiative" || patch.status === "Done") await markHeadlineStale(tx, p.id);
@@ -568,11 +575,13 @@ export async function handoff(
     const owner = liveOwner(t);
     if (owner && owner.session_id !== ctx.actor.session_id && !ctx.human) throw new ToolError("NOT_OWNER", { owner, lease_until: iso(t.leaseUntil) });
     const until = new Date(Date.now() + HANDOFF_HOLD_MIN * 60_000);
-    const record = { to: input.to.trim() || "open", note: input.note.trim(), ...(input.head_sha ? { head_sha: input.head_sha } : {}), from: ctx.actor, at: new Date().toISOString(), until: until.toISOString() };
+    // What the ticket still has running, so whoever takes it over knows before starting a second server.
+    const footprint = await liveTaskFootprint(tx, t.id);
+    const record = { to: input.to.trim() || "open", note: input.note.trim(), ...(input.head_sha ? { head_sha: input.head_sha } : {}), from: ctx.actor, at: new Date().toISOString(), until: until.toISOString(), footprint };
     const to = t.status === "In progress" ? "Ready" : t.status;
     const u = await updateTask(tx, t, { ...NO_LEASE, status: to, handoff: record }, true);
     await emit("claim.handoff", u, { ...record, from_status: t.status });
-    return writeReply(tx, u, ctx, ["claim", "handoff", ...(to !== t.status ? ["status"] : [])], { handoff: record });
+    return writeReply(tx, u, ctx, ["claim", "handoff", ...(to !== t.status ? ["status"] : [])], { handoff: record, footprint });
   });
 }
 

@@ -2,7 +2,7 @@
 // repo reads the same version. Project-specific additions live in the project's rules (set_project).
 // Bump PROTOCOL_VERSION whenever the text changes meaning.
 
-export const PROTOCOL_VERSION = "2.5";
+export const PROTOCOL_VERSION = "2.6";
 
 const PROTOCOL = `Plania protocol ${PROTOCOL_VERSION}. Plania is the source of the plan; product repos hold code and conventions, not plans.
 
@@ -24,7 +24,7 @@ Work a ticket.
 7. Leaving mid-ticket? handoff {to: session_id | open, note, head_sha}: the next session gets the note with its claim. Finish: add_result, then set_task status In review with branch and pr_url (this releases the lease; every check must be done or waived: CHECKS_OPEN). Put "Plania: <KEY>" in the PR body. The pollers move it to Merged when the PR merges and to Released when the release target runs the merge commit. Update the initiative's next_action / in_progress_note / state_note (never a status section inside scope), and the project headline (set_project) if the picture changed.
 8. Close what you finished: set_task status Done once the ticket is Merged or Released (ops and research: from In review on; a decision once answered), every check done or waived. get_resume status.released_waiting_done lists Released tickets nobody closed: close them. An initiative is Done once all its tickets are closed. Never set Won't do or reopen a closed task yourself: request_approval (wont_do | reopen) and, once Jorge grants it on screen, pass the approval_id to set_task. It is spent on that one move.
 
-Footprint. Started something that outlives the command (a dev server, a database or a copy of one, a container, a service, a tunnel)? register_footprint {kind, locator, purpose, teardown}: teardown is the command that removes it; task_key defaults to your only claim. Name databases <project>_<ticket key lowercased, - to _>_<purpose> (zigzag_zig_i5_scratch). release_footprint once you tore it down. Short commands (tests, builds) are not registered. Plania watches the Mac too: what nobody registered and no claim explains shows as orphan.
+Footprint. Started something that outlives the command (a dev server, a database or a copy of one, a container, a service, a tunnel)? register_footprint {kind, locator, purpose, teardown}: teardown is the command that removes it; task_key defaults to your only claim. Name databases <project>_<ticket key lowercased, - to _>_<purpose> (zigzag_zig_i5_scratch). release_footprint once you tore it down. Short commands (tests, builds) are not registered. Plania watches the Mac too: what nobody registered and no claim explains shows as orphan, and what outlives its ticket (Done, or no claim for hours) shows as stale in the audit. Closing a ticket with things still registered succeeds with a FOOTPRINT_LIVE warning per item and its teardown (a warning, not a gate), handoff carries the list to the next session, and claim.expiring lists it: tear it down or hand it over.
 
 Never type dates: the server stamps everything in UTC. Before acting on a ticket you read a while ago, list_events since your last cursor. Pass request_id on writes you may retry after a timeout.
 Errors come back as {error, status, ...detail}; 409 means the state moved or someone else holds it: re-read before deciding.`;
