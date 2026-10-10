@@ -39,7 +39,6 @@ export function ProjectsPage() {
     };
   }, [projects.data]);
 
-  const nowMs = useMemo(() => Date.now(), [projects.data]);
   const n = derived.tracks.length;
   const still = n - derived.moving;
 
@@ -87,7 +86,7 @@ export function ProjectsPage() {
       {projects.data && (
         <>
           <div className="grid gap-4">
-            {derived.tracks.map((p, i) => <ProjectTrack key={p.slug} project={p} index={i} nowMs={nowMs} />)}
+            {derived.tracks.map((p, i) => <ProjectTrack key={p.slug} project={p} index={i} />)}
           </div>
           <YourTurnStrip
             items={derived.turn}

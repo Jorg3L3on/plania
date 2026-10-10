@@ -1,45 +1,17 @@
-// One project on the index: accent stripe, name and progress, then one Ahora → Siguiente row per lane
-// with a mini station line. Lanes fold behind "ver todas" past four initiatives (lanes.ts: foldLanes).
+// One project on the index: accent stripe, name and progress, then one row per lane en marcha with
+// the initiative's name and key and the tickets in progress. Lanes that are not moving stay off the index.
 import { ArrowRightIcon } from "lucide-react";
-import { useState } from "react";
 import { Link } from "react-router";
-import { accentInk, FlowArrow, Glyph, LANE_STATE, projectAccent, rise, TONE_TEXT } from "@/components/plan/visuals";
-import { foldLanes, type Lane } from "@/lib/lanes";
+import { accentInk, Glyph, projectAccent, rise } from "@/components/plan/visuals";
+import { type Lane } from "@/lib/lanes";
 import { useLive } from "@/lib/live";
 import { cn } from "@/lib/utils";
-
-function MiniLine({ lane }: { lane: Lane }) {
-  const stations = lane.stations.slice(0, 7);
-  return (
-    <span aria-hidden className="flex w-[150px] items-center">
-      {stations.map((s, i) => (
-        <span key={s.task.key} className={cn("flex items-center", i < stations.length - 1 && "flex-1")}>
-          <Glyph tone={s.tone} size={s.here ? 13 : 11} pulse={s.here && lane.state === "moving"} />
-          {i < stations.length - 1 && (
-            <span
-              className="h-0.5 flex-1"
-              style={{
-                background:
-                  s.tone === "pending" || s.tone === "ready"
-                    ? "repeating-linear-gradient(90deg, var(--status-pending) 0 5px, transparent 5px 9px)"
-                    : "color-mix(in oklab, var(--foreground) 25%, transparent)",
-              }}
-            />
-          )}
-        </span>
-      ))}
-    </span>
-  );
-}
 
 function LaneRow({ slug, lane }: { slug: string; lane: Lane }) {
   const { isFresh } = useLive();
   // An agent just changed something in this lane: glow for a moment.
   const fresh = [lane.initiative, ...lane.review, ...lane.now, ...lane.next, ...lane.later, ...lane.done].some((t) => t && isFresh(slug, t.key));
-  const state = LANE_STATE[lane.state];
-  const now = lane.now[0];
-  const next = lane.next[0];
-  const moving = lane.state === "moving";
+  const inCourse = lane.now.filter((t) => t.status === "In progress");
   return (
     <div
       data-fresh={fresh || undefined}
@@ -48,25 +20,25 @@ function LaneRow({ slug, lane }: { slug: string; lane: Lane }) {
         fresh && "shadow-[0_0_0_2px_var(--status-now),0_0_28px_color-mix(in_oklab,var(--status-now)_40%,transparent)]",
       )}
     >
-      <span className="flex w-full min-w-0 shrink-0 flex-col gap-0.5 sm:w-[132px]">
+      <span className="flex w-full min-w-0 shrink-0 flex-col gap-0.5 sm:w-[220px]">
         <span className="truncate font-display text-[13px] font-bold" title={lane.initiative?.title}>
           {lane.initiative?.title ?? "Sueltos"}
         </span>
-        <span className={cn("inline-flex items-center gap-1.5 text-[11px]", TONE_TEXT[state.tone])}>
-          <Glyph tone={state.tone} size={7} pulse={moving} />
-          {state.word}
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-now">
+          <Glyph tone="now" size={7} pulse />
+          {lane.initiative ? <span className="font-mono">{lane.initiative.key}</span> : "en marcha"}
         </span>
       </span>
-      <span className={cn("line-clamp-2 min-w-[100px] flex-1 text-sm leading-snug sm:min-w-[120px]", !now && "text-muted-foreground")}>
-        {now ? now.title : lane.review.length > 0 ? "Nada en curso" : "Nadie trabaja aquí"}
-        {lane.now.length > 1 && <span className="text-muted-foreground"> y {lane.now.length - 1} más</span>}
-        {lane.review.length > 0 && <span className="text-ink-review"> · {lane.review.length} en revisión</span>}
-      </span>
-      <FlowArrow tone="ready" moving={moving && !!next} className="size-7 sm:size-9" />
-      <span className={cn("line-clamp-2 min-w-[100px] flex-1 text-sm leading-snug sm:min-w-[120px]", next ? "text-foreground/90" : "text-muted-foreground")}>
-        {next ? next.title : "—"}
-      </span>
-      <span className="hidden lg:block"><MiniLine lane={lane} /></span>
+      <ul className="grid min-w-[180px] flex-1 gap-1 text-sm leading-snug">
+        {inCourse.map((t) => (
+          <li key={t.key} className="flex min-w-0 items-center gap-2">
+            <Glyph tone="now" size={7} />
+            <span className="truncate" title={t.title}>{t.title}</span>
+          </li>
+        ))}
+        {inCourse.length === 0 && <li className="text-muted-foreground">Nada en curso</li>}
+        {lane.review.length > 0 && <li className="text-xs text-ink-review">{lane.review.length} en revisión</li>}
+      </ul>
     </div>
   );
 }
@@ -90,11 +62,9 @@ export function projectRank(p: TrackProject) {
   return 3;
 }
 
-export function ProjectTrack({ project, index, nowMs }: { project: TrackProject; index: number; nowMs: number }) {
-  const [showAll, setShowAll] = useState(false);
+export function ProjectTrack({ project, index }: { project: TrackProject; index: number }) {
   const [from, to] = projectAccent(project.slug);
-  const { visible, folded } = foldLanes(project.lanes, nowMs);
-  const lanes = showAll ? project.lanes : visible;
+  const lanes = project.lanes.filter((l) => l.state === "moving");
   const initiatives = project.lanes.filter((l) => l.initiative).length;
   const paused = projectRank(project) === 3;
   const moving = projectRank(project) === 0;
@@ -156,22 +126,11 @@ export function ProjectTrack({ project, index, nowMs }: { project: TrackProject;
 
         <div className="flex min-w-0 flex-[999_1_420px] flex-col gap-2.5">
           {lanes.length > 0 ? (
-            <>
-              {lanes.map((lane) => <LaneRow key={lane.id} slug={project.slug} lane={lane} />)}
-              {folded.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowAll((v) => !v)}
-                  className="relative z-10 w-fit rounded-full px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                >
-                  {showAll ? "Ocultar las quietas" : `Ver todas · ${folded.length} quietas más de una semana`}
-                </button>
-              )}
-            </>
+            lanes.map((lane) => <LaneRow key={lane.id} slug={project.slug} lane={lane} />)
           ) : (
             <span className="flex flex-col gap-1">
               <span className="text-[11px] font-bold tracking-[0.14em] text-muted-foreground uppercase">
-                {paused ? "En pausa" : "Sin iniciativas"}
+                {paused ? "En pausa" : project.lanes.length > 0 ? "Nada en marcha" : "Sin iniciativas"}
               </span>
               <span className={cn("text-[15px] leading-snug", paused ? "text-muted-foreground" : "font-medium")}>
                 {paused ? "Nada abierto ni ficha todavía." : project.line}

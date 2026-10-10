@@ -193,20 +193,6 @@ export function yourTurn(tasks: LaneTask[]): YourTurnItem[] {
   return tasks.filter(waitsOnJorge).sort(byPriorityThenKey).map((task) => ({ task, ask: task.title }));
 }
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-export const FOLD_AFTER = 4;
-
-/**
- * The index shows at most FOLD_AFTER lanes in full once a project has more: moving lanes and lanes
- * touched in the last week stay; the rest fold behind "ver todas". Sueltos never counts toward the limit.
- */
-export function foldLanes(lanes: Lane[], nowMs: number) {
-  const initiativeLanes = lanes.filter((l) => l.initiative);
-  if (initiativeLanes.length <= FOLD_AFTER) return { visible: lanes, folded: [] as Lane[] };
-  const fresh = (l: Lane) => !l.initiative || l.state === "moving" || nowMs - Date.parse(l.lastMovedAt) < WEEK_MS;
-  return { visible: lanes.filter(fresh), folded: lanes.filter((l) => !fresh(l)) };
-}
-
 export const LANE_COLUMNS = ["done", "review", "now", "next", "later"] as const;
 export type LaneColumn = (typeof LANE_COLUMNS)[number];
 

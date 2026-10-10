@@ -7,7 +7,6 @@ import {
   buildLanes,
   emptyColumns,
   firstLine,
-  foldLanes,
   projectProgress,
   statements,
   statusCounts,
@@ -204,23 +203,6 @@ describe("summaries", () => {
       ["C", "¿sandbox → main?"],
       ["A", "¿Aplicar 0009 ya?"],
     ]);
-  });
-
-  test("foldLanes keeps everything up to four initiatives, then folds stale, still lanes", () => {
-    const now = Date.parse("2026-10-20T00:00:00Z");
-    const few = buildLanes(filmia());
-    assert.deepEqual(foldLanes(few, now).folded, []);
-
-    const many = buildLanes([
-      ...["A", "B", "C", "D"].map((k) => init(`${k}-01`, "Active", { updated_at: "2026-10-01T00:00:00Z" })),
-      init("E-01", "Active", { updated_at: "2026-10-18T00:00:00Z" }),
-      init("F-01", "Active", { updated_at: "2026-10-01T00:00:00Z" }),
-      t("F-01-1", "In progress", { parent_key: "F-01", updated_at: "2026-10-01T00:00:00Z" }),
-      t("loose", "Ready", { updated_at: "2026-10-01T00:00:00Z" }),
-    ]);
-    const { visible, folded } = foldLanes(many, now);
-    assert.deepEqual(visible.map((l) => l.id).sort(), ["E-01", "F-01", LOOSE_LANE_ID].sort());
-    assert.deepEqual(folded.map((l) => l.id).sort(), ["A-01", "B-01", "C-01", "D-01"]);
   });
 
   test("branchEdges links each open initiative's branches to its base", () => {
