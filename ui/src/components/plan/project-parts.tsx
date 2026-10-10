@@ -1,7 +1,7 @@
 // Project page sections around the lane grid: header, "Te toca a ti", initiative lines,
 // branch graph, fixed decisions and the full resume (ficha) panel.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowRightIcon, GitBranchIcon, HandIcon, PencilIcon, PinIcon } from "lucide-react";
+import { ArrowRightIcon, ChevronRightIcon, GitBranchIcon, HandIcon, PencilIcon, PinIcon } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import {
   toneVar,
 } from "@/components/plan/visuals";
 import { DecisionList, ResumeView } from "@/components/resume";
-import type { BranchEdge, Lane, YourTurnItem } from "@/lib/lanes";
+import type { BranchEdge, Lane, StationTone, YourTurnItem } from "@/lib/lanes";
 import type { Decision, Headline, Resume } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -34,9 +34,9 @@ function HeadlineLine({ slug, headline, version }: { slug: string; headline: Hea
     mutationFn: () => api.patchProject(slug, text.trim(), version),
     onSuccess: () => {
       setEditing(false);
-      toast("Titular guardado");
+      toast("Nota guardada");
     },
-    onError: () => toast.error("No se pudo guardar el titular; recarga y vuelve a intentarlo."),
+    onError: () => toast.error("No se pudo guardar la nota; recarga y vuelve a intentarlo."),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ["project", slug] }),
   });
   function submit(e: FormEvent) {
@@ -47,7 +47,7 @@ function HeadlineLine({ slug, headline, version }: { slug: string; headline: Hea
   if (editing) {
     return (
       <form onSubmit={submit} className="grid max-w-2xl gap-2">
-        <Textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 280))} rows={2} autoFocus aria-label="Titular" />
+        <Textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 280))} rows={2} autoFocus aria-label="Nota de los agentes" />
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>{text.length}/280</span>
           <Button type="submit" size="sm" disabled={save.isPending}>Guardar</Button>
@@ -57,21 +57,32 @@ function HeadlineLine({ slug, headline, version }: { slug: string; headline: Hea
     );
   }
   return (
-    <p className="mt-1 flex max-w-2xl flex-wrap items-baseline gap-x-2 text-[17px]">
-      {headline.text ? (
-        <span className={cn(headline.stale && "text-muted-foreground")}>{headline.text}</span>
-      ) : (
-        <span className="text-muted-foreground">Sin titular.</span>
-      )}
-      {headline.stale && (
-        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400" title="Algo cambió desde que se escribió">
-          desactualizado
-        </span>
-      )}
-      <button type="button" onClick={() => { setText(headline.text); setEditing(true); }} className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:underline" aria-label="Editar titular">
+    <p className="flex max-w-2xl flex-wrap items-baseline gap-x-2 text-[13px] text-muted-foreground">
+      <span>{headline.text || "Sin nota."}</span>
+      <button type="button" onClick={() => { setText(headline.text); setEditing(true); }} className="inline-flex items-center gap-1 text-xs underline-offset-4 hover:text-foreground hover:underline" aria-label="Editar la nota">
         <PencilIcon className="size-3" aria-hidden /> editar
       </button>
     </p>
+  );
+}
+
+// The headline is written by agents for agents (envs, SHAs, keys): it stays one click away.
+function AgentNote({ slug, headline, version }: { slug: string; headline: Headline; version: number }) {
+  return (
+    <details className="group/note mt-1 max-w-2xl">
+      <summary className="inline-flex min-h-7 cursor-pointer list-none items-center gap-2 text-xs text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+        <ChevronRightIcon aria-hidden className="size-3.5 transition-transform group-open/note:rotate-90" />
+        Nota de los agentes
+        {headline.stale && (
+          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400" title="Algo cambió desde que se escribió">
+            desactualizada
+          </span>
+        )}
+      </summary>
+      <div className="mt-1 pl-5">
+        <HeadlineLine slug={slug} headline={headline} version={version} />
+      </div>
+    </details>
   );
 }
 
@@ -86,15 +97,74 @@ export function SectionTitle({ children, hint }: { children: ReactNode; hint?: R
   );
 }
 
-function laneSentence(lanes: Lane[]) {
-  const initiatives = lanes.filter((l) => l.initiative);
-  if (initiatives.length === 0) return "Sin iniciativas abiertas.";
-  const moving = initiatives.filter((l) => l.state === "moving").length;
-  const parts = [`${initiatives.length} ${initiatives.length === 1 ? "iniciativa abierta" : "iniciativas abiertas"}`];
-  if (moving > 0) parts.push(`${moving} en marcha`);
-  const still = initiatives.length - moving;
-  if (still > 0) parts.push(`${still} ${still === 1 ? "quieta" : "quietas"}`);
-  return parts.join(" · ");
+/** "Materiales" from "Materiales: catalog materials on…"; a title whose head is too short to stand alone stays whole. */
+function shortTitle(title: string) {
+  const head = title.match(/^(.+?):\s/)?.[1];
+  return head && head.length >= 10 ? head : title.replace(/\s*\([^)]*\)\s*$/, "");
+}
+
+/** "1 en curso · 4 por revisar" for a lane. */
+function laneHow(lane: Lane) {
+  const inCourse = lane.now.filter((t) => t.status === "In progress").length;
+  const blocked = lane.now.filter((t) => t.status === "Blocked").length;
+  return [
+    inCourse > 0 && `${inCourse} en curso`,
+    lane.review.length > 0 && `${lane.review.length} por revisar`,
+    blocked > 0 && `${blocked} ${blocked === 1 ? "bloqueada" : "bloqueadas"}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+type SummaryItem = { key: string | null; name: string; how: string };
+
+function SummaryRow({ label, tone, items, empty, onOpen }: { label: string; tone: StationTone; items: SummaryItem[]; empty: string; onOpen?: Open }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+      <dt className={cn("inline-flex w-[104px] shrink-0 items-center gap-2 text-[11px] font-bold tracking-[0.12em] uppercase", items.length > 0 ? TONE_TEXT[tone] : "text-muted-foreground")}>
+        <Glyph tone={items.length > 0 ? tone : "pending"} size={7} pulse={tone === "now" && items.length > 0} />
+        {label}
+      </dt>
+      <dd className="m-0 min-w-0 flex-1 text-[15px] leading-snug">
+        {items.length === 0 ? (
+          <span className="text-muted-foreground">{empty}</span>
+        ) : (
+          items.map((item, i) => (
+            <span key={item.key ?? item.name}>
+              {i > 0 && <span className="text-muted-foreground"> · </span>}
+              {item.key && onOpen ? (
+                <button type="button" onClick={() => onOpen(item.key!)} className="rounded font-medium underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                  {item.name}
+                </button>
+              ) : (
+                <span className="font-medium">{item.name}</span>
+              )}
+              {item.how && <span className="text-muted-foreground"> ({item.how})</span>}
+            </span>
+          ))
+        )}
+      </dd>
+    </div>
+  );
+}
+
+/** What a person wants at a glance: what is moving, what comes next, and whether anything waits on Jorge. */
+function ProjectSummary({ lanes, needsJorge, onOpen }: { lanes: Lane[]; needsJorge: number; onOpen?: Open }) {
+  const item = (l: Lane, how: string): SummaryItem => ({ key: l.initiative?.key ?? null, name: l.initiative ? shortTitle(l.initiative.title) : "Tickets sueltos", how });
+  const moving = lanes.filter((l) => l.state === "moving").map((l) => item(l, laneHow(l)));
+  const next = lanes
+    .filter((l) => (l.state === "waiting" || l.state === "blocked") && l.next.length + l.now.length > 0)
+    .map((l) => item(l, l.state === "blocked" ? "bloqueada" : !l.initiative ? `${l.next.length} ${l.next.length === 1 ? "listo" : "listos"}` : ""));
+  const shownNext = next.slice(0, 3);
+  if (next.length > 3) shownNext.push({ key: null, name: `y ${next.length - 3} más`, how: "" });
+  const jorge: SummaryItem[] = needsJorge > 0 ? [{ key: null, name: needsJorge === 1 ? "1 pregunta" : `${needsJorge} preguntas`, how: "abajo" }] : [];
+  return (
+    <dl className="mt-2 grid max-w-3xl gap-1.5">
+      <SummaryRow label="En marcha" tone="now" items={moving} empty="Nada ahora mismo" onOpen={onOpen} />
+      <SummaryRow label="Siguiente" tone="ready" items={shownNext} empty="Nada en cola" onOpen={onOpen} />
+      <SummaryRow label="Te espera" tone="jorge" items={jorge} empty="Nada; lo demás avanza solo" />
+    </dl>
+  );
 }
 
 export function ProjectHeader({
@@ -105,6 +175,7 @@ export function ProjectHeader({
   counts,
   headline,
   version,
+  onOpen,
 }: {
   slug?: string;
   title: string;
@@ -113,6 +184,7 @@ export function ProjectHeader({
   counts: { inProgress: number; inReview: number; ready: number; needsJorge: number; blocked: number };
   headline?: Headline;
   version?: number;
+  onOpen?: Open;
 }) {
   const legend = [
     { n: counts.inProgress, label: "en curso", tone: "now" as const },
@@ -125,8 +197,8 @@ export function ProjectHeader({
     <header className="flex animate-rise flex-wrap items-center justify-between gap-x-8 gap-y-3">
       <div className="grid gap-1">
         <h1 className="font-display text-3xl leading-none font-extrabold tracking-[-0.03em] sm:text-4xl">{title}</h1>
-        {slug && headline && version !== undefined && <HeadlineLine slug={slug} headline={headline} version={version} />}
-        <p className="text-[15px] text-muted-foreground">{laneSentence(lanes)}</p>
+        <ProjectSummary lanes={lanes} needsJorge={counts.needsJorge} onOpen={onOpen} />
+        {slug && headline && version !== undefined && <AgentNote slug={slug} headline={headline} version={version} />}
       </div>
       <div className="flex flex-wrap items-center gap-x-7 gap-y-3 rounded-[20px] border bg-card/60 px-5 py-3">
         {progress.total > 0 && (

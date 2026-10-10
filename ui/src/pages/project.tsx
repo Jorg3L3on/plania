@@ -142,6 +142,7 @@ export function ProjectPage() {
             counts={derived.counts}
             headline={resume?.headline}
             version={project.data.version}
+            onOpen={openTask}
           />
           {/* Questions agents asked Jorge (Needs Jorge): answer in place, with an optional line for the decision log. */}
           <QuestionsPanel slug={slug} questions={project.data.resume.open_questions} onOpen={openTask} />
