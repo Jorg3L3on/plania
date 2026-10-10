@@ -21,7 +21,7 @@ import {
   type Collected,
   type ListDatabases,
 } from "./collect.js";
-import { ownerOfDatabase, ownerOfPath, type Directory, type Observed, type Owner, type TaskLite } from "./infer.js";
+import { isPrimary, ownerOfDatabase, ownerOfPath, type Directory, type Observed, type Owner, type TaskLite } from "./infer.js";
 import { reconcile, type Inferred } from "./reconcile.js";
 import { execRun, type Run } from "./run.js";
 
@@ -69,10 +69,22 @@ const due = (s: MachineState, name: string, every: number, now: Date) => now.get
 export async function loadDirectory(db: Db, deps: Pick<MachineDeps, "projectsRoot" | "machine">): Promise<Directory> {
   const projs = await db.select({ id: projects.id, slug: projects.slug, keyPrefix: projects.keyPrefix, settings: projects.settings }).from(projects);
   const taskRows = await db
-    .select({ id: tasks.id, key: tasks.key, projectId: tasks.projectId, status: tasks.status, owner: tasks.owner, leaseUntil: tasks.leaseUntil, workspace: tasks.workspace })
+    .select({
+      id: tasks.id,
+      key: tasks.key,
+      projectId: tasks.projectId,
+      status: tasks.status,
+      owner: tasks.owner,
+      leaseUntil: tasks.leaseUntil,
+      workspace: tasks.workspace,
+      kind: tasks.kind,
+      parentId: tasks.parentId,
+      statusChangedAt: tasks.statusChangedAt,
+      lastSeenAt: tasks.lastSeenAt,
+    })
     .from(tasks);
   const aliasRows = await db.select({ projectId: taskAliases.projectId, alias: taskAliases.alias, taskId: taskAliases.taskId }).from(taskAliases);
-  const branchRows = await db.select({ projectId: branches.projectId, name: branches.name, ownerTaskId: branches.ownerTaskId }).from(branches);
+  const branchRows = await db.select({ projectId: branches.projectId, name: branches.name, ownerTaskId: branches.ownerTaskId, mergedAt: branches.mergedAt }).from(branches);
   const known = await db
     .select({ details: footprints.details })
     .from(footprints)
@@ -99,6 +111,7 @@ export async function loadDirectory(db: Db, deps: Pick<MachineDeps, "projectsRoo
     tasksById,
     tasksByKey,
     branchOwner: new Map(branchRows.filter((b) => b.ownerTaskId).map((b) => [`${b.projectId}\0${b.name}`, b.ownerTaskId!])),
+    branchMergedAt: new Map(branchRows.filter((b) => b.mergedAt).map((b) => [`${b.projectId}\0${b.name}`, b.mergedAt!])),
     claimed: taskRows.filter((t) => t.workspace && liveOwner(t, now)),
   };
 }
@@ -120,7 +133,7 @@ function infer(dir: Directory, item: Observed, now: Date): Inferred {
   else if (item.cwd) owner = ownerOfPath(dir, item.cwd, now);
   const repo = owner.repo ?? item.repoHint ?? (item.worktree?.repo ?? null);
   const repoPath = dir.repos.find((r) => r.name === repo)?.path ?? null;
-  return { item, owner, repoPath };
+  return { item, owner, repoPath, primary: isPrimary(item, dir) };
 }
 
 export async function runMachineTick(db: Db, now: Date, over: Partial<MachineDeps> = {}): Promise<JobSummary> {
@@ -238,9 +251,10 @@ export async function machineInventory(db: Db, machine?: string) {
   }));
 }
 
-// The Machine page's header numbers. Gone rows (stopped, not yet released) are not "running".
+// The Machine page's header numbers. Gone rows (stopped, not yet released) and ghosts (declared, never
+// seen) are not "running".
 export function machineTotals(items: { kind: string; state: string; details: Record<string, unknown> }[]) {
-  const live = items.filter((i) => i.state !== "gone");
+  const live = items.filter((i) => i.state !== "gone" && i.state !== "ghost");
   return {
     servers: live.filter((i) => i.kind === "server").length,
     databases: live.filter((i) => i.kind === "database").length,

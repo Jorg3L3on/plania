@@ -2,9 +2,10 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../../db/client.js";
 import { footprints } from "../../db/schema.js";
 import { bus } from "../../events.js";
+import { releaseRow } from "../../mcp/footprint.js";
 import { SYSTEM_ACTOR, writeTx, type Emit, type Q } from "../../mcp/tx.js";
 import { groupOf } from "./collect.js";
-import { computeState, suggestTeardown, type Directory, type FootprintState, type Observed, type Owner } from "./infer.js";
+import { GHOST_RELEASE_MS, computeVerdict, ownerFacts, suggestTeardown, type Directory, type Observed, type Owner, type StateInput, type Verdict } from "./infer.js";
 
 // Per tick: compare what the collectors saw with the unreleased rows of this machine.
 //   new → insert, event footprint.seen
@@ -12,6 +13,10 @@ import { computeState, suggestTeardown, type Directory, type FootprintState, typ
 //   not seen while its collector ran → misses + 1; at GONE_AFTER misses the state is `gone`
 //     (last_seen_at stays frozen at the last sighting), event footprint.gone
 //   its collector did not run (tool missing, command failed, not due) → the row is left alone
+//   declared and both rows are never `gone`: when their collector ran and did not see them they become
+//     `ghost` (declared and never seen for 5 minutes, or seen before and missed twice), and a ghost row is
+//     released (bookkeeping, nothing on the Mac) an hour later with footprint.released reason ghost
+//   the state of a row that was seen is recomputed every tick: live / system / orphan, or stale (infer.ts)
 // Plania never touches the Mac here: this only writes the footprints table.
 
 export const GONE_AFTER = 2;
@@ -21,10 +26,13 @@ const GONE_KEEP_MS = 24 * 60 * 60 * 1000; // a gone row is released (kept for hi
 const STICKY = ["size_kb", "size_at", "version", "declared"];
 
 type Row = typeof footprints.$inferSelect;
-export type Inferred = { item: Observed; owner: Owner; repoPath: string | null };
-export type ReconcileResult = { seen: number; gone: number; revived: number; updated: number; released: number };
+export type Inferred = { item: Observed; owner: Owner; repoPath: string | null; primary?: boolean };
+export type ReconcileResult = { seen: number; gone: number; revived: number; updated: number; released: number; ghosted: number };
 
 const keyOf = (kind: string, locator: string) => `${kind}\0${locator}`;
+
+// Primary things (the live database, Plania itself, database servers) never get a suggested teardown.
+const teardownOf = (i: Inferred) => (i.primary || i.item.self ? "" : suggestTeardown(i.item, i.repoPath));
 
 // Key order differs between what we build and what jsonb returns, so compare sorted.
 function stable(v: unknown): string {
@@ -45,18 +53,50 @@ function detailsFor(i: Inferred, old: Record<string, unknown> | undefined): Reco
   else if (i.item.repoHint) d.repo = i.item.repoHint;
   for (const [k, v] of Object.entries(i.owner.extra ?? {})) if (v !== undefined && !(k in d)) d[k] = v;
   for (const k of STICKY) if (d[k] === undefined && old?.[k] !== undefined) d[k] = old[k];
+  // The things the work stands on (the live database, Plania itself, database servers) carry no teardown.
+  if (i.primary || i.item.self) d.primary = true;
   return d;
 }
 
-function stateFor(i: Inferred, source: "observed" | "declared" | "both"): FootprintState {
-  return computeState({
-    source,
+type Basis = { source: "observed" | "declared" | "both"; projectId: string | null; taskId: string | null; startedAt: Date | null };
+
+// The state of something the collectors saw this tick, with why it is stale when it is.
+function verdictFor(a: { dir: Directory; now: Date }, i: Inferred, b: Basis): Verdict {
+  const d = i.item.details;
+  const branch = typeof d.branch === "string" ? d.branch : null;
+  const input: StateInput = {
+    source: b.source,
     self: !!i.item.self,
     shared: !!i.item.shared,
-    projectId: i.owner.projectId,
-    taskId: i.owner.taskId,
+    projectId: b.projectId,
+    taskId: b.taskId,
     repo: i.owner.repo ?? i.item.repoHint ?? null,
-  });
+    kind: i.item.kind,
+    primary: !!i.primary || !!i.item.self,
+    now: a.now,
+    startedAt: b.startedAt,
+    task: ownerFacts(a.dir, b.taskId, a.now),
+    worktree:
+      i.item.kind === "worktree"
+        ? {
+            merged: typeof d.merged === "boolean" ? d.merged : null,
+            ownCommits: typeof d.own_commits === "number" ? d.own_commits : null,
+            dirty: typeof d.dirty === "boolean" ? d.dirty : null,
+            branchMergedAt: (b.projectId && branch ? a.dir.branchMergedAt?.get(`${b.projectId}\0${branch}`) : null) ?? null,
+          }
+        : null,
+  };
+  return computeVerdict(input);
+}
+
+// The why of a stale row travels in details, stable between ticks (no "3 h ago" in it: the screen
+// and the audit add the age from stale_since).
+function withVerdict(d: Record<string, unknown>, v: Verdict): Record<string, unknown> {
+  if (v.state === "stale") {
+    d.stale_reason = v.reason;
+    if (v.since) d.stale_since = v.since.toISOString();
+  }
+  return d;
 }
 
 export async function reconcile(
@@ -66,7 +106,7 @@ export async function reconcile(
   const { machine, now, dir } = a;
   const rows = await db.select().from(footprints).where(and(eq(footprints.machine, machine), isNull(footprints.releasedAt)));
   const existing = new Map(rows.map((r) => [keyOf(r.kind, r.locator), r]));
-  const result: ReconcileResult = { seen: 0, gone: 0, revived: 0, updated: 0, released: 0 };
+  const result: ReconcileResult = { seen: 0, gone: 0, revived: 0, updated: 0, released: 0, ghosted: 0 };
 
   // A Postgres server that no longer listens takes its databases with it: its databases group
   // counts as having run (and found nothing), or they would stay live forever.
@@ -90,6 +130,7 @@ export async function reconcile(
     seenKeys.add(key);
     const row = existing.get(key);
     if (!row) {
+      const v = verdictFor(a, i, { source: "observed", projectId: i.owner.projectId, taskId: i.owner.taskId, startedAt: now });
       inserts.push({
         id: crypto.randomUUID(),
         machine,
@@ -99,9 +140,9 @@ export async function reconcile(
         taskId: i.owner.taskId,
         sessionId: i.owner.sessionId,
         source: "observed",
-        teardown: suggestTeardown(i.item, i.repoPath),
-        details: detailsFor(i, undefined),
-        state: stateFor(i, "observed"),
+        teardown: teardownOf(i),
+        details: withVerdict(detailsFor(i, undefined), v),
+        state: v.state,
         firstSeenAt: now,
         lastSeenAt: now,
       });
@@ -109,15 +150,24 @@ export async function reconcile(
     }
     // A declared owner is the agent's word; only observed rows take the inferred one.
     const inferredOwner = row.source === "observed";
+    const source = row.source === "declared" ? "both" : (row.source as "observed" | "both");
+    // The ticket that started it stays its owner after the claim ends: once the claim is released the
+    // branch points at the initiative, which would hide "ticket ZIG-I3-2 Done" behind the initiative.
+    const prev = row.taskId ? dir.tasksById.get(row.taskId) : undefined;
+    const keepTicket = inferredOwner && !!prev && !!i.owner.taskId && prev.parentId === i.owner.taskId && !i.owner.sessionId;
+    const projectId = inferredOwner ? i.owner.projectId : row.projectId;
+    const taskId = keepTicket ? row.taskId : inferredOwner ? i.owner.taskId : row.taskId;
+    const v = verdictFor(a, i, { source, projectId, taskId, startedAt: row.firstSeenAt ?? row.declaredAt });
     const next = {
       // Something an agent declared before the job saw it is now confirmed by both.
-      source: row.source === "declared" ? "both" : row.source,
-      projectId: inferredOwner ? i.owner.projectId : row.projectId,
-      taskId: inferredOwner ? i.owner.taskId : row.taskId,
+      source,
+      projectId,
+      taskId,
       sessionId: inferredOwner ? i.owner.sessionId : row.sessionId,
-      details: detailsFor(i, row.details),
-      state: stateFor({ ...i, owner: { ...i.owner, projectId: inferredOwner ? i.owner.projectId : row.projectId, taskId: inferredOwner ? i.owner.taskId : row.taskId } }, row.source as "observed" | "declared" | "both"),
-      teardown: row.source === "observed" ? suggestTeardown(i.item, i.repoPath) : row.teardown,
+      details: withVerdict(detailsFor(i, row.details), v),
+      state: v.state,
+      // What an agent declared stays as declared; only the job's own suggestion is ours to change.
+      teardown: row.source === "observed" ? teardownOf(i) : row.teardown,
     };
     const same =
       next.source === row.source &&
@@ -139,14 +189,43 @@ export async function reconcile(
   const goneRows: Row[] = [];
   const missed: string[] = [];
   const release: string[] = [];
+  const ghostNew: Row[] = [];
+  const ghostRelease: Row[] = [];
   for (const row of rows) {
     if (seenKeys.has(keyOf(row.kind, row.locator))) continue;
-    if (row.source !== "observed") continue; // declared and both rows are phase 4/5: ghosts, not gone
+    const collected = ran.has(groupOf(row.kind, row.locator, row.details));
+    if (row.source !== "observed") {
+      // Declared and both rows are not `gone`: the agent said it was there. Not seen by a collector
+      // that ran makes it a ghost, and a ghost is released (this only edits our table) an hour later.
+      if (row.state === "ghost") {
+        const since = typeof row.details.ghost_since === "string" ? new Date(row.details.ghost_since) : row.updatedAt;
+        if (now.getTime() - since.getTime() >= GHOST_RELEASE_MS) ghostRelease.push(row);
+        continue;
+      }
+      if (!collected) continue; // a cache has no collector; Docker may be missing: never a ghost
+      const v = computeVerdict({
+        source: row.source as "declared" | "both",
+        self: false,
+        shared: false,
+        projectId: row.projectId,
+        taskId: row.taskId,
+        repo: null,
+        seen: false,
+        collectorRan: true,
+        misses: row.misses + 1,
+        declaredAt: row.declaredAt,
+        now,
+        current: row.state as StateInput["current"],
+      });
+      if (v.state === "ghost") ghostNew.push(row);
+      else missed.push(row.id);
+      continue;
+    }
     if (row.state === "gone") {
       if (row.lastSeenAt && now.getTime() - row.lastSeenAt.getTime() > GONE_KEEP_MS) release.push(row.id);
       continue;
     }
-    if (!ran.has(groupOf(row.kind, row.locator, row.details))) continue;
+    if (!collected) continue;
     if (row.misses + 1 >= GONE_AFTER) goneRows.push(row);
     else missed.push(row.id);
   }
@@ -155,13 +234,15 @@ export async function reconcile(
   // commit with the row and reach that project's event feed. Rows without a project (a Postgres
   // server, plania's own repo) cannot have an event: events.project_id is NOT NULL and the log is
   // per project. They are still in the table and the live bus below tells the screen to refetch.
-  const byProject = new Map<string | null, { ins: typeof inserts; gone: Row[] }>();
-  const bucket = (p: string | null) => byProject.get(p) ?? byProject.set(p, { ins: [], gone: [] }).get(p)!;
+  type Bucket = { ins: typeof inserts; gone: Row[]; ghosts: Row[] };
+  const byProject = new Map<string | null, Bucket>();
+  const bucket = (p: string | null) => byProject.get(p) ?? byProject.set(p, { ins: [], gone: [], ghosts: [] }).get(p)!;
   for (const r of inserts) bucket(r.projectId ?? null).ins.push(r);
   for (const r of goneRows) bucket(r.projectId).gone.push(r);
+  for (const r of ghostRelease) bucket(r.projectId).ghosts.push(r);
 
   const slugs = new Map(dir.projects.map((p) => [p.id, p.slug]));
-  const apply = async (q: Q, emit: Emit | null, g: { ins: typeof inserts; gone: Row[] }) => {
+  const apply = async (q: Q, emit: Emit | null, g: Bucket) => {
     if (g.ins.length) await q.insert(footprints).values(g.ins);
     for (const r of g.ins) {
       result.seen++;
@@ -171,6 +252,11 @@ export async function reconcile(
       await q.update(footprints).set({ state: "gone", misses: r.misses + 1, updatedAt: now }).where(eq(footprints.id, r.id));
       result.gone++;
       await emit?.("footprint.gone", taskRef(dir, r.taskId), payloadOf(r.id, r.kind, r.locator, "gone", r.details, machine, r.lastSeenAt));
+    }
+    for (const r of g.ghosts) {
+      if (emit) await releaseRow(q, emit, r, "ghost");
+      else await q.update(footprints).set({ releasedAt: now, state: "released", updatedAt: now }).where(eq(footprints.id, r.id));
+      result.released++;
     }
   };
   for (const [projectId, g] of byProject) {
@@ -188,13 +274,17 @@ export async function reconcile(
   if (touch.length) await db.update(footprints).set({ lastSeenAt: now, misses: 0 }).where(inArray(footprints.id, touch));
   for (const c of changed) await db.update(footprints).set(c.set).where(eq(footprints.id, c.id));
   if (missed.length) await db.update(footprints).set({ misses: sql`${footprints.misses} + 1` }).where(inArray(footprints.id, missed));
+  for (const r of ghostNew) {
+    await db.update(footprints).set({ state: "ghost", misses: r.misses + 1, details: { ...r.details, ghost_since: now.toISOString() }, updatedAt: now }).where(eq(footprints.id, r.id));
+    result.ghosted++;
+  }
   if (release.length) {
     await db.update(footprints).set({ releasedAt: now, updatedAt: now }).where(inArray(footprints.id, release));
     result.released = release.length;
   }
 
   // The inventory is global (all projects and none), so one project-less notice per tick that changed it.
-  if (result.seen + result.gone + result.revived + result.updated + result.released > 0) bus.publish({ type: "footprint", project: "" });
+  if (result.seen + result.gone + result.revived + result.updated + result.released + result.ghosted > 0) bus.publish({ type: "footprint", project: "" });
   return result;
 }
 

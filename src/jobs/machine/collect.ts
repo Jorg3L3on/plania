@@ -255,6 +255,18 @@ async function baseRef(run: Run, repo: string): Promise<string | null> {
   return null;
 }
 
+// Commits made in this worktree or on its branch, from the reflogs (a worktree has its own HEAD
+// reflog). `merged` alone cannot tell a branch whose work landed from a worktree created on an old
+// commit and never used (both are ancestors of the base, both are 0 ahead); this can. null = git
+// could not say (the reflog is not kept, or the command failed).
+const OWN_WORK = /^(commit|cherry-pick|revert|rebase \(pick\)|rebase \(reword\)|rebase \(squash\))/;
+async function countOwnCommits(run: Run, repoPath: string, wtPath: string, branch: string | null): Promise<number | null> {
+  const logs = [okOut(await git(run, wtPath, ["reflog", "show", "--format=%gs", "-n", "500", "HEAD"]))];
+  if (branch) logs.push(okOut(await git(run, repoPath, ["reflog", "show", "--format=%gs", "-n", "500", `refs/heads/${branch}`])));
+  if (logs.every((l) => l === null)) return null;
+  return Math.max(...logs.map((l) => (l ?? "").split("\n").filter((line) => OWN_WORK.test(line)).length));
+}
+
 export async function collectWorktrees(run: Run, repos: Repo[], opts: WorktreeOpts): Promise<Collected> {
   const out = none();
   for (const repo of repos) {
@@ -269,6 +281,7 @@ export async function collectWorktrees(run: Run, repos: Repo[], opts: WorktreeOp
       let dirtyCount: number | null = null;
       let merged: boolean | null = null;
       let ahead: number | null = null;
+      let ownCommits: number | null = null;
       let lastCommitAt: string | null = null;
       if (!missing) {
         const status = okOut(await git(run, w.path, ["status", "--porcelain"]));
@@ -281,6 +294,7 @@ export async function collectWorktrees(run: Run, repos: Repo[], opts: WorktreeOp
           const n = Number(okOut(await git(run, w.path, ["rev-list", "--count", `${base}..${w.head}`]))?.trim());
           ahead = Number.isFinite(n) ? n : null;
         }
+        ownCommits = await countOwnCommits(run, repo.path, w.path, w.branch);
       }
       const prev = opts.previous.get(w.path);
       let sizeKb = prev?.size_kb ?? null;
@@ -309,6 +323,7 @@ export async function collectWorktrees(run: Run, repos: Repo[], opts: WorktreeOp
           base,
           merged,
           ahead,
+          own_commits: ownCommits,
           last_commit_at: lastCommitAt,
           size_kb: sizeKb,
           size_at: sizeAt,

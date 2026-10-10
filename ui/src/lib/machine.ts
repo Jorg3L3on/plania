@@ -1,3 +1,4 @@
+import { ago } from "./time";
 import type { FootprintItem, FootprintKind, FootprintState } from "./types";
 
 // The Machine page's model, apart from the markup: how rows are grouped and how each one is named.
@@ -171,3 +172,25 @@ export const STATE_WORD: Record<FootprintState, string> = {
 };
 
 export const SOURCE_WORD = { observed: "observado", declared: "declarado", both: "observado y declarado" } as const;
+
+/** The thing the work stands on (the live database, Plania itself, database servers): it has no teardown. */
+export const isPrimary = (it: FootprintItem): boolean => it.details.primary === true;
+
+/**
+ * The second line of a stale or ghost row: why it is stale ("ticket ZIG-I3-2 Done hace 3 h",
+ * "sin claim desde hace 26 h", "rama fusionada") or what a ghost is.
+ */
+export function whyLine(it: FootprintItem, nowMs: number): string | null {
+  if (it.state === "stale") {
+    const reason = str(it.details.stale_reason);
+    if (!reason) return "obsoleto";
+    const since = str(it.details.stale_since);
+    if (!since) return reason;
+    return reason === "sin claim" ? `${reason} desde ${ago(since, nowMs)}` : `${reason} ${ago(since, nowMs)}`;
+  }
+  if (it.state === "ghost") {
+    const at = str(it.details.ghost_since);
+    return `declarado y no se ve en la Mac${at ? `, desde ${ago(at, nowMs)}` : ""}; se libera solo`;
+  }
+  return null;
+}

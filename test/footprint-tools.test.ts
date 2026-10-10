@@ -152,10 +152,14 @@ describe("register_footprint", () => {
     await observe([server(3069, { command: "next dev --turbopack" })], 1);
     const after = (await rows("port:3069"))[0];
     assert.deepEqual([after.source, after.state, after.purpose, after.teardown, after.task_id === merged.task_id, after.details.command, after.details.declared.flavor], ["both", "live", "zigzag dev server", "kill 1069", true, "next dev --turbopack", "next"]);
-    // Gone logic skips declared rows: two ticks that do not see it leave it as it was.
+    // Declared rows are never `gone`: one tick that does not see it leaves it as it was, the second makes it a ghost
+    // (the agent said it was there and the job's port scan says it is not); seeing it again brings it back.
     await observe([], 2);
-    await observe([], 3);
     assert.equal((await rows("port:3069"))[0].state, "live");
+    await observe([], 3);
+    assert.equal((await rows("port:3069"))[0].state, "ghost");
+    await observe([server(3069, { command: "next dev --turbopack" })], 3);
+    assert.deepEqual([(await rows("port:3069"))[0].state, (await rows("port:3069"))[0].details.ghost_since], ["live", undefined]);
   });
 
   test("a declared-only row is confirmed as both once the job sees it", async () => {
