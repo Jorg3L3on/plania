@@ -46,13 +46,17 @@ export function ProjectsPage() {
     <div className="grid gap-8">
       <header className="flex animate-rise flex-wrap items-end justify-between gap-6">
         <div className="grid gap-2.5">
-          <h1 className="font-display text-5xl leading-[0.95] font-extrabold tracking-[-0.03em] sm:text-[64px]">¿Dónde va cada cosa?</h1>
-          {projects.data && (
-            <p className="text-[17px] text-muted-foreground">
-              {n === 1 ? "Un proyecto" : `${n} proyectos`}.{" "}
-              {derived.moving === 0 ? "Ninguno en marcha ahora." : `${derived.moving} en marcha${still > 0 ? `, ${still} ${still === 1 ? "quieto" : "quietos"}` : ""}.`}
-            </p>
-          )}
+          {/* The headline is the count itself; "Proyectos" only while the list loads. */}
+          <h1 className="font-display text-5xl leading-[0.95] font-extrabold tracking-[-0.03em] sm:text-[64px]">
+            {projects.data ? (
+              <>
+                {n === 1 ? "Un proyecto" : `${n} proyectos`}.{" "}
+                {derived.moving === 0 ? "Ninguno en marcha ahora." : `${derived.moving} en marcha${still > 0 ? `, ${still} ${still === 1 ? "quieto" : "quietos"}` : ""}.`}
+              </>
+            ) : (
+              "Proyectos"
+            )}
+          </h1>
         </div>
         {projects.data && (
           <ul className="flex flex-wrap gap-2.5 text-xs font-semibold">
