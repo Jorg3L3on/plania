@@ -1,0 +1,24 @@
+p1002
+fcwd
+n/
+p1106
+fcwd
+n/
+p1331
+fcwd
+n/opt/homebrew/var/postgresql@14
+p10319
+fcwd
+n/Users/jorgeleon/Developer/Projects/zigzag
+p28034
+fcwd
+n/
+p41152
+fcwd
+n/opt/homebrew/var/postgresql@17
+p80211
+fcwd
+n/Users/jorgeleon/Library/Application Support/Dia/User Data/Default/AgentServer
+p86729
+fcwd
+n/Users/jorgeleon/Developer/Projects/plania

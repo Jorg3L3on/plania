@@ -3,8 +3,10 @@ import { EventEmitter } from "node:events";
 // Change notifications for live screens. Every write in src/mcp/writes.ts publishes here,
 // whether it came from an agent over MCP or from the UI.
 export type PlaniaEvent = {
-  type: "task" | "project" | "decision";
-  project: string; // slug
+  type: "task" | "project" | "decision" | "footprint";
+  // slug. "footprint" changes belong to the whole machine (many rows have no project): project is "",
+  // which no per-project feed matches, while the global /api/events stream carries it to every screen.
+  project: string;
   key?: string; // task key, for type "task"
 };
 

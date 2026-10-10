@@ -1,0 +1,16 @@
+worktree /Users/jorgeleon/Developer/Projects/zigzag
+HEAD 99b077242da218c1c910e5265ce36b017cc5b3c8
+branch refs/heads/slice/zig-11-migration-guards
+
+worktree /Users/jorgeleon/Developer/Projects/zigzag/.claude/worktrees/tickets-creation-mobile-initiative-d5b317
+HEAD 99b077242da218c1c910e5265ce36b017cc5b3c8
+detached
+
+worktree /Users/jorgeleon/Developer/Projects/zigzag/.claude/worktrees/zig-i3-initiative-616f78
+HEAD 9f4205997134520c7fc51c61e201942c0bbac858
+detached
+
+worktree /Users/jorgeleon/Developer/Projects/zigzag/.claude/worktrees/zig-i4-sandbox-check-99d31f
+HEAD e64650b596bb1eaff769d6b2613cc2f32b4a3c49
+detached
+
