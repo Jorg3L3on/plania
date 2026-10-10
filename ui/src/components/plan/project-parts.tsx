@@ -152,9 +152,11 @@ function SummaryRow({ label, tone, items, empty, onOpen }: { label: string; tone
 function ProjectSummary({ lanes, needsJorge, onOpen }: { lanes: Lane[]; needsJorge: number; onOpen?: Open }) {
   const item = (l: Lane, how: string): SummaryItem => ({ key: l.initiative?.key ?? null, name: l.initiative ? shortTitle(l.initiative.title) : "Tickets sueltos", how });
   const moving = lanes.filter((l) => l.state === "moving").map((l) => item(l, laneHow(l)));
+  // Initiatives nobody has started, and loose tickets that are ready even while another one moves
+  // (an initiative en marcha keeps its own next phase to itself).
   const next = lanes
-    .filter((l) => (l.state === "waiting" || l.state === "blocked") && l.next.length + l.now.length > 0)
-    .map((l) => item(l, l.state === "blocked" ? "bloqueada" : !l.initiative ? `${l.next.length} ${l.next.length === 1 ? "listo" : "listos"}` : ""));
+    .filter((l) => (!l.initiative ? l.next.length > 0 : (l.state === "waiting" || l.state === "blocked") && l.next.length + l.now.length > 0))
+    .map((l) => item(l, !l.initiative ? `${l.next.length} ${l.next.length === 1 ? "listo" : "listos"}` : l.state === "blocked" ? "bloqueada" : ""));
   const shownNext = next.slice(0, 3);
   if (next.length > 3) shownNext.push({ key: null, name: `y ${next.length - 3} más`, how: "" });
   const jorge: SummaryItem[] = needsJorge > 0 ? [{ key: null, name: needsJorge === 1 ? "1 pregunta" : `${needsJorge} preguntas`, how: "abajo" }] : [];

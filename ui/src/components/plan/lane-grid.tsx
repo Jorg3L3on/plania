@@ -49,6 +49,11 @@ function Empty({ children }: { children: ReactNode }) {
   );
 }
 
+// The ticket's code (ZIG-12, FIL-I6-3) before its title, so a key read elsewhere can be found here.
+function KeyTag({ k }: { k: string }) {
+  return <span className="mr-1.5 font-mono text-[11px] font-medium text-muted-foreground no-underline">{k}</span>;
+}
+
 function DoneCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx }) {
   const last = lane.done[0];
   if (!last) return <Empty>nada aún</Empty>;
@@ -59,7 +64,7 @@ function DoneCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx })
       onOpen={onOpen}
       className="lift flex h-full w-full flex-col justify-center gap-1 rounded-2xl border bg-card px-4 py-2.5 text-left"
     >
-      <span className="line-clamp-2 text-sm leading-snug font-semibold">{last.title}</span>
+      <span className="line-clamp-2 text-sm leading-snug font-semibold"><KeyTag k={last.key} />{last.title}</span>
       <span className="text-xs text-muted-foreground">
         {lane.done.length > 1 ? `y ${lane.done.length - 1} más hechos` : "hecho"}
       </span>
@@ -76,6 +81,7 @@ function NowRow({ task, onOpen, ctx }: { task: LaneTask; onOpen: Open; ctx: Ctx 
       <div className="min-w-0 flex-1">
         <TicketButton taskKey={task.key} onOpen={onOpen} className="text-left">
           <span className="line-clamp-2 text-sm leading-snug underline-offset-4 group-hover/ticket:underline">
+            <KeyTag k={task.key} />
             <b className="font-semibold">{task.title}</b>
           </span>
         </TicketButton>
@@ -110,7 +116,7 @@ function ReviewCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx 
           <Glyph tone="review" size={8} className="mt-1.5" />
           <div className="min-w-0 flex-1">
             <TicketButton taskKey={t.key} onOpen={onOpen} className="text-left">
-              <span className="line-clamp-2 text-sm leading-snug underline-offset-4 group-hover/ticket:underline">{t.title}</span>
+              <span className="line-clamp-2 text-sm leading-snug underline-offset-4 group-hover/ticket:underline"><KeyTag k={t.key} />{t.title}</span>
             </TicketButton>
             {(t.status !== "In review" || t.pr_url) && (
               <span className="flex items-center gap-1.5 text-xs text-ink-review">
@@ -204,7 +210,7 @@ function NextCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx })
             </span>
             <div className="min-w-0 pt-0.5">
               <TicketButton taskKey={t.key} onOpen={onOpen} className="text-left">
-                <span className="line-clamp-2 text-sm leading-snug underline-offset-4 group-hover/ticket:underline">{t.title}</span>
+                <span className="line-clamp-2 text-sm leading-snug underline-offset-4 group-hover/ticket:underline"><KeyTag k={t.key} />{t.title}</span>
               </TicketButton>
               {queued && <span className="block text-xs text-muted-foreground">espera {waitsLabel(t, lane)}</span>}
             </div>
@@ -226,9 +232,10 @@ function LaterCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx }
           <TicketButton
             taskKey={t.key}
             onOpen={onOpen}
-            title={t.title}
+            title={`${t.key} · ${t.title}`}
             className="block max-w-full truncate rounded-full bg-foreground/[0.07] px-2.5 py-1 text-xs text-foreground/80 transition hover:-translate-y-px hover:bg-foreground/[0.12]"
           >
+            <KeyTag k={t.key} />
             {t.title}
           </TicketButton>
           </Glide>
