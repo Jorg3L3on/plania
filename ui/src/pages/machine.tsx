@@ -235,7 +235,7 @@ function Findings({ findings }: { findings: NonNullable<ReturnType<typeof useMac
         {findings.map((f, i) => (
           <li key={i} className="grid gap-0.5 text-sm">
             <span><span className="mr-2 font-mono text-[11px] font-semibold text-ink-now">{f.code}</span>{f.detail}</span>
-            <span className="text-xs break-all text-muted-foreground">{f.fix_hint}</span>
+            <span className="text-xs break-words text-muted-foreground">{f.fix_hint}</span>
           </li>
         ))}
       </ul>
