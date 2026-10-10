@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import pg from "pg";
-import { isRelevantListener, type Directory, type Observed, type Repo } from "./infer.js";
+import { isRelevantListener, primaryPgPort, type Directory, type Observed, type Repo } from "./infer.js";
 import {
   classifyProc,
   parseBrewServices,
@@ -178,7 +178,7 @@ export async function collectDatabases(list: ListDatabases, servers: Observed[])
         locator: `${d.name}@127.0.0.1:${port}`,
         shared: d.name === "postgres",
         database: { name: d.name, port },
-        details: { name: d.name, port, server: s.locator, size_bytes: d.sizeBytes, version: got.version },
+        details: { name: d.name, port, server: s.locator, size_bytes: d.sizeBytes, version: got.version, ...(port !== primaryPgPort() ? { on_secondary_server: true } : {}) },
       });
     }
   }

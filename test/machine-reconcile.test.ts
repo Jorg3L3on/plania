@@ -47,6 +47,22 @@ describe("primary", () => {
     for (const n of ["xize", "zigzag_test_abc123", "plania_test_fadac0", "plania_preview_ui", "zigzag_zig_i5_scratch", "zigzagx", "filmia"]) assert.equal(infer.isPrimary(db(n), dir), false, n);
   });
 
+  test("a project- or repo-named database is primary only on the main Postgres server; postgres and templates everywhere", () => {
+    const on = (name: string, port: number): Observed => ({ kind: "database", locator: `${name}@127.0.0.1:${port}`, database: { name, port }, details: { name, port } });
+    assert.equal(infer.isPrimary(on("zigzag", 5432), dir), true);
+    assert.equal(infer.isPrimary(on("zigzag", 5433), dir), false, "a scratch server's copy is an ordinary row");
+    assert.equal(infer.isPrimary(on("plania", 5433), dir), false);
+    assert.equal(infer.isPrimary(on("postgres", 5433), dir), true);
+    assert.equal(infer.isPrimary(on("template1", 5433), dir), true);
+    process.env.PLANIA_PRIMARY_PG_PORT = "5433";
+    try {
+      assert.equal(infer.isPrimary(on("zigzag", 5433), dir), true, "the main port comes from PLANIA_PRIMARY_PG_PORT");
+      assert.equal(infer.isPrimary(on("zigzag", 5432), dir), false);
+    } finally {
+      delete process.env.PLANIA_PRIMARY_PG_PORT;
+    }
+  });
+
   test("self, database servers, brew services and a LaunchAgent named after a repo are primary; other LaunchAgents, servers and worktrees are not", () => {
     const item = (o: Partial<Observed> & Pick<Observed, "kind">): Observed => ({ locator: "x", details: {}, ...o });
     assert.equal(infer.isPrimary(item({ kind: "server", self: true }), dir), true);
@@ -340,6 +356,29 @@ describe("primary things on a whole tick", () => {
     await tickAt(db, fx, w, new Date(Date.now() + 1000));
     const after = (await auditProject(db, zig)).filter((f) => f.code === "DATABASE_WITHOUT_WORKTREE").map((f) => f.detail.split(": ")[0]).sort();
     assert.deepEqual(after, ["database zigzag_test_deadbe@127.0.0.1:5432", `database zigzag_test_${infer.pathHash(wtPath)}@127.0.0.1:5432`].sort());
+  });
+
+  test("on a scratch Postgres the project's database is an ordinary row (dropdb, secondary-server flag) and the undeclared server is a finding", async () => {
+    const w = world();
+    w.listeners.push({ pid: 2000, cmd: "postgres", port: 5433, cwd: "/opt/homebrew/var/postgresql@17b", ps: "/opt/homebrew/opt/postgresql@17/bin/postgres -D /opt/homebrew/var/postgresql@17b" });
+    w.dbs[5433] = ["zigzag", "postgres", "plania"];
+    await tickAt(db, fx, w, new Date());
+    const inv = Object.fromEntries((await machineInventory(db, "test-mac")).map((r) => [r.locator, r]));
+    const scratch = inv["zigzag@127.0.0.1:5433"]!;
+    assert.deepEqual([scratch.details.primary, scratch.details.on_secondary_server, scratch.teardown, scratch.project, scratch.state], [undefined, true, "dropdb -h 127.0.0.1 -p 5433 zigzag", "zigzag", "live"]);
+    assert.equal(inv["plania@127.0.0.1:5433"]!.teardown, "dropdb -h 127.0.0.1 -p 5433 plania");
+    assert.deepEqual([inv["postgres@127.0.0.1:5433"]!.details.primary, inv["postgres@127.0.0.1:5433"]!.teardown], [true, ""]);
+    // the main server's own are untouched
+    assert.deepEqual([inv["zigzag@127.0.0.1:5432"]!.details.primary, inv["zigzag@127.0.0.1:5432"]!.details.on_secondary_server, inv["zigzag@127.0.0.1:5432"]!.teardown], [true, undefined, ""]);
+    // the db_server stays primary (no teardown), but nobody declared it: a finding that never stops it
+    assert.deepEqual([inv["postgres:5433"]!.details.primary, inv["postgres:5433"]!.teardown], [true, ""]);
+    const found = (await footprintFindings(db, { projectless: true })).filter((f) => f.code === "SECONDARY_DB_SERVER");
+    assert.deepEqual(found.map((f) => f.detail.split(": ")[0]), ["db_server postgres:5433"]);
+    assert.match(found[0]!.fix_hint, /register_footprint/);
+    assert.ok(!/\b(stop|kill|pg_ctl)\b/.test(found[0]!.fix_hint));
+    // declared: no longer a finding
+    await raw.query("update footprints set source = 'both', purpose = 'scratch pg' where locator = 'postgres:5433'");
+    assert.deepEqual((await footprintFindings(db, { projectless: true })).filter((f) => f.code === "SECONDARY_DB_SERVER"), []);
   });
 });
 

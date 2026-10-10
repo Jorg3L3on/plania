@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { footprints, tasks } from "../db/schema.js";
-import { describeStale, spanAgo } from "../jobs/machine/infer.js";
+import { describeStale, primaryPgPort, spanAgo } from "../jobs/machine/infer.js";
 import type { Finding } from "./audit.js";
 import type { Q } from "./tx.js";
 
@@ -57,6 +57,16 @@ export async function footprintFindings(db: Q, scope: Scope, now = new Date()): 
     // repo and stored repo_path; null means none of them is left.
     if (f.kind === "database" && typeof d.test_hash === "string" && d.repo_path === null) {
       out.push({ code: "DATABASE_WITHOUT_WORKTREE", key, detail: `${label}: la copia de pruebas ${d.test_hash} era de un checkout que ya no existe`, fix_hint: hint(f.teardown, "drop the database") });
+    }
+    // A Postgres nobody declared on a port other than the main one: a scratch server an agent started.
+    // It is primary (no teardown), so the hint never stops it.
+    if (f.kind === "db_server" && f.source === "observed" && d.engine === "postgres" && Number(d.port) !== primaryPgPort()) {
+      out.push({
+        code: "SECONDARY_DB_SERVER",
+        key,
+        detail: `${label}: servidor de bases secundario (principal :${primaryPgPort()}) que ningún proyecto declaró`,
+        fix_hint: "register_footprint kind db_server with its purpose and teardown, or ask Jorge whether it should stay",
+      });
     }
     // Started at login, not attributed to a repo, and first seen after Plania began watching.
     if (f.kind === "service" && f.source === "observed" && d.attributed === false && f.firstSeenAt && (d.manager !== "brew" || d.status === "started")) {

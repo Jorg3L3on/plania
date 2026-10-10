@@ -180,11 +180,15 @@ export function ownerOfDatabase(dir: Directory, name: string, now: Date): Owner 
 // is never a cleanup, so Plania neither suggests a teardown for them nor ever calls them orphan or stale.
 const PRIMARY_DATABASES = new Set(["postgres", "template0", "template1"]);
 
+// The Postgres server the projects' own databases live on. Any other server is secondary (a scratch copy).
+export const primaryPgPort = (): number => Number(process.env.PLANIA_PRIMARY_PG_PORT) || 5432;
+
 // Primary = the thing the work itself stands on, not something an agent left behind:
 //   - Plania's own process (self)
 //   - a database server (db_server) or a brew service: shared by every project
 //   - a LaunchAgent whose label names a repo (com.plania.server)
-//   - a database named exactly like a project slug or a repo (plania, micasa, zigzag), or postgres / template0 / template1
+//   - postgres / template0 / template1 anywhere, and a database named exactly like a project slug or a repo
+//     (plania, micasa, zigzag) on the main Postgres server only (PLANIA_PRIMARY_PG_PORT, default 5432)
 // `<project>_test_<hash>` and `<project>_<ticket>_<purpose>` copies are not primary: they are what agents make.
 export function isPrimary(item: Observed, dir: Directory): boolean {
   if (item.self) return true;
@@ -196,7 +200,11 @@ export function isPrimary(item: Observed, dir: Directory): boolean {
     case "database": {
       const name = (item.database?.name ?? String(item.details.name ?? "")).toLowerCase();
       if (!name) return false;
+      // postgres and the templates exist on every server; a database named after a project or repo is
+      // the project's main one only on the main server. On a scratch server (Postgres 17 on :5433) it
+      // is a copy someone made, an ordinary row with its dropdb.
       if (PRIMARY_DATABASES.has(name)) return true;
+      if ((item.database?.port ?? primaryPgPort()) !== primaryPgPort()) return false;
       const own = new Set([...dir.projects.map((p) => p.slug), ...dir.repos.map((r) => r.name)].flatMap((n) => [n.toLowerCase(), norm(n)]));
       return own.has(name) || own.has(norm(name));
     }

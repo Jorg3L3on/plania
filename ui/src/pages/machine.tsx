@@ -143,6 +143,7 @@ function Row({ it, nowMs, showTicket }: { it: FootprintItem; nowMs: number; show
           <span className={cn("min-w-0 font-medium break-all", it.kind === "server" && "font-mono")}>{name}</span>
           {detail && <span className="min-w-0 text-sm break-all text-muted-foreground">{detail}</span>}
           {isPrimary(it) && <Tag>principal</Tag>}
+          {d.on_secondary_server === true && <Tag tone="warn">servidor secundario</Tag>}
           {it.kind === "worktree" && d.dirty === true && <Tag tone="warn">sin guardar</Tag>}
           {it.kind === "worktree" && d.merged === true && <Tag>integrada</Tag>}
         </div>
