@@ -13,9 +13,18 @@ export type Run = (cmd: string, args: string[], opts?: { timeoutMs?: number }) =
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 
+// launchd starts the service with PATH=/usr/bin:/bin:/usr/sbin:/sbin, where brew, docker and a brew git
+// are not found, so their collectors would be skipped. Append the usual install dirs once.
+const EXTRA_PATH = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+export function commandPath(current = process.env.PATH ?? ""): string {
+  const parts = current.split(":").filter(Boolean);
+  return [...parts, ...EXTRA_PATH.filter((d) => !parts.includes(d))].join(":");
+}
+const ENV = { ...process.env, PATH: commandPath() };
+
 export const execRun: Run = (cmd, args, opts = {}) =>
   new Promise((resolve) => {
-    execFile(cmd, args, { timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024, encoding: "utf8", windowsHide: true }, (err, stdout) => {
+    execFile(cmd, args, { env: ENV, timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024, encoding: "utf8", windowsHide: true }, (err, stdout) => {
       if (!err) return resolve({ ok: true, stdout });
       const e = err as NodeJS.ErrnoException & { killed?: boolean; code?: number | string };
       if (e.code === "ENOENT") return resolve({ ok: false, reason: "missing", stdout: "" });

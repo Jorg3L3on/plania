@@ -212,7 +212,10 @@ export function serviceItems(brew: { ran: boolean; services: BrewService[] }, ag
       if (brew.ran && names.has(BREW_LABEL.exec(label)?.[1] ?? "")) continue;
       const repo = repoNames.find((r) => label.toLowerCase().split(".").includes(r.toLowerCase()));
       // Not attributed = no repo in its label: the audit (phase 5) can ask who declared it.
-      out.items.push({ kind: "service", locator: `launchagent:${label}`, shared: true, repoHint: repo, details: { manager: "launchd", name: label, file: path.join(agentsDir, f), attributed: !!repo } });
+      // brew's own plist (homebrew.mxcl.* / sh.brew.*) when brew itself did not run: still a brew service,
+      // so it is primary and gets no `launchctl unload` that would stop the main Postgres.
+      const formula = BREW_LABEL.exec(label)?.[1];
+      out.items.push({ kind: "service", locator: `launchagent:${label}`, shared: true, repoHint: repo, details: { manager: formula ? "brew" : "launchd", name: label, ...(formula ? { brew_formula: formula } : {}), file: path.join(agentsDir, f), attributed: !!repo } });
     }
   }
   return out;

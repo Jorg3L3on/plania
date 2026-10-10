@@ -13,6 +13,8 @@ const { makeDb } = await import("../src/db/client.js");
 const { createTask, claim } = await import("../src/mcp/writes.js");
 const { findProject } = await import("../src/mcp/queries.js");
 const infer = await import("../src/jobs/machine/infer.js");
+const collect = await import("../src/jobs/machine/collect.js");
+const run = await import("../src/jobs/machine/run.js");
 const { reconcile } = await import("../src/jobs/machine/reconcile.js");
 const { runMachineTick, machineInventory } = await import("../src/jobs/machine/index.js");
 const { auditProject } = await import("../src/mcp/audit.js");
@@ -72,6 +74,27 @@ describe("primary", () => {
     assert.equal(infer.isPrimary(item({ kind: "service", details: { manager: "launchd" }, repoHint: "plania" }), dir), true);
     assert.equal(infer.isPrimary(item({ kind: "service", details: { manager: "launchd" } }), dir), false);
     assert.equal(infer.isPrimary(item({ kind: "worktree" }), dir), false);
+  });
+
+  test("brew's own LaunchAgents stay brew services when brew itself did not run (launchd's PATH)", () => {
+    const { serviceItems } = collect;
+    const files = ["homebrew.mxcl.postgresql@14.plist", "sh.brew.postgresql@17.plist", "com.google.keystone.agent.plist"];
+    const items = serviceItems({ ran: false, services: [] }, files, "/Users/x/Library/LaunchAgents", []).items;
+    const by = Object.fromEntries(items.map((i) => [i.locator, i]));
+    for (const label of ["homebrew.mxcl.postgresql@14", "sh.brew.postgresql@17"]) {
+      const row = by[`launchagent:${label}`]!;
+      assert.equal(row.details.manager, "brew");
+      assert.equal(infer.isPrimary(row, dir), true);
+    }
+    assert.equal(by["launchagent:sh.brew.postgresql@17"]!.details.brew_formula, "postgresql@17");
+    assert.equal(infer.isPrimary(by["launchagent:com.google.keystone.agent"]!, dir), false);
+  });
+
+  test("commands find brew and docker under launchd's short PATH", () => {
+    const p = run.commandPath("/usr/bin:/bin:/usr/sbin:/sbin").split(":");
+    assert.ok(p.includes("/opt/homebrew/bin") && p.includes("/usr/local/bin"));
+    assert.equal(p.indexOf("/usr/bin"), 0);
+    assert.equal(new Set(p).size, p.length);
   });
 
   test("a primary row is never orphan or stale, whatever its ticket says", () => {
