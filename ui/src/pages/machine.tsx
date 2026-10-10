@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { BoxIcon, CableIcon, CheckIcon, CogIcon, CopyIcon, DatabaseIcon, GitBranchIcon, GlobeIcon, HardDriveIcon, LayersIcon, ServerIcon } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState, type ComponentType } from "react";
-import { Link } from "react-router";
+import { Fragment, useEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent } from "react";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -235,13 +235,62 @@ function Findings({ findings }: { findings: NonNullable<ReturnType<typeof useMac
       <Kicker className="text-ink-now">{findings.length === 1 ? "1 hallazgo" : `${findings.length} hallazgos`}</Kicker>
       <ul className="grid gap-2">
         {findings.map((f, i) => (
-          <li key={i} className="grid gap-0.5 text-sm">
-            <span><span className="mr-2 font-mono text-[11px] font-semibold text-ink-now">{f.code}</span>{f.detail}</span>
-            <span className="text-xs break-words text-muted-foreground">{f.fix_hint}</span>
+          <li key={i} className="grid min-w-0 gap-0.5 text-sm">
+            {/* Paths and commands have no spaces: let them wrap anywhere, or they widen the page on phones. */}
+            <span className="wrap-anywhere"><span className="mr-2 font-mono text-[11px] font-semibold text-ink-now">{f.code}</span>{f.detail}</span>
+            <span className="text-xs wrap-anywhere text-muted-foreground">{f.fix_hint}</span>
           </li>
         ))}
       </ul>
     </section>
+  );
+}
+
+type TabId = "servidores" | "bases" | "worktrees" | "otros";
+const TABS: { id: TabId; label: string; icon: ComponentType<{ className?: string }>; kinds: FootprintKind[]; empty: string }[] = [
+  { id: "servidores", label: "Servidores activos", icon: ServerIcon, kinds: ["server"], empty: "Ningún servidor corriendo." },
+  { id: "bases", label: "Bases de datos", icon: DatabaseIcon, kinds: ["database", "db_server"], empty: "Ninguna base de datos." },
+  { id: "worktrees", label: "Worktrees", icon: GitBranchIcon, kinds: ["worktree"], empty: "Ningún worktree." },
+  // Services, browsers, containers, tunnels and caches: few, but they should not vanish.
+  { id: "otros", label: "Otros", icon: CogIcon, kinds: ["service", "browser", "container", "tunnel", "cache"], empty: "Nada más." },
+];
+
+function Tabs({ active, counts, onChange }: { active: TabId; counts: Record<TabId, number>; onChange: (id: TabId) => void }) {
+  const refs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
+  // Arrow keys move between tabs (roving tabindex), as a tablist should.
+  function onKeyDown(e: KeyboardEvent) {
+    const i = TABS.findIndex((t) => t.id === active);
+    const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    const to = e.key === "Home" ? TABS[0] : e.key === "End" ? TABS[TABS.length - 1] : step ? TABS[(i + step + TABS.length) % TABS.length] : null;
+    if (!to) return;
+    e.preventDefault();
+    onChange(to.id);
+    refs.current[to.id]?.focus();
+  }
+  return (
+    <div role="tablist" aria-label="Qué ver" onKeyDown={onKeyDown} className="grid w-full grid-cols-2 gap-1 rounded-[22px] border bg-card p-1 sm:flex sm:w-fit sm:flex-wrap sm:rounded-full">
+      {TABS.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          ref={(el) => { refs.current[id] = el; }}
+          id={`tab-${id}`}
+          type="button"
+          role="tab"
+          aria-selected={active === id}
+          aria-controls={`panel-${id}`}
+          tabIndex={active === id ? 0 : -1}
+          onClick={() => onChange(id)}
+          className={cn(
+            "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:justify-start",
+            active === id ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Icon className="size-3.5" aria-hidden />
+          {label}
+          <span className={cn("rounded-full px-1.5 font-mono text-[11px]", active === id ? "bg-background/15" : "bg-foreground/[0.08]")}>{counts[id]}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -252,7 +301,18 @@ function useMachine() {
 export function MachinePage() {
   const machine = useMachine();
   const nowMs = useNow();
-  const groups = useMemo(() => groupItems(machine.data?.items ?? []), [machine.data]);
+  const [params, setParams] = useSearchParams();
+  const tab = TABS.find((t) => t.id === params.get("tab")) ?? TABS[0]!;
+  // Stopped things wait a day before they are released; hidden unless asked for.
+  const [showGone, setShowGone] = useState(false);
+  const items = useMemo(() => machine.data?.items ?? [], [machine.data]);
+  const counts = useMemo(
+    () => Object.fromEntries(TABS.map((t) => [t.id, items.filter((i) => t.kinds.includes(i.kind) && i.state !== "gone").length])) as Record<TabId, number>,
+    [items],
+  );
+  const inTab = useMemo(() => items.filter((i) => tab.kinds.includes(i.kind)), [items, tab]);
+  const gone = inTab.filter((i) => i.state === "gone").length;
+  const groups = useMemo(() => groupItems(showGone ? inTab : inTab.filter((i) => i.state !== "gone")), [inTab, showGone]);
 
   return (
     <div className="grid gap-8">
@@ -273,12 +333,33 @@ export function MachinePage() {
         </div>
       )}
       {machine.isError && <p className="text-sm text-destructive">No se pudo cargar la máquina.</p>}
-      {machine.data && groups.length === 0 && (
+      {machine.data && items.length === 0 && (
         <p className="text-sm text-muted-foreground">Todavía no se ha visto nada. El servicio local revisa la Mac cada minuto.</p>
       )}
-      {machine.data && groups.length > 0 && (
-        <div className="grid items-start gap-4 xl:grid-cols-2">
-          {groups.map((g) => <GroupCard key={g.id} g={g} nowMs={nowMs} />)}
+      {machine.data && items.length > 0 && (
+        <div className="grid gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Tabs active={tab.id} counts={counts} onChange={(id) => setParams(id === TABS[0]!.id ? {} : { tab: id }, { replace: true })} />
+            {gone > 0 && (
+              <button
+                type="button"
+                aria-pressed={showGone}
+                onClick={() => setShowGone((v) => !v)}
+                className="min-h-9 rounded-full px-3 text-xs font-medium text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              >
+                {showGone ? "Ocultar detenidos" : `Mostrar ${gone} ${gone === 1 ? "detenido" : "detenidos"}`}
+              </button>
+            )}
+          </div>
+          <div role="tabpanel" id={`panel-${tab.id}`} aria-labelledby={`tab-${tab.id}`}>
+            {groups.length === 0 ? (
+              <p className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">{tab.empty}</p>
+            ) : (
+              <div className="grid items-start gap-4 xl:grid-cols-2">
+                {groups.map((g) => <GroupCard key={g.id} g={g} nowMs={nowMs} />)}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
