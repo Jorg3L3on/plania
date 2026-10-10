@@ -138,20 +138,22 @@ function Row({ it, nowMs, showTicket }: { it: FootprintItem; nowMs: number; show
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className={cn("min-w-0 font-medium break-all", it.kind === "server" && "font-mono")}>{name}</span>
           {detail && <span className="min-w-0 text-sm break-all text-muted-foreground">{detail}</span>}
-          {it.state === "self" && <Tag>Plania</Tag>}
           {it.kind === "worktree" && d.dirty === true && <Tag tone="warn">sin guardar</Tag>}
           {it.kind === "worktree" && d.merged === true && <Tag>integrada</Tag>}
         </div>
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground [&>span+span]:before:mr-2 [&>span+span]:before:content-['·']">{meta}</p>
+        <p className="text-xs text-muted-foreground">
+          {meta.map((m, i) => <Fragment key={i}>{i > 0 && " · "}{m}</Fragment>)}
+        </p>
         {purpose && (
           <p className="text-sm">
             {purpose}
             {!it.purpose && it.lease && <span className="text-xs text-muted-foreground"> · puerto reservado por {it.lease.holder.agent}</span>}
           </p>
         )}
-        {it.teardown && <CopyTeardown command={it.teardown} />}
       </div>
       <StateBadge state={it.state} />
+      {/* The command takes the whole row, under the icon too: it is the longest thing on it. */}
+      {it.teardown && <div className="col-span-full"><CopyTeardown command={it.teardown} /></div>}
     </li>
   );
 }
@@ -159,7 +161,7 @@ function Row({ it, nowMs, showTicket }: { it: FootprintItem; nowMs: number; show
 function SubHeader({ k, title, depth }: { k: string; title: string; depth: 0 | 1 }) {
   return (
     <li className={cn("flex min-w-0 items-baseline gap-2 border-t bg-surface-sunken/60 px-4 py-1.5 text-xs", depth === 1 && "pl-7")}>
-      <span className="font-mono font-semibold">{k}</span>
+      <span className="shrink-0 font-mono font-semibold whitespace-nowrap">{k}</span>
       <span className="min-w-0 truncate text-muted-foreground">{title}</span>
     </li>
   );

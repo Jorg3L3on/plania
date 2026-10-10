@@ -142,7 +142,7 @@ export function ageSource(it: FootprintItem): { label: string; iso: string } | n
     const created = str(d.created_at);
     if (created) return { label: "creado", iso: created };
   }
-  return it.first_seen_at ? { label: "visto desde", iso: it.first_seen_at } : null;
+  return it.first_seen_at ? { label: "desde", iso: it.first_seen_at } : null;
 }
 
 /** 7.5 GB, 310 MB: sizes are stored in KB (worktrees, du) or bytes (databases). */
