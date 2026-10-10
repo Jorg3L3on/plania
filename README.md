@@ -185,6 +185,7 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | `set_env` | What an environment runs: commit, branch, migration tags, flags, and the deploy's `{provider, deployment_id, url}` |
 | `set_metric` | A measured value for `metric_gte` blockers |
 | `lease_resource` / `release_resource` / `consume` | Shared resources (a port per machine, the production migrate step) and daily quotas |
+| `register_footprint` / `release_footprint` | Declare what you started that outlives the command (a dev server, a database copy, a container, a service, a tunnel) with its teardown command, and release it once torn down. Merges with what the machine job sees; `get_task` and `get_context` list a ticket's footprint |
 | `set_project` | Title, body, rules, headline (≤ 280 chars), with version |
 
 Rules every write follows:
@@ -291,6 +292,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `INVALID_ENV` | 400 | set_env: env is not lowercase [a-z][a-z0-9_-]*, a commit is not 7-40 hex, or migrations_applied is not a count |
 | `INVALID_ENV_CONDITION` | 400 | an env blocker's condition or value is wrong (contains_commit <sha>, migration_gte <n>, deployed_after [ISO]) |
 | `INVALID_FILTER` | 400 | a list filter is malformed (detail: field), e.g. updated_since is not an ISO-8601 time |
+| `INVALID_FOOTPRINT` | 400 | register_footprint / release_footprint: unknown kind, a locator that does not fit its kind, an empty purpose or teardown, or no actor.machine (detail: field, hint) |
 | `INVALID_METRIC` | 400 | set_metric name is not lowercase [a-z][a-z0-9_-]*, or value is not an integer |
 | `INVALID_PHASE` | 400 | phase is not an integer 0..999 |
 | `INVALID_PRIORITY` | 400 | priority is not P0, P1, P2 or P3 |
@@ -335,6 +337,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `DOC_EXISTS` | 409 | attach_doc without version for a title that exists (detail: doc_id, version): pass version to replace |
 | `EVIDENCE_REQUIRED` | 409 | In review without evidence for the work_type from the current claim (detail: accepts, since) |
 | `EVIDENCE_STALE` | 409 | In review needs a pass recorded against the branch's current head; the passes found are for older commits (detail: head, results) |
+| `FOOTPRINT_HELD` | 409 | another live session declared this footprint, or releasing one you did not declare (detail: holder, purpose) |
 | `HANDOFF_HELD` | 409 | the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note) |
 | `INITIATIVE_CHILDREN_OPEN` | 409 | an initiative cannot be Done or Won't do while a ticket of it is in another state (detail: open) |
 | `INVALID_TRANSITION` | 409 | the status change is not allowed from the current status (detail: from, to, hint) |
@@ -478,6 +481,7 @@ the UI refetches what changed.
 | `PATCH /api/projects/:slug` | `{ headline, version }` |
 | `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note?, version }`, as Jorge through `set_task` |
 | `POST /api/projects/:slug/tasks/:key/checks/:n/waive` | `{ reason }` |
+| `GET /api/machine` | What runs and is stored on this Mac for agent work: `{ machine, totals, items }`, every unreleased footprint with its project, initiative, ticket, session and any port lease; read-only |
 | `GET /api/inbox?project=` | Everything waiting on Jorge; `POST /api/approvals/decide` `{ ids, decision, note? }` grants or rejects, one event each |
 | `GET /api/tokens`, `POST /api/tokens`, `DELETE /api/tokens/:id` | Agent tokens (the secret is in the create response only) |
 | `POST /api/projects/:slug/tasks/:key/release` | Free a lease |

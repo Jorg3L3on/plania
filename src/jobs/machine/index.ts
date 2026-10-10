@@ -1,8 +1,10 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { homedir, hostname, userInfo } from "node:os";
 import path from "node:path";
 import type { Db } from "../../db/client.js";
-import { branches, footprints, projects, taskAliases, tasks } from "../../db/schema.js";
+import { alias } from "drizzle-orm/pg-core";
+import { branches, footprints, projects, resources, taskAliases, tasks } from "../../db/schema.js";
+import { sameMachine } from "../../mcp/footprint-read.js";
 import { liveOwner } from "../../mcp/queries.js";
 import { iso } from "../../mcp/tx.js";
 import type { Job, JobSummary } from "../index.js";
@@ -181,24 +183,46 @@ export const machineJob: Job = {
 };
 
 // What is on the Mac now: every unreleased row (gone ones for a day, so a stopped server is still
-// visible) with its project slug and ticket key. For the Machine page and `GET /api/machine`.
+// visible) with its project slug, ticket key and the initiative above it. For the Machine page and
+// `GET /api/machine`. A server on a port someone leased (lease_resource port:N) carries `lease`,
+// joined at read time so it cannot go stale: the lease's holder, purpose and expiry.
 export async function machineInventory(db: Db, machine?: string) {
+  const parent = alias(tasks, "parent");
   const rows = await db
-    .select({ f: footprints, projectSlug: projects.slug, taskKey: tasks.key, taskTitle: tasks.title })
+    .select({ f: footprints, projectSlug: projects.slug, t: { key: tasks.key, title: tasks.title, kind: tasks.kind }, init: { key: parent.key, title: parent.title } })
     .from(footprints)
     .leftJoin(projects, eq(projects.id, footprints.projectId))
     .leftJoin(tasks, eq(tasks.id, footprints.taskId))
+    .leftJoin(parent, eq(parent.id, tasks.parentId))
     .where(machine ? and(isNull(footprints.releasedAt), eq(footprints.machine, machine)) : isNull(footprints.releasedAt))
     .orderBy(footprints.kind, footprints.locator);
-  return rows.map(({ f, projectSlug, taskKey, taskTitle }) => ({
+  const leases = rows.some((r) => r.f.kind === "server")
+    ? await db
+        .select({ name: resources.name, holder: resources.holder, purpose: resources.purpose, leaseUntil: resources.leaseUntil, project: projects.slug })
+        .from(resources)
+        .innerJoin(projects, eq(projects.id, resources.projectId))
+        .where(and(gt(resources.leaseUntil, sql`now()`), sql`${resources.name} like 'port:%'`))
+    : [];
+  const leaseOf = (kind: string, locator: string, host: string) => {
+    if (kind !== "server") return null;
+    const l = leases.find((x) => {
+      const [name, at] = x.name.split("@");
+      return name === locator && (!at || sameMachine(at, host));
+    });
+    return l ? { name: l.name, project: l.project, holder: l.holder, purpose: l.purpose, lease_until: iso(l.leaseUntil) } : null;
+  };
+  return rows.map(({ f, projectSlug, t, init }) => ({
     id: f.id,
     machine: f.machine,
     kind: f.kind,
     locator: f.locator,
     project: projectSlug,
     repo: (f.details.repo as string | undefined) ?? null,
-    task_key: taskKey,
-    task_title: taskTitle,
+    task_key: t?.key ?? null,
+    task_title: t?.title ?? null,
+    // The initiative above the ticket (or the task itself when it is an initiative).
+    initiative_key: t?.kind === "initiative" ? t.key : (init?.key ?? null),
+    initiative_title: t?.kind === "initiative" ? t.title : (init?.title ?? null),
     session_id: f.sessionId,
     holder: f.holder,
     source: f.source,
@@ -206,9 +230,24 @@ export async function machineInventory(db: Db, machine?: string) {
     teardown: f.teardown,
     details: f.details,
     state: f.state,
-    first_seen_at: iso(f.firstSeenAt as Date),
-    last_seen_at: iso(f.lastSeenAt as Date),
+    lease: leaseOf(f.kind, f.locator, f.machine),
+    first_seen_at: iso(f.firstSeenAt),
+    last_seen_at: iso(f.lastSeenAt),
     declared_at: iso(f.declaredAt),
     released_at: iso(f.releasedAt),
   }));
 }
+
+// The Machine page's header numbers. Gone rows (stopped, not yet released) are not "running".
+export function machineTotals(items: { kind: string; state: string; details: Record<string, unknown> }[]) {
+  const live = items.filter((i) => i.state !== "gone");
+  return {
+    servers: live.filter((i) => i.kind === "server").length,
+    databases: live.filter((i) => i.kind === "database").length,
+    worktree_kb: live.filter((i) => i.kind === "worktree").reduce((n, i) => n + (Number(i.details.size_kb) || 0), 0),
+    orphan: items.filter((i) => i.state === "orphan").length,
+    stale: items.filter((i) => i.state === "stale").length,
+  };
+}
+
+export const thisMachine = () => hostname();

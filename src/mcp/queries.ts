@@ -6,6 +6,7 @@ import { taskChecks } from "./checks.js";
 import { listDecisions, type DecisionFilters } from "./decisions.js";
 import { projectDocs, taskDocs } from "./docs.js";
 import { ToolError } from "./errors.js";
+import { taskFootprint } from "./footprint-read.js";
 import { taskResults } from "./evidence.js";
 import { taskQuestions } from "./questions.js";
 import { iso, type Ctx, type Q } from "./tx.js";
@@ -186,6 +187,7 @@ export async function taskFull(db: Q, t: Task, opts: ShapeOptions = {}) {
     results: await taskResults(db, t),
     docs: await taskDocs(db, t.id),
     questions: await taskQuestions(db, t),
+    footprint: await taskFootprint(db, t.id),
     origin: t.origin,
     parent_key: await parentKeyOf(db, t),
     child_keys: await childKeysOf(db, t),

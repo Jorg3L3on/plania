@@ -5,6 +5,7 @@ import type { Scope } from "../auth/bearer.js";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
 import { KINDS, ORIGINS } from "../db/schema.js";
+import { FOOTPRINT_KINDS } from "../jobs/machine/infer.js";
 import { APPROVAL_ACTIONS, requestApproval } from "./approvals.js";
 import { inbox } from "./inbox.js";
 import { waiveCheck } from "./checks.js";
@@ -37,6 +38,7 @@ import type { Ctx } from "./tx.js";
 import { ENV_CONDITIONS, projectMetricsOf, setMetricInTx } from "./blockers.js";
 import { projectBranches } from "./branches.js";
 import { projectEnv, setEnv } from "./env.js";
+import { registerFootprint, releaseFootprint } from "./footprint.js";
 import { consume, leaseResource, projectResources, releaseResource } from "./resources.js";
 import { SEVERITIES } from "./lifecycle.js";
 import { writeTx } from "./tx.js";
@@ -829,7 +831,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note),",
-        "the pinned decisions that apply, open questions and pending approvals on those tickets, and the events since since_cursor that touch them. UNKNOWN_BRANCH when nothing is on the branch.",
+        "the pinned decisions that apply, open questions and pending approvals on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), and the events since since_cursor that touch them. UNKNOWN_BRANCH when nothing is on the branch.",
       ].join(" "),
       inputSchema: {
         project,
@@ -897,6 +899,46 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       annotations: write,
     },
     writeHandler("release_resource", (input, ctx) => releaseResource(db, input, ctx)),
+  );
+
+  server.registerTool(
+    "register_footprint",
+    {
+      description: [
+        "Declare something you started that outlives the command: a dev server, a database or a copy of one, a container, a service, a tunnel, a worktree. Plania also watches the Mac itself;",
+        "a declaration for something it already sees merges into that row (source both) and adds who, why and how to remove it. Needs actor.machine (or an agent token with a machine).",
+        "locator by kind: server port:3069 (3069 and :3069 work); db_server postgres:5433; database name@host:port (name alone means @127.0.0.1:5432);",
+        "worktree an absolute path; browser and tunnel pid:N; service brew:<formula> or launchagent:<label>; container docker:<name>; cache free text.",
+        "teardown is the command that removes it (Plania never runs it). task_key defaults to your only live claim in the project (none or several: no ticket; pass task_key).",
+        "Name databases <project>_<ticket key lowercased, - to _>_<purpose>, e.g. zigzag_zig_i5_scratch. FOOTPRINT_HELD when another live session declared it. Registering again updates your own.",
+      ].join(" "),
+      inputSchema: {
+        project,
+        actor,
+        request_id,
+        kind: z.enum(FOOTPRINT_KINDS),
+        locator: z.string().min(1),
+        purpose: z.string().min(1).describe("What it is for, in a line"),
+        teardown: z.string().min(1).describe("The command that removes it, e.g. kill 41152 or dropdb zigzag_zig_i5_scratch"),
+        task_key: key.optional(),
+        details: z.record(z.string(), z.unknown()).optional().describe("Anything worth showing: port, path, branch, size"),
+      },
+      annotations: write,
+    },
+    writeHandler("register_footprint", (input, ctx) => registerFootprint(db, input as never, ctx)),
+  );
+
+  server.registerTool(
+    "release_footprint",
+    {
+      description: [
+        "Say a registered footprint is torn down; it leaves the Machine inventory. Only the session that declared it (or Jorge) may: FOOTPRINT_HELD otherwise. A row the job only observed has no holder and anyone in the project may release it.",
+        "Unknown locator: {released: false}. Release it after you ran its teardown; if Plania still sees it running on its next look, it comes back as a new observed row. kind is only needed when the locator fits several.",
+      ].join(" "),
+      inputSchema: { project, actor, request_id, locator: z.string().min(1), kind: z.enum(FOOTPRINT_KINDS).optional() },
+      annotations: write,
+    },
+    writeHandler("release_footprint", (input, ctx) => releaseFootprint(db, input, ctx)),
   );
 
   server.registerTool(

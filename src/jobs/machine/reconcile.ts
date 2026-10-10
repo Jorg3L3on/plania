@@ -17,7 +17,8 @@ import { computeState, suggestTeardown, type Directory, type FootprintState, typ
 export const GONE_AFTER = 2;
 const GONE_KEEP_MS = 24 * 60 * 60 * 1000; // a gone row is released (kept for history, out of the inventory) a day after last seen
 // details keys a collector only fills on some ticks; a tick without them keeps the last value.
-const STICKY = ["size_kb", "size_at", "version"];
+// `declared` is what an agent passed to register_footprint: the job never sees it.
+const STICKY = ["size_kb", "size_at", "version", "declared"];
 
 type Row = typeof footprints.$inferSelect;
 export type Inferred = { item: Observed; owner: Owner; repoPath: string | null };
@@ -109,6 +110,8 @@ export async function reconcile(
     // A declared owner is the agent's word; only observed rows take the inferred one.
     const inferredOwner = row.source === "observed";
     const next = {
+      // Something an agent declared before the job saw it is now confirmed by both.
+      source: row.source === "declared" ? "both" : row.source,
       projectId: inferredOwner ? i.owner.projectId : row.projectId,
       taskId: inferredOwner ? i.owner.taskId : row.taskId,
       sessionId: inferredOwner ? i.owner.sessionId : row.sessionId,
@@ -117,6 +120,7 @@ export async function reconcile(
       teardown: row.source === "observed" ? suggestTeardown(i.item, i.repoPath) : row.teardown,
     };
     const same =
+      next.source === row.source &&
       next.projectId === row.projectId &&
       next.taskId === row.taskId &&
       next.sessionId === row.sessionId &&
