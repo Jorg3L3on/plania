@@ -9,6 +9,8 @@ export type Group = {
   id: string;
   kind: "project" | "repo" | "orphan" | "system";
   title: string;
+  /** A project's servers en uso, first on its card whatever ticket they belong to. */
+  servers: FootprintItem[];
   /** Items with no ticket (a project's shared server, a repo's worktree). */
   items: FootprintItem[];
   initiatives: InitiativeNode[];
@@ -22,20 +24,26 @@ const kindRank = (k: string) => {
   const i = KIND_ORDER.indexOf(k as FootprintKind);
   return i < 0 ? KIND_ORDER.length : i;
 };
-// Running things first, stopped ones last; then by kind and locator.
+const isRunningServer = (it: FootprintItem) => it.kind === "server" && it.state === "live";
+// Servers en uso first, stopped things last; then by kind and locator.
 export function byRow(a: FootprintItem, b: FootprintItem): number {
-  return Number(a.state === "gone") - Number(b.state === "gone") || kindRank(a.kind) - kindRank(b.kind) || a.locator.localeCompare(b.locator);
+  return (
+    Number(isRunningServer(b)) - Number(isRunningServer(a)) ||
+    Number(a.state === "gone") - Number(b.state === "gone") ||
+    kindRank(a.kind) - kindRank(b.kind) ||
+    a.locator.localeCompare(b.locator)
+  );
 }
 
 /**
- * Per project (then initiative, then ticket), then each repo that is not a project, then "Sin dueño"
+ * Per project (its servers en uso, then initiative, then ticket), then each repo that is not a project, then "Sin dueño"
  * (orphan) and "Sistema" (shared servers, services, LaunchAgents). Plania's own rows (self) sit in
  * the group of their repo.
  */
 export function groupItems(items: FootprintItem[]): Group[] {
   const groups = new Map<string, Group>();
   const group = (id: string, kind: Group["kind"], title: string) =>
-    groups.get(id) ?? groups.set(id, { id, kind, title, items: [], initiatives: [], tickets: [], count: 0 }).get(id)!;
+    groups.get(id) ?? groups.set(id, { id, kind, title, servers: [], items: [], initiatives: [], tickets: [], count: 0 }).get(id)!;
 
   for (const it of [...items].sort(byRow)) {
     const g =
@@ -46,6 +54,10 @@ export function groupItems(items: FootprintItem[]): Group[] {
       : it.state === "self" ? group("r:plania", "repo", "plania")
       : group("system", "system", "Sistema");
     g.count++;
+    if (g.kind === "project" && isRunningServer(it)) {
+      g.servers.push(it);
+      continue;
+    }
     if (g.kind !== "project" || !it.task_key) {
       g.items.push(it);
       continue;

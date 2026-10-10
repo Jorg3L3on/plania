@@ -197,6 +197,8 @@ function GroupCard({ g, nowMs }: { g: Group; nowMs: number }) {
         <span className="shrink-0 text-xs text-muted-foreground">{g.count === 1 ? "1 elemento" : `${g.count} elementos`}</span>
       </header>
       <ul className="divide-y">
+        {/* Servers en uso lead the card; each still names its ticket. */}
+        {g.servers.map((it) => <Row key={it.id} it={it} nowMs={nowMs} showTicket />)}
         {g.items.map((it) => <Row key={it.id} it={it} nowMs={nowMs} showTicket={flat} />)}
         {g.tickets.map((t) => <TicketRows key={t.key} t={t} nowMs={nowMs} depth={0} />)}
         {g.initiatives.map((i) => (
