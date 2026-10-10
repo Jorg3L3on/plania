@@ -414,7 +414,7 @@ export function suggestTeardown(o: Observed, repoPath: string | null): string {
     case "container":
       return `docker rm -f ${shq(String(d.name))}`;
     case "service":
-      if (d.manager === "brew") return `brew services stop ${d.name}`;
+      if (d.manager === "brew") return `brew services stop ${d.brew_formula ?? d.name}`;
       return typeof d.file === "string" ? `launchctl unload ${shq(String(d.file))}` : "";
     default:
       return "";
