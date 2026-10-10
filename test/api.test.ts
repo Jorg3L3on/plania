@@ -358,5 +358,8 @@ describe("GET /api/machine", () => {
     assert.deepEqual([dev.project, dev.task_key, dev.initiative_key, dev.session_id, dev.teardown, dev.lease.purpose], ["micasa", "MIC-01-F1", "MIC-01", "s1", "kill 10319", "micasa dev"]);
     assert.equal(body.items.find((i: Json) => i.locator === "/w/a").repo, "plania");
     assert.equal(body.items.find((i: Json) => i.locator === "port:4000").state, "gone");
+    // the findings the project audits cannot hold: rows without a project (the stale worktree, the orphan database)
+    assert.deepEqual(body.findings.map((f: Json) => f.code).sort(), ["FOOTPRINT_ORPHAN", "WORKTREE_MERGED_NOT_REMOVED"]);
+    assert.ok(body.findings.every((f: Json) => typeof f.detail === "string" && typeof f.fix_hint === "string"));
   });
 });

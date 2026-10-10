@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { footprints } from "../db/schema.js";
 import { iso, type Q } from "./tx.js";
 
@@ -52,3 +52,28 @@ export async function sessionFootprint(db: Q, projectId: string, sessionId: stri
 // token may say "MacBook-Air-de-Jorge" or "macbook-air". Equal ignoring case and a ".local" suffix.
 export const normMachine = (m: string) => m.trim().toLowerCase().replace(/\.local$/, "").replace(/\s+/g, "-");
 export const sameMachine = (a: string, b: string) => normMachine(a) === normMachine(b);
+
+// The unreleased rows of a ticket that are still around (not gone): what a handoff, a Done or an
+// expiring claim should tell the next session to tear down or keep.
+export async function liveTaskFootprint(db: Q, taskId: string) {
+  return (await taskFootprint(db, taskId)).filter((f) => f.state !== "gone");
+}
+
+const gb = (kb: number) => (kb >= 1024 * 1024 ? `${(kb / 1024 / 1024).toFixed(1)} GB` : `${Math.round(kb / 1024)} MB`);
+
+// get_resume's one line about the Mac, over the project's rows: "3 servidores, 1 obsoleto, 9.8 GB de
+// worktrees". null when the project has nothing on the machine. Gone rows (stopped) and ghosts (never
+// seen) are not running.
+export async function machineLine(db: Q, projectId: string): Promise<string | null> {
+  const [r] = (
+    await db.execute<{ n: number; servers: number; stale: number; kb: string }>(sql`
+      select count(*)::int as n,
+             (count(*) filter (where kind = 'server'))::int as servers,
+             (count(*) filter (where state = 'stale'))::int as stale,
+             coalesce(sum((details->>'size_kb')::numeric) filter (where kind = 'worktree'), 0)::text as kb
+      from footprints
+      where project_id = ${projectId} and released_at is null and state not in ('gone', 'ghost')`)
+  ).rows;
+  if (!r || r.n === 0) return null;
+  return `${r.servers} ${r.servers === 1 ? "servidor" : "servidores"}, ${r.stale} ${r.stale === 1 ? "obsoleto" : "obsoletos"}, ${gb(Number(r.kb))} de worktrees`;
+}

@@ -60,6 +60,8 @@ export type Resume = {
   standalone: { open: number; claims: Claim[] };
   must_keep: Decision[];
   open_questions: Question[];
+  /** One line about what the project's agents have running on the Mac, or null. */
+  machine?: string | null;
   legacy_card_present: boolean;
   legacy_card?: LegacyCard | null;
 };
@@ -67,7 +69,7 @@ export type Resume = {
 // Everything waiting on Jorge (GET /api/inbox).
 export type InboxItem = {
   id: string;
-  kind: "approval" | "question" | "human_action";
+  kind: "approval" | "question" | "human_action" | "footprint";
   project: string;
   key: string | null;
   task_kind: string | null;
@@ -144,6 +146,8 @@ export type LogEntry = { id: number; at: string; type: string; actor: Actor; pay
 
 // The get_task shape.
 export type TaskDetail = Omit<TaskRow, "claimed_by" | "lease_until"> & {
+  /** Set by a status change: strings, or FOOTPRINT_LIVE for something still running on the Mac. */
+  warnings?: (string | { code: string; kind?: string; locator?: string; teardown?: string })[];
   aliases: string[];
   scope: string;
   legacy_body?: string;
@@ -207,4 +211,6 @@ export type FootprintItem = {
 };
 
 export type MachineTotals = { servers: number; databases: number; worktree_kb: number; orphan: number; stale: number };
-export type Machine = { machine: string; totals: MachineTotals; items: FootprintItem[] };
+/** An audit finding about the Mac that no project audit holds (rows without a project). */
+export type MachineFinding = { code: string; key: string | null; detail: string; fix_hint: string };
+export type Machine = { machine: string; totals: MachineTotals; findings: MachineFinding[]; items: FootprintItem[] };

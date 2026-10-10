@@ -1,16 +1,23 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { checks, projects, questions, results, tasks, type Project } from "../db/schema.js";
+import { checks, footprints, projects, questions, results, tasks, type Project } from "../db/schema.js";
+import { describeStale } from "../jobs/machine/infer.js";
 import { pendingApprovals } from "./approvals.js";
 import { openHumanActions } from "./blockers.js";
 import { iso, type Q } from "./tx.js";
 
 // Jorge's inbox (R-28): everything waiting on him, in one list, oldest first within each kind:
-// pending approvals, open questions and human actions a ticket is blocked on. Released tickets
+// pending approvals, open questions, human actions a ticket is blocked on, and what agents left
+// running on the Mac that nobody claims (orphan) or that is stale for a day. Released tickets
 // are not his: agents close them. Later: runbook steps and S1/S2 bugs.
+
+// How long something on the Mac has to sit orphan or stale before it asks for Jorge.
+export const FOOTPRINT_INBOX_AFTER_MS = 24 * 3600_000;
+// The pseudo-project the Mac's items without a project (Plania's repo, nobody's) are listed under in "all".
+export const MACHINE_INBOX_PROJECT = "machine";
 
 export type InboxItem = {
   id: string;
-  kind: "approval" | "question" | "human_action";
+  kind: "approval" | "question" | "human_action" | "footprint";
   project: string;
   key: string | null;
   task_kind: string | null;
@@ -48,6 +55,39 @@ async function parentKeyOf(db: Q, parentId: string | null): Promise<string | nul
   if (!parentId) return null;
   const [p] = await db.select({ key: tasks.key }).from(tasks).where(eq(tasks.id, parentId)).limit(1);
   return p?.key ?? null;
+}
+
+// Orphan and stale rows older than a day, for one project or (null) for those without one.
+async function footprintItems(db: Q, projectId: string | null, project: string, now = new Date()): Promise<InboxItem[]> {
+  const rows = await db
+    .select({ f: footprints, key: tasks.key, kind: tasks.kind, title: tasks.title })
+    .from(footprints)
+    .leftJoin(tasks, eq(tasks.id, footprints.taskId))
+    .where(and(isNull(footprints.releasedAt), inArray(footprints.state, ["orphan", "stale"]), projectId ? eq(footprints.projectId, projectId) : isNull(footprints.projectId)));
+  const items: InboxItem[] = [];
+  for (const { f, key, kind } of rows) {
+    // An orphan waits from the first sighting; a stale row from the moment its reason started to hold.
+    const stale = typeof f.details.stale_since === "string" ? new Date(f.details.stale_since) : null;
+    const since = f.state === "stale" && stale && !Number.isNaN(stale.getTime()) ? stale : (f.firstSeenAt ?? f.declaredAt ?? f.createdAt);
+    if (now.getTime() - since.getTime() < FOOTPRINT_INBOX_AFTER_MS) continue;
+    items.push({
+      id: f.id,
+      kind: "footprint",
+      project,
+      key,
+      task_kind: kind,
+      parent_key: null,
+      title: `${f.kind} ${f.locator}`,
+      why: f.state === "stale" ? `obsoleto: ${describeStale(f.details, now) ?? "sin motivo guardado"}` : "sin dueño: nadie lo declaró y no se sabe de quién es",
+      target: { kind: f.kind, locator: f.locator, teardown: f.teardown, state: f.state },
+      waiting_since: iso(since),
+      wait_s: waitSeconds(since),
+      evidence: null,
+      pr_url: null,
+      action_hint: f.teardown || "release_footprint once it is gone, or register_footprint to claim it",
+    });
+  }
+  return items.sort((a, b) => b.wait_s - a.wait_s);
 }
 
 export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
@@ -115,6 +155,7 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
       action_hint: "mark done",
     });
   }
+  items.push(...(await footprintItems(db, p.id, p.slug)));
   return items;
 }
 
@@ -122,6 +163,7 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
 export async function inbox(db: Q, which: Project | "all") {
   const list = which === "all" ? await db.select().from(projects).orderBy(asc(projects.slug)) : [which];
   const items = (await Promise.all(list.map((p) => inboxFor(db, p)))).flat();
+  if (which === "all") items.push(...(await footprintItems(db, null, MACHINE_INBOX_PROJECT)));
   const counts: Record<string, number> = {};
   for (const i of items) counts[i.project] = (counts[i.project] ?? 0) + 1;
   return { items, count: items.length, by_project: counts };

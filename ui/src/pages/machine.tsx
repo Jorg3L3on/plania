@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kicker, accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
-import { SOURCE_WORD, STATE_WORD, ageSource, formatKb, groupItems, nameOf, sizeOf, type Group, type TicketNode } from "@/lib/machine";
+import { SOURCE_WORD, STATE_WORD, ageSource, formatKb, groupItems, isPrimary, nameOf, sizeOf, whyLine, type Group, type TicketNode } from "@/lib/machine";
 import { ago, span } from "@/lib/time";
 import type { FootprintItem, FootprintKind, FootprintState } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -76,7 +76,7 @@ function Tag({ children, tone }: { children: React.ReactNode; tone?: "warn" }) {
   );
 }
 
-function CopyTeardown({ command }: { command: string }) {
+function CopyTeardown({ command, declared }: { command: string; declared: boolean }) {
   const [copied, setCopied] = useState(false);
   async function copy() {
     try {
@@ -89,16 +89,19 @@ function CopyTeardown({ command }: { command: string }) {
   }
   const Icon = copied ? CheckIcon : CopyIcon;
   return (
-    <div className="flex items-start gap-1 rounded-lg bg-surface-sunken py-1 pr-1 pl-2.5">
-      <code className="min-w-0 flex-1 py-0.5 font-mono text-xs leading-5 break-all whitespace-pre-wrap">{command}</code>
-      <button
-        type="button"
-        onClick={() => void copy()}
-        aria-label="Copiar el comando"
-        className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-background hover:text-foreground"
-      >
-        <Icon className="size-3.5" />
-      </button>
+    <div className="grid gap-0.5">
+      <span className="px-0.5 text-[10.5px] text-muted-foreground">{declared ? "Comando declarado por quien lo creó" : "Comando sugerido; Plania no lo ejecuta"}</span>
+      <div className="flex items-start gap-1 rounded-lg bg-surface-sunken py-1 pr-1 pl-2.5">
+        <code className="min-w-0 flex-1 py-0.5 font-mono text-xs leading-5 break-all whitespace-pre-wrap">{command}</code>
+        <button
+          type="button"
+          onClick={() => void copy()}
+          aria-label="Copiar el comando"
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-background hover:text-foreground"
+        >
+          <Icon className="size-3.5" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -109,6 +112,7 @@ function Row({ it, nowMs, showTicket }: { it: FootprintItem; nowMs: number; show
   const size = sizeOf(it);
   const age = ageSource(it);
   const gone = it.state === "gone";
+  const why = whyLine(it, nowMs);
   const purpose = it.purpose || it.lease?.purpose || "";
   const holder = it.holder ?? it.lease?.holder ?? null;
   const d = it.details;
@@ -138,12 +142,14 @@ function Row({ it, nowMs, showTicket }: { it: FootprintItem; nowMs: number; show
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className={cn("min-w-0 font-medium break-all", it.kind === "server" && "font-mono")}>{name}</span>
           {detail && <span className="min-w-0 text-sm break-all text-muted-foreground">{detail}</span>}
+          {isPrimary(it) && <Tag>principal</Tag>}
           {it.kind === "worktree" && d.dirty === true && <Tag tone="warn">sin guardar</Tag>}
           {it.kind === "worktree" && d.merged === true && <Tag>integrada</Tag>}
         </div>
         <p className="text-xs text-muted-foreground">
           {meta.map((m, i) => <Fragment key={i}>{i > 0 && " · "}{m}</Fragment>)}
         </p>
+        {why && <p className={cn("text-xs", it.state === "stale" ? "text-ink-now" : "text-muted-foreground")}>{why}</p>}
         {purpose && (
           <p className="text-sm">
             {purpose}
@@ -153,7 +159,7 @@ function Row({ it, nowMs, showTicket }: { it: FootprintItem; nowMs: number; show
       </div>
       <StateBadge state={it.state} />
       {/* The command takes the whole row, under the icon too: it is the longest thing on it. */}
-      {it.teardown && <div className="col-span-full"><CopyTeardown command={it.teardown} /></div>}
+      {it.teardown && <div className="col-span-full"><CopyTeardown command={it.teardown} declared={it.source !== "observed"} /></div>}
     </li>
   );
 }
@@ -218,6 +224,24 @@ function Totals({ machine }: { machine: NonNullable<ReturnType<typeof useMachine
   );
 }
 
+// What the audit finds about the Mac that no project audit holds: a short list under the header.
+function Findings({ findings }: { findings: NonNullable<ReturnType<typeof useMachine>["data"]>["findings"] }) {
+  if (!findings.length) return null;
+  return (
+    <section aria-label="Hallazgos" className="grid gap-2 rounded-xl border border-status-now/40 bg-status-now/8 px-4 py-3">
+      <Kicker className="text-ink-now">{findings.length === 1 ? "1 hallazgo" : `${findings.length} hallazgos`}</Kicker>
+      <ul className="grid gap-2">
+        {findings.map((f, i) => (
+          <li key={i} className="grid gap-0.5 text-sm">
+            <span><span className="mr-2 font-mono text-[11px] font-semibold text-ink-now">{f.code}</span>{f.detail}</span>
+            <span className="text-xs break-all text-muted-foreground">{f.fix_hint}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function useMachine() {
   return useQuery({ queryKey: ["machine"], queryFn: api.machine, staleTime: 15_000 });
 }
@@ -237,6 +261,8 @@ export function MachinePage() {
         </div>
         {machine.data && <Totals machine={machine.data} />}
       </header>
+
+      {machine.data && <Findings findings={machine.data.findings ?? []} />}
 
       {machine.isPending && (
         <div className="grid gap-4">

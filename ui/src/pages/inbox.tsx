@@ -84,6 +84,24 @@ function ActionRow({ item }: { item: InboxItem }) {
   );
 }
 
+// Something left on the Mac that nobody claims, or whose ticket is long done: the command is for Jorge to run.
+function FootprintRow({ item }: { item: InboxItem }) {
+  const teardown = typeof item.target?.teardown === "string" ? item.target.teardown : "";
+  return (
+    <li className="grid gap-1 px-4 py-3 text-sm">
+      <span className="flex flex-wrap items-baseline gap-x-2">
+        {item.key && item.project !== "machine" && (
+          <Link to={`/p/${item.project}?task=${encodeURIComponent(item.key)}`} className="font-mono text-xs underline-offset-4 hover:underline">{item.key}</Link>
+        )}
+        <Link to="/machine" className="font-mono text-xs font-medium break-all underline-offset-4 hover:underline">{item.title}</Link>
+        <span className="text-muted-foreground">{item.why}</span>
+        <span className="text-xs text-muted-foreground">desde hace {waitText(item.wait_s)}</span>
+      </span>
+      {teardown ? <code className="rounded-lg bg-surface-sunken px-2.5 py-1 font-mono text-xs leading-5 break-all whitespace-pre-wrap">{teardown}</code> : <span className="text-xs text-muted-foreground">{item.action_hint}</span>}
+    </li>
+  );
+}
+
 export function InboxPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -114,6 +132,7 @@ export function InboxPage() {
       approvals: items.filter((i) => i.project === project && i.kind === "approval"),
       questions: items.filter((i) => i.project === project && i.kind === "question"),
       actions: items.filter((i) => i.project === project && i.kind === "human_action"),
+      footprints: items.filter((i) => i.project === project && i.kind === "footprint"),
     }));
   }, [inbox.data]);
 
@@ -169,10 +188,10 @@ export function InboxPage() {
         </div>
       )}
 
-      {grouped.map(({ project, approvals, questions, actions }) => (
+      {grouped.map(({ project, approvals, questions, actions, footprints }) => (
         <section key={project} className="grid gap-3">
           <h2 className="font-display text-[15px] font-bold tracking-[0.08em] text-muted-foreground uppercase">
-            <Link to={`/p/${project}`} className="underline-offset-4 hover:underline">{project}</Link>
+            <Link to={project === "machine" ? "/machine" : `/p/${project}`} className="underline-offset-4 hover:underline">{project === "machine" ? "Máquina" : project}</Link>
           </h2>
           {approvals.length > 0 && (
             <Card className="gap-0 divide-y py-0">
@@ -187,6 +206,13 @@ export function InboxPage() {
             <Card className="gap-0 divide-y py-0">
               <CardContent className="px-0">
                 <ul className="divide-y">{actions.map((item) => <ActionRow key={item.id} item={item} />)}</ul>
+              </CardContent>
+            </Card>
+          )}
+          {footprints.length > 0 && (
+            <Card className="gap-0 divide-y py-0">
+              <CardContent className="px-0">
+                <ul className="divide-y">{footprints.map((item) => <FootprintRow key={item.id} item={item} />)}</ul>
               </CardContent>
             </Card>
           )}

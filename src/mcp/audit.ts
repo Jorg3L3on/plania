@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { auditRuns, blockers, branches, checks, decisions, envStates, pullRequests, results, tasks, type Project, type Task } from "../db/schema.js";
 import { hasUnsatisfiedBlocker } from "./blockers.js";
+import { footprintFindings } from "./footprint-audit.js";
 import { legacyCard } from "./queries.js";
 import { iso, type Q } from "./tx.js";
 
@@ -116,6 +117,8 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
     const used = all.some((t) => t.branch === b.name || t.workspace?.branch === b.name) || prs.some((pr) => pr.headBranch === b.name);
     if (!b.ownerTaskId && !used && b.headSha) out.push({ code: "BRANCH_WITHOUT_TICKET", key: null, detail: `${b.name} has no ticket or initiative`, fix_hint: "set the initiative's integration_branch, or delete the branch" });
   }
+  // What this project's agents left running on the Mac (stale servers and databases, merged worktrees).
+  out.push(...(await footprintFindings(db, { projectId: p.id })));
   if (legacyCard(p)) out.push({ code: "LEGACY_CARD_PRESENT", key: null, detail: "the v1 hand-written card is still there", fix_hint: "archive_legacy_card (the legacy job does it once v2 data exists)" });
   return out;
 }
