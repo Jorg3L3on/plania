@@ -1,17 +1,17 @@
-// "Te toca": what waits on Jorge, decided from Inicio. One question at a time with its options,
-// each approval with Aprobar / Rechazar, and the rest (your own actions)
-// counted with a way into the Bandeja. Every write is the same call the Bandeja makes.
+// "Te toca": what waits on Jorge, decided from Inicio's city. One question at a time with its
+// options, each approval with Aprobar / Rechazar, and the rest (your own actions) counted with a
+// way into the Bandeja. Every write is the same call the Bandeja makes.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowRightIcon, HandIcon } from "lucide-react";
+import { ArrowRightIcon } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { accentInk, Kicker, projectAccent } from "@/components/plan/visuals";
+import { accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
 import { actionWord, waitText } from "@/lib/inbox";
-import type { Inbox, InboxItem } from "@/lib/types";
+import type { InboxItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type Names = (slug: string) => string;
@@ -155,30 +155,20 @@ function CountRow({ n, tone, title, detail, to, cta }: { n: number; tone: string
   );
 }
 
-export function TeToca({ inbox, names }: { inbox: Inbox; names: Names }) {
+// What waits on Jorge for one tower of the city (or outside every tower): one question at a time,
+// each approval, and Jorge's own actions counted with a way into the Bandeja.
+export function TeTocaItems({ items, names }: { items: InboxItem[]; names: Names }) {
   const [qi, setQi] = useState(0);
   const groups = useMemo(() => {
-    const items = inbox.items;
     const by = (kind: InboxItem["kind"]) => items.filter((i) => i.kind === kind);
     const actions = by("human_action");
     const actionProjects = [...new Set(actions.map((i) => i.project))];
     return { questions: by("question"), approvals: by("approval"), actions, actionProjects };
-  }, [inbox.items]);
+  }, [items]);
   const question = groups.questions[Math.min(qi, Math.max(0, groups.questions.length - 1))];
-  const oldest = inbox.items.reduce((m, i) => Math.max(m, i.wait_s), 0);
-
+  if (items.length === 0) return null;
   return (
-    <section id="te-toca" aria-label="Te toca" className="grid content-start gap-3.5 rounded-[22px] border border-status-jorge/35 bg-card px-5 py-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <Kicker className="text-ink-jorge">
-          <HandIcon className="size-3.5" aria-hidden />
-          Te toca{inbox.count > 0 && ` · ${inbox.count}`}
-        </Kicker>
-        {inbox.count > 0 && <span className="text-xs text-muted-foreground">lo más viejo espera {waitText(oldest)}</span>}
-      </div>
-
-      {inbox.count === 0 && <p className="text-[15px] text-muted-foreground">Nada te espera. Lo demás avanza solo.</p>}
-
+    <div className="grid gap-2.5">
       {question && (
         <QuestionCard
           key={question.id}
@@ -204,12 +194,6 @@ export function TeToca({ inbox, names }: { inbox: Inbox; names: Names }) {
           />
         );
       })}
-
-      {inbox.count > 0 && (
-        <Link to="/inbox" className="inline-flex min-h-8 w-fit items-center gap-1.5 text-[13px] font-semibold text-ink-jorge hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-          Abrir la bandeja completa <ArrowRightIcon className="size-3.5" aria-hidden />
-        </Link>
-      )}
-    </section>
+    </div>
   );
 }

@@ -1,9 +1,9 @@
-// Inicio's model, apart from the markup: the headline sentence, who is working now, what an agent can
-// take next, each project's tile and the servers en uso. Pure functions over the /api shapes, so
+// Inicio's model, apart from the markup: the headline sentence, who is working now, each project's
+// tile and the servers en uso (the city of initiatives lives in city.ts). Pure functions over the /api shapes, so
 // test/home.test.ts can load this file with node:test.
-import { buildLanes, projectProgress, statusCounts, type LaneTask, type StationTone } from "./lanes.js";
+import { buildLanes, projectProgress, type LaneTask, type StationTone } from "./lanes.js";
 import { ago, span } from "./time.js";
-import type { EnvSummary, FootprintItem, MachineTotals, NextClaimable } from "./types.js";
+import type { EnvSummary, FootprintItem, InitiativeNote, MachineTotals, NextClaimable } from "./types.js";
 
 type Tone = StationTone;
 
@@ -28,6 +28,7 @@ export type HomeProject = {
   next_claimable: NextClaimable | null;
   envs: EnvSummary[];
   activity: number[];
+  initiatives?: InitiativeNote[];
 };
 
 type Server = Pick<FootprintItem, "kind" | "state" | "task_key" | "session_id" | "project" | "repo" | "locator" | "details" | "first_seen_at">;
@@ -85,31 +86,7 @@ export function flightsOf(projects: HomeProject[], servers: Server[]): Flight[] 
   return flights.sort((a: Flight, b: Flight) => (b.claimedAt ?? "").localeCompare(a.claimedAt ?? ""));
 }
 
-// ---- Siguiente: the first ticket an agent can take in each project, and what holds it
-
-export type NextUp = { slug: string; projectTitle: string; key: string; title: string; hold: { word: string; tone: Tone } };
-
-export function nextUpOf(projects: HomeProject[]): NextUp[] {
-  const out: NextUp[] = [];
-  for (const p of projects) {
-    const n = p.next_claimable;
-    if (!n) continue;
-    const open = n.blocked_by.filter((b) => !b.satisfied);
-    const hold =
-      open.some((b) => b.type === "human_action") ? { word: "te toca a ti", tone: "jorge" as Tone }
-      : open.length > 0 ? { word: "bloqueado", tone: "blocked" as Tone }
-      : n.status === "Backlog" ? { word: "en backlog", tone: "pending" as Tone }
-      : { word: "listo", tone: "ready" as Tone };
-    out.push({ slug: p.slug, projectTitle: p.title, key: n.key, title: n.title, hold });
-  }
-  // Ready first, then what waits on Jorge, then the rest; stable within each.
-  const rank: Record<string, number> = { ready: 0, jorge: 1, pending: 2, blocked: 3 };
-  return out.sort((a, b) => (rank[a.hold.tone] ?? 9) - (rank[b.hold.tone] ?? 9));
-}
-
-// ---- Counts the pulse row and the headline use
-
-export const readyCount = (projects: HomeProject[]) => projects.reduce((n, p) => n + statusCounts(p.tasks).ready, 0);
+// ---- Counts the headline uses
 
 /** Tickets closed since local midnight. */
 export function doneToday(projects: HomeProject[], nowMs = Date.now()): number {

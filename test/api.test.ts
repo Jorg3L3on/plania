@@ -118,6 +118,12 @@ describe("reads", () => {
     assert.equal(micasa.activity.length, 7);
     assert.ok(micasa.activity.every((n: unknown) => typeof n === "number"));
     assert.deepEqual(list.find((p) => p.slug === "zigzag")!.activity, [0, 0, 0, 0, 0, 0, 0]);
+    // The city: one note pair per open initiative, as get_resume has them.
+    assert.deepEqual(
+      micasa.initiatives,
+      detail.resume.initiatives.map((i: Json) => ({ key: i.key, in_progress: i.in_progress.note, next_action: i.next_action.note })),
+    );
+    assert.deepEqual(list.find((p) => p.slug === "zigzag")!.initiatives, []);
   });
 
   test("GET /api/projects/:slug returns the generated resume, decisions and every task without scope, P0 first", async () => {

@@ -282,3 +282,151 @@
   }
   .lift, .lift:hover { transition: none; transform: none; }
 }
+
+/* ---- Inicio's city: one tower per open initiative (ui/src/components/home/ciudad.tsx).
+   The scene is always night, in light theme too: it carries the .dark class itself. Window colors
+   are the status tokens, except Done, which is a warm lit window. */
+
+@layer components {
+  .city {
+    --win-h: 18px;
+    --win-w: 29px;
+    --win-gap: 8px;
+    --bld-pad: 10px;
+    --tower-w: 132px;
+    --lit: #ffd98a;
+    --night-1: #0b0e1c;
+    --night-2: #111631;
+    --night-3: #171b2e;
+    --street: #0c0f1b;
+    --street-h: 84px;
+    background: linear-gradient(180deg, var(--night-1) 0%, var(--night-2) 52%, var(--night-3) 100%);
+  }
+  @media (width < 48rem) {
+    .city {
+      --win-h: 14px;
+      --win-w: 16px;
+      --win-gap: 6px;
+      --bld-pad: 7px;
+      --tower-w: 92px;
+      --street-h: 64px;
+    }
+  }
+
+  .city-star {
+    position: absolute;
+    width: 2px;
+    height: 2px;
+    border-radius: 50%;
+    background: #dfe6ff;
+    animation: city-twinkle 4s ease-in-out infinite;
+  }
+
+  /* A tower is a button: the building, what stands on its roof, and its label. */
+  .city-tower {
+    position: relative;
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    width: var(--tower-w);
+    border-radius: 12px;
+    cursor: pointer;
+    outline: none;
+  }
+  .city-tower:focus-visible .city-bld { box-shadow: 0 0 0 2px var(--ring); }
+  .city-tower[data-paused] .city-bld, .city-tower[data-paused] .city-lbl { opacity: 0.45; }
+
+  .city-bld {
+    display: grid;
+    grid-template-columns: repeat(var(--cols, 2), var(--win-w));
+    gap: var(--win-gap);
+    align-content: end;
+    padding: var(--bld-pad) var(--bld-pad) 0;
+    background: linear-gradient(180deg, #1c2138, #151a2c);
+    border: 1px solid rgb(255 255 255 / 0.1);
+    border-bottom: 0;
+    border-radius: 6px 6px 0 0;
+    transition: box-shadow 0.25s ease, transform 0.25s ease;
+  }
+  .city-tower[data-stage="planning"] .city-bld {
+    background: rgb(20 24 40 / 0.5);
+    border: 1px dashed rgb(255 255 255 / 0.28);
+    border-bottom: 0;
+  }
+  @media (hover: hover) {
+    .city-tower:hover .city-bld { transform: translateY(-3px); }
+  }
+  .city-tower[aria-pressed="true"] .city-bld {
+    box-shadow: 0 0 0 2px #eef0f6, 0 0 28px rgb(255 255 255 / 0.22);
+  }
+
+  .city-win { display: block; height: var(--win-h); border-radius: 3px; }
+  .city-win[data-tone="lit"] { background: var(--lit); box-shadow: 0 0 8px rgb(255 217 138 / 0.55); }
+  .city-win[data-tone="now"] { background: var(--status-now); box-shadow: 0 0 10px color-mix(in oklab, var(--status-now) 70%, transparent); animation: city-flicker 1.6s ease-in-out infinite; }
+  .city-win[data-tone="review"] { background: var(--status-review); box-shadow: 0 0 8px color-mix(in oklab, var(--status-review) 50%, transparent); }
+  .city-win[data-tone="ready"] { background: var(--status-ready); box-shadow: 0 0 8px color-mix(in oklab, var(--status-ready) 45%, transparent); }
+  .city-win[data-tone="blocked"] { background: var(--status-blocked); box-shadow: 0 0 8px color-mix(in oklab, var(--status-blocked) 50%, transparent); }
+  .city-win[data-tone="jorge"] { background: var(--status-jorge); box-shadow: 0 0 8px color-mix(in oklab, var(--status-jorge) 55%, transparent); }
+  .city-win[data-tone="dark"] { background: rgb(255 255 255 / 0.03); border: 1px solid rgb(255 255 255 / 0.13); }
+  .city-tower[data-stage="planning"] .city-win[data-tone="dark"] { background: transparent; border-style: dashed; border-color: rgb(255 255 255 / 0.22); }
+  .city-door { grid-column: 1 / -1; justify-self: center; width: 14px; height: 16px; margin-top: 2px; border-radius: 3px 3px 0 0; background: var(--lit); opacity: 0.6; }
+  .city-tower[data-stage="planning"] .city-door { opacity: 0.25; }
+
+  /* What waits on Jorge sweeps the sky. */
+  .city-beam {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    width: 170px;
+    height: 230px;
+    margin-left: -85px;
+    pointer-events: none;
+    transform-origin: 50% 100%;
+    clip-path: polygon(50% 100%, 16% 0, 84% 0);
+    background: linear-gradient(to top, color-mix(in oklab, var(--status-jorge) 55%, transparent), transparent 88%);
+    animation: city-sweep 7s ease-in-out infinite alternate;
+  }
+  /* Shipping: a red light on the roof. */
+  .city-beacon { position: relative; width: 2px; height: 26px; background: rgb(255 255 255 / 0.35); }
+  .city-beacon::after {
+    content: "";
+    position: absolute;
+    top: -4px;
+    left: -3px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ff4d6d;
+    box-shadow: 0 0 10px #ff4d6d;
+    animation: city-blink 2.2s ease-in-out infinite;
+  }
+  /* Agents at work: a crane with one light per agent. */
+  .city-crane { position: relative; width: 110px; height: 64px; }
+  .city-crane i {
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--status-now);
+    box-shadow: 0 0 10px var(--status-now);
+    animation: city-blink 1.3s ease-in-out infinite;
+  }
+  @media (width < 48rem) {
+    .city-crane { width: 76px; height: 44px; }
+    .city-beam { width: 110px; height: 160px; margin-left: -55px; }
+  }
+
+  .city-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--status-now); box-shadow: 0 0 8px var(--status-now); }
+
+  @keyframes city-twinkle { 0%, 100% { opacity: 0.2; } 50% { opacity: 0.9; } }
+  @keyframes city-flicker { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @keyframes city-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.12; } }
+  @keyframes city-sweep { from { transform: rotate(-11deg); } to { transform: rotate(11deg); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .city-star, .city-win, .city-beam, .city-beacon::after, .city-crane i { animation: none !important; }
+    .city-tower:hover .city-bld { transform: none; }
+  }
+}
