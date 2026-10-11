@@ -19,6 +19,7 @@ import {
   TONE_TEXT,
   toneVar,
 } from "@/components/plan/visuals";
+import { ProjectMark } from "@/components/plania-mark";
 import { DecisionList, ResumeView } from "@/components/resume";
 import type { BranchEdge, Lane, StationTone } from "@/lib/lanes";
 import type { Decision, Headline, Resume } from "@/lib/types";
@@ -198,7 +199,10 @@ export function ProjectHeader({
   return (
     <header className="flex animate-rise flex-wrap items-center justify-between gap-x-8 gap-y-3">
       <div className="grid gap-1">
-        <h1 className="font-display text-3xl leading-none font-extrabold tracking-[-0.03em] sm:text-4xl">{title}</h1>
+        <h1 className="flex items-center gap-3 font-display text-3xl leading-none font-extrabold tracking-[-0.03em] sm:text-4xl">
+          {slug && <ProjectMark slug={slug} className="size-8 sm:size-9" />}
+          {title}
+        </h1>
         <ProjectSummary lanes={lanes} needsJorge={counts.needsJorge} onOpen={onOpen} />
         {slug && headline && version !== undefined && <AgentNote slug={slug} headline={headline} version={version} />}
       </div>

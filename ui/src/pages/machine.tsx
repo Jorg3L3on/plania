@@ -5,6 +5,7 @@ import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { hasProjectMark, ProjectMark } from "@/components/plania-mark";
 import { Kicker, accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
 import { SOURCE_WORD, STATE_WORD, ageSource, formatKb, groupItems, isPrimary, nameOf, sizeOf, whyLine, type Group, type TicketNode } from "@/lib/machine";
@@ -190,7 +191,12 @@ function GroupCard({ g, nowMs }: { g: Group; nowMs: number }) {
     <Card className="gap-0 overflow-hidden py-0">
       <header className="flex items-center justify-between gap-3 border-b px-4 py-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          {g.kind === "project" && <span aria-hidden className="size-2.5 shrink-0 rounded-full" style={{ background: a }} />}
+          {g.kind === "project" &&
+            (hasProjectMark(g.title) ? (
+              <ProjectMark slug={g.title} className="size-5" />
+            ) : (
+              <span aria-hidden className="size-2.5 shrink-0 rounded-full" style={{ background: a }} />
+            ))}
           <h2 className="min-w-0 truncate font-display text-lg font-bold tracking-tight" style={g.kind === "project" ? { color: accentInk(a) } : undefined}>{g.title}</h2>
           {g.kind === "repo" && <Kicker className="text-muted-foreground">repo</Kicker>}
         </div>

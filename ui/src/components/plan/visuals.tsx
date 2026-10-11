@@ -2,6 +2,7 @@
 // three glyphs (check = done, pulsing dot = now, hollow circle = pending), flow arrows and a progress ring.
 import { CheckIcon } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
+import { projectBrandAccent } from "@/components/plania-mark";
 import type { LaneState, StationTone } from "@/lib/lanes";
 import { cn } from "@/lib/utils";
 
@@ -169,7 +170,7 @@ export function Kicker({ children, className }: { children: ReactNode; className
 /** Staggered entrance: index → animation delay. Runs once on mount, never on live refetches. */
 export const rise = (i: number): CSSProperties => ({ animationDelay: `${Math.min(i, 12) * 70}ms` });
 
-// One accent per project, stable by slug, for the stripe and kicker.
+// One accent per project for the stripe and kicker: its logo's hue, else one picked stably by slug.
 const ACCENTS: [string, string][] = [
   ["#ff5fa2", "#ffb347"],
   ["#3ddc97", "#5ec8ff"],
@@ -182,6 +183,8 @@ const ACCENTS: [string, string][] = [
 export const accentInk = (color: string) => `color-mix(in oklab, ${color} var(--accent-ink), var(--foreground))`;
 
 export function projectAccent(slug: string): [string, string] {
+  const brand = projectBrandAccent(slug);
+  if (brand) return [brand, brand];
   let h = 0;
   for (const ch of slug) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return ACCENTS[h % ACCENTS.length]!;
