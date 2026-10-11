@@ -2,6 +2,7 @@
 // working now (and what comes next), what the Mac runs, and the projects as a compact rail.
 import { ArrowRightIcon, CpuIcon } from "lucide-react";
 import { Link } from "react-router";
+import { ProjectMark } from "@/components/plania-mark";
 import { accentInk, Glyph, Kicker, projectAccent, rise, TONE_TEXT, toneVar } from "@/components/plan/visuals";
 import type { Flight, Headline, LiveServer, NextUp, Tile } from "@/lib/home";
 import type { StationTone } from "@/lib/lanes";
@@ -57,7 +58,12 @@ export function Pulso({ items }: { items: PulseItem[] }) {
 
 function ProjectName({ slug, title, className }: { slug: string; title: string; className?: string }) {
   const [a] = projectAccent(slug);
-  return <span className={cn("font-semibold", className)} style={{ color: accentInk(a) }}>{title}</span>;
+  return (
+    <span className={cn("inline-flex items-center gap-1 align-bottom font-semibold", className)} style={{ color: accentInk(a) }}>
+      <ProjectMark slug={slug} className="size-3.5" />
+      {title}
+    </span>
+  );
 }
 
 function FlightCard({ f, nowMs }: { f: Flight; nowMs: number }) {
@@ -195,7 +201,10 @@ function TileCard({ t, index }: { t: Tile; index: number }) {
         style={{ borderTop: `3px solid ${a}` }}
       >
         <span className="flex items-baseline justify-between gap-2">
-          <span className="font-display text-[22px] leading-none font-extrabold tracking-tight">{t.title}</span>
+          <span className="flex items-center gap-2 font-display text-[22px] leading-none font-extrabold tracking-tight">
+            <ProjectMark slug={t.slug} className="size-[22px]" />
+            {t.title}
+          </span>
           <span className={cn("inline-flex items-center gap-1.5 text-xs font-semibold", TONE_TEXT[t.state.tone])}>
             <Glyph tone={t.state.tone} size={7} pulse={t.state.tone === "now"} />
             {t.state.word}
