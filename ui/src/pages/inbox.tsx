@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { QuestionsPanel } from "@/components/resume";
 import { Kicker } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
+import { actionWord, waitText } from "@/lib/inbox";
 import { localTime } from "@/lib/time";
 import type { InboxItem, Question } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -16,20 +17,6 @@ import { cn } from "@/lib/utils";
 // Everything waiting on Jorge, in one place: approvals to grant or reject (several at once, one
 // event each) and questions to answer. Empty means nothing needs him.
 
-const ACTION: Record<string, string> = {
-  done: "marcar Done",
-  wont_do: "marcar Won't do",
-  reopen: "reabrir",
-  waive_check: "eximir un punto del Done when",
-  runbook_step: "ejecutar un paso",
-  lease_resource: "tomar un recurso",
-};
-
-function waitText(s: number): string {
-  if (s < 3600) return `${Math.max(1, Math.round(s / 60))} min`;
-  if (s < 86400) return `${Math.round(s / 3600)} h`;
-  return `${Math.round(s / 86400)} d`;
-}
 
 function ApprovalRow({ item, checked, onToggle }: { item: InboxItem; checked: boolean; onToggle: () => void }) {
   const target = item.target && Object.keys(item.target).length ? ` ${JSON.stringify(item.target)}` : "";
@@ -41,7 +28,7 @@ function ApprovalRow({ item, checked, onToggle }: { item: InboxItem; checked: bo
           <span className="flex flex-wrap items-baseline gap-x-2 text-sm">
             <Link to={`/p/${item.project}?task=${encodeURIComponent(item.key ?? "")}`} className="font-mono text-xs underline-offset-4 hover:underline">{item.key}</Link>
             <span className="font-medium">{item.title}</span>
-            <span className="text-muted-foreground">quiere {ACTION[item.action ?? ""] ?? item.action}{target}</span>
+            <span className="text-muted-foreground">quiere {actionWord(item.action)}{target}</span>
           </span>
           <span className="text-sm whitespace-pre-wrap">{item.why}</span>
           <span className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
@@ -189,7 +176,7 @@ export function InboxPage() {
       )}
 
       {grouped.map(({ project, approvals, questions, actions, footprints }) => (
-        <section key={project} className="grid gap-3">
+        <section key={project} id={project} className="scroll-mt-20 grid gap-3">
           <h2 className="font-display text-[15px] font-bold tracking-[0.08em] text-muted-foreground uppercase">
             <Link to={project === "machine" ? "/machine" : `/p/${project}`} className="underline-offset-4 hover:underline">{project === "machine" ? "Máquina" : project}</Link>
           </h2>

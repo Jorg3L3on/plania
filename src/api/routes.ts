@@ -47,6 +47,29 @@ export function resumeLine(d: ResumeDigest): string {
 }
 
 const DECISIONS_LIMIT = 30;
+const ACTIVITY_DAYS = 7;
+
+// Events per project per day in the screen's time zone, the last ACTIVITY_DAYS days, oldest first.
+// One query for every project; the index draws one small bar per day.
+async function activityByProject(db: Db): Promise<Map<string, number[]>> {
+  const tz = process.env.PLANIA_TZ || "America/Mexico_City";
+  const rows = (
+    await db.execute<{ project_id: string; d: string; n: number }>(sql`
+      select project_id, to_char(created_at at time zone ${tz}, 'YYYY-MM-DD') as d, count(*)::int as n
+      from events
+      where created_at > now() - make_interval(days => ${ACTIVITY_DAYS})
+      group by 1, 2`)
+  ).rows;
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: tz });
+  const days = Array.from({ length: ACTIVITY_DAYS }, (_, i) => day.format(new Date(Date.now() - (ACTIVITY_DAYS - 1 - i) * 86_400_000)));
+  const out = new Map<string, number[]>();
+  for (const r of rows) {
+    const list = out.get(r.project_id) ?? out.set(r.project_id, days.map(() => 0)).get(r.project_id)!;
+    const i = days.indexOf(r.d);
+    if (i >= 0) list[i] = r.n;
+  }
+  return out;
+}
 
 async function readJson<T extends z.ZodType>(c: Context, schema: T): Promise<z.infer<T> | Response> {
   if (!c.req.header("Content-Type")?.startsWith("application/json")) {
@@ -90,6 +113,7 @@ api.get("/projects", async (c) => {
   const rows = await withDb(async (db) => {
     const all = await db.select().from(projects).orderBy(asc(projects.slug));
     const allTasks = await screenTasks(db);
+    const activity = await activityByProject(db);
     return Promise.all(
       all.map(async (p) => {
         const digest = await resumeDigest(db, p, { includeLegacy: true });
@@ -100,6 +124,17 @@ api.get("/projects", async (c) => {
           open_questions: digest.open_questions.length,
           // The index draws one lane per initiative, so it needs every project's tasks.
           tasks: allTasks.filter((t) => t.project_id === p.id).map(({ project_id: _, ...t }) => t),
+          // Inicio: the next ticket an agent can take, each environment in one line, and a week of activity.
+          next_claimable: digest.next_claimable,
+          envs: digest.status.envs.map((e) => ({
+            env: e.env,
+            commit: e.commit,
+            branch: e.branch,
+            deployed_at: e.deployed_at,
+            flags: e.flags,
+            behind: e.drift.behind.length,
+          })),
+          activity: activity.get(p.id) ?? Array.from({ length: ACTIVITY_DAYS }, () => 0),
         };
       }),
     );
@@ -131,6 +166,11 @@ async function screenTasks(db: Db, projectId?: string) {
       claimed_by: sql<Actor | null>`case when ${tasks.leaseUntil} > now() then ${tasks.owner} end`,
       lease_until: sql<string | null>`case when ${tasks.leaseUntil} > now()
         then to_char(${tasks.leaseUntil} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') end`,
+      // When the live lease started and when its holder last wrote, for "desde hace" and "visto hace".
+      claimed_at: sql<string | null>`case when ${tasks.leaseUntil} > now()
+        then to_char(${tasks.claimedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') end`,
+      last_seen_at: sql<string | null>`case when ${tasks.leaseUntil} > now()
+        then to_char(${tasks.lastSeenAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') end`,
       updated_at: sql<string>`to_char(${tasks.updatedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
       // Tasks this one still waits on (not yet settled), so the screen can queue it behind them.
       waits_on: sql<string[]>`coalesce((select array_agg(bt.key order by bt.key) from task_blockers tb

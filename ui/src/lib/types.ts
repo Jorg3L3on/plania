@@ -3,7 +3,33 @@
 export type Actor = { agent: string; session_id: string; machine?: string; model?: string };
 export type Workspace = { machine?: string; worktree_path?: string; branch?: string };
 
-export type ProjectSummary = { slug: string; title: string; line: string; open_questions: number; tasks: TaskRow[] };
+/** One environment in a line for Inicio: what runs there and how many integration branches it trails. */
+export type EnvSummary = { env: string; commit: string | null; branch: string | null; deployed_at: string | null; flags: Record<string, unknown>; behind: number };
+
+export type ProjectSummary = {
+  slug: string;
+  title: string;
+  line: string;
+  open_questions: number;
+  tasks: TaskRow[];
+  next_claimable: NextClaimable | null;
+  envs: EnvSummary[];
+  /** Events per day, the last 7 days, oldest first. */
+  activity: number[];
+};
+
+/** The next ticket an agent can take (get_next's shape without the claim). */
+export type NextClaimable = {
+  key: string;
+  kind: "initiative" | "ticket";
+  title: string;
+  summary: string;
+  status: string;
+  priority: string | null;
+  parent_key: string | null;
+  blocked_by: Blocker[];
+  workspace: Workspace | null;
+};
 
 export type Headline = { text: string; version: number; at: string | null; stale: boolean };
 
@@ -117,6 +143,9 @@ export type TaskRow = {
   version: number;
   claimed_by: Actor | null;
   lease_until: string | null;
+  /** Set with the live lease: when it started and when its holder last wrote. */
+  claimed_at: string | null;
+  last_seen_at: string | null;
   updated_at: string;
   /** Keys of tasks it still waits on. */
   waits_on: string[];
