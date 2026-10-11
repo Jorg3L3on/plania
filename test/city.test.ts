@@ -1,7 +1,7 @@
 // Inicio's city (ui/src/lib/city.ts): towers per open initiative, windows per ticket. Pure, no database.
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { addressedToJorge, cityOf, columnsFor, defaultTower, looseInbox, stageLabel, towerLabel, waitingOf, type CityProject, type CityTask } from "../ui/src/lib/city.js";
+import { addressedToJorge, cityOf, columnsFor, defaultTower, looseInbox, stageLabel, towerLabel, waitingOf, workingCity, type CityProject, type CityTask } from "../ui/src/lib/city.js";
 import type { InboxItem } from "../ui/src/lib/types.js";
 
 const init = (key: string, status: string, title = `Iniciativa ${key}`): CityTask => ({ key, kind: "initiative", title, status, parent_key: null });
@@ -124,6 +124,14 @@ describe("city", () => {
     // FIL-I6 counts once (its approval); WRK-I10 and WRK-I2 wait without an inbox item.
     assert.deepEqual(waitingOf(city, inbox), { count: 4, by_project: { filmia: 1, zigzag: 1, workia: 2 } });
     assert.deepEqual(waitingOf([], []), { count: 0, by_project: {} });
+  });
+
+  test("the skyline keeps only towers with a ticket En curso or En revisión", () => {
+    const city = workingCity(cityOf([filmia, workia], []));
+    assert.deepEqual(city.map((d) => d.slug), ["workia"]);
+    assert.deepEqual(city[0]!.towers.map((t) => t.key), ["WRK-I2", "WRK-I3"]);
+    const inbox = [item("a1", "filmia", "FIL-I6-5", "FIL-I6")];
+    assert.deepEqual(looseInbox(workingCity(cityOf([filmia], inbox)), inbox).map((i) => i.id), ["a1"]);
   });
 
   test("long initiatives get wider towers, not taller ones", () => {

@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Ciudad } from "@/components/home/ciudad";
 import { LaMac, Proyectos } from "@/components/home/parts";
 import { api } from "@/lib/api";
-import { cityOf, looseInbox, waitingOf } from "@/lib/city";
+import { cityOf, looseInbox, waitingOf, workingCity } from "@/lib/city";
 import { envLine, flightsOf, headlineOf, liveServersOf, tileOf } from "@/lib/home";
 
 // Re-render now and then so "hace 42 min" keeps moving without a refetch.
@@ -32,9 +32,11 @@ export function HomePage() {
     const list = projects.data ?? [];
     const items = machine.data?.items ?? [];
     const flights = flightsOf(list, items);
-    const districts = cityOf(list, decisions);
-    // The headline and the tiles count what the sky shows: the inbox and the towers waiting on Jorge.
-    const waiting = waitingOf(districts, decisions);
+    const all = cityOf(list, decisions);
+    // The headline and the tiles count every open initiative waiting on Jorge, shown or not.
+    const waiting = waitingOf(all, decisions);
+    // The sky shows only what is En curso or En revisión; decisions on hidden towers go to the loose pile.
+    const districts = workingCity(all);
     return {
       districts,
       loose: looseInbox(districts, decisions),

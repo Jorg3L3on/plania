@@ -41,6 +41,8 @@ export type Tower = {
   closed: number;
   total: number;
   agents: Agent[];
+  /** A ticket is En curso or En revisión: only these stand in the skyline. */
+  working: boolean;
   /** Something here waits on Jorge: an inbox item, a ticket in Needs Jorge, or a next step addressed to him with nobody working. */
   waits: boolean;
   /** Still on paper and waiting for Jorge's go: planning, and no ticket started yet. */
@@ -115,6 +117,7 @@ export function towerOf(p: CityProject, initiative: CityTask, inbox: InboxItem[]
     closed: windows.filter((w) => w === "lit").length,
     total: windows.length,
     agents,
+    working: tickets.some((t) => t.status === "In progress" || t.status === "In review"),
     waits,
     awaitsGo: waits && stage === "planning" && agents.length === 0 && windows.every((w) => w === "lit" || w === "ready" || w === "dark"),
     inbox: mine,
@@ -136,6 +139,14 @@ export function cityOf(projects: CityProject[], inbox: InboxItem[]): District[] 
         .map((i) => towerOf(p, i, inbox)),
     }))
     .filter((d) => d.towers.length > 0);
+}
+
+/**
+ * The skyline: only towers with a ticket En curso or En revisión. The rest stay in Proyectos below;
+ * count what waits on Jorge on the full city, so a hidden tower still reaches the headline.
+ */
+export function workingCity(districts: District[]): District[] {
+  return districts.map((d) => ({ ...d, towers: d.towers.filter((t) => t.working) })).filter((d) => d.towers.length > 0);
 }
 
 /** Inbox items that belong to no open initiative: they still wait on Jorge, outside the skyline. */

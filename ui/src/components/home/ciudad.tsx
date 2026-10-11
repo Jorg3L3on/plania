@@ -297,7 +297,7 @@ export function Ciudad({ districts, loose, headline, envLines, names, nowMs }: {
     <div className="grid gap-3">
       <section
         ref={sceneRef}
-        aria-label="Las iniciativas abiertas"
+        aria-label="Las iniciativas en curso y en revisión"
         className="city dark relative overflow-hidden rounded-[22px] border border-white/[0.07] text-foreground md:rounded-[26px]"
       >
         {STARS.map(([x, y, d], i) => <span key={i} aria-hidden className="city-star" style={{ left: `${x}%`, top: `${y}%`, animationDelay: `${d}s` }} />)}
@@ -324,7 +324,7 @@ export function Ciudad({ districts, loose, headline, envLines, names, nowMs }: {
           <div className="relative flex w-max min-w-full items-end justify-between gap-4 px-3 pt-36 md:gap-8 md:px-8 md:pt-52">
             <div aria-hidden className="absolute inset-x-0 bottom-0 border-t border-white/10" style={{ height: "var(--street-h)", background: "var(--street)" }} />
             {districts.length === 0 ? (
-              <p className="relative z-[1] w-full pb-32 text-center font-voice text-2xl text-foreground/70 italic">Ninguna iniciativa abierta. La ciudad duerme.</p>
+              <p className="relative z-[1] w-full pb-32 text-center font-voice text-2xl text-foreground/70 italic">Nada en curso ni en revisión. La ciudad duerme.</p>
             ) : (
               districts.map((d) => {
                 const view = <DistrictView key={d.slug} d={d} envLine={envLines[d.slug] ?? ""} selected={selected} onSelect={onSelect} offset={offset} />;
