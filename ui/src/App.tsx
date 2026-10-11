@@ -10,8 +10,8 @@ import { useOnline } from "@/lib/live";
 import { InboxPage } from "@/pages/inbox";
 import { LoginPage } from "@/pages/login";
 import { MachinePage } from "@/pages/machine";
+import { HomePage } from "@/pages/home";
 import { ProjectPage } from "@/pages/project";
-import { ProjectsPage } from "@/pages/projects";
 import { TokensPage } from "@/pages/tokens";
 
 // What the cached app shows when the server can't be reached, e.g. a home-screen launch with no network.
@@ -58,7 +58,7 @@ export function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<RequireSession><AppShell /></RequireSession>}>
-        <Route index element={<ProjectsPage />} />
+        <Route index element={<HomePage />} />
         <Route path="/p/:slug" element={<ProjectPage />} />
         <Route path="/inbox" element={<InboxPage />} />
         <Route path="/machine" element={<MachinePage />} />

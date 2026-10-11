@@ -5,6 +5,7 @@
 @import "@fontsource-variable/bricolage-grotesque";
 @import "@fontsource/geist-mono/400.css";
 @import "@fontsource/geist-mono/500.css";
+@import "@fontsource/instrument-serif/400-italic.css";
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
@@ -16,6 +17,8 @@
     --font-sans: 'Geist Variable', 'Helvetica Neue', Arial, sans-serif;
     --font-display: 'Bricolage Grotesque Variable', 'Geist Variable', sans-serif;
     --font-mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    /* The voice: the one italic serif line under the headline of Inicio. */
+    --font-voice: 'Instrument Serif', Georgia, 'Times New Roman', serif;
     --color-status-done: var(--status-done);
     --color-status-now: var(--status-now);
     --color-status-review: var(--status-review);

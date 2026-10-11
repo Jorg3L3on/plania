@@ -1,7 +1,7 @@
-// Project page sections around the lane grid: header, "Te toca a ti", initiative lines,
+// Project page sections around the lane grid: header, initiative lines,
 // branch graph, fixed decisions and the full resume (ficha) panel.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowRightIcon, ChevronRightIcon, GitBranchIcon, HandIcon, PencilIcon, PinIcon } from "lucide-react";
+import { ArrowRightIcon, ChevronRightIcon, GitBranchIcon, PencilIcon, PinIcon } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import {
   toneVar,
 } from "@/components/plan/visuals";
 import { DecisionList, ResumeView } from "@/components/resume";
-import type { BranchEdge, Lane, StationTone, YourTurnItem } from "@/lib/lanes";
+import type { BranchEdge, Lane, StationTone } from "@/lib/lanes";
 import type { Decision, Headline, Resume } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -227,34 +227,6 @@ export function ProjectHeader({
         )}
       </div>
     </header>
-  );
-}
-
-export function YourTurnStrip({ items, onOpen, prefix }: { items: YourTurnItem[]; onOpen: (item: YourTurnItem) => void; prefix?: (item: YourTurnItem) => string }) {
-  if (items.length === 0) return null;
-  return (
-    <section
-      aria-label="Te toca a ti"
-      className="flex animate-rise flex-wrap items-center gap-3 rounded-[18px] border border-status-jorge/25 bg-status-jorge/[0.07] px-5 py-3.5"
-      style={rise(1)}
-    >
-      <Kicker className="text-ink-jorge">
-        <HandIcon className="size-3.5" aria-hidden />
-        Te toca a ti
-      </Kicker>
-      {items.map((item) => (
-        <button
-          key={item.task.key + (prefix?.(item) ?? "")}
-          type="button"
-          onClick={() => onOpen(item)}
-          className="min-h-9 rounded-full bg-foreground/[0.08] px-3 py-1.5 text-left text-[13px] transition hover:-translate-y-px hover:bg-foreground/[0.14] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          {prefix && <span className="text-muted-foreground">{prefix(item)} · </span>}
-          {item.ask}
-        </button>
-      ))}
-      <span className="ml-auto text-xs text-muted-foreground">todo lo demás avanza solo</span>
-    </section>
   );
 }
 

@@ -112,6 +112,12 @@ describe("reads", () => {
     assert.deepEqual(micasa.tasks, detail.tasks);
     assert.ok(!JSON.stringify(list).includes("project_id"));
     assert.deepEqual(list.find((p) => p.slug === "zigzag")!.tasks, []);
+    // Inicio: the next claimable ticket, each environment in a line and a week of activity per project.
+    assert.equal(micasa.next_claimable?.key ?? null, detail.resume.next_claimable?.key ?? null);
+    assert.ok(Array.isArray(micasa.envs));
+    assert.equal(micasa.activity.length, 7);
+    assert.ok(micasa.activity.every((n: unknown) => typeof n === "number"));
+    assert.deepEqual(list.find((p) => p.slug === "zigzag")!.activity, [0, 0, 0, 0, 0, 0, 0]);
   });
 
   test("GET /api/projects/:slug returns the generated resume, decisions and every task without scope, P0 first", async () => {
@@ -123,8 +129,8 @@ describe("reads", () => {
     assert.equal(p.tasks.at(-1).key, "MIC-01");
     const f1 = p.tasks.find((t: Json) => t.key === "MIC-01-F1");
     assert.deepEqual(Object.keys(f1).sort(), [
-      "base_branch", "blocked_note", "branch", "claimed_by", "held", "key", "kind", "lease_until", "parent_key", "pr_url", "priority",
-      "status", "summary", "title", "updated_at", "version", "waits_on", "work_type",
+      "base_branch", "blocked_note", "branch", "claimed_at", "claimed_by", "held", "key", "kind", "last_seen_at", "lease_until", "parent_key",
+      "pr_url", "priority", "status", "summary", "title", "updated_at", "version", "waits_on", "work_type",
     ]);
     assert.deepEqual(f1.waits_on, []);
     assert.equal(f1.held, false);
