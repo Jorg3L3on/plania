@@ -1,5 +1,5 @@
 // "Te toca": what waits on Jorge, decided from Inicio. One question at a time with its options,
-// each approval with Aprobar / Rechazar, and the rest (your own actions, things left on the Mac)
+// each approval with Aprobar / Rechazar, and the rest (your own actions)
 // counted with a way into the Bandeja. Every write is the same call the Bandeja makes.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowRightIcon, HandIcon } from "lucide-react";
@@ -141,7 +141,7 @@ function ApprovalCard({ item, names }: { item: InboxItem; names: Names }) {
   );
 }
 
-// Your own actions and things left on the Mac: counted here, done from the Bandeja or the Máquina.
+// Your own actions: counted here, done from the Bandeja.
 function CountRow({ n, tone, title, detail, to, cta }: { n: number; tone: string; title: string; detail: string; to: string; cta: string }) {
   return (
     <Link to={to} className="flex items-center gap-3 rounded-[16px] border bg-surface-sunken px-4 py-3 transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
@@ -162,7 +162,7 @@ export function TeToca({ inbox, names }: { inbox: Inbox; names: Names }) {
     const by = (kind: InboxItem["kind"]) => items.filter((i) => i.kind === kind);
     const actions = by("human_action");
     const actionProjects = [...new Set(actions.map((i) => i.project))];
-    return { questions: by("question"), approvals: by("approval"), actions, actionProjects, footprints: by("footprint") };
+    return { questions: by("question"), approvals: by("approval"), actions, actionProjects };
   }, [inbox.items]);
   const question = groups.questions[Math.min(qi, Math.max(0, groups.questions.length - 1))];
   const oldest = inbox.items.reduce((m, i) => Math.max(m, i.wait_s), 0);
@@ -204,16 +204,6 @@ export function TeToca({ inbox, names }: { inbox: Inbox; names: Names }) {
           />
         );
       })}
-      {groups.footprints.length > 0 && (
-        <CountRow
-          n={groups.footprints.length}
-          tone="bg-status-now/16 text-ink-now"
-          title={groups.footprints.length === 1 ? "cosa en la Mac sin dueño" : "cosas en la Mac sin dueño"}
-          detail={groups.footprints[0]!.title ?? groups.footprints[0]!.why}
-          to="/machine"
-          cta="Ver qué apagar"
-        />
-      )}
 
       {inbox.count > 0 && (
         <Link to="/inbox" className="inline-flex min-h-8 w-fit items-center gap-1.5 text-[13px] font-semibold text-ink-jorge hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">

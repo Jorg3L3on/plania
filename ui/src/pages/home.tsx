@@ -2,6 +2,7 @@
 // (Te toca, En vuelo, La Mac) and the projects as a rail. Everything on it is read to act or to go
 // somewhere; the data comes from the same three queries the other screens use.
 import { useQuery } from "@tanstack/react-query";
+import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EnVuelo, LaMac, Proyectos, Pulso, Titular, type PulseItem } from "@/components/home/parts";
@@ -21,7 +22,16 @@ function useNow(everyMs = 30_000) {
 
 export function HomePage() {
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
-  const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
+  const inboxQuery = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
+  // Te toca counts only what needs a decision; things left on the Mac live in the Máquina.
+  const inbox = useMemo(() => {
+    const d = inboxQuery.data;
+    if (!d) return { data: undefined };
+    const items = d.items.filter((i) => i.kind !== "footprint");
+    const by_project: Record<string, number> = {};
+    for (const i of items) by_project[i.project] = (by_project[i.project] ?? 0) + 1;
+    return { data: { items, count: items.length, by_project } };
+  }, [inboxQuery.data]);
   const machine = useQuery({ queryKey: ["machine"], queryFn: api.machine, staleTime: 15_000 });
   const nowMs = useNow();
 
@@ -41,6 +51,7 @@ export function HomePage() {
     };
   }, [projects.data, inbox.data, machine.data, nowMs]);
 
+  const nothingToDecide = inbox.data?.count === 0;
   const names = (slug: string) => projects.data?.find((p) => p.slug === slug)?.title ?? slug;
   const pulse: PulseItem[] = [
     { n: model.flights.length, label: "en vuelo", tone: "now", target: "en-vuelo" },
@@ -72,13 +83,15 @@ export function HomePage() {
 
       {/* The three mesas: Te toca is the widest, La Mac the narrowest; they stack on a phone. */}
       <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-12 xl:gap-5">
-        <div className="min-w-0 animate-rise md:col-span-2 xl:col-span-5" style={{ animationDelay: "140ms" }}>
-          {inbox.data ? <TeToca inbox={inbox.data} names={names} /> : <Skeleton className="h-72 rounded-[22px]" />}
-        </div>
-        <div className="min-w-0 animate-rise xl:col-span-4" style={{ animationDelay: "210ms" }}>
+        {(!inbox.data || inbox.data.count > 0) && (
+          <div className="min-w-0 animate-rise md:col-span-2 xl:col-span-5" style={{ animationDelay: "140ms" }}>
+            {inbox.data ? <TeToca inbox={inbox.data} names={names} /> : <Skeleton className="h-72 rounded-[22px]" />}
+          </div>
+        )}
+        <div className={cn("min-w-0 animate-rise", nothingToDecide ? "xl:col-span-8" : "xl:col-span-4")} style={{ animationDelay: "210ms" }}>
           <EnVuelo flights={model.flights} nextUp={model.nextUp} nowMs={nowMs} />
         </div>
-        <div className="min-w-0 animate-rise xl:col-span-3" style={{ animationDelay: "280ms" }}>
+        <div className={cn("min-w-0 animate-rise", nothingToDecide ? "xl:col-span-4" : "xl:col-span-3")} style={{ animationDelay: "280ms" }}>
           {machine.data ? <LaMac machine={machine.data} servers={model.servers} names={names} nowMs={nowMs} /> : <Skeleton className="h-72 rounded-[22px]" />}
         </div>
       </div>
