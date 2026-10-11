@@ -16,7 +16,11 @@ export type ProjectSummary = {
   envs: EnvSummary[];
   /** Events per day, the last 7 days, oldest first. */
   activity: number[];
+  /** Each open initiative's notes: what it is doing and what it needs next. */
+  initiatives: InitiativeNote[];
 };
+
+export type InitiativeNote = { key: string; in_progress: string; next_action: string };
 
 /** The next ticket an agent can take (get_next's shape without the claim). */
 export type NextClaimable = {

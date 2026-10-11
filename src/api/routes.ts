@@ -135,6 +135,8 @@ api.get("/projects", async (c) => {
             behind: e.drift.behind.length,
           })),
           activity: activity.get(p.id) ?? Array.from({ length: ACTIVITY_DAYS }, () => 0),
+          // Inicio's city: what each open initiative says it is doing and what it needs next.
+          initiatives: digest.initiatives.map((i) => ({ key: i.key, in_progress: i.in_progress.note, next_action: i.next_action.note })),
         };
       }),
     );

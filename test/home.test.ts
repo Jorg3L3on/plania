@@ -1,7 +1,7 @@
 // Inicio's model (ui/src/lib/home.ts): the headline sentence, flights, what comes next and the tiles. Pure, no database.
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { doneToday, envLine, flightsOf, headlineOf, joinNames, liveServersOf, nextLine, nextUpOf, numberWord, readyCount, tileOf, type HomeProject, type HomeTask } from "../ui/src/lib/home.js";
+import { doneToday, envLine, flightsOf, headlineOf, joinNames, liveServersOf, nextLine, numberWord, tileOf, type HomeProject, type HomeTask } from "../ui/src/lib/home.js";
 
 const NOW = new Date("2026-10-11T05:02:00Z").getTime();
 
@@ -48,26 +48,6 @@ describe("flightsOf", () => {
   });
 });
 
-describe("nextUpOf", () => {
-  const next = (key: string, status: string, blocked_by: HomeProject["next_claimable"] extends infer T ? (T extends { blocked_by: infer B } ? B : never) : never) =>
-    ({ key, kind: "ticket" as const, title: key, summary: "", status, priority: "P2", parent_key: null, blocked_by, workspace: null });
-  test("ready first, then what waits on Jorge, then backlog and blocked", () => {
-    const projects = [
-      project("workia", "Workia", { next_claimable: next("WRK-I1-1", "Backlog", []) }),
-      project("micasa", "MiCasa", { next_claimable: next("MIC-I1-4", "Ready", [{ type: "human_action", id: "h", assignee: "jorge", text: "Instala la PWA", satisfied: false, satisfied_at: null }]) }),
-      project("filmia", "Filmia", { next_claimable: next("FIL-I2-3", "Ready", [{ type: "env", env: "prod", condition: "has", value: "x", current: null, satisfied: false }]) }),
-      project("zigzag", "Zigzag", { next_claimable: next("ZIG-I12-6", "Ready", [{ type: "task", task: "ZIG-I12-5", status: "Done", satisfied: true }]) }),
-      project("quiet", "Quiet"),
-    ];
-    assert.deepEqual(nextUpOf(projects).map((n) => [n.key, n.hold.word, n.hold.tone]), [
-      ["ZIG-I12-6", "listo", "ready"],
-      ["MIC-I1-4", "te toca a ti", "jorge"],
-      ["WRK-I1-1", "en backlog", "pending"],
-      ["FIL-I2-3", "bloqueado", "blocked"],
-    ]);
-  });
-});
-
 describe("headlineOf", () => {
   const zig = project("zigzag", "Zigzag", { tasks: [claim("ZIG-I12-6", "s1")] });
   const fil = project("filmia", "Filmia", { tasks: [claim("FIL-12", "s2"), ticket("FIL-I7-5", "Done")] });
@@ -98,9 +78,8 @@ describe("headlineOf", () => {
 });
 
 describe("counts", () => {
-  test("ready tickets across projects and tickets closed since local midnight", () => {
+  test("tickets closed since local midnight", () => {
     const p = project("x", "X", { tasks: [ticket("X-1", "Ready"), ticket("X-2", "Ready"), ticket("X-3", "Done"), ticket("X-4", "Done", { updated_at: "2026-10-01T00:00:00Z" })] });
-    assert.equal(readyCount([p, project("y", "Y")]), 2);
     assert.equal(doneToday([p], NOW), 1);
   });
 });
