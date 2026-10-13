@@ -98,7 +98,7 @@ describe("list_projects", () => {
     const fil = r.projects[0];
     assert.equal(fil.key_prefix, "FIL");
     assert.equal(fil.line, "En curso: FIL-I1-1 (claude-code)");
-    assert.deepEqual(fil.counts, { open: 2, in_progress: 1, in_review: 0, needs_jorge: 0, blocked: 0, done: 0 });
+    assert.deepEqual(fil.counts, { open: 2, in_progress: 1, in_review: 0, needs_jorge: 0, blocked: 0, done: 0, overdue: 0 });
     assert.equal(fil.claims, 1);
     assert.ok(fil.last_event_id > 0 && typeof fil.last_event_at === "string");
     const mic = r.projects[1];

@@ -39,14 +39,15 @@ async function ticketCountsByProject(db: Q) {
       needs_jorge: sql<number>`count(*) filter (where ${tasks.status} = 'Needs Jorge')::int`,
       blocked: sql<number>`count(*) filter (where ${tasks.status} = 'Blocked')::int`,
       done: sql<number>`count(*) filter (where ${tasks.status} = 'Done')::int`,
+      overdue: sql<number>`count(*) filter (where ${tasks.dueOn} < (now() at time zone 'UTC')::date and ${tasks.status} not in ('Done', 'Won''t do', 'Merged', 'Released'))::int`,
     })
     .from(tasks)
     .where(eq(tasks.kind, "ticket"))
     .groupBy(tasks.projectId);
-  return new Map(rows.map((r) => [r.projectId, { open: r.open, in_progress: r.in_progress, in_review: r.in_review, needs_jorge: r.needs_jorge, blocked: r.blocked, done: r.done }]));
+  return new Map(rows.map((r) => [r.projectId, { open: r.open, in_progress: r.in_progress, in_review: r.in_review, needs_jorge: r.needs_jorge, blocked: r.blocked, done: r.done, overdue: r.overdue }]));
 }
 
-const ZERO_COUNTS = { open: 0, in_progress: 0, in_review: 0, needs_jorge: 0, blocked: 0, done: 0 };
+const ZERO_COUNTS = { open: 0, in_progress: 0, in_review: 0, needs_jorge: 0, blocked: 0, done: 0, overdue: 0 };
 
 export async function listProjects(db: Q) {
   const all = await db.select().from(projects).orderBy(asc(projects.slug));
@@ -77,10 +78,23 @@ export async function listProjects(db: Q) {
 
 export type Liveness = "live" | "quiet" | "stale";
 
-export function liveness(t: Pick<Task, "leaseUntil">, lastActivity: Date | null, now = new Date()): Liveness {
-  if (!t.leaseUntil || t.leaseUntil <= now) return "stale";
+export function liveness(t: Pick<Task, "leaseUntil">, lastActivity: Date | null, now = new Date(), goneOnMachine = false): Liveness {
+  if (!t.leaseUntil || t.leaseUntil <= now || goneOnMachine) return "stale";
   if (!lastActivity || now.getTime() - lastActivity.getTime() > QUIET_MIN * 60_000) return "quiet";
   return "live";
+}
+
+// 2.8: claim.stale events (the machine job saw the claim's worktree gone), by task → lease_until values
+// they were logged for, so a later lease on the same ticket starts clean.
+async function staleClaims(db: Q, ids: string[]) {
+  const out = new Map<string, Set<string>>();
+  if (!ids.length) return out;
+  const rows = await db
+    .select({ taskId: events.taskId, until: sql<string>`${events.payload}->>'lease_until'` })
+    .from(events)
+    .where(and(inArray(events.taskId, ids), eq(events.type, "claim.stale")));
+  for (const r of rows) if (r.taskId) (out.get(r.taskId) ?? out.set(r.taskId, new Set()).get(r.taskId)!).add(r.until);
+  return out;
 }
 
 // Newest event per task written by the session that holds it (heartbeats update last_seen_at, not events).
@@ -110,7 +124,7 @@ export async function getRunning(db: Q, now = new Date()) {
     .where(isNotNull(tasks.owner))
     .orderBy(asc(projects.slug), asc(tasks.key));
   const owned = rows.map((r) => ({ id: r.t.id, owner: r.t.owner! }));
-  const [sessionEvents, foot] = await Promise.all([lastSessionEvent(db, owned), footprintsOf(db, owned.map((o) => o.id))]);
+  const [sessionEvents, foot, stale] = await Promise.all([lastSessionEvent(db, owned), footprintsOf(db, owned.map((o) => o.id)), staleClaims(db, owned.map((o) => o.id))]);
   const running = rows.map(({ t, slug, parentKey }) => {
     const candidates = [t.lastSeenAt, t.claimedAt, sessionEvents.get(t.id) ?? null].filter((d): d is Date => d instanceof Date);
     const last = candidates.length ? new Date(Math.max(...candidates.map((d) => d.getTime()))) : null;
@@ -125,7 +139,8 @@ export async function getRunning(db: Q, now = new Date()) {
       claimed_at: iso(t.claimedAt),
       lease_until: iso(t.leaseUntil),
       last_activity_at: iso(last),
-      liveness: liveness(t, last, now),
+      liveness: liveness(t, last, now, stale.get(t.id)?.has(iso(t.leaseUntil) ?? "") ?? false),
+      gone_on_machine: stale.get(t.id)?.has(iso(t.leaseUntil) ?? "") ?? false,
       workspace: t.workspace,
       footprint: foot.filter((f) => f.taskId === t.id && f.state !== "gone").map(({ taskId: _, ...f }) => f),
     };
@@ -150,6 +165,43 @@ export async function rememberCursor(db: Q, reader: string, cursor: number) {
 
 // Events that say nothing to a human reading a summary once every quarter hour.
 const NOISE = new Set(["claim.workspace", "claim.expiring"]);
+
+type Change = { id: number; at: string; type: string; key: string | null; summary: string; collapsed?: number };
+
+// 2.8 collapse rules: consecutive status moves of one key fold into the last one (Ready → In progress
+// → In review reads "→ In review"), and a run of notes by one session on one key folds into one line
+// with a count. Everything else stays. collapsed says how many events a line stands for.
+export function collapseChanges(evs: { id: number; at: string; type: string; task_key: string | null; summary: string; actor: Actor }[]): Change[] {
+  const out: Change[] = [];
+  for (const e of evs) {
+    const prev = out.at(-1);
+    const line: Change = { id: e.id, at: e.at, type: e.type, key: e.task_key, summary: e.summary };
+    const sameKey = prev && prev.key === e.task_key && prev.type === e.type;
+    if (sameKey && e.type === "task.status") {
+      out[out.length - 1] = { ...line, collapsed: (prev.collapsed ?? 1) + 1 };
+      continue;
+    }
+    if (sameKey && e.type === "note" && prev.summary.startsWith(`${e.task_key} nota (${e.actor.agent})`)) {
+      const n = (prev.collapsed ?? 1) + 1;
+      out[out.length - 1] = { ...line, summary: `${e.task_key} ${n} notas (${e.actor.agent}); última: ${e.summary.slice(e.summary.indexOf(": ") + 2)}`, collapsed: n };
+      continue;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+// Open tasks whose due date passed (a calendar date compared to today's UTC date).
+export async function overdueTasks(db: Q, projectId?: string) {
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = await db
+    .select({ key: tasks.key, title: tasks.title, status: tasks.status, due_on: tasks.dueOn, slug: projects.slug })
+    .from(tasks)
+    .innerJoin(projects, eq(projects.id, tasks.projectId))
+    .where(and(isNotNull(tasks.dueOn), sql`${tasks.dueOn} < ${today}::date`, sql`${tasks.status} not in ('Done', 'Won''t do', 'Merged', 'Released')`, ...(projectId ? [eq(tasks.projectId, projectId)] : [])))
+    .orderBy(asc(tasks.dueOn), asc(projects.slug), asc(tasks.key));
+  return rows.map((r) => ({ project: r.slug, key: r.key, title: r.title, status: r.status, due_on: r.due_on, days_late: Math.round((Date.parse(today) - Date.parse(r.due_on!)) / 86_400_000) }));
+}
 
 async function cursorHoursAgo(db: Q, hours: number): Promise<number> {
   const [row] = await db
@@ -214,10 +266,10 @@ export async function getDigest(db: Q, input: DigestInput = {}) {
     (byProject.get(slug) ?? byProject.set(slug, []).get(slug)!).push(e);
   }
 
-  const [running, box] = await Promise.all([getRunning(db), inbox(db, "all")]);
+  const [running, box, overdue] = await Promise.all([getRunning(db), inbox(db, "all"), overdueTasks(db, only ? scoped[0]?.id : undefined)]);
   const needsJorge = (box.items as InboxItem[])
     .filter((i) => !only || i.project === only)
-    .map((i) => ({ project: i.project, kind: i.kind, key: i.key, title: i.title, why: i.why, options: i.options, wait_s: i.wait_s, pr_url: i.pr_url, action_hint: i.action_hint }));
+    .map((i) => ({ project: i.project, kind: i.kind, key: i.key, title: i.title, why: i.why, options: i.options, blocks: i.blocks, urgency: i.urgency, wait_s: i.wait_s, pr_url: i.pr_url, action_hint: i.action_hint }));
 
   const unchanged: string[] = [];
   const out = [];
@@ -231,14 +283,15 @@ export async function getDigest(db: Q, input: DigestInput = {}) {
     const d = await resumeDigest(db, p, { includeLegacy: true });
     const h: Highlights = { done: [], to_review: [], blocked: [], needs_jorge: [], prs_opened: [], prs_merged: [], claims: [] };
     for (const e of meaningful) highlight(h, e);
-    const tail = meaningful.slice(-perProject);
+    const lines = collapseChanges(meaningful);
     out.push({
       slug: p.slug,
       title: p.title,
       line: resumeLine(d),
       headline: d.headline.text || null,
-      changes: tail.map((e) => ({ id: e.id, at: e.at, type: e.type, key: e.task_key, summary: e.summary })),
+      changes: lines.slice(-perProject),
       changes_total: meaningful.length,
+      changes_lines: lines.length,
       highlights: h,
       quiet: running.running.filter((r) => r.project === p.slug).every((r) => r.liveness !== "live"),
     });
@@ -254,6 +307,7 @@ export async function getDigest(db: Q, input: DigestInput = {}) {
     as_of: running.as_of,
     truncated: feed.more,
     needs_jorge: needsJorge,
+    overdue,
     running: running.running.filter((r) => !only || r.project === only),
     projects: out,
     unchanged_projects: unchanged,

@@ -283,7 +283,7 @@ api.post("/projects/:slug/tasks/:key/release", async (c) => {
     const result = await withDb((db) =>
       claim(db, { project: c.req.param("slug"), key: c.req.param("key"), action: "release" }, screenCtx),
     );
-    return c.json(result.task);
+    return c.json("task" in result ? result.task : result);
   } catch (e) {
     return errorResponse(c, e);
   }

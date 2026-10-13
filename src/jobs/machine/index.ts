@@ -3,10 +3,10 @@ import { homedir, hostname, userInfo } from "node:os";
 import path from "node:path";
 import type { Db } from "../../db/client.js";
 import { alias } from "drizzle-orm/pg-core";
-import { branches, footprints, projects, resources, taskAliases, tasks } from "../../db/schema.js";
+import { branches, events, footprints, projects, resources, taskAliases, tasks } from "../../db/schema.js";
 import { sameMachine } from "../../mcp/footprint-read.js";
 import { liveOwner } from "../../mcp/queries.js";
-import { iso } from "../../mcp/tx.js";
+import { SYSTEM_ACTOR, iso, writeTx } from "../../mcp/tx.js";
 import type { Job, JobSummary } from "../index.js";
 import {
   collectBrew,
@@ -180,13 +180,39 @@ export async function runMachineTick(db: Db, now: Date, over: Partial<MachineDep
 
   const items = collected.flatMap((c) => c.items);
   linkBrew(items, state.brewNames);
-  return reconcile(db, {
-    machine: deps.machine,
-    now,
-    dir,
-    inferred: items.map((i) => infer(dir, i, now)),
-    ran: new Set(collected.flatMap((c) => c.ran)),
-  });
+  const ran = new Set(collected.flatMap((c) => c.ran));
+  const result = await reconcile(db, { machine: deps.machine, now, dir, inferred: items.map((i) => infer(dir, i, now)), ran });
+  return { ...result, stale_claims: await markStaleClaims(db, deps.machine, dir, ran) };
+}
+
+// 2.8 (machine ↔ claim reconciliation): a live claim whose workspace worktree on this machine is no
+// longer among the worktrees git lists gets one claim.stale event per lease, so get_running and the
+// digest say the session is gone before the lease runs out. The lease itself is left alone (expiry
+// clears it); a repo whose worktree collector did not run this tick is skipped. Idempotent by request id.
+export async function markStaleClaims(db: Db, machine: string, dir: Directory, ran: Set<string>): Promise<number> {
+  let n = 0;
+  const repoOfPath = (p: string) => dir.repos.find((r) => p === r.path || p.startsWith(`${r.path}/`))?.name ?? null;
+  for (const t of dir.claimed) {
+    const ws = t.workspace;
+    if (!ws?.worktree_path || !ws.machine || !sameMachine(ws.machine, machine) || !t.leaseUntil || !t.owner) continue;
+    const repo = repoOfPath(ws.worktree_path) ?? dir.worktrees.get(ws.worktree_path)?.repo ?? null;
+    const main = dir.repos.find((r) => r.path === ws.worktree_path);
+    if (main || !repo || !ran.has(`worktrees:${repo}`) || dir.worktrees.has(ws.worktree_path)) continue;
+    const project = dir.projects.find((p) => p.id === t.projectId);
+    if (!project) continue;
+    const leaseUntil = iso(t.leaseUntil);
+    const [already] = await db
+      .select({ id: events.id })
+      .from(events)
+      .where(and(eq(events.taskId, t.id), eq(events.type, "claim.stale"), sql`${events.payload}->>'lease_until' = ${leaseUntil}`))
+      .limit(1);
+    if (already) continue;
+    await writeTx(db, project, { actor: SYSTEM_ACTOR, requestId: `claim-stale:${t.key}:${leaseUntil}`, tool: "jobs.machine" }, async (_tx, emit) => {
+      await emit("claim.stale", t, { owner: t.owner, worktree_path: ws.worktree_path, lease_until: leaseUntil, machine });
+    });
+    n++;
+  }
+  return n;
 }
 
 export const machineJob: Job = {

@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { auditRuns, blockers, branches, checks, decisions, envStates, pullRequests, results, tasks, type Project, type Task } from "../db/schema.js";
-import { hasUnsatisfiedBlocker } from "./blockers.js";
+import { approvals, auditRuns, blockers, branches, checks, decisions, envStates, pullRequests, questions, results, tasks, type Project, type Task } from "../db/schema.js";
+import { hasUnsatisfiedBlocker, openHumanActions } from "./blockers.js";
 import { footprintFindings } from "./footprint-audit.js";
 import { legacyCard } from "./queries.js";
 import { iso, type Q } from "./tx.js";
@@ -13,6 +13,8 @@ import { iso, type Q } from "./tx.js";
 export type Finding = { code: string; key: string | null; detail: string; fix_hint: string };
 
 const CLOSED = ["Done", "Won't do"];
+// Free-text waits on Jorge (es/en) that the inbox cannot see.
+export const WAITING_ON_JORGE = /\bjorge\b|\baprob|\bdecid|\bwaiting on\b|\bespera(?:ndo|r)? (?:a|la|el)\b/i;
 const SHA = /\b[0-9a-f]{7,40}\b/g;
 const PR = /pull\/(\d+)|#(\d{2,6})\b/g;
 
@@ -116,6 +118,22 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
     if (b.mergedAt) out.push({ code: "BRANCH_MERGED_NOT_DELETED", key: b.ownerTaskId ? (byId.get(b.ownerTaskId)?.key ?? null) : null, detail: `${b.name} merged ${iso(b.mergedAt)} and still on origin`, fix_hint: `git push origin --delete ${b.name}` });
     const used = all.some((t) => t.branch === b.name || t.workspace?.branch === b.name) || prs.some((pr) => pr.headBranch === b.name);
     if (!b.ownerTaskId && !used && b.headSha) out.push({ code: "BRANCH_WITHOUT_TICKET", key: null, detail: `${b.name} has no ticket or initiative`, fix_hint: "set the initiative's integration_branch, or delete the branch" });
+  }
+  // 2.8: "waiting on Jorge" written as free text, with nothing he can act on in the inbox.
+  const openQ = new Set((await db.select({ taskId: questions.taskId }).from(questions).where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt)))).map((r) => r.taskId));
+  const openA = new Set((await db.select({ taskId: approvals.taskId }).from(approvals).where(and(eq(approvals.projectId, p.id), eq(approvals.state, "pending")))).map((r) => r.taskId));
+  const humanActionOn = new Set((await openHumanActions(db, p.id)).map((r) => r.b.taskId));
+  for (const t of all.filter((t) => !CLOSED.includes(t.status))) {
+    const texts = [t.kind === "initiative" ? t.nextAction : "", t.blockedNote ?? ""].filter(Boolean);
+    const hit = texts.find((x) => WAITING_ON_JORGE.test(x));
+    if (hit && !openQ.has(t.id) && !openA.has(t.id) && !humanActionOn.has(t.id)) {
+      out.push({ code: "WAITING_ON_JORGE_FREE_TEXT", key: t.key, detail: `"${hit.slice(0, 80)}" with no open question, approval or human_action`, fix_hint: "ask (question) or request_approval, or blocked_by human_action, so it reaches his inbox" });
+    }
+  }
+  // 2.8: due dates that passed with the task still open.
+  const today = new Date().toISOString().slice(0, 10);
+  for (const t of all.filter((t) => t.dueOn && t.dueOn < today && !CLOSED.includes(t.status) && !["Merged", "Released"].includes(t.status))) {
+    out.push({ code: "OVERDUE", key: t.key, detail: `due ${t.dueOn}, still ${t.status}`, fix_hint: "finish it, move due_on, or set_task Won't do via approval" });
   }
   // What this project's agents left running on the Mac (stale servers and databases, merged worktrees).
   out.push(...(await footprintFindings(db, { projectId: p.id })));

@@ -252,6 +252,8 @@ export const tasks = pgTable(
     handoff: jsonb("handoff").$type<Handoff>(),
     ...timestamps,
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    // 2.8: when it should be done (a calendar date, no time); audit OVERDUE once it is past and the task is open.
+    dueOn: date("due_on"),
   },
   (t) => [
     unique("tasks_project_key_unique").on(t.projectId, t.key),
@@ -325,6 +327,9 @@ export const questions = pgTable(
     answeredBy: jsonb("answered_by").$type<Actor>(),
     answeredAt: timestamp("answered_at", { withTimezone: true }),
     decisionId: uuid("decision_id").references(() => decisions.id, { onDelete: "set null" }),
+    // 2.8: other task keys this question holds up, and how soon Jorge is needed (now | soon | whenever).
+    blocks: text("blocks").array().notNull().default(sql`'{}'::text[]`),
+    urgency: text("urgency"),
   },
   (t) => [index("questions_project_open_idx").on(t.projectId).where(sql`${t.answeredAt} is null`)],
 );
