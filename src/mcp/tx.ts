@@ -17,6 +17,7 @@ export type Q = PgDatabase<NodePgQueryResultHKT, typeof schema>;
 export type Ctx = { actor: Actor; human?: boolean; system?: boolean; requestId?: string; tool?: string; verbose?: boolean; tokenId?: string };
 
 const REQUEST_TTL = "30 days";
+const WRITE_LOCK = 7_264_201; // arbitrary constant: the one advisory lock every writeTx takes
 
 export const WEB_ACTOR: Actor = { agent: "jorge", session_id: "web", machine: "screen" };
 // Writes made by Plania itself, e.g. releasing expired leases.
@@ -31,8 +32,8 @@ export type Emit = (
   actor?: Actor,
 ) => Promise<void>;
 
-// Every write runs here: one transaction per call, serialized per project, with its events
-// committed or rolled back together with the change. Once it commits, live screens hear about it
+// Every write runs here: one transaction per call, serialized across the whole server, with its
+// events committed or rolled back together with the change. Once it commits, live screens hear about it
 // (one change per task touched), whether the write came from an agent, CI or the screen.
 export async function writeTx<T>(
   db: Db,
@@ -48,8 +49,10 @@ export async function writeTx<T>(
     changes.set(JSON.stringify(change), change);
   };
   const result = await db.transaction(async (tx) => {
-    // Serializes writers of one project, so event ids commit in order (list_events cursors stay safe).
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${project.id}::text))`);
+    // One global lock serializes every writer, so event ids commit in order across projects and a
+    // single list_events / get_digest cursor over "all" never skips one. Plania is one Mac with a
+    // handful of agents; the concurrency given up is nil. (Until 2.7 the lock was per project.)
+    await tx.execute(sql`select pg_advisory_xact_lock(${WRITE_LOCK})`);
     if (ctx.requestId) {
       const [seen] = await tx
         .select()
@@ -91,12 +94,13 @@ export async function writeTx<T>(
 }
 
 // Leases expire lazily: reads treat lease_until < now() as free, and the first write in the project
-// afterwards clears the owner (In progress goes back to Ready) and logs claim.expired.
-// The workspace stays, so whoever claims next knows where the code is.
-async function reapExpiredLeases(tx: Q, projectId: string): Promise<string[]> {
-  const expired = await tx.execute<{ id: string; key: string; owner: Actor; from: string; to: string }>(sql`
+// afterwards clears the owner (In progress goes back to Ready) and logs claim.expired. The leases
+// job runs an empty writeTx on projects with an expired lease, so this fires within a minute even
+// when nobody writes. The workspace stays, so whoever claims next knows where the code is.
+export async function reapExpiredLeases(tx: Q, projectId: string): Promise<string[]> {
+  const expired = await tx.execute<{ id: string; key: string; owner: Actor; from: string; to: string; lease_until: Date }>(sql`
     with expired as (
-      select id, owner, status from tasks
+      select id, owner, status, lease_until from tasks
       where project_id = ${projectId} and lease_until < now()
       for update
     )
@@ -107,7 +111,7 @@ async function reapExpiredLeases(tx: Q, projectId: string): Promise<string[]> {
       expiring_warned_at = null,
       version = t.version + 1, updated_at = now()
     from expired e where t.id = e.id
-    returning t.id, t.key, e.owner, e.status as "from", t.status as "to"`);
+    returning t.id, t.key, e.owner, e.status as "from", t.status as "to", e.lease_until`);
   for (const r of expired.rows) {
     await tx.insert(events).values({
       projectId,
@@ -115,7 +119,7 @@ async function reapExpiredLeases(tx: Q, projectId: string): Promise<string[]> {
       taskKey: r.key,
       type: "claim.expired",
       actor: SYSTEM_ACTOR,
-      payload: { owner: r.owner, from: r.from, to: r.to },
+      payload: { owner: r.owner, from: r.from, to: r.to, lease_until: iso(new Date(r.lease_until)) },
     });
   }
   return expired.rows.map((r) => r.key);

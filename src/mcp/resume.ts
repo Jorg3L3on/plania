@@ -106,3 +106,13 @@ export async function resumeDigest(db: Q, p: Project, opts: ResumeOptions = {}) 
 }
 
 export type ResumeDigest = Awaited<ReturnType<typeof resumeDigest>>;
+
+// One line per project (the screen's index, list_projects, get_digest): what is claimed, else the
+// next step an initiative wrote, else what is next to claim, else the headline.
+export function resumeLine(d: ResumeDigest): string {
+  if (d.claims.length) return `En curso: ${d.claims.map((c) => `${c.key} (${c.owner?.agent})`).join(", ")}`;
+  const noted = d.initiatives.find((i) => i.next_action.note);
+  if (noted) return `${noted.key}: ${noted.next_action.note}`;
+  if (d.next_claimable) return `Siguiente: ${d.next_claimable.key} · ${d.next_claimable.title}`;
+  return d.headline.text || d.legacy_card?.in_progress || d.legacy_card?.next_action || "Sin ficha.";
+}

@@ -78,6 +78,13 @@ describe("github", () => {
       assert.equal(t.status, "Ready", "CI red sends it back from review");
       const types = (await listEvents(db, p.id, { key: "FIL-I1-1" })).events.map((e) => e.type);
       assert.ok(types.includes("pr.ci_failed") && types.includes("result.added"));
+      // 2.7: the open PR is announced once; #129 was already merged when first seen, so it says nothing.
+      const prEvents = (await listEvents(db, p.id, { types: ["pr.opened", "pr.merged", "pr.closed"] })).events;
+      assert.deepEqual(prEvents.map((e) => [e.type, e.payload.number, e.task_key]), [["pr.opened", 130, "FIL-I1-1"]]);
+      assert.equal(prEvents[0]!.summary, "PR #130 abierto (FIL-I1-1): Catalog split F1: additive migration");
+      const again = await pollGithubProject(db, p, { fetch, env: { GITHUB_TOKEN: "ghp_test" } });
+      assert.equal(again.pr_events ?? 0, 0, "a second tick announces nothing");
+      assert.equal((await listEvents(db, p.id, { types: ["pr"] })).events.filter((e) => e.type === "pr.opened").length, 1);
       const { rows } = await raw.query("select verdict, commit, url from results where kind = 'ci'");
       assert.deepEqual(rows, [{ verdict: "fail", commit: "aaaaaaa111111111111111111111111111111111", url: "https://github.com/Jorg3L3on/filmia/actions/runs/1" }]);
       const { rows: prs } = await raw.query("select number, state, ci_state, task_id is not null as linked from pull_requests order by number");
@@ -110,6 +117,8 @@ describe("github", () => {
       const s = await pollGithubProject(db, p, { fetch, env: { GITHUB_TOKEN: "ghp_test" }, now: new Date("2026-10-07T21:05:00Z") });
       assert.equal(s.merged, 1);
       assert.equal(await status("FIL-I1-1"), "Merged");
+      const merged = (await listEvents(db, p.id, { types: ["pr.merged"] })).events;
+      assert.deepEqual(merged.map((e) => [e.payload.number, e.payload.base_branch, e.task_key]), [[130, "sandbox", "FIL-I1-1"]]);
       const ev = (await listEvents(db, p.id, { key: "FIL-I1-1", types: ["task.status"] })).events.at(-1)!;
       assert.equal(ev.actor.agent, "plania");
       assert.deepEqual([ev.payload.from, ev.payload.to], ["In review", "Merged"]);

@@ -10,6 +10,7 @@ import { taskFootprint } from "./footprint-read.js";
 import { taskResults } from "./evidence.js";
 import { taskQuestions } from "./questions.js";
 import { iso, type Ctx, type Q } from "./tx.js";
+import { summarize } from "./summary.js";
 
 export { ToolError };
 
@@ -68,31 +69,35 @@ export function legacyCard(p: Project) {
 // Last LOG_LIMIT events of a task, oldest first. The full history is in list_events.
 const LOG_LIMIT = 50;
 
-export function eventShape(e: typeof events.$inferSelect, task?: { kind: string | null; parentKey: string | null }) {
-  return {
+export function eventShape(e: typeof events.$inferSelect, task?: { kind: string | null; parentKey: string | null }, project?: string) {
+  const shape = {
     id: e.id,
     at: iso(e.createdAt),
     type: e.type,
+    ...(project !== undefined ? { project } : {}),
     task_key: e.taskKey,
     ...(task ? { kind: task.kind, parent_key: task.parentKey } : {}),
     actor: e.actor,
     payload: e.payload,
   };
+  return { ...shape, summary: summarize(shape) };
 }
 
 const EVENTS_DEFAULT = 200;
 const EVENTS_MAX = 1000;
 
-// The change feed. Event ids grow in commit order within a project (writes are serialized per
-// project), so "since the last id I saw" never skips one. next_cursor is the id to pass next time.
+// The change feed. Event ids grow in commit order (writeTx holds one global lock), so "since the
+// last id I saw" never skips one, in one project or across all. next_cursor is the id to pass next time.
+// projectId null (2.7): every project; each event then carries its project slug. key needs a project.
 export async function listEvents(
   db: Q,
-  projectId: string,
+  projectId: string | null,
   f: { since?: number; key?: string; types?: string[]; limit?: number },
 ) {
-  const where: SQL[] = [eq(events.projectId, projectId)];
+  const where: SQL[] = projectId ? [eq(events.projectId, projectId)] : [];
   if (f.since !== undefined) where.push(sql`${events.id} > ${f.since}`);
-  if (f.key !== undefined) {
+  if (f.key !== undefined && !projectId) throw new ToolError("INVALID_FILTER", { field: "key", reason: "key needs a project slug, not all" });
+  if (f.key !== undefined && projectId) {
     // An alias finds the task's whole history, under every key it has had.
     const t = await findTask(db, projectId, f.key);
     where.push(t ? eq(events.taskId, t.id) : eq(events.taskKey, f.key));
@@ -104,16 +109,17 @@ export async function listEvents(
   const limit = Math.min(Math.max(f.limit ?? EVENTS_DEFAULT, 1), EVENTS_MAX);
   const parent = alias(tasks, "parent");
   const rows = await db
-    .select({ e: events, kind: tasks.kind, parentKey: parent.key })
+    .select({ e: events, kind: tasks.kind, parentKey: parent.key, slug: projects.slug })
     .from(events)
+    .innerJoin(projects, eq(projects.id, events.projectId))
     .leftJoin(tasks, eq(tasks.id, events.taskId))
     .leftJoin(parent, eq(parent.id, tasks.parentId))
-    .where(and(...where))
+    .where(where.length ? and(...where) : undefined)
     .orderBy(asc(events.id))
     .limit(limit + 1);
   const page = rows.slice(0, limit);
   return {
-    events: page.map((r) => eventShape(r.e, { kind: r.kind, parentKey: r.parentKey })),
+    events: page.map((r) => eventShape(r.e, { kind: r.kind, parentKey: r.parentKey }, r.slug)),
     next_cursor: page.at(-1)?.e.id ?? f.since ?? 0,
     more: rows.length > limit,
   };

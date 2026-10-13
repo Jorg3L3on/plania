@@ -153,6 +153,24 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
             },
           });
         summary.prs!++;
+        // 2.7: the feed hears a PR open, merge or close once. A first poll that meets an already
+        // merged or closed PR says nothing, so history does not flood the digest.
+        const prEvent = !current ? (state === "open" ? "pr.opened" : null) : current.state !== state && state !== "open" ? (state === "merged" ? "pr.merged" : "pr.closed") : null;
+        if (prEvent) {
+          const linked = task ? { id: task.id, key: task.key } : null;
+          await writeTx(db, p, systemCtx(`gh:${cfg.repo}#${pr.number}:${state}`, "jobs.github"), async (_tx, emit) => {
+            await emit(prEvent, linked, {
+              repo: cfg.repo,
+              number: pr.number,
+              url: pr.html_url,
+              title: pr.title,
+              head_branch: pr.head.ref,
+              base_branch: pr.base.ref,
+              task_key: task?.key ?? null,
+            });
+          });
+          summary.pr_events = (summary.pr_events ?? 0) + 1;
+        }
         await touchBranch(db, p.id, pr.head.ref, { headSha: pr.head.sha, headAt: new Date(pr.updated_at), prNumber: pr.number, ...(pr.merged_at ? { mergedAt: new Date(pr.merged_at) } : {}) });
         if (!task) continue;
         if (!task.prUrl || task.branch !== pr.head.ref) {

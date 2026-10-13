@@ -43,8 +43,22 @@ export async function warnExpiringLeases(db: Db, now = new Date()): Promise<numb
   return warned;
 }
 
+// 2.7: leases expire lazily (writeTx reaps them on the next write in the project). In a project
+// nobody writes to, a dead session would never be logged, so this runs an empty writeTx on every
+// project with an expired lease: the usual reaper fires (owner cleared, In progress → Ready,
+// claim.expired) within a minute. Returns how many projects were reaped.
+export async function reapExpired(db: Db, now = new Date()): Promise<number> {
+  const rows = await db
+    .selectDistinct({ id: projects.id, slug: projects.slug })
+    .from(tasks)
+    .innerJoin(projects, eq(projects.id, tasks.projectId))
+    .where(sql`${tasks.leaseUntil} < ${now.toISOString()}::timestamptz`);
+  for (const p of rows) await writeTx(db, p, { actor: SYSTEM_ACTOR, tool: "jobs.leases" }, async () => undefined);
+  return rows.length;
+}
+
 export const leasesJob: Job = {
   name: "leases",
   intervalMs: 60 * 1000,
-  runOnce: async (db, now) => ({ warned: await warnExpiringLeases(db, now) }),
+  runOnce: async (db, now) => ({ warned: await warnExpiringLeases(db, now), expired: await reapExpired(db, now) }),
 };

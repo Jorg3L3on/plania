@@ -9,6 +9,7 @@ import { hooks } from "./hooks/routes.js";
 import { findProject, listEvents } from "./mcp/queries.js";
 import { createMcpServer } from "./mcp/register.js";
 import { api } from "./api/routes.js";
+import { bot } from "./api/bot.js";
 import { exporter } from "./web/export.js";
 
 export const app = new Hono<{ Variables: { auth: Auth } }>();
@@ -30,6 +31,8 @@ const requireScope = (...allowed: Scope[]) =>
 app.use("/mcp", requireScope("read", "write", "ops"));
 app.use("/mcp/events", requireScope("read", "write", "ops"));
 app.use("/hooks/*", requireScope("hooks"));
+// 2.7: the Watch API over GET for assistants without MCP. Any read-capable token; hooks-only tokens are refused.
+app.use("/bot/*", requireScope("read", "write", "ops"));
 
 // R-07: the change feed as server-sent events for agents. ?project=&since=<cursor>&key=&types=a,b
 // replays what the cursor missed from the event log, then streams new events as they commit.
@@ -92,3 +95,4 @@ app.on(["GET", "DELETE"], "/mcp", (c) => c.json({ error: "METHOD_NOT_ALLOWED" },
 app.route("/", hooks);
 app.route("/", exporter);
 app.route("/api", api);
+app.route("/bot/v1", bot);

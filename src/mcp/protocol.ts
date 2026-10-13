@@ -2,13 +2,13 @@
 // repo reads the same version. Project-specific additions live in the project's rules (set_project).
 // Bump PROTOCOL_VERSION whenever the text changes meaning.
 
-export const PROTOCOL_VERSION = "2.6";
+export const PROTOCOL_VERSION = "2.7";
 
 const PROTOCOL = `Plania protocol ${PROTOCOL_VERSION}. Plania is the source of the plan; product repos hold code and conventions, not plans.
 
 Identity. Every write takes actor {agent, session_id, machine, model}. Use one session_id for your whole session: it owns your claims. Never write as jorge. An agent token (issued on screen) fills agent and machine and refuses values that disagree.
 
-Start. On a branch with work: get_context {workspace, session_id, since_cursor} gives the initiative, the tickets, your claims and what changed. Otherwise get_resume (headline, status: what each env runs and whether it trails the branches, per initiative counts, next claimable, what waits on Jorge, what is in review with its PR state; live claims; must-keep decisions; open questions), get_project (stack, settings, env, branches, resources, reserved sequence numbers, project rules), get_memory (rules, design docs, decisions), then get_task. Or get_next. get_inbox tells you what waits on Jorge; audit lists what the data says is wrong.
+Start. On a branch with work: get_context {workspace, session_id, since_cursor} gives the initiative, the tickets, your claims and what changed. Otherwise get_resume (headline, status: what each env runs and whether it trails the branches, per initiative counts, next claimable, what waits on Jorge, what is in review with its PR state; live claims; must-keep decisions; open questions), get_project (stack, settings, env, branches, resources, reserved sequence numbers, project rules), get_memory (rules, design docs, decisions), then get_task. Or get_next. get_inbox tells you what waits on Jorge; audit lists what the data says is wrong. Watching every project at once (an assistant, not a coder): get_digest (what changed since your cursor, what runs, what waits on Jorge), list_projects, get_running, list_events {project: "all"}.
 
 Keys. The server assigns them: omit key on create_task. PREFIX-I<n> is an initiative, PREFIX-<nn> a standalone ticket, <initiative>-<n> a phase (phase is its own field). A moved ticket gets a new key and keeps the old one as an alias; every tool accepts aliases and answers with the canonical key. Every task reference carries kind and parent_key.
 

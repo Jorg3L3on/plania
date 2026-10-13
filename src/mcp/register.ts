@@ -48,6 +48,7 @@ import { TTL, claim, createTask, handoff, setTask } from "./writes.js";
 import { runAudit } from "./audit.js";
 import { getContext } from "./context.js";
 import { projectReleases } from "./releases.js";
+import { DIGEST_PER_PROJECT_DEFAULT, QUIET_MIN, getDigest, getRunning, listProjects, readerOf } from "./watch.js";
 
 // v2 contract (approved 2026-10-06; supersedes the v1 handoff's 12-tool ceiling).
 // Agents see slugs and human keys only, never uuids. Every write takes an actor.
@@ -467,12 +468,13 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "list_events",
     {
       description: [
-        "What changed in the project, oldest first: every write is an event with its actor and server time.",
+        "What changed, oldest first: every write is an event with its actor, server time, project and a one-line summary (Spanish).",
+        "project: a slug, or all for every project in one feed (ids commit in order across projects, so one cursor is safe).",
         "Pass since = the next_cursor you got last time to see only what is new (e.g. a ticket re-scoped or claimed under you). more: true means call again.",
-        "Filter by key, or by types (a prefix like claim matches claim.acquired, claim.released, claim.expired). limit default 200, max 1000.",
+        "Filter by key (one project only), or by types (a prefix like claim matches claim.acquired, claim.released, claim.expired; pr matches pr.opened, pr.merged, pr.closed, pr.ci_failed). limit default 200, max 1000.",
       ].join(" "),
       inputSchema: {
-        project,
+        project: z.string().min(1).describe("Project slug, or all"),
         since: z.number().int().min(0).optional(),
         key: z.string().optional(),
         types: z.array(z.string()).optional(),
@@ -480,7 +482,53 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       },
       annotations: readOnly,
     },
-    ({ project, ...f }) => run(async () => listEvents(db, (await findProject(db, project)).id, f)),
+    ({ project, ...f }) => run(async () => listEvents(db, project === "all" ? null : (await findProject(db, project)).id, f)),
+  );
+
+  server.registerTool(
+    "list_projects",
+    {
+      description: [
+        "Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim),",
+        "ticket counts (open, in_progress, in_review, needs_jorge, blocked, done), open_questions, claims, last_event_id and last_event_at. Sorted by slug.",
+      ].join(" "),
+      inputSchema: {},
+      annotations: readOnly,
+    },
+    () => run(() => listProjects(db)),
+  );
+
+  server.registerTool(
+    "get_running",
+    {
+      description: [
+        "Every ticket with an owner, across projects, with a derived liveness: live (lease valid, activity in the last",
+        `${QUIET_MIN} min), quiet (lease valid, no heartbeat or event for longer), stale (lease ran out, not yet cleared). last_activity_at = the newest of last_seen_at, claimed_at and an event by the same session on the ticket.`,
+        "Includes the owner, workspace (branch, worktree) and what the ticket has running on the Mac (footprint). Use it to tell a working session from a dead one.",
+      ].join(" "),
+      inputSchema: {},
+      annotations: readOnly,
+    },
+    () => run(() => getRunning(db)),
+  );
+
+  server.registerTool(
+    "get_digest",
+    {
+      description: [
+        "One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights",
+        "(done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects.",
+        "Without since, resumes from the cursor this token was last given (since_from: memory); the first time, the last 24 h. Pass since to override. Only an unscoped call (project all) moves that memory; a slug-scoped one reads from since or the last 24 h.",
+        `project: all (default) or a slug. max_events_per_project default ${DIGEST_PER_PROJECT_DEFAULT} (the newest; changes_total counts all). truncated: true means more than 2000 events moved: call again.`,
+      ].join(" "),
+      inputSchema: {
+        since: z.number().int().min(0).optional(),
+        project: z.string().min(1).optional().describe("all (default) or a project slug"),
+        max_events_per_project: z.number().int().min(1).max(200).optional(),
+      },
+      annotations: readOnly,
+    },
+    (input) => run(() => getDigest(db, { ...input, reader: readerOf(identity, scopes) })),
   );
 
   server.registerTool(

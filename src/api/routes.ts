@@ -21,7 +21,7 @@ import { inbox } from "../mcp/inbox.js";
 import { setProject } from "../mcp/project.js";
 import { ToolError, findProject, findTask, taskFull } from "../mcp/queries.js";
 import { answer } from "../mcp/questions.js";
-import { resumeDigest, type ResumeDigest } from "../mcp/resume.js";
+import { resumeDigest, resumeLine } from "../mcp/resume.js";
 import { WEB_ACTOR, webCtx, writeTx } from "../mcp/tx.js";
 import { claim, setTask } from "../mcp/writes.js";
 
@@ -35,15 +35,6 @@ const HEARTBEAT_MS = 25_000;
 function errorResponse(c: Context, e: unknown) {
   if (e instanceof ToolError) return c.json({ error: e.code, ...e.detail }, e.status);
   throw e;
-}
-
-// One line per project for the list: open questions first, then what is claimed, else what is next.
-export function resumeLine(d: ResumeDigest): string {
-  if (d.claims.length) return `En curso: ${d.claims.map((c) => `${c.key} (${c.owner?.agent})`).join(", ")}`;
-  const noted = d.initiatives.find((i) => i.next_action.note);
-  if (noted) return `${noted.key}: ${noted.next_action.note}`;
-  if (d.next_claimable) return `Siguiente: ${d.next_claimable.key} · ${d.next_claimable.title}`;
-  return d.headline.text || d.legacy_card?.in_progress || d.legacy_card?.next_action || "Sin ficha.";
 }
 
 const DECISIONS_LIMIT = 30;
