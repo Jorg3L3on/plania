@@ -175,15 +175,15 @@ export function towerLabel(t: Tower, projectTitle: string): string {
 }
 
 /**
- * What waits on Jorge, for the headline and the project tiles: the inbox, plus each tower that waits
- * on him with nothing in the inbox (a next step addressed to him, a ticket in Needs Jorge), so the sky
- * and the sentence never disagree.
+ * What waits on Jorge, for the headline and the project tiles: the inbox, plus each tower with a ticket
+ * in Needs Jorge and nothing in the inbox. A next step that only names him lights the tower's
+ * searchlight but is not counted: it is a guess from the text, not a request.
  */
 export function waitingOf(districts: District[], inbox: InboxItem[]): { count: number; by_project: Record<string, number> } {
   const by_project: Record<string, number> = {};
   for (const i of inbox) by_project[i.project] = (by_project[i.project] ?? 0) + 1;
   for (const t of districts.flatMap((d) => d.towers)) {
-    if (t.waits && t.inbox.length === 0) by_project[t.slug] = (by_project[t.slug] ?? 0) + 1;
+    if (t.windows.includes("jorge") && t.inbox.length === 0) by_project[t.slug] = (by_project[t.slug] ?? 0) + 1;
   }
   return { count: Object.values(by_project).reduce((a, b) => a + b, 0), by_project };
 }

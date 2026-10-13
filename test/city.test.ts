@@ -118,11 +118,11 @@ describe("city", () => {
     assert.equal(defaultTower([]), null);
   });
 
-  test("what waits on Jorge counts the inbox and every tower that waits on him outside it", () => {
+  test("what waits on Jorge counts the inbox and every tower with a ticket in Needs Jorge outside it", () => {
     const inbox = [item("a1", "filmia", "FIL-I6-5", "FIL-I6"), item("q1", "zigzag", "ZIG-01", null, "question")];
     const city = cityOf([filmia, workia], inbox);
-    // FIL-I6 counts once (its approval); WRK-I10 and WRK-I2 wait without an inbox item.
-    assert.deepEqual(waitingOf(city, inbox), { count: 4, by_project: { filmia: 1, zigzag: 1, workia: 2 } });
+    // FIL-I6 counts once (its approval); WRK-I2 has a ticket in Needs Jorge. WRK-I10's note only names him: not counted.
+    assert.deepEqual(waitingOf(city, inbox), { count: 3, by_project: { filmia: 1, zigzag: 1, workia: 1 } });
     assert.deepEqual(waitingOf([], []), { count: 0, by_project: {} });
   });
 

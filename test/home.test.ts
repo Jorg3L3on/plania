@@ -104,7 +104,7 @@ describe("tiles", () => {
 
   test("state and rank: en marcha, te espera, quieto, en pausa; bars scale to the busiest day", () => {
     const init = ticket("P-I1", "Active", { kind: "initiative", priority: null });
-    const moving = tileOf(project("a", "A", { tasks: [init, ticket("P-I1-1", "In progress", { parent_key: "P-I1" })], activity: [0, 2, 4, 0, 0, 0, 1] }), 0, NOW);
+    const moving = tileOf(project("a", "A", { tasks: [init, { ...claim("P-I1-1", "s1"), parent_key: "P-I1" }], activity: [0, 2, 4, 0, 0, 0, 1] }), 0, NOW);
     assert.deepEqual([moving.state.word, moving.rank, moving.bars], ["en marcha", 0, [0, 50, 100, 0, 0, 0, 25]]);
     assert.deepEqual(moving.progress, { closed: 0, total: 1 });
     const waiting = tileOf(project("b", "B", { tasks: [init, ticket("P-I1-1", "Ready", { parent_key: "P-I1" })] }), 3, NOW);
@@ -112,6 +112,11 @@ describe("tiles", () => {
     const quiet = tileOf(project("c", "C", { tasks: [init, ticket("P-I1-1", "Backlog", { parent_key: "P-I1" })] }), 0, NOW);
     assert.deepEqual([quiet.state.word, quiet.rank], ["quieto", 2]);
     const paused = tileOf(project("d", "D"), 0, NOW);
+    // En marcha needs someone on it: a live claim or a PR in review, not a status left behind.
+    const review = tileOf(project("e", "E", { tasks: [init, ticket("P-I1-1", "In review", { parent_key: "P-I1" })] }), 0, NOW);
+    assert.equal(review.state.word, "en marcha");
+    const leftover = tileOf(project("f", "F", { tasks: [init, ticket("P-I1-1", "In progress", { parent_key: "P-I1" }), ticket("P-02", "Merged")] }), 0, NOW);
+    assert.equal(leftover.state.word, "quieto");
     assert.deepEqual([paused.state.word, paused.rank, paused.nextText], ["en pausa", 3, "nada en cola"]);
   });
 });

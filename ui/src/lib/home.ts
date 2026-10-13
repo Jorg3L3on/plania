@@ -186,7 +186,9 @@ export function envLine(envs: EnvSummary[], nowMs = Date.now()): string {
 
 export function tileOf(p: HomeProject, waiting: number, nowMs = Date.now()): Tile {
   const lanes = buildLanes(p.tasks);
-  const moving = lanes.some((l: { state: string }) => l.state === "moving");
+  // En marcha means someone is on it now: a live claim, or a PR open for review. Merged or Released
+  // with nobody on it is waiting to be closed, not moving.
+  const moving = p.tasks.some((t) => t.kind === "ticket" && (t.claimed_by || t.status === "In review"));
   const state =
     moving ? { word: "en marcha", tone: "now" as Tone, rank: 0 }
     : waiting > 0 ? { word: "te espera", tone: "jorge" as Tone, rank: 1 }
