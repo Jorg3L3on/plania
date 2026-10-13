@@ -1,5 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
+import { execFile } from "node:child_process";
 import type { Db } from "../db/client.js";
+import { commandPath } from "./machine/run.js";
 import { branches, pollState, projects, pullRequests, tasks, type Project, type Task } from "../db/schema.js";
 import { touchBranch } from "../mcp/branches.js";
 import { addResult } from "../mcp/evidence.js";
@@ -18,7 +20,9 @@ import type { Job } from "./index.js";
 //     ticket sends it back to Ready with a note (pr.ci_failed);
 //   branches → heads (stale_for_head), merges and deletions in the registry.
 // Every write is idempotent through request_id, so a tick may repeat without harm.
-// The token comes from the env var named in settings.github.token_env (default GITHUB_TOKEN).
+// The token comes from the env var named in settings.github.token_env (default GITHUB_TOKEN); when
+// that is unset, from the gh CLI's keyring (`gh auth token`), so the launchd service needs no secret
+// in its environment on a Mac where Jorge is logged in to gh. Nothing is written to disk.
 
 export type Fetch = (url: string, init?: { headers?: Record<string, string> }) => Promise<{ status: number; headers: { get(name: string): string | null }; json(): Promise<unknown> }>;
 
@@ -38,7 +42,31 @@ type CheckRuns = { check_runs: { name: string; status: string; conclusion: strin
 type Branch = { name: string; commit: { sha: string } };
 type Compare = { status: "ahead" | "behind" | "identical" | "diverged" };
 
-export type GithubDeps = { fetch: Fetch; now?: Date; env?: Record<string, string | undefined> };
+export type GithubDeps = { fetch: Fetch; now?: Date; env?: Record<string, string | undefined>; ghToken?: () => Promise<string | null> };
+
+// `gh auth token` from the user's keyring, asked at most once every 10 minutes per process; null when
+// gh is missing, not logged in, or slow. The PATH gets Homebrew's bin, as launchd's lacks it.
+const GH_TOKEN_TTL_MS = 10 * 60 * 1000;
+let ghCache: { at: number; token: string | null } | null = null;
+export async function ghCliToken(): Promise<string | null> {
+  if (ghCache && Date.now() - ghCache.at < GH_TOKEN_TTL_MS) return ghCache.token;
+  const token = await new Promise<string | null>((resolve) => {
+    execFile("gh", ["auth", "token"], { env: { ...process.env, PATH: commandPath() }, timeout: 5_000 }, (err, stdout) => {
+      resolve(err ? null : stdout.trim() || null);
+    });
+  });
+  ghCache = { at: Date.now(), token };
+  return token;
+}
+
+// The token for a project: its env var, else the gh CLI's. Says where it came from for the poll_state note.
+export async function githubToken(deps: GithubDeps, cfg: { token_env?: string }): Promise<{ token: string | null; source: string }> {
+  const envName = cfg.token_env ?? "GITHUB_TOKEN";
+  const fromEnv = (deps.env ?? process.env)[envName];
+  if (fromEnv) return { token: fromEnv, source: envName };
+  const fromGh = await (deps.ghToken ?? ghCliToken)();
+  return fromGh ? { token: fromGh, source: "gh auth token" } : { token: null, source: `${envName} or gh auth token` };
+}
 
 const API = "https://api.github.com";
 const KEY_LINE = /^\s*Plania(?:-Task)?:\s*([A-Z][A-Z0-9]{1,5}-[A-Z0-9-]+)\s*$/im;
@@ -95,10 +123,10 @@ async function trailerKey(deps: GithubDeps, token: string, repo: string, pr: Pr)
 export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): Promise<Record<string, number>> {
   const cfg = p.settings.github;
   if (!cfg?.repo) return {};
-  const token = (deps.env ?? process.env)[cfg.token_env ?? "GITHUB_TOKEN"];
+  const { token, source } = await githubToken(deps, cfg);
   const summary: Record<string, number> = { prs: 0, linked: 0, merged: 0, released: 0, ci: 0, branches: 0 };
   if (!token) {
-    await saveCursor(db, p.id, await cursorOf(db, p.id), `no token in ${cfg.token_env ?? "GITHUB_TOKEN"}`);
+    await saveCursor(db, p.id, await cursorOf(db, p.id), `no token in ${source}`);
     return summary;
   }
   const cursor = await cursorOf(db, p.id);

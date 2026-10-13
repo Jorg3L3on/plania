@@ -132,6 +132,27 @@ describe("github", () => {
   });
 });
 
+describe("github token", () => {
+  test("falls back to the gh CLI's token when the env var is unset, and names both when neither is there", async () => {
+    const { db, close } = makeDb();
+    try {
+      const p = await findProject(db, "filmia");
+      const { fetch, calls } = fakeFetch({ "/repos/Jorg3L3on/filmia/pulls?": [], "/repos/Jorg3L3on/filmia/branches": [] });
+      await pollGithubProject(db, p, { fetch, env: {}, ghToken: async () => null });
+      let { rows } = await raw.query("select error from poll_state where source = 'github'");
+      assert.equal(rows[0].error, "no token in GITHUB_TOKEN or gh auth token");
+      assert.equal(calls.length, 0, "nothing asked of GitHub without a token");
+      const s = await pollGithubProject(db, p, { fetch, env: {}, ghToken: async () => "gho_from_keyring" });
+      assert.equal(s.prs, 0);
+      assert.ok(calls.some((c) => c.startsWith("/repos/Jorg3L3on/filmia/pulls")), "polled with the gh token");
+      ({ rows } = await raw.query("select error from poll_state where source = 'github'"));
+      assert.equal(rows[0].error, null);
+    } finally {
+      await close();
+    }
+  });
+});
+
 describe("vercel", () => {
   test("READY production deployments become sourced env records, oldest first; the merge commit deployed moves Merged to Released", async () => {
     const { db, close } = makeDb();
