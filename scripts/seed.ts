@@ -62,6 +62,12 @@ export async function seedProjects(db: Db): Promise<{ slug: string; pinned: bool
       })
       .returning();
     const project = p ?? (await db.select().from(projects).where(eq(projects.slug, s.slug)))[0]!;
+    // 2.7: a row this run inserted (version 1, created just now) tells the feed the project exists.
+    if (p && p.version === 1 && Date.now() - p.createdAt.getTime() < 60_000) {
+      await writeTx(db, project, { actor: SEED_ACTOR, requestId: `project-created:${project.slug}`, tool: "seed" }, async (_tx, emit) => {
+        await emit("project.created", null, { slug: project.slug, title: project.title, key_prefix: project.keyPrefix });
+      });
+    }
     const pinned = await writeTx(db, project, { actor: SEED_ACTOR }, async (tx, emit) => {
       const [existing] = await tx
         .select({ id: decisions.id })

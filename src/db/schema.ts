@@ -717,6 +717,14 @@ export const events = pgTable(
   (t) => [index("events_project_id_idx").on(t.projectId, t.id), index("events_task_id_idx").on(t.taskId, t.id)],
 );
 
+// 2.7: where each digest reader left off. reader is the agent token id, or static:<scope> for the
+// unbound env tokens. get_digest without since resumes from here, so an assistant stays stateless.
+export const digestReads = pgTable("digest_reads", {
+  reader: text("reader").primaryKey(),
+  cursor: bigint("cursor", { mode: "number" }).notNull(),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Who made a change. session_id identifies one agent session (and owns its leases).
 export type Actor = { agent: string; session_id: string; machine?: string; model?: string };
 
