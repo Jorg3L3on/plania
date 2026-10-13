@@ -25,8 +25,14 @@ export function questionShape(q: QuestionRow, taskKey: string) {
     answered_by: q.answeredBy,
     answered_at: iso(q.answeredAt),
     decision_id: q.decisionId,
+    // 2.8: what else waits on this answer, and how soon Jorge is needed.
+    blocks: q.blocks,
+    urgency: q.urgency,
   };
 }
+
+export const URGENCIES = ["now", "soon", "whenever"] as const;
+export type Urgency = (typeof URGENCIES)[number];
 
 export async function taskQuestions(db: Q, t: Pick<Task, "id" | "key">) {
   const rows = await db.select().from(questions).where(eq(questions.taskId, t.id)).orderBy(asc(questions.askedAt));
@@ -45,13 +51,20 @@ export async function openQuestions(db: Q, projectId: string) {
 
 export async function ask(
   db: Db,
-  input: { project: string; key: string; question: string; options?: string[] },
+  input: { project: string; key: string; question: string; options?: string[]; blocks?: string[]; urgency?: Urgency },
   ctx: Ctx,
 ) {
   if (!input.question.trim()) throw new ToolError("INVALID_QUESTION");
+  if (input.urgency !== undefined && !(URGENCIES as readonly string[]).includes(input.urgency)) throw new ToolError("INVALID_QUESTION", { field: "urgency", accepts: URGENCIES });
   const p = await findProject(db, input.project);
   return writeTx(db, p, ctx, async (tx, emit) => {
     const t = await requireTask(tx, p.id, input.key);
+    // blocks: other keys this answer holds up; each must exist (canonical keys are stored).
+    const blocks: string[] = [];
+    for (const k of input.blocks ?? []) {
+      const b = await requireTask(tx, p.id, k);
+      if (!blocks.includes(b.key)) blocks.push(b.key);
+    }
     if ((TERMINAL as readonly string[]).includes(t.status)) {
       throw new ToolError("INVALID_TRANSITION", { from: t.status, to: "Needs Jorge", hint: "the task is closed" });
     }
@@ -64,6 +77,8 @@ export async function ask(
         taskId: t.id,
         question: input.question,
         options: input.options ?? [],
+        blocks,
+        urgency: input.urgency ?? null,
         statusBefore: moves ? t.status : null,
         askedBy: ctx.actor,
       })
@@ -76,7 +91,7 @@ export async function ask(
         .where(eq(tasks.id, t.id));
       await emit("task.status", t, { from: t.status, to: "Needs Jorge" });
     }
-    await emit("question.asked", t, { question_id: q!.id, question: q!.question, options: q!.options });
+    await emit("question.asked", t, { question_id: q!.id, question: q!.question, options: q!.options, blocks: q!.blocks, urgency: q!.urgency });
     const u = await requireTask(tx, p.id, t.key);
     return writeReply(tx, u, ctx, moves ? ["questions", "status"] : ["questions"], { question: questionShape(q!, t.key) });
   });

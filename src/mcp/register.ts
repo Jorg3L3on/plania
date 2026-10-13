@@ -43,7 +43,7 @@ import { consume, leaseResource, projectResources, releaseResource } from "./res
 import { SEVERITIES } from "./lifecycle.js";
 import { writeTx } from "./tx.js";
 import { PROTOCOL_VERSION, instructions } from "./protocol.js";
-import { answer, ask } from "./questions.js";
+import { URGENCIES, answer, ask } from "./questions.js";
 import { TTL, claim, createTask, handoff, setTask } from "./writes.js";
 import { runAudit } from "./audit.js";
 import { getContext } from "./context.js";
@@ -167,6 +167,7 @@ const createFields = {
   introduced_by: z.string().optional().describe("Bugs: the key or sha that caused it"),
   regression: z.boolean().optional().describe("Bugs: it used to work"),
   cost_note: z.string().optional().describe("Debt: what it costs while it stays"),
+  due_on: z.string().optional().describe("When it should be done, YYYY-MM-DD (audit OVERDUE once past)"),
 };
 
 const setTaskFields = {
@@ -198,6 +199,7 @@ const setTaskFields = {
   found_in: z.string().optional(),
   introduced_by: z.string().optional(),
   regression: z.boolean().optional(),
+  due_on: z.string().nullable().optional().describe("When it should be done, YYYY-MM-DD; null clears it"),
   cost_note: z.string().optional().describe("Debt only"),
   approval_id: z.string().optional().describe("For Won't do or reopening: the id of an approval Jorge granted (request_approval). Spent on this move"),
   note: z.string().optional(),
@@ -628,7 +630,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         `Lease a ticket so no other session works on it. action claim (default): status becomes In progress, owned by your session_id for ttl_minutes (default ${TTL.default}, ${TTL.min}-${TTL.max}).`,
-        "Claiming a ticket you already hold extends it. heartbeat: extend your lease while you work; send it before it runs out.",
+        "Claiming a ticket you already hold extends it. heartbeat: extend your lease while you work; send it before it runs out. heartbeat with key \"*\" extends every lease your session holds in the project in one call (reply: extended keys), and logs nothing.",
         "release: give it back; In progress goes to release_to (default Ready). Moving the ticket to any other status also releases it.",
         "Errors: CLAIM_HELD (someone else holds a live lease; owner and workspace say who and where), NOT_CLAIMABLE (status, or unsatisfied blocked_by), LEASE_EXPIRED (heartbeat after your lease ran out: claim again).",
         "An expired lease is free: anyone may claim it. Pass workspace so others know where the code is checked out.",
@@ -702,7 +704,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       description: [
         "Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer.",
         "A ticket moves to Needs Jorge (your lease stays; heartbeat to keep it) until every open question on it is answered.",
-        "options are suggested answers; he may answer freely. get_resume lists open_questions.",
+        "options are suggested answers; he may answer freely. blocks names other tickets waiting on the answer; urgency says how soon. get_resume lists open_questions.",
+        "Never only write 'waiting on Jorge' in next_action or blocked_note: the audit flags it (WAITING_ON_JORGE_FREE_TEXT); ask here or request_approval instead.",
       ].join(" "),
       inputSchema: {
         project,
@@ -712,6 +715,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         key,
         question: z.string(),
         options: z.array(z.string()).optional(),
+        blocks: z.array(z.string()).optional().describe("Other task keys this answer holds up (shown in the inbox and the digest)"),
+        urgency: z.enum(URGENCIES).optional().describe("How soon Jorge is needed: now | soon | whenever"),
       },
       annotations: write,
     },
@@ -865,7 +870,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_STATE_NOTE_STALE, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
-        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, LEGACY_CARD_PRESENT.",
+        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, LEGACY_CARD_PRESENT, and the footprint codes.",
         "Each finding has key, detail and fix_hint. It also runs every ten minutes; get_resume.status.audit_findings is the last count.",
       ].join(" "),
       inputSchema: { project },

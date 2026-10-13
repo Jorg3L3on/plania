@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
+import { bus } from "../events.js";
 import type { Auth } from "../auth/bearer.js";
 import { withDb } from "../db/client.js";
 import { inbox } from "../mcp/inbox.js";
@@ -45,4 +47,39 @@ bot.get("/events", async (c) => {
   return c.json(
     await withDb(async (db) => listEvents(db, slug === "all" ? null : (await findProject(db, slug)).id, { since, key, types, limit })),
   );
+});
+
+// 2.8: the feed as server-sent events for an assistant that can hold a connection. ?project=all
+// (default) or a slug, ?types=a,b, and the cursor from ?since= or the Last-Event-ID header (the id of
+// the last message seen). Replays what the cursor missed, then streams as writes commit; every
+// message is one list_events row and its id is the next cursor. Polling /digest stays the default.
+const STREAM_PING_MS = 25_000;
+bot.get("/stream", async (c) => {
+  const slug = c.req.query("project") || "all";
+  const types = c.req.query("types")?.split(",").filter(Boolean);
+  let since = Number(c.req.query("since") ?? c.req.header("Last-Event-ID") ?? 0) || 0;
+  const projectId = slug === "all" ? null : (await withDb((db) => findProject(db, slug))).id;
+  return streamSSE(c, async (stream) => {
+    const send = async () => {
+      const page = await withDb((db) => listEvents(db, projectId, { since, types, limit: 500 }));
+      for (const e of page.events) await stream.writeSSE({ event: e.type, id: String(e.id), data: JSON.stringify(e) });
+      since = Math.max(since, page.next_cursor);
+      if (page.more) await send();
+    };
+    await send();
+    await stream.writeSSE({ event: "ready", data: JSON.stringify({ cursor: since, project: slug }) });
+    let pending: Promise<void> = Promise.resolve();
+    const unsubscribe = bus.subscribe((change) => {
+      if (slug !== "all" && change.project !== slug) return;
+      pending = pending.then(send).catch(() => undefined);
+    });
+    const ping = setInterval(() => void stream.writeSSE({ event: "ping", data: JSON.stringify({ cursor: since }) }), STREAM_PING_MS);
+    await new Promise<void>((resolve) =>
+      stream.onAbort(() => {
+        clearInterval(ping);
+        unsubscribe();
+        resolve();
+      }),
+    );
+  });
 });

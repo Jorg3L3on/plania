@@ -2,7 +2,7 @@
 // repo reads the same version. Project-specific additions live in the project's rules (set_project).
 // Bump PROTOCOL_VERSION whenever the text changes meaning.
 
-export const PROTOCOL_VERSION = "2.7";
+export const PROTOCOL_VERSION = "2.8";
 
 const PROTOCOL = `Plania protocol ${PROTOCOL_VERSION}. Plania is the source of the plan; product repos hold code and conventions, not plans.
 
@@ -15,7 +15,7 @@ Keys. The server assigns them: omit key on create_task. PREFIX-I<n> is an initia
 Replies. Writes answer {key, status, version, changed}; pass verbose: true when you need the full task back. get_task view summary is the cheap read; the log is paged with list_events {key, since} (include_log: true embeds the last 50). Several writes at once: batch (atomic by default; BATCH_FAILED names the op that failed and nothing is written).
 
 Work a ticket.
-1. claim it, with workspace {worktree_path, branch}. A phase defaults to its initiative's integration_branch (one PR per initiative); a branch another live initiative owns is BRANCH_IN_USE; names follow the project's branch_pattern. warnings name other live claims on overlapping areas. CLAIM_HELD: someone else holds it; pick another. Send claim action heartbeat before the lease runs out (default 30 min).
+1. claim it, with workspace {worktree_path, branch}. A phase defaults to its initiative's integration_branch (one PR per initiative); a branch another live initiative owns is BRANCH_IN_USE; names follow the project's branch_pattern. warnings name other live claims on overlapping areas. CLAIM_HELD: someone else holds it; pick another. Send claim action heartbeat before the lease runs out (default 30 min); key "*" heartbeats every ticket you hold at once.
 2. Writes carry the version you read (get_task). STALE_VERSION: re-read, merge, retry. A note (set_task note) needs no version: prefer notes to rewriting scope.
 3. Tick Done when items with set_check. Record evidence with add_result (kind unit|integration|test|verify|live|grep|subagent|ci|e2e|visual|a11y|perf|security|migration, verdict pass|warn|fail, cite, and the facts: commit, branch, env, command, exit_code, counts, duration_s, attachments as links, viewport, metrics). A pass at an old commit goes stale once the branch moves (EVIDENCE_STALE). A check that will not be done: waive_check with the reason (once In review, it needs an approval).
 4. Need a number that must not collide (a migration)? reserve_sequence. Need a shared thing (a dev port, the production migrate step)? lease_resource, release_resource when done; an API budget: consume. Need Jorge? ask (the ticket waits in Needs Jorge). When he answers in chat, record it with answer, quoting him; add decision_text only when the answer settles something worth keeping.

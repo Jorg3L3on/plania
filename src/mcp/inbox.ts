@@ -25,6 +25,8 @@ export type InboxItem = {
   title: string | null;
   why: string;
   options?: string[];
+  blocks?: string[];
+  urgency?: string | null;
   action?: string;
   target?: Record<string, unknown>;
   waiting_since: string;
@@ -129,6 +131,8 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
       title: t.title,
       why: q.question,
       options: q.options,
+      blocks: q.blocks,
+      urgency: q.urgency,
       waiting_since: iso(q.askedAt),
       wait_s: waitSeconds(q.askedAt),
       evidence: await evidenceOf(db, t.id),

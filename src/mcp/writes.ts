@@ -167,7 +167,15 @@ export type CreateInput = {
   regression?: boolean;
   cost_note?: string;
   state_note?: string;
+  due_on?: string | null;
 };
+
+// 2.8: a due date is a calendar date, YYYY-MM-DD; null clears it.
+export function checkDueOn(v: string | null | undefined): string | null | undefined {
+  if (v === undefined || v === null) return v;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(new Date(`${v}T00:00:00Z`).getTime())) throw new ToolError("INVALID_FILTER", { field: "due_on", hint: "YYYY-MM-DD" });
+  return v;
+}
 
 // A scope is the spec; status lines belong in state_note (R-16). Only a warning.
 const STATUS_HEADING = /^#{1,3}\s*(estado|status)\b/im;
@@ -237,6 +245,7 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
   warnings.push(...assigned.warnings);
   const blockerIds = await resolveTaskBlockers(tx, p.id, blockedBy.keys, assigned.key);
   const common = {
+    dueOn: checkDueOn(input.due_on) ?? null,
     projectId: p.id,
     kind,
     key: assigned.key,
@@ -308,6 +317,7 @@ const FIELD_NAMES: Partial<Record<keyof Task, string>> = {
   introducedBy: "introduced_by",
   regression: "regression",
   costNote: "cost_note",
+  dueOn: "due_on",
 };
 
 // Merged and Released by hand (R-12): only with proof. Merged needs a ci pass naming the merge
@@ -373,6 +383,7 @@ export type SetTaskInput = {
   regression?: boolean;
   cost_note?: string;
   state_note?: string;
+  due_on?: string | null;
 };
 
 // An initiative closes only once every ticket of it is Done or Won't do (Jorge included).
@@ -460,6 +471,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   }
   const areas = normalizeAreas(input.areas);
   if (areas !== undefined) patch.areas = areas;
+  if (input.due_on !== undefined) patch.dueOn = checkDueOn(input.due_on);
   // An initiative's integration branch is its `branch`; registering it enforces the naming rule and ownership.
   const integrationBranch = t.kind === "initiative" ? (input.integration_branch ?? input.branch)?.trim() : undefined;
   if (integrationBranch !== undefined) {
@@ -728,7 +740,26 @@ export async function claimInTx(tx: Q, emit: Emit, p: Project, input: ClaimInput
   return writeReply(tx, u, ctx, ["claim", "status"], { claim: claimShape(u), workspace: u.workspace, ...(t.handoff ? { handoff: t.handoff } : {}) }, warnings);
 }
 
+// 2.8: claim {action: heartbeat, key: "*"} extends every lease this session holds in the project in
+// one call, so a long session cannot forget a ticket. Emits nothing (the feed stays clean).
+export async function heartbeatAll(db: Db, input: ClaimInput, ctx: Ctx) {
+  const p = await findProject(db, input.project);
+  const minutes = ttlMinutes(input.ttl_minutes);
+  return writeTx(db, p, ctx, async (tx) => {
+    const rows = await tx
+      .update(tasks)
+      .set({ leaseUntil: leaseEnd(minutes), lastSeenAt: sql`now()`, expiringWarnedAt: null })
+      .where(and(eq(tasks.projectId, p.id), sql`${tasks.leaseUntil} > now()`, sql`${tasks.owner}->>'session_id' = ${ctx.actor.session_id}`))
+      .returning({ key: tasks.key, leaseUntil: tasks.leaseUntil });
+    return { extended: rows.map((r) => r.key).sort(), lease_until: rows[0] ? iso(rows[0].leaseUntil) : null, changed: rows.length ? ["claim"] : [] };
+  });
+}
+
 export async function claim(db: Db, input: ClaimInput, ctx: Ctx) {
+  if (input.key === "*") {
+    if ((input.action ?? "claim") !== "heartbeat") throw new ToolError("NOT_CLAIMABLE", { reason: 'key "*" is only for action heartbeat' });
+    return heartbeatAll(db, input, ctx);
+  }
   const p = await findProject(db, input.project);
   return writeTx(db, p, ctx, (tx, emit) => claimInTx(tx, emit, p, input, ctx));
 }

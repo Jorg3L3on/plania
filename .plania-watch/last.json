@@ -1,0 +1,3444 @@
+{
+  "captured_at": "2026-10-13T02:37:14.316925+00:00",
+  "reachable": true,
+  "projects": {
+    "workia": {
+      "headline": "main = sandbox (300b2e5: repo conectado a Plania, AGENTS.md con flujo jl/<slug> → sandbox → main). WRK-I1 MCP en Planning: espera el OK de Jorge para arrancar F1a (WRK-I1-1, migración 0009 reservada).",
+      "headline_at": "2026-10-11T07:37:37.398Z",
+      "claims": [
+        {
+          "key": "WRK-I4-2",
+          "title": "F2 · Registro de migraciones aplicadas y chequeo de seguridad de migraciones",
+          "agent": "Claude Code",
+          "session_id": "7d4c84c7-ea9a-4c85-925a-e09e0b1f8531",
+          "lease_until": "2026-10-13T04:30:21.304Z",
+          "branch": "jl/multiempresa"
+        }
+      ],
+      "initiatives": [
+        {
+          "key": "WRK-I1",
+          "title": "Workia MCP: conector MCP para agentes (ChatGPT lectura, Grok Bot escrituras)",
+          "status": "Planning",
+          "counts": {
+            "Backlog": 15,
+            "Done": 1
+          },
+          "next_claimable": "WRK-I1-1",
+          "waiting_on_jorge": [],
+          "in_review": []
+        },
+        {
+          "key": "WRK-I2",
+          "title": "Performance and scale",
+          "status": "Planning",
+          "counts": {
+            "Done": 7,
+            "Won't do": 1
+          },
+          "next_claimable": null,
+          "waiting_on_jorge": [],
+          "in_review": []
+        },
+        {
+          "key": "WRK-I3",
+          "title": "Personas import and export",
+          "status": "Planning",
+          "counts": {
+            "Done": 12
+          },
+          "next_claimable": null,
+          "waiting_on_jorge": [],
+          "in_review": []
+        },
+        {
+          "key": "WRK-I4",
+          "title": "Workia multiempresa",
+          "status": "Active",
+          "counts": {
+            "Blocked": 1,
+            "Backlog": 17,
+            "In progress": 1
+          },
+          "next_claimable": null,
+          "waiting_on_jorge": [
+            {
+              "key": "WRK-I4-1",
+              "why": [
+                "human_action"
+              ]
+            }
+          ],
+          "in_review": []
+        }
+      ],
+      "next_claimable": "WRK-I1-1",
+      "human_actions": 1,
+      "pending_approvals": 0,
+      "tasks": [
+        {
+          "key": "WRK-I4-2",
+          "kind": "ticket",
+          "title": "F2 · Registro de migraciones aplicadas y chequeo de seguridad de migraciones",
+          "status": "In progress",
+          "parent_key": "WRK-I4",
+          "claimed_by": {
+            "agent": "Claude Code",
+            "session_id": "7d4c84c7-ea9a-4c85-925a-e09e0b1f8531"
+          },
+          "updated_at": "2026-10-13T02:36:40.354Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-1",
+          "kind": "ticket",
+          "title": "F1 · Prerrequisito: importación/exportación de personas completa en producción",
+          "status": "Blocked",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-13T02:30:14.308Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I2-3",
+          "kind": "ticket",
+          "title": "Align Vercel function region with Neon region",
+          "status": "Won't do",
+          "parent_key": "WRK-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:26:57.332Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-17",
+          "kind": "ticket",
+          "title": "F17 · Corte a producción de la migración multiempresa",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.749Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-16",
+          "kind": "ticket",
+          "title": "F16 · Seed y demo multiempresa",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.720Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-15",
+          "kind": "ticket",
+          "title": "F15 · Pruebas de acceso cruzado (IDOR) como compuerta de CI",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.691Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-14",
+          "kind": "ticket",
+          "title": "F14 · Administración de empresas y miembros",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.666Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-13",
+          "kind": "ticket",
+          "title": "F13 · Selector de empresa en la barra lateral y breadcrumbs",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.638Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-12",
+          "kind": "ticket",
+          "title": "F12 · Auditoría por empresa",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.611Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-11",
+          "kind": "ticket",
+          "title": "F11 · Importación y exportación de personas por empresa",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.582Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-10",
+          "kind": "ticket",
+          "title": "F10 · Catálogo por empresa: áreas, puestos, sucursales y actividades",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.555Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-9",
+          "kind": "ticket",
+          "title": "F9 · Resguardo de activos filtrado por empresa",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.520Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-8",
+          "kind": "ticket",
+          "title": "F8 · Contratos y plantillas filtrados por empresa",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.487Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-7",
+          "kind": "ticket",
+          "title": "F7 · Personas y horarios filtrados por empresa",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.458Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-6",
+          "kind": "ticket",
+          "title": "F6 · Empresa activa en la sesión y guard central de empresa",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.427Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-5",
+          "kind": "ticket",
+          "title": "F5 · Unicidad e índices por empresa (RFC, CURP, NSS, catálogo, activos, importaciones)",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.392Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-4",
+          "kind": "ticket",
+          "title": "F4 · Columna company_id en todas las tablas de negocio, con backfill, NOT NULL y llaves foráneas",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.360Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-3",
+          "kind": "ticket",
+          "title": "F3 · Empresas y membresías: tablas companies y company_memberships y empresa por defecto",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.311Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I3-4",
+          "kind": "ticket",
+          "title": "Staging tables: import_jobs and import_rows",
+          "status": "Done",
+          "parent_key": "WRK-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I3-3",
+          "kind": "ticket",
+          "title": "people:import and people:export permissions",
+          "status": "Done",
+          "parent_key": "WRK-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I3-1",
+          "kind": "ticket",
+          "title": "Format spec and downloadable template",
+          "status": "Done",
+          "parent_key": "WRK-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I2-2",
+          "kind": "ticket",
+          "title": "Per-request permission and session cache + one-query person load",
+          "status": "Done",
+          "parent_key": "WRK-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I2-8",
+          "kind": "ticket",
+          "title": "Transactional, batched writes",
+          "status": "Done",
+          "parent_key": "WRK-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I2-1",
+          "kind": "ticket",
+          "title": "Renewal tray as one query",
+          "status": "Done",
+          "parent_key": "WRK-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I3-2",
+          "kind": "ticket",
+          "title": "Unique person identity: CURP/RFC/NSS normalization and validation",
+          "status": "Done",
+          "parent_key": "WRK-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I3-7",
+          "kind": "ticket",
+          "title": "Transactional, idempotent, resumable batched apply",
+          "status": "Done",
+          "parent_key": "WRK-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I3-6",
+          "kind": "ticket",
+          "title": "Validation and preview (dry run)",
+          "status": "Done",
+          "parent_key": "WRK-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I3-5",
+          "kind": "ticket",
+          "title": "File reading and column mapping in the browser",
+          "status": "Done",
+          "parent_key": "WRK-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-4",
+          "kind": "ticket",
+          "title": "F1d · Rollout de Fase 1: preview con Inspector → prod sólo Jorge → RRHH (ChatGPT sólo lectura)",
+          "status": "Backlog",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T06:23:58.432Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-2",
+          "kind": "ticket",
+          "title": "F1b · 17 tools de lectura, search/fetch, resources, enmascarado PII y cursores",
+          "status": "Backlog",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T06:23:58.432Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-1",
+          "kind": "ticket",
+          "title": "F1a · Endpoint /api/mcp, auth (OAuth 2.1 + PAT), runWorkiaTool y /admin/conexiones",
+          "status": "Backlog",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T06:23:58.432Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-3",
+          "kind": "ticket",
+          "title": "F1c · QA de Fase 1: cobertura MCP, snapshot, PII, transporte, e2e OAuth, evals y docs",
+          "status": "Backlog",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:57:50.593Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-5",
+          "kind": "ticket",
+          "title": "F2a · Infraestructura de escritura: confirmación, idempotencia, audit source=mcp, interruptor y renewContract atómico",
+          "status": "Backlog",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:57:50.593Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-6",
+          "kind": "ticket",
+          "title": "F2b · Tools de escritura de resguardo (3) y catálogo (3)",
+          "status": "Backlog",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:57:50.593Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-7",
+          "kind": "ticket",
+          "title": "F2c · Tools de escritura de contratos (3) y personas (4)",
+          "status": "Backlog",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:57:50.593Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-8",
+          "kind": "ticket",
+          "title": "F2d · QA y rollout de Fase 2: evals de escritura, retest en prod y apertura por scope",
+          "status": "Backlog",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:57:50.593Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-02",
+          "kind": "ticket",
+          "title": "Fix db:report-identity-duplicates env loading",
+          "status": "In review",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-12T04:52:44.112Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-18",
+          "kind": "ticket",
+          "title": "F18 · MCP de Workia multiempresa: actualizar la especificación",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.775Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I3-8",
+          "kind": "ticket",
+          "title": "Contract and history import",
+          "status": "Done",
+          "parent_key": "WRK-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I2-4",
+          "kind": "ticket",
+          "title": "Loading skeletons",
+          "status": "Done",
+          "parent_key": "WRK-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I3-11",
+          "kind": "ticket",
+          "title": "Import wizard and history in the UI",
+          "status": "Done",
+          "parent_key": "WRK-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I2-7",
+          "kind": "ticket",
+          "title": "Slim audit snapshots and add missing indexes",
+          "status": "Done",
+          "parent_key": "WRK-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I3-10",
+          "kind": "ticket",
+          "title": "Personas file export (Personas, Horarios, Contratos)",
+          "status": "Done",
+          "parent_key": "WRK-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I3-9",
+          "kind": "ticket",
+          "title": "Undo an import",
+          "status": "Done",
+          "parent_key": "WRK-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I2-6",
+          "kind": "ticket",
+          "title": "Lazy form options on Persona detail",
+          "status": "Done",
+          "parent_key": "WRK-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I2-5",
+          "kind": "ticket",
+          "title": "Server-side paging and search for lists",
+          "status": "Done",
+          "parent_key": "WRK-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-16",
+          "kind": "ticket",
+          "title": "Preguntas abiertas de la spec para Jorge",
+          "status": "Done",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T06:23:58.432Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-01",
+          "kind": "ticket",
+          "title": "Adopt new Workia brand and run locally against Postgres",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-11T03:41:38.250Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4-19",
+          "kind": "ticket",
+          "title": "F19 · Segunda capa: RLS de Postgres por empresa",
+          "status": "Backlog",
+          "parent_key": "WRK-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T00:25:01.802Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I3-12",
+          "kind": "ticket",
+          "title": "Scale and e2e tests",
+          "status": "Done",
+          "parent_key": "WRK-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:14.036Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-15",
+          "kind": "ticket",
+          "title": "F3 · P7 list_regions y filtro region_id en list_people, list_sites y list_renewal_tray",
+          "status": "Backlog",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T06:23:58.432Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-12",
+          "kind": "ticket",
+          "title": "F3 · P4 Tokens oficiales en issue_contract/preview_contract y get_seniority_certificate",
+          "status": "Backlog",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:57:50.593Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-11",
+          "kind": "ticket",
+          "title": "F3 · P3 update_person_schedule_blocks (horario por bloques)",
+          "status": "Backlog",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:57:50.593Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-9",
+          "kind": "ticket",
+          "title": "F3 · P1 Expediente México en get_person (domicilio, datos civiles, INE, beneficiarios)",
+          "status": "Backlog",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:57:50.593Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-10",
+          "kind": "ticket",
+          "title": "F3 · P2 Compensación en issue_contract/get_contract y permiso compensation:read",
+          "status": "Backlog",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:57:50.593Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-14",
+          "kind": "ticket",
+          "title": "F3 · P6 Alta RH → Nóminas: start_onboarding, get_onboarding, approve_onboarding_step",
+          "status": "Backlog",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:57:50.593Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1-13",
+          "kind": "ticket",
+          "title": "F3 · P5 decide_contract_renewal (decisión de bandeja en un paso)",
+          "status": "Backlog",
+          "parent_key": "WRK-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:57:50.593Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I4",
+          "kind": "initiative",
+          "title": "Workia multiempresa",
+          "status": "Active",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-13T02:30:14.308Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I2",
+          "kind": "initiative",
+          "title": "Performance and scale",
+          "status": "Planning",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-11T08:37:48.056Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I3",
+          "kind": "initiative",
+          "title": "Personas import and export",
+          "status": "Planning",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-11T07:58:32.160Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "WRK-I1",
+          "kind": "initiative",
+          "title": "Workia MCP: conector MCP para agentes (ChatGPT lectura, Grok Bot escrituras)",
+          "status": "Planning",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-11T07:24:08.111Z",
+          "priority": null,
+          "pr_url": null
+        }
+      ],
+      "recent": [
+        {
+          "at": "2026-10-13T02:31:29.700Z",
+          "type": "footprint.declared",
+          "task_key": "WRK-I4-2",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:30:21.304Z",
+          "type": "claim.acquired",
+          "task_key": "WRK-I4-2",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:30:14.308Z",
+          "type": "note",
+          "task_key": "WRK-I4-2",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:30:14.308Z",
+          "type": "task.updated",
+          "task_key": "WRK-I4-2",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:30:14.308Z",
+          "type": "task.updated",
+          "task_key": "WRK-I4-1",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:30:14.308Z",
+          "type": "task.status",
+          "task_key": "WRK-I4-1",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:30:14.308Z",
+          "type": "task.updated",
+          "task_key": "WRK-I4",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:30:14.308Z",
+          "type": "task.status",
+          "task_key": "WRK-I4",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:30:14.308Z",
+          "type": "decision.added",
+          "task_key": "WRK-I4",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:30:14.308Z",
+          "type": "decision.added",
+          "task_key": "WRK-I4",
+          "agent": "Claude Code",
+          "note": null
+        }
+      ],
+      "tasks_sample_keys": [
+        "tasks"
+      ],
+      "tasks_count": 61
+    },
+    "zigzag": {
+      "headline": "Neon at 0030 (0029+0030 applied by hand). ZIG-I12 composer hardening: slices 1-5 Done, QA merged, PR #561 feat/composer-hardening → sandbox is green and mergeable, waiting on Jorge. Open: ZIG-I12-6 check 3 (service picker on a real phone). Then sandbox → main.",
+      "headline_at": "2026-10-10T23:33:58.536Z",
+      "claims": [],
+      "initiatives": [
+        {
+          "key": "ZIG-I17",
+          "title": "Cliente, folios y sesiones: client detail page, per-company folio series P-0001 / R-0001, longer field sessions",
+          "status": "Active",
+          "counts": {
+            "Ready": 1,
+            "Backlog": 8,
+            "Won't do": 1
+          },
+          "next_claimable": "ZIG-I17-1",
+          "waiting_on_jorge": [],
+          "in_review": []
+        },
+        {
+          "key": "ZIG-I18",
+          "title": "UX para usuarios 50+ en móvil (auditoría oct 2026)",
+          "status": "Active",
+          "counts": {
+            "Done": 16,
+            "Ready": 1
+          },
+          "next_claimable": "ZIG-I18-17",
+          "waiting_on_jorge": [],
+          "in_review": []
+        },
+        {
+          "key": "ZIG-I20",
+          "title": "Rendimiento, avisos y datos de pago",
+          "status": "Planning",
+          "counts": {
+            "Backlog": 5
+          },
+          "next_claimable": null,
+          "waiting_on_jorge": [],
+          "in_review": []
+        }
+      ],
+      "next_claimable": "ZIG-I17-1",
+      "human_actions": 0,
+      "pending_approvals": 0,
+      "tasks": [
+        {
+          "key": "ZIG-I12-2",
+          "kind": "ticket",
+          "title": "Composer input validation: limits in the sheet, decimal service quantity, negative prices, errors that name the field",
+          "status": "Done",
+          "parent_key": "ZIG-I12",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T22:20:20.159Z",
+          "priority": "P0",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I12-1",
+          "kind": "ticket",
+          "title": "Money correctness: integer-cents rounding, PDF prints stored amounts, total cap, client/server parity",
+          "status": "Done",
+          "parent_key": "ZIG-I12",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T21:12:06.872Z",
+          "priority": "P0",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I10-1",
+          "kind": "ticket",
+          "title": "Materiales schema (0029) + server: material lines in every write path",
+          "status": "Done",
+          "parent_key": "ZIG-I10",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T20:06:23.684Z",
+          "priority": "P0",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I10-3",
+          "kind": "ticket",
+          "title": "Composer line sheet: materials prefilled from the service, editable, catalog or inline",
+          "status": "Done",
+          "parent_key": "ZIG-I10",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T20:06:23.684Z",
+          "priority": "P0",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I11-2",
+          "kind": "ticket",
+          "title": "Renderer 2a in jsPDF (Letter, monochrome) wired into the invoice route; old renderer removed",
+          "status": "Done",
+          "parent_key": "ZIG-I11",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T19:15:01.601Z",
+          "priority": "P0",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I5-4",
+          "kind": "ticket",
+          "title": "Presupuesto review (listo) and detail page; /tickets/[id] redirects for quotes",
+          "status": "Done",
+          "parent_key": "ZIG-I5",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T07:24:30.585Z",
+          "priority": "P0",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I5-3",
+          "kind": "ticket",
+          "title": "Nuevo presupuesto composer: one screen, one transaction (createPresupuestoWithLines)",
+          "status": "Done",
+          "parent_key": "ZIG-I5",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T07:01:33.536Z",
+          "priority": "P0",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I5-1",
+          "kind": "ticket",
+          "title": "Inline service lines: nullable service_id, name/description snapshot, line union, readers",
+          "status": "Done",
+          "parent_key": "ZIG-I5",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T06:22:28.999Z",
+          "priority": "P0",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I2-5",
+          "kind": "ticket",
+          "title": "Creation review screen with recibo PDF share and download",
+          "status": "Done",
+          "parent_key": "ZIG-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T23:07:22.163Z",
+          "priority": "P0",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I2-4",
+          "kind": "ticket",
+          "title": "Single-screen Nuevo ticket composer (replaces the 3-step wizard)",
+          "status": "Done",
+          "parent_key": "ZIG-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T23:07:22.163Z",
+          "priority": "P0",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I1-2",
+          "kind": "ticket",
+          "title": "Concierge day: install, notebook migration, teach Hoy/Anotar/Cobrar",
+          "status": "Done",
+          "parent_key": "ZIG-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T18:13:40.812Z",
+          "priority": "P0",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I1-1",
+          "kind": "ticket",
+          "title": "Return-day QA on Android Chrome PWA",
+          "status": "Done",
+          "parent_key": "ZIG-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T18:01:28.763Z",
+          "priority": "P0",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-4",
+          "kind": "ticket",
+          "title": "[D1] Anotar: visible no-client error, 48 px payment choices, draft-restored banner, exits to Hoy",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:56:30.247Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-3",
+          "kind": "ticket",
+          "title": "[D1] Notebook wording pass + error codes on a second line",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:56:30.206Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-2",
+          "kind": "ticket",
+          "title": "[D1] Cobranza as the debt page: days without payment first, labelled Cobrar and Recordar por WhatsApp",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:56:30.154Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-1",
+          "kind": "ticket",
+          "title": "[D1] Cobrar flow as a bottom sheet: Pagó todo primary, Pagó una parte secondary, one verb Cobrar",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:56:30.101Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I17-7",
+          "kind": "ticket",
+          "title": "Recordar este dispositivo: 30-day sessions on trusted devices, sliding renewal and expiry warning",
+          "status": "Backlog",
+          "parent_key": "ZIG-I17",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T08:56:44.018Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I17-5",
+          "kind": "ticket",
+          "title": "Show the company folio everywhere: PDF, lists, detail, WhatsApp, search by folio",
+          "status": "Backlog",
+          "parent_key": "ZIG-I17",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T08:56:43.994Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I17-4",
+          "kind": "ticket",
+          "title": "Folio series per company: counter table, atomic assignment at create, migration and backfill",
+          "status": "Backlog",
+          "parent_key": "ZIG-I17",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T08:56:43.977Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I17-2",
+          "kind": "ticket",
+          "title": "Client balance and history sections: Tickets, Presupuestos, Pagos, Recordatorios",
+          "status": "Backlog",
+          "parent_key": "ZIG-I17",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T08:56:43.949Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I17-1",
+          "kind": "ticket",
+          "title": "Client detail page /clients/[id]: header, actions and links from list, ticket and cobranza",
+          "status": "Ready",
+          "parent_key": "ZIG-I17",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T08:56:43.937Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I14-5",
+          "kind": "ticket",
+          "title": "Draft PR feat/dashboard-performance → sandbox, merged after Jorge approves",
+          "status": "Done",
+          "parent_key": "ZIG-I14",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T07:12:17.105Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I14-2",
+          "kind": "ticket",
+          "title": "Fix /dashboard LCP causes",
+          "status": "Done",
+          "parent_key": "ZIG-I14",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T07:12:17.105Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I14-4",
+          "kind": "ticket",
+          "title": "Re-measure /dashboard mobile Lighthouse after fixes",
+          "status": "Done",
+          "parent_key": "ZIG-I14",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T06:48:21.801Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I14-3",
+          "kind": "ticket",
+          "title": "Fix layout shift from streamed/deferred dashboard widgets",
+          "status": "Done",
+          "parent_key": "ZIG-I14",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T06:48:21.801Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I14-1",
+          "kind": "ticket",
+          "title": "Measure /dashboard mobile Lighthouse baseline on a local prod build",
+          "status": "Done",
+          "parent_key": "ZIG-I14",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T06:34:04.386Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I13-6",
+          "kind": "ticket",
+          "title": "One line editor for tickets, finalized-edit banner and resend, delete sheet, Duplicar ticket (canvas row 6)",
+          "status": "Done",
+          "parent_key": "ZIG-I13",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:16:23.314Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I13-5",
+          "kind": "ticket",
+          "title": "Presupuesto detail redesign and Duplicar presupuesto (canvas row 5)",
+          "status": "Done",
+          "parent_key": "ZIG-I13",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T03:39:43.273Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I13-4",
+          "kind": "ticket",
+          "title": "Ticket detail redesign: balance hero, quick actions, origin link, compact services, ⋯ menu (canvas row 4)",
+          "status": "Done",
+          "parent_key": "ZIG-I13",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T02:31:39.583Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I13-3",
+          "kind": "ticket",
+          "title": "Listo (ticket guardado) redesign: payment first, summary collapsed, reminders before sharing (canvas row 3)",
+          "status": "Done",
+          "parent_key": "ZIG-I13",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T01:23:28.991Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I13-2",
+          "kind": "ticket",
+          "title": "Composer and line sheet redesign (canvas rows 1 and 2)",
+          "status": "Done",
+          "parent_key": "ZIG-I13",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T00:41:44.228Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I13-1",
+          "kind": "ticket",
+          "title": "Shared building blocks: document line row, money figure, summary rows, confirm sheet and undo toast",
+          "status": "Done",
+          "parent_key": "ZIG-I13",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T00:19:51.513Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I12-4",
+          "kind": "ticket",
+          "title": "PDF content and fit: notes/conditions block, unsupported glyphs, rows that grow, column widths, Pago parcial label",
+          "status": "Done",
+          "parent_key": "ZIG-I12",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T21:54:36.220Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I12-3",
+          "kind": "ticket",
+          "title": "Mobile layout hardening: long names wrap, money never truncates, material step and client picker fixes",
+          "status": "Done",
+          "parent_key": "ZIG-I12",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T21:54:29.245Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-11",
+          "kind": "ticket",
+          "title": "Guard production data: refuse remote migrations and destructive SQL",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-10T20:10:25.866Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I10-4",
+          "kind": "ticket",
+          "title": "Materials in review, detail, post-creation editing and the PDF",
+          "status": "Done",
+          "parent_key": "ZIG-I10",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T20:06:23.684Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I10-2",
+          "kind": "ticket",
+          "title": "Servicios form: Materiales section (autocomplete, qty, unit, price, Quitar)",
+          "status": "Done",
+          "parent_key": "ZIG-I10",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T20:06:23.684Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I11-4",
+          "kind": "ticket",
+          "title": "Material sub-rows and Servicios / Materiales totals rows in the 2a PDF",
+          "status": "Done",
+          "parent_key": "ZIG-I11",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T19:15:01.669Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I11-1",
+          "kind": "ticket",
+          "title": "Embedded IBM Plex fonts + receipt payload v2 + handoff in repo",
+          "status": "Done",
+          "parent_key": "ZIG-I11",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T19:15:01.549Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I9-2",
+          "kind": "ticket",
+          "title": "Abrir PDF links stay in the app",
+          "status": "Done",
+          "parent_key": "ZIG-I9",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T05:39:32.711Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I9-1",
+          "kind": "ticket",
+          "title": "In-app PDF viewer routes for presupuesto and recibo",
+          "status": "Done",
+          "parent_key": "ZIG-I9",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T05:39:32.639Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I8-2",
+          "kind": "ticket",
+          "title": "Hoy: Crear presupuesto quick action right after Crear ticket",
+          "status": "Done",
+          "parent_key": "ZIG-I8",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T05:38:33.554Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I8-1",
+          "kind": "ticket",
+          "title": "Dock: Presupuestos replaces Clientes (Hoy · Tickets · + · Presupuestos · Más)",
+          "status": "Done",
+          "parent_key": "ZIG-I8",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T05:38:33.454Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I7-2",
+          "kind": "ticket",
+          "title": "Tickets search keeps focus and keyboard while results reload",
+          "status": "Done",
+          "parent_key": "ZIG-I7",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T05:35:10.945Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I7-1",
+          "kind": "ticket",
+          "title": "Mobile ticket card: status in the header, one payment block at the bottom",
+          "status": "Done",
+          "parent_key": "ZIG-I7",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T05:35:10.871Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I6-2",
+          "kind": "ticket",
+          "title": "Brand surfaces: ZigZagMark component, landing header, login, offline page, OG and Twitter images",
+          "status": "Done",
+          "parent_key": "ZIG-I6",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T23:58:18.203Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I6-1",
+          "kind": "ticket",
+          "title": "Brand assets in the repo + every app icon (favicon, PWA, Apple, manifest)",
+          "status": "Done",
+          "parent_key": "ZIG-I6",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T23:58:18.121Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I5-5",
+          "kind": "ticket",
+          "title": "Entry points (dock +, cliente), list rows with status filters, edit mode",
+          "status": "Done",
+          "parent_key": "ZIG-I5",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T07:36:09.050Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I5-2",
+          "kind": "ticket",
+          "title": "Line sheet: Del catálogo | Nuevo modes with a Guardar en mi catálogo toggle",
+          "status": "Done",
+          "parent_key": "ZIG-I5",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T06:44:41.899Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-05",
+          "kind": "ticket",
+          "title": "Point Playwright e2e at a dedicated test database",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-09T06:21:48.105Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-08",
+          "kind": "ticket",
+          "title": "Mobile dock visible on every page; sticky action bar floats above it",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-09T05:54:42.899Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-07",
+          "kind": "ticket",
+          "title": "Guard loadDashboardMetricsForCompany against IDOR",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-09T04:14:39.121Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I4-6",
+          "kind": "ticket",
+          "title": "Inicio: replace Por cobrar, Trabajo de hoy and Recordatorios with one Tu día block",
+          "status": "Done",
+          "parent_key": "ZIG-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T02:28:22.940Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I3-5",
+          "kind": "ticket",
+          "title": "Roles tab: master-detail with permission matrix and templates",
+          "status": "Done",
+          "parent_key": "ZIG-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T23:19:34.158Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I2-2",
+          "kind": "ticket",
+          "title": "Blue-only buttons and motion primitives",
+          "status": "Done",
+          "parent_key": "ZIG-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T23:07:22.163Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I2-1",
+          "kind": "ticket",
+          "title": "Tickets tab replaces Anotar in the mobile bottom bar",
+          "status": "Done",
+          "parent_key": "ZIG-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T23:07:22.163Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I2-7",
+          "kind": "ticket",
+          "title": "Floating glass dock with center + (port from Micasa / Filmia)",
+          "status": "Done",
+          "parent_key": "ZIG-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T23:07:22.163Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I2-3",
+          "kind": "ticket",
+          "title": "Service lines: 240-char description, live subtotal, compact rows",
+          "status": "Done",
+          "parent_key": "ZIG-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T23:07:22.163Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I3-4",
+          "kind": "ticket",
+          "title": "Equipo tab: tenant-scoped team list, add/invite sheet, member actions",
+          "status": "Done",
+          "parent_key": "ZIG-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T22:39:34.269Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I3-1",
+          "kind": "ticket",
+          "title": "Mi empresa hub shell, tabs and routing",
+          "status": "Done",
+          "parent_key": "ZIG-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T22:14:24.567Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I3-3",
+          "kind": "ticket",
+          "title": "Decision: invite users by email or keep admin-set passwords?",
+          "status": "Done",
+          "parent_key": "ZIG-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T21:27:14.426Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I20-3",
+          "kind": "ticket",
+          "title": "Quitar la conexión en vivo (/api/realtime con LISTEN) de la campana; refrescar al enfocar y cada pocos minutos",
+          "status": "Backlog",
+          "parent_key": "ZIG-I20",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T02:12:45.531Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I20-1",
+          "kind": "ticket",
+          "title": "Datos para pagar por transferencia (CLABE, banco, titular) en el recibo y en el WhatsApp de cobranza",
+          "status": "Backlog",
+          "parent_key": "ZIG-I20",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T02:12:45.531Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I20-2",
+          "kind": "ticket",
+          "title": "Notificaciones push de la PWA instalada: mantenimiento próximo y cambios relevantes del cliente/ticket",
+          "status": "Backlog",
+          "parent_key": "ZIG-I20",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T02:12:45.531Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I20-4",
+          "kind": "ticket",
+          "title": "PDF del recibo sin regenerar en cada vista (ETag) y fuentes IBM Plex con subset latino",
+          "status": "Backlog",
+          "parent_key": "ZIG-I20",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T02:12:45.531Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-7",
+          "kind": "ticket",
+          "title": "[D2] Hoy as the notebook page: Tu día first, two plain numbers, charts behind Ver más, three quick actions",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:58:57.836Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-17",
+          "kind": "ticket",
+          "title": "Validación con usuarios: three timed tasks with 2–3 real 50+ users, before and after delivery 2",
+          "status": "Ready",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:58:26.915Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-10",
+          "kind": "ticket",
+          "title": "[D2] Mobile metrics check in Playwright: small-text share and sub-44 px targets per screen",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:56:30.370Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-9",
+          "kind": "ticket",
+          "title": "[D2] Filters and sorting on phones: chips as the whole filter, three sorts, full sheet behind Más filtros",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:56:30.348Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-8",
+          "kind": "ticket",
+          "title": "[D2] Cards show the work: services line on ticket and cobranza cards, phone behind Llamar, weekday on dates",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:56:30.323Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-6",
+          "kind": "ticket",
+          "title": "[D2] Bottom chrome: dock hides under sticky action bars, clearance, opaque dock, untruncated labels",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:56:30.299Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-5",
+          "kind": "ticket",
+          "title": "[D2] Typography floor: 14 px caption token, retire 10/11/13 px and non-decorative text-xs",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:56:30.273Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I17-10",
+          "kind": "ticket",
+          "title": "QA + final PR feat/clients-folios-sessions → sandbox",
+          "status": "Backlog",
+          "parent_key": "ZIG-I17",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T08:56:44.040Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I17-8",
+          "kind": "ticket",
+          "title": "Cerrar sesión en todos los dispositivos in Mi cuenta",
+          "status": "Backlog",
+          "parent_key": "ZIG-I17",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T08:56:44.027Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I17-6",
+          "kind": "ticket",
+          "title": "Configurable folio prefixes in Mi empresa > Datos (default P / R)",
+          "status": "Backlog",
+          "parent_key": "ZIG-I17",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T08:56:44.006Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I17-3",
+          "kind": "ticket",
+          "title": "Free notes per client (Client.notes, Drizzle migration)",
+          "status": "Backlog",
+          "parent_key": "ZIG-I17",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T08:56:43.957Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I15-2",
+          "kind": "ticket",
+          "title": "Sample PDFs for Jorge, then PR feat/pdf-receipt-v2 → sandbox",
+          "status": "Done",
+          "parent_key": "ZIG-I15",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T07:19:19.059Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I15-1",
+          "kind": "ticket",
+          "title": "Renderer + payload: header without date, material groups, Servicios/Materiales/Total totals",
+          "status": "Done",
+          "parent_key": "ZIG-I15",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T07:19:19.059Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I12-6",
+          "kind": "ticket",
+          "title": "QA + final PR feat/composer-hardening → sandbox: adversarial e2e that replays the 2026-10-10 run",
+          "status": "Won't do",
+          "parent_key": "ZIG-I12",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T06:32:32.609Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I13-8",
+          "kind": "ticket",
+          "title": "QA + final PR feat/documents-redesign → sandbox",
+          "status": "Done",
+          "parent_key": "ZIG-I13",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:39:26.241Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-06",
+          "kind": "ticket",
+          "title": "Verify Compartir recibo on a real Android phone",
+          "status": "Won't do",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:39:05.751Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I13-7",
+          "kind": "ticket",
+          "title": "Tickets list cards redesign (canvas row 7)",
+          "status": "Done",
+          "parent_key": "ZIG-I13",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:16:23.314Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I12-5",
+          "kind": "ticket",
+          "title": "Review defaults, copy and a11y: payment default, sticky saldo, presupuesto copy, descriptions on review, input labels",
+          "status": "Done",
+          "parent_key": "ZIG-I12",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T22:06:23.860Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-12",
+          "kind": "ticket",
+          "title": "Remove Exportar CSV everywhere (tickets, servicios, clientes, auditoría)",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-10T20:34:46.171Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I11-5",
+          "kind": "ticket",
+          "title": "Fidelity QA, visual baselines, final PR feat/pdf-redesign → sandbox",
+          "status": "Done",
+          "parent_key": "ZIG-I11",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T20:07:25.666Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I10-5",
+          "kind": "ticket",
+          "title": "QA + final PR feat/materiales → sandbox",
+          "status": "Done",
+          "parent_key": "ZIG-I10",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T20:06:23.684Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I11-6",
+          "kind": "ticket",
+          "title": "Drop Notas al pie de recibo (settings.invoice_footer_note)",
+          "status": "Done",
+          "parent_key": "ZIG-I11",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T19:15:01.705Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I11-3",
+          "kind": "ticket",
+          "title": "Tagline (Lema o giro) in Mi empresa › Datos › Configuración",
+          "status": "Done",
+          "parent_key": "ZIG-I11",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T19:15:01.634Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I9-3",
+          "kind": "ticket",
+          "title": "QA on phone + final PR feat/pdf-in-app → sandbox",
+          "status": "Done",
+          "parent_key": "ZIG-I9",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T05:38:57.711Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I8-4",
+          "kind": "ticket",
+          "title": "QA + final PR feat/presupuestos-dock → sandbox",
+          "status": "Done",
+          "parent_key": "ZIG-I8",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T05:38:33.652Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I8-3",
+          "kind": "ticket",
+          "title": "Presupuestos list: search by cliente or #id",
+          "status": "Done",
+          "parent_key": "ZIG-I8",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T05:38:33.604Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I7-3",
+          "kind": "ticket",
+          "title": "QA + final PR feat/tickets-list-mobile → sandbox",
+          "status": "Done",
+          "parent_key": "ZIG-I7",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T05:35:10.999Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I6-3",
+          "kind": "ticket",
+          "title": "README, product guides and docs show the new logo; final sweep and sandbox PR",
+          "status": "Done",
+          "parent_key": "ZIG-I6",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T23:58:18.253Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I5-6",
+          "kind": "ticket",
+          "title": "Motion polish, mobile e2e, visual and a11y baseline for presupuestos",
+          "status": "Done",
+          "parent_key": "ZIG-I5",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T07:36:09.050Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-03",
+          "kind": "ticket",
+          "title": "Document the sandbox integration branch",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-09T06:49:32.641Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-09",
+          "kind": "ticket",
+          "title": "Fix /company horizontal overflow at 375px (logo file input)",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-09T05:54:42.899Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I4-4",
+          "kind": "ticket",
+          "title": "Inicio: Necesita atención renders 3 cards, then reflows to 4 when schedule counts arrive",
+          "status": "Done",
+          "parent_key": "ZIG-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T02:39:30.106Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I4-5",
+          "kind": "ticket",
+          "title": "Inicio: Actividad reciente shows 5 entries, then a Ver más button",
+          "status": "Done",
+          "parent_key": "ZIG-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T02:26:46.279Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I4-3",
+          "kind": "ticket",
+          "title": "Inicio header: drop Exportar PDF/CSV, put Acciones rápidas on top",
+          "status": "Done",
+          "parent_key": "ZIG-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T02:26:46.279Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I4-2",
+          "kind": "ticket",
+          "title": "Remove Buscar from the sidebar",
+          "status": "Done",
+          "parent_key": "ZIG-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T02:26:46.279Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I4-1",
+          "kind": "ticket",
+          "title": "Theme toggle moves to the sidebar footer with a View Transition reveal",
+          "status": "Done",
+          "parent_key": "ZIG-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T02:26:46.279Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I3-7",
+          "kind": "ticket",
+          "title": "QA: mobile e2e, visual snapshots and accessibility of the hub",
+          "status": "Done",
+          "parent_key": "ZIG-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T00:28:06.188Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I3-2",
+          "kind": "ticket",
+          "title": "Datos tab: company form in collapsible sections on mobile",
+          "status": "Done",
+          "parent_key": "ZIG-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-09T00:10:26.221Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I3-6",
+          "kind": "ticket",
+          "title": "System operator path and cleanup of the old pages",
+          "status": "Done",
+          "parent_key": "ZIG-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T23:49:49.615Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I2-6",
+          "kind": "ticket",
+          "title": "Motion polish, mobile e2e and visual baseline",
+          "status": "Done",
+          "parent_key": "ZIG-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T23:07:22.163Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I20-5",
+          "kind": "ticket",
+          "title": "Limpiar el bundle: quitar react-to-pdf, medir con el analizador de Next y diferir recharts/framer-motion donde convenga",
+          "status": "Backlog",
+          "parent_key": "ZIG-I20",
+          "claimed_by": null,
+          "updated_at": "2026-10-12T02:12:45.531Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-16",
+          "kind": "ticket",
+          "title": "[D3] Small detail fixes: one Compartir recibo, WhatsApp tile, listo primary button, recibo page copy",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:56:30.494Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-15",
+          "kind": "ticket",
+          "title": "[D3] (Optional) Texto grande switch in Más: root font size 18 px, per device",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:56:30.475Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-14",
+          "kind": "ticket",
+          "title": "[D3] Clientes cards: delete into ⋮ with a named confirm, Llamar and Anotar trabajo as primary actions",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:56:30.455Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-13",
+          "kind": "ticket",
+          "title": "[D3] Composer polish: free text when the catalog is empty, one 48 px stepper, clearer save hint",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:56:30.434Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-12",
+          "kind": "ticket",
+          "title": "[D3] First-run and help: Anota tu primer trabajo on Hoy, ¿Cómo se usa?, sentence-case login labels",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:56:30.414Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18-11",
+          "kind": "ticket",
+          "title": "[D3] Password recovery: ¿Olvidaste tu contraseña? with a reset link",
+          "status": "Done",
+          "parent_key": "ZIG-I18",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:56:30.392Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I17-9",
+          "kind": "ticket",
+          "title": "(Optional, sessions phase 2) PIN unlock after inactivity on remembered devices",
+          "status": "Won't do",
+          "parent_key": "ZIG-I17",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T08:56:44.036Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-02",
+          "kind": "ticket",
+          "title": "Triage stale Dependabot PRs",
+          "status": "Won't do",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-10T20:14:53.497Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-13",
+          "kind": "ticket",
+          "title": "Refresh stale presupuestos visual baselines and pin the detail shot",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-10T20:10:25.866Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-10",
+          "kind": "ticket",
+          "title": "Placeholder for the company logo preview while it loads",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-09T06:21:48.105Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-04",
+          "kind": "ticket",
+          "title": "Make audit.test.ts hermetic (mock db)",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-08T23:09:53.584Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-01",
+          "kind": "ticket",
+          "title": "Close stale GitHub issues for shipped work",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-08T17:42:01.166Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I20",
+          "kind": "initiative",
+          "title": "Rendimiento, avisos y datos de pago",
+          "status": "Planning",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-12T02:11:58.446Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I18",
+          "kind": "initiative",
+          "title": "UX para usuarios 50+ en móvil (auditoría oct 2026)",
+          "status": "Active",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-11T19:55:29.932Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I19",
+          "kind": "initiative",
+          "title": "Remove GitHub CI for now",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-11T08:44:36.441Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I17",
+          "kind": "initiative",
+          "title": "Cliente, folios y sesiones: client detail page, per-company folio series P-0001 / R-0001, longer field sessions",
+          "status": "Active",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-11T08:44:17.728Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I16",
+          "kind": "initiative",
+          "title": "CI speed-up: 333px mobile specs only for main, drop duplicate steps",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-11T08:42:30.582Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I15",
+          "kind": "initiative",
+          "title": "PDF revision 2: no date under Folio, materials grouped under each service, totals without Subtotal",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-11T07:19:26.492Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I14",
+          "kind": "initiative",
+          "title": "Dashboard load performance (mobile LCP + CLS)",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-11T07:12:17.105Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I12",
+          "kind": "initiative",
+          "title": "Composer hardening: money correctness, input validation, mobile layout and PDF from the 2026-10-10 QA run",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-11T06:32:43.015Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I13",
+          "kind": "initiative",
+          "title": "Mobile documents redesign: composer, line sheet, listo, ticket and presupuesto detail, one editor, delete and list",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:39:30.134Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I8",
+          "kind": "initiative",
+          "title": "Presupuestos first on mobile: dock tab + Hoy quick action",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-10T20:07:25.666Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I11",
+          "kind": "initiative",
+          "title": "PDF redesign 2a: monochrome Letter Presupuesto / Recibo with IBM Plex, materials rows",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-10T20:07:25.666Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I10",
+          "kind": "initiative",
+          "title": "Materiales: catalog materials on services and material lines in tickets and presupuestos",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-10T20:06:23.684Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I9",
+          "kind": "initiative",
+          "title": "PDF opens inside the app (presupuesto detail and ticket review)",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-10T05:39:36.180Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I7",
+          "kind": "initiative",
+          "title": "Tickets list on mobile: one total per card, search keeps the keyboard",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-10T05:35:19.112Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I6",
+          "kind": "initiative",
+          "title": "New ZigZag logo everywhere (favicon, PWA icons, landing, login, OG, README, guides)",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-09T23:58:23.941Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I5",
+          "kind": "initiative",
+          "title": "Presupuesto creation redesign (composer) + inline service lines",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-09T07:56:53.752Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I4",
+          "kind": "initiative",
+          "title": "UI/UX details: theme toggle, sidebar search, Inicio header",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-09T06:49:56.418Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I3",
+          "kind": "initiative",
+          "title": "Mi empresa hub: Usuarios, Roles y Permisos inside the company settings",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-09T06:49:56.418Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I2",
+          "kind": "initiative",
+          "title": "Ticket creation redesign (mobile-first)",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-08T23:07:35.712Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "ZIG-I1",
+          "kind": "initiative",
+          "title": "Field program — first customer",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-08T18:19:38.715Z",
+          "priority": null,
+          "pr_url": null
+        }
+      ],
+      "recent": [
+        {
+          "at": "2026-10-12T02:12:45.531Z",
+          "type": "task.created",
+          "task_key": "ZIG-I20-5",
+          "agent": "Grok Bot (ZigZag)",
+          "note": null
+        },
+        {
+          "at": "2026-10-12T02:12:45.531Z",
+          "type": "task.created",
+          "task_key": "ZIG-I20-4",
+          "agent": "Grok Bot (ZigZag)",
+          "note": null
+        },
+        {
+          "at": "2026-10-12T02:12:45.531Z",
+          "type": "task.created",
+          "task_key": "ZIG-I20-3",
+          "agent": "Grok Bot (ZigZag)",
+          "note": null
+        },
+        {
+          "at": "2026-10-12T02:12:45.531Z",
+          "type": "task.created",
+          "task_key": "ZIG-I20-2",
+          "agent": "Grok Bot (ZigZag)",
+          "note": null
+        },
+        {
+          "at": "2026-10-12T02:12:45.531Z",
+          "type": "task.created",
+          "task_key": "ZIG-I20-1",
+          "agent": "Grok Bot (ZigZag)",
+          "note": null
+        },
+        {
+          "at": "2026-10-12T02:11:58.446Z",
+          "type": "task.created",
+          "task_key": "ZIG-I20",
+          "agent": "Grok Bot (ZigZag)",
+          "note": null
+        },
+        {
+          "at": "2026-10-12T02:11:58.446Z",
+          "type": "branch.registered",
+          "task_key": "ZIG-I20",
+          "agent": "Grok Bot (ZigZag)",
+          "note": null
+        },
+        {
+          "at": "2026-10-11T20:53:26.544Z",
+          "type": "footprint.gone",
+          "task_key": null,
+          "agent": "plania",
+          "note": null
+        },
+        {
+          "at": "2026-10-11T20:46:55.564Z",
+          "type": "footprint.gone",
+          "task_key": null,
+          "agent": "plania",
+          "note": null
+        },
+        {
+          "at": "2026-10-11T20:45:50.650Z",
+          "type": "footprint.gone",
+          "task_key": null,
+          "agent": "plania",
+          "note": null
+        }
+      ],
+      "tasks_sample_keys": [
+        "tasks"
+      ],
+      "tasks_count": 138
+    },
+    "filmia": {
+      "headline": "Prod = main af6c347 (FIL-I6 + FIL-I7, deploy 2026-10-11). Sandbox = main + #144 (FIL-I8). Falta: sandbox→main, luego db:clean-limbo --apply (FIL-I8-6); verificar en Neon el cron tonight-recos (FIL-I6-5); FIL-I2-3 espera credenciales Google.",
+      "headline_at": "2026-10-13T02:34:14.538Z",
+      "claims": [],
+      "initiatives": [
+        {
+          "key": "FIL-I2",
+          "title": "Post-QA octubre: cierre",
+          "status": "Active",
+          "counts": {
+            "Done": 2,
+            "Backlog": 1
+          },
+          "next_claimable": "FIL-I2-3",
+          "waiting_on_jorge": [],
+          "in_review": []
+        },
+        {
+          "key": "FIL-I6",
+          "title": "Hoy: recomendaciones fuera de Quiero ver (3 + 3)",
+          "status": "Shipping",
+          "counts": {
+            "Done": 4,
+            "Ready": 1
+          },
+          "next_claimable": "FIL-I6-5",
+          "waiting_on_jorge": [],
+          "in_review": []
+        },
+        {
+          "key": "FIL-I8",
+          "title": "Buscar sin hoja: resultados ricos y Ficha directa",
+          "status": "Shipping",
+          "counts": {
+            "Done": 6,
+            "Backlog": 1
+          },
+          "next_claimable": "FIL-I8-6",
+          "waiting_on_jorge": [],
+          "in_review": []
+        }
+      ],
+      "next_claimable": "FIL-I6-5",
+      "human_actions": 0,
+      "pending_approvals": 0,
+      "tasks": [
+        {
+          "key": "FIL-I6-5",
+          "kind": "ticket",
+          "title": "Verificación en vivo, telemetría por fuente y PR a sandbox",
+          "status": "Ready",
+          "parent_key": "FIL-I6",
+          "claimed_by": null,
+          "updated_at": "2026-10-13T02:34:19.576Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I7-4",
+          "kind": "ticket",
+          "title": "Candado: prueba que falla si vuelve un <Image> de TMDB sin unoptimized o un _next/image fuera de proxy.ts",
+          "status": "Done",
+          "parent_key": "FIL-I7",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:20:05.803Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I7-3",
+          "kind": "ticket",
+          "title": "Color ambiental sin /_next/image: el hook usa /api/poster-ambient",
+          "status": "Done",
+          "parent_key": "FIL-I7",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:20:04.476Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I7-2",
+          "kind": "ticket",
+          "title": "Fondos, fantasma y fotos sin Vercel: isTmdbImage + unoptimized en los 6 <Image> directos",
+          "status": "Done",
+          "parent_key": "FIL-I7",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:20:03.095Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I7-1",
+          "kind": "ticket",
+          "title": "PosterImage sin Vercel: unoptimized en todo src externo y tamaño TMDB por uso",
+          "status": "Done",
+          "parent_key": "FIL-I7",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:20:01.782Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I6-4",
+          "kind": "ticket",
+          "title": "Indicador «Recomendada», razones y acciones de una carta que no está en Quiero ver",
+          "status": "Done",
+          "parent_key": "FIL-I6",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T07:18:12.714Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I6-1",
+          "kind": "ticket",
+          "title": "Evaluar fuentes de candidatas con datos reales (recommendations vs discover vs similar)",
+          "status": "Done",
+          "parent_key": "FIL-I6",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T07:18:12.714Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I6-3",
+          "kind": "ticket",
+          "title": "Composición 3 + 3 por lente y lectura de mazos con recomendadas",
+          "status": "Done",
+          "parent_key": "FIL-I6",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T07:18:12.714Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I6-2",
+          "kind": "ticket",
+          "title": "Candidatas de TMDB, perfil con Quiero ver y datos por catalogId (migración 0011)",
+          "status": "Done",
+          "parent_key": "FIL-I6",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T07:18:12.714Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I4-1",
+          "kind": "ticket",
+          "title": "F1 · Direcciones de diseño de la ficha (canvas, Jorge elige)",
+          "status": "Done",
+          "parent_key": "FIL-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T17:41:44.603Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I5-1",
+          "kind": "ticket",
+          "title": "F1 · Direcciones de diseño de Perfil y Buscar (canvas, Jorge elige)",
+          "status": "Done",
+          "parent_key": "FIL-I5",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T06:25:17.554Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I1-6",
+          "kind": "ticket",
+          "title": "F6 · El enriquecimiento nunca borra datos del Catalog compartido",
+          "status": "Done",
+          "parent_key": "FIL-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T01:49:24.397Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I2-1",
+          "kind": "ticket",
+          "title": "Aplicar migración 0008 (drop Tag/TitleTag) después del deploy a main",
+          "status": "Done",
+          "parent_key": "FIL-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T01:49:24.397Z",
+          "priority": "P1",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-12",
+          "kind": "ticket",
+          "title": "Transiciones suaves entre películas en el mazo",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-13T02:33:18.255Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I8-7",
+          "kind": "ticket",
+          "title": "PR único a sandbox y prueba en iPhone",
+          "status": "Done",
+          "parent_key": "FIL-I8",
+          "claimed_by": null,
+          "updated_at": "2026-10-13T02:33:10.705Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I8-1",
+          "kind": "ticket",
+          "title": "Diseño: fila enriquecida, ficha preview y mantener en Buscar",
+          "status": "Done",
+          "parent_key": "FIL-I8",
+          "claimed_by": null,
+          "updated_at": "2026-10-13T02:22:17.908Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I8-5",
+          "kind": "ticket",
+          "title": "Hoy: la Recomendada abre la Ficha preview y se borra la hoja",
+          "status": "Done",
+          "parent_key": "FIL-I8",
+          "claimed_by": null,
+          "updated_at": "2026-10-13T02:22:11.678Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I8-4",
+          "kind": "ticket",
+          "title": "Filas de Buscar enriquecidas: IMDb, premios, duración y plataforma",
+          "status": "Done",
+          "parent_key": "FIL-I8",
+          "claimed_by": null,
+          "updated_at": "2026-10-13T02:22:11.661Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I8-3",
+          "kind": "ticket",
+          "title": "Buscar sin hoja: tocar abre la Ficha, mantener abre atajos",
+          "status": "Done",
+          "parent_key": "FIL-I8",
+          "claimed_by": null,
+          "updated_at": "2026-10-13T02:22:11.641Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I8-2",
+          "kind": "ticket",
+          "title": "Ficha preview por TMDB sin crear Title",
+          "status": "Done",
+          "parent_key": "FIL-I8",
+          "claimed_by": null,
+          "updated_at": "2026-10-13T02:22:11.620Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-14",
+          "kind": "ticket",
+          "title": "Lavados de la sala sin blur (gradientes pre-suavizados)",
+          "status": "Backlog",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-09T08:22:19.210Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-13",
+          "kind": "ticket",
+          "title": "Nuevo logo e íconos (F de película naranja→magenta) y acento retintado",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-09T08:04:26.199Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-11",
+          "kind": "ticket",
+          "title": "Hoy calienta el móvil: la sala respira sin parar",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-09T06:34:25.055Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I4-3",
+          "kind": "ticket",
+          "title": "F3 · Volver al lugar exacto: origen y posición del mazo",
+          "status": "Done",
+          "parent_key": "FIL-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T17:41:44.603Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I4-2",
+          "kind": "ticket",
+          "title": "F2 · Datos de personas: foto, personaje y director de fotografía",
+          "status": "Done",
+          "parent_key": "FIL-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T17:41:44.603Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I4-5",
+          "kind": "ticket",
+          "title": "F5 · Rail de personas con foto que abre su filmografía",
+          "status": "Done",
+          "parent_key": "FIL-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T17:41:44.603Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I4-4",
+          "kind": "ticket",
+          "title": "F4 · La ficha nueva: hero, sinopsis con «Más», acciones y «Ver esta noche»",
+          "status": "Done",
+          "parent_key": "FIL-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T17:41:44.603Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I4-6",
+          "kind": "ticket",
+          "title": "F6 · Buscar: «‹ <ficha>» de vuelta desde la filmografía",
+          "status": "Done",
+          "parent_key": "FIL-I4",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T17:41:44.603Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I5-4",
+          "kind": "ticket",
+          "title": "F4 · Buscar pulido sobre FIL-I3",
+          "status": "Done",
+          "parent_key": "FIL-I5",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T06:25:22.660Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I5-3",
+          "kind": "ticket",
+          "title": "F3 · Perfil nuevo: nombre arriba, Cuenta en una tarjeta y Salir al final",
+          "status": "Done",
+          "parent_key": "FIL-I5",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T06:25:21.051Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I5-2",
+          "kind": "ticket",
+          "title": "F2 · Header sin avatar, pestaña Perfil, Bienvenida que no se repite y fuera «te cabe»",
+          "status": "Done",
+          "parent_key": "FIL-I5",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T06:25:19.276Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I3-2",
+          "kind": "ticket",
+          "title": "F2 · Dock: Buscar reemplaza el «+»",
+          "status": "Done",
+          "parent_key": "FIL-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T06:11:40.947Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I3-1",
+          "kind": "ticket",
+          "title": "F1 · Nada se sale: resultados y hoja a cualquier ancho",
+          "status": "Done",
+          "parent_key": "FIL-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T06:11:40.947Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I3-5",
+          "kind": "ticket",
+          "title": "F5 · Búsqueda por director: chip y sugerencia en Todos",
+          "status": "Done",
+          "parent_key": "FIL-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T06:11:40.947Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I3-6",
+          "kind": "ticket",
+          "title": "F6 · «Dirigida por» abre la filmografía",
+          "status": "Done",
+          "parent_key": "FIL-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T06:11:40.947Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I3-4",
+          "kind": "ticket",
+          "title": "F4 · «Ver esta noche» desde la hoja de vista previa",
+          "status": "Done",
+          "parent_key": "FIL-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T06:11:40.947Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I3-3",
+          "kind": "ticket",
+          "title": "F3 · El dock se transforma en el campo de búsqueda (móvil)",
+          "status": "Done",
+          "parent_key": "FIL-I3",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T06:11:40.947Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I2-3",
+          "kind": "ticket",
+          "title": "Verificar Google SSO con credenciales reales (web + PWA iOS + Bienvenida)",
+          "status": "Backlog",
+          "parent_key": "FIL-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T02:49:47.073Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-10",
+          "kind": "ticket",
+          "title": "Pulido del mazo: Hoy continuo, listas cinemáticas y hojas sin X",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-08T02:47:59.678Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I2-2",
+          "kind": "ticket",
+          "title": "Correr backfill de premios (Title.awards) en Neon",
+          "status": "Done",
+          "parent_key": "FIL-I2",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T02:23:00.122Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I1-2",
+          "kind": "ticket",
+          "title": "F2 · Cutover de código: queries, acciones, enriquecimiento y cron sobre Catalog",
+          "status": "Done",
+          "parent_key": "FIL-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T01:49:24.397Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I1-4",
+          "kind": "ticket",
+          "title": "F4 · Frontend: sin editar ni quitar títulos, sin «Ya en Filmia», «Dónde la vi» en Marqué visto",
+          "status": "Done",
+          "parent_key": "FIL-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T01:49:24.397Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I1-5",
+          "kind": "ticket",
+          "title": "F5 · Re-vincular un título a otro match de TMDB («¿No es esta? Cambiar»)",
+          "status": "Done",
+          "parent_key": "FIL-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T01:49:24.397Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I1-3",
+          "kind": "ticket",
+          "title": "F3 · Migración 0010 destructiva: quitar metadatos de Title, catalogId NOT NULL, único (userId, catalogId)",
+          "status": "Done",
+          "parent_key": "FIL-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T01:49:24.397Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I1-1",
+          "kind": "ticket",
+          "title": "F1 · Migración 0009 aditiva: tabla Catalog + backfill + Title.catalogId nullable",
+          "status": "Done",
+          "parent_key": "FIL-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-08T01:49:24.397Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-05",
+          "kind": "ticket",
+          "title": "Docs: el plan vive en Plania (CLAUDE.md / AGENTS.md)",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-07T20:56:53.274Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I8-6",
+          "kind": "ticket",
+          "title": "Limpiar Titles en limbo creados por el botón FICHA",
+          "status": "Backlog",
+          "parent_key": "FIL-I8",
+          "claimed_by": null,
+          "updated_at": "2026-10-13T02:20:25.084Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I7-5",
+          "kind": "ticket",
+          "title": "Extras de next.config.ts images (opcional: solo si Jorge la pide)",
+          "status": "Won't do",
+          "parent_key": "FIL-I7",
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:29:31.759Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-06",
+          "kind": "ticket",
+          "title": "Esta noche: pesos aprendidos y Thompson sampling sobre tipos de razón",
+          "status": "Backlog",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-09T02:18:54.166Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-08",
+          "kind": "ticket",
+          "title": "Arreglar el error de tipos en scripts/verify-series-status.ts",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-08T03:07:49.094Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-09",
+          "kind": "ticket",
+          "title": "AGENTS.md apunta al protocolo 2.3 de Plania",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-08T02:47:53.348Z",
+          "priority": "P3",
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I8",
+          "kind": "initiative",
+          "title": "Buscar sin hoja: resultados ricos y Ficha directa",
+          "status": "Shipping",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-13T02:22:22.444Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I7",
+          "kind": "initiative",
+          "title": "TMDB directo: recortar Vercel Image Optimization",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-11T04:29:34.004Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I6",
+          "kind": "initiative",
+          "title": "Hoy: recomendaciones fuera de Quiero ver (3 + 3)",
+          "status": "Shipping",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-10T07:18:22.684Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I4",
+          "kind": "initiative",
+          "title": "Ficha cinemática: sinopsis arriba, personas con foto, «Ver esta noche» y volver al lugar exacto",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-08T17:41:44.603Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I5",
+          "kind": "initiative",
+          "title": "Perfil y Buscar al nivel de Hoy: cuenta en una tarjeta, Salir claro y sin «te cabe»",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-08T06:25:26.728Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I3",
+          "kind": "initiative",
+          "title": "Buscar en el dock: disco central, campo abajo, «Ver esta noche» y búsqueda por director",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-08T06:11:45.415Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I1",
+          "kind": "initiative",
+          "title": "Catalog split: Catalog compartido + Title por usuario",
+          "status": "Done",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-08T02:22:51.632Z",
+          "priority": null,
+          "pr_url": null
+        },
+        {
+          "key": "FIL-I2",
+          "kind": "initiative",
+          "title": "Post-QA octubre: cierre",
+          "status": "Active",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-08T01:49:24.397Z",
+          "priority": null,
+          "pr_url": null
+        }
+      ],
+      "recent": [
+        {
+          "at": "2026-10-13T02:34:19.576Z",
+          "type": "result.added",
+          "task_key": "FIL-I6-5",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:34:14.538Z",
+          "type": "project.updated",
+          "task_key": null,
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:34:07.263Z",
+          "type": "task.status",
+          "task_key": "FIL-I6-5",
+          "agent": "plania",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:34:07.263Z",
+          "type": "blocker.satisfied",
+          "task_key": "FIL-I6-5",
+          "agent": "plania",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:34:07.263Z",
+          "type": "env.set",
+          "task_key": null,
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:33:18.255Z",
+          "type": "note",
+          "task_key": "FIL-12",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:33:18.255Z",
+          "type": "task.status",
+          "task_key": "FIL-12",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:33:10.705Z",
+          "type": "note",
+          "task_key": "FIL-I8-7",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:33:10.705Z",
+          "type": "task.status",
+          "task_key": "FIL-I8-7",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-13T02:33:09.137Z",
+          "type": "task.status",
+          "task_key": "FIL-12",
+          "agent": "Claude Code",
+          "note": null
+        }
+      ],
+      "tasks_sample_keys": [
+        "tasks"
+      ],
+      "tasks_count": 59
+    },
+    "micasa": {
+      "headline": "",
+      "headline_at": null,
+      "claims": [],
+      "initiatives": [
+        {
+          "key": "MIC-I1",
+          "title": "Brand refresh: new logo and app icons everywhere",
+          "status": "Shipping",
+          "counts": {
+            "Done": 3,
+            "Ready": 1
+          },
+          "next_claimable": "MIC-I1-4",
+          "waiting_on_jorge": [],
+          "in_review": []
+        }
+      ],
+      "next_claimable": "MIC-I1-4",
+      "human_actions": 0,
+      "pending_approvals": 0,
+      "tasks": [
+        {
+          "key": "MIC-I1-4",
+          "kind": "ticket",
+          "title": "Confirm the new icons and splash on real devices",
+          "status": "Ready",
+          "parent_key": "MIC-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T02:30:45.228Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "MIC-I1-3",
+          "kind": "ticket",
+          "title": "Regenerate iOS splash screens with the new mark and verify on devices",
+          "status": "Done",
+          "parent_key": "MIC-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T02:25:27.410Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "MIC-I1-2",
+          "kind": "ticket",
+          "title": "Switch MicasaMark, BrandLoader, offline page and OG image to the new mark",
+          "status": "Done",
+          "parent_key": "MIC-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T00:14:37.921Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "MIC-I1-1",
+          "kind": "ticket",
+          "title": "Import new icon set; rewire favicons, Apple icon, manifest and service worker",
+          "status": "Done",
+          "parent_key": "MIC-I1",
+          "claimed_by": null,
+          "updated_at": "2026-10-10T00:14:37.867Z",
+          "priority": "P2",
+          "pr_url": null
+        },
+        {
+          "key": "MIC-I1",
+          "kind": "initiative",
+          "title": "Brand refresh: new logo and app icons everywhere",
+          "status": "Shipping",
+          "parent_key": null,
+          "claimed_by": null,
+          "updated_at": "2026-10-10T02:30:45.228Z",
+          "priority": null,
+          "pr_url": null
+        }
+      ],
+      "recent": [
+        {
+          "at": "2026-10-10T04:51:36.344Z",
+          "type": "blocker.resolved",
+          "task_key": "MIC-I1-4",
+          "agent": "jorge",
+          "note": null
+        },
+        {
+          "at": "2026-10-10T04:07:39.401Z",
+          "type": "footprint.gone",
+          "task_key": null,
+          "agent": "plania",
+          "note": null
+        },
+        {
+          "at": "2026-10-10T03:49:17.266Z",
+          "type": "footprint.seen",
+          "task_key": null,
+          "agent": "plania",
+          "note": null
+        },
+        {
+          "at": "2026-10-10T03:49:17.266Z",
+          "type": "footprint.seen",
+          "task_key": null,
+          "agent": "plania",
+          "note": null
+        },
+        {
+          "at": "2026-10-10T03:49:17.266Z",
+          "type": "footprint.seen",
+          "task_key": null,
+          "agent": "plania",
+          "note": null
+        },
+        {
+          "at": "2026-10-10T02:30:45.228Z",
+          "type": "task.updated",
+          "task_key": "MIC-I1",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-10T02:30:45.228Z",
+          "type": "note",
+          "task_key": "MIC-I1-4",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-10T02:30:45.228Z",
+          "type": "task.updated",
+          "task_key": "MIC-I1-4",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-10T02:25:27.425Z",
+          "type": "task.updated",
+          "task_key": "MIC-I1",
+          "agent": "Claude Code",
+          "note": null
+        },
+        {
+          "at": "2026-10-10T02:25:27.425Z",
+          "type": "task.status",
+          "task_key": "MIC-I1",
+          "agent": "Claude Code",
+          "note": null
+        }
+      ],
+      "tasks_sample_keys": [
+        "tasks"
+      ],
+      "tasks_count": 5
+    }
+  },
+  "inbox": {
+    "count": 3,
+    "by_project": {
+      "workia": 1,
+      "zigzag": 2
+    },
+    "items": [
+      {
+        "id": "a1660090-3086-4b3f-bbde-74f3d942ab3c",
+        "kind": "human_action",
+        "project": "workia",
+        "key": "WRK-I4-1",
+        "title": "F1 · Prerrequisito: importación/exportación de personas completa en producción",
+        "why": "Verificar en prod: 0010–0014 aplicadas (import_jobs, import_rows.undone_at, people_curp_active_unique, people_rfc_active_unique, people_search_trgm_idx), permisos people:import/export en super_admin y admin, viewer ve «Acceso no permitido». Contestar con la línea base del esquema.",
+        "waiting_since": "2026-10-13T02:30:14.308Z",
+        "action_hint": "mark done",
+        "pr_url": null
+      },
+      {
+        "id": "d5aeb188-a524-4d91-975c-6d50427bd50f",
+        "kind": "footprint",
+        "project": "zigzag",
+        "key": null,
+        "title": "worktree /Users/jorgeleon/Developer/Projects/zigzag/.claude/worktrees/tickets-creation-mobile-initiative-d5b317",
+        "why": "obsoleto: rama fusionada",
+        "waiting_since": "2026-10-10T03:49:10.780Z",
+        "action_hint": "git -C /Users/jorgeleon/Developer/Projects/zigzag worktree remove /Users/jorgeleon/Developer/Projects/zigzag/.claude/worktrees/tickets-creation-mobile-initiative-d5b317",
+        "pr_url": null
+      },
+      {
+        "id": "c7cfddec-042b-4bb9-b37b-b72ffe7a65c3",
+        "kind": "footprint",
+        "project": "zigzag",
+        "key": null,
+        "title": "worktree /Users/jorgeleon/Developer/Projects/zigzag/.claude/worktrees/zig-i3-initiative-616f78",
+        "why": "obsoleto: rama fusionada",
+        "waiting_since": "2026-10-10T03:49:10.780Z",
+        "action_hint": "git -C /Users/jorgeleon/Developer/Projects/zigzag worktree remove /Users/jorgeleon/Developer/Projects/zigzag/.claude/worktrees/zig-i3-initiative-616f78",
+        "pr_url": null
+      }
+    ]
+  }
+}

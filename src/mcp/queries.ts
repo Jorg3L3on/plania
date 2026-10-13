@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { checks, events, projects, taskAliases, tasks, type Actor, type Project, type Task } from "../db/schema.js";
+import { checks, events, projects, pullRequests, taskAliases, tasks, type Actor, type Project, type Task } from "../db/schema.js";
 import { blockerList, hasUnsatisfiedBlocker } from "./blockers.js";
 import { taskChecks } from "./checks.js";
 import { listDecisions, type DecisionFilters } from "./decisions.js";
@@ -172,6 +172,28 @@ async function childKeysOf(db: Q, t: Task): Promise<string[]> {
   return children.map((c) => c.key);
 }
 
+// 2.8: the PR behind a task as one object, from pull_requests (the poller) or, when the poller has not
+// seen it, the number parsed from pr_url. null when the task has neither.
+export type PrShape = { number: number | null; url: string; state: string | null; ci_state: string | null; merged_at: string | null };
+export const PR_NUMBER = /\/pull\/(\d+)/;
+export function prFromUrl(url: string | null): PrShape | null {
+  if (!url) return null;
+  const m = PR_NUMBER.exec(url);
+  return { number: m ? Number(m[1]) : null, url, state: null, ci_state: null, merged_at: null };
+}
+export async function prOf(db: Q, t: Pick<Task, "id" | "prUrl">): Promise<PrShape | null> {
+  const [pr] = await db.select().from(pullRequests).where(eq(pullRequests.taskId, t.id)).orderBy(desc(pullRequests.updatedAt)).limit(1);
+  if (pr) return { number: pr.number, url: pr.url, state: pr.state, ci_state: pr.ciState, merged_at: iso(pr.mergedAt) };
+  return prFromUrl(t.prUrl);
+}
+// The same object as a SQL expression, for list_tasks (one row per task, no second query).
+const prJson = sql<PrShape | null>`coalesce(
+  (select jsonb_build_object('number', pr.number, 'url', pr.url, 'state', pr.state, 'ci_state', pr.ci_state,
+    'merged_at', to_char(pr.merged_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+   from pull_requests pr where pr.task_id = ${tasks.id} order by pr.updated_at desc limit 1),
+  case when ${tasks.prUrl} is not null then jsonb_build_object(
+    'number', nullif(substring(${tasks.prUrl} from '/pull/(\\d+)'), '')::int, 'url', ${tasks.prUrl}, 'state', null, 'ci_state', null, 'merged_at', null) end)`;
+
 // get_task view "full" (the default): everything but the log, which list_events pages by cursor
 // (include_log: true adds the last LOG_LIMIT events). The screen and the export read this too.
 export async function taskFull(db: Q, t: Task, opts: ShapeOptions = {}) {
@@ -205,6 +227,8 @@ export async function taskFull(db: Q, t: Task, opts: ShapeOptions = {}) {
       : {}),
     branch: t.branch,
     pr_url: t.prUrl,
+    pr: await prOf(db, t),
+    due_on: t.dueOn,
     areas: t.areas,
     handoff: t.handoff && new Date(t.handoff.until) > new Date() ? t.handoff : null,
     workspace_history: await workspaceHistory(db, t.id),
@@ -215,7 +239,9 @@ export async function taskFull(db: Q, t: Task, opts: ShapeOptions = {}) {
     version: t.version,
     created_at: iso(t.createdAt),
     updated_at: iso(t.updatedAt),
+    status_changed_at: iso(t.statusChangedAt),
     resolved_at: iso(t.resolvedAt),
+    done_at: iso(t.resolvedAt),
     ...log,
   };
 }
@@ -272,10 +298,14 @@ export async function taskSummary(db: Q, t: Task) {
     blocked_note: t.blockedNote,
     branch: t.branch,
     pr_url: t.prUrl,
+    pr: await prOf(db, t),
+    due_on: t.dueOn,
     claim: claimShape(t),
     workspace: t.workspace,
     version: t.version,
     updated_at: iso(t.updatedAt),
+    status_changed_at: iso(t.statusChangedAt),
+    done_at: iso(t.resolvedAt),
     counts: { results: counts?.results ?? 0, docs: counts?.docs ?? 0, open_questions: counts?.questions ?? 0, log_total: counts?.log_total ?? 0 },
     scope_chars: t.scope.length,
   };
@@ -395,6 +425,12 @@ export async function listTasks(db: Q, projectId: string, filters: TaskFilters) 
       version: tasks.version,
       claimed_by: sql<Actor | null>`case when ${live} then ${tasks.owner} end`,
       updated_at: sql<string>`to_char(${tasks.updatedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+      // 2.8: when it moved, when it closed, when it is due, and its PR as one object.
+      status_changed_at: sql<string | null>`to_char(${tasks.statusChangedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+      done_at: sql<string | null>`to_char(${tasks.resolvedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+      due_on: tasks.dueOn,
+      pr_url: tasks.prUrl,
+      pr: prJson,
     })
     .from(tasks)
     .leftJoin(parent, eq(parent.id, tasks.parentId))
