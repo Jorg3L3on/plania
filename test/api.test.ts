@@ -103,7 +103,8 @@ describe("reads", () => {
     const list = (await (await req("GET", "/api/projects")).json()) as Json[];
     assert.deepEqual(list.map((p) => p.slug), ["filmia", "micasa", "workia", "zigzag"]);
     const micasa = list.find((p) => p.slug === "micasa")!;
-    assert.equal(micasa.line, "En curso: MIC-B-02 (test-agent)");
+    // 2.11: the line is the generated headline.
+    assert.equal(micasa.line, "En curso: MIC-B-02 (test-agent). Siguiente: MIC-01-F2.");
     assert.equal(micasa.open_questions, 0);
     assert.equal(list.find((p) => p.slug === "zigzag")!.line, "Sin ficha.");
     // Each project carries its tasks without scope, in the same shape as GET /api/projects/:slug.

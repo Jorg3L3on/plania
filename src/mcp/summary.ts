@@ -62,6 +62,10 @@ export function summarize(e: Ev): string {
       return `rama ${str(p.branch)} borrada`;
     case "release.recorded":
       return `${k ? `${k} ` : ""}desplegado en ${str(p.env)}`;
+    case "blocker.parsed":
+      return `${k} paso para Jorge: ${str(p.text).slice(0, 140)}`;
+    case "blocker.withdrawn":
+      return `${k} paso retirado por ${by}: ${str(p.text).slice(0, 140)}`;
     case "result.added":
       return `${k} evidencia ${str(p.kind)}: ${str(p.verdict)} (${by})`;
     case "decision.added":

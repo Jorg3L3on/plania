@@ -10,7 +10,8 @@ import { APPROVAL_ACTIONS, requestApproval } from "./approvals.js";
 import { inbox } from "./inbox.js";
 import { waiveCheck } from "./checks.js";
 import { addDecision, retireDecision } from "./decisions.js";
-import { headlineShape, setProject } from "./project.js";
+import { choreFor } from "./orden.js";
+import { headlineNoteShape, setProject } from "./project.js";
 import {
   ToolError,
   findProject,
@@ -203,8 +204,9 @@ const setTaskFields = {
   due_on: z.string().nullable().optional().describe("When it should be done, YYYY-MM-DD; null clears it"),
   cost_note: z.string().optional().describe("Debt only"),
   approval_id: z.string().optional().describe("For Won't do or reopening: the id of an approval Jorge granted (request_approval). Spent on this move"),
+  withdraw_blocker: z.string().optional().describe("Id of a human_action your own note created (JORGE_LINE_PARSED) that asks nothing of Jorge: it is removed. Same session or token only; needs no version"),
   note: z.string().optional(),
-  version: z.number().int().optional().describe("The version you read. Required unless note is the only field"),
+  version: z.number().int().optional().describe("The version you read. Required unless note or withdraw_blocker is the only field"),
 };
 
 const setCheckFields = {
@@ -300,8 +302,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Where the project stands, generated from data: live claims (who, until when, where), the next claimable ticket,",
-        "and per open initiative its in_progress note and claims, next_action note and next_claimable, must_keep (pinned decisions) and status counts.",
-        "Also the headline (one line Jorge or an agent wrote with set_project; stale: true once an env, an initiative or a Done moved after it),",
+        "and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts.",
+        "Also the headline {generated, note}: generated from the data (what the release target runs, the release step, claims, what waits on Jorge, what is next), and the note set_project wrote (stale: true once an env, an initiative or a Done moved after it),",
         "project-wide pinned decisions and the latest events.",
         "Nobody writes the rest directly: update an initiative's next_action / in_progress_note with set_task, pin decisions with add_decision.",
       ].join(" "),
@@ -315,7 +317,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_project",
     {
       description: [
-        "Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline, settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release),",
+        "Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release),",
         "ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each,",
         "and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks and the command Jorge runs (null without settings.release).",
       ].join(" "),
@@ -331,7 +333,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
           body: p.body,
           rules: p.rulesText,
           rules_version: p.rulesVersion,
-          headline: headlineShape(p),
+          headline: headlineNoteShape(p),
           settings: p.settings,
           protocol_version: PROTOCOL_VERSION,
           version: p.version,
@@ -461,12 +463,19 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_next",
     {
       description:
-        "Next claimable ticket: Backlog or Ready, or In progress with an expired lease (stale_claim: true), with every blocker satisfied (tasks In review or Done, env conditions holding). P0 first, then key. Read-only: does not claim; call claim next.",
+        "Next claimable ticket: Backlog or Ready, or In progress with an expired lease (stale_claim: true), with every blocker satisfied (tasks In review or Done, env conditions holding). P0 first, then key. Read-only: does not claim; call claim next. When nothing is claimable (task null) it offers chore: one audit finding an agent can fix (its fix_hint names the tool), or a state_note older than the initiative's last move; do it.",
       inputSchema: { project, initiative_key: z.string().optional() },
       annotations: readOnly,
     },
     ({ project, initiative_key }) =>
-      run(async () => nextTask(db, (await findProject(db, project)).id, initiative_key)),
+      run(async () => {
+        const p = await findProject(db, project);
+        const next = await nextTask(db, p.id, initiative_key);
+        // 2.11: a quiet project still has housekeeping; get_next hands one piece of it out.
+        if (next.task || initiative_key) return next;
+        const chore = await choreFor(db, p);
+        return chore ? { ...next, chore } : next;
+      }),
   );
 
   server.registerTool(
@@ -572,7 +581,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Done is yours once the work is finished: code, bug and debt tickets from Merged or Released; ops and research from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open status. Elsewhere it is INVALID_TRANSITION with allowed_from.",
         "Won't do and reopening a closed task are Jorge's: HUMAN_ONLY. Ask with request_approval; once he grants it on screen, pass approval_id here (it is spent on this move).",
         "In review (and later Done) needs every check done or waived: CHECKS_OPEN lists the open numbers. An initiative needs every ticket closed: INITIATIVE_CHILDREN_OPEN.",
-        "A line that starts with 'Jorge:' in summary, next_action, in_progress_note, state_note, blocked_note or a note becomes a human_action blocker (warning JORGE_LINE_PARSED); it reaches his inbox without moving the task, and only one from blocked_note holds it Blocked.",
+        "A line that starts with 'Jorge:' in summary, next_action, in_progress_note, state_note, blocked_note or a note becomes a human_action blocker (warning JORGE_LINE_PARSED); it reaches his inbox without moving the task, and only one from blocked_note holds it Blocked. In the fields (not notes) a sentence naming Jorge with a waiting cue counts too. A blocker your note created by mistake: withdraw_blocker with its id.",
         "The reply is {key, status, version, changed}; verbose: true adds the full task.",
       ].join(" "),
       inputSchema: { project, actor, request_id, verbose, ...setTaskFields },
@@ -754,7 +763,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline.",
-        "headline: one line (≤ 280 chars) on where the project stands, shown first in get_resume; the server marks it stale when an env, an initiative or a Done moves after it.",
+        "headline: the note (≤ 280 chars) beside the generated headline in get_resume, only for what the data cannot say; the server marks it stale when an env, an initiative or a Done moves after it.",
         "settings merge key by key (null removes one): release_target (env a Released ticket reached, default prod), branch_pattern (regex), claim_from (backlog | ready, what get_next offers),",
         "resources ({'port:*': {needs_approval, ttl_max}}), quotas ({'quota:omdb': {daily}}), github ({repo, token_env}), vercel ({project_id, team_id, token_env, targets}), release ({from, into, env}: the branch Jorge fast-forwards into another to ship, e.g. sandbox → main for prod). Never a secret: integrations name env vars.",
         "Pass the version from get_project; STALE_VERSION if it moved. The old text stays in the log.",
@@ -863,7 +872,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "audit",
     {
       description: [
-        "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_STATE_NOTE_STALE, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
+        "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
         "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, and the footprint codes.",
         "Each finding has key, detail and fix_hint. It also runs every ten minutes; get_resume.status.audit_findings is the last count.",
       ].join(" "),

@@ -6,7 +6,7 @@
     "state": "open",
     "body": "Adds the new tables.\n\nPlania: FIL-I1-1\n",
     "merged_at": null,
-    "merge_commit_sha": null,
+    "merge_commit_sha": "f8a4e19000000000000000000000000000000000",
     "updated_at": "2026-10-07T20:00:00Z",
     "head": { "sha": "aaaaaaa111111111111111111111111111111111", "ref": "jl/catalog-split" },
     "base": { "ref": "sandbox" }

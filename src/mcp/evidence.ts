@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { checks, results, tasks, type Project, type Task } from "../db/schema.js";
 import { setMetricInTx } from "./blockers.js";
@@ -69,14 +69,21 @@ export async function headFor(db: Q, t: Pick<Task, "projectId">, branch: string 
   return latest?.commit ?? null;
 }
 
+// 2.11 (fix d): each result also says which of this task's checks it ticked (checks.evidence_id),
+// so the sheet's timeline can show "☑ 2, 3" on the row.
 export async function taskResults(db: Q, t: Pick<Task, "id" | "projectId" | "branch">) {
   const rows = await db.select().from(results).where(eq(results.taskId, t.id)).orderBy(asc(results.createdAt));
+  const ticked = await db
+    .select({ n: checks.n, evidenceId: checks.evidenceId })
+    .from(checks)
+    .where(and(eq(checks.taskId, t.id), isNotNull(checks.evidenceId)))
+    .orderBy(asc(checks.n));
   const heads = new Map<string, string | null>();
   const out = [];
   for (const r of rows) {
     const b = r.branch ?? t.branch ?? null;
     if (b && !heads.has(b)) heads.set(b, await headFor(db, t, b));
-    out.push(resultShape(r, b ? (heads.get(b) ?? null) : null));
+    out.push({ ...resultShape(r, b ? (heads.get(b) ?? null) : null), ticked_checks: ticked.filter((c) => c.evidenceId === r.id).map((c) => c.n) });
   }
   return out;
 }

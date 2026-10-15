@@ -3,7 +3,6 @@ import { alias } from "drizzle-orm/pg-core";
 import { digestReads, events, projects, tasks, type Actor, type Task } from "../db/schema.js";
 import { footprintsOf } from "./footprint-read.js";
 import { inbox, type InboxItem } from "./inbox.js";
-import { headlineShape } from "./project.js";
 import { listEvents } from "./queries.js";
 import { resumeDigest, resumeLine } from "./resume.js";
 import { iso, type Q } from "./tx.js";
@@ -60,7 +59,7 @@ export async function listProjects(db: Q) {
         slug: p.slug,
         title: p.title,
         key_prefix: p.keyPrefix,
-        headline: headlineShape(p),
+        headline: d.headline,
         line: resumeLine(d),
         counts: counts.get(p.id) ?? ZERO_COUNTS,
         open_questions: d.open_questions.length,
@@ -288,7 +287,8 @@ export async function getDigest(db: Q, input: DigestInput = {}) {
       slug: p.slug,
       title: p.title,
       line: resumeLine(d),
-      headline: d.headline.text || null,
+      headline: d.headline.generated || null,
+      headline_note: d.headline.note.text || null,
       changes: lines.slice(-perProject),
       changes_total: meaningful.length,
       changes_lines: lines.length,

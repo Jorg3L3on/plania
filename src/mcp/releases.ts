@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { envStates, pullRequests, releases, tasks, type Project } from "../db/schema.js";
+import { envStates, releases, tasks, type Project } from "../db/schema.js";
+import { prRowOf } from "./queries.js";
 import { iso, type Q } from "./tx.js";
 
 // Release records (R-22): one per (env, commit) the pollers saw a ticket reach Released on. The
@@ -9,7 +10,7 @@ export async function recordRelease(tx: Q, p: Project, env: string, taskKey: str
   const [state] = await tx.select().from(envStates).where(and(eq(envStates.projectId, p.id), eq(envStates.env, env))).limit(1);
   if (!state?.commit) return;
   const [t] = await tx.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, taskKey))).limit(1);
-  const [pr] = t ? await tx.select().from(pullRequests).where(eq(pullRequests.taskId, t.id)).orderBy(desc(pullRequests.updatedAt)).limit(1) : [];
+  const pr = t ? await prRowOf(tx, t) : undefined;
   const [previous] = await tx
     .select()
     .from(releases)

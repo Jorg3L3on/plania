@@ -143,7 +143,7 @@ describe("audit and releases", () => {
     await raw.query("update branches set merged_at = now(), head_sha = 'fedcba9' where name = 'jl/post-qa'");
     const r = await call("audit", P);
     const codes = r.findings.map((f: Json) => f.code).sort();
-    for (const code of ["ENV_DEPLOYED_AT_MISSING", "BRANCH_MERGED_NOT_DELETED", "INITIATIVE_STATE_NOTE_STALE", "TASK_MISSING_PR_URL"]) {
+    for (const code of ["ENV_DEPLOYED_AT_MISSING", "BRANCH_MERGED_NOT_DELETED", "INITIATIVE_SCOPE_HAS_STATUS", "TASK_MISSING_PR_URL"]) {
       assert.ok(codes.includes(code), `${code} in ${codes}`);
     }
     // FIL-I1-1 is Done and has no blockers; a Done ticket blocked by a Done ticket is not "blocked but satisfied" either.

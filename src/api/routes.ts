@@ -19,11 +19,12 @@ import { waiveCheck } from "../mcp/checks.js";
 import { listDecisions } from "../mcp/decisions.js";
 import { footprintFindings } from "../mcp/footprint-audit.js";
 import { inbox } from "../mcp/inbox.js";
+import { auditCounts, fixFinding, projectAudit } from "../mcp/orden.js";
 import { gatingSql } from "../mcp/jorge-lines.js";
 import { setProject } from "../mcp/project.js";
 import { ToolError, findProject, findTask, taskFull } from "../mcp/queries.js";
 import { answer } from "../mcp/questions.js";
-import { resumeDigest, resumeLine } from "../mcp/resume.js";
+import { nextStepLine, resumeDigest, resumeLine } from "../mcp/resume.js";
 import { WEB_ACTOR, webCtx, writeTx } from "../mcp/tx.js";
 import { claim, setTask } from "../mcp/writes.js";
 
@@ -107,6 +108,7 @@ api.get("/projects", async (c) => {
     const all = await db.select().from(projects).orderBy(asc(projects.slug));
     const allTasks = await screenTasks(db);
     const activity = await activityByProject(db);
+    const audits = await auditCounts(db);
     return Promise.all(
       all.map(async (p) => {
         const digest = await resumeDigest(db, p);
@@ -114,6 +116,8 @@ api.get("/projects", async (c) => {
           slug: p.slug,
           title: p.title,
           line: resumeLine(digest),
+          // Inicio's tiles read their "Siguiente" from the next step, not the headline.
+          next_line: nextStepLine(digest),
           open_questions: digest.open_questions.length,
           // The index draws one lane per initiative, so it needs every project's tasks.
           tasks: allTasks.filter((t) => t.project_id === p.id).map(({ project_id: _, ...t }) => t),
@@ -128,6 +132,8 @@ api.get("/projects", async (c) => {
             behind: e.drift.behind.length,
           })),
           activity: activity.get(p.id) ?? Array.from({ length: ACTIVITY_DAYS }, () => 0),
+          // 2.11: Orden's count (the last audit run), shown on the tile when above zero.
+          audit_count: audits.get(p.id) ?? 0,
           // Inicio's city: what each open initiative says it is doing and what it needs next.
           initiatives: digest.initiatives.map((i) => ({ key: i.key, in_progress: i.in_progress.note, next_action: i.next_action.note })),
           // 2.10: dates in the next two weeks, and what is past its due date.
@@ -236,6 +242,25 @@ api.patch("/projects/:slug", async (c) => {
   try {
     const result = await withDb((db) => setProject(db, { project: c.req.param("slug"), ...body }, webCtx));
     return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
+
+// 2.11 Orden: the last audit run with can_fix per finding, and the one-click fixes, run as Jorge.
+api.get("/projects/:slug/audit", async (c) => {
+  try {
+    return c.json(await withDb(async (db) => projectAudit(db, await findProject(db, c.req.param("slug")))));
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
+
+api.post("/projects/:slug/audit/fix", async (c) => {
+  const body = await readJson(c, z.object({ code: z.string().min(1), key: z.string().nullable().optional(), id: z.string().min(1) }));
+  if (body instanceof Response) return body;
+  try {
+    return c.json(await withDb(async (db) => fixFinding(db, await findProject(db, c.req.param("slug")), body)));
   } catch (e) {
     return errorResponse(c, e);
   }

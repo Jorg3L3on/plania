@@ -162,6 +162,13 @@
       "when": 1792044148412,
       "tag": "0022_housekeeping",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792094400000,
+      "tag": "0024_headline_note",
+      "breakpoints": true
     }
   ]
 }

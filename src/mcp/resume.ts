@@ -3,7 +3,9 @@ import { events, tasks, type Project, type Task } from "../db/schema.js";
 import { listDecisions } from "./decisions.js";
 import { machineLine } from "./footprint-read.js";
 import { liveOwner, nextTask } from "./queries.js";
-import { headlineShape } from "./project.js";
+import { generatedHeadline } from "./headline.js";
+import { initiativeState } from "./initiative-state.js";
+import { headlineNoteShape } from "./project.js";
 import { openQuestions } from "./questions.js";
 import { statusBlock } from "./status.js";
 import { iso, type Q } from "./tx.js";
@@ -64,6 +66,9 @@ export async function resumeDigest(db: Q, p: Project) {
       title: i.title,
       status: i.status,
       summary: i.summary,
+      // 2.11: the derived state first; the notes below are commentary.
+      state: await initiativeState(db, i, children),
+      state_note: i.stateNote,
       in_progress: { note: i.inProgressNote, claims: children.filter((t) => liveOwner(t)).map(claimLine) },
       next_action: { note: i.nextAction, next_claimable: (await nextTask(db, p.id, i.key)).task },
       must_keep: pinned.filter((d) => d.home === i.id).map((d) => d.shape),
@@ -79,15 +84,18 @@ export async function resumeDigest(db: Q, p: Project) {
     .orderBy(desc(events.id))
     .limit(RECENT_EVENTS);
 
+  const status = await statusBlock(db, p);
+  const next_claimable = (await nextTask(db, p.id)).task;
   return {
     project: p.slug,
     generated_at: new Date().toISOString(),
-    headline: headlineShape(p),
-    status: await statusBlock(db, p),
+    // 2.11: generated from the status block; the note is what set_project headline wrote.
+    headline: { generated: await generatedHeadline(db, p, { status, next_claimable, claims: claimed.map(claimLine) }), note: headlineNoteShape(p) },
+    status,
     // What this project's agents have running on the Mac, in one line (null when nothing is).
     machine: await machineLine(db, p.id),
     claims: claimed.map(claimLine),
-    next_claimable: (await nextTask(db, p.id)).task,
+    next_claimable,
     initiatives,
     standalone: {
       open: standalone.filter((t) => !CLOSED.includes(t.status)).length,
@@ -101,12 +109,18 @@ export async function resumeDigest(db: Q, p: Project) {
 
 export type ResumeDigest = Awaited<ReturnType<typeof resumeDigest>>;
 
-// One line per project (the screen's index, list_projects, get_digest): what is claimed, else the
-// next step an initiative wrote, else what is next to claim, else the headline.
+// One line per project (list_projects, get_digest, the screen's index): the generated headline,
+// else (nothing to say) the next step.
 export function resumeLine(d: ResumeDigest): string {
+  return d.headline.generated || nextStepLine(d);
+}
+
+// The next step in one line, for Inicio's tiles: what is claimed, else the next step an initiative
+// wrote, else what is next to claim, else the note. (The project line before 2.11.)
+export function nextStepLine(d: ResumeDigest): string {
   if (d.claims.length) return `En curso: ${d.claims.map((c) => `${c.key} (${c.owner?.agent})`).join(", ")}`;
   const noted = d.initiatives.find((i) => i.next_action.note);
   if (noted) return `${noted.key}: ${noted.next_action.note}`;
   if (d.next_claimable) return `Siguiente: ${d.next_claimable.key} · ${d.next_claimable.title}`;
-  return d.headline.text || "Sin ficha.";
+  return d.headline.note.text || "Sin ficha.";
 }

@@ -125,7 +125,15 @@ function TileCard({ t, index }: { t: Tile; index: number }) {
             <span className="font-mono text-[11px] text-muted-foreground">{t.progress.closed}/{t.progress.total}</span>
           </span>
         )}
-        <span className="text-xs leading-snug text-foreground/70">{t.envLine}</span>
+        <span className="text-xs leading-snug text-foreground/70">
+          {t.envLine}
+          {/* 2.11: Orden, what the audit found; the section is at the bottom of the project page. */}
+          {t.orden > 0 && (
+            <span className="ml-2 inline-flex items-center rounded-full bg-amber-500/12 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:text-amber-400" title="Hallazgos en Orden">
+              orden {t.orden}
+            </span>
+          )}
+        </span>
         <span className="line-clamp-2 text-[13px] leading-snug">
           <span className="font-semibold text-muted-foreground">Siguiente · </span>
           {t.nextKey && <span className="mr-1 font-mono text-[11px] text-muted-foreground">{t.nextKey}</span>}

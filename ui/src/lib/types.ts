@@ -10,7 +10,12 @@ export type EnvSummary = { env: string; commit: string | null; branch: string | 
 export type ProjectSummary = {
   slug: string;
   title: string;
+  /** 2.11: the generated headline. */
   line: string;
+  /** The next step, for the tiles. */
+  next_line: string;
+  /** Orden: the last audit run's count. */
+  audit_count: number;
   open_questions: number;
   tasks: TaskRow[];
   next_claimable: NextClaimable | null;
@@ -39,7 +44,22 @@ export type NextClaimable = {
   workspace: Workspace | null;
 };
 
-export type Headline = { text: string; version: number; at: string | null; stale: boolean };
+/** What set_project headline writes: since 2.11 the note beside the generated headline. */
+export type HeadlineNote = { text: string; version: number; at: string | null; stale: boolean };
+/** 2.11: get_resume.headline, generated from the data, plus the note. */
+export type Headline = { generated: string; note: HeadlineNote };
+
+/** 2.11: where an initiative stands, derived from its tickets, claims and blockers (src/mcp/initiative-state.ts). */
+export type InitiativeState = {
+  phase_now: number | null;
+  done: number;
+  total: number;
+  in_progress: { key: string; agent: string | null }[];
+  in_review: { key: string; pr: { number: number | null; url: string } | null }[];
+  to_release: string[];
+  waiting_on: { key: string; on: string }[];
+  line: string;
+};
 
 export type Claim = { key: string; title: string; owner: Actor | null; lease_until: string | null; workspace: Workspace | null };
 
@@ -85,6 +105,8 @@ export type Resume = {
     title: string;
     status: string;
     summary: string;
+    state: InitiativeState;
+    state_note: string | null;
     in_progress: { note: string; claims: Claim[] };
     next_action: { note: string; next_claimable: NextTicket };
     must_keep: Decision[];
@@ -113,6 +135,19 @@ export type ReleasePlan = {
   open_checks: number;
   command: string;
 };
+
+// 2.11 Orden (GET /api/projects/:slug/audit): the last audit run, with what each finding offers.
+export type OrdenFinding = {
+  code: string;
+  key: string | null;
+  detail: string;
+  fix_hint: string;
+  id?: string;
+  command?: string;
+  can_fix: "retire_decision" | "copy" | "mark_deployed" | "open";
+  owner: "jorge" | "agents";
+};
+export type Orden = { project: string; at: string | null; count: number; findings: OrdenFinding[] };
 
 // Everything waiting on Jorge (GET /api/inbox).
 export type InboxGroup = "decisiones" | "pasos" | "limpieza";
@@ -198,7 +233,27 @@ export type Check = {
   evidence_id: string | null;
   waived: { at: string; by: Actor | null; reason: string | null; approval_id: string | null } | null;
 };
-export type Result = { id: string; kind: string; verdict: string; cite: string; url: string | null; actor: Actor; at: string };
+export type Result = {
+  id: string;
+  kind: string;
+  verdict: string;
+  cite: string;
+  url: string | null;
+  actor: Actor;
+  at: string;
+  // The structured fields (2.2) the 2.11 timeline shows.
+  commit?: string | null;
+  branch?: string | null;
+  env?: string | null;
+  command?: string | null;
+  exit_code?: number | null;
+  counts?: { pass?: number; fail?: number; skip?: number } | null;
+  duration_s?: number | null;
+  /** The branch moved past this result's commit (null: no commit, or the head is unknown). */
+  stale_for_head?: boolean | null;
+  /** The checks this result ticked (2.11). */
+  ticked_checks?: number[];
+};
 export type LogEntry = { id: number; at: string; type: string; actor: Actor; payload: Record<string, unknown> };
 
 // The get_task shape.
@@ -218,7 +273,11 @@ export type TaskDetail = Omit<TaskRow, "claimed_by" | "lease_until"> & {
   base_branch: string | null;
   next_action?: string;
   in_progress_note?: string;
+  /** Initiatives only (2.11): the derived state, and the note as commentary. */
+  state?: InitiativeState;
+  state_note?: { text: string; at: string | null; stale: boolean };
   branch: string | null;
+  pr?: { number: number | null; url: string } | null;
   claim: { owner: Actor; claimed_at: string; lease_until: string; last_seen_at: string | null; live: boolean } | null;
   workspace: Workspace | null;
   log: LogEntry[];

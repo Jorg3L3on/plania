@@ -38,11 +38,12 @@ export const projects = pgTable("projects", {
   // PREFIX-<n> (standalone tickets) and <initiative key>-<n> (phases); see src/mcp/keys.ts.
   keyPrefix: text("key_prefix").notNull().default(""),
   // v2.1: one human-readable line about where the project stands (set_project headline, ≤ 280 chars).
-  // The server flags it stale when an env, an initiative's status or a Done moves after it was written.
-  headline: text("headline").notNull().default(""),
-  headlineVersion: integer("headline_version").notNull().default(0),
-  headlineAt: timestamp("headline_at", { withTimezone: true }),
-  headlineStale: boolean("headline_stale").notNull().default(false),
+  // 2.11: the headline is generated (src/mcp/headline.ts); this is the note beside it, for what the
+  // data cannot say. The server flags it stale when an env, an initiative's status or a Done moves after it.
+  headlineNote: text("headline_note").notNull().default(""),
+  headlineNoteVersion: integer("headline_note_version").notNull().default(0),
+  headlineNoteAt: timestamp("headline_note_at", { withTimezone: true }),
+  headlineNoteStale: boolean("headline_note_stale").notNull().default(false),
   // v2.2: per-project settings as data: release_target (env), branch_pattern (regex), claim_from
   // (backlog|ready), resources and quotas policies, github and vercel integration config.
   settings: jsonb("settings").$type<ProjectSettings>().notNull().default({}),
@@ -613,7 +614,7 @@ export const auditRuns = pgTable("audit_runs", {
     .references(() => projects.id, { onDelete: "cascade" }),
   at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
   count: integer("count").notNull().default(0),
-  findings: jsonb("findings").$type<{ code: string; key: string | null; detail: string; fix_hint: string }[]>().notNull().default([]),
+  findings: jsonb("findings").$type<{ code: string; key: string | null; detail: string; fix_hint: string; id?: string; command?: string }[]>().notNull().default([]),
 });
 
 // v2.3 (R-22): what a deploy shipped, computed when tickets reach Released.
