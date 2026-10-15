@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { execFile } from "node:child_process";
 import type { Db } from "../db/client.js";
 import { commandPath } from "./machine/run.js";
@@ -6,6 +6,7 @@ import { branches, pollState, projects, pullRequests, tasks, type Project, type 
 import { touchBranch } from "../mcp/branches.js";
 import { addResult } from "../mcp/evidence.js";
 import { findTask } from "../mcp/queries.js";
+import { compareKey, releaseCompareOf, releasePlan, type ReleaseCompare } from "../mcp/release-plan.js";
 import { recordRelease } from "../mcp/releases.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
 import { setTask, setTaskLinks } from "../mcp/writes.js";
@@ -40,7 +41,7 @@ type Pr = {
 };
 type CheckRuns = { check_runs: { name: string; status: string; conclusion: string | null; html_url: string; head_sha: string }[] };
 type Branch = { name: string; commit: { sha: string } };
-type Compare = { status: "ahead" | "behind" | "identical" | "diverged" };
+type Compare = { status: "ahead" | "behind" | "identical" | "diverged"; ahead_by?: number; commits?: { sha: string }[] };
 
 export type GithubDeps = { fetch: Fetch; now?: Date; env?: Record<string, string | undefined>; ghToken?: () => Promise<string | null> };
 
@@ -260,7 +261,12 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
       }
     }
 
-    // 3. Branch heads and deletions for the branches the project knows.
+    // 3. Branch heads and deletions for the branches the project knows (the release's two included).
+    const release = p.settings.release;
+    if (release) {
+      const have = new Set((await db.select({ name: branches.name }).from(branches).where(eq(branches.projectId, p.id))).map((b) => b.name));
+      for (const name of [release.from, release.into]) if (!have.has(name)) await touchBranch(db, p.id, name, {});
+    }
     const known = await db.select().from(branches).where(eq(branches.projectId, p.id));
     if (known.length) {
       const list = await gh(deps, token, `/repos/${cfg.repo}/branches?per_page=100`, cursor.branches_etag as string | undefined);
@@ -282,6 +288,10 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
       }
     }
 
+    // 2.10: the release step. Compare into...from once per pair of heads; when into comes to
+    // contain from, the step is shipped (release.shipped) and the deploy poller does the rest.
+    if (release) summary.release_shipped = await pollRelease(db, p, deps, token, cfg.repo, cursor);
+
     // 4. Merged tickets whose merge commit the release target now contains.
     summary.released = await releaseMerged(db, p, async (merge, env) => {
       const cacheKey = `cmp:${merge}:${env}`;
@@ -298,6 +308,45 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
     throw e;
   }
   return summary;
+}
+
+async function pollRelease(db: Db, p: Project, deps: GithubDeps, token: string, repo: string, cursor: Record<string, unknown>): Promise<number> {
+  const r = p.settings.release!;
+  const heads = await db.select().from(branches).where(and(eq(branches.projectId, p.id), inArray(branches.name, [r.from, r.into])));
+  const fromHead = heads.find((b) => b.name === r.from)?.headSha;
+  const intoHead = heads.find((b) => b.name === r.into)?.headSha;
+  if (!fromHead || !intoHead) return 0;
+  const prev = await releaseCompareOf(db, p.id);
+  const key = compareKey(fromHead, intoHead);
+  if (prev?.key === key) return 0;
+  let next: ReleaseCompare;
+  if (fromHead === intoHead) next = { key, from_head: fromHead, into_head: intoHead, ahead: 0, contains: true, commits: [] };
+  else {
+    const res = await gh(deps, token, `/repos/${repo}/compare/${intoHead}...${fromHead}`);
+    if (res.status !== 200) return 0;
+    const c = res.data as Compare;
+    next = {
+      key,
+      from_head: fromHead,
+      into_head: intoHead,
+      ahead: c.ahead_by ?? 0,
+      contains: c.status === "behind" || c.status === "identical",
+      commits: (c.commits ?? []).slice(-50).map((x) => x.sha.slice(0, 7)),
+    };
+  }
+  // Shipped: the last compare had from ahead, this one finds it inside into.
+  const shipped = !!prev && !prev.contains && prev.ahead > 0 && next.contains;
+  if (shipped) {
+    next.shipped_at = (deps.now ?? new Date()).toISOString();
+    const plan = await releasePlan(db, p);
+    await writeTx(db, p, systemCtx(`gh:${repo}:release.shipped:${fromHead}:${intoHead}`, "jobs.github"), async (_tx, emit) => {
+      await emit("release.shipped", null, { from: { branch: r.from, head_sha: prev.from_head }, into: { branch: r.into, head_sha: intoHead }, env: r.env, tickets: plan?.tickets.map((t) => t.key) ?? [] });
+    });
+  }
+  cursor.release = next;
+  // Saved now so releasePlan (and the inbox) read it before the tick ends.
+  await saveCursor(db, p.id, cursor, null);
+  return shipped ? 1 : 0;
 }
 
 // Merged → Released once the release target env runs a commit that contains the merge commit:

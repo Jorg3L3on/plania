@@ -161,7 +161,7 @@ export function TeTocaItems({ items, names }: { items: InboxItem[]; names: Names
   const [qi, setQi] = useState(0);
   const groups = useMemo(() => {
     const by = (kind: InboxItem["kind"]) => items.filter((i) => i.kind === kind);
-    const actions = by("human_action");
+    const actions = [...by("release"), ...by("human_action")];
     const actionProjects = [...new Set(actions.map((i) => i.project))];
     return { questions: by("question"), approvals: by("approval"), actions, actionProjects };
   }, [items]);
@@ -189,7 +189,7 @@ export function TeTocaItems({ items, names }: { items: InboxItem[]; names: Names
             tone="bg-status-done/12 text-ink-done"
             title={`${mine.length === 1 ? "acción tuya" : "acciones tuyas"} en ${names(slug)}`}
             detail={mine[0]!.why}
-            to={`/inbox#${slug}`}
+            to={`/inbox?tab=pasos#${slug}`}
             cta={mine.length === 1 ? "Ver" : `Ver las ${mine.length}`}
           />
         );

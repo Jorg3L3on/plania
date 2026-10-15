@@ -269,7 +269,7 @@ export async function getDigest(db: Q, input: DigestInput = {}) {
   const [running, box, overdue] = await Promise.all([getRunning(db), inbox(db, "all"), overdueTasks(db, only ? scoped[0]?.id : undefined)]);
   const needsJorge = (box.items as InboxItem[])
     .filter((i) => !only || i.project === only)
-    .map((i) => ({ project: i.project, kind: i.kind, key: i.key, title: i.title, why: i.why, options: i.options, blocks: i.blocks, urgency: i.urgency, wait_s: i.wait_s, pr_url: i.pr_url, action_hint: i.action_hint }));
+    .map((i) => ({ project: i.project, kind: i.kind, group: i.group, key: i.key, title: i.title, why: i.why, options: i.options, blocks: i.blocks, urgency: i.urgency, wait_s: i.wait_s, pr_url: i.pr_url, action_hint: i.action_hint }));
 
   const unchanged: string[] = [];
   const out = [];

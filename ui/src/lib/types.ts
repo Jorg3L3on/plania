@@ -91,12 +91,31 @@ export type Resume = {
   open_questions: Question[];
   /** One line about what the project's agents have running on the Mac, or null. */
   machine?: string | null;
+  /** The generated status block; the screen reads only the release step from it. */
+  status?: { release?: ReleasePlan | null };
+};
+
+// 2.10: the release step (settings.release), computed by the server.
+export type ReleasePlan = {
+  from: { branch: string; head_sha: string | null };
+  into: { branch: string; head_sha: string | null };
+  env: string;
+  ahead: number | null;
+  shipped: boolean;
+  commits: string[];
+  tickets: { key: string; title: string; status: string; pr_url: string | null }[];
+  migrations: string[];
+  before: { blocker_id: string; key: string; text: string }[];
+  open_checks: number;
+  command: string;
 };
 
 // Everything waiting on Jorge (GET /api/inbox).
+export type InboxGroup = "decisiones" | "pasos" | "limpieza";
 export type InboxItem = {
   id: string;
-  kind: "approval" | "question" | "human_action" | "footprint";
+  kind: "approval" | "question" | "human_action" | "release" | "footprint";
+  group: InboxGroup;
   project: string;
   key: string | null;
   task_kind: string | null;
@@ -112,7 +131,8 @@ export type InboxItem = {
   pr_url: string | null;
   action_hint: string;
 };
-export type Inbox = { items: InboxItem[]; count: number; by_project: Record<string, number> };
+// count and by_project: decisiones + pasos; chores: limpieza (2.10).
+export type Inbox = { items: InboxItem[]; count: number; by_project: Record<string, number>; groups: Record<InboxGroup, number>; chores: number };
 
 // Agent tokens (GET /api/tokens). The secret is only ever in the create response.
 export type AgentToken = {
@@ -157,7 +177,7 @@ export type TaskRow = {
 export type Blocker =
   | { type: "task"; task: string; status: string; satisfied: boolean }
   | { type: "env"; env: string; condition: string; value: string; current: unknown; satisfied: boolean }
-  | { type: "human_action"; id: string; assignee: string; text: string; satisfied: boolean; satisfied_at: string | null }
+  | { type: "human_action"; id: string; assignee: string; text: string; satisfied: boolean; satisfied_at: string | null; source?: "parsed"; field?: string; gating?: boolean }
   | { type: "env_flag"; env: string; flag: string; equals: unknown; current: unknown; satisfied: boolean }
   | { type: "time_after"; at: string; satisfied: boolean }
   | { type: "metric_gte"; name: string; value: number; current: number | null; satisfied: boolean };

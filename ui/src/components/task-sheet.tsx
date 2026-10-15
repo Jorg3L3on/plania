@@ -9,6 +9,7 @@ import remarkGfm from "remark-gfm";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { HechoForm } from "@/components/hecho";
 import { TaskControls } from "@/components/task-controls";
 import { ClaimLine } from "@/components/task-row";
 import { localTime } from "@/lib/time";
@@ -123,6 +124,8 @@ function logText(e: TaskDetail["log"][number]): string {
   if (e.type === "check.set") return `${p.done ? "☑" : "☐"} ${p.text}`;
   if (e.type === "question.asked") return `Pregunta: ${p.question}`;
   if (e.type === "question.answered") return `Respuesta: ${p.answer}`;
+  if (e.type === "blocker.parsed") return `Te toca: ${p.text}`;
+  if (e.type === "blocker.resolved") return `Hecho: ${p.text}`;
   return e.type;
 }
 
@@ -214,6 +217,21 @@ function Details({ slug, task, onOpen }: { slug: string; task: TaskDetail; onOpe
         </article>
       ) : (
         <p className="text-sm text-muted-foreground">Sin alcance.</p>
+      )}
+
+      {task.blocked_by.some((b) => b.type === "human_action" && !b.satisfied) && (
+        <Section title="Te toca">
+          <ul className="grid gap-2 text-sm">
+            {task.blocked_by.map((b) =>
+              b.type === "human_action" && !b.satisfied ? (
+                <li key={b.id} className="grid gap-1.5 rounded-xl bg-surface-sunken px-3 py-2">
+                  <span>{b.text}</span>
+                  <HechoForm slug={slug} id={b.id} taskKey={task.key} />
+                </li>
+              ) : null,
+            )}
+          </ul>
+        </Section>
       )}
 
       {task.checks.length > 0 && (

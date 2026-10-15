@@ -727,7 +727,11 @@ export type ProjectSettings = {
   vercel?: { project_id: string; team_id?: string; token_env?: string; targets?: Record<string, string> };
   // Where the project's repo lives on the Mac the machine job runs on (default <PLANIA_PROJECTS_ROOT>/<slug>).
   local?: { repo_path?: string };
+  // 2.10: the release step only Jorge takes, e.g. {from: "sandbox", into: "main", env: "prod"}. Absent: none.
+  release?: ReleaseSettings;
 };
+
+export type ReleaseSettings = { from: string; into: string; env: string };
 
 export type Project = typeof projects.$inferSelect;
 export type Task = typeof tasks.$inferSelect;

@@ -23,8 +23,8 @@ function useNow(everyMs = 30_000) {
 export function HomePage() {
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const inboxQuery = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
-  // The city counts only what needs a decision; things left on the Mac live in the Máquina.
-  const decisions = useMemo(() => (inboxQuery.data?.items ?? []).filter((i) => i.kind !== "footprint"), [inboxQuery.data]);
+  // The city counts decisiones and pasos; Limpieza (things left on the Mac) lives in the Máquina.
+  const decisions = useMemo(() => (inboxQuery.data?.items ?? []).filter((i) => i.group !== "limpieza"), [inboxQuery.data]);
   const machine = useQuery({ queryKey: ["machine"], queryFn: api.machine, staleTime: 15_000 });
   const nowMs = useNow();
 

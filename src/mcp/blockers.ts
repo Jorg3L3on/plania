@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { blockers, envCommits, envStates, projectMetrics, taskAliases, taskBlockers, tasks, type Actor, type Task } from "../db/schema.js";
 import { ToolError } from "./errors.js";
+import { gatingSql, isGating } from "./jorge-lines.js";
 import { SYSTEM_ACTOR, iso, type Emit, type Q } from "./tx.js";
 
 // blocked_by: a ticket (a key, or {task}) that must reach In review or later, or a typed blocker
@@ -21,7 +22,7 @@ export type BlockerInput =
   | string
   | { task: string }
   | { env: string; condition: string; value?: string | number }
-  | { human_action: { assignee?: string; text: string } }
+  | { human_action: { assignee?: string; text: string; before_release?: boolean } }
   | { env_flag: { env: string; flag: string; equals: string | number | boolean } }
   | { time_after: string }
   | { metric_gte: { name: string; value: number } };
@@ -59,7 +60,7 @@ function typedBlocker(b: Exclude<BlockerInput, string | { task: string } | { env
   if ("human_action" in b) {
     const text = b.human_action?.text?.trim();
     if (!text) throw bad("human_action", "text says what Jorge has to do");
-    return { type: "human_action", spec: { assignee: b.human_action.assignee?.trim() || "jorge", text } };
+    return { type: "human_action", spec: { assignee: b.human_action.assignee?.trim() || "jorge", text, ...(b.human_action.before_release ? { before_release: true } : {}) } };
   }
   if ("env_flag" in b) {
     const f = b.env_flag ?? ({} as { env?: string; flag?: string; equals?: unknown });
@@ -113,9 +114,13 @@ export async function resolveTaskBlockers(db: Q, projectId: string, keys: string
 export async function replaceBlockers(tx: Q, taskId: string, blockerIds: string[], typed: TypedBlocker[]): Promise<void> {
   await tx.delete(taskBlockers).where(eq(taskBlockers.taskId, taskId));
   // A human action already cleared stays cleared when the same list is written again.
+  // 2.10: blockers parsed from a "Jorge:" line belong to their text, not to blocked_by: they stay, and
+  // a human action in the list with the same text as one of them is not written twice.
   const existing = await tx.select().from(blockers).where(eq(blockers.taskId, taskId));
-  await tx.delete(blockers).where(eq(blockers.taskId, taskId));
+  const parsedTexts = new Set(existing.filter((e) => e.spec.source === "parsed").map((e) => String(e.spec.text)));
+  await tx.delete(blockers).where(and(eq(blockers.taskId, taskId), sql`coalesce(${blockers.spec}->>'source', '') <> 'parsed'`));
   if (blockerIds.length) await tx.insert(taskBlockers).values(blockerIds.map((blockerId) => ({ taskId, blockerId })));
+  typed = typed.filter((b) => !(b.type === "human_action" && parsedTexts.has(String(b.spec.text))));
   if (typed.length) {
     await tx.insert(blockers).values(
       typed.map((b) => {
@@ -137,7 +142,7 @@ export function hasUnsatisfiedBlocker(taskId: unknown) {
       select 1 from ${blockers} bl
       join ${tasks} bt on bt.id = bl.task_id
       left join ${envStates} es on es.project_id = bt.project_id and es.env = bl.spec->>'env'
-      where bl.task_id = ${taskId} and not coalesce(case bl.type
+      where bl.task_id = ${taskId} and ${gatingSql("bl")} and not coalesce(case bl.type
         when 'env' then case bl.spec->>'condition'
           when 'migration_gte' then es.migrations_applied >= (bl.spec->>'value')::int
           when 'deployed_after' then es.deployed_at > (bl.spec->>'value')::timestamptz
@@ -161,7 +166,7 @@ export function hasUnsatisfiedBlocker(taskId: unknown) {
 export type BlockerView =
   | { type: "task"; task: string; status: string; satisfied: boolean }
   | { type: "env"; env: string; condition: string; value: string; current: unknown; satisfied: boolean }
-  | { type: "human_action"; id: string; assignee: string; text: string; satisfied: boolean; satisfied_at: string | null }
+  | { type: "human_action"; id: string; assignee: string; text: string; satisfied: boolean; satisfied_at: string | null; source?: "parsed"; field?: string; gating?: boolean }
   | { type: "env_flag"; env: string; flag: string; equals: unknown; current: unknown; satisfied: boolean }
   | { type: "time_after"; at: string; satisfied: boolean }
   | { type: "metric_gte"; name: string; value: number; current: number | null; satisfied: boolean };
@@ -201,7 +206,8 @@ export async function blockerList(db: Q, t: Pick<Task, "id" | "projectId">): Pro
       }
       out.push({ type: "env", env: spec.env!, condition: spec.condition!, value: spec.value!, current, satisfied });
     } else if (b.type === "human_action") {
-      out.push({ type: "human_action", id: b.id, assignee: spec.assignee!, text: spec.text!, satisfied: !!b.satisfiedAt, satisfied_at: iso(b.satisfiedAt) });
+      const parsed = spec.source === "parsed" ? { source: "parsed" as const, field: spec.field!, gating: isGating(b.spec) } : {};
+      out.push({ type: "human_action", id: b.id, assignee: spec.assignee!, text: spec.text!, satisfied: !!b.satisfiedAt, satisfied_at: iso(b.satisfiedAt), ...parsed });
     } else if (b.type === "env_flag") {
       const s = await envOf(spec.env!);
       const current = s?.flags?.[spec.flag!] ?? null;
@@ -222,7 +228,8 @@ export async function blockerList(db: Q, t: Pick<Task, "id" | "projectId">): Pro
 }
 
 export async function unsatisfiedBlockers(db: Q, t: Pick<Task, "id" | "projectId">) {
-  return (await blockerList(db, t)).filter((b) => !b.satisfied);
+  // A line parsed from free text (outside blocked_note) reaches the inbox but never holds a claim.
+  return (await blockerList(db, t)).filter((b) => !b.satisfied && !(b.type === "human_action" && b.gating === false));
 }
 
 // Blocked tickets that have blockers and none left unsatisfied go back to Ready, by the server.
@@ -236,7 +243,7 @@ export async function promoteUnblocked(tx: Q, emit: Emit, projectId: string): Pr
       and(
         eq(tasks.projectId, projectId),
         eq(tasks.status, "Blocked"),
-        sql`(exists (select 1 from ${taskBlockers} tb where tb.task_id = ${tasks.id}) or exists (select 1 from ${blockers} bl where bl.task_id = ${tasks.id}))`,
+        sql`(exists (select 1 from ${taskBlockers} tb where tb.task_id = ${tasks.id}) or exists (select 1 from ${blockers} bl where bl.task_id = ${tasks.id} and ${gatingSql("bl")}))`,
         sql`not ${hasUnsatisfiedBlocker(tasks.id)}`,
       ),
     );
@@ -257,7 +264,7 @@ export async function promoteUnblocked(tx: Q, emit: Emit, projectId: string): Pr
 }
 
 // Jorge resolves a human action (the inbox); the ticket may move to Ready right away.
-export async function resolveHumanAction(tx: Q, emit: Emit, projectId: string, blockerId: string, by: Actor) {
+export async function resolveHumanAction(tx: Q, emit: Emit, projectId: string, blockerId: string, by: Actor, note?: string) {
   const [b] = await tx
     .select({ b: blockers, taskKey: tasks.key, taskId: tasks.id })
     .from(blockers)
@@ -269,6 +276,8 @@ export async function resolveHumanAction(tx: Q, emit: Emit, projectId: string, b
     await tx.update(blockers).set({ satisfiedAt: sql`now()`, satisfiedBy: by }).where(eq(blockers.id, b.b.id));
     await emit("blocker.resolved", { id: b.taskId, key: b.taskKey }, { blocker_id: b.b.id, text: (b.b.spec as { text: string }).text });
   }
+  // 2.10: what Jorge says about it lands in the ticket's log as his note.
+  if (note?.trim()) await emit("note", { id: b.taskId, key: b.taskKey }, { text: note.trim(), blocker_id: b.b.id }, by);
   await promoteUnblocked(tx, emit, projectId);
   return { blocker_id: b.b.id, key: b.taskKey };
 }

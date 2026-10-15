@@ -43,6 +43,7 @@ import { consume, leaseResource, projectResources, releaseResource } from "./res
 import { SEVERITIES } from "./lifecycle.js";
 import { writeTx } from "./tx.js";
 import { PROTOCOL_VERSION, instructions } from "./protocol.js";
+import { releasePlan } from "./release-plan.js";
 import { URGENCIES, answer, ask } from "./questions.js";
 import { TTL, claim, createTask, handoff, setTask } from "./writes.js";
 import { runAudit } from "./audit.js";
@@ -88,7 +89,7 @@ const blockedBy = z
         condition: z.string().describe(ENV_CONDITIONS.join(" | ")),
         value: z.union([z.string(), z.number()]).optional().describe("sha | migration number | ISO time (omit for the next deploy)"),
       }),
-      z.object({ human_action: z.object({ assignee: z.string().optional(), text: z.string() }) }).describe("Something Jorge has to do; shows in his inbox"),
+      z.object({ human_action: z.object({ assignee: z.string().optional(), text: z.string(), before_release: z.boolean().optional() }) }).describe("Something Jorge has to do; shows in his inbox. before_release: true lists it as a step of the project's release"),
       z.object({ env_flag: z.object({ env: z.string(), flag: z.string(), equals: z.union([z.string(), z.number(), z.boolean()]) }) }).describe("A flag set with set_env"),
       z.object({ time_after: z.string() }).describe("Not before this ISO-8601 time"),
       z.object({ metric_gte: z.object({ name: z.string(), value: z.number() }) }).describe("A metric reported with set_metric or on a result"),
@@ -314,8 +315,9 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_project",
     {
       description: [
-        "Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline, settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel),",
-        "ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, and reserved sequence numbers with the ticket holding each.",
+        "Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline, settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release),",
+        "ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each,",
+        "and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks and the command Jorge runs (null without settings.release).",
       ].join(" "),
       inputSchema: { project },
       annotations: readOnly,
@@ -341,6 +343,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
           resources: await projectResources(db, p),
           metrics: await projectMetricsOf(db, p.id),
           releases: await projectReleases(db, p.id),
+          release: await releasePlan(db, p),
           ...(await projectSequences(db, p.id)),
         };
       }),
@@ -569,6 +572,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Done is yours once the work is finished: code, bug and debt tickets from Merged or Released; ops and research from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open status. Elsewhere it is INVALID_TRANSITION with allowed_from.",
         "Won't do and reopening a closed task are Jorge's: HUMAN_ONLY. Ask with request_approval; once he grants it on screen, pass approval_id here (it is spent on this move).",
         "In review (and later Done) needs every check done or waived: CHECKS_OPEN lists the open numbers. An initiative needs every ticket closed: INITIATIVE_CHILDREN_OPEN.",
+        "A line that starts with 'Jorge:' in summary, next_action, in_progress_note, state_note, blocked_note or a note becomes a human_action blocker (warning JORGE_LINE_PARSED); it reaches his inbox without moving the task, and only one from blocked_note holds it Blocked.",
         "The reply is {key, status, version, changed}; verbose: true adds the full task.",
       ].join(" "),
       inputSchema: { project, actor, request_id, verbose, ...setTaskFields },
@@ -705,7 +709,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer.",
         "A ticket moves to Needs Jorge (your lease stays; heartbeat to keep it) until every open question on it is answered.",
         "options are suggested answers; he may answer freely. blocks names other tickets waiting on the answer; urgency says how soon. get_resume lists open_questions.",
-        "Never only write 'waiting on Jorge' in next_action or blocked_note: the audit flags it (WAITING_ON_JORGE_FREE_TEXT); ask here or request_approval instead.",
+        "Never only write 'waiting on Jorge' in next_action or blocked_note: a line that starts with 'Jorge:' becomes a human_action blocker on its own (JORGE_LINE_PARSED), and the audit flags the rest (WAITING_ON_JORGE_FREE_TEXT); ask here, request_approval or blocked_by human_action instead.",
       ].join(" "),
       inputSchema: {
         project,
@@ -752,7 +756,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline.",
         "headline: one line (≤ 280 chars) on where the project stands, shown first in get_resume; the server marks it stale when an env, an initiative or a Done moves after it.",
         "settings merge key by key (null removes one): release_target (env a Released ticket reached, default prod), branch_pattern (regex), claim_from (backlog | ready, what get_next offers),",
-        "resources ({'port:*': {needs_approval, ttl_max}}), quotas ({'quota:omdb': {daily}}), github ({repo, token_env}), vercel ({project_id, team_id, token_env, targets}). Never a secret: integrations name env vars.",
+        "resources ({'port:*': {needs_approval, ttl_max}}), quotas ({'quota:omdb': {daily}}), github ({repo, token_env}), vercel ({project_id, team_id, token_env, targets}), release ({from, into, env}: the branch Jorge fast-forwards into another to ship, e.g. sandbox → main for prod). Never a secret: integrations name env vars.",
         "Pass the version from get_project; STALE_VERSION if it moved. The old text stays in the log.",
       ].join(" "),
       inputSchema: {
@@ -846,8 +850,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_inbox",
     {
       description: [
-        "Everything waiting on Jorge, oldest first per kind: pending approvals and open questions (more kinds come with later releases).",
-        "Each item says why it waits, how long (wait_s), the latest passing evidence and the PR. project: a slug, or 'all'. Empty means nothing needs him.",
+        "Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (pending approvals, open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac).",
+        "count and by_project count decisiones and pasos; chores counts limpieza. Each item says why it waits, how long (wait_s), the latest passing evidence and the PR. project: a slug, or 'all'. count 0 means nothing needs him.",
       ].join(" "),
       inputSchema: { project: z.string().min(1).describe("Project slug, or all") },
       annotations: readOnly,

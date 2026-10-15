@@ -2,6 +2,8 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { projects, type Project, type ProjectSettings } from "../db/schema.js";
 import { ToolError } from "./errors.js";
+import { headlineWarnings } from "./jorge-lines.js";
+import { checkReleaseSettings } from "./release-plan.js";
 import { TEXT_LIMITS } from "./limits.js";
 import { findProject } from "./queries.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
@@ -10,7 +12,7 @@ import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 // additions to the protocol) and the headline (one line on where it stands, ≤ 280 chars).
 // Replaced with the version you read; rules_version moves with the rules, headline_version with the headline.
 
-const SETTING_KEYS = ["release_target", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel"] as const;
+const SETTING_KEYS = ["release_target", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel", "release"] as const;
 
 // settings merge key by key; null removes one. Secrets never: integrations name env vars.
 function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>): ProjectSettings {
@@ -29,6 +31,7 @@ function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>)
     }
   }
   if (next.release_target !== undefined && !/^[a-z][a-z0-9_-]{0,29}$/.test(String(next.release_target))) throw new ToolError("INVALID_FILTER", { field: "settings.release_target" });
+  if (next.release !== undefined) next.release = checkReleaseSettings(next.release);
   for (const [name, q] of Object.entries((next.quotas as Record<string, { daily?: unknown }> | undefined) ?? {})) {
     if (!Number.isInteger(q?.daily) || (q.daily as number) < 1) throw new ToolError("INVALID_FILTER", { field: `settings.quotas.${name}.daily`, hint: "a positive integer" });
   }
@@ -57,6 +60,8 @@ export async function setProject(
     const settings = input.settings ? mergeSettings(current.settings, input.settings) : undefined;
     if (settings && JSON.stringify(settings) !== JSON.stringify(current.settings)) changes.settings = [current.settings, settings];
     if (!Object.keys(changes).length) return projectShape(current);
+    // 2.10: a Jorge line in the headline only warns; it makes no blocker.
+    const warnings = changes.headline ? headlineWarnings(headline) : [];
     const [u] = await tx
       .update(projects)
       .set({
@@ -73,7 +78,7 @@ export async function setProject(
       .where(eq(projects.id, p.id))
       .returning();
     await emit("project.updated", null, { changes });
-    return projectShape(u!);
+    return warnings.length ? { ...projectShape(u!), warnings } : projectShape(u!);
   });
 }
 

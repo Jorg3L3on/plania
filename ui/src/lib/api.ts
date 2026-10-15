@@ -49,8 +49,8 @@ export const api = {
   waiveCheck: (slug: string, key: string, n: number, reason: string) =>
     request<TaskDetail>("POST", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/checks/${n}/waive`, { reason }),
   inbox: (project?: string) => request<Inbox>("GET", project ? `/inbox?project=${encodeURIComponent(project)}` : "/inbox"),
-  resolveBlocker: (slug: string, id: string) =>
-    request<{ key: string }>("POST", `/projects/${encodeURIComponent(slug)}/blockers/${encodeURIComponent(id)}/resolve`),
+  resolveBlocker: (slug: string, id: string, note?: string) =>
+    request<{ key: string }>("POST", `/projects/${encodeURIComponent(slug)}/blockers/${encodeURIComponent(id)}/resolve`, note ? { note } : undefined),
   decide: (ids: string[], decision: "grant" | "reject", note?: string) =>
     request<{ results: { id: string; ok: boolean; error?: string }[]; decided: number }>("POST", "/approvals/decide", { ids, decision, note }),
   machine: () => request<Machine>("GET", "/machine"),

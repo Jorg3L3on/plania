@@ -19,6 +19,7 @@ import { waiveCheck } from "../mcp/checks.js";
 import { listDecisions } from "../mcp/decisions.js";
 import { footprintFindings } from "../mcp/footprint-audit.js";
 import { inbox } from "../mcp/inbox.js";
+import { gatingSql } from "../mcp/jorge-lines.js";
 import { setProject } from "../mcp/project.js";
 import { ToolError, findProject, findTask, taskFull } from "../mcp/queries.js";
 import { answer } from "../mcp/questions.js";
@@ -129,12 +130,36 @@ api.get("/projects", async (c) => {
           activity: activity.get(p.id) ?? Array.from({ length: ACTIVITY_DAYS }, () => 0),
           // Inicio's city: what each open initiative says it is doing and what it needs next.
           initiatives: digest.initiatives.map((i) => ({ key: i.key, in_progress: i.in_progress.note, next_action: i.next_action.note })),
+          // 2.10: dates in the next two weeks, and what is past its due date.
+          ...datesOf(allTasks.filter((t) => t.project_id === p.id)),
         };
       }),
     );
   });
   return c.json(rows);
 });
+
+const UPCOMING_DAYS = 14;
+// Open means not closed and not yet merged: the audit's OVERDUE reads it the same way.
+const DATE_DONE = ["Done", "Won't do", "Merged", "Released"];
+
+// Per project for Inicio's "Próximo": due dates and time_after blockers within UPCOMING_DAYS, and the
+// keys past their due date. Days are the screen's (PLANIA_TZ); time_after keeps its instant.
+export function datesOf(rows: { key: string; title: string; status: string; due_on: string | null; time_after: string | null }[], now = new Date()) {
+  const tz = process.env.PLANIA_TZ || "America/Mexico_City";
+  const day = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(d);
+  const today = day(now);
+  const until = day(new Date(now.getTime() + UPCOMING_DAYS * 86_400_000));
+  const open = rows.filter((t) => !DATE_DONE.includes(t.status));
+  const upcoming: { key: string; title: string; on: string; kind: "due" | "time_after" }[] = [];
+  for (const t of open) {
+    if (t.due_on && t.due_on >= today && t.due_on <= until) upcoming.push({ key: t.key, title: t.title, on: t.due_on, kind: "due" });
+    if (t.time_after && day(new Date(t.time_after)) <= until) upcoming.push({ key: t.key, title: t.title, on: t.time_after, kind: "time_after" });
+  }
+  upcoming.sort((a, b) => a.on.localeCompare(b.on) || a.key.localeCompare(b.key));
+  const overdue = open.filter((t) => t.due_on && t.due_on < today).sort((a, b) => a.due_on!.localeCompare(b.due_on!)).map((t) => t.key);
+  return { upcoming, overdue };
+}
 
 // All tasks without scope, ordered like list_tasks: P0..P3, null last, then most recently updated.
 // version goes back with every change; claimed_by is the live lease, if any.
@@ -171,8 +196,12 @@ async function screenTasks(db: Db, projectId?: string) {
         join tasks bt on bt.id = tb.blocker_id
         where tb.task_id = ${tasks.id} and bt.status not in (${sql.join(SETTLED_STATUSES.map((s) => sql`${s}`), sql`, `)})), '{}')`,
       // Any typed blocker (env, flag, metric, time, an open human action) holds it outside the initiative.
+      // 2.10: dates on screen. due_on (YYYY-MM-DD) and the earliest time_after still ahead.
+      due_on: tasks.dueOn,
+      time_after: sql<string | null>`(select to_char(min((bt.spec->>'at')::timestamptz) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        from blockers bt where bt.task_id = ${tasks.id} and bt.type = 'time_after' and (bt.spec->>'at')::timestamptz > now())`,
       held: sql<boolean>`exists (select 1 from blockers bx where bx.task_id = ${tasks.id}
-        and not (bx.type = 'human_action' and bx.satisfied_at is not null))`,
+        and not (bx.type = 'human_action' and bx.satisfied_at is not null) and ${gatingSql("bx")})`,
     })
     .from(tasks)
     .leftJoin(parent, eq(parent.id, tasks.parentId))
@@ -267,10 +296,14 @@ api.post("/projects/:slug/tasks/:key/checks/:n/waive", async (c) => {
 
 // Jorge marks a human action done (a ticket blocked on him); the ticket may go back to Ready at once.
 api.post("/projects/:slug/blockers/:id/resolve", async (c) => {
+  // 2.10: an optional note goes to the ticket's log as Jorge's. A body is optional.
+  const raw = c.req.header("Content-Type")?.startsWith("application/json") ? await c.req.json().catch(() => ({})) : {};
+  const parsed = z.object({ note: z.string().max(2000).optional() }).safeParse(raw ?? {});
+  if (!parsed.success) return c.json({ error: "INVALID_BODY" }, 400);
   try {
     const result = await withDb(async (db) => {
       const p = await findProject(db, c.req.param("slug"));
-      return writeTx(db, p, webCtx, (tx, emit) => resolveHumanAction(tx, emit, p.id, c.req.param("id"), WEB_ACTOR));
+      return writeTx(db, p, webCtx, (tx, emit) => resolveHumanAction(tx, emit, p.id, c.req.param("id"), WEB_ACTOR, parsed.data.note));
     });
     return c.json(result);
   } catch (e) {

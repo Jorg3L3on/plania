@@ -6,6 +6,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Link } from "react-router";
 import { api } from "@/lib/api";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { TicketButton } from "@/components/plan/ticket-button";
@@ -20,9 +21,10 @@ import {
   toneVar,
 } from "@/components/plan/visuals";
 import { ProjectMark } from "@/components/plania-mark";
+import { releasePending } from "@/components/release-step";
 import { DecisionList, ResumeView } from "@/components/resume";
 import type { BranchEdge, Lane, StationTone } from "@/lib/lanes";
-import type { Decision, Headline, Resume } from "@/lib/types";
+import type { Decision, Headline, ReleasePlan, Resume } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // One line on where the project stands. Anyone writes it (set_project or here); the server marks it
@@ -178,6 +180,7 @@ export function ProjectHeader({
   counts,
   headline,
   version,
+  release,
   onOpen,
 }: {
   slug?: string;
@@ -187,6 +190,7 @@ export function ProjectHeader({
   counts: { inProgress: number; inReview: number; ready: number; needsJorge: number; blocked: number };
   headline?: Headline;
   version?: number;
+  release?: ReleasePlan | null;
   onOpen?: Open;
 }) {
   const legend = [
@@ -202,6 +206,16 @@ export function ProjectHeader({
         <h1 className="flex items-center gap-3 font-display text-3xl leading-none font-extrabold tracking-[-0.03em] sm:text-4xl">
           {slug && <ProjectMark slug={slug} className="size-8 sm:size-9" />}
           {title}
+          {/* 2.10: merged tickets waiting for Jorge's sandbox → main; opens the step in the Bandeja. */}
+          {slug && releasePending(release) && (
+            <Link
+              to={`/inbox?tab=pasos#${slug}`}
+              title={`${release.from.branch} → ${release.into.branch}`}
+              className="inline-flex h-7 items-center gap-1.5 rounded-full bg-orange-500/12 px-2.5 font-sans text-xs font-semibold tracking-normal text-ink-jorge transition hover:bg-orange-500/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              Para lanzar <span className="tabular-nums">{release.tickets.length}</span>
+            </Link>
+          )}
         </h1>
         <ProjectSummary lanes={lanes} needsJorge={counts.needsJorge} onOpen={onOpen} />
         {slug && headline && version !== undefined && <AgentNote slug={slug} headline={headline} version={version} />}

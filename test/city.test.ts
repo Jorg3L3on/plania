@@ -8,7 +8,7 @@ const init = (key: string, status: string, title = `Iniciativa ${key}`): CityTas
 const ticket = (key: string, parent: string | null, status: string, extra: Partial<CityTask> = {}): CityTask => ({ key, kind: "ticket", title: `Ticket ${key}`, status, parent_key: parent, ...extra });
 const agent = (session: string) => ({ claimed_by: { agent: "Claude Code", session_id: session, model: "claude-sonnet-5-5" } });
 const item = (id: string, project: string, key: string | null, parent_key: string | null = null, kind: InboxItem["kind"] = "approval"): InboxItem => ({
-  id, kind, project, key, task_kind: "ticket", parent_key, title: null, why: "porque sí", waiting_since: "2026-10-11T04:00:00Z", wait_s: 60, evidence: null, pr_url: null, action_hint: "",
+  id, kind, group: kind === "footprint" ? "limpieza" : kind === "approval" || kind === "question" ? "decisiones" : "pasos", project, key, task_kind: "ticket", parent_key, title: null, why: "porque sí", waiting_since: "2026-10-11T04:00:00Z", wait_s: 60, evidence: null, pr_url: null, action_hint: "",
 });
 
 const filmia: CityProject = {
