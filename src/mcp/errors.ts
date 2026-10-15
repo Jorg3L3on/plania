@@ -54,6 +54,7 @@ export const ERRORS = {
   ALREADY_SUPERSEDED: [409, "the decision named in supersedes was already reversed (detail: superseded_by)"],
   APPROVAL_NOT_GRANTED: [409, "the approval is pending, rejected or expired (detail: state)"],
   APPROVAL_USED: [409, "the approval already unlocked one move (detail: used_at)"],
+  BLOCKER_NOT_WITHDRAWABLE: [409, "set_task withdraw_blocker: not a pending blocker parsed from a note on this task, or another session's note (detail: reason)"],
   BRANCH_IN_USE: [409, "the branch belongs to another live initiative (detail: owner_key); pass share_branch: true with a reason to share it"],
   CHECKS_OPEN: [409, "In review, Merged, Released or Done while a check is neither done nor waived (detail: open, the check numbers)"],
   EVIDENCE_STALE: [409, "In review needs a pass recorded against the branch's current head; the passes found are for older commits (detail: head, results)"],

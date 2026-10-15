@@ -333,6 +333,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `APPROVAL_NOT_GRANTED` | 409 | the approval is pending, rejected or expired (detail: state) |
 | `APPROVAL_USED` | 409 | the approval already unlocked one move (detail: used_at) |
 | `BATCH_FAILED` | 409 | an atomic batch rolled back because one op failed (detail: index, op, failed: {error, status, ...}) |
+| `BLOCKER_NOT_WITHDRAWABLE` | 409 | set_task withdraw_blocker: not a pending blocker parsed from a note on this task, or another session's note (detail: reason) |
 | `BRANCH_IN_USE` | 409 | the branch belongs to another live initiative (detail: owner_key); pass share_branch: true with a reason to share it |
 | `CHECKS_OPEN` | 409 | In review, Merged, Released or Done while a check is neither done nor waived (detail: open, the check numbers) |
 | `CLAIM_HELD` | 409 | another session holds a live lease (detail: owner, lease_until, workspace) |

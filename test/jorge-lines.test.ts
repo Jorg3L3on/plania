@@ -67,12 +67,28 @@ describe("parseJorgeLines", () => {
     const i21 = parseJorgeLines(
       "Claim ZIG-I21-6 (Ready): install the Android emulator with Jorge's OK, have him sign in once, run the checklist over adb against prod and record the evidence on I21-1…4 and I21-5. Then Jorge's phone run (human action on I21-5), close the five tickets and mark the initiative Done. ZIG-I21-7 (test aviso button) is optional.",
     );
-    assert.equal(i21.length, 2);
+    // 2.11 (PLA-01): "human action" is no longer a cue, so the second sentence ("Then Jorge's phone
+    // run (human action on I21-5)") is left to the audit; a real ask belongs in blocked_by.
+    assert.equal(i21.length, 1);
     assert.match(i21[0]!.text, /^Claim ZIG-I21-6/);
-    assert.match(i21[1]!.text, /^Then Jorge's phone run/);
     // ZIG-I22 next_action: "when Jorge says so".
     const i22 = parseJorgeLines("On hold by Jorge: no phase is to be claimed. The Android SDK and emulator are installed by ZIG-I21-6 (ZIG-I21) so the tooling is ready. When Jorge says so, move ZIG-I22 back to Active and ZIG-I22-1 + ZIG-I22-3 to Ready.");
     assert.deepEqual(i22.map((l) => l.text), ["When Jorge says so, move ZIG-I22 back to Active and ZIG-I22-1 + ZIG-I22-3 to Ready."]);
+  });
+
+  test("PLA-01: prose that only describes the mechanism is no ask", () => {
+    // The FIL-I2 note of 2026-10-15 that made blocker d66358ac.
+    const fil = "Plania 2.10 live: the Jorge line in next_action (Google OAuth client and GOOGLE_CLIENT_ID/SECRET in Vercel production) is now a human action in Pasos.";
+    assert.deepEqual(parseJorgeLines(fil), []);
+    assert.deepEqual(parseJorgeLines(fil, { prefixOnly: true }), []);
+    // PLA-01's own first summary, matched twice by 2.10.
+    const pla01 =
+      'A set_task note that merely talks about Jorge lines ("the Jorge line in next_action ... is now a human action in Pasos") became a human_action blocker on FIL-I2 (d66358ac). Notes have no resync, so a false positive stays in Pasos until Jorge clicks Hecho.';
+    assert.deepEqual(parseJorgeLines(pla01), []);
+    assert.deepEqual(parseJorgeLines("Esto queda como acción humana de Jorge en Pasos."), []);
+    // In a note only the prefix form asks.
+    assert.deepEqual(parseJorgeLines("This waits on Jorge's OK.", { prefixOnly: true }), []);
+    assert.deepEqual(parseJorgeLines("Jorge: rotate the token", { prefixOnly: true }).map((l) => l.text), ["rotate the token"]);
   });
 
   test("conservative: list markers and case, but no reports of what Jorge did", () => {
@@ -163,6 +179,30 @@ describe("parsed blockers", () => {
     assert.ok(h.warnings.some((w: Json) => w.code === "JORGE_LINE_PARSED" && w.field === "headline"));
     const { rows } = await raw.query("select count(*)::int as n from blockers where spec->>'text' = 'ship the release'");
     assert.equal(rows[0].n, 0);
+  });
+
+  test("PLA-01: a note only parses the 'Jorge:' form; its writer may withdraw what it made, nobody else", async () => {
+    const quiet = await call("set_task", { ...P, key: "ZIG-I1", note: "This now waits on Jorge's OK in Pasos." });
+    assert.equal((quiet.warnings ?? []).filter((w: Json) => w.code === "JORGE_LINE_PARSED").length, 0, "sentence form does not count in a note");
+    const r = await call("set_task", { ...P, key: "ZIG-I1", note: "Jorge: the line in next_action is now a step" });
+    const w = r.warnings.find((x: Json) => x.code === "JORGE_LINE_PARSED" && x.field === "note");
+    assert.ok(w);
+    const other = await client.callTool({ name: "set_task", arguments: { ...P, actor: { ...A, session_id: "s2" }, key: "ZIG-I1", withdraw_blocker: w.blocker_id } });
+    assert.equal(JSON.parse((other as { content: { text: string }[] }).content[0]!.text).error, "BLOCKER_NOT_WITHDRAWABLE", "another session may not");
+    await call("set_task", { ...P, key: "ZIG-I1", next_action: "Jorge: publish the listing", version: (await get("ZIG-I1")).version });
+    const { rows: fromField } = await raw.query("select b.id::text as id, b.spec->>'field' as field from blockers b join tasks t on t.id = b.task_id where t.key = 'ZIG-I1' and b.spec->>'field' = 'next_action' and b.satisfied_at is null");
+    const refused = await call("set_task", { ...P, key: "ZIG-I1", withdraw_blocker: fromField[0].id });
+    assert.equal(refused.__error, "BLOCKER_NOT_WITHDRAWABLE");
+    assert.match(refused.reason, /next_action/);
+    const before = (await get("ZIG-I1")).version;
+    const ok = await call("set_task", { ...P, key: "ZIG-I1", withdraw_blocker: w.blocker_id });
+    assert.ok(ok.changed.includes("blocked_by"));
+    assert.equal(ok.version, before, "no version needed, none bumped");
+    assert.equal((await humanActions("ZIG-I1")).some((b: Json) => b.id === w.blocker_id), false);
+    const ev = (await call("list_events", { ...P, key: "ZIG-I1", types: ["blocker.withdrawn"] })).events;
+    assert.equal(ev.length, 1);
+    assert.match(ev[0].summary, /paso retirado/);
+    assert.equal((await call("set_task", { ...P, key: "ZIG-I1", withdraw_blocker: w.blocker_id })).__error, "BLOCKER_NOT_WITHDRAWABLE", "gone");
   });
 });
 

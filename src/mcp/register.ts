@@ -203,8 +203,9 @@ const setTaskFields = {
   due_on: z.string().nullable().optional().describe("When it should be done, YYYY-MM-DD; null clears it"),
   cost_note: z.string().optional().describe("Debt only"),
   approval_id: z.string().optional().describe("For Won't do or reopening: the id of an approval Jorge granted (request_approval). Spent on this move"),
+  withdraw_blocker: z.string().optional().describe("Id of a human_action your own note created (JORGE_LINE_PARSED) that asks nothing of Jorge: it is removed. Same session or token only; needs no version"),
   note: z.string().optional(),
-  version: z.number().int().optional().describe("The version you read. Required unless note is the only field"),
+  version: z.number().int().optional().describe("The version you read. Required unless note or withdraw_blocker is the only field"),
 };
 
 const setCheckFields = {
@@ -572,7 +573,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Done is yours once the work is finished: code, bug and debt tickets from Merged or Released; ops and research from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open status. Elsewhere it is INVALID_TRANSITION with allowed_from.",
         "Won't do and reopening a closed task are Jorge's: HUMAN_ONLY. Ask with request_approval; once he grants it on screen, pass approval_id here (it is spent on this move).",
         "In review (and later Done) needs every check done or waived: CHECKS_OPEN lists the open numbers. An initiative needs every ticket closed: INITIATIVE_CHILDREN_OPEN.",
-        "A line that starts with 'Jorge:' in summary, next_action, in_progress_note, state_note, blocked_note or a note becomes a human_action blocker (warning JORGE_LINE_PARSED); it reaches his inbox without moving the task, and only one from blocked_note holds it Blocked.",
+        "A line that starts with 'Jorge:' in summary, next_action, in_progress_note, state_note, blocked_note or a note becomes a human_action blocker (warning JORGE_LINE_PARSED); it reaches his inbox without moving the task, and only one from blocked_note holds it Blocked. In the fields (not notes) a sentence naming Jorge with a waiting cue counts too. A blocker your note created by mistake: withdraw_blocker with its id.",
         "The reply is {key, status, version, changed}; verbose: true adds the full task.",
       ].join(" "),
       inputSchema: { project, actor, request_id, verbose, ...setTaskFields },

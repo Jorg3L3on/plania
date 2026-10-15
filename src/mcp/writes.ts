@@ -30,7 +30,7 @@ import { assertChecksClosed, replaceChecks, tickDerived, type CheckInput } from 
 import { hasDoc } from "./docs.js";
 import { liveTaskFootprint } from "./footprint-read.js";
 import { assertReviewEvidence } from "./evidence.js";
-import { syncJorgeLines, type ParsedField } from "./jorge-lines.js";
+import { syncJorgeLines, withdrawParsedBlocker, type ParsedField } from "./jorge-lines.js";
 import { addAlias, assignKey } from "./keys.js";
 import { GATED_STATUSES, SEVERITIES, TERMINAL, WORK_TYPES, actionForMove, assertTransition } from "./lifecycle.js";
 import { markHeadlineStale } from "./project.js";
@@ -391,6 +391,7 @@ export type SetTaskInput = {
   note?: string;
   version?: number;
   approval_id?: string;
+  withdraw_blocker?: string;
   integration_branch?: string;
   share_branch?: boolean;
   share_reason?: string;
@@ -418,8 +419,9 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   rejectBody(input);
   checkPhase(input.phase);
   const blockedBy = input.blocked_by !== undefined ? parseBlockers(input.blocked_by) : undefined;
-  const { project: _p, key: _k, note: _n, version: _v, approval_id: _a, ...fields } = input;
-  // A note alone is an append and needs no version; any field change does.
+  const { project: _p, key: _k, note: _n, version: _v, approval_id: _a, withdraw_blocker: _w, ...fields } = input;
+  // A note alone is an append and needs no version; any field change does. Withdrawing a blocker
+  // parsed from your own note is the same kind of append-side write (checked against its author).
   const noteOnly = Object.values(fields).every((v) => v === undefined);
   const t = await requireTask(tx, p.id, input.key);
   rejectFields(t.kind, input, t.kind === "initiative" ? TICKET_ONLY : INITIATIVE_ONLY);
@@ -550,6 +552,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     const changed = await replaceChecks(tx, t.id, input.checks);
     if (changed) changes.checks = changed;
   }
+  if (input.withdraw_blocker) await withdrawParsedBlocker(tx, emit, u, input.withdraw_blocker, ctx);
   // A parsed line never moves the task (only blocked_note's lines hold a Blocked ticket, like any blocker).
   const parsed = await syncJorgeLines(tx, emit, u, parsedTexts(u, input.status !== "Blocked" ? input.note : undefined));
   warnings.push(...parsed);
@@ -588,7 +591,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     await addNote(emit, u, input.note);
   }
   // Blocked with blockers that already hold goes straight back to Ready.
-  if (parsed.length) changedNames.push("blocked_by");
+  if (parsed.length || input.withdraw_blocker) changedNames.push("blocked_by");
   if (patch.status === "Blocked") await promoteUnblocked(tx, emit, p.id);
   return writeReply(tx, u, ctx, changedNames, rekey ? { previous_key: rekey[0] } : {}, warnings);
 }
