@@ -4,8 +4,8 @@ Source of the plan for Jorge and his agents. A generated resume per project on s
 The plan lives here, not in each product repo. v2 (approved 2026-10-06) makes it safe for several agent
 sessions at once: leased claims, versioned writes, an event log with who did what, and server time everywhere.
 
-- App: Hono on Vercel Hobby (`iad1`), one Node function at `api/index.ts`.
-- DB: Neon Free (`aws-us-east-1`), Drizzle over `pg`, one pool per request.
+- App: Hono on Node, one long-lived process on this Mac (`scripts/dev.ts`, the launchd service).
+- DB: local Postgres, Drizzle over `pg`, one shared pool per process (`src/db/client.ts`).
 - Screen: React SPA (Vite, shadcn/ui) in `ui/`, served by the same app; password login (argon2id + `plania_session` cookie).
 - Agents: `POST /mcp` with `Authorization: Bearer <token>`: an agent token issued on screen (`/tokens`), or the
   static `MCP_BEARER_TOKEN` / `MCP_READ_TOKEN` from `.env`.
@@ -23,7 +23,7 @@ Fill `.env`:
 
 | Var | Value |
 |---|---|
-| `DATABASE_URL` | Neon connection string (or a local Postgres for dev) |
+| `DATABASE_URL` | Postgres connection string (the local `plania` database) |
 | `MCP_BEARER_TOKEN` | Random token, e.g. `openssl rand -hex 32`. Clients use it as `PLANIA_MCP_TOKEN`. |
 | `SESSION_SECRET` | At least 32 bytes, e.g. `openssl rand -base64 48` |
 | `PLANIA_PASSWORD_HASH` | Output of `pnpm hash-password`. Quote it in `.env`. Never a plain password. |
@@ -122,7 +122,7 @@ dropdb plania_test_3f9a2c
 
 ## Running locally as a service
 
-Plania currently runs on this Mac instead of Vercel.
+Plania runs on this Mac.
 
 - Database: local Postgres 14 (Homebrew service), database `plania`.
 - Server: launchd agent `com.plania.server` at `~/Library/LaunchAgents/com.plania.server.plist`.
@@ -374,7 +374,7 @@ env, reservations, every event). Jorge's session, `MCP_BEARER_TOKEN` or `MCP_REA
 ## Clients
 
 `PLANIA_MCP_TOKEN` is the same value as `MCP_BEARER_TOKEN`. Local URL: `http://localhost:3737/mcp`.
-Canonical URL once deployed: `https://plania.vercel.app/mcp`. On this Mac all three clients are already set up for local.
+On this Mac all three clients are already set up.
 
 Claude Code, available in every project:
 
@@ -397,7 +397,6 @@ bearer_token_env_var = "PLANIA_MCP_TOKEN"
 ```
 
 The local configs on this Mac hold the token literally, because apps launched from the Dock do not see shell variables.
-For Vercel, swap the URL for the canonical one.
 
 ### In a product repo
 
@@ -533,10 +532,3 @@ the UI refetches what changed.
 - Not built from the Filmia requests: test plans and QA runs as tables (R-18: use a "Test plan" doc and `qa_run`-style
   results), runbooks with approval steps (R-23), rule proposals (R-26), shared rules across projects (R-27) and the
   v1 data cleanup (R-32: it waits until every legacy card is archived on the real database).
-- Live updates use an in-process bus. On Vercel each request may run in a different function, so the bus in
-  `src/events.ts` must become polling or a hosted pub/sub. The UI does not change.
-- The built SPA in `dist/ui` must be served by Vercel as static output, with `/api`, `/mcp` and `/hooks` routed to the function.
-- `api/index.ts` only receives `/api/*` on Vercel by default. `/mcp` and `/hooks` need a rewrite to the function,
-  which `vercel.json` does not have.
-- `hono/vercel`'s `handle` takes a Web `Request`. On the Node runtime, a bare `export default` may receive
-  Node's `req, res` instead. Hono's Node examples export named `GET`/`POST` handlers. Confirm on a preview.
