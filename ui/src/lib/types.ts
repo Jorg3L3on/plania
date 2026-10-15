@@ -233,7 +233,27 @@ export type Check = {
   evidence_id: string | null;
   waived: { at: string; by: Actor | null; reason: string | null; approval_id: string | null } | null;
 };
-export type Result = { id: string; kind: string; verdict: string; cite: string; url: string | null; actor: Actor; at: string };
+export type Result = {
+  id: string;
+  kind: string;
+  verdict: string;
+  cite: string;
+  url: string | null;
+  actor: Actor;
+  at: string;
+  // The structured fields (2.2) the 2.11 timeline shows.
+  commit?: string | null;
+  branch?: string | null;
+  env?: string | null;
+  command?: string | null;
+  exit_code?: number | null;
+  counts?: { pass?: number; fail?: number; skip?: number } | null;
+  duration_s?: number | null;
+  /** The branch moved past this result's commit (null: no commit, or the head is unknown). */
+  stale_for_head?: boolean | null;
+  /** The checks this result ticked (2.11). */
+  ticked_checks?: number[];
+};
 export type LogEntry = { id: number; at: string; type: string; actor: Actor; payload: Record<string, unknown> };
 
 // The get_task shape.
@@ -257,6 +277,7 @@ export type TaskDetail = Omit<TaskRow, "claimed_by" | "lease_until"> & {
   state?: InitiativeState;
   state_note?: { text: string; at: string | null; stale: boolean };
   branch: string | null;
+  pr?: { number: number | null; url: string } | null;
   claim: { owner: Actor; claimed_at: string; lease_until: string; last_seen_at: string | null; live: boolean } | null;
   workspace: Workspace | null;
   log: LogEntry[];

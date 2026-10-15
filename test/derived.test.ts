@@ -133,3 +133,19 @@ describe("derived initiative state", () => {
     assert.ok(!codes.includes("INITIATIVE_STATE_NOTE_STALE"));
   });
 });
+
+describe("evidence timeline (fix d)", () => {
+  test("results carry ticked_checks and stale_for_head once the branch moves past their commit", async () => {
+    await call("create_task", { ...P, title: "Timeline", scope: "s", checks: ["one", "two", "three"], status: "Ready" }); // ZIG-01
+    await call("claim", { ...P, key: "ZIG-01", workspace: { branch: "jl/timeline" } });
+    await call("add_result", { ...P, key: "ZIG-01", kind: "unit", verdict: "pass", cite: "pnpm test", command: "pnpm test", counts: { pass: 12 }, duration_s: 40, commit: "abc1234", branch: "jl/timeline", check_ns: [2, 3] });
+    await call("add_result", { ...P, key: "ZIG-01", kind: "visual", verdict: "warn", cite: "375px ok, 320px clips" });
+    let t = await call("get_task", { ...P, key: "ZIG-01" });
+    assert.deepEqual(t.results.map((r: Json) => [r.kind, r.ticked_checks, r.stale_for_head]), [["unit", [2, 3], false], ["visual", [], null]]);
+    const p = await findProject(db, "zigzag");
+    await raw.query("insert into branches (project_id, name, head_sha) values ($1, 'jl/timeline', 'def5678') on conflict (project_id, name) do update set head_sha = 'def5678'", [p.id]);
+    t = await call("get_task", { ...P, key: "ZIG-01" });
+    assert.equal(t.results[0].stale_for_head, true, "the branch moved on");
+    assert.deepEqual([t.results[0].command, t.results[0].counts, t.results[0].duration_s], ["pnpm test", { pass: 12 }, 40]);
+  });
+});

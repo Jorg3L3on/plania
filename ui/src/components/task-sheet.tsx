@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DueTag } from "@/components/due";
+import { EvidenceTimeline } from "@/components/evidence-timeline";
 import { HechoForm } from "@/components/hecho";
 import { dayText, dueText } from "@/lib/due";
 import { TaskControls } from "@/components/task-controls";
@@ -259,17 +260,7 @@ function Details({ slug, task, onOpen }: { slug: string; task: TaskDetail; onOpe
 
       {task.results.length > 0 && (
         <Section title="Evidencia">
-          <ul className="grid gap-2 text-sm">
-            {task.results.map((r) => (
-              <li key={r.id} className="grid gap-0.5">
-                <span>
-                  {VERDICT[r.verdict] ?? r.verdict} <span className="font-mono text-xs">{r.kind}</span> {r.cite}
-                  {r.url && <a href={r.url} target="_blank" rel="noreferrer" className="ml-1 underline underline-offset-4">enlace</a>}
-                </span>
-                <span className="text-xs text-muted-foreground">{r.actor.agent} · {localTime(r.at)}</span>
-              </li>
-            ))}
-          </ul>
+          <EvidenceTimeline results={task.results} prUrl={task.pr?.url ?? task.pr_url} />
         </Section>
       )}
 
