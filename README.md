@@ -161,42 +161,51 @@ The working protocol (claim, versions, evidence, closing finished work) is serve
 on `initialize`, versioned (`PROTOCOL_VERSION` in `src/mcp/protocol.ts`, also in `get_project`). Project-specific
 additions are the project's `rules` (`set_project`). Product repos point here instead of copying the rules.
 
+<!-- mcp-tools:start -->
 | Read | |
 |---|---|
-| `get_resume` | Generated: headline, the status block (per env what runs there and its drift; per initiative counts, next claimable, who waits on Jorge, what is in review with its PR state; queues), live claims, next claimable, per open initiative its notes, claims, next ticket and pinned decisions; open questions; latest events. `include_legacy` adds the v1 card while one exists |
-| `get_inbox` | Everything waiting on Jorge (pending approvals, open questions, human actions), for one project or `all` |
-| `get_context` | One call for a session opening a worktree: the initiative and tickets on the branch, your claims (with any handoff note), pinned decisions, open questions, pending approvals, events since a cursor |
-| `audit` | What the data says is wrong: findings with a code, key, detail and fix hint (also every ten minutes; the count is in `get_resume.status`) |
-| `get_project` | Body, rules, settings, protocol version, counts, `env` per environment (with flags, migrations and the deploy's source), `branches`, `resources`, `metrics`, reserved sequence numbers |
-| `list_tasks` | Filters: parent, status, kind, work_type, severity, owner, unblocked, updated_since, search, limit |
-| `get_task` | By key or alias. `view` full (default) or summary (≤ 2 KB); `fields` picks keys; `include_log` adds the last 50 events; `include_children` |
-| `get_memory` | Rules, project docs, decisions (filters: task, initiative, tag; reversed and retired ones only with `include_superseded` / `include_retired`) |
-| `get_doc` | One doc's markdown |
-| `get_next` | Next claimable ticket (expired leases included as `stale_claim`) |
-| `list_events` | The change feed, with a cursor |
+| `get_resume` | Where the project stands, generated from data: live claims (who, until when, where), the next claimable ticket, and per open initiative its in_progress note and claims, next_action note and next_claimable, must_keep (pinned decisions) and status counts. |
+| `get_project` | Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline, settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel), ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, and reserved sequence numbers with the ticket holding each. |
+| `list_tasks` | Initiatives and tickets without scope, with version, claimed_by (live lease owner or null) and updated_at. |
+| `get_task` | One initiative or ticket, by its key or any former key (aliases). |
+| `get_memory` | Fixed memory: rules, design_docs (project docs, with markdown; view summary lists them without it), and the decision log, newest first (limit default 100, max 500). |
+| `get_doc` | One doc by id (from get_task docs, get_memory design_docs, or a decision's adr_doc_id), with its markdown and version. |
+| `get_next` | Next claimable ticket: Backlog or Ready, or In progress with an expired lease (stale_claim: true), with every blocker satisfied (tasks In review or Done, env conditions holding). |
+| `list_events` | What changed, oldest first: every write is an event with its actor, server time, project and a one-line summary (Spanish). |
+| `list_projects` | Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim), ticket counts (open, in_progress, in_review, needs_jorge, blocked, done), open_questions, claims, last_event_id and last_event_at. |
+| `get_running` | Every ticket with an owner, across projects, with a derived liveness: live (lease valid, activity in the last 20 min), quiet (lease valid, no heartbeat or event for longer), stale (lease ran out, not yet cleared). |
+| `get_digest` | One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects. |
+| `get_inbox` | Everything waiting on Jorge, oldest first per kind: pending approvals and open questions (more kinds come with later releases). |
+| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_STATE_NOTE_STALE, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, LEGACY_CARD_PRESENT, and the footprint codes. |
+| `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions and pending approvals on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), and the events since since_cursor that touch them. |
 
 | Write | |
 |---|---|
-| `create_task` | Ticket (default) or initiative; scope, checks, phase, work_type, blocked_by. The key is assigned unless given |
-| `set_task` | Fields with `version`; status through the state machine; a note alone needs no version; `parent_key` moves a ticket (new key, old one as alias); `state_note` for where an initiative stands; `checks[].derived_from` ties an initiative check to a ticket |
-| `batch` | Several of create_task, set_task, set_check, add_result, add_decision, note in one call; atomic by default |
-| `claim` | claim / heartbeat / release a lease (default 30 min), with workspace |
-| `handoff` | Hand a claim to a session (or anyone) with a note; the receiver's claim carries it back; a ten-minute hold |
-| `set_check` | Tick one Done when item, amend its text, or lift a waiver |
-| `waive_check` | Mark a check as not going to be done, with why (an approval once In review or later) |
-| `request_approval` | Ask Jorge for one move: wont_do, reopen, waive_check, runbook_step, lease_resource |
-| `add_result` | Evidence: kind, verdict, cite, url, and the facts (commit, branch, env, command, exit_code, counts, duration_s, attachments as links, viewport, device, metrics); can tick checks |
-| `attach_doc` | A spec, plan or design doc on a task or the project |
-| `add_decision` | One line; task, tags, pin, supersedes (one id or several), ADR body |
-| `retire_decision` | A decision that no longer holds and has no replacement |
-| `archive_legacy_card` | Move the v1 card into the event log and remove it (a job does it once v2 data exists) |
-| `ask` / `answer` | Questions for Jorge; `answer` with `decision_text` also writes a decision |
-| `reserve_sequence` | Next free number of a sequence (e.g. migrations), bound to a ticket |
-| `set_env` | What an environment runs: commit, branch, migration tags, flags, and the deploy's `{provider, deployment_id, url}` |
-| `set_metric` | A measured value for `metric_gte` blockers |
-| `lease_resource` / `release_resource` / `consume` | Shared resources (a port per machine, the production migrate step) and daily quotas |
-| `register_footprint` / `release_footprint` | Declare what you started that outlives the command (a dev server, a database copy, a container, a service, a tunnel) with its teardown command, and release it once torn down. Merges with what the machine job sees; `get_task` and `get_context` list a ticket's footprint |
-| `set_project` | Title, body, rules, headline (≤ 280 chars), with version |
+| `create_task` | Create a ticket (default) or, with kind initiative, a parent initiative. |
+| `set_task` | Update a ticket or an initiative. |
+| `set_check` | Tick (or untick) one Done when item by its n, amend its text, or lift a waiver. |
+| `add_result` | Record evidence on a task: kind, verdict pass\|warn\|fail, cite (what ran and what it showed), url (CI run, screenshot, recording), and the structured fields: commit, branch, env, command, exit_code, counts, duration_s, attachments, viewport, device, metrics. |
+| `attach_doc` | Store a markdown doc in Plania so every machine can read it: a spec or plan on a task (key), or a project doc such as a design page (no key). |
+| `claim` | Lease a ticket so no other session works on it. |
+| `add_decision` | Append one decision to the log. |
+| `reserve_sequence` | Reserve the next number of a per-project sequence (e.g. name 'migration' gives '0009') for a ticket, so two initiatives never take the same one. |
+| `ask` | Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer. |
+| `answer` | Record Jorge's answer to a question (he answers on screen, or tells you in chat and you record it here, quoting him). |
+| `set_project` | Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline. |
+| `set_env` | Record what an environment runs, as data other sessions can check: commit and branch deployed, migrations (the tags applied, e.g. ['0009_x']; migrations_applied is derived), flags (configuration state, never secret values: {google_oauth: false, omdb_key: 'valid'}; null removes one). |
+| `request_approval` | Ask Jorge to approve one move you cannot make yourself: action wont_do \| reopen (a status change), waive_check (target {n}, once In review or later), runbook_step, lease_resource. |
+| `waive_check` | Mark one Done when item as not going to be done, with the reason (it then counts as closed for In review and Done). |
+| `retire_decision` | Retire a decision that no longer holds and has no replacement (to replace one, add_decision with supersedes). |
+| `archive_legacy_card` | Move the old hand-written v1 card into the event log (legacy_card.archived, with its full text) and remove it for good. |
+| `handoff` | Hand your claim to another session (its session_id) or to anyone ('open'), with a note: what is done, what is next, the branch head (head_sha). |
+| `set_metric` | Report a measured value (e.g. pickevent_nights 31) for metric_gte blockers; a result's metrics field does the same. |
+| `lease_resource` | Hold a shared thing for a while so no other session uses it: a dev port (port:3001, scoped to your machine automatically), the production migrate step (neon-prod:migrate), anything by name. |
+| `release_resource` | Give a leased resource back. |
+| `register_footprint` | Declare something you started that outlives the command: a dev server, a database or a copy of one, a container, a service, a tunnel, a worktree. |
+| `release_footprint` | Say a registered footprint is torn down; it leaves the Machine inventory. |
+| `consume` | Count n (default 1) against a daily quota from settings.quotas (e.g. quota:omdb with daily 1000). |
+| `batch` | Several writes in one call: ops of create_task, set_task, set_check, add_result, add_decision or note ({op: 'note', key, text}), each with the fields of its tool (project, actor and request_id come from the batch). |
+<!-- mcp-tools:end -->
 
 Rules every write follows:
 
