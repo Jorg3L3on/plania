@@ -78,6 +78,9 @@ describe("parseJorgeLines", () => {
   test("conservative: list markers and case, but no reports of what Jorge did", () => {
     assert.deepEqual(parseJorgeLines("- JORGE: merge sandbox → main\n2. jorge: rotate the key").map((l) => l.text), ["merge sandbox → main", "rotate the key"]);
     assert.deepEqual(parseJorgeLines("Jorge approved the plan. Jorge decided to drop Vercel."), []);
+    // Present-tense asks from the live data of 2026-10-15 (MIC-I1, PLA-I3).
+    assert.equal(parseJorgeLines("Jorge releases sandbox → main; then the MIC-I1-4 device check on prod").length, 1);
+    assert.equal(parseJorgeLines("Waits for PLA-I2 (2.9). Jorge sets settings.release per project first").length, 1);
     assert.deepEqual(parseJorgeLines("Ask the team about it"), []);
     assert.deepEqual(parseJorgeLines(""), []);
     const twice = parseJorgeLines("Jorge: merge it\nJorge:  merge   it");

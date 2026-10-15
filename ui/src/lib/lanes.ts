@@ -21,6 +21,8 @@ export type LaneTask = {
   waits_on?: string[];
   /** Held by a blocker other than a task. */
   held?: boolean;
+  /** 2.10: the due day, YYYY-MM-DD. */
+  due_on?: string | null;
 };
 
 /**

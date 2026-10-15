@@ -9,7 +9,9 @@ import remarkGfm from "remark-gfm";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DueTag } from "@/components/due";
 import { HechoForm } from "@/components/hecho";
+import { dayText, dueText } from "@/lib/due";
 import { TaskControls } from "@/components/task-controls";
 import { ClaimLine } from "@/components/task-row";
 import { localTime } from "@/lib/time";
@@ -182,6 +184,12 @@ function Details({ slug, task, onOpen }: { slug: string; task: TaskDetail; onOpe
                 </span>
               ))}
             </span>
+          </Field>
+        )}
+        {task.due_on && (
+          <Field label="Fecha">
+            <DueTag task={task} className="text-sm" />
+            {!dueText(task) && <span>{dayText(task.due_on)}</span>}
           </Field>
         )}
         {task.origin && <Field label="Origen">{task.origin}</Field>}

@@ -17,7 +17,7 @@ const JORGE_PREFIX = /^\s*(?:[-*•]|\d+[.)])?\s*\**jorge\**\s*[:：]\s*(.+)$/i;
 const NAMES_JORGE = /\bjorge\b/i;
 // Cues that a sentence naming Jorge asks him for something, rather than reporting what he did.
 const WAIT_CUE =
-  /\bwait(?:s|ing)? (?:on|for)\b|\bespera(?:ndo)? (?:a|por)\b|\bhuman action\b|\bacci[oó]n humana\b|\bsays so\b|\blo diga\b|\b(?:jorge|his)'s? (?:ok|go-ahead|approval|turn)\b|\bok de jorge\b|\bneeds? jorge\b|\bnecesita a jorge\b|\bjorge (?:has to|must|needs to|should|tiene que|debe)\b|\bhave him\b|\bask jorge\b|\bp[ií]dele a jorge\b|\b(?:until|hasta que) jorge\b|\ble toca a jorge\b|\bte toca\b/i;
+  /\bwait(?:s|ing)? (?:on|for)\b|\bespera(?:ndo)? (?:a|por)\b|\bhuman action\b|\bacci[oó]n humana\b|\bsays so\b|\blo diga\b|\b(?:jorge|his)'s? (?:ok|go-ahead|approval|turn)\b|\bok de jorge\b|\bneeds? jorge\b|\bnecesita a jorge\b|\bjorge (?:has to|must|needs to|should|tiene que|debe)\b|\bhave him\b|\bask jorge\b|\bp[ií]dele a jorge\b|\b(?:until|hasta que) jorge\b|\ble toca a jorge\b|\bte toca\b|\bjorge (?:sets|decides|releases|merges|ships|runs|picks|chooses|approves|confirms|creates|installs|signs|tests|adds|puts|rotates|reviews|gives|decide|aprueba|lleva|crea|pone|corre|prueba|confirma|elige|mergea|lanza|instala|revisa|firma)\b/i;
 
 // Field names as agents write them. A note has no field to resync: its blockers stay until done.
 export const PARSED_FIELDS = ["next_action", "in_progress_note", "state_note", "summary", "blocked_note", "note"] as const;

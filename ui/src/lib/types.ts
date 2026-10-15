@@ -1,4 +1,5 @@
 // Shapes returned by the server's /api routes (src/api/routes.ts). Timestamps are ISO-8601 UTC.
+import type { Upcoming } from "./due.js";
 
 export type Actor = { agent: string; session_id: string; machine?: string; model?: string };
 export type Workspace = { machine?: string; worktree_path?: string; branch?: string };
@@ -18,6 +19,9 @@ export type ProjectSummary = {
   activity: number[];
   /** Each open initiative's notes: what it is doing and what it needs next. */
   initiatives: InitiativeNote[];
+  /** 2.10: dates in the next 14 days, and the keys past their due day. */
+  upcoming?: Upcoming[];
+  overdue?: string[];
 };
 
 export type InitiativeNote = { key: string; in_progress: string; next_action: string };
@@ -172,6 +176,9 @@ export type TaskRow = {
   waits_on: string[];
   /** Held by a blocker other than a task (env, flag, metric, time, human action). */
   held: boolean;
+  /** 2.10: the due day (YYYY-MM-DD) and the earliest time_after still ahead. */
+  due_on: string | null;
+  time_after?: string | null;
 };
 
 export type Blocker =

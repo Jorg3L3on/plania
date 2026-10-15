@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DueTag } from "@/components/due";
 import { api } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import { localTime } from "@/lib/time";
@@ -94,6 +95,7 @@ export function TaskRow({
           {/* Inside a project every key shares its prefix, so ticket codes read like initiative codes.
               Only initiatives show theirs; tickets are known by title (the side panel still shows the key). */}
           {task.kind === "initiative" && <span className="font-mono text-xs text-muted-foreground">{task.key}</span>}
+          <DueTag task={task} />
         </div>
         {task.summary && <p className="text-sm text-muted-foreground">{task.summary}</p>}
         {task.status === "Blocked" && task.blocked_note && (
