@@ -87,8 +87,8 @@ Upgrading a v1 database: the backfill that did it (`scripts/backfill-v2.ts`) is 
 
 Migration `0024` (there is no `0023`: 2.10 needed none) renames `projects.headline`, `headline_version`,
 `headline_at` and `headline_stale` to `headline_note*`, data kept: the headline is generated now and what
-`set_project headline` writes is its note. Take a `plania-pre-0024-*` dump first; the server from 2.11 does not start
-reading the old column names, so migrate before restarting it.
+`set_project headline` writes is its note. Take a `plania-pre-0024-*` dump first. The 2.11 server reads only the new
+names and the old one only the old, so apply the migration right before the restart.
 
 ## Dev
 
