@@ -96,9 +96,23 @@ export type Question = {
 
 
 // get_resume: generated from the data, never hand-written.
+/** 2.12: an open ticket Jorge asked for on screen (origin jorge), newest first. */
+export type Request = {
+  key: string;
+  kind: string;
+  parent_key: string | null;
+  title: string;
+  summary: string;
+  status: string;
+  priority: string | null;
+  asked_at: string;
+  claimed: boolean;
+};
+
 export type Resume = {
   headline: Headline;
   claims: Claim[];
+  requests?: Request[];
   next_claimable: NextTicket;
   initiatives: {
     key: string;

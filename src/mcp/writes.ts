@@ -152,7 +152,7 @@ export type CreateInput = {
   summary?: string;
   parent_key?: string | null;
   priority?: string;
-  origin?: "chartered" | "discovered";
+  origin?: "chartered" | "discovered" | "jorge";
   blocked_by?: BlockerInput[];
   status?: string;
   work_type?: string;
@@ -207,6 +207,8 @@ function templateWarnings(input: CreateInput, kind: string): string[] {
     return warnings;
   }
   const workType = input.work_type ?? "code";
+  // 2.12: Jorge's request is a sentence; the agent that takes it writes the scope and the checks.
+  if (input.origin === "jorge") return warnings;
   if (!input.scope?.trim()) missing.push("scope");
   if (NEEDS_CHECKS.includes(workType) && !input.checks?.some((c) => c.trim())) missing.push("checks");
   if (missing.length) throw new ToolError("TEMPLATE_INVALID", { missing, work_type: workType });
@@ -219,6 +221,7 @@ function templateWarnings(input: CreateInput, kind: string): string[] {
 export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: CreateInput, ctx: Ctx) {
   rejectBody(input);
   checkPhase(input.phase);
+  if (input.origin === "jorge" && !ctx.human) throw new ToolError("RESERVED_ACTOR", { field: "origin" });
   const blockedBy = parseBlockers(input.blocked_by ?? []);
   const kind = input.kind ?? "ticket";
   const warnings: WriteWarning[] = templateWarnings(input, kind);

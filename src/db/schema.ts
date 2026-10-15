@@ -199,7 +199,7 @@ export const tasks = pgTable(
     status: text("status").notNull(),
     priority: text("priority"), // tickets only: P0|P1|P2|P3
     workType: text("work_type"), // tickets only: code|ops|research|decision-needed
-    origin: text("origin"), // tickets only: chartered|discovered
+    origin: text("origin"), // tickets only: chartered|discovered|jorge (2.12: Jorge asked for it on screen)
     baseBranch: text("base_branch"), // initiatives only
     // Initiatives only: their part of the generated resume. Claims and next_claimable are derived.
     inProgressNote: text("in_progress_note").notNull().default(""),
@@ -740,5 +740,7 @@ export type Task = typeof tasks.$inferSelect;
 export const INITIATIVE_STATUSES = ["Planning", "Active", "Shipping", "Done", "On hold", "Won't do"] as const;
 export const TICKET_STATUSES = ["Backlog", "Ready", "In progress", "In review", "Merged", "Released", "Blocked", "Needs Jorge", "Done", "Won't do"] as const;
 export const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
-export const ORIGINS = ["chartered", "discovered"] as const;
+export const ORIGINS = ["chartered", "discovered", "jorge"] as const;
+// What an agent may pass to create_task; "jorge" is the screen's alone (POST /api/projects/:slug/tasks).
+export const AGENT_ORIGINS = ["chartered", "discovered"] as const;
 export const KINDS = ["initiative", "ticket"] as const;

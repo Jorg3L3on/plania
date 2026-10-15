@@ -1147,12 +1147,12 @@ describe("v2 C2: list_events", () => {
 describe("v2 C4: protocol and project text", () => {
   test("the protocol comes with initialize, versioned", async () => {
     const text = client.getInstructions() ?? "";
-    assert.match(text, /^Plania protocol 2\.10\./);
+    assert.match(text, /^Plania protocol 2\.11\./);
     assert.match(text, /set_task status Done once the ticket is Merged or Released/);
     assert.match(text, /Never set Won't do or reopen a closed task yourself/);
-    assert.equal(client.getServerVersion()?.version, "2.10.0");
+    assert.equal(client.getServerVersion()?.version, "2.11.0");
     const p = await call("get_project", { project: "zigzag" });
-    assert.equal(p.protocol_version, "2.10");
+    assert.equal(p.protocol_version, "2.11");
   });
 
   test("set_project edits body and rules with the version; rules_version follows the rules", async () => {

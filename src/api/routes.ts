@@ -26,7 +26,7 @@ import { ToolError, findProject, findTask, taskFull } from "../mcp/queries.js";
 import { answer } from "../mcp/questions.js";
 import { nextStepLine, resumeDigest, resumeLine } from "../mcp/resume.js";
 import { WEB_ACTOR, webCtx, writeTx } from "../mcp/tx.js";
-import { claim, setTask } from "../mcp/writes.js";
+import { claim, createTask, setTask } from "../mcp/writes.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
 // the MCP Bearer never opens it and the cookie never opens /mcp.
@@ -261,6 +261,41 @@ api.post("/projects/:slug/audit/fix", async (c) => {
   if (body instanceof Response) return body;
   try {
     return c.json(await withDb(async (db) => fixFinding(db, await findProject(db, c.req.param("slug")), body)));
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
+
+// 2.12 Pedir: Jorge asks for something. A Backlog ticket as Jorge with origin jorge and a
+// server-assigned key; agents read it first (requests) and get_next offers it before its priority's
+// other tickets. A sentence is enough: the agent that takes it writes the scope and the checks.
+const requestBody = z.object({
+  title: z.string().trim().min(1).max(200),
+  summary: z.string().trim().max(500).optional(),
+  priority: z.enum(["P0", "P1", "P2", "P3"]).optional(),
+  parent_key: z.string().trim().min(1).nullable().optional(),
+});
+
+api.post("/projects/:slug/tasks", async (c) => {
+  const body = await readJson(c, requestBody);
+  if (body instanceof Response) return body;
+  try {
+    const result = await withDb((db) =>
+      createTask(
+        db,
+        {
+          project: c.req.param("slug"),
+          title: body.title,
+          summary: body.summary || undefined,
+          priority: body.priority ?? "P2",
+          parent_key: body.parent_key || undefined,
+          origin: "jorge",
+          status: "Backlog",
+        },
+        screenCtx,
+      ),
+    );
+    return c.json(result.task, 201);
   } catch (e) {
     return errorResponse(c, e);
   }

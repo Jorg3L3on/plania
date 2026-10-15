@@ -5,6 +5,7 @@ import { auditForKeys } from "./orden.js";
 import { ToolError } from "./errors.js";
 import { footprintsOf, sessionFootprint } from "./footprint-read.js";
 import { listEvents, liveOwner, taskSummary } from "./queries.js";
+import { openRequests } from "./requests.js";
 import { iso, type Q } from "./tx.js";
 
 // get_context (R-03): one call for a session opening a worktree. From the branch (and machine /
@@ -60,6 +61,8 @@ export async function getContext(
     project: p.slug,
     branch: branch ?? null,
     initiative: initiative ? await taskSummary(db, initiative) : null,
+    // 2.12: what Jorge asked for on screen, newest first, whatever the branch.
+    requests: await openRequests(db, p.id),
     tickets: await Promise.all(tickets.map((t) => taskSummary(db, t))),
     my_claims: mine.map((t) => ({ key: t.key, lease_until: iso(t.leaseUntil), workspace: t.workspace, handoff: t.handoff })),
     pinned_decisions: decisions,
