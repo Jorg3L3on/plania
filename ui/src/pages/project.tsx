@@ -16,6 +16,7 @@ import { OrdenSection } from "@/components/plan/orden";
 import { QuestionsPanel } from "@/components/resume";
 import { TaskList } from "@/components/plan/task-list";
 import { Kicker } from "@/components/plan/visuals";
+import { PedirBox } from "@/components/pedir";
 import { TaskSheet } from "@/components/task-sheet";
 import { api, ApiError } from "@/lib/api";
 import { branchEdges, buildLanes, projectProgress, statusCounts } from "@/lib/lanes";
@@ -139,6 +140,8 @@ export function ProjectPage() {
             release={resume?.status?.release}
             onOpen={openTask}
           />
+          {/* 2.12: Jorge asks for something; the new ticket opens in the sheet. */}
+          <PedirBox slug={slug} tasks={project.data.tasks} requests={resume?.requests} onOpen={openTask} />
           {/* Questions agents asked Jorge (Needs Jorge): answer in place, with an optional line for the decision log. */}
           <QuestionsPanel slug={slug} questions={project.data.resume.open_questions} onOpen={openTask} />
 

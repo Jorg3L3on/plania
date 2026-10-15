@@ -90,6 +90,13 @@ Migration `0024` (there is no `0023`: 2.10 needed none) renames `projects.headli
 `set_project headline` writes is its note. Take a `plania-pre-0024-*` dump first. The 2.11 server reads only the new
 names and the old one only the old, so apply the migration right before the restart.
 
+### Upgrading to 2.12 (intent and the day)
+
+Migration `0025` adds `push_subscriptions`; nothing else changes shape (Jorge's requests reuse `tasks.origin` with the
+new value `jorge`). Take a `plania-pre-0025-*` dump first. The 2.12 server's push job and `/api/push/*` read the table,
+so apply it before the restart. Push also needs the VAPID trio in `.env` (`pnpm vapid` prints a pair); without it push
+stays off and everything else works. Phone access over Tailscale and turning push on: [docs/phone-access.md](docs/phone-access.md).
+
 ## Dev
 
 ```bash
@@ -156,7 +163,7 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 <!-- mcp-tools:start -->
 | Read | |
 |---|---|
-| `get_resume` | Where the project stands, generated from data: live claims (who, until when, where), the next claimable ticket, and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts. |
+| `get_resume` | Where the project stands, generated from data: live claims (who, until when, where), requests (Jorge's open asks from the screen, newest first: read them first), the next claimable ticket, and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts. |
 | `get_project` | Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release), ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each, and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks and the command Jorge runs (null without settings.release). |
 | `list_tasks` | Initiatives and tickets without scope, with version, claimed_by (live lease owner or null) and updated_at. |
 | `get_task` | One initiative or ticket, by its key or any former key (aliases). |
@@ -169,7 +176,7 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | `get_digest` | One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects. |
 | `get_inbox` | Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (pending approvals, open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac). |
 | `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, and the footprint codes. |
-| `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions and pending approvals on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), and the events since since_cursor that touch them. |
+| `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions and pending approvals on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). |
 
 | Write | |
 |---|---|
@@ -473,10 +480,15 @@ and the home indicator (`viewport-fit=cover` and `env(safe-area-inset-*)`, with 
   `/api`, `/mcp`, `/hooks` and `/health` never go through it, so data and the live stream are never cached. The live
   stream reopens when the app returns to the foreground.
 - **Install:** iOS Safari → Compartir → Agregar a inicio. Android Chrome → menu → Instalar app.
-- **Reaching it from the phone is still open.** The server listens on 127.0.0.1 only. Service workers, Android's
-  install and the `secure` session cookie all need HTTPS, so the likely route is `tailscale serve` in front of :3737.
-  Plain HTTP on the LAN would not keep the login. A home-screen app on iOS keeps its own cookies, so you sign in
-  once inside it.
+- **Reaching it from the phone** (2.12): the server listens on 127.0.0.1 only and `tailscale serve --bg --https=443
+  http://127.0.0.1:3737` puts it on the tailnet with a real certificate. The session cookie is `Secure` when the request
+  is HTTPS, arrives with `X-Forwarded-Proto: https` (what `tailscale serve` sends; trusted because only this Mac can
+  reach the port), or comes to a loopback host. A home-screen app on iOS keeps its own cookies, so you sign in once
+  inside it. Steps in [docs/phone-access.md](docs/phone-access.md).
+- **Push** (2.12): "Avisarme cuando me toque" in the "⋯" menu subscribes the device (`ui/src/lib/push.ts`); `ui/sw.js`
+  shows the message and a tap opens the Bandeja on its tab. The `push` job (`src/jobs/push.ts`) looks at the inbox
+  once a minute and sends one message per device for whatever is new in Decisiones or Pasos (approvals, questions,
+  human actions typed or parsed, a release ready). A 404/410 from the push service deletes the subscription.
 
 How live updates flow: every write runs in `writeTx` (`src/mcp/tx.ts`), which after commit publishes one change per
 task it touched on the in-process bus in `src/events.ts`. `GET /api/events` streams those as server-sent events, and
@@ -499,6 +511,9 @@ the UI refetches what changed.
 | `GET /api/inbox?project=` | Everything waiting on Jorge; `POST /api/approvals/decide` `{ ids, decision, note? }` grants or rejects, one event each |
 | `GET /api/tokens`, `POST /api/tokens`, `DELETE /api/tokens/:id` | Agent tokens (the secret is in the create response only) |
 | `POST /api/projects/:slug/tasks/:key/release` | Free a lease |
+| `POST /api/projects/:slug/tasks` | 2.12 Pedir: `{ title, summary?, priority?, parent_key? }`, a Backlog ticket as Jorge with `origin: "jorge"` |
+| `GET /api/digest?since=`, `POST /api/digest/seen` | 2.12 Hoy: `get_digest` as the reader `screen` (reading never moves its bookmark); `{ cursor }` on "Visto" does |
+| `GET /api/push/public-key`, `POST` / `DELETE /api/push/subscribe` | 2.12 push: the VAPID key (`PUSH_NOT_CONFIGURED` without it) and this device's subscription |
 | `POST /api/projects/:slug/questions/:id/answer` | `{ answer, decision_text? }` |
 | `GET /api/export/:slug.json` | The whole project (also with an MCP token, rw or ro) |
 | `GET /api/events` | Server-sent change events |

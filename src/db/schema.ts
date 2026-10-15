@@ -199,7 +199,7 @@ export const tasks = pgTable(
     status: text("status").notNull(),
     priority: text("priority"), // tickets only: P0|P1|P2|P3
     workType: text("work_type"), // tickets only: code|ops|research|decision-needed
-    origin: text("origin"), // tickets only: chartered|discovered
+    origin: text("origin"), // tickets only: chartered|discovered|jorge (2.12: Jorge asked for it on screen)
     baseBranch: text("base_branch"), // initiatives only
     // Initiatives only: their part of the generated resume. Claims and next_claimable are derived.
     inProgressNote: text("in_progress_note").notNull().default(""),
@@ -660,6 +660,19 @@ export const machineState = pgTable("machine_state", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// 2.12: one row per device that turned on "Avisarme cuando me toque". endpoint is the push service's
+// URL for that browser; keys are its {p256dh, auth}. The push job sends to every row; a 404/410 from
+// the push service deletes the row, any other failure stamps failed_at.
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  endpoint: text("endpoint").notNull().unique(),
+  keys: jsonb("keys").$type<{ p256dh: string; auth: string }>().notNull(),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastOkAt: timestamp("last_ok_at", { withTimezone: true }),
+  failedAt: timestamp("failed_at", { withTimezone: true }),
+});
+
 // v2: idempotent retries. A write that carries request_id stores its response here; the same
 // request_id for the same tool replays it instead of writing twice. Rows older than 30 days are purged.
 export const writeRequests = pgTable(
@@ -740,5 +753,7 @@ export type Task = typeof tasks.$inferSelect;
 export const INITIATIVE_STATUSES = ["Planning", "Active", "Shipping", "Done", "On hold", "Won't do"] as const;
 export const TICKET_STATUSES = ["Backlog", "Ready", "In progress", "In review", "Merged", "Released", "Blocked", "Needs Jorge", "Done", "Won't do"] as const;
 export const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
-export const ORIGINS = ["chartered", "discovered"] as const;
+export const ORIGINS = ["chartered", "discovered", "jorge"] as const;
+// What an agent may pass to create_task; "jorge" is the screen's alone (POST /api/projects/:slug/tasks).
+export const AGENT_ORIGINS = ["chartered", "discovered"] as const;
 export const KINDS = ["initiative", "ticket"] as const;

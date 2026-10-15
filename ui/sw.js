@@ -48,3 +48,44 @@ self.addEventListener("fetch", (event) => {
     })),
   );
 });
+
+// 2.12 push: the server sends {title, body, url, tag} when something new waits on Jorge (src/jobs/push.ts).
+// One tag, so a newer message replaces the older one instead of stacking.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { body: event.data ? event.data.text() : "" };
+  }
+  const title = data.title || "Plania";
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: data.body || "Algo te espera en la Bandeja.",
+      tag: data.tag || "plania-te-toca",
+      renotify: true,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      data: { url: sameOriginPath(data.url) },
+    }),
+  );
+});
+
+// Opens the Bandeja on the tab the message names: an open Plania window navigates there, else a new one opens.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = new URL(sameOriginPath(event.notification.data && event.notification.data.url), self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+      const open = windows.find((w) => new URL(w.url).origin === self.location.origin);
+      // navigate() only works on a window this worker controls; otherwise open a fresh one.
+      if (open) return open.focus().then((w) => (w || open).navigate(url)).catch(() => self.clients.openWindow(url));
+      return self.clients.openWindow(url);
+    }),
+  );
+});
+
+// Only paths on this origin, and /inbox when the message has none.
+function sameOriginPath(url) {
+  return typeof url === "string" && url.startsWith("/") && !url.startsWith("//") ? url : "/inbox";
+}

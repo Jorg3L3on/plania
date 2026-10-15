@@ -26,7 +26,9 @@ import { ToolError, findProject, findTask, taskFull } from "../mcp/queries.js";
 import { answer } from "../mcp/questions.js";
 import { nextStepLine, resumeDigest, resumeLine } from "../mcp/resume.js";
 import { WEB_ACTOR, webCtx, writeTx } from "../mcp/tx.js";
-import { claim, setTask } from "../mcp/writes.js";
+import { claim, createTask, setTask } from "../mcp/writes.js";
+import { getDigest, rememberCursor } from "../mcp/watch.js";
+import { subscribe, unsubscribe, vapidConfig } from "../push.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
 // the MCP Bearer never opens it and the cookie never opens /mcp.
@@ -83,12 +85,12 @@ api.post("/login", async (c) => {
   if (!body.password || !stored || !(await verifyPassword(stored, body.password))) {
     return c.json({ error: "INVALID_PASSWORD" }, 401);
   }
-  setCookie(c, SESSION_COOKIE, createSession(), sessionCookieOptions);
+  setCookie(c, SESSION_COOKIE, createSession(), sessionCookieOptions(c.req.raw));
   return c.body(null, 204);
 });
 
 api.post("/logout", (c) => {
-  deleteCookie(c, SESSION_COOKIE, { path: "/", secure: true });
+  deleteCookie(c, SESSION_COOKIE, { path: "/", secure: sessionCookieOptions(c.req.raw).secure });
   return c.body(null, 204);
 });
 
@@ -266,6 +268,41 @@ api.post("/projects/:slug/audit/fix", async (c) => {
   }
 });
 
+// 2.12 Pedir: Jorge asks for something. A Backlog ticket as Jorge with origin jorge and a
+// server-assigned key; agents read it first (requests) and get_next offers it before its priority's
+// other tickets. A sentence is enough: the agent that takes it writes the scope and the checks.
+const requestBody = z.object({
+  title: z.string().trim().min(1).max(200),
+  summary: z.string().trim().max(500).optional(),
+  priority: z.enum(["P0", "P1", "P2", "P3"]).optional(),
+  parent_key: z.string().trim().min(1).nullable().optional(),
+});
+
+api.post("/projects/:slug/tasks", async (c) => {
+  const body = await readJson(c, requestBody);
+  if (body instanceof Response) return body;
+  try {
+    const result = await withDb((db) =>
+      createTask(
+        db,
+        {
+          project: c.req.param("slug"),
+          title: body.title,
+          summary: body.summary || undefined,
+          priority: body.priority ?? "P2",
+          parent_key: body.parent_key || undefined,
+          origin: "jorge",
+          status: "Backlog",
+        },
+        screenCtx,
+      ),
+    );
+    return c.json(result.task, 201);
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
+
 // One task in the same shape the get_task MCP tool returns.
 api.get("/projects/:slug/tasks/:key", async (c) => {
   try {
@@ -397,6 +434,55 @@ api.post("/approvals/decide", async (c) => {
     ),
   );
   return c.json({ results, decided: results.filter((r) => r.ok).length });
+});
+
+// ---- Hoy (2.12)
+
+// The screen's reader of get_digest. The device keeps its own cursor (localStorage) and passes it as
+// since; without one the server's bookmark for "screen" applies (else the last 24 h). Reading never
+// moves the bookmark: "Visto" does, through /digest/seen.
+export const SCREEN_READER = "screen";
+
+api.get("/digest", async (c) => {
+  const raw = c.req.query("since");
+  const since = raw === undefined || raw === "" ? undefined : Number(raw);
+  if (since !== undefined && (!Number.isInteger(since) || since < 0)) return c.json({ error: "INVALID_FILTER", field: "since" }, 400);
+  return c.json(await withDb((db) => getDigest(db, { since, reader: SCREEN_READER, remember: false })));
+});
+
+api.post("/digest/seen", async (c) => {
+  const body = await readJson(c, z.object({ cursor: z.number().int().min(0) }));
+  if (body instanceof Response) return body;
+  await withDb((db) => rememberCursor(db, SCREEN_READER, body.cursor));
+  return c.json({ cursor: body.cursor });
+});
+
+// ---- Push (2.12)
+
+// The VAPID public key the browser subscribes with; PUSH_NOT_CONFIGURED until .env has the keys.
+api.get("/push/public-key", (c) => {
+  const vapid = vapidConfig();
+  if (!vapid) return c.json({ error: "PUSH_NOT_CONFIGURED" }, 503);
+  return c.json({ public_key: vapid.publicKey });
+});
+
+const pushSubscription = z.object({
+  endpoint: z.string().url().startsWith("https://").max(2000),
+  keys: z.object({ p256dh: z.string().min(1).max(200), auth: z.string().min(1).max(100) }),
+});
+
+api.post("/push/subscribe", async (c) => {
+  const body = await readJson(c, pushSubscription);
+  if (body instanceof Response) return body;
+  const row = await withDb((db) => subscribe(db, body, c.req.header("User-Agent")?.slice(0, 300) ?? null));
+  return c.json({ id: row.id, endpoint: row.endpoint }, 201);
+});
+
+api.delete("/push/subscribe", async (c) => {
+  const body = await readJson(c, z.object({ endpoint: z.string().min(1).max(2000) }));
+  if (body instanceof Response) return body;
+  const removed = await withDb((db) => unsubscribe(db, body.endpoint));
+  return c.json({ removed });
 });
 
 // ---- Machine

@@ -7,6 +7,7 @@ import { generatedHeadline } from "./headline.js";
 import { initiativeState } from "./initiative-state.js";
 import { headlineNoteShape } from "./project.js";
 import { openQuestions } from "./questions.js";
+import { openRequests } from "./requests.js";
 import { statusBlock } from "./status.js";
 import { iso, type Q } from "./tx.js";
 
@@ -95,6 +96,8 @@ export async function resumeDigest(db: Q, p: Project) {
     // What this project's agents have running on the Mac, in one line (null when nothing is).
     machine: await machineLine(db, p.id),
     claims: claimed.map(claimLine),
+    // 2.12: what Jorge asked for on screen, newest first. Read these before the backlog.
+    requests: await openRequests(db, p.id),
     next_claimable,
     initiatives,
     standalone: {

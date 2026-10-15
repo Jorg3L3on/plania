@@ -5,6 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Ciudad } from "@/components/home/ciudad";
+import { Hoy } from "@/components/home/hoy";
+import { PedirHome } from "@/components/pedir";
 import { LaMac, Proximo, Proyectos } from "@/components/home/parts";
 import { proximoOf } from "@/lib/due";
 import { api } from "@/lib/api";
@@ -66,6 +68,12 @@ export function HomePage() {
 
   return (
     <div className="grid gap-6 sm:gap-7">
+      {/* 2.12: one field to ask for something in any project. */}
+      <PedirHome projects={projects.data} />
+
+      {/* 2.12: what changed since "Visto", and what waits on Jorge, above the city. */}
+      <Hoy names={names} />
+
       <Ciudad districts={model.districts} loose={model.loose} headline={model.headline} envLines={model.envLines} names={names} nowMs={nowMs} />
 
       <Proximo lines={model.proximo} names={names} nowMs={nowMs} />

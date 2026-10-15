@@ -4,13 +4,14 @@ import { z } from "zod";
 import type { Scope } from "../auth/bearer.js";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { KINDS, ORIGINS } from "../db/schema.js";
+import { AGENT_ORIGINS, KINDS } from "../db/schema.js";
 import { FOOTPRINT_KINDS } from "../jobs/machine/infer.js";
 import { APPROVAL_ACTIONS, requestApproval } from "./approvals.js";
 import { inbox } from "./inbox.js";
 import { waiveCheck } from "./checks.js";
 import { addDecision, retireDecision } from "./decisions.js";
 import { choreFor } from "./orden.js";
+import { openRequests } from "./requests.js";
 import { headlineNoteShape, setProject } from "./project.js";
 import {
   ToolError,
@@ -153,7 +154,7 @@ const createFields = {
   summary: z.string().optional().describe("The one line shown in lists"),
   parent_key: z.string().nullable().optional().describe("Tickets: initiative key; omit or null for a standalone spec"),
   priority: z.string().optional().describe("Tickets: P0 | P1 | P2 | P3"),
-  origin: z.enum(ORIGINS).optional().describe("Tickets only"),
+  origin: z.enum(AGENT_ORIGINS).optional().describe("Tickets only. jorge is the screen's: Jorge's own requests"),
   blocked_by: blockedBy.optional(),
   status: z.string().optional().describe("Tickets: Backlog | Ready. Initiatives always start in Planning"),
   work_type: z.string().optional().describe(`Tickets: ${WORK_TYPES.join(" | ")}; default code`),
@@ -301,7 +302,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_resume",
     {
       description: [
-        "Where the project stands, generated from data: live claims (who, until when, where), the next claimable ticket,",
+        "Where the project stands, generated from data: live claims (who, until when, where), requests (Jorge's open asks from the screen, newest first: read them first), the next claimable ticket,",
         "and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts.",
         "Also the headline {generated, note}: generated from the data (what the release target runs, the release step, claims, what waits on Jorge, what is next), and the note set_project wrote (stale: true once an env, an initiative or a Done moved after it),",
         "project-wide pinned decisions and the latest events.",
@@ -463,14 +464,17 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_next",
     {
       description:
-        "Next claimable ticket: Backlog or Ready, or In progress with an expired lease (stale_claim: true), with every blocker satisfied (tasks In review or Done, env conditions holding). P0 first, then key. Read-only: does not claim; call claim next. When nothing is claimable (task null) it offers chore: one audit finding an agent can fix (its fix_hint names the tool), or a state_note older than the initiative's last move; do it.",
+        "Next claimable ticket: Backlog or Ready, or In progress with an expired lease (stale_claim: true), with every blocker satisfied (tasks In review or Done, env conditions holding). P0 first; within a priority, Jorge's requests (origin jorge) first, then key. requests (present when there are any) lists every open one, newest first: read them first. Read-only: does not claim; call claim next. When nothing is claimable (task null) it offers chore: one audit finding an agent can fix (its fix_hint names the tool), or a state_note older than the initiative's last move; do it.",
       inputSchema: { project, initiative_key: z.string().optional() },
       annotations: readOnly,
     },
     ({ project, initiative_key }) =>
       run(async () => {
         const p = await findProject(db, project);
-        const next = await nextTask(db, p.id, initiative_key);
+        // 2.12: Jorge's open requests ride on top (when there are any), newest first; the offer itself
+        // prefers one at equal priority.
+        const requests = await openRequests(db, p.id);
+        const next = { ...(requests.length ? { requests } : {}), ...(await nextTask(db, p.id, initiative_key)) };
         // 2.11: a quiet project still has housekeeping; get_next hands one piece of it out.
         if (next.task || initiative_key) return next;
         const chore = await choreFor(db, p);
@@ -887,7 +891,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note),",
-        "the pinned decisions that apply, open questions and pending approvals on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), and the events since since_cursor that touch them. UNKNOWN_BRANCH when nothing is on the branch.",
+        "the pinned decisions that apply, open questions and pending approvals on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). UNKNOWN_BRANCH when nothing is on the branch.",
       ].join(" "),
       inputSchema: {
         project,

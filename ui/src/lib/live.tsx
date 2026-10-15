@@ -53,6 +53,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         void queryClient.invalidateQueries({ queryKey: ["projects"] });
         void queryClient.invalidateQueries({ queryKey: ["project", event.project] });
         void queryClient.invalidateQueries({ queryKey: ["inbox"] });
+        // 2.12: Inicio's Hoy strip reads the digest since this device's cursor.
+        void queryClient.invalidateQueries({ queryKey: ["digest"] });
         // The machine job and register/release_footprint tell every screen the inventory changed.
         if (event.type === "footprint") void queryClient.invalidateQueries({ queryKey: ["machine"] });
         if (!event.key) return;
