@@ -50,18 +50,15 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
     const open = openOf(t);
     if (open.length) out.push({ code: "MERGED_CHECKS_OPEN", key: t.key, detail: `checks ${open.join(", ")} open after the merge`, fix_hint: "waive_check (needs an approval) or add the missing evidence" });
   }
-  // Initiatives closed with open children, or stale state notes.
+  // Initiatives closed with open children, or a status section inside the spec.
   for (const i of all.filter((t) => t.kind === "initiative")) {
     const children = all.filter((t) => t.parentId === i.id);
     if (CLOSED.includes(i.status)) {
       const open = children.filter((c) => !CLOSED.includes(c.status));
       if (open.length) out.push({ code: "INITIATIVE_CHILDREN_DONE", key: i.key, detail: `${open.map((c) => c.key).join(", ")} still open`, fix_hint: "close the tickets or reopen the initiative" });
     }
-    if (i.stateNote && i.stateNoteAt) {
-      const moved = children.map((c) => c.statusChangedAt?.getTime() ?? 0).concat(i.statusChangedAt?.getTime() ?? 0);
-      if (Math.max(...moved) > i.stateNoteAt.getTime()) out.push({ code: "INITIATIVE_STATE_NOTE_STALE", key: i.key, detail: `state_note from ${iso(i.stateNoteAt)} predates the last status change`, fix_hint: "set_task state_note" });
-    }
-    if (/^#{1,3}\s*(estado|status)\b/im.test(i.scope)) out.push({ code: "INITIATIVE_STATE_NOTE_STALE", key: i.key, detail: "scope holds a status section", fix_hint: "move it to state_note; scope is the spec" });
+    // 2.11: a stale state_note is a flag on the note (get_task state_note.stale), no longer a finding: the state is derived.
+    if (/^#{1,3}\s*(estado|status)\b/im.test(i.scope)) out.push({ code: "INITIATIVE_SCOPE_HAS_STATUS", key: i.key, detail: "scope holds a status section", fix_hint: "move it to state_note; scope is the spec" });
   }
   // Decisions that cite a commit or PR the release target has moved past, or contradict a Done ticket's plan.
   const live = await db.select().from(decisions).where(and(eq(decisions.projectId, p.id), isNull(decisions.retiredAt)));

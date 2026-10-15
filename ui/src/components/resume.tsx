@@ -55,6 +55,9 @@ export function ResumeView({ resume, onOpen }: { resume: Resume; onOpen: (key: s
               <span className="font-semibold">{i.title}</span>
               <span className="font-mono text-xs text-muted-foreground">{i.key} · {i.status}</span>
             </div>
+            {/* 2.11: the derived state first; the note after it, as commentary. */}
+            {i.state?.line && <p className="text-sm">{i.state.line}</p>}
+            {i.state_note && <p className="-mt-2 text-xs text-muted-foreground italic">{i.state_note}</p>}
             <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
               <Row label="En curso" items={[i.in_progress.note, ...i.in_progress.claims.map((c) => <ClaimItem key={c.key} claim={c} onOpen={onOpen} />)]} />
               <Row

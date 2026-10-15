@@ -61,21 +61,21 @@ describe("headline", () => {
     assert.equal(p.headline.version, 1);
     assert.equal(p.headline.stale, false);
     assert.match(p.headline.at, /Z$/);
-    assert.equal((await call("get_resume", P)).headline.text, "Prod at #125; next: awards backfill");
+    assert.equal((await call("get_resume", P)).headline.note.text, "Prod at #125; next: awards backfill");
 
     await call("set_env", { ...P, env: "prod", commit: "abcdef1" });
-    assert.equal((await call("get_resume", P)).headline.stale, true, "an env change dates the headline");
+    assert.equal((await call("get_resume", P)).headline.note.stale, true, "an env change dates the headline");
     p = await call("get_project", P);
     p = await call("set_project", { ...P, version: p.version, headline: "Prod at abcdef1" });
     assert.equal(p.headline.version, 2);
     assert.equal(p.headline.stale, false);
 
     await call("create_task", { ...P, kind: "initiative", title: "Rename", scope: "PRD" }); // ZIG-I1
-    assert.equal((await call("get_resume", P)).headline.stale, false, "creating does not");
+    assert.equal((await call("get_resume", P)).headline.note.stale, false, "creating does not");
     await call("set_task", { ...P, key: "ZIG-I1", status: "Active", version: 1 });
-    assert.equal((await call("get_resume", P)).headline.stale, true, "an initiative moving does");
-    const { rows } = await raw.query("select headline_stale from projects where slug = 'zigzag'");
-    assert.equal(rows[0].headline_stale, true);
+    assert.equal((await call("get_resume", P)).headline.note.stale, true, "an initiative moving does");
+    const { rows } = await raw.query("select headline_note_stale from projects where slug = 'zigzag'");
+    assert.equal(rows[0].headline_note_stale, true);
   });
 });
 

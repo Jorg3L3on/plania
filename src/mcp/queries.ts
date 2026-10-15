@@ -11,6 +11,7 @@ import { taskResults } from "./evidence.js";
 import { taskQuestions } from "./questions.js";
 import { iso, type Ctx, type Q } from "./tx.js";
 import { summarize } from "./summary.js";
+import { initiativeState } from "./initiative-state.js";
 
 export { ToolError };
 
@@ -218,7 +219,7 @@ export async function taskFull(db: Q, t: Task, opts: ShapeOptions = {}) {
     blocked_note: t.blockedNote,
     base_branch: t.baseBranch,
     ...(t.kind === "initiative"
-      ? { in_progress_note: t.inProgressNote, next_action: t.nextAction, state_note: await stateNoteShape(db, t) }
+      ? { in_progress_note: t.inProgressNote, next_action: t.nextAction, state: await initiativeState(db, t), state_note: await stateNoteShape(db, t) }
       : {}),
     branch: t.branch,
     pr_url: t.prUrl,
@@ -242,6 +243,7 @@ export async function taskFull(db: Q, t: Task, opts: ShapeOptions = {}) {
 }
 
 // R-16: where an initiative stands, apart from its spec; stale once a ticket of it (or it) moved later.
+// 2.11: commentary beside the derived state (initiative-state.ts); stale is a flag on the note, not an audit finding.
 async function stateNoteShape(db: Q, t: Task) {
   if (!t.stateNote) return { text: "", at: null, stale: false };
   const [last] = await db
@@ -288,6 +290,7 @@ export async function taskSummary(db: Q, t: Task) {
     phase: t.phase,
     parent_key: await parentKeyOf(db, t),
     child_keys: await childKeysOf(db, t),
+    ...(t.kind === "initiative" ? { state: await initiativeState(db, t) } : {}),
     checks: (await taskChecks(db, t.id)).map((c) => ({ n: c.n, text: c.text, done: c.done, waived: !!c.waived })),
     blocked_by: await blockerList(db, t),
     blocked_note: t.blockedNote,

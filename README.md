@@ -83,6 +83,13 @@ task doc titled "v1 body", then drops `tasks.body`, the four `projects.resume_*`
 
 Upgrading a v1 database: the backfill that did it (`scripts/backfill-v2.ts`) is in the git history before 2.9.
 
+### Upgrading to 2.11 (derived truth)
+
+Migration `0024` (there is no `0023`: 2.10 needed none) renames `projects.headline`, `headline_version`,
+`headline_at` and `headline_stale` to `headline_note*`, data kept: the headline is generated now and what
+`set_project headline` writes is its note. Take a `plania-pre-0024-*` dump first; the server from 2.11 does not start
+reading the old column names, so migrate before restarting it.
+
 ## Dev
 
 ```bash
@@ -149,8 +156,8 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 <!-- mcp-tools:start -->
 | Read | |
 |---|---|
-| `get_resume` | Where the project stands, generated from data: live claims (who, until when, where), the next claimable ticket, and per open initiative its in_progress note and claims, next_action note and next_claimable, must_keep (pinned decisions) and status counts. |
-| `get_project` | Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline, settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release), ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each, and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks and the command Jorge runs (null without settings.release). |
+| `get_resume` | Where the project stands, generated from data: live claims (who, until when, where), the next claimable ticket, and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts. |
+| `get_project` | Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release), ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each, and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks and the command Jorge runs (null without settings.release). |
 | `list_tasks` | Initiatives and tickets without scope, with version, claimed_by (live lease owner or null) and updated_at. |
 | `get_task` | One initiative or ticket, by its key or any former key (aliases). |
 | `get_memory` | Fixed memory: rules, design_docs (project docs, with markdown; view summary lists them without it), and the decision log, newest first (limit default 100, max 500). |
@@ -161,7 +168,7 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | `get_running` | Every ticket with an owner, across projects, with a derived liveness: live (lease valid, activity in the last 20 min), quiet (lease valid, no heartbeat or event for longer), stale (lease ran out, not yet cleared). |
 | `get_digest` | One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects. |
 | `get_inbox` | Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (pending approvals, open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac). |
-| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_STATE_NOTE_STALE, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, and the footprint codes. |
+| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, and the footprint codes. |
 | `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions and pending approvals on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), and the events since since_cursor that touch them. |
 
 | Write | |
@@ -429,7 +436,7 @@ system themes. Times arrive as UTC and show in the browser's local time.
   show their generated line. A "Te toca a ti" strip lists Needs Jorge tickets across projects.
 - `/inbox` lists everything waiting on Jorge: approvals (grant or reject several at once, one event each) and open
   questions. The header shows the count. `/tokens` issues and revokes agent tokens.
-- `/p/<slug>` shows the headline first (editable, "desactualizado" when the server marked it stale), then, in order: questions agents asked (answer with one click or free text, with an optional line for
+- `/p/<slug>` shows the generated headline first, with the note under it (editable, "desactualizada" when the server marked it stale), then, in order: questions agents asked (answer with one click or free text, with an optional line for
   the decision log); the lane grid; each initiative's line of stations; a branch graph built from initiatives' `branch`
   and `base_branch`; and the pinned decisions. "Ver la ficha completa" opens the generated resume per initiative
   (claims, next, pinned decisions) and the decision log, reversed ones

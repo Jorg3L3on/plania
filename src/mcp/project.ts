@@ -56,7 +56,7 @@ export async function setProject(
     if (input.body !== undefined && input.body !== current.body) changes.body = [current.body, input.body];
     if (input.rules !== undefined && input.rules !== current.rulesText) changes.rules = [current.rulesText, input.rules];
     const headline = input.headline?.trim();
-    if (headline !== undefined && headline !== current.headline) changes.headline = [current.headline, headline];
+    if (headline !== undefined && headline !== current.headlineNote) changes.headline = [current.headlineNote, headline];
     const settings = input.settings ? mergeSettings(current.settings, input.settings) : undefined;
     if (settings && JSON.stringify(settings) !== JSON.stringify(current.settings)) changes.settings = [current.settings, settings];
     if (!Object.keys(changes).length) return projectShape(current);
@@ -69,7 +69,7 @@ export async function setProject(
         ...(changes.body ? { body: input.body } : {}),
         ...(changes.rules ? { rulesText: input.rules, rulesVersion: sql`${projects.rulesVersion} + 1` } : {}),
         ...(changes.headline
-          ? { headline, headlineVersion: sql`${projects.headlineVersion} + 1`, headlineAt: sql`now()`, headlineStale: false }
+          ? { headlineNote: headline, headlineNoteVersion: sql`${projects.headlineNoteVersion} + 1`, headlineNoteAt: sql`now()`, headlineNoteStale: false }
           : {}),
         ...(changes.settings ? { settings } : {}),
         version: sql`${projects.version} + 1`,
@@ -82,8 +82,9 @@ export async function setProject(
   });
 }
 
-export function headlineShape(p: Project) {
-  return { text: p.headline, version: p.headlineVersion, at: iso(p.headlineAt), stale: p.headlineStale };
+// 2.11: what set_project headline writes is the note beside the generated headline (src/mcp/headline.ts).
+export function headlineNoteShape(p: Project) {
+  return { text: p.headlineNote, version: p.headlineNoteVersion, at: iso(p.headlineNoteAt), stale: p.headlineNoteStale };
 }
 
 function projectShape(p: Project) {
@@ -93,17 +94,17 @@ function projectShape(p: Project) {
     body: p.body,
     rules: p.rulesText,
     rules_version: p.rulesVersion,
-    headline: headlineShape(p),
+    headline: headlineNoteShape(p),
     settings: p.settings,
     version: p.version,
   };
 }
 
-// The headline describes a moment; an env change, an initiative moving or a ticket reaching Done
-// after it was written makes it stale until set_project writes a new one.
+// The note describes a moment; an env change, an initiative moving or a ticket reaching Done
+// after it was written makes it stale until set_project writes a new one. The generated headline never is.
 export async function markHeadlineStale(tx: Q, projectId: string): Promise<void> {
   await tx
     .update(projects)
-    .set({ headlineStale: true })
-    .where(and(eq(projects.id, projectId), sql`${projects.headline} <> ''`, eq(projects.headlineStale, false)));
+    .set({ headlineNoteStale: true })
+    .where(and(eq(projects.id, projectId), sql`${projects.headlineNote} <> ''`, eq(projects.headlineNoteStale, false)));
 }

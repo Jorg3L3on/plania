@@ -94,6 +94,8 @@ export function ProjectPage() {
         .filter((d) => !d.superseded_by)
         .map((d) => d.text)
     : [];
+  // 2.11: each open initiative's derived state line, with its note as commentary.
+  const initiativeLines = Object.fromEntries((resume?.initiatives ?? []).map((i) => [i.key, { line: i.state?.line ?? "", note: i.state_note ?? "" }]));
   const nowText = resume ? resume.claims.map((c) => `${c.title} (${c.owner?.agent ?? "?"})`).join(", ") : "";
   const nextText = resume ? resume.next_claimable?.title ?? "" : "";
 
@@ -176,7 +178,7 @@ export function ProjectPage() {
                   {initiativeLanes.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Sin iniciativas abiertas; solo tickets sueltos.</p>
                   ) : (
-                    <InitiativeTable lanes={initiativeLanes} onOpen={openTask} />
+                    <InitiativeTable lanes={initiativeLanes} onOpen={openTask} lines={initiativeLines} />
                   )}
                 </section>
                 <aside className="grid gap-3">

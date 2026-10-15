@@ -39,7 +39,22 @@ export type NextClaimable = {
   workspace: Workspace | null;
 };
 
-export type Headline = { text: string; version: number; at: string | null; stale: boolean };
+/** What set_project headline writes: since 2.11 the note beside the generated headline. */
+export type HeadlineNote = { text: string; version: number; at: string | null; stale: boolean };
+/** 2.11: get_resume.headline, generated from the data, plus the note. */
+export type Headline = { generated: string; note: HeadlineNote };
+
+/** 2.11: where an initiative stands, derived from its tickets, claims and blockers (src/mcp/initiative-state.ts). */
+export type InitiativeState = {
+  phase_now: number | null;
+  done: number;
+  total: number;
+  in_progress: { key: string; agent: string | null }[];
+  in_review: { key: string; pr: { number: number | null; url: string } | null }[];
+  to_release: string[];
+  waiting_on: { key: string; on: string }[];
+  line: string;
+};
 
 export type Claim = { key: string; title: string; owner: Actor | null; lease_until: string | null; workspace: Workspace | null };
 
@@ -85,6 +100,8 @@ export type Resume = {
     title: string;
     status: string;
     summary: string;
+    state: InitiativeState;
+    state_note: string | null;
     in_progress: { note: string; claims: Claim[] };
     next_action: { note: string; next_claimable: NextTicket };
     must_keep: Decision[];
@@ -218,6 +235,9 @@ export type TaskDetail = Omit<TaskRow, "claimed_by" | "lease_until"> & {
   base_branch: string | null;
   next_action?: string;
   in_progress_note?: string;
+  /** Initiatives only (2.11): the derived state, and the note as commentary. */
+  state?: InitiativeState;
+  state_note?: { text: string; at: string | null; stale: boolean };
   branch: string | null;
   claim: { owner: Actor; claimed_at: string; lease_until: string; last_seen_at: string | null; live: boolean } | null;
   workspace: Workspace | null;

@@ -97,7 +97,7 @@ describe("list_projects", () => {
     assert.deepEqual(r.projects.map((p: Json) => p.slug), ["filmia", "micasa", "workia", "zigzag"]);
     const fil = r.projects[0];
     assert.equal(fil.key_prefix, "FIL");
-    assert.equal(fil.line, "En curso: FIL-I1-1 (claude-code)");
+    assert.equal(fil.line, "En curso: FIL-I1-1 (claude-code). Siguiente: FIL-I1-2.");
     assert.deepEqual(fil.counts, { open: 2, in_progress: 1, in_review: 0, needs_jorge: 0, blocked: 0, done: 0, overdue: 0 });
     assert.equal(fil.claims, 1);
     assert.ok(fil.last_event_id > 0 && typeof fil.last_event_at === "string");
@@ -150,7 +150,7 @@ describe("get_digest", () => {
     assert.deepEqual(d.projects.map((p: Json) => p.slug), ["filmia", "zigzag"]);
     assert.deepEqual(d.unchanged_projects, ["micasa", "workia"]);
     const fil = d.projects[0];
-    assert.equal(fil.line, "En curso: FIL-I1-1 (claude-code)");
+    assert.equal(fil.line, "En curso: FIL-I1-1 (claude-code). Siguiente: FIL-I1-2.");
     assert.deepEqual(fil.highlights.claims, ["FIL-I1-1"]);
     assert.equal(fil.quiet, false);
     assert.ok(fil.changes.every((c: Json) => typeof c.summary === "string" && typeof c.id === "number"));

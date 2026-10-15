@@ -1,7 +1,7 @@
 // Project page sections around the lane grid: header, initiative lines,
 // branch graph, fixed decisions and the full resume (ficha) panel.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowRightIcon, ChevronRightIcon, GitBranchIcon, PencilIcon, PinIcon } from "lucide-react";
+import { ArrowRightIcon, GitBranchIcon, PencilIcon, PinIcon } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,15 +24,15 @@ import { ProjectMark } from "@/components/plania-mark";
 import { releasePending } from "@/components/release-step";
 import { DecisionList, ResumeView } from "@/components/resume";
 import type { BranchEdge, Lane, StationTone } from "@/lib/lanes";
-import type { Decision, Headline, ReleasePlan, Resume } from "@/lib/types";
+import type { Decision, Headline, HeadlineNote, ReleasePlan, Resume } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// One line on where the project stands. Anyone writes it (set_project or here); the server marks it
-// stale when an env, an initiative or a Done moved after it was written.
-function HeadlineLine({ slug, headline, version }: { slug: string; headline: Headline; version: number }) {
+// 2.11: the note beside the generated headline, for what the data cannot say. Anyone writes it
+// (set_project or here); the server marks it stale when an env, an initiative or a Done moved after it.
+function NoteLine({ slug, note, version }: { slug: string; note: HeadlineNote; version: number }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(headline.text);
+  const [text, setText] = useState(note.text);
   const save = useMutation({
     mutationFn: () => api.patchProject(slug, text.trim(), version),
     onSuccess: () => {
@@ -44,48 +44,44 @@ function HeadlineLine({ slug, headline, version }: { slug: string; headline: Hea
   });
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (text.trim() !== headline.text) save.mutate();
+    if (text.trim() !== note.text) save.mutate();
     else setEditing(false);
   }
   if (editing) {
     return (
       <form onSubmit={submit} className="grid max-w-2xl gap-2">
-        <Textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 280))} rows={2} autoFocus aria-label="Nota de los agentes" />
+        <Textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 280))} rows={2} autoFocus aria-label="Nota" />
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>{text.length}/280</span>
           <Button type="submit" size="sm" disabled={save.isPending}>Guardar</Button>
-          <Button type="button" size="sm" variant="ghost" onClick={() => { setText(headline.text); setEditing(false); }}>Cancelar</Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => { setText(note.text); setEditing(false); }}>Cancelar</Button>
         </div>
       </form>
     );
   }
   return (
-    <p className="flex max-w-2xl flex-wrap items-baseline gap-x-2 text-[13px] text-muted-foreground">
-      <span>{headline.text || "Sin nota."}</span>
-      <button type="button" onClick={() => { setText(headline.text); setEditing(true); }} className="inline-flex items-center gap-1 text-xs underline-offset-4 hover:text-foreground hover:underline" aria-label="Editar la nota">
+    <p className="flex max-w-2xl flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
+      {note.text ? <span>{note.text}</span> : <span className="italic">Sin nota.</span>}
+      {note.text && note.stale && (
+        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400" title="Algo cambió desde que se escribió">
+          desactualizada
+        </span>
+      )}
+      <button type="button" onClick={() => { setText(note.text); setEditing(true); }} className="inline-flex min-h-6 items-center gap-1 underline-offset-4 hover:text-foreground hover:underline" aria-label="Editar la nota">
         <PencilIcon className="size-3" aria-hidden /> editar
       </button>
     </p>
   );
 }
 
-// The headline is written by agents for agents (envs, SHAs, keys): it stays one click away.
-function AgentNote({ slug, headline, version }: { slug: string; headline: Headline; version: number }) {
+// The headline is generated from the data (what prod runs, what is to release, what waits, what is
+// next); the note goes under it, smaller, with the pencil.
+function HeadlineBlock({ slug, headline, version }: { slug: string; headline: Headline; version: number }) {
   return (
-    <details className="group/note mt-1 max-w-2xl">
-      <summary className="inline-flex min-h-7 cursor-pointer list-none items-center gap-2 text-xs text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
-        <ChevronRightIcon aria-hidden className="size-3.5 transition-transform group-open/note:rotate-90" />
-        Nota de los agentes
-        {headline.stale && (
-          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400" title="Algo cambió desde que se escribió">
-            desactualizada
-          </span>
-        )}
-      </summary>
-      <div className="mt-1 pl-5">
-        <HeadlineLine slug={slug} headline={headline} version={version} />
-      </div>
-    </details>
+    <div className="mt-1 grid max-w-2xl gap-0.5">
+      {headline.generated && <p className="text-[13px] leading-snug text-foreground/85">{headline.generated}</p>}
+      <NoteLine slug={slug} note={headline.note} version={version} />
+    </div>
   );
 }
 
@@ -218,7 +214,7 @@ export function ProjectHeader({
           )}
         </h1>
         <ProjectSummary lanes={lanes} needsJorge={counts.needsJorge} onOpen={onOpen} />
-        {slug && headline && version !== undefined && <AgentNote slug={slug} headline={headline} version={version} />}
+        {slug && headline && version !== undefined && <HeadlineBlock slug={slug} headline={headline} version={version} />}
       </div>
       <div className="flex flex-wrap items-center gap-x-7 gap-y-3 rounded-[20px] border bg-card/60 px-5 py-3">
         {progress.total > 0 && (
@@ -293,26 +289,34 @@ function InitiativeHere({ lane, onOpen, clamp }: { lane: Lane; onOpen: Open; cla
   );
 }
 
-function InitiativeName({ lane, onOpen }: { lane: Lane; onOpen: Open }) {
+/** 2.11: per initiative key, the derived state line and the note (commentary, muted). */
+export type InitiativeLines = Record<string, { line: string; note: string }>;
+
+function InitiativeName({ lane, onOpen, lines }: { lane: Lane; onOpen: Open; lines?: InitiativeLines }) {
   const initiative = lane.initiative!;
+  const derived = lines?.[initiative.key];
   return (
-    <TicketButton taskKey={initiative.key} onOpen={onOpen} className="text-left">
-      <span className="font-semibold underline-offset-4 group-hover/ticket:underline">{initiative.title}</span>
-      <span className="ml-2 font-mono text-xs text-muted-foreground">{initiative.key}</span>
-    </TicketButton>
+    <span className="grid gap-0.5">
+      <TicketButton taskKey={initiative.key} onOpen={onOpen} className="text-left">
+        <span className="font-semibold underline-offset-4 group-hover/ticket:underline">{initiative.title}</span>
+        <span className="ml-2 font-mono text-xs text-muted-foreground">{initiative.key}</span>
+      </TicketButton>
+      {derived?.line && <span className="text-xs text-foreground/75">{derived.line}</span>}
+      {derived?.note && <span className="line-clamp-2 text-xs text-muted-foreground/80 italic">{derived.note}</span>}
+    </span>
   );
 }
 
 /** All initiatives at a glance: status, progress and the station where each one stands.
  *  A table from sm up; on a phone, one stacked row per initiative instead of a sideways scroll. */
-export function InitiativeTable({ lanes, onOpen }: { lanes: Lane[]; onOpen: Open }) {
+export function InitiativeTable({ lanes, onOpen, lines }: { lanes: Lane[]; onOpen: Open; lines?: InitiativeLines }) {
   return (
     <div className="lift animate-rise overflow-hidden rounded-[20px] border bg-card">
       <ul className="divide-y text-[13px] sm:hidden">
         {lanes.map((lane) => (
           <li key={lane.id} className="grid gap-2 px-4 py-3.5">
             <div className="flex items-start justify-between gap-3">
-              <InitiativeName lane={lane} onOpen={onOpen} />
+              <InitiativeName lane={lane} onOpen={onOpen} lines={lines} />
               <InitiativeStatus lane={lane} />
             </div>
             <InitiativeProgress lane={lane} barClassName="w-auto flex-1" />
@@ -336,7 +340,7 @@ export function InitiativeTable({ lanes, onOpen }: { lanes: Lane[]; onOpen: Open
           <tbody>
             {lanes.map((lane) => (
               <tr key={lane.id} className="border-b transition-colors last:border-b-0 hover:bg-foreground/[0.04]">
-                <td className="max-w-[320px] px-5 py-3"><InitiativeName lane={lane} onOpen={onOpen} /></td>
+                <td className="max-w-[320px] px-5 py-3"><InitiativeName lane={lane} onOpen={onOpen} lines={lines} /></td>
                 <td className="px-3 py-3"><InitiativeStatus lane={lane} /></td>
                 <td className="px-3 py-3"><InitiativeProgress lane={lane} /></td>
                 <td className="max-w-[300px] px-5 py-3"><InitiativeHere lane={lane} onOpen={onOpen} clamp="line-clamp-1" /></td>

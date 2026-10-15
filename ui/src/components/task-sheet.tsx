@@ -193,6 +193,13 @@ function Details({ slug, task, onOpen }: { slug: string; task: TaskDetail; onOpe
           </Field>
         )}
         {task.origin && <Field label="Origen">{task.origin}</Field>}
+        {task.state && <Field label="Estado">{task.state.line}</Field>}
+        {task.state_note?.text && (
+          <Field label="Nota">
+            <span className="text-muted-foreground">{task.state_note.text}</span>
+            {task.state_note.stale && <span className="ml-2 text-[11px] text-amber-700 dark:text-amber-400">desactualizada</span>}
+          </Field>
+        )}
         {task.next_action && <Field label="Siguiente">{task.next_action}</Field>}
         {task.in_progress_note && <Field label="En curso">{task.in_progress_note}</Field>}
         {task.base_branch && <Field label="Rama base"><span className="font-mono">{task.base_branch}</span></Field>}

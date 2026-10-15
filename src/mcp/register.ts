@@ -10,7 +10,7 @@ import { APPROVAL_ACTIONS, requestApproval } from "./approvals.js";
 import { inbox } from "./inbox.js";
 import { waiveCheck } from "./checks.js";
 import { addDecision, retireDecision } from "./decisions.js";
-import { headlineShape, setProject } from "./project.js";
+import { headlineNoteShape, setProject } from "./project.js";
 import {
   ToolError,
   findProject,
@@ -301,8 +301,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Where the project stands, generated from data: live claims (who, until when, where), the next claimable ticket,",
-        "and per open initiative its in_progress note and claims, next_action note and next_claimable, must_keep (pinned decisions) and status counts.",
-        "Also the headline (one line Jorge or an agent wrote with set_project; stale: true once an env, an initiative or a Done moved after it),",
+        "and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts.",
+        "Also the headline {generated, note}: generated from the data (what the release target runs, the release step, claims, what waits on Jorge, what is next), and the note set_project wrote (stale: true once an env, an initiative or a Done moved after it),",
         "project-wide pinned decisions and the latest events.",
         "Nobody writes the rest directly: update an initiative's next_action / in_progress_note with set_task, pin decisions with add_decision.",
       ].join(" "),
@@ -316,7 +316,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_project",
     {
       description: [
-        "Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline, settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release),",
+        "Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release),",
         "ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each,",
         "and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks and the command Jorge runs (null without settings.release).",
       ].join(" "),
@@ -332,7 +332,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
           body: p.body,
           rules: p.rulesText,
           rules_version: p.rulesVersion,
-          headline: headlineShape(p),
+          headline: headlineNoteShape(p),
           settings: p.settings,
           protocol_version: PROTOCOL_VERSION,
           version: p.version,
@@ -755,7 +755,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline.",
-        "headline: one line (≤ 280 chars) on where the project stands, shown first in get_resume; the server marks it stale when an env, an initiative or a Done moves after it.",
+        "headline: the note (≤ 280 chars) beside the generated headline in get_resume, only for what the data cannot say; the server marks it stale when an env, an initiative or a Done moves after it.",
         "settings merge key by key (null removes one): release_target (env a Released ticket reached, default prod), branch_pattern (regex), claim_from (backlog | ready, what get_next offers),",
         "resources ({'port:*': {needs_approval, ttl_max}}), quotas ({'quota:omdb': {daily}}), github ({repo, token_env}), vercel ({project_id, team_id, token_env, targets}), release ({from, into, env}: the branch Jorge fast-forwards into another to ship, e.g. sandbox → main for prod). Never a secret: integrations name env vars.",
         "Pass the version from get_project; STALE_VERSION if it moved. The old text stays in the log.",
@@ -864,7 +864,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "audit",
     {
       description: [
-        "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_STATE_NOTE_STALE, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
+        "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
         "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, and the footprint codes.",
         "Each finding has key, detail and fix_hint. It also runs every ten minutes; get_resume.status.audit_findings is the last count.",
       ].join(" "),
