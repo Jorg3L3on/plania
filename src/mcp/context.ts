@@ -1,6 +1,7 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { approvals, branches, questions, tasks, type Project, type Task, type Workspace } from "../db/schema.js";
 import { listDecisions } from "./decisions.js";
+import { auditForKeys } from "./orden.js";
 import { ToolError } from "./errors.js";
 import { footprintsOf, sessionFootprint } from "./footprint-read.js";
 import { listEvents, liveOwner, taskSummary } from "./queries.js";
@@ -66,6 +67,8 @@ export async function getContext(
     footprint: footprint.map(({ taskId, ...f }) => ({ task_key: keyById.get(taskId!) ?? null, ...f })),
     my_footprint: input.session_id ? await sessionFootprint(db, p.id, input.session_id, input.workspace.machine) : [],
     approvals: pending.map((a) => ({ id: a.id, key: a.taskKey, action: a.action, target: a.target, state: a.state, expires_at: iso(a.expiresAt) })),
+    // 2.11: the audit's last count, and the findings on these tickets (fix them while you are here).
+    audit: await auditForKeys(db, p, keys),
     events: events ? { items: events.events.filter((e) => e.task_key && keys.has(e.task_key)), next_cursor: events.next_cursor, more: events.more } : null,
   };
 }

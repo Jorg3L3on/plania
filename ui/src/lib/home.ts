@@ -24,6 +24,10 @@ export type HomeProject = {
   slug: string;
   title: string;
   line: string;
+  /** 2.11: the next step (line is the generated headline now). */
+  next_line?: string;
+  /** 2.11: Orden's count, the last audit run's findings. */
+  audit_count?: number;
   tasks: HomeTask[];
   next_claimable: NextClaimable | null;
   envs: EnvSummary[];
@@ -158,13 +162,15 @@ export type Tile = {
   nextText: string;
   /** 0–100 per day, oldest first. */
   bars: number[];
+  /** 2.11: Orden's count; the tile shows it when above zero. */
+  orden: number;
 };
 
 const NO_CARD = "Sin ficha.";
 
 /** The one line a tile says next: the initiative's next_action note the server already chose, else the next ticket. */
-export function nextLine(p: Pick<HomeProject, "line" | "next_claimable">): { key: string | null; text: string } {
-  const line = p.line;
+export function nextLine(p: Pick<HomeProject, "line" | "next_line" | "next_claimable">): { key: string | null; text: string } {
+  const line = p.next_line ?? p.line;
   const noted = line.match(/^([A-Z][A-Z0-9]*-[A-Z0-9-]+): (.+)$/s);
   if (noted) return { key: noted[1]!, text: noted[2]!.split("\n")[0]!.trim() };
   const next = line.match(/^Siguiente: (\S+) · (.+)$/s);
@@ -206,6 +212,7 @@ export function tileOf(p: HomeProject, waiting: number, nowMs = Date.now()): Til
     nextKey: next.key,
     nextText: next.text,
     bars: p.activity.map((n) => Math.round((n / max) * 100)),
+    orden: p.audit_count ?? 0,
   };
 }
 

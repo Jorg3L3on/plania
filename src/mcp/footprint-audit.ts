@@ -47,7 +47,7 @@ export async function footprintFindings(db: Q, scope: Scope, now = new Date()): 
     if (f.state === "stale") {
       const why = describeStale(d, now) ?? "obsoleto";
       if (f.kind === "worktree") {
-        out.push({ code: "WORKTREE_MERGED_NOT_REMOVED", key, detail: `${label}: ${why}`, fix_hint: hint(f.teardown, "remove the worktree once nothing in it is needed") });
+        out.push({ code: "WORKTREE_MERGED_NOT_REMOVED", key, detail: `${label}: ${why}`, fix_hint: hint(f.teardown, "remove the worktree once nothing in it is needed"), id: f.locator, ...(f.teardown ? { command: f.teardown } : {}) });
       } else {
         out.push({ code: "FOOTPRINT_STALE", key, detail: `${label}: ${why}`, fix_hint: hint(f.teardown, "release_footprint once it is gone, or ask Jorge") });
       }

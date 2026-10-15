@@ -12,6 +12,7 @@ import {
   ProjectHeader,
   SectionTitle,
 } from "@/components/plan/project-parts";
+import { OrdenSection } from "@/components/plan/orden";
 import { QuestionsPanel } from "@/components/resume";
 import { TaskList } from "@/components/plan/task-list";
 import { Kicker } from "@/components/plan/visuals";
@@ -191,6 +192,9 @@ export function ProjectPage() {
               </div>
             </>
           )}
+
+          {/* 2.11: the audit on screen, collapsed with its count. */}
+          <OrdenSection slug={slug} onOpen={openTask} />
 
           <FichaSheet
             resume={project.data.resume}

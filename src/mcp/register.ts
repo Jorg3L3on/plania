@@ -10,6 +10,7 @@ import { APPROVAL_ACTIONS, requestApproval } from "./approvals.js";
 import { inbox } from "./inbox.js";
 import { waiveCheck } from "./checks.js";
 import { addDecision, retireDecision } from "./decisions.js";
+import { choreFor } from "./orden.js";
 import { headlineNoteShape, setProject } from "./project.js";
 import {
   ToolError,
@@ -462,12 +463,19 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_next",
     {
       description:
-        "Next claimable ticket: Backlog or Ready, or In progress with an expired lease (stale_claim: true), with every blocker satisfied (tasks In review or Done, env conditions holding). P0 first, then key. Read-only: does not claim; call claim next.",
+        "Next claimable ticket: Backlog or Ready, or In progress with an expired lease (stale_claim: true), with every blocker satisfied (tasks In review or Done, env conditions holding). P0 first, then key. Read-only: does not claim; call claim next. When nothing is claimable (task null) it offers chore: one audit finding an agent can fix (its fix_hint names the tool), or a state_note older than the initiative's last move; do it.",
       inputSchema: { project, initiative_key: z.string().optional() },
       annotations: readOnly,
     },
     ({ project, initiative_key }) =>
-      run(async () => nextTask(db, (await findProject(db, project)).id, initiative_key)),
+      run(async () => {
+        const p = await findProject(db, project);
+        const next = await nextTask(db, p.id, initiative_key);
+        // 2.11: a quiet project still has housekeeping; get_next hands one piece of it out.
+        if (next.task || initiative_key) return next;
+        const chore = await choreFor(db, p);
+        return chore ? { ...next, chore } : next;
+      }),
   );
 
   server.registerTool(

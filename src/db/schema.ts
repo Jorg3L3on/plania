@@ -614,7 +614,7 @@ export const auditRuns = pgTable("audit_runs", {
     .references(() => projects.id, { onDelete: "cascade" }),
   at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
   count: integer("count").notNull().default(0),
-  findings: jsonb("findings").$type<{ code: string; key: string | null; detail: string; fix_hint: string }[]>().notNull().default([]),
+  findings: jsonb("findings").$type<{ code: string; key: string | null; detail: string; fix_hint: string; id?: string; command?: string }[]>().notNull().default([]),
 });
 
 // v2.3 (R-22): what a deploy shipped, computed when tickets reach Released.

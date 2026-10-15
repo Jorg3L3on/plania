@@ -11,7 +11,9 @@ import { iso, type Q } from "./tx.js";
 // reads, one function per finding code; `audit(project)` runs them on demand and the audit job
 // every ten minutes, storing the last run so the status block can show the count.
 
-export type Finding = { code: string; key: string | null; detail: string; fix_hint: string };
+// 2.11: id names what a one-click fix acts on (a decision id, an env, a branch, a worktree path) and
+// command is the shell line Jorge copies, when the fix is one (src/mcp/orden.ts).
+export type Finding = { code: string; key: string | null; detail: string; fix_hint: string; id?: string; command?: string };
 
 const CLOSED = ["Done", "Won't do"];
 export { WAITING_ON_JORGE };
@@ -67,19 +69,19 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
     const shas = [...d.line.matchAll(SHA)].map((m) => m[0]).filter((s) => /[a-f]/.test(s) && /\d/.test(s));
     if (target?.commit && shas.length && !shas.some((s) => target.commit!.startsWith(s) || s.startsWith(target.commit!))) {
       const known = await db.execute<{ n: number }>(sql`select count(*)::int as n from env_commits where project_id = ${p.id} and env = ${env} and (${sql.join(shas.map((s) => sql`sha like ${s} || '%'`), sql` or `)})`).then((r) => r.rows[0]?.n ?? 0);
-      if (known > 0) out.push({ code: "DECISION_STALE_REF", key: d.taskId ? (byId.get(d.taskId)?.key ?? null) : null, detail: `decision ${d.id.slice(0, 8)} cites ${shas.join(", ")}; ${env} is at ${target.commit.slice(0, 7)}`, fix_hint: "retire_decision, or add_decision with supersedes" });
+      if (known > 0) out.push({ code: "DECISION_STALE_REF", key: d.taskId ? (byId.get(d.taskId)?.key ?? null) : null, detail: `decision ${d.id.slice(0, 8)} cites ${shas.join(", ")}; ${env} is at ${target.commit.slice(0, 7)}`, fix_hint: "retire_decision, or add_decision with supersedes", id: d.id });
     }
     const prNumbers = [...d.line.matchAll(PR)].map((m) => Number(m[1] ?? m[2]));
     const mergedCited = prs.filter((pr) => prNumbers.includes(pr.number) && pr.state === "merged");
-    if (mergedCited.length && d.pinned) out.push({ code: "DECISION_STALE_REF", key: d.taskId ? (byId.get(d.taskId)?.key ?? null) : null, detail: `pinned decision ${d.id.slice(0, 8)} cites merged PR #${mergedCited[0]!.number}`, fix_hint: "retire_decision once it is done, or unpin" });
+    if (mergedCited.length && d.pinned) out.push({ code: "DECISION_STALE_REF", key: d.taskId ? (byId.get(d.taskId)?.key ?? null) : null, detail: `pinned decision ${d.id.slice(0, 8)} cites merged PR #${mergedCited[0]!.number}`, fix_hint: "retire_decision once it is done, or unpin", id: d.id });
     if (d.taskId) {
       const t = byId.get(d.taskId);
-      if (t && t.status === "Won't do" && d.pinned) out.push({ code: "DECISION_CONTRADICTS_DONE", key: t.key, detail: `pinned decision ${d.id.slice(0, 8)} about a Won't do ticket`, fix_hint: "retire_decision" });
+      if (t && t.status === "Won't do" && d.pinned) out.push({ code: "DECISION_CONTRADICTS_DONE", key: t.key, detail: `pinned decision ${d.id.slice(0, 8)} about a Won't do ticket`, fix_hint: "retire_decision", id: d.id });
     }
   }
   // Environments.
   for (const e of envs) {
-    if (e.commit && !e.deployedAt) out.push({ code: "ENV_DEPLOYED_AT_MISSING", key: null, detail: `${e.env} runs ${e.commit.slice(0, 7)} with no deployed_at`, fix_hint: "set_env deployed with the provider's record, or let the Vercel poller fill it" });
+    if (e.commit && !e.deployedAt) out.push({ code: "ENV_DEPLOYED_AT_MISSING", key: null, detail: `${e.env} runs ${e.commit.slice(0, 7)} with no deployed_at`, fix_hint: "set_env deployed with the provider's record, or let the Vercel poller fill it", id: e.env });
   }
   // 2.10: with a release step, drift is that step's to show: ENV_DRIFT points at it instead of repeating it.
   const plan = p.settings.release ? await releasePlan(db, p) : null;
@@ -118,11 +120,16 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   }
   const known = await db.select().from(branches).where(and(eq(branches.projectId, p.id), isNull(branches.deletedAt)));
   // The release's branches are long-lived (sandbox merges into main every release): never "merged, delete it".
-  const releaseBranches = new Set(p.settings.release ? [p.settings.release.from, p.settings.release.into] : []);
+  // 2.11: neither is a branch an env runs or an initiative builds on, now that Orden offers the delete to copy.
+  const releaseBranches = new Set([
+    ...(p.settings.release ? [p.settings.release.from, p.settings.release.into] : []),
+    ...envs.map((e) => e.branch).filter((b): b is string => !!b),
+    ...all.filter((t) => t.kind === "initiative" && t.baseBranch).map((t) => t.baseBranch!),
+  ]);
   for (const b of known.filter((b) => !releaseBranches.has(b.name))) {
-    if (b.mergedAt) out.push({ code: "BRANCH_MERGED_NOT_DELETED", key: b.ownerTaskId ? (byId.get(b.ownerTaskId)?.key ?? null) : null, detail: `${b.name} merged ${iso(b.mergedAt)} and still on origin`, fix_hint: `git push origin --delete ${b.name}` });
+    if (b.mergedAt) out.push({ code: "BRANCH_MERGED_NOT_DELETED", key: b.ownerTaskId ? (byId.get(b.ownerTaskId)?.key ?? null) : null, detail: `${b.name} merged ${iso(b.mergedAt)} and still on origin`, fix_hint: `git push origin --delete ${b.name}`, id: b.name, command: `git push origin --delete ${b.name}` });
     const used = all.some((t) => t.branch === b.name || t.workspace?.branch === b.name) || prs.some((pr) => pr.headBranch === b.name);
-    if (!b.ownerTaskId && !used && b.headSha) out.push({ code: "BRANCH_WITHOUT_TICKET", key: null, detail: `${b.name} has no ticket or initiative`, fix_hint: "set the initiative's integration_branch, or delete the branch" });
+    if (!b.ownerTaskId && !used && b.headSha) out.push({ code: "BRANCH_WITHOUT_TICKET", key: null, detail: `${b.name} has no ticket or initiative`, fix_hint: "set the initiative's integration_branch, or delete the branch", id: b.name, command: `git push origin --delete ${b.name}` });
   }
   // 2.8: "waiting on Jorge" written as free text, with nothing he can act on in the inbox.
   const openQ = new Set((await db.select({ taskId: questions.taskId }).from(questions).where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt)))).map((r) => r.taskId));

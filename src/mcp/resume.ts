@@ -109,10 +109,15 @@ export async function resumeDigest(db: Q, p: Project) {
 
 export type ResumeDigest = Awaited<ReturnType<typeof resumeDigest>>;
 
-// One line per project (the screen's index, list_projects, get_digest): the generated headline;
-// with nothing to say, what is claimed, else the next step an initiative wrote, else the note.
+// One line per project (list_projects, get_digest, the screen's index): the generated headline,
+// else (nothing to say) the next step.
 export function resumeLine(d: ResumeDigest): string {
-  if (d.headline.generated) return d.headline.generated;
+  return d.headline.generated || nextStepLine(d);
+}
+
+// The next step in one line, for Inicio's tiles: what is claimed, else the next step an initiative
+// wrote, else what is next to claim, else the note. (The project line before 2.11.)
+export function nextStepLine(d: ResumeDigest): string {
   if (d.claims.length) return `En curso: ${d.claims.map((c) => `${c.key} (${c.owner?.agent})`).join(", ")}`;
   const noted = d.initiatives.find((i) => i.next_action.note);
   if (noted) return `${noted.key}: ${noted.next_action.note}`;

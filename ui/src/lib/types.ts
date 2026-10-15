@@ -10,7 +10,12 @@ export type EnvSummary = { env: string; commit: string | null; branch: string | 
 export type ProjectSummary = {
   slug: string;
   title: string;
+  /** 2.11: the generated headline. */
   line: string;
+  /** The next step, for the tiles. */
+  next_line: string;
+  /** Orden: the last audit run's count. */
+  audit_count: number;
   open_questions: number;
   tasks: TaskRow[];
   next_claimable: NextClaimable | null;
@@ -130,6 +135,19 @@ export type ReleasePlan = {
   open_checks: number;
   command: string;
 };
+
+// 2.11 Orden (GET /api/projects/:slug/audit): the last audit run, with what each finding offers.
+export type OrdenFinding = {
+  code: string;
+  key: string | null;
+  detail: string;
+  fix_hint: string;
+  id?: string;
+  command?: string;
+  can_fix: "retire_decision" | "copy" | "mark_deployed" | "open";
+  owner: "jorge" | "agents";
+};
+export type Orden = { project: string; at: string | null; count: number; findings: OrdenFinding[] };
 
 // Everything waiting on Jorge (GET /api/inbox).
 export type InboxGroup = "decisiones" | "pasos" | "limpieza";

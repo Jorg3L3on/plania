@@ -1,4 +1,4 @@
-import type { AgentToken, Inbox, Machine, ProjectDetail, ProjectSummary, TaskDetail } from "./types";
+import type { AgentToken, Inbox, Machine, Orden, ProjectDetail, ProjectSummary, TaskDetail } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -48,6 +48,10 @@ export const api = {
     request<{ version: number }>("PATCH", `/projects/${encodeURIComponent(slug)}`, { headline, version }),
   waiveCheck: (slug: string, key: string, n: number, reason: string) =>
     request<TaskDetail>("POST", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/checks/${n}/waive`, { reason }),
+  // 2.11 Orden: the last audit run, and the one-click fixes (run as Jorge); the reply is the new run.
+  audit: (slug: string) => request<Orden>("GET", `/projects/${encodeURIComponent(slug)}/audit`),
+  fixAudit: (slug: string, finding: { code: string; key: string | null; id: string }) =>
+    request<Orden>("POST", `/projects/${encodeURIComponent(slug)}/audit/fix`, finding),
   inbox: (project?: string) => request<Inbox>("GET", project ? `/inbox?project=${encodeURIComponent(project)}` : "/inbox"),
   resolveBlocker: (slug: string, id: string, note?: string) =>
     request<{ key: string }>("POST", `/projects/${encodeURIComponent(slug)}/blockers/${encodeURIComponent(id)}/resolve`, note ? { note } : undefined),

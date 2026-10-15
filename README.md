@@ -296,6 +296,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `BRANCH_NAME_INVALID` | 400 | the branch name does not match the project's branch_pattern (detail: pattern) |
 | `DEPLOY_SOURCE_REQUIRED` | 400 | set_env deployed needs a source {provider, deployment_id, url}: the server stores where the time came from |
 | `FIELD_NOT_ALLOWED` | 400 | a field of the other kind: priority/parent_key/origin/work_type/phase on an initiative, base_branch/next_action/in_progress_note on a ticket |
+| `FINDING_NOT_FIXABLE` | 400 | audit fix: the code has no one-click fix (copy findings: run the command; the rest: the tool the fix_hint names) |
 | `INVALID_APPROVAL` | 400 | request_approval action is not wont_do, reopen, waive_check, runbook_step or lease_resource |
 | `INVALID_BATCH_OP` | 400 | batch: an op is not set_task, set_check, add_result, add_decision, create_task or note |
 | `INVALID_BLOCKER` | 400 | a blocked_by entry is malformed (detail: type, hint): human_action {assignee, text}, env_flag {env, flag, equals}, time_after {at}, metric_gte {name, value} |
@@ -329,6 +330,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `CHECK_NOT_FOUND` | 404 | no check with that n on this task |
 | `DECISION_NOT_FOUND` | 404 | supersedes names no decision of this project |
 | `DOC_NOT_FOUND` | 404 | no doc with that id in the project, or replacing (version given) a title that does not exist |
+| `FINDING_NOT_FOUND` | 404 | audit fix: a fresh audit no longer has that finding (code and id), so there is nothing to fix |
 | `INITIATIVE_NOT_FOUND` | 404 | get_next initiative_key is not an initiative of this project |
 | `PROJECT_NOT_FOUND` | 404 | unknown project slug |
 | `QUESTION_NOT_FOUND` | 404 | no question with that id in this project |
@@ -438,7 +440,8 @@ system themes. Times arrive as UTC and show in the browser's local time.
   questions. The header shows the count. `/tokens` issues and revokes agent tokens.
 - `/p/<slug>` shows the generated headline first, with the note under it (editable, "desactualizada" when the server marked it stale), then, in order: questions agents asked (answer with one click or free text, with an optional line for
   the decision log); the lane grid; each initiative's line of stations; a branch graph built from initiatives' `branch`
-  and `base_branch`; and the pinned decisions. "Ver la ficha completa" opens the generated resume per initiative
+  and `base_branch`; the pinned decisions; and Orden, the audit collapsed with its count, grouped "Lo tuyo" (one-click
+  fixes and commands to copy) and "De los agentes" (what get_next hands out as chores). "Ver la ficha completa" opens the generated resume per initiative
   (claims, next, pinned decisions) and the decision log, reversed ones
   struck through. A link downloads the project as JSON.
 - `?view=lista` switches to the list grouped by initiative, with status and priority filters and a toggle for
@@ -484,10 +487,12 @@ the UI refetches what changed.
 | Route | Purpose |
 |---|---|
 | `POST /api/login`, `POST /api/logout`, `GET /api/session` | Session |
-| `GET /api/projects` | Projects with their generated line, open question count, and all tasks without scope |
+| `GET /api/projects` | Projects with their generated line (the headline), the next step (`next_line`), Orden's count, open question count, and all tasks without scope |
 | `GET /api/projects/:slug` | Generated resume, decisions, and all tasks without scope (with version, lease, `branch`, `base_branch`, `waits_on` and `held`) |
 | `GET /api/projects/:slug/tasks/:key` | One task, in the `get_task` shape |
-| `PATCH /api/projects/:slug` | `{ headline, version }` |
+| `PATCH /api/projects/:slug` | `{ headline, version }`: the note beside the generated headline |
+| `GET /api/projects/:slug/audit` | Orden: the last audit run, each finding with `can_fix` (`retire_decision`, `copy`, `mark_deployed`, `open`) and `owner` (`jorge` or `agents`) |
+| `POST /api/projects/:slug/audit/fix` | `{ code, key?, id }`: the one-click fixes as Jorge (retire the decision, mark the env deployed); answers with the new run |
 | `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note?, version }`, as Jorge through `set_task` |
 | `POST /api/projects/:slug/tasks/:key/checks/:n/waive` | `{ reason }` |
 | `GET /api/machine` | What runs and is stored on this Mac for agent work: `{ machine, totals, items }`, every unreleased footprint with its project, initiative, ticket, session and any port lease; read-only |
