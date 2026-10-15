@@ -60,6 +60,14 @@ export function summarize(e: Ev): string {
       return `${k}: CI en rojo (${str(p.check)})`;
     case "branch.deleted":
       return `rama ${str(p.branch)} borrada`;
+    case "release.merged": {
+      const from = (p.from ?? {}) as Record<string, unknown>;
+      const into = (p.into ?? {}) as Record<string, unknown>;
+      const keys = Array.isArray(p.tickets) ? p.tickets.length : 0;
+      return `${str(from.branch)} → ${str(into.branch)} fusionado por ${by} (${keys} ${keys === 1 ? "ticket" : "tickets"}, ${str(p.merge_sha).slice(0, 7)})`;
+    }
+    case "task.no_pr":
+      return `${k} cerrado sin PR: ${str(p.reason).slice(0, 140)}`;
     case "release.recorded":
       return `${k ? `${k} ` : ""}desplegado en ${str(p.env)}`;
     case "blocker.parsed":

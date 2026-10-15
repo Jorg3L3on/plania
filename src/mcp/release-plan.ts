@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { blockers, branches, checks, envStates, pollState, pullRequests, sequenceReservations, tasks, type Project, type ReleaseSettings } from "../db/schema.js";
+import { blockers, branches, checks, envStates, events, pollState, pullRequests, sequenceReservations, tasks, type Project, type ReleaseSettings } from "../db/schema.js";
 import { ToolError } from "./errors.js";
 import { type Q } from "./tx.js";
 
@@ -25,7 +25,15 @@ export type ReleasePlan = {
   before: { blocker_id: string; key: string; text: string }[];
   open_checks: number;
   command: string;
+  // 2.13: how Jorge ships it (settings.release.mode), the merge he already made from the screen for
+  // this from head (the poller has not seen it land yet), and whether Lanzar may run now.
+  mode: "command" | "merge";
+  merged: { sha: string; pr_url: string; at: string } | null;
+  ship: { ready: boolean; reason: ShipBlock | null };
 };
+
+// Why Lanzar is off: command mode, nothing ahead, a before-step or a check still open, already merged.
+export type ShipBlock = "mode_command" | "no_repo" | "nothing_to_ship" | "before_steps" | "open_checks" | "merged";
 
 const BRANCH = /^[A-Za-z0-9._/-]{1,200}$/;
 const ENV = /^[a-z][a-z0-9_-]{0,29}$/;
@@ -34,13 +42,14 @@ const ENV = /^[a-z][a-z0-9_-]{0,29}$/;
 export function checkReleaseSettings(v: unknown): ReleaseSettings {
   const bad = (hint: string) => new ToolError("INVALID_FILTER", { field: "settings.release", hint });
   if (!v || typeof v !== "object" || Array.isArray(v)) throw bad('{from: "sandbox", into: "main", env: "prod"}');
-  const { from, into, env, ...rest } = v as Record<string, unknown>;
+  const { from, into, env, mode, ...rest } = v as Record<string, unknown>;
   if (Object.keys(rest).length) throw bad(`unknown keys: ${Object.keys(rest).join(", ")}`);
   if (typeof from !== "string" || !BRANCH.test(from)) throw bad("from is a branch name, e.g. sandbox");
   if (typeof into !== "string" || !BRANCH.test(into)) throw bad("into is a branch name, e.g. main");
   if (from === into) throw bad("from and into are different branches");
   if (typeof env !== "string" || !ENV.test(env)) throw bad("env is lowercase, e.g. prod");
-  return { from, into, env };
+  if (mode !== undefined && mode !== "command" && mode !== "merge") throw bad('mode is "command" (default) or "merge"');
+  return { from, into, env, ...(mode === "merge" ? { mode } : {}) };
 }
 
 export const releaseCommand = (r: ReleaseSettings) => `git fetch origin && git checkout ${r.into} && git merge --ff-only origin/${r.from} && git push origin ${r.into}`;
@@ -113,6 +122,19 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
     ? await db.select({ n: sql<number>`count(*)::int` }).from(checks).where(and(inArray(checks.taskId, ids), eq(checks.done, false), isNull(checks.waivedAt)))
     : [{ n: 0 }];
 
+  const mode = r.mode ?? "command";
+  const merged = fromHead ? await mergedFromScreen(db, p.id, fromHead) : null;
+  const open_checks = checksOpen?.n ?? 0;
+  const pending = !shipped && (ahead ?? 0) > 0 && shipping.length > 0;
+  const reason: ShipBlock | null =
+    mode !== "merge" ? "mode_command"
+    : !p.settings.github?.repo ? "no_repo"
+    : merged ? "merged"
+    : !pending ? "nothing_to_ship"
+    : before.length ? "before_steps"
+    : open_checks ? "open_checks"
+    : null;
+
   return {
     from: { branch: r.from, head_sha: fromHead },
     into: { branch: r.into, head_sha: intoHead },
@@ -123,9 +145,26 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
     tickets: shipping.map((t) => ({ key: t.key, title: t.title, status: t.status, pr_url: t.prUrl ?? prOf(t.id)?.url ?? null })),
     migrations,
     before,
-    open_checks: checksOpen?.n ?? 0,
+    open_checks,
     command: releaseCommand(r),
+    mode,
+    merged,
+    ship: { ready: reason === null, reason },
   };
+}
+
+// The release.merged event Jorge's Lanzar wrote for this from head, if any: between the merge and the
+// poller's next compare the step still shows, as merged, and Lanzar stays off.
+async function mergedFromScreen(db: Q, projectId: string, fromHead: string): Promise<ReleasePlan["merged"]> {
+  const [e] = await db
+    .select({ payload: events.payload, at: events.createdAt })
+    .from(events)
+    .where(and(eq(events.projectId, projectId), eq(events.type, "release.merged"), sql`${events.payload}->'from'->>'head_sha' = ${fromHead}`))
+    .orderBy(sql`${events.id} desc`)
+    .limit(1);
+  if (!e) return null;
+  const pl = e.payload as { merge_sha: string; pr: { url: string } };
+  return { sha: pl.merge_sha, pr_url: pl.pr.url, at: e.at.toISOString() };
 }
 
 /** The plan waits on Jorge: `from` is ahead and carries tickets. */

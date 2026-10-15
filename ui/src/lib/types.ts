@@ -148,6 +148,21 @@ export type ReleasePlan = {
   before: { blocker_id: string; key: string; text: string }[];
   open_checks: number;
   command: string;
+  // 2.13: command mode shows the command; merge mode ships from the screen (Lanzar).
+  mode: "command" | "merge";
+  merged: { sha: string; pr_url: string; at: string } | null;
+  ship: { ready: boolean; reason: ShipBlock | null };
+};
+
+export type ShipBlock = "mode_command" | "no_repo" | "nothing_to_ship" | "before_steps" | "open_checks" | "merged";
+
+// POST /api/projects/:slug/release/ship: what was merged.
+export type ShipResult = {
+  merged: true;
+  pr: { number: number; url: string };
+  merge_sha: string;
+  tickets: string[];
+  migrations: string[];
 };
 
 // 2.11 Orden (GET /api/projects/:slug/audit): the last audit run, with what each finding offers.

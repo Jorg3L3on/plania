@@ -50,6 +50,7 @@ import { URGENCIES, answer, ask } from "./questions.js";
 import { TTL, claim, createTask, handoff, setTask } from "./writes.js";
 import { runAudit } from "./audit.js";
 import { getContext } from "./context.js";
+import { finish, start } from "./agent-surface.js";
 import { projectReleases } from "./releases.js";
 import { DIGEST_PER_PROJECT_DEFAULT, QUIET_MIN, getDigest, getRunning, listProjects, readerOf } from "./watch.js";
 
@@ -206,6 +207,7 @@ const setTaskFields = {
   cost_note: z.string().optional().describe("Debt only"),
   approval_id: z.string().optional().describe("For Won't do or reopening: the id of an approval Jorge granted (request_approval). Spent on this move"),
   withdraw_blocker: z.string().optional().describe("Id of a human_action your own note created (JORGE_LINE_PARSED) that asks nothing of Jorge: it is removed. Same session or token only; needs no version"),
+  no_pr_reason: z.string().optional().describe("Done, Merged or Released on a code ticket without pr_url: why the work had no PR (otherwise TASK_MISSING_PR_URL). Logged as task.no_pr"),
   note: z.string().optional(),
   version: z.number().int().optional().describe("The version you read. Required unless note or withdraw_blocker is the only field"),
 };
@@ -248,6 +250,14 @@ const addDecisionFields = {
   adr_url: z.string().optional(),
   pin: z.boolean().optional(),
 };
+
+const workspace = z
+  .object({
+    worktree_path: z.string().max(500).optional(),
+    branch: z.string().max(200).optional(),
+    machine: z.string().max(120).optional().describe("Defaults to actor.machine"),
+  })
+  .describe("Where the code is checked out. A phase defaults to its initiative's integration branch");
 
 // batch ops: the same fields as the tool, plus op; project, actor and request_id come from the batch.
 const batchOp = z.discriminatedUnion("op", [
@@ -320,7 +330,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       description: [
         "Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release),",
         "ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each,",
-        "and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks and the command Jorge runs (null without settings.release).",
+        "and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks, the command Jorge runs, its mode (command, or merge: Jorge ships it from the screen) and merged once he did (null without settings.release). Agents never merge it.",
       ].join(" "),
       inputSchema: { project },
       annotations: readOnly,
@@ -550,6 +560,59 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
   );
 
   server.registerTool(
+    "start",
+    {
+      description: [
+        "Open a ticket in one call: claim on key (In progress, your lease) plus get_context for the workspace. The reply is get_context's shape (initiative, tickets, my_claims, pinned_decisions, open_questions, approvals, footprint, audit findings on your tickets, requests) with key, status, version, claim, workspace and, when the ticket was handed to you, handoff (the previous session's note and head_sha).",
+        "workspace {worktree_path, branch}: a phase defaults to its initiative's integration branch (one PR per initiative); a branch another live initiative owns is BRANCH_IN_USE; names follow the project's branch_pattern.",
+        "Errors are claim's: CLAIM_HELD (pick another), NOT_CLAIMABLE (status or an unsatisfied blocker), HANDOFF_HELD. warnings name other live claims on overlapping areas.",
+        `The lease lasts ttl_minutes (default ${TTL.default}): send claim action heartbeat (key "*" for all yours) before it runs out. Calling start again on a ticket you hold extends it.`,
+      ].join(" "),
+      inputSchema: {
+        project,
+        actor,
+        request_id,
+        verbose,
+        key,
+        workspace: workspace.optional(),
+        ttl_minutes: z.number().int().optional(),
+        since_cursor: z.number().int().min(0).optional().describe("Events after this cursor that touch these tickets"),
+      },
+      annotations: write,
+    },
+    writeHandler("start", (input, ctx) => start(db, input, ctx)),
+  );
+
+  server.registerTool(
+    "finish",
+    {
+      description: [
+        "Close your part of a ticket in one transaction: add_result (result: kind, verdict, cite, commit, command, counts, check_ns...) then set_task status In review with branch and pr_url. If either step fails nothing is written.",
+        "Code tickets need pr_url (TASK_MISSING_PR_URL), or no_pr_reason when the work had no PR. Put \"Plania: <KEY>\" in the PR body so the poller links it. Commit and push first: In review means committed, not merged.",
+        "Every check must be done or waived: CHECKS_OPEN lists each open one with its n and text (tick them with result.check_ns, set_check, or waive_check with a reason).",
+        "The result must be a pass of a kind the work_type accepts, at the branch head: EVIDENCE_STALE says the head the poller sees and the commit your pass named.",
+        "version: the one you read (STALE_VERSION if it moved); omit it to take the current one. note: the initiative's new next_action, when it changed.",
+        "Afterwards the pollers move the ticket to Merged when the PR merges and to Released when the release target runs the merge; close it with set_task Done then. Never merge the PR or the release yourself.",
+      ].join(" "),
+      inputSchema: {
+        project,
+        actor,
+        request_id,
+        verbose,
+        key,
+        result: z.object((({ key: _k, ...rest }) => rest)(addResultFields)).describe("The evidence, as add_result takes it (without key)"),
+        pr_url: z.string().optional(),
+        branch: z.string().optional(),
+        version: z.number().int().optional(),
+        note: z.string().optional().describe("The initiative's next_action, replaced"),
+        no_pr_reason: z.string().optional().describe("Why a code ticket has no PR"),
+      },
+      annotations: write,
+    },
+    writeHandler("finish", (input, ctx) => finish(db, input as never, ctx)),
+  );
+
+  server.registerTool(
     "create_task",
     {
       description: [
@@ -580,9 +643,10 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Ticket moves: Backlog ⇄ Ready; Backlog, Ready, In progress or In review → Blocked (note required) → Backlog or Ready; In progress → In review, Ready or Backlog (each releases the lease). In progress only through claim.",
         "Initiative moves: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold; next_action and in_progress_note feed get_resume.",
         "Anything else is INVALID_TRANSITION with the allowed moves.",
-        "Finishing a phase: add_result first, then status 'In review' (committed, not merged) with branch and pr_url; without fitting evidence it is EVIDENCE_REQUIRED.",
+        "Finishing a phase: finish does add_result and In review in one call. By hand: add_result first, then status 'In review' (committed, not merged) with branch and pr_url; without fitting evidence it is EVIDENCE_REQUIRED.",
         "Merged and Released are the pollers' (GitHub merge, deploy); by hand they need a ci pass result naming the merge commit (and, for Released, the release target env containing it).",
-        "Done is yours once the work is finished: code, bug and debt tickets from Merged or Released; ops and research from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open status. Elsewhere it is INVALID_TRANSITION with allowed_from.",
+        "Done is yours once the work is finished: code, bug and debt tickets from Merged or Released; ops and research from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open status. Elsewhere it is INVALID_TRANSITION with allowed_from. get_resume status.released_waiting_done lists Released tickets nobody closed: close them.",
+        "Done, Merged or Released on a code ticket needs pr_url (on the ticket or in this call): TASK_MISSING_PR_URL, unless no_pr_reason says why there is none.",
         "Won't do and reopening a closed task are Jorge's: HUMAN_ONLY. Ask with request_approval; once he grants it on screen, pass approval_id here (it is spent on this move).",
         "In review (and later Done) needs every check done or waived: CHECKS_OPEN lists the open numbers. An initiative needs every ticket closed: INITIATIVE_CHILDREN_OPEN.",
         "A line that starts with 'Jorge:' in summary, next_action, in_progress_note, state_note, blocked_note or a note becomes a human_action blocker (warning JORGE_LINE_PARSED); it reaches his inbox without moving the task, and only one from blocked_note holds it Blocked. In the fields (not notes) a sentence naming Jorge with a waiting cue counts too. A blocker your note created by mistake: withdraw_blocker with its id.",
@@ -650,7 +714,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Claiming a ticket you already hold extends it. heartbeat: extend your lease while you work; send it before it runs out. heartbeat with key \"*\" extends every lease your session holds in the project in one call (reply: extended keys), and logs nothing.",
         "release: give it back; In progress goes to release_to (default Ready). Moving the ticket to any other status also releases it.",
         "Errors: CLAIM_HELD (someone else holds a live lease; owner and workspace say who and where), NOT_CLAIMABLE (status, or unsatisfied blocked_by), LEASE_EXPIRED (heartbeat after your lease ran out: claim again).",
-        "An expired lease is free: anyone may claim it. Pass workspace so others know where the code is checked out.",
+        "An expired lease is free: anyone may claim it. Pass workspace so others know where the code is checked out: a phase defaults to its initiative's integration branch (one PR per initiative), a branch another live initiative owns is BRANCH_IN_USE, names follow the project's branch_pattern.",
+        "warnings name other live claims on overlapping areas, and the handoff note when the ticket was handed to you. start does claim and get_context in one call.",
       ].join(" "),
       inputSchema: {
         project,
@@ -660,13 +725,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         key,
         action: z.enum(["claim", "heartbeat", "release"]).optional(),
         ttl_minutes: z.number().int().optional(),
-        workspace: z
-          .object({
-            worktree_path: z.string().max(500).optional(),
-            branch: z.string().max(200).optional(),
-            machine: z.string().max(120).optional().describe("Defaults to actor.machine"),
-          })
-          .optional(),
+        workspace: workspace.optional(),
         release_to: z.enum(["Ready", "Backlog"]).optional(),
       },
       annotations: write,
@@ -722,6 +781,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer.",
         "A ticket moves to Needs Jorge (your lease stays; heartbeat to keep it) until every open question on it is answered.",
         "options are suggested answers; he may answer freely. blocks names other tickets waiting on the answer; urgency says how soon. get_resume lists open_questions.",
+        "The reply carries question_id and waits (\"the ticket waits in Needs Jorge\"): nothing else to write.",
         "Never only write 'waiting on Jorge' in next_action or blocked_note: a line that starts with 'Jorge:' becomes a human_action blocker on its own (JORGE_LINE_PARSED), and the audit flags the rest (WAITING_ON_JORGE_FREE_TEXT); ask here, request_approval or blocked_by human_action instead.",
       ].join(" "),
       inputSchema: {
@@ -769,7 +829,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline.",
         "headline: the note (≤ 280 chars) beside the generated headline in get_resume, only for what the data cannot say; the server marks it stale when an env, an initiative or a Done moves after it.",
         "settings merge key by key (null removes one): release_target (env a Released ticket reached, default prod), branch_pattern (regex), claim_from (backlog | ready, what get_next offers),",
-        "resources ({'port:*': {needs_approval, ttl_max}}), quotas ({'quota:omdb': {daily}}), github ({repo, token_env}), vercel ({project_id, team_id, token_env, targets}), release ({from, into, env}: the branch Jorge fast-forwards into another to ship, e.g. sandbox → main for prod). Never a secret: integrations name env vars.",
+        "resources ({'port:*': {needs_approval, ttl_max}}), quotas ({'quota:omdb': {daily}}), github ({repo, token_env}), vercel ({project_id, team_id, token_env, targets}), release ({from, into, env, mode}: the branch Jorge ships into another, e.g. sandbox → main for prod; mode command (default: he runs the command) or merge (he presses Lanzar on screen)). Never a secret: integrations name env vars.",
         "Pass the version from get_project; STALE_VERSION if it moved. The old text stays in the log.",
       ].join(" "),
       inputSchema: {
@@ -971,6 +1031,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "worktree an absolute path; browser and tunnel pid:N; service brew:<formula> or launchagent:<label>; container docker:<name>; cache free text.",
         "teardown is the command that removes it (Plania never runs it). task_key defaults to your only live claim in the project (none or several: no ticket; pass task_key).",
         "Name databases <project>_<ticket key lowercased, - to _>_<purpose>, e.g. zigzag_zig_i5_scratch. FOOTPRINT_HELD when another live session declared it. Registering again updates your own.",
+        "Short commands (tests, builds) are not registered. What nobody registered and no claim explains shows as orphan, and what outlives its ticket as stale, in the audit. Closing a ticket with footprint still registered warns FOOTPRINT_LIVE per item with its teardown; handoff carries the list to the next session.",
       ].join(" "),
       inputSchema: {
         project,

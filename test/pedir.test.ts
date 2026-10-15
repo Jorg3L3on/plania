@@ -134,11 +134,11 @@ describe("agents read requests first", () => {
     assert.deepEqual(after.requests.map((r: Json) => r.key), ["ZIG-02"]);
   });
 
-  test("the screen's project read carries the requests; protocol 2.11 says to read them first", async () => {
+  test("the screen's project read carries the requests; protocol 2.12 says to read them first", async () => {
     const res = await req("GET", "/api/projects/zigzag");
     const body = (await res.json()) as Json;
     assert.deepEqual(body.resume.requests.map((r: Json) => r.key), ["ZIG-02"]);
-    assert.equal(PROTOCOL_VERSION, "2.11");
-    assert.match(instructions(false), /requests .* are what Jorge asked for; read them first/);
+    assert.equal(PROTOCOL_VERSION, "2.12");
+    assert.match(instructions(false), /requests \(in start, get_context, get_resume and get_next\) are what Jorge asked for on screen: read them first/);
   });
 });

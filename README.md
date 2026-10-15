@@ -97,6 +97,14 @@ new value `jorge`). Take a `plania-pre-0025-*` dump first. The 2.12 server's pus
 so apply it before the restart. Push also needs the VAPID trio in `.env` (`pnpm vapid` prints a pair); without it push
 stays off and everything else works. Phone access over Tailscale and turning push on: [docs/phone-access.md](docs/phone-access.md).
 
+### Upgrading to 2.13 (agent surface)
+
+No migration. `pnpm build`, then restart the service; agents get protocol 2.12 and the `start` / `finish` tools on their
+next `initialize`. Shipping a release from the screen is off until a project asks for it: add `mode: "merge"` to its
+`settings.release` (on screen or `set_project settings {release: {from, into, env, mode: "merge"}}`) and keep
+`settings.github.repo` set. The merge runs through the gh CLI logged in on this Mac (`gh auth status` must show write
+access to that repo); without `mode` the release row keeps the command to copy.
+
 ## Dev
 
 ```bash
@@ -156,7 +164,8 @@ Change the screen password with `pnpm hash-password`, paste the result into `.en
 otherwise `401 {"error":"UNAUTHORIZED"}`. The screen cookie is never accepted here.
 `MCP_BEARER_TOKEN` sees every tool; `MCP_READ_TOKEN` sees only the read tools.
 
-The working protocol (claim, versions, evidence, closing finished work) is served as the server's `instructions`
+The working protocol (Start / Work / Finish, under 900 words since 2.12; each tool's own rules live in its
+description) is served as the server's `instructions`
 on `initialize`, versioned (`PROTOCOL_VERSION` in `src/mcp/protocol.ts`, also in `get_project`). Project-specific
 additions are the project's `rules` (`set_project`). Product repos point here instead of copying the rules.
 
@@ -164,7 +173,7 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | Read | |
 |---|---|
 | `get_resume` | Where the project stands, generated from data: live claims (who, until when, where), requests (Jorge's open asks from the screen, newest first: read them first), the next claimable ticket, and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts. |
-| `get_project` | Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release), ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each, and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks and the command Jorge runs (null without settings.release). |
+| `get_project` | Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release), ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each, and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks, the command Jorge runs, its mode (command, or merge: Jorge ships it from the screen) and merged once he did (null without settings.release). |
 | `list_tasks` | Initiatives and tickets without scope, with version, claimed_by (live lease owner or null) and updated_at. |
 | `get_task` | One initiative or ticket, by its key or any former key (aliases). |
 | `get_memory` | Fixed memory: rules, design_docs (project docs, with markdown; view summary lists them without it), and the decision log, newest first (limit default 100, max 500). |
@@ -180,6 +189,8 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 
 | Write | |
 |---|---|
+| `start` | Open a ticket in one call: claim on key (In progress, your lease) plus get_context for the workspace. |
+| `finish` | Close your part of a ticket in one transaction: add_result (result: kind, verdict, cite, commit, command, counts, check_ns...) then set_task status In review with branch and pr_url. |
 | `create_task` | Create a ticket (default) or, with kind initiative, a parent initiative. |
 | `set_task` | Update a ticket or an initiative. |
 | `set_check` | Tick (or untick) one Done when item by its n, amend its text, or lift a waiver. |
@@ -247,6 +258,11 @@ Rules every write follows:
   open tickets, stale state notes, decisions citing commits or PRs the release target has moved past, environments
   without a deploy time, drift, Blocked tickets whose blockers hold, gated scopes without a typed blocker, expired
   claims with commits, merged branches still on origin, branches without a ticket, missing PRs.
+- **Shipping.** `settings.release.mode` is `command` (default: the release row shows the command Jorge runs) or `merge`:
+  the row shows "Lanzar", and `POST /api/projects/:slug/release/ship` (the screen's cookie only; any Bearer is `403`)
+  opens or reuses a PR `from → into` titled "Release: <keys>", merges it with `gh pr merge --merge --match-head-commit`
+  and writes `release.merged`; the pollers do the rest. It is refused (`RELEASE_NOT_READY`) while a before-step or a
+  check is open; a failing gh call is `RELEASE_MERGE_FAILED` and records nothing. Agents never merge `into`.
 - **Releases.** When a ticket reaches Released, the deploy's record collects it (`get_project.releases`: env, commit,
   deployed_at and source, tickets, PRs, migrations new since the previous release).
 - **Bugs and debt.** `work_type: bug` needs a `severity` (S1–S4) and may carry `found_in`, `introduced_by`,
@@ -261,8 +277,12 @@ Rules every write follows:
   once In review, a runbook step or a gated resource); Jorge grants or rejects in the inbox, one event per decision;
   the granted `approval_id` unlocks exactly one move (`APPROVAL_MISMATCH`, `APPROVAL_NOT_GRANTED`, `APPROVAL_USED`)
   and expires after 7 days. `confirm_by_jorge` is gone. Jorge's own moves on screen need no approval.
+- **Start and finish.** `start` is `claim` plus `get_context` in one call (with any handoff note); `finish` is
+  `add_result` plus In review with branch and pr_url in one transaction, so a failure writes neither.
+- **PRs.** Done, Merged or Released on a code ticket without `pr_url` is `TASK_MISSING_PR_URL` unless the write passes
+  `no_pr_reason` (logged as `task.no_pr`, and the audit stops flagging it). The pollers and the screen are exempt.
 - **Checks.** Entering In review, Merged, Released or Done needs every check done or waived (`CHECKS_OPEN` lists the
-  numbers), Jorge included; an initiative needs every ticket closed (`INITIATIVE_CHILDREN_OPEN`).
+  numbers and each open check's text), Jorge included; an initiative needs every ticket closed (`INITIATIVE_CHILDREN_OPEN`).
 - **Headline.** One line (≤ 280 chars) on where the project stands, written with `set_project` or on screen and
   versioned; the server marks it `stale` when an env changes, an initiative moves or a ticket reaches Done after it.
 - **Events.** Every write records one or more events in the same transaction; `get_task.log` and
@@ -325,6 +345,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
 | `RESERVED_ACTOR` | 400 | actor.agent is jorge: only the screen writes as Jorge |
 | `SECRET_LIKE_VALUE` | 400 | an env flag looks like a secret (a key name, a token prefix, or 20+ random characters); flags record whether something is configured, never the value |
+| `TASK_MISSING_PR_URL` | 400 | Done, Merged or Released on a code ticket without pr_url: pass pr_url, or no_pr_reason when the work had no PR |
 | `TEMPLATE_INVALID` | 400 | create_task: a ticket without scope, or a code/ops ticket without checks (detail: missing) |
 | `TEXT_HAS_DATE` | 400 | decision text starts with a date: the server stamps dates |
 | `TOO_LARGE` | 400 | a text field exceeds its limit (detail: field, max) |
@@ -367,6 +388,8 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
 | `NOT_OWNER` | 409 | another session holds a live lease on this task (detail: owner, lease_until) |
 | `QUOTA_EXCEEDED` | 409 | consume would pass the daily quota (detail: limit, used, remaining) |
+| `RELEASE_MERGE_FAILED` | 409 | release/ship: a gh call failed (detail: step list | edit | create | merge | view, output); nothing was recorded |
+| `RELEASE_NOT_READY` | 409 | release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | nothing_to_ship | before_steps | open_checks | merged) |
 | `REQUEST_ID_REUSED` | 409 | request_id was already used by a different tool in this project |
 | `RESOURCE_HELD` | 409 | another session holds the resource (detail: holder, lease_until, purpose) |
 | `SEQUENCE_TAKEN` | 409 | the requested sequence value is held by another live ticket |
@@ -511,6 +534,7 @@ the UI refetches what changed.
 | `GET /api/inbox?project=` | Everything waiting on Jorge; `POST /api/approvals/decide` `{ ids, decision, note? }` grants or rejects, one event each |
 | `GET /api/tokens`, `POST /api/tokens`, `DELETE /api/tokens/:id` | Agent tokens (the secret is in the create response only) |
 | `POST /api/projects/:slug/tasks/:key/release` | Free a lease |
+| `POST /api/projects/:slug/release/ship` | 2.13 Lanzar (merge mode): PR `from → into`, `gh pr merge --merge`, `release.merged`. Any `Authorization: Bearer` is refused with 403 |
 | `POST /api/projects/:slug/tasks` | 2.12 Pedir: `{ title, summary?, priority?, parent_key? }`, a Backlog ticket as Jorge with `origin: "jorge"` |
 | `GET /api/digest?since=`, `POST /api/digest/seen` | 2.12 Hoy: `get_digest` as the reader `screen` (reading never moves its bookmark); `{ cursor }` on "Visto" does |
 | `GET /api/push/public-key`, `POST` / `DELETE /api/push/subscribe` | 2.12 push: the VAPID key (`PUSH_NOT_CONFIGURED` without it) and this device's subscription |

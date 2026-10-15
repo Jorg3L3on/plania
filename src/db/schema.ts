@@ -745,7 +745,9 @@ export type ProjectSettings = {
   release?: ReleaseSettings;
 };
 
-export type ReleaseSettings = { from: string; into: string; env: string };
+// 2.13: mode "command" (default) shows the command Jorge runs; "merge" lets him ship from the screen
+// (a PR from → into merged with gh pr merge --merge, POST /api/projects/:slug/release/ship).
+export type ReleaseSettings = { from: string; into: string; env: string; mode?: "command" | "merge" };
 
 export type Project = typeof projects.$inferSelect;
 export type Task = typeof tasks.$inferSelect;

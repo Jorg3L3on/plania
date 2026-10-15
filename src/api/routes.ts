@@ -22,6 +22,7 @@ import { inbox } from "../mcp/inbox.js";
 import { auditCounts, fixFinding, projectAudit } from "../mcp/orden.js";
 import { gatingSql } from "../mcp/jorge-lines.js";
 import { setProject } from "../mcp/project.js";
+import { shipRelease } from "../mcp/release-ship.js";
 import { ToolError, findProject, findTask, taskFull } from "../mcp/queries.js";
 import { answer } from "../mcp/questions.js";
 import { nextStepLine, resumeDigest, resumeLine } from "../mcp/resume.js";
@@ -368,6 +369,18 @@ api.post("/projects/:slug/blockers/:id/resolve", async (c) => {
       return writeTx(db, p, webCtx, (tx, emit) => resolveHumanAction(tx, emit, p.id, c.req.param("id"), WEB_ACTOR, parsed.data.note));
     });
     return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
+
+// 2.13: Jorge ships the release (settings.release.mode "merge"): a PR from → into, merged with
+// gh pr merge --merge. The screen's cookie only: a request that carries any Bearer token is refused,
+// so no agent token, CI token or MCP client can ever merge into `into`, whatever else it holds.
+api.post("/projects/:slug/release/ship", async (c) => {
+  if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) return c.json({ error: "HUMAN_ONLY", hint: "the release ships from the screen only" }, 403);
+  try {
+    return c.json(await withDb((db) => shipRelease(db, c.req.param("slug"), webCtx)));
   } catch (e) {
     return errorResponse(c, e);
   }
