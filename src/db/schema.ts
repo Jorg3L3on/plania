@@ -660,6 +660,19 @@ export const machineState = pgTable("machine_state", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// 2.12: one row per device that turned on "Avisarme cuando me toque". endpoint is the push service's
+// URL for that browser; keys are its {p256dh, auth}. The push job sends to every row; a 404/410 from
+// the push service deletes the row, any other failure stamps failed_at.
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  endpoint: text("endpoint").notNull().unique(),
+  keys: jsonb("keys").$type<{ p256dh: string; auth: string }>().notNull(),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastOkAt: timestamp("last_ok_at", { withTimezone: true }),
+  failedAt: timestamp("failed_at", { withTimezone: true }),
+});
+
 // v2: idempotent retries. A write that carries request_id stores its response here; the same
 // request_id for the same tool replays it instead of writing twice. Rows older than 30 days are purged.
 export const writeRequests = pgTable(

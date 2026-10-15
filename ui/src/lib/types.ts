@@ -187,6 +187,18 @@ export type InboxItem = {
 // count and by_project: decisiones + pasos; chores: limpieza (2.10).
 export type Inbox = { items: InboxItem[]; count: number; by_project: Record<string, number>; groups: Record<InboxGroup, number>; chores: number };
 
+// 2.12 Hoy: get_digest as the screen reads it (GET /api/digest). Only the fields the strip shows.
+export type DigestHighlights = { done: string[]; to_review: string[]; blocked: string[]; needs_jorge: string[]; prs_opened: number[]; prs_merged: number[]; claims: string[] };
+export type Digest = {
+  cursor: number;
+  since: number;
+  since_from: "since" | "memory" | "default";
+  truncated: boolean;
+  needs_jorge: { project: string; kind: InboxItem["kind"]; group: InboxGroup; key: string | null; title: string | null; why: string; wait_s: number }[];
+  projects: { slug: string; title: string; line: string; changes_total: number; highlights: DigestHighlights }[];
+  unchanged_projects: string[];
+};
+
 // Agent tokens (GET /api/tokens). The secret is only ever in the create response.
 export type AgentToken = {
   id: string;

@@ -1,4 +1,4 @@
-import type { AgentToken, Inbox, Machine, Orden, ProjectDetail, ProjectSummary, TaskDetail } from "./types";
+import type { AgentToken, Digest, Inbox, Machine, Orden, ProjectDetail, ProjectSummary, TaskDetail } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -61,6 +61,13 @@ export const api = {
   decide: (ids: string[], decision: "grant" | "reject", note?: string) =>
     request<{ results: { id: string; ok: boolean; error?: string }[]; decided: number }>("POST", "/approvals/decide", { ids, decision, note }),
   machine: () => request<Machine>("GET", "/machine"),
+  // 2.12 Hoy: the digest since this device's cursor; "Visto" moves the server's bookmark too.
+  digest: (since?: number) => request<Digest>("GET", since === undefined ? "/digest" : `/digest?since=${since}`),
+  digestSeen: (cursor: number) => request<{ cursor: number }>("POST", "/digest/seen", { cursor }),
+  // 2.12 push: the VAPID key to subscribe with, and this device's subscription.
+  pushPublicKey: () => request<{ public_key: string }>("GET", "/push/public-key"),
+  pushSubscribe: (sub: { endpoint: string; keys: { p256dh: string; auth: string } }) => request<{ id: string }>("POST", "/push/subscribe", sub),
+  pushUnsubscribe: (endpoint: string) => request<{ removed: boolean }>("DELETE", "/push/subscribe", { endpoint }),
   tokens: () => request<AgentToken[]>("GET", "/tokens"),
   createToken: (input: { name: string; agent: string; machine?: string; scopes: string[] }) =>
     request<{ token: AgentToken; secret: string }>("POST", "/tokens", input),

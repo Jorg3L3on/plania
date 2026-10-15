@@ -1,7 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CloudOffIcon, CpuIcon, EllipsisIcon, InboxIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
+import { BellIcon, CloudOffIcon, CpuIcon, EllipsisIcon, InboxIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,6 +17,7 @@ import { PlaniaMark } from "@/components/plania-mark";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ThemeChoices, ThemeToggle } from "@/components/theme-toggle";
 import { api } from "@/lib/api";
+import { disablePush, enablePush, PushError, pushHint, pushStatus, type PushStatus } from "@/lib/push";
 import { LiveProvider, useLive } from "@/lib/live";
 import { cn } from "@/lib/utils";
 
@@ -52,6 +56,48 @@ function OfflineBanner() {
   );
 }
 
+// 2.12: "Avisarme cuando me toque" — web push for this device. The tap itself asks for permission
+// (iOS only prompts for a gesture); the item keeps the menu open so the switch shows the result.
+function PushSwitch() {
+  const [status, setStatus] = useState<PushStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void pushStatus().then(setStatus).catch(() => setStatus({ state: "unsupported", reason: "browser" }));
+  }, []);
+  const on = status?.state === "on";
+  const usable = status?.state === "on" || status?.state === "off";
+  async function toggle() {
+    if (!usable || busy) return;
+    setBusy(true);
+    try {
+      const next = on ? await disablePush() : await enablePush();
+      setStatus(next);
+      if (next.state === "on") toast("Te avisaremos en este dispositivo");
+      else if (!on && next.state !== "off") toast.error(pushHint(next) ?? "No se activaron los avisos.");
+    } catch (e) {
+      toast.error(e instanceof PushError ? e.message : "No se pudieron cambiar los avisos.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const hint = status ? pushHint(status) : null;
+  return (
+    <DropdownMenuItem
+      onSelect={(e) => {
+        e.preventDefault();
+        void toggle();
+      }}
+      disabled={!usable || busy}
+      className="flex-wrap"
+    >
+      <BellIcon />
+      <span className="flex-1">Avisarme cuando me toque</span>
+      <Switch checked={on} tabIndex={-1} aria-hidden className="pointer-events-none" />
+      {hint && <span className="basis-full pl-6 text-xs text-muted-foreground">{hint}</span>}
+    </DropdownMenuItem>
+  );
+}
+
 // Phones get one menu for what the desktop header shows as separate icons.
 function PhoneMenu({ onLogout }: { onLogout: () => void }) {
   const navigate = useNavigate();
@@ -62,10 +108,11 @@ function PhoneMenu({ onLogout }: { onLogout: () => void }) {
           <EllipsisIcon />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-48">
+      <DropdownMenuContent align="end" className="min-w-64">
         <DropdownMenuItem onSelect={() => navigate("/tokens")}>
           <KeyRoundIcon /> Tokens de agentes
         </DropdownMenuItem>
+        <PushSwitch />
         <DropdownMenuSeparator />
         <DropdownMenuLabel>Tema</DropdownMenuLabel>
         <ThemeChoices />

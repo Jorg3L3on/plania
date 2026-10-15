@@ -90,6 +90,13 @@ Migration `0024` (there is no `0023`: 2.10 needed none) renames `projects.headli
 `set_project headline` writes is its note. Take a `plania-pre-0024-*` dump first. The 2.11 server reads only the new
 names and the old one only the old, so apply the migration right before the restart.
 
+### Upgrading to 2.12 (intent and the day)
+
+Migration `0025` adds `push_subscriptions`; nothing else changes shape (Jorge's requests reuse `tasks.origin` with the
+new value `jorge`). Take a `plania-pre-0025-*` dump first. The 2.12 server's push job and `/api/push/*` read the table,
+so apply it before the restart. Push also needs the VAPID trio in `.env` (`pnpm vapid` prints a pair); without it push
+stays off and everything else works. Phone access over Tailscale and turning push on: [docs/phone-access.md](docs/phone-access.md).
+
 ## Dev
 
 ```bash
@@ -473,10 +480,15 @@ and the home indicator (`viewport-fit=cover` and `env(safe-area-inset-*)`, with 
   `/api`, `/mcp`, `/hooks` and `/health` never go through it, so data and the live stream are never cached. The live
   stream reopens when the app returns to the foreground.
 - **Install:** iOS Safari → Compartir → Agregar a inicio. Android Chrome → menu → Instalar app.
-- **Reaching it from the phone is still open.** The server listens on 127.0.0.1 only. Service workers, Android's
-  install and the `secure` session cookie all need HTTPS, so the likely route is `tailscale serve` in front of :3737.
-  Plain HTTP on the LAN would not keep the login. A home-screen app on iOS keeps its own cookies, so you sign in
-  once inside it.
+- **Reaching it from the phone** (2.12): the server listens on 127.0.0.1 only and `tailscale serve --bg --https=443
+  http://127.0.0.1:3737` puts it on the tailnet with a real certificate. The session cookie is `Secure` when the request
+  is HTTPS, arrives with `X-Forwarded-Proto: https` (what `tailscale serve` sends; trusted because only this Mac can
+  reach the port), or comes to a loopback host. A home-screen app on iOS keeps its own cookies, so you sign in once
+  inside it. Steps in [docs/phone-access.md](docs/phone-access.md).
+- **Push** (2.12): "Avisarme cuando me toque" in the "⋯" menu subscribes the device (`ui/src/lib/push.ts`); `ui/sw.js`
+  shows the message and a tap opens the Bandeja on its tab. The `push` job (`src/jobs/push.ts`) looks at the inbox
+  once a minute and sends one message per device for whatever is new in Decisiones or Pasos (approvals, questions,
+  human actions typed or parsed, a release ready). A 404/410 from the push service deletes the subscription.
 
 How live updates flow: every write runs in `writeTx` (`src/mcp/tx.ts`), which after commit publishes one change per
 task it touched on the in-process bus in `src/events.ts`. `GET /api/events` streams those as server-sent events, and
@@ -499,6 +511,9 @@ the UI refetches what changed.
 | `GET /api/inbox?project=` | Everything waiting on Jorge; `POST /api/approvals/decide` `{ ids, decision, note? }` grants or rejects, one event each |
 | `GET /api/tokens`, `POST /api/tokens`, `DELETE /api/tokens/:id` | Agent tokens (the secret is in the create response only) |
 | `POST /api/projects/:slug/tasks/:key/release` | Free a lease |
+| `POST /api/projects/:slug/tasks` | 2.12 Pedir: `{ title, summary?, priority?, parent_key? }`, a Backlog ticket as Jorge with `origin: "jorge"` |
+| `GET /api/digest?since=`, `POST /api/digest/seen` | 2.12 Hoy: `get_digest` as the reader `screen` (reading never moves its bookmark); `{ cursor }` on "Visto" does |
+| `GET /api/push/public-key`, `POST` / `DELETE /api/push/subscribe` | 2.12 push: the VAPID key (`PUSH_NOT_CONFIGURED` without it) and this device's subscription |
 | `POST /api/projects/:slug/questions/:id/answer` | `{ answer, decision_text? }` |
 | `GET /api/export/:slug.json` | The whole project (also with an MCP token, rw or ro) |
 | `GET /api/events` | Server-sent change events |

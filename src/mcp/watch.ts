@@ -215,7 +215,8 @@ async function latestCursor(db: Q): Promise<number> {
   return Number(row?.id ?? 0);
 }
 
-export type DigestInput = { since?: number; project?: string; max_events_per_project?: number; reader?: string };
+// remember: false reads from the reader's bookmark without moving it (the screen moves it on "Visto").
+export type DigestInput = { since?: number; project?: string; max_events_per_project?: number; reader?: string; remember?: boolean };
 
 type Highlights = { done: string[]; to_review: string[]; blocked: string[]; needs_jorge: string[]; prs_opened: number[]; prs_merged: number[]; claims: string[] };
 
@@ -299,7 +300,7 @@ export async function getDigest(db: Q, input: DigestInput = {}) {
 
   // A digest over one project reads a partial feed, so its cursor must not become the reader's
   // memory for "all": only an unscoped call moves the bookmark.
-  if (reader && !only) await rememberCursor(db, reader, cursor);
+  if (reader && !only && input.remember !== false) await rememberCursor(db, reader, cursor);
   return {
     cursor,
     since,
