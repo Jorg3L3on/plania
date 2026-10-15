@@ -43,7 +43,6 @@ before(async () => {
   cookie = `${SESSION_COOKIE}=${createSession()}`;
   const { db, close } = makeDb();
   try {
-    await raw.query("update projects set resume_in_progress = 'ip' where slug = 'micasa'");
     await writes.createTask(db, { project: "micasa", kind: "initiative", key: "MIC-01", title: "Init", scope: "PRD", summary: "one line", next_action: "na" }, ctx);
     await writes.createTask(db, { project: "micasa", key: "MIC-01-F1", title: "F1", scope: "secret scope", checks: ["c"], parent_key: "MIC-01" }, ctx);
     await writes.createTask(db, { project: "micasa", key: "MIC-01-F2", title: "F2", ...T, parent_key: "MIC-01", priority: "P0" }, ctx);
@@ -150,7 +149,6 @@ describe("reads", () => {
     const init = p.resume.initiatives.find((i: Json) => i.key === "MIC-01");
     assert.equal(init.next_action.note, "na");
     assert.deepEqual(init.must_keep.map((d: Json) => d.text), ["Solo PDF"]);
-    assert.equal(p.resume.legacy_card.in_progress, "ip");
     assert.deepEqual(p.decisions.map((d: Json) => d.text), ["Solo PDF"]);
   });
 

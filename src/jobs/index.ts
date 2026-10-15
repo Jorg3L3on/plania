@@ -3,12 +3,11 @@ import { auditJob } from "./audit.js";
 import { backupJob } from "./backup.js";
 import { blockersJob } from "./blockers.js";
 import { githubJob } from "./github.js";
-import { legacyJob } from "./legacy.js";
 import { leasesJob } from "./leases.js";
 import { machineJob } from "./machine/index.js";
 import { vercelJob } from "./vercel.js";
 
-// Background jobs for the local server (2.1). Each job runs on its own interval with a fresh pool,
+// Background jobs for the local server (2.1). Each job runs on its own interval with the shared pool,
 // skips a tick while the previous one is still running, and writes through the normal tool
 // functions as the system actor with deterministic request ids, so a double tick replays nothing.
 // Off in tests and under `pnpm dev:api` (PLANIA_JOBS=0).
@@ -16,7 +15,7 @@ import { vercelJob } from "./vercel.js";
 export type JobSummary = Record<string, number>;
 export type Job = { name: string; intervalMs: number; runOnce: (db: Db, now: Date) => Promise<JobSummary> };
 
-export const JOBS: Job[] = [leasesJob, blockersJob, githubJob, vercelJob, auditJob, legacyJob, machineJob, backupJob];
+export const JOBS: Job[] = [leasesJob, blockersJob, githubJob, vercelJob, auditJob, machineJob, backupJob];
 
 export function startJobs(opts: { every?: Partial<Record<string, number>>; log?: (line: string) => void } = {}): () => void {
   const log = opts.log ?? ((line: string) => console.log(line));

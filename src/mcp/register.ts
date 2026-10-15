@@ -10,7 +10,7 @@ import { APPROVAL_ACTIONS, requestApproval } from "./approvals.js";
 import { inbox } from "./inbox.js";
 import { waiveCheck } from "./checks.js";
 import { addDecision, retireDecision } from "./decisions.js";
-import { archiveLegacyCard, headlineShape, setProject } from "./project.js";
+import { headlineShape, setProject } from "./project.js";
 import {
   ToolError,
   findProject,
@@ -301,13 +301,13 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Where the project stands, generated from data: live claims (who, until when, where), the next claimable ticket,",
         "and per open initiative its in_progress note and claims, next_action note and next_claimable, must_keep (pinned decisions) and status counts.",
         "Also the headline (one line Jorge or an agent wrote with set_project; stale: true once an env, an initiative or a Done moved after it),",
-        "project-wide pinned decisions and the latest events. The old hand-written v1 card is left out unless include_legacy: true (legacy_card_present says whether one is left).",
+        "project-wide pinned decisions and the latest events.",
         "Nobody writes the rest directly: update an initiative's next_action / in_progress_note with set_task, pin decisions with add_decision.",
       ].join(" "),
-      inputSchema: { project, include_legacy: z.boolean().optional() },
+      inputSchema: { project },
       annotations: readOnly,
     },
-    ({ project, include_legacy }) => run(async () => resumeDigest(db, await findProject(db, project), { includeLegacy: include_legacy })),
+    ({ project }) => run(async () => resumeDigest(db, await findProject(db, project))),
   );
 
   server.registerTool(
@@ -843,16 +843,6 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
   );
 
   server.registerTool(
-    "archive_legacy_card",
-    {
-      description: "Move the old hand-written v1 card into the event log (legacy_card.archived, with its full text) and remove it for good. LEGACY_CARD_EMPTY when there is none left.",
-      inputSchema: { project, actor, request_id, reason: z.string().min(1) },
-      annotations: write,
-    },
-    writeHandler("archive_legacy_card", (input, ctx) => archiveLegacyCard(db, input, ctx)),
-  );
-
-  server.registerTool(
     "get_inbox",
     {
       description: [
@@ -870,7 +860,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_STATE_NOTE_STALE, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
-        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, LEGACY_CARD_PRESENT, and the footprint codes.",
+        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, and the footprint codes.",
         "Each finding has key, detail and fix_hint. It also runs every ten minutes; get_resume.status.audit_findings is the last count.",
       ].join(" "),
       inputSchema: { project },

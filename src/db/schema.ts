@@ -30,10 +30,6 @@ export const projects = pgTable("projects", {
   title: text("title").notNull(),
   body: text("body").notNull().default(""),
   rulesText: text("rules_text").notNull().default(""),
-  resumeInProgress: text("resume_in_progress").notNull().default(""),
-  resumeNextAction: text("resume_next_action").notNull().default(""),
-  resumeBranchOrProd: text("resume_branch_or_prod").notNull().default(""),
-  resumeMustKeepDecision: text("resume_must_keep_decision").notNull().default(""),
   // Optimistic concurrency: writers pass the version they read; a mismatch is STALE_VERSION.
   version: integer("version").notNull().default(1),
   // Bumped when rules_text changes, so agents can tell they hold an old copy.
@@ -136,16 +132,6 @@ export const taskAliases = pgTable(
   (t) => [primaryKey({ columns: [t.projectId, t.alias] }), index("task_aliases_task_idx").on(t.taskId)],
 );
 
-export const designPages = pgTable("design_pages", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  projectId: uuid("project_id")
-    .notNull()
-    .references(() => projects.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  body: text("body").notNull().default(""),
-  ...timestamps,
-});
-
 export const decisions = pgTable(
   "decisions",
   {
@@ -160,8 +146,6 @@ export const decisions = pgTable(
     taskId: uuid("task_id").references((): AnyPgColumn => tasks.id, { onDelete: "set null" }),
     pinned: boolean("pinned").notNull().default(false),
     tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
-    // v2.0 single reversal, replaced by decision_supersessions in 2.1. Kept until the cleanup migration.
-    supersedesId: uuid("supersedes_id").references((): AnyPgColumn => decisions.id, { onDelete: "set null" }),
     // v2.1: retired without a replacement (retire_decision). Hidden by default, like superseded ones.
     retiredAt: timestamp("retired_at", { withTimezone: true }),
     retiredBy: jsonb("retired_by").$type<Actor>(),
@@ -207,8 +191,6 @@ export const tasks = pgTable(
     key: text("key").notNull(),
     title: text("title").notNull(),
     summary: text("summary").notNull().default(""),
-    // v1 markdown blob. Frozen: v2 reads scope, checks and the event log instead; dropped after backfill.
-    body: text("body").notNull().default(""),
     // What the task is: PRD and phased plan (initiative) or the phase's scope (ticket). Replaced whole,
     // with the version; old text stays in the task.updated event.
     scope: text("scope").notNull().default(""),
@@ -459,22 +441,6 @@ export const envCommits = pgTable(
 );
 
 // v2.0 env blockers, replaced by the typed `blockers` table in 2.2. Kept until the cleanup migration.
-export const envBlockers = pgTable(
-  "env_blockers",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    taskId: uuid("task_id")
-      .notNull()
-      .references(() => tasks.id, { onDelete: "cascade" }),
-    env: text("env").notNull(),
-    condition: text("condition").notNull(),
-    value: text("value").notNull(),
-  },
-  (t) => [
-    index("env_blockers_task_idx").on(t.taskId),
-    check("env_blockers_condition_check", sql`${t.condition} in ('contains_commit', 'migration_gte', 'deployed_after')`),
-  ],
-);
 
 // v2.2 (R-15): typed blockers the server can evaluate. env: {env, condition, value} as before
 // (contains_commit, migration_gte, deployed_after); human_action: {assignee, text}, cleared from the

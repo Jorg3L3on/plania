@@ -7,7 +7,7 @@ import { withDb } from "../db/client.js";
 import { docs, envCommits, projects, tasks } from "../db/schema.js";
 import { listDecisions } from "../mcp/decisions.js";
 import { projectEnv } from "../mcp/env.js";
-import { legacyCard, listEvents, taskShape } from "../mcp/queries.js";
+import { listEvents, taskShape } from "../mcp/queries.js";
 import { projectSequences } from "../mcp/sequences.js";
 import { iso } from "../mcp/tx.js";
 
@@ -47,13 +47,12 @@ exporter.get("/api/export/:file", async (c) => {
         rules: p.rulesText,
         rules_version: p.rulesVersion,
         version: p.version,
-        legacy_card: legacyCard(p),
         created_at: iso(p.createdAt),
       },
       tasks: await Promise.all(
         rows.map(async (t) => {
           const { log_total: _total, ...shape } = await taskShape(db, t);
-          return { ...shape, legacy_body: t.body || undefined };
+          return shape;
         }),
       ),
       docs: docRows.map((d) => ({

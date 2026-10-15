@@ -108,7 +108,7 @@ api.get("/projects", async (c) => {
     const activity = await activityByProject(db);
     return Promise.all(
       all.map(async (p) => {
-        const digest = await resumeDigest(db, p, { includeLegacy: true });
+        const digest = await resumeDigest(db, p);
         return {
           slug: p.slug,
           title: p.title,
@@ -189,7 +189,7 @@ api.get("/projects/:slug", async (c) => {
         slug: p.slug,
         title: p.title,
         version: p.version,
-        resume: await resumeDigest(db, p, { includeLegacy: true }),
+        resume: await resumeDigest(db, p),
         tasks: rows.map(({ project_id: _, ...t }) => t),
         decisions: await listDecisions(db, p.id, { limit: DECISIONS_LIMIT, includeSuperseded: true, includeRetired: true }),
       };

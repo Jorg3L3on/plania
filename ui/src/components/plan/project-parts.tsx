@@ -335,8 +335,8 @@ export function InitiativeTable({ lanes, onOpen }: { lanes: Lane[]; onOpen: Open
   );
 }
 
-/** Branch → base edges from initiatives, drawn as a small git graph, then the resume's free text. */
-export function BranchGraph({ edges, text, onFicha }: { edges: BranchEdge[]; text: string; onFicha: () => void }) {
+/** Branch → base edges from initiatives, drawn as a small git graph. */
+export function BranchGraph({ edges }: { edges: BranchEdge[] }) {
   const bases = [...new Set(edges.map((e) => e.base))];
   return (
     // grid-cols-1 (minmax(0,1fr)) all the way down, or the truncated branch names set the width on phones.
@@ -369,12 +369,7 @@ export function BranchGraph({ edges, text, onFicha }: { edges: BranchEdge[]; tex
           ))}
         </ul>
       )}
-      {text ? (
-        <p className={cn("line-clamp-4 text-[13px] text-foreground/80", bases.length > 0 && "border-t pt-3")}>{text}</p>
-      ) : (
-        bases.length === 0 && <p className="text-[13px] text-muted-foreground">Sin ramas registradas.</p>
-      )}
-      {text.length > 180 && <FichaLink onClick={onFicha} />}
+      {bases.length === 0 && <p className="text-[13px] text-muted-foreground">Sin ramas registradas.</p>}
     </section>
   );
 }
@@ -395,7 +390,7 @@ function FichaLink({ onClick, className }: { onClick: () => void; className?: st
   );
 }
 
-/** Pinned decisions (v2), or the v1 card's decision split into statements while it exists. */
+/** Pinned decisions that still stand. */
 export function FixedDecisions({ items, onFicha }: { items: string[]; onFicha: () => void }) {
   return (
     <section

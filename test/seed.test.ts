@@ -45,7 +45,7 @@ test("fills empty slice 1 rows with the handoff bodies and pins each must-keep d
   const micasa = await project("micasa");
   assert.match(micasa.body, /^Finanzas personal y del hogar centrada en quincenas/);
   assert.match(micasa.body, /Repo: https:\/\/github.com\/Jorg3L3on\/micasa\./);
-  assert.equal(micasa.resume_in_progress, "", "v2 writes no hand-written card");
+  assert.equal("resume_in_progress" in micasa, false, "the v1 card columns are gone (0022)");
   assert.deepEqual(await pinned("zigzag"), ["El nombre nuevo espera; slug zigzag se queda en v1."]);
   const zigzag = await project("zigzag");
   assert.equal(zigzag.body, "App de recibos; nombre nuevo fuera de v1.");

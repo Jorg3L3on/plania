@@ -75,28 +75,13 @@ pnpm rekey --project filmia            # dry run: prints the plan
 pnpm rekey --project filmia --apply    # writes it, in one transaction
 ```
 
-### Upgrading a v1 database to v2
+### Upgrading to 2.9 (backups, v1 cleanup)
 
-Migrations `0001`–`0014` only add (tables, columns, defaults); the v1 columns stay, so the old server keeps
-working until the restart. Then move the v1 data with the backfill, stage by stage, dry-run first:
+Migration `0022` adds `machine_state` (the nightly backup's record), copies every non-empty v1 `tasks.body` into a
+task doc titled "v1 body", then drops `tasks.body`, the four `projects.resume_*` columns, `design_pages`,
+`env_blockers` and `decisions.supersedes_id`. Take a `plania-pre-0022-*` dump first.
 
-```bash
-for f in drizzle/migrations/00{01..14}_*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done
-pnpm backfill-v2 --stage body                    # bodies → scope, phase, checks, dated notes, results
-pnpm backfill-v2 --stage decisions               # typed dates → decided_on; one named key → task; flags wrong days
-pnpm backfill-v2 --stage resume                  # the card's must-keep → pinned decision; card stays as legacy_card
-pnpm backfill-v2 --stage sequences               # lists the numbers each ticket mentions
-pnpm backfill-v2 --stage claims                  # In progress tickets → a 24h legacy lease from their claim note
-# each again with --apply once the dry run looks right. Two take a mapping you write:
-pnpm backfill-v2 --stage sequences --project filmia --map migration:0008=FIL-02,0009=FIL-01-F1,0010=FIL-01-F3 --apply
-pnpm backfill-v2 --stage decisions --project filmia --map <new-id-prefix>:<old-id-prefix> --apply   # reversals
-launchctl kickstart -k gui/$(id -u)/com.plania.server
-```
-
-Run the stages in that order (notes from bodies land in the log before the later stages' events). A stage
-that already ran for a project is skipped. The backfill never changes `tasks.body` or the v1 card; a later
-cleanup migration drops them (and `design_pages`) once the backfill is confirmed. Until then `get_task`
-shows `legacy_body` for a task whose scope is still empty, and `get_resume` shows `legacy_card`.
+Upgrading a v1 database: the backfill that did it (`scripts/backfill-v2.ts`) is in the git history before 2.9.
 
 ## Dev
 
@@ -104,7 +89,7 @@ shows `legacy_body` for a task whose scope is still empty, and `get_resume` show
 pnpm dev     # API on 3738 (tsx watch) + Vite on http://localhost:5173 with hot reload
 pnpm build   # typecheck server and UI, then build the SPA into dist/ui
 pnpm start   # serve API, MCP and the built SPA on http://localhost:3737
-pnpm test    # MCP, API, live-event, hooks, seed and backfill tests; rebuilds this checkout's local plania_test_<hash> database each run
+pnpm test    # MCP, API, live-event, hooks, seed and backup tests; rebuilds this checkout's local plania_test_<hash> database each run
 ```
 
 Port 3737 avoids the 3000 that product repos use. The server only listens on 127.0.0.1.
@@ -176,7 +161,7 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | `get_running` | Every ticket with an owner, across projects, with a derived liveness: live (lease valid, activity in the last 20 min), quiet (lease valid, no heartbeat or event for longer), stale (lease ran out, not yet cleared). |
 | `get_digest` | One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects. |
 | `get_inbox` | Everything waiting on Jorge, oldest first per kind: pending approvals and open questions (more kinds come with later releases). |
-| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_STATE_NOTE_STALE, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, LEGACY_CARD_PRESENT, and the footprint codes. |
+| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_STATE_NOTE_STALE, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, and the footprint codes. |
 | `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions and pending approvals on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), and the events since since_cursor that touch them. |
 
 | Write | |
@@ -196,7 +181,6 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | `request_approval` | Ask Jorge to approve one move you cannot make yourself: action wont_do \| reopen (a status change), waive_check (target {n}, once In review or later), runbook_step, lease_resource. |
 | `waive_check` | Mark one Done when item as not going to be done, with the reason (it then counts as closed for In review and Done). |
 | `retire_decision` | Retire a decision that no longer holds and has no replacement (to replace one, add_decision with supersedes). |
-| `archive_legacy_card` | Move the old hand-written v1 card into the event log (legacy_card.archived, with its full text) and remove it for good. |
 | `handoff` | Hand your claim to another session (its session_id) or to anyone ('open'), with a note: what is done, what is next, the branch head (head_sha). |
 | `set_metric` | Report a measured value (e.g. pickevent_nights 31) for metric_gte blockers; a result's metrics field does the same. |
 | `lease_resource` | Hold a shared thing for a while so no other session uses it: a dev port (port:3001, scoped to your machine automatically), the production migrate step (neon-prod:migrate), anything by name. |
@@ -248,7 +232,7 @@ Rules every write follows:
 - **Audit.** `audit` finds, from data: tickets in review whose PR merged, Done with open checks, initiatives closed with
   open tickets, stale state notes, decisions citing commits or PRs the release target has moved past, environments
   without a deploy time, drift, Blocked tickets whose blockers hold, gated scopes without a typed blocker, expired
-  claims with commits, merged branches still on origin, branches without a ticket, missing PRs, the v1 card.
+  claims with commits, merged branches still on origin, branches without a ticket, missing PRs.
 - **Releases.** When a ticket reaches Released, the deploy's record collects it (`get_project.releases`: env, commit,
   deployed_at and source, tickets, PRs, migrations new since the previous release).
 - **Bugs and debt.** `work_type: bug` needs a `severity` (S1–S4) and may carry `found_in`, `introduced_by`,
@@ -363,7 +347,6 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `KEY_BELOW_COUNTER` | 409 | an explicit key with a number already issued for that scope (detail: next); omit key to get the next one |
 | `KEY_EXISTS` | 409 | create with a key that exists (or is an alias of one); creates are not idempotent without request_id |
 | `LEASE_EXPIRED` | 409 | heartbeat after your lease ran out: claim again |
-| `LEGACY_CARD_EMPTY` | 409 | archive_legacy_card: the project has no v1 card left |
 | `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
 | `NOT_OWNER` | 409 | another session holds a live lease on this task (detail: owner, lease_until) |
 | `QUOTA_EXCEEDED` | 409 | consume would pass the daily quota (detail: limit, used, remaining) |
@@ -448,7 +431,7 @@ system themes. Times arrive as UTC and show in the browser's local time.
 - `/p/<slug>` shows the headline first (editable, "desactualizado" when the server marked it stale), then, in order: questions agents asked (answer with one click or free text, with an optional line for
   the decision log); the lane grid; each initiative's line of stations; a branch graph built from initiatives' `branch`
   and `base_branch`; and the pinned decisions. "Ver la ficha completa" opens the generated resume per initiative
-  (claims, next, pinned decisions, the v1 card folded away while it exists) and the decision log, reversed ones
+  (claims, next, pinned decisions) and the decision log, reversed ones
   struck through. A link downloads the project as JSON.
 - `?view=lista` switches to the list grouped by initiative, with status and priority filters and a toggle for
   closed items. Rows show codes only for initiatives; the side panel header still shows a ticket's key.
@@ -538,17 +521,14 @@ the UI refetches what changed.
 
 ## Open
 
-- The cleanup migration (drop `tasks.body`, the `projects.resume_*` card and `design_pages`) waits until the
-  v2 backfill is confirmed on the real database.
 - GitHub and Vercel cannot reach a localhost server, so Plania polls them (`src/jobs/github.ts`, `src/jobs/vercel.ts`,
   every minute, with ETags): pull requests linked by `pr_url`, a `Plania: KEY` line in the body or a `Plania-Task: KEY`
   trailer; check runs as `ci` results (a red one sends an In review ticket back to Ready); merges → Merged; branch heads
   and deletions; READY deployments → `set_env` with Vercel's time and id → Released. `/hooks/*` stays for a CI that can
   reach the server.
 - Background jobs run inside `pnpm start` (`src/jobs/`): the two pollers, lease warnings (`claim.expiring`, five minutes
-  before a lease ends), `time_after` blockers, the audit (every ten minutes), the machine footprint, the nightly backup
-  and the legacy card archiver.
+  before a lease ends), `time_after` blockers, the audit (every ten minutes), the machine footprint and the nightly backup.
   `PLANIA_JOBS=0` turns them off (tests, `pnpm dev:api`).
 - Not built from the Filmia requests: test plans and QA runs as tables (R-18: use a "Test plan" doc and `qa_run`-style
-  results), runbooks with approval steps (R-23), rule proposals (R-26), shared rules across projects (R-27) and the
-  v1 data cleanup (R-32: it waits until every legacy card is archived on the real database).
+  results), runbooks with approval steps (R-23), rule proposals (R-26), and shared rules across projects (R-27).
+  The v1 data cleanup (R-32) shipped in 2.9.

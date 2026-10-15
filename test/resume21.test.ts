@@ -1,4 +1,4 @@
-// 2.1 resume pieces: the headline and its staleness (R-02a), the legacy card's retirement (R-01),
+// 2.1 resume pieces: the headline and its staleness (R-02a), the v1 leftovers being gone (2.9),
 // retired decisions (R-24), and the two background jobs.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
@@ -10,7 +10,6 @@ import { resetTestDb, useTestEnv } from "./helpers.js";
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
-const { archiveReadyCards } = await import("../src/jobs/legacy.js");
 const { warnExpiringLeases } = await import("../src/jobs/leases.js");
 const { startJobs } = await import("../src/jobs/index.js");
 
@@ -80,41 +79,17 @@ describe("headline", () => {
   });
 });
 
-describe("legacy card", () => {
-  test("hidden by default, archived with its full text into the log, gone for good", async () => {
-    await raw.query("update projects set resume_in_progress = 'ip', resume_must_keep_decision = 'keep' where slug = 'zigzag'");
+describe("v1 leftovers (gone in 2.9, migration 0022)", () => {
+  test("no legacy card in get_resume, no archive_legacy_card tool, no v1 columns or tables", async () => {
+    await call("add_decision", { ...P, text: "Keep the slug", pin: true });
     const r = await call("get_resume", P);
-    assert.equal(r.legacy_card, undefined);
-    assert.equal(r.legacy_card_present, true);
-    assert.equal((await call("get_resume", { ...P, include_legacy: true })).legacy_card.in_progress, "ip");
-    const a = await call("archive_legacy_card", { ...P, reason: "v2 data is in place" });
-    assert.deepEqual(a.archived, { in_progress: "ip", next_action: "", branch_or_prod: "", must_keep_decision: "keep" });
-    const again = await call("archive_legacy_card", { ...P, reason: "x" });
-    assert.equal(again.__error, "LEGACY_CARD_EMPTY");
-    const after = await call("get_resume", { ...P, include_legacy: true });
-    assert.equal(after.legacy_card, null);
-    assert.equal(after.legacy_card_present, false);
-    const ev = (await call("list_events", { ...P, types: ["legacy_card"] })).events;
-    assert.equal(ev.length, 1);
-    assert.equal(ev[0].type, "legacy_card.archived");
-    assert.equal(ev[0].payload.card.in_progress, "ip");
-    assert.equal(ev[0].payload.reason, "v2 data is in place");
-  });
-
-  test("the job archives a card only once the project has a v2 initiative, an env record and a pinned decision", async () => {
-    const { db, close } = makeDb();
-    try {
-      await raw.query("update projects set resume_in_progress = 'old' where slug in ('zigzag', 'micasa')");
-      assert.equal(await archiveReadyCards(db), 0, "zigzag has no pinned decision yet; micasa has nothing");
-      await call("add_decision", { ...P, text: "Keep the slug", pin: true });
-      assert.equal(await archiveReadyCards(db), 1);
-      assert.equal((await call("get_resume", P)).legacy_card_present, false);
-      assert.equal(await archiveReadyCards(db), 0, "idempotent");
-      const { rows } = await raw.query("select actor from events where type = 'legacy_card.archived' order by id desc limit 1");
-      assert.equal(rows[0].actor.agent, "plania");
-    } finally {
-      await close();
-    }
+    assert.equal("legacy_card" in r, false);
+    assert.equal("legacy_card_present" in r, false);
+    assert.ok(!(await client.listTools()).tools.some((t) => t.name === "archive_legacy_card"));
+    const { rows } = await raw.query(`select table_name, column_name from information_schema.columns
+      where (table_name = 'tasks' and column_name = 'body') or (table_name = 'projects' and column_name like 'resume_%')
+         or (table_name = 'decisions' and column_name = 'supersedes_id') or table_name in ('design_pages', 'env_blockers')`);
+    assert.deepEqual(rows, []);
   });
 });
 

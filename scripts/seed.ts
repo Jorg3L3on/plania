@@ -5,7 +5,7 @@
 //   until then every run rewrites them, so fixing a body means editing here and rerunning.
 // - v2 has no hand-written resume card. The handoff's must_keep_decision becomes a pinned project
 //   decision, added once (a rerun finds it by text and leaves it alone).
-// - rules_text and design_pages are not in the handoff seed and are left untouched.
+// - rules_text and design docs are not in the handoff seed and are left untouched.
 import { pathToFileURL } from "node:url";
 import { and, eq, sql } from "drizzle-orm";
 import { withDb, type Db } from "../src/db/client.js";

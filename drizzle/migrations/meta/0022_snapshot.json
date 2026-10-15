@@ -1,5 +1,5 @@
 {
-  "id": "5752be89-8cbe-4cb6-912f-8d9cbb1d49fc",
+  "id": "492ccb81-290d-401b-992b-c370e2dbc852",
   "prevId": "7a805ed9-3f91-4a4d-9b48-24aac72ce235",
   "version": "7",
   "dialect": "postgresql",
@@ -826,12 +826,6 @@
           "notNull": true,
           "default": "'{}'::text[]"
         },
-        "supersedes_id": {
-          "name": "supersedes_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "retired_at": {
           "name": "retired_at",
           "type": "timestamp with time zone",
@@ -941,19 +935,6 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
-        "decisions_supersedes_id_decisions_id_fk": {
-          "name": "decisions_supersedes_id_decisions_id_fk",
-          "tableFrom": "decisions",
-          "tableTo": "decisions",
-          "columnsFrom": [
-            "supersedes_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
         "decisions_doc_id_docs_id_fk": {
           "name": "decisions_doc_id_docs_id_fk",
           "tableFrom": "decisions",
@@ -965,73 +946,6 @@
             "id"
           ],
           "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.design_pages": {
-      "name": "design_pages",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "body": {
-          "name": "body",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "design_pages_project_id_projects_id_fk": {
-          "name": "design_pages_project_id_projects_id_fk",
-          "tableFrom": "design_pages",
-          "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -1214,85 +1128,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.env_blockers": {
-      "name": "env_blockers",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "task_id": {
-          "name": "task_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "env": {
-          "name": "env",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "condition": {
-          "name": "condition",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "value": {
-          "name": "value",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "env_blockers_task_idx": {
-          "name": "env_blockers_task_idx",
-          "columns": [
-            {
-              "expression": "task_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "env_blockers_task_id_tasks_id_fk": {
-          "name": "env_blockers_task_id_tasks_id_fk",
-          "tableFrom": "env_blockers",
-          "tableTo": "tasks",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "env_blockers_condition_check": {
-          "name": "env_blockers_condition_check",
-          "value": "\"env_blockers\".\"condition\" in ('contains_commit', 'migration_gte', 'deployed_after')"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.env_commits": {
@@ -2101,34 +1936,6 @@
         },
         "rules_text": {
           "name": "rules_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "resume_in_progress": {
-          "name": "resume_in_progress",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "resume_next_action": {
-          "name": "resume_next_action",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "resume_branch_or_prod": {
-          "name": "resume_branch_or_prod",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "resume_must_keep_decision": {
-          "name": "resume_must_keep_decision",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -3307,13 +3114,6 @@
         },
         "summary": {
           "name": "summary",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "body": {
-          "name": "body",
           "type": "text",
           "primaryKey": false,
           "notNull": true,

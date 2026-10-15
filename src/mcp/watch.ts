@@ -54,7 +54,7 @@ export async function listProjects(db: Q) {
   const [last, counts] = await Promise.all([lastEventByProject(db), ticketCountsByProject(db)]);
   const out = await Promise.all(
     all.map(async (p) => {
-      const d = await resumeDigest(db, p, { includeLegacy: true });
+      const d = await resumeDigest(db, p);
       const le = last.get(p.id);
       return {
         slug: p.slug,
@@ -280,7 +280,7 @@ export async function getDigest(db: Q, input: DigestInput = {}) {
       unchanged.push(p.slug);
       continue;
     }
-    const d = await resumeDigest(db, p, { includeLegacy: true });
+    const d = await resumeDigest(db, p);
     const h: Highlights = { done: [], to_review: [], blocked: [], needs_jorge: [], prs_opened: [], prs_merged: [], claims: [] };
     for (const e of meaningful) highlight(h, e);
     const lines = collapseChanges(meaningful);

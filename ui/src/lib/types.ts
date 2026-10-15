@@ -70,7 +70,6 @@ export type Question = {
   decision_id: string | null;
 };
 
-export type LegacyCard = { in_progress: string; next_action: string; branch_or_prod: string; must_keep_decision: string };
 
 // get_resume: generated from the data, never hand-written.
 export type Resume = {
@@ -92,8 +91,6 @@ export type Resume = {
   open_questions: Question[];
   /** One line about what the project's agents have running on the Mac, or null. */
   machine?: string | null;
-  legacy_card_present: boolean;
-  legacy_card?: LegacyCard | null;
 };
 
 // Everything waiting on Jorge (GET /api/inbox).
@@ -183,7 +180,6 @@ export type TaskDetail = Omit<TaskRow, "claimed_by" | "lease_until"> & {
   warnings?: (string | { code: string; kind?: string; locator?: string; teardown?: string })[];
   aliases: string[];
   scope: string;
-  legacy_body?: string;
   phase: number | null;
   checks: Check[];
   results: Result[];

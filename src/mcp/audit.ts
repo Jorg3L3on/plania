@@ -3,7 +3,6 @@ import type { Db } from "../db/client.js";
 import { approvals, auditRuns, blockers, branches, checks, decisions, envStates, pullRequests, questions, results, tasks, type Project, type Task } from "../db/schema.js";
 import { hasUnsatisfiedBlocker, openHumanActions } from "./blockers.js";
 import { footprintFindings } from "./footprint-audit.js";
-import { legacyCard } from "./queries.js";
 import { iso, type Q } from "./tx.js";
 
 // The project audit (R-31): what the server can see is wrong, from data it already has. Pure
@@ -137,7 +136,6 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   }
   // What this project's agents left running on the Mac (stale servers and databases, merged worktrees).
   out.push(...(await footprintFindings(db, { projectId: p.id })));
-  if (legacyCard(p)) out.push({ code: "LEGACY_CARD_PRESENT", key: null, detail: "the v1 hand-written card is still there", fix_hint: "archive_legacy_card (the legacy job does it once v2 data exists)" });
   return out;
 }
 
