@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { BoxIcon, CableIcon, CheckIcon, CogIcon, CopyIcon, DatabaseIcon, GitBranchIcon, GlobeIcon, HardDriveIcon, LayersIcon, ServerIcon } from "lucide-react";
+import { BoxIcon, CableIcon, CogIcon, DatabaseIcon, GitBranchIcon, GlobeIcon, HardDriveIcon, LayersIcon, ServerIcon } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent } from "react";
 import { Link, useSearchParams } from "react-router";
-import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
+import { CopyCommand } from "@/components/copy-command";
 import { Skeleton } from "@/components/ui/skeleton";
 import { hasProjectMark, ProjectMark } from "@/components/plania-mark";
 import { Kicker, accentInk, projectAccent } from "@/components/plan/visuals";
@@ -78,33 +78,7 @@ function Tag({ children, tone }: { children: React.ReactNode; tone?: "warn" }) {
 }
 
 function CopyTeardown({ command, declared }: { command: string; declared: boolean }) {
-  const [copied, setCopied] = useState(false);
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(command);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      toast.error("No se pudo copiar.");
-    }
-  }
-  const Icon = copied ? CheckIcon : CopyIcon;
-  return (
-    <div className="grid gap-0.5">
-      <span className="px-0.5 text-[10.5px] text-muted-foreground">{declared ? "Comando declarado por quien lo creó" : "Comando sugerido; Plania no lo ejecuta"}</span>
-      <div className="flex items-start gap-1 rounded-lg bg-surface-sunken py-1 pr-1 pl-2.5">
-        <code className="min-w-0 flex-1 py-0.5 font-mono text-xs leading-5 break-all whitespace-pre-wrap">{command}</code>
-        <button
-          type="button"
-          onClick={() => void copy()}
-          aria-label="Copiar el comando"
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-background hover:text-foreground"
-        >
-          <Icon className="size-3.5" />
-        </button>
-      </div>
-    </div>
-  );
+  return <CopyCommand command={command} caption={declared ? "Comando declarado por quien lo creó" : "Comando sugerido; Plania no lo ejecuta"} />;
 }
 
 function Row({ it, nowMs, showTicket }: { it: FootprintItem; nowMs: number; showTicket: boolean }) {

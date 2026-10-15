@@ -97,7 +97,7 @@ describe("typed blockers", () => {
     assert.equal((await call("create_task", { ...P, title: "x", ...T, blocked_by: [{ env_flag: { env: "prod", flag: "Bad Flag", equals: 1 } }] })).__error, "INVALID_BLOCKER");
 
     // Blocked with a note: once every blocker holds, the server moves it to Ready.
-    await call("set_task", { ...P, key: "FIL-I1-1", status: "Blocked", note: "waiting on Jorge and the flag", version: await version("FIL-I1-1") });
+    await call("set_task", { ...P, key: "FIL-I1-1", status: "Blocked", note: "waiting on the credentials and the flag", version: await version("FIL-I1-1") });
     const inbox = (await (await req("GET", "/api/inbox?project=filmia")).json()) as Json;
     const action = inbox.items.find((i: Json) => i.kind === "human_action");
     assert.equal(action.why, "Create the Google OAuth credentials");

@@ -1,9 +1,10 @@
 // Inicio's pieces around the city: the headline with its voice line, what the Mac runs, and the
 // projects as a compact rail.
-import { ArrowRightIcon, CpuIcon } from "lucide-react";
+import { ArrowRightIcon, CalendarIcon, CpuIcon } from "lucide-react";
 import { Link } from "react-router";
 import { ProjectMark } from "@/components/plania-mark";
-import { Glyph, Kicker, projectAccent, rise, TONE_TEXT, toneVar } from "@/components/plan/visuals";
+import { Glyph, Kicker, accentInk, projectAccent, rise, TONE_TEXT, toneVar } from "@/components/plan/visuals";
+import { dayText, type DateLine } from "@/lib/due";
 import type { Headline, LiveServer, Tile } from "@/lib/home";
 import type { StationTone } from "@/lib/lanes";
 import { ago } from "@/lib/time";
@@ -153,6 +154,45 @@ export function Proyectos({ tiles }: { tiles: Tile[] }) {
       </div>
       <ul className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,230px),1fr))] items-stretch gap-3">
         {tiles.map((t, i) => <TileCard key={t.slug} t={t} index={i} />)}
+      </ul>
+    </section>
+  );
+}
+
+// 2.10: "Próximo", one line per date in the next two weeks; what is past its due day comes first, in warning tone.
+export function Proximo({ lines, names, nowMs }: { lines: DateLine[]; names: (slug: string) => string; nowMs: number }) {
+  if (lines.length === 0) return null;
+  return (
+    <section aria-label="Próximo" className="grid animate-rise gap-3 rounded-[22px] border bg-card px-5 py-4" style={{ animationDelay: "200ms" }}>
+      <Kicker>
+        <CalendarIcon className="size-3.5" aria-hidden />
+        Próximo
+      </Kicker>
+      <ul className="grid gap-1">
+        {lines.map((l) => {
+          const [a] = projectAccent(l.project);
+          return (
+            <li key={`${l.project}:${l.key}:${l.kind}`}>
+              <Link
+                to={`/p/${l.project}?task=${encodeURIComponent(l.key)}`}
+                className={cn(
+                  "flex min-h-9 flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-xl px-2.5 py-1.5 text-sm transition hover:bg-foreground/[0.05] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                  l.overdue && "bg-status-blocked/10",
+                )}
+              >
+                <span className={cn("w-16 shrink-0 font-mono text-xs tabular-nums", l.overdue ? "font-semibold text-ink-blocked" : "text-muted-foreground")}>{dayText(l.on, nowMs)}</span>
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold" style={{ color: accentInk(a) }}>
+                  <span aria-hidden className="size-1.5 rounded-full" style={{ background: a }} />
+                  {names(l.project)}
+                </span>
+                <span className="min-w-0 flex-1 truncate"><span className="mr-1.5 font-mono text-[11px] text-muted-foreground">{l.key}</span>{l.title}</span>
+                <span className={cn("text-xs", l.overdue ? "font-medium text-ink-blocked" : "text-muted-foreground")}>
+                  {l.overdue ? "venció" : l.kind === "due" ? "vence" : "no antes de"}
+                </span>
+              </Link>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

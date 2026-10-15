@@ -7,7 +7,9 @@ import { FlowArrow, FlowArrowDown, Glyph, Kicker, LANE_STATE, rise, statusWord, 
 import { emptyColumns, LOOSE_LANE_ID, waitsLabel, waitsOnJorge, type Lane, type LaneColumn, type LaneTask, type StationTone } from "@/lib/lanes";
 import { cn } from "@/lib/utils";
 import { Glide } from "@/components/plan/glide";
+import { DueTag } from "@/components/due";
 import { TicketButton } from "@/components/plan/ticket-button";
+import { dueText, isOverdue } from "@/lib/due";
 
 type Open = (key: string) => void;
 // slug and scope let each ticket glide between columns when it changes (glide.tsx).
@@ -92,6 +94,7 @@ function NowRow({ task, onOpen, ctx }: { task: LaneTask; onOpen: Open; ctx: Ctx 
             {task.claimed_by && <span className="text-muted-foreground">{task.status === "Blocked" && "· "}{task.claimed_by.agent}</span>}
           </span>
         )}
+        <DueTag task={task} className="block" />
         {waitsOnJorge(task) && (
           <span className="inline-flex items-center gap-1 text-xs font-medium text-ink-jorge">
             <HandIcon className="size-3" aria-hidden /> te toca a ti
@@ -213,6 +216,7 @@ function NextCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx })
                 <span className="line-clamp-2 text-sm leading-snug underline-offset-4 group-hover/ticket:underline"><KeyTag k={t.key} />{t.title}</span>
               </TicketButton>
               {queued && <span className="block text-xs text-muted-foreground">espera {waitsLabel(t, lane)}</span>}
+              <DueTag task={t} className="block" />
             </div>
           </Glide>
         );
@@ -232,8 +236,11 @@ function LaterCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx }
           <TicketButton
             taskKey={t.key}
             onOpen={onOpen}
-            title={`${t.key} · ${t.title}`}
-            className="block max-w-full truncate rounded-full bg-foreground/[0.07] px-2.5 py-1 text-xs text-foreground/80 transition hover:-translate-y-px hover:bg-foreground/[0.12]"
+            title={`${t.key} · ${t.title}${dueText(t) ? ` · ${dueText(t)}` : ""}`}
+            className={cn(
+              "block max-w-full truncate rounded-full px-2.5 py-1 text-xs transition hover:-translate-y-px",
+              isOverdue(t) ? "bg-status-blocked/15 text-ink-blocked hover:bg-status-blocked/25" : "bg-foreground/[0.07] text-foreground/80 hover:bg-foreground/[0.12]",
+            )}
           >
             <KeyTag k={t.key} />
             {t.title}

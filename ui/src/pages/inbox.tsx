@@ -1,21 +1,55 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { HechoForm } from "@/components/hecho";
+import { ReleaseRow } from "@/components/release-step";
 import { QuestionsPanel } from "@/components/resume";
 import { Kicker } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
 import { actionWord, waitText } from "@/lib/inbox";
 import { localTime } from "@/lib/time";
-import type { InboxItem, Question } from "@/lib/types";
+import type { InboxGroup, InboxItem, Question } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// Everything waiting on Jorge, in one place: approvals to grant or reject (several at once, one
-// event each) and questions to answer. Empty means nothing needs him.
+// Everything waiting on Jorge, in three tabs (2.10): Decisiones (approvals to grant or reject,
+// several at once, one event each, and questions to answer), Pasos (what only he can do: human
+// actions and releases, each with Hecho) and Limpieza (what agents left on the Mac).
+
+const TABS: { id: InboxGroup; label: string; empty: string }[] = [
+  { id: "decisiones", label: "Decisiones", empty: "Nada que decidir." },
+  { id: "pasos", label: "Pasos", empty: "Ningún paso tuyo pendiente." },
+  { id: "limpieza", label: "Limpieza", empty: "La Mac está limpia." },
+];
+
+function Tabs({ tab, counts, onChange }: { tab: InboxGroup; counts: Record<InboxGroup, number>; onChange: (t: InboxGroup) => void }) {
+  return (
+    <div role="tablist" aria-label="Bandeja" className="flex w-fit max-w-full gap-1 overflow-x-auto rounded-full border bg-background/60 p-1">
+      {TABS.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="tab"
+          id={`tab-${t.id}`}
+          aria-selected={tab === t.id}
+          aria-controls={`panel-${t.id}`}
+          onClick={() => onChange(t.id)}
+          className={cn(
+            "inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+            tab === t.id ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {t.label}
+          <span className={cn("rounded-full px-1.5 text-[11px] font-semibold tabular-nums", tab === t.id ? "bg-background/20" : t.id === "limpieza" ? "bg-muted" : counts[t.id] ? "bg-orange-500 text-white" : "bg-muted")}>{counts[t.id]}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 
 function ApprovalRow({ item, checked, onToggle }: { item: InboxItem; checked: boolean; onToggle: () => void }) {
@@ -44,29 +78,22 @@ function ApprovalRow({ item, checked, onToggle }: { item: InboxItem; checked: bo
   );
 }
 
-// A human action a ticket waits on: one button each.
+// A human action a ticket waits on: the verb, the ticket, and Hecho with an optional note.
 function ActionRow({ item }: { item: InboxItem }) {
-  const queryClient = useQueryClient();
-  const act = useMutation({
-    mutationFn: () => api.resolveBlocker(item.project, item.id),
-    onSuccess: () => toast("Marcado como hecho"),
-    onError: () => toast.error("No se pudo guardar."),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["inbox"] });
-      void queryClient.invalidateQueries({ queryKey: ["project", item.project] });
-      void queryClient.invalidateQueries({ queryKey: ["projects"] });
-    },
-  });
+  const parsed = item.target?.source === "parsed";
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm">
-      <Link to={`/p/${item.project}?task=${encodeURIComponent(item.key ?? "")}`} className="font-mono text-xs underline-offset-4 hover:underline">{item.key}</Link>
-      <span className="font-medium">{item.title}</span>
-      <span className="text-muted-foreground">te toca: {item.why}</span>
-      <span className="text-xs text-muted-foreground">espera {waitText(item.wait_s)}</span>
-      {item.pr_url && <a href={item.pr_url} target="_blank" rel="noreferrer" className="text-xs underline underline-offset-4">PR</a>}
-      <Button size="sm" variant="outline" className="ml-auto" disabled={act.isPending} onClick={() => act.mutate()}>
-        Hecho
-      </Button>
+    <li className="grid gap-2 px-4 py-3 text-sm sm:flex sm:flex-wrap sm:items-center sm:gap-x-3">
+      <span className="grid min-w-0 flex-1 gap-0.5">
+        <span className="font-medium">{item.why}</span>
+        <span className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
+          <Link to={`/p/${item.project}?task=${encodeURIComponent(item.key ?? "")}`} className="font-mono underline-offset-4 hover:underline">{item.key}</Link>
+          <span>{item.title}</span>
+          <span>espera {waitText(item.wait_s)}</span>
+          {parsed && <span title="Leído de una línea «Jorge:» del ticket">del texto</span>}
+          {item.pr_url && <a href={item.pr_url} target="_blank" rel="noreferrer" className="underline underline-offset-4">PR</a>}
+        </span>
+      </span>
+      <HechoForm slug={item.project} id={item.id} taskKey={item.key} className="sm:ml-auto" />
     </li>
   );
 }
@@ -111,17 +138,33 @@ export function InboxPage() {
     },
   });
 
+  const [params, setParams] = useSearchParams();
+  const counts = useMemo(() => {
+    const out: Record<InboxGroup, number> = { decisiones: 0, pasos: 0, limpieza: 0 };
+    for (const i of inbox.data?.items ?? []) out[i.group] += 1;
+    return out;
+  }, [inbox.data]);
+  // ?tab= wins; otherwise the first tab with something in it.
+  const asked = params.get("tab") as InboxGroup | null;
+  const tab: InboxGroup = asked && TABS.some((t) => t.id === asked) ? asked : (TABS.find((t) => counts[t.id] > 0)?.id ?? "decisiones");
+  const setTab = (t: InboxGroup) => setParams((p) => {
+    const next = new URLSearchParams(p);
+    next.set("tab", t);
+    return next;
+  }, { replace: true });
+
   const grouped = useMemo(() => {
-    const items = inbox.data?.items ?? [];
+    const items = (inbox.data?.items ?? []).filter((i) => i.group === tab);
     const projects = [...new Set(items.map((i) => i.project))];
     return projects.map((project) => ({
       project,
       approvals: items.filter((i) => i.project === project && i.kind === "approval"),
       questions: items.filter((i) => i.project === project && i.kind === "question"),
+      releases: items.filter((i) => i.project === project && i.kind === "release"),
       actions: items.filter((i) => i.project === project && i.kind === "human_action"),
       footprints: items.filter((i) => i.project === project && i.kind === "footprint"),
     }));
-  }, [inbox.data]);
+  }, [inbox.data, tab]);
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -154,11 +197,12 @@ export function InboxPage() {
         <Kicker>Te toca a ti</Kicker>
         <h1 className="font-display text-4xl font-extrabold tracking-[-0.03em] sm:text-5xl">Bandeja</h1>
         <p className="text-muted-foreground">
-          {inbox.data.count === 0 ? "Nada espera por ti." : `${inbox.data.count} ${inbox.data.count === 1 ? "cosa espera" : "cosas esperan"} tu decisión.`}
+          {inbox.data.count === 0 ? "Nada espera por ti." : `${inbox.data.count} ${inbox.data.count === 1 ? "cosa espera" : "cosas esperan"} por ti.`}
         </p>
+        <Tabs tab={tab} counts={counts} onChange={setTab} />
       </header>
 
-      {allApprovals.length > 0 && (
+      {tab === "decisiones" && allApprovals.length > 0 && (
         <div className="sticky top-[calc(var(--header-h)+0.5rem)] z-10 flex flex-wrap items-center gap-2 rounded-2xl border bg-background/80 p-3 backdrop-blur-md">
           <Button variant="outline" size="sm" onClick={() => setSelected(new Set(selected.size === allApprovals.length ? [] : allApprovals))}>
             {selected.size === allApprovals.length ? "Ninguna" : "Todas"}
@@ -175,7 +219,9 @@ export function InboxPage() {
         </div>
       )}
 
-      {grouped.map(({ project, approvals, questions, actions, footprints }) => (
+      <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="grid gap-8">
+      {grouped.length === 0 && <p className="text-sm text-muted-foreground">{TABS.find((t) => t.id === tab)!.empty}</p>}
+      {grouped.map(({ project, approvals, questions, releases, actions, footprints }) => (
         <section key={project} id={project} className="scroll-mt-20 grid gap-3">
           <h2 className="font-display text-[15px] font-bold tracking-[0.08em] text-muted-foreground uppercase">
             <Link to={project === "machine" ? "/machine" : `/p/${project}`} className="underline-offset-4 hover:underline">{project === "machine" ? "Máquina" : project}</Link>
@@ -189,6 +235,7 @@ export function InboxPage() {
               </CardContent>
             </Card>
           )}
+          {releases.length > 0 && <ul className="grid gap-3">{releases.map((item) => <ReleaseRow key={item.id} item={item} />)}</ul>}
           {actions.length > 0 && (
             <Card className="gap-0 divide-y py-0">
               <CardContent className="px-0">
@@ -208,6 +255,7 @@ export function InboxPage() {
           )}
         </section>
       ))}
+      </div>
     </div>
   );
 }

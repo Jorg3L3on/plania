@@ -3,21 +3,29 @@ import { checks, footprints, projects, questions, results, tasks, type Project }
 import { describeStale } from "../jobs/machine/infer.js";
 import { pendingApprovals } from "./approvals.js";
 import { openHumanActions } from "./blockers.js";
+import { releasePending, releasePlan } from "./release-plan.js";
 import { iso, type Q } from "./tx.js";
 
 // Jorge's inbox (R-28): everything waiting on him, in one list, oldest first within each kind:
 // pending approvals, open questions, human actions a ticket is blocked on, and what agents left
 // running on the Mac that nobody claims (orphan) or that is stale for a day. Released tickets
 // are not his: agents close them. Later: runbook steps and S1/S2 bugs.
+// 2.10: three tones. decisiones (approvals, questions) and pasos (human actions, releases) are
+// what count; limpieza (footprints) is a chore, counted apart in `chores`.
 
 // How long something on the Mac has to sit orphan or stale before it asks for Jorge.
 export const FOOTPRINT_INBOX_AFTER_MS = 24 * 3600_000;
 // The pseudo-project the Mac's items without a project (Plania's repo, nobody's) are listed under in "all".
 export const MACHINE_INBOX_PROJECT = "machine";
 
+export type InboxGroup = "decisiones" | "pasos" | "limpieza";
+export type InboxKind = "approval" | "question" | "human_action" | "release" | "footprint";
+export const GROUP_OF: Record<InboxKind, InboxGroup> = { approval: "decisiones", question: "decisiones", human_action: "pasos", release: "pasos", footprint: "limpieza" };
+
 export type InboxItem = {
   id: string;
-  kind: "approval" | "question" | "human_action" | "footprint";
+  kind: InboxKind;
+  group: InboxGroup;
   project: string;
   key: string | null;
   task_kind: string | null;
@@ -75,6 +83,7 @@ async function footprintItems(db: Q, projectId: string | null, project: string, 
     items.push({
       id: f.id,
       kind: "footprint",
+      group: "limpieza",
       project,
       key,
       task_kind: kind,
@@ -99,6 +108,7 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
     items.push({
       id: row.a.id,
       kind: "approval",
+      group: "decisiones",
       project: p.slug,
       key: row.a.taskKey,
       task_kind: row.kind,
@@ -124,6 +134,7 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
     items.push({
       id: q.id,
       kind: "question",
+      group: "decisiones",
       project: p.slug,
       key: t.key,
       task_kind: t.kind,
@@ -141,10 +152,11 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
     });
   }
   for (const { b, t } of await openHumanActions(db, p.id)) {
-    const spec = b.spec as { assignee: string; text: string };
+    const spec = b.spec as { assignee: string; text: string; source?: string; field?: string };
     items.push({
       id: b.id,
       kind: "human_action",
+      group: "pasos",
       project: p.slug,
       key: t.key,
       task_kind: t.kind,
@@ -152,6 +164,7 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
       title: t.title,
       why: spec.text,
       action: spec.assignee,
+      ...(spec.source === "parsed" ? { target: { source: "parsed", field: spec.field } } : {}),
       waiting_since: iso(b.createdAt),
       wait_s: waitSeconds(b.createdAt),
       evidence: await evidenceOf(db, t.id),
@@ -159,8 +172,41 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
       action_hint: "mark done",
     });
   }
+  // 2.10: the release, one step per project once `from` is ahead with merged tickets on it.
+  const plan = await releasePlan(db, p);
+  if (releasePending(plan)) {
+    const n = plan.tickets.length;
+    const since = await releaseWaitingSince(db, p.id, plan.tickets.map((t) => t.key));
+    items.push({
+      id: `release:${p.slug}`,
+      kind: "release",
+      group: "pasos",
+      project: p.slug,
+      key: null,
+      task_kind: null,
+      parent_key: null,
+      title: `${plan.from.branch} → ${plan.into.branch}`,
+      why: `${n} ${n === 1 ? "ticket listo" : "tickets listos"} para ${plan.env}`,
+      action: "release",
+      target: plan as unknown as Record<string, unknown>,
+      waiting_since: iso(since),
+      wait_s: waitSeconds(since),
+      evidence: { last_pass: null, open_checks: plan.open_checks },
+      pr_url: null,
+      action_hint: plan.command,
+    });
+  }
   items.push(...(await footprintItems(db, p.id, p.slug)));
   return items;
+}
+
+// The release waits since its oldest ticket reached Merged.
+async function releaseWaitingSince(db: Q, projectId: string, keys: string[]): Promise<Date> {
+  const [row] = await db
+    .select({ at: sql<Date | null>`min(${tasks.statusChangedAt})` })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, projectId), inArray(tasks.key, keys)));
+  return row?.at ? new Date(row.at) : new Date();
 }
 
 // project: a slug, or "all" for every project.
@@ -169,8 +215,12 @@ export async function inbox(db: Q, which: Project | "all") {
   const items = (await Promise.all(list.map((p) => inboxFor(db, p)))).flat();
   if (which === "all") items.push(...(await footprintItems(db, null, MACHINE_INBOX_PROJECT)));
   const counts: Record<string, number> = {};
-  for (const i of items) counts[i.project] = (counts[i.project] ?? 0) + 1;
-  return { items, count: items.length, by_project: counts };
+  const groups: Record<InboxGroup, number> = { decisiones: 0, pasos: 0, limpieza: 0 };
+  for (const i of items) {
+    groups[i.group] += 1;
+    if (i.group !== "limpieza") counts[i.project] = (counts[i.project] ?? 0) + 1;
+  }
+  return { items, count: groups.decisiones + groups.pasos, by_project: counts, groups, chores: groups.limpieza };
 }
 
 export async function projectsBySlugs(db: Q, slugs: string[]) {

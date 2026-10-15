@@ -54,7 +54,7 @@ before(async () => {
   raw = await resetTestDb();
   const { db, close } = makeDb();
   closeDb = close;
-  await createTask(db, { project: "filmia", kind: "initiative", title: "IMDb ratings", scope: "PRD", next_action: "Jorge debe aprobar el diseño antes de seguir" }, ctx); // FIL-I1
+  await createTask(db, { project: "filmia", kind: "initiative", title: "IMDb ratings", scope: "PRD", next_action: "Falta que el diseño lo apruebe Jorge" }, ctx); // FIL-I1
   await createTask(db, { project: "filmia", title: "Ratings in search", scope: "s", checks: ["c"], parent_key: "FIL-I1", status: "Ready", due_on: yesterday() }, ctx); // FIL-I1-1
   await createTask(db, { project: "filmia", title: "Ratings on detail", scope: "s", checks: ["c"], parent_key: "FIL-I1", status: "Ready" }, ctx); // FIL-I1-2
   await createTask(db, { project: "filmia", title: "Ratings cache", scope: "s", checks: ["c"], parent_key: "FIL-I1", status: "Ready" }, ctx); // FIL-I1-3
@@ -149,8 +149,8 @@ describe("P2.2 ask blocks/urgency and the free-text wait audit", () => {
   test("audit: WAITING_ON_JORGE_FREE_TEXT only when nothing reaches the inbox; OVERDUE for a past due_on", async () => {
     const { db, close } = makeDb();
     try {
-      // A blocked ticket that says it waits on Jorge in free text.
-      await setTask(db, { project: "filmia", key: "FIL-I1-3", status: "Blocked", note: "waiting on Jorge to pick the cache size", version: await version("FIL-I1-3") }, ctx);
+      // A blocked ticket that says it waits on Jorge in free text the 2.10 parser does not catch.
+      await setTask(db, { project: "filmia", key: "FIL-I1-3", status: "Blocked", note: "the cache size is Jorge's pick", version: await version("FIL-I1-3") }, ctx);
       const p = await findProject(db, "filmia");
       const pairs = (await auditProject(db, p)).filter((f) => ["WAITING_ON_JORGE_FREE_TEXT", "OVERDUE"].includes(f.code)).map((f) => `${f.code}:${f.key}`);
       assert.deepEqual(pairs.sort(), ["OVERDUE:FIL-I1-1", "WAITING_ON_JORGE_FREE_TEXT:FIL-I1", "WAITING_ON_JORGE_FREE_TEXT:FIL-I1-3"]);

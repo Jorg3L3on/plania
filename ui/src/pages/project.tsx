@@ -133,6 +133,7 @@ export function ProjectPage() {
             counts={derived.counts}
             headline={resume?.headline}
             version={project.data.version}
+            release={resume?.status?.release}
             onOpen={openTask}
           />
           {/* Questions agents asked Jorge (Needs Jorge): answer in place, with an optional line for the decision log. */}

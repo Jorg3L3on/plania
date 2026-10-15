@@ -3,6 +3,7 @@ import { approvals, blockers, branches, envStates, pullRequests, questions, task
 import { lastAudit } from "./audit.js";
 import { envShape } from "./env.js";
 import { nextTask } from "./queries.js";
+import { releasePlan } from "./release-plan.js";
 import { iso, type Q } from "./tx.js";
 
 // The status block (R-02): what the server can work out, never typed by anyone. Per environment
@@ -93,6 +94,8 @@ export async function statusBlock(db: Q, p: Project) {
     released_waiting_done: released.map((t) => t.key),
     standalone_waiting_on_jorge: standaloneWaiting,
     s1_s2_bugs: bugs.map((t) => ({ key: t.key, severity: t.severity, title: t.title, status: t.status })),
+    // 2.10: the release step (settings.release), or null. A merged ticket waits here until Jorge ships it.
+    release: await releasePlan(db, p),
     audit: await lastAudit(db, p.id),
     audit_findings: (await lastAudit(db, p.id))?.count ?? null,
   };

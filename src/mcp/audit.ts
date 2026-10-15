@@ -3,6 +3,8 @@ import type { Db } from "../db/client.js";
 import { approvals, auditRuns, blockers, branches, checks, decisions, envStates, pullRequests, questions, results, tasks, type Project, type Task } from "../db/schema.js";
 import { hasUnsatisfiedBlocker, openHumanActions } from "./blockers.js";
 import { footprintFindings } from "./footprint-audit.js";
+import { WAITING_ON_JORGE, gatingSql, parseJorgeLines } from "./jorge-lines.js";
+import { releasePending, releasePlan } from "./release-plan.js";
 import { iso, type Q } from "./tx.js";
 
 // The project audit (R-31): what the server can see is wrong, from data it already has. Pure
@@ -12,8 +14,7 @@ import { iso, type Q } from "./tx.js";
 export type Finding = { code: string; key: string | null; detail: string; fix_hint: string };
 
 const CLOSED = ["Done", "Won't do"];
-// Free-text waits on Jorge (es/en) that the inbox cannot see.
-export const WAITING_ON_JORGE = /\bjorge\b|\baprob|\bdecid|\bwaiting on\b|\bespera(?:ndo|r)? (?:a|la|el)\b/i;
+export { WAITING_ON_JORGE };
 const SHA = /\b[0-9a-f]{7,40}\b/g;
 const PR = /pull\/(\d+)|#(\d{2,6})\b/g;
 
@@ -83,18 +84,24 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   for (const e of envs) {
     if (e.commit && !e.deployedAt) out.push({ code: "ENV_DEPLOYED_AT_MISSING", key: null, detail: `${e.env} runs ${e.commit.slice(0, 7)} with no deployed_at`, fix_hint: "set_env deployed with the provider's record, or let the Vercel poller fill it" });
   }
+  // 2.10: with a release step, drift is that step's to show: ENV_DRIFT points at it instead of repeating it.
+  const plan = p.settings.release ? await releasePlan(db, p) : null;
   if (target?.commit) {
     const heads = await db.select().from(branches).where(and(eq(branches.projectId, p.id), isNull(branches.deletedAt)));
     for (const i of all.filter((t) => t.kind === "initiative" && !CLOSED.includes(t.status) && t.branch)) {
       const head = heads.find((b) => b.name === i.branch)?.headSha;
       if (head && !head.startsWith(target.commit) && !target.commit.startsWith(head) && heads.find((b) => b.name === i.branch)?.mergedAt) {
-        out.push({ code: "ENV_DRIFT", key: i.key, detail: `${i.branch} merged but ${env} still runs ${target.commit.slice(0, 7)}`, fix_hint: "deploy, then set_env (or wait for the poller)" });
+        out.push(
+          releasePending(plan)
+            ? { code: "ENV_DRIFT", key: i.key, detail: `${i.branch} merged; it ships with the release step ${plan.from.branch} → ${plan.into.branch} in Jorge's inbox`, fix_hint: "nothing to do here: the release step (get_resume.status.release) is Jorge's" }
+            : { code: "ENV_DRIFT", key: i.key, detail: `${i.branch} merged but ${env} still runs ${target.commit.slice(0, 7)}`, fix_hint: "deploy, then set_env (or wait for the poller)" },
+        );
       }
     }
   }
   // Blocked tickets whose blockers all hold; claimable tickets that say "not before".
   const blockedButFree = all.length
-    ? await db.select({ key: tasks.key }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.status, "Blocked"), sql`not ${hasUnsatisfiedBlocker(tasks.id)}`, sql`(exists (select 1 from ${blockers} b where b.task_id = ${tasks.id}) or exists (select 1 from task_blockers tb where tb.task_id = ${tasks.id}))`))
+    ? await db.select({ key: tasks.key }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.status, "Blocked"), sql`not ${hasUnsatisfiedBlocker(tasks.id)}`, sql`(exists (select 1 from ${blockers} b where b.task_id = ${tasks.id} and ${gatingSql("b")}) or exists (select 1 from task_blockers tb where tb.task_id = ${tasks.id}))`))
     : [];
   for (const t of blockedButFree) out.push({ code: "BLOCKED_BUT_SATISFIED", key: t.key, detail: "every blocker holds", fix_hint: "the server promotes it on the next write; or set_task Ready" });
   for (const t of all.filter((t) => t.kind === "ticket" && ["Backlog", "Ready"].includes(t.status))) {
@@ -113,7 +120,9 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
     out.push({ code: "TASK_MISSING_PR_URL", key: t.key, detail: `${t.status} without a PR`, fix_hint: "set_task pr_url, or put Plania: KEY in the PR body" });
   }
   const known = await db.select().from(branches).where(and(eq(branches.projectId, p.id), isNull(branches.deletedAt)));
-  for (const b of known) {
+  // The release's branches are long-lived (sandbox merges into main every release): never "merged, delete it".
+  const releaseBranches = new Set(p.settings.release ? [p.settings.release.from, p.settings.release.into] : []);
+  for (const b of known.filter((b) => !releaseBranches.has(b.name))) {
     if (b.mergedAt) out.push({ code: "BRANCH_MERGED_NOT_DELETED", key: b.ownerTaskId ? (byId.get(b.ownerTaskId)?.key ?? null) : null, detail: `${b.name} merged ${iso(b.mergedAt)} and still on origin`, fix_hint: `git push origin --delete ${b.name}` });
     const used = all.some((t) => t.branch === b.name || t.workspace?.branch === b.name) || prs.some((pr) => pr.headBranch === b.name);
     if (!b.ownerTaskId && !used && b.headSha) out.push({ code: "BRANCH_WITHOUT_TICKET", key: null, detail: `${b.name} has no ticket or initiative`, fix_hint: "set the initiative's integration_branch, or delete the branch" });
@@ -122,11 +131,27 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   const openQ = new Set((await db.select({ taskId: questions.taskId }).from(questions).where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt)))).map((r) => r.taskId));
   const openA = new Set((await db.select({ taskId: approvals.taskId }).from(approvals).where(and(eq(approvals.projectId, p.id), eq(approvals.state, "pending")))).map((r) => r.taskId));
   const humanActionOn = new Set((await openHumanActions(db, p.id)).map((r) => r.b.taskId));
+  // 2.10: the parser (jorge-lines.ts) turns most of these into blockers on the next write; the detail
+  // says so, or names the parsed blocker when Jorge already marked it done and the text still waits.
+  const parsedDone = ids.length
+    ? await db
+        .select({ id: blockers.id, taskId: blockers.taskId, hash: sql<string>`${blockers.spec}->>'line_hash'` })
+        .from(blockers)
+        .where(and(inArray(blockers.taskId, ids), eq(blockers.type, "human_action"), sql`${blockers.spec}->>'source' = 'parsed'`, sql`${blockers.satisfiedAt} is not null`))
+    : [];
   for (const t of all.filter((t) => !CLOSED.includes(t.status))) {
     const texts = [t.kind === "initiative" ? t.nextAction : "", t.blockedNote ?? ""].filter(Boolean);
     const hit = texts.find((x) => WAITING_ON_JORGE.test(x));
     if (hit && !openQ.has(t.id) && !openA.has(t.id) && !humanActionOn.has(t.id)) {
-      out.push({ code: "WAITING_ON_JORGE_FREE_TEXT", key: t.key, detail: `"${hit.slice(0, 80)}" with no open question, approval or human_action`, fix_hint: "ask (question) or request_approval, or blocked_by human_action, so it reaches his inbox" });
+      const lines = parseJorgeLines(hit);
+      const done = parsedDone.find((b) => b.taskId === t.id && lines.some((l) => l.hash === b.hash));
+      const detail = done
+        ? `"${hit.slice(0, 80)}" parsed into blocker ${done.id}, already marked done, and the text still waits on Jorge`
+        : lines.length
+          ? `"${hit.slice(0, 80)}" with no open question, approval or human_action; the parser makes it one on the next write of that field`
+          : `"${hit.slice(0, 80)}" with no open question, approval or human_action`;
+      const fix = done ? "rewrite the text now that it is done" : "ask (question) or request_approval, or blocked_by human_action, so it reaches his inbox";
+      out.push({ code: "WAITING_ON_JORGE_FREE_TEXT", key: t.key, detail, fix_hint: fix });
     }
   }
   // 2.8: due dates that passed with the task still open.

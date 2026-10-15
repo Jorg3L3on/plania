@@ -101,8 +101,11 @@ function InboxLink() {
   );
 }
 
-// What runs on the Mac. Icon only on phones, where the header is tight.
+// What runs on the Mac. Icon only on phones, where the header is tight. The Bandeja's Limpieza
+// (what agents left behind) shows here as a quiet count, not on the Bandeja's badge.
 function MachineLink() {
+  const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
+  const chores = inbox.data?.chores ?? 0;
   return (
     <NavLink
       to="/machine"
@@ -116,6 +119,9 @@ function MachineLink() {
     >
       <CpuIcon className="size-4" aria-hidden />
       <span className="hidden sm:inline">Máquina</span>
+      {chores > 0 && (
+        <span className="rounded-full bg-muted px-1.5 text-[11px] font-medium text-muted-foreground tabular-nums" aria-label={`${chores} por limpiar`}>{chores}</span>
+      )}
     </NavLink>
   );
 }

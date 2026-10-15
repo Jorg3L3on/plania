@@ -30,6 +30,7 @@ import { assertChecksClosed, replaceChecks, tickDerived, type CheckInput } from 
 import { hasDoc } from "./docs.js";
 import { liveTaskFootprint } from "./footprint-read.js";
 import { assertReviewEvidence } from "./evidence.js";
+import { syncJorgeLines, type ParsedField } from "./jorge-lines.js";
 import { addAlias, assignKey } from "./keys.js";
 import { GATED_STATUSES, SEVERITIES, TERMINAL, WORK_TYPES, actionForMove, assertTransition } from "./lifecycle.js";
 import { markHeadlineStale } from "./project.js";
@@ -220,7 +221,7 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
   checkPhase(input.phase);
   const blockedBy = parseBlockers(input.blocked_by ?? []);
   const kind = input.kind ?? "ticket";
-  const warnings = templateWarnings(input, kind);
+  const warnings: WriteWarning[] = templateWarnings(input, kind);
   const status = input.status ?? (kind === "initiative" ? "Planning" : "Backlog");
   checkStatus(kind, status);
   if (kind === "initiative") {
@@ -286,6 +287,7 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
     throw e;
   }
   await replaceBlockers(tx, t.id, blockerIds, blockedBy.typed);
+  warnings.push(...(await syncJorgeLines(tx, emit, t, parsedTexts(t))));
   await replaceChecks(tx, t.id, (input.checks ?? []).map((text) => ({ text })));
   if (integrationBranch) await registerIntegrationBranch(tx, emit, p, t, integrationBranch, input);
   await emit("task.created", t, { kind, status, parent_key: parent?.key ?? null, key_assigned: assigned.assigned });
@@ -295,6 +297,17 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
 export async function createTask(db: Db, input: CreateInput, ctx: Ctx) {
   const p = await findProject(db, input.project);
   return writeTx(db, p, ctx, (tx, emit) => createTaskInTx(tx, emit, p, input, ctx));
+}
+
+// 2.10: the free-text fields a "Jorge:" line is parsed from, as they stand on the row. Every write
+// resyncs them all, so one write of any kind turns an old line into a blocker.
+function parsedTexts(t: Task, note?: string): Partial<Record<ParsedField, string | null>> {
+  return {
+    summary: t.summary,
+    ...(t.kind === "initiative" ? { next_action: t.nextAction, in_progress_note: t.inProgressNote, state_note: t.stateNote } : {}),
+    blocked_note: t.blockedNote,
+    ...(note?.trim() ? { note } : {}),
+  };
 }
 
 // Field names as agents see them, for task.updated payloads.
@@ -532,6 +545,9 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     const changed = await replaceChecks(tx, t.id, input.checks);
     if (changed) changes.checks = changed;
   }
+  // A parsed line never moves the task (only blocked_note's lines hold a Blocked ticket, like any blocker).
+  const parsed = await syncJorgeLines(tx, emit, u, parsedTexts(u, input.status !== "Blocked" ? input.note : undefined));
+  warnings.push(...parsed);
 
   const changedNames: string[] = [];
   if (patch.status !== undefined && patch.status !== t.status) {
@@ -567,6 +583,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     await addNote(emit, u, input.note);
   }
   // Blocked with blockers that already hold goes straight back to Ready.
+  if (parsed.length) changedNames.push("blocked_by");
   if (patch.status === "Blocked") await promoteUnblocked(tx, emit, p.id);
   return writeReply(tx, u, ctx, changedNames, rekey ? { previous_key: rekey[0] } : {}, warnings);
 }

@@ -5,7 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Ciudad } from "@/components/home/ciudad";
-import { LaMac, Proyectos } from "@/components/home/parts";
+import { LaMac, Proximo, Proyectos } from "@/components/home/parts";
+import { proximoOf } from "@/lib/due";
 import { api } from "@/lib/api";
 import { cityOf, looseInbox, waitingOf, workingCity } from "@/lib/city";
 import { envLine, flightsOf, headlineOf, liveServersOf, tileOf } from "@/lib/home";
@@ -23,8 +24,8 @@ function useNow(everyMs = 30_000) {
 export function HomePage() {
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const inboxQuery = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
-  // The city counts only what needs a decision; things left on the Mac live in the Máquina.
-  const decisions = useMemo(() => (inboxQuery.data?.items ?? []).filter((i) => i.kind !== "footprint"), [inboxQuery.data]);
+  // The city counts decisiones and pasos; Limpieza (things left on the Mac) lives in the Máquina.
+  const decisions = useMemo(() => (inboxQuery.data?.items ?? []).filter((i) => i.group !== "limpieza"), [inboxQuery.data]);
   const machine = useQuery({ queryKey: ["machine"], queryFn: api.machine, staleTime: 15_000 });
   const nowMs = useNow();
 
@@ -43,6 +44,7 @@ export function HomePage() {
       envLines: Object.fromEntries(list.map((p) => [p.slug, envLine(p.envs, nowMs)])),
       headline: headlineOf({ projects: list, flights, inbox: waiting, totals: machine.data?.totals ?? null, nowMs }),
       servers: liveServersOf(items, nowMs),
+      proximo: proximoOf(list),
       tiles: list.map((p) => tileOf(p, waiting.by_project[p.slug] ?? 0, nowMs)).sort((a, b) => a.rank - b.rank || a.slug.localeCompare(b.slug)),
     };
   }, [projects.data, decisions, machine.data, nowMs]);
@@ -65,6 +67,8 @@ export function HomePage() {
   return (
     <div className="grid gap-6 sm:gap-7">
       <Ciudad districts={model.districts} loose={model.loose} headline={model.headline} envLines={model.envLines} names={names} nowMs={nowMs} />
+
+      <Proximo lines={model.proximo} names={names} nowMs={nowMs} />
 
       {/* Under the city, as before: La Mac beside the projects; they stack below xl. */}
       <div className="grid items-start gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
