@@ -1,4 +1,4 @@
-import type { AgentToken, Digest, Inbox, Machine, Orden, ProjectDetail, ProjectSummary, TaskDetail } from "./types";
+import type { AgentToken, Digest, Inbox, Machine, Orden, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -56,6 +56,8 @@ export const api = {
   fixAudit: (slug: string, finding: { code: string; key: string | null; id: string }) =>
     request<Orden>("POST", `/projects/${encodeURIComponent(slug)}/audit/fix`, finding),
   inbox: (project?: string) => request<Inbox>("GET", project ? `/inbox?project=${encodeURIComponent(project)}` : "/inbox"),
+  // 2.13: Jorge ships the release step (merge mode): a PR from → into, merged with a merge commit.
+  shipRelease: (slug: string) => request<ShipResult>("POST", `/projects/${encodeURIComponent(slug)}/release/ship`),
   resolveBlocker: (slug: string, id: string, note?: string) =>
     request<{ key: string }>("POST", `/projects/${encodeURIComponent(slug)}/blockers/${encodeURIComponent(id)}/resolve`, note ? { note } : undefined),
   decide: (ids: string[], decision: "grant" | "reject", note?: string) =>
