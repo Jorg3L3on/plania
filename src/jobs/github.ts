@@ -5,7 +5,7 @@ import { commandPath } from "./machine/run.js";
 import { branches, pollState, projects, pullRequests, tasks, type Project, type Task } from "../db/schema.js";
 import { touchBranch } from "../mcp/branches.js";
 import { addResult } from "../mcp/evidence.js";
-import { findTask } from "../mcp/queries.js";
+import { findTask, prRowOf } from "../mcp/queries.js";
 import { compareKey, releaseCompareOf, releasePlan, type ReleaseCompare } from "../mcp/release-plan.js";
 import { recordRelease } from "../mcp/releases.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
@@ -15,8 +15,10 @@ import type { Job } from "./index.js";
 // The GitHub poller (R-21, R-12, R-09, R-17). Outbound only: the server is not reachable, so it
 // asks GitHub every minute, with ETags, for the repo named in projects.settings.github:
 //   pull requests → pull_requests rows, linked to a ticket by pr_url, a "Plania: KEY" line in the
-//     body, or a "Plania-Task: KEY" trailer in a commit; a merged PR moves its In review ticket to
-//     Merged; the release target env containing the merge commit moves Merged to Released;
+//     body, or a "Plania-Task: KEY" trailer in a commit; a merged PR moves its In review tickets
+//     (the linked one and every ticket whose pr_url is that PR) to Merged; merge_commit_sha is kept
+//     only once merged_at is set (an open PR's is a test merge); the release target env containing
+//     the merge commit moves Merged to Released;
 //   check runs on open linked PRs → ci results with the run url; a red check on an In review
 //     ticket sends it back to Ready with a note (pr.ci_failed);
 //   branches → heads (stale_for_head), merges and deletions in the registry.
@@ -149,6 +151,8 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
           if (key) task = await findTask(db, p.id, key);
         }
         const state = pr.merged_at ? "merged" : pr.state === "open" ? "open" : "closed";
+        // 2.11 (PLA-02): an open PR's merge_commit_sha is GitHub's throwaway test merge; kept only once merged.
+        const mergeSha = pr.merged_at ? pr.merge_commit_sha : null;
         await db
           .insert(pullRequests)
           .values({
@@ -163,7 +167,7 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
             headBranch: pr.head.ref,
             baseBranch: pr.base.ref,
             mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
-            mergeSha: pr.merge_commit_sha,
+            mergeSha,
             ghUpdatedAt: new Date(pr.updated_at),
           })
           .onConflictDoUpdate({
@@ -176,7 +180,7 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
               headBranch: pr.head.ref,
               baseBranch: pr.base.ref,
               mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
-              mergeSha: pr.merge_commit_sha,
+              mergeSha,
               ghUpdatedAt: new Date(pr.updated_at),
               updatedAt: sql`now()`,
             },
@@ -206,13 +210,18 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
           await setTaskLinks(db, { project: p.slug, key: task.key, pr_url: pr.html_url, ...(task.kind === "ticket" ? { branch: pr.head.ref } : {}) }, systemCtx(`gh:${cfg.repo}#${pr.number}:links:${pr.updated_at}`, "jobs.github"));
           summary.linked!++;
         }
-        if (state === "merged" && task.status === "In review") {
-          await setTask(
-            db,
-            { project: p.slug, key: task.key, status: "Merged", note: `PR #${pr.number} merged into ${pr.base.ref} (${pr.merge_commit_sha?.slice(0, 7)})` },
-            systemCtx(`gh:${cfg.repo}#${pr.number}:merged:${pr.merge_commit_sha}`, "jobs.github"),
-          );
-          summary.merged!++;
+        // A merged PR moves every In review ticket it carries: the linked one and the phases sharing its url.
+        if (state === "merged") {
+          const sharing = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.prUrl, pr.html_url), eq(tasks.status, "In review"))).orderBy(tasks.key);
+          const moving = [...(task.status === "In review" ? [task] : []), ...sharing.filter((t) => t.id !== task!.id)];
+          for (const t of moving) {
+            await setTask(
+              db,
+              { project: p.slug, key: t.key, status: "Merged", note: `PR #${pr.number} merged into ${pr.base.ref} (${mergeSha?.slice(0, 7)})` },
+              systemCtx(`gh:${cfg.repo}#${pr.number}:merged:${mergeSha}${t.id === task.id ? "" : `:${t.key}`}`, "jobs.github"),
+            );
+            summary.merged!++;
+          }
         }
         // 2. Check runs on open linked PRs.
         if (state === "open") {
@@ -358,8 +367,8 @@ export async function releaseMerged(db: Db, p: Project, contains?: (mergeSha: st
   const merged = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.status, "Merged")));
   let released = 0;
   for (const t of merged) {
-    const [pr] = await db.select().from(pullRequests).where(eq(pullRequests.taskId, t.id)).orderBy(sql`${pullRequests.updatedAt} desc`).limit(1);
-    const merge = pr?.mergeSha;
+    const pr = await prRowOf(db, t);
+    const merge = pr?.mergedAt ? pr.mergeSha : null;
     if (!merge) continue;
     const [known] = await db
       .execute<{ sha: string }>(sql`select sha from env_commits where project_id = ${p.id} and env = ${env} and (sha like ${merge} || '%' or ${merge} like sha || '%') limit 1`)

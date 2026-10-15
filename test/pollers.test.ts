@@ -89,6 +89,9 @@ describe("github", () => {
       assert.deepEqual(rows, [{ verdict: "fail", commit: "aaaaaaa111111111111111111111111111111111", url: "https://github.com/Jorg3L3on/filmia/actions/runs/1" }]);
       const { rows: prs } = await raw.query("select number, state, ci_state, task_id is not null as linked from pull_requests order by number");
       assert.deepEqual(prs, [{ number: 129, state: "merged", ci_state: null, linked: false }, { number: 130, state: "open", ci_state: "failure", linked: true }]);
+      // 2.11 (PLA-02): the open PR's merge_commit_sha is GitHub's test merge; it is not kept.
+      const { rows: shas } = await raw.query("select number, merge_sha from pull_requests order by number");
+      assert.deepEqual(shas, [{ number: 129, merge_sha: "ddddddd444444444444444444444444444444444" }, { number: 130, merge_sha: null }]);
       assert.ok(calls.some((c) => c.includes("/pulls?")));
 
       // The same tick again: nothing new.
@@ -104,6 +107,12 @@ describe("github", () => {
     const { db, close } = makeDb();
     try {
       const p = await findProject(db, "filmia");
+      // 2.11 (PLA-02): a sibling phase on the same PR, linked by pr_url only.
+      await createTask(db, { project: "filmia", title: "Backfill", scope: "s", checks: ["c"], parent_key: "FIL-I1", status: "Ready" }, ctx); // FIL-I1-2
+      await claim(db, { project: "filmia", key: "FIL-I1-2" }, ctx);
+      await addResult(db, { project: "filmia", key: "FIL-I1-2", kind: "unit", verdict: "pass", cite: "ok", check_ns: [1] }, ctx);
+      const sib = (await findTask(db, p.id, "FIL-I1-2"))!;
+      await setTask(db, { project: "filmia", key: "FIL-I1-2", status: "In review", pr_url: "https://github.com/Jorg3L3on/filmia/pull/130", version: sib.version }, ctx);
       // The branch moved on (the poller saw the new head); back to review with a fresh pass at it.
       await raw.query("update branches set head_sha = 'bbbbbbb222222222222222222222222222222222' where name = 'jl/catalog-split'");
       await claim(db, { project: "filmia", key: "FIL-I1-1" }, ctx);
@@ -115,17 +124,51 @@ describe("github", () => {
         "/repos/Jorg3L3on/filmia/branches": [{ name: "main", commit: { sha: "9999999" } }],
       });
       const s = await pollGithubProject(db, p, { fetch, env: { GITHUB_TOKEN: "ghp_test" }, now: new Date("2026-10-07T21:05:00Z") });
-      assert.equal(s.merged, 1);
+      assert.equal(s.merged, 2, "the linked ticket and the one sharing its pr_url");
       assert.equal(await status("FIL-I1-1"), "Merged");
+      assert.equal(await status("FIL-I1-2"), "Merged");
       const merged = (await listEvents(db, p.id, { types: ["pr.merged"] })).events;
       assert.deepEqual(merged.map((e) => [e.payload.number, e.payload.base_branch, e.task_key]), [[130, "sandbox", "FIL-I1-1"]]);
       const ev = (await listEvents(db, p.id, { key: "FIL-I1-1", types: ["task.status"] })).events.at(-1)!;
       assert.equal(ev.actor.agent, "plania");
       assert.deepEqual([ev.payload.from, ev.payload.to], ["In review", "Merged"]);
+      assert.equal((await raw.query("select merge_sha from pull_requests where number = 130")).rows[0].merge_sha, "ccccccc333333333333333333333333333333333");
       const { rows } = await raw.query("select head_sha, merged_at is not null as merged, deleted_at is not null as deleted from branches where name = 'jl/catalog-split'");
       assert.deepEqual(rows, [{ head_sha: "bbbbbbb222222222222222222222222222222222", merged: true, deleted: true }]);
       // jl/docs went when its PR (#129) merged in the first tick; jl/catalog-split now.
       assert.deepEqual((await listEvents(db, p.id, { types: ["branch.deleted"] })).events.map((e) => e.payload.branch), ["jl/docs", "jl/catalog-split"]);
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe("merged gate (PLA-02)", () => {
+  test("a stored test-merge sha of an open PR is not demanded; a ci pass on the real merge commit (not the PR head) is accepted", async () => {
+    const { db, close } = makeDb();
+    try {
+      const p = await findProject(db, "filmia");
+      await createTask(db, { project: "filmia", title: "Ratings", scope: "s", checks: ["c"], parent_key: "FIL-I1", status: "Ready" }, ctx); // FIL-I1-3
+      await claim(db, { project: "filmia", key: "FIL-I1-3" }, ctx);
+      await addResult(db, { project: "filmia", key: "FIL-I1-3", kind: "unit", verdict: "pass", cite: "ok", check_ns: [1] }, ctx);
+      let t = (await findTask(db, p.id, "FIL-I1-3"))!;
+      await setTask(db, { project: "filmia", key: "FIL-I1-3", status: "In review", pr_url: "https://github.com/Jorg3L3on/filmia/pull/131", version: t.version }, ctx);
+      // A row written before 2.11: open, with GitHub's test-merge sha stored.
+      await raw.query(
+        "insert into pull_requests (project_id, repo, number, url, title, state, head_sha, head_branch, base_branch, merge_sha) values ($1, 'Jorg3L3on/filmia', 131, 'https://github.com/Jorg3L3on/filmia/pull/131', 'Ratings', 'open', 'abcabca000', 'jl/ratings', 'main', 'f8a4e19000')",
+        [p.id],
+      );
+      await addResult(db, { project: "filmia", key: "FIL-I1-3", kind: "ci", verdict: "pass", cite: "PR head green", commit: "abcabca000" }, ctx);
+      t = (await findTask(db, p.id, "FIL-I1-3"))!;
+      await assert.rejects(setTask(db, { project: "filmia", key: "FIL-I1-3", status: "Merged", version: t.version }, ctx), (e: Json) => {
+        assert.equal(e.code, "EVIDENCE_REQUIRED");
+        assert.doesNotMatch(String(e.detail?.hint), /f8a4e19/);
+        return true;
+      });
+      await addResult(db, { project: "filmia", key: "FIL-I1-3", kind: "ci", verdict: "pass", cite: "main green after merge", commit: "1234567890" }, ctx);
+      t = (await findTask(db, p.id, "FIL-I1-3"))!;
+      await setTask(db, { project: "filmia", key: "FIL-I1-3", status: "Merged", version: t.version }, ctx);
+      assert.equal(await status("FIL-I1-3"), "Merged");
     } finally {
       await close();
     }
@@ -161,8 +204,10 @@ describe("vercel", () => {
       const { fetch } = fakeFetch({ "/v6/deployments?": fixture("vercel/deployments.json") });
       const s = await pollVercelProject(db, p, { fetch, env: { VERCEL_TOKEN: "vc_test" } });
       assert.equal(s.deployments, 3);
-      assert.equal(s.released, 1, "dpl_A deployed the merge commit");
+      assert.equal(s.released, 2, "dpl_A deployed the merge commit of #130, both its tickets");
       assert.equal(await status("FIL-I1-1"), "Released");
+      assert.equal(await status("FIL-I1-2"), "Released", "the sibling finds its PR by pr_url");
+      assert.equal(await status("FIL-I1-3"), "Merged", "#131 is not merged, so it has no merge commit to ship");
       const { rows } = await raw.query("select env, commit, deploy_source->>'deployment_id' as dpl, deployed_at is not null as deployed from env_states order by env");
       assert.deepEqual(rows, [
         { env: "preview", commit: "aaaaaaa111111111111111111111111111111111", dpl: "dpl_P", deployed: true },

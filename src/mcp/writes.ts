@@ -6,7 +6,6 @@ import {
   TICKET_STATUSES,
   envCommits,
   envStates,
-  pullRequests,
   results,
   tasks,
   type Task,
@@ -19,6 +18,7 @@ import {
   findProject,
   findTask,
   liveOwner,
+  prRowOf,
   requireTask,
   writeReply,
   type WriteWarning,
@@ -334,21 +334,26 @@ const FIELD_NAMES: Partial<Record<keyof Task, string>> = {
 };
 
 // Merged and Released by hand (R-12): only with proof. Merged needs a ci pass naming the merge
-// commit (the PR's merge_sha when the poller knows the PR); Released needs the release target
-// environment to contain that commit.
+// commit (the PR's merge_sha once the poller saw it merged); Released needs the release target
+// environment to contain that commit. 2.11 (PLA-02): GitHub's merge_commit_sha of an open PR is a
+// throwaway test merge, so it only counts once the PR is merged; without it, a ci pass on any commit
+// other than the PR's head (which is the branch, not the merge) is the merge commit's proof.
 async function assertMergeEvidence(tx: Q, p: Project, t: Task, to: string): Promise<void> {
-  const [pr] = await tx.select().from(pullRequests).where(eq(pullRequests.taskId, t.id)).orderBy(sql`${pullRequests.updatedAt} desc`).limit(1);
+  const pr = await prRowOf(tx, t);
   const passes = await tx
     .select({ commit: results.commit })
     .from(results)
     .where(and(eq(results.taskId, t.id), eq(results.kind, "ci"), eq(results.verdict, "pass"), sql`${results.commit} is not null`));
   const commits = passes.map((r) => r.commit!);
-  const mergeSha = pr?.mergeSha ?? null;
-  const cited = mergeSha ? commits.find((c) => mergeSha.startsWith(c) || c.startsWith(mergeSha)) : commits[0];
+  const mergeSha = pr?.mergedAt ? (pr.mergeSha ?? null) : null;
+  const same = (a: string, b: string) => a.startsWith(b) || b.startsWith(a);
+  const cited = mergeSha ? commits.find((c) => same(mergeSha, c)) : commits.find((c) => !pr?.headSha || !same(pr.headSha, c));
   if (!cited) {
     throw new ToolError("EVIDENCE_REQUIRED", {
       work_type: t.workType,
-      hint: mergeSha ? `a ci pass result with commit ${mergeSha.slice(0, 7)} (the PR's merge commit)` : "a ci pass result that names the merge commit",
+      hint: mergeSha
+        ? `a ci pass result with commit ${mergeSha.slice(0, 7)} (the PR's merge commit)`
+        : `a ci pass result that names the merge commit on ${pr?.baseBranch ?? "the base branch"}${pr?.headSha ? ` (not the PR head ${pr.headSha.slice(0, 7)})` : ""}`,
       accepts: ["ci pass with commit"],
     });
   }

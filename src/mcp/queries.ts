@@ -170,8 +170,16 @@ export function prFromUrl(url: string | null): PrShape | null {
   const m = PR_NUMBER.exec(url);
   return { number: m ? Number(m[1]) : null, url, state: null, ci_state: null, merged_at: null };
 }
+// 2.11 (PLA-02): the pull_requests row behind a task: the one the poller linked to it, else the one
+// its pr_url names (phases sharing an initiative's PR are linked by url only).
+export async function prRowOf(db: Q, t: Pick<Task, "id" | "prUrl">) {
+  const [linked] = await db.select().from(pullRequests).where(eq(pullRequests.taskId, t.id)).orderBy(desc(pullRequests.updatedAt)).limit(1);
+  if (linked || !t.prUrl) return linked;
+  const [byUrl] = await db.select().from(pullRequests).where(eq(pullRequests.url, t.prUrl)).orderBy(desc(pullRequests.updatedAt)).limit(1);
+  return byUrl;
+}
 export async function prOf(db: Q, t: Pick<Task, "id" | "prUrl">): Promise<PrShape | null> {
-  const [pr] = await db.select().from(pullRequests).where(eq(pullRequests.taskId, t.id)).orderBy(desc(pullRequests.updatedAt)).limit(1);
+  const pr = await prRowOf(db, t);
   if (pr) return { number: pr.number, url: pr.url, state: pr.state, ci_state: pr.ciState, merged_at: iso(pr.mergedAt) };
   return prFromUrl(t.prUrl);
 }
