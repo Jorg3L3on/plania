@@ -62,7 +62,6 @@ export const ERRORS = {
   RESOURCE_HELD: [409, "another session holds the resource (detail: holder, lease_until, purpose)"],
   DECISION_RETIRED: [409, "the decision was retired: it cannot be superseded, pinned or retired again"],
   INITIATIVE_CHILDREN_OPEN: [409, "an initiative cannot be Done or Won't do while a ticket of it is in another state (detail: open)"],
-  LEGACY_CARD_EMPTY: [409, "archive_legacy_card: the project has no v1 card left"],
   ALREADY_ANSWERED: [409, "the question was answered already (detail: answer, answered_by)"],
   CLAIM_HELD: [409, "another session holds a live lease (detail: owner, lease_until, workspace)"],
   HANDOFF_HELD: [409, "the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note)"],

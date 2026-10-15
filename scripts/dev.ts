@@ -1,4 +1,4 @@
-// Local server. Production on Vercel runs api/index.ts instead.
+// The Plania server: it runs on this Mac only.
 // Serves /mcp, the API and the built SPA (dist/ui) from one process.
 //   pnpm start            → port 3737, the launchd service
 //   pnpm dev:api          → port 3738, behind Vite's dev proxy

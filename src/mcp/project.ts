@@ -3,7 +3,7 @@ import type { Db } from "../db/client.js";
 import { projects, type Project, type ProjectSettings } from "../db/schema.js";
 import { ToolError } from "./errors.js";
 import { TEXT_LIMITS } from "./limits.js";
-import { findProject, legacyCard } from "./queries.js";
+import { findProject } from "./queries.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 
 // The project's own text: title, body (stack, repo, prod, constraints), rules (project-specific
@@ -101,20 +101,4 @@ export async function markHeadlineStale(tx: Q, projectId: string): Promise<void>
     .update(projects)
     .set({ headlineStale: true })
     .where(and(eq(projects.id, projectId), sql`${projects.headline} <> ''`, eq(projects.headlineStale, false)));
-}
-
-// R-01: the v1 hand-written card moves into the event log, with its full text, and is gone for good.
-export async function archiveLegacyCard(db: Db, input: { project: string; reason: string }, ctx: Ctx) {
-  const p = await findProject(db, input.project);
-  return writeTx(db, p, ctx, async (tx, emit) => {
-    const [current] = (await tx.select().from(projects).where(eq(projects.id, p.id))) as [Project];
-    const card = legacyCard(current);
-    if (!card) throw new ToolError("LEGACY_CARD_EMPTY");
-    await tx
-      .update(projects)
-      .set({ resumeInProgress: "", resumeNextAction: "", resumeBranchOrProd: "", resumeMustKeepDecision: "", updatedAt: sql`now()` })
-      .where(eq(projects.id, p.id));
-    await emit("legacy_card.archived", null, { card, reason: input.reason });
-    return { archived: card, reason: input.reason };
-  });
 }

@@ -127,7 +127,7 @@ function logText(e: TaskDetail["log"][number]): string {
 }
 
 function Details({ slug, task, onOpen }: { slug: string; task: TaskDetail; onOpen: (key: string) => void }) {
-  const scope = task.scope || task.legacy_body || "";
+  const scope = task.scope;
   return (
     <div className="grid grid-cols-1 gap-6 px-4 pb-8">
       <div className="flex flex-wrap items-center gap-2">

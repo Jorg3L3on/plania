@@ -55,17 +55,6 @@ export async function requireTask(db: Q, projectId: string, key: string): Promis
   return t;
 }
 
-// The v1 hand-written card, read-only until the cleanup migration drops it. null when empty.
-export function legacyCard(p: Project) {
-  const card = {
-    in_progress: p.resumeInProgress,
-    next_action: p.resumeNextAction,
-    branch_or_prod: p.resumeBranchOrProd,
-    must_keep_decision: p.resumeMustKeepDecision,
-  };
-  return Object.values(card).some(Boolean) ? card : null;
-}
-
 // Last LOG_LIMIT events of a task, oldest first. The full history is in list_events.
 const LOG_LIMIT = 50;
 
@@ -205,8 +194,6 @@ export async function taskFull(db: Q, t: Task, opts: ShapeOptions = {}) {
     title: t.title,
     summary: t.summary,
     scope: t.scope,
-    // Only until the backfill moves a v1 body into scope, checks and the log.
-    ...(t.body && !t.scope ? { legacy_body: t.body } : {}),
     status: t.status,
     priority: t.priority,
     work_type: t.workType,

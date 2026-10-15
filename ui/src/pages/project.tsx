@@ -17,13 +17,10 @@ import { TaskList } from "@/components/plan/task-list";
 import { Kicker } from "@/components/plan/visuals";
 import { TaskSheet } from "@/components/task-sheet";
 import { api, ApiError } from "@/lib/api";
-import { branchEdges, buildLanes, firstLine, projectProgress, statements, statusCounts } from "@/lib/lanes";
+import { branchEdges, buildLanes, projectProgress, statusCounts } from "@/lib/lanes";
 import { cn } from "@/lib/utils";
 
 type View = "lanes" | "lista";
-
-// The v1 card often repeats a pinned decision; compare without the final period.
-const dedupe = (items: string[]) => [...new Map(items.map((t) => [t.replace(/[.\s]+$/, ""), t])).values()];
 
 function ViewToggle({ view, onChange }: { view: View; onChange: (v: View) => void }) {
   const options: { value: View; label: string; icon: typeof ListIcon }[] = [
@@ -91,20 +88,14 @@ export function ProjectPage() {
   }, [tasks]);
 
   const resume = project.data?.resume;
-  // Pinned decisions that still stand, project-wide and per initiative; the v1 card's decision while it exists.
+  // Pinned decisions that still stand, project-wide and per initiative.
   const fixed = resume
-    ? dedupe([
-        ...[...new Map([...resume.must_keep, ...resume.initiatives.flatMap((i) => i.must_keep)].map((d) => [d.id, d])).values()]
-          .filter((d) => !d.superseded_by)
-          .map((d) => d.text),
-        ...statements(resume.legacy_card?.must_keep_decision ?? ""),
-      ])
+    ? [...new Map([...resume.must_keep, ...resume.initiatives.flatMap((i) => i.must_keep)].map((d) => [d.id, d])).values()]
+        .filter((d) => !d.superseded_by)
+        .map((d) => d.text)
     : [];
-  const branchText = resume?.legacy_card?.branch_or_prod ?? "";
-  const nowText = resume
-    ? resume.claims.map((c) => `${c.title} (${c.owner?.agent ?? "?"})`).join(", ") || firstLine(resume.legacy_card?.in_progress ?? "")
-    : "";
-  const nextText = resume ? resume.next_claimable?.title ?? firstLine(resume.legacy_card?.next_action ?? "") : "";
+  const nowText = resume ? resume.claims.map((c) => `${c.title} (${c.owner?.agent ?? "?"})`).join(", ") : "";
+  const nextText = resume ? resume.next_claimable?.title ?? "" : "";
 
   if (project.isError) {
     const notFound = project.error instanceof ApiError && project.error.status === 404;
@@ -158,7 +149,7 @@ export function ProjectPage() {
                 <p className="font-display text-2xl font-bold tracking-tight">{nextText || "Sin iniciativas ni tickets abiertos."}</p>
               </section>
               <aside className="grid min-w-0 flex-[1_1_320px] gap-4 sm:min-w-[280px]">
-                <BranchGraph edges={derived.edges} text={branchText} onFicha={() => setFichaOpen(true)} />
+                <BranchGraph edges={derived.edges} />
                 <FixedDecisions items={fixed} onFicha={() => setFichaOpen(true)} />
               </aside>
             </div>
@@ -190,7 +181,7 @@ export function ProjectPage() {
                 <aside className="grid gap-3">
                   <SectionTitle>Contexto</SectionTitle>
                   <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
-                    <BranchGraph edges={derived.edges} text={branchText} onFicha={() => setFichaOpen(true)} />
+                    <BranchGraph edges={derived.edges} />
                     <FixedDecisions items={fixed} onFicha={() => setFichaOpen(true)} />
                   </div>
                 </aside>

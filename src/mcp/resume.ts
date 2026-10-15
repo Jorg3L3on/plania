@@ -2,7 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { events, tasks, type Project, type Task } from "../db/schema.js";
 import { listDecisions } from "./decisions.js";
 import { machineLine } from "./footprint-read.js";
-import { legacyCard, liveOwner, nextTask } from "./queries.js";
+import { liveOwner, nextTask } from "./queries.js";
 import { headlineShape } from "./project.js";
 import { openQuestions } from "./questions.js";
 import { statusBlock } from "./status.js";
@@ -33,9 +33,7 @@ function statusCounts(children: Task[]) {
   return counts;
 }
 
-export type ResumeOptions = { includeLegacy?: boolean };
-
-export async function resumeDigest(db: Q, p: Project, opts: ResumeOptions = {}) {
+export async function resumeDigest(db: Q, p: Project) {
   const all = await db.select().from(tasks).where(eq(tasks.projectId, p.id)).orderBy(tasks.key);
   const byId = new Map(all.map((t) => [t.id, t]));
   const openInitiatives = all.filter((t) => t.kind === "initiative" && !CLOSED.includes(t.status));
@@ -81,7 +79,6 @@ export async function resumeDigest(db: Q, p: Project, opts: ResumeOptions = {}) 
     .orderBy(desc(events.id))
     .limit(RECENT_EVENTS);
 
-  const card = legacyCard(p);
   return {
     project: p.slug,
     generated_at: new Date().toISOString(),
@@ -99,9 +96,6 @@ export async function resumeDigest(db: Q, p: Project, opts: ResumeOptions = {}) 
     must_keep: pinned.filter((d) => d.home === null).map((d) => d.shape),
     open_questions: await openQuestions(db, p.id),
     recent: recent.map((e) => ({ at: iso(e.createdAt), type: e.type, task_key: e.taskKey, agent: e.actor.agent })),
-    // The v1 hand-written card is read-only and hidden by default (R-01); archive_legacy_card retires it.
-    legacy_card_present: card !== null,
-    ...(opts.includeLegacy ? { legacy_card: card } : {}),
   };
 }
 
@@ -114,5 +108,5 @@ export function resumeLine(d: ResumeDigest): string {
   const noted = d.initiatives.find((i) => i.next_action.note);
   if (noted) return `${noted.key}: ${noted.next_action.note}`;
   if (d.next_claimable) return `Siguiente: ${d.next_claimable.key} · ${d.next_claimable.title}`;
-  return d.headline.text || d.legacy_card?.in_progress || d.legacy_card?.next_action || "Sin ficha.";
+  return d.headline.text || "Sin ficha.";
 }

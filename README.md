@@ -4,8 +4,8 @@ Source of the plan for Jorge and his agents. A generated resume per project on s
 The plan lives here, not in each product repo. v2 (approved 2026-10-06) makes it safe for several agent
 sessions at once: leased claims, versioned writes, an event log with who did what, and server time everywhere.
 
-- App: Hono on Vercel Hobby (`iad1`), one Node function at `api/index.ts`.
-- DB: Neon Free (`aws-us-east-1`), Drizzle over `pg`, one pool per request.
+- App: Hono on Node, one long-lived process on this Mac (`scripts/dev.ts`, the launchd service).
+- DB: local Postgres, Drizzle over `pg`, one shared pool per process (`src/db/client.ts`).
 - Screen: React SPA (Vite, shadcn/ui) in `ui/`, served by the same app; password login (argon2id + `plania_session` cookie).
 - Agents: `POST /mcp` with `Authorization: Bearer <token>`: an agent token issued on screen (`/tokens`), or the
   static `MCP_BEARER_TOKEN` / `MCP_READ_TOKEN` from `.env`.
@@ -23,13 +23,15 @@ Fill `.env`:
 
 | Var | Value |
 |---|---|
-| `DATABASE_URL` | Neon connection string (or a local Postgres for dev) |
+| `DATABASE_URL` | Postgres connection string (the local `plania` database) |
 | `MCP_BEARER_TOKEN` | Random token, e.g. `openssl rand -hex 32`. Clients use it as `PLANIA_MCP_TOKEN`. |
 | `SESSION_SECRET` | At least 32 bytes, e.g. `openssl rand -base64 48` |
 | `PLANIA_PASSWORD_HASH` | Output of `pnpm hash-password`. Quote it in `.env`. Never a plain password. |
 | `MCP_READ_TOKEN` | Optional. A second token for planning sessions: read tools only. |
 | `PLANIA_CI_TOKEN` | Optional. Token for `/hooks/*` only; it cannot use `/mcp`. |
-| `PLANIA_TZ` | Optional. Time zone the screen shows times in. Default `America/Mexico_City`. |
+| `PLANIA_TZ` | Optional. Time zone the screen shows times in, and the nightly backup's clock. Default `America/Mexico_City`. |
+| `PLANIA_PG_BIN` | Optional. Directory of the `pg_dump` the backup uses. Default: Homebrew's for the server's major version. |
+| `PLANIA_BACKUP_DIR` | Optional. Where the nightly dumps go. Default `~/plania-backups`. |
 
 ## Database
 
@@ -73,28 +75,13 @@ pnpm rekey --project filmia            # dry run: prints the plan
 pnpm rekey --project filmia --apply    # writes it, in one transaction
 ```
 
-### Upgrading a v1 database to v2
+### Upgrading to 2.9 (backups, v1 cleanup)
 
-Migrations `0001`–`0014` only add (tables, columns, defaults); the v1 columns stay, so the old server keeps
-working until the restart. Then move the v1 data with the backfill, stage by stage, dry-run first:
+Migration `0022` adds `machine_state` (the nightly backup's record), copies every non-empty v1 `tasks.body` into a
+task doc titled "v1 body", then drops `tasks.body`, the four `projects.resume_*` columns, `design_pages`,
+`env_blockers` and `decisions.supersedes_id`. Take a `plania-pre-0022-*` dump first.
 
-```bash
-for f in drizzle/migrations/00{01..14}_*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done
-pnpm backfill-v2 --stage body                    # bodies → scope, phase, checks, dated notes, results
-pnpm backfill-v2 --stage decisions               # typed dates → decided_on; one named key → task; flags wrong days
-pnpm backfill-v2 --stage resume                  # the card's must-keep → pinned decision; card stays as legacy_card
-pnpm backfill-v2 --stage sequences               # lists the numbers each ticket mentions
-pnpm backfill-v2 --stage claims                  # In progress tickets → a 24h legacy lease from their claim note
-# each again with --apply once the dry run looks right. Two take a mapping you write:
-pnpm backfill-v2 --stage sequences --project filmia --map migration:0008=FIL-02,0009=FIL-01-F1,0010=FIL-01-F3 --apply
-pnpm backfill-v2 --stage decisions --project filmia --map <new-id-prefix>:<old-id-prefix> --apply   # reversals
-launchctl kickstart -k gui/$(id -u)/com.plania.server
-```
-
-Run the stages in that order (notes from bodies land in the log before the later stages' events). A stage
-that already ran for a project is skipped. The backfill never changes `tasks.body` or the v1 card; a later
-cleanup migration drops them (and `design_pages`) once the backfill is confirmed. Until then `get_task`
-shows `legacy_body` for a task whose scope is still empty, and `get_resume` shows `legacy_card`.
+Upgrading a v1 database: the backfill that did it (`scripts/backfill-v2.ts`) is in the git history before 2.9.
 
 ## Dev
 
@@ -102,7 +89,7 @@ shows `legacy_body` for a task whose scope is still empty, and `get_resume` show
 pnpm dev     # API on 3738 (tsx watch) + Vite on http://localhost:5173 with hot reload
 pnpm build   # typecheck server and UI, then build the SPA into dist/ui
 pnpm start   # serve API, MCP and the built SPA on http://localhost:3737
-pnpm test    # MCP, API, live-event, hooks, seed and backfill tests; rebuilds this checkout's local plania_test_<hash> database each run
+pnpm test    # MCP, API, live-event, hooks, seed and backup tests; rebuilds this checkout's local plania_test_<hash> database each run
 ```
 
 Port 3737 avoids the 3000 that product repos use. The server only listens on 127.0.0.1.
@@ -122,7 +109,7 @@ dropdb plania_test_3f9a2c
 
 ## Running locally as a service
 
-Plania currently runs on this Mac instead of Vercel.
+Plania runs on this Mac.
 
 - Database: local Postgres 14 (Homebrew service), database `plania`.
 - Server: launchd agent `com.plania.server` at `~/Library/LaunchAgents/com.plania.server.plist`.
@@ -138,6 +125,14 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.plania.server.plist 
 tail -f ~/Library/Logs/plania/server.log
 ```
 
+Backups: the `backup` job dumps the database once a day after 03:00 (`PLANIA_TZ`) into
+`~/plania-backups/plania-<YYYYMMDD>.sql.gz` and keeps the last 14; hand-made `plania-pre-*` dumps stay. The Máquina
+page shows the last copy, and `BACKUP_STALE` appears there when the last one is older than 48 h. To restore:
+
+```bash
+createdb plania_restore && gunzip -c ~/plania-backups/plania-20261016.sql.gz | psql -v ON_ERROR_STOP=1 plania_restore
+```
+
 Change the screen password with `pnpm hash-password`, paste the result into `.env` as
 `PLANIA_PASSWORD_HASH='...'`, then restart. Rotating `MCP_BEARER_TOKEN` means updating all three client configs.
 
@@ -151,42 +146,50 @@ The working protocol (claim, versions, evidence, closing finished work) is serve
 on `initialize`, versioned (`PROTOCOL_VERSION` in `src/mcp/protocol.ts`, also in `get_project`). Project-specific
 additions are the project's `rules` (`set_project`). Product repos point here instead of copying the rules.
 
+<!-- mcp-tools:start -->
 | Read | |
 |---|---|
-| `get_resume` | Generated: headline, the status block (per env what runs there and its drift; per initiative counts, next claimable, who waits on Jorge, what is in review with its PR state; queues), live claims, next claimable, per open initiative its notes, claims, next ticket and pinned decisions; open questions; latest events. `include_legacy` adds the v1 card while one exists |
-| `get_inbox` | Everything waiting on Jorge (pending approvals, open questions, human actions), for one project or `all` |
-| `get_context` | One call for a session opening a worktree: the initiative and tickets on the branch, your claims (with any handoff note), pinned decisions, open questions, pending approvals, events since a cursor |
-| `audit` | What the data says is wrong: findings with a code, key, detail and fix hint (also every ten minutes; the count is in `get_resume.status`) |
-| `get_project` | Body, rules, settings, protocol version, counts, `env` per environment (with flags, migrations and the deploy's source), `branches`, `resources`, `metrics`, reserved sequence numbers |
-| `list_tasks` | Filters: parent, status, kind, work_type, severity, owner, unblocked, updated_since, search, limit |
-| `get_task` | By key or alias. `view` full (default) or summary (≤ 2 KB); `fields` picks keys; `include_log` adds the last 50 events; `include_children` |
-| `get_memory` | Rules, project docs, decisions (filters: task, initiative, tag; reversed and retired ones only with `include_superseded` / `include_retired`) |
-| `get_doc` | One doc's markdown |
-| `get_next` | Next claimable ticket (expired leases included as `stale_claim`) |
-| `list_events` | The change feed, with a cursor |
+| `get_resume` | Where the project stands, generated from data: live claims (who, until when, where), the next claimable ticket, and per open initiative its in_progress note and claims, next_action note and next_claimable, must_keep (pinned decisions) and status counts. |
+| `get_project` | Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline, settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel), ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, and reserved sequence numbers with the ticket holding each. |
+| `list_tasks` | Initiatives and tickets without scope, with version, claimed_by (live lease owner or null) and updated_at. |
+| `get_task` | One initiative or ticket, by its key or any former key (aliases). |
+| `get_memory` | Fixed memory: rules, design_docs (project docs, with markdown; view summary lists them without it), and the decision log, newest first (limit default 100, max 500). |
+| `get_doc` | One doc by id (from get_task docs, get_memory design_docs, or a decision's adr_doc_id), with its markdown and version. |
+| `get_next` | Next claimable ticket: Backlog or Ready, or In progress with an expired lease (stale_claim: true), with every blocker satisfied (tasks In review or Done, env conditions holding). |
+| `list_events` | What changed, oldest first: every write is an event with its actor, server time, project and a one-line summary (Spanish). |
+| `list_projects` | Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim), ticket counts (open, in_progress, in_review, needs_jorge, blocked, done), open_questions, claims, last_event_id and last_event_at. |
+| `get_running` | Every ticket with an owner, across projects, with a derived liveness: live (lease valid, activity in the last 20 min), quiet (lease valid, no heartbeat or event for longer), stale (lease ran out, not yet cleared). |
+| `get_digest` | One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects. |
+| `get_inbox` | Everything waiting on Jorge, oldest first per kind: pending approvals and open questions (more kinds come with later releases). |
+| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_STATE_NOTE_STALE, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, and the footprint codes. |
+| `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions and pending approvals on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), and the events since since_cursor that touch them. |
 
 | Write | |
 |---|---|
-| `create_task` | Ticket (default) or initiative; scope, checks, phase, work_type, blocked_by. The key is assigned unless given |
-| `set_task` | Fields with `version`; status through the state machine; a note alone needs no version; `parent_key` moves a ticket (new key, old one as alias); `state_note` for where an initiative stands; `checks[].derived_from` ties an initiative check to a ticket |
-| `batch` | Several of create_task, set_task, set_check, add_result, add_decision, note in one call; atomic by default |
-| `claim` | claim / heartbeat / release a lease (default 30 min), with workspace |
-| `handoff` | Hand a claim to a session (or anyone) with a note; the receiver's claim carries it back; a ten-minute hold |
-| `set_check` | Tick one Done when item, amend its text, or lift a waiver |
-| `waive_check` | Mark a check as not going to be done, with why (an approval once In review or later) |
-| `request_approval` | Ask Jorge for one move: wont_do, reopen, waive_check, runbook_step, lease_resource |
-| `add_result` | Evidence: kind, verdict, cite, url, and the facts (commit, branch, env, command, exit_code, counts, duration_s, attachments as links, viewport, device, metrics); can tick checks |
-| `attach_doc` | A spec, plan or design doc on a task or the project |
-| `add_decision` | One line; task, tags, pin, supersedes (one id or several), ADR body |
-| `retire_decision` | A decision that no longer holds and has no replacement |
-| `archive_legacy_card` | Move the v1 card into the event log and remove it (a job does it once v2 data exists) |
-| `ask` / `answer` | Questions for Jorge; `answer` with `decision_text` also writes a decision |
-| `reserve_sequence` | Next free number of a sequence (e.g. migrations), bound to a ticket |
-| `set_env` | What an environment runs: commit, branch, migration tags, flags, and the deploy's `{provider, deployment_id, url}` |
-| `set_metric` | A measured value for `metric_gte` blockers |
-| `lease_resource` / `release_resource` / `consume` | Shared resources (a port per machine, the production migrate step) and daily quotas |
-| `register_footprint` / `release_footprint` | Declare what you started that outlives the command (a dev server, a database copy, a container, a service, a tunnel) with its teardown command, and release it once torn down. Merges with what the machine job sees; `get_task` and `get_context` list a ticket's footprint |
-| `set_project` | Title, body, rules, headline (≤ 280 chars), with version |
+| `create_task` | Create a ticket (default) or, with kind initiative, a parent initiative. |
+| `set_task` | Update a ticket or an initiative. |
+| `set_check` | Tick (or untick) one Done when item by its n, amend its text, or lift a waiver. |
+| `add_result` | Record evidence on a task: kind, verdict pass\|warn\|fail, cite (what ran and what it showed), url (CI run, screenshot, recording), and the structured fields: commit, branch, env, command, exit_code, counts, duration_s, attachments, viewport, device, metrics. |
+| `attach_doc` | Store a markdown doc in Plania so every machine can read it: a spec or plan on a task (key), or a project doc such as a design page (no key). |
+| `claim` | Lease a ticket so no other session works on it. |
+| `add_decision` | Append one decision to the log. |
+| `reserve_sequence` | Reserve the next number of a per-project sequence (e.g. name 'migration' gives '0009') for a ticket, so two initiatives never take the same one. |
+| `ask` | Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer. |
+| `answer` | Record Jorge's answer to a question (he answers on screen, or tells you in chat and you record it here, quoting him). |
+| `set_project` | Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline. |
+| `set_env` | Record what an environment runs, as data other sessions can check: commit and branch deployed, migrations (the tags applied, e.g. ['0009_x']; migrations_applied is derived), flags (configuration state, never secret values: {google_oauth: false, omdb_key: 'valid'}; null removes one). |
+| `request_approval` | Ask Jorge to approve one move you cannot make yourself: action wont_do \| reopen (a status change), waive_check (target {n}, once In review or later), runbook_step, lease_resource. |
+| `waive_check` | Mark one Done when item as not going to be done, with the reason (it then counts as closed for In review and Done). |
+| `retire_decision` | Retire a decision that no longer holds and has no replacement (to replace one, add_decision with supersedes). |
+| `handoff` | Hand your claim to another session (its session_id) or to anyone ('open'), with a note: what is done, what is next, the branch head (head_sha). |
+| `set_metric` | Report a measured value (e.g. pickevent_nights 31) for metric_gte blockers; a result's metrics field does the same. |
+| `lease_resource` | Hold a shared thing for a while so no other session uses it: a dev port (port:3001, scoped to your machine automatically), the production migrate step (neon-prod:migrate), anything by name. |
+| `release_resource` | Give a leased resource back. |
+| `register_footprint` | Declare something you started that outlives the command: a dev server, a database or a copy of one, a container, a service, a tunnel, a worktree. |
+| `release_footprint` | Say a registered footprint is torn down; it leaves the Machine inventory. |
+| `consume` | Count n (default 1) against a daily quota from settings.quotas (e.g. quota:omdb with daily 1000). |
+| `batch` | Several writes in one call: ops of create_task, set_task, set_check, add_result, add_decision or note ({op: 'note', key, text}), each with the fields of its tool (project, actor and request_id come from the batch). |
+<!-- mcp-tools:end -->
 
 Rules every write follows:
 
@@ -229,7 +232,7 @@ Rules every write follows:
 - **Audit.** `audit` finds, from data: tickets in review whose PR merged, Done with open checks, initiatives closed with
   open tickets, stale state notes, decisions citing commits or PRs the release target has moved past, environments
   without a deploy time, drift, Blocked tickets whose blockers hold, gated scopes without a typed blocker, expired
-  claims with commits, merged branches still on origin, branches without a ticket, missing PRs, the v1 card.
+  claims with commits, merged branches still on origin, branches without a ticket, missing PRs.
 - **Releases.** When a ticket reaches Released, the deploy's record collects it (`get_project.releases`: env, commit,
   deployed_at and source, tickets, PRs, migrations new since the previous release).
 - **Bugs and debt.** `work_type: bug` needs a `severity` (S1–S4) and may carry `found_in`, `introduced_by`,
@@ -344,7 +347,6 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `KEY_BELOW_COUNTER` | 409 | an explicit key with a number already issued for that scope (detail: next); omit key to get the next one |
 | `KEY_EXISTS` | 409 | create with a key that exists (or is an alias of one); creates are not idempotent without request_id |
 | `LEASE_EXPIRED` | 409 | heartbeat after your lease ran out: claim again |
-| `LEGACY_CARD_EMPTY` | 409 | archive_legacy_card: the project has no v1 card left |
 | `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
 | `NOT_OWNER` | 409 | another session holds a live lease on this task (detail: owner, lease_until) |
 | `QUOTA_EXCEEDED` | 409 | consume would pass the daily quota (detail: limit, used, remaining) |
@@ -374,7 +376,7 @@ env, reservations, every event). Jorge's session, `MCP_BEARER_TOKEN` or `MCP_REA
 ## Clients
 
 `PLANIA_MCP_TOKEN` is the same value as `MCP_BEARER_TOKEN`. Local URL: `http://localhost:3737/mcp`.
-Canonical URL once deployed: `https://plania.vercel.app/mcp`. On this Mac all three clients are already set up for local.
+On this Mac all three clients are already set up.
 
 Claude Code, available in every project:
 
@@ -397,7 +399,6 @@ bearer_token_env_var = "PLANIA_MCP_TOKEN"
 ```
 
 The local configs on this Mac hold the token literally, because apps launched from the Dock do not see shell variables.
-For Vercel, swap the URL for the canonical one.
 
 ### In a product repo
 
@@ -430,7 +431,7 @@ system themes. Times arrive as UTC and show in the browser's local time.
 - `/p/<slug>` shows the headline first (editable, "desactualizado" when the server marked it stale), then, in order: questions agents asked (answer with one click or free text, with an optional line for
   the decision log); the lane grid; each initiative's line of stations; a branch graph built from initiatives' `branch`
   and `base_branch`; and the pinned decisions. "Ver la ficha completa" opens the generated resume per initiative
-  (claims, next, pinned decisions, the v1 card folded away while it exists) and the decision log, reversed ones
+  (claims, next, pinned decisions) and the decision log, reversed ones
   struck through. A link downloads the project as JSON.
 - `?view=lista` switches to the list grouped by initiative, with status and priority filters and a toggle for
   closed items. Rows show codes only for initiatives; the side panel header still shows a ticket's key.
@@ -520,23 +521,14 @@ the UI refetches what changed.
 
 ## Open
 
-- The cleanup migration (drop `tasks.body`, the `projects.resume_*` card and `design_pages`) waits until the
-  v2 backfill is confirmed on the real database.
 - GitHub and Vercel cannot reach a localhost server, so Plania polls them (`src/jobs/github.ts`, `src/jobs/vercel.ts`,
   every minute, with ETags): pull requests linked by `pr_url`, a `Plania: KEY` line in the body or a `Plania-Task: KEY`
   trailer; check runs as `ci` results (a red one sends an In review ticket back to Ready); merges → Merged; branch heads
   and deletions; READY deployments → `set_env` with Vercel's time and id → Released. `/hooks/*` stays for a CI that can
   reach the server.
 - Background jobs run inside `pnpm start` (`src/jobs/`): the two pollers, lease warnings (`claim.expiring`, five minutes
-  before a lease ends), `time_after` blockers, the audit (every ten minutes) and the legacy card archiver.
+  before a lease ends), `time_after` blockers, the audit (every ten minutes), the machine footprint and the nightly backup.
   `PLANIA_JOBS=0` turns them off (tests, `pnpm dev:api`).
 - Not built from the Filmia requests: test plans and QA runs as tables (R-18: use a "Test plan" doc and `qa_run`-style
-  results), runbooks with approval steps (R-23), rule proposals (R-26), shared rules across projects (R-27) and the
-  v1 data cleanup (R-32: it waits until every legacy card is archived on the real database).
-- Live updates use an in-process bus. On Vercel each request may run in a different function, so the bus in
-  `src/events.ts` must become polling or a hosted pub/sub. The UI does not change.
-- The built SPA in `dist/ui` must be served by Vercel as static output, with `/api`, `/mcp` and `/hooks` routed to the function.
-- `api/index.ts` only receives `/api/*` on Vercel by default. `/mcp` and `/hooks` need a rewrite to the function,
-  which `vercel.json` does not have.
-- `hono/vercel`'s `handle` takes a Web `Request`. On the Node runtime, a bare `export default` may receive
-  Node's `req, res` instead. Hono's Node examples export named `GET`/`POST` handlers. Confirm on a preview.
+  results), runbooks with approval steps (R-23), rule proposals (R-26), and shared rules across projects (R-27).
+  The v1 data cleanup (R-32) shipped in 2.9.

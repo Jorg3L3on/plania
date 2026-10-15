@@ -157,7 +157,7 @@ after(async () => {
 
 // The full tool surface. Update with the contract.
 const TOOLS = [
-  "add_decision", "add_result", "answer", "archive_legacy_card", "ask", "attach_doc", "audit", "batch", "claim", "consume", "create_task",
+  "add_decision", "add_result", "answer", "ask", "attach_doc", "audit", "batch", "claim", "consume", "create_task",
   "get_context", "get_digest", "get_doc", "get_inbox", "get_memory", "get_next", "get_project", "get_resume", "get_running", "get_task", "handoff", "lease_resource",
   "list_events", "list_projects", "list_tasks", "register_footprint", "release_footprint", "release_resource", "request_approval", "reserve_sequence", "retire_decision", "set_check", "set_env",
   "set_metric", "set_project", "set_task", "waive_check",
@@ -620,7 +620,7 @@ describe("v2 A3: leases", () => {
 describe("v2 A4: generated resume", () => {
   const P = { project: "filmia" };
 
-  test("per initiative: claims, next claimable, notes and pinned decisions; legacy card is read-only", async () => {
+  test("per initiative: claims, next claimable, notes and pinned decisions", async () => {
     await call("create_task", { ...P, kind: "initiative", key: "FIL-09", title: "Catalog split", next_action: "F2 after F1" });
     await call("create_task", { ...P, key: "FIL-09-F1", title: "Additive migration", parent_key: "FIL-09" });
     await call("create_task", { ...P, key: "FIL-09-F2", title: "Cutover", parent_key: "FIL-09", blocked_by: ["FIL-09-F1"] });
@@ -630,9 +630,8 @@ describe("v2 A4: generated resume", () => {
     await call("add_decision", { ...P, text: "Users never edit catalog data", task_key: "FIL-09-F2", pin: true });
     await call("add_decision", { ...P, text: "Plania is the source of the plan", pin: true });
     await call("add_decision", { ...P, text: "Not pinned", task_key: "FIL-09" });
-    await raw.query("update projects set resume_in_progress = 'old card' where slug = 'filmia'");
 
-    const r = await call("get_resume", { ...P, include_legacy: true });
+    const r = await call("get_resume", P);
     assert.match(r.generated_at, /Z$/);
     const i = r.initiatives.find((x: Json) => x.key === "FIL-09");
     assert.equal(i.in_progress.note, "F4 first");
@@ -643,9 +642,6 @@ describe("v2 A4: generated resume", () => {
     assert.deepEqual(i.counts, { Backlog: 2, "In progress": 1 });
     assert.deepEqual(r.must_keep.map((d: Json) => d.text), ["Plania is the source of the plan"]);
     assert.ok(r.claims.some((c: Json) => c.key === "FIL-09-F4"));
-    assert.equal(r.legacy_card.in_progress, "old card");
-    assert.equal(r.legacy_card_present, true);
-    assert.equal((await call("get_resume", P)).legacy_card, undefined, "hidden unless asked for");
     assert.ok(r.recent.length > 0 && r.recent[0].at.endsWith("Z"));
   });
 

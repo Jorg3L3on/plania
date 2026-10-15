@@ -17,9 +17,9 @@
     "db:generate": "drizzle-kit generate",
     "seed": "tsx --env-file=.env scripts/seed.ts",
     "project:add": "tsx --env-file=.env scripts/register-project.ts",
-    "backfill-v2": "tsx --env-file=.env scripts/backfill-v2.ts",
     "rekey": "tsx --env-file=.env scripts/rekey-v3.ts",
     "error-catalog": "tsx scripts/error-catalog.ts",
+    "mcp-table": "tsx scripts/mcp-table.ts",
     "hash-password": "tsx scripts/hash-password.ts"
   },
   "dependencies": {

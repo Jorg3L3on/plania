@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { userInfo } from "node:os";
 import path from "node:path";
 import pg from "pg";
+import { resetPool } from "../src/db/client.js";
 
 const ADMIN_URL = `postgres://${userInfo().username}@localhost:5432/postgres`;
 
@@ -33,6 +34,8 @@ export function useTestEnv(): void {
 // Drops and recreates this checkout's test database, applies every migration, inserts the four projects.
 // Returns a raw client for assertions; the caller ends it.
 export async function resetTestDb(): Promise<pg.Client> {
+  // The shared pool holds connections to the database about to be dropped; the next query opens a fresh one.
+  await resetPool();
   const admin = new pg.Client({ connectionString: ADMIN_URL });
   await admin.connect();
   await admin.query(`drop database if exists ${TEST_DB} with (force)`);

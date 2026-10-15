@@ -43,16 +43,9 @@ function NextItem({ next, onOpen }: { next: NonNullable<NextTicket>; onOpen: (ke
   );
 }
 
-const LEGACY: [keyof NonNullable<Resume["legacy_card"]>, string][] = [
-  ["in_progress", "En curso"],
-  ["next_action", "Siguiente"],
-  ["branch_or_prod", "Rama / prod"],
-  ["must_keep_decision", "Decisión fija"],
-];
-
 export function ResumeView({ resume, onOpen }: { resume: Resume; onOpen: (key: string) => void }) {
   const projectWide = resume.standalone.claims.length > 0 || resume.must_keep.length > 0;
-  const empty = !resume.initiatives.length && !projectWide && !resume.legacy_card;
+  const empty = !resume.initiatives.length && !projectWide;
   return (
     <div className="grid gap-3">
       {resume.initiatives.map((i) => (
@@ -87,14 +80,6 @@ export function ResumeView({ resume, onOpen }: { resume: Resume; onOpen: (key: s
         </Card>
       )}
       {empty && <p className="text-sm text-muted-foreground">Sin ficha.</p>}
-      {resume.legacy_card && (
-        <details className="text-sm">
-          <summary className="cursor-pointer text-muted-foreground">Ficha anterior (v1, solo lectura)</summary>
-          <div className="mt-3 grid gap-x-8 gap-y-4 sm:grid-cols-2">
-            {LEGACY.map(([field, label]) => <Row key={field} label={label} items={[resume.legacy_card![field]]} />)}
-          </div>
-        </details>
-      )}
     </div>
   );
 }
