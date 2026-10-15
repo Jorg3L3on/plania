@@ -10,7 +10,7 @@ import { Kicker, accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
 import { SOURCE_WORD, STATE_WORD, ageSource, formatKb, groupItems, isPrimary, nameOf, sizeOf, whyLine, type Group, type TicketNode } from "@/lib/machine";
 import { ago, span } from "@/lib/time";
-import type { FootprintItem, FootprintKind, FootprintState } from "@/lib/types";
+import type { FootprintItem, FootprintKind, FootprintState, MachineBackup } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // What runs and is stored on this Mac for agent work, from the machine job (observed) and from
@@ -233,6 +233,28 @@ function Totals({ machine }: { machine: NonNullable<ReturnType<typeof useMachine
   );
 }
 
+const BACKUP_STALE_MS = 48 * 3600_000;
+
+function formatBytes(n: number): string {
+  if (n >= 1024 * 1024 * 1024) return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`;
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(n / 1024))} KB`;
+}
+
+// The nightly pg_dump: one quiet line, red when the last attempt failed or the last copy is over 48 h old.
+function BackupLine({ backup, nowMs }: { backup: MachineBackup | undefined; nowMs: number }) {
+  if (!backup) return null;
+  const stale = !backup.at || nowMs - new Date(backup.at).getTime() > BACKUP_STALE_MS;
+  const bad = Boolean(backup.error) || (stale && Boolean(backup.attempted_at));
+  const copy = backup.at ? `Última copia: ${ago(backup.at, nowMs)}${backup.bytes ? `, ${formatBytes(backup.bytes)}` : ""}` : "Sin copias todavía";
+  return (
+    <p className={cn("text-[13px] wrap-anywhere", bad ? "font-medium text-destructive" : "text-muted-foreground")} title={backup.path ?? undefined}>
+      {copy}
+      {backup.error && ` · falló ${backup.attempted_at ? ago(backup.attempted_at, nowMs) : ""}: ${backup.error}`}
+    </p>
+  );
+}
+
 // What the audit finds about the Mac that no project audit holds: a short list under the header.
 function Findings({ findings }: { findings: NonNullable<ReturnType<typeof useMachine>["data"]>["findings"] }) {
   if (!findings.length) return null;
@@ -327,6 +349,7 @@ export function MachinePage() {
           <Kicker className="text-muted-foreground">Máquina</Kicker>
           <h1 className="font-display text-4xl leading-[0.95] font-extrabold tracking-[-0.03em] sm:text-5xl">¿Qué hay corriendo?</h1>
           {machine.data && <p className="text-[15px] break-all text-muted-foreground">{machine.data.machine}</p>}
+          {machine.data && <BackupLine backup={machine.data.backup} nowMs={nowMs} />}
         </div>
         {machine.data && <Totals machine={machine.data} />}
       </header>

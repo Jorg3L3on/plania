@@ -686,6 +686,13 @@ export const pollState = pgTable(
   (t) => [primaryKey({ columns: [t.projectId, t.source] })],
 );
 
+// 2.9: state of jobs that belong to the Mac, not to a project (the nightly backup), one row per key.
+export const machineState = pgTable("machine_state", {
+  key: text("key").primaryKey(), // backup
+  value: jsonb("value").$type<Record<string, unknown>>().notNull().default({}),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // v2: idempotent retries. A write that carries request_id stores its response here; the same
 // request_id for the same tool replays it instead of writing twice. Rows older than 30 days are purged.
 export const writeRequests = pgTable(

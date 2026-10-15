@@ -11,6 +11,7 @@ import { issueToken, listTokens, revokeToken, TOKEN_SCOPES } from "../auth/token
 import { withDb, type Db } from "../db/client.js";
 import { projects, tasks, type Actor } from "../db/schema.js";
 import { bus } from "../events.js";
+import { backupFindings, backupStatus } from "../jobs/backup.js";
 import { machineInventory, machineTotals, thisMachine } from "../jobs/machine/index.js";
 import { decideApproval } from "../mcp/approvals.js";
 import { resolveHumanAction, SETTLED_STATUSES } from "../mcp/blockers.js";
@@ -346,12 +347,17 @@ api.post("/approvals/decide", async (c) => {
 // every unreleased row with its project, initiative, ticket and session, and the header totals.
 // Read-only: the screen never stops or deletes anything.
 api.get("/machine", async (c) => {
-  const { items, findings } = await withDb(async (db) => ({
-    items: await machineInventory(db),
-    // What no project audit can hold: rows without a project (Plania's own repo, shared servers, nobody's).
-    findings: await footprintFindings(db, { projectless: true }),
-  }));
-  return c.json({ machine: thisMachine(), totals: machineTotals(items), findings, items });
+  const { items, findings, backup } = await withDb(async (db) => {
+    const backup = await backupStatus(db);
+    return {
+      items: await machineInventory(db),
+      backup,
+      // What no project audit can hold: rows without a project (Plania's own repo, shared servers, nobody's),
+      // and the nightly backup.
+      findings: [...backupFindings(backup), ...(await footprintFindings(db, { projectless: true }))],
+    };
+  });
+  return c.json({ machine: thisMachine(), totals: machineTotals(items), backup, findings, items });
 });
 
 // ---- Agent tokens (issued here only; the secret is shown once)

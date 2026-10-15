@@ -29,7 +29,9 @@ Fill `.env`:
 | `PLANIA_PASSWORD_HASH` | Output of `pnpm hash-password`. Quote it in `.env`. Never a plain password. |
 | `MCP_READ_TOKEN` | Optional. A second token for planning sessions: read tools only. |
 | `PLANIA_CI_TOKEN` | Optional. Token for `/hooks/*` only; it cannot use `/mcp`. |
-| `PLANIA_TZ` | Optional. Time zone the screen shows times in. Default `America/Mexico_City`. |
+| `PLANIA_TZ` | Optional. Time zone the screen shows times in, and the nightly backup's clock. Default `America/Mexico_City`. |
+| `PLANIA_PG_BIN` | Optional. Directory of the `pg_dump` the backup uses. Default: Homebrew's for the server's major version. |
+| `PLANIA_BACKUP_DIR` | Optional. Where the nightly dumps go. Default `~/plania-backups`. |
 
 ## Database
 
@@ -136,6 +138,14 @@ pnpm build && launchctl kickstart -k gui/$(id -u)/com.plania.server   # deploy c
 launchctl bootout gui/$(id -u)/com.plania.server        # stop and unload
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.plania.server.plist  # load again
 tail -f ~/Library/Logs/plania/server.log
+```
+
+Backups: the `backup` job dumps the database once a day after 03:00 (`PLANIA_TZ`) into
+`~/plania-backups/plania-<YYYYMMDD>.sql.gz` and keeps the last 14; hand-made `plania-pre-*` dumps stay. The Máquina
+page shows the last copy, and `BACKUP_STALE` appears there when the last one is older than 48 h. To restore:
+
+```bash
+createdb plania_restore && gunzip -c ~/plania-backups/plania-20261016.sql.gz | psql -v ON_ERROR_STOP=1 plania_restore
 ```
 
 Change the screen password with `pnpm hash-password`, paste the result into `.env` as
@@ -527,7 +537,8 @@ the UI refetches what changed.
   and deletions; READY deployments → `set_env` with Vercel's time and id → Released. `/hooks/*` stays for a CI that can
   reach the server.
 - Background jobs run inside `pnpm start` (`src/jobs/`): the two pollers, lease warnings (`claim.expiring`, five minutes
-  before a lease ends), `time_after` blockers, the audit (every ten minutes) and the legacy card archiver.
+  before a lease ends), `time_after` blockers, the audit (every ten minutes), the machine footprint, the nightly backup
+  and the legacy card archiver.
   `PLANIA_JOBS=0` turns them off (tests, `pnpm dev:api`).
 - Not built from the Filmia requests: test plans and QA runs as tables (R-18: use a "Test plan" doc and `qa_run`-style
   results), runbooks with approval steps (R-23), rule proposals (R-26), shared rules across projects (R-27) and the

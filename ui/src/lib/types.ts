@@ -246,4 +246,5 @@ export type FootprintItem = {
 export type MachineTotals = { servers: number; databases: number; worktree_kb: number; orphan: number; stale: number };
 /** An audit finding about the Mac that no project audit holds (rows without a project). */
 export type MachineFinding = { code: string; key: string | null; detail: string; fix_hint: string };
-export type Machine = { machine: string; totals: MachineTotals; findings: MachineFinding[]; items: FootprintItem[] };
+export type MachineBackup = { at: string | null; path: string | null; bytes: number | null; error: string | null; attempted_at: string | null };
+export type Machine = { machine: string; totals: MachineTotals; backup?: MachineBackup; findings: MachineFinding[]; items: FootprintItem[] };
