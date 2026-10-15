@@ -86,7 +86,7 @@ describe("state_note and derived checks", () => {
     const cross = await call("set_check", { ...P, key: "FIL-I1", n: 2, done: true, evidence_id: r.result.id });
     assert.equal(cross.check.source, "FIL-I1-1", "evidence from a child");
     await call("set_check", { ...P, key: "FIL-I1", n: 2, done: false });
-    await call("set_task", { ...P, key: "FIL-I1-1", status: "In review", version: await version("FIL-I1-1") });
+    await call("set_task", { ...P, key: "FIL-I1-1", status: "In review", pr_url: "https://github.com/jorge/filmia/pull/7", version: await version("FIL-I1-1") });
     assert.deepEqual((await call("get_task", { ...P, key: "FIL-I1" })).checks.map((c: Json) => [c.n, c.done, c.derived_from]), [[1, false, "FIL-I1-1"], [2, false, "FIL-I1-2"]]);
     await call("add_result", { ...P, key: "FIL-I1-1", kind: "ci", verdict: "pass", cite: "merge commit green", commit: "dddddddd1" });
     await call("set_task", { ...P, key: "FIL-I1-1", status: "Merged", version: await version("FIL-I1-1") });
@@ -141,6 +141,8 @@ describe("audit and releases", () => {
   test("the audit reports what the data says is wrong, and the job stores the count for the status block", async () => {
     await call("set_env", { ...P, env: "prod", commit: "1234567" }); // no deployed_at
     await raw.query("update branches set merged_at = now(), head_sha = 'fedcba9' where name = 'jl/post-qa'");
+    // A Done code ticket without a PR from before 2.13's write-time guard.
+    await raw.query("update tasks set pr_url = null where key = 'FIL-I1-1'");
     const r = await call("audit", P);
     const codes = r.findings.map((f: Json) => f.code).sort();
     for (const code of ["ENV_DEPLOYED_AT_MISSING", "BRANCH_MERGED_NOT_DELETED", "INITIATIVE_SCOPE_HAS_STATUS", "TASK_MISSING_PR_URL"]) {

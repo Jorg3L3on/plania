@@ -157,10 +157,10 @@ after(async () => {
 
 // The full tool surface. Update with the contract.
 const TOOLS = [
-  "add_decision", "add_result", "answer", "ask", "attach_doc", "audit", "batch", "claim", "consume", "create_task",
+  "add_decision", "add_result", "answer", "ask", "attach_doc", "audit", "batch", "claim", "consume", "create_task", "finish",
   "get_context", "get_digest", "get_doc", "get_inbox", "get_memory", "get_next", "get_project", "get_resume", "get_running", "get_task", "handoff", "lease_resource",
   "list_events", "list_projects", "list_tasks", "register_footprint", "release_footprint", "release_resource", "request_approval", "reserve_sequence", "retire_decision", "set_check", "set_env",
-  "set_metric", "set_project", "set_task", "waive_check",
+  "set_metric", "set_project", "set_task", "start", "waive_check",
 ];
 
 test("exposes exactly the contract tools", async () => {
@@ -1147,12 +1147,12 @@ describe("v2 C2: list_events", () => {
 describe("v2 C4: protocol and project text", () => {
   test("the protocol comes with initialize, versioned", async () => {
     const text = client.getInstructions() ?? "";
-    assert.match(text, /^Plania protocol 2\.11\./);
-    assert.match(text, /set_task status Done once the ticket is Merged or Released/);
-    assert.match(text, /Never set Won't do or reopen a closed task yourself/);
-    assert.equal(client.getServerVersion()?.version, "2.11.0");
+    assert.match(text, /^Plania protocol 2\.12\./);
+    assert.match(text, /set_task Done once it is Merged or Released/);
+    assert.match(text, /Won't do and reopening are Jorge's/);
+    assert.equal(client.getServerVersion()?.version, "2.12.0");
     const p = await call("get_project", { project: "zigzag" });
-    assert.equal(p.protocol_version, "2.11");
+    assert.equal(p.protocol_version, "2.12");
   });
 
   test("set_project edits body and rules with the version; rules_version follows the rules", async () => {

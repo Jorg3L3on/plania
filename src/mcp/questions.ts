@@ -93,7 +93,9 @@ export async function ask(
     }
     await emit("question.asked", t, { question_id: q!.id, question: q!.question, options: q!.options, blocks: q!.blocks, urgency: q!.urgency });
     const u = await requireTask(tx, p.id, t.key);
-    return writeReply(tx, u, ctx, moves ? ["questions", "status"] : ["questions"], { question: questionShape(q!, t.key) });
+    // 2.13: the reply says where the wait now lives, so nobody also writes it into next_action or a note.
+    const waits = u.status === "Needs Jorge" ? "the ticket waits in Needs Jorge until he answers" : "the question waits in Jorge's inbox until he answers";
+    return writeReply(tx, u, ctx, moves ? ["questions", "status"] : ["questions"], { question_id: q!.id, waits, question: questionShape(q!, t.key) });
   });
 }
 

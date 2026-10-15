@@ -31,6 +31,7 @@ export const ERRORS = {
   INVALID_APPROVAL: [400, "request_approval action is not wont_do, reopen, waive_check, runbook_step or lease_resource"],
   PARENT_MUST_BE_INITIATIVE: [400, "parent_key names a ticket"],
   RESERVED_ACTOR: [400, "actor.agent is jorge: only the screen writes as Jorge"],
+  TASK_MISSING_PR_URL: [400, "Done, Merged or Released on a code ticket without pr_url: pass pr_url, or no_pr_reason when the work had no PR"],
   TEMPLATE_INVALID: [400, "create_task: a ticket without scope, or a code/ops ticket without checks (detail: missing)"],
   TEXT_HAS_DATE: [400, "decision text starts with a date: the server stamps dates"],
   TOO_LARGE: [400, "a text field exceeds its limit (detail: field, max)"],

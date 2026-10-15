@@ -406,7 +406,19 @@ export type SetTaskInput = {
   cost_note?: string;
   state_note?: string;
   due_on?: string | null;
+  no_pr_reason?: string;
 };
+
+// 2.13: a code ticket closes on a PR. Done, Merged or Released without one is refused at write
+// time (the audit's TASK_MISSING_PR_URL, moved up front) unless the agent says why there is none;
+// the reason goes to the log as task.no_pr and the audit stops flagging the ticket.
+const NEEDS_PR = ["Done", "Merged", "Released"];
+
+function assertPrUrl(t: Task, to: string, prUrl: string | null, input: SetTaskInput): void {
+  if (t.kind !== "ticket" || !NEEDS_PR.includes(to) || to === t.status) return;
+  if ((input.work_type ?? t.workType ?? "code") !== "code" || prUrl?.trim() || input.no_pr_reason?.trim()) return;
+  throw new ToolError("TASK_MISSING_PR_URL", { key: t.key, to, hint: "pass pr_url (the PR that shipped it), or no_pr_reason when the work had none" });
+}
 
 // An initiative closes only once every ticket of it is Done or Won't do (Jorge included).
 async function assertChildrenClosed(tx: Q, t: Task): Promise<void> {
@@ -422,7 +434,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   rejectBody(input);
   checkPhase(input.phase);
   const blockedBy = input.blocked_by !== undefined ? parseBlockers(input.blocked_by) : undefined;
-  const { project: _p, key: _k, note: _n, version: _v, approval_id: _a, withdraw_blocker: _w, ...fields } = input;
+  const { project: _p, key: _k, note: _n, version: _v, approval_id: _a, withdraw_blocker: _w, no_pr_reason: _r, ...fields } = input;
   // A note alone is an append and needs no version; any field change does. Withdrawing a blocker
   // parsed from your own note is the same kind of append-side write (checked against its author).
   const noteOnly = Object.values(fields).every((v) => v === undefined);
@@ -455,6 +467,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     }
     // The pollers move on what GitHub and the deploys say (reality wins); the audit flags open checks.
     if ((GATED_STATUSES as readonly string[]).includes(input.status) && input.status !== t.status && !ctx.system) await assertChecksClosed(tx, t);
+    if (!ctx.human && !ctx.system) assertPrUrl(t, input.status, input.pr_url ?? t.prUrl, input);
     if ((input.status === "Merged" || input.status === "Released") && input.status !== t.status && !ctx.human && !ctx.system) await assertMergeEvidence(tx, p, t, input.status);
     if (t.kind === "initiative" && (TERMINAL as readonly string[]).includes(input.status) && input.status !== t.status) {
       await assertChildrenClosed(tx, t);
@@ -576,6 +589,10 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     }
     // The headline talks about where things stand; an initiative moving or a ticket closing dates it.
     if (t.kind === "initiative" || patch.status === "Done") await markHeadlineStale(tx, p.id);
+    if (input.no_pr_reason?.trim() && NEEDS_PR.includes(u.status) && !u.prUrl) {
+      changedNames.push("no_pr");
+      await emit("task.no_pr", u, { reason: input.no_pr_reason.trim(), to: u.status });
+    }
     // An initiative check derived from this ticket ticks itself when the ticket is Done.
     if (patch.status === "Done" && t.kind === "ticket") await tickDerived(tx, emit, u, ctx.actor);
     // A ticket reaching In review or later may be what a Blocked ticket waited for.

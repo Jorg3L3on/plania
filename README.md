@@ -156,7 +156,8 @@ Change the screen password with `pnpm hash-password`, paste the result into `.en
 otherwise `401 {"error":"UNAUTHORIZED"}`. The screen cookie is never accepted here.
 `MCP_BEARER_TOKEN` sees every tool; `MCP_READ_TOKEN` sees only the read tools.
 
-The working protocol (claim, versions, evidence, closing finished work) is served as the server's `instructions`
+The working protocol (Start / Work / Finish, under 900 words since 2.12; each tool's own rules live in its
+description) is served as the server's `instructions`
 on `initialize`, versioned (`PROTOCOL_VERSION` in `src/mcp/protocol.ts`, also in `get_project`). Project-specific
 additions are the project's `rules` (`set_project`). Product repos point here instead of copying the rules.
 
@@ -180,6 +181,8 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 
 | Write | |
 |---|---|
+| `start` | Open a ticket in one call: claim on key (In progress, your lease) plus get_context for the workspace. |
+| `finish` | Close your part of a ticket in one transaction: add_result (result: kind, verdict, cite, commit, command, counts, check_ns...) then set_task status In review with branch and pr_url. |
 | `create_task` | Create a ticket (default) or, with kind initiative, a parent initiative. |
 | `set_task` | Update a ticket or an initiative. |
 | `set_check` | Tick (or untick) one Done when item by its n, amend its text, or lift a waiver. |
@@ -261,8 +264,12 @@ Rules every write follows:
   once In review, a runbook step or a gated resource); Jorge grants or rejects in the inbox, one event per decision;
   the granted `approval_id` unlocks exactly one move (`APPROVAL_MISMATCH`, `APPROVAL_NOT_GRANTED`, `APPROVAL_USED`)
   and expires after 7 days. `confirm_by_jorge` is gone. Jorge's own moves on screen need no approval.
+- **Start and finish.** `start` is `claim` plus `get_context` in one call (with any handoff note); `finish` is
+  `add_result` plus In review with branch and pr_url in one transaction, so a failure writes neither.
+- **PRs.** Done, Merged or Released on a code ticket without `pr_url` is `TASK_MISSING_PR_URL` unless the write passes
+  `no_pr_reason` (logged as `task.no_pr`, and the audit stops flagging it). The pollers and the screen are exempt.
 - **Checks.** Entering In review, Merged, Released or Done needs every check done or waived (`CHECKS_OPEN` lists the
-  numbers), Jorge included; an initiative needs every ticket closed (`INITIATIVE_CHILDREN_OPEN`).
+  numbers and each open check's text), Jorge included; an initiative needs every ticket closed (`INITIATIVE_CHILDREN_OPEN`).
 - **Headline.** One line (≤ 280 chars) on where the project stands, written with `set_project` or on screen and
   versioned; the server marks it `stale` when an env changes, an initiative moves or a ticket reaches Done after it.
 - **Events.** Every write records one or more events in the same transaction; `get_task.log` and
@@ -325,6 +332,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
 | `RESERVED_ACTOR` | 400 | actor.agent is jorge: only the screen writes as Jorge |
 | `SECRET_LIKE_VALUE` | 400 | an env flag looks like a secret (a key name, a token prefix, or 20+ random characters); flags record whether something is configured, never the value |
+| `TASK_MISSING_PR_URL` | 400 | Done, Merged or Released on a code ticket without pr_url: pass pr_url, or no_pr_reason when the work had no PR |
 | `TEMPLATE_INVALID` | 400 | create_task: a ticket without scope, or a code/ops ticket without checks (detail: missing) |
 | `TEXT_HAS_DATE` | 400 | decision text starts with a date: the server stamps dates |
 | `TOO_LARGE` | 400 | a text field exceeds its limit (detail: field, max) |

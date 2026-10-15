@@ -43,11 +43,12 @@ export async function tickDerived(tx: Q, emit: Emit, child: Task, by: Actor): Pr
 // Entering In review, Merged, Released or Done needs every check done or waived (R-13).
 export async function assertChecksClosed(tx: Q, t: Pick<Task, "id">): Promise<void> {
   const open = await tx
-    .select({ n: checks.n })
+    .select({ n: checks.n, text: checks.text })
     .from(checks)
     .where(and(eq(checks.taskId, t.id), eq(checks.done, false), isNull(checks.waivedAt)))
     .orderBy(asc(checks.n));
-  if (open.length) throw new ToolError("CHECKS_OPEN", { open: open.map((c) => c.n), hint: "set_check done, or waive_check with a reason" });
+  // 2.13: each open check with its text, so the caller knows what is left without another read.
+  if (open.length) throw new ToolError("CHECKS_OPEN", { open: open.map((c) => c.n), checks: open, hint: "set_check done (or add_result check_ns), or waive_check with a reason" });
 }
 
 function checkOwner(t: Task, ctx: Ctx): void {

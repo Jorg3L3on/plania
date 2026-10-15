@@ -115,7 +115,11 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
     const expired = await db.execute<{ n: number }>(sql`select count(*)::int as n from events where task_id = ${t.id} and type = 'claim.expired'`).then((x) => x.rows[0]?.n ?? 0);
     if (r && expired > 0) out.push({ code: "CLAIM_EXPIRED_WITH_COMMITS", key: t.key, detail: `lease expired with work on ${t.workspace!.branch}`, fix_hint: "claim it again, or hand it off" });
   }
-  for (const t of all.filter((t) => t.kind === "ticket" && ["In review", "Merged", "Released", "Done"].includes(t.status) && !t.prUrl && (t.workType ?? "code") === "code")) {
+  // 2.13: a ticket closed with no_pr_reason said why it has no PR (event task.no_pr); not a finding.
+  const noPr = new Set(
+    (await db.execute<{ task_id: string }>(sql`select distinct task_id from events where project_id = ${p.id} and type = 'task.no_pr'`)).rows.map((r) => r.task_id),
+  );
+  for (const t of all.filter((t) => t.kind === "ticket" && ["In review", "Merged", "Released", "Done"].includes(t.status) && !t.prUrl && (t.workType ?? "code") === "code" && !noPr.has(t.id))) {
     out.push({ code: "TASK_MISSING_PR_URL", key: t.key, detail: `${t.status} without a PR`, fix_hint: "set_task pr_url, or put Plania: KEY in the PR body" });
   }
   const known = await db.select().from(branches).where(and(eq(branches.projectId, p.id), isNull(branches.deletedAt)));

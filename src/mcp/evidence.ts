@@ -109,11 +109,15 @@ export async function assertReviewEvidence(tx: Q, t: Task, hasDoc: (tx: Q, t: Ta
       if (resultShape(r, head).stale_for_head !== true) fresh.push(r);
     }
     if (fresh.length) return;
+    const branch = found[0]!.branch ?? t.branch;
+    const head = await headFor(tx, t, branch ?? null);
+    const named = [...new Set(found.map((r) => r.commit?.slice(0, 7)).filter(Boolean))].join(", ");
     throw new ToolError("EVIDENCE_STALE", {
-      branch: found[0]!.branch ?? t.branch,
-      head: await headFor(tx, t, found[0]!.branch ?? t.branch ?? null),
+      branch,
+      head,
       results: found.map((r) => ({ id: r.id, kind: r.kind, commit: r.commit })),
-      hint: "add a passing result for the current head",
+      // 2.13: say what moved, so the fix is obvious: the branch went on past the commit the passes name.
+      hint: `${branch} is at ${head?.slice(0, 7) ?? "?"} (what the GitHub poller last saw, else the newest commit a result named), but your passes name ${named}; run the checks again at ${head?.slice(0, 7) ?? "the head"} and add a pass with that commit`,
     });
   }
   if (workType === "research" && (await hasDoc(tx, t))) return;
