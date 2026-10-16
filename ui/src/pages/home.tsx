@@ -67,7 +67,7 @@ export function HomePage() {
   }
 
   return (
-    <div className="grid gap-6 sm:gap-7">
+    <div className="grid grid-cols-1 gap-6 sm:gap-7">
       {/* 2.12: one field to ask for something in any project. */}
       <PedirHome projects={projects.data} />
 

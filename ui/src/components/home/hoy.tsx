@@ -82,7 +82,7 @@ export function Hoy({ names }: { names: (slug: string) => string }) {
   const active = d.projects.filter((p) => chipsOf(p.highlights).length > 0);
 
   return (
-    <section aria-labelledby="hoy-title" className="grid animate-rise gap-3 rounded-[20px] border bg-card/60 px-4 py-3.5 sm:px-5">
+    <section aria-labelledby="hoy-title" className="grid animate-rise grid-cols-1 gap-3 rounded-[20px] border bg-card/60 px-4 py-3.5 sm:px-5">
       <div className="flex items-baseline justify-between gap-3">
         <h2 id="hoy-title" className="font-display text-lg font-bold tracking-tight">
           Hoy <span className="text-sm font-normal text-muted-foreground">{sinceWord(d)}</span>
@@ -93,7 +93,7 @@ export function Hoy({ names }: { names: (slug: string) => string }) {
       </div>
 
       {active.length > 0 && (
-        <ul className="grid gap-2">
+        <ul className="grid grid-cols-1 gap-2">
           {active.map((p) => {
             const [a] = projectAccent(p.slug);
             return (
@@ -113,9 +113,9 @@ export function Hoy({ names }: { names: (slug: string) => string }) {
       )}
 
       {waiting.length > 0 && (
-        <div className="grid gap-1.5">
+        <div className="grid grid-cols-1 gap-1.5">
           <p className="text-xs font-semibold tracking-wide text-ink-jorge uppercase">Te espera</p>
-          <ul className="grid gap-1">
+          <ul className="grid grid-cols-1 gap-1">
             {waiting.slice(0, 6).map((i, n) => (
               <li key={`${i.project}-${i.kind}-${i.key ?? n}-${n}`}>
                 <Link
