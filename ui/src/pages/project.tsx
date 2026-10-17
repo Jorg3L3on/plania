@@ -112,6 +112,8 @@ export function ProjectPage() {
   }
 
   const initiativeLanes = derived.lanes.filter((l) => l.initiative);
+  // On hold initiatives stay in the table below, not in En paralelo.
+  const parallelLanes = derived.lanes.filter((l) => l.state !== "paused");
 
   return (
     // grid-cols-1 keeps the track at the viewport: no section can widen the page on phones.
@@ -162,19 +164,21 @@ export function ProjectPage() {
             </div>
           ) : (
             <>
-              <section className="grid gap-3">
-                <SectionTitle
-                  hint={
-                    <>
-                      una fila por iniciativa; cada una avanza por su cuenta
-                      <span className="hidden md:inline">, de izquierda a derecha</span>
-                    </>
-                  }
-                >
-                  En paralelo
-                </SectionTitle>
-                <LaneGrid slug={slug} lanes={derived.lanes} onOpen={openTask} />
-              </section>
+              {parallelLanes.length > 0 && (
+                <section className="grid gap-3">
+                  <SectionTitle
+                    hint={
+                      <>
+                        una fila por iniciativa; cada una avanza por su cuenta
+                        <span className="hidden md:inline">, de izquierda a derecha</span>
+                      </>
+                    }
+                  >
+                    En paralelo
+                  </SectionTitle>
+                  <LaneGrid slug={slug} lanes={parallelLanes} onOpen={openTask} />
+                </section>
+              )}
 
               <div className="grid grid-cols-1 gap-6">
                 <section className="grid min-w-0 gap-3">
