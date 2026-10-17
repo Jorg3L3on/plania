@@ -74,7 +74,7 @@ export function HomePage() {
       {/* 2.12: what changed since "Visto", and what waits on Jorge, above the city. */}
       <Hoy names={names} />
 
-      <Ciudad districts={model.districts} loose={model.loose} headline={model.headline} envLines={model.envLines} names={names} nowMs={nowMs} />
+      <Ciudad districts={model.districts} loose={model.loose} headline={model.headline} envLines={model.envLines} nowMs={nowMs} />
 
       <Proximo lines={model.proximo} names={names} nowMs={nowMs} />
 

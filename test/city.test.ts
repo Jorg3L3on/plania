@@ -1,7 +1,7 @@
 // Inicio's city (ui/src/lib/city.ts): towers per open initiative, windows per ticket. Pure, no database.
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { addressedToJorge, cityOf, columnsFor, defaultTower, looseInbox, stageLabel, towerLabel, waitingOf, workingCity, type CityProject, type CityTask } from "../ui/src/lib/city.js";
+import { addressedToJorge, cityOf, columnsFor, looseInbox, stageLabel, towerLabel, waitingOf, workingCity, type CityProject, type CityTask } from "../ui/src/lib/city.js";
 import type { InboxItem } from "../ui/src/lib/types.js";
 
 const init = (key: string, status: string, title = `Iniciativa ${key}`): CityTask => ({ key, kind: "initiative", title, status, parent_key: null });
@@ -112,11 +112,6 @@ describe("city", () => {
     assert.deepEqual(looseInbox(city, inbox).map((i) => i.id), ["a2", "q1"]);
   });
 
-  test("the ficha opens on the first tower that waits on Jorge, past the ones still planning", () => {
-    assert.equal(defaultTower(cityOf([filmia, workia], [])), "FIL-I6");
-    assert.equal(defaultTower(cityOf([workia], [])), "WRK-I2");
-    assert.equal(defaultTower([]), null);
-  });
 
   test("what waits on Jorge counts the inbox and every tower with a ticket in Needs Jorge outside it", () => {
     const inbox = [item("a1", "filmia", "FIL-I6-5", "FIL-I6"), item("q1", "zigzag", "ZIG-01", null, "question")];

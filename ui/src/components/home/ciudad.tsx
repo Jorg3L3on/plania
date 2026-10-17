@@ -1,24 +1,16 @@
 // La ciudad: Inicio's night skyline. Each open initiative is a tower in its project's district;
 // its windows are its tickets, lit from the ground up as they close. A crane means agents are on
 // it, a red beacon that it is shipping, scaffolding that it is still being planned, and a
-// searchlight that it waits on Jorge. Tapping a tower opens its ficha, where whatever waits on
-// Jorge is decided in place, the same writes the Bandeja makes.
-import { ArrowRightIcon, XIcon } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+// searchlight that it waits on Jorge. Tapping a tower opens the initiative on its project page.
+import { useEffect, useState, type CSSProperties } from "react";
 import { Link } from "react-router";
 import { ProjectMark } from "@/components/plania-mark";
 import { accentInk, projectAccent } from "@/components/plan/visuals";
-import { defaultTower, stageLabel, towerLabel, type District, type Stage, type Tower, type WindowTone } from "@/lib/city";
+import { towerLabel, type District, type Tower, type WindowTone } from "@/lib/city";
 import type { Headline } from "@/lib/home";
 import type { InboxItem } from "@/lib/types";
-import { cn } from "@/lib/utils";
 import { Titular } from "./parts";
-import { TeTocaItems } from "./te-toca";
 
-type Names = (slug: string) => string;
-
-const LOOSE = "__loose";
-const FICHA_W = 368;
 
 // Fixed so the sky doesn't reshuffle on every render: [left %, top %, delay s].
 const STARS: [number, number, number][] = [
@@ -48,15 +40,6 @@ function floorsOf(windows: WindowTone[], cols: number): (WindowTone | null)[] {
   return floors.reverse().flat();
 }
 
-const STAGE_TAG: Record<Stage, string> = {
-  planning: "bg-foreground/[0.08] text-muted-foreground",
-  building: "bg-status-now/15 text-ink-now",
-  shipping: "bg-status-review/15 text-ink-review",
-  paused: "bg-foreground/[0.06] text-muted-foreground",
-};
-
-const modelWord = (m: string | null) => (m ? m.replace(/^claude-/, "").replace(/-(\d)-(\d)$/, " $1.$2") : null);
-
 function Crane({ lights }: { lights: number }) {
   // Where the lights hang on the jib, up to four.
   const spots: CSSProperties[] = [
@@ -75,19 +58,17 @@ function Crane({ lights }: { lights: number }) {
   );
 }
 
-function TowerView({ t, projectTitle, selected, onSelect, index }: { t: Tower; projectTitle: string; selected: boolean; onSelect: (key: string) => void; index: number }) {
+function TowerView({ t, projectTitle, index }: { t: Tower; projectTitle: string; index: number }) {
   const [accent] = projectAccent(t.slug);
   const cells = floorsOf(t.windows, t.columns);
   const searchlight = t.waits && !t.awaitsGo && t.agents.length === 0;
   return (
-    <button
-      type="button"
+    <Link
+      to={`/p/${t.slug}?task=${encodeURIComponent(t.key)}`}
       data-key={t.key}
       data-stage={t.stage}
       data-paused={t.stage === "paused" || undefined}
-      aria-pressed={selected}
       aria-label={towerLabel(t, projectTitle)}
-      onClick={() => onSelect(t.key)}
       className="city-tower animate-rise"
       style={{ "--cols": t.columns, animationDelay: `${120 + index * 70}ms` } as CSSProperties}
     >
@@ -111,16 +92,16 @@ function TowerView({ t, projectTitle, selected, onSelect, index }: { t: Tower; p
         <span className="font-mono text-[10px] tracking-wide" style={{ color: accentInk(accent) }}>{t.key}</span>
         <span className="line-clamp-2 text-[11px] leading-tight text-foreground/75 md:text-xs">{t.title}</span>
       </span>
-    </button>
+    </Link>
   );
 }
 
-function DistrictView({ d, envLine, selected, onSelect, offset }: { d: District; envLine: string; selected: string | null; onSelect: (key: string) => void; offset: number }) {
+function DistrictView({ d, envLine, offset }: { d: District; envLine: string; offset: number }) {
   const [accent] = projectAccent(d.slug);
   return (
     <div className="relative z-[1] flex flex-col">
       <div className="flex items-end justify-center gap-1 px-1 md:gap-1.5">
-        {d.towers.map((t, i) => <TowerView key={t.key} t={t} projectTitle={d.title} selected={selected === t.key} onSelect={onSelect} index={offset + i} />)}
+        {d.towers.map((t, i) => <TowerView key={t.key} t={t} projectTitle={d.title} index={offset + i} />)}
       </div>
       <Link
         to={`/p/${d.slug}`}
@@ -154,180 +135,46 @@ function Legend() {
   );
 }
 
-function FichaFrame({ children, onClose, style, className }: { children: ReactNode; onClose: () => void; style?: CSSProperties; className?: string }) {
-  return (
-    <aside
-      aria-label="Ficha"
-      className={cn("grid content-start gap-3 overflow-y-auto rounded-[18px] border border-white/15 bg-card/85 px-4 py-4 shadow-[0_24px_60px_rgb(0_0_0/0.5)] backdrop-blur-xl", className)}
-      style={style}
-    >
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Cerrar ficha"
-        className="absolute top-2.5 right-2.5 inline-flex size-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-      >
-        <XIcon className="size-4" aria-hidden />
-      </button>
-      {children}
-    </aside>
-  );
-}
-
-function TowerFicha({ t, names }: { t: Tower; names: Names }) {
-  const [accent] = projectAccent(t.slug);
-  return (
-    <>
-      <div className="flex flex-wrap items-center gap-2 pr-9">
-        <span className="font-mono text-[11px]" style={{ color: accentInk(accent) }}>{t.key} · {names(t.slug)}</span>
-        <span className={cn("rounded-full px-2 py-0.5 text-[10.5px] font-semibold", STAGE_TAG[t.stage])}>{stageLabel(t)}</span>
-      </div>
-      <h3 className="font-display text-lg leading-tight font-bold tracking-tight">{t.title}</h3>
-      {t.note && (
-        <p className="text-[13px] leading-snug whitespace-pre-wrap text-foreground/80">
-          {t.waits && <span className="mr-1 font-semibold text-ink-jorge">Te toca ·</span>}
-          {t.note}
-        </p>
-      )}
-      {t.inProgress && t.inProgress !== t.note && <p className="text-xs leading-snug text-muted-foreground">{t.inProgress}</p>}
-      {t.agents.length > 0 && (
-        <ul className="grid gap-1.5" aria-label="Agentes trabajando">
-          {t.agents.map((a) => (
-            <li key={a.key} className="flex min-w-0 items-baseline gap-2 rounded-xl bg-surface-sunken px-3 py-2 text-xs">
-              <span className="city-dot shrink-0 self-center" aria-hidden />
-              <Link to={`/p/${t.slug}?task=${encodeURIComponent(a.key)}`} className="min-w-0 flex-1 truncate underline-offset-4 hover:underline" title={a.title}>
-                <span className="mr-1.5 font-mono text-[11px] text-muted-foreground">{a.key}</span>
-                {a.title}
-              </Link>
-              <span className="shrink-0 text-[11px] text-muted-foreground">{modelWord(a.model) ?? a.agent}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <TeTocaItems items={t.inbox} names={names} />
-      <Link
-        to={`/p/${t.slug}?task=${encodeURIComponent(t.key)}`}
-        className="inline-flex min-h-9 w-fit items-center gap-1.5 rounded-xl bg-foreground px-3.5 text-[13px] font-semibold text-background transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-      >
-        Abrir {t.key} <ArrowRightIcon className="size-3.5" aria-hidden />
-      </Link>
-    </>
-  );
-}
-
-function LooseFicha({ items, names }: { items: InboxItem[]; names: Names }) {
-  return (
-    <>
-      <p className="pr-9 text-[11px] font-bold tracking-[0.12em] text-ink-jorge uppercase">Te toca · fuera de las torres</p>
-      <TeTocaItems items={items} names={names} />
-      <Link to="/inbox" className="inline-flex min-h-8 w-fit items-center gap-1.5 text-[13px] font-semibold text-ink-jorge hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-        Abrir la bandeja completa <ArrowRightIcon className="size-3.5" aria-hidden />
-      </Link>
-    </>
-  );
-}
-
-type Place = { left: number; top: number; maxHeight: number };
-
-export function Ciudad({ districts, loose, headline, envLines, names, nowMs }: {
+export function Ciudad({ districts, loose, headline, envLines, nowMs }: {
   districts: District[];
   loose: InboxItem[];
   headline: Headline;
   envLines: Record<string, string>;
-  names: Names;
   nowMs: number;
 }) {
   const wide = useWide();
-  const sceneRef = useRef<HTMLElement>(null);
-  const headRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  // The ficha opens on what waits on Jorge; once he picks or closes one, his choice stays.
-  const [picked, setPicked] = useState<string | null | undefined>(undefined);
-  const towers = districts.flatMap((d) => d.towers);
-  const fallback = defaultTower(districts) ?? (loose.length > 0 ? LOOSE : null);
-  const wanted = picked === undefined ? fallback : picked;
-  const selected = wanted === LOOSE ? (loose.length > 0 ? LOOSE : null) : towers.some((t) => t.key === wanted) ? wanted : null;
-  const tower = towers.find((t) => t.key === selected) ?? null;
-  const onSelect = (key: string) => setPicked((cur) => ((cur === undefined ? fallback : cur) === key ? null : key));
-
-  // On a wide screen the ficha floats in the sky beside its tower.
-  const [place, setPlace] = useState<Place | null>(null);
-  const measure = useCallback(() => {
-    const scene = sceneRef.current;
-    const head = headRef.current;
-    if (!wide || !selected || !scene || !head) return setPlace(null);
-    const anchor = scene.querySelector<HTMLElement>(`[data-key="${CSS.escape(selected)}"]`);
-    if (!anchor) return setPlace(null);
-    const s = scene.getBoundingClientRect();
-    const a = anchor.getBoundingClientRect();
-    let left = a.right - s.left + 14;
-    if (left + FICHA_W > s.width - 16) left = a.left - s.left - FICHA_W - 14;
-    left = Math.max(16, Math.min(left, s.width - FICHA_W - 16));
-    const top = selected === LOOSE ? a.bottom - s.top + 10 : head.offsetTop + head.offsetHeight + 8;
-    setPlace({ left, top, maxHeight: Math.max(220, s.height - top - 24) });
-  }, [wide, selected]);
-  useLayoutEffect(measure, [measure, districts]);
-  useEffect(() => {
-    const scene = sceneRef.current;
-    const scroller = scrollRef.current;
-    if (!scene) return;
-    const ro = new ResizeObserver(measure);
-    ro.observe(scene);
-    scroller?.addEventListener("scroll", measure, { passive: true });
-    return () => {
-      ro.disconnect();
-      scroller?.removeEventListener("scroll", measure);
-    };
-  }, [measure]);
-
-  const ficha = selected && (
-    <FichaFrame
-      key={selected}
-      onClose={() => setPicked(null)}
-      className={wide ? "absolute z-[4] animate-rise" : "relative animate-rise"}
-      style={wide && place ? { left: place.left, top: place.top, width: FICHA_W, maxHeight: place.maxHeight } : wide ? { visibility: "hidden" } : undefined}
-    >
-      {tower ? <TowerFicha t={tower} names={names} /> : <LooseFicha items={loose} names={names} />}
-    </FichaFrame>
-  );
-
   let offset = 0;
   return (
     <div className="grid gap-3">
       <section
-        ref={sceneRef}
         aria-label="Las iniciativas en curso y en revisión"
         className="city dark relative overflow-hidden rounded-[22px] border border-white/[0.07] text-foreground md:rounded-[26px]"
       >
         {STARS.map(([x, y, d], i) => <span key={i} aria-hidden className="city-star" style={{ left: `${x}%`, top: `${y}%`, animationDelay: `${d}s` }} />)}
 
-        <div ref={headRef} className="pointer-events-none relative z-[3] flex flex-wrap items-start justify-between gap-x-8 gap-y-3 px-5 pt-6 md:px-10 md:pt-8">
+        <div className="pointer-events-none relative z-[3] flex flex-wrap items-start justify-between gap-x-8 gap-y-3 px-5 pt-6 md:px-10 md:pt-8">
           <Titular headline={headline} nowMs={nowMs} />
           <div className="pointer-events-auto grid justify-items-start gap-2.5 md:justify-items-end md:pt-1">
             <Legend />
             {loose.length > 0 && (
-              <button
-                type="button"
-                data-key={LOOSE}
-                aria-pressed={selected === LOOSE}
-                onClick={() => onSelect(LOOSE)}
+              <Link
+                to="/inbox"
                 className="inline-flex min-h-8 items-center gap-2 rounded-full border border-status-jorge/45 bg-status-jorge/12 px-3 text-xs font-semibold text-ink-jorge transition hover:bg-status-jorge/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               >
                 {loose.length} {loose.length === 1 ? "cosa suelta te espera" : "cosas sueltas te esperan"}
-              </button>
+              </Link>
             )}
           </div>
         </div>
 
-        <div ref={scrollRef} className="relative -mt-24 overflow-x-auto overscroll-x-contain [scrollbar-width:none] md:-mt-36 [&::-webkit-scrollbar]:hidden">
+        <div className="relative -mt-24 overflow-x-auto overscroll-x-contain [scrollbar-width:none] md:-mt-36 [&::-webkit-scrollbar]:hidden">
           <div className="relative flex w-max min-w-full items-end justify-between gap-4 px-3 pt-36 md:gap-8 md:px-8 md:pt-52">
             <div aria-hidden className="absolute inset-x-0 bottom-0 border-t border-white/10" style={{ height: "var(--street-h)", background: "var(--street)" }} />
             {districts.length === 0 ? (
               <p className="relative z-[1] w-full pb-32 text-center font-voice text-2xl text-foreground/70 italic">Nada en curso ni en revisión. La ciudad duerme.</p>
             ) : (
               districts.map((d) => {
-                const view = <DistrictView key={d.slug} d={d} envLine={envLines[d.slug] ?? ""} selected={selected} onSelect={onSelect} offset={offset} />;
+                const view = <DistrictView key={d.slug} d={d} envLine={envLines[d.slug] ?? ""} offset={offset} />;
                 offset += d.towers.length;
                 return view;
               })
@@ -337,9 +184,7 @@ export function Ciudad({ districts, loose, headline, envLines, names, nowMs }: {
 
         {/* On a phone the skyline scrolls sideways: a fade on the right says there is more city. */}
         {!wide && <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 z-[2] w-10 bg-gradient-to-l from-[#0f1220] to-transparent" />}
-        {wide && ficha}
       </section>
-      {!wide && ficha && <div className="dark text-foreground">{ficha}</div>}
     </div>
   );
 }

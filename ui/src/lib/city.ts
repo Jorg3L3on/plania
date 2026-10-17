@@ -157,14 +157,8 @@ export function looseInbox(districts: District[], inbox: InboxItem[]): InboxItem
 
 const STAGE_WORD: Record<Stage, string> = { planning: "Planeando", building: "En obra", shipping: "Estreno", paused: "En pausa" };
 
-/** "Estreno · 4/5", the tag on a tower's ficha. */
+/** "Estreno · 4/5", a tower's stage and count. */
 export const stageLabel = (t: Pick<Tower, "stage" | "closed" | "total">) => `${STAGE_WORD[t.stage]} · ${t.closed}/${t.total}`;
-
-/** Which tower the ficha opens on by default: the first that waits on Jorge for more than a go, else the first with agents. */
-export function defaultTower(districts: District[]): string | null {
-  const all = districts.flatMap((d) => d.towers);
-  return (all.find((t) => t.waits && !t.awaitsGo) ?? all.find((t) => t.agents.length > 0) ?? null)?.key ?? null;
-}
 
 /** Spoken name for a tower, for screen readers. */
 export function towerLabel(t: Tower, projectTitle: string): string {
