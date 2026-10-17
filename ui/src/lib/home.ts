@@ -155,15 +155,18 @@ export type Tile = {
   title: string;
   state: { word: string; tone: Tone };
   rank: number;
+  /** What is left: open initiatives (Planning, Active, Shipping) and tickets not Done (Won't do left out). */
+  left: { initiatives: number; tickets: number };
+  /** Tickets Done out of all of them, for the bar. */
   progress: { closed: number; total: number };
-  /** "prod aa5e1ea · hace 2 d · 1 rama adelante", or why there is none. */
-  envLine: string;
-  /** Initiatives not closed yet (Won't do counts as closed and leaves the total). */
-  initiatives: { pending: number; total: number };
-  /** 0–100 per day, oldest first. */
-  bars: number[];
-  /** 2.11: Orden's count; the tile shows it when above zero. */
+  /** Decisions in the inbox waiting on Jorge for this project. */
+  waiting: number;
+  /** Initiatives On hold. */
+  onHold: number;
+  /** 2.11: Orden's count, the last audit run's findings. */
   orden: number;
+  /** "Publicado hace 3 d", and what prod still lacks, in plain words. */
+  deploy: { text: string; lag: string | null };
 };
 
 const NO_CARD = "Sin ficha.";
@@ -190,6 +193,18 @@ export function envLine(envs: EnvSummary[], nowMs = Date.now()): string {
   return parts.join(" · ");
 }
 
+/** The tile's deploy line, without commit hashes: when prod last got code, and what it still lacks. */
+export function deployOf(envs: EnvSummary[], nowMs = Date.now()): Tile["deploy"] {
+  const env = envs.find((e) => e.env === "prod") ?? envs[0];
+  if (!env) return { text: "Sin entorno registrado", lag: null };
+  const where = env.env === "prod" ? "" : ` en ${env.env}`;
+  const text = env.deployed_at ? `Publicado${where} ${ago(env.deployed_at, nowMs)}` : `Sin fecha de publicación${where}`;
+  const lag: string[] = [];
+  if (env.behind > 0) lag.push(`${plural(env.behind, "cambio", "cambios")} sin publicar`);
+  if (env.flags.db_ahead_of_code) lag.push("la base va adelante del código");
+  return { text, lag: lag.length ? lag.join(" · ") : null };
+}
+
 export function tileOf(p: HomeProject, waiting: number, nowMs = Date.now()): Tile {
   const lanes = buildLanes(p.tasks);
   // En marcha means someone is on it now: a live claim, or a PR open for review. Merged or Released
@@ -200,18 +215,22 @@ export function tileOf(p: HomeProject, waiting: number, nowMs = Date.now()): Til
     : waiting > 0 ? { word: "te espera", tone: "jorge" as Tone, rank: 1 }
     : lanes.length > 0 ? { word: "quieto", tone: "pending" as Tone, rank: 2 }
     : { word: "en pausa", tone: "pending" as Tone, rank: 3 };
-  const max = Math.max(1, ...p.activity);
-  const inits = p.tasks.filter((t) => t.kind === "initiative" && t.status !== "Won't do");
+  const inits = p.tasks.filter((t) => t.kind === "initiative");
+  const progress = projectProgress(p.tasks);
   return {
     slug: p.slug,
     title: p.title,
     state: { word: state.word, tone: state.tone },
     rank: state.rank,
-    progress: projectProgress(p.tasks),
-    envLine: envLine(p.envs, nowMs),
-    initiatives: { pending: inits.filter((t) => t.status !== "Done").length, total: inits.length },
-    bars: p.activity.map((n) => Math.round((n / max) * 100)),
+    left: {
+      initiatives: inits.filter((t) => t.status === "Planning" || t.status === "Active" || t.status === "Shipping").length,
+      tickets: progress.total - progress.closed,
+    },
+    progress,
+    waiting,
+    onHold: inits.filter((t) => t.status === "On hold").length,
     orden: p.audit_count ?? 0,
+    deploy: deployOf(p.envs, nowMs),
   };
 }
 

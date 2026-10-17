@@ -1,7 +1,7 @@
 // Inicio's model (ui/src/lib/home.ts): the headline sentence, flights, what comes next and the tiles. Pure, no database.
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { doneToday, envLine, flightsOf, headlineOf, joinNames, liveServersOf, nextLine, numberWord, tileOf, type HomeProject, type HomeTask } from "../ui/src/lib/home.js";
+import { deployOf, doneToday, envLine, flightsOf, headlineOf, joinNames, liveServersOf, nextLine, numberWord, tileOf, type HomeProject, type HomeTask } from "../ui/src/lib/home.js";
 
 const NOW = new Date("2026-10-11T05:02:00Z").getTime();
 
@@ -102,13 +102,22 @@ describe("tiles", () => {
     );
   });
 
-  test("state and rank: en marcha, te espera, quieto, en pausa; bars scale to the busiest day", () => {
+  test("the deploy line says when prod got code and what it lacks, without hashes", () => {
+    assert.deepEqual(deployOf([], NOW), { text: "Sin entorno registrado", lag: null });
+    assert.deepEqual(
+      deployOf([{ env: "prod", commit: "b4ef072dd4", branch: "main", deployed_at: "2026-10-09T21:37:13Z", flags: { db_ahead_of_code: "0029" }, behind: 2 }], NOW),
+      { text: "Publicado hace 1 d", lag: "2 cambios sin publicar · la base va adelante del código" },
+    );
+    assert.deepEqual(deployOf([{ env: "sandbox", commit: null, branch: null, deployed_at: null, flags: {}, behind: 0 }], NOW), { text: "Sin fecha de publicación en sandbox", lag: null });
+  });
+
+  test("state and rank: en marcha, te espera, quieto, en pausa", () => {
     const init = ticket("P-I1", "Active", { kind: "initiative", priority: null });
     const moving = tileOf(project("a", "A", { tasks: [init, { ...claim("P-I1-1", "s1"), parent_key: "P-I1" }], activity: [0, 2, 4, 0, 0, 0, 1] }), 0, NOW);
-    assert.deepEqual([moving.state.word, moving.rank, moving.bars], ["en marcha", 0, [0, 50, 100, 0, 0, 0, 25]]);
+    assert.deepEqual([moving.state.word, moving.rank], ["en marcha", 0]);
     assert.deepEqual(moving.progress, { closed: 0, total: 1 });
     const waiting = tileOf(project("b", "B", { tasks: [init, ticket("P-I1-1", "Ready", { parent_key: "P-I1" })] }), 3, NOW);
-    assert.deepEqual([waiting.state.word, waiting.rank], ["te espera", 1]);
+    assert.deepEqual([waiting.state.word, waiting.rank, waiting.waiting], ["te espera", 1, 3]);
     const quiet = tileOf(project("c", "C", { tasks: [init, ticket("P-I1-1", "Backlog", { parent_key: "P-I1" })] }), 0, NOW);
     assert.deepEqual([quiet.state.word, quiet.rank], ["quieto", 2]);
     const paused = tileOf(project("d", "D"), 0, NOW);
@@ -117,9 +126,10 @@ describe("tiles", () => {
     assert.equal(review.state.word, "en marcha");
     const leftover = tileOf(project("f", "F", { tasks: [init, ticket("P-I1-1", "In progress", { parent_key: "P-I1" }), ticket("P-02", "Merged")] }), 0, NOW);
     assert.equal(leftover.state.word, "quieto");
-    assert.deepEqual([paused.state.word, paused.rank, paused.initiatives], ["en pausa", 3, { pending: 0, total: 0 }]);
-    const mixed = tileOf(project("g", "G", { tasks: [init, ticket("P-I2", "Done", { kind: "initiative" }), ticket("P-I3", "Won't do", { kind: "initiative" })] }), 0, NOW);
-    assert.deepEqual(mixed.initiatives, { pending: 1, total: 2 });
+    assert.deepEqual([paused.state.word, paused.rank], ["en pausa", 3]);
+    assert.deepEqual(paused.left, { initiatives: 0, tickets: 0 });
+    const mixed = tileOf(project("g", "G", { tasks: [init, ticket("P-I1-1", "Done", { parent_key: "P-I1" }), ticket("P-I1-2", "Ready", { parent_key: "P-I1" }), ticket("P-I2", "Done", { kind: "initiative" }), ticket("P-I3", "Won't do", { kind: "initiative" }), ticket("P-I4", "On hold", { kind: "initiative" })] }), 0, NOW);
+    assert.deepEqual([mixed.left, mixed.onHold], [{ initiatives: 1, tickets: 1 }, 1]);
   });
 });
 

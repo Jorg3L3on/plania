@@ -1,6 +1,6 @@
 // Inicio's pieces around the city: the headline with its voice line, what the Mac runs, and the
 // projects as a compact rail.
-import { ArrowRightIcon, CalendarIcon, CpuIcon } from "lucide-react";
+import { ArrowRightIcon, CalendarIcon, CheckIcon, CpuIcon, MessageCircleQuestionIcon, PauseIcon, RocketIcon, TriangleAlertIcon } from "lucide-react";
 import { Link } from "react-router";
 import { ProjectMark } from "@/components/plania-mark";
 import { Glyph, Kicker, accentInk, projectAccent, rise, TONE_TEXT, toneVar } from "@/components/plan/visuals";
@@ -91,14 +91,23 @@ export function LaMac({ machine, servers, names, nowMs }: { machine: Machine; se
   );
 }
 
+const many = (n: number, one: string, other: string) => (n === 1 ? one : other);
+
 function TileCard({ t, index }: { t: Tile; index: number }) {
   const [a] = projectAccent(t.slug);
   const pct = t.progress.total === 0 ? 0 : (t.progress.closed / t.progress.total) * 100;
+  const allDone = t.left.initiatives === 0 && t.left.tickets === 0;
+  // What needs a look, most urgent first; nothing here means nothing waits.
+  const signals = [
+    t.waiting > 0 && { icon: MessageCircleQuestionIcon, text: `${t.waiting} ${many(t.waiting, "decisión te espera", "decisiones te esperan")}`, cls: "text-ink-jorge font-semibold" },
+    t.onHold > 0 && { icon: PauseIcon, text: `${t.onHold} ${many(t.onHold, "iniciativa en pausa", "iniciativas en pausa")}`, cls: "text-foreground/75" },
+    t.orden > 0 && { icon: TriangleAlertIcon, text: `${t.orden} ${many(t.orden, "cosa por ordenar", "cosas por ordenar")}`, cls: "text-amber-700 dark:text-amber-400", title: "Lo que encontró la última revisión de Orden" },
+  ].filter((x): x is { icon: typeof PauseIcon; text: string; cls: string; title?: string } => Boolean(x));
   return (
     <li className="animate-rise" style={rise(index + 3)}>
       <Link
         to={`/p/${t.slug}`}
-        className="lift grid h-full content-start gap-2.5 rounded-[18px] border bg-card px-4 py-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className="lift grid h-full content-start gap-3 rounded-[18px] border bg-card px-4 py-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         style={{ borderTop: `3px solid ${a}` }}
       >
         <span className="flex items-baseline justify-between gap-2">
@@ -111,38 +120,51 @@ function TileCard({ t, index }: { t: Tile; index: number }) {
             {t.state.word}
           </span>
         </span>
-        {/* A week of activity: one bar per day, the busiest day full height. */}
-        <span className="flex h-7 items-end gap-[3px]" aria-label="Actividad de la semana">
-          {t.bars.map((h, i) => (
-            <span key={i} className="flex-1 rounded-t-[3px]" style={{ height: `${Math.max(4, h)}%`, background: a, opacity: h === 0 ? 0.25 : 0.4 + (h / 100) * 0.6 }} />
-          ))}
-        </span>
-        {t.progress.total > 0 && (
-          <span className="flex items-center gap-2">
-            <span className="h-[5px] flex-1 overflow-hidden rounded-full bg-foreground/[0.08]">
-              <span className="block h-full rounded-full bg-status-done" style={{ width: `${pct}%` }} />
+
+        {/* What is left to do: open initiatives big, open tickets under it with the bar. */}
+        <span className="grid gap-1.5">
+          {allDone ? (
+            <span className="flex items-baseline gap-1.5 text-[15px] font-semibold text-muted-foreground">
+              <CheckIcon className="size-4 self-center text-status-done" aria-hidden /> Todo hecho
             </span>
-            <span className="font-mono text-[11px] text-muted-foreground">{t.progress.closed}/{t.progress.total}</span>
-          </span>
-        )}
-        <span className="text-xs leading-snug text-foreground/70">
-          {t.envLine}
-          {/* 2.11: Orden, what the audit found; the section is at the bottom of the project page. */}
-          {t.orden > 0 && (
-            <span className="ml-2 inline-flex items-center rounded-full bg-amber-500/12 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:text-amber-400" title="Hallazgos en Orden">
-              orden {t.orden}
+          ) : (
+            <span className="flex items-baseline gap-1.5">
+              <span className="font-display text-[30px] leading-none font-extrabold tabular-nums">{t.left.initiatives}</span>
+              <span className="text-[14px] text-foreground/75">{many(t.left.initiatives, "iniciativa por hacer", "iniciativas por hacer")}</span>
+            </span>
+          )}
+          {t.progress.total > 0 && (
+            <span className="flex items-center gap-2" title={`${t.progress.closed} de ${t.progress.total} tareas hechas`}>
+              <span className="h-[5px] flex-1 overflow-hidden rounded-full bg-foreground/[0.08]">
+                <span className="block h-full rounded-full bg-status-done" style={{ width: `${pct}%` }} />
+              </span>
+              <span className="text-[12px] text-muted-foreground tabular-nums">
+                {t.left.tickets} {many(t.left.tickets, "tarea abierta", "tareas abiertas")}
+              </span>
             </span>
           )}
         </span>
-        {/* How many initiatives are still open, out of all of them (Won't do left out). */}
-        <span className="mt-auto flex items-baseline gap-1.5">
-          <span className={cn("font-display text-[26px] leading-none font-extrabold tabular-nums", t.initiatives.pending === 0 && "text-muted-foreground")}>
-            {t.initiatives.pending}
+
+        <span className="grid gap-1 text-[13px] leading-snug">
+          {signals.length === 0 ? (
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <CheckIcon className="size-3.5" aria-hidden /> Nada te espera
+            </span>
+          ) : (
+            signals.map((s) => (
+              <span key={s.text} className={cn("inline-flex items-center gap-1.5", s.cls)} title={s.title}>
+                <s.icon className="size-3.5 shrink-0" aria-hidden /> {s.text}
+              </span>
+            ))
+          )}
+        </span>
+
+        {/* Prod in plain words: when it last got code and what it still lacks. */}
+        <span className="mt-auto grid gap-0.5 border-t pt-2.5 text-xs leading-snug text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <RocketIcon className="size-3.5 shrink-0" aria-hidden /> {t.deploy.text}
           </span>
-          <span className="text-[13px] text-muted-foreground">
-            {t.initiatives.pending === 1 ? "iniciativa pendiente" : "iniciativas pendientes"}
-            {t.initiatives.total > 0 && ` de ${t.initiatives.total}`}
-          </span>
+          {t.deploy.lag && <span className="pl-5 text-amber-700 dark:text-amber-400">{t.deploy.lag}</span>}
         </span>
       </Link>
     </li>
