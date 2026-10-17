@@ -117,7 +117,9 @@ describe("tiles", () => {
     assert.equal(review.state.word, "en marcha");
     const leftover = tileOf(project("f", "F", { tasks: [init, ticket("P-I1-1", "In progress", { parent_key: "P-I1" }), ticket("P-02", "Merged")] }), 0, NOW);
     assert.equal(leftover.state.word, "quieto");
-    assert.deepEqual([paused.state.word, paused.rank, paused.nextText], ["en pausa", 3, "nada en cola"]);
+    assert.deepEqual([paused.state.word, paused.rank, paused.initiatives], ["en pausa", 3, { pending: 0, total: 0 }]);
+    const mixed = tileOf(project("g", "G", { tasks: [init, ticket("P-I2", "Done", { kind: "initiative" }), ticket("P-I3", "Won't do", { kind: "initiative" })] }), 0, NOW);
+    assert.deepEqual(mixed.initiatives, { pending: 1, total: 2 });
   });
 });
 

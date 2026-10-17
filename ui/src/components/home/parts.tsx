@@ -134,10 +134,15 @@ function TileCard({ t, index }: { t: Tile; index: number }) {
             </span>
           )}
         </span>
-        <span className="line-clamp-2 text-[13px] leading-snug">
-          <span className="font-semibold text-muted-foreground">Siguiente · </span>
-          {t.nextKey && <span className="mr-1 font-mono text-[11px] text-muted-foreground">{t.nextKey}</span>}
-          {t.nextText}
+        {/* How many initiatives are still open, out of all of them (Won't do left out). */}
+        <span className="mt-auto flex items-baseline gap-1.5">
+          <span className={cn("font-display text-[26px] leading-none font-extrabold tabular-nums", t.initiatives.pending === 0 && "text-muted-foreground")}>
+            {t.initiatives.pending}
+          </span>
+          <span className="text-[13px] text-muted-foreground">
+            {t.initiatives.pending === 1 ? "iniciativa pendiente" : "iniciativas pendientes"}
+            {t.initiatives.total > 0 && ` de ${t.initiatives.total}`}
+          </span>
         </span>
       </Link>
     </li>

@@ -158,8 +158,8 @@ export type Tile = {
   progress: { closed: number; total: number };
   /** "prod aa5e1ea · hace 2 d · 1 rama adelante", or why there is none. */
   envLine: string;
-  nextKey: string | null;
-  nextText: string;
+  /** Initiatives not closed yet (Won't do counts as closed and leaves the total). */
+  initiatives: { pending: number; total: number };
   /** 0–100 per day, oldest first. */
   bars: number[];
   /** 2.11: Orden's count; the tile shows it when above zero. */
@@ -201,7 +201,7 @@ export function tileOf(p: HomeProject, waiting: number, nowMs = Date.now()): Til
     : lanes.length > 0 ? { word: "quieto", tone: "pending" as Tone, rank: 2 }
     : { word: "en pausa", tone: "pending" as Tone, rank: 3 };
   const max = Math.max(1, ...p.activity);
-  const next = nextLine(p);
+  const inits = p.tasks.filter((t) => t.kind === "initiative" && t.status !== "Won't do");
   return {
     slug: p.slug,
     title: p.title,
@@ -209,8 +209,7 @@ export function tileOf(p: HomeProject, waiting: number, nowMs = Date.now()): Til
     rank: state.rank,
     progress: projectProgress(p.tasks),
     envLine: envLine(p.envs, nowMs),
-    nextKey: next.key,
-    nextText: next.text,
+    initiatives: { pending: inits.filter((t) => t.status !== "Done").length, total: inits.length },
     bars: p.activity.map((n) => Math.round((n / max) * 100)),
     orden: p.audit_count ?? 0,
   };
