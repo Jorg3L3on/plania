@@ -1,21 +1,48 @@
-// Ahora: four compact blocks — what Jorge should do, what is in flight, what is stuck, what is next.
-// Same three queries as Inicio. LiveProvider already invalidates them, so there is no second refresh.
-import { useQuery } from "@tanstack/react-query";
+// Ahora: what Jorge should do, what is in flight, ideas by stage, what is stuck, and what is next.
+// The project list, the inbox and the machine, plus one project read for each project that already has an idea.
+// LiveProvider already invalidates those keys, so there is no second refresh.
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { TeTocaItems } from "@/components/home/te-toca";
+import { StageChip } from "@/components/task-row";
 import { RetomarSheet } from "@/components/retomar-sheet";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kicker, accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
-import { LIVENESS_WORD, URGENCY_WORD, bloqueadoOf, enCursoOf, siguienteOf, teTocaOf, type Liveness } from "@/lib/ahora";
+import {
+  GATE_MARK,
+  LIVENESS_WORD,
+  URGENCY_WORD,
+  bloqueadoOf,
+  enCursoOf,
+  ideaOutcome,
+  ideaStageLabel,
+  ideasByStage,
+  ideasFromProject,
+  oldestWaitingIdea,
+  siguienteOf,
+  teTocaOf,
+  type AhoraIdea,
+  type IdeaColumn,
+  type IdeaStage,
+  type Liveness,
+} from "@/lib/ahora";
 import { cn } from "@/lib/utils";
 
 const LIVENESS_CLASS: Record<Liveness, string> = {
   live: "bg-status-done/12 text-ink-done",
   quiet: "bg-status-pending/40 text-muted-foreground",
   stale: "bg-status-now/16 text-ink-now",
+};
+
+const STAGE_TONE: Record<IdeaStage, string> = {
+  idea: "text-muted-foreground",
+  research: "text-ink-now",
+  design: "text-ink-review",
+  planning: "text-ink-ready",
+  ready: "text-ink-done",
 };
 
 function useNow(everyMs = 30_000) {
@@ -48,6 +75,79 @@ function taskHref(slug: string, key: string) {
   return `/p/${slug}?task=${encodeURIComponent(key)}`;
 }
 
+const rowLink = "grid min-h-11 gap-0.5 rounded-xl bg-surface-sunken px-3 py-2.5 transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
+
+function GateMark() {
+  return (
+    <span role="img" className="text-sm leading-none font-semibold text-ink-jorge" aria-label="Pregunta de compuerta abierta">
+      {GATE_MARK}
+    </span>
+  );
+}
+
+function IdeaCard({ idea }: { idea: AhoraIdea }) {
+  const outcome = ideaOutcome(idea);
+  return (
+    <Link to={taskHref(idea.slug, idea.key)} className={cn(rowLink, "gap-1.5")}>
+      <span className="flex items-center justify-between gap-2">
+        <span className="font-mono text-xs text-muted-foreground">{idea.key}</span>
+        {idea.gateOpen && <GateMark />}
+      </span>
+      <span className="line-clamp-1 text-sm leading-snug">{idea.line}</span>
+      <span className="flex flex-wrap items-center gap-2">
+        <StageChip stage={idea.stage} />
+        <ProjectName slug={idea.slug} title={idea.projectTitle} />
+      </span>
+      {outcome ? (
+        <span className="text-xs text-muted-foreground">{outcome}</span>
+      ) : (
+        <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">{idea.waits || "—"}</span>
+      )}
+    </Link>
+  );
+}
+
+function IdeasBoard({ columns }: { columns: IdeaColumn[] }) {
+  return (
+    <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      {columns.map((col) => (
+        <div key={col.stage} className="grid min-w-0 content-start gap-2">
+          <h3 className={cn("text-[11px] font-bold tracking-[0.12em] uppercase", STAGE_TONE[col.stage])}>{col.label}</h3>
+          {col.ideas.length === 0 && <p className="text-xs text-muted-foreground">Ninguna</p>}
+          {col.ideas.length > 0 && (
+            <ul className="grid gap-2">
+              {col.ideas.map((idea) => (
+                <li key={`${idea.slug}/${idea.key}`}>
+                  <IdeaCard idea={idea} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WaitingIdeaLine({ idea }: { idea: AhoraIdea }) {
+  return (
+    <li>
+      <Link to={taskHref(idea.slug, idea.key)} className={rowLink}>
+        <span className="flex flex-wrap items-baseline gap-x-2 text-xs">
+          <span className="font-bold tracking-[0.08em] text-muted-foreground uppercase">Idea</span>
+          <ProjectName slug={idea.slug} title={idea.projectTitle} />
+          <span className="font-mono text-muted-foreground">{idea.key}</span>
+          {idea.gateOpen && <GateMark />}
+        </span>
+        <span className="line-clamp-1 text-sm leading-snug">
+          <span className="text-muted-foreground">{ideaStageLabel(idea.stage)}. </span>
+          {idea.line}
+        </span>
+      </Link>
+    </li>
+  );
+}
+
 export function AhoraPage() {
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
@@ -58,6 +158,18 @@ export function AhoraPage() {
   const handleRetomarOpen = (open: boolean) => {
     if (!open) setRetomar(null);
   };
+
+  const ideaSlugs = useMemo(
+    () => (projects.data ?? []).filter((p) => p.tasks.some((t) => t.kind === "idea")).map((p) => p.slug),
+    [projects.data],
+  );
+  const ideaQueries = useQueries({
+    queries: ideaSlugs.map((slug) => ({
+      queryKey: ["project", slug],
+      queryFn: () => api.project(slug),
+      staleTime: 15_000,
+    })),
+  });
 
   const model = useMemo(() => {
     const list = projects.data ?? [];
@@ -85,6 +197,16 @@ export function AhoraPage() {
 
   const teToca = model.teToca;
   const teTocaMeta = teToca && teToca.count > 0 ? (teToca.count === 1 ? "1 cosa" : `${teToca.count} cosas`) : undefined;
+  const ideasPending = ideaSlugs.length > 0 && ideaQueries.some((q) => q.isPending);
+  const ideasFailed = ideaQueries.some((q) => q.isError);
+  const ideasReady = ideaSlugs.length === 0 || ideaQueries.every((q) => q.isSuccess || q.isError);
+  const ideas = ideaQueries.flatMap((q) =>
+    q.data ? ideasFromProject({ slug: q.data.slug, title: q.data.title }, q.data.tasks, q.data.resume.open_questions) : [],
+  );
+  const ideaColumns = ideasByStage(ideas);
+  const waitingIdea = ideasReady ? oldestWaitingIdea(ideas) : null;
+  const ideaMeta = ideas.length === 0 ? undefined : ideas.length === 1 ? "1 idea" : `${ideas.length} ideas`;
+  const siguienteEmpty = model.siguiente.length === 0 && !waitingIdea && !ideasPending;
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:gap-5">
@@ -131,6 +253,14 @@ export function AhoraPage() {
         </ul>
       </Section>
 
+      <Section id="ideas" title="Ideas" tone="text-foreground" meta={ideasPending ? undefined : ideaMeta}>
+        {ideasPending && <Skeleton className="h-28 rounded-xl" />}
+        {!ideasPending && ideasFailed && ideas.length === 0 && <p className="text-sm text-destructive">No se pudieron cargar las ideas.</p>}
+        {!ideasPending && ideasFailed && ideas.length > 0 && <p className="text-sm text-destructive">No se pudieron cargar todas las ideas.</p>}
+        {!ideasPending && !ideasFailed && ideas.length === 0 && <p className="text-sm text-muted-foreground">Ninguna idea.</p>}
+        {!ideasPending && ideas.length > 0 && <IdeasBoard columns={ideaColumns} />}
+      </Section>
+
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <Section id="bloqueado" title="Bloqueado" tone="text-ink-blocked">
           {model.bloqueado.length === 0 && <p className="text-sm text-muted-foreground">Nada bloqueado.</p>}
@@ -152,12 +282,14 @@ export function AhoraPage() {
         </Section>
 
         <Section id="siguiente" title="Siguiente" tone="text-ink-ready">
-          {model.siguiente.length === 0 && <p className="text-sm text-muted-foreground">Nada en cola.</p>}
-          {model.siguiente.length > 0 && (
+          {ideasPending && model.siguiente.length === 0 && <Skeleton className="h-11 rounded-xl" />}
+          {siguienteEmpty && <p className="text-sm text-muted-foreground">Nada en cola.</p>}
+          {(waitingIdea || model.siguiente.length > 0) && (
             <ul className="grid gap-2">
+              {waitingIdea && <WaitingIdeaLine idea={waitingIdea} />}
               {model.siguiente.map((row) => (
                 <li key={row.slug}>
-                  <Link to={taskHref(row.slug, row.key)} className="grid min-h-11 gap-0.5 rounded-xl bg-surface-sunken px-3 py-2.5 transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                  <Link to={taskHref(row.slug, row.key)} className={rowLink}>
                     <span className="flex flex-wrap items-baseline gap-x-2 text-xs">
                       <ProjectName slug={row.slug} title={row.title} />
                       <span className="font-mono text-muted-foreground">{row.key}</span>

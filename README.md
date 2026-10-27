@@ -530,7 +530,7 @@ the UI refetches what changed.
 |---|---|
 | `POST /api/login`, `POST /api/logout`, `GET /api/session` | Session |
 | `GET /api/projects` | Projects with their generated line (the headline), the next step (`next_line`), Orden's count, open question count, and all tasks without scope |
-| `GET /api/projects/:slug` | Generated resume, decisions, and all tasks without scope (with version, lease, `branch`, `base_branch`, `waits_on` and `held`) |
+| `GET /api/projects/:slug` | Generated resume, decisions, and all tasks without scope (with version, lease, `branch`, `base_branch`, `waits_on`, `held` and `created_at` on each task) |
 | `GET /api/projects/:slug/tasks/:key` | One task, in the `get_task` shape; each result with `stale_for_head` and `ticked_checks` (the sheet's evidence timeline) |
 | `PATCH /api/projects/:slug` | `{ headline, version }`: the note beside the generated headline |
 | `GET /api/projects/:slug/audit` | Orden: the last audit run, each finding with `can_fix` (`retire_decision`, `copy`, `mark_deployed`, `open`) and `owner` (`jorge` or `agents`) |

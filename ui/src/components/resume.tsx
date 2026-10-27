@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
+import { optionLabel } from "@/lib/inbox";
 import { localTime } from "@/lib/time";
 import type { Claim, Decision, NextTicket, Question, Resume } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -115,7 +116,7 @@ function QuestionCard({ slug, q, onOpen }: { slug: string; q: Question; onOpen: 
         {q.options.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {q.options.map((o) => (
-              <Button key={o} size="sm" variant="outline" className="h-auto min-h-7 py-1 text-left whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-9" disabled={send.isPending} onClick={() => send.mutate(o)}>{o}</Button>
+              <Button key={o} size="sm" variant="outline" className="h-auto min-h-7 py-1 text-left whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-9" disabled={send.isPending} onClick={() => send.mutate(o)}>{optionLabel(o)}</Button>
             ))}
           </div>
         )}

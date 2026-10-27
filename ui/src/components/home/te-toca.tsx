@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
-import { actionWord, waitText } from "@/lib/inbox";
+import { actionWord, optionLabel, waitText } from "@/lib/inbox";
 import type { InboxItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -76,7 +76,7 @@ function QuestionCard({ item, index, total, names, onNext, when }: { item: Inbox
                 i === 0 ? "border-foreground/15 bg-foreground/[0.05]" : "border-foreground/10",
               )}
             >
-              <span>{o}</span>
+              <span>{optionLabel(o)}</span>
               {/propuesta/i.test(o) && <span className="shrink-0 text-[11px] font-semibold text-ink-jorge">propuesta</span>}
             </button>
           ))}

@@ -47,7 +47,7 @@ export type AhoraProject = {
   /** The generated line (list_projects / GET /api/projects `line`). */
   line: string;
   tasks: AhoraTask[];
-  next_claimable: { key: string; title: string } | null;
+  next_claimable: { key: string; title: string; kind?: string } | null;
   initiatives?: { key: string; waiting_on?: { key: string; on: string }[] }[];
 };
 
@@ -134,13 +134,18 @@ export function enCursoOf(projects: AhoraProject[], machine: AhoraFootprint[], n
 
 export type BlockRow = { slug: string; title: string; key: string; on: string; kind: "wait" | "lease" };
 
-/** Waits that are not on Jorge, then a lease that ran out, a claim the machine dropped, or work with no owner. */
+function ideaKey(project: AhoraProject, key: string): boolean {
+  return project.tasks.some((t) => t.key === key && t.kind === "idea");
+}
+
+/** Waits that are not on Jorge, then a lease that ran out, a claim the machine dropped, or work with no owner. Ideas never land here. */
 export function bloqueadoOf(projects: AhoraProject[], machine: AhoraFootprint[], nowMs: number): BlockRow[] {
   const rows: BlockRow[] = [];
   for (const p of projects) {
     for (const i of p.initiatives ?? []) {
       for (const w of i.waiting_on ?? []) {
         if (w.on.startsWith("Jorge")) continue;
+        if (ideaKey(p, w.key)) continue;
         rows.push({ slug: p.slug, title: p.title, key: w.key, on: w.on, kind: "wait" });
       }
     }
@@ -161,14 +166,137 @@ export function bloqueadoOf(projects: AhoraProject[], machine: AhoraFootprint[],
 
 export type NextRow = { slug: string; title: string; key: string; taskTitle: string };
 
-/** The next claimable ticket of each project that has one, in project order. */
+/** The next claimable ticket of each project that has one, in project order. An idea is never one of these lines. */
 export function siguienteOf(projects: AhoraProject[]): NextRow[] {
   const rows: NextRow[] = [];
   for (const p of projects) {
-    if (!p.next_claimable) continue;
-    rows.push({ slug: p.slug, title: p.title, key: p.next_claimable.key, taskTitle: p.next_claimable.title });
+    const next = p.next_claimable;
+    if (!next || next.kind === "idea" || ideaKey(p, next.key)) continue;
+    rows.push({ slug: p.slug, title: p.title, key: next.key, taskTitle: next.title });
   }
   return rows;
+}
+
+// The five stages an idea walks, in order. Labels match StageChip (ui/src/components/task-row.tsx).
+export const IDEA_STAGES = ["idea", "research", "design", "planning", "ready"] as const;
+export type IdeaStage = (typeof IDEA_STAGES)[number];
+
+export const IDEA_STAGE_LABEL: Record<IdeaStage, string> = {
+  idea: "Idea",
+  research: "Investigación",
+  design: "Diseño",
+  planning: "Planeación",
+  ready: "Lista",
+};
+
+/** Shown only when an idea has an open gate question waiting on Jorge. */
+export const GATE_MARK = "◆";
+
+const GATES = new Set(["A", "B", "C"]);
+
+// ideaWaitText (src/mcp/ideas.ts) says these when nothing is holding the idea. They are not a wait.
+const NOT_WAITING = new Set(["Puede avanzar", "Lista para promover"]);
+
+export function isIdeaStage(stage: string): stage is IdeaStage {
+  return (IDEA_STAGES as readonly string[]).includes(stage);
+}
+
+export function ideaStageLabel(stage: string): string {
+  return isIdeaStage(stage) ? IDEA_STAGE_LABEL[stage] : stage;
+}
+
+export type IdeaQuestion = { task_key: string; gate?: string | null; answered_at?: string | null };
+
+/** True exactly when this idea has an open gate question (A, B or C) still unanswered. */
+export function ideaGateOpen(key: string, questions: IdeaQuestion[]): boolean {
+  return questions.some((q) => q.task_key === key && !!q.gate && GATES.has(q.gate) && !q.answered_at);
+}
+
+export type IdeaTask = {
+  key: string;
+  kind: string;
+  title: string;
+  summary: string;
+  status: string;
+  stage?: string | null;
+  promoted_to?: string | null;
+  waits?: string | null;
+  created_at?: string | null;
+  updated_at: string;
+};
+
+export type AhoraIdea = {
+  slug: string;
+  projectTitle: string;
+  key: string;
+  line: string;
+  stage: IdeaStage;
+  status: string;
+  waits: string;
+  promotedTo: string | null;
+  gateOpen: boolean;
+  createdAt: string;
+};
+
+export function ideaClosed(status: string): boolean {
+  return status === "Done" || status === "Won't do";
+}
+
+/** Open, and held by a doc, a heading, a question or a gate. "Puede avanzar" and "Lista para promover" are free. */
+export function ideaIsWaiting(idea: Pick<AhoraIdea, "status" | "waits">): boolean {
+  if (ideaClosed(idea.status)) return false;
+  const waits = idea.waits.trim();
+  return waits.length > 0 && !NOT_WAITING.has(waits);
+}
+
+/** What a closed idea became. Null while it is still open. */
+export function ideaOutcome(idea: Pick<AhoraIdea, "status" | "promotedTo">): string | null {
+  if (!ideaClosed(idea.status)) return null;
+  return idea.promotedTo ? `Pasó a ${idea.promotedTo}` : "Sin destino";
+}
+
+/** Ideas on one project, from the per-project read (tasks plus its open questions). */
+export function ideasFromProject(project: { slug: string; title: string }, tasks: IdeaTask[], questions: IdeaQuestion[]): AhoraIdea[] {
+  const ideas: AhoraIdea[] = [];
+  for (const task of tasks) {
+    if (task.kind !== "idea" || !task.stage || !isIdeaStage(task.stage)) continue;
+    ideas.push({
+      slug: project.slug,
+      projectTitle: project.title,
+      key: task.key,
+      line: task.summary.trim() || task.title,
+      stage: task.stage,
+      status: task.status,
+      waits: (task.waits ?? "").trim(),
+      promotedTo: task.promoted_to?.trim() || null,
+      // A closed idea keeps no mark, even if an old gate question was left unanswered.
+      gateOpen: !ideaClosed(task.status) && ideaGateOpen(task.key, questions),
+      createdAt: task.created_at || task.updated_at,
+    });
+  }
+  return ideas;
+}
+
+export type IdeaColumn = { stage: IdeaStage; label: string; ideas: AhoraIdea[] };
+
+function byAge(a: AhoraIdea, b: AhoraIdea): number {
+  const rank = (idea: AhoraIdea) => (ideaClosed(idea.status) ? 1 : 0);
+  return rank(a) - rank(b) || a.createdAt.localeCompare(b.createdAt) || a.key.localeCompare(b.key, undefined, { numeric: true }) || a.slug.localeCompare(b.slug);
+}
+
+/** One column per stage, in stage order. Open ideas first, oldest first; closed ones after them. */
+export function ideasByStage(ideas: AhoraIdea[]): IdeaColumn[] {
+  return IDEA_STAGES.map((stage) => ({
+    stage,
+    label: IDEA_STAGE_LABEL[stage],
+    ideas: ideas.filter((idea) => idea.stage === stage).sort(byAge),
+  }));
+}
+
+/** The single Siguiente line: the oldest idea that is still waiting. Null when none is. */
+export function oldestWaitingIdea(ideas: AhoraIdea[]): AhoraIdea | null {
+  const waiting = ideas.filter(ideaIsWaiting).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.key.localeCompare(b.key, undefined, { numeric: true }) || a.slug.localeCompare(b.slug));
+  return waiting[0] ?? null;
 }
 
 export type RetomarClaim = { key: string; title: string; agent: string | null };
