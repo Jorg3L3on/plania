@@ -76,7 +76,7 @@ export const ERRORS = {
   INVALID_TRANSITION: [409, "the status change is not allowed from the current status (detail: from, to, hint)"],
   INVALID_STAGE_MOVE: [409, "set_task stage is not one step along idea → research → design → planning → ready, or a step back without a note (detail: from, to)"],
   STAGE_REQUIREMENTS_MISSING: [409, "moving an idea forward without that stage's doc or its headings (detail: doc, missing)"],
-  GATE_NOT_PASSED: [409, "moving an idea forward needs a gate answer that moves it on (pursue, proceed or ready), given after it entered this stage; drop, later and rework do not, and a step back makes the previous answer stale (detail: gate). Also becoming Active, from Planning or On hold, on an initiative promoted from an idea whose gate C has not moved it on"],
+  GATE_NOT_PASSED: [409, "moving an idea forward needs a gate answer that moves it on (pursue, proceed or ready), given on the screen after it entered this stage; an agent answer does not count, drop, later and rework do not, and a step back makes the previous answer stale (detail: gate). Also becoming Active, from Planning or On hold, on an initiative promoted from an idea: gate C must be answered ready on the screen, and a missing gate C question is the same error"],
   GATE_OPEN: [409, "the idea already has an open gate question (detail: gate, question_id)"],
   GATE_CHALLENGE_LOCKED: [409, "the gate challenge is locked after three wrong codes"],
   GATE_CODE_EXPIRED: [409, "the gate challenge expired after two minutes"],

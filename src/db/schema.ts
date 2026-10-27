@@ -324,9 +324,9 @@ export const questions = pgTable(
     // 2.8: other task keys this question holds up, and how soon Jorge is needed (now | soon | whenever).
     blocks: text("blocks").array().notNull().default(sql`'{}'::text[]`),
     urgency: text("urgency"),
-    // PLA-I8-1: gate A, B or C on an idea. PLA-I8-2: a new gate is stored human_only, and answer
-    // refuses it unless the screen consumed a TOTP challenge in the same transaction. Rows that
-    // already existed keep human_only false and stay answerable by an agent.
+    // PLA-I8-1: gate A, B or C on an idea. PLA-I8-2: a gate is human_only. answer refuses it
+    // unless the screen consumed a TOTP challenge in the same transaction. Migration 0027 sets
+    // human_only on gate questions that were still open. An answer from an agent does not move the gate.
     gate: text("gate"),
     humanOnly: boolean("human_only").notNull().default(false),
   },

@@ -8,7 +8,7 @@ import { z } from "zod";
 import { verifyPassword } from "../auth/password.js";
 import { createGateChallenge } from "../gate/challenge.js";
 import { gateStore } from "../gate/store.js";
-import { otpauthUri, base32Encode, randomSecret } from "../gate/totp.js";
+import { otpauthUri, base32Encode, matchTotp, randomSecret } from "../gate/totp.js";
 import { SESSION_COOKIE, createSession, sessionCookieOptions, verifySession } from "../auth/session.js";
 import { issueToken, listTokens, revokeToken, TOKEN_SCOPES } from "../auth/tokens.js";
 import { withDb, type Db } from "../db/client.js";
@@ -466,13 +466,22 @@ api.get("/gate", async (c) => {
 });
 
 // Enrol or replace the authenticator secret. Cookie plus the current Plania password.
-// The base32 secret and the otpauth URI are returned once, as text, and not stored in the database.
+// Replacing one that is already stored also needs a current TOTP code. The base32 secret and the
+// otpauth URI are returned once, as text, and are not stored in the database or in the audit event.
 api.post("/gate/enroll", async (c) => {
-  const body = await readJson(c, z.object({ password: z.string() }));
+  c.header("Cache-Control", "no-store");
+  const body = await readJson(c, z.object({ password: z.string(), code: z.string().max(12).optional() }));
   if (body instanceof Response) return body;
   const stored = process.env.PLANIA_PASSWORD_HASH ?? "";
   if (!body.password || !stored || !(await verifyPassword(stored, body.password))) {
     return c.json({ error: "INVALID_PASSWORD" }, 401);
+  }
+  const existing = await gateStore().get();
+  if (existing) {
+    const code = body.code?.trim() ?? "";
+    if (matchTotp(existing, code) === null) {
+      return c.json({ error: "GATE_CODE_INVALID", reason: code ? "invalid" : "missing" }, 403);
+    }
   }
   const secret = randomSecret();
   try {
@@ -480,6 +489,15 @@ api.post("/gate/enroll", async (c) => {
   } catch {
     return c.json({ error: "KEYCHAIN_FAILED", hint: "the keychain did not store the secret" }, 500);
   }
+  const replaced = !!existing;
+  await withDb(async (db) => {
+    const rows = await db.select({ id: projects.id, slug: projects.slug }).from(projects);
+    for (const project of rows) {
+      await writeTx(db, project, webCtx, async (_tx, emit) => {
+        await emit("gate.enrolled", null, { replaced });
+      });
+    }
+  });
   const secretBase32 = base32Encode(secret);
   return c.json({ secret_base32: secretBase32, otpauth_uri: otpauthUri(secretBase32) });
 });

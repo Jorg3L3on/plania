@@ -50,7 +50,8 @@ export const api = {
   createChallenge: (slug: string, questionId: string, option: string) =>
     request<{ nonce: string; expires_at: string }>("POST", `/projects/${encodeURIComponent(slug)}/questions/${encodeURIComponent(questionId)}/challenge`, { option }),
   gate: () => request<{ enrolled: boolean }>("GET", "/gate"),
-  enrollGate: (password: string) => request<{ secret_base32: string; otpauth_uri: string }>("POST", "/gate/enroll", { password }),
+  enrollGate: (password: string, code?: string) =>
+    request<{ secret_base32: string; otpauth_uri: string }>("POST", "/gate/enroll", { password, ...(code ? { code } : {}) }),
   // The headline carries the project version on screen, like a task's.
   patchProject: (slug: string, headline: string, version: number) =>
     request<{ version: number }>("PATCH", `/projects/${encodeURIComponent(slug)}`, { headline, version }),

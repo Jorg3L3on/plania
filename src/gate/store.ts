@@ -26,33 +26,47 @@ export class MemoryGateSecretStore implements GateSecretStore {
   }
 }
 
-// argv is only `-i`. The password is the second line of stdin, after `-w` with no value,
-// which is how `security -i` reads it without putting it on the command line.
+// `security -i` reads one command per line and takes `-w`'s value on that same line.
+// A second line is another command, so the item is stored empty. argv stays `-i`: the secret
+// is only in stdin. Base32 is [A-Z2-7], which needs no quotes and cannot break the command.
+const BASE32_ITEM = /^[A-Z2-7]+$/;
+
 export function keychainWriteInvocation(secretBase32: string): { file: string; args: string[]; stdin: string } {
-  const command = `add-generic-password -U -T /usr/bin/security -s ${GATE_KEYCHAIN_SERVICE} -a ${GATE_KEYCHAIN_ACCOUNT} -w`;
-  return { file: "security", args: ["-i"], stdin: `${command}\n${secretBase32}\n` };
+  if (!BASE32_ITEM.test(secretBase32)) throw new Error("keychain write failed");
+  const stdin = `add-generic-password -U -T /usr/bin/security -s ${GATE_KEYCHAIN_SERVICE} -a ${GATE_KEYCHAIN_ACCOUNT} -w ${secretBase32}\n`;
+  return { file: "security", args: ["-i"], stdin };
 }
 
 export function keychainReadArgs(): string[] {
   return ["find-generic-password", "-s", GATE_KEYCHAIN_SERVICE, "-a", GATE_KEYCHAIN_ACCOUNT, "-w"];
 }
 
-function execSecurity(args: string[], stdin?: string): Promise<string> {
+export type SecurityCall = (args: string[], stdin: string) => Promise<string>;
+
+function defaultSecurity(args: string[], stdin: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile("security", args, { encoding: "utf8", timeout: 15_000, maxBuffer: 64 * 1024 }, (err, stdout) => {
       if (err) reject(err instanceof Error ? err : new Error("keychain command failed"));
       else resolve(stdout ?? "");
     });
-    child.stdin?.end(stdin ?? "");
+    child.stdin?.end(stdin);
   });
+}
+
+let securityCall: SecurityCall = defaultSecurity;
+
+// Tests replace the process spawn. Production uses `security`.
+export function useSecurityRunner(run: SecurityCall | null): void {
+  securityCall = run ?? defaultSecurity;
 }
 
 export class KeychainGateSecretStore implements GateSecretStore {
   async get(): Promise<Buffer | null> {
     try {
-      const stdout = await execSecurity(keychainReadArgs());
+      const stdout = await securityCall(keychainReadArgs(), "");
       const text = stdout.trim();
-      if (!text) return null;
+      // An empty item (the broken two-line write) is not enrolled.
+      if (!BASE32_ITEM.test(text)) return null;
       return base32Decode(text);
     } catch {
       // Missing item, or `security` is not on this machine. Treated as not enrolled.
@@ -63,11 +77,13 @@ export class KeychainGateSecretStore implements GateSecretStore {
   async set(secret: Buffer): Promise<void> {
     const plan = keychainWriteInvocation(base32Encode(secret));
     try {
-      await execSecurity(plan.args, plan.stdin);
+      await securityCall(plan.args, plan.stdin);
     } catch {
       // The message from `security` can echo input. Keep it off the error.
       throw new Error("keychain write failed");
     }
+    const stored = await this.get();
+    if (!stored || !stored.equals(secret)) throw new Error("keychain write failed");
   }
 }
 

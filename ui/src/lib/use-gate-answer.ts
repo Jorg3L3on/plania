@@ -14,13 +14,13 @@ export function gateMessage(error: unknown): string {
 
 type SendInput = { answer: string; decision?: string; nonce?: string; code?: string };
 
-// Ordinary questions send the answer at once. A human_only question opens a challenge for the
-// chosen option, then sends the authenticator code with that challenge.
-export function useQuestionAnswer(slug: string, questionId: string, humanOnly: boolean) {
+// Ordinary questions, including a human_only question that is not a gate, send the answer at once.
+// A gate opens a challenge for the chosen option, then sends the authenticator code with that challenge.
+export function useQuestionAnswer(slug: string, questionId: string, needsCode: boolean) {
   const queryClient = useQueryClient();
   const [challenge, setChallenge] = useState<{ option: string; nonce: string } | null>(null);
   const [code, setCode] = useState("");
-  const enrolled = useQuery({ queryKey: ["gate"], queryFn: api.gate, enabled: humanOnly, staleTime: 15_000 });
+  const enrolled = useQuery({ queryKey: ["gate"], queryFn: api.gate, enabled: needsCode, staleTime: 15_000 });
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["project", slug] });

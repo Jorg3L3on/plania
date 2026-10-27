@@ -52,13 +52,20 @@ async function answerGate(questionId: string, option: string) {
 const migrationsDir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
 const ideaDoc = { title: "Idea", markdown: "## Problem\n\n## Who it is for\n\n## Why now\n" };
-const answered = (gate: string, answer: string, answeredAt: string) => ({ gate, question: "q", answered: true, answer, answeredAt });
+const screenActor = { agent: "jorge", session_id: "web", machine: "screen" };
+const answered = (
+  gate: string,
+  answer: string,
+  answeredAt: string,
+  answeredBy: { agent: string; session_id: string; machine?: string } | null = screenActor,
+) => ({ gate, question: "q", answered: true, answer, answeredAt, answeredBy });
 
 test("only an advancing gate answer passes, and a step back makes it stale", () => {
   assert.equal(forwardBlock("idea", ideaDoc, [answered("A", "drop", "2026-01-02T00:00:00Z")])?.code, "GATE_NOT_PASSED");
   assert.equal(forwardBlock("idea", ideaDoc, [answered("A", "later", "2026-01-02T00:00:00Z")])?.code, "GATE_NOT_PASSED");
   assert.equal(forwardBlock("idea", ideaDoc, [answered("A", "pursue", "2026-01-02T00:00:00Z"), answered("A", "drop", "2026-01-03T00:00:00Z")])?.code, "GATE_NOT_PASSED");
   assert.equal(forwardBlock("idea", ideaDoc, [answered("A", "drop", "2026-01-02T00:00:00Z"), answered("A", "pursue", "2026-01-03T00:00:00Z")]), null);
+  assert.equal(forwardBlock("idea", ideaDoc, [answered("A", "pursue", "2026-01-02T00:00:00Z", { agent: "test-agent", session_id: "s1" })])?.code, "GATE_NOT_PASSED");
   const since = new Date("2026-01-04T00:00:00Z");
   assert.equal(forwardBlock("idea", ideaDoc, [answered("A", "pursue", "2026-01-03T00:00:00Z")], since)?.code, "GATE_NOT_PASSED");
   assert.equal(forwardBlock("idea", ideaDoc, [answered("A", "pursue", "2026-01-03T00:00:00Z"), answered("A", "pursue", "2026-01-05T00:00:00Z")], since), null);
@@ -72,6 +79,7 @@ test("only an advancing gate answer passes, and a step back makes it stale", () 
   assert.equal(forwardBlock("planning", plan, [answered("C", "rework", "2026-01-02T00:00:00Z")])?.code, "GATE_NOT_PASSED");
   assert.equal(forwardBlock("planning", plan, [answered("C", "drop", "2026-01-02T00:00:00Z")])?.code, "GATE_NOT_PASSED");
   assert.equal(forwardBlock("planning", plan, [answered("C", "ready", "2026-01-02T00:00:00Z")]), null);
+  assert.equal(forwardBlock("planning", plan, [answered("C", "ready", "2026-01-02T00:00:00Z", { agent: "test-agent", session_id: "s1" })])?.code, "GATE_NOT_PASSED");
 });
 
 test("idea wait text names the doc and the headings in Spanish", () => {
@@ -82,6 +90,7 @@ test("idea wait text names the doc and the headings in Spanish", () => {
   assert.equal(ideaWaitText("idea", [ideaDoc], [answered("A", "drop", "2026-01-02T00:00:00Z")]), "Puerta A");
   assert.equal(ideaWaitText("idea", [ideaDoc], [answered("A", "pursue", "2026-01-02T00:00:00Z")], new Date("2026-01-03T00:00:00Z")), "Puerta A");
   assert.equal(ideaWaitText("idea", [ideaDoc], [answered("A", "pursue", "2026-01-02T00:00:00Z")]), "Puede avanzar");
+  assert.equal(ideaWaitText("idea", [ideaDoc], [answered("A", "pursue", "2026-01-02T00:00:00Z", { agent: "test-agent", session_id: "s1" })]), "Puerta A");
   assert.equal(ideaWaitText("ready", [], []), "Lista para promover");
 });
 

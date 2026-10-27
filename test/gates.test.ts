@@ -7,7 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type pg from "pg";
 import { base32Decode, base32Encode, hotp, matchTotp, otpauthUri, randomSecret, totp } from "../src/gate/totp.js";
-import { keychainReadArgs, keychainWriteInvocation } from "../src/gate/store.js";
+import { KeychainGateSecretStore, keychainReadArgs, keychainWriteInvocation, useSecurityRunner } from "../src/gate/store.js";
 import { GATE_ENROLL_STEP, questionMarkLabels } from "../ui/src/lib/inbox.js";
 import { summarize } from "../src/mcp/summary.js";
 import { resetTestDb, useTestEnv } from "./helpers.js";
@@ -76,11 +76,42 @@ test("the keychain invocation keeps the secret off argv", () => {
   const plan = keychainWriteInvocation(RFC_BASE32);
   assert.equal(plan.file, "security");
   assert.deepEqual(plan.args, ["-i"]);
-  assert.equal(JSON.stringify(plan.args).includes(RFC_BASE32), false);
-  assert.equal(plan.stdin, `add-generic-password -U -T /usr/bin/security -s plania-gate -a plania -w\n${RFC_BASE32}\n`);
+  assert.equal(plan.stdin, `add-generic-password -U -T /usr/bin/security -s plania-gate -a plania -w ${RFC_BASE32}\n`);
+  assert.equal(plan.stdin.split("\n").filter((line) => line.length > 0).length, 1);
+  for (const arg of plan.args) assert.equal(arg.includes(RFC_BASE32), false);
+  assert.throws(() => keychainWriteInvocation("not valid"), /keychain write failed/);
+  assert.throws(() => keychainWriteInvocation(`${RFC_BASE32};id`), /keychain write failed/);
   const read = keychainReadArgs();
   assert.deepEqual(read, ["find-generic-password", "-s", "plania-gate", "-a", "plania", "-w"]);
   assert.equal(read.join(" ").includes(RFC_BASE32), false);
+});
+
+test("the keychain invoker never puts the secret on an argv line", async () => {
+  const calls: { args: string[]; stdin: string }[] = [];
+  const store = new KeychainGateSecretStore();
+  useSecurityRunner(async (args, stdin) => {
+    calls.push({ args: [...args], stdin });
+    if (args[0] === "find-generic-password") return `${RFC_BASE32}\n`;
+    return "";
+  });
+  try {
+    await store.set(RFC_SECRET);
+    assert.ok(calls.length >= 2);
+    const write = calls.find((call) => call.args.length === 1 && call.args[0] === "-i");
+    assert.ok(write);
+    assert.equal(write.stdin, `add-generic-password -U -T /usr/bin/security -s plania-gate -a plania -w ${RFC_BASE32}\n`);
+    for (const call of calls) {
+      for (const arg of call.args) assert.equal(arg.includes(RFC_BASE32), false);
+    }
+    useSecurityRunner(async () => "\n");
+    assert.equal(await store.get(), null);
+    useSecurityRunner(async () => "not-base32\n");
+    assert.equal(await store.get(), null);
+    useSecurityRunner(async (args) => (args[0] === "find-generic-password" ? "\n" : ""));
+    await assert.rejects(() => store.set(RFC_SECRET), /keychain write failed/);
+  } finally {
+    useSecurityRunner(null);
+  }
 });
 
 test("a question card labels the gate and Solo tú", () => {
@@ -91,10 +122,15 @@ test("a question card labels the gate and Solo tú", () => {
   assert.deepEqual(questionMarkLabels("nope", true), ["Solo tú"]);
   const resume = readFileSync(path.resolve(import.meta.dirname, "../ui/src/components/resume.tsx"), "utf8");
   const home = readFileSync(path.resolve(import.meta.dirname, "../ui/src/components/home/te-toca.tsx"), "utf8");
+  const panel = readFileSync(path.resolve(import.meta.dirname, "../ui/src/components/gate-panel.tsx"), "utf8");
   for (const source of [resume, home]) {
     assert.match(source, /QuestionMarks/);
     assert.match(source, /GATE_ENROLL_STEP/);
+    assert.match(source, /needsCode/);
+    assert.match(source, /!needsCode &&/);
   }
+  assert.match(panel, /Enrolado/);
+  assert.equal(panel.includes("Enrolar de nuevo"), false);
   assert.match(GATE_ENROLL_STEP, /Bandeja, sección Compuertas/);
   assert.match(GATE_ENROLL_STEP, /base32/);
   assert.match(GATE_ENROLL_STEP, /otpauth/);
@@ -102,7 +138,7 @@ test("a question card labels the gate and Solo tú", () => {
     type: "gate.code.rejected",
     task_key: "WRK-01",
     actor: { agent: "jorge", session_id: "web", machine: "screen" },
-    payload: { reason: "invalid", nonce: "nonce-only" },
+    payload: { reason: "invalid", challenge_id: "row-only" },
   });
   assert.match(line, /invalid/);
   assert.equal(line.includes("287082"), false);
@@ -195,7 +231,25 @@ describe("screen gates", () => {
     await raw?.end();
   });
 
-  test("migration 0027 applies twice and adds gate_challenges", async () => {
+  test("migration 0027 applies twice, adds gate_challenges, and flags open gates", async () => {
+    const project = (await raw.query("select id from projects where slug = 'workia'")).rows[0];
+    const task = await raw.query(
+      "insert into tasks (project_id, kind, key, title, status, stage) values ($1, 'idea', 'WRK-OLD', 'Fila previa', 'Open', 'idea') returning id",
+      [project.id],
+    );
+    const taskId = task.rows[0].id as string;
+    const actor = JSON.stringify(A);
+    await raw.query(
+      `insert into questions (project_id, task_id, question, gate, human_only, asked_by) values
+        ($1, $2, 'Abierta', 'A', false, $3::jsonb),
+        ($1, $2, 'Respondida', 'A', false, $3::jsonb),
+        ($1, $2, 'Normal', null, false, $3::jsonb)`,
+      [project.id, taskId, actor],
+    );
+    await raw.query(
+      "update questions set answer = 'pursue', answered_at = now(), answered_by = $1::jsonb where question = 'Respondida'",
+      [actor],
+    );
     const sql = readFileSync(path.resolve(import.meta.dirname, "../drizzle/migrations/0027_gate_challenges.sql"), "utf8");
     await raw.query(sql);
     await raw.query(sql);
@@ -205,6 +259,14 @@ describe("screen gates", () => {
     assert.deepEqual(rows.map((r) => r.column_name), [
       "attempts", "created_at", "expires_at", "id", "nonce", "option", "question_id", "state", "totp_step", "used_at",
     ]);
+    const flags = await raw.query(
+      "select question, human_only from questions where task_id = $1 order by question",
+      [taskId],
+    );
+    assert.deepEqual(
+      flags.rows.map((r) => [r.question, r.human_only]),
+      [["Abierta", true], ["Normal", false], ["Respondida", false]],
+    );
   });
 
   test("a question that is not a gate is still answered by an agent", async () => {
@@ -264,12 +326,20 @@ describe("screen gates", () => {
     assert.equal(((await wrong.json()) as Json).error, "INVALID_PASSWORD");
     const good = await req("POST", "/api/gate/enroll", { body: { password: PASSWORD } });
     assert.equal(good.status, 200);
+    assert.equal(good.headers.get("cache-control"), "no-store");
     const body = (await good.json()) as Json;
     assert.match(body.secret_base32, /^[A-Z2-7]+$/);
     assert.match(body.otpauth_uri, /^otpauth:\/\/totp\/Plania%3Agates\?/);
     assert.equal(String(body.otpauth_uri).includes("@"), false);
     secretB32 = body.secret_base32;
     secret = base32Decode(secretB32);
+    const enrolled = (await raw.query("select payload from events where type = 'gate.enrolled' order by id")).rows;
+    assert.ok(enrolled.length >= 1);
+    for (const row of enrolled) {
+      assert.equal(row.payload.replaced, false);
+      assert.deepEqual(Object.keys(row.payload), ["replaced"]);
+      assert.equal(JSON.stringify(row.payload).includes(secretB32), false);
+    }
     assert.deepEqual(await (await req("GET", "/api/gate")).json(), { enrolled: true });
     const again = await req("GET", "/api/gate");
     assert.equal(JSON.stringify(await again.json()).includes(secretB32), false);
@@ -289,6 +359,11 @@ describe("screen gates", () => {
     assert.deepEqual(events.map((e) => e.type), ["gate.code.rejected", "gate.challenge.created", "gate.answered"]);
     assert.equal(events[2].actor.agent, "jorge");
     assert.equal(events[2].payload.option, "pursue");
+    assert.equal(events[0].payload.reason, "not_enrolled");
+    assert.equal(events[0].payload.challenge_id, null);
+    for (const event of events) assert.equal("nonce" in event.payload, false);
+    assert.equal(typeof events[1].payload.challenge_id, "string");
+    assert.equal(typeof events[2].payload.challenge_id, "string");
     const row = (await raw.query("select answered_by from questions where id = $1", [askedId])).rows[0];
     assert.equal(row.answered_by.agent, "jorge");
   });
@@ -352,44 +427,112 @@ describe("screen gates", () => {
     assert.equal(lockedRow.attempts, 3);
   });
 
-  test("a human_only question that is not a gate also needs the screen code", async () => {
+  test("a human_only question that is not a gate is free text on the screen, with no code", async () => {
     const ticket = await call("create_task", { title: "Solo", scope: "s", checks: ["c"] });
     const asked = await call("ask", { key: ticket.key, question: "¿Sigues tú?", human_only: true });
     assert.equal(asked.question.gate, null);
     assert.equal(asked.question.human_only, true);
+    assert.deepEqual(asked.question.options, []);
     assert.equal((await call("answer", { question_id: asked.question.id, answer: "sí" })).__error, "HUMAN_ONLY");
-    const out = await answerFresh(asked.question.id, "sí");
-    assert.equal(out.status, 200, JSON.stringify(out.body));
-    assert.equal(out.body.question.answered_by.agent, "jorge");
+    const refused = await challenge(asked.question.id, "sí");
+    assert.equal(refused.status, 400);
+    assert.equal(refused.body.error, "INVALID_QUESTION");
+    const out = await req("POST", `/api/projects/workia/questions/${asked.question.id}/answer`, { body: { answer: "sí" } });
+    const body = (await out.json()) as Json;
+    assert.equal(out.status, 200, JSON.stringify(body));
+    assert.equal(body.question.answer, "sí");
+    assert.equal(body.question.answered_by.agent, "jorge");
+    assert.equal(body.question.answered_by.session_id, "web");
   });
 
-  test("re-enrolling needs the password again and replaces the secret", async () => {
-    const wrong = await req("POST", "/api/gate/enroll", { body: { password: "still-wrong" } });
+  test("at most five open challenges, and creating one purges the expired", async () => {
+    const idea = await call("create_task", { kind: "idea", title: "Tope" });
+    const asked = await call("ask", { key: idea.key, gate: "A", question: "¿Tope?" });
+    const planted = await raw.query(
+      `insert into gate_challenges (question_id, option, nonce, expires_at, state, totp_step, used_at)
+       values ($1, 'drop', 'planted-used', now(), 'used', 42, now()) returning id`,
+      [asked.question.id],
+    );
+    for (let n = 0; n < 5; n++) {
+      const opened = await challenge(asked.question.id, "pursue");
+      assert.equal(opened.status, 200, JSON.stringify(opened.body));
+    }
+    const sixth = await challenge(asked.question.id, "pursue");
+    assert.equal(sixth.status, 400);
+    assert.equal(sixth.body.error, "INVALID_QUESTION");
+    tick += 121_000;
+    const after = await challenge(asked.question.id, "pursue");
+    assert.equal(after.status, 200, JSON.stringify(after.body));
+    const stillUsed = (await raw.query("select id from gate_challenges where id = $1 and totp_step is not null", [planted.rows[0].id])).rows;
+    assert.equal(stillUsed.length, 1);
+    const open = (await raw.query(
+      "select count(*)::int as n from gate_challenges where question_id = $1 and state = 'open'",
+      [asked.question.id],
+    )).rows[0];
+    assert.equal(open.n, 1);
+  });
+
+  test("re-enrolling needs the password and a current code, and replaces the secret", async () => {
+    const wrong = await req("POST", "/api/gate/enroll", { body: { password: "still-wrong", code: totp(secret, tick) } });
     assert.equal(wrong.status, 401);
+    assert.equal(wrong.headers.get("cache-control"), "no-store");
+    const missing = await req("POST", "/api/gate/enroll", { body: { password: PASSWORD } });
+    const missingBody = (await missing.json()) as Json;
+    assert.equal(missing.status, 403);
+    assert.equal(missingBody.error, "GATE_CODE_INVALID");
+    assert.equal(missingBody.reason, "missing");
+    const bad = await req("POST", "/api/gate/enroll", { body: { password: PASSWORD, code: "000000" } });
+    const badBody = (await bad.json()) as Json;
+    assert.equal(bad.status, 403);
+    assert.equal(badBody.error, "GATE_CODE_INVALID");
+    assert.equal(badBody.reason, "invalid");
     const kept = totp(secret, tick);
-    const next = await req("POST", "/api/gate/enroll", { body: { password: PASSWORD } });
+    seenCodes.push(kept);
+    const before = (await raw.query("select count(*)::int as n from events where type = 'gate.enrolled' and payload->>'replaced' = 'true'")).rows[0].n;
+    const next = await req("POST", "/api/gate/enroll", { body: { password: PASSWORD, code: kept } });
     const body = (await next.json()) as Json;
-    assert.equal(next.status, 200);
+    assert.equal(next.status, 200, JSON.stringify(body));
+    assert.equal(next.headers.get("cache-control"), "no-store");
     assert.notEqual(body.secret_base32, secretB32);
+    assert.equal(JSON.stringify(body).includes(kept), false);
+    const previous = secretB32;
     secretB32 = body.secret_base32;
     secret = base32Decode(secretB32);
     assert.notEqual(totp(secret, tick), kept);
+    const replaced = (await raw.query("select payload from events where type = 'gate.enrolled' and payload->>'replaced' = 'true' order by id")).rows;
+    assert.ok(replaced.length > before);
+    for (const row of replaced) {
+      assert.deepEqual(Object.keys(row.payload), ["replaced"]);
+      assert.equal(JSON.stringify(row.payload).includes(previous), false);
+      assert.equal(JSON.stringify(row.payload).includes(secretB32), false);
+      assert.equal(JSON.stringify(row.payload).includes(kept), false);
+    }
     const idea = await call("create_task", { kind: "idea", title: "Nuevo secreto" });
     const asked = await call("ask", { key: idea.key, gate: "A", question: "¿Con el nuevo?" });
     const out = await answerFresh(asked.question.id, "pursue");
     assert.equal(out.status, 200, JSON.stringify(out.body));
   });
 
-  test("a promoted initiative cannot become Active until gate C is answered on the screen", async () => {
+  test("a promoted initiative cannot become Active until gate C is answered ready on the screen", async () => {
     const initiative = await call("create_task", { kind: "initiative", title: "Linea", scope: "PRD" });
-    const plain = await call("create_task", { kind: "initiative", title: "Sin puerta", scope: "PRD" });
+    const plain = await call("create_task", { kind: "initiative", title: "Sin idea", scope: "PRD" });
+    const missingInit = await call("create_task", { kind: "initiative", title: "Sin C", scope: "PRD" });
     const legacyInit = await call("create_task", { kind: "initiative", title: "Vieja", scope: "PRD" });
     const idea = await call("create_task", { kind: "idea", title: "Promovida" });
-    const untouched = await call("create_task", { kind: "idea", title: "Sin compuerta C" });
+    const missingIdea = await call("create_task", { kind: "idea", title: "Sin compuerta C" });
     const legacyIdea = await call("create_task", { kind: "idea", title: "Fila vieja" });
     await raw.query("update tasks set stage = 'planning', promoted_to = $1 where key = $2", [initiative.key, idea.key]);
-    await raw.query("update tasks set stage = 'planning', promoted_to = $1 where key = $2", [plain.key, untouched.key]);
+    await raw.query("update tasks set stage = 'planning', promoted_to = $1 where key = $2", [missingInit.key, missingIdea.key]);
     await raw.query("update tasks set stage = 'planning', promoted_to = $1 where key = $2", [legacyInit.key, legacyIdea.key]);
+
+    const free = await setStatus(plain.key, "Active");
+    assert.equal(free.__error, undefined, JSON.stringify(free));
+    assert.equal(free.status, "Active");
+
+    const noQuestion = await setStatus(missingInit.key, "Active");
+    assert.equal(noQuestion.__error, "GATE_NOT_PASSED");
+    assert.equal(noQuestion.gate, "C");
+    assert.equal(noQuestion.idea, missingIdea.key);
 
     const gate = await call("ask", { key: idea.key, gate: "C", question: "¿Lista?" });
     const blocked = await setStatus(initiative.key, "Active");
@@ -408,18 +551,23 @@ describe("screen gates", () => {
     const answered = await answerFresh(gate.question.id, "ready");
     assert.equal(answered.status, 200, JSON.stringify(answered.body));
     assert.equal(answered.body.question.answered_by.agent, "jorge");
+    assert.equal(answered.body.question.answered_by.machine, "screen");
     const active = await setStatus(initiative.key, "Active");
     assert.equal(active.__error, undefined, JSON.stringify(active));
     assert.equal(active.status, "Active");
-
-    const free = await setStatus(plain.key, "Active");
-    assert.equal(free.__error, undefined, "an initiative with no gate C question is unchanged");
-    assert.equal(free.status, "Active");
 
     const ids = (await raw.query(
       "select t.id as task_id, t.project_id from tasks t join projects p on p.id = t.project_id where p.slug = 'workia' and t.key = $1",
       [legacyIdea.key],
     )).rows[0];
+    const prior = await raw.query(
+      `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by, answer, answered_by, answered_at)
+       values ($1, $2, 'Respuesta de agente', $3, 'C', false, $4::jsonb, 'ready', $4::jsonb, now()) returning id`,
+      [ids.project_id, ids.task_id, ["ready", "rework", "drop"], JSON.stringify(A)],
+    );
+    assert.equal(prior.rows.length, 1);
+    const stillBlocked = await setStatus(legacyInit.key, "Active");
+    assert.equal(stillBlocked.__error, "GATE_NOT_PASSED");
     const inserted = await raw.query(
       `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by)
        values ($1, $2, 'Fila anterior', $3, 'C', false, $4::jsonb) returning id`,
@@ -427,19 +575,24 @@ describe("screen gates", () => {
     );
     const legacyId = inserted.rows[0].id as string;
     const byAgent = await call("answer", { question_id: legacyId, answer: "ready" });
-    assert.equal(byAgent.__error, undefined, "a gate row that was not human_only stays answerable by an agent");
+    assert.equal(byAgent.__error, "HUMAN_ONLY");
+    const onScreen = await answerFresh(legacyId, "ready");
+    assert.equal(onScreen.status, 200, JSON.stringify(onScreen.body));
     const who = (await raw.query("select answered_by from questions where id = $1", [legacyId])).rows[0];
-    assert.equal(who.answered_by.agent, "test-agent");
+    assert.equal(who.answered_by.agent, "jorge");
+    assert.equal(who.answered_by.session_id, "web");
+    assert.equal(who.answered_by.machine, "screen");
     const legacyActive = await setStatus(legacyInit.key, "Active");
-    assert.equal(legacyActive.__error, undefined);
+    assert.equal(legacyActive.__error, undefined, JSON.stringify(legacyActive));
     assert.equal(legacyActive.status, "Active");
   });
 
   test("events and challenge rows never store the code or the secret", async () => {
-    const { rows } = await raw.query("select payload from events");
+    const { rows } = await raw.query("select type, payload from events where type like 'gate.%'");
     const found = rows.flatMap((r) => leaves(r.payload));
     assert.equal(found.some((v) => v.includes(secretB32)), false);
     for (const code of seenCodes) assert.equal(found.includes(code), false, `code leaked: ${code}`);
+    for (const row of rows) assert.equal(Object.hasOwn(row.payload, "nonce"), false);
     const challenges = await raw.query("select nonce, option, state, totp_step::text as step from gate_challenges");
     const blob = JSON.stringify(challenges.rows);
     assert.equal(blob.includes(secretB32), false);

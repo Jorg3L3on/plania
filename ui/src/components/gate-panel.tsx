@@ -38,23 +38,7 @@ export function GatePanel() {
       <h2 className="text-sm font-medium text-orange-600 dark:text-orange-400">Compuertas</h2>
       <Card>
         <CardContent className="grid gap-3">
-          <p className="text-sm text-muted-foreground">{GATE_ENROLL_STEP}</p>
-          {gate.data?.enrolled && !once && <p className="text-sm">El código ya está enrolado. Para cambiarlo, escribe la contraseña otra vez: el secreto anterior deja de valer.</p>}
-          <form onSubmit={submit} className="flex flex-wrap gap-2">
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Contraseña actual de Plania"
-              aria-label="Contraseña actual de Plania"
-              autoComplete="current-password"
-              className="max-w-sm"
-            />
-            <Button type="submit" size="sm" disabled={!password || enroll.isPending}>
-              {gate.data?.enrolled ? "Enrolar de nuevo" : "Enrolar"}
-            </Button>
-          </form>
-          {once && (
+          {once ? (
             <div className="grid gap-2 text-sm">
               <p>Copia estos dos textos a tu app autenticadora. No se vuelven a mostrar.</p>
               <p className="font-medium">Secreto en base32</p>
@@ -62,6 +46,24 @@ export function GatePanel() {
               <p className="font-medium">URI otpauth</p>
               <code className="block overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono text-xs break-all">{once.otpauth_uri}</code>
             </div>
+          ) : gate.data?.enrolled ? (
+            <p className="text-sm">Enrolado</p>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">{GATE_ENROLL_STEP}</p>
+              <form onSubmit={submit} className="flex flex-wrap gap-2">
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Contraseña actual de Plania"
+                  aria-label="Contraseña actual de Plania"
+                  autoComplete="current-password"
+                  className="max-w-sm"
+                />
+                <Button type="submit" size="sm" disabled={!password || enroll.isPending}>Enrolar</Button>
+              </form>
+            </>
           )}
         </CardContent>
       </Card>

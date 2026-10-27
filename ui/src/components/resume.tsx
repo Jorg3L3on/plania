@@ -90,15 +90,16 @@ export function ResumeView({ resume, onOpen }: { resume: Resume; onOpen: (key: s
 
 function QuestionCard({ slug, q, onOpen }: { slug: string; q: Question; onOpen: (key: string) => void }) {
   const humanOnly = !!q.human_only;
-  const flow = useQuestionAnswer(slug, q.id, humanOnly);
+  const needsCode = !!q.gate;
+  const flow = useQuestionAnswer(slug, q.id, needsCode);
   const [free, setFree] = useState("");
   const [decision, setDecision] = useState("");
   const pending = flow.send.isPending || flow.begin.isPending;
   const decided = decision.trim() || undefined;
-  const needsEnrol = humanOnly && flow.enrolled === false;
+  const needsEnrol = needsCode && flow.enrolled === false;
 
   function choose(option: string) {
-    if (humanOnly) flow.begin.mutate(option);
+    if (needsCode) flow.begin.mutate(option);
     else flow.send.mutate({ answer: option, decision: decided });
   }
   function submitFree(e: FormEvent) {
@@ -148,11 +149,11 @@ function QuestionCard({ slug, q, onOpen }: { slug: string; q: Question; onOpen: 
               {q.options.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {q.options.map((o) => (
-                    <Button key={o} size="sm" variant="outline" className="h-auto min-h-7 py-1 text-left whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-9" disabled={pending || (humanOnly && flow.enrolled === undefined)} onClick={() => choose(o)}>{optionLabel(o)}</Button>
+                    <Button key={o} size="sm" variant="outline" className="h-auto min-h-7 py-1 text-left whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-9" disabled={pending || (needsCode && flow.enrolled === undefined)} onClick={() => choose(o)}>{optionLabel(o)}</Button>
                   ))}
                 </div>
               )}
-              {!humanOnly && (
+              {!needsCode && (
                 <form onSubmit={submitFree} className="grid gap-2">
                   <div className="flex gap-2">
                     <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" />

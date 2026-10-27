@@ -50,6 +50,8 @@ export function summarize(e: Ev): string {
       return `${k} compuerta respondida en pantalla${p.gate ? ` (${str(p.gate)})` : ""}`;
     case "gate.code.rejected":
       return `${k} código de compuerta rechazado (${str(p.reason)})`;
+    case "gate.enrolled":
+      return `Compuerta: autenticador ${p.replaced ? "reemplazado" : "enrolado"}`;
     case "approval.requested":
       return `${k} pide aprobación: ${str(p.action)}`;
     case "approval.granted":

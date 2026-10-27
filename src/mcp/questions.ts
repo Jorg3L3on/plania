@@ -127,10 +127,12 @@ export async function answer(
     if (!row) throw new ToolError("QUESTION_NOT_FOUND", { question_id: input.question_id });
     const { q, t } = row;
     if (q.answeredAt) throw new ToolError("ALREADY_ANSWERED", { answer: q.answer, answered_by: q.answeredBy });
-    if (q.humanOnly && !ctx.human) {
+    // A gate always needs the screen and a consumed code, even if an old row still has human_only false.
+    // A human_only question that is not a gate is answered on the screen as free text, with no code.
+    if ((q.gate || q.humanOnly) && !ctx.human) {
       throw new ToolError("HUMAN_ONLY", { hint: "a gate is answered on the screen, with the code from the authenticator" });
     }
-    if (q.humanOnly) {
+    if (q.gate) {
       // Failure commits the attempt and the rejection event; success falls through in this same transaction.
       const failure = await consumeGateCode(tx, emit, q, t, input.answer, { nonce: input.nonce, code: input.code });
       if (failure) return { ok: false as const, failure };
@@ -138,8 +140,8 @@ export async function answer(
 
     // 2.1: an answer is a decision only when the caller says what was decided (decision_text);
     // otherwise the answer stays on the question and the decision log keeps its signal.
-    // A human_only answer is Jorge's, whatever else the caller sent.
-    const by = q.humanOnly ? WEB_ACTOR : ctx.actor;
+    // A gate or human_only answer is Jorge's, whatever else the caller sent.
+    const by = q.gate || q.humanOnly ? WEB_ACTOR : ctx.actor;
     let d: typeof decisions.$inferSelect | undefined;
     if (input.decision_text?.trim()) {
       if (/^\s*\d{4}-\d{2}-\d{2}\b/.test(input.decision_text)) throw new ToolError("TEXT_HAS_DATE");

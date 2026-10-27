@@ -25,3 +25,7 @@ END $$;
 CREATE INDEX IF NOT EXISTS "gate_challenges_question_idx" ON "gate_challenges" USING btree ("question_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "gate_challenges_totp_step_unique" ON "gate_challenges" USING btree ("totp_step") WHERE "gate_challenges"."totp_step" is not null;
+--> statement-breakpoint
+-- Open gate questions that already existed become human_only. Answered rows stay as they are.
+-- Idempotent: a second run only touches rows that are still open and not yet flagged.
+UPDATE "questions" SET "human_only" = true WHERE "gate" IS NOT NULL AND "answered_at" IS NULL AND "human_only" = false;

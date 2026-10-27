@@ -37,20 +37,21 @@ const taskHref = (item: InboxItem) => `/p/${item.project}?task=${encodeURICompon
 // One question with its options; the optional decision line goes to the decision log, as in the Bandeja.
 function QuestionCard({ item, index, total, names, onNext, when }: { item: InboxItem; index: number; total: number; names: Names; onNext: () => void; when?: string }) {
   const humanOnly = !!item.human_only;
-  const flow = useQuestionAnswer(item.project, item.id, humanOnly);
+  const needsCode = !!item.gate;
+  const flow = useQuestionAnswer(item.project, item.id, needsCode);
   const [free, setFree] = useState("");
   const [decision, setDecision] = useState("");
   const pending = flow.send.isPending || flow.begin.isPending;
   const decided = decision.trim() || undefined;
-  const needsEnrol = humanOnly && flow.enrolled === false;
+  const needsEnrol = needsCode && flow.enrolled === false;
 
   function choose(option: string) {
-    if (humanOnly) flow.begin.mutate(option);
+    if (needsCode) flow.begin.mutate(option);
     else flow.send.mutate({ answer: option, decision: decided });
   }
   function submitFree(e: FormEvent) {
     e.preventDefault();
-    if (!humanOnly && free.trim()) flow.send.mutate({ answer: free.trim(), decision: decided });
+    if (free.trim()) flow.send.mutate({ answer: free.trim(), decision: decided });
   }
   function confirmCode(e: FormEvent) {
     e.preventDefault();
@@ -103,7 +104,7 @@ function QuestionCard({ item, index, total, names, onNext, when }: { item: Inbox
                   <button
                     key={o}
                     type="button"
-                    disabled={pending || (humanOnly && flow.enrolled === undefined)}
+                    disabled={pending || (needsCode && flow.enrolled === undefined)}
                     onClick={() => choose(o)}
                     className={cn(
                       "flex min-h-11 items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left text-[13px] leading-snug transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50",
@@ -116,7 +117,7 @@ function QuestionCard({ item, index, total, names, onNext, when }: { item: Inbox
                 ))}
               </div>
             )}
-            {!humanOnly && (
+            {!needsCode && (
               <form onSubmit={submitFree} className="flex gap-2">
                 <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" className="bg-background/60" />
                 <Button type="submit" size="sm" disabled={!free.trim() || pending}>Responder</Button>
