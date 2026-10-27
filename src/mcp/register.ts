@@ -646,7 +646,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "To tick one Done when item use set_check, not checks.",
         "Ticket moves: Backlog ⇄ Ready; Backlog, Ready, In progress or In review → Blocked (note required) → Backlog or Ready; In progress → In review, Ready or Backlog (each releases the lease). In progress only through claim.",
         "Initiative moves: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold; next_action and in_progress_note feed get_resume.",
-        "Idea status is Open, Done or Won't do. stage moves one step along idea → research → design → planning → ready; a step back needs a note (INVALID_STAGE_MOVE when it skips or the note is missing). Moving forward needs that stage's doc and headings (STAGE_REQUIREMENTS_MISSING) and, for idea, research and planning, an answered gate question A, B or C (GATE_NOT_PASSED). promoted_to records the initiative or standalone ticket it became.",
+        "Idea status is Open, Done or Won't do. stage moves one step along idea → research → design → planning → ready; a step back needs a note (INVALID_STAGE_MOVE when it skips or the note is missing). Moving forward needs that stage's doc and headings (STAGE_REQUIREMENTS_MISSING) and, for idea, research and planning, a gate answer that moves it on — pursue, proceed or ready — given after it entered this stage (GATE_NOT_PASSED; drop, later and rework do not pass, and a step back makes the previous answer stale). A Done or Won't do idea refuses stage and promoted_to (IDEA_CLOSED). promoted_to records the initiative or standalone ticket it became.",
         "Anything else is INVALID_TRANSITION with the allowed moves.",
         "Finishing a phase: finish does add_result and In review in one call. By hand: add_result first, then status 'In review' (committed, not merged) with branch and pr_url; without fitting evidence it is EVIDENCE_REQUIRED.",
         "Merged and Released are the pollers' (GitHub merge, deploy); by hand they need a ci pass result naming the merge commit (and, for Released, the release target env containing it).",
@@ -783,7 +783,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "ask",
     {
       description: [
-        "Ask Jorge a question about a task. On an idea, gate A, B or C fixes the options and only one gate stays open.",
+        "Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer.",
+        "On an idea, gate A, B or C fixes the options and only one gate stays open.",
         "A ticket moves to Needs Jorge (your lease stays; heartbeat to keep it) until every open question on it is answered.",
         "options are suggested answers; he may answer freely. blocks names other tickets waiting on the answer; urgency says how soon. get_resume lists open_questions.",
         "The reply carries question_id and waits (\"the ticket waits in Needs Jorge\"): nothing else to write.",

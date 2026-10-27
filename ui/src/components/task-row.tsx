@@ -29,11 +29,20 @@ const STAGE_CHIP: Record<string, string> = {
   ready: "bg-status-done/15 text-ink-done",
 };
 
-/** The idea's stage, as a chip. */
+const STAGE_LABEL: Record<string, string> = {
+  idea: "Idea",
+  research: "Investigación",
+  design: "Diseño",
+  planning: "Planeación",
+  ready: "Lista",
+};
+
+/** The idea's stage, as a chip. The key stays idea | research | design | planning | ready. */
 export function StageChip({ stage }: { stage: string }) {
+  const label = STAGE_LABEL[stage] ?? stage;
   return (
-    <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold capitalize", STAGE_CHIP[stage] ?? "bg-muted text-muted-foreground")} aria-label={`Etapa ${stage}`}>
-      {stage}
+    <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold", STAGE_CHIP[stage] ?? "bg-muted text-muted-foreground")} aria-label={`Etapa ${label}`}>
+      {label}
     </span>
   );
 }

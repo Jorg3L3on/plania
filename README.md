@@ -199,7 +199,7 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | `claim` | Lease a ticket so no other session works on it. |
 | `add_decision` | Append one decision to the log. |
 | `reserve_sequence` | Reserve the next number of a per-project sequence (e.g. name 'migration' gives '0009') for a ticket, so two initiatives never take the same one. |
-| `ask` | Ask Jorge a question about a task. |
+| `ask` | Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer. |
 | `answer` | Record Jorge's answer to a question (he answers on screen, or tells you in chat and you record it here, quoting him). |
 | `set_project` | Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline. |
 | `set_env` | Record what an environment runs, as data other sessions can check: commit and branch deployed, migrations (the tags applied, e.g. ['0009_x']; migrations_applied is derived), flags (configuration state, never secret values: {google_oauth: false, omdb_key: 'valid'}; null removes one). |
@@ -381,9 +381,10 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `EVIDENCE_REQUIRED` | 409 | In review without evidence for the work_type from the current claim (detail: accepts, since) |
 | `EVIDENCE_STALE` | 409 | In review needs a pass recorded against the branch's current head; the passes found are for older commits (detail: head, results) |
 | `FOOTPRINT_HELD` | 409 | another live session declared this footprint, or releasing one you did not declare (detail: holder, purpose) |
-| `GATE_NOT_PASSED` | 409 | moving an idea forward before its gate question is answered (detail: gate) |
+| `GATE_NOT_PASSED` | 409 | moving an idea forward needs a gate answer that moves it on (pursue, proceed or ready), given after it entered this stage; drop, later and rework do not, and a step back makes the previous answer stale (detail: gate) |
 | `GATE_OPEN` | 409 | the idea already has an open gate question (detail: gate, question_id) |
 | `HANDOFF_HELD` | 409 | the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note) |
+| `IDEA_CLOSED` | 409 | a Done or Won't do idea does not change stage or promoted_to (detail: status) |
 | `INITIATIVE_CHILDREN_OPEN` | 409 | an initiative cannot be Done or Won't do while a ticket of it is in another state (detail: open) |
 | `INVALID_STAGE_MOVE` | 409 | set_task stage is not one step along idea → research → design → planning → ready, or a step back without a note (detail: from, to) |
 | `INVALID_TRANSITION` | 409 | the status change is not allowed from the current status (detail: from, to, hint) |

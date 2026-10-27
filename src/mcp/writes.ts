@@ -515,12 +515,14 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
 
   if (input.stage !== undefined) {
     if (t.kind !== "idea") throw new ToolError("FIELD_NOT_ALLOWED", { field: "stage", kind: t.kind });
+    if (t.status === "Done" || t.status === "Won't do") throw new ToolError("IDEA_CLOSED", { status: t.status });
     const step = assertStageMove(t.stage, input.stage, input.note);
     if (step === "forward") await assertForwardStage(tx, t.id, t.stage ?? "", input.stage);
     if (step !== "same") patch.stage = input.stage;
   }
   if (input.promoted_to !== undefined) {
     if (t.kind !== "idea") throw new ToolError("FIELD_NOT_ALLOWED", { field: "promoted_to", kind: t.kind });
+    if (t.status === "Done" || t.status === "Won't do") throw new ToolError("IDEA_CLOSED", { status: t.status });
     patch.promotedTo = input.promoted_to === null ? null : await promotedTarget(tx, p.id, t, input.promoted_to);
   }
 

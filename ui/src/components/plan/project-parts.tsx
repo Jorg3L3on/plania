@@ -369,19 +369,15 @@ const oneLiner = (idea: IdeaRow) => idea.summary.trim() || idea.title;
 
 /** Open ideas, then what a closed one became. A table from sm up; stacked rows on a phone. */
 export function IdeasTable({ ideas, onOpen }: { ideas: IdeaRow[]; onOpen: (key: string) => void }) {
-  const rows = [...ideas.filter((i) => !ideaClosed(i.status)), ...ideas.filter((i) => ideaClosed(i.status))].sort((a, b) => {
+  const rows = [...ideas].sort((a, b) => {
     const rank = (i: IdeaRow) => (ideaClosed(i.status) ? 1 : 0);
     return rank(a) - rank(b) || a.key.localeCompare(b.key, undefined, { numeric: true });
   });
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">Ninguna todavía.</p>;
 
-  const cells = (idea: IdeaRow) => {
-    const closed = ideaClosed(idea.status);
-    return {
-      waits: closed ? "—" : (idea.waits || "—"),
-      became: idea.promoted_to ?? "—",
-    };
-  };
+  const cells = (idea: IdeaRow) => ({
+    waits: ideaClosed(idea.status) ? "—" : idea.waits || "—",
+  });
 
   return (
     <div className="lift animate-rise overflow-hidden rounded-[20px] border bg-card">
@@ -399,7 +395,7 @@ export function IdeasTable({ ideas, onOpen }: { ideas: IdeaRow[]; onOpen: (key: 
                 </TicketButton>
                 {idea.stage && <StageChip stage={idea.stage} />}
               </div>
-              <p className="text-muted-foreground">{ideaClosed(idea.status) ? `Pasó a ${c.became}` : c.waits}</p>
+              <p className="text-muted-foreground">{ideaClosed(idea.status) ? (idea.promoted_to ? `Pasó a ${idea.promoted_to}` : "Sin destino") : c.waits}</p>
             </li>
           );
         })}

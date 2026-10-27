@@ -7,7 +7,7 @@ import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import pg from "pg";
-import { GATE_OPTIONS, STAGE_DOCS } from "../src/mcp/ideas.js";
+import { forwardBlock, GATE_OPTIONS, ideaWaitText, STAGE_DOCS } from "../src/mcp/ideas.js";
 import { resetTestDb, useTestEnv } from "./helpers.js";
 
 useTestEnv();
@@ -29,6 +29,40 @@ async function call(name: string, args: Json = {}): Promise<Json> {
 }
 
 const migrationsDir = path.resolve(import.meta.dirname, "../drizzle/migrations");
+
+const ideaDoc = { title: "Idea", markdown: "## Problem\n\n## Who it is for\n\n## Why now\n" };
+const answered = (gate: string, answer: string, answeredAt: string) => ({ gate, question: "q", answered: true, answer, answeredAt });
+
+test("only an advancing gate answer passes, and a step back makes it stale", () => {
+  assert.equal(forwardBlock("idea", ideaDoc, [answered("A", "drop", "2026-01-02T00:00:00Z")])?.code, "GATE_NOT_PASSED");
+  assert.equal(forwardBlock("idea", ideaDoc, [answered("A", "later", "2026-01-02T00:00:00Z")])?.code, "GATE_NOT_PASSED");
+  assert.equal(forwardBlock("idea", ideaDoc, [answered("A", "pursue", "2026-01-02T00:00:00Z"), answered("A", "drop", "2026-01-03T00:00:00Z")])?.code, "GATE_NOT_PASSED");
+  assert.equal(forwardBlock("idea", ideaDoc, [answered("A", "drop", "2026-01-02T00:00:00Z"), answered("A", "pursue", "2026-01-03T00:00:00Z")]), null);
+  const since = new Date("2026-01-04T00:00:00Z");
+  assert.equal(forwardBlock("idea", ideaDoc, [answered("A", "pursue", "2026-01-03T00:00:00Z")], since)?.code, "GATE_NOT_PASSED");
+  assert.equal(forwardBlock("idea", ideaDoc, [answered("A", "pursue", "2026-01-03T00:00:00Z"), answered("A", "pursue", "2026-01-05T00:00:00Z")], since), null);
+
+  const research = { title: "Research", markdown: "## What we learned\n\n## Options\n\n## Recommendation\n" };
+  assert.equal(forwardBlock("research", research, [answered("B", "rework", "2026-01-02T00:00:00Z")])?.code, "GATE_NOT_PASSED");
+  assert.equal(forwardBlock("research", research, [answered("B", "drop", "2026-01-02T00:00:00Z")])?.code, "GATE_NOT_PASSED");
+  assert.equal(forwardBlock("research", research, [answered("B", "proceed", "2026-01-02T00:00:00Z")]), null);
+
+  const plan = { title: "Plan", markdown: "## Steps\n\n## Done when\n\n## Risks\n" };
+  assert.equal(forwardBlock("planning", plan, [answered("C", "rework", "2026-01-02T00:00:00Z")])?.code, "GATE_NOT_PASSED");
+  assert.equal(forwardBlock("planning", plan, [answered("C", "drop", "2026-01-02T00:00:00Z")])?.code, "GATE_NOT_PASSED");
+  assert.equal(forwardBlock("planning", plan, [answered("C", "ready", "2026-01-02T00:00:00Z")]), null);
+});
+
+test("idea wait text names the doc and the headings in Spanish", () => {
+  assert.equal(ideaWaitText("research", [], []), "Doc Investigación");
+  assert.equal(ideaWaitText("design", [], []), "Doc Diseño");
+  assert.equal(ideaWaitText("planning", [], []), "Doc Plan");
+  assert.equal(ideaWaitText("idea", [{ title: "Idea", markdown: "## Problem\n" }], []), "Para quién es, Por qué ahora");
+  assert.equal(ideaWaitText("idea", [ideaDoc], [answered("A", "drop", "2026-01-02T00:00:00Z")]), "Puerta A");
+  assert.equal(ideaWaitText("idea", [ideaDoc], [answered("A", "pursue", "2026-01-02T00:00:00Z")], new Date("2026-01-03T00:00:00Z")), "Puerta A");
+  assert.equal(ideaWaitText("idea", [ideaDoc], [answered("A", "pursue", "2026-01-02T00:00:00Z")]), "Puede avanzar");
+  assert.equal(ideaWaitText("ready", [], []), "Lista para promover");
+});
 
 test("migration 0026 leaves existing rows unchanged and is not 0025", async () => {
   const files = readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort();
@@ -219,7 +253,13 @@ describe("ideas", () => {
 
     const inbox = await call("get_inbox");
     assert.equal(inbox.items.some((i: Json) => i.key === "WRK-IDEA1" && i.kind === "question"), true);
-    await call("answer", { question_id: asked.question.id, answer: "pursue" });
+    await call("answer", { question_id: asked.question.id, answer: "drop" });
+    assert.equal((await move("research")).__error, "GATE_NOT_PASSED", "drop does not pass gate A");
+    const later = await call("ask", { key: "WRK-IDEA1", gate: "A", question: "¿Más tarde?" });
+    await call("answer", { question_id: later.question.id, answer: "later" });
+    assert.equal((await move("research")).__error, "GATE_NOT_PASSED", "later does not pass gate A");
+    const pursue = await call("ask", { key: "WRK-IDEA1", gate: "A", question: "¿La seguimos ahora?" });
+    await call("answer", { question_id: pursue.question.id, answer: "pursue" });
 
     const forward = await move("research");
     assert.equal(forward.__error, undefined);
@@ -236,11 +276,20 @@ describe("ideas", () => {
     const back = await move("idea", { note: "falta un dato" });
     assert.equal(back.__error, undefined);
     assert.equal((await call("get_task", { key: "WRK-IDEA1" })).stage, "idea");
-    assert.equal((await move("research")).__error, undefined, "the answered gate still counts");
+    assert.equal((await move("research")).__error, "GATE_NOT_PASSED", "a step back makes the previous pursue stale");
+    const again = await call("ask", { key: "WRK-IDEA1", gate: "A", question: "¿Otra vez?" });
+    await call("answer", { question_id: again.question.id, answer: "pursue" });
+    assert.equal((await move("research")).__error, undefined);
 
     assert.equal((await move("design")).__error, "STAGE_REQUIREMENTS_MISSING");
     await put("research");
     assert.equal((await move("design")).__error, "GATE_NOT_PASSED");
+    const reworkB = await call("ask", { key: "WRK-IDEA1", gate: "B", question: "¿Rehacer?" });
+    await call("answer", { question_id: reworkB.question.id, answer: "rework" });
+    assert.equal((await move("design")).__error, "GATE_NOT_PASSED", "rework does not pass gate B");
+    const dropB = await call("ask", { key: "WRK-IDEA1", gate: "B", question: "¿Soltar?" });
+    await call("answer", { question_id: dropB.question.id, answer: "drop" });
+    assert.equal((await move("design")).__error, "GATE_NOT_PASSED", "drop does not pass gate B");
     const gateB = await call("ask", { key: "WRK-IDEA1", gate: "B", question: "¿Este camino?" });
     await call("answer", { question_id: gateB.question.id, answer: "proceed" });
     assert.equal((await move("design")).__error, undefined);
@@ -252,6 +301,12 @@ describe("ideas", () => {
     assert.equal((await move("ready")).__error, "STAGE_REQUIREMENTS_MISSING");
     await put("planning");
     assert.equal((await move("ready")).__error, "GATE_NOT_PASSED");
+    const reworkC = await call("ask", { key: "WRK-IDEA1", gate: "C", question: "¿Rehacer el plan?" });
+    await call("answer", { question_id: reworkC.question.id, answer: "rework" });
+    assert.equal((await move("ready")).__error, "GATE_NOT_PASSED", "rework does not pass gate C");
+    const dropC = await call("ask", { key: "WRK-IDEA1", gate: "C", question: "¿Soltar el plan?" });
+    await call("answer", { question_id: dropC.question.id, answer: "drop" });
+    assert.equal((await move("ready")).__error, "GATE_NOT_PASSED", "drop does not pass gate C");
     const gateC = await call("ask", { key: "WRK-IDEA1", gate: "C", question: "¿Lista?" });
     await call("answer", { question_id: gateC.question.id, answer: "ready" });
     const ready = await move("ready");
@@ -274,5 +329,26 @@ describe("ideas", () => {
     assert.equal(closed.status, "Done");
     assert.equal(closed.promoted_to, "WRK-01");
     assert.equal(closed.stage, "ready");
+
+    const stageClosed = await call("set_task", { key: "WRK-IDEA1", stage: "planning", note: "atrás", version: done.version });
+    assert.equal(stageClosed.__error, "IDEA_CLOSED");
+    assert.equal(stageClosed.status, "Done");
+    const promoClosed = await call("set_task", { key: "WRK-IDEA1", promoted_to: "WRK-I1", version: done.version });
+    assert.equal(promoClosed.__error, "IDEA_CLOSED");
+    assert.equal((await call("get_task", { key: "WRK-IDEA1" })).version, done.version, "a refused move does not bump the version");
+
+    const open = await call("get_task", { key: "WRK-IDEA2" });
+    const closeWith = await call("set_task", { key: "WRK-IDEA2", status: "Done", promoted_to: "WRK-01", version: open.version });
+    assert.equal(closeWith.__error, undefined, "closing and recording promoted_to in one call still works while the idea is Open");
+    assert.equal(closeWith.status, "Done");
+
+    const fresh = await call("create_task", { kind: "idea", title: "No va" });
+    await raw.query("update tasks set status = 'Won''t do' where key = $1", [fresh.key]);
+    const wont = await call("get_task", { key: fresh.key });
+    const wontStage = await call("set_task", { key: fresh.key, stage: "research", version: wont.version });
+    assert.equal(wontStage.__error, "IDEA_CLOSED");
+    assert.equal(wontStage.status, "Won't do");
+    const wontPromo = await call("set_task", { key: fresh.key, promoted_to: "WRK-I1", version: wont.version });
+    assert.equal(wontPromo.__error, "IDEA_CLOSED");
   });
 });
