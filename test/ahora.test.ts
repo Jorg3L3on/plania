@@ -12,7 +12,6 @@ import {
   IDEA_STAGE_LABEL,
   bloqueadoOf,
   enCursoOf,
-  ideaFoot,
   ideaGateOpen,
   ideaOutcome,
   ideasByStage,
@@ -286,8 +285,8 @@ describe("ideas on Ahora", () => {
     assert.deepEqual(columns[0]!.ideas.map((i) => [i.key, i.line, i.gateOpen]), [["WRK-IDEA1", "Cobrar en la app", true]]);
     assert.deepEqual(columns[1]!.ideas.map((i) => i.key), ["WRK-IDEA2"]);
     assert.equal(columns[1]!.ideas[0]!.gateOpen, false);
-    assert.deepEqual(columns[2]!.ideas.map((i) => [i.key, ideaFoot(i), ideaOutcome(i)]), [["WRK-IDEA3", "Pasó a WRK-I1", "Pasó a WRK-I1"]]);
-    assert.equal(ideaFoot(columns[3]!.ideas[0]!), "Sin destino");
+    assert.deepEqual(columns[2]!.ideas.map((i) => [i.key, ideaOutcome(i)]), [["WRK-IDEA3", "Pasó a WRK-I1"]]);
+    assert.equal(ideaOutcome(columns[3]!.ideas[0]!), "Sin destino");
     assert.deepEqual(columns[4]!.ideas.map((i) => i.key), ["TAL-IDEA1"]);
     assert.equal(columns.flat().some((c) => c.ideas.some((i) => i.key === "WRK-01")), false);
   });
@@ -309,6 +308,24 @@ describe("ideas on Ahora", () => {
     assert.equal(oldest?.gateOpen, true);
     assert.equal(oldestWaitingIdea(ideas.filter((i) => i.key !== "WRK-IDEA1"))?.key, "WRK-IDEA4");
     assert.equal(oldestWaitingIdea([]), null);
+  });
+
+  test("a closed idea with a leftover open question does not show the mark", () => {
+    const ideas = ideasFromProject(
+      { slug: "workia", title: "Workia" },
+      [
+        ideaTask("WRK-IDEA3", { title: "Cerrada", summary: "Cerrada", status: "Done", promoted_to: "WRK-I1", stage: "design" }),
+        ideaTask("WRK-IDEA4", { title: "Descartada", summary: "Descartada", status: "Won't do", stage: "planning" }),
+      ],
+      [
+        { task_key: "WRK-IDEA3", gate: "A", answered_at: null },
+        { task_key: "WRK-IDEA4", gate: "C", answered_at: null },
+      ],
+    );
+    assert.deepEqual(ideas.map((i) => [i.key, i.gateOpen, ideaOutcome(i)]), [
+      ["WRK-IDEA3", false, "Pasó a WRK-I1"],
+      ["WRK-IDEA4", false, "Sin destino"],
+    ]);
   });
 
   test("a gate that was not asked is a wait without the mark, and Bloqueado ignores the idea", () => {

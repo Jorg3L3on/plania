@@ -255,11 +255,6 @@ export function ideaOutcome(idea: Pick<AhoraIdea, "status" | "promotedTo">): str
   return idea.promotedTo ? `Pasó a ${idea.promotedTo}` : "Sin destino";
 }
 
-/** The second line: the outcome once closed, otherwise what it is waiting on. */
-export function ideaFoot(idea: Pick<AhoraIdea, "status" | "waits" | "promotedTo">): string {
-  return ideaOutcome(idea) ?? idea.waits;
-}
-
 /** Ideas on one project, from the per-project read (tasks plus its open questions). */
 export function ideasFromProject(project: { slug: string; title: string }, tasks: IdeaTask[], questions: IdeaQuestion[]): AhoraIdea[] {
   const ideas: AhoraIdea[] = [];
@@ -274,7 +269,8 @@ export function ideasFromProject(project: { slug: string; title: string }, tasks
       status: task.status,
       waits: (task.waits ?? "").trim(),
       promotedTo: task.promoted_to?.trim() || null,
-      gateOpen: ideaGateOpen(task.key, questions),
+      // A closed idea keeps no mark, even if an old gate question was left unanswered.
+      gateOpen: !ideaClosed(task.status) && ideaGateOpen(task.key, questions),
       createdAt: task.created_at || task.updated_at,
     });
   }

@@ -1,5 +1,6 @@
-// Ahora: four compact blocks — what Jorge should do, what is in flight, what is stuck, what is next.
-// Same three queries as Inicio. LiveProvider already invalidates them, so there is no second refresh.
+// Ahora: what Jorge should do, what is in flight, ideas by stage, what is stuck, and what is next.
+// The project list, the inbox and the machine, plus one project read for each project that already has an idea.
+// LiveProvider already invalidates those keys, so there is no second refresh.
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router";
@@ -78,7 +79,7 @@ const rowLink = "grid min-h-11 gap-0.5 rounded-xl bg-surface-sunken px-3 py-2.5 
 
 function GateMark() {
   return (
-    <span className="text-sm leading-none font-semibold text-ink-jorge" aria-label="Pregunta de compuerta abierta">
+    <span role="img" className="text-sm leading-none font-semibold text-ink-jorge" aria-label="Pregunta de compuerta abierta">
       {GATE_MARK}
     </span>
   );
@@ -98,9 +99,7 @@ function IdeaCard({ idea }: { idea: AhoraIdea }) {
         <ProjectName slug={idea.slug} title={idea.projectTitle} />
       </span>
       {outcome ? (
-        <span className="text-xs text-muted-foreground">
-          {idea.promotedTo ? <>Pasó a <span className="font-mono text-foreground">{idea.promotedTo}</span></> : "Sin destino"}
-        </span>
+        <span className="text-xs text-muted-foreground">{outcome}</span>
       ) : (
         <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">{idea.waits || "—"}</span>
       )}
@@ -135,7 +134,7 @@ function WaitingIdeaLine({ idea }: { idea: AhoraIdea }) {
     <li>
       <Link to={taskHref(idea.slug, idea.key)} className={rowLink}>
         <span className="flex flex-wrap items-baseline gap-x-2 text-xs">
-          <span className="font-bold tracking-[0.08em] text-ink-jorge uppercase">Idea</span>
+          <span className="font-bold tracking-[0.08em] text-muted-foreground uppercase">Idea</span>
           <ProjectName slug={idea.slug} title={idea.projectTitle} />
           <span className="font-mono text-muted-foreground">{idea.key}</span>
           {idea.gateOpen && <GateMark />}
