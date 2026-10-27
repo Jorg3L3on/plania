@@ -121,7 +121,12 @@ describe("reads", () => {
     // The city: one note pair per open initiative, as get_resume has them.
     assert.deepEqual(
       micasa.initiatives,
-      detail.resume.initiatives.map((i: Json) => ({ key: i.key, in_progress: i.in_progress.note, next_action: i.next_action.note })),
+      detail.resume.initiatives.map((i: Json) => ({
+        key: i.key,
+        in_progress: i.in_progress.note,
+        next_action: i.next_action.note,
+        waiting_on: i.state.waiting_on,
+      })),
     );
     assert.deepEqual(list.find((p) => p.slug === "zigzag")!.initiatives, []);
   });
