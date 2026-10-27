@@ -29,7 +29,13 @@ export type ProjectSummary = {
   overdue?: string[];
 };
 
-export type InitiativeNote = { key: string; in_progress: string; next_action: string };
+export type InitiativeNote = {
+  key: string;
+  in_progress: string;
+  next_action: string;
+  /** Derived waits (initiative state). Absent on older payloads; Ahora drops the ones that start with "Jorge". */
+  waiting_on?: { key: string; on: string }[];
+};
 
 /** The next ticket an agent can take (get_next's shape without the claim). */
 export type NextClaimable = {
@@ -191,6 +197,8 @@ export type InboxItem = {
   title: string | null;
   why: string;
   options?: string[];
+  /** Questions only: how soon Jorge is needed (now | soon | whenever). */
+  urgency?: string | null;
   action?: string;
   target?: Record<string, unknown>;
   waiting_since: string;

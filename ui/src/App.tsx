@@ -7,6 +7,7 @@ import { PlaniaMark } from "@/components/plania-mark";
 import { Button } from "@/components/ui/button";
 import { api, isUnauthorized } from "@/lib/api";
 import { useOnline } from "@/lib/live";
+import { AhoraPage } from "@/pages/ahora";
 import { InboxPage } from "@/pages/inbox";
 import { LoginPage } from "@/pages/login";
 import { MachinePage } from "@/pages/machine";
@@ -59,6 +60,7 @@ export function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<RequireSession><AppShell /></RequireSession>}>
         <Route index element={<HomePage />} />
+        <Route path="/ahora" element={<AhoraPage />} />
         <Route path="/p/:slug" element={<ProjectPage />} />
         <Route path="/inbox" element={<InboxPage />} />
         <Route path="/machine" element={<MachinePage />} />

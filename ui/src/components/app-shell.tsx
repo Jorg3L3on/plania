@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellIcon, CloudOffIcon, CpuIcon, EllipsisIcon, InboxIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
+import { BellIcon, ClockIcon, CloudOffIcon, CpuIcon, EllipsisIcon, InboxIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -109,6 +109,9 @@ function PhoneMenu({ onLogout }: { onLogout: () => void }) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-64">
+        <DropdownMenuItem onSelect={() => navigate("/ahora")}>
+          <ClockIcon /> Ahora
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => navigate("/tokens")}>
           <KeyRoundIcon /> Tokens de agentes
         </DropdownMenuItem>
@@ -122,6 +125,25 @@ function PhoneMenu({ onLogout }: { onLogout: () => void }) {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+// What is in flight and what Jorge should do next. Icon only on phones, where the header is tight.
+function AhoraLink() {
+  return (
+    <NavLink
+      to="/ahora"
+      aria-label="Ahora"
+      className={({ isActive }) =>
+        cn(
+          "inline-flex min-h-9 items-center gap-1.5 rounded-full px-2.5 text-[13px] font-medium transition hover:text-foreground sm:px-3",
+          isActive ? "bg-foreground text-background" : "text-muted-foreground",
+        )
+      }
+    >
+      <ClockIcon className="size-4" aria-hidden />
+      <span className="hidden sm:inline">Ahora</span>
+    </NavLink>
   );
 }
 
@@ -199,6 +221,7 @@ export function AppShell() {
               Plania
             </Link>
             <div className="flex items-center gap-1 sm:gap-2">
+              <AhoraLink />
               <InboxLink />
               <MachineLink />
               <Tooltip>

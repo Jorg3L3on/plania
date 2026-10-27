@@ -138,7 +138,13 @@ api.get("/projects", async (c) => {
           // 2.11: Orden's count (the last audit run), shown on the tile when above zero.
           audit_count: audits.get(p.id) ?? 0,
           // Inicio's city: what each open initiative says it is doing and what it needs next.
-          initiatives: digest.initiatives.map((i) => ({ key: i.key, in_progress: i.in_progress.note, next_action: i.next_action.note })),
+          // Ahora's Bloqueado reads waiting_on (already derived for the resume) and drops what starts with "Jorge".
+          initiatives: digest.initiatives.map((i) => ({
+            key: i.key,
+            in_progress: i.in_progress.note,
+            next_action: i.next_action.note,
+            waiting_on: i.state.waiting_on,
+          })),
           // 2.10: dates in the next two weeks, and what is past its due date.
           ...datesOf(allTasks.filter((t) => t.project_id === p.id)),
         };
