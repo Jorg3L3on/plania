@@ -2,10 +2,11 @@
 // repo reads the same version. Project-specific additions live in the project's rules (set_project).
 // Bump PROTOCOL_VERSION whenever the text changes meaning.
 
-export const PROTOCOL_VERSION = "2.12";
+export const PROTOCOL_VERSION = "2.13";
 
-// 2.13: three sections, Start / Work / Finish, under 900 words. What a single tool already explains
-// lives in that tool's description (register.ts); this text says the order and what never to do.
+// 2.13: three sections, Start / Work / Finish, under 900 words. Gates are answered on the screen
+// only. What a single tool already explains lives in that tool's description (register.ts); this
+// text says the order and what never to do.
 const PROTOCOL = `Plania protocol ${PROTOCOL_VERSION}. Plania is the source of the plan; product repos hold code and conventions, not plans. The tools you need most: start, finish, get_next, ask, request_approval, register_footprint. Each tool's description carries its own rules and errors; this text is the order of work.
 
 Identity. Every write takes actor {agent, session_id, machine, model}. Use one session_id for the whole session: it owns your claims. Never write as jorge. An agent token fills agent and machine.
@@ -20,7 +21,7 @@ Work
 5. Keep the lease: claim action heartbeat before it runs out (key "*" for every ticket you hold). Leaving mid-ticket: handoff {to, note, head_sha}.
 6. Writes that change fields carry the version you read; STALE_VERSION means re-read, merge, retry. Notes need no version: prefer a note to rewriting scope. Several writes at once: batch.
 7. Evidence is a record: add_result with what ran, the commit and the counts; check_ns ticks the checks it proves. A check that will not be done: waive_check with the reason, before review.
-8. Need Jorge to decide? ask: the ticket waits in Needs Jorge and the question reaches his inbox; never only write "waiting on Jorge" in a field. Need him to do something? blocked_by human_action (a line that starts with "Jorge:" becomes one and warns). A move you may not make (Won't do, reopening, a waiver once in review, a gated resource): request_approval, then pass the approval_id he grants.
+8. Need Jorge to decide? ask: the ticket waits in Needs Jorge and the question reaches his inbox; never only write "waiting on Jorge" in a field. Gates A, B and C are answered only on the screen with the authenticator code. Never answer a gate, and never forward an answer. Need him to do something? blocked_by human_action (a line that starts with "Jorge:" becomes one and warns). A move you may not make (Won't do, reopening, a waiver once in review, a gated resource): request_approval, then pass the approval_id he grants.
 9. Started something that outlives the command (a dev server, a database copy, a container, a tunnel)? register_footprint with its teardown, and release_footprint once it is gone. Tests and builds are not registered. Never touch a live database for tests.
 10. Decisions go to add_decision (one line, pinned if it must be kept); specs and plans to attach_doc, never a plan file on one machine. Shared numbers (a migration): reserve_sequence. Shared things (a port, the production migrate step): lease_resource.
 

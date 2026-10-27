@@ -813,7 +813,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Record Jorge's answer to a question that is not human_only (he answers those on the screen; otherwise he may tell you in chat and you record it here, quoting him).",
-        "A human_only question, including every gate, is HUMAN_ONLY from here.",
+        "A human_only question, including every gate, is HUMAN_ONLY from here. Never answer a gate, and never forward an answer.",
         "Pass decision_text when the answer settles something worth keeping: that line goes to the decision log (tag answer). Without it no decision is written.",
         "When no question is left open the ticket returns to its previous status (In progress without a live lease returns to Ready).",
       ].join(" "),
@@ -946,7 +946,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
-        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, and the footprint codes.",
+        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, GATE_ANSWERED_BY_AGENT, STAGE_DOC_STALE, and the footprint codes.",
         "Each finding has key, detail and fix_hint. It also runs every ten minutes; get_resume.status.audit_findings is the last count.",
       ].join(" "),
       inputSchema: { project },
