@@ -244,7 +244,7 @@ export function staleAfterMs(kind: FootprintKind): number | null {
 // What the owner ticket says about a footprint row, worked out from the directory (no query).
 export type OwnerFacts = {
   key: string;
-  kind?: string; // "initiative" reads "iniciativa" in the reason
+  kind?: string; // "initiative" reads "iniciativa", "idea" reads "idea"; anything else is a ticket
   status: string;
   closedAt: Date | null; // when its status last moved (meaningful when the status is closed)
   claimLive: boolean; // a live claim: on the ticket, or on any ticket of the initiative
@@ -341,7 +341,7 @@ export function computeState(i: StateInput): FootprintState {
   return computeVerdict(i).state;
 }
 
-const noun = (t: OwnerFacts) => (t.kind === "initiative" ? "iniciativa" : "ticket");
+const noun = (t: OwnerFacts) => (t.kind === "initiative" ? "iniciativa" : t.kind === "idea" ? "idea" : "ticket");
 
 function staleVerdict(i: StateInput, now: Date): Verdict | null {
   const t = i.task;

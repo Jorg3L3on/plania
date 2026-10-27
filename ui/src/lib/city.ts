@@ -6,7 +6,7 @@ import type { InboxItem, InitiativeNote } from "./types.js";
 
 export type CityTask = {
   key: string;
-  kind: "initiative" | "ticket";
+  kind: "initiative" | "ticket" | "idea";
   title: string;
   status: string;
   parent_key: string | null;

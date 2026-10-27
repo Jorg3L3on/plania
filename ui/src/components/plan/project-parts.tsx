@@ -10,6 +10,7 @@ import { Link } from "react-router";
 import { api } from "@/lib/api";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { TicketButton } from "@/components/plan/ticket-button";
+import { StageChip } from "@/components/task-row";
 import {
   Glyph,
   Kicker,
@@ -346,6 +347,90 @@ export function InitiativeTable({ lanes, onOpen, lines }: { lanes: Lane[]; onOpe
                 <td className="max-w-[300px] px-5 py-3"><InitiativeHere lane={lane} onOpen={onOpen} clamp="line-clamp-1" /></td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export type IdeaRow = {
+  key: string;
+  title: string;
+  summary: string;
+  status: string;
+  stage?: string | null;
+  promoted_to?: string | null;
+  waits?: string | null;
+};
+
+const ideaClosed = (status: string) => status === "Done" || status === "Won't do";
+const oneLiner = (idea: IdeaRow) => idea.summary.trim() || idea.title;
+
+/** Open ideas, then what a closed one became. A table from sm up; stacked rows on a phone. */
+export function IdeasTable({ ideas, onOpen }: { ideas: IdeaRow[]; onOpen: (key: string) => void }) {
+  const rows = [...ideas.filter((i) => !ideaClosed(i.status)), ...ideas.filter((i) => ideaClosed(i.status))].sort((a, b) => {
+    const rank = (i: IdeaRow) => (ideaClosed(i.status) ? 1 : 0);
+    return rank(a) - rank(b) || a.key.localeCompare(b.key, undefined, { numeric: true });
+  });
+  if (rows.length === 0) return <p className="text-sm text-muted-foreground">Ninguna todavía.</p>;
+
+  const cells = (idea: IdeaRow) => {
+    const closed = ideaClosed(idea.status);
+    return {
+      waits: closed ? "—" : (idea.waits || "—"),
+      became: idea.promoted_to ?? "—",
+    };
+  };
+
+  return (
+    <div className="lift animate-rise overflow-hidden rounded-[20px] border bg-card">
+      <ul className="divide-y text-[13px] sm:hidden">
+        {rows.map((idea) => {
+          const c = cells(idea);
+          return (
+            <li key={idea.key} className="grid gap-2 px-4 py-3.5">
+              <div className="flex items-start justify-between gap-3">
+                <TicketButton taskKey={idea.key} onOpen={onOpen} label={`${idea.key}: ${oneLiner(idea)}`} className="min-w-0 text-left">
+                  <span className="grid gap-0.5">
+                    <span className="font-mono text-xs text-muted-foreground">{idea.key}</span>
+                    <span className="font-medium underline-offset-4 group-hover/ticket:underline">{oneLiner(idea)}</span>
+                  </span>
+                </TicketButton>
+                {idea.stage && <StageChip stage={idea.stage} />}
+              </div>
+              <p className="text-muted-foreground">{ideaClosed(idea.status) ? `Pasó a ${c.became}` : c.waits}</p>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="hidden overflow-x-auto sm:block">
+        <table className="w-full min-w-[640px] border-collapse text-left text-[13px]">
+          <thead>
+            <tr className="border-b bg-foreground/[0.03] text-[11px] font-bold tracking-[0.12em] text-muted-foreground uppercase">
+              <th className="px-5 py-3 font-bold">Idea</th>
+              <th className="px-3 py-3 font-bold">Etapa</th>
+              <th className="px-3 py-3 font-bold">Espera</th>
+              <th className="px-5 py-3 font-bold">Pasó a</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((idea) => {
+              const c = cells(idea);
+              return (
+                <tr key={idea.key} className="border-b transition-colors last:border-b-0 hover:bg-foreground/[0.04]">
+                  <td className="max-w-[360px] px-5 py-3">
+                    <TicketButton taskKey={idea.key} onOpen={onOpen} label={`${idea.key}: ${oneLiner(idea)}`} className="text-left">
+                      <span className="font-mono text-xs text-muted-foreground">{idea.key}</span>
+                      <span className="mt-0.5 block font-medium underline-offset-4 group-hover/ticket:underline">{oneLiner(idea)}</span>
+                    </TicketButton>
+                  </td>
+                  <td className="px-3 py-3">{idea.stage ? <StageChip stage={idea.stage} /> : "—"}</td>
+                  <td className="max-w-[240px] px-3 py-3 text-muted-foreground">{c.waits}</td>
+                  <td className="px-5 py-3 font-mono text-xs">{idea.promoted_to ? <span className="text-foreground">{idea.promoted_to}</span> : <span className="text-muted-foreground">—</span>}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

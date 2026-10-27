@@ -7,27 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { TaskControls } from "@/components/task-controls";
 import { TaskRow } from "@/components/task-row";
-import { CLOSED_STATUSES, PRIORITIES, TICKET_STATUSES, type TaskRow as Task } from "@/lib/types";
+import { groupTasks, type TaskListFilters } from "@/lib/groups";
+import { PRIORITIES, TICKET_STATUSES, type TaskRow as Task } from "@/lib/types";
 
-type Filters = { status: string; priority: string; showClosed: boolean };
-
-// Groups tickets under their initiative; tickets with no shown initiative go last.
-function groupTasks(tasks: Task[], f: Filters) {
-  const shown = (t: Task) => f.showClosed || !CLOSED_STATUSES.has(t.status);
-  const filtering = f.status !== "all" || f.priority !== "all";
-  const matches = (t: Task) =>
-    shown(t) && (f.status === "all" || t.status === f.status) && (f.priority === "all" || t.priority === f.priority);
-
-  const initiatives = tasks.filter((t) => t.kind === "initiative" && shown(t));
-  const initiativeKeys = new Set(initiatives.map((i) => i.key));
-  const tickets = tasks.filter((t) => t.kind === "ticket" && matches(t));
-
-  const groups = initiatives
-    .map((initiative) => ({ initiative, children: tickets.filter((t) => t.parent_key === initiative.key) }))
-    .filter((g) => !filtering || g.children.length > 0);
-  const loose = tickets.filter((t) => !t.parent_key || !initiativeKeys.has(t.parent_key));
-  return { groups, loose };
-}
+type Filters = TaskListFilters;
 
 export function TaskList({ slug, tasks, openKey, onOpen }: { slug: string; tasks: Task[]; openKey: string | null; onOpen: (key: string) => void }) {
   const [filters, setFilters] = useState<Filters>({ status: "all", priority: "all", showClosed: false });

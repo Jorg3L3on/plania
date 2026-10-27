@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import {
+  IDEA_STATUSES,
   INITIATIVE_STATUSES,
   PRIORITIES,
   TICKET_STATUSES,
@@ -31,6 +32,7 @@ import { hasDoc } from "./docs.js";
 import { liveTaskFootprint } from "./footprint-read.js";
 import { assertReviewEvidence } from "./evidence.js";
 import { syncJorgeLines, withdrawParsedBlocker, type ParsedField } from "./jorge-lines.js";
+import { assertForwardStage, assertStageMove } from "./ideas.js";
 import { addAlias, assignKey } from "./keys.js";
 import { GATED_STATUSES, SEVERITIES, TERMINAL, WORK_TYPES, actionForMove, assertTransition } from "./lifecycle.js";
 import { markHeadlineStale } from "./project.js";
@@ -49,9 +51,14 @@ function isUniqueViolation(e: unknown): boolean {
   return code(e) === "23505" || code((e as { cause?: unknown } | undefined)?.cause) === "23505";
 }
 
+function statusesFor(kind: string): readonly string[] {
+  if (kind === "initiative") return INITIATIVE_STATUSES;
+  if (kind === "idea") return IDEA_STATUSES;
+  return TICKET_STATUSES;
+}
+
 function checkStatus(kind: string, status: string): void {
-  const allowed: readonly string[] = kind === "initiative" ? INITIATIVE_STATUSES : TICKET_STATUSES;
-  if (!allowed.includes(status)) throw new ToolError("INVALID_STATUS");
+  if (!statusesFor(kind).includes(status)) throw new ToolError("INVALID_STATUS");
 }
 
 function checkWorkType(workType: string): void {
@@ -125,6 +132,7 @@ function rejectFields(kind: string, input: Record<string, unknown>, fields: stri
 }
 
 const TICKET_ONLY = ["parent_key", "priority", "origin", "work_type", "phase", "severity", "found_in", "introduced_by", "regression", "cost_note"];
+const IDEA_ONLY = ["stage", "promoted_to"];
 // A ticket is born Backlog or Ready; anything else is reached through the state machine.
 const CREATE_STATUSES = ["Backlog", "Ready"];
 const INITIATIVE_ONLY = ["base_branch", "next_action", "in_progress_note", "integration_branch", "share_branch", "share_reason", "state_note"];
@@ -148,7 +156,7 @@ export type CreateInput = {
   scope?: string;
   checks?: string[];
   phase?: number;
-  kind?: "ticket" | "initiative";
+  kind?: "ticket" | "initiative" | "idea";
   summary?: string;
   parent_key?: string | null;
   priority?: string;
@@ -206,6 +214,7 @@ function templateWarnings(input: CreateInput, kind: string): string[] {
     if (!input.scope?.trim()) warnings.push("no scope: an initiative's scope holds its PRD and phased plan");
     return warnings;
   }
+  if (kind === "idea") return warnings;
   const workType = input.work_type ?? "code";
   // 2.12: Jorge's request is a sentence; the agent that takes it writes the scope and the checks.
   if (input.origin === "jorge") return warnings;
@@ -225,13 +234,16 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
   const blockedBy = parseBlockers(input.blocked_by ?? []);
   const kind = input.kind ?? "ticket";
   const warnings: WriteWarning[] = templateWarnings(input, kind);
-  const status = input.status ?? (kind === "initiative" ? "Planning" : "Backlog");
+  const status = input.status ?? (kind === "initiative" ? "Planning" : kind === "idea" ? "Open" : "Backlog");
   checkStatus(kind, status);
   if (kind === "initiative") {
-    rejectFields(kind, input, TICKET_ONLY);
+    rejectFields(kind, input, [...TICKET_ONLY, ...IDEA_ONLY]);
     if (status !== "Planning") throw new ToolError("INVALID_STATUS");
+  } else if (kind === "idea") {
+    rejectFields(kind, input, [...TICKET_ONLY, ...INITIATIVE_ONLY]);
+    if (status !== "Open") throw new ToolError("INVALID_STATUS");
   } else {
-    rejectFields(kind, input, INITIATIVE_ONLY);
+    rejectFields(kind, input, [...INITIATIVE_ONLY, ...IDEA_ONLY]);
     checkPriority(input.priority ?? "P2");
     checkWorkType(input.work_type ?? "code");
     checkTyped(input, input.work_type ?? "code");
@@ -244,7 +256,7 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
   if (input.scope && STATUS_HEADING.test(input.scope)) warnings.push("scope has a status section: keep scope as the spec and put where things stand in state_note");
 
   if (input.key !== undefined && (await findTask(tx, p.id, input.key))) throw new ToolError("KEY_EXISTS");
-  const parent = input.parent_key ? await resolveParent(tx, p.id, input.parent_key) : undefined;
+  const parent = kind === "idea" || !input.parent_key ? undefined : await resolveParent(tx, p.id, input.parent_key);
   const assigned = await assignKey(tx, p, kind, parent, input.key);
   warnings.push(...assigned.warnings);
   const blockerIds = await resolveTaskBlockers(tx, p.id, blockedBy.keys, assigned.key);
@@ -269,7 +281,9 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
           stateNote: input.state_note ?? "",
           stateNoteAt: input.state_note ? new Date() : null,
         }
-      : {
+      : kind === "idea"
+        ? { ...common, stage: "idea" }
+        : {
           ...common,
           parentId: parent?.id ?? null,
           priority: input.priority ?? "P2",
@@ -334,6 +348,8 @@ const FIELD_NAMES: Partial<Record<keyof Task, string>> = {
   regression: "regression",
   costNote: "cost_note",
   dueOn: "due_on",
+  stage: "stage",
+  promotedTo: "promoted_to",
 };
 
 // Merged and Released by hand (R-12): only with proof. Merged needs a ci pass naming the merge
@@ -407,6 +423,8 @@ export type SetTaskInput = {
   state_note?: string;
   due_on?: string | null;
   no_pr_reason?: string;
+  stage?: string;
+  promoted_to?: string | null;
 };
 
 // 2.13: a code ticket closes on a PR. Done, Merged or Released without one is refused at write
@@ -418,6 +436,16 @@ function assertPrUrl(t: Task, to: string, prUrl: string | null, input: SetTaskIn
   if (t.kind !== "ticket" || !NEEDS_PR.includes(to) || to === t.status) return;
   if ((input.work_type ?? t.workType ?? "code") !== "code" || prUrl?.trim() || input.no_pr_reason?.trim()) return;
   throw new ToolError("TASK_MISSING_PR_URL", { key: t.key, to, hint: "pass pr_url (the PR that shipped it), or no_pr_reason when the work had none" });
+}
+
+// promoted_to names an initiative or a standalone ticket. A phase, another idea, or the idea itself does not count.
+async function promotedTarget(tx: Q, projectId: string, idea: Task, key: string): Promise<string> {
+  const target = await requireTask(tx, projectId, key);
+  const standalone = target.kind === "ticket" && !target.parentId;
+  if (target.id === idea.id || (target.kind !== "initiative" && !standalone)) {
+    throw new ToolError("PROMOTED_TO_INVALID", { key: target.key, kind: target.kind });
+  }
+  return target.key;
 }
 
 // An initiative closes only once every ticket of it is Done or Won't do (Jorge included).
@@ -439,7 +467,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   // parsed from your own note is the same kind of append-side write (checked against its author).
   const noteOnly = Object.values(fields).every((v) => v === undefined);
   const t = await requireTask(tx, p.id, input.key);
-  rejectFields(t.kind, input, t.kind === "initiative" ? TICKET_ONLY : INITIATIVE_ONLY);
+  rejectFields(t.kind, input, t.kind === "initiative" ? [...TICKET_ONLY, ...IDEA_ONLY] : t.kind === "idea" ? [...TICKET_ONLY, ...INITIATIVE_ONLY] : [...INITIATIVE_ONLY, ...IDEA_ONLY]);
   // The pollers write what GitHub and the deploys say: no version to carry, no lease to respect.
   checkVersion(t.version, input.version, !noteOnly && !ctx.system);
   if (!noteOnly && !ctx.system) checkOwner(t, ctx);
@@ -483,6 +511,17 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     patch.resolvedAt = input.status === "Done" ? (t.resolvedAt ?? new Date()) : null;
     patch.status = input.status;
     if (t.owner && input.status !== t.status) Object.assign(patch, NO_LEASE);
+  }
+
+  if (input.stage !== undefined) {
+    if (t.kind !== "idea") throw new ToolError("FIELD_NOT_ALLOWED", { field: "stage", kind: t.kind });
+    const step = assertStageMove(t.stage, input.stage, input.note);
+    if (step === "forward") await assertForwardStage(tx, t.id, t.stage ?? "", input.stage);
+    if (step !== "same") patch.stage = input.stage;
+  }
+  if (input.promoted_to !== undefined) {
+    if (t.kind !== "idea") throw new ToolError("FIELD_NOT_ALLOWED", { field: "promoted_to", kind: t.kind });
+    patch.promotedTo = input.promoted_to === null ? null : await promotedTarget(tx, p.id, t, input.promoted_to);
   }
 
   if (input.priority !== undefined) {
@@ -708,7 +747,7 @@ export async function claimInTx(tx: Q, emit: Emit, p: Project, input: ClaimInput
   const action = input.action ?? "claim";
   const minutes = ttlMinutes(input.ttl_minutes);
   const t = await requireTask(tx, p.id, input.key);
-  if (t.kind !== "ticket") throw new ToolError("NOT_CLAIMABLE", { reason: "initiatives are not claimed" });
+  if (t.kind !== "ticket") throw new ToolError("NOT_CLAIMABLE", { reason: t.kind === "idea" ? "ideas are not claimed" : "initiatives are not claimed" });
   const owner = liveOwner(t);
   const mine = owner?.session_id === ctx.actor.session_id;
   const held = () => new ToolError("CLAIM_HELD", { owner, lease_until: iso(t.leaseUntil), workspace: t.workspace });

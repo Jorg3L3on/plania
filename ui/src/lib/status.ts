@@ -6,6 +6,7 @@ export type Tone = "done" | "now" | "review" | "ready" | "blocked" | "jorge" | "
 
 const TONE: Record<string, Tone> = {
   Backlog: "pending",
+  Open: "pending",
   Planning: "pending",
   Ready: "ready",
   "In progress": "now",

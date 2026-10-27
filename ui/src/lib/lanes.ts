@@ -4,7 +4,7 @@
 
 export type LaneTask = {
   key: string;
-  kind: "initiative" | "ticket";
+  kind: "initiative" | "ticket" | "idea";
   title: string;
   summary: string;
   status: string;

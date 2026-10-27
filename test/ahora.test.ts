@@ -186,6 +186,15 @@ describe("retomarOf", () => {
   });
 });
 
+test("an idea is not in flight, blocked, or next", () => {
+  const alfa = project("alfa", {
+    tasks: [ticket("ALF-IDEA1", "In progress", { kind: "idea" })],
+  });
+  assert.equal(enCursoOf([alfa], [], NOW)[0]!.liveness, null);
+  assert.deepEqual(bloqueadoOf([alfa], [], NOW), []);
+  assert.deepEqual(siguienteOf([alfa]), []);
+});
+
 describe("siguienteOf", () => {
   test("one next claimable per project that has one", () => {
     const alfa = project("alfa", { next_claimable: { key: "ALF-3", title: "Cerrar el demo" } });

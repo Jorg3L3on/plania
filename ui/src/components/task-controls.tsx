@@ -22,7 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { PriorityLabel, StatusLabel } from "@/components/task-row";
 import { statusDot } from "@/lib/status";
-import { CLOSED_STATUSES, INITIATIVE_STATUSES, PRIORITIES, TICKET_STATUSES, type TaskRow as Row } from "@/lib/types";
+import { CLOSED_STATUSES, IDEA_STATUSES, INITIATIVE_STATUSES, PRIORITIES, TICKET_STATUSES, type TaskRow as Row } from "@/lib/types";
 import { useTaskPatch } from "@/lib/use-task-patch";
 import { cn } from "@/lib/utils";
 
@@ -78,10 +78,10 @@ function BlockedDialog({
 export function TaskControls({ slug, task }: { slug: string; task: TaskRow }) {
   const { setStatus, setPriority } = useTaskPatch(slug);
   const [blocking, setBlocking] = useState(false);
-  const statuses = task.kind === "initiative" ? INITIATIVE_STATUSES : TICKET_STATUSES;
-  // Jorge marks Done after merging: tickets offer it once In review, initiatives while open.
+  const statuses = task.kind === "initiative" ? INITIATIVE_STATUSES : task.kind === "idea" ? IDEA_STATUSES : TICKET_STATUSES;
+  // Jorge marks Done after merging: tickets offer it once In review, initiatives while open, ideas from Open.
   const from = { status: task.status, note: task.blocked_note };
-  const offerDone = task.kind === "initiative" ? !CLOSED_STATUSES.has(task.status) : task.status === "In review";
+  const offerDone = task.kind === "idea" ? task.status === "Open" : task.kind === "initiative" ? !CLOSED_STATUSES.has(task.status) : task.status === "In review";
 
   function chooseStatus(next: string) {
     if (next === task.status) return;

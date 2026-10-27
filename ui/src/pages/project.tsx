@@ -8,6 +8,7 @@ import {
   BranchGraph,
   FichaSheet,
   FixedDecisions,
+  IdeasTable,
   InitiativeTable,
   ProjectHeader,
   SectionTitle,
@@ -79,6 +80,7 @@ export function ProjectPage() {
   const closeTask = () => setParam("task", null);
 
   const tasks = project.data?.tasks;
+  const ideas = useMemo(() => (tasks ?? []).filter((t) => t.kind === "idea"), [tasks]);
   const derived = useMemo(() => {
     const all = tasks ?? [];
     return {
@@ -149,7 +151,7 @@ export function ProjectPage() {
 
           {view === "lista" ? (
             <TaskList slug={slug} tasks={project.data.tasks} openKey={openKey} onOpen={openTask} />
-          ) : derived.lanes.length === 0 ? (
+          ) : derived.lanes.length === 0 && ideas.length === 0 ? (
             <div className="flex flex-wrap items-start gap-7">
               <section className="grid min-w-0 flex-[999_1_560px] animate-rise gap-3 rounded-[20px] border border-dashed bg-card/50 px-5 py-6 sm:px-6 sm:py-8">
                 <Kicker className="text-muted-foreground">Nada abierto</Kicker>
@@ -188,6 +190,10 @@ export function ProjectPage() {
                   ) : (
                     <InitiativeTable lanes={initiativeLanes} onOpen={openTask} lines={initiativeLines} />
                   )}
+                </section>
+                <section className="grid min-w-0 gap-3" aria-label="Ideas">
+                  <SectionTitle hint="una fila por idea abierta; al cerrarse, en qué se convirtió">Ideas</SectionTitle>
+                  <IdeasTable ideas={ideas} onOpen={openTask} />
                 </section>
                 <aside className="grid gap-3">
                   <SectionTitle>Contexto</SectionTitle>

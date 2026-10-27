@@ -40,7 +40,7 @@ export type InitiativeNote = {
 /** The next ticket an agent can take (get_next's shape without the claim). */
 export type NextClaimable = {
   key: string;
-  kind: "initiative" | "ticket";
+  kind: "initiative" | "ticket" | "idea";
   title: string;
   summary: string;
   status: string;
@@ -238,10 +238,16 @@ export type AgentToken = {
 
 export type TaskRow = {
   key: string;
-  kind: "initiative" | "ticket";
+  kind: "initiative" | "ticket" | "idea";
   title: string;
   summary: string;
   status: string;
+  /** Ideas only. One of idea, research, design, planning, ready. */
+  stage?: string | null;
+  /** Ideas only: the initiative or standalone ticket this idea became. */
+  promoted_to?: string | null;
+  /** Ideas only: the open gate, the missing doc, or that it can move. */
+  waits?: string | null;
   priority: string | null;
   work_type: string | null;
   parent_key: string | null;
@@ -340,6 +346,7 @@ export type LiveEvent = { type: "task" | "project" | "decision" | "footprint"; p
 // Same sets the server validates against (src/db/schema.ts).
 export const TICKET_STATUSES = ["Backlog", "Ready", "In progress", "In review", "Merged", "Released", "Blocked", "Needs Jorge", "Done", "Won't do"] as const;
 export const INITIATIVE_STATUSES = ["Planning", "Active", "Shipping", "Done", "On hold", "Won't do"] as const;
+export const IDEA_STATUSES = ["Open", "Done", "Won't do"] as const;
 export const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
 export const CLOSED_STATUSES = new Set(["Done", "Won't do"]);
 

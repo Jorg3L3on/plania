@@ -102,7 +102,7 @@ export const approvals = pgTable(
   ],
 );
 
-// v2.1: one counter per key scope ("initiative", "standalone", or a parent initiative's id).
+// v2.1: one counter per key scope ("initiative", "standalone", "idea", or a parent initiative's id).
 // Counters only move up, so a number is never reissued after a rename, move or delete.
 export const keyCounters = pgTable(
   "key_counters",
@@ -237,11 +237,22 @@ export const tasks = pgTable(
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     // 2.8: when it should be done (a calendar date, no time); audit OVERDUE once it is past and the task is open.
     dueOn: date("due_on"),
+    // PLA-I8-1: ideas only. Null on tickets, initiatives, and every row that existed before ideas.
+    stage: text("stage"),
+    // Key of the initiative or standalone ticket an idea became. Null until it is promoted.
+    promotedTo: text("promoted_to"),
   },
   (t) => [
     unique("tasks_project_key_unique").on(t.projectId, t.key),
-    check("tasks_kind_check", sql`${t.kind} in ('initiative', 'ticket')`),
+    check("tasks_kind_check", sql`${t.kind} in ('initiative', 'ticket', 'idea')`),
     check("tasks_initiative_no_parent", sql`${t.kind} <> 'initiative' or ${t.parentId} is null`),
+    check("tasks_idea_no_parent", sql`${t.kind} <> 'idea' or ${t.parentId} is null`),
+    check(
+      "tasks_stage_check",
+      sql`(${t.kind} = 'idea' and ${t.stage} in ('idea', 'research', 'design', 'planning', 'ready')) or (${t.kind} <> 'idea' and ${t.stage} is null)`,
+    ),
+    check("tasks_promoted_to_idea", sql`${t.promotedTo} is null or ${t.kind} = 'idea'`),
+    check("tasks_idea_status_check", sql`${t.kind} <> 'idea' or ${t.status} in ('Open', 'Done', 'Won''t do')`),
     check("tasks_lease_pair", sql`(${t.owner} is null) = (${t.leaseUntil} is null)`),
     check(
       "tasks_work_type_check",
@@ -313,8 +324,15 @@ export const questions = pgTable(
     // 2.8: other task keys this question holds up, and how soon Jorge is needed (now | soon | whenever).
     blocks: text("blocks").array().notNull().default(sql`'{}'::text[]`),
     urgency: text("urgency"),
+    // PLA-I8-1: gate A, B or C on an idea. human_only records that a person should answer; this
+    // version still accepts any answerer. False on every question that existed before ideas.
+    gate: text("gate"),
+    humanOnly: boolean("human_only").notNull().default(false),
   },
-  (t) => [index("questions_project_open_idx").on(t.projectId).where(sql`${t.answeredAt} is null`)],
+  (t) => [
+    index("questions_project_open_idx").on(t.projectId).where(sql`${t.answeredAt} is null`),
+    check("questions_gate_check", sql`${t.gate} is null or ${t.gate} in ('A', 'B', 'C')`),
+  ],
 );
 
 // v2: evidence. Several per task; In review requires one that fits the ticket's work_type.
@@ -754,8 +772,9 @@ export type Task = typeof tasks.$inferSelect;
 
 export const INITIATIVE_STATUSES = ["Planning", "Active", "Shipping", "Done", "On hold", "Won't do"] as const;
 export const TICKET_STATUSES = ["Backlog", "Ready", "In progress", "In review", "Merged", "Released", "Blocked", "Needs Jorge", "Done", "Won't do"] as const;
+export const IDEA_STATUSES = ["Open", "Done", "Won't do"] as const;
 export const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
 export const ORIGINS = ["chartered", "discovered", "jorge"] as const;
 // What an agent may pass to create_task; "jorge" is the screen's alone (POST /api/projects/:slug/tasks).
 export const AGENT_ORIGINS = ["chartered", "discovered"] as const;
-export const KINDS = ["initiative", "ticket"] as const;
+export const KINDS = ["initiative", "ticket", "idea"] as const;

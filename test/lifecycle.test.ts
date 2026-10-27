@@ -1,7 +1,7 @@
 // The status machine as a table: every (from, to) pair an agent may make through set_task.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { INITIATIVE_STATUSES, TICKET_STATUSES } from "../src/db/schema.js";
+import { IDEA_STATUSES, INITIATIVE_STATUSES, TICKET_STATUSES } from "../src/db/schema.js";
 import { assertTransition } from "../src/mcp/lifecycle.js";
 
 function allowed(kind: string, statuses: readonly string[], ctx = {}) {
@@ -54,6 +54,10 @@ test("initiative moves an agent makes with set_task", () => {
     "Planning → Active", "Planning → Done", "Planning → On hold",
     "Shipping → Active", "Shipping → Done", "Shipping → On hold",
   ]);
+});
+
+test("an idea is Open or Done; Won't do stays Jorge's", () => {
+  assert.deepEqual(allowed("idea", IDEA_STATUSES), ["Open → Done"]);
 });
 
 test("Jorge on screen may make any move; an approval only opens the one move it is for", () => {

@@ -32,7 +32,7 @@ const URGENCY_RANK: Record<string, number> = { now: 0, soon: 1, whenever: 2 };
 
 export type AhoraTask = {
   key: string;
-  kind: "initiative" | "ticket";
+  kind: "initiative" | "ticket" | "idea";
   title: string;
   status: string;
   claimed_by?: { agent: string } | null;
