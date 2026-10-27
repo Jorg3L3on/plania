@@ -232,14 +232,42 @@ describe("githubToken order", () => {
       throw new Error("fetch");
     };
     try {
+      const failed = `${GAP}; gh auth token failed (timeout)`;
       const first = await githubToken({ fetch, env, ghRun, now: new Date(T0) }, {});
       assert.equal(first.token, null);
-      assert.equal(first.source, GAP);
+      assert.equal(first.source, failed);
       assert.equal(runs, 1);
-      await githubToken({ fetch, env, ghRun, now: new Date(T0 + 59 * 60 * 1000) }, {});
+      const held = await githubToken({ fetch, env, ghRun, now: new Date(T0 + 59 * 60 * 1000) }, {});
+      assert.equal(held.token, null);
+      assert.equal(held.source, failed);
       assert.equal(runs, 1);
       await githubToken({ fetch, env, ghRun, now: new Date(T0 + 60 * 60 * 1000) }, {});
       assert.equal(runs, 2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a missing gh says missing, and the backoff repeats that instead of only the empty file", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "plania-miss-"));
+    const env = { PLANIA_GITHUB_TOKEN_FILE: path.join(dir, "missing"), PLANIA_GH_FALLBACK: "1" };
+    let runs = 0;
+    const ghRun: GroupRun = async () => {
+      runs++;
+      return { ok: false, reason: "missing", stdout: "", stderr: "" };
+    };
+    const fetch = async () => {
+      throw new Error("fetch");
+    };
+    try {
+      const failed = `${GAP}; gh auth token failed (missing)`;
+      const first = await githubToken({ fetch, env, ghRun, now: new Date(T0) }, {});
+      assert.equal(first.token, null);
+      assert.equal(first.source, failed);
+      assert.doesNotMatch(first.source, /ghp_/);
+      const held = await githubToken({ fetch, env, ghRun, now: new Date(T0 + 59 * 60 * 1000) }, {});
+      assert.equal(held.source, failed);
+      assert.equal(runs, 1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -23,14 +23,12 @@ function killGroup(pid: number | undefined): void {
   try {
     process.kill(-pid, "SIGKILL");
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ESRCH") {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch (err2) {
-        if ((err2 as NodeJS.ErrnoException).code !== "ESRCH") {
-          // The caller still reports timeout.
-        }
-      }
+    // ESRCH: the group is already gone. Any other error means the group id could not be signalled.
+    if ((err as NodeJS.ErrnoException).code === "ESRCH") return;
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // The child is already gone, or this process cannot signal it. The caller still reports timeout or overflow.
     }
   }
 }
@@ -62,6 +60,7 @@ export function runInGroup(
     let stderrLen = 0;
     let overflow = false;
     let timedOut = false;
+    let signalled = false;
     const decode = (chunks: Buffer[]) => Buffer.concat(chunks).toString("utf8");
     const push = (chunks: Buffer[], len: number, chunk: Buffer | string): number => {
       const buf = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
@@ -96,8 +95,13 @@ export function runInGroup(
       return;
     }
 
+    const signalGroup = () => {
+      if (signalled) return;
+      signalled = true;
+      killGroup(child.pid);
+    };
     const stopForOverflow = () => {
-      if (overflow) killGroup(child.pid);
+      if (overflow) signalGroup();
     };
     child.stdout?.on("data", (chunk: Buffer | string) => {
       stdoutLen = push(stdout, stdoutLen, chunk);
@@ -124,7 +128,7 @@ export function runInGroup(
     child.unref();
     timer = setTimeout(() => {
       timedOut = true;
-      killGroup(child.pid);
+      signalGroup();
       grace = setTimeout(() => finish({ ok: false, reason: "timeout", stdout: decode(stdout), stderr: decode(stderr) }), 200);
       grace.unref();
     }, opts.timeoutMs);

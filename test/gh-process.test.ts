@@ -58,7 +58,7 @@ setInterval(() => {}, 1e9);
     );
     let pid = 0;
     try {
-      const result = await runInGroup(process.execPath, [script], { timeoutMs: 400 });
+      const result = await runInGroup(process.execPath, [script], { timeoutMs: 2_000 });
       assert.equal(result.ok, false);
       if (result.ok) return;
       assert.equal(result.reason, "timeout");

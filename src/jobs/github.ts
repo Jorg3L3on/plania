@@ -28,7 +28,9 @@ import type { Job } from "./index.js";
 // variable keeps priority over the file. Next is ~/.config/plania/github-token (PLANIA_GITHUB_TOKEN_FILE
 // overrides the path): one trimmed line, re-read when the mtime or size changes. `gh auth token` runs
 // only when PLANIA_GH_FALLBACK=1, detached in its own process group, and a timeout kills the group.
-// A success is cached for 10 minutes; a failure is not retried for an hour. The clock is deps.now.
+// A success is cached for 10 minutes. A failure is not retried for an hour, and that error says
+// `gh auth token` failed (timeout, missing, exit, or empty) rather than only that the file is empty.
+// The clock is deps.now.
 // The token is never written to the log, an event or poll_state.
 
 export type Fetch = (url: string, init?: { headers?: Record<string, string> }) => Promise<{ status: number; headers: { get(name: string): string | null }; json(): Promise<unknown> }>;
@@ -64,7 +66,12 @@ export type GithubDeps = {
 const GH_OK_MS = 10 * 60 * 1000;
 const GH_FAIL_MS = 60 * 60 * 1000;
 const GH_AUTH_TIMEOUT_MS = 5_000;
-let ghAuthCache: { at: number; token: string | null } | null = null;
+type GhAuthFailure = "timeout" | "missing" | "exit" | "empty";
+let ghAuthCache: { at: number; token: string | null; failure?: GhAuthFailure } | null = null;
+
+function ghTriedAndFailed(gap: string, failure: GhAuthFailure): string {
+  return `${gap}; gh auth token failed (${failure})`;
+}
 
 export function resetGithubAuthCache(): void {
   ghAuthCache = null;
@@ -104,14 +111,15 @@ export async function githubToken(deps: GithubDeps, cfg: { token_env?: string })
   if (ghAuthCache) {
     const age = now - ghAuthCache.at;
     if (age >= 0 && ghAuthCache.token && age < GH_OK_MS) return { token: ghAuthCache.token, source: "gh auth token" };
-    if (age >= 0 && !ghAuthCache.token && age < GH_FAIL_MS) return { token: null, source: gap };
+    if (age >= 0 && !ghAuthCache.token && age < GH_FAIL_MS) return { token: null, source: ghTriedAndFailed(gap, ghAuthCache.failure ?? "exit") };
   }
 
   const run = deps.ghRun ?? runInGroup;
   const result = await run("gh", ["auth", "token"], { timeoutMs: GH_AUTH_TIMEOUT_MS, env: ghAuthEnv(env), maxBuffer: 64 * 1024 });
   const token = result.ok ? oneLine(result.stdout) : null;
-  ghAuthCache = { at: now, token };
-  return token ? { token, source: "gh auth token" } : { token: null, source: gap };
+  const failure: GhAuthFailure | undefined = token ? undefined : result.ok ? "empty" : result.reason;
+  ghAuthCache = { at: now, token, failure };
+  return token ? { token, source: "gh auth token" } : { token: null, source: ghTriedAndFailed(gap, failure ?? "exit") };
 }
 
 const API = "https://api.github.com";
