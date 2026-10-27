@@ -209,6 +209,8 @@ async function screenTasks(db: Db, projectId?: string) {
       last_seen_at: sql<string | null>`case when ${tasks.leaseUntil} > now()
         then to_char(${tasks.lastSeenAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') end`,
       updated_at: sql<string>`to_char(${tasks.updatedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+      // When the task was created. Ahora uses it to pick the oldest idea that is still waiting.
+      created_at: sql<string>`to_char(${tasks.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
       // Tasks this one still waits on (not yet settled), so the screen can queue it behind them.
       waits_on: sql<string[]>`coalesce((select array_agg(bt.key order by bt.key) from task_blockers tb
         join tasks bt on bt.id = tb.blocker_id

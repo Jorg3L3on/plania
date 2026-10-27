@@ -8,8 +8,16 @@ import {
   QUIET_MS,
   STALE_LEASE,
   TE_TOCA_LIMIT,
+  GATE_MARK,
+  IDEA_STAGE_LABEL,
   bloqueadoOf,
   enCursoOf,
+  ideaFoot,
+  ideaGateOpen,
+  ideaOutcome,
+  ideasByStage,
+  ideasFromProject,
+  oldestWaitingIdea,
   retomarOf,
   siguienteOf,
   teTocaOf,
@@ -18,6 +26,7 @@ import {
   type AhoraInboxItem,
   type AhoraProject,
   type AhoraTask,
+  type IdeaTask,
 } from "../ui/src/lib/ahora.js";
 
 const NOW = Date.parse("2026-10-11T12:00:00Z");
@@ -204,5 +213,117 @@ describe("siguienteOf", () => {
       { slug: "alfa", title: "ALFA", key: "ALF-3", taskTitle: "Cerrar el demo" },
       { slug: "gamma", title: "GAMMA", key: "GAM-1", taskTitle: "Empezar" },
     ]);
+  });
+
+  test("an idea is not a ticket line, even when it is marked next", () => {
+    const alfa = project("alfa", {
+      tasks: [ticket("WRK-IDEA1", "Open", { kind: "idea" }), ticket("WRK-3", "Ready")],
+      next_claimable: { key: "WRK-IDEA1", title: "Cobrar en la app", kind: "idea" },
+    });
+    const beta = project("beta", {
+      tasks: [ticket("BET-IDEA1", "Open", { kind: "idea" })],
+      next_claimable: { key: "BET-IDEA1", title: "Otra idea" },
+    });
+    const gamma = project("gamma", { next_claimable: { key: "GAM-1", title: "Empezar" } });
+    assert.deepEqual(siguienteOf([alfa, beta, gamma]).map((r) => r.key), ["GAM-1"]);
+  });
+});
+
+function ideaTask(key: string, extra: Partial<IdeaTask> = {}): IdeaTask {
+  return {
+    key,
+    kind: "idea",
+    title: key,
+    summary: "",
+    status: "Open",
+    stage: "idea",
+    waits: "Puerta A",
+    updated_at: "2026-04-01T00:00:00.000Z",
+    created_at: "2026-04-01T00:00:00.000Z",
+    ...extra,
+  };
+}
+
+describe("ideas on Ahora", () => {
+  test("the stage labels are the five Spanish names", () => {
+    assert.deepEqual(Object.values(IDEA_STAGE_LABEL), ["Idea", "Investigación", "Diseño", "Planeación", "Lista"]);
+    assert.equal(GATE_MARK, "◆");
+  });
+
+  test("◆ is exactly an open gate question for Jorge", () => {
+    const questions = [
+      { task_key: "WRK-IDEA1", gate: "A", answered_at: null },
+      { task_key: "WRK-IDEA2", gate: null, answered_at: null },
+      { task_key: "WRK-IDEA3", gate: "B", answered_at: "2026-02-01T00:00:00.000Z" },
+      { task_key: "WRK-IDEA4", gate: "Z", answered_at: null },
+    ];
+    assert.equal(ideaGateOpen("WRK-IDEA1", questions), true);
+    assert.equal(ideaGateOpen("WRK-IDEA2", questions), false);
+    assert.equal(ideaGateOpen("WRK-IDEA3", questions), false);
+    assert.equal(ideaGateOpen("WRK-IDEA4", questions), false);
+    assert.equal(ideaGateOpen("WRK-IDEA9", questions), false);
+  });
+
+  test("ideas land in their stage column with key and one line; a closed one says what it became", () => {
+    const workia = ideasFromProject(
+      { slug: "workia", title: "Workia" },
+      [
+        ideaTask("WRK-IDEA1", { title: "Cobrar en la app", summary: "Cobrar en la app", stage: "idea", created_at: "2026-01-02T00:00:00.000Z", waits: "Puerta A" }),
+        ideaTask("WRK-IDEA2", { title: "Notas de voz", summary: "Notas de voz", stage: "research", created_at: "2026-02-01T00:00:00.000Z", waits: "Doc Investigación" }),
+        ideaTask("WRK-IDEA3", { title: "Cerrada", summary: "", stage: "design", status: "Done", promoted_to: "WRK-I1", waits: "Puede avanzar", created_at: "2026-01-01T00:00:00.000Z" }),
+        ideaTask("WRK-IDEA4", { title: "Descartada", stage: "planning", status: "Won't do", waits: "", created_at: "2026-03-01T00:00:00.000Z" }),
+        { key: "WRK-01", kind: "ticket", title: "Un ticket", summary: "", status: "Ready", updated_at: "2026-01-01T00:00:00.000Z" },
+      ],
+      [{ task_key: "WRK-IDEA1", gate: "A", answered_at: null }],
+    );
+    const taller = ideasFromProject(
+      { slug: "taller", title: "Taller" },
+      [ideaTask("TAL-IDEA1", { title: "Lista para el plan", summary: "Lista para el plan", stage: "ready", waits: "Lista para promover", created_at: "2026-03-02T00:00:00.000Z" })],
+      [],
+    );
+    const columns = ideasByStage([...workia, ...taller]);
+    assert.deepEqual(columns.map((c) => c.label), ["Idea", "Investigación", "Diseño", "Planeación", "Lista"]);
+    assert.deepEqual(columns[0]!.ideas.map((i) => [i.key, i.line, i.gateOpen]), [["WRK-IDEA1", "Cobrar en la app", true]]);
+    assert.deepEqual(columns[1]!.ideas.map((i) => i.key), ["WRK-IDEA2"]);
+    assert.equal(columns[1]!.ideas[0]!.gateOpen, false);
+    assert.deepEqual(columns[2]!.ideas.map((i) => [i.key, ideaFoot(i), ideaOutcome(i)]), [["WRK-IDEA3", "Pasó a WRK-I1", "Pasó a WRK-I1"]]);
+    assert.equal(ideaFoot(columns[3]!.ideas[0]!), "Sin destino");
+    assert.deepEqual(columns[4]!.ideas.map((i) => i.key), ["TAL-IDEA1"]);
+    assert.equal(columns.flat().some((c) => c.ideas.some((i) => i.key === "WRK-01")), false);
+  });
+
+  test("the oldest idea that is still waiting is one line, and a free or closed idea is not it", () => {
+    const ideas = ideasFromProject(
+      { slug: "workia", title: "Workia" },
+      [
+        ideaTask("WRK-IDEA1", { title: "Cobrar en la app", summary: "Cobrar en la app", waits: "Puerta A", created_at: "2026-01-02T00:00:00.000Z" }),
+        ideaTask("WRK-IDEA2", { title: "Más vieja pero libre", summary: "Más vieja pero libre", waits: "Puede avanzar", created_at: "2026-01-01T00:00:00.000Z" }),
+        ideaTask("WRK-IDEA3", { title: "Cerrada", summary: "Cerrada", status: "Done", promoted_to: "WRK-01", waits: "Puerta A", created_at: "2025-12-01T00:00:00.000Z" }),
+        ideaTask("WRK-IDEA4", { title: "Más nueva", summary: "Más nueva", stage: "design", waits: "Doc Diseño", created_at: "2026-05-01T00:00:00.000Z" }),
+      ],
+      [{ task_key: "WRK-IDEA1", gate: "A", answered_at: null }],
+    );
+    const oldest = oldestWaitingIdea(ideas);
+    assert.equal(oldest?.key, "WRK-IDEA1");
+    assert.equal(oldest?.line, "Cobrar en la app");
+    assert.equal(oldest?.gateOpen, true);
+    assert.equal(oldestWaitingIdea(ideas.filter((i) => i.key !== "WRK-IDEA1"))?.key, "WRK-IDEA4");
+    assert.equal(oldestWaitingIdea([]), null);
+  });
+
+  test("a gate that was not asked is a wait without the mark, and Bloqueado ignores the idea", () => {
+    const ideas = ideasFromProject(
+      { slug: "workia", title: "Workia" },
+      [ideaTask("WRK-IDEA1", { title: "Cobrar en la app", summary: "Cobrar en la app", waits: "Puerta A" })],
+      [],
+    );
+    assert.equal(ideas[0]!.gateOpen, false);
+    assert.equal(ideas[0]!.waits, "Puerta A");
+    const alfa = project("workia", {
+      title: "Workia",
+      initiatives: [{ key: "WRK-I1", waiting_on: [{ key: "WRK-IDEA1", on: "Puerta A" }, { key: "WRK-9", on: "WRK-3 (In review)" }] }],
+      tasks: [ticket("WRK-IDEA1", "Open", { kind: "idea" }), ticket("WRK-9", "Blocked")],
+    });
+    assert.deepEqual(bloqueadoOf([alfa], [], NOW).map((r) => r.key), ["WRK-9"]);
   });
 });

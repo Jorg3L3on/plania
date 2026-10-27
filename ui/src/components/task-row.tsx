@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DueTag } from "@/components/due";
+import { ideaStageLabel } from "@/lib/ahora";
 import { api } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import { localTime } from "@/lib/time";
@@ -29,17 +30,9 @@ const STAGE_CHIP: Record<string, string> = {
   ready: "bg-status-done/15 text-ink-done",
 };
 
-const STAGE_LABEL: Record<string, string> = {
-  idea: "Idea",
-  research: "Investigación",
-  design: "Diseño",
-  planning: "Planeación",
-  ready: "Lista",
-};
-
-/** The idea's stage, as a chip. The key stays idea | research | design | planning | ready. */
+/** The idea's stage, as a chip. The key stays idea | research | design | planning | ready. Labels live in ahora.ts. */
 export function StageChip({ stage }: { stage: string }) {
-  const label = STAGE_LABEL[stage] ?? stage;
+  const label = ideaStageLabel(stage);
   return (
     <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold", STAGE_CHIP[stage] ?? "bg-muted text-muted-foreground")} aria-label={`Etapa ${label}`}>
       {label}

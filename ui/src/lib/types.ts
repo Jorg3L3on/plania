@@ -98,6 +98,8 @@ export type Question = {
   answered_by: Actor | null;
   answered_at: string | null;
   decision_id: string | null;
+  /** Ideas only: A, B or C when the question is a gate. Absent on an ordinary question. */
+  gate?: string | null;
 };
 
 
@@ -262,6 +264,8 @@ export type TaskRow = {
   claimed_at: string | null;
   last_seen_at: string | null;
   updated_at: string;
+  /** When the task was created. Ideas use it to find the oldest one still waiting. */
+  created_at?: string;
   /** Keys of tasks it still waits on. */
   waits_on: string[];
   /** Held by a blocker other than a task (env, flag, metric, time, human action). */
