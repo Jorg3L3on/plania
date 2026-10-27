@@ -99,8 +99,8 @@ stays off and everything else works. Phone access over Tailscale and turning pus
 
 ### Upgrading to 2.13 (agent surface)
 
-No migration. `pnpm build`, then restart the service; agents get protocol 2.12 and the `start` / `finish` tools on their
-next `initialize`. Shipping a release from the screen is off until a project asks for it: add `mode: "merge"` to its
+No migration. `pnpm build`, then restart the service; agents get the `start` / `finish` tools on their
+next `initialize`. That release served protocol 2.12. PLA-I8-3 moves the protocol to 2.13: gates are answered only on the screen, with the code, and an agent never answers one or forwards an answer. Shipping a release from the screen is off until a project asks for it: add `mode: "merge"` to its
 `settings.release` (on screen or `set_project settings {release: {from, into, env, mode: "merge"}}`) and keep
 `settings.github.repo` set. The merge runs through the gh CLI logged in on this Mac (`gh auth status` must show write
 access to that repo); without `mode` the release row keeps the command to copy.
@@ -111,7 +111,7 @@ A question with gate A, B or C is `human_only`. `answer` from an agent returns `
 
 The secret is not in `.env` and not in the database. Enrolment is on the Bandeja, section Compuertas: the current Plania password, then the screen shows the base32 secret and the `otpauth://` URI once, as text, and stores the secret in the macOS keychain (generic password, service `plania-gate`, account `plania`). The write goes through `security -i` with the value on the `add-generic-password` line, off argv. Replacing an item deletes it and adds it again, without `-U`, because updating an existing item asks the keychain and hangs. Until that is done, a gate answer is `GATE_CODE_NOT_ENROLLED`. Replacing an enrolled secret needs the password and a current TOTP code that has not already been spent on a gate or on a replacement. Once enrolled, the panel says Enrolado and does not offer the signup form. `POST /gate/enroll` responds `Cache-Control: no-store` and writes a `gate.enrolled` event that carries no secret. `GET /gate` caches the enrolled bit for a few seconds, and a keychain read gives up after three seconds.
 
-An initiative that an idea was promoted to cannot become Active, from Planning or from On hold, until that idea's gate C has been answered `ready` on the screen (`GATE_NOT_PASSED`). A promoted idea with no gate C question is the same error. An initiative no idea was promoted to is unchanged. Migration `0027` adds `gate_challenges` and sets `human_only` on gate questions that are still open. Apply it before restarting. The protocol stays 2.12.
+An initiative that an idea was promoted to cannot become Active, from Planning or from On hold, until that idea's gate C has been answered `ready` on the screen (`GATE_NOT_PASSED`). A promoted idea with no gate C question is the same error. An initiative no idea was promoted to is unchanged. Migration `0027` adds `gate_challenges` and sets `human_only` on gate questions that are still open. Apply it before restarting. The protocol is 2.13.
 
 A process that runs as the same macOS user and can read the keychain or the disk can still forge this. It raises the bar against a bot that only has the MCP bearer. It is not a boundary against root.
 

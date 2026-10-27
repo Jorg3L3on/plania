@@ -85,6 +85,23 @@ describe("PR_WITHOUT_PLANIA_KEY", () => {
     // A Plania-shaped key from another prefix counts too (PLA-I8-3), even when it is not a task here.
     await raw.query("update pull_requests set title = 'PLA-I8-3 ship', head_branch = 'jl/ratings' where number = 40");
     assert.equal((await codes("PR_WITHOUT_PLANIA_KEY")).length, 0);
+    // A lowercase branch is not a key token. web-i2 must not satisfy KEY_SHAPE.
+    await raw.query("update pull_requests set title = 'Ratings', head_branch = 'web-i2' where number = 40");
+    assert.equal((await codes("PR_WITHOUT_PLANIA_KEY")).length, 1);
+    assert.match((await codes("PR_WITHOUT_PLANIA_KEY"))[0]!.detail, /web-i2/);
+
+    // Merged (and closed) rows are history. A missing key there is not a finding.
+    await raw.query(
+      `insert into pull_requests (project_id, repo, number, url, title, task_id, state, head_branch)
+       values ($1, 'Jorg3L3on/filmia', 41, 'https://github.com/Jorg3L3on/filmia/pull/41', 'Ratings', $2, 'merged', 'jl/ratings')`,
+      [projectId, ticketId],
+    );
+    await raw.query("update pull_requests set state = 'closed', title = 'Ratings', head_branch = 'jl/ratings' where number = 40");
+    assert.equal((await codes("PR_WITHOUT_PLANIA_KEY")).length, 0, "merged and closed PRs are not flagged");
+    await raw.query("update pull_requests set state = 'open', title = 'Ratings', head_branch = 'jl/ratings' where number = 40");
+    const onlyOpen = await codes("PR_WITHOUT_PLANIA_KEY");
+    assert.equal(onlyOpen.length, 1);
+    assert.match(onlyOpen[0]!.detail, /PR #40/);
 
     await raw.query("update pull_requests set title = 'Ratings', head_branch = 'jl/ratings', task_id = null where number = 40");
     await raw.query("update tasks set pr_url = null where id = $1", [ticketId]);
@@ -128,47 +145,61 @@ describe("GATE_ANSWERED_BY_AGENT", () => {
 
     await raw.query("update questions set answered_by = $1::jsonb where id = $2", [SCREEN, agent.rows[0].id]);
     assert.equal((await codes("GATE_ANSWERED_BY_AGENT")).length, 0);
+
+    const missing = await raw.query(
+      `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by, answer, answered_by, answered_at)
+       values ($1, $2, 'Sin actor', '{pursue,drop,later}', 'A', false, $3::jsonb, 'pursue', null, '2026-01-05T00:00:00Z')
+       returning id`,
+      [projectId, ideaId, AGENT],
+    );
+    const nobody = await codes("GATE_ANSWERED_BY_AGENT");
+    assert.equal(nobody.length, 1);
+    assert.equal(nobody[0]!.id, missing.rows[0].id);
+    assert.match(nobody[0]!.detail, /gate A answered by nobody/);
   });
 });
 
 describe("STAGE_DOC_STALE", () => {
-  test("a stage doc older than the next gate is stale; a Plan rewritten after gate C is stale; equal clocks are not", async () => {
+  test("a doc edited after its gate is stale; the normal order, and the same instant, are not", async () => {
     const actor = JSON.stringify(A);
+    // Normal order: each doc, then the gate that approves it, then the next doc.
     await raw.query(
       `insert into docs (project_id, task_id, title, markdown, version, actor, updated_at) values
        ($1, $2, 'Idea', 'problem', 1, $3::jsonb, '2026-01-01T00:00:00Z'),
-       ($1, $2, 'Research', 'learned', 1, $3::jsonb, '2026-01-01T00:00:00Z'),
-       ($1, $2, 'Plan', 'steps', 2, $3::jsonb, '2026-08-01T00:00:00Z')`,
+       ($1, $2, 'Research', 'learned', 1, $3::jsonb, '2026-03-01T00:00:00Z'),
+       ($1, $2, 'Design', 'approach', 1, $3::jsonb, '2026-05-01T00:00:00Z'),
+       ($1, $2, 'Plan', 'steps', 1, $3::jsonb, '2026-06-01T00:00:00Z'),
+       ($1, $2, 'Notes', 'not a stage doc', 1, $3::jsonb, '2026-09-01T00:00:00Z')`,
       [projectId, stageIdeaId, actor],
     );
     await raw.query(
       `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by, answer, answered_by, answered_at) values
-       ($1, $2, 'B', '{proceed,rework,drop}', 'B', true, $3::jsonb, 'proceed', $4::jsonb, '2026-06-01T00:00:00Z'),
+       ($1, $2, 'A', '{pursue,drop,later}', 'A', true, $3::jsonb, 'pursue', $4::jsonb, '2026-02-01T00:00:00Z'),
+       ($1, $2, 'B', '{proceed,rework,drop}', 'B', true, $3::jsonb, 'proceed', $4::jsonb, '2026-04-01T00:00:00Z'),
        ($1, $2, 'C', '{ready,rework,drop}', 'C', true, $3::jsonb, 'ready', $4::jsonb, '2026-07-01T00:00:00Z')`,
       [projectId, stageIdeaId, AGENT, SCREEN],
     );
+    const stale = async () => (await codes("STAGE_DOC_STALE")).filter((f) => f.key === "FIL-IDEA2").map((f) => f.detail.replace(/ \(.*\)$/, "")).sort();
+    assert.deepEqual(await stale(), [], "doc, then its gate, then the next doc is not stale");
+
+    await raw.query("update docs set updated_at = '2026-02-01T00:00:00Z' where task_id = $1 and title = 'Idea'", [stageIdeaId]);
+    assert.deepEqual(await stale(), [], "the same instant as the gate is not stale");
+
     await raw.query(
-      `insert into docs (project_id, task_id, title, markdown, version, actor, updated_at)
-       values ($1, $2, 'Notes', 'not a stage doc', 1, $3::jsonb, '2020-01-01T00:00:00Z')`,
-      [projectId, stageIdeaId, actor],
-    );
-    const stale = async () => (await codes("STAGE_DOC_STALE")).filter((f) => f.key === "FIL-IDEA2").map((f) => f.detail).sort();
-    const first = await stale();
-    // Research's next gate is C: design has none. Plan is the version rule (newer than C), not the age rule.
-    assert.deepEqual(first.map((d) => d.replace(/ \(.*\)$/, "")), [
-      "Idea v1 is older than gate B",
-      "Plan v2 changed after gate C approved it",
-      "Research v1 is older than gate C",
-    ]);
-    await raw.query(
-      `update docs set updated_at = case title
-         when 'Idea' then '2026-06-01T00:00:00Z'
-         when 'Research' then '2026-07-01T00:00:00Z'
-         when 'Plan' then '2026-07-01T00:00:00Z'
+      `update docs set version = version + 1, updated_at = case title
+         when 'Idea' then '2026-02-02T00:00:00Z'
+         when 'Research' then '2026-04-02T00:00:00Z'
+         when 'Design' then '2026-07-02T00:00:00Z'
+         when 'Plan' then '2026-07-02T00:00:00Z'
          else updated_at end
-       where task_id = $1`,
+       where task_id = $1 and title in ('Idea', 'Research', 'Design', 'Plan')`,
       [stageIdeaId],
     );
-    assert.deepEqual(await stale(), [], "equal to the gate clock is not stale");
+    assert.deepEqual(await stale(), [
+      "Design v2 changed after gate C approved it",
+      "Idea v2 changed after gate A approved it",
+      "Plan v2 changed after gate C approved it",
+      "Research v2 changed after gate B approved it",
+    ]);
   });
 });

@@ -21,9 +21,10 @@ const CLOSED = ["Done", "Won't do"];
 export { WAITING_ON_JORGE };
 const SHA = /\b[0-9a-f]{7,40}\b/g;
 const PR = /pull\/(\d+)|#(\d{2,6})\b/g;
-// Initiative, idea and phase keys (FIL-I1, WRK-IDEA3, FIL-I1-2, PLA-I8-3). Standalone PREFIX-n is
-// checked separately so a branch like jl/gates-3 is not read as a key.
-const KEY_SHAPE = /(?:^|[^A-Z0-9])[A-Z][A-Z0-9]{1,5}(?:-IDEA\d+|-I\d+(?:-\d+)?)(?![A-Z0-9])/;
+// A Plania key token, case-sensitive: a three-letter uppercase project prefix (FIL, ZIG, PLA, MIC, WRK)
+// then -I<n>, -I<n>-<n>, -IDEA<n> or -<n>. Lowercase branch names such as web-i2 are not keys.
+// This project's own keys are matched separately, so a lowercase copy of a real key still counts.
+const KEY_SHAPE = /(?:^|[^A-Za-z0-9])[A-Z]{3}(?:-IDEA\d+|-I\d+(?:-\d+)?|-\d+)(?![A-Za-z0-9])/;
 
 // Title and head branch are the PR fields the poller stores. The body is not a column, so a
 // "Plania: KEY" line there is invisible. A linked pull_requests row (task_id, or a task whose
@@ -31,10 +32,12 @@ const KEY_SHAPE = /(?:^|[^A-Z0-9])[A-Z][A-Z0-9]{1,5}(?:-IDEA\d+|-I\d+(?:-\d+)?)(
 // head_branch, possibly null. A pr_url that never became a row (a result url, a release ship)
 // has no title and no branch, and is not guessed at.
 function prCarriesPlaniaKey(title: string, branch: string | null, prefix: string, keys: readonly string[]): boolean {
-  const blob = `${title}\n${branch ?? ""}`.toUpperCase();
-  if (KEY_SHAPE.test(blob)) return true;
-  if (prefix && new RegExp(`(?:^|[^A-Z0-9])${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-\\d+(?![A-Z0-9])`).test(blob)) return true;
-  return keys.some((k) => new RegExp(`(?:^|[^A-Z0-9])${k.toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Z0-9])`).test(blob));
+  const raw = `${title}\n${branch ?? ""}`;
+  if (KEY_SHAPE.test(raw)) return true;
+  const blob = raw.toUpperCase();
+  const esc = (token: string) => token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (prefix && new RegExp(`(?:^|[^A-Z0-9])${esc(prefix.toUpperCase())}(?:-IDEA\\d+|-I\\d+(?:-\\d+)?|-\\d+)(?![A-Z0-9])`).test(blob)) return true;
+  return keys.some((k) => new RegExp(`(?:^|[^A-Z0-9])${esc(k.toUpperCase())}(?![A-Z0-9])`).test(blob));
 }
 
 export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
@@ -184,10 +187,12 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   for (const t of all.filter((t) => t.dueOn && t.dueOn < today && !CLOSED.includes(t.status) && !["Merged", "Released"].includes(t.status))) {
     out.push({ code: "OVERDUE", key: t.key, detail: `due ${t.dueOn}, still ${t.status}`, fix_hint: "finish it, move due_on, or set_task Won't do via approval" });
   }
-  // PLA-I8-3: a linked PR whose title and head branch carry no Plania key.
+  // PLA-I8-3: an open linked PR whose title and head branch carry no Plania key.
+  // Merged and closed rows stay: many were linked from a "Plania: KEY" line in the body, which is not stored.
   const prefix = prefixOf(p);
   const keys = all.map((t) => t.key);
   for (const pr of prs) {
+    if (pr.state !== "open") continue;
     const linked = (pr.taskId ? byId.get(pr.taskId) : undefined) ?? all.find((t) => t.prUrl !== null && t.prUrl === pr.url);
     if (!linked) continue;
     if (prCarriesPlaniaKey(pr.title, pr.headBranch, prefix, keys)) continue;
@@ -217,7 +222,7 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
       id: q.id,
     });
   }
-  // PLA-I8-3: a stage doc older than the next stage's gate, or a Plan rewritten after gate C.
+  // PLA-I8-3: a stage doc edited after the gate that approved it (Idea/A, Research/B, Design and Plan/C).
   const openIdeaIds = new Set(all.filter((t) => t.kind === "idea" && !CLOSED.includes(t.status)).map((t) => t.id));
   const stageDocs = openIdeaIds.size
     ? await db.select().from(docs).where(inArray(docs.taskId, [...openIdeaIds]))
@@ -227,18 +232,11 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
     const answers = gateRows.filter((q) => q.taskId === d.taskId).map((q) => ({ gate: q.gate, answeredAt: q.answeredAt }));
     const stale = stageDocStale({ title: d.title, updatedAt: d.updatedAt }, answers);
     if (!stale) continue;
-    const when = iso(stale.answeredAt);
     out.push({
       code: "STAGE_DOC_STALE",
       key: byId.get(d.taskId)?.key ?? null,
-      detail:
-        stale.why === "older"
-          ? `${d.title} v${d.version} is older than gate ${stale.gate} (${when})`
-          : `${d.title} v${d.version} changed after gate ${stale.gate} approved it (${when})`,
-      fix_hint:
-        stale.why === "older"
-          ? "attach_doc so this stage doc is at least as new as that gate answer"
-          : "gate C approved the previous version of Plan; ask it again after the rewrite",
+      detail: `${d.title} v${d.version} changed after gate ${stale.gate} approved it (${iso(stale.answeredAt)})`,
+      fix_hint: "the gate approved the previous version; ask it again after the rewrite",
       id: d.id,
     });
   }

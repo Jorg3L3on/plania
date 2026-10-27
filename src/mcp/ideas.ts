@@ -33,49 +33,32 @@ export const STAGE_DOCS: Record<Exclude<Stage, "ready">, StageDoc> = {
 };
 
 // PLA-I8-3. The stage documents are 00-idea, 01-research, 02-design and 03-initiative, stored
-// under these titles. A gate answer does not record the doc version it approved, so the audit
-// uses one clock comparison and nothing else:
-// - Idea, Research and Design are stale when a later stage's gate has been answered and the doc
-//   is strictly older than that answer. The later gate is the next stage that has one: B for
-//   Idea (research). Design has no gate, so Research's next gate is C (planning), and Design's
-//   is C as well.
-// - Plan (03-initiative) has no later gate. It is stale when gate C has been answered and the
-//   doc is strictly newer: that write replaced the version the gate approved.
+// under these titles. A gate answer does not record the version it approved. Writing the doc and
+// then answering the gate is the normal order, so a doc that is older than its gate is not stale.
+// A doc is stale only when it was edited after the gate that approved it (updated_at moves with
+// the version): Idea after A, Research after B, Design and Plan (03-initiative) after C.
 // Equal timestamps are not stale. A doc with any other title is not a stage doc.
-export const STAGE_DOC_STALE_RULE: Record<string, { laterGate: Gate | null; approvedBy: Gate | null }> = {
-  Idea: { laterGate: "B", approvedBy: null },
-  Research: { laterGate: "C", approvedBy: null },
-  Design: { laterGate: "C", approvedBy: null },
-  Plan: { laterGate: null, approvedBy: "C" },
+export const STAGE_DOC_GATE: Record<string, Gate> = {
+  Idea: "A",
+  Research: "B",
+  Design: "C",
+  Plan: "C",
 };
 
 export type GateAnswerStamp = { gate: string | null; answeredAt: Date | string | null };
 
-export function stageDocStale(
-  doc: { title: string; updatedAt: Date },
-  answers: GateAnswerStamp[],
-): { gate: string; answeredAt: Date; why: "older" | "version" } | null {
-  const rule = STAGE_DOC_STALE_RULE[doc.title];
-  if (!rule) return null;
-  const latest = (gate: string): Date | null => {
-    let best: Date | null = null;
-    for (const a of answers) {
-      if (a.gate !== gate || !a.answeredAt) continue;
-      const at = new Date(a.answeredAt);
-      if (Number.isNaN(at.getTime())) continue;
-      if (!best || at > best) best = at;
-    }
-    return best;
-  };
-  if (rule.laterGate) {
-    const at = latest(rule.laterGate);
-    if (at && doc.updatedAt < at) return { gate: rule.laterGate, answeredAt: at, why: "older" };
+export function stageDocStale(doc: { title: string; updatedAt: Date }, answers: GateAnswerStamp[]): { gate: Gate; answeredAt: Date } | null {
+  const gate = STAGE_DOC_GATE[doc.title];
+  if (!gate) return null;
+  let best: Date | null = null;
+  for (const a of answers) {
+    if (a.gate !== gate || !a.answeredAt) continue;
+    const at = new Date(a.answeredAt);
+    if (Number.isNaN(at.getTime())) continue;
+    if (!best || at > best) best = at;
   }
-  if (rule.approvedBy) {
-    const at = latest(rule.approvedBy);
-    if (at && doc.updatedAt > at) return { gate: rule.approvedBy, answeredAt: at, why: "version" };
-  }
-  return null;
+  if (!best || !(doc.updatedAt > best)) return null;
+  return { gate, answeredAt: best };
 }
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
