@@ -10,6 +10,7 @@ import {
   TE_TOCA_LIMIT,
   bloqueadoOf,
   enCursoOf,
+  retomarOf,
   siguienteOf,
   teTocaOf,
   urgencyRank,
@@ -152,6 +153,36 @@ describe("bloqueadoOf", () => {
     ]);
     const gone = bloqueadoOf([alfa], [{ project: "alfa", task_key: "ALF-1", state: "gone" }], NOW);
     assert.equal(gone.find((r) => r.key === "ALF-1")?.on, GONE_LEASE);
+  });
+});
+
+describe("retomarOf", () => {
+  test("headline, the note beside it, live claims and the next ticket", () => {
+    const view = retomarOf({
+      headline: { generated: "En curso: ALF-2 (Agente Norte).", note: { text: "Falta el entorno de demo.", stale: true } },
+      claims: [
+        { key: "ALF-2", title: "Medir el pulso", owner: { agent: "Agente Norte" } },
+        { key: "ALF-8", title: "Sin agente", owner: null },
+      ],
+      next_claimable: { key: "ALF-3", title: "Cerrar el demo" },
+    });
+    assert.equal(view.headline, "En curso: ALF-2 (Agente Norte).");
+    assert.equal(view.note, "Falta el entorno de demo.");
+    assert.equal(view.noteStale, true);
+    assert.deepEqual(view.claims, [
+      { key: "ALF-2", title: "Medir el pulso", agent: "Agente Norte" },
+      { key: "ALF-8", title: "Sin agente", agent: null },
+    ]);
+    assert.deepEqual(view.next, { key: "ALF-3", title: "Cerrar el demo" });
+  });
+
+  test("an empty resume still has a shape", () => {
+    const view = retomarOf({
+      headline: { generated: "", note: { text: "", stale: false } },
+      claims: [],
+      next_claimable: null,
+    });
+    assert.deepEqual(view, { headline: "", note: "", noteStale: false, claims: [], next: null });
   });
 });
 

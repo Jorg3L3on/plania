@@ -3,11 +3,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router";
+import { TeTocaItems } from "@/components/home/te-toca";
+import { RetomarSheet } from "@/components/retomar-sheet";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kicker, accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
-import { LIVENESS_WORD, URGENCY_WORD, bloqueadoOf, enCursoOf, siguienteOf, teTocaOf, type AhoraInboxItem, type Liveness } from "@/lib/ahora";
-import { waitText } from "@/lib/inbox";
+import { LIVENESS_WORD, bloqueadoOf, enCursoOf, siguienteOf, teTocaOf, type Liveness } from "@/lib/ahora";
 import { cn } from "@/lib/utils";
 
 const LIVENESS_CLASS: Record<Liveness, string> = {
@@ -46,28 +48,16 @@ function taskHref(slug: string, key: string) {
   return `/p/${slug}?task=${encodeURIComponent(key)}`;
 }
 
-function TeTocaRow({ item, title }: { item: AhoraInboxItem; title: string }) {
-  const urgency = item.urgency ? URGENCY_WORD[item.urgency] : undefined;
-  const href = item.key ? taskHref(item.project, item.key) : `/inbox?tab=${item.group === "pasos" ? "pasos" : "decisiones"}`;
-  return (
-    <Link to={href} className="grid min-h-11 gap-0.5 rounded-xl bg-surface-sunken px-3 py-2.5 transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-      <span className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-xs">
-        <span className="min-w-0">
-          <ProjectName slug={item.project} title={title} />
-          {item.key && <span className="font-mono text-muted-foreground"> · {item.key}</span>}
-        </span>
-        <span className="text-muted-foreground">{urgency ? `${urgency} · ` : ""}espera {waitText(item.wait_s)}</span>
-      </span>
-      <span className="line-clamp-2 text-sm leading-snug">{item.why}</span>
-    </Link>
-  );
-}
-
 export function AhoraPage() {
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
   const machine = useQuery({ queryKey: ["machine"], queryFn: api.machine, staleTime: 15_000 });
   const nowMs = useNow();
+  const [retomar, setRetomar] = useState<{ slug: string; title: string } | null>(null);
+  const handleRetomar = (slug: string, title: string) => setRetomar({ slug, title });
+  const handleRetomarOpen = (open: boolean) => {
+    if (!open) setRetomar(null);
+  };
 
   const model = useMemo(() => {
     const list = projects.data ?? [];
@@ -107,15 +97,7 @@ export function AhoraPage() {
         {inbox.isPending && <Skeleton className="h-16 rounded-xl" />}
         {inbox.isError && <p className="text-sm text-destructive">No se pudo cargar la bandeja.</p>}
         {teToca && teToca.items.length === 0 && <p className="text-sm text-muted-foreground">Nada te toca.</p>}
-        {teToca && teToca.items.length > 0 && (
-          <ul className="grid gap-2">
-            {teToca.items.map((item) => (
-              <li key={item.id}>
-                <TeTocaRow item={item} title={titleOf(item.project)} />
-              </li>
-            ))}
-          </ul>
-        )}
+        {teToca && teToca.items.length > 0 && <TeTocaItems items={teToca.items} names={titleOf} />}
         {teToca && teToca.count > teToca.items.length && (
           <Link to="/inbox" className="inline-flex min-h-8 w-fit items-center text-[13px] font-semibold text-ink-jorge underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
             Ver las {teToca.count} en la bandeja
@@ -127,8 +109,8 @@ export function AhoraPage() {
         {model.curso.length === 0 && <p className="text-sm text-muted-foreground">Ningún proyecto.</p>}
         <ul className="grid gap-2">
           {model.curso.map((row) => (
-            <li key={row.slug}>
-              <Link to={`/p/${row.slug}`} className="grid min-h-11 gap-1 rounded-xl bg-surface-sunken px-3 py-2.5 transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+            <li key={row.slug} className="flex flex-wrap items-start gap-2 rounded-xl bg-surface-sunken px-3 py-2.5">
+              <Link to={`/p/${row.slug}`} className="grid min-w-0 flex-1 gap-1 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
                 <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                   <ProjectName slug={row.slug} title={row.title} />
                   {row.liveness && (
@@ -139,6 +121,9 @@ export function AhoraPage() {
                 </span>
                 <span className="text-sm leading-snug text-foreground/80 wrap-anywhere">{row.line}</span>
               </Link>
+              <Button type="button" variant="outline" size="sm" aria-label={`Retomar ${row.title}`} onClick={() => handleRetomar(row.slug, row.title)}>
+                Retomar
+              </Button>
             </li>
           ))}
         </ul>
@@ -183,6 +168,7 @@ export function AhoraPage() {
           )}
         </Section>
       </div>
+      <RetomarSheet slug={retomar?.slug ?? ""} title={retomar?.title ?? ""} open={retomar !== null} onOpenChange={handleRetomarOpen} />
     </div>
   );
 }
