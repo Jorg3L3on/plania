@@ -6,6 +6,9 @@ import { asc, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { verifyPassword } from "../auth/password.js";
+import { createGateChallenge, rememberTotpStep, totpStepSpent } from "../gate/challenge.js";
+import { gateEnrolled, gateStore } from "../gate/store.js";
+import { otpauthUri, base32Encode, matchTotp, randomSecret } from "../gate/totp.js";
 import { SESSION_COOKIE, createSession, sessionCookieOptions, verifySession } from "../auth/session.js";
 import { issueToken, listTokens, revokeToken, TOKEN_SCOPES } from "../auth/tokens.js";
 import { withDb, type Db } from "../db/client.js";
@@ -411,14 +414,30 @@ api.post("/projects/:slug/tasks/:key/release", async (c) => {
 });
 
 // Jorge answers a question an agent asked; with decision_text the answer is also logged as a decision.
+// A human_only question also sends the challenge nonce and the authenticator code. The code is not logged.
 api.post("/projects/:slug/questions/:id/answer", async (c) => {
-  const body = await readJson(c, z.object({ answer: z.string().trim().min(1), decision_text: z.string().trim().optional() }));
+  const body = await readJson(
+    c,
+    z.object({
+      answer: z.string().trim().min(1),
+      decision_text: z.string().trim().optional(),
+      nonce: z.string().trim().min(1).max(200).optional(),
+      code: z.string().trim().min(1).max(12).optional(),
+    }),
+  );
   if (body instanceof Response) return body;
   try {
     const result = await withDb((db) =>
       answer(
         db,
-        { project: c.req.param("slug"), question_id: c.req.param("id"), answer: body.answer, decision_text: body.decision_text || undefined },
+        {
+          project: c.req.param("slug"),
+          question_id: c.req.param("id"),
+          answer: body.answer,
+          decision_text: body.decision_text || undefined,
+          nonce: body.nonce,
+          code: body.code,
+        },
         screenCtx,
       ),
     );
@@ -426,6 +445,71 @@ api.post("/projects/:slug/questions/:id/answer", async (c) => {
   } catch (e) {
     return errorResponse(c, e);
   }
+});
+
+// The click that starts a gate answer: a challenge bound to this question and option, dead in two minutes.
+api.post("/projects/:slug/questions/:id/challenge", async (c) => {
+  const body = await readJson(c, z.object({ option: z.string().trim().min(1).max(2_000) }));
+  if (body instanceof Response) return body;
+  try {
+    const result = await withDb((db) => createGateChallenge(db, c.req.param("slug"), c.req.param("id"), body.option, screenCtx));
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
+
+// Whether an authenticator secret is in the keychain. The secret itself is never returned here.
+// The boolean is cached for a few seconds so a poll does not spawn `security` every time.
+api.get("/gate", async (c) => {
+  return c.json({ enrolled: await gateEnrolled() });
+});
+
+// Enrol or replace the authenticator secret. Cookie plus the current Plania password.
+// Replacing one that is already stored also needs a current TOTP code. The base32 secret and the
+// otpauth URI are returned once, as text, and are not stored in the database or in the audit event.
+api.post("/gate/enroll", async (c) => {
+  c.header("Cache-Control", "no-store");
+  const body = await readJson(c, z.object({ password: z.string(), code: z.string().max(12).optional() }));
+  if (body instanceof Response) return body;
+  const stored = process.env.PLANIA_PASSWORD_HASH ?? "";
+  if (!body.password || !stored || !(await verifyPassword(stored, body.password))) {
+    return c.json({ error: "INVALID_PASSWORD" }, 401);
+  }
+  const existing = await gateStore().get();
+  let spentStep: number | null = null;
+  if (existing) {
+    const code = body.code?.trim() ?? "";
+    const step = matchTotp(existing, code);
+    if (step === null) {
+      return c.json({ error: "GATE_CODE_INVALID", reason: code ? "invalid" : "missing" }, 403);
+    }
+    if (await withDb((db) => totpStepSpent(db, step))) {
+      return c.json({ error: "GATE_CODE_INVALID", reason: "replay" }, 403);
+    }
+    spentStep = step;
+  }
+  const secret = randomSecret();
+  try {
+    await gateStore().set(secret);
+  } catch {
+    return c.json({ error: "KEYCHAIN_FAILED", hint: "the keychain did not store the secret" }, 500);
+  }
+  if (spentStep !== null) {
+    const step = spentStep;
+    await withDb((db) => rememberTotpStep(db, step));
+  }
+  const replaced = !!existing;
+  await withDb(async (db) => {
+    const rows = await db.select({ id: projects.id, slug: projects.slug }).from(projects);
+    for (const project of rows) {
+      await writeTx(db, project, webCtx, async (_tx, emit) => {
+        await emit("gate.enrolled", null, { replaced });
+      });
+    }
+  });
+  const secretBase32 = base32Encode(secret);
+  return c.json({ secret_base32: secretBase32, otpauth_uri: otpauthUri(secretBase32) });
 });
 
 // ---- Inbox and approvals

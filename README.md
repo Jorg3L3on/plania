@@ -105,6 +105,16 @@ next `initialize`. Shipping a release from the screen is off until a project ask
 `settings.github.repo` set. The merge runs through the gh CLI logged in on this Mac (`gh auth status` must show write
 access to that repo); without `mode` the release row keeps the command to copy.
 
+## Gates
+
+A question with gate A, B or C is `human_only`. `answer` from an agent returns `HUMAN_ONLY`. The answer is typed on the Plania screen on this Mac: pick the option, then the six-digit code from an authenticator app. The server opens a row in `gate_challenges` (two minutes, one use, three attempts, at most five open per question) bound to that question and option, checks a standard TOTP (RFC 6238, HMAC-SHA1, 6 digits, 30 second step, window ±1) and only then stores the answer with `answered_by` jorge. A gate moves the idea, or lets a promoted initiative become Active, only when that screen answer is the one that advances it. An agent answer does not count. The code and the secret are never written to a row, an event or a log. A `human_only` question that is not a gate is still answered only on the screen, as free text, and does not ask for a code.
+
+The secret is not in `.env` and not in the database. Enrolment is on the Bandeja, section Compuertas: the current Plania password, then the screen shows the base32 secret and the `otpauth://` URI once, as text, and stores the secret in the macOS keychain (generic password, service `plania-gate`, account `plania`). The write goes through `security -i` with the value on the `add-generic-password` line, off argv. Replacing an item deletes it and adds it again, without `-U`, because updating an existing item asks the keychain and hangs. Until that is done, a gate answer is `GATE_CODE_NOT_ENROLLED`. Replacing an enrolled secret needs the password and a current TOTP code that has not already been spent on a gate or on a replacement. Once enrolled, the panel says Enrolado and does not offer the signup form. `POST /gate/enroll` responds `Cache-Control: no-store` and writes a `gate.enrolled` event that carries no secret. `GET /gate` caches the enrolled bit for a few seconds, and a keychain read gives up after three seconds.
+
+An initiative that an idea was promoted to cannot become Active, from Planning or from On hold, until that idea's gate C has been answered `ready` on the screen (`GATE_NOT_PASSED`). A promoted idea with no gate C question is the same error. An initiative no idea was promoted to is unchanged. Migration `0027` adds `gate_challenges` and sets `human_only` on gate questions that are still open. Apply it before restarting. The protocol stays 2.12.
+
+A process that runs as the same macOS user and can read the keychain or the disk can still forge this. It raises the bar against a bot that only has the MCP bearer. It is not a boundary against root.
+
 ## Dev
 
 ```bash
@@ -200,7 +210,7 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | `add_decision` | Append one decision to the log. |
 | `reserve_sequence` | Reserve the next number of a per-project sequence (e.g. name 'migration' gives '0009') for a ticket, so two initiatives never take the same one. |
 | `ask` | Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer. |
-| `answer` | Record Jorge's answer to a question (he answers on screen, or tells you in chat and you record it here, quoting him). |
+| `answer` | Record Jorge's answer to a question that is not human_only (he answers those on the screen; otherwise he may tell you in chat and you record it here, quoting him). |
 | `set_project` | Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline. |
 | `set_env` | Record what an environment runs, as data other sessions can check: commit and branch deployed, migrations (the tags applied, e.g. ['0009_x']; migrations_applied is derived), flags (configuration state, never secret values: {google_oauth: false, omdb_key: 'valid'}; null removes one). |
 | `request_approval` | Ask Jorge to approve one move you cannot make yourself: action wont_do \| reopen (a status change), waive_check (target {n}, once In review or later), runbook_step, lease_resource. |
@@ -355,7 +365,8 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `ACTOR_MISMATCH` | 403 | actor.agent or actor.machine disagrees with the agent token's (detail: expected) |
 | `APPROVAL_MISMATCH` | 403 | the approval_id is for another task, action or target (detail: expected) |
 | `APPROVAL_REQUIRED` | 403 | this needs an approval_id: request_approval first (detail: action, target) |
-| `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: Jorge's call, on screen or with an approval_id he granted (request_approval) |
+| `GATE_CODE_INVALID` | 403 | the gate code does not match, was already used in this window, or the challenge is not for this question and option (detail: reason) |
+| `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: Jorge's call, on screen or with an approval_id he granted (request_approval). Also a human_only question, including every gate: only the screen can answer it, with the authenticator code |
 | `APPROVAL_NOT_FOUND` | 404 | no approval with that id in this project |
 | `CHECK_NOT_FOUND` | 404 | no check with that n on this task |
 | `DECISION_NOT_FOUND` | 404 | supersedes names no decision of this project |
@@ -381,7 +392,10 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `EVIDENCE_REQUIRED` | 409 | In review without evidence for the work_type from the current claim (detail: accepts, since) |
 | `EVIDENCE_STALE` | 409 | In review needs a pass recorded against the branch's current head; the passes found are for older commits (detail: head, results) |
 | `FOOTPRINT_HELD` | 409 | another live session declared this footprint, or releasing one you did not declare (detail: holder, purpose) |
-| `GATE_NOT_PASSED` | 409 | moving an idea forward needs a gate answer that moves it on (pursue, proceed or ready), given after it entered this stage; drop, later and rework do not, and a step back makes the previous answer stale (detail: gate) |
+| `GATE_CHALLENGE_LOCKED` | 409 | the gate challenge is locked after three wrong codes |
+| `GATE_CODE_EXPIRED` | 409 | the gate challenge expired after two minutes |
+| `GATE_CODE_NOT_ENROLLED` | 409 | a human-only question cannot be answered until an authenticator is enrolled on the screen |
+| `GATE_NOT_PASSED` | 409 | moving an idea forward needs a gate answer that moves it on (pursue, proceed or ready), given on the screen after it entered this stage; an agent answer does not count, drop, later and rework do not, and a step back makes the previous answer stale (detail: gate). Also becoming Active, from Planning or On hold, on an initiative promoted from an idea: gate C must be answered ready on the screen, and a missing gate C question is the same error |
 | `GATE_OPEN` | 409 | the idea already has an open gate question (detail: gate, question_id) |
 | `HANDOFF_HELD` | 409 | the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note) |
 | `IDEA_CLOSED` | 409 | a Done or Won't do idea does not change stage or promoted_to (detail: status) |

@@ -44,6 +44,14 @@ export function summarize(e: Ev): string {
       return `${k} pregunta a Jorge: ${str(p.question).slice(0, 140)}`;
     case "question.answered":
       return `${k} respondida: ${str(p.answer).slice(0, 140)}`;
+    case "gate.challenge.created":
+      return `${k} compuerta: código pedido${p.gate ? ` (${str(p.gate)})` : ""}`;
+    case "gate.answered":
+      return `${k} compuerta respondida en pantalla${p.gate ? ` (${str(p.gate)})` : ""}`;
+    case "gate.code.rejected":
+      return `${k} código de compuerta rechazado (${str(p.reason)})`;
+    case "gate.enrolled":
+      return `Compuerta: autenticador ${p.replaced ? "reemplazado" : "enrolado"}`;
     case "approval.requested":
       return `${k} pide aprobación: ${str(p.action)}`;
     case "approval.granted":

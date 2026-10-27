@@ -2,11 +2,12 @@ import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { decisions, questions, tasks, type Task } from "../db/schema.js";
 import { decisionShape } from "./decisions.js";
+import { consumeGateCode } from "../gate/challenge.js";
 import { ToolError } from "./errors.js";
 import { GATES, assertGateAsk, type Gate } from "./ideas.js";
 import { TERMINAL, assertTransition } from "./lifecycle.js";
 import { findProject, liveOwner, requireTask, writeReply } from "./queries.js";
-import { iso, writeTx, type Ctx, type Q } from "./tx.js";
+import { WEB_ACTOR, iso, writeTx, type Ctx, type Q } from "./tx.js";
 
 // Questions for Jorge live in Plania, not in one session's chat. ask puts a ticket in Needs Jorge
 // (initiatives keep their status); answer records the reply, logs a decision on the task when the
@@ -76,6 +77,8 @@ export async function ask(
     const options = input.gate ? await assertGateAsk(tx, t.id, input.gate) : (input.options ?? []);
     const moves = t.kind === "ticket" && t.status !== "Needs Jorge";
     if (moves) assertTransition(t.kind, t.status, "Needs Jorge", { via: "ask" });
+    // A gate is always human_only. The caller's flag is ignored for it, and existing rows are not rewritten.
+    const humanOnly = input.gate ? true : (input.human_only ?? false);
     const [q] = await tx
       .insert(questions)
       .values({
@@ -86,7 +89,7 @@ export async function ask(
         blocks,
         urgency: input.urgency ?? null,
         gate: input.gate ?? null,
-        humanOnly: input.human_only ?? false,
+        humanOnly,
         statusBefore: moves ? t.status : null,
         askedBy: ctx.actor,
       })
@@ -109,12 +112,12 @@ export async function ask(
 
 export async function answer(
   db: Db,
-  input: { project: string; question_id: string; answer: string; decision_text?: string },
+  input: { project: string; question_id: string; answer: string; decision_text?: string; nonce?: string; code?: string },
   ctx: Ctx,
 ) {
   if (!input.answer.trim()) throw new ToolError("INVALID_QUESTION", { field: "answer" });
   const p = await findProject(db, input.project);
-  return writeTx(db, p, ctx, async (tx, emit) => {
+  const outcome = await writeTx(db, p, ctx, async (tx, emit) => {
     const [row] = await tx
       .select({ q: questions, t: tasks })
       .from(questions)
@@ -124,24 +127,36 @@ export async function answer(
     if (!row) throw new ToolError("QUESTION_NOT_FOUND", { question_id: input.question_id });
     const { q, t } = row;
     if (q.answeredAt) throw new ToolError("ALREADY_ANSWERED", { answer: q.answer, answered_by: q.answeredBy });
+    // A gate always needs the screen and a consumed code, even if an old row still has human_only false.
+    // A human_only question that is not a gate is answered on the screen as free text, with no code.
+    if ((q.gate || q.humanOnly) && !ctx.human) {
+      throw new ToolError("HUMAN_ONLY", { hint: "a gate is answered on the screen, with the code from the authenticator" });
+    }
+    if (q.gate) {
+      // Failure commits the attempt and the rejection event; success falls through in this same transaction.
+      const failure = await consumeGateCode(tx, emit, q, t, input.answer, { nonce: input.nonce, code: input.code });
+      if (failure) return { ok: false as const, failure };
+    }
 
     // 2.1: an answer is a decision only when the caller says what was decided (decision_text);
     // otherwise the answer stays on the question and the decision log keeps its signal.
+    // A gate or human_only answer is Jorge's, whatever else the caller sent.
+    const by = q.gate || q.humanOnly ? WEB_ACTOR : ctx.actor;
     let d: typeof decisions.$inferSelect | undefined;
     if (input.decision_text?.trim()) {
       if (/^\s*\d{4}-\d{2}-\d{2}\b/.test(input.decision_text)) throw new ToolError("TEXT_HAS_DATE");
       [d] = await tx
         .insert(decisions)
-        .values({ projectId: p.id, line: input.decision_text.trim().slice(0, 2_000), taskId: t.id, tags: ["answer"], actor: ctx.actor })
+        .values({ projectId: p.id, line: input.decision_text.trim().slice(0, 2_000), taskId: t.id, tags: ["answer"], actor: by })
         .returning();
     }
     const [answered] = await tx
       .update(questions)
-      .set({ answer: input.answer, answeredBy: ctx.actor, answeredAt: sql`now()`, decisionId: d?.id ?? null })
+      .set({ answer: input.answer, answeredBy: by, answeredAt: sql`now()`, decisionId: d?.id ?? null })
       .where(eq(questions.id, q.id))
       .returning();
-    await emit("question.answered", t, { question_id: q.id, answer: input.answer, decision_id: d?.id ?? null });
-    if (d) await emit("decision.added", t, { decision_id: d.id, text: d.line, tags: ["answer"] });
+    await emit("question.answered", t, { question_id: q.id, answer: input.answer, decision_id: d?.id ?? null }, by);
+    if (d) await emit("decision.added", t, { decision_id: d.id, text: d.line, tags: ["answer"] }, by);
 
     // Back to where it was once nothing is left open. In progress without a live lease is Ready.
     const [first] = await tx
@@ -168,9 +183,14 @@ export async function answer(
       changed.push("status");
     }
     const u = await requireTask(tx, p.id, t.key);
-    return writeReply(tx, u, ctx, changed, {
-      question: questionShape(answered!, t.key),
-      decision: d ? decisionShape(d, t.key) : null,
-    });
+    return {
+      ok: true as const,
+      reply: await writeReply(tx, u, ctx, changed, {
+        question: questionShape(answered!, t.key),
+        decision: d ? decisionShape(d, t.key) : null,
+      }),
+    };
   });
+  if (!outcome.ok) throw new ToolError(outcome.failure.code, outcome.failure.detail);
+  return outcome.reply;
 }

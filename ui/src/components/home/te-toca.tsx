@@ -6,11 +6,13 @@ import { ArrowRightIcon } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
+import { QuestionMarks } from "@/components/question-marks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
-import { actionWord, optionLabel, waitText } from "@/lib/inbox";
+import { GATE_ENROLL_STEP, actionWord, optionLabel, waitText } from "@/lib/inbox";
+import { useQuestionAnswer } from "@/lib/use-gate-answer";
 import type { InboxItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -34,22 +36,27 @@ const taskHref = (item: InboxItem) => `/p/${item.project}?task=${encodeURICompon
 
 // One question with its options; the optional decision line goes to the decision log, as in the Bandeja.
 function QuestionCard({ item, index, total, names, onNext, when }: { item: InboxItem; index: number; total: number; names: Names; onNext: () => void; when?: string }) {
-  const refresh = useRefresh();
+  const humanOnly = !!item.human_only;
+  const needsCode = !!item.gate;
+  const flow = useQuestionAnswer(item.project, item.id, needsCode);
   const [free, setFree] = useState("");
   const [decision, setDecision] = useState("");
-  const send = useMutation({
-    mutationFn: (answer: string) => api.answer(item.project, item.id, answer, decision.trim() || undefined),
-    onSuccess: () => {
-      toast(decision.trim() ? "Respuesta guardada como decisión" : "Respuesta guardada");
-      setFree("");
-      setDecision("");
-    },
-    onError: () => toast.error("No se pudo guardar la respuesta."),
-    onSettled: () => refresh(item.project),
-  });
-  function submit(e: FormEvent) {
+  const pending = flow.send.isPending || flow.begin.isPending;
+  const decided = decision.trim() || undefined;
+  const needsEnrol = needsCode && flow.enrolled === false;
+
+  function choose(option: string) {
+    if (needsCode) flow.begin.mutate(option);
+    else flow.send.mutate({ answer: option, decision: decided });
+  }
+  function submitFree(e: FormEvent) {
     e.preventDefault();
-    if (free.trim()) send.mutate(free.trim());
+    if (free.trim()) flow.send.mutate({ answer: free.trim(), decision: decided });
+  }
+  function confirmCode(e: FormEvent) {
+    e.preventDefault();
+    if (!flow.challenge || !/^\d{6}$/.test(flow.code)) return;
+    flow.send.mutate({ answer: flow.challenge.option, decision: decided, nonce: flow.challenge.nonce, code: flow.code });
   }
   return (
     <article className="grid gap-2.5 rounded-[16px] border border-status-jorge/25 bg-status-jorge/[0.07] px-4 py-3.5">
@@ -62,39 +69,70 @@ function QuestionCard({ item, index, total, names, onNext, when }: { item: Inbox
         </span>
         <span>{when ? `${when} · ` : ""}espera {waitText(item.wait_s)}</span>
       </p>
+      <QuestionMarks gate={item.gate} humanOnly={humanOnly} />
       <p className="text-[15px] leading-snug whitespace-pre-wrap">{item.why}</p>
-      {(item.options?.length ?? 0) > 0 && (
-        <div className="grid gap-1.5">
-          {item.options!.map((o, i) => (
-            <button
-              key={o}
-              type="button"
-              disabled={send.isPending}
-              onClick={() => send.mutate(o)}
-              className={cn(
-                "flex min-h-11 items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left text-[13px] leading-snug transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50",
-                i === 0 ? "border-foreground/15 bg-foreground/[0.05]" : "border-foreground/10",
-              )}
-            >
-              <span>{optionLabel(o)}</span>
-              {/propuesta/i.test(o) && <span className="shrink-0 text-[11px] font-semibold text-ink-jorge">propuesta</span>}
-            </button>
-          ))}
-        </div>
+      {needsEnrol && (
+        <p className="text-sm text-muted-foreground">
+          {GATE_ENROLL_STEP}{" "}
+          <Link to="/inbox#compuertas" className="font-medium text-foreground underline-offset-4 hover:underline">Ir a Compuertas</Link>
+        </p>
       )}
-      <form onSubmit={submit} className="grid gap-1.5">
-        <div className="flex gap-2">
-          <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" className="bg-background/60" />
-          <Button type="submit" size="sm" disabled={!free.trim() || send.isPending}>Responder</Button>
-        </div>
-        <Input
-          value={decision}
-          onChange={(e) => setDecision(e.target.value)}
-          placeholder="Si esto decide algo, una línea para el registro de decisiones (opcional)"
-          aria-label="Decisión"
-          className="bg-background/60 text-base md:text-xs"
-        />
-      </form>
+      {flow.challenge ? (
+        <form onSubmit={confirmCode} className="grid gap-1.5">
+          <p className="text-sm">Opción: {optionLabel(flow.challenge.option)}. Teclea el código de 6 dígitos de tu app.</p>
+          <div className="flex gap-2">
+            <Input
+              value={flow.code}
+              onChange={(e) => flow.setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              placeholder="Código de 6 dígitos"
+              aria-label="Código de la app autenticadora"
+              className="bg-background/60"
+            />
+            <Button type="submit" size="sm" disabled={pending || !/^\d{6}$/.test(flow.code)}>Confirmar</Button>
+            <Button type="button" size="sm" variant="ghost" onClick={flow.clear}>Cancelar</Button>
+          </div>
+        </form>
+      ) : (
+        !needsEnrol && (
+          <>
+            {(item.options?.length ?? 0) > 0 && (
+              <div className="grid gap-1.5">
+                {item.options!.map((o, i) => (
+                  <button
+                    key={o}
+                    type="button"
+                    disabled={pending || (needsCode && flow.enrolled === undefined)}
+                    onClick={() => choose(o)}
+                    className={cn(
+                      "flex min-h-11 items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left text-[13px] leading-snug transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50",
+                      i === 0 ? "border-foreground/15 bg-foreground/[0.05]" : "border-foreground/10",
+                    )}
+                  >
+                    <span>{optionLabel(o)}</span>
+                    {/propuesta/i.test(o) && <span className="shrink-0 text-[11px] font-semibold text-ink-jorge">propuesta</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!needsCode && (
+              <form onSubmit={submitFree} className="flex gap-2">
+                <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" className="bg-background/60" />
+                <Button type="submit" size="sm" disabled={!free.trim() || pending}>Responder</Button>
+              </form>
+            )}
+          </>
+        )
+      )}
+      <Input
+        value={decision}
+        onChange={(e) => setDecision(e.target.value)}
+        placeholder="Si esto decide algo, una línea para el registro de decisiones (opcional)"
+        aria-label="Decisión"
+        className="bg-background/60 text-base md:text-xs"
+      />
       {total > 1 && (
         <button type="button" onClick={onNext} className="inline-flex min-h-8 w-fit items-center gap-1 justify-self-end text-xs font-semibold text-ink-jorge hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
           Siguiente pregunta <ArrowRightIcon className="size-3.5" aria-hidden />

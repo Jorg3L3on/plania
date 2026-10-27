@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HechoForm } from "@/components/hecho";
 import { ReleaseRow } from "@/components/release-step";
+import { GatePanel } from "@/components/gate-panel";
 import { QuestionsPanel } from "@/components/resume";
 import { Kicker } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
@@ -189,6 +190,8 @@ export function InboxPage() {
     answered_by: null,
     answered_at: null,
     decision_id: null,
+    gate: i.gate,
+    human_only: i.human_only,
   });
 
   return (
@@ -201,6 +204,7 @@ export function InboxPage() {
         </p>
         <Tabs tab={tab} counts={counts} onChange={setTab} />
       </header>
+      <GatePanel />
 
       {tab === "decisiones" && allApprovals.length > 0 && (
         <div className="sticky top-[calc(var(--header-h)+0.5rem)] z-10 flex flex-wrap items-center gap-2 rounded-2xl border bg-background/80 p-3 backdrop-blur-md">

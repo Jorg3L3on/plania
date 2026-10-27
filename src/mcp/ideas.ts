@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { docs, events, questions, tasks } from "../db/schema.js";
+import { docs, events, questions, tasks, type Actor } from "../db/schema.js";
 import { ToolError } from "./errors.js";
-import type { Q } from "./tx.js";
+import { isScreenActor, type Q } from "./tx.js";
 
 // An idea moves one stage at a time: idea → research → design → planning → ready.
 // Leaving a stage (the forward move) needs that stage's doc, with the headings below as markdown
@@ -61,17 +61,19 @@ export type StageQuestion = {
   answered: boolean;
   answer?: string | null;
   answeredAt?: Date | string | null;
+  answeredBy?: Actor | null;
 };
 
 // The option that moves the idea on. The others (drop, later, rework) leave the gate closed.
 const ADVANCES: Record<Gate, string> = { A: "pursue", B: "proceed", C: "ready" };
 
-// The latest answer for this gate given strictly after the idea entered the stage. Earlier answers,
-// including one that advanced before a step back, do not count.
+// The latest answer for this gate given on the screen, strictly after the idea entered the stage.
+// An agent answer, including one stored before gates required a code, does not count. Earlier
+// answers, including one that advanced before a step back, do not count either.
 function gateAdvances(gate: Gate, qs: StageQuestion[], since: Date | null): boolean {
   let latest: StageQuestion | undefined;
   for (const q of qs) {
-    if (q.gate !== gate || !q.answered || !q.answeredAt) continue;
+    if (q.gate !== gate || !q.answered || !q.answeredAt || !isScreenActor(q.answeredBy)) continue;
     const at = new Date(q.answeredAt);
     if (Number.isNaN(at.getTime()) || (since && at <= since)) continue;
     if (!latest || at > new Date(latest.answeredAt!)) latest = q;
@@ -151,13 +153,13 @@ export async function stageEnteredAt(db: Q, taskId: string, stage: string | null
 export async function loadStageEvidence(db: Q, taskId: string): Promise<{ docRows: StageDocRow[]; qs: StageQuestion[] }> {
   const docRows = await db.select({ title: docs.title, markdown: docs.markdown }).from(docs).where(eq(docs.taskId, taskId));
   const rows = await db
-    .select({ gate: questions.gate, question: questions.question, answer: questions.answer, answeredAt: questions.answeredAt })
+    .select({ gate: questions.gate, question: questions.question, answer: questions.answer, answeredAt: questions.answeredAt, answeredBy: questions.answeredBy })
     .from(questions)
     .where(eq(questions.taskId, taskId))
     .orderBy(asc(questions.askedAt));
   return {
     docRows,
-    qs: rows.map((q) => ({ gate: q.gate, question: q.question, answered: !!q.answeredAt, answer: q.answer, answeredAt: q.answeredAt })),
+    qs: rows.map((q) => ({ gate: q.gate, question: q.question, answered: !!q.answeredAt, answer: q.answer, answeredAt: q.answeredAt, answeredBy: q.answeredBy })),
   };
 }
 
@@ -172,7 +174,7 @@ export async function ideaWaits(db: Q, projectId: string): Promise<Map<string, s
   const ids = rows.map((r) => r.id);
   const docRows = await db.select({ taskId: docs.taskId, title: docs.title, markdown: docs.markdown }).from(docs).where(inArray(docs.taskId, ids));
   const qRows = await db
-    .select({ taskId: questions.taskId, gate: questions.gate, question: questions.question, answer: questions.answer, answeredAt: questions.answeredAt })
+    .select({ taskId: questions.taskId, gate: questions.gate, question: questions.question, answer: questions.answer, answeredAt: questions.answeredAt, answeredBy: questions.answeredBy })
     .from(questions)
     .where(inArray(questions.taskId, ids))
     .orderBy(asc(questions.askedAt));
@@ -191,10 +193,26 @@ export async function ideaWaits(db: Q, projectId: string): Promise<Map<string, s
     const mine = docRows.filter((d) => d.taskId === t.id);
     const qs = qRows
       .filter((q) => q.taskId === t.id)
-      .map((q) => ({ gate: q.gate, question: q.question, answered: !!q.answeredAt, answer: q.answer, answeredAt: q.answeredAt }));
+      .map((q) => ({ gate: q.gate, question: q.question, answered: !!q.answeredAt, answer: q.answer, answeredAt: q.answeredAt, answeredBy: q.answeredBy }));
     map.set(t.key, ideaWaitText(t.stage, mine, qs, sinceByTask.get(t.id) ?? null));
   }
   return map;
+}
+
+// Becoming Active (Planning or On hold) on an initiative an idea was promoted to. Every such idea
+// needs gate C answered `ready` on the screen after it entered planning. No gate C question is
+// the same refusal. An initiative no idea points at is unchanged. On hold is included so parking
+// the initiative is not a way around the gate.
+export async function assertPromotedInitiativeActive(db: Q, initiative: { projectId: string; key: string }, from: string): Promise<void> {
+  const ideas = await db
+    .select({ id: tasks.id, key: tasks.key })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, initiative.projectId), eq(tasks.kind, "idea"), eq(tasks.promotedTo, initiative.key)));
+  for (const idea of ideas) {
+    const { qs } = await loadStageEvidence(db, idea.id);
+    const since = await stageEnteredAt(db, idea.id, "planning");
+    if (!gateAdvances("C", qs, since)) throw new ToolError("GATE_NOT_PASSED", { from, to: "Active", gate: "C", idea: idea.key });
+  }
 }
 
 // The doc the forward move needs, if any. Used by set_task.

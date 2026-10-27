@@ -1,12 +1,12 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent, type ReactNode } from "react";
-import { toast } from "sonner";
+import { Link } from "react-router";
+import { QuestionMarks } from "@/components/question-marks";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { api } from "@/lib/api";
-import { optionLabel } from "@/lib/inbox";
+import { GATE_ENROLL_STEP, optionLabel } from "@/lib/inbox";
 import { localTime } from "@/lib/time";
+import { useQuestionAnswer } from "@/lib/use-gate-answer";
 import type { Claim, Decision, NextTicket, Question, Resume } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -89,21 +89,27 @@ export function ResumeView({ resume, onOpen }: { resume: Resume; onOpen: (key: s
 }
 
 function QuestionCard({ slug, q, onOpen }: { slug: string; q: Question; onOpen: (key: string) => void }) {
-  const queryClient = useQueryClient();
+  const humanOnly = !!q.human_only;
+  const needsCode = !!q.gate;
+  const flow = useQuestionAnswer(slug, q.id, needsCode);
   const [free, setFree] = useState("");
   const [decision, setDecision] = useState("");
-  const send = useMutation({
-    mutationFn: (answer: string) => api.answer(slug, q.id, answer, decision.trim() || undefined),
-    onSuccess: () => toast(decision.trim() ? "Respuesta guardada como decisión" : "Respuesta guardada"),
-    onError: () => toast.error("No se pudo guardar la respuesta."),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["project", slug] });
-      void queryClient.invalidateQueries({ queryKey: ["projects"] });
-    },
-  });
-  function submit(e: FormEvent) {
+  const pending = flow.send.isPending || flow.begin.isPending;
+  const decided = decision.trim() || undefined;
+  const needsEnrol = needsCode && flow.enrolled === false;
+
+  function choose(option: string) {
+    if (needsCode) flow.begin.mutate(option);
+    else flow.send.mutate({ answer: option, decision: decided });
+  }
+  function submitFree(e: FormEvent) {
     e.preventDefault();
-    if (free.trim()) send.mutate(free.trim());
+    if (free.trim()) flow.send.mutate({ answer: free.trim(), decision: decided });
+  }
+  function confirmCode(e: FormEvent) {
+    e.preventDefault();
+    if (!flow.challenge || !/^\d{6}$/.test(flow.code)) return;
+    flow.send.mutate({ answer: flow.challenge.option, decision: decided, nonce: flow.challenge.nonce, code: flow.code });
   }
   return (
     <Card className="ring-orange-500/50">
@@ -112,27 +118,59 @@ function QuestionCard({ slug, q, onOpen }: { slug: string; q: Question; onOpen: 
           <button type="button" className="font-mono underline-offset-4 hover:underline" onClick={() => onOpen(q.task_key)}>{q.task_key}</button>
           {" · "}{q.asked_by.agent} · {localTime(q.asked_at)}
         </p>
+        <QuestionMarks gate={q.gate} humanOnly={humanOnly} />
         <p className="whitespace-pre-wrap">{q.question}</p>
-        {q.options.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {q.options.map((o) => (
-              <Button key={o} size="sm" variant="outline" className="h-auto min-h-7 py-1 text-left whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-9" disabled={send.isPending} onClick={() => send.mutate(o)}>{optionLabel(o)}</Button>
-            ))}
-          </div>
+        {needsEnrol && (
+          <p className="text-sm text-muted-foreground">
+            {GATE_ENROLL_STEP}{" "}
+            <Link to="/inbox#compuertas" className="font-medium text-foreground underline-offset-4 hover:underline">Ir a Compuertas</Link>
+          </p>
         )}
-        <form onSubmit={submit} className="grid gap-2">
-          <div className="flex gap-2">
-            <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" />
-            <Button type="submit" size="sm" disabled={!free.trim() || send.isPending}>Responder</Button>
-          </div>
-          <Input
-            value={decision}
-            onChange={(e) => setDecision(e.target.value)}
-            placeholder="Si esto decide algo, una línea para el registro de decisiones (opcional)"
-            aria-label="Decisión"
-            className="text-base md:text-xs"
-          />
-        </form>
+        {flow.challenge ? (
+          <form onSubmit={confirmCode} className="grid gap-2">
+            <p className="text-sm">Opción: {optionLabel(flow.challenge.option)}. Teclea el código de 6 dígitos de tu app.</p>
+            <div className="flex gap-2">
+              <Input
+                value={flow.code}
+                onChange={(e) => flow.setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                placeholder="Código de 6 dígitos"
+                aria-label="Código de la app autenticadora"
+              />
+              <Button type="submit" size="sm" disabled={pending || !/^\d{6}$/.test(flow.code)}>Confirmar</Button>
+              <Button type="button" size="sm" variant="ghost" onClick={flow.clear}>Cancelar</Button>
+            </div>
+          </form>
+        ) : (
+          !needsEnrol && (
+            <>
+              {q.options.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {q.options.map((o) => (
+                    <Button key={o} size="sm" variant="outline" className="h-auto min-h-7 py-1 text-left whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-9" disabled={pending || (needsCode && flow.enrolled === undefined)} onClick={() => choose(o)}>{optionLabel(o)}</Button>
+                  ))}
+                </div>
+              )}
+              {!needsCode && (
+                <form onSubmit={submitFree} className="grid gap-2">
+                  <div className="flex gap-2">
+                    <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" />
+                    <Button type="submit" size="sm" disabled={!free.trim() || pending}>Responder</Button>
+                  </div>
+                </form>
+              )}
+            </>
+          )
+        )}
+        <Input
+          value={decision}
+          onChange={(e) => setDecision(e.target.value)}
+          placeholder="Si esto decide algo, una línea para el registro de decisiones (opcional)"
+          aria-label="Decisión"
+          className="text-base md:text-xs"
+        />
       </CardContent>
     </Card>
   );

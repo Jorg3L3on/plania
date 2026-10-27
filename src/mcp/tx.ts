@@ -20,6 +20,11 @@ const REQUEST_TTL = "30 days";
 const WRITE_LOCK = 7_264_201; // arbitrary constant: the one advisory lock every writeTx takes
 
 export const WEB_ACTOR: Actor = { agent: "jorge", session_id: "web", machine: "screen" };
+
+// A gate answer counts only when this actor stored it. That happens after the screen consumed a TOTP code.
+export function isScreenActor(actor: { agent?: string; session_id?: string; machine?: string } | null | undefined): boolean {
+  return !!actor && actor.agent === WEB_ACTOR.agent && actor.session_id === WEB_ACTOR.session_id && actor.machine === WEB_ACTOR.machine;
+}
 // Writes made by Plania itself, e.g. releasing expired leases.
 export const SYSTEM_ACTOR: Actor = { agent: "plania", session_id: "system" };
 export const webCtx: Ctx = { actor: WEB_ACTOR, human: true };

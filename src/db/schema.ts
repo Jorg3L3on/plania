@@ -324,14 +324,41 @@ export const questions = pgTable(
     // 2.8: other task keys this question holds up, and how soon Jorge is needed (now | soon | whenever).
     blocks: text("blocks").array().notNull().default(sql`'{}'::text[]`),
     urgency: text("urgency"),
-    // PLA-I8-1: gate A, B or C on an idea. human_only records that a person should answer; this
-    // version still accepts any answerer. False on every question that existed before ideas.
+    // PLA-I8-1: gate A, B or C on an idea. PLA-I8-2: a gate is human_only. answer refuses it
+    // unless the screen consumed a TOTP challenge in the same transaction. Migration 0027 sets
+    // human_only on gate questions that were still open. An answer from an agent does not move the gate.
     gate: text("gate"),
     humanOnly: boolean("human_only").notNull().default(false),
   },
   (t) => [
     index("questions_project_open_idx").on(t.projectId).where(sql`${t.answeredAt} is null`),
     check("questions_gate_check", sql`${t.gate} is null or ${t.gate} in ('A', 'B', 'C')`),
+  ],
+);
+
+// PLA-I8-2: one screen challenge per click on a human_only question. The TOTP code is not stored.
+// totp_step is the time step that was accepted, so the same code cannot be spent twice in its window.
+export const gateChallenges = pgTable(
+  "gate_challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    questionId: uuid("question_id")
+      .notNull()
+      .references(() => questions.id, { onDelete: "cascade" }),
+    option: text("option").notNull(),
+    nonce: text("nonce").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    state: text("state").notNull().default("open"),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    totpStep: bigint("totp_step", { mode: "number" }),
+  },
+  (t) => [
+    unique("gate_challenges_nonce_unique").on(t.nonce),
+    uniqueIndex("gate_challenges_totp_step_unique").on(t.totpStep).where(sql`${t.totpStep} is not null`),
+    index("gate_challenges_question_idx").on(t.questionId),
+    check("gate_challenges_state_check", sql`${t.state} in ('open', 'used', 'expired', 'locked')`),
   ],
 );
 
