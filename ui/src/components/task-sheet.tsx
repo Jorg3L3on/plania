@@ -14,6 +14,7 @@ import { EvidenceTimeline } from "@/components/evidence-timeline";
 import { HechoForm } from "@/components/hecho";
 import { dayText, dueText } from "@/lib/due";
 import { TaskControls } from "@/components/task-controls";
+import { QuestionMarks } from "@/components/question-marks";
 import { ClaimLine, StageChip } from "@/components/task-row";
 import { localTime } from "@/lib/time";
 import { api, ApiError } from "@/lib/api";
@@ -127,6 +128,9 @@ function logText(e: TaskDetail["log"][number]): string {
   if (e.type === "check.set") return `${p.done ? "☑" : "☐"} ${p.text}`;
   if (e.type === "question.asked") return `Pregunta: ${p.question}`;
   if (e.type === "question.answered") return `Respuesta: ${p.answer}`;
+  if (e.type === "gate.challenge.created") return "Código pedido para la compuerta";
+  if (e.type === "gate.answered") return "Compuerta respondida en pantalla";
+  if (e.type === "gate.code.rejected") return `Código rechazado (${p.reason})`;
   if (e.type === "blocker.parsed") return `Te toca: ${p.text}`;
   if (e.type === "blocker.resolved") return `Hecho: ${p.text}`;
   return e.type;
@@ -276,7 +280,8 @@ function Details({ slug, task, onOpen }: { slug: string; task: TaskDetail; onOpe
         <Section title="Preguntas">
           <ul className="grid gap-2 text-sm">
             {task.questions.map((q) => (
-              <li key={q.id}>
+              <li key={q.id} className="grid gap-1">
+                <QuestionMarks gate={q.gate} humanOnly={q.human_only} />
                 {q.question}
                 <span className="block text-muted-foreground">{q.answer ? `→ ${q.answer}` : "Sin respuesta"}</span>
               </li>

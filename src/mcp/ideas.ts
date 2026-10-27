@@ -197,6 +197,24 @@ export async function ideaWaits(db: Q, projectId: string): Promise<Map<string, s
   return map;
 }
 
+// Becoming Active (Planning or On hold) on an initiative an idea was promoted to. No gate C
+// question: unchanged (ideas and initiatives that existed before gates, or a promotion with no
+// gate C). A gate C question must have the advancing answer (`ready`) from after the idea entered
+// planning — the same rule as the idea's own move. New gate questions are human_only, so that
+// answer can only have come from the screen. On hold is included so it is not a way around the gate.
+export async function assertPromotedInitiativeActive(db: Q, initiative: { projectId: string; key: string }, from: string): Promise<void> {
+  const ideas = await db
+    .select({ id: tasks.id, key: tasks.key })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, initiative.projectId), eq(tasks.kind, "idea"), eq(tasks.promotedTo, initiative.key)));
+  for (const idea of ideas) {
+    const { qs } = await loadStageEvidence(db, idea.id);
+    if (!qs.some((q) => q.gate === "C")) continue;
+    const since = await stageEnteredAt(db, idea.id, "planning");
+    if (!gateAdvances("C", qs, since)) throw new ToolError("GATE_NOT_PASSED", { from, to: "Active", gate: "C", idea: idea.key });
+  }
+}
+
 // The doc the forward move needs, if any. Used by set_task.
 export async function assertForwardStage(db: Q, taskId: string, from: string, to: string): Promise<void> {
   const { docRows, qs } = await loadStageEvidence(db, taskId);

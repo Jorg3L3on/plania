@@ -183,6 +183,13 @@
       "when": 1792267200000,
       "tag": "0026_ideas",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1792353600000,
+      "tag": "0027_gate_challenges",
+      "breakpoints": true
     }
   ]
 }

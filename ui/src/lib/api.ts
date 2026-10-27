@@ -41,11 +41,16 @@ export const api = {
     request<TaskDetail>("POST", `/projects/${encodeURIComponent(slug)}/tasks`, input),
   release: (slug: string, key: string) =>
     request<TaskDetail>("POST", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/release`),
-  answer: (slug: string, questionId: string, answer: string, decisionText?: string) =>
+  answer: (slug: string, questionId: string, answer: string, decisionText?: string, proof?: { nonce: string; code: string }) =>
     request<unknown>("POST", `/projects/${encodeURIComponent(slug)}/questions/${encodeURIComponent(questionId)}/answer`, {
       answer,
       ...(decisionText ? { decision_text: decisionText } : {}),
+      ...(proof ? { nonce: proof.nonce, code: proof.code } : {}),
     }),
+  createChallenge: (slug: string, questionId: string, option: string) =>
+    request<{ nonce: string; expires_at: string }>("POST", `/projects/${encodeURIComponent(slug)}/questions/${encodeURIComponent(questionId)}/challenge`, { option }),
+  gate: () => request<{ enrolled: boolean }>("GET", "/gate"),
+  enrollGate: (password: string) => request<{ secret_base32: string; otpauth_uri: string }>("POST", "/gate/enroll", { password }),
   // The headline carries the project version on screen, like a task's.
   patchProject: (slug: string, headline: string, version: number) =>
     request<{ version: number }>("PATCH", `/projects/${encodeURIComponent(slug)}`, { headline, version }),

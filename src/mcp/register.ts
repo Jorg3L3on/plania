@@ -645,7 +645,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "A note goes to the task's log with your actor and a server timestamp; it is the only way to add text without a version. Blocked requires a note, stored as blocked_note.",
         "To tick one Done when item use set_check, not checks.",
         "Ticket moves: Backlog ⇄ Ready; Backlog, Ready, In progress or In review → Blocked (note required) → Backlog or Ready; In progress → In review, Ready or Backlog (each releases the lease). In progress only through claim.",
-        "Initiative moves: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold; next_action and in_progress_note feed get_resume.",
+        "Initiative moves: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold; next_action and in_progress_note feed get_resume. An initiative an idea was promoted to cannot become Active (from Planning or On hold) until that idea's gate C has an answer that moves it on (GATE_NOT_PASSED); an initiative with no such gate question is unchanged.",
         "Idea status is Open, Done or Won't do. stage moves one step along idea → research → design → planning → ready; a step back needs a note (INVALID_STAGE_MOVE when it skips or the note is missing). Moving forward needs that stage's doc and headings (STAGE_REQUIREMENTS_MISSING) and, for idea, research and planning, a gate answer that moves it on — pursue, proceed or ready — given after it entered this stage (GATE_NOT_PASSED; drop, later and rework do not pass, and a step back makes the previous answer stale). A Done or Won't do idea refuses stage and promoted_to (IDEA_CLOSED). promoted_to records the initiative or standalone ticket it became.",
         "Anything else is INVALID_TRANSITION with the allowed moves.",
         "Finishing a phase: finish does add_result and In review in one call. By hand: add_result first, then status 'In review' (committed, not merged) with branch and pr_url; without fitting evidence it is EVIDENCE_REQUIRED.",
@@ -784,7 +784,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer.",
-        "On an idea, gate A, B or C fixes the options and only one gate stays open.",
+        "On an idea, gate A, B or C fixes the options and only one gate stays open. A gate is always human_only: answer from here is HUMAN_ONLY, and Jorge answers it on the screen with his authenticator code.",
         "A ticket moves to Needs Jorge (your lease stays; heartbeat to keep it) until every open question on it is answered.",
         "options are suggested answers; he may answer freely. blocks names other tickets waiting on the answer; urgency says how soon. get_resume lists open_questions.",
         "The reply carries question_id and waits (\"the ticket waits in Needs Jorge\"): nothing else to write.",
@@ -799,7 +799,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         question: z.string(),
         options: z.array(z.string()).optional().describe("Suggested answers. Ignored when gate is set: the server stores that gate's options"),
         gate: z.enum(GATES).optional().describe("Ideas only. A, B or C. One open gate per idea (GATE_OPEN). The options are fixed"),
-        human_only: z.boolean().optional().describe("Record that a person should answer. Any answerer is still accepted"),
+        human_only: z.boolean().optional().describe("On a question that is not a gate: only the screen may answer. A gate ignores this and is always human_only"),
         blocks: z.array(z.string()).optional().describe("Other task keys this answer holds up (shown in the inbox and the digest)"),
         urgency: z.enum(URGENCIES).optional().describe("How soon Jorge is needed: now | soon | whenever"),
       },
@@ -812,7 +812,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "answer",
     {
       description: [
-        "Record Jorge's answer to a question (he answers on screen, or tells you in chat and you record it here, quoting him).",
+        "Record Jorge's answer to a question that is not human_only (he answers those on the screen; otherwise he may tell you in chat and you record it here, quoting him).",
+        "A human_only question, including every gate, is HUMAN_ONLY from here.",
         "Pass decision_text when the answer settles something worth keeping: that line goes to the decision log (tag answer). Without it no decision is written.",
         "When no question is left open the ticket returns to its previous status (In progress without a live lease returns to Ready).",
       ].join(" "),

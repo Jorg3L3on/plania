@@ -6,6 +6,9 @@ import { asc, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { verifyPassword } from "../auth/password.js";
+import { createGateChallenge } from "../gate/challenge.js";
+import { gateStore } from "../gate/store.js";
+import { otpauthUri, base32Encode, randomSecret } from "../gate/totp.js";
 import { SESSION_COOKIE, createSession, sessionCookieOptions, verifySession } from "../auth/session.js";
 import { issueToken, listTokens, revokeToken, TOKEN_SCOPES } from "../auth/tokens.js";
 import { withDb, type Db } from "../db/client.js";
@@ -411,14 +414,30 @@ api.post("/projects/:slug/tasks/:key/release", async (c) => {
 });
 
 // Jorge answers a question an agent asked; with decision_text the answer is also logged as a decision.
+// A human_only question also sends the challenge nonce and the authenticator code. The code is not logged.
 api.post("/projects/:slug/questions/:id/answer", async (c) => {
-  const body = await readJson(c, z.object({ answer: z.string().trim().min(1), decision_text: z.string().trim().optional() }));
+  const body = await readJson(
+    c,
+    z.object({
+      answer: z.string().trim().min(1),
+      decision_text: z.string().trim().optional(),
+      nonce: z.string().trim().min(1).max(200).optional(),
+      code: z.string().trim().min(1).max(12).optional(),
+    }),
+  );
   if (body instanceof Response) return body;
   try {
     const result = await withDb((db) =>
       answer(
         db,
-        { project: c.req.param("slug"), question_id: c.req.param("id"), answer: body.answer, decision_text: body.decision_text || undefined },
+        {
+          project: c.req.param("slug"),
+          question_id: c.req.param("id"),
+          answer: body.answer,
+          decision_text: body.decision_text || undefined,
+          nonce: body.nonce,
+          code: body.code,
+        },
         screenCtx,
       ),
     );
@@ -426,6 +445,43 @@ api.post("/projects/:slug/questions/:id/answer", async (c) => {
   } catch (e) {
     return errorResponse(c, e);
   }
+});
+
+// The click that starts a gate answer: a challenge bound to this question and option, dead in two minutes.
+api.post("/projects/:slug/questions/:id/challenge", async (c) => {
+  const body = await readJson(c, z.object({ option: z.string().trim().min(1).max(2_000) }));
+  if (body instanceof Response) return body;
+  try {
+    const result = await withDb((db) => createGateChallenge(db, c.req.param("slug"), c.req.param("id"), body.option, screenCtx));
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
+
+// Whether an authenticator secret is in the keychain. The secret itself is never returned here.
+api.get("/gate", async (c) => {
+  const secret = await gateStore().get();
+  return c.json({ enrolled: !!secret });
+});
+
+// Enrol or replace the authenticator secret. Cookie plus the current Plania password.
+// The base32 secret and the otpauth URI are returned once, as text, and not stored in the database.
+api.post("/gate/enroll", async (c) => {
+  const body = await readJson(c, z.object({ password: z.string() }));
+  if (body instanceof Response) return body;
+  const stored = process.env.PLANIA_PASSWORD_HASH ?? "";
+  if (!body.password || !stored || !(await verifyPassword(stored, body.password))) {
+    return c.json({ error: "INVALID_PASSWORD" }, 401);
+  }
+  const secret = randomSecret();
+  try {
+    await gateStore().set(secret);
+  } catch {
+    return c.json({ error: "KEYCHAIN_FAILED", hint: "the keychain did not store the secret" }, 500);
+  }
+  const secretBase32 = base32Encode(secret);
+  return c.json({ secret_base32: secretBase32, otpauth_uri: otpauthUri(secretBase32) });
 });
 
 // ---- Inbox and approvals

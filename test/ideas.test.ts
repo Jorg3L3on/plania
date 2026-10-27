@@ -7,12 +7,26 @@ import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import pg from "pg";
+import type { Db } from "../src/db/client.js";
 import { forwardBlock, GATE_OPTIONS, ideaWaitText, STAGE_DOCS } from "../src/mcp/ideas.js";
 import { resetTestDb, useTestEnv } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
+const { answer: answerQuestion } = await import("../src/mcp/questions.js");
+const { createGateChallenge } = await import("../src/gate/challenge.js");
+const { MemoryGateSecretStore, useGateStore } = await import("../src/gate/store.js");
+const { gateClock, totp } = await import("../src/gate/totp.js");
+const { webCtx } = await import("../src/mcp/tx.js");
+
+// The stage machine answers gates. New gates are human_only, so those answers go through the screen
+// path with a fixed RFC secret and a clock that steps forward, one TOTP window per answer.
+const gateSecret = Buffer.from("12345678901234567890", "ascii");
+const gateMem = new MemoryGateSecretStore();
+useGateStore(gateMem);
+let gateTick = 1_700_000_000_000;
+let db: Db;
 
 type Json = Record<string, any>;
 const A = { agent: "test-agent", session_id: "s1", machine: "ci" };
@@ -26,6 +40,13 @@ async function call(name: string, args: Json = {}): Promise<Json> {
   const r = (await client.callTool({ name, arguments: { actor: A, ...P, ...args } })) as { isError?: boolean; content: { text: string }[] };
   const data = JSON.parse(r.content[0]!.text) as Json;
   return r.isError ? { __error: data.error, __status: data.status, ...data } : data;
+}
+
+async function answerGate(questionId: string, option: string) {
+  gateTick += 31_000;
+  const ch = await createGateChallenge(db, "workia", questionId, option, webCtx);
+  const code = totp(gateSecret, gateTick);
+  await answerQuestion(db, { project: "workia", question_id: questionId, answer: option, nonce: ch.nonce, code }, webCtx);
 }
 
 const migrationsDir = path.resolve(import.meta.dirname, "../drizzle/migrations");
@@ -131,8 +152,11 @@ test("migration 0026 leaves existing rows unchanged and is not 0025", async () =
 
 before(async () => {
   raw = await resetTestDb();
-  const { db, close } = makeDb();
-  closeDb = close;
+  const opened = makeDb();
+  db = opened.db;
+  closeDb = opened.close;
+  await gateMem.set(gateSecret);
+  gateClock.now = () => gateTick;
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await createMcpServer(db).connect(serverSide);
   client = new Client({ name: "test", version: "0" });
@@ -140,6 +164,7 @@ before(async () => {
 });
 
 after(async () => {
+  gateClock.now = () => Date.now();
   await client?.close();
   await closeDb?.();
   await raw?.end();
@@ -253,13 +278,17 @@ describe("ideas", () => {
 
     const inbox = await call("get_inbox");
     assert.equal(inbox.items.some((i: Json) => i.key === "WRK-IDEA1" && i.kind === "question"), true);
-    await call("answer", { question_id: asked.question.id, answer: "drop" });
+    const refused = await call("answer", { question_id: asked.question.id, answer: "drop" });
+    assert.equal(refused.__error, "HUMAN_ONLY");
+    assert.equal(refused.__status, 403);
+    await answerGate(asked.question.id, "drop");
     assert.equal((await move("research")).__error, "GATE_NOT_PASSED", "drop does not pass gate A");
     const later = await call("ask", { key: "WRK-IDEA1", gate: "A", question: "¿Más tarde?" });
-    await call("answer", { question_id: later.question.id, answer: "later" });
+    assert.equal(later.question.human_only, true, "a gate is human_only even when the caller does not pass the flag");
+    await answerGate(later.question.id, "later");
     assert.equal((await move("research")).__error, "GATE_NOT_PASSED", "later does not pass gate A");
     const pursue = await call("ask", { key: "WRK-IDEA1", gate: "A", question: "¿La seguimos ahora?" });
-    await call("answer", { question_id: pursue.question.id, answer: "pursue" });
+    await answerGate(pursue.question.id, "pursue");
 
     const forward = await move("research");
     assert.equal(forward.__error, undefined);
@@ -278,20 +307,20 @@ describe("ideas", () => {
     assert.equal((await call("get_task", { key: "WRK-IDEA1" })).stage, "idea");
     assert.equal((await move("research")).__error, "GATE_NOT_PASSED", "a step back makes the previous pursue stale");
     const again = await call("ask", { key: "WRK-IDEA1", gate: "A", question: "¿Otra vez?" });
-    await call("answer", { question_id: again.question.id, answer: "pursue" });
+    await answerGate(again.question.id, "pursue");
     assert.equal((await move("research")).__error, undefined);
 
     assert.equal((await move("design")).__error, "STAGE_REQUIREMENTS_MISSING");
     await put("research");
     assert.equal((await move("design")).__error, "GATE_NOT_PASSED");
     const reworkB = await call("ask", { key: "WRK-IDEA1", gate: "B", question: "¿Rehacer?" });
-    await call("answer", { question_id: reworkB.question.id, answer: "rework" });
+    await answerGate(reworkB.question.id, "rework");
     assert.equal((await move("design")).__error, "GATE_NOT_PASSED", "rework does not pass gate B");
     const dropB = await call("ask", { key: "WRK-IDEA1", gate: "B", question: "¿Soltar?" });
-    await call("answer", { question_id: dropB.question.id, answer: "drop" });
+    await answerGate(dropB.question.id, "drop");
     assert.equal((await move("design")).__error, "GATE_NOT_PASSED", "drop does not pass gate B");
     const gateB = await call("ask", { key: "WRK-IDEA1", gate: "B", question: "¿Este camino?" });
-    await call("answer", { question_id: gateB.question.id, answer: "proceed" });
+    await answerGate(gateB.question.id, "proceed");
     assert.equal((await move("design")).__error, undefined);
 
     assert.equal((await move("planning")).__error, "STAGE_REQUIREMENTS_MISSING");
@@ -302,13 +331,13 @@ describe("ideas", () => {
     await put("planning");
     assert.equal((await move("ready")).__error, "GATE_NOT_PASSED");
     const reworkC = await call("ask", { key: "WRK-IDEA1", gate: "C", question: "¿Rehacer el plan?" });
-    await call("answer", { question_id: reworkC.question.id, answer: "rework" });
+    await answerGate(reworkC.question.id, "rework");
     assert.equal((await move("ready")).__error, "GATE_NOT_PASSED", "rework does not pass gate C");
     const dropC = await call("ask", { key: "WRK-IDEA1", gate: "C", question: "¿Soltar el plan?" });
-    await call("answer", { question_id: dropC.question.id, answer: "drop" });
+    await answerGate(dropC.question.id, "drop");
     assert.equal((await move("ready")).__error, "GATE_NOT_PASSED", "drop does not pass gate C");
     const gateC = await call("ask", { key: "WRK-IDEA1", gate: "C", question: "¿Lista?" });
-    await call("answer", { question_id: gateC.question.id, answer: "ready" });
+    await answerGate(gateC.question.id, "ready");
     const ready = await move("ready");
     assert.equal(ready.__error, undefined);
     assert.equal((await call("get_task", { key: "WRK-IDEA1" })).stage, "ready");
