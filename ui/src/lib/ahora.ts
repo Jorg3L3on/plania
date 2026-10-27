@@ -65,8 +65,6 @@ export type AhoraInboxItem = {
   wait_s: number;
 };
 
-export type TeToca = { count: number; items: AhoraInboxItem[] };
-
 /** now, then soon, then whenever. No urgency (an approval, a step) sorts as now. Age is older first. */
 export function urgencyRank(urgency: string | null | undefined): number {
   if (urgency && Object.hasOwn(URGENCY_RANK, urgency)) return URGENCY_RANK[urgency]!;
@@ -78,7 +76,7 @@ function byUrgencyThenAge(a: AhoraInboxItem, b: AhoraInboxItem): number {
 }
 
 /** Decisiones and pasos only (limpieza is a chore). `count` is get_inbox's count; the list is at most three. */
-export function teTocaOf(inbox: { items: AhoraInboxItem[]; count: number }): TeToca {
+export function teTocaOf<T extends AhoraInboxItem>(inbox: { items: T[]; count: number }): { count: number; items: T[] } {
   const items = inbox.items.filter((i) => i.group !== "limpieza").sort(byUrgencyThenAge);
   return { count: inbox.count, items: items.slice(0, TE_TOCA_LIMIT) };
 }
@@ -171,4 +169,28 @@ export function siguienteOf(projects: AhoraProject[]): NextRow[] {
     rows.push({ slug: p.slug, title: p.title, key: p.next_claimable.key, taskTitle: p.next_claimable.title });
   }
   return rows;
+}
+
+export type RetomarClaim = { key: string; title: string; agent: string | null };
+export type Retomar = {
+  headline: string;
+  note: string;
+  noteStale: boolean;
+  claims: RetomarClaim[];
+  next: { key: string; title: string } | null;
+};
+
+/** The four lines Retomar shows from get_resume, before the full ResumeView. */
+export function retomarOf(resume: {
+  headline: { generated: string; note: { text: string; stale: boolean } };
+  claims: { key: string; title: string; owner: { agent?: string } | null }[];
+  next_claimable: { key: string; title: string } | null;
+}): Retomar {
+  return {
+    headline: resume.headline.generated,
+    note: resume.headline.note.text,
+    noteStale: resume.headline.note.stale,
+    claims: resume.claims.map((c) => ({ key: c.key, title: c.title, agent: c.owner?.agent ?? null })),
+    next: resume.next_claimable,
+  };
 }
