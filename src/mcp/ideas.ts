@@ -32,6 +32,52 @@ export const STAGE_DOCS: Record<Exclude<Stage, "ready">, StageDoc> = {
   planning: { doc: "Plan", headings: ["Steps", "Done when", "Risks"], gate: "C" },
 };
 
+// PLA-I8-3. The stage documents are 00-idea, 01-research, 02-design and 03-initiative, stored
+// under these titles. A gate answer does not record the doc version it approved, so the audit
+// uses one clock comparison and nothing else:
+// - Idea, Research and Design are stale when a later stage's gate has been answered and the doc
+//   is strictly older than that answer. The later gate is the next stage that has one: B for
+//   Idea (research). Design has no gate, so Research's next gate is C (planning), and Design's
+//   is C as well.
+// - Plan (03-initiative) has no later gate. It is stale when gate C has been answered and the
+//   doc is strictly newer: that write replaced the version the gate approved.
+// Equal timestamps are not stale. A doc with any other title is not a stage doc.
+export const STAGE_DOC_STALE_RULE: Record<string, { laterGate: Gate | null; approvedBy: Gate | null }> = {
+  Idea: { laterGate: "B", approvedBy: null },
+  Research: { laterGate: "C", approvedBy: null },
+  Design: { laterGate: "C", approvedBy: null },
+  Plan: { laterGate: null, approvedBy: "C" },
+};
+
+export type GateAnswerStamp = { gate: string | null; answeredAt: Date | string | null };
+
+export function stageDocStale(
+  doc: { title: string; updatedAt: Date },
+  answers: GateAnswerStamp[],
+): { gate: string; answeredAt: Date; why: "older" | "version" } | null {
+  const rule = STAGE_DOC_STALE_RULE[doc.title];
+  if (!rule) return null;
+  const latest = (gate: string): Date | null => {
+    let best: Date | null = null;
+    for (const a of answers) {
+      if (a.gate !== gate || !a.answeredAt) continue;
+      const at = new Date(a.answeredAt);
+      if (Number.isNaN(at.getTime())) continue;
+      if (!best || at > best) best = at;
+    }
+    return best;
+  };
+  if (rule.laterGate) {
+    const at = latest(rule.laterGate);
+    if (at && doc.updatedAt < at) return { gate: rule.laterGate, answeredAt: at, why: "older" };
+  }
+  if (rule.approvedBy) {
+    const at = latest(rule.approvedBy);
+    if (at && doc.updatedAt > at) return { gate: rule.approvedBy, answeredAt: at, why: "version" };
+  }
+  return null;
+}
+
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export function hasHeading(markdown: string, heading: string): boolean {

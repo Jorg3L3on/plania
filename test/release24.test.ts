@@ -1,4 +1,4 @@
-// 2.13 (PLA-I6-1): start and finish, the write-time PR guard, ask's reply, protocol 2.12.
+// 2.13 (PLA-I6-1): start and finish, the write-time PR guard, ask's reply. Protocol text is 2.13.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -162,11 +162,12 @@ describe("write-time guards", () => {
   });
 });
 
-describe("protocol 2.12", () => {
+describe("protocol 2.13", () => {
   test("three sections under 900 words, naming the six tools first", () => {
     const text = instructions(false);
-    assert.equal(PROTOCOL_VERSION, "2.12");
+    assert.equal(PROTOCOL_VERSION, "2.13");
     assert.ok(text.split(/\s+/).length < 900, `${text.split(/\s+/).length} words`);
+    assert.match(text, /Never answer a gate, and never forward an answer/);
     for (const section of ["\nStart\n", "\nWork\n", "\nFinish\n"]) assert.ok(text.includes(section), section);
     assert.match(text.split("\n")[0]!, /start, finish, get_next, ask, request_approval, register_footprint/);
   });
