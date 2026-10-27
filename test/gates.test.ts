@@ -7,7 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type pg from "pg";
 import { base32Decode, base32Encode, hotp, matchTotp, otpauthUri, randomSecret, totp } from "../src/gate/totp.js";
-import { KeychainGateSecretStore, keychainReadArgs, keychainWriteInvocation, useSecurityRunner } from "../src/gate/store.js";
+import { GATE_ENROLLED_TTL_MS, GATE_READ_TIMEOUT_MS, KeychainGateSecretStore, gateEnrolledClock, invalidateGateEnrolledCache, keychainDeleteInvocation, keychainReadArgs, keychainWriteInvocation, useSecurityRunner } from "../src/gate/store.js";
 import { GATE_ENROLL_STEP, questionMarkLabels } from "../ui/src/lib/inbox.js";
 import { summarize } from "../src/mcp/summary.js";
 import { resetTestDb, useTestEnv } from "./helpers.js";
@@ -19,7 +19,7 @@ const { hashPassword } = await import("../src/auth/password.js");
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
 const { createGateChallenge } = await import("../src/gate/challenge.js");
-const { MemoryGateSecretStore, useGateStore } = await import("../src/gate/store.js");
+const { MemoryGateSecretStore, gateStore, useGateStore } = await import("../src/gate/store.js");
 const { gateClock } = await import("../src/gate/totp.js");
 const { ToolError } = await import("../src/mcp/errors.js");
 
@@ -76,41 +76,79 @@ test("the keychain invocation keeps the secret off argv", () => {
   const plan = keychainWriteInvocation(RFC_BASE32);
   assert.equal(plan.file, "security");
   assert.deepEqual(plan.args, ["-i"]);
-  assert.equal(plan.stdin, `add-generic-password -U -T /usr/bin/security -s plania-gate -a plania -w ${RFC_BASE32}\n`);
+  assert.equal(plan.stdin, `add-generic-password -T /usr/bin/security -s plania-gate -a plania -w ${RFC_BASE32}\n`);
+  assert.equal(plan.stdin.includes(" -U"), false);
   assert.equal(plan.stdin.split("\n").filter((line) => line.length > 0).length, 1);
   for (const arg of plan.args) assert.equal(arg.includes(RFC_BASE32), false);
+  const del = keychainDeleteInvocation();
+  assert.deepEqual(del.args, ["-i"]);
+  assert.equal(del.stdin, "delete-generic-password -s plania-gate -a plania\n");
+  assert.equal(del.stdin.includes(RFC_BASE32), false);
   assert.throws(() => keychainWriteInvocation("not valid"), /keychain write failed/);
   assert.throws(() => keychainWriteInvocation(`${RFC_BASE32};id`), /keychain write failed/);
   const read = keychainReadArgs();
   assert.deepEqual(read, ["find-generic-password", "-s", "plania-gate", "-a", "plania", "-w"]);
   assert.equal(read.join(" ").includes(RFC_BASE32), false);
+  assert.ok(GATE_READ_TIMEOUT_MS <= 3_000);
 });
 
-test("the keychain invoker never puts the secret on an argv line", async () => {
-  const calls: { args: string[]; stdin: string }[] = [];
+test("the keychain invoker deletes, then adds without -U, and never puts the secret on argv", async () => {
+  const calls: { args: string[]; stdin: string; timeoutMs: number }[] = [];
   const store = new KeychainGateSecretStore();
-  useSecurityRunner(async (args, stdin) => {
-    calls.push({ args: [...args], stdin });
+  useSecurityRunner(async (args, stdin, timeoutMs) => {
+    calls.push({ args: [...args], stdin, timeoutMs });
+    if (stdin.startsWith("delete-generic-password")) throw new Error("The specified item could not be found in the keychain.");
     if (args[0] === "find-generic-password") return `${RFC_BASE32}\n`;
     return "";
   });
   try {
     await store.set(RFC_SECRET);
-    assert.ok(calls.length >= 2);
-    const write = calls.find((call) => call.args.length === 1 && call.args[0] === "-i");
-    assert.ok(write);
-    assert.equal(write.stdin, `add-generic-password -U -T /usr/bin/security -s plania-gate -a plania -w ${RFC_BASE32}\n`);
+    const commands = calls.map((call) => (call.args[0] === "-i" ? call.stdin.split(" ")[0] : call.args[0]));
+    assert.deepEqual(commands, ["delete-generic-password", "add-generic-password", "find-generic-password"]);
+    assert.equal(calls[0]!.stdin, "delete-generic-password -s plania-gate -a plania\n");
+    assert.equal(calls[1]!.stdin, `add-generic-password -T /usr/bin/security -s plania-gate -a plania -w ${RFC_BASE32}\n`);
+    assert.equal(calls[1]!.stdin.includes(" -U"), false);
+    assert.ok(calls[2]!.timeoutMs <= 3_000);
     for (const call of calls) {
       for (const arg of call.args) assert.equal(arg.includes(RFC_BASE32), false);
     }
+    calls.length = 0;
+    useSecurityRunner(async (args, stdin, timeoutMs) => {
+      calls.push({ args: [...args], stdin, timeoutMs });
+      if (args[0] === "find-generic-password") return "\n";
+      if (stdin.startsWith("delete-generic-password")) return "";
+      if (stdin.startsWith("add-generic-password")) throw new Error("add failed");
+      return "";
+    });
+    await assert.rejects(() => store.set(RFC_SECRET), /keychain write failed/);
+    assert.deepEqual(calls.map((call) => call.stdin.split(" ")[0]), ["delete-generic-password", "add-generic-password"]);
+    process.env.PLANIA_PASSWORD_HASH = await hashPassword(PASSWORD);
+    useGateStore(store);
+    calls.length = 0;
+    const failed = await app.request("/api/gate/enroll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: `${SESSION_COOKIE}=${createSession()}` },
+      body: JSON.stringify({ password: PASSWORD }),
+    });
+    const failedBody = (await failed.json()) as { error?: string };
+    assert.equal(failed.status, 500);
+    assert.equal(failedBody.error, "KEYCHAIN_FAILED");
+    assert.equal(calls.map((call) => (call.args[0] === "-i" ? call.stdin.split(" ")[0] : call.args[0])).includes("add-generic-password"), true);
+    calls.length = 0;
+    useSecurityRunner(async (args, stdin, timeoutMs) => {
+      calls.push({ args: [...args], stdin, timeoutMs });
+      throw new Error("keychain locked");
+    });
+    await assert.rejects(() => store.set(RFC_SECRET), /keychain write failed/);
+    assert.deepEqual(calls.map((call) => call.stdin.split(" ")[0]), ["delete-generic-password"]);
     useSecurityRunner(async () => "\n");
     assert.equal(await store.get(), null);
     useSecurityRunner(async () => "not-base32\n");
     assert.equal(await store.get(), null);
-    useSecurityRunner(async (args) => (args[0] === "find-generic-password" ? "\n" : ""));
-    await assert.rejects(() => store.set(RFC_SECRET), /keychain write failed/);
   } finally {
     useSecurityRunner(null);
+    useGateStore(new MemoryGateSecretStore());
+    invalidateGateEnrolledCache();
   }
 });
 
@@ -227,6 +265,8 @@ describe("screen gates", () => {
 
   after(async () => {
     gateClock.now = () => Date.now();
+    gateEnrolledClock.now = () => Date.now();
+    invalidateGateEnrolledCache();
     await client?.close();
     await raw?.end();
   });
@@ -486,6 +526,20 @@ describe("screen gates", () => {
     assert.equal(bad.status, 403);
     assert.equal(badBody.error, "GATE_CODE_INVALID");
     assert.equal(badBody.reason, "invalid");
+    bump();
+    const spent = totp(secret, tick);
+    seenCodes.push(spent);
+    const spentIdea = await call("create_task", { kind: "idea", title: "Codigo gastado" });
+    const spentAsk = await call("ask", { key: spentIdea.key, gate: "A", question: "¿Gastado?" });
+    const spentAnswer = await answerScreen(spentAsk.question.id, "pursue", spent);
+    assert.equal(spentAnswer.status, 200, JSON.stringify(spentAnswer.body));
+    const replay = await req("POST", "/api/gate/enroll", { body: { password: PASSWORD, code: spent } });
+    const replayBody = (await replay.json()) as Json;
+    assert.equal(replay.status, 403);
+    assert.equal(replayBody.error, "GATE_CODE_INVALID");
+    assert.equal(replayBody.reason, "replay");
+    assert.equal(replayBody.secret_base32, undefined);
+    bump();
     const kept = totp(secret, tick);
     seenCodes.push(kept);
     const before = (await raw.query("select count(*)::int as n from events where type = 'gate.enrolled' and payload->>'replaced' = 'true'")).rows[0].n;
@@ -499,6 +553,17 @@ describe("screen gates", () => {
     secretB32 = body.secret_base32;
     secret = base32Decode(secretB32);
     assert.notEqual(totp(secret, tick), kept);
+    const sameStep = totp(secret, tick);
+    seenCodes.push(sameStep);
+    const againCode = await req("POST", "/api/gate/enroll", { body: { password: PASSWORD, code: sameStep } });
+    const againBody = (await againCode.json()) as Json;
+    assert.equal(againCode.status, 403);
+    assert.equal(againBody.reason, "replay");
+    const savedSteps = await raw.query("select value from machine_state where key = 'gate.totp'");
+    const stepBlob = JSON.stringify(savedSteps.rows);
+    assert.equal(stepBlob.includes(kept), false);
+    assert.equal(stepBlob.includes(sameStep), false);
+    assert.equal(stepBlob.includes(String(matchTotp(base32Decode(previous), kept, tick))), true);
     const replaced = (await raw.query("select payload from events where type = 'gate.enrolled' and payload->>'replaced' = 'true' order by id")).rows;
     assert.ok(replaced.length > before);
     for (const row of replaced) {
@@ -511,6 +576,39 @@ describe("screen gates", () => {
     const asked = await call("ask", { key: idea.key, gate: "A", question: "¿Con el nuevo?" });
     const out = await answerFresh(asked.question.id, "pursue");
     assert.equal(out.status, 200, JSON.stringify(out.body));
+  });
+
+  test("GET /gate reuses the enrolled bit for a few seconds", async () => {
+    const inner = gateStore();
+    let reads = 0;
+    useGateStore({
+      async get() {
+        reads += 1;
+        return inner.get();
+      },
+      set: (secret) => inner.set(secret),
+    });
+    const prev = gateEnrolledClock.now;
+    try {
+      invalidateGateEnrolledCache();
+      let t = 5_000_000;
+      gateEnrolledClock.now = () => t;
+      const first = (await (await req("GET", "/api/gate")).json()) as Json;
+      const second = (await (await req("GET", "/api/gate")).json()) as Json;
+      assert.deepEqual(second, first);
+      assert.equal(first.enrolled, true);
+      assert.equal(reads, 1);
+      t += GATE_ENROLLED_TTL_MS;
+      await req("GET", "/api/gate");
+      assert.equal(reads, 2);
+      invalidateGateEnrolledCache();
+      await req("GET", "/api/gate");
+      assert.equal(reads, 3);
+    } finally {
+      gateEnrolledClock.now = prev;
+      invalidateGateEnrolledCache();
+      useGateStore(inner);
+    }
   });
 
   test("a promoted initiative cannot become Active until gate C is answered ready on the screen", async () => {

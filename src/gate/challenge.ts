@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { gateChallenges, projects, questions, tasks } from "../db/schema.js";
+import { gateChallenges, machineState, projects, questions, tasks } from "../db/schema.js";
 import { ToolError, type ErrorCode } from "../mcp/errors.js";
 import { type Emit, type Q, writeTx, type Ctx } from "../mcp/tx.js";
 import { gateStore } from "./store.js";
@@ -13,6 +13,39 @@ import { gateClock, matchTotp } from "./totp.js";
 const CHALLENGE_MS = 2 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 const MAX_OPEN = 5;
+// One row for time steps spent replacing the secret. A challenge row needs a question, and enrolment is not one.
+// The value is step numbers only. gate_challenges.totp_step holds steps spent answering a gate.
+const GATE_TOTP_STATE = "gate.totp";
+const GATE_STEP_LOCK = 7_264_202;
+
+type SpentSteps = { steps?: unknown };
+
+function stepList(value: unknown): number[] {
+  const steps = (value as SpentSteps | null)?.steps;
+  return Array.isArray(steps) ? steps.filter((n): n is number => typeof n === "number") : [];
+}
+
+// True when this TOTP time step was already accepted, either for a gate answer or for a replacement.
+export async function totpStepSpent(db: Q, step: number): Promise<boolean> {
+  const [row] = await db.select({ id: gateChallenges.id }).from(gateChallenges).where(eq(gateChallenges.totpStep, step)).limit(1);
+  if (row) return true;
+  const [saved] = await db.select({ value: machineState.value }).from(machineState).where(eq(machineState.key, GATE_TOTP_STATE)).limit(1);
+  return stepList(saved?.value).includes(step);
+}
+
+// Records a step after a replacement is stored. A later use of that step, including another replacement, is replay.
+export async function rememberTotpStep(db: Q, step: number): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(${GATE_STEP_LOCK})`);
+    const [saved] = await tx.select({ value: machineState.value }).from(machineState).where(eq(machineState.key, GATE_TOTP_STATE)).limit(1);
+    const steps = stepList(saved?.value);
+    if (!steps.includes(step)) steps.push(step);
+    await tx
+      .insert(machineState)
+      .values({ key: GATE_TOTP_STATE, value: { steps } })
+      .onConflictDoUpdate({ target: machineState.key, set: { value: { steps }, updatedAt: sql`now()` } });
+  });
+}
 
 export type GateFailure = { code: ErrorCode; detail: Record<string, unknown> };
 
@@ -115,8 +148,7 @@ export async function consumeGateCode(
   const step = matchTotp(secret, code, gateClock.now());
   if (step === null) return burn(tx, emit, task, ch.id, q.id, ch.attempts, "invalid");
 
-  const [replay] = await tx.select({ id: gateChallenges.id }).from(gateChallenges).where(eq(gateChallenges.totpStep, step)).limit(1);
-  if (replay) return burn(tx, emit, task, ch.id, q.id, ch.attempts, "replay");
+  if (await totpStepSpent(tx, step)) return burn(tx, emit, task, ch.id, q.id, ch.attempts, "replay");
 
   await tx.update(gateChallenges).set({ state: "used", usedAt: sql`now()`, totpStep: step }).where(eq(gateChallenges.id, ch.id));
   await emit("gate.answered", task, { question_id: q.id, challenge_id: ch.id, option: ch.option, gate: q.gate });

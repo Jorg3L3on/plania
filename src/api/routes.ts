@@ -6,8 +6,8 @@ import { asc, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { verifyPassword } from "../auth/password.js";
-import { createGateChallenge } from "../gate/challenge.js";
-import { gateStore } from "../gate/store.js";
+import { createGateChallenge, rememberTotpStep, totpStepSpent } from "../gate/challenge.js";
+import { gateEnrolled, gateStore } from "../gate/store.js";
 import { otpauthUri, base32Encode, matchTotp, randomSecret } from "../gate/totp.js";
 import { SESSION_COOKIE, createSession, sessionCookieOptions, verifySession } from "../auth/session.js";
 import { issueToken, listTokens, revokeToken, TOKEN_SCOPES } from "../auth/tokens.js";
@@ -460,9 +460,9 @@ api.post("/projects/:slug/questions/:id/challenge", async (c) => {
 });
 
 // Whether an authenticator secret is in the keychain. The secret itself is never returned here.
+// The boolean is cached for a few seconds so a poll does not spawn `security` every time.
 api.get("/gate", async (c) => {
-  const secret = await gateStore().get();
-  return c.json({ enrolled: !!secret });
+  return c.json({ enrolled: await gateEnrolled() });
 });
 
 // Enrol or replace the authenticator secret. Cookie plus the current Plania password.
@@ -477,17 +477,27 @@ api.post("/gate/enroll", async (c) => {
     return c.json({ error: "INVALID_PASSWORD" }, 401);
   }
   const existing = await gateStore().get();
+  let spentStep: number | null = null;
   if (existing) {
     const code = body.code?.trim() ?? "";
-    if (matchTotp(existing, code) === null) {
+    const step = matchTotp(existing, code);
+    if (step === null) {
       return c.json({ error: "GATE_CODE_INVALID", reason: code ? "invalid" : "missing" }, 403);
     }
+    if (await withDb((db) => totpStepSpent(db, step))) {
+      return c.json({ error: "GATE_CODE_INVALID", reason: "replay" }, 403);
+    }
+    spentStep = step;
   }
   const secret = randomSecret();
   try {
     await gateStore().set(secret);
   } catch {
     return c.json({ error: "KEYCHAIN_FAILED", hint: "the keychain did not store the secret" }, 500);
+  }
+  if (spentStep !== null) {
+    const step = spentStep;
+    await withDb((db) => rememberTotpStep(db, step));
   }
   const replaced = !!existing;
   await withDb(async (db) => {
