@@ -1,5 +1,6 @@
-import { execFile } from "node:child_process";
 import type { Db } from "../db/client.js";
+import { runInGroup } from "../jobs/gh-process.js";
+import { githubReleaseTokenFilePath, githubTokenFilePath, readTokenFile } from "../jobs/gh-token.js";
 import { commandPath } from "../jobs/machine/run.js";
 import { ToolError, findProject } from "./queries.js";
 import { releasePlan, type ReleasePlan } from "./release-plan.js";
@@ -12,22 +13,60 @@ import { writeTx, type Ctx } from "./tx.js";
 // from (release.shipped) and the deploy poller moves the tickets to Released. Agents never get here:
 // the route is the screen's alone and shipRelease refuses anything but a human ctx.
 
-// gh through execFile (no shell), with the gh CLI's own login (Jorge's keyring). Tests replace
-// releaseGh.run so no real gh ever runs against a repo.
+// gh through runInGroup (no shell, its own process group, the group killed on timeout). GH_TOKEN
+// comes from ~/.config/plania/github-release-token, or ~/.config/plania/github-token when that
+// file has no token, and GH_PROMPT_DISABLED=1. With no token and PLANIA_GH_FALLBACK off, the call
+// throws before any process. Tests replace releaseGh.run so no real gh ever runs against a repo.
 export type GhRun = (args: string[]) => Promise<{ ok: boolean; stdout: string; stderr: string }>;
 
-const ghCli: GhRun = (args) =>
-  new Promise((resolve) => {
-    execFile("gh", args, { env: { ...process.env, PATH: commandPath() }, timeout: 60_000, maxBuffer: 4 * 1024 * 1024, encoding: "utf8" }, (err, stdout, stderr) => {
-      resolve({ ok: !err, stdout: stdout ?? "", stderr: (stderr || (err ? err.message : "")).trim() });
-    });
+export const RELEASE_GH_TIMEOUT_MS = 60_000;
+const RELEASE_GH_MAX_BUFFER = 4 * 1024 * 1024;
+const MISSING_RELEASE_TOKEN = "falta token: ~/.config/plania/github-release-token or ~/.config/plania/github-token";
+const WRITE_ACCESS_HINT = "hint: the token needs write access to contents and pull requests on this repo";
+
+function releaseToken(env: Record<string, string | undefined>): string | null {
+  const release = readTokenFile(githubReleaseTokenFilePath(env), env);
+  if (release.token) return release.token;
+  return readTokenFile(githubTokenFilePath(env), env).token;
+}
+
+function withWriteHint(output: string): string {
+  const text = output.trim();
+  if (!/\b403\b/.test(text) || text.includes("write access")) return text.slice(0, 500);
+  const sep = " — ";
+  const room = 500 - WRITE_ACCESS_HINT.length - sep.length;
+  return `${text.slice(0, Math.max(0, room))}${sep}${WRITE_ACCESS_HINT}`;
+}
+
+function ghChildEnv(token: string | null, base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...base, PATH: commandPath(base.PATH), GH_PROMPT_DISABLED: "1" };
+  if (token) env.GH_TOKEN = token;
+  else delete env.GH_TOKEN;
+  return env;
+}
+
+export async function runReleaseGh(args: string[], opts?: { timeoutMs?: number }): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  const env = process.env;
+  const token = releaseToken(env);
+  if (!token && env.PLANIA_GH_FALLBACK !== "1") throw new ToolError("RELEASE_MERGE_FAILED", { step: "token", output: MISSING_RELEASE_TOKEN });
+  const result = await runInGroup("gh", args, {
+    timeoutMs: opts?.timeoutMs ?? RELEASE_GH_TIMEOUT_MS,
+    env: ghChildEnv(token, env),
+    maxBuffer: RELEASE_GH_MAX_BUFFER,
   });
+  if (result.ok) return { ok: true, stdout: result.stdout, stderr: result.stderr };
+  const fallback = result.reason === "timeout" ? "gh timed out" : result.reason === "missing" ? "gh is not installed" : "";
+  return { ok: false, stdout: result.stdout, stderr: withWriteHint((result.stderr || result.stdout || fallback).trim()) };
+}
+
+const ghCli: GhRun = (args) => runReleaseGh(args);
 
 export const releaseGh: { run: GhRun } = { run: ghCli };
 
 async function gh(step: string, args: string[]): Promise<string> {
+  // A missing token throws RELEASE_MERGE_FAILED step "token" inside the runner, before a process.
   const r = await releaseGh.run(args);
-  if (!r.ok) throw new ToolError("RELEASE_MERGE_FAILED", { step, output: r.stderr.slice(0, 500) });
+  if (!r.ok) throw new ToolError("RELEASE_MERGE_FAILED", { step, output: withWriteHint(r.stderr) });
   return r.stdout.trim();
 }
 

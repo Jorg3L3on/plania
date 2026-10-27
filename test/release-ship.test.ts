@@ -2,6 +2,9 @@
 // gate in the plan, POST /api/projects/:slug/release/ship (cookie only, Bearer refused), a PR from →
 // into merged with gh pr merge --merge through a stubbed gh: no real gh runs against any repo here.
 import assert from "node:assert/strict";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { after, before, beforeEach, describe, test } from "node:test";
 import type pg from "pg";
 import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
@@ -15,7 +18,7 @@ const { setProject } = await import("../src/mcp/project.js");
 const { findProject, findTask, listEvents } = await import("../src/mcp/queries.js");
 const { pollGithubProject } = await import("../src/jobs/github.js");
 const { releasePlan } = await import("../src/mcp/release-plan.js");
-const { releaseGh, shipRelease } = await import("../src/mcp/release-ship.js");
+const { releaseGh, runReleaseGh, shipRelease } = await import("../src/mcp/release-ship.js");
 const { inbox } = await import("../src/mcp/inbox.js");
 
 type Json = Record<string, any>;
@@ -162,6 +165,54 @@ describe("shipping", () => {
     const p = await project();
     assert.equal((await listEvents(db, p.id, { types: ["release.merged"] })).events.length, 0);
     assert.equal((await releasePlan(db, p))!.ship.ready, true);
+  });
+
+  test("a 403 from gh says the token needs write access", async () => {
+    releaseGh.run = async () => ({ ok: false, stdout: "", stderr: "GraphQL: Resource not accessible by integration (HTTP 403)" });
+    const res = await ship();
+    assert.equal(res.status, 409);
+    const body = (await res.json()) as Json;
+    assert.equal(body.error, "RELEASE_MERGE_FAILED");
+    assert.equal(body.step, "list");
+    assert.match(body.output, /403/);
+    assert.match(body.output, /write access/);
+    assert.doesNotMatch(body.output, /ghp_/);
+  });
+
+  test("no token file is step token and starts no gh", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "plania-ship-"));
+    const marker = path.join(dir, "started");
+    const bin = path.join(dir, "gh");
+    writeFileSync(bin, `#!/bin/sh\necho ran > '${marker}'\n`, { mode: 0o755 });
+    chmodSync(bin, 0o755);
+    const prev = {
+      PATH: process.env.PATH,
+      PLANIA_GH_FALLBACK: process.env.PLANIA_GH_FALLBACK,
+      PLANIA_GITHUB_TOKEN_FILE: process.env.PLANIA_GITHUB_TOKEN_FILE,
+      PLANIA_GITHUB_RELEASE_TOKEN_FILE: process.env.PLANIA_GITHUB_RELEASE_TOKEN_FILE,
+    };
+    process.env.PATH = `${dir}${path.delimiter}${prev.PATH ?? ""}`;
+    delete process.env.PLANIA_GH_FALLBACK;
+    process.env.PLANIA_GITHUB_TOKEN_FILE = path.join(dir, "no-github");
+    process.env.PLANIA_GITHUB_RELEASE_TOKEN_FILE = path.join(dir, "no-release");
+    releaseGh.run = (args) => runReleaseGh(args);
+    try {
+      const res = await ship();
+      assert.equal(res.status, 409);
+      const body = (await res.json()) as Json;
+      assert.equal(body.error, "RELEASE_MERGE_FAILED");
+      assert.equal(body.step, "token");
+      assert.equal(body.output, "falta token: ~/.config/plania/github-release-token or ~/.config/plania/github-token");
+      assert.doesNotMatch(body.output, /ghp_/);
+      assert.equal(existsSync(marker), false);
+      assert.equal(calls.length, 0);
+    } finally {
+      for (const [key, value] of Object.entries(prev)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("an open PR sandbox → main is reused, retitled and merged with a merge commit at the plan's head", async () => {
