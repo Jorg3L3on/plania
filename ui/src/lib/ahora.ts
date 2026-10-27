@@ -25,6 +25,8 @@ export const URGENCY_WORD: Record<string, string> = {
 
 export const STALE_LEASE = "arrendamiento vencido";
 export const GONE_LEASE = "ya no está en la máquina";
+/** In progress, and nobody ever held it. Not a lease that ran out. */
+export const NO_OWNER = "sin dueño";
 
 const URGENCY_RANK: Record<string, number> = { now: 0, soon: 1, whenever: 2 };
 
@@ -103,6 +105,12 @@ function leaseLive(task: AhoraTask, nowMs: number): boolean {
   return !!task.claimed_by && until !== null && until > nowMs;
 }
 
+/** A lease_until in the past means one existed and ran out. Missing means it never had one. */
+function leaseExpired(task: AhoraTask, nowMs: number): boolean {
+  const until = at(task.lease_until);
+  return until !== null && until <= nowMs;
+}
+
 /** One signal per ticket that is claimed or was left In progress. Null when the ticket says nothing about liveness. */
 function ticketLiveness(task: AhoraTask, gone: boolean, nowMs: number): Liveness | null {
   if (task.kind !== "ticket") return null;
@@ -128,7 +136,7 @@ export function enCursoOf(projects: AhoraProject[], machine: AhoraFootprint[], n
 
 export type BlockRow = { slug: string; title: string; key: string; on: string; kind: "wait" | "lease" };
 
-/** Waits that are not on Jorge, then leases that ran out or whose work the machine no longer has. */
+/** Waits that are not on Jorge, then a lease that ran out, a claim the machine dropped, or work with no owner. */
 export function bloqueadoOf(projects: AhoraProject[], machine: AhoraFootprint[], nowMs: number): BlockRow[] {
   const rows: BlockRow[] = [];
   for (const p of projects) {
@@ -140,11 +148,14 @@ export function bloqueadoOf(projects: AhoraProject[], machine: AhoraFootprint[],
     }
     for (const t of p.tasks) {
       if (t.kind !== "ticket" || t.status !== "In progress") continue;
-      if (!leaseLive(t, nowMs)) {
-        rows.push({ slug: p.slug, title: p.title, key: t.key, on: STALE_LEASE, kind: "lease" });
+      const gone = goneOnMachine(machine, p.slug, t.key);
+      if (gone) {
+        rows.push({ slug: p.slug, title: p.title, key: t.key, on: GONE_LEASE, kind: "lease" });
         continue;
       }
-      if (goneOnMachine(machine, p.slug, t.key)) rows.push({ slug: p.slug, title: p.title, key: t.key, on: GONE_LEASE, kind: "lease" });
+      if (leaseLive(t, nowMs)) continue;
+      const on = leaseExpired(t, nowMs) ? STALE_LEASE : t.claimed_by ? null : NO_OWNER;
+      if (on) rows.push({ slug: p.slug, title: p.title, key: t.key, on, kind: "lease" });
     }
   }
   return rows;

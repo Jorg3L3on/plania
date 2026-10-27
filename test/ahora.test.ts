@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import {
   GONE_LEASE,
   LIVENESS_WORD,
+  NO_OWNER,
   QUIET_MS,
   STALE_LEASE,
   TE_TOCA_LIMIT,
@@ -117,7 +118,10 @@ describe("bloqueadoOf", () => {
         ],
       }],
       tasks: [
-        ticket("ALF-5", "In progress"),
+        ticket("ALF-5", "In progress", {
+          claimed_by: { agent: "Agente Norte" },
+          lease_until: "2026-10-11T11:00:00Z",
+        }),
         claim("ALF-6", "2026-10-11T11:50:00Z"),
         ticket("ALF-7", "Ready"),
       ],
@@ -129,6 +133,25 @@ describe("bloqueadoOf", () => {
       ["ALF-5", STALE_LEASE, "lease"],
       ["ALF-6", GONE_LEASE, "lease"],
     ]);
+  });
+
+  test("in progress with no claim is sin dueño; a lease that ran out stays arrendamiento vencido", () => {
+    const alfa = project("alfa", {
+      tasks: [
+        ticket("ALF-1", "In progress"),
+        ticket("ALF-2", "In progress", {
+          claimed_by: { agent: "Agente Sur" },
+          lease_until: "2026-10-11T10:00:00Z",
+        }),
+        ticket("ALF-3", "Ready"),
+      ],
+    });
+    assert.deepEqual(bloqueadoOf([alfa], [], NOW).map((r) => [r.key, r.on]), [
+      ["ALF-1", NO_OWNER],
+      ["ALF-2", STALE_LEASE],
+    ]);
+    const gone = bloqueadoOf([alfa], [{ project: "alfa", task_key: "ALF-1", state: "gone" }], NOW);
+    assert.equal(gone.find((r) => r.key === "ALF-1")?.on, GONE_LEASE);
   });
 });
 
