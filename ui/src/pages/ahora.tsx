@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kicker, accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
-import { LIVENESS_WORD, bloqueadoOf, enCursoOf, siguienteOf, teTocaOf, type Liveness } from "@/lib/ahora";
+import { LIVENESS_WORD, URGENCY_WORD, bloqueadoOf, enCursoOf, siguienteOf, teTocaOf, type Liveness } from "@/lib/ahora";
 import { cn } from "@/lib/utils";
 
 const LIVENESS_CLASS: Record<Liveness, string> = {
@@ -97,7 +97,9 @@ export function AhoraPage() {
         {inbox.isPending && <Skeleton className="h-16 rounded-xl" />}
         {inbox.isError && <p className="text-sm text-destructive">No se pudo cargar la bandeja.</p>}
         {teToca && teToca.items.length === 0 && <p className="text-sm text-muted-foreground">Nada te toca.</p>}
-        {teToca && teToca.items.length > 0 && <TeTocaItems items={teToca.items} names={titleOf} />}
+        {teToca && teToca.items.length > 0 && (
+          <TeTocaItems items={teToca.items} names={titleOf} when={(item) => (item.urgency ? URGENCY_WORD[item.urgency] : undefined)} />
+        )}
         {teToca && teToca.count > teToca.items.length && (
           <Link to="/inbox" className="inline-flex min-h-8 w-fit items-center text-[13px] font-semibold text-ink-jorge underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
             Ver las {teToca.count} en la bandeja

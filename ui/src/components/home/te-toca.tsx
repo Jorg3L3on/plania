@@ -33,7 +33,7 @@ function ProjectWord({ slug, names }: { slug: string; names: Names }) {
 const taskHref = (item: InboxItem) => `/p/${item.project}?task=${encodeURIComponent(item.key ?? "")}`;
 
 // One question with its options; the optional decision line goes to the decision log, as in the Bandeja.
-function QuestionCard({ item, index, total, names, onNext }: { item: InboxItem; index: number; total: number; names: Names; onNext: () => void }) {
+function QuestionCard({ item, index, total, names, onNext, when }: { item: InboxItem; index: number; total: number; names: Names; onNext: () => void; when?: string }) {
   const refresh = useRefresh();
   const [free, setFree] = useState("");
   const [decision, setDecision] = useState("");
@@ -60,7 +60,7 @@ function QuestionCard({ item, index, total, names, onNext }: { item: InboxItem; 
           {" · "}
           {total === 1 ? "una pregunta" : `pregunta ${index + 1} de ${total}`}
         </span>
-        <span>espera {waitText(item.wait_s)}</span>
+        <span>{when ? `${when} · ` : ""}espera {waitText(item.wait_s)}</span>
       </p>
       <p className="text-[15px] leading-snug whitespace-pre-wrap">{item.why}</p>
       {(item.options?.length ?? 0) > 0 && (
@@ -105,7 +105,7 @@ function QuestionCard({ item, index, total, names, onNext }: { item: InboxItem; 
 }
 
 // An approval, granted or rejected right here; one write and one event, as from the Bandeja.
-function ApprovalCard({ item, names }: { item: InboxItem; names: Names }) {
+function ApprovalCard({ item, names, when }: { item: InboxItem; names: Names; when?: string }) {
   const refresh = useRefresh();
   const decide = useMutation({
     mutationFn: (decision: "grant" | "reject") => api.decide([item.id], decision),
@@ -131,7 +131,7 @@ function ApprovalCard({ item, names }: { item: InboxItem; names: Names }) {
         {item.evidence?.last_pass && <span>último pass: {item.evidence.last_pass.kind} · {item.evidence.last_pass.cite}</span>}
         {item.evidence && item.evidence.open_checks > 0 && <span>{item.evidence.open_checks} {item.evidence.open_checks === 1 ? "punto abierto" : "puntos abiertos"}</span>}
         {item.pr_url && <a href={item.pr_url} target="_blank" rel="noreferrer" className="text-ink-review underline-offset-4 hover:underline">PR</a>}
-        <span>espera {waitText(item.wait_s)}</span>
+        <span>{when ? `${when} · ` : ""}espera {waitText(item.wait_s)}</span>
         <span className="ml-auto flex gap-2">
           <Button size="sm" variant="destructive" disabled={decide.isPending} onClick={() => decide.mutate("reject")}>Rechazar</Button>
           <Button size="sm" disabled={decide.isPending} onClick={() => decide.mutate("grant")}>Aprobar</Button>
@@ -157,7 +157,7 @@ function CountRow({ n, tone, title, detail, to, cta }: { n: number; tone: string
 
 // What waits on Jorge for one tower of the city (or outside every tower): one question at a time,
 // each approval, and Jorge's own actions counted with a way into the Bandeja.
-export function TeTocaItems({ items, names }: { items: InboxItem[]; names: Names }) {
+export function TeTocaItems({ items, names, when }: { items: InboxItem[]; names: Names; when?: (item: InboxItem) => string | undefined }) {
   const [qi, setQi] = useState(0);
   const groups = useMemo(() => {
     const by = (kind: InboxItem["kind"]) => items.filter((i) => i.kind === kind);
@@ -177,18 +177,20 @@ export function TeTocaItems({ items, names }: { items: InboxItem[]; names: Names
           total={groups.questions.length}
           names={names}
           onNext={() => setQi((i) => (i + 1) % groups.questions.length)}
+          when={when?.(question)}
         />
       )}
-      {groups.approvals.map((item) => <ApprovalCard key={item.id} item={item} names={names} />)}
+      {groups.approvals.map((item) => <ApprovalCard key={item.id} item={item} names={names} when={when?.(item)} />)}
       {groups.actionProjects.map((slug) => {
         const mine = groups.actions.filter((i) => i.project === slug);
+        const word = when?.(mine[0]!);
         return (
           <CountRow
             key={slug}
             n={mine.length}
             tone="bg-status-done/12 text-ink-done"
             title={`${mine.length === 1 ? "acción tuya" : "acciones tuyas"} en ${names(slug)}`}
-            detail={mine[0]!.why}
+            detail={word ? `${word} · ${mine[0]!.why}` : mine[0]!.why}
             to={`/inbox?tab=pasos#${slug}`}
             cta={mine.length === 1 ? "Ver" : `Ver las ${mine.length}`}
           />
