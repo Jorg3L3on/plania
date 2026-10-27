@@ -23,14 +23,16 @@ const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${
 // A fetch that answers from fixtures and records what was asked.
 function fakeFetch(routes: Record<string, unknown>) {
   const calls: string[] = [];
-  const f = async (url: string) => {
+  const auths: string[] = [];
+  const f = async (url: string, init?: { headers?: Record<string, string> }) => {
     const path = url.replace(/^https:\/\/api\.(github|vercel)\.com/, "");
     calls.push(path);
+    auths.push(init?.headers?.Authorization ?? "");
     const hit = Object.entries(routes).find(([prefix]) => path.startsWith(prefix));
     if (!hit) return { status: 404, headers: { get: () => null }, json: async () => ({}) };
     return { status: 200, headers: { get: (h: string) => (h === "etag" ? `W/"${hit[0].length}"` : null) }, json: async () => hit[1] };
   };
-  return { fetch: f, calls };
+  return { fetch: f, calls, auths };
 }
 
 async function status(key: string): Promise<string> {
@@ -176,20 +178,29 @@ describe("merged gate (PLA-02)", () => {
 });
 
 describe("github token", () => {
-  test("falls back to the gh CLI's token when the env var is unset, and names both when neither is there", async () => {
+  test("with no env var and no token file it names the file and calls nothing; a file token polls without gh", async () => {
     const { db, close } = makeDb();
     try {
       const p = await findProject(db, "filmia");
-      const { fetch, calls } = fakeFetch({ "/repos/Jorg3L3on/filmia/pulls?": [], "/repos/Jorg3L3on/filmia/branches": [] });
-      await pollGithubProject(db, p, { fetch, env: {}, ghToken: async () => null });
+      const { fetch, calls, auths } = fakeFetch({ "/repos/Jorg3L3on/filmia/pulls?": [], "/repos/Jorg3L3on/filmia/branches": [] });
+      let ghRuns = 0;
+      const ghRun = async () => {
+        ghRuns++;
+        return { ok: false as const, reason: "missing" as const, stdout: "", stderr: "" };
+      };
+      await pollGithubProject(db, p, { fetch, env: {}, ghRun, tokenFile: () => ({ token: null, modeNote: null }) });
       let { rows } = await raw.query("select error from poll_state where source = 'github'");
-      assert.equal(rows[0].error, "no token in GITHUB_TOKEN or gh auth token");
+      assert.equal(rows[0].error, "no token: GITHUB_TOKEN unset, ~/.config/plania/github-token missing or empty");
       assert.equal(calls.length, 0, "nothing asked of GitHub without a token");
-      const s = await pollGithubProject(db, p, { fetch, env: {}, ghToken: async () => "gho_from_keyring" });
+      assert.equal(ghRuns, 0, "gh is not spawned without a token");
+      const s = await pollGithubProject(db, p, { fetch, env: {}, ghRun, tokenFile: () => ({ token: "  ghp_test  \n", modeNote: null }) });
       assert.equal(s.prs, 0);
-      assert.ok(calls.some((c) => c.startsWith("/repos/Jorg3L3on/filmia/pulls")), "polled with the gh token");
+      assert.ok(calls.some((c) => c.startsWith("/repos/Jorg3L3on/filmia/pulls")), "polled with the file token");
+      assert.equal(auths[0], "Bearer ghp_test");
+      assert.equal(ghRuns, 0, "a token file does not spawn gh");
       ({ rows } = await raw.query("select error from poll_state where source = 'github'"));
       assert.equal(rows[0].error, null);
+      assert.doesNotMatch(JSON.stringify(rows), /ghp_/);
     } finally {
       await close();
     }

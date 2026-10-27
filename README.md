@@ -59,8 +59,9 @@ Migration `0017` adds `projects.settings`, the typed `blockers` table (the old `
 `branches`, `resources`, `quota_usage`, `pull_requests`, `poll_state`, `project_metrics`, the structured result
 columns, env `flags`/`migrations`/`deploy_source`, and the bug and debt fields. Then, per project, set what the
 pollers need (`set_project settings`): `github: {repo}`, `vercel: {project_id, team_id?}`, `release_target`,
-`branch_pattern` (filmia: `^jl/[a-z0-9][a-z0-9-]*$`), `claim_from`. Put `GITHUB_TOKEN` (a fine-grained PAT with
-Pull requests, Contents and Checks read) and `VERCEL_TOKEN` in `.env`; the settings only name the variables.
+`branch_pattern` (filmia: `^jl/[a-z0-9][a-z0-9-]*$`), `claim_from`. `GITHUB_TOKEN` in `.env` still wins when it is
+set; otherwise the poller reads `~/.config/plania/github-token` (one line, mode `0600`, see GitHub token file). Put `VERCEL_TOKEN`
+in `.env`. The settings only name the variables.
 
 ### Upgrading to 2.1 (keys, approvals, tokens)
 
@@ -102,8 +103,19 @@ stays off and everything else works. Phone access over Tailscale and turning pus
 No migration. `pnpm build`, then restart the service; agents get the `start` / `finish` tools on their
 next `initialize`. That release served protocol 2.12. PLA-I8-3 moves the protocol to 2.13: gates are answered only on the screen, with the code, and an agent never answers one or forwards an answer. Shipping a release from the screen is off until a project asks for it: add `mode: "merge"` to its
 `settings.release` (on screen or `set_project settings {release: {from, into, env, mode: "merge"}}`) and keep
-`settings.github.repo` set. The merge runs through the gh CLI logged in on this Mac (`gh auth status` must show write
-access to that repo); without `mode` the release row keeps the command to copy.
+`settings.github.repo` set. The merge runs `gh` with `GH_TOKEN` from `~/.config/plania/github-release-token`, or from
+`~/.config/plania/github-token` when that file has no token. The token needs write access to the repo. Without `mode`
+the release row keeps the command to copy.
+
+### GitHub token file
+
+No migration. `pnpm build`, then restart the service (`launchctl kickstart -k gui/$(id -u)/com.plania.server`).
+
+The GitHub poller used to run `gh auth token`, which reads the login keychain through `security`. With the keychain locked that call hit its timeout and left `security` waiting on the dialog, and every cache expiry started another. The poller now takes the token in this order: the env var named by `settings.github.token_env` (default `GITHUB_TOKEN`; that variable still wins), then `~/.config/plania/github-token` (`PLANIA_GITHUB_TOKEN_FILE` overrides the path). The file is one trimmed line. Empty or more than one line counts as no token. The poller stats the file on every tick and re-reads it when the mtime or size changes. A mode that lets the group or others read it still works; the log gets one note per mtime and never the token. With no token it does not call GitHub and does not spawn anything, and `poll_state.error` is `no token: GITHUB_TOKEN unset, ~/.config/plania/github-token missing or empty`.
+
+`gh auth token` runs only when `PLANIA_GH_FALLBACK=1`, detached in its own process group, with a 5 second timeout that kills the group. A token is cached for 10 minutes; a failure is not retried for an hour. That attempt, and the hour it is remembered, keeps the missing-file text and adds that `gh auth token` failed (`timeout`, `missing`, `exit`, or `empty`).
+
+Lanzar (`settings.release.mode` `merge`) uses the same helper (60 seconds) and sets `GH_TOKEN` from `~/.config/plania/github-release-token`, else `~/.config/plania/github-token`, plus `GH_PROMPT_DISABLED=1`. With no token and the fallback off it returns `RELEASE_MERGE_FAILED` (`step` `token`, `falta token: …`) and starts no process. A 403 from GitHub adds a hint that the token needs write access to contents and pull requests.
 
 ## Gates
 
@@ -156,6 +168,10 @@ launchctl bootout gui/$(id -u)/com.plania.server        # stop and unload
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.plania.server.plist  # load again
 tail -f ~/Library/Logs/plania/server.log
 ```
+
+Deploy note: the service reads `~/.config/plania/github-token` itself. It does not run `gh`, and it does not read the macOS keychain, unless `PLANIA_GH_FALLBACK=1`. `launchctl kickstart` is enough after a code deploy; the plist stays as it is. A group-readable token file still works and logs one line, with no token in it.
+
+Owner: create a read-only fine-grained token for the plania repo and save it with `umask 077; mkdir -p ~/.config/plania; pbpaste > ~/.config/plania/github-token` (non-blocking).
 
 Backups: the `backup` job dumps the database once a day after 03:00 (`PLANIA_TZ`) into
 `~/plania-backups/plania-<YYYYMMDD>.sql.gz` and keeps the last 14; hand-made `plania-pre-*` dumps stay. The Máquina
@@ -408,7 +424,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
 | `NOT_OWNER` | 409 | another session holds a live lease on this task (detail: owner, lease_until) |
 | `QUOTA_EXCEEDED` | 409 | consume would pass the daily quota (detail: limit, used, remaining) |
-| `RELEASE_MERGE_FAILED` | 409 | release/ship: a gh call failed (detail: step list | edit | create | merge | view, output); nothing was recorded |
+| `RELEASE_MERGE_FAILED` | 409 | release/ship: a gh call failed (detail: step token | list | edit | create | merge | view, output); nothing was recorded |
 | `RELEASE_NOT_READY` | 409 | release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | nothing_to_ship | before_steps | open_checks | merged) |
 | `REQUEST_ID_REUSED` | 409 | request_id was already used by a different tool in this project |
 | `RESOURCE_HELD` | 409 | another session holds the resource (detail: holder, lease_until, purpose) |

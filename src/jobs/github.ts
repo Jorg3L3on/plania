@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { execFile } from "node:child_process";
 import type { Db } from "../db/client.js";
+import { runInGroup, type GroupRun } from "./gh-process.js";
+import { oneLine, readTokenFile } from "./gh-token.js";
 import { commandPath } from "./machine/run.js";
 import { branches, pollState, projects, pullRequests, tasks, type Project, type Task } from "../db/schema.js";
 import { touchBranch } from "../mcp/branches.js";
@@ -23,9 +24,14 @@ import type { Job } from "./index.js";
 //     ticket sends it back to Ready with a note (pr.ci_failed);
 //   branches → heads (stale_for_head), merges and deletions in the registry.
 // Every write is idempotent through request_id, so a tick may repeat without harm.
-// The token comes from the env var named in settings.github.token_env (default GITHUB_TOKEN); when
-// that is unset, from the gh CLI's keyring (`gh auth token`), so the launchd service needs no secret
-// in its environment on a Mac where Jorge is logged in to gh. Nothing is written to disk.
+// The token comes from the env var named in settings.github.token_env (default GITHUB_TOKEN); that
+// variable keeps priority over the file. Next is ~/.config/plania/github-token (PLANIA_GITHUB_TOKEN_FILE
+// overrides the path): one trimmed line, re-read when the mtime or size changes. `gh auth token` runs
+// only when PLANIA_GH_FALLBACK=1, detached in its own process group, and a timeout kills the group.
+// A success is cached for 10 minutes. A failure is not retried for an hour, and that error says
+// `gh auth token` failed (timeout, missing, exit, or empty) rather than only that the file is empty.
+// The clock is deps.now.
+// The token is never written to the log, an event or poll_state.
 
 export type Fetch = (url: string, init?: { headers?: Record<string, string> }) => Promise<{ status: number; headers: { get(name: string): string | null }; json(): Promise<unknown> }>;
 
@@ -45,30 +51,75 @@ type CheckRuns = { check_runs: { name: string; status: string; conclusion: strin
 type Branch = { name: string; commit: { sha: string } };
 type Compare = { status: "ahead" | "behind" | "identical" | "diverged"; ahead_by?: number; commits?: { sha: string }[] };
 
-export type GithubDeps = { fetch: Fetch; now?: Date; env?: Record<string, string | undefined>; ghToken?: () => Promise<string | null> };
+export type GithubDeps = {
+  fetch: Fetch;
+  now?: Date;
+  env?: Record<string, string | undefined>;
+  /** Test seam: the token file, already read. Production stats ~/.config/plania/github-token. */
+  tokenFile?: () => { token: string | null; modeNote?: string | null };
+  /** Test seam: replaces `gh auth token`. Production is runInGroup. */
+  ghRun?: GroupRun;
+  /** Test seam: overrides PLANIA_GH_FALLBACK. */
+  fallback?: boolean;
+};
 
-// `gh auth token` from the user's keyring, asked at most once every 10 minutes per process; null when
-// gh is missing, not logged in, or slow. The PATH gets Homebrew's bin, as launchd's lacks it.
-const GH_TOKEN_TTL_MS = 10 * 60 * 1000;
-let ghCache: { at: number; token: string | null } | null = null;
-export async function ghCliToken(): Promise<string | null> {
-  if (ghCache && Date.now() - ghCache.at < GH_TOKEN_TTL_MS) return ghCache.token;
-  const token = await new Promise<string | null>((resolve) => {
-    execFile("gh", ["auth", "token"], { env: { ...process.env, PATH: commandPath() }, timeout: 5_000 }, (err, stdout) => {
-      resolve(err ? null : stdout.trim() || null);
-    });
-  });
-  ghCache = { at: Date.now(), token };
-  return token;
+const GH_OK_MS = 10 * 60 * 1000;
+const GH_FAIL_MS = 60 * 60 * 1000;
+const GH_AUTH_TIMEOUT_MS = 5_000;
+type GhAuthFailure = "timeout" | "missing" | "exit" | "empty";
+let ghAuthCache: { at: number; token: string | null; failure?: GhAuthFailure } | null = null;
+
+function ghTriedAndFailed(gap: string, failure: GhAuthFailure): string {
+  return `${gap}; gh auth token failed (${failure})`;
 }
 
-// The token for a project: its env var, else the gh CLI's. Says where it came from for the poll_state note.
+export function resetGithubAuthCache(): void {
+  ghAuthCache = null;
+}
+
+export function githubTokenGap(envName = "GITHUB_TOKEN"): string {
+  return `no token: ${envName} unset, ~/.config/plania/github-token missing or empty`;
+}
+
+function ghAuthEnv(env: Record<string, string | undefined>): NodeJS.ProcessEnv {
+  const merged: NodeJS.ProcessEnv = { ...process.env };
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === "string") merged[key] = value;
+  }
+  merged.PATH = commandPath(merged.PATH);
+  merged.GH_PROMPT_DISABLED = "1";
+  return merged;
+}
+
+// Env var, then the token file, then (only with PLANIA_GH_FALLBACK=1) `gh auth token`.
+// `source` is the poll_state error when there is no token.
 export async function githubToken(deps: GithubDeps, cfg: { token_env?: string }): Promise<{ token: string | null; source: string }> {
+  const env = deps.env ?? process.env;
   const envName = cfg.token_env ?? "GITHUB_TOKEN";
-  const fromEnv = (deps.env ?? process.env)[envName];
+  const gap = githubTokenGap(envName);
+  const fromEnv = env[envName];
   if (fromEnv) return { token: fromEnv, source: envName };
-  const fromGh = await (deps.ghToken ?? ghCliToken)();
-  return fromGh ? { token: fromGh, source: "gh auth token" } : { token: null, source: `${envName} or gh auth token` };
+
+  const file = deps.tokenFile ? deps.tokenFile() : readTokenFile(undefined, env);
+  const fromFile = oneLine(file.token);
+  if (fromFile) return { token: fromFile, source: "~/.config/plania/github-token" };
+
+  const fallback = deps.fallback ?? env.PLANIA_GH_FALLBACK === "1";
+  if (!fallback) return { token: null, source: gap };
+
+  const now = deps.now?.getTime() ?? Date.now();
+  if (ghAuthCache) {
+    const age = now - ghAuthCache.at;
+    if (age >= 0 && ghAuthCache.token && age < GH_OK_MS) return { token: ghAuthCache.token, source: "gh auth token" };
+    if (age >= 0 && !ghAuthCache.token && age < GH_FAIL_MS) return { token: null, source: ghTriedAndFailed(gap, ghAuthCache.failure ?? "exit") };
+  }
+
+  const run = deps.ghRun ?? runInGroup;
+  const result = await run("gh", ["auth", "token"], { timeoutMs: GH_AUTH_TIMEOUT_MS, env: ghAuthEnv(env), maxBuffer: 64 * 1024 });
+  const token = result.ok ? oneLine(result.stdout) : null;
+  const failure: GhAuthFailure | undefined = token ? undefined : result.ok ? "empty" : result.reason;
+  ghAuthCache = { at: now, token, failure };
+  return token ? { token, source: "gh auth token" } : { token: null, source: ghTriedAndFailed(gap, failure ?? "exit") };
 }
 
 const API = "https://api.github.com";
@@ -129,7 +180,7 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
   const { token, source } = await githubToken(deps, cfg);
   const summary: Record<string, number> = { prs: 0, linked: 0, merged: 0, released: 0, ci: 0, branches: 0 };
   if (!token) {
-    await saveCursor(db, p.id, await cursorOf(db, p.id), `no token in ${source}`);
+    await saveCursor(db, p.id, await cursorOf(db, p.id), source);
     return summary;
   }
   const cursor = await cursorOf(db, p.id);
