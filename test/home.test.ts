@@ -81,6 +81,8 @@ describe("counts", () => {
   test("tickets closed since local midnight", () => {
     const p = project("x", "X", { tasks: [ticket("X-1", "Ready"), ticket("X-2", "Ready"), ticket("X-3", "Done"), ticket("X-4", "Done", { updated_at: "2026-10-01T00:00:00Z" })] });
     assert.equal(doneToday([p], NOW), 1);
+    const idea = project("y", "Y", { tasks: [ticket("Y-IDEA1", "Done", { kind: "idea" })] });
+    assert.equal(doneToday([idea], NOW), 0);
   });
 });
 
@@ -130,6 +132,9 @@ describe("tiles", () => {
     assert.deepEqual(paused.left, { initiatives: 0, tickets: 0 });
     const mixed = tileOf(project("g", "G", { tasks: [init, ticket("P-I1-1", "Done", { parent_key: "P-I1" }), ticket("P-I1-2", "Ready", { parent_key: "P-I1" }), ticket("P-I2", "Done", { kind: "initiative" }), ticket("P-I3", "Won't do", { kind: "initiative" }), ticket("P-I4", "On hold", { kind: "initiative" })] }), 0, NOW);
     assert.deepEqual([mixed.left, mixed.onHold], [{ initiatives: 1, tickets: 1 }, 1]);
+    const withIdea = tileOf(project("h", "H", { tasks: [init, ticket("P-IDEA1", "Open", { kind: "idea", priority: null }), ticket("P-IDEA2", "Done", { kind: "idea", priority: null }), ticket("P-1", "Ready"), ticket("P-2", "Done")] }), 0, NOW);
+    assert.deepEqual(withIdea.left, { initiatives: 1, tickets: 1 });
+    assert.deepEqual(withIdea.progress, { closed: 1, total: 2 });
   });
 });
 

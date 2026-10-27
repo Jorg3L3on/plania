@@ -5,6 +5,7 @@ import type { Q } from "./tx.js";
 
 // Server-assigned keys that show what a task is and where it hangs (2.1, requests R-08 and R-33):
 //   initiatives          PREFIX-I<n>            FIL-I1, FIL-I2
+//   ideas                PREFIX-IDEA<n>         WRK-IDEA3
 //   standalone tickets   PREFIX-<nn>            FIL-09 (two digits, like the keys filmia already has)
 //   phases / children    <initiative key>-<n>   FIL-I2-3 (phase stays a separate field; no F)
 // One counter per scope, read and bumped under the project's write lock (writeTx), so concurrent
@@ -27,6 +28,9 @@ export function scheme(p: Pick<Project, "slug" | "keyPrefix">, kind: string, par
   const prefix = prefixOf(p);
   if (kind === "initiative") {
     return { scope: "initiative", pattern: new RegExp(`^${esc(prefix)}-I(\\d+)$`), sqlPattern: `^${esc(prefix)}-I(\\d+)$`, format: (n) => `${prefix}-I${n}` };
+  }
+  if (kind === "idea") {
+    return { scope: "idea", pattern: new RegExp(`^${esc(prefix)}-IDEA(\\d+)$`), sqlPattern: `^${esc(prefix)}-IDEA(\\d+)$`, format: (n) => `${prefix}-IDEA${n}` };
   }
   if (parent) {
     // Legacy phase keys (FIL-01-F2) count too, so a rekeyed initiative never reuses a number.
@@ -56,7 +60,7 @@ async function counter(tx: Q, projectId: string, s: Scheme): Promise<number> {
     .where(and(eq(keyCounters.projectId, projectId), eq(keyCounters.scope, s.scope)));
   if (row) return row.next;
   const ofScope =
-    s.scope === "initiative" || s.scope === "standalone" ? sql`true` : sql`t.parent_id = ${s.scope}::uuid`;
+    s.scope === "initiative" || s.scope === "standalone" || s.scope === "idea" ? sql`true` : sql`t.parent_id = ${s.scope}::uuid`;
   const [seed] = await tx.execute<{ next: number }>(sql`
     select coalesce(max(n), 0) + 1 as next from (
       select (regexp_match(t.key, ${s.sqlPattern}))[1]::int as n from ${tasks} t
@@ -104,7 +108,7 @@ export async function assignKey(
     }
     const warnings = [`key does not follow the scheme ${s.format(0).replace(/0+$/, "<n>")}: omit key to get the next one`];
     // A number taken from another scope is still spent there.
-    for (const other of [scheme(p, "initiative"), scheme(p, "ticket")]) {
+    for (const other of [scheme(p, "initiative"), scheme(p, "ticket"), scheme(p, "idea")]) {
       const om = other.pattern.exec(explicit);
       if (om) await setCounter(tx, p.id, other.scope, Number(om[1]) + 1);
     }
@@ -125,7 +129,7 @@ export async function nextKeys(tx: Q, p: Project) {
       .where(and(eq(keyCounters.projectId, p.id), eq(keyCounters.scope, s.scope)));
     return row ? s.format(row.next) : null;
   };
-  return { initiative: await peek(scheme(p, "initiative")), standalone: await peek(scheme(p, "ticket")) };
+  return { initiative: await peek(scheme(p, "initiative")), standalone: await peek(scheme(p, "ticket")), idea: await peek(scheme(p, "idea")) };
 }
 
 // Remembers an old key so it keeps resolving.

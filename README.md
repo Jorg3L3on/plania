@@ -174,7 +174,7 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 |---|---|
 | `get_resume` | Where the project stands, generated from data: live claims (who, until when, where), requests (Jorge's open asks from the screen, newest first: read them first), the next claimable ticket, and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts. |
 | `get_project` | Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release), ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each, and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks, the command Jorge runs, its mode (command, or merge: Jorge ships it from the screen) and merged once he did (null without settings.release). |
-| `list_tasks` | Initiatives and tickets without scope, with version, claimed_by (live lease owner or null) and updated_at. |
+| `list_tasks` | Initiatives, tickets and ideas without scope, with version, claimed_by (live lease owner or null) and updated_at. |
 | `get_task` | One initiative or ticket, by its key or any former key (aliases). |
 | `get_memory` | Fixed memory: rules, design_docs (project docs, with markdown; view summary lists them without it), and the decision log, newest first (limit default 100, max 500). |
 | `get_doc` | One doc by id (from get_task docs, get_memory design_docs, or a decision's adr_doc_id), with its markdown and version. |
@@ -191,8 +191,8 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 |---|---|
 | `start` | Open a ticket in one call: claim on key (In progress, your lease) plus get_context for the workspace. |
 | `finish` | Close your part of a ticket in one transaction: add_result (result: kind, verdict, cite, commit, command, counts, check_ns...) then set_task status In review with branch and pr_url. |
-| `create_task` | Create a ticket (default) or, with kind initiative, a parent initiative. |
-| `set_task` | Update a ticket or an initiative. |
+| `create_task` | Create a ticket (default), an initiative, or an idea. |
+| `set_task` | Update a ticket, an initiative or an idea. |
 | `set_check` | Tick (or untick) one Done when item by its n, amend its text, or lift a waiver. |
 | `add_result` | Record evidence on a task: kind, verdict pass\|warn\|fail, cite (what ran and what it showed), url (CI run, screenshot, recording), and the structured fields: commit, branch, env, command, exit_code, counts, duration_s, attachments, viewport, device, metrics. |
 | `attach_doc` | Store a markdown doc in Plania so every machine can read it: a spec or plan on a task (key), or a project doc such as a design page (no key). |
@@ -218,7 +218,8 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 
 Rules every write follows:
 
-- **Keys.** The server assigns them (omit `key`): `PREFIX-I<n>` for an initiative, `PREFIX-<nn>` for a standalone ticket,
+- **Keys.** The server assigns them (omit `key`): `PREFIX-I<n>` for an initiative, `PREFIX-IDEA<n>` for an idea
+  (`WRK-IDEA3`), `PREFIX-<nn>` for a standalone ticket,
   `<initiative>-<n>` for a phase (`phase` stays a field). One counter per scope, bumped under the project lock, so
   concurrent creates never collide and a number is never reissued. An explicit key is accepted for imports: when it fits
   its scope's pattern it must be at or above the counter (`KEY_BELOW_COUNTER`); otherwise it only warns. Moving a ticket
@@ -343,6 +344,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `INVALID_TTL` | 400 | ttl_minutes outside 5..240 |
 | `INVALID_WORK_TYPE` | 400 | work_type is not code, ops, research, decision-needed, bug or debt |
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
+| `PROMOTED_TO_INVALID` | 400 | promoted_to is not an initiative or a standalone ticket of this project |
 | `RESERVED_ACTOR` | 400 | actor.agent is jorge: only the screen writes as Jorge |
 | `SECRET_LIKE_VALUE` | 400 | an env flag looks like a secret (a key name, a token prefix, or 20+ random characters); flags record whether something is configured, never the value |
 | `TASK_MISSING_PR_URL` | 400 | Done, Merged or Released on a code ticket without pr_url: pass pr_url, or no_pr_reason when the work had no PR |
@@ -379,8 +381,12 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `EVIDENCE_REQUIRED` | 409 | In review without evidence for the work_type from the current claim (detail: accepts, since) |
 | `EVIDENCE_STALE` | 409 | In review needs a pass recorded against the branch's current head; the passes found are for older commits (detail: head, results) |
 | `FOOTPRINT_HELD` | 409 | another live session declared this footprint, or releasing one you did not declare (detail: holder, purpose) |
+| `GATE_NOT_PASSED` | 409 | moving an idea forward needs a gate answer that moves it on (pursue, proceed or ready), given after it entered this stage; drop, later and rework do not, and a step back makes the previous answer stale (detail: gate) |
+| `GATE_OPEN` | 409 | the idea already has an open gate question (detail: gate, question_id) |
 | `HANDOFF_HELD` | 409 | the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note) |
+| `IDEA_CLOSED` | 409 | a Done or Won't do idea does not change stage or promoted_to (detail: status) |
 | `INITIATIVE_CHILDREN_OPEN` | 409 | an initiative cannot be Done or Won't do while a ticket of it is in another state (detail: open) |
+| `INVALID_STAGE_MOVE` | 409 | set_task stage is not one step along idea → research → design → planning → ready, or a step back without a note (detail: from, to) |
 | `INVALID_TRANSITION` | 409 | the status change is not allowed from the current status (detail: from, to, hint) |
 | `KEY_BELOW_COUNTER` | 409 | an explicit key with a number already issued for that scope (detail: next); omit key to get the next one |
 | `KEY_EXISTS` | 409 | create with a key that exists (or is an alias of one); creates are not idempotent without request_id |
@@ -393,6 +399,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `REQUEST_ID_REUSED` | 409 | request_id was already used by a different tool in this project |
 | `RESOURCE_HELD` | 409 | another session holds the resource (detail: holder, lease_until, purpose) |
 | `SEQUENCE_TAKEN` | 409 | the requested sequence value is held by another live ticket |
+| `STAGE_REQUIREMENTS_MISSING` | 409 | moving an idea forward without that stage's doc or its headings (detail: doc, missing) |
 | `STALE_VERSION` | 409 | the task (or doc) changed since you read it (detail: current_version) |
 <!-- errors:end -->
 

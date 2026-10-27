@@ -1,7 +1,8 @@
 import { ToolError } from "./errors.js";
 
-// The status machine, enforced on every write. Two vocabularies:
+// The status machine, enforced on every write. Three vocabularies:
 //
+// Idea:       Open → Done. Won't do and reopening are Jorge's. The stage is a separate machine (ideas.ts).
 // Ticket:     Backlog ⇄ Ready → (claim) In progress → In review → Merged → Released → Done
 //             Blocked from Backlog, Ready, In progress or In review; back to Backlog or Ready.
 //             Needs Jorge only through ask; it leaves only through answer.
@@ -44,6 +45,10 @@ const INITIATIVE_MOVES: Record<string, string[]> = {
   "On hold": ["Planning", "Active", "Shipping"],
 };
 
+const IDEA_MOVES: Record<string, string[]> = {
+  Open: ["Done"],
+};
+
 // Where an agent may close a ticket: code-like work once it merged, ops and research once in
 // review, a decision once answered (it leaves Needs Jorge first). An initiative from any open status.
 const DONE_FROM: Record<string, string[]> = {
@@ -57,7 +62,9 @@ const DONE_FROM: Record<string, string[]> = {
 const INITIATIVE_DONE_FROM = ["Planning", "Active", "Shipping", "On hold"];
 
 export function doneFrom(kind: string, workType?: string | null): string[] {
-  return kind === "initiative" ? INITIATIVE_DONE_FROM : (DONE_FROM[workType ?? "code"] ?? DONE_FROM.code!);
+  if (kind === "initiative") return INITIATIVE_DONE_FROM;
+  if (kind === "idea") return ["Open"];
+  return DONE_FROM[workType ?? "code"] ?? DONE_FROM.code!;
 }
 
 // Moves that only one tool makes.
@@ -93,7 +100,8 @@ export function assertTransition(kind: string, from: string, to: string, ctx: Tr
   if (to === "Done" && !needed) {
     const allowed = doneFrom(kind, ctx.workType);
     if (!allowed.includes(from)) {
-      throw new ToolError("INVALID_TRANSITION", { from, to, allowed_from: allowed, hint: kind === "initiative" ? "an initiative closes from an open status" : `a ${ctx.workType ?? "code"} ticket is Done from ${allowed.join(", ")}` });
+      const hint = kind === "initiative" ? "an initiative closes from an open status" : kind === "idea" ? "an idea closes from Open" : `a ${ctx.workType ?? "code"} ticket is Done from ${allowed.join(", ")}`;
+      throw new ToolError("INVALID_TRANSITION", { from, to, allowed_from: allowed, hint });
     }
     return false;
   }
@@ -114,7 +122,7 @@ export function assertTransition(kind: string, from: string, to: string, ctx: Tr
   if (kind === "ticket" && from === "Needs Jorge") {
     throw new ToolError("INVALID_TRANSITION", { from, to, hint: "Needs Jorge leaves through answer" });
   }
-  const allowed = (kind === "initiative" ? INITIATIVE_MOVES : TICKET_MOVES)[from] ?? [];
+  const allowed = (kind === "initiative" ? INITIATIVE_MOVES : kind === "idea" ? IDEA_MOVES : TICKET_MOVES)[from] ?? [];
   if (!allowed.includes(to) && ctx.via !== "claim") {
     throw new ToolError("INVALID_TRANSITION", { from, to, allowed });
   }

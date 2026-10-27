@@ -46,6 +46,7 @@ import { SEVERITIES } from "./lifecycle.js";
 import { writeTx } from "./tx.js";
 import { PROTOCOL_VERSION, instructions } from "./protocol.js";
 import { releasePlan } from "./release-plan.js";
+import { GATES } from "./ideas.js";
 import { URGENCIES, answer, ask } from "./questions.js";
 import { TTL, claim, createTask, handoff, setTask } from "./writes.js";
 import { runAudit } from "./audit.js";
@@ -145,8 +146,8 @@ function writeCtx(tool: string, input: WriteInput, identity: Identity | undefine
 
 // Field schemas shared by a tool and its batch op (keys.ts assigns keys; see create_task).
 const createFields = {
-  key: key.optional().describe("Omit it: the server assigns PREFIX-I<n> (initiative), PREFIX-<nn> (standalone ticket) or <initiative>-<n> (phase)"),
-  kind: z.enum(KINDS).optional().describe("ticket (default) | initiative"),
+  key: key.optional().describe("Omit it: the server assigns PREFIX-I<n> (initiative), PREFIX-IDEA<n> (idea), PREFIX-<nn> (standalone ticket) or <initiative>-<n> (phase)"),
+  kind: z.enum(KINDS).optional().describe("ticket (default) | initiative | idea"),
   title: z.string().min(1),
   scope: z.string().optional().describe("What it is: PRD and plan (initiative) or the phase's scope (ticket). Markdown"),
   checks: z.array(z.string()).optional().describe("Done when, one item per string"),
@@ -157,7 +158,7 @@ const createFields = {
   priority: z.string().optional().describe("Tickets: P0 | P1 | P2 | P3"),
   origin: z.enum(AGENT_ORIGINS).optional().describe("Tickets only. jorge is the screen's: Jorge's own requests"),
   blocked_by: blockedBy.optional(),
-  status: z.string().optional().describe("Tickets: Backlog | Ready. Initiatives always start in Planning"),
+  status: z.string().optional().describe("Tickets: Backlog | Ready. Initiatives always start in Planning. Ideas always start in Open"),
   work_type: z.string().optional().describe(`Tickets: ${WORK_TYPES.join(" | ")}; default code`),
   base_branch: z.string().min(1).optional().describe("Initiatives only; defaults to main"),
   next_action: z.string().optional().describe("Initiatives only: what comes next, shown in get_resume"),
@@ -208,6 +209,8 @@ const setTaskFields = {
   approval_id: z.string().optional().describe("For Won't do or reopening: the id of an approval Jorge granted (request_approval). Spent on this move"),
   withdraw_blocker: z.string().optional().describe("Id of a human_action your own note created (JORGE_LINE_PARSED) that asks nothing of Jorge: it is removed. Same session or token only; needs no version"),
   no_pr_reason: z.string().optional().describe("Done, Merged or Released on a code ticket without pr_url: why the work had no PR (otherwise TASK_MISSING_PR_URL). Logged as task.no_pr"),
+  stage: z.string().optional().describe("Ideas only. One step along idea → research → design → planning → ready. A step back needs a note. Skipping a stage is INVALID_STAGE_MOVE; a move without that stage's doc or headings is STAGE_REQUIREMENTS_MISSING; a move whose gate is unanswered is GATE_NOT_PASSED"),
+  promoted_to: z.string().nullable().optional().describe("Ideas only: key of the initiative or standalone ticket this idea became. A phase or another idea is PROMOTED_TO_INVALID"),
   note: z.string().optional(),
   version: z.number().int().optional().describe("The version you read. Required unless note or withdraw_blocker is the only field"),
 };
@@ -366,7 +369,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "list_tasks",
     {
       description: [
-        "Initiatives and tickets without scope, with version, claimed_by (live lease owner or null) and updated_at. Ordered P0 to P3 (null last), then most recently updated.",
+        "Initiatives, tickets and ideas without scope, with version, claimed_by (live lease owner or null) and updated_at. Ordered P0 to P3 (null last), then most recently updated.",
         "Filters combine: parent_key, status, kind, work_type, owner (a session_id or agent holding a live lease, or none), unblocked (every blocker satisfied, or not),",
         "updated_since (ISO time), search (key, title, summary, scope and checks, case-insensitive). limit default 200, max 1000.",
       ].join(" "),
@@ -616,12 +619,13 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "create_task",
     {
       description: [
-        "Create a ticket (default) or, with kind initiative, a parent initiative.",
+        "Create a ticket (default), an initiative, or an idea.",
+        "Idea: kind idea, key PREFIX-IDEA<n> (WRK-IDEA3), status Open, stage idea. It is not claimed, not offered by get_next, and not counted in the release plan.",
         "Initiative: starts in Planning; scope holds the PRD and the phased plan; base_branch defaults to main; next_action optional. Then create one ticket per phase.",
         "Ticket with parent_key: a phase of that initiative, with phase N, its scope (without copying the PRD) and checks (the Done when list, one string each). Without parent_key: a standalone spec.",
         "Tickets: priority defaults to P2, status to Backlog (or Ready), work_type to code. origin defaults to discovered when the parent is Active or Shipping, otherwise chartered.",
         "Every ticket needs a scope; code and ops tickets need at least one check (TEMPLATE_INVALID lists what is missing). Convention slips come back as warnings.",
-        "Keys are the server's: omit key and the reply carries the one assigned (PREFIX-I<n> for an initiative, PREFIX-<nn> for a standalone ticket, <initiative>-<n> under a parent).",
+        "Keys are the server's: omit key and the reply carries the one assigned (PREFIX-I<n> for an initiative, PREFIX-IDEA<n> for an idea, PREFIX-<nn> for a standalone ticket, <initiative>-<n> under a parent).",
         "An explicit key is accepted for imports; one that fits the scheme must be at or above the counter (KEY_BELOW_COUNTER). A key that exists is KEY_EXISTS (409); pass request_id to retry safely.",
         "A field of the other kind is FIELD_NOT_ALLOWED.",
       ].join(" "),
@@ -635,13 +639,14 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "set_task",
     {
       description: [
-        "Update a ticket or an initiative. Only the fields you pass change; blocked_by replaces the whole list.",
+        "Update a ticket, an initiative or an idea. Only the fields you pass change; blocked_by replaces the whole list.",
         "Pass the version you read (get_task); if anyone wrote since, you get STALE_VERSION with current_version: re-read and retry. A note alone needs no version.",
         "Do not set In progress here: use claim. While another session holds a live lease, only it can change the task (NOT_OWNER); notes are always allowed.",
         "A note goes to the task's log with your actor and a server timestamp; it is the only way to add text without a version. Blocked requires a note, stored as blocked_note.",
         "To tick one Done when item use set_check, not checks.",
         "Ticket moves: Backlog ⇄ Ready; Backlog, Ready, In progress or In review → Blocked (note required) → Backlog or Ready; In progress → In review, Ready or Backlog (each releases the lease). In progress only through claim.",
         "Initiative moves: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold; next_action and in_progress_note feed get_resume.",
+        "Idea status is Open, Done or Won't do. stage moves one step along idea → research → design → planning → ready; a step back needs a note (INVALID_STAGE_MOVE when it skips or the note is missing). Moving forward needs that stage's doc and headings (STAGE_REQUIREMENTS_MISSING) and, for idea, research and planning, a gate answer that moves it on — pursue, proceed or ready — given after it entered this stage (GATE_NOT_PASSED; drop, later and rework do not pass, and a step back makes the previous answer stale). A Done or Won't do idea refuses stage and promoted_to (IDEA_CLOSED). promoted_to records the initiative or standalone ticket it became.",
         "Anything else is INVALID_TRANSITION with the allowed moves.",
         "Finishing a phase: finish does add_result and In review in one call. By hand: add_result first, then status 'In review' (committed, not merged) with branch and pr_url; without fitting evidence it is EVIDENCE_REQUIRED.",
         "Merged and Released are the pollers' (GitHub merge, deploy); by hand they need a ci pass result naming the merge commit (and, for Released, the release target env containing it).",
@@ -779,6 +784,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer.",
+        "On an idea, gate A, B or C fixes the options and only one gate stays open.",
         "A ticket moves to Needs Jorge (your lease stays; heartbeat to keep it) until every open question on it is answered.",
         "options are suggested answers; he may answer freely. blocks names other tickets waiting on the answer; urgency says how soon. get_resume lists open_questions.",
         "The reply carries question_id and waits (\"the ticket waits in Needs Jorge\"): nothing else to write.",
@@ -791,7 +797,9 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         verbose,
         key,
         question: z.string(),
-        options: z.array(z.string()).optional(),
+        options: z.array(z.string()).optional().describe("Suggested answers. Ignored when gate is set: the server stores that gate's options"),
+        gate: z.enum(GATES).optional().describe("Ideas only. A, B or C. One open gate per idea (GATE_OPEN). The options are fixed"),
+        human_only: z.boolean().optional().describe("Record that a person should answer. Any answerer is still accepted"),
         blocks: z.array(z.string()).optional().describe("Other task keys this answer holds up (shown in the inbox and the digest)"),
         urgency: z.enum(URGENCIES).optional().describe("How soon Jorge is needed: now | soon | whenever"),
       },

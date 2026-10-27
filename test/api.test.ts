@@ -141,7 +141,7 @@ describe("reads", () => {
     const f1 = p.tasks.find((t: Json) => t.key === "MIC-01-F1");
     assert.deepEqual(Object.keys(f1).sort(), [
       "base_branch", "blocked_note", "branch", "claimed_at", "claimed_by", "due_on", "held", "key", "kind", "last_seen_at", "lease_until", "parent_key",
-      "pr_url", "priority", "status", "summary", "time_after", "title", "updated_at", "version", "waits_on", "work_type",
+      "pr_url", "priority", "promoted_to", "stage", "status", "summary", "time_after", "title", "updated_at", "version", "waits_on", "work_type",
     ]);
     assert.deepEqual(f1.waits_on, []);
     assert.equal(f1.held, false);

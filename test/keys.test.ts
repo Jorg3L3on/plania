@@ -68,7 +68,7 @@ describe("assigned keys", () => {
     assert.equal(s2.key, "FIL-02");
     const p = await call("get_project", P);
     assert.equal(p.key_prefix, "FIL");
-    assert.deepEqual(p.next_keys, { initiative: "FIL-I3", standalone: "FIL-03" });
+    assert.deepEqual(p.next_keys, { initiative: "FIL-I3", standalone: "FIL-03", idea: null });
   });
 
   test("an explicit key that fits the scheme must be at or above the counter, and moves it", async () => {

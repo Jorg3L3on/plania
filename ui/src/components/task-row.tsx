@@ -21,6 +21,32 @@ export function StatusLabel({ status }: { status: string }) {
   );
 }
 
+const STAGE_CHIP: Record<string, string> = {
+  idea: "bg-status-pending/15 text-muted-foreground",
+  research: "bg-status-now/15 text-ink-now",
+  design: "bg-status-review/15 text-ink-review",
+  planning: "bg-status-ready/15 text-ink-ready",
+  ready: "bg-status-done/15 text-ink-done",
+};
+
+const STAGE_LABEL: Record<string, string> = {
+  idea: "Idea",
+  research: "Investigación",
+  design: "Diseño",
+  planning: "Planeación",
+  ready: "Lista",
+};
+
+/** The idea's stage, as a chip. The key stays idea | research | design | planning | ready. */
+export function StageChip({ stage }: { stage: string }) {
+  const label = STAGE_LABEL[stage] ?? stage;
+  return (
+    <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold", STAGE_CHIP[stage] ?? "bg-muted text-muted-foreground")} aria-label={`Etapa ${label}`}>
+      {label}
+    </span>
+  );
+}
+
 export function PriorityLabel({ priority }: { priority: string }) {
   return (
     <Badge variant="outline" className={cn("font-mono", priorityTone(priority))}>
@@ -94,7 +120,7 @@ export function TaskRow({
           </button>
           {/* Inside a project every key shares its prefix, so ticket codes read like initiative codes.
               Only initiatives show theirs; tickets are known by title (the side panel still shows the key). */}
-          {task.kind === "initiative" && <span className="font-mono text-xs text-muted-foreground">{task.key}</span>}
+          {(task.kind === "initiative" || task.kind === "idea") && <span className="font-mono text-xs text-muted-foreground">{task.key}</span>}
           <DueTag task={task} />
         </div>
         {task.summary && <p className="text-sm text-muted-foreground">{task.summary}</p>}

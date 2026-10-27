@@ -14,7 +14,7 @@ import { EvidenceTimeline } from "@/components/evidence-timeline";
 import { HechoForm } from "@/components/hecho";
 import { dayText, dueText } from "@/lib/due";
 import { TaskControls } from "@/components/task-controls";
-import { ClaimLine } from "@/components/task-row";
+import { ClaimLine, StageChip } from "@/components/task-row";
 import { localTime } from "@/lib/time";
 import { api, ApiError } from "@/lib/api";
 import type { Check, TaskDetail } from "@/lib/types";
@@ -326,12 +326,18 @@ export function TaskSheet({
         <SheetHeader className="pr-12">
           <SheetDescription className="font-mono">
             {taskKey}
-            {task.data && ` · ${task.data.kind === "initiative" ? "Iniciativa" : "Ticket"}`}
+            {task.data && ` · ${task.data.kind === "initiative" ? "Iniciativa" : task.data.kind === "idea" ? "Idea" : "Ticket"}`}
           </SheetDescription>
           <SheetTitle className="text-lg leading-snug">
             {task.data?.title ?? (task.isPending ? <Skeleton className="h-6 w-3/4" /> : "Tarea")}
           </SheetTitle>
           {task.data?.summary && <p className="text-sm text-muted-foreground">{task.data.summary}</p>}
+          {task.data?.kind === "idea" && (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {task.data.stage && <StageChip stage={task.data.stage} />}
+              {task.data.promoted_to && <span className="text-sm text-muted-foreground">Pasó a <span className="font-mono">{task.data.promoted_to}</span></span>}
+            </div>
+          )}
         </SheetHeader>
         {task.isPending && taskKey && (
           <div className="grid gap-3 px-4">

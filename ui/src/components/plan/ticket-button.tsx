@@ -8,12 +8,14 @@ export function TicketButton({
   onOpen,
   className,
   title,
+  label,
   children,
 }: {
   taskKey: string;
   onOpen: (key: string) => void;
   className?: string;
   title?: string;
+  label?: string;
   children: ReactNode;
 }) {
   return (
@@ -21,6 +23,7 @@ export function TicketButton({
       type="button"
       data-key={taskKey}
       title={title}
+      aria-label={label}
       onClick={() => onOpen(taskKey)}
       className={cn(
         "group/ticket cursor-pointer rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",

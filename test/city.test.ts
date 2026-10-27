@@ -100,6 +100,17 @@ describe("city", () => {
     assert.deepEqual(i2.inbox.map((i) => i.id), ["a1"]);
   });
 
+  test("an idea is not a tower and not a window", () => {
+    const withIdea: CityProject = { ...filmia, tasks: [...filmia.tasks, { key: "FIL-IDEA1", kind: "idea", title: "Una idea", status: "Open", parent_key: "FIL-I2" }] };
+    const [plain] = cityOf([filmia], []);
+    const [extra] = cityOf([withIdea], []);
+    assert.deepEqual(extra!.towers.map((t) => t.key), plain!.towers.map((t) => t.key));
+    assert.deepEqual(
+      extra!.towers.map((t) => t.total),
+      plain!.towers.map((t) => t.total),
+    );
+  });
+
   test("the note is the next step, else what it is doing", () => {
     const [fil] = cityOf([filmia], []);
     assert.equal(fil!.towers.find((t) => t.key === "FIL-I6")!.note, "Jorge: llevar sandbox a main y desplegar.");

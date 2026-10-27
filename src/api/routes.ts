@@ -18,6 +18,7 @@ import { resolveHumanAction, SETTLED_STATUSES } from "../mcp/blockers.js";
 import { waiveCheck } from "../mcp/checks.js";
 import { listDecisions } from "../mcp/decisions.js";
 import { footprintFindings } from "../mcp/footprint-audit.js";
+import { ideaWaits } from "../mcp/ideas.js";
 import { inbox } from "../mcp/inbox.js";
 import { auditCounts, fixFinding, projectAudit } from "../mcp/orden.js";
 import { gatingSql } from "../mcp/jorge-lines.js";
@@ -189,6 +190,8 @@ async function screenTasks(db: Db, projectId?: string) {
       title: tasks.title,
       summary: tasks.summary,
       status: tasks.status,
+      stage: tasks.stage,
+      promoted_to: tasks.promotedTo,
       priority: tasks.priority,
       work_type: tasks.workType,
       parent_key: parent.key,
@@ -229,12 +232,13 @@ api.get("/projects/:slug", async (c) => {
     const data = await withDb(async (db) => {
       const p = await findProject(db, c.req.param("slug"));
       const rows = await screenTasks(db, p.id);
+      const waits = await ideaWaits(db, p.id);
       return {
         slug: p.slug,
         title: p.title,
         version: p.version,
         resume: await resumeDigest(db, p),
-        tasks: rows.map(({ project_id: _, ...t }) => t),
+        tasks: rows.map(({ project_id: _, ...t }) => ({ ...t, ...(t.kind === "idea" ? { waits: waits.get(t.key) ?? "" } : {}) })),
         decisions: await listDecisions(db, p.id, { limit: DECISIONS_LIMIT, includeSuperseded: true, includeRetired: true }),
       };
     });

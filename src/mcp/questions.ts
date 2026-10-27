@@ -3,6 +3,7 @@ import type { Db } from "../db/client.js";
 import { decisions, questions, tasks, type Task } from "../db/schema.js";
 import { decisionShape } from "./decisions.js";
 import { ToolError } from "./errors.js";
+import { GATES, assertGateAsk, type Gate } from "./ideas.js";
 import { TERMINAL, assertTransition } from "./lifecycle.js";
 import { findProject, liveOwner, requireTask, writeReply } from "./queries.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
@@ -28,6 +29,8 @@ export function questionShape(q: QuestionRow, taskKey: string) {
     // 2.8: what else waits on this answer, and how soon Jorge is needed.
     blocks: q.blocks,
     urgency: q.urgency,
+    gate: q.gate,
+    human_only: q.humanOnly,
   };
 }
 
@@ -51,7 +54,7 @@ export async function openQuestions(db: Q, projectId: string) {
 
 export async function ask(
   db: Db,
-  input: { project: string; key: string; question: string; options?: string[]; blocks?: string[]; urgency?: Urgency },
+  input: { project: string; key: string; question: string; options?: string[]; blocks?: string[]; urgency?: Urgency; gate?: Gate; human_only?: boolean },
   ctx: Ctx,
 ) {
   if (!input.question.trim()) throw new ToolError("INVALID_QUESTION");
@@ -68,6 +71,9 @@ export async function ask(
     if ((TERMINAL as readonly string[]).includes(t.status)) {
       throw new ToolError("INVALID_TRANSITION", { from: t.status, to: "Needs Jorge", hint: "the task is closed" });
     }
+    if (input.gate !== undefined && !(GATES as readonly string[]).includes(input.gate)) throw new ToolError("INVALID_QUESTION", { field: "gate", accepts: GATES });
+    if (input.gate && t.kind !== "idea") throw new ToolError("INVALID_QUESTION", { field: "gate", hint: "gates are for ideas" });
+    const options = input.gate ? await assertGateAsk(tx, t.id, input.gate) : (input.options ?? []);
     const moves = t.kind === "ticket" && t.status !== "Needs Jorge";
     if (moves) assertTransition(t.kind, t.status, "Needs Jorge", { via: "ask" });
     const [q] = await tx
@@ -76,9 +82,11 @@ export async function ask(
         projectId: p.id,
         taskId: t.id,
         question: input.question,
-        options: input.options ?? [],
+        options,
         blocks,
         urgency: input.urgency ?? null,
+        gate: input.gate ?? null,
+        humanOnly: input.human_only ?? false,
         statusBefore: moves ? t.status : null,
         askedBy: ctx.actor,
       })
@@ -91,7 +99,7 @@ export async function ask(
         .where(eq(tasks.id, t.id));
       await emit("task.status", t, { from: t.status, to: "Needs Jorge" });
     }
-    await emit("question.asked", t, { question_id: q!.id, question: q!.question, options: q!.options, blocks: q!.blocks, urgency: q!.urgency });
+    await emit("question.asked", t, { question_id: q!.id, question: q!.question, options: q!.options, blocks: q!.blocks, urgency: q!.urgency, gate: q!.gate, human_only: q!.humanOnly });
     const u = await requireTask(tx, p.id, t.key);
     // 2.13: the reply says where the wait now lives, so nobody also writes it into next_action or a note.
     const waits = u.status === "Needs Jorge" ? "the ticket waits in Needs Jorge until he answers" : "the question waits in Jorge's inbox until he answers";

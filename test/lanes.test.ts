@@ -182,6 +182,14 @@ describe("buildLanes", () => {
     assert.deepEqual(buildLanes([init("A-01"), t("X-1", "Done")]).map((l) => l.id), ["A-01"]);
     assert.deepEqual(buildLanes([]), []);
   });
+
+  test("an idea is not a lane", () => {
+    const tasks = [...filmia(), t("FIL-IDEA1", "Open", { kind: "idea", priority: null })];
+    const lanes = buildLanes(tasks);
+    const shown = lanes.flatMap((l) => [...l.done, ...l.review, ...l.now, ...l.next, ...l.later]);
+    assert.equal(shown.some((x) => x.key === "FIL-IDEA1"), false);
+    assert.deepEqual(lanes.map((l) => l.id), buildLanes(filmia()).map((l) => l.id));
+  });
 });
 
 describe("summaries", () => {
@@ -190,6 +198,9 @@ describe("summaries", () => {
     assert.deepEqual(projectProgress(tasks), { closed: 1, total: 10 });
     assert.deepEqual(projectProgress([...tasks, t("FIL-98", "Needs Jorge")]), { closed: 1, total: 11 });
     assert.deepEqual(statusCounts([...tasks, t("FIL-98", "Needs Jorge")]), { inProgress: 1, inReview: 2, ready: 1, needsJorge: 1, blocked: 0 });
+    const withIdea = [...tasks, t("FIL-IDEA1", "Open", { kind: "idea", priority: null }), t("FIL-IDEA2", "Done", { kind: "idea", priority: null })];
+    assert.deepEqual(projectProgress(withIdea), projectProgress(tasks));
+    assert.deepEqual(statusCounts(withIdea), statusCounts(tasks));
   });
 
   test("yourTurn lists Needs Jorge tickets, best priority first", () => {
