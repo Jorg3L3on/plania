@@ -7,6 +7,7 @@ import { generatedHeadline } from "./headline.js";
 import { initiativeState } from "./initiative-state.js";
 import { headlineNoteShape } from "./project.js";
 import { openQuestions } from "./questions.js";
+import { loadReadiness } from "./readiness.js";
 import { openRequests } from "./requests.js";
 import { statusBlock } from "./status.js";
 import { iso, type Q } from "./tx.js";
@@ -87,6 +88,12 @@ export async function resumeDigest(db: Q, p: Project) {
 
   const status = await statusBlock(db, p);
   const next_claimable = (await nextTask(db, p.id)).task;
+  const readiness = await loadReadiness(db, p, {
+    tasks: all,
+    lastEventAt: recent[0]?.createdAt ?? null,
+    nextClaimableKey: next_claimable?.key ?? null,
+    envBehind: status.envs.some((e) => e.drift.behind.length > 0),
+  });
   return {
     project: p.slug,
     generated_at: new Date().toISOString(),
@@ -107,6 +114,7 @@ export async function resumeDigest(db: Q, p: Project) {
     must_keep: pinned.filter((d) => d.home === null).map((d) => d.shape),
     open_questions: await openQuestions(db, p.id),
     recent: recent.map((e) => ({ at: iso(e.createdAt), type: e.type, task_key: e.taskKey, agent: e.actor.agent })),
+    readiness,
   };
 }
 

@@ -146,6 +146,7 @@ api.get("/projects", async (c) => {
           slug: p.slug,
           title: p.title,
           line: resumeLine(digest),
+          readiness: digest.readiness,
           // Inicio's tiles read their "Siguiente" from the next step, not the headline.
           next_line: nextStepLine(digest),
           open_questions: digest.open_questions.length,

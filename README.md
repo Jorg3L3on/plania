@@ -115,6 +115,10 @@ Migration `0028` drops `gate_challenges` and deletes the `machine_state` row the
 
 Migration `0029` adds `delegated_answers`. Take a dump first. Apply `0029`, `pnpm build`, then restart `com.plania.server`. The protocol moves to 2.15. The kill switch defaults on. It is the `machine_state` key `delegation` (`{enabled: true|false}`). The screen toggles it. Nothing else can.
 
+### Upgrading to 2.16 (readiness)
+
+No migration and no schema change. `pnpm build`, then restart the service. `get_resume`, `list_projects`, `get_digest` and `GET /api/projects` gain `readiness` (`state`, `reasons`, `line`). Existing fields keep their shape. The protocol moves to 2.16.
+
 ### GitHub token file
 
 No migration. `pnpm build`, then restart the service (`launchctl kickstart -k gui/$(id -u)/com.plania.server`).
@@ -141,7 +145,7 @@ Limits: 10 delegated answers per hour and one per question or approval (`DELEGAT
 
 Honest limit: the actor `plania-bot` is an identity declared in the request, and all bots on the Mac share the same write token, so the server cannot technically prove that the caller is the Plania bot or that the quoted message really exists. The controls are the required evidence (message id and quote), the audit plus the visible badge, the rate limit, the kill switch, and the rule that only the owner's own message counts. This is not a proof of identity. Do not treat it as one.
 
-An initiative that an idea was promoted to cannot become Active, from Planning or from On hold, until that idea's gate C has been answered `ready` by the owner (`GATE_NOT_PASSED`). A click and a delegated `ready` both count, because both are stored as him. A promoted idea with no gate C question is the same error. An initiative no idea was promoted to is unchanged. Migration `0027` added `gate_challenges` and set `human_only` on gate questions that were still open. Migration `0028` drops that table. Migration `0029` adds `delegated_answers`. Apply `0029` before restarting. The protocol is 2.15.
+An initiative that an idea was promoted to cannot become Active, from Planning or from On hold, until that idea's gate C has been answered `ready` by the owner (`GATE_NOT_PASSED`). A click and a delegated `ready` both count, because both are stored as him. A promoted idea with no gate C question is the same error. An initiative no idea was promoted to is unchanged. Migration `0027` added `gate_challenges` and set `human_only` on gate questions that were still open. Migration `0028` drops that table. Migration `0029` adds `delegated_answers`. Apply `0029` before restarting. That release moved the protocol to 2.15. The protocol is 2.16.
 
 What proves a human on this Mac answered, on the click path, is the screen session only. A bot that has the MCP bearer, or that sends the screen actor in a header or a body, cannot use that path. A process that can mint a session cookie can. The delegated path is the narrow exception above, and it does not prove the message.
 
@@ -213,10 +217,26 @@ description) is served as the server's `instructions`
 on `initialize`, versioned (`PROTOCOL_VERSION` in `src/mcp/protocol.ts`, also in `get_project`). Project-specific
 additions are the project's `rules` (`set_project`). Product repos point here instead of copying the rules.
 
+### Readiness
+
+`get_resume`, `list_projects`, `get_digest` and `GET /api/projects` add `readiness`: `{ state, reasons, line }`. It is read-only. Nothing is written and the schema does not change. Existing fields keep their shape. `line` is one sentence. Each reason is `{ code, severity, text, task_key }`. `text` is one short Spanish sentence and names the ticket key (for example `MC-12: el dueño ya no está en la máquina`).
+
+`state` is `ready`, `caution`, `blocked` or `no_context`. Precedence is `no_context`, then `blocked`, then `caution`, otherwise `ready`.
+
+`no_context` (`NO_CONTEXT`): no live claim, no expired claim, no ticket In review, no initiative `next_action`, no next claimable ticket, and no event in 14 days (`CONTEXT_WINDOW_DAYS` in `src/mcp/readiness.ts`).
+
+`blocked`: the ticket to resume has an unsatisfied blocker or is Blocked (`BLOCKER_OPEN`); its pull request `ci_state` is `failure` (`CI_FAILURE`); a failed deploy (the Vercel poller's last error) or an environment behind the integration branch blocks a ticket In review (`DEPLOY_BLOCKED`); two live claims overlap `areas` (`AREAS_OVERLAP`); that ticket waits on a human decision (`DECISION_PENDING`: an open question, a pending approval, or a `human_action` blocker).
+
+`caution`: an expired lease (`LEASE_EXPIRED`); the owner's footprint is old or missing on the machine (`OWNER_ABSENT`, fresh window `FOOTPRINT_FRESH_MS`); the claim has been quiet past `PLANIA_QUIET_MIN` (`CLAIM_QUIET`, default 20 minutes, the same constant as `get_running`); a dirty worktree (`WORKTREE_DIRTY`); dirty unknown (`DIRTY_UNKNOWN`); a stale headline or state note (`NOTE_STALE`); a pending pull-request check (`PR_PENDING`); an unreadable pull request (`PR_UNREADABLE`); a human decision on some other ticket (`DECISION_ELSEWHERE`); a recent event and no step to resume (`NO_NEXT`).
+
+`ready`: a healthy live claim, a ticket In review whose checks are passing, or a clear next step, and none of the above.
+
+Unknown or missing data is caution, never ready. `details.dirty` null, a live claim with no footprint row, and a pull request whose `ci_state` cannot be read are caution. A footprint that is not fresh counts as the owner gone; dirty is read only on a fresh worktree.
+
 <!-- mcp-tools:start -->
 | Read | |
 |---|---|
-| `get_resume` | Where the project stands, generated from data: live claims (who, until when, where), requests (Jorge's open asks from the screen, newest first: read them first), the next claimable ticket, and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts. |
+| `get_resume` | Where the project stands, generated from data: live claims (who, until when, where), requests (Jorge's open asks from the screen, newest first: read them first), the next claimable ticket, and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts, plus readiness. |
 | `get_project` | Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release), ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each, and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks, the command Jorge runs, its mode (command, or merge: Jorge ships it from the screen) and merged once he did (null without settings.release). |
 | `list_tasks` | Initiatives, tickets and ideas without scope, with version, claimed_by (live lease owner or null) and updated_at. |
 | `get_task` | One initiative or ticket, by its key or any former key (aliases). |
@@ -224,9 +244,9 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | `get_doc` | One doc by id (from get_task docs, get_memory design_docs, or a decision's adr_doc_id), with its markdown and version. |
 | `get_next` | Next claimable ticket: Backlog or Ready, or In progress with an expired lease (stale_claim: true), with every blocker satisfied (tasks In review or Done, env conditions holding). |
 | `list_events` | What changed, oldest first: every write is an event with its actor, server time, project and a one-line summary (Spanish). |
-| `list_projects` | Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim), ticket counts (open, in_progress, in_review, needs_jorge, blocked, done), open_questions, claims, last_event_id and last_event_at. |
+| `list_projects` | Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim), ticket counts (open, in_progress, in_review, needs_jorge, blocked, done), open_questions, claims, last_event_id and last_event_at, and readiness (state, reasons, line; same object as get_resume), sorted by slug. |
 | `get_running` | Every ticket with an owner, across projects, with a derived liveness: live (lease valid, activity in the last 20 min), quiet (lease valid, no heartbeat or event for longer), stale (lease ran out, not yet cleared). |
-| `get_digest` | One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects. |
+| `get_digest` | One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects and readiness (state, reasons, line) on each changed project. |
 | `get_inbox` | Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (pending approvals, open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac). |
 | `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, GATE_ANSWERED_BY_AGENT, GATE_ANSWERED_DELEGATED, STAGE_DOC_STALE, and the footprint codes. |
 | `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions and pending approvals on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). |
@@ -578,7 +598,7 @@ the UI refetches what changed.
 | Route | Purpose |
 |---|---|
 | `POST /api/login`, `POST /api/logout`, `GET /api/session` | Session |
-| `GET /api/projects` | Projects with their generated line (the headline), the next step (`next_line`), Orden's count, open question count, and all tasks without scope |
+| `GET /api/projects` | Projects with their generated line (the headline), the next step (`next_line`), read-only `readiness` (`state`, `reasons`, `line`; same object as `get_resume`), Orden's count, open question count, and all tasks without scope |
 | `GET /api/projects/:slug` | Generated resume, decisions, and all tasks without scope (with version, lease, `branch`, `base_branch`, `waits_on`, `held` and `created_at` on each task) |
 | `GET /api/projects/:slug/tasks/:key` | One task, in the `get_task` shape; each result with `stale_for_head` and `ticked_checks` (the sheet's evidence timeline) |
 | `PATCH /api/projects/:slug` | `{ headline, version }`: the note beside the generated headline |

@@ -1147,15 +1147,16 @@ describe("v2 C2: list_events", () => {
 describe("v2 C4: protocol and project text", () => {
   test("the protocol comes with initialize, versioned", async () => {
     const text = client.getInstructions() ?? "";
-    assert.match(text, /^Plania protocol 2\.15\./);
+    assert.match(text, /^Plania protocol 2\.16\./);
     assert.match(text, /Human-only gates are answered by a click on the owner's screen/);
     assert.match(text, /answer_delegated/);
     assert.match(text, /Never answer a gate yourself, and never forward an answer/);
     assert.match(text, /set_task Done once it is Merged or Released/);
     assert.match(text, /Won't do and reopening are Jorge's/);
-    assert.equal(client.getServerVersion()?.version, "2.15.0");
+    assert.match(text, /Unknown or missing data is caution, never ready/);
+    assert.equal(client.getServerVersion()?.version, "2.16.0");
     const p = await call("get_project", { project: "zigzag" });
-    assert.equal(p.protocol_version, "2.15");
+    assert.equal(p.protocol_version, "2.16");
   });
 
   test("set_project edits body and rules with the version; rules_version follows the rules", async () => {
