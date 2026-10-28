@@ -119,11 +119,19 @@ describe("list_projects", () => {
        select id, 'note', '{"agent":"agente","session_id":"s9"}'::jsonb, '{"text":"siguió el corte"}'::jsonb, now() - interval '8 days'
        from projects where slug = 'workia'`,
     );
-    const workia = (await call("list_projects")).projects.find((p: Json) => p.slug === "workia");
-    assert.match(workia.line, /^Último movimiento hace 8 días: nota \(agente\): siguió el corte$/);
-    const resume = await call("get_resume", { project: "workia" });
-    assert.equal("lastMovement" in resume, false);
-    assert.deepEqual(Object.keys(resume.recent[0]).sort(), ["agent", "at", "task_key", "type"]);
+    try {
+      const workia = (await call("list_projects")).projects.find((p: Json) => p.slug === "workia");
+      assert.match(workia.line, /^Último movimiento hace 8 días: nota \(agente\): siguió el corte$/);
+      const resume = await call("get_resume", { project: "workia" });
+      assert.equal("lastMovement" in resume, false);
+      assert.deepEqual(Object.keys(resume.recent[0]).sort(), ["agent", "at", "task_key", "type"]);
+    } finally {
+      // A backdated row still gets a new id. get_digest's 24 h window starts after the newest
+      // event older than that, so this row would hide earlier events. Remove it after the read.
+      await raw.query(
+        `delete from events where type = 'note' and project_id = (select id from projects where slug = 'workia')`,
+      );
+    }
   });
 });
 
