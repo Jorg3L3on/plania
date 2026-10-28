@@ -7,7 +7,7 @@ import { generatedHeadline } from "./headline.js";
 import { initiativeState } from "./initiative-state.js";
 import { headlineNoteShape } from "./project.js";
 import { openQuestions } from "./questions.js";
-import { loadReadiness } from "./readiness.js";
+import { envDriftOf, loadReadiness } from "./readiness.js";
 import { openRequests } from "./requests.js";
 import { statusBlock } from "./status.js";
 import { iso, type Q } from "./tx.js";
@@ -88,11 +88,20 @@ export async function resumeDigest(db: Q, p: Project) {
 
   const status = await statusBlock(db, p);
   const next_claimable = (await nextTask(db, p.id)).task;
+  // The status block already resolved heads. A missing commit or head is unknown, not "not behind".
+  const drift = envDriftOf(
+    status.envs.map((env) => ({ commit: env.commit })),
+    status.initiatives.map((initiative) => ({ branch: initiative.integration_branch })),
+    status.initiatives.flatMap((initiative) =>
+      initiative.integration_branch ? [{ name: initiative.integration_branch, headSha: initiative.head_sha }] : [],
+    ),
+  );
   const readiness = await loadReadiness(db, p, {
     tasks: all,
     lastEventAt: recent[0]?.createdAt ?? null,
     nextClaimableKey: next_claimable?.key ?? null,
-    envBehind: status.envs.some((e) => e.drift.behind.length > 0),
+    envBehind: drift.behind,
+    envUnknown: drift.unknown,
   });
   return {
     project: p.slug,

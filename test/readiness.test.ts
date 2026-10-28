@@ -9,6 +9,7 @@ import { resetTestDb, useTestEnv } from "./helpers.js";
 import {
   CONTEXT_WINDOW_DAYS,
   FOOTPRINT_FRESH_MS,
+  envDriftOf,
   readinessOf,
   type Readiness,
   type ReadinessInput,
@@ -30,6 +31,7 @@ function input(over: Partial<ReadinessInput> = {}): ReadinessInput {
     nextClaimableKey: null,
     deployFailed: false,
     envBehind: false,
+    envUnknown: false,
     initiatives: [],
     tickets: [],
     decisions: [],
@@ -172,6 +174,48 @@ describe("readinessOf", () => {
     assert.deepEqual(codes(r), ["DECISION_ELSEWHERE"]);
     assert.equal(r.reasons[0]!.task_key, "MC-99");
     assert.equal(r.line, "MC-99: hay una decisión pendiente en otro ticket.");
+  });
+
+  test("caution: unknown environment is never ready", () => {
+    const review = idle({ status: "In review", pr: { ci: "success" } });
+    const missing = readinessOf(input({ envUnknown: true, tickets: [review] }));
+    assert.equal(missing.state, "caution");
+    assert.notEqual(missing.state, "ready");
+    assert.deepEqual(codes(missing), ["ENV_UNKNOWN"]);
+    assert.equal(missing.reasons[0]!.severity, "caution");
+    assert.equal(missing.reasons[0]!.task_key, "MC-12");
+    assert.equal(missing.line, "MC-12: no se sabe si el entorno está al día.");
+    const named = readinessOf(
+      input({
+        envUnknown: true,
+        tickets: [idle({ key: "MC-13", status: "In review", pr: { ci: "success" } }), review],
+      }),
+    );
+    assert.deepEqual(named.reasons.map((reason) => reason.task_key), ["MC-12", "MC-13"]);
+    assert.equal(named.line, "MC-12: no se sabe si el entorno está al día.");
+    const next = readinessOf(input({ envUnknown: true, nextClaimableKey: "MC-12", tickets: [idle()] }));
+    assert.equal(next.state, "ready", "unknown drift only applies to a ticket In review");
+    const both = readinessOf(input({ envBehind: true, envUnknown: true, tickets: [review] }));
+    assert.equal(both.state, "blocked");
+    assert.deepEqual(codes(both), ["DEPLOY_BLOCKED", "ENV_UNKNOWN"]);
+  });
+
+  test("a missing commit or a missing integration head is unknown, never current", () => {
+    const initiatives = [{ branch: "jl/corte" }];
+    const head = [{ name: "jl/corte", headSha: "abc123" }];
+    assert.deepEqual(envDriftOf([{ commit: null }], initiatives, head), { behind: false, unknown: true });
+    assert.deepEqual(envDriftOf([{ commit: "abc123" }], initiatives, [{ name: "jl/corte", headSha: null }]), { behind: false, unknown: true });
+    assert.deepEqual(envDriftOf([{ commit: "abc123" }], initiatives, []), { behind: false, unknown: true });
+    assert.deepEqual(envDriftOf([{ commit: "abc" }], initiatives, head), { behind: false, unknown: false });
+    assert.deepEqual(envDriftOf([{ commit: "fff" }], initiatives, head), { behind: true, unknown: false });
+    assert.deepEqual(envDriftOf([], initiatives, head), { behind: false, unknown: false });
+    assert.deepEqual(envDriftOf([{ commit: null }], [{ branch: null }], []), { behind: false, unknown: false });
+    const mixed = envDriftOf(
+      [{ commit: null }, { commit: "fff" }],
+      initiatives,
+      head,
+    );
+    assert.deepEqual(mixed, { behind: true, unknown: true });
   });
 
   test("caution: a recent event and no step to resume", () => {
@@ -402,6 +446,64 @@ describe("get_resume and GET /api/projects", () => {
     assert.equal(digest.line, zigList.line);
     assert.ok(Array.isArray(digest.changes));
     assert.equal(typeof digest.quiet, "boolean");
+  });
+
+  test("a missing commit or a missing integration head is caution, never ready", async () => {
+    await raw.query(
+      `insert into tasks (project_id, kind, key, title, status, branch)
+       select id, 'initiative', 'ALF-I1', 'Corte', 'Active', 'jl/corte' from projects where slug = 'alfa'`,
+    );
+    await raw.query(
+      `insert into tasks (project_id, parent_id, kind, key, title, status, pr_url)
+       select p.id, i.id, 'ticket', 'ALF-1', 'Demo', 'In review', 'https://example.test/pr/1'
+       from projects p join tasks i on i.project_id = p.id and i.key = 'ALF-I1'
+       where p.slug = 'alfa'`,
+    );
+    await raw.query(
+      `insert into pull_requests (project_id, repo, number, url, title, task_id, state, ci_state)
+       select p.id, 'example/demo', 1, 'https://example.test/pr/1', 'Demo', t.id, 'open', 'success'
+       from projects p join tasks t on t.project_id = p.id and t.key = 'ALF-1'
+       where p.slug = 'alfa'`,
+    );
+    await raw.query(
+      `insert into branches (project_id, name, head_sha)
+       select id, 'jl/corte', 'abc123abc123abc123abc123abc123abc123ab' from projects where slug = 'alfa'`,
+    );
+    await raw.query(
+      `insert into env_states (project_id, env, commit, by)
+       select id, 'prod', null, '{"agent":"test-agent","session_id":"s1"}'::jsonb from projects where slug = 'alfa'`,
+    );
+
+    const missingCommit = await call("get_resume", { project: "alfa" });
+    assert.equal(missingCommit.readiness.state, "caution");
+    assert.notEqual(missingCommit.readiness.state, "ready");
+    assert.equal(missingCommit.readiness.reasons[0].code, "ENV_UNKNOWN");
+    assert.equal(missingCommit.readiness.line, "ALF-1: no se sabe si el entorno está al día.");
+
+    await raw.query(
+      `update env_states set commit = 'abc123abc123abc123abc123abc123abc123ab'
+       where env = 'prod' and project_id = (select id from projects where slug = 'alfa')`,
+    );
+    await raw.query(
+      `update branches set head_sha = null
+       where name = 'jl/corte' and project_id = (select id from projects where slug = 'alfa')`,
+    );
+    const missingHead = await call("get_resume", { project: "alfa" });
+    assert.equal(missingHead.readiness.state, "caution");
+    assert.equal(missingHead.readiness.reasons[0].code, "ENV_UNKNOWN");
+
+    await raw.query(`delete from env_states where env = 'prod' and project_id = (select id from projects where slug = 'alfa')`);
+    const noEnvNoHead = await call("get_resume", { project: "alfa" });
+    assert.equal(noEnvNoHead.readiness.state, "caution");
+    assert.equal(noEnvNoHead.readiness.reasons[0].code, "ENV_UNKNOWN");
+
+    await raw.query(
+      `update branches set head_sha = 'abc123abc123abc123abc123abc123abc123ab'
+       where name = 'jl/corte' and project_id = (select id from projects where slug = 'alfa')`,
+    );
+    const knownHead = await call("get_resume", { project: "alfa" });
+    assert.equal(knownHead.readiness.state, "ready");
+    assert.deepEqual(knownHead.readiness.reasons, []);
   });
 
   test("five projects stay inside the list_projects budget", async () => {

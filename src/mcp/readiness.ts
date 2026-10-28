@@ -48,6 +48,7 @@ export type ReasonCode =
   | "CLAIM_QUIET"
   | "WORKTREE_DIRTY"
   | "DIRTY_UNKNOWN"
+  | "ENV_UNKNOWN"
   | "NOTE_STALE"
   | "PR_PENDING"
   | "PR_UNREADABLE"
@@ -100,6 +101,11 @@ export type ReadinessInput = {
   deployFailed: boolean;
   /** Some environment is behind an open initiative's integration branch (status drift). */
   envBehind: boolean;
+  /**
+   * An open initiative's integration branch has no head, or an environment has no commit,
+   * so drift cannot be judged. Never treat that as up to date.
+   */
+  envUnknown: boolean;
   initiatives: { key: string; nextAction: string; stateNoteStale: boolean }[];
   tickets: ReadinessTicket[];
   /** Open question, pending approval, or unsatisfied human_action, one entry per task. */
@@ -124,6 +130,7 @@ const CODE_ORDER: ReasonCode[] = [
   "CLAIM_QUIET",
   "WORKTREE_DIRTY",
   "DIRTY_UNKNOWN",
+  "ENV_UNKNOWN",
   "NOTE_STALE",
   "PR_PENDING",
   "PR_UNREADABLE",
@@ -190,7 +197,8 @@ function readyLine(live: ReadinessTicket[], review: ReadinessTicket[], input: Re
 
 /**
  * Precedence: no_context, then blocked, then caution, otherwise ready.
- * A live claim without a footprint, dirty === null, or an unreadable PR is caution, never ready.
+ * A live claim without a footprint, dirty === null, an unreadable PR, or an unknown environment
+ * (missing commit or integration head) is caution, never ready.
  */
 export function readinessOf(input: ReadinessInput): Readiness {
   const now = input.now ?? new Date();
@@ -236,6 +244,12 @@ export function readinessOf(input: ReadinessInput): Readiness {
           ? `${key}: el deploy falló.`
           : `${key}: el entorno va detrás de la rama de integración.`;
     for (const t of [...review].sort(byKey)) blocked.push(reason("DEPLOY_BLOCKED", "blocked", t.key, text(t.key)));
+  }
+
+  if (review.length && input.envUnknown) {
+    for (const t of [...review].sort(byKey)) {
+      caution.push(reason("ENV_UNKNOWN", "caution", t.key, `${t.key}: no se sabe si el entorno está al día.`));
+    }
   }
 
   const claimed = [...live].sort(byKey);
@@ -298,19 +312,49 @@ function dirtyOf(details: Record<string, unknown>): boolean | null {
   return typeof details.dirty === "boolean" ? details.dirty : null;
 }
 
-/** True when an open initiative's branch head is not what an environment runs (the status block's drift). */
-async function envIsBehind(db: Q, p: Project, all: Task[]): Promise<boolean> {
-  const open = all.filter((t) => t.kind === "initiative" && !CLOSED.includes(t.status) && t.branch);
-  if (!open.length) return false;
+export type EnvDrift = { behind: boolean; unknown: boolean };
+
+/**
+ * Drift of open integration branches against environments.
+ * A known mismatch is behind. A missing head or a missing commit is unknown, never current.
+ * No environment rows and a known head is not unknown: there is nothing to compare.
+ */
+export function envDriftOf(
+  envs: { commit: string | null }[],
+  initiatives: { branch: string | null }[],
+  heads: { name: string; headSha: string | null }[],
+): EnvDrift {
+  const open = initiatives.filter((i): i is { branch: string } => !!i.branch);
+  if (!open.length) return { behind: false, unknown: false };
+  let behind = false;
+  let unknown = false;
+  for (const initiative of open) {
+    const head = heads.find((b) => b.name === initiative.branch)?.headSha ?? null;
+    if (!head) {
+      unknown = true;
+      continue;
+    }
+    for (const env of envs) {
+      if (!env.commit) {
+        unknown = true;
+        continue;
+      }
+      if (!head.startsWith(env.commit) && !env.commit.startsWith(head)) behind = true;
+    }
+  }
+  return { behind, unknown };
+}
+
+async function projectEnvDrift(db: Q, p: Project, all: Task[]): Promise<EnvDrift> {
+  const open = all.filter((t) => t.kind === "initiative" && !CLOSED.includes(t.status));
   const [envs, heads] = await Promise.all([
     db.select().from(envStates).where(eq(envStates.projectId, p.id)),
     db.select().from(branches).where(and(eq(branches.projectId, p.id), isNull(branches.deletedAt))),
   ]);
-  return envs.some((env) =>
-    open.some((i) => {
-      const head = heads.find((b) => b.name === i.branch)?.headSha ?? null;
-      return !!head && !!env.commit && !head.startsWith(env.commit) && !env.commit.startsWith(head);
-    }),
+  return envDriftOf(
+    envs.map((env) => ({ commit: env.commit })),
+    open.map((initiative) => ({ branch: initiative.branch })),
+    heads.map((branch) => ({ name: branch.name, headSha: branch.headSha })),
   );
 }
 
@@ -319,6 +363,8 @@ export type ReadinessCache = {
   lastEventAt?: Date | null;
   nextClaimableKey?: string | null;
   envBehind?: boolean;
+  /** Set with envBehind. A cache that only knows "not behind" is not enough: unknown is recomputed. */
+  envUnknown?: boolean;
 };
 
 // One project. Reuses the digest's rows: tasks and leases, pull requests, blockers, questions,
@@ -361,7 +407,9 @@ export async function loadReadiness(db: Q, p: Project, cache: ReadinessCache = {
             return at ? (at instanceof Date ? at : new Date(at)) : null;
           }),
     "nextClaimableKey" in cache ? Promise.resolve(cache.nextClaimableKey ?? null) : nextTask(db, p.id).then((r) => r.task?.key ?? null),
-    cache.envBehind !== undefined ? Promise.resolve(cache.envBehind) : envIsBehind(db, p, all),
+    cache.envBehind !== undefined && cache.envUnknown !== undefined
+      ? Promise.resolve({ behind: cache.envBehind, unknown: cache.envUnknown })
+      : projectEnvDrift(db, p, all),
   ]);
 
   const flags = new Map<string, { other: boolean }>();
@@ -437,7 +485,8 @@ export async function loadReadiness(db: Q, p: Project, cache: ReadinessCache = {
     headlineStale: p.headlineNoteStale,
     nextClaimableKey: nextKey,
     deployFailed: polls.some((row) => row.source === "vercel" && !!row.error),
-    envBehind: behind,
+    envBehind: behind.behind,
+    envUnknown: behind.unknown,
     initiatives,
     tickets: ticketInputs,
     decisions,

@@ -1,12 +1,18 @@
 // Ahora's model (ui/src/lib/ahora.ts). Pure, no database. Sample projects are fictional.
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { readFileSync } from "node:fs";
 import {
   GONE_LEASE,
-  LIVENESS_WORD,
   NO_OWNER,
-  QUIET_MS,
+  QUIET_PREFIX,
+  READINESS_BADGE,
+  READ_ONLY_LINE,
   STALE_LEASE,
+  SUMMARY_ANYWAY,
+  SUMMARY_BUTTON,
+  SUMMARY_CANCEL,
+  SUMMARY_ONLY,
   TE_TOCA_LIMIT,
   GATE_MARK,
   IDEA_STAGE_LABEL,
@@ -17,15 +23,21 @@ import {
   ideasByStage,
   ideasFromProject,
   oldestWaitingIdea,
+  quietLine,
   retomarOf,
   siguienteOf,
+  sinTrabajoOf,
+  summaryAction,
+  summaryLabel,
   teTocaOf,
+  unblockOf,
   urgencyRank,
   type AhoraFootprint,
   type AhoraInboxItem,
   type AhoraProject,
   type AhoraTask,
   type IdeaTask,
+  type Readiness,
 } from "../ui/src/lib/ahora.js";
 
 const NOW = Date.parse("2026-10-11T12:00:00Z");
@@ -34,8 +46,22 @@ function ticket(key: string, status: string, extra: Partial<AhoraTask> = {}): Ah
   return { key, kind: "ticket", title: `Ticket ${key}`, status, ...extra };
 }
 
+function noContext(): Readiness {
+  return {
+    state: "no_context",
+    reasons: [{ code: "NO_CONTEXT", severity: "no_context", text: "No hay contexto reciente para retomar.", task_key: null }],
+    line: "No hay contexto reciente para retomar.",
+  };
+}
+
+function readiness(state: Readiness["state"], text: string, code = state.toUpperCase(), task_key: string | null = null): Readiness {
+  if (state === "ready") return { state, reasons: [], line: text };
+  if (state === "no_context") return noContext();
+  return { state, reasons: [{ code, severity: state, text, task_key }], line: text };
+}
+
 function project(slug: string, extra: Partial<AhoraProject> = {}): AhoraProject {
-  return { slug, title: slug.toUpperCase(), line: `Línea de ${slug}.`, tasks: [], next_claimable: null, ...extra };
+  return { slug, title: slug.toUpperCase(), line: `Línea de ${slug}.`, readiness: noContext(), tasks: [], next_claimable: null, ...extra };
 }
 
 function item(partial: Partial<AhoraInboxItem> & Pick<AhoraInboxItem, "id" | "group" | "waiting_since">): AhoraInboxItem {
@@ -88,29 +114,123 @@ describe("teTocaOf", () => {
 
 describe("enCursoOf", () => {
   const live = "2026-10-11T11:50:00Z";
-  const quiet = new Date(NOW - QUIET_MS - 60_000).toISOString();
 
-  test("the line is the project's own, and liveness is the liveliest claim", () => {
-    const alfa = project("alfa", { line: "En curso: ALF-2 (Agente Norte). Siguiente: ALF-3.", tasks: [claim("ALF-2", live), ticket("ALF-1", "Done")] });
-    const beta = project("beta", { line: "En curso: BET-1 (Agente Sur).", tasks: [claim("BET-1", quiet)] });
-    const gamma = project("gamma", { line: "Sin ficha.", tasks: [ticket("GAM-1", "In progress")] });
-    const delta = project("delta", { line: "Siguiente: DEL-1.", tasks: [] });
-    const rows = enCursoOf([alfa, beta, gamma, delta], [], NOW);
-    assert.deepEqual(rows.map((r) => [r.slug, r.line, r.liveness && LIVENESS_WORD[r.liveness]]), [
-      ["alfa", alfa.line, "en vivo"],
-      ["beta", beta.line, "quieto"],
-      ["gamma", "Sin ficha.", "vencido"],
-      ["delta", delta.line, null],
+  test("live work is a row; everything else is the quiet line", () => {
+    const alfa = project("alfa", {
+      title: "Proyecto A",
+      readiness: readiness("ready", "ALF-2: se puede retomar."),
+      tasks: [claim("ALF-2", live), ticket("ALF-1", "Done")],
+    });
+    const beta = project("beta", {
+      title: "Proyecto B",
+      readiness: readiness("caution", "BET-1: un check del PR sigue pendiente.", "PR_PENDING", "BET-1"),
+      tasks: [ticket("BET-1", "In review")],
+    });
+    const gamma = project("gamma", {
+      title: "Proyecto C",
+      readiness: readiness("caution", "GAM-1: la reserva de trabajo ya venció.", "LEASE_EXPIRED", "GAM-1"),
+      tasks: [ticket("GAM-1", "In progress")],
+    });
+    const delta = project("delta", {
+      title: "Proyecto D",
+      readiness: readiness("ready", "Siguiente: DEL-1."),
+      tasks: [ticket("DEL-1", "Ready")],
+      next_claimable: { key: "DEL-1", title: "Empezar" },
+    });
+    const epsilon = project("epsilon", { title: "Proyecto E" });
+    const rows = enCursoOf([alfa, beta, gamma, delta, epsilon]);
+    assert.deepEqual(rows.map((row) => [row.slug, row.state, row.line]), [
+      ["alfa", "ready", "ALF-2: se puede retomar."],
+      ["beta", "caution", "BET-1: un check del PR sigue pendiente."],
+      ["gamma", "caution", "GAM-1: la reserva de trabajo ya venció."],
     ]);
+    assert.deepEqual(rows[0]!.reasons, []);
+    assert.equal(rows[1]!.reasons[0]!.code, "PR_PENDING");
+    assert.deepEqual(sinTrabajoOf([alfa, beta, gamma, delta, epsilon]).map((row) => row.title), ["Proyecto D", "Proyecto E"]);
+    assert.equal(quietLine(sinTrabajoOf([alfa, beta, gamma, delta, epsilon])), "Sin trabajo en curso: Proyecto D, Proyecto E");
   });
 
-  test("a live heartbeat loses to a stale or gone footprint, and a live claim beats a quiet one", () => {
-    const alfa = project("alfa", { tasks: [claim("ALF-2", live)] });
-    const gone: AhoraFootprint[] = [{ project: "alfa", task_key: "ALF-2", state: "stale" }];
-    assert.equal(enCursoOf([alfa], gone, NOW)[0]!.liveness, "stale");
-    const mixed = project("beta", { tasks: [claim("BET-1", quiet), claim("BET-2", live)] });
-    assert.equal(enCursoOf([mixed], [], NOW)[0]!.liveness, "live");
-    assert.equal(enCursoOf([project("alfa", { tasks: [claim("ALF-9", live)] })], [{ project: "alfa", task_key: "ALF-9", state: "gone" }], NOW)[0]!.liveness, "stale");
+  test("a quiet claim is still live work, and no_context never has a row", () => {
+    const quietSeen = "2026-10-11T10:00:00Z";
+    const quiet = project("alfa", {
+      title: "Proyecto A",
+      readiness: readiness("caution", "ALF-2: el claim lleva callado.", "CLAIM_QUIET", "ALF-2"),
+      tasks: [claim("ALF-2", quietSeen)],
+    });
+    assert.equal(enCursoOf([quiet])[0]!.state, "caution");
+    const empty = project("beta", {
+      title: "Proyecto B",
+      tasks: [ticket("BET-1", "In review")],
+    });
+    assert.deepEqual(enCursoOf([empty]), []);
+    assert.equal(summaryAction("no_context"), "none");
+    assert.deepEqual(sinTrabajoOf([empty]).map((row) => row.title), ["Proyecto B"]);
+  });
+
+  test("each state renders a badge, the reason, and a button only when it is safe", () => {
+    assert.deepEqual(READINESS_BADGE, { ready: "Listo", caution: "Con cuidado", blocked: "Bloqueado" });
+    const ready = enCursoOf([
+      project("alfa", {
+        title: "Proyecto A",
+        readiness: readiness("ready", "ALF-2: se puede retomar."),
+        tasks: [claim("ALF-2", live)],
+      }),
+    ])[0]!;
+    assert.equal(READINESS_BADGE[ready.state], "Listo");
+    assert.equal(ready.line, "ALF-2: se puede retomar.");
+    assert.equal(summaryAction(ready.state), "open");
+    assert.equal(unblockOf(ready), null);
+    assert.equal(summaryLabel(ready.title, ready.state), "Ver resumen de Proyecto A, Listo. Solo muestra un resumen.");
+
+    const caution = enCursoOf([
+      project("beta", {
+        title: "Proyecto B",
+        readiness: readiness("caution", "BET-1: el worktree tiene cambios sin guardar.", "WORKTREE_DIRTY", "BET-1"),
+        tasks: [claim("BET-1", live)],
+      }),
+    ])[0]!;
+    assert.equal(READINESS_BADGE[caution.state], "Con cuidado");
+    assert.equal(caution.reasons[0]!.text, "BET-1: el worktree tiene cambios sin guardar.");
+    assert.equal(summaryAction(caution.state), "confirm");
+    assert.equal(unblockOf(caution), null);
+
+    const blocked = enCursoOf([
+      project("gamma", {
+        title: "Proyecto C",
+        readiness: readiness("blocked", "GAM-1: el PR falló los checks.", "CI_FAILURE", "GAM-1"),
+        tasks: [ticket("GAM-1", "In review")],
+      }),
+    ])[0]!;
+    assert.equal(READINESS_BADGE[blocked.state], "Bloqueado");
+    assert.equal(blocked.line, "GAM-1: el PR falló los checks.");
+    assert.equal(summaryAction(blocked.state), "none");
+    assert.deepEqual(unblockOf(blocked), { href: "/p/gamma?task=GAM-1", label: "Ver GAM-1" });
+
+    const decision = enCursoOf([
+      project("delta", {
+        title: "Proyecto D",
+        readiness: readiness("blocked", "DEL-1: espera una decisión humana.", "DECISION_PENDING", "DEL-1"),
+        tasks: [claim("DEL-1", live)],
+      }),
+    ])[0]!;
+    assert.equal(summaryAction(decision.state), "none");
+    assert.equal(unblockOf(decision, [{ project: "delta", key: "DEL-1", kind: "question" }])?.label, "Ver la pregunta de DEL-1");
+    assert.equal(unblockOf(decision, [{ project: "delta", key: "DEL-1", kind: "approval" }])?.label, "Ver la aprobación de DEL-1");
+    assert.equal(unblockOf(decision)?.label, "Ver la decisión de DEL-1");
+  });
+
+  test("the quiet line names the projects and has no summary button", () => {
+    const only = [project("alfa", { title: "Proyecto A" }), project("beta", { title: "Proyecto B" })];
+    assert.deepEqual(enCursoOf(only), []);
+    assert.equal(quietLine(sinTrabajoOf(only)), `${QUIET_PREFIX}: Proyecto A, Proyecto B`);
+    assert.equal(quietLine([]), `${QUIET_PREFIX}.`);
+    assert.equal(summaryAction("blocked"), "none");
+    assert.equal(summaryAction("no_context"), "none");
+    assert.equal(SUMMARY_BUTTON, "Ver resumen");
+    assert.equal(SUMMARY_ONLY, "Solo muestra un resumen.");
+    assert.equal(SUMMARY_ANYWAY, "Ver resumen de todos modos");
+    assert.equal(SUMMARY_CANCEL, "Cancelar");
+    assert.equal(READ_ONLY_LINE, "Solo lectura. No cambia nada del proyecto.");
   });
 });
 
@@ -196,9 +316,12 @@ describe("retomarOf", () => {
 
 test("an idea is not in flight, blocked, or next", () => {
   const alfa = project("alfa", {
+    title: "Proyecto A",
+    readiness: readiness("ready", "Siguiente: nada."),
     tasks: [ticket("ALF-IDEA1", "In progress", { kind: "idea" })],
   });
-  assert.equal(enCursoOf([alfa], [], NOW)[0]!.liveness, null);
+  assert.deepEqual(enCursoOf([alfa]), []);
+  assert.deepEqual(sinTrabajoOf([alfa]).map((row) => row.title), ["Proyecto A"]);
   assert.deepEqual(bloqueadoOf([alfa], [], NOW), []);
   assert.deepEqual(siguienteOf([alfa]), []);
 });
@@ -242,6 +365,32 @@ function ideaTask(key: string, extra: Partial<IdeaTask> = {}): IdeaTask {
     ...extra,
   };
 }
+
+describe("En curso on the page", () => {
+  const page = readFileSync(new URL("../ui/src/pages/ahora.tsx", import.meta.url), "utf8");
+  const sheet = readFileSync(new URL("../ui/src/components/retomar-sheet.tsx", import.meta.url), "utf8");
+
+  test("the section uses the server badge, the summary button, and a confirm step only in words", () => {
+    for (const word of ["SUMMARY_BUTTON", "SUMMARY_ONLY", "SUMMARY_ANYWAY", "SUMMARY_CANCEL", "QUIET_PREFIX", "READINESS_BADGE", "summaryAction", "quietLine", "unblockOf", "Ver resumen de "]) {
+      assert.equal(page.includes(word), true, word);
+    }
+    assert.equal(page.includes(">Retomar<"), false);
+    assert.equal(page.includes("LIVENESS_WORD"), false);
+    assert.equal(page.includes('variant="outline"'), true);
+    assert.equal(page.includes("onCloseAutoFocus={handleConfirmCloseAutoFocus}"), true);
+    assert.equal(page.includes("summaryButtonRef.current?.focus()"), true);
+    assert.equal(page.includes("Dialog"), true);
+  });
+
+  test("the sheet is a read-only summary and does not call a write", () => {
+    assert.equal(sheet.includes("READ_ONLY_LINE"), true);
+    assert.equal(sheet.includes("Resumen de "), true);
+    assert.equal(sheet.includes(">Retomar<"), false);
+    assert.equal(sheet.includes("api.project"), true);
+    assert.equal(sheet.replaceAll("api.project", "").includes("api."), false);
+    assert.equal(/mutate|method:\s*"POST"/.test(sheet), false);
+  });
+});
 
 describe("ideas on Ahora", () => {
   test("the stage labels are the five Spanish names", () => {
