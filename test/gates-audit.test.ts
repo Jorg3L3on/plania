@@ -53,13 +53,15 @@ after(async () => {
   await raw?.end();
 });
 
-describe("protocol 2.14", () => {
-  test("gates are a click on the screen, and the text stays under 900 words", () => {
+describe("protocol 2.15", () => {
+  test("gates are a click on the screen, the delegated path is honest, and the text stays under 900 words", () => {
     const text = instructions(false);
-    assert.equal(PROTOCOL_VERSION, "2.14");
+    assert.equal(PROTOCOL_VERSION, "2.15");
     assert.ok(text.split(/\s+/).length < 900, `${text.split(/\s+/).length} words`);
-    assert.match(text, /Human-only gates are answered by a click on the owner's screen; bots are refused/);
-    assert.match(text, /Never answer a gate, and never forward an answer/);
+    assert.match(text, /Human-only gates are answered by a click on the owner's screen/);
+    assert.match(text, /answer_delegated/);
+    assert.match(text, /cannot prove the caller is that bot or that the message exists/);
+    assert.match(text, /Never answer a gate yourself, and never forward an answer/);
     assert.equal(/authenticator|otpauth|TOTP|enrol/i.test(text), false);
   });
 });

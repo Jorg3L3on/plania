@@ -14,6 +14,7 @@ import { bus } from "../events.js";
 import { backupFindings, backupStatus } from "../jobs/backup.js";
 import { machineInventory, machineTotals, thisMachine } from "../jobs/machine/index.js";
 import { decideApproval } from "../mcp/approvals.js";
+import { delegationEnabled, setDelegationEnabled } from "../mcp/delegate.js";
 import { resolveHumanAction, SETTLED_STATUSES } from "../mcp/blockers.js";
 import { waiveCheck } from "../mcp/checks.js";
 import { listDecisions } from "../mcp/decisions.js";
@@ -94,6 +95,31 @@ api.post("/login", async (c) => {
 api.post("/logout", (c) => {
   deleteCookie(c, SESSION_COOKIE, { path: "/", secure: sessionCookieOptions(c.req.raw).secure });
   return c.body(null, 204);
+});
+
+// The kill switch for answer_delegated. Screen cookie only. A Bearer is a bot: 403, even with a
+// cookie. No cookie and no Bearer: 401. MCP has no tool for this, and this route is not under /mcp.
+function delegationAuth(c: Context): Response | null {
+  if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) {
+    return c.json({ error: "FORBIDDEN", hint: "the kill switch is the screen only" }, 403);
+  }
+  if (!verifySession(getCookie(c, SESSION_COOKIE))) return c.json({ error: "UNAUTHORIZED" }, 401);
+  return null;
+}
+
+api.get("/delegation", async (c) => {
+  const refused = delegationAuth(c);
+  if (refused) return refused;
+  return c.json({ enabled: await withDb((db) => delegationEnabled(db)) });
+});
+
+api.post("/delegation", async (c) => {
+  const refused = delegationAuth(c);
+  if (refused) return refused;
+  const body = await readJson(c, z.object({ enabled: z.boolean() }).strict());
+  if (body instanceof Response) return body;
+  const enabled = await withDb((db) => setDelegationEnabled(db, body.enabled));
+  return c.json({ enabled });
 });
 
 // Everything below needs a valid session.

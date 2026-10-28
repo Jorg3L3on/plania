@@ -102,6 +102,8 @@ export type Question = {
   gate?: string | null;
   /** True when only the screen may answer, by a click. */
   human_only?: boolean;
+  /** Set when the Plania bot recorded the owner's instruction. Absent on a screen click. */
+  delegated?: { message_id: string; quote: string; at: string; by: Actor } | null;
 };
 
 
@@ -215,8 +217,22 @@ export type InboxItem = {
   pr_url: string | null;
   action_hint: string;
 };
+// A closed answer the bot recorded. The Bandeja keeps it so the owner can review the quote.
+export type DelegatedReview = {
+  id: string;
+  project: string;
+  key: string | null;
+  kind: "question" | "approval";
+  gate: string | null;
+  action: string | null;
+  answer: string | null;
+  quote: string;
+  message_id: string;
+  at: string;
+};
+
 // count and by_project: decisiones + pasos; chores: limpieza (2.10).
-export type Inbox = { items: InboxItem[]; count: number; by_project: Record<string, number>; groups: Record<InboxGroup, number>; chores: number };
+export type Inbox = { items: InboxItem[]; count: number; by_project: Record<string, number>; groups: Record<InboxGroup, number>; chores: number; delegated: DelegatedReview[] };
 
 // 2.12 Hoy: get_digest as the screen reads it (GET /api/digest). Only the fields the strip shows.
 export type DigestHighlights = { done: string[]; to_review: string[]; blocked: string[]; needs_jorge: string[]; prs_opened: number[]; prs_merged: number[]; claims: string[] };

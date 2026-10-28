@@ -47,6 +47,7 @@ import { writeTx } from "./tx.js";
 import { PROTOCOL_VERSION, instructions } from "./protocol.js";
 import { releasePlan } from "./release-plan.js";
 import { GATES } from "./ideas.js";
+import { answerDelegated } from "./delegate.js";
 import { URGENCIES, answer, ask } from "./questions.js";
 import { TTL, claim, createTask, handoff, setTask } from "./writes.js";
 import { runAudit } from "./audit.js";
@@ -813,7 +814,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Record Jorge's answer to a question that is not human_only (he answers those on the screen; otherwise he may tell you in chat and you record it here, quoting him).",
-        "A human_only question, including every gate, is HUMAN_ONLY from here. Human-only gates are answered by a click on the owner's screen; bots are refused. Never answer a gate, and never forward an answer.",
+        "A human_only question, including every gate, is HUMAN_ONLY from here, including for actor agent plania-bot. Human-only gates are answered by a click on the owner's screen. The only bot path is answer_delegated, and only that agent may call it. Never answer a gate yourself, and never forward an answer.",
         "Pass decision_text when the answer settles something worth keeping: that line goes to the decision log (tag answer). Without it no decision is written.",
         "When no question is left open the ticket returns to its previous status (In progress without a live lease returns to Ready).",
       ].join(" "),
@@ -829,6 +830,38 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       annotations: write,
     },
     writeHandler("answer", (input, ctx) => answer(db, input, ctx)),
+  );
+
+  server.registerTool(
+    "answer_delegated",
+    {
+      description: [
+        "Record one answer the owner gave actor agent plania-bot in his own chat. Any other agent is HUMAN_ONLY, including a spoofed screen session.",
+        "One human_only question that has named options (every gate A, B or C): pass question_id and option, one of the stored options. The question closes as his.",
+        "Or one pending approval whose action is wont_do or reopen: pass approval_id and decision grant or reject. Other approval actions are NOT_DELEGABLE.",
+        "delegated_by_jorge is required: message_id (8 to 200 characters) and quote (8 to 280 characters) of his instruction. Missing, empty or short evidence is DELEGATION_EVIDENCE.",
+        "The server cannot prove this caller is the Plania bot or that the message exists: every bot shares the write token and the actor is declared on the request. The controls are the quote, GATE_ANSWERED_DELEGATED, the Delegada badge, 10 answers an hour, one per question, and the screen kill switch (default on). DELEGATION_OFF when that switch is off. DELEGATION_LIMIT when the hour or the question is already used.",
+        "This tool cannot raise the limit or flip the switch. The answer tool stays HUMAN_ONLY. The screen click is unchanged. Not available on /api, /hooks or /bot/v1.",
+      ].join(" "),
+      inputSchema: {
+        project,
+        actor,
+        request_id,
+        verbose,
+        question_id: z.string().optional().describe("A human_only question, including a gate. Not together with approval_id"),
+        approval_id: z.string().optional().describe("A pending wont_do or reopen approval. Not together with question_id"),
+        option: z.string().optional().describe("One of the question's stored options"),
+        decision: z.enum(["grant", "reject"]).optional().describe("grant or reject, for an approval"),
+        delegated_by_jorge: z
+          .object({
+            message_id: z.string().optional().describe("Id of the owner's chat message"),
+            quote: z.string().optional().describe("8 to 280 characters of his instruction"),
+          })
+          .optional(),
+      },
+      annotations: write,
+    },
+    writeHandler("answer_delegated", (input, ctx) => answerDelegated(db, input, ctx)),
   );
 
   server.registerTool(
@@ -934,6 +967,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       description: [
         "Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (pending approvals, open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac).",
         "count and by_project count decisiones and pasos; chores counts limpieza. Each item says why it waits, how long (wait_s), the latest passing evidence and the PR. project: a slug, or 'all'. count 0 means nothing needs him.",
+        "delegated lists answers plania-bot recorded for the owner (quote, message id, time), including ones that already closed, so he can review them.",
       ].join(" "),
       inputSchema: { project: z.string().min(1).describe("Project slug, or all") },
       annotations: readOnly,
@@ -946,7 +980,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
-        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, GATE_ANSWERED_BY_AGENT, STAGE_DOC_STALE, and the footprint codes.",
+        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, GATE_ANSWERED_BY_AGENT, GATE_ANSWERED_DELEGATED, STAGE_DOC_STALE, and the footprint codes.",
         "Each finding has key, detail and fix_hint. It also runs every ten minutes; get_resume.status.audit_findings is the last count.",
       ].join(" "),
       inputSchema: { project },

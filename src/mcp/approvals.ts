@@ -1,10 +1,14 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { approvals, projects, tasks, type Actor, type Task } from "../db/schema.js";
+import { approvals, delegatedAnswers, projects, tasks, type Actor, type Task } from "../db/schema.js";
 import { ToolError } from "./errors.js";
 import { type ApprovalAction } from "./lifecycle.js";
 import { findProject, requireTask } from "./queries.js";
+import type { AnswerDelegation, DelegatedView } from "./questions.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
+
+// wont_do and reopen are the approval moves answer_delegated may record. The rest stay on the screen.
+export const DELEGABLE_APPROVALS = ["wont_do", "reopen"] as const;
 
 // Approvals (2.1, R-05). Won't do, reopening, a waiver once In review: an agent asks with
 // request_approval, Jorge decides on screen (one event per decision), and the granted id unlocks
@@ -106,25 +110,61 @@ export async function decideApproval(
     .limit(1);
   if (!found) throw new ToolError("APPROVAL_NOT_FOUND", { approval_id: input.approval_id });
   const p = { id: found.a.projectId, slug: found.slug };
-  return writeTx(db, p, ctx, async (tx, emit) => {
-    const a = await loadApproval(tx, p.id, input.approval_id);
-    if (a.state !== "pending") throw new ToolError("APPROVAL_NOT_GRANTED", { approval_id: a.id, state: a.state, hint: "already decided" });
-    const state = input.decision === "grant" ? "granted" : "rejected";
-    const [u] = await tx
-      .update(approvals)
-      .set({
-        state,
-        decidedAt: sql`now()`,
-        decidedBy: ctx.actor,
-        decisionNote: input.note?.trim() || null,
-        expiresAt: input.decision === "grant" ? sql`now() + ${GRANT_TTL}::interval` : null,
+  return writeTx(db, p, ctx, (tx, emit) => decideInTx(tx, emit, p, input, ctx.actor));
+}
+
+// One decision inside an open write. delegation is set only by answer_delegated: the stored
+// decider is the owner, and the evidence row names the bot. The screen path passes neither.
+export async function decideInTx(
+  tx: Q,
+  emit: Emit,
+  p: { id: string },
+  input: { approval_id: string; decision: "grant" | "reject"; note?: string },
+  by: Actor,
+  delegation?: AnswerDelegation,
+): Promise<{ approval: ReturnType<typeof approvalShape>; delegated?: DelegatedView }> {
+  const a = await loadApproval(tx, p.id, input.approval_id);
+  if (a.state !== "pending") throw new ToolError("APPROVAL_NOT_GRANTED", { approval_id: a.id, state: a.state, hint: "already decided" });
+  if (delegation && !(DELEGABLE_APPROVALS as readonly string[]).includes(a.action)) {
+    throw new ToolError("NOT_DELEGABLE", { approval_id: a.id, action: a.action });
+  }
+  let stamp: DelegatedView | undefined;
+  if (delegation) {
+    const [prior] = await tx.select({ id: delegatedAnswers.id }).from(delegatedAnswers).where(eq(delegatedAnswers.approvalId, a.id)).limit(1);
+    if (prior) throw new ToolError("DELEGATION_LIMIT", { reason: "approval", approval_id: a.id });
+    const [stored] = await tx
+      .insert(delegatedAnswers)
+      .values({
+        projectId: p.id,
+        approvalId: a.id,
+        messageId: delegation.messageId,
+        quote: delegation.quote,
+        actor: delegation.actor,
       })
-      .where(eq(approvals.id, a.id))
       .returning();
-    const task = a.taskId ? { id: a.taskId, key: a.taskKey ?? "" } : null;
-    await emit(`approval.${state}`, task, { approval_id: a.id, action: a.action, target: a.target, note: u!.decisionNote });
-    return { approval: approvalShape(u!) };
-  });
+    stamp = { message_id: stored!.messageId, quote: stored!.quote, at: iso(stored!.createdAt), by: stored!.actor };
+  }
+  const state = input.decision === "grant" ? "granted" : "rejected";
+  const [u] = await tx
+    .update(approvals)
+    .set({
+      state,
+      decidedAt: sql`now()`,
+      decidedBy: by,
+      decisionNote: input.note?.trim() || null,
+      expiresAt: input.decision === "grant" ? sql`now() + ${GRANT_TTL}::interval` : null,
+    })
+    .where(eq(approvals.id, a.id))
+    .returning();
+  const task = a.taskId ? { id: a.taskId, key: a.taskKey ?? "" } : null;
+  await emit(`approval.${state}`, task, {
+    approval_id: a.id,
+    action: a.action,
+    target: a.target,
+    note: u!.decisionNote,
+    ...(stamp ? { delegated: stamp } : {}),
+  }, by);
+  return { approval: approvalShape(u!), ...(stamp ? { delegated: stamp } : {}) };
 }
 
 export async function pendingApprovals(db: Q, projectId: string) {

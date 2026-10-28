@@ -62,6 +62,9 @@ export const api = {
     request<{ key: string }>("POST", `/projects/${encodeURIComponent(slug)}/blockers/${encodeURIComponent(id)}/resolve`, note ? { note } : undefined),
   decide: (ids: string[], decision: "grant" | "reject", note?: string) =>
     request<{ results: { id: string; ok: boolean; error?: string }[]; decided: number }>("POST", "/approvals/decide", { ids, decision, note }),
+  // Screen only. The bot cannot read or flip this.
+  delegation: () => request<{ enabled: boolean }>("GET", "/delegation"),
+  setDelegation: (enabled: boolean) => request<{ enabled: boolean }>("POST", "/delegation", { enabled }),
   machine: () => request<Machine>("GET", "/machine"),
   // 2.12 Hoy: the digest since this device's cursor; "Visto" moves the server's bookmark too.
   digest: (since?: number) => request<Digest>("GET", since === undefined ? "/digest" : `/digest?since=${since}`),

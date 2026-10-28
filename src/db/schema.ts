@@ -337,6 +337,35 @@ export const questions = pgTable(
   ],
 );
 
+// PLA-I15-2: one delegated answer. The owner told plania-bot in his own chat; the bot records
+// that single option or approval decision with the message id and a short quote. answered_by on
+// the question stays the screen actor (the owner). This row is the evidence, and it is what the
+// Bandeja badge and GATE_ANSWERED_DELEGATED read. The server cannot prove the message exists.
+export const delegatedAnswers = pgTable(
+  "delegated_answers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    questionId: uuid("question_id").references(() => questions.id, { onDelete: "cascade" }),
+    approvalId: uuid("approval_id").references(() => approvals.id, { onDelete: "cascade" }),
+    messageId: text("message_id").notNull(),
+    quote: text("quote").notNull(),
+    actor: jsonb("actor").$type<Actor>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("delegated_answers_question_unique").on(t.questionId).where(sql`${t.questionId} is not null`),
+    uniqueIndex("delegated_answers_approval_unique").on(t.approvalId).where(sql`${t.approvalId} is not null`),
+    index("delegated_answers_created_idx").on(t.createdAt),
+    check(
+      "delegated_answers_one_target",
+      sql`(${t.questionId} is not null and ${t.approvalId} is null) or (${t.questionId} is null and ${t.approvalId} is not null)`,
+    ),
+  ],
+);
+
 // v2: evidence. Several per task; In review requires one that fits the ticket's work_type.
 export const results = pgTable(
   "results",
@@ -634,7 +663,7 @@ export const auditRuns = pgTable("audit_runs", {
     .references(() => projects.id, { onDelete: "cascade" }),
   at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
   count: integer("count").notNull().default(0),
-  findings: jsonb("findings").$type<{ code: string; key: string | null; detail: string; fix_hint: string; id?: string; command?: string }[]>().notNull().default([]),
+  findings: jsonb("findings").$type<{ code: string; key: string | null; detail: string; fix_hint: string; id?: string; command?: string; level?: "info" | "warn" }[]>().notNull().default([]),
 });
 
 // v2.3 (R-22): what a deploy shipped, computed when tickets reach Released.
