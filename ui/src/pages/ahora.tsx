@@ -2,18 +2,24 @@
 // The project list, the inbox and the machine, plus one project read for each project that already has an idea.
 // LiveProvider already invalidates those keys, so there is no second refresh.
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { TeTocaItems } from "@/components/home/te-toca";
 import { StageChip } from "@/components/task-row";
 import { RetomarSheet } from "@/components/retomar-sheet";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kicker, accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
 import {
   GATE_MARK,
-  LIVENESS_WORD,
+  QUIET_PREFIX,
+  READINESS_BADGE,
+  SUMMARY_ANYWAY,
+  SUMMARY_BUTTON,
+  SUMMARY_CANCEL,
+  SUMMARY_ONLY,
   URGENCY_WORD,
   bloqueadoOf,
   enCursoOf,
@@ -22,19 +28,26 @@ import {
   ideasByStage,
   ideasFromProject,
   oldestWaitingIdea,
+  quietLine,
   siguienteOf,
+  sinTrabajoOf,
+  summaryAction,
+  summaryLabel,
   teTocaOf,
+  unblockOf,
   type AhoraIdea,
+  type CourseRow,
+  type CourseState,
   type IdeaColumn,
   type IdeaStage,
-  type Liveness,
+  type QuietProject,
 } from "@/lib/ahora";
 import { cn } from "@/lib/utils";
 
-const LIVENESS_CLASS: Record<Liveness, string> = {
-  live: "bg-status-done/12 text-ink-done",
-  quiet: "bg-status-pending/40 text-muted-foreground",
-  stale: "bg-status-now/16 text-ink-now",
+const BADGE_CLASS: Record<CourseState, string> = {
+  ready: "bg-status-done/12 text-ink-done",
+  caution: "bg-status-now/16 text-ink-now",
+  blocked: "bg-status-blocked/12 text-ink-blocked",
 };
 
 const STAGE_TONE: Record<IdeaStage, string> = {
@@ -148,15 +161,68 @@ function WaitingIdeaLine({ idea }: { idea: AhoraIdea }) {
   );
 }
 
+function QuietLine({ projects }: { projects: QuietProject[] }) {
+  if (!projects.length) return <p className="text-sm text-muted-foreground">{quietLine([])}</p>;
+  return (
+    <p className="text-sm text-muted-foreground">
+      {QUIET_PREFIX}:{" "}
+      {projects.map((project, index) => (
+        <span key={project.slug}>
+          {index > 0 && ", "}
+          <Link
+            to={`/p/${project.slug}`}
+            className="font-medium text-foreground underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            {project.title}
+          </Link>
+        </span>
+      ))}
+    </p>
+  );
+}
+
+function ReadinessBadge({ state }: { state: CourseState }) {
+  return (
+    <span className={cn("inline-flex h-5 items-center rounded-full px-2 text-[11px] font-semibold", BADGE_CLASS[state])}>
+      {READINESS_BADGE[state]}
+    </span>
+  );
+}
+
 export function AhoraPage() {
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
   const machine = useQuery({ queryKey: ["machine"], queryFn: api.machine, staleTime: 15_000 });
   const nowMs = useNow();
-  const [retomar, setRetomar] = useState<{ slug: string; title: string } | null>(null);
-  const handleRetomar = (slug: string, title: string) => setRetomar({ slug, title });
-  const handleRetomarOpen = (open: boolean) => {
-    if (!open) setRetomar(null);
+  const summaryButtonRef = useRef<HTMLButtonElement | null>(null);
+  const proceedRef = useRef(false);
+  const [summary, setSummary] = useState<CourseRow | null>(null);
+  const [confirm, setConfirm] = useState<CourseRow | null>(null);
+  const handleSummary = (row: CourseRow, button: HTMLButtonElement) => {
+    summaryButtonRef.current = button;
+    if (summaryAction(row.state) === "open") setSummary(row);
+    if (summaryAction(row.state) === "confirm") setConfirm(row);
+  };
+  const handleSummaryOpen = (open: boolean) => {
+    if (!open) setSummary(null);
+  };
+  const handleConfirmOpen = (open: boolean) => {
+    if (!open) setConfirm(null);
+  };
+  const handleConfirmSummary = () => {
+    if (!confirm) return;
+    proceedRef.current = true;
+    setSummary(confirm);
+    setConfirm(null);
+  };
+  const handleCancelConfirm = () => setConfirm(null);
+  const handleConfirmCloseAutoFocus = (event: Event) => {
+    event.preventDefault();
+    if (proceedRef.current) {
+      proceedRef.current = false;
+      return;
+    }
+    summaryButtonRef.current?.focus();
   };
 
   const ideaSlugs = useMemo(
@@ -176,7 +242,8 @@ export function AhoraPage() {
     const prints = machine.data?.items ?? [];
     return {
       teToca: inbox.data ? teTocaOf(inbox.data) : null,
-      curso: enCursoOf(list, prints, nowMs),
+      curso: enCursoOf(list),
+      quiet: sinTrabajoOf(list),
       bloqueado: bloqueadoOf(list, prints, nowMs),
       siguiente: siguienteOf(list),
     };
@@ -230,27 +297,50 @@ export function AhoraPage() {
       </Section>
 
       <Section id="en-curso" title="En curso" tone="text-ink-now">
-        {model.curso.length === 0 && <p className="text-sm text-muted-foreground">Ningún proyecto.</p>}
-        <ul className="grid gap-2">
-          {model.curso.map((row) => (
-            <li key={row.slug} className="flex flex-wrap items-start gap-2 rounded-xl bg-surface-sunken px-3 py-2.5">
-              <Link to={`/p/${row.slug}`} className="grid min-w-0 flex-1 gap-1 rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-                <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                  <ProjectName slug={row.slug} title={row.title} />
-                  {row.liveness && (
-                    <span className={cn("inline-flex h-5 items-center rounded-full px-2 text-[11px] font-semibold", LIVENESS_CLASS[row.liveness])}>
-                      {LIVENESS_WORD[row.liveness]}
+        {model.curso.length > 0 && (
+          <ul className="grid gap-2">
+            {model.curso.map((row) => {
+              const unblock = unblockOf(row, inbox.data?.items ?? []);
+              const action = summaryAction(row.state);
+              return (
+                <li key={row.slug} aria-label={`${row.title}, ${READINESS_BADGE[row.state]}`} className="flex flex-wrap items-start gap-2 rounded-xl bg-surface-sunken px-3 py-2.5">
+                  <div className="grid min-w-0 flex-1 gap-1">
+                    <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <Link to={`/p/${row.slug}`} className="rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                        <ProjectName slug={row.slug} title={row.title} />
+                      </Link>
+                      <ReadinessBadge state={row.state} />
                     </span>
+                    <span className="text-sm leading-snug text-foreground/80 wrap-anywhere">{row.line}</span>
+                    {unblock && (
+                      <Link
+                        to={unblock.href}
+                        className="w-fit text-sm font-semibold underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                      >
+                        {unblock.label}
+                      </Link>
+                    )}
+                  </div>
+                  {action !== "none" && (
+                    <div className="grid justify-items-end gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={summaryLabel(row.title, row.state)}
+                        onClick={(event) => handleSummary(row, event.currentTarget)}
+                      >
+                        {SUMMARY_BUTTON}
+                      </Button>
+                      <span className="text-[11px] text-muted-foreground">{SUMMARY_ONLY}</span>
+                    </div>
                   )}
-                </span>
-                <span className="text-sm leading-snug text-foreground/80 wrap-anywhere">{row.line}</span>
-              </Link>
-              <Button type="button" variant="outline" size="sm" aria-label={`Retomar ${row.title}`} onClick={() => handleRetomar(row.slug, row.title)}>
-                Retomar
-              </Button>
-            </li>
-          ))}
-        </ul>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {(model.quiet.length > 0 || model.curso.length === 0) && <QuietLine projects={model.quiet} />}
       </Section>
 
       <Section id="ideas" title="Ideas" tone="text-foreground" meta={ideasPending ? undefined : ideaMeta}>
@@ -302,7 +392,46 @@ export function AhoraPage() {
           )}
         </Section>
       </div>
-      <RetomarSheet slug={retomar?.slug ?? ""} title={retomar?.title ?? ""} open={retomar !== null} onOpenChange={handleRetomarOpen} />
+      <Dialog open={confirm !== null} onOpenChange={handleConfirmOpen}>
+        <DialogContent
+          showCloseButton={false}
+          aria-label={confirm ? `Ver resumen de ${confirm.title}, ${READINESS_BADGE.caution}` : undefined}
+          onCloseAutoFocus={handleConfirmCloseAutoFocus}
+        >
+          <DialogHeader>
+            <DialogTitle>{confirm ? `Ver resumen de ${confirm.title}` : SUMMARY_BUTTON}</DialogTitle>
+            <DialogDescription>
+              {confirm ? `${confirm.title} está ${READINESS_BADGE.caution}. ` : ""}
+              {SUMMARY_ONLY} Revisa las razones antes de abrirlo.
+            </DialogDescription>
+          </DialogHeader>
+          {confirm && confirm.reasons.length > 0 && (
+            <ul className="grid gap-1">
+              {confirm.reasons.map((reason) => (
+                <li key={`${reason.code}/${reason.task_key ?? ""}`} className="text-sm leading-snug">
+                  {reason.text}
+                </li>
+              ))}
+            </ul>
+          )}
+          {confirm && confirm.reasons.length === 0 && <p className="text-sm leading-snug">{confirm.line}</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={handleCancelConfirm}>
+              {SUMMARY_CANCEL}
+            </Button>
+            <Button type="button" onClick={handleConfirmSummary}>
+              {SUMMARY_ANYWAY}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <RetomarSheet
+        slug={summary?.slug ?? ""}
+        title={summary?.title ?? ""}
+        readiness={summary ? { state: summary.state, reasons: summary.reasons, line: summary.line } : null}
+        open={summary !== null}
+        onOpenChange={handleSummaryOpen}
+      />
     </div>
   );
 }

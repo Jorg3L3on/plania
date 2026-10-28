@@ -1,20 +1,25 @@
 // Ahora's model, apart from the markup. Pure functions over the /api shapes (projects, inbox,
 // machine), so test/ahora.test.ts can load this file with node:test. The page does not poll:
 // LiveProvider already invalidates these queries.
-import type { InboxGroup } from "./types.js";
+import type { InboxGroup, Readiness, ReadinessReason, ReadinessState } from "./types.js";
 
-/** Same window get_running uses when PLANIA_QUIET_MIN is unset (src/mcp/watch.ts). */
-export const QUIET_MS = 20 * 60_000;
+export type { Readiness, ReadinessReason, ReadinessState };
 
 export const TE_TOCA_LIMIT = 3;
 
-export type Liveness = "live" | "quiet" | "stale";
-
-export const LIVENESS_WORD: Record<Liveness, string> = {
-  live: "en vivo",
-  quiet: "quieto",
-  stale: "vencido",
+/** Words on the En curso badge. Color never stands alone. */
+export const READINESS_BADGE: Record<Exclude<ReadinessState, "no_context">, string> = {
+  ready: "Listo",
+  caution: "Con cuidado",
+  blocked: "Bloqueado",
 };
+
+export const SUMMARY_BUTTON = "Ver resumen";
+export const SUMMARY_ONLY = "Solo muestra un resumen.";
+export const SUMMARY_ANYWAY = "Ver resumen de todos modos";
+export const SUMMARY_CANCEL = "Cancelar";
+export const READ_ONLY_LINE = "Solo lectura. No cambia nada del proyecto.";
+export const QUIET_PREFIX = "Sin trabajo en curso";
 
 /** Questions carry this; decisions and steps do not, and sort with "now". */
 export const URGENCY_WORD: Record<string, string> = {
@@ -46,6 +51,8 @@ export type AhoraProject = {
   title: string;
   /** The generated line (list_projects / GET /api/projects `line`). */
   line: string;
+  /** Server readiness. The screen shows it and does not recompute it. */
+  readiness: Readiness;
   tasks: AhoraTask[];
   next_claimable: { key: string; title: string; kind?: string } | null;
   initiatives?: { key: string; waiting_on?: { key: string; on: string }[] }[];
@@ -81,17 +88,28 @@ export function teTocaOf<T extends AhoraInboxItem>(inbox: { items: T[]; count: n
   return { count: inbox.count, items: items.slice(0, TE_TOCA_LIMIT) };
 }
 
-export type CourseRow = { slug: string; title: string; line: string; liveness: Liveness | null };
+export type CourseState = Exclude<ReadinessState, "no_context">;
+
+export type CourseRow = {
+  slug: string;
+  title: string;
+  state: CourseState;
+  reasons: ReadinessReason[];
+  line: string;
+};
+
+export type QuietProject = { slug: string; title: string };
+
+export type SummaryAction = "open" | "confirm" | "none";
+
+export type UnblockLink = { href: string; label: string };
+
+const CLOSED = new Set(["Done", "Won't do"]);
 
 function at(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const n = Date.parse(iso);
   return Number.isNaN(n) ? null : n;
-}
-
-function latest(a: string | null | undefined, b: string | null | undefined): number | null {
-  const times = [at(a), at(b)].filter((n): n is number => n !== null);
-  return times.length ? Math.max(...times) : null;
 }
 
 function goneOnMachine(machine: AhoraFootprint[], slug: string, key: string): boolean {
@@ -109,27 +127,68 @@ function leaseExpired(task: AhoraTask, nowMs: number): boolean {
   return until !== null && until <= nowMs;
 }
 
-/** One signal per ticket that is claimed or was left In progress. Null when the ticket says nothing about liveness. */
-function ticketLiveness(task: AhoraTask, gone: boolean, nowMs: number): Liveness | null {
-  if (task.kind !== "ticket") return null;
-  if (!leaseLive(task, nowMs)) return task.status === "In progress" ? "stale" : null;
-  if (gone) return "stale";
-  const last = latest(task.claimed_at, task.last_seen_at);
-  if (last === null || nowMs - last > QUIET_MS) return "quiet";
-  return "live";
+/**
+ * Live work is a claim the server still shows (live or quiet: the lease is on the row),
+ * a claim it marks expired, or a ticket In review. no_context never qualifies.
+ * The screen's task list hides an expired lease, so that case is the server's LEASE_EXPIRED.
+ */
+export function hasLiveWork(project: AhoraProject): boolean {
+  if (project.readiness.state === "no_context") return false;
+  if (project.readiness.reasons.some((reason) => reason.code === "LEASE_EXPIRED")) return true;
+  return project.tasks.some(
+    (task) => task.kind === "ticket" && !CLOSED.has(task.status) && (task.status === "In review" || (!!task.claimed_by && !!task.lease_until)),
+  );
 }
 
-const LIVENESS_RANK: Record<Liveness, number> = { live: 0, quiet: 1, stale: 2 };
+/** Rows for projects with live work, in the order given. State, reasons and line are the server's. */
+export function enCursoOf(projects: AhoraProject[]): CourseRow[] {
+  const rows: CourseRow[] = [];
+  for (const project of projects) {
+    if (!hasLiveWork(project) || project.readiness.state === "no_context") continue;
+    rows.push({
+      slug: project.slug,
+      title: project.title,
+      state: project.readiness.state,
+      reasons: project.readiness.reasons,
+      line: project.readiness.line,
+    });
+  }
+  return rows;
+}
 
-/** One row per project, in the order given (list_projects is slug order). The line is the server's, untouched. */
-export function enCursoOf(projects: AhoraProject[], machine: AhoraFootprint[], nowMs: number): CourseRow[] {
-  return projects.map((p) => {
-    const signals = p.tasks
-      .map((t) => ticketLiveness(t, goneOnMachine(machine, p.slug, t.key), nowMs))
-      .filter((s): s is Liveness => s !== null);
-    signals.sort((a, b) => LIVENESS_RANK[a] - LIVENESS_RANK[b]);
-    return { slug: p.slug, title: p.title, line: p.line, liveness: signals[0] ?? null };
-  });
+/** Projects with no live work, including no_context. The quiet line names them and has no buttons. */
+export function sinTrabajoOf(projects: AhoraProject[]): QuietProject[] {
+  return projects.filter((project) => !hasLiveWork(project)).map((project) => ({ slug: project.slug, title: project.title }));
+}
+
+export function quietLine(quiet: { title: string }[]): string {
+  if (!quiet.length) return `${QUIET_PREFIX}.`;
+  return `${QUIET_PREFIX}: ${quiet.map((project) => project.title).join(", ")}`;
+}
+
+/** ready opens the sheet. caution confirms first. blocked and no_context have no button. */
+export function summaryAction(state: ReadinessState): SummaryAction {
+  if (state === "ready") return "open";
+  if (state === "caution") return "confirm";
+  return "none";
+}
+
+export function summaryLabel(title: string, state: CourseState): string {
+  return `${SUMMARY_BUTTON} de ${title}, ${READINESS_BADGE[state]}. ${SUMMARY_ONLY}`;
+}
+
+/** The blocked row links to the ticket, or to the question or approval that holds it. */
+export function unblockOf(row: Pick<CourseRow, "slug" | "state" | "reasons">, inbox: { project: string; key: string | null; kind: string }[] = []): UnblockLink | null {
+  if (row.state !== "blocked") return null;
+  const reason = row.reasons.find((item) => item.severity === "blocked");
+  const key = reason?.task_key;
+  if (!reason || !key) return null;
+  const href = `/p/${row.slug}?task=${encodeURIComponent(key)}`;
+  if (reason.code !== "DECISION_PENDING") return { href, label: `Ver ${key}` };
+  const kinds = new Set(inbox.filter((item) => item.project === row.slug && item.key === key).map((item) => item.kind));
+  if (kinds.has("approval") && !kinds.has("question")) return { href, label: `Ver la aprobación de ${key}` };
+  if (kinds.has("question")) return { href, label: `Ver la pregunta de ${key}` };
+  return { href, label: `Ver la decisión de ${key}` };
 }
 
 export type BlockRow = { slug: string; title: string; key: string; on: string; kind: "wait" | "lease" };

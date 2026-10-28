@@ -7,6 +7,20 @@ export type Workspace = { machine?: string; worktree_path?: string; branch?: str
 /** One environment in a line for Inicio: what runs there and how many integration branches it trails. */
 export type EnvSummary = { env: string; commit: string | null; branch: string | null; deployed_at: string | null; flags: Record<string, unknown>; behind: number };
 
+/** 2.16: whether it is safe to open a read-only summary. The server decides; the screen does not recompute it. */
+export type ReadinessState = "ready" | "caution" | "blocked" | "no_context";
+export type ReadinessReason = {
+  code: string;
+  severity: "blocked" | "caution" | "no_context";
+  text: string;
+  task_key: string | null;
+};
+export type Readiness = {
+  state: ReadinessState;
+  reasons: ReadinessReason[];
+  line: string;
+};
+
 export type ProjectSummary = {
   slug: string;
   title: string;
@@ -14,6 +28,8 @@ export type ProjectSummary = {
   line: string;
   /** The next step, for the tiles. */
   next_line: string;
+  /** 2.16: read-only. Same object as get_resume. */
+  readiness: Readiness;
   /** Orden: the last audit run's count. */
   audit_count: number;
   open_questions: number;
@@ -123,6 +139,8 @@ export type Request = {
 
 export type Resume = {
   headline: Headline;
+  /** 2.16: read-only. The summary sheet shows it and does not recompute it. */
+  readiness: Readiness;
   claims: Claim[];
   requests?: Request[];
   next_claimable: NextTicket;

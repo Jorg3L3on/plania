@@ -1,5 +1,5 @@
-// Retomar: get_resume for one project, in a sheet. The headline, live claims, note and next
-// ticket sit on top; ResumeView is the same block the project page uses underneath.
+// Read-only summary of one project. get_resume (GET /api/projects/:slug) only.
+// Reasons sit above the same ResumeView the project page uses. Nothing here writes.
 import { useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
-import { retomarOf } from "@/lib/ahora";
+import { READINESS_BADGE, READ_ONLY_LINE, retomarOf, type Readiness } from "@/lib/ahora";
 
 function Line({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -22,20 +22,24 @@ function Line({ label, children }: { label: string; children: ReactNode }) {
 export function RetomarSheet({
   slug,
   title,
+  readiness,
   open,
   onOpenChange,
 }: {
   slug: string;
   title: string;
+  readiness: Readiness | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
   const navigate = useNavigate();
   // The page clears slug and title as soon as the sheet starts closing. Keep showing the last
-  // project through that render, so the exit animation does not go blank.
-  const [held, setHeld] = useState({ slug, title });
-  if (slug.length > 0 && (held.slug !== slug || held.title !== title)) setHeld({ slug, title });
-  const shown = slug.length > 0 ? { slug, title } : held;
+  // project through that render, so the exit animation does not go blank. Readiness is a new
+  // object whenever the parent renders, so the hold key is the text, not the object.
+  const holdKey = `${slug}\n${title}\n${readiness?.state ?? ""}\n${readiness?.line ?? ""}`;
+  const [held, setHeld] = useState({ key: holdKey, slug, title, readiness });
+  if (slug.length > 0 && held.key !== holdKey) setHeld({ key: holdKey, slug, title, readiness });
+  const shown = slug.length > 0 ? { slug, title, readiness } : held;
 
   const project = useQuery({
     queryKey: ["project", shown.slug],
@@ -45,6 +49,9 @@ export function RetomarSheet({
   const resume = project.data?.resume;
   const summary = resume ? retomarOf(resume) : null;
   const nextKey = summary?.next?.key ?? "";
+  const shownReadiness = resume?.readiness ?? shown.readiness;
+  const badge = shownReadiness && shownReadiness.state !== "no_context" ? READINESS_BADGE[shownReadiness.state] : null;
+  const sheetLabel = `Resumen de ${shown.title || shown.slug}${badge ? `, ${badge}` : ""}, solo lectura`;
 
   const handleOpen = (key: string) => {
     if (!key || !shown.slug) return;
@@ -54,12 +61,24 @@ export function RetomarSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
+      <SheetContent side="right" aria-label={sheetLabel} className="w-full overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
         <SheetHeader>
-          <SheetTitle className="pr-8 font-display text-xl font-extrabold tracking-tight">{shown.title || shown.slug}</SheetTitle>
-          <SheetDescription>Dónde quedó, para seguir.</SheetDescription>
+          <SheetTitle className="pr-8 font-display text-xl font-extrabold tracking-tight">Resumen de {shown.title || shown.slug}</SheetTitle>
+          <SheetDescription>{READ_ONLY_LINE}</SheetDescription>
         </SheetHeader>
         <div className="grid gap-5 px-4 pb-6">
+          {shownReadiness && shownReadiness.reasons.length > 0 && (
+            <ul className="grid gap-1" aria-label={`Razones de ${shown.title || shown.slug}`}>
+              {shownReadiness.reasons.map((reason) => (
+                <li key={`${reason.code}/${reason.task_key ?? ""}`} className="text-sm leading-snug">
+                  {reason.text}
+                </li>
+              ))}
+            </ul>
+          )}
+          {shownReadiness && shownReadiness.reasons.length === 0 && shownReadiness.line && (
+            <p className="text-sm leading-snug">{shownReadiness.line}</p>
+          )}
           {!resume && project.isPending && <Skeleton className="h-40 rounded-xl" />}
           {!resume && project.isError && <p className="text-sm text-destructive">No se pudo cargar el proyecto.</p>}
           {resume && summary && (
