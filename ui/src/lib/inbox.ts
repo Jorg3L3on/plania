@@ -27,10 +27,6 @@ export function optionLabel(option: string): string {
   return GATE_OPTION_ES[option] ?? option;
 }
 
-// Shown on a gate card until an authenticator is enrolled, and again in the Bandeja panel.
-export const GATE_ENROLL_STEP =
-  "En la Bandeja, sección Compuertas, escribe la contraseña actual de Plania y pulsa Enrolar. Copia el secreto en base32 y la URI otpauth a tu app autenticadora (se muestran una sola vez). Luego elige la opción y teclea el código de 6 dígitos.";
-
 export function questionMarkLabels(gate: string | null | undefined, humanOnly: boolean | undefined): string[] {
   const labels: string[] = [];
   if (gate === "A" || gate === "B" || gate === "C") labels.push(`Compuerta ${gate}`);

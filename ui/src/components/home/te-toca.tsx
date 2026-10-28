@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
-import { GATE_ENROLL_STEP, actionWord, optionLabel, waitText } from "@/lib/inbox";
+import { actionWord, optionLabel, waitText } from "@/lib/inbox";
 import { useQuestionAnswer } from "@/lib/use-gate-answer";
 import type { InboxItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -37,27 +37,20 @@ const taskHref = (item: InboxItem) => `/p/${item.project}?task=${encodeURICompon
 // One question with its options; the optional decision line goes to the decision log, as in the Bandeja.
 function QuestionCard({ item, index, total, names, onNext, when }: { item: InboxItem; index: number; total: number; names: Names; onNext: () => void; when?: string }) {
   const humanOnly = !!item.human_only;
-  const needsCode = !!item.gate;
-  const flow = useQuestionAnswer(item.project, item.id, needsCode);
+  const isGate = !!item.gate;
+  const flow = useQuestionAnswer(item.project, item.id);
   const [free, setFree] = useState("");
   const [decision, setDecision] = useState("");
-  const pending = flow.send.isPending || flow.begin.isPending;
+  const pending = flow.send.isPending;
   const decided = decision.trim() || undefined;
-  const needsEnrol = needsCode && flow.enrolled === false;
 
-  function choose(option: string) {
-    if (needsCode) flow.begin.mutate(option);
-    else flow.send.mutate({ answer: option, decision: decided });
-  }
-  function submitFree(e: FormEvent) {
+  const handleChoose = (option: string) => {
+    flow.send.mutate({ answer: option, decision: decided });
+  };
+  const handleSubmitFree = (e: FormEvent) => {
     e.preventDefault();
     if (free.trim()) flow.send.mutate({ answer: free.trim(), decision: decided });
-  }
-  function confirmCode(e: FormEvent) {
-    e.preventDefault();
-    if (!flow.challenge || !/^\d{6}$/.test(flow.code)) return;
-    flow.send.mutate({ answer: flow.challenge.option, decision: decided, nonce: flow.challenge.nonce, code: flow.code });
-  }
+  };
   return (
     <article className="grid gap-2.5 rounded-[16px] border border-status-jorge/25 bg-status-jorge/[0.07] px-4 py-3.5">
       <p className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -71,60 +64,31 @@ function QuestionCard({ item, index, total, names, onNext, when }: { item: Inbox
       </p>
       <QuestionMarks gate={item.gate} humanOnly={humanOnly} />
       <p className="text-[15px] leading-snug whitespace-pre-wrap">{item.why}</p>
-      {needsEnrol && (
-        <p className="text-sm text-muted-foreground">
-          {GATE_ENROLL_STEP}{" "}
-          <Link to="/inbox#compuertas" className="font-medium text-foreground underline-offset-4 hover:underline">Ir a Compuertas</Link>
-        </p>
+      {(item.options?.length ?? 0) > 0 && (
+        <div className="grid gap-1.5">
+          {item.options!.map((o, i) => (
+            <button
+              key={o}
+              type="button"
+              disabled={pending}
+              onClick={() => handleChoose(o)}
+              aria-label={optionLabel(o)}
+              className={cn(
+                "flex min-h-11 items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left text-[13px] leading-snug transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50",
+                i === 0 ? "border-foreground/15 bg-foreground/[0.05]" : "border-foreground/10",
+              )}
+            >
+              <span>{optionLabel(o)}</span>
+              {/propuesta/i.test(o) && <span className="shrink-0 text-[11px] font-semibold text-ink-jorge">propuesta</span>}
+            </button>
+          ))}
+        </div>
       )}
-      {flow.challenge ? (
-        <form onSubmit={confirmCode} className="grid gap-1.5">
-          <p className="text-sm">Opción: {optionLabel(flow.challenge.option)}. Teclea el código de 6 dígitos de tu app.</p>
-          <div className="flex gap-2">
-            <Input
-              value={flow.code}
-              onChange={(e) => flow.setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={6}
-              placeholder="Código de 6 dígitos"
-              aria-label="Código de la app autenticadora"
-              className="bg-background/60"
-            />
-            <Button type="submit" size="sm" disabled={pending || !/^\d{6}$/.test(flow.code)}>Confirmar</Button>
-            <Button type="button" size="sm" variant="ghost" onClick={flow.clear}>Cancelar</Button>
-          </div>
+      {!isGate && (
+        <form onSubmit={handleSubmitFree} className="flex gap-2">
+          <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" className="bg-background/60" />
+          <Button type="submit" size="sm" disabled={!free.trim() || pending}>Responder</Button>
         </form>
-      ) : (
-        !needsEnrol && (
-          <>
-            {(item.options?.length ?? 0) > 0 && (
-              <div className="grid gap-1.5">
-                {item.options!.map((o, i) => (
-                  <button
-                    key={o}
-                    type="button"
-                    disabled={pending || (needsCode && flow.enrolled === undefined)}
-                    onClick={() => choose(o)}
-                    className={cn(
-                      "flex min-h-11 items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left text-[13px] leading-snug transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50",
-                      i === 0 ? "border-foreground/15 bg-foreground/[0.05]" : "border-foreground/10",
-                    )}
-                  >
-                    <span>{optionLabel(o)}</span>
-                    {/propuesta/i.test(o) && <span className="shrink-0 text-[11px] font-semibold text-ink-jorge">propuesta</span>}
-                  </button>
-                ))}
-              </div>
-            )}
-            {!needsCode && (
-              <form onSubmit={submitFree} className="flex gap-2">
-                <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" className="bg-background/60" />
-                <Button type="submit" size="sm" disabled={!free.trim() || pending}>Responder</Button>
-              </form>
-            )}
-          </>
-        )
       )}
       <Input
         value={decision}
