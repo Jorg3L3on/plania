@@ -317,7 +317,13 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Where the project stands, generated from data: live claims (who, until when, where), requests (Jorge's open asks from the screen, newest first: read them first), the next claimable ticket,",
-        "and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts.",
+        "and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts, plus readiness.",
+        "readiness is read-only {state, reasons, line}. state is ready, caution, blocked or no_context: no_context wins, then blocked, then caution, else ready.",
+        "no_context: no live or expired claim, no ticket In review, no initiative next_action, no next claimable ticket, and no event in 14 days.",
+        "blocked: BLOCKER_OPEN (unsatisfied blocker or Blocked), CI_FAILURE, DEPLOY_BLOCKED (failed deploy or env behind the integration branch, on a ticket In review), AREAS_OVERLAP, DECISION_PENDING (open question, pending approval or human_action on the ticket to resume).",
+        "caution: LEASE_EXPIRED, OWNER_ABSENT (footprint old or missing), CLAIM_QUIET (past PLANIA_QUIET_MIN), WORKTREE_DIRTY, DIRTY_UNKNOWN, NOTE_STALE, PR_PENDING, PR_UNREADABLE, DECISION_ELSEWHERE, NO_NEXT.",
+        "ready: a healthy live claim, a ticket In review with checks passing, or a clear next step, and none of the above. Unknown or missing data (dirty null, a live claim with no footprint, an unreadable PR) is caution, never ready.",
+        "Each reason is {code, severity, text, task_key}; text is one short Spanish sentence naming the ticket. line is one sentence.",
         "Also the headline {generated, note}: generated from the data (what the release target runs, the release step, claims, what waits on Jorge, what is next), and the note set_project wrote (stale: true once an env, an initiative or a Done moved after it),",
         "project-wide pinned decisions and the latest events.",
         "Nobody writes the rest directly: update an initiative's next_action / in_progress_note with set_task, pin decisions with add_decision.",
@@ -522,7 +528,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim),",
-        "ticket counts (open, in_progress, in_review, needs_jorge, blocked, done), open_questions, claims, last_event_id and last_event_at. Sorted by slug.",
+        "ticket counts (open, in_progress, in_review, needs_jorge, blocked, done), open_questions, claims, last_event_id and last_event_at, and readiness (state, reasons, line; same object as get_resume), sorted by slug.",
       ].join(" "),
       inputSchema: {},
       annotations: readOnly,
@@ -549,7 +555,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights",
-        "(done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects.",
+        "(done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects and readiness (state, reasons, line) on each changed project.",
         "Without since, resumes from the cursor this token was last given (since_from: memory); the first time, the last 24 h. Pass since to override. Only an unscoped call (project all) moves that memory; a slug-scoped one reads from since or the last 24 h.",
         `project: all (default) or a slug. max_events_per_project default ${DIGEST_PER_PROJECT_DEFAULT} (the newest; changes_total counts all). truncated: true means more than 2000 events moved: call again.`,
       ].join(" "),
