@@ -219,7 +219,7 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 
 ### Readiness
 
-`get_resume`, `list_projects`, `get_digest` and `GET /api/projects` add `readiness`: `{ state, reasons, line }`. It is read-only. Nothing is written and the schema does not change. Existing fields keep their shape. `line` is one sentence. Each reason is `{ code, severity, text, task_key }`. `text` is one short Spanish sentence and names the ticket key (for example `MC-12: el dueño ya no está en la máquina`).
+`get_resume`, `list_projects`, `get_digest` and `GET /api/projects` add `readiness`: `{ state, reasons, line }`. It is read-only. Nothing is written and the schema does not change. Existing fields keep their shape. `line` is one sentence. Each reason is `{ code, severity, text, task_key }`. `text` is one short Spanish sentence and names the ticket key (for example `MC-12: el dueño ya no está en la máquina`). The screen shows that `text`. It does not recompute readiness or rewrite the sentence.
 
 `state` is `ready`, `caution`, `blocked` or `no_context`. Precedence is `no_context`, then `blocked`, then `caution`, otherwise `ready`.
 
@@ -244,7 +244,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `get_doc` | One doc by id (from get_task docs, get_memory design_docs, or a decision's adr_doc_id), with its markdown and version. |
 | `get_next` | Next claimable ticket: Backlog or Ready, or In progress with an expired lease (stale_claim: true), with every blocker satisfied (tasks In review or Done, env conditions holding). |
 | `list_events` | What changed, oldest first: every write is an event with its actor, server time, project and a one-line summary (Spanish). |
-| `list_projects` | Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim), ticket counts (open, in_progress, in_review, needs_jorge, blocked, done), open_questions, claims, last_event_id and last_event_at, and readiness (state, reasons, line; same object as get_resume), sorted by slug. |
+| `list_projects` | Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim, else the last event, else empty), ticket counts (open, in_progress, in_review, needs_jorge, blocked, done), open_questions, claims, last_event_id and last_event_at, and readiness (state, reasons, line; same object as get_resume), sorted by slug. |
 | `get_running` | Every ticket with an owner, across projects, with a derived liveness: live (lease valid, activity in the last 20 min), quiet (lease valid, no heartbeat or event for longer), stale (lease ran out, not yet cleared). |
 | `get_digest` | One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects and readiness (state, reasons, line) on each changed project. |
 | `get_inbox` | Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (pending approvals, open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac). |

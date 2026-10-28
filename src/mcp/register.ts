@@ -527,7 +527,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "list_projects",
     {
       description: [
-        "Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim),",
+        "Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim, else the last event, else empty),",
         "ticket counts (open, in_progress, in_review, needs_jorge, blocked, done), open_questions, claims, last_event_id and last_event_at, and readiness (state, reasons, line; same object as get_resume), sorted by slug.",
       ].join(" "),
       inputSchema: {},

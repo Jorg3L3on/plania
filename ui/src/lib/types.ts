@@ -159,6 +159,8 @@ export type Resume = {
   standalone: { open: number; claims: Claim[] };
   must_keep: Decision[];
   open_questions: Question[];
+  /** Newest first. The summary sheet reads the first one when the headline is empty. */
+  recent?: { at: string; type: string; task_key: string | null; agent: string }[];
   /** One line about what the project's agents have running on the Mac, or null. */
   machine?: string | null;
   /** The generated status block; the screen reads only the release step from it. */

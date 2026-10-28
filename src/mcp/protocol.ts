@@ -5,6 +5,7 @@
 export const PROTOCOL_VERSION = "2.16";
 
 // 2.16: get_resume, list_projects and get_digest carry read-only readiness. Unknown data is caution.
+// The screen shows the server's reason text, including ENV_UNKNOWN.
 // 2.15: the screen still answers a human-only gate with a click. When the owner is away, only
 // actor agent plania-bot may record one answer he gave in his own chat, with message id and quote.
 // The server cannot prove that caller or that message. 2.13 kept three sections, Start / Work /
@@ -18,7 +19,7 @@ Start
 1. Know your ticket? start {key, workspace {worktree_path, branch}}: it claims the ticket and returns the context in one call (initiative, tickets on the branch, your claims, pinned decisions, open questions, approvals, footprint, audit findings on your tickets, and any handoff note left for you). Read the pinned decisions before writing code.
 2. No ticket yet? get_next offers one (P0 first, Jorge's requests before others of their priority); then start it. When it offers a chore instead (an audit finding an agent can fix, a stale state_note), do the chore.
 3. requests (in start, get_context, get_resume and get_next) are what Jorge asked for on screen: read them first. A request is a sentence; whoever takes it writes its scope and checks.
-4. Reading without working: get_resume (where the project stands), get_project (stack, settings, env, branches, the release step), get_memory (rules, docs, decisions), get_task. Watching all projects: get_digest, list_projects, get_running. get_resume, list_projects and get_digest include readiness, and it is read-only. Order: no_context (nothing to resume and no event in 14 days), then blocked (open blocker, red check, failed or lagging deploy on a review ticket, overlapping claims, or a human decision on that ticket), then caution (stale lease, owner missing from the machine, quiet claim, dirty or unknown worktree, unknown environment commit or integration head on a review ticket, stale note, pending or unreadable check, or a human decision elsewhere), else ready. Unknown or missing data is caution, never ready.
+4. Reading without working: get_resume (where the project stands), get_project (stack, settings, env, branches, the release step), get_memory (rules, docs, decisions), get_task. Watching all projects: get_digest, list_projects, get_running. get_resume, list_projects and get_digest include readiness, and it is read-only. Precedence: no_context (nothing to resume and no event in 14 days), then blocked (open blocker, red check, failed or lagging deploy on a review ticket, overlapping claims, or a human decision on that ticket), then caution (stale lease, owner missing from the machine, quiet claim, dirty or unknown worktree, ENV_UNKNOWN, stale note, pending or unreadable check, or a human decision elsewhere), else ready. Unknown or missing data is caution, never ready. The screen shows the server's reason text.
 
 Work
 5. Keep the lease: claim action heartbeat before it runs out (key "*" for every ticket you hold). Leaving mid-ticket: handoff {to, note, head_sha}.

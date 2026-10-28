@@ -9,7 +9,7 @@ function ticket(key: string, status: string, extra: Partial<HomeTask> = {}): Hom
   return { key, kind: "ticket", title: `Título de ${key}`, summary: "", status, priority: "P2", parent_key: null, blocked_note: null, pr_url: null, updated_at: "2026-10-11T04:00:00Z", ...extra };
 }
 function project(slug: string, title: string, extra: Partial<HomeProject> = {}): HomeProject {
-  return { slug, title, line: "Sin ficha.", tasks: [], next_claimable: null, envs: [], activity: [0, 0, 0, 0, 0, 0, 0], ...extra };
+  return { slug, title, line: "", tasks: [], next_claimable: null, envs: [], activity: [0, 0, 0, 0, 0, 0, 0], ...extra };
 }
 const claim = (key: string, session: string, model = "claude-opus-5-5") =>
   ticket(key, "In progress", { claimed_by: { agent: "Claude Code", session_id: session, model }, claimed_at: "2026-10-11T04:20:00Z", last_seen_at: "2026-10-11T05:01:00Z", branch: "slice/x" });
@@ -92,7 +92,9 @@ describe("tiles", () => {
     assert.deepEqual(nextLine({ line: "Siguiente: FIL-12 · Transiciones suaves", next_claimable: null }), { key: "FIL-12", text: "Transiciones suaves" });
     const next = { key: "ZIG-I12-6", kind: "ticket" as const, title: "QA final", summary: "", status: "Ready", priority: null, parent_key: null, blocked_by: [], workspace: null };
     assert.deepEqual(nextLine({ line: "En curso: ZIG-I12-5 (Claude Code)", next_claimable: next }), { key: "ZIG-I12-6", text: "QA final" });
-    assert.deepEqual(nextLine({ line: "Sin ficha.", next_claimable: null }), { key: null, text: "nada en cola" });
+    assert.deepEqual(nextLine({ line: "", next_claimable: null }), { key: null, text: "nada en cola" });
+    const quiet = { state: "no_context" as const, reasons: [], line: "No hay contexto reciente para retomar." };
+    assert.deepEqual(nextLine({ line: "Último movimiento hace 8 días: MC-12 nota (agente): siguió el corte", next_claimable: null, readiness: quiet }), { key: null, text: "nada en cola" });
     assert.deepEqual(nextLine({ line: "Neon at 0030.", next_claimable: null }), { key: null, text: "Neon at 0030." });
   });
 

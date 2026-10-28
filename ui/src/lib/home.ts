@@ -3,7 +3,7 @@
 // test/home.test.ts can load this file with node:test.
 import { buildLanes, projectProgress, type LaneTask, type StationTone } from "./lanes.js";
 import { ago, span } from "./time.js";
-import type { EnvSummary, FootprintItem, InitiativeNote, MachineTotals, NextClaimable } from "./types.js";
+import type { EnvSummary, FootprintItem, InitiativeNote, MachineTotals, NextClaimable, Readiness } from "./types.js";
 
 type Tone = StationTone;
 
@@ -33,6 +33,8 @@ export type HomeProject = {
   envs: EnvSummary[];
   activity: number[];
   initiatives?: InitiativeNote[];
+  /** 2.16: the server's readiness. A no_context project has nothing queued. */
+  readiness?: Readiness;
 };
 
 type Server = Pick<FootprintItem, "kind" | "state" | "task_key" | "session_id" | "project" | "repo" | "locator" | "details" | "first_seen_at">;
@@ -169,17 +171,16 @@ export type Tile = {
   deploy: { text: string; lag: string | null };
 };
 
-const NO_CARD = "Sin ficha.";
-
 /** The one line a tile says next: the initiative's next_action note the server already chose, else the next ticket. */
-export function nextLine(p: Pick<HomeProject, "line" | "next_line" | "next_claimable">): { key: string | null; text: string } {
+export function nextLine(p: Pick<HomeProject, "line" | "next_line" | "next_claimable" | "readiness">): { key: string | null; text: string } {
+  if (p.readiness?.state === "no_context") return { key: null, text: "nada en cola" };
   const line = p.next_line ?? p.line;
   const noted = line.match(/^([A-Z][A-Z0-9]*-[A-Z0-9-]+): (.+)$/s);
   if (noted) return { key: noted[1]!, text: noted[2]!.split("\n")[0]!.trim() };
   const next = line.match(/^Siguiente: (\S+) · (.+)$/s);
   if (next) return { key: next[1]!, text: next[2]!.trim() };
   if (p.next_claimable) return { key: p.next_claimable.key, text: p.next_claimable.title };
-  if (line.startsWith("En curso:") || line === NO_CARD || !line) return { key: null, text: "nada en cola" };
+  if (line.startsWith("En curso:") || !line.trim()) return { key: null, text: "nada en cola" };
   return { key: null, text: line };
 }
 

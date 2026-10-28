@@ -82,7 +82,7 @@ export function ResumeView({ resume, onOpen }: { resume: Resume; onOpen: (key: s
           </CardContent>
         </Card>
       )}
-      {empty && <p className="text-sm text-muted-foreground">Sin ficha.</p>}
+      {empty && <p className="text-sm text-muted-foreground">Sin contexto para retomar.</p>}
     </div>
   );
 }

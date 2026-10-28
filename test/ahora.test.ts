@@ -21,6 +21,7 @@ import {
   ideaGateOpen,
   ideaOutcome,
   ideasByStage,
+  lastMovementLine,
   ideasFromProject,
   oldestWaitingIdea,
   quietLine,
@@ -219,6 +220,26 @@ describe("enCursoOf", () => {
     assert.equal(unblockOf(decision)?.label, "Ver la decisión de DEL-1");
   });
 
+  test("an expired claim is a row only because of LEASE_EXPIRED", () => {
+    const hidden = ticket("GAM-1", "In progress");
+    const without = project("gamma", {
+      title: "Proyecto C",
+      readiness: readiness("caution", "GAM-1: el dueño ya no está en la máquina.", "OWNER_ABSENT", "GAM-1"),
+      tasks: [hidden],
+    });
+    assert.deepEqual(enCursoOf([without]), []);
+    const expired = project("gamma", {
+      title: "Proyecto C",
+      readiness: readiness("caution", "GAM-1: la reserva de trabajo ya venció.", "LEASE_EXPIRED", "GAM-1"),
+      tasks: [hidden],
+    });
+    const rows = enCursoOf([expired]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.slug, "gamma");
+    assert.equal(rows[0]!.reasons.filter((reason) => reason.code === "LEASE_EXPIRED").length, 1);
+    assert.equal(rows[0]!.line, "GAM-1: la reserva de trabajo ya venció.");
+  });
+
   test("the quiet line names the projects and has no summary button", () => {
     const only = [project("alfa", { title: "Proyecto A" }), project("beta", { title: "Proyecto B" })];
     assert.deepEqual(enCursoOf(only), []);
@@ -281,6 +302,17 @@ describe("bloqueadoOf", () => {
     ]);
     const gone = bloqueadoOf([alfa], [{ project: "alfa", task_key: "ALF-1", state: "gone" }], NOW);
     assert.equal(gone.find((r) => r.key === "ALF-1")?.on, GONE_LEASE);
+  });
+});
+
+describe("lastMovementLine", () => {
+  test("eight days ago names the last event; no event is empty", () => {
+    const now = Date.parse("2026-10-16T12:00:00.000Z");
+    assert.equal(
+      lastMovementLine({ at: "2026-10-08T12:00:00.000Z", type: "note", task_key: "MC-12", agent: "agente" }, now),
+      "Último movimiento hace 8 días: MC-12 · note (agente)",
+    );
+    assert.equal(lastMovementLine(undefined, now), "");
   });
 });
 

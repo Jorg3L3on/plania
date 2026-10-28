@@ -103,7 +103,35 @@ describe("list_projects", () => {
     assert.ok(fil.last_event_id > 0 && typeof fil.last_event_at === "string");
     const mic = r.projects[1];
     assert.equal(mic.last_event_id, 0);
-    assert.equal(mic.line, "Sin ficha.");
+    assert.equal(mic.line, "");
+  });
+
+  test("with nothing else to say, the line is the last event, eight days later", async () => {
+    const { lastMovementLine } = await import("../src/mcp/resume.js");
+    const now = new Date("2026-10-16T12:00:00.000Z");
+    assert.equal(
+      lastMovementLine({ at: new Date("2026-10-08T12:00:00.000Z"), summary: "MC-12 nota (agente): siguió el corte" }, now),
+      "Último movimiento hace 8 días: MC-12 nota (agente): siguió el corte",
+    );
+    assert.equal(lastMovementLine(null, now), "");
+    await raw.query(
+      `insert into events (project_id, type, actor, payload, created_at)
+       select id, 'note', '{"agent":"agente","session_id":"s9"}'::jsonb, '{"text":"siguió el corte"}'::jsonb, now() - interval '8 days'
+       from projects where slug = 'workia'`,
+    );
+    try {
+      const workia = (await call("list_projects")).projects.find((p: Json) => p.slug === "workia");
+      assert.match(workia.line, /^Último movimiento hace 8 días: nota \(agente\): siguió el corte$/);
+      const resume = await call("get_resume", { project: "workia" });
+      assert.equal("lastMovement" in resume, false);
+      assert.deepEqual(Object.keys(resume.recent[0]).sort(), ["agent", "at", "task_key", "type"]);
+    } finally {
+      // A backdated row still gets a new id. get_digest's 24 h window starts after the newest
+      // event older than that, so this row would hide earlier events. Remove it after the read.
+      await raw.query(
+        `delete from events where type = 'note' and project_id = (select id from projects where slug = 'workia')`,
+      );
+    }
   });
 });
 

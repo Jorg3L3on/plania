@@ -58,6 +58,8 @@ describe("protocol 2.16", () => {
     const text = instructions(false);
     assert.equal(PROTOCOL_VERSION, "2.16");
     assert.match(text, /Unknown or missing data is caution, never ready/);
+    assert.match(text, /ENV_UNKNOWN/);
+    assert.match(text, /The screen shows the server's reason text/);
     assert.ok(text.split(/\s+/).length < 900, `${text.split(/\s+/).length} words`);
     assert.match(text, /Human-only gates are answered by a click on the owner's screen/);
     assert.match(text, /answer_delegated/);
