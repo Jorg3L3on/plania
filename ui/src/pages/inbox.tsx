@@ -8,13 +8,15 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HechoForm } from "@/components/hecho";
 import { ReleaseRow } from "@/components/release-step";
+import { DelegadaBadge } from "@/components/delegada-badge";
+import { DelegationSwitch } from "@/components/delegation-switch";
 import { GatePanel } from "@/components/gate-panel";
 import { QuestionsPanel } from "@/components/resume";
 import { Kicker } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
-import { actionWord, waitText } from "@/lib/inbox";
+import { actionWord, optionLabel, waitText } from "@/lib/inbox";
 import { localTime } from "@/lib/time";
-import type { InboxGroup, InboxItem, Question } from "@/lib/types";
+import type { DelegatedReview, InboxGroup, InboxItem, Question } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // Everything waiting on Jorge, in three tabs (2.10): Decisiones (approvals to grant or reject,
@@ -100,6 +102,24 @@ function ActionRow({ item }: { item: InboxItem }) {
 }
 
 // Something left on the Mac that nobody claims, or whose ticket is long done: the command is for Jorge to run.
+function DelegatedRow({ item }: { item: DelegatedReview }) {
+  const what = item.gate ? `Compuerta ${item.gate}` : item.action ? actionWord(item.action) : "Pregunta";
+  const choice = item.answer ? optionLabel(item.answer) : null;
+  return (
+    <li className="grid gap-1.5 px-4 py-3 text-sm">
+      <span className="flex flex-wrap items-baseline gap-x-2">
+        {item.key && (
+          <Link to={`/p/${item.project}?task=${encodeURIComponent(item.key)}`} className="font-mono text-xs underline-offset-4 hover:underline">
+            {item.key}
+          </Link>
+        )}
+        <span className="text-muted-foreground">{what}{choice ? ` · ${choice}` : ""}</span>
+      </span>
+      <DelegadaBadge quote={item.quote} at={item.at} />
+    </li>
+  );
+}
+
 function FootprintRow({ item }: { item: InboxItem }) {
   const teardown = typeof item.target?.teardown === "string" ? item.target.teardown : "";
   return (
@@ -204,12 +224,25 @@ export function InboxPage() {
         </p>
         <Tabs tab={tab} counts={counts} onChange={setTab} />
       </header>
+      <DelegationSwitch />
       <GatePanel
         items={(inbox.data?.items ?? [])
           .filter((i) => i.kind === "question" && i.gate)
           .map((i) => ({ project: i.project, question: toQuestion(i) }))}
         onOpen={(project, key) => navigate(`/p/${project}?task=${encodeURIComponent(key)}`)}
       />
+      {inbox.data.delegated.length > 0 && (
+        <section className="grid gap-3" aria-label="Respuestas delegadas">
+          <h2 className="text-sm font-medium text-orange-600 dark:text-orange-400">Respuestas delegadas</h2>
+          <Card className="gap-0 py-0">
+            <CardContent className="px-0">
+              <ul className="divide-y">
+                {inbox.data.delegated.map((item) => <DelegatedRow key={item.id} item={item} />)}
+              </ul>
+            </CardContent>
+          </Card>
+        </section>
+      )}
 
       {tab === "decisiones" && allApprovals.length > 0 && (
         <div className="sticky top-[calc(var(--header-h)+0.5rem)] z-10 flex flex-wrap items-center gap-2 rounded-2xl border bg-background/80 p-3 backdrop-blur-md">

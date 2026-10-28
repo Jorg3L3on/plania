@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { checks, footprints, projects, questions, results, tasks, type Project } from "../db/schema.js";
 import { describeStale } from "../jobs/machine/infer.js";
 import { pendingApprovals } from "./approvals.js";
+import { delegatedForInbox, type DelegatedReviewItem } from "./delegate.js";
 import { openHumanActions } from "./blockers.js";
 import { releasePending, releasePlan } from "./release-plan.js";
 import { iso, type Q } from "./tx.js";
@@ -224,8 +225,17 @@ export async function inbox(db: Q, which: Project | "all") {
     groups[i.group] += 1;
     if (i.group !== "limpieza") counts[i.project] = (counts[i.project] ?? 0) + 1;
   }
-  return { items, count: groups.decisiones + groups.pasos, by_project: counts, groups, chores: groups.limpieza };
+  return {
+    items,
+    count: groups.decisiones + groups.pasos,
+    by_project: counts,
+    groups,
+    chores: groups.limpieza,
+    delegated: await delegatedForInbox(db, list),
+  };
 }
+
+export type { DelegatedReviewItem };
 
 export async function projectsBySlugs(db: Q, slugs: string[]) {
   return db.select().from(projects).where(inArray(projects.slug, slugs));

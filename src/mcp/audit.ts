@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { approvals, auditRuns, blockers, branches, checks, decisions, docs, envStates, pullRequests, questions, results, tasks, type Project, type Task } from "../db/schema.js";
+import { approvals, auditRuns, blockers, branches, checks, decisions, delegatedAnswers, docs, envStates, pullRequests, questions, results, tasks, type Project, type Task } from "../db/schema.js";
 import { hasUnsatisfiedBlocker, openHumanActions } from "./blockers.js";
 import { footprintFindings } from "./footprint-audit.js";
 import { stageDocStale } from "./ideas.js";
@@ -15,7 +15,7 @@ import { isScreenActor, iso, type Q } from "./tx.js";
 
 // 2.11: id names what a one-click fix acts on (a decision id, an env, a branch, a worktree path) and
 // command is the shell line Jorge copies, when the fix is one (src/mcp/orden.ts).
-export type Finding = { code: string; key: string | null; detail: string; fix_hint: string; id?: string; command?: string };
+export type Finding = { code: string; key: string | null; detail: string; fix_hint: string; id?: string; command?: string; level?: "info" | "warn" };
 
 const CLOSED = ["Done", "Won't do"];
 export { WAITING_ON_JORGE };
@@ -205,14 +205,18 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
       id: pr.url,
     });
   }
-  // PLA-I8-3: a gate answered by anyone but Jorge on the screen (web session, machine screen).
+  // PLA-I8-3: a gate answered by anyone but the owner on the screen (web session, machine screen).
   // Rows answered before 0027, when an agent was still accepted, stay flagged.
+  // PLA-I15-2: a delegated answer is stored as the owner and listed on its own, so this finding
+  // does not also fire for it. The quote stays on GATE_ANSWERED_DELEGATED for him to review.
   const ideaIds = all.filter((t) => t.kind === "idea").map((t) => t.id);
   const gateRows = ideaIds.length
     ? await db.select().from(questions).where(and(inArray(questions.taskId, ideaIds), sql`${questions.gate} is not null`))
     : [];
+  const delegatedRows = await db.select().from(delegatedAnswers).where(eq(delegatedAnswers.projectId, p.id));
+  const delegatedQuestionIds = new Set(delegatedRows.map((d) => d.questionId).filter((id): id is string => !!id));
   for (const q of gateRows) {
-    if (!q.answeredAt || isScreenActor(q.answeredBy)) continue;
+    if (!q.answeredAt || isScreenActor(q.answeredBy) || delegatedQuestionIds.has(q.id)) continue;
     const who = q.answeredBy ? `${q.answeredBy.agent}${q.answeredBy.machine ? `/${q.answeredBy.machine}` : ""}` : "nobody";
     out.push({
       code: "GATE_ANSWERED_BY_AGENT",
@@ -220,6 +224,32 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
       detail: `gate ${q.gate} answered by ${who}, not Jorge on the screen`,
       fix_hint: "ask the gate again; only the screen answers it, by a click",
       id: q.id,
+    });
+  }
+  // Every delegated answer, gate or approval, so the owner can review the quote. warn: it is his
+  // instruction recorded by a bot the server cannot prove, not a silent success.
+  const questionById = new Map(gateRows.map((q) => [q.id, q]));
+  const otherQuestionIds = delegatedRows.map((d) => d.questionId).filter((id): id is string => !!id && !questionById.has(id));
+  if (otherQuestionIds.length) {
+    for (const q of await db.select().from(questions).where(inArray(questions.id, otherQuestionIds))) questionById.set(q.id, q);
+  }
+  const approvalById = new Map(
+    delegatedRows.some((d) => d.approvalId)
+      ? (await db.select().from(approvals).where(eq(approvals.projectId, p.id))).map((a) => [a.id, a] as const)
+      : [],
+  );
+  for (const d of delegatedRows) {
+    const q = d.questionId ? questionById.get(d.questionId) : undefined;
+    const a = d.approvalId ? approvalById.get(d.approvalId) : undefined;
+    const key = q ? (byId.get(q.taskId)?.key ?? null) : (a?.taskKey ?? null);
+    const what = q?.gate ? `gate ${q.gate}` : a ? `approval ${a.action} ${a.state}` : "question";
+    out.push({
+      code: "GATE_ANSWERED_DELEGATED",
+      level: "warn",
+      key,
+      detail: `${what} delegated at ${iso(d.createdAt)} by ${d.actor.agent}: "${d.quote}" (message ${d.messageId})`,
+      fix_hint: "review the quote on the Bandeja (badge Delegada). The kill switch on that screen turns delegated answers off; the bot cannot flip it",
+      id: d.questionId ?? d.approvalId ?? d.id,
     });
   }
   // PLA-I8-3: a stage doc edited after the gate that approved it (Idea/A, Research/B, Design and Plan/C).

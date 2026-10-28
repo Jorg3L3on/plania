@@ -14,6 +14,7 @@ import { EvidenceTimeline } from "@/components/evidence-timeline";
 import { HechoForm } from "@/components/hecho";
 import { dayText, dueText } from "@/lib/due";
 import { TaskControls } from "@/components/task-controls";
+import { DelegadaBadge } from "@/components/delegada-badge";
 import { QuestionMarks } from "@/components/question-marks";
 import { ClaimLine, StageChip } from "@/components/task-row";
 import { localTime } from "@/lib/time";
@@ -127,9 +128,9 @@ function logText(e: TaskDetail["log"][number]): string {
   if (e.type === "result.added") return `${VERDICT[String(p.verdict)] ?? ""} ${p.kind}: ${p.cite}`;
   if (e.type === "check.set") return `${p.done ? "☑" : "☐"} ${p.text}`;
   if (e.type === "question.asked") return `Pregunta: ${p.question}`;
-  if (e.type === "question.answered") return `Respuesta: ${p.answer}`;
+  if (e.type === "question.answered") return p.delegated ? `Respuesta delegada: ${p.answer}` : `Respuesta: ${p.answer}`;
   if (e.type === "gate.challenge.created") return "Paso anterior en pantalla";
-  if (e.type === "gate.answered") return "Compuerta respondida en pantalla";
+  if (e.type === "gate.answered") return p.delegated ? "Compuerta delegada" : "Compuerta respondida en pantalla";
   if (e.type === "gate.code.rejected") return `Compuerta rechazada (${p.reason ?? "pantalla"})`;
   if (e.type === "blocker.parsed") return `Te toca: ${p.text}`;
   if (e.type === "blocker.resolved") return `Hecho: ${p.text}`;
@@ -282,6 +283,7 @@ function Details({ slug, task, onOpen }: { slug: string; task: TaskDetail; onOpe
             {task.questions.map((q) => (
               <li key={q.id} className="grid gap-1">
                 <QuestionMarks gate={q.gate} humanOnly={q.human_only} />
+                {q.delegated && <DelegadaBadge quote={q.delegated.quote} at={q.delegated.at} />}
                 {q.question}
                 <span className="block text-muted-foreground">{q.answer ? `→ ${q.answer}` : "Sin respuesta"}</span>
               </li>

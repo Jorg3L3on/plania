@@ -111,6 +111,10 @@ the release row keeps the command to copy.
 
 Migration `0028` drops `gate_challenges` and deletes the `machine_state` row the old screen step stored. Take a dump first. Apply `0028`, `pnpm build`, then restart `com.plania.server`. The protocol moves to 2.14: human-only gates are answered by a click on the owner's screen; bots are refused.
 
+### Upgrading to 2.15 (delegated answers)
+
+Migration `0029` adds `delegated_answers`. Take a dump first. Apply `0029`, `pnpm build`, then restart `com.plania.server`. The protocol moves to 2.15. The kill switch defaults on. It is the `machine_state` key `delegation` (`{enabled: true|false}`). The screen toggles it. Nothing else can.
+
 ### GitHub token file
 
 No migration. `pnpm build`, then restart the service (`launchctl kickstart -k gui/$(id -u)/com.plania.server`).
@@ -123,13 +127,23 @@ Lanzar (`settings.release.mode` `merge`) uses the same helper (60 seconds) and s
 
 ## Gates
 
-A question with gate A, B or C is `human_only`. `answer` from an agent returns `HUMAN_ONLY`. Human-only gates are answered by a click on the owner's screen; bots are refused. The screen session cookie is the only proof. `POST /api/projects/:slug/questions/:id/answer` stores `answered_by` as the screen actor. It refuses a request that carries `Authorization: Bearer`, and it refuses an actor sent in the body or in a header. The MCP bearer never opens `/api`. A gate moves the idea, or lets a promoted initiative become Active, only when that screen answer is the one that advances it. An agent answer does not count. A `human_only` question that is not a gate is still answered only on the screen, as free text.
+A question with gate A, B or C is `human_only`. `answer` from an agent returns `HUMAN_ONLY`, including from actor agent `plania-bot`. Human-only gates are answered by a click on the owner's screen. The screen session cookie is the only proof on that path. `POST /api/projects/:slug/questions/:id/answer` stores `answered_by` as the screen actor. It refuses a request that carries `Authorization: Bearer`, and it refuses an actor sent in the body or in a header. The MCP bearer never opens `/api`. A gate moves the idea, or lets a promoted initiative become Active, only when the stored answer is the screen actor's (a click, or a delegated answer recorded as his). An agent answer that is not that does not count. A `human_only` question that is not a gate is still answered only on the screen, as free text, unless it has named options and the delegated path below records one of them.
 
-The Bandeja section Compuertas shows each open gate with its question and its answer buttons. One click stores the answer.
+The Bandeja section Compuertas shows each open gate with its question and its answer buttons. One click stores the answer. The same screen has the kill switch «El bot puede responder por ti» (default on) and, under Compuertas, every delegated answer with the «Delegada» badge, the quote and the time.
 
-An initiative that an idea was promoted to cannot become Active, from Planning or from On hold, until that idea's gate C has been answered `ready` on the screen (`GATE_NOT_PASSED`). A promoted idea with no gate C question is the same error. An initiative no idea was promoted to is unchanged. Migration `0027` added `gate_challenges` and set `human_only` on gate questions that were still open. Migration `0028` drops that table. Apply `0028` before restarting. The protocol is 2.14.
+### Delegated answers
 
-What proves a human on this Mac answered is the screen session only. A bot that has the MCP bearer, or that sends the screen actor in a header or a body, cannot answer. A process that can mint a session cookie can.
+When the owner is away from the Mac he can tell the Plania bot (actor agent exactly `plania-bot`) in his own chat which gate or approval to answer, and what the answer is. That bot calls MCP `answer_delegated` on the existing write token. The call answers one human_only question that has named options (gates A, B and C, or another human_only question with options) or grants or rejects one pending `wont_do` or `reopen` approval. Required: `delegated_by_jorge.message_id` (8 to 200 characters) and `delegated_by_jorge.quote` (8 to 280 characters). Missing, empty or short evidence is `DELEGATION_EVIDENCE`. Any other agent, including `jorge` (`RESERVED_ACTOR`) and a caller that spoofs the screen session, is refused. The normal `answer` tool stays `HUMAN_ONLY`.
+
+The row is stored as answered by the owner (`answered_by` is the screen actor, so the gate still counts). `delegated_answers` keeps the message id, the quote, the delegating actor and the time. The audit lists each one as `GATE_ANSWERED_DELEGATED` (warn) for review. `GATE_ANSWERED_BY_AGENT` does not also fire for that row. Direct answers through the normal tools are still flagged.
+
+Limits: 10 delegated answers per hour and one per question or approval (`DELEGATION_LIMIT`). The kill switch defaults on. Off, the tool returns `DELEGATION_OFF`. The switch is `POST /api/delegation` with the session cookie. No cookie is 401. A Bearer is 403, with or without the cookie. MCP, `/hooks` and `/bot/v1` cannot toggle it, and the bot cannot raise its own limit.
+
+Honest limit: the actor `plania-bot` is an identity declared in the request, and all bots on the Mac share the same write token, so the server cannot technically prove that the caller is the Plania bot or that the quoted message really exists. The controls are the required evidence (message id and quote), the audit plus the visible badge, the rate limit, the kill switch, and the rule that only the owner's own message counts. This is not a proof of identity. Do not treat it as one.
+
+An initiative that an idea was promoted to cannot become Active, from Planning or from On hold, until that idea's gate C has been answered `ready` by the owner (`GATE_NOT_PASSED`). A click and a delegated `ready` both count, because both are stored as him. A promoted idea with no gate C question is the same error. An initiative no idea was promoted to is unchanged. Migration `0027` added `gate_challenges` and set `human_only` on gate questions that were still open. Migration `0028` drops that table. Migration `0029` adds `delegated_answers`. Apply `0029` before restarting. The protocol is 2.15.
+
+What proves a human on this Mac answered, on the click path, is the screen session only. A bot that has the MCP bearer, or that sends the screen actor in a header or a body, cannot use that path. A process that can mint a session cookie can. The delegated path is the narrow exception above, and it does not prove the message.
 
 ## Dev
 
@@ -214,7 +228,7 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | `get_running` | Every ticket with an owner, across projects, with a derived liveness: live (lease valid, activity in the last 20 min), quiet (lease valid, no heartbeat or event for longer), stale (lease ran out, not yet cleared). |
 | `get_digest` | One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects. |
 | `get_inbox` | Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (pending approvals, open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac). |
-| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, GATE_ANSWERED_BY_AGENT, STAGE_DOC_STALE, and the footprint codes. |
+| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, GATE_ANSWERED_BY_AGENT, GATE_ANSWERED_DELEGATED, STAGE_DOC_STALE, and the footprint codes. |
 | `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions and pending approvals on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). |
 
 | Write | |
@@ -231,6 +245,7 @@ additions are the project's `rules` (`set_project`). Product repos point here in
 | `reserve_sequence` | Reserve the next number of a per-project sequence (e.g. name 'migration' gives '0009') for a ticket, so two initiatives never take the same one. |
 | `ask` | Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer. |
 | `answer` | Record Jorge's answer to a question that is not human_only (he answers those on the screen; otherwise he may tell you in chat and you record it here, quoting him). |
+| `answer_delegated` | Record one answer the owner gave actor agent plania-bot in his own chat. |
 | `set_project` | Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline. |
 | `set_env` | Record what an environment runs, as data other sessions can check: commit and branch deployed, migrations (the tags applied, e.g. ['0009_x']; migrations_applied is derived), flags (configuration state, never secret values: {google_oauth: false, omdb_key: 'valid'}; null removes one). |
 | `request_approval` | Ask Jorge to approve one move you cannot make yourself: action wont_do \| reopen (a status change), waive_check (target {n}, once In review or later), runbook_step, lease_resource. |
@@ -352,6 +367,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `BLOCKER_NOT_FOUND` | 400 | a blocked_by key does not exist in this project, or names the task itself |
 | `BODY_REMOVED` | 400 | body is gone in v2: use scope, checks, and note (the log) |
 | `BRANCH_NAME_INVALID` | 400 | the branch name does not match the project's branch_pattern (detail: pattern) |
+| `DELEGATION_EVIDENCE` | 400 | answer_delegated needs delegated_by_jorge.message_id and a quote of 8 to 280 characters; missing, empty or short evidence is refused |
 | `DEPLOY_SOURCE_REQUIRED` | 400 | set_env deployed needs a source {provider, deployment_id, url}: the server stores where the time came from |
 | `FIELD_NOT_ALLOWED` | 400 | a field of the other kind: priority/parent_key/origin/work_type/phase on an initiative, base_branch/next_action/in_progress_note on a ticket |
 | `FINDING_NOT_FIXABLE` | 400 | audit fix: the code has no one-click fix (copy findings: run the command; the rest: the tool the fix_hint names) |
@@ -385,7 +401,9 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `ACTOR_MISMATCH` | 403 | actor.agent or actor.machine disagrees with the agent token's (detail: expected) |
 | `APPROVAL_MISMATCH` | 403 | the approval_id is for another task, action or target (detail: expected) |
 | `APPROVAL_REQUIRED` | 403 | this needs an approval_id: request_approval first (detail: action, target) |
-| `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: Jorge's call, on screen or with an approval_id he granted (request_approval). Also a human_only question, including every gate: only the screen can answer it, by a click; bots are refused |
+| `DELEGATION_OFF` | 403 | delegated answers are off: the kill switch on the screen is off |
+| `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: Jorge's call, on screen or with an approval_id he granted (request_approval). Also a human_only question, including every gate: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it |
+| `NOT_DELEGABLE` | 403 | answer_delegated only answers one human_only question that has named options, or grants or rejects a pending wont_do or reopen approval |
 | `APPROVAL_NOT_FOUND` | 404 | no approval with that id in this project |
 | `CHECK_NOT_FOUND` | 404 | no check with that n on this task |
 | `DECISION_NOT_FOUND` | 404 | supersedes names no decision of this project |
@@ -407,6 +425,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `CHECKS_OPEN` | 409 | In review, Merged, Released or Done while a check is neither done nor waived (detail: open, the check numbers) |
 | `CLAIM_HELD` | 409 | another session holds a live lease (detail: owner, lease_until, workspace) |
 | `DECISION_RETIRED` | 409 | the decision was retired: it cannot be superseded, pinned or retired again |
+| `DELEGATION_LIMIT` | 409 | delegated answers are limited to 10 per hour and one per question or approval |
 | `DOC_EXISTS` | 409 | attach_doc without version for a title that exists (detail: doc_id, version): pass version to replace |
 | `EVIDENCE_REQUIRED` | 409 | In review without evidence for the work_type from the current claim (detail: accepts, since) |
 | `EVIDENCE_STALE` | 409 | In review needs a pass recorded against the branch's current head; the passes found are for older commits (detail: head, results) |

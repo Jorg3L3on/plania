@@ -43,9 +43,12 @@ export function canFix(f: Finding): CanFix {
   return fix !== "open" && !f.id ? "open" : fix;
 }
 
+// Review, not a chore: the owner reads the quote. get_next does not offer it (not in AGENT_CHORES).
+const OWNER_REVIEW = new Set(["GATE_ANSWERED_DELEGATED"]);
+
 export const ordenShape = (f: Finding): OrdenFinding => {
   const can_fix = canFix(f);
-  return { ...f, can_fix, owner: can_fix === "open" ? "agents" : "jorge" };
+  return { ...f, can_fix, owner: OWNER_REVIEW.has(f.code) || can_fix !== "open" ? "jorge" : "agents" };
 };
 
 /** GET /api/projects/:slug/audit: the latest stored run (one is made if the project has none yet). */

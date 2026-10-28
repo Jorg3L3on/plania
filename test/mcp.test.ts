@@ -157,7 +157,7 @@ after(async () => {
 
 // The full tool surface. Update with the contract.
 const TOOLS = [
-  "add_decision", "add_result", "answer", "ask", "attach_doc", "audit", "batch", "claim", "consume", "create_task", "finish",
+  "add_decision", "add_result", "answer", "answer_delegated", "ask", "attach_doc", "audit", "batch", "claim", "consume", "create_task", "finish",
   "get_context", "get_digest", "get_doc", "get_inbox", "get_memory", "get_next", "get_project", "get_resume", "get_running", "get_task", "handoff", "lease_resource",
   "list_events", "list_projects", "list_tasks", "register_footprint", "release_footprint", "release_resource", "request_approval", "reserve_sequence", "retire_decision", "set_check", "set_env",
   "set_metric", "set_project", "set_task", "start", "waive_check",
@@ -1147,14 +1147,15 @@ describe("v2 C2: list_events", () => {
 describe("v2 C4: protocol and project text", () => {
   test("the protocol comes with initialize, versioned", async () => {
     const text = client.getInstructions() ?? "";
-    assert.match(text, /^Plania protocol 2\.14\./);
-    assert.match(text, /Human-only gates are answered by a click on the owner's screen; bots are refused/);
-    assert.match(text, /Never answer a gate, and never forward an answer/);
+    assert.match(text, /^Plania protocol 2\.15\./);
+    assert.match(text, /Human-only gates are answered by a click on the owner's screen/);
+    assert.match(text, /answer_delegated/);
+    assert.match(text, /Never answer a gate yourself, and never forward an answer/);
     assert.match(text, /set_task Done once it is Merged or Released/);
     assert.match(text, /Won't do and reopening are Jorge's/);
-    assert.equal(client.getServerVersion()?.version, "2.14.0");
+    assert.equal(client.getServerVersion()?.version, "2.15.0");
     const p = await call("get_project", { project: "zigzag" });
-    assert.equal(p.protocol_version, "2.14");
+    assert.equal(p.protocol_version, "2.15");
   });
 
   test("set_project edits body and rules with the version; rules_version follows the rules", async () => {
