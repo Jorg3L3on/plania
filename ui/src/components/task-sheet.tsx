@@ -128,9 +128,9 @@ function logText(e: TaskDetail["log"][number]): string {
   if (e.type === "check.set") return `${p.done ? "☑" : "☐"} ${p.text}`;
   if (e.type === "question.asked") return `Pregunta: ${p.question}`;
   if (e.type === "question.answered") return `Respuesta: ${p.answer}`;
-  if (e.type === "gate.challenge.created") return "Código pedido para la compuerta";
+  if (e.type === "gate.challenge.created") return "Paso anterior en pantalla";
   if (e.type === "gate.answered") return "Compuerta respondida en pantalla";
-  if (e.type === "gate.code.rejected") return `Código rechazado (${p.reason})`;
+  if (e.type === "gate.code.rejected") return `Compuerta rechazada (${p.reason ?? "pantalla"})`;
   if (e.type === "blocker.parsed") return `Te toca: ${p.text}`;
   if (e.type === "blocker.resolved") return `Hecho: ${p.text}`;
   return e.type;
