@@ -97,7 +97,7 @@ export type StageQuestion = {
 const ADVANCES: Record<Gate, string> = { A: "pursue", B: "proceed", C: "ready" };
 
 // The latest answer for this gate given on the screen, strictly after the idea entered the stage.
-// An agent answer, including one stored before gates required a code, does not count. Earlier
+// An agent answer, including one stored before the screen was the only writer, does not count. Earlier
 // answers, including one that advanced before a step back, do not count either.
 function gateAdvances(gate: Gate, qs: StageQuestion[], since: Date | null): boolean {
   let latest: StageQuestion | undefined;

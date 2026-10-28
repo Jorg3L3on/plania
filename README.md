@@ -101,11 +101,15 @@ stays off and everything else works. Phone access over Tailscale and turning pus
 ### Upgrading to 2.13 (agent surface)
 
 No migration. `pnpm build`, then restart the service; agents get the `start` / `finish` tools on their
-next `initialize`. That release served protocol 2.12. PLA-I8-3 moves the protocol to 2.13: gates are answered only on the screen, with the code, and an agent never answers one or forwards an answer. Shipping a release from the screen is off until a project asks for it: add `mode: "merge"` to its
+next `initialize`. That release served protocol 2.12. PLA-I8-3 moves the protocol to 2.13: gates are answered only on the screen, and an agent never answers one or forwards an answer. Shipping a release from the screen is off until a project asks for it: add `mode: "merge"` to its
 `settings.release` (on screen or `set_project settings {release: {from, into, env, mode: "merge"}}`) and keep
 `settings.github.repo` set. The merge runs `gh` with `GH_TOKEN` from `~/.config/plania/github-release-token`, or from
 `~/.config/plania/github-token` when that file has no token. The token needs write access to the repo. Without `mode`
 the release row keeps the command to copy.
+
+### Upgrading to 2.14 (screen click)
+
+Migration `0028` drops `gate_challenges` and deletes the `machine_state` row the old screen step stored. Take a dump first. Apply `0028`, `pnpm build`, then restart `com.plania.server`. The protocol moves to 2.14: human-only gates are answered by a click on the owner's screen; bots are refused.
 
 ### GitHub token file
 
@@ -119,13 +123,13 @@ Lanzar (`settings.release.mode` `merge`) uses the same helper (60 seconds) and s
 
 ## Gates
 
-A question with gate A, B or C is `human_only`. `answer` from an agent returns `HUMAN_ONLY`. The answer is typed on the Plania screen on this Mac: pick the option, then the six-digit code from an authenticator app. The server opens a row in `gate_challenges` (two minutes, one use, three attempts, at most five open per question) bound to that question and option, checks a standard TOTP (RFC 6238, HMAC-SHA1, 6 digits, 30 second step, window ±1) and only then stores the answer with `answered_by` jorge. A gate moves the idea, or lets a promoted initiative become Active, only when that screen answer is the one that advances it. An agent answer does not count. The code and the secret are never written to a row, an event or a log. A `human_only` question that is not a gate is still answered only on the screen, as free text, and does not ask for a code.
+A question with gate A, B or C is `human_only`. `answer` from an agent returns `HUMAN_ONLY`. Human-only gates are answered by a click on the owner's screen; bots are refused. The screen session cookie is the only proof. `POST /api/projects/:slug/questions/:id/answer` stores `answered_by` as the screen actor. It refuses a request that carries `Authorization: Bearer`, and it refuses an actor sent in the body or in a header. The MCP bearer never opens `/api`. A gate moves the idea, or lets a promoted initiative become Active, only when that screen answer is the one that advances it. An agent answer does not count. A `human_only` question that is not a gate is still answered only on the screen, as free text.
 
-The secret is not in `.env` and not in the database. Enrolment is on the Bandeja, section Compuertas: the current Plania password, then the screen shows the base32 secret and the `otpauth://` URI once, as text, and stores the secret in the macOS keychain (generic password, service `plania-gate`, account `plania`). The write goes through `security -i` with the value on the `add-generic-password` line, off argv. Replacing an item deletes it and adds it again, without `-U`, because updating an existing item asks the keychain and hangs. Until that is done, a gate answer is `GATE_CODE_NOT_ENROLLED`. Replacing an enrolled secret needs the password and a current TOTP code that has not already been spent on a gate or on a replacement. Once enrolled, the panel says Enrolado and does not offer the signup form. `POST /gate/enroll` responds `Cache-Control: no-store` and writes a `gate.enrolled` event that carries no secret. `GET /gate` caches the enrolled bit for a few seconds, and a keychain read gives up after three seconds.
+The Bandeja section Compuertas shows each open gate with its question and its answer buttons. One click stores the answer.
 
-An initiative that an idea was promoted to cannot become Active, from Planning or from On hold, until that idea's gate C has been answered `ready` on the screen (`GATE_NOT_PASSED`). A promoted idea with no gate C question is the same error. An initiative no idea was promoted to is unchanged. Migration `0027` adds `gate_challenges` and sets `human_only` on gate questions that are still open. Apply it before restarting. The protocol is 2.13.
+An initiative that an idea was promoted to cannot become Active, from Planning or from On hold, until that idea's gate C has been answered `ready` on the screen (`GATE_NOT_PASSED`). A promoted idea with no gate C question is the same error. An initiative no idea was promoted to is unchanged. Migration `0027` added `gate_challenges` and set `human_only` on gate questions that were still open. Migration `0028` drops that table. Apply `0028` before restarting. The protocol is 2.14.
 
-A process that runs as the same macOS user and can read the keychain or the disk can still forge this. It raises the bar against a bot that only has the MCP bearer. It is not a boundary against root.
+What proves a human on this Mac answered is the screen session only. A bot that has the MCP bearer, or that sends the screen actor in a header or a body, cannot answer. A process that can mint a session cookie can.
 
 ## Dev
 
@@ -381,8 +385,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `ACTOR_MISMATCH` | 403 | actor.agent or actor.machine disagrees with the agent token's (detail: expected) |
 | `APPROVAL_MISMATCH` | 403 | the approval_id is for another task, action or target (detail: expected) |
 | `APPROVAL_REQUIRED` | 403 | this needs an approval_id: request_approval first (detail: action, target) |
-| `GATE_CODE_INVALID` | 403 | the gate code does not match, was already used in this window, or the challenge is not for this question and option (detail: reason) |
-| `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: Jorge's call, on screen or with an approval_id he granted (request_approval). Also a human_only question, including every gate: only the screen can answer it, with the authenticator code |
+| `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: Jorge's call, on screen or with an approval_id he granted (request_approval). Also a human_only question, including every gate: only the screen can answer it, by a click; bots are refused |
 | `APPROVAL_NOT_FOUND` | 404 | no approval with that id in this project |
 | `CHECK_NOT_FOUND` | 404 | no check with that n on this task |
 | `DECISION_NOT_FOUND` | 404 | supersedes names no decision of this project |
@@ -408,9 +411,6 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `EVIDENCE_REQUIRED` | 409 | In review without evidence for the work_type from the current claim (detail: accepts, since) |
 | `EVIDENCE_STALE` | 409 | In review needs a pass recorded against the branch's current head; the passes found are for older commits (detail: head, results) |
 | `FOOTPRINT_HELD` | 409 | another live session declared this footprint, or releasing one you did not declare (detail: holder, purpose) |
-| `GATE_CHALLENGE_LOCKED` | 409 | the gate challenge is locked after three wrong codes |
-| `GATE_CODE_EXPIRED` | 409 | the gate challenge expired after two minutes |
-| `GATE_CODE_NOT_ENROLLED` | 409 | a human-only question cannot be answered until an authenticator is enrolled on the screen |
 | `GATE_NOT_PASSED` | 409 | moving an idea forward needs a gate answer that moves it on (pursue, proceed or ready), given on the screen after it entered this stage; an agent answer does not count, drop, later and rework do not, and a step back makes the previous answer stale (detail: gate). Also becoming Active, from Planning or On hold, on an initiative promoted from an idea: gate C must be answered ready on the screen, and a missing gate C question is the same error |
 | `GATE_OPEN` | 409 | the idea already has an open gate question (detail: gate, question_id) |
 | `HANDOFF_HELD` | 409 | the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note) |
@@ -575,7 +575,7 @@ the UI refetches what changed.
 | `POST /api/projects/:slug/tasks` | 2.12 Pedir: `{ title, summary?, priority?, parent_key? }`, a Backlog ticket as Jorge with `origin: "jorge"` |
 | `GET /api/digest?since=`, `POST /api/digest/seen` | 2.12 Hoy: `get_digest` as the reader `screen` (reading never moves its bookmark); `{ cursor }` on "Visto" does |
 | `GET /api/push/public-key`, `POST` / `DELETE /api/push/subscribe` | 2.12 push: the VAPID key (`PUSH_NOT_CONFIGURED` without it) and this device's subscription |
-| `POST /api/projects/:slug/questions/:id/answer` | `{ answer, decision_text? }` |
+| `POST /api/projects/:slug/questions/:id/answer` | `{ answer, decision_text? }`. Cookie only. Any `Authorization: Bearer`, or an actor in the body or a header, is refused. The stored actor is the screen actor |
 | `GET /api/export/:slug.json` | The whole project (also with an MCP token, rw or ro) |
 | `GET /api/events` | Server-sent change events |
 

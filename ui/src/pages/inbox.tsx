@@ -204,7 +204,12 @@ export function InboxPage() {
         </p>
         <Tabs tab={tab} counts={counts} onChange={setTab} />
       </header>
-      <GatePanel />
+      <GatePanel
+        items={(inbox.data?.items ?? [])
+          .filter((i) => i.kind === "question" && i.gate)
+          .map((i) => ({ project: i.project, question: toQuestion(i) }))}
+        onOpen={(project, key) => navigate(`/p/${project}?task=${encodeURIComponent(key)}`)}
+      />
 
       {tab === "decisiones" && allApprovals.length > 0 && (
         <div className="sticky top-[calc(var(--header-h)+0.5rem)] z-10 flex flex-wrap items-center gap-2 rounded-2xl border bg-background/80 p-3 backdrop-blur-md">
@@ -254,8 +259,8 @@ export function InboxPage() {
               </CardContent>
             </Card>
           )}
-          {questions.length > 0 && (
-            <QuestionsPanel slug={project} questions={questions.map(toQuestion)} onOpen={(key) => navigate(`/p/${project}?task=${encodeURIComponent(key)}`)} />
+          {questions.some((i) => !i.gate) && (
+            <QuestionsPanel slug={project} questions={questions.filter((i) => !i.gate).map(toQuestion)} onOpen={(key) => navigate(`/p/${project}?task=${encodeURIComponent(key)}`)} />
           )}
         </section>
       ))}

@@ -100,7 +100,7 @@ export type Question = {
   decision_id: string | null;
   /** Ideas only: A, B or C when the question is a gate. Absent on an ordinary question. */
   gate?: string | null;
-  /** True when only the screen, with the authenticator code, may answer. */
+  /** True when only the screen may answer, by a click. */
   human_only?: boolean;
 };
 
@@ -205,7 +205,7 @@ export type InboxItem = {
   urgency?: string | null;
   /** Questions only: A, B or C when this is a gate. */
   gate?: string | null;
-  /** Questions only: the screen must answer it with the authenticator code. */
+  /** Questions only: the screen must answer it, by a click. */
   human_only?: boolean;
   action?: string;
   target?: Record<string, unknown>;

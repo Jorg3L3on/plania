@@ -2,12 +2,11 @@ import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { decisions, questions, tasks, type Task } from "../db/schema.js";
 import { decisionShape } from "./decisions.js";
-import { consumeGateCode } from "../gate/challenge.js";
 import { ToolError } from "./errors.js";
 import { GATES, assertGateAsk, type Gate } from "./ideas.js";
 import { TERMINAL, assertTransition } from "./lifecycle.js";
 import { findProject, liveOwner, requireTask, writeReply } from "./queries.js";
-import { WEB_ACTOR, iso, writeTx, type Ctx, type Q } from "./tx.js";
+import { WEB_ACTOR, isScreenActor, iso, writeTx, type Ctx, type Q } from "./tx.js";
 
 // Questions for Jorge live in Plania, not in one session's chat. ask puts a ticket in Needs Jorge
 // (initiatives keep their status); answer records the reply, logs a decision on the task when the
@@ -112,12 +111,12 @@ export async function ask(
 
 export async function answer(
   db: Db,
-  input: { project: string; question_id: string; answer: string; decision_text?: string; nonce?: string; code?: string },
+  input: { project: string; question_id: string; answer: string; decision_text?: string },
   ctx: Ctx,
 ) {
   if (!input.answer.trim()) throw new ToolError("INVALID_QUESTION", { field: "answer" });
   const p = await findProject(db, input.project);
-  const outcome = await writeTx(db, p, ctx, async (tx, emit) => {
+  return writeTx(db, p, ctx, async (tx, emit) => {
     const [row] = await tx
       .select({ q: questions, t: tasks })
       .from(questions)
@@ -127,15 +126,21 @@ export async function answer(
     if (!row) throw new ToolError("QUESTION_NOT_FOUND", { question_id: input.question_id });
     const { q, t } = row;
     if (q.answeredAt) throw new ToolError("ALREADY_ANSWERED", { answer: q.answer, answered_by: q.answeredBy });
-    // A gate always needs the screen and a consumed code, even if an old row still has human_only false.
-    // A human_only question that is not a gate is answered on the screen as free text, with no code.
-    if ((q.gate || q.humanOnly) && !ctx.human) {
-      throw new ToolError("HUMAN_ONLY", { hint: "a gate is answered on the screen, with the code from the authenticator" });
+    // A gate always needs the screen, even if an old row still has human_only false.
+    // A human_only question that is not a gate is answered on the screen as free text.
+    // human is set only by the screen session. The actor must be the screen actor too, so a caller
+    // that spoofs the session id cannot store the answer.
+    if (q.gate || q.humanOnly) {
+      if (!ctx.human || !isScreenActor(ctx.actor)) {
+        throw new ToolError("HUMAN_ONLY", {
+          hint: q.gate
+            ? "human-only gates are answered by a click on the owner's screen; bots are refused"
+            : "a human-only question is answered on the owner's screen; bots are refused",
+        });
+      }
     }
-    if (q.gate) {
-      // Failure commits the attempt and the rejection event; success falls through in this same transaction.
-      const failure = await consumeGateCode(tx, emit, q, t, input.answer, { nonce: input.nonce, code: input.code });
-      if (failure) return { ok: false as const, failure };
+    if (q.gate && q.options.length > 0 && !q.options.includes(input.answer)) {
+      throw new ToolError("INVALID_QUESTION", { field: "option" });
     }
 
     // 2.1: an answer is a decision only when the caller says what was decided (decision_text);
@@ -156,6 +161,7 @@ export async function answer(
       .where(eq(questions.id, q.id))
       .returning();
     await emit("question.answered", t, { question_id: q.id, answer: input.answer, decision_id: d?.id ?? null }, by);
+    if (q.gate) await emit("gate.answered", t, { question_id: q.id, option: input.answer, gate: q.gate }, by);
     if (d) await emit("decision.added", t, { decision_id: d.id, text: d.line, tags: ["answer"] }, by);
 
     // Back to where it was once nothing is left open. In progress without a live lease is Ready.
@@ -183,14 +189,9 @@ export async function answer(
       changed.push("status");
     }
     const u = await requireTask(tx, p.id, t.key);
-    return {
-      ok: true as const,
-      reply: await writeReply(tx, u, ctx, changed, {
-        question: questionShape(answered!, t.key),
-        decision: d ? decisionShape(d, t.key) : null,
-      }),
-    };
+    return writeReply(tx, u, ctx, changed, {
+      question: questionShape(answered!, t.key),
+      decision: d ? decisionShape(d, t.key) : null,
+    });
   });
-  if (!outcome.ok) throw new ToolError(outcome.failure.code, outcome.failure.detail);
-  return outcome.reply;
 }

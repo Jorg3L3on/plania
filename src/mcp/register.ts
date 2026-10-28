@@ -784,7 +784,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer.",
-        "On an idea, gate A, B or C fixes the options and only one gate stays open. A gate is always human_only: answer from here is HUMAN_ONLY, and Jorge answers it on the screen with his authenticator code.",
+        "On an idea, gate A, B or C fixes the options and only one gate stays open. A gate is always human_only: answer from here is HUMAN_ONLY. Human-only gates are answered by a click on the owner's screen; bots are refused.",
         "A ticket moves to Needs Jorge (your lease stays; heartbeat to keep it) until every open question on it is answered.",
         "options are suggested answers; he may answer freely. blocks names other tickets waiting on the answer; urgency says how soon. get_resume lists open_questions.",
         "The reply carries question_id and waits (\"the ticket waits in Needs Jorge\"): nothing else to write.",
@@ -813,7 +813,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Record Jorge's answer to a question that is not human_only (he answers those on the screen; otherwise he may tell you in chat and you record it here, quoting him).",
-        "A human_only question, including every gate, is HUMAN_ONLY from here. Never answer a gate, and never forward an answer.",
+        "A human_only question, including every gate, is HUMAN_ONLY from here. Human-only gates are answered by a click on the owner's screen; bots are refused. Never answer a gate, and never forward an answer.",
         "Pass decision_text when the answer settles something worth keeping: that line goes to the decision log (tag answer). Without it no decision is written.",
         "When no question is left open the ticket returns to its previous status (In progress without a live lease returns to Ready).",
       ].join(" "),

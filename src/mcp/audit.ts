@@ -218,7 +218,7 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
       code: "GATE_ANSWERED_BY_AGENT",
       key: byId.get(q.taskId)?.key ?? null,
       detail: `gate ${q.gate} answered by ${who}, not Jorge on the screen`,
-      fix_hint: "ask the gate again; only the screen answers it, with the authenticator code",
+      fix_hint: "ask the gate again; only the screen answers it, by a click",
       id: q.id,
     });
   }

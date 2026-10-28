@@ -15,17 +15,9 @@ useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
 const { answer: answerQuestion } = await import("../src/mcp/questions.js");
-const { createGateChallenge } = await import("../src/gate/challenge.js");
-const { MemoryGateSecretStore, useGateStore } = await import("../src/gate/store.js");
-const { gateClock, totp } = await import("../src/gate/totp.js");
 const { webCtx } = await import("../src/mcp/tx.js");
 
-// The stage machine answers gates. New gates are human_only, so those answers go through the screen
-// path with a fixed RFC secret and a clock that steps forward, one TOTP window per answer.
-const gateSecret = Buffer.from("12345678901234567890", "ascii");
-const gateMem = new MemoryGateSecretStore();
-useGateStore(gateMem);
-let gateTick = 1_700_000_000_000;
+// The stage machine answers gates. New gates are human_only, so those answers go through the screen actor.
 let db: Db;
 
 type Json = Record<string, any>;
@@ -43,10 +35,7 @@ async function call(name: string, args: Json = {}): Promise<Json> {
 }
 
 async function answerGate(questionId: string, option: string) {
-  gateTick += 31_000;
-  const ch = await createGateChallenge(db, "workia", questionId, option, webCtx);
-  const code = totp(gateSecret, gateTick);
-  await answerQuestion(db, { project: "workia", question_id: questionId, answer: option, nonce: ch.nonce, code }, webCtx);
+  await answerQuestion(db, { project: "workia", question_id: questionId, answer: option }, webCtx);
 }
 
 const migrationsDir = path.resolve(import.meta.dirname, "../drizzle/migrations");
@@ -164,8 +153,6 @@ before(async () => {
   const opened = makeDb();
   db = opened.db;
   closeDb = opened.close;
-  await gateMem.set(gateSecret);
-  gateClock.now = () => gateTick;
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await createMcpServer(db).connect(serverSide);
   client = new Client({ name: "test", version: "0" });
@@ -173,7 +160,6 @@ before(async () => {
 });
 
 after(async () => {
-  gateClock.now = () => Date.now();
   await client?.close();
   await closeDb?.();
   await raw?.end();

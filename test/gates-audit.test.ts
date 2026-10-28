@@ -53,13 +53,14 @@ after(async () => {
   await raw?.end();
 });
 
-describe("protocol 2.13", () => {
-  test("gates are screen-only, and the text stays under 900 words", () => {
+describe("protocol 2.14", () => {
+  test("gates are a click on the screen, and the text stays under 900 words", () => {
     const text = instructions(false);
-    assert.equal(PROTOCOL_VERSION, "2.13");
+    assert.equal(PROTOCOL_VERSION, "2.14");
     assert.ok(text.split(/\s+/).length < 900, `${text.split(/\s+/).length} words`);
-    assert.match(text, /Gates A, B and C are answered only on the screen with the authenticator code/);
+    assert.match(text, /Human-only gates are answered by a click on the owner's screen; bots are refused/);
     assert.match(text, /Never answer a gate, and never forward an answer/);
+    assert.equal(/authenticator|otpauth|TOTP|enrol/i.test(text), false);
   });
 });
 
