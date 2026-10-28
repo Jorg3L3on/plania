@@ -367,6 +367,35 @@ export type Retomar = {
   next: { key: string; title: string } | null;
 };
 
+function movementAgo(atMs: number, nowMs: number): string {
+  const seconds = Math.max(0, Math.round((nowMs - atMs) / 1000));
+  if (seconds < 90) return "hace un momento";
+  if (seconds < 3600) {
+    const n = Math.max(1, Math.round(seconds / 60));
+    return `hace ${n} ${n === 1 ? "minuto" : "minutos"}`;
+  }
+  if (seconds < 86400) {
+    const n = Math.max(1, Math.round(seconds / 3600));
+    return `hace ${n} ${n === 1 ? "hora" : "horas"}`;
+  }
+  const n = Math.max(1, Math.round(seconds / 86400));
+  return `hace ${n} ${n === 1 ? "día" : "días"}`;
+}
+
+/** The last event, when the generated headline is empty. Empty when there is no event. */
+export function lastMovementLine(
+  event: { at: string; type?: string | null; task_key?: string | null; agent?: string | null } | null | undefined,
+  nowMs = Date.now(),
+): string {
+  if (!event?.at) return "";
+  const at = Date.parse(event.at);
+  if (Number.isNaN(at)) return "";
+  const what = [event.task_key, event.type].filter((part): part is string => !!part).join(" · ");
+  if (!what) return "";
+  const who = event.agent ? ` (${event.agent})` : "";
+  return `Último movimiento ${movementAgo(at, nowMs)}: ${what}${who}`;
+}
+
 /** The four lines Retomar shows from get_resume, before the full ResumeView. */
 export function retomarOf(resume: {
   headline: { generated: string; note: { text: string; stale: boolean } };

@@ -106,7 +106,7 @@ describe("reads", () => {
     // 2.11: the line is the generated headline.
     assert.equal(micasa.line, "En curso: MIC-B-02 (test-agent). Siguiente: MIC-01-F2.");
     assert.equal(micasa.open_questions, 0);
-    assert.equal(list.find((p) => p.slug === "zigzag")!.line, "Sin ficha.");
+    assert.equal(list.find((p) => p.slug === "zigzag")!.line, "");
     // Each project carries its tasks without scope, in the same shape as GET /api/projects/:slug.
     const detail = (await (await req("GET", "/api/projects/micasa")).json()) as Json;
     assert.deepEqual(micasa.tasks, detail.tasks);

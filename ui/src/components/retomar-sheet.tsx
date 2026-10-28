@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
-import { READINESS_BADGE, READ_ONLY_LINE, retomarOf, type Readiness } from "@/lib/ahora";
+import { READINESS_BADGE, READ_ONLY_LINE, lastMovementLine, retomarOf, type Readiness } from "@/lib/ahora";
 
 function Line({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -84,7 +84,7 @@ export function RetomarSheet({
           {resume && summary && (
             <>
               <div className="grid gap-4">
-                <Line label="En qué va">{summary.headline || "Sin ficha."}</Line>
+                <Line label="En qué va">{summary.headline || lastMovementLine(resume.recent?.[0]) || "Sin contexto para retomar"}</Line>
                 <Line label="Nota">
                   {summary.note ? summary.note : <span className="text-muted-foreground italic">Sin nota.</span>}
                   {summary.note && summary.noteStale && (

@@ -10,6 +10,7 @@ import { openQuestions } from "./questions.js";
 import { envDriftOf, loadReadiness } from "./readiness.js";
 import { openRequests } from "./requests.js";
 import { statusBlock } from "./status.js";
+import { summarize } from "./summary.js";
 import { iso, type Q } from "./tx.js";
 
 // get_resume: generated, never hand-written. One block per open initiative (what is claimed, what is
@@ -103,7 +104,7 @@ export async function resumeDigest(db: Q, p: Project) {
     envBehind: drift.behind,
     envUnknown: drift.unknown,
   });
-  return {
+  const digest = {
     project: p.slug,
     generated_at: new Date().toISOString(),
     // 2.11: generated from the status block; the note is what set_project headline wrote.
@@ -125,22 +126,89 @@ export async function resumeDigest(db: Q, p: Project) {
     recent: recent.map((e) => ({ at: iso(e.createdAt), type: e.type, task_key: e.taskKey, agent: e.actor.agent })),
     readiness,
   };
+  const last = recent[0];
+  return attachMovement(
+    digest,
+    last
+      ? lastMovementLine({
+          at: last.createdAt,
+          type: last.type,
+          task_key: last.taskKey,
+          agent: last.actor.agent,
+          summary: summarize({ type: last.type, task_key: last.taskKey, actor: last.actor, payload: last.payload ?? {} }),
+        })
+      : "",
+  );
 }
 
 export type ResumeDigest = Awaited<ReturnType<typeof resumeDigest>>;
 
+// Not a tool field. resumeLine reads it; JSON and Object.keys leave it out.
+const LAST_MOVEMENT = Symbol("lastMovement");
+
+function attachMovement<T extends object>(value: T, line: string): T {
+  Object.defineProperty(value, LAST_MOVEMENT, { value: line, enumerable: false });
+  return value;
+}
+
+function movementOf(d: ResumeDigest): string {
+  const stored = (d as ResumeDigest & { [LAST_MOVEMENT]?: string })[LAST_MOVEMENT];
+  if (typeof stored === "string") return stored;
+  const last = d.recent[0];
+  return last ? lastMovementLine(last) : "";
+}
+
+/** "hace 8 días": full words, so a quiet project can say when it last moved. */
+export function movementAgo(at: Date, now: Date): string {
+  const seconds = Math.max(0, Math.round((now.getTime() - at.getTime()) / 1000));
+  if (seconds < 90) return "hace un momento";
+  if (seconds < 3600) {
+    const n = Math.max(1, Math.round(seconds / 60));
+    return `hace ${n} ${n === 1 ? "minuto" : "minutos"}`;
+  }
+  if (seconds < 86400) {
+    const n = Math.max(1, Math.round(seconds / 3600));
+    return `hace ${n} ${n === 1 ? "hora" : "horas"}`;
+  }
+  const n = Math.max(1, Math.round(seconds / 86400));
+  return `hace ${n} ${n === 1 ? "día" : "días"}`;
+}
+
+/** The last event, in one line. Empty when there is no event. `summary` is the Spanish event line. */
+export function lastMovementLine(
+  event: {
+    at: Date | string;
+    type?: string | null;
+    task_key?: string | null;
+    agent?: string | null;
+    summary?: string | null;
+  } | null | undefined,
+  now: Date = new Date(),
+): string {
+  if (!event) return "";
+  const at = event.at instanceof Date ? event.at : new Date(event.at);
+  if (Number.isNaN(at.getTime())) return "";
+  const summary = event.summary?.trim() ?? "";
+  const fallback = [event.task_key, event.type].filter((part): part is string => !!part).join(" · ");
+  const who = summary || !event.agent ? "" : ` (${event.agent})`;
+  const what = summary || (fallback ? `${fallback}${who}` : "");
+  if (!what) return "";
+  return `Último movimiento ${movementAgo(at, now)}: ${what}`;
+}
+
 // One line per project (list_projects, get_digest, the screen's index): the generated headline,
-// else (nothing to say) the next step.
+// else the next step. With nothing to say, that step is the last event, or empty.
 export function resumeLine(d: ResumeDigest): string {
   return d.headline.generated || nextStepLine(d);
 }
 
 // The next step in one line, for Inicio's tiles: what is claimed, else the next step an initiative
-// wrote, else what is next to claim, else the note. (The project line before 2.11.)
+// wrote, else what is next to claim, else the note, else the last event. (The project line before 2.11.)
 export function nextStepLine(d: ResumeDigest): string {
   if (d.claims.length) return `En curso: ${d.claims.map((c) => `${c.key} (${c.owner?.agent})`).join(", ")}`;
   const noted = d.initiatives.find((i) => i.next_action.note);
   if (noted) return `${noted.key}: ${noted.next_action.note}`;
   if (d.next_claimable) return `Siguiente: ${d.next_claimable.key} · ${d.next_claimable.title}`;
-  return d.headline.note.text || "Sin ficha.";
+  if (d.headline.note.text) return d.headline.note.text;
+  return movementOf(d);
 }
