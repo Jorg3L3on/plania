@@ -178,6 +178,52 @@ describe("screen gates", () => {
     assert.equal(state.rows.length, 0);
   });
 
+  test("migration 0030 closes only open gate rows, is idempotent, and drops nothing", async () => {
+    const project = (await raw.query("select id from projects where slug = 'workia'")).rows[0];
+    const task = await raw.query(
+      "insert into tasks (project_id, kind, key, title, status, stage) values ($1, 'idea', 'WRK-OLD30', 'Antes de 2.17', 'Open', 'planning') returning id",
+      [project.id],
+    );
+    const taskId = task.rows[0].id as string;
+    const actor = JSON.stringify(A);
+    await raw.query(
+      `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by) values
+        ($1, $2, 'Gate abierta', '{ready,rework,drop}', 'C', true, $3::jsonb),
+        ($1, $2, 'Normal abierta', '{}', null, true, $3::jsonb)`,
+      [project.id, taskId, actor],
+    );
+    await raw.query(
+      `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by, answer, answered_by, answered_at)
+       values ($1, $2, 'Gate respondida', '{pursue,drop,later}', 'A', true, $3::jsonb, 'pursue', $4::jsonb, '2026-01-02T00:00:00Z')`,
+      [project.id, taskId, actor, JSON.stringify(SCREEN)],
+    );
+    const sql = readFileSync(path.resolve(import.meta.dirname, "../drizzle/migrations/0030_close_gates.sql"), "utf8");
+    const first = await raw.query(sql);
+    assert.ok(first.rowCount! >= 1, String(first.rowCount));
+    const second = await raw.query(sql);
+    assert.equal(second.rowCount, 0, "a second run updates 0 rows");
+
+    const rows = (await raw.query(
+      "select question, gate, answer, answered_by, answered_at from questions where task_id = $1 order by question",
+      [taskId],
+    )).rows;
+    const by = Object.fromEntries(rows.map((r) => [r.question, r]));
+    assert.equal(by["Gate abierta"].answer, "closed: gates removed");
+    assert.deepEqual(by["Gate abierta"].answered_by, { agent: "plania", session_id: "system" });
+    assert.ok(by["Gate abierta"].answered_at);
+    assert.equal(by["Gate abierta"].gate, "C", "the gate letter stays as history");
+    assert.equal(by["Normal abierta"].answered_at, null, "an ordinary open question is untouched");
+    assert.equal(by["Gate respondida"].answer, "pursue");
+    assert.deepEqual(by["Gate respondida"].answered_by, SCREEN);
+
+    const column = await raw.query("select 1 from information_schema.columns where table_name = 'questions' and column_name = 'gate'");
+    assert.equal(column.rows.length, 1);
+    const check = await raw.query("select 1 from pg_constraint where conname = 'questions_gate_check'");
+    assert.equal(check.rows.length, 1);
+    assert.equal((await raw.query("select to_regclass('public.delegated_answers') as t")).rows[0].t, "delegated_answers");
+    assert.doesNotMatch(sql, /\b(drop|delete|truncate|alter)\b/i);
+  });
+
   test("a question that is not a gate is still answered by an agent", async () => {
     const ticket = await call("create_task", { title: "Color", scope: "s", checks: ["c"] });
     assert.equal(ticket.__error, undefined);
