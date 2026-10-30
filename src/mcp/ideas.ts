@@ -1,65 +1,25 @@
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { docs, events, questions, tasks, type Actor } from "../db/schema.js";
+import { and, asc, eq, inArray } from "drizzle-orm";
+import { docs, questions, tasks } from "../db/schema.js";
 import { ToolError } from "./errors.js";
-import { isScreenActor, type Q } from "./tx.js";
+import type { Q } from "./tx.js";
 
 // An idea moves one stage at a time: idea → research → design → planning → ready.
 // Leaving a stage (the forward move) needs that stage's doc, with the headings below as markdown
-// headings, and — where a gate is named — the latest answer for that gate given after the idea
-// entered this stage. Only pursue (A), proceed (B) and ready (C) move it on; drop, later and
-// rework do not. A step back makes that answer stale, so the gate is asked again. A step back is
-// one stage and needs a note. Skipping a stage is INVALID_STAGE_MOVE.
+// headings. Nothing else holds it: gates were removed in 2.17 (PLA-I18), and the old gate
+// questions stay on the ideas as read-only history. A step back is one stage and needs a note.
+// Skipping a stage is INVALID_STAGE_MOVE.
 
 export const STAGES = ["idea", "research", "design", "planning", "ready"] as const;
 export type Stage = (typeof STAGES)[number];
 
-export const GATES = ["A", "B", "C"] as const;
-export type Gate = (typeof GATES)[number];
-
-// ask {gate} stores these and ignores options the caller sent.
-export const GATE_OPTIONS: Record<Gate, readonly string[]> = {
-  A: ["pursue", "drop", "later"],
-  B: ["proceed", "rework", "drop"],
-  C: ["ready", "rework", "drop"],
-};
-
-type StageDoc = { doc: string; headings: readonly string[]; gate: Gate | null };
+type StageDoc = { doc: string; headings: readonly string[] };
 
 export const STAGE_DOCS: Record<Exclude<Stage, "ready">, StageDoc> = {
-  idea: { doc: "Idea", headings: ["Problem", "Who it is for", "Why now"], gate: "A" },
-  research: { doc: "Research", headings: ["What we learned", "Options", "Recommendation"], gate: "B" },
-  design: { doc: "Design", headings: ["Approach", "Scope", "Out of scope"], gate: null },
-  planning: { doc: "Plan", headings: ["Steps", "Done when", "Risks"], gate: "C" },
+  idea: { doc: "Idea", headings: ["Problem", "Who it is for", "Why now"] },
+  research: { doc: "Research", headings: ["What we learned", "Options", "Recommendation"] },
+  design: { doc: "Design", headings: ["Approach", "Scope", "Out of scope"] },
+  planning: { doc: "Plan", headings: ["Steps", "Done when", "Risks"] },
 };
-
-// PLA-I8-3. The stage documents are 00-idea, 01-research, 02-design and 03-initiative, stored
-// under these titles. A gate answer does not record the version it approved. Writing the doc and
-// then answering the gate is the normal order, so a doc that is older than its gate is not stale.
-// A doc is stale only when it was edited after the gate that approved it (updated_at moves with
-// the version): Idea after A, Research after B, Design and Plan (03-initiative) after C.
-// Equal timestamps are not stale. A doc with any other title is not a stage doc.
-export const STAGE_DOC_GATE: Record<string, Gate> = {
-  Idea: "A",
-  Research: "B",
-  Design: "C",
-  Plan: "C",
-};
-
-export type GateAnswerStamp = { gate: string | null; answeredAt: Date | string | null };
-
-export function stageDocStale(doc: { title: string; updatedAt: Date }, answers: GateAnswerStamp[]): { gate: Gate; answeredAt: Date } | null {
-  const gate = STAGE_DOC_GATE[doc.title];
-  if (!gate) return null;
-  let best: Date | null = null;
-  for (const a of answers) {
-    if (a.gate !== gate || !a.answeredAt) continue;
-    const at = new Date(a.answeredAt);
-    if (Number.isNaN(at.getTime())) continue;
-    if (!best || at > best) best = at;
-  }
-  if (!best || !(doc.updatedAt > best)) return null;
-  return { gate, answeredAt: best };
-}
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -84,52 +44,16 @@ export function assertStageMove(from: string | null, to: string, note?: string):
 }
 
 export type StageDocRow = { title: string; markdown: string };
-export type StageQuestion = {
-  gate: string | null;
-  question: string;
-  answered: boolean;
-  answer?: string | null;
-  answeredAt?: Date | string | null;
-  answeredBy?: Actor | null;
-};
+export type StageQuestion = { question: string; answered: boolean };
 
-// The option that moves the idea on. The others (drop, later, rework) leave the gate closed.
-const ADVANCES: Record<Gate, string> = { A: "pursue", B: "proceed", C: "ready" };
-
-// The latest answer for this gate given on the screen, strictly after the idea entered the stage.
-// An agent answer, including one stored before the screen was the only writer, does not count. Earlier
-// answers, including one that advanced before a step back, do not count either.
-function gateAdvances(gate: Gate, qs: StageQuestion[], since: Date | null): boolean {
-  let latest: StageQuestion | undefined;
-  for (const q of qs) {
-    if (q.gate !== gate || !q.answered || !q.answeredAt || !isScreenActor(q.answeredBy)) continue;
-    const at = new Date(q.answeredAt);
-    if (Number.isNaN(at.getTime()) || (since && at <= since)) continue;
-    if (!latest || at > new Date(latest.answeredAt!)) latest = q;
-  }
-  return !!latest && latest.answer === ADVANCES[gate];
-}
-
-// What a forward move still lacks. Null when the doc, its headings and an advancing gate answer are all there.
-// `since` is when the idea entered `from`; null on the first visit, which has no stage-change event.
-export function forwardBlock(
-  from: string,
-  doc: StageDocRow | undefined,
-  questionsOnIt: StageQuestion[],
-  since: Date | null = null,
-): { code: "STAGE_REQUIREMENTS_MISSING"; doc: string; missing: string[] } | { code: "GATE_NOT_PASSED"; gate: Gate } | null {
+// What a forward move still lacks. Null when the doc and its headings are there.
+export function forwardBlock(from: string, doc: StageDocRow | undefined): { code: "STAGE_REQUIREMENTS_MISSING"; doc: string; missing: string[] } | null {
   const req = STAGE_DOCS[from as Exclude<Stage, "ready">];
   if (!req) return null;
   if (!doc || doc.title !== req.doc) return { code: "STAGE_REQUIREMENTS_MISSING", doc: req.doc, missing: ["doc"] };
   const missing = req.headings.filter((h) => !hasHeading(doc.markdown, h));
   if (missing.length) return { code: "STAGE_REQUIREMENTS_MISSING", doc: req.doc, missing: [...missing] };
-  if (req.gate && !gateAdvances(req.gate, questionsOnIt, since)) return { code: "GATE_NOT_PASSED", gate: req.gate };
   return null;
-}
-
-export function throwForwardBlock(from: string, to: string, block: NonNullable<ReturnType<typeof forwardBlock>>): never {
-  if (block.code === "GATE_NOT_PASSED") throw new ToolError("GATE_NOT_PASSED", { from, to, gate: block.gate });
-  throw new ToolError("STAGE_REQUIREMENTS_MISSING", { from, to, doc: block.doc, missing: block.missing });
 }
 
 // Shown on the project page. The stored headings and doc titles stay as written in the markdown.
@@ -149,47 +73,19 @@ const HEADING_ES: Record<string, string> = {
   Risks: "Riesgos",
 };
 
-// One line for the project page: the open gate, else the open question, else the doc or headings
-// still missing, else that it can move. `since` matches forwardBlock, so a stale gate stays a gate.
-export function ideaWaitText(stage: string | null, docRows: StageDocRow[], qs: StageQuestion[], since: Date | null = null): string {
-  const open = qs.filter((q) => !q.answered);
-  const gate = open.find((q) => q.gate);
-  if (gate?.gate) return `Puerta ${gate.gate}`;
-  if (open[0]) return open[0].question;
+// One line for the project page: the open question, else the doc or headings still missing,
+// else that it can move. An old gate question still open (before migration 0030 closes it) reads
+// as its question, like any other.
+export function ideaWaitText(stage: string | null, docRows: StageDocRow[], qs: StageQuestion[]): string {
+  const open = qs.find((q) => !q.answered);
+  if (open) return open.question;
   if (!stage || stage === "ready") return "Lista para promover";
   const req = STAGE_DOCS[stage as Exclude<Stage, "ready">];
   if (!req) return "Puede avanzar";
-  const block = forwardBlock(stage, docRows.find((d) => d.title === req.doc), qs, since);
+  const block = forwardBlock(stage, docRows.find((d) => d.title === req.doc));
   if (!block) return "Puede avanzar";
-  if (block.code === "GATE_NOT_PASSED") return `Puerta ${block.gate}`;
   if (block.missing.includes("doc")) return `Doc ${DOC_ES[block.doc] ?? block.doc}`;
   return block.missing.map((h) => HEADING_ES[h] ?? h).join(", ");
-}
-
-// When the idea last entered this stage (the task.updated that set stage to it). Null on the first
-// visit: an idea is created already in "idea", so that visit has no stage-change event.
-export async function stageEnteredAt(db: Q, taskId: string, stage: string | null): Promise<Date | null> {
-  if (!stage) return null;
-  const [row] = await db
-    .select({ createdAt: events.createdAt })
-    .from(events)
-    .where(and(eq(events.taskId, taskId), eq(events.type, "task.updated"), sql`${events.payload}->'changes'->'stage'->>1 = ${stage}`))
-    .orderBy(desc(events.id))
-    .limit(1);
-  return row?.createdAt ?? null;
-}
-
-export async function loadStageEvidence(db: Q, taskId: string): Promise<{ docRows: StageDocRow[]; qs: StageQuestion[] }> {
-  const docRows = await db.select({ title: docs.title, markdown: docs.markdown }).from(docs).where(eq(docs.taskId, taskId));
-  const rows = await db
-    .select({ gate: questions.gate, question: questions.question, answer: questions.answer, answeredAt: questions.answeredAt, answeredBy: questions.answeredBy })
-    .from(questions)
-    .where(eq(questions.taskId, taskId))
-    .orderBy(asc(questions.askedAt));
-  return {
-    docRows,
-    qs: rows.map((q) => ({ gate: q.gate, question: q.question, answered: !!q.answeredAt, answer: q.answer, answeredAt: q.answeredAt, answeredBy: q.answeredBy })),
-  };
 }
 
 // What each idea on the project page is waiting on, keyed by task key.
@@ -203,63 +99,22 @@ export async function ideaWaits(db: Q, projectId: string): Promise<Map<string, s
   const ids = rows.map((r) => r.id);
   const docRows = await db.select({ taskId: docs.taskId, title: docs.title, markdown: docs.markdown }).from(docs).where(inArray(docs.taskId, ids));
   const qRows = await db
-    .select({ taskId: questions.taskId, gate: questions.gate, question: questions.question, answer: questions.answer, answeredAt: questions.answeredAt, answeredBy: questions.answeredBy })
+    .select({ taskId: questions.taskId, question: questions.question, answeredAt: questions.answeredAt })
     .from(questions)
     .where(inArray(questions.taskId, ids))
     .orderBy(asc(questions.askedAt));
-  const arrivals = await db
-    .select({ taskId: events.taskId, createdAt: events.createdAt, entered: sql<string | null>`${events.payload}->'changes'->'stage'->>1` })
-    .from(events)
-    .where(and(inArray(events.taskId, ids), eq(events.type, "task.updated")))
-    .orderBy(desc(events.id));
-  const stageOf = new Map(rows.map((t) => [t.id, t.stage]));
-  const sinceByTask = new Map<string, Date>();
-  for (const row of arrivals) {
-    if (!row.taskId || sinceByTask.has(row.taskId)) continue;
-    if (row.entered === stageOf.get(row.taskId)) sinceByTask.set(row.taskId, row.createdAt);
-  }
   for (const t of rows) {
     const mine = docRows.filter((d) => d.taskId === t.id);
-    const qs = qRows
-      .filter((q) => q.taskId === t.id)
-      .map((q) => ({ gate: q.gate, question: q.question, answered: !!q.answeredAt, answer: q.answer, answeredAt: q.answeredAt, answeredBy: q.answeredBy }));
-    map.set(t.key, ideaWaitText(t.stage, mine, qs, sinceByTask.get(t.id) ?? null));
+    const qs = qRows.filter((q) => q.taskId === t.id).map((q) => ({ question: q.question, answered: !!q.answeredAt }));
+    map.set(t.key, ideaWaitText(t.stage, mine, qs));
   }
   return map;
 }
 
-// Becoming Active (Planning or On hold) on an initiative an idea was promoted to. Every such idea
-// needs gate C answered `ready` on the screen after it entered planning. No gate C question is
-// the same refusal. An initiative no idea points at is unchanged. On hold is included so parking
-// the initiative is not a way around the gate.
-export async function assertPromotedInitiativeActive(db: Q, initiative: { projectId: string; key: string }, from: string): Promise<void> {
-  const ideas = await db
-    .select({ id: tasks.id, key: tasks.key })
-    .from(tasks)
-    .where(and(eq(tasks.projectId, initiative.projectId), eq(tasks.kind, "idea"), eq(tasks.promotedTo, initiative.key)));
-  for (const idea of ideas) {
-    const { qs } = await loadStageEvidence(db, idea.id);
-    const since = await stageEnteredAt(db, idea.id, "planning");
-    if (!gateAdvances("C", qs, since)) throw new ToolError("GATE_NOT_PASSED", { from, to: "Active", gate: "C", idea: idea.key });
-  }
-}
-
 // The doc the forward move needs, if any. Used by set_task.
 export async function assertForwardStage(db: Q, taskId: string, from: string, to: string): Promise<void> {
-  const { docRows, qs } = await loadStageEvidence(db, taskId);
-  const since = await stageEnteredAt(db, taskId, from);
   const req = STAGE_DOCS[from as Exclude<Stage, "ready">];
-  const block = forwardBlock(from, req ? docRows.find((d) => d.title === req.doc) : undefined, qs, since);
-  if (block) throwForwardBlock(from, to, block);
-}
-
-// One open gate question per idea. Returns the fixed options.
-export async function assertGateAsk(db: Q, taskId: string, gate: Gate): Promise<string[]> {
-  const [open] = await db
-    .select({ id: questions.id, gate: questions.gate })
-    .from(questions)
-    .where(and(eq(questions.taskId, taskId), isNull(questions.answeredAt), sql`${questions.gate} is not null`))
-    .limit(1);
-  if (open) throw new ToolError("GATE_OPEN", { gate: open.gate, question_id: open.id });
-  return [...GATE_OPTIONS[gate]];
+  const docRows = req ? await db.select({ title: docs.title, markdown: docs.markdown }).from(docs).where(eq(docs.taskId, taskId)) : [];
+  const block = forwardBlock(from, req ? docRows.find((d) => d.title === req.doc) : undefined);
+  if (block) throw new ToolError("STAGE_REQUIREMENTS_MISSING", { from, to, doc: block.doc, missing: block.missing });
 }

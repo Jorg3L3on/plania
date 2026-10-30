@@ -32,7 +32,7 @@ import { hasDoc } from "./docs.js";
 import { liveTaskFootprint } from "./footprint-read.js";
 import { assertReviewEvidence } from "./evidence.js";
 import { syncJorgeLines, withdrawParsedBlocker, type ParsedField } from "./jorge-lines.js";
-import { assertForwardStage, assertPromotedInitiativeActive, assertStageMove } from "./ideas.js";
+import { assertForwardStage, assertStageMove } from "./ideas.js";
 import { addAlias, assignKey } from "./keys.js";
 import { GATED_STATUSES, SEVERITIES, TERMINAL, WORK_TYPES, actionForMove, assertTransition } from "./lifecycle.js";
 import { markHeadlineStale } from "./project.js";
@@ -499,10 +499,6 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     if ((input.status === "Merged" || input.status === "Released") && input.status !== t.status && !ctx.human && !ctx.system) await assertMergeEvidence(tx, p, t, input.status);
     if (t.kind === "initiative" && (TERMINAL as readonly string[]).includes(input.status) && input.status !== t.status) {
       await assertChildrenClosed(tx, t);
-    }
-    // On hold → Active is the same bar: parking the initiative must not skip gate C.
-    if (t.kind === "initiative" && input.status === "Active" && t.status !== "Active") {
-      await assertPromotedInitiativeActive(tx, t, t.status);
     }
     if (input.status === "Blocked") {
       if (!input.note?.trim()) throw new ToolError("BLOCKED_REQUIRES_NOTE");

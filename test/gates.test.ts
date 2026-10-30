@@ -1,4 +1,5 @@
-// PLA-I8-2 / PLA-I15-1: human-only gates are a click on the screen session. Bots are refused.
+// PLA-I18-1: gates were removed. ask with gate is refused, ideas and promoted initiatives move
+// without one, and old gate rows stay readable. Human-only questions are still a screen click.
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -189,85 +190,80 @@ describe("screen gates", () => {
     assert.equal(row.answered_by.agent, "test-agent");
   });
 
-  test("MCP answer_question on a human_only gate is HUMAN_ONLY, including a spoofed screen actor", async () => {
+  test("ask with gate is INVALID_QUESTION and stores nothing", async () => {
     const idea = await call("create_task", { kind: "idea", title: "Puerta" });
-    const asked = await call("ask", { key: idea.key, gate: "A", question: "¿La seguimos?" });
+    const ticket = await call("create_task", { title: "Con puerta", scope: "s", checks: ["c"] });
+    for (const [key, gate] of [[idea.key, "A"], [idea.key, "C"], [ticket.key, "B"], [idea.key, "Z"]] as const) {
+      const refused = await call("ask", { key, gate, question: "¿La seguimos?" });
+      assert.equal(refused.__error, "INVALID_QUESTION", `${key} ${gate}`);
+      assert.equal(refused.__status, 400);
+      assert.equal(refused.field, "gate");
+      assert.match(String(refused.hint), /gates were removed/);
+    }
+    const stored = await raw.query(
+      "select count(*)::int as n from questions q join tasks t on t.id = q.task_id where t.key = any($1)",
+      [[idea.key, ticket.key]],
+    );
+    assert.equal(stored.rows[0].n, 0);
+    assert.equal((await call("get_task", { key: ticket.key })).status, "Backlog", "a refused gate does not move the ticket");
+  });
+
+  test("MCP answer on a human_only question is HUMAN_ONLY, including a spoofed screen actor", async () => {
+    const ticket = await call("create_task", { title: "Solo pantalla", scope: "s", checks: ["c"] });
+    const asked = await call("ask", { key: ticket.key, question: "¿Seguimos?", options: ["sí", "no"], human_only: true });
     assert.equal(asked.__error, undefined);
     assert.equal(asked.question.human_only, true);
-    assert.deepEqual(asked.question.options, ["pursue", "drop", "later"]);
-    const refused = await call("answer", { question_id: asked.question.id, answer: "pursue" });
+    assert.equal(asked.question.gate, null);
+    const refused = await call("answer", { question_id: asked.question.id, answer: "sí" });
     assert.equal(refused.__error, "HUMAN_ONLY");
     assert.equal(refused.__status, 403);
     const spoofed = await call("answer", {
       question_id: asked.question.id,
-      answer: "pursue",
+      answer: "sí",
       actor: { agent: "test-agent", session_id: "web", machine: "screen" },
     });
     assert.equal(spoofed.__error, "HUMAN_ONLY");
-    assert.equal(spoofed.__status, 403);
-    const reserved = await call("answer", {
-      question_id: asked.question.id,
-      answer: "pursue",
-      actor: SCREEN,
-    });
+    const reserved = await call("answer", { question_id: asked.question.id, answer: "sí", actor: SCREEN });
     assert.equal(reserved.__error, "RESERVED_ACTOR");
     const still = (await raw.query("select answer from questions where id = $1", [asked.question.id])).rows[0];
     assert.equal(still.answer, null);
   });
 
   test("the screen answer route refuses a bearer, a spoofed actor, and accepts the session", async () => {
-    const idea = await call("create_task", { kind: "idea", title: "Clic" });
-    const asked = await call("ask", { key: idea.key, gate: "A", question: "¿Un clic?" });
+    const ticket = await call("create_task", { title: "Clic", scope: "s", checks: ["c"] });
+    const asked = await call("ask", { key: ticket.key, question: "¿Un clic?", options: ["sí", "no"], human_only: true });
     const id = asked.question.id as string;
 
-    const bearerOnly = await answerScreen(id, "pursue", {
+    const bearerOnly = await answerScreen(id, "sí", {
       cookie: null,
       headers: { Authorization: `Bearer ${TEST_BEARER}` },
     });
     assert.ok(bearerOnly.status === 401 || bearerOnly.status === 403, String(bearerOnly.status));
     assert.equal(bearerOnly.body.answer, undefined);
 
-    const bearerAndCookie = await answerScreen(id, "pursue", {
-      headers: { Authorization: `Bearer ${TEST_BEARER}` },
-    });
+    const bearerAndCookie = await answerScreen(id, "sí", { headers: { Authorization: `Bearer ${TEST_BEARER}` } });
     assert.equal(bearerAndCookie.status, 403);
     assert.equal(bearerAndCookie.body.error, "HUMAN_ONLY");
 
-    const bodyActor = await answerScreen(id, "pursue", {
-      body: { answer: "pursue", actor: SCREEN },
-    });
+    const bodyActor = await answerScreen(id, "sí", { body: { answer: "sí", actor: SCREEN } });
     assert.equal(bodyActor.status, 403);
     assert.equal(bodyActor.body.error, "HUMAN_ONLY");
 
-    const headerActor = await answerScreen(id, "pursue", {
-      headers: { "X-Actor": JSON.stringify(SCREEN) },
-    });
+    const headerActor = await answerScreen(id, "sí", { headers: { "X-Actor": JSON.stringify(SCREEN) } });
     assert.equal(headerActor.status, 403);
     assert.equal(headerActor.body.error, "HUMAN_ONLY");
 
-    const noCookie = await answerScreen(id, "pursue", { cookie: null });
+    const noCookie = await answerScreen(id, "sí", { cookie: null });
     assert.equal(noCookie.status, 401);
 
-    const wrongOption = await answerScreen(id, "nope");
-    assert.equal(wrongOption.status, 400);
-    assert.equal(wrongOption.body.error, "INVALID_QUESTION");
-
-    const open = (await raw.query("select answer, answered_by from questions where id = $1", [id])).rows[0];
+    const open = (await raw.query("select answer from questions where id = $1", [id])).rows[0];
     assert.equal(open.answer, null);
 
-    const accepted = await answerScreen(id, "pursue");
+    const accepted = await answerScreen(id, "sí");
     assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
-    assert.equal(accepted.body.question.answer, "pursue");
+    assert.equal(accepted.body.question.answer, "sí");
     assert.deepEqual(accepted.body.question.answered_by, WEB_ACTOR);
     assert.equal(isScreenActor(accepted.body.question.answered_by), true);
-    const row = (await raw.query("select answered_by from questions where id = $1", [id])).rows[0];
-    assert.deepEqual(row.answered_by, WEB_ACTOR);
-    const events = (await raw.query(
-      "select type, actor from events where task_key = $1 and type = 'gate.answered'",
-      [idea.key],
-    )).rows;
-    assert.equal(events.length, 1);
-    assert.deepEqual(events[0].actor, WEB_ACTOR);
 
     const gone = await req("POST", "/api/gate/enroll", { body: { password: "unused" } });
     assert.equal(gone.status, 404);
@@ -275,92 +271,62 @@ describe("screen gates", () => {
     assert.equal(challenge.status, 404);
   });
 
-  test("a human_only question that is not a gate is free text on the screen", async () => {
+  test("a human_only question with no options is free text on the screen", async () => {
     const ticket = await call("create_task", { title: "Solo", scope: "s", checks: ["c"] });
     const asked = await call("ask", { key: ticket.key, question: "¿Sigues tú?", human_only: true });
     assert.equal(asked.question.gate, null);
     assert.equal(asked.question.human_only, true);
     assert.equal((await call("answer", { question_id: asked.question.id, answer: "sí" })).__error, "HUMAN_ONLY");
-    const spoofed = await call("answer", {
-      question_id: asked.question.id,
-      answer: "sí",
-      actor: { agent: "test-agent", session_id: "web", machine: "screen" },
-    });
-    assert.equal(spoofed.__error, "HUMAN_ONLY");
     const out = await answerScreen(asked.question.id, "sí");
     assert.equal(out.status, 200, JSON.stringify(out.body));
     assert.equal(out.body.question.answer, "sí");
     assert.deepEqual(out.body.question.answered_by, WEB_ACTOR);
   });
 
-  test("a promoted initiative cannot become Active until gate C is answered ready on the screen", async () => {
+  test("a promoted initiative goes Active with no gate C, and old gate rows stay as history", async () => {
     const initiative = await call("create_task", { kind: "initiative", title: "Linea", scope: "PRD" });
-    const plain = await call("create_task", { kind: "initiative", title: "Sin idea", scope: "PRD" });
-    const missingInit = await call("create_task", { kind: "initiative", title: "Sin C", scope: "PRD" });
     const legacyInit = await call("create_task", { kind: "initiative", title: "Vieja", scope: "PRD" });
     const idea = await call("create_task", { kind: "idea", title: "Promovida" });
-    const missingIdea = await call("create_task", { kind: "idea", title: "Sin compuerta C" });
     const legacyIdea = await call("create_task", { kind: "idea", title: "Fila vieja" });
-    await raw.query("update tasks set stage = 'planning', promoted_to = $1 where key = $2", [initiative.key, idea.key]);
-    await raw.query("update tasks set stage = 'planning', promoted_to = $1 where key = $2", [missingInit.key, missingIdea.key]);
+    await raw.query("update tasks set stage = 'ready', promoted_to = $1 where key = $2", [initiative.key, idea.key]);
     await raw.query("update tasks set stage = 'planning', promoted_to = $1 where key = $2", [legacyInit.key, legacyIdea.key]);
 
-    const free = await setStatus(plain.key, "Active");
-    assert.equal(free.__error, undefined, JSON.stringify(free));
-    assert.equal(free.status, "Active");
-
-    const noQuestion = await setStatus(missingInit.key, "Active");
-    assert.equal(noQuestion.__error, "GATE_NOT_PASSED");
-    assert.equal(noQuestion.gate, "C");
-    assert.equal(noQuestion.idea, missingIdea.key);
-
-    const gate = await call("ask", { key: idea.key, gate: "C", question: "¿Lista?" });
-    const blocked = await setStatus(initiative.key, "Active");
-    assert.equal(blocked.__error, "GATE_NOT_PASSED");
-    assert.equal(blocked.__status, 409);
-    assert.equal(blocked.gate, "C");
-    assert.equal(blocked.from, "Planning");
-    assert.equal(blocked.to, "Active");
-    assert.equal(blocked.idea, idea.key);
-    const parked = await setStatus(initiative.key, "On hold");
-    assert.equal(parked.__error, undefined);
-    const bypass = await setStatus(initiative.key, "Active");
-    assert.equal(bypass.__error, "GATE_NOT_PASSED");
-    assert.equal(bypass.from, "On hold");
-
-    const answered = await answerScreen(gate.question.id, "ready");
-    assert.equal(answered.status, 200, JSON.stringify(answered.body));
-    assert.deepEqual(answered.body.question.answered_by, WEB_ACTOR);
     const active = await setStatus(initiative.key, "Active");
     assert.equal(active.__error, undefined, JSON.stringify(active));
     assert.equal(active.status, "Active");
+    const parked = await setStatus(initiative.key, "On hold");
+    assert.equal(parked.__error, undefined);
+    assert.equal((await setStatus(initiative.key, "Active")).status, "Active", "On hold → Active needs nothing either");
 
+    // Rows written before 2.17: an agent answer and an open gate C, both on the idea.
     const ids = (await raw.query(
       "select t.id as task_id, t.project_id from tasks t join projects p on p.id = t.project_id where p.slug = 'workia' and t.key = $1",
       [legacyIdea.key],
     )).rows[0];
-    const prior = await raw.query(
+    await raw.query(
       `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by, answer, answered_by, answered_at)
-       values ($1, $2, 'Respuesta de agente', $3, 'C', false, $4::jsonb, 'ready', $4::jsonb, now()) returning id`,
+       values ($1, $2, 'Respuesta de agente', $3, 'C', false, $4::jsonb, 'rework', $4::jsonb, now())`,
       [ids.project_id, ids.task_id, ["ready", "rework", "drop"], JSON.stringify(A)],
     );
-    assert.equal(prior.rows.length, 1);
-    const stillBlocked = await setStatus(legacyInit.key, "Active");
-    assert.equal(stillBlocked.__error, "GATE_NOT_PASSED");
     const inserted = await raw.query(
       `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by)
-       values ($1, $2, 'Fila anterior', $3, 'C', false, $4::jsonb) returning id`,
+       values ($1, $2, 'Fila anterior', $3, 'C', true, $4::jsonb) returning id`,
       [ids.project_id, ids.task_id, ["ready", "rework", "drop"], JSON.stringify(A)],
     );
-    const legacyId = inserted.rows[0].id as string;
-    const byAgent = await call("answer", { question_id: legacyId, answer: "ready" });
-    assert.equal(byAgent.__error, "HUMAN_ONLY");
-    const onScreen = await answerScreen(legacyId, "ready");
-    assert.equal(onScreen.status, 200, JSON.stringify(onScreen.body));
-    const who = (await raw.query("select answered_by from questions where id = $1", [legacyId])).rows[0];
-    assert.deepEqual(who.answered_by, WEB_ACTOR);
     const legacyActive = await setStatus(legacyInit.key, "Active");
     assert.equal(legacyActive.__error, undefined, JSON.stringify(legacyActive));
     assert.equal(legacyActive.status, "Active");
+
+    const history = (await call("get_task", { key: legacyIdea.key })).questions as Json[];
+    assert.deepEqual(history.map((q) => [q.question, q.gate]), [["Respuesta de agente", "C"], ["Fila anterior", "C"]]);
+
+    // The open old row is still the owner's to close on the screen; it moves nothing and logs no gate event.
+    const legacyId = inserted.rows[0].id as string;
+    assert.equal((await call("answer", { question_id: legacyId, answer: "ready" })).__error, "HUMAN_ONLY");
+    const onScreen = await answerScreen(legacyId, "cerrada");
+    assert.equal(onScreen.status, 200, JSON.stringify(onScreen.body));
+    const gateEvents = (await raw.query("select 1 from events where task_key = $1 and type = 'gate.answered'", [legacyIdea.key])).rows;
+    assert.equal(gateEvents.length, 0);
+    assert.equal((await call("get_task", { key: legacyIdea.key })).stage, "planning");
   });
 });

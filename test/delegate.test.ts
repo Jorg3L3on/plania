@@ -47,9 +47,10 @@ async function call(name: string, args: Json = {}): Promise<Json> {
 
 const evidence = (message = MESSAGE, quote = QUOTE) => ({ delegated_by_jorge: { message_id: message, quote } });
 
+// A human_only question with named options: what answer_delegated may close (gates were removed in 2.17).
 async function gate(title: string) {
   const idea = await call("create_task", { kind: "idea", title });
-  const asked = await call("ask", { key: idea.key, gate: "A", question: `¿${title}?` });
+  const asked = await call("ask", { key: idea.key, question: `¿${title}?`, options: ["pursue", "drop", "later"], human_only: true });
   assert.equal(asked.__error, undefined, JSON.stringify(asked));
   return { key: idea.key as string, id: asked.question.id as string };
 }
@@ -164,7 +165,7 @@ describe("answer_delegated", () => {
     await otherClient.close();
   });
 
-  test("plania-bot with evidence closes the gate as the owner and the audit lists it", async () => {
+  test("plania-bot with evidence closes the question as the owner and the audit lists it", async () => {
     const g = await gate("Sigue");
     const done = await call("answer_delegated", { question_id: g.id, option: "pursue", actor: BOT, ...evidence() });
     assert.equal(done.__error, undefined, JSON.stringify(done));
@@ -185,7 +186,7 @@ describe("answer_delegated", () => {
     assert.equal("token" in evidenceRow.actor, false);
 
     const events = (await raw.query("select type, actor, payload, token_id from events where task_key = $1 and type in ('question.answered', 'gate.answered') order by id", [g.key])).rows;
-    assert.equal(events.length, 2);
+    assert.deepEqual(events.map((e) => e.type), ["question.answered"], "2.17 logs no gate event");
     for (const e of events) {
       assert.deepEqual(e.actor, WEB_ACTOR);
       assert.equal(e.token_id, null);
@@ -203,7 +204,7 @@ describe("answer_delegated", () => {
     const delegated = findings.filter((f) => f.code === "GATE_ANSWERED_DELEGATED" && f.id === g.id);
     assert.equal(delegated.length, 1);
     assert.equal(delegated[0]!.level, "warn");
-    assert.match(delegated[0]!.detail, /gate A delegated/);
+    assert.match(delegated[0]!.detail, /question delegated/);
     assert.match(delegated[0]!.detail, /sigue la compuerta/);
     assert.equal(findings.some((f) => f.code === "GATE_ANSWERED_BY_AGENT" && f.id === g.id), false);
 
@@ -213,7 +214,7 @@ describe("answer_delegated", () => {
     const inbox = await call("get_inbox", { project: "workia" });
     const shown = inbox.delegated.find((d: Json) => d.quote === QUOTE);
     assert.ok(shown, JSON.stringify(inbox.delegated));
-    assert.equal(shown.gate, "A");
+    assert.equal(shown.gate, null);
     assert.equal(shown.key, g.key);
 
     const task = await call("get_task", { key: g.key });

@@ -42,7 +42,7 @@ export const ERRORS = {
   ACTOR_MISMATCH: [403, "actor.agent or actor.machine disagrees with the agent token's (detail: expected)"],
   APPROVAL_MISMATCH: [403, "the approval_id is for another task, action or target (detail: expected)"],
   APPROVAL_REQUIRED: [403, "this needs an approval_id: request_approval first (detail: action, target)"],
-  HUMAN_ONLY: [403, "Won't do or reopening a closed task: Jorge's call, on screen or with an approval_id he granted (request_approval). Also a human_only question, including every gate: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it"],
+  HUMAN_ONLY: [403, "Won't do or reopening a closed task: Jorge's call, on screen or with an approval_id he granted (request_approval). Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it"],
   DELEGATION_OFF: [403, "delegated answers are off: the kill switch on the screen is off"],
   NOT_DELEGABLE: [403, "answer_delegated only answers one human_only question that has named options, or grants or rejects a pending wont_do or reopen approval"],
   // 404: something named does not exist.
@@ -79,8 +79,6 @@ export const ERRORS = {
   INVALID_TRANSITION: [409, "the status change is not allowed from the current status (detail: from, to, hint)"],
   INVALID_STAGE_MOVE: [409, "set_task stage is not one step along idea → research → design → planning → ready, or a step back without a note (detail: from, to)"],
   STAGE_REQUIREMENTS_MISSING: [409, "moving an idea forward without that stage's doc or its headings (detail: doc, missing)"],
-  GATE_NOT_PASSED: [409, "moving an idea forward needs a gate answer that moves it on (pursue, proceed or ready), given on the screen after it entered this stage; an agent answer does not count, drop, later and rework do not, and a step back makes the previous answer stale (detail: gate). Also becoming Active, from Planning or On hold, on an initiative promoted from an idea: gate C must be answered ready on the screen, and a missing gate C question is the same error"],
-  GATE_OPEN: [409, "the idea already has an open gate question (detail: gate, question_id)"],
   IDEA_CLOSED: [409, "a Done or Won't do idea does not change stage or promoted_to (detail: status)"],
   KEY_EXISTS: [409, "create with a key that exists (or is an alias of one); creates are not idempotent without request_id"],
   KEY_BELOW_COUNTER: [409, "an explicit key with a number already issued for that scope (detail: next); omit key to get the next one"],

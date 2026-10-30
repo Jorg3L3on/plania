@@ -2,8 +2,10 @@
 // repo reads the same version. Project-specific additions live in the project's rules (set_project).
 // Bump PROTOCOL_VERSION whenever the text changes meaning.
 
-export const PROTOCOL_VERSION = "2.16";
+export const PROTOCOL_VERSION = "2.17";
 
+// 2.17: gates were removed (PLA-I18). Ideas move stage by stage with only the stage doc checked;
+// ask with gate is INVALID_QUESTION. Old gate questions stay as read-only history.
 // 2.16: get_resume, list_projects and get_digest carry read-only readiness. Unknown data is caution.
 // The screen shows the server's reason text, including ENV_UNKNOWN.
 // 2.15: the screen still answers a human-only gate with a click. When the owner is away, only
@@ -25,7 +27,7 @@ Work
 5. Keep the lease: claim action heartbeat before it runs out (key "*" for every ticket you hold). Leaving mid-ticket: handoff {to, note, head_sha}.
 6. Writes that change fields carry the version you read; STALE_VERSION means re-read, merge, retry. Notes need no version: prefer a note to rewriting scope. Several writes at once: batch.
 7. Evidence is a record: add_result with what ran, the commit and the counts; check_ns ticks the checks it proves. A check that will not be done: waive_check with the reason, before review.
-8. Need Jorge to decide? ask: the ticket waits in Needs Jorge and the question reaches his inbox; never only write "waiting on Jorge" in a field. Human-only gates are answered by a click on the owner's screen. When he is away he may tell actor agent plania-bot in his own chat; only that agent may call answer_delegated, for one named option or for a wont_do or reopen approval, and only with delegated_by_jorge {message_id, quote}. The server cannot prove the caller is that bot or that the message exists: the quote, the audit, the Delegada badge, 10 an hour, one per question, and a screen kill switch (default on) are the controls. That tool cannot raise the limit or flip the switch. Any other agent, and the answer tool, is refused. Never answer a gate yourself, and never forward an answer. Need him to do something? blocked_by human_action (a line that starts with "Jorge:" becomes one and warns). A move you may not make (Won't do, reopening, a waiver once in review, a gated resource): request_approval, then pass the approval_id he grants.
+8. Need Jorge to decide? ask: the ticket waits in Needs Jorge and the question reaches his inbox; never only write "waiting on Jorge" in a field. A human_only question is answered on the owner's screen. When he is away he may tell actor agent plania-bot in his own chat; only that agent may call answer_delegated, for one named option or for a wont_do or reopen approval, and only with delegated_by_jorge {message_id, quote}. The server cannot prove the caller is that bot or that the message exists: the quote, the audit, the Delegada badge, 10 an hour, one per question, and a screen kill switch (default on) are the controls. That tool cannot raise the limit or flip the switch. Any other agent, and the answer tool, is refused. Never forward an answer. Need him to do something? blocked_by human_action (a line that starts with "Jorge:" becomes one and warns). A move you may not make (Won't do, reopening, a waiver once in review, a gated resource): request_approval, then pass the approval_id he grants.
 9. Started something that outlives the command (a dev server, a database copy, a container, a tunnel)? register_footprint with its teardown, and release_footprint once it is gone. Tests and builds are not registered. Never touch a live database for tests.
 10. Decisions go to add_decision (one line, pinned if it must be kept); specs and plans to attach_doc, never a plan file on one machine. Shared numbers (a migration): reserve_sequence. Shared things (a port, the production migrate step): lease_resource.
 

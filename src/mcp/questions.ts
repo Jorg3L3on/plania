@@ -3,7 +3,6 @@ import type { Db } from "../db/client.js";
 import { decisions, delegatedAnswers, questions, tasks, type Actor, type Task } from "../db/schema.js";
 import { decisionShape } from "./decisions.js";
 import { ToolError } from "./errors.js";
-import { GATES, assertGateAsk, type Gate } from "./ideas.js";
 import { TERMINAL, assertTransition } from "./lifecycle.js";
 import { findProject, liveOwner, requireTask, writeReply } from "./queries.js";
 import { WEB_ACTOR, isScreenActor, iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
@@ -70,11 +69,13 @@ export async function openQuestions(db: Q, projectId: string) {
 
 export async function ask(
   db: Db,
-  input: { project: string; key: string; question: string; options?: string[]; blocks?: string[]; urgency?: Urgency; gate?: Gate; human_only?: boolean },
+  input: { project: string; key: string; question: string; options?: string[]; blocks?: string[]; urgency?: Urgency; gate?: unknown; human_only?: boolean },
   ctx: Ctx,
 ) {
   if (!input.question.trim()) throw new ToolError("INVALID_QUESTION");
   if (input.urgency !== undefined && !(URGENCIES as readonly string[]).includes(input.urgency)) throw new ToolError("INVALID_QUESTION", { field: "urgency", accepts: URGENCIES });
+  // 2.17 (PLA-I18): gates were removed. A 2.15 client that still sends one is told so, not ignored.
+  if (input.gate !== undefined && input.gate !== null) throw new ToolError("INVALID_QUESTION", { field: "gate", hint: "gates were removed; ideas move stage by stage with only the stage doc checked" });
   const p = await findProject(db, input.project);
   return writeTx(db, p, ctx, async (tx, emit) => {
     const t = await requireTask(tx, p.id, input.key);
@@ -87,13 +88,10 @@ export async function ask(
     if ((TERMINAL as readonly string[]).includes(t.status)) {
       throw new ToolError("INVALID_TRANSITION", { from: t.status, to: "Needs Jorge", hint: "the task is closed" });
     }
-    if (input.gate !== undefined && !(GATES as readonly string[]).includes(input.gate)) throw new ToolError("INVALID_QUESTION", { field: "gate", accepts: GATES });
-    if (input.gate && t.kind !== "idea") throw new ToolError("INVALID_QUESTION", { field: "gate", hint: "gates are for ideas" });
-    const options = input.gate ? await assertGateAsk(tx, t.id, input.gate) : (input.options ?? []);
+    const options = input.options ?? [];
     const moves = t.kind === "ticket" && t.status !== "Needs Jorge";
     if (moves) assertTransition(t.kind, t.status, "Needs Jorge", { via: "ask" });
-    // A gate is always human_only. The caller's flag is ignored for it, and existing rows are not rewritten.
-    const humanOnly = input.gate ? true : (input.human_only ?? false);
+    const humanOnly = input.human_only ?? false;
     const [q] = await tx
       .insert(questions)
       .values({
@@ -103,7 +101,6 @@ export async function ask(
         options,
         blocks,
         urgency: input.urgency ?? null,
-        gate: input.gate ?? null,
         humanOnly,
         statusBefore: moves ? t.status : null,
         askedBy: ctx.actor,
@@ -117,7 +114,7 @@ export async function ask(
         .where(eq(tasks.id, t.id));
       await emit("task.status", t, { from: t.status, to: "Needs Jorge" });
     }
-    await emit("question.asked", t, { question_id: q!.id, question: q!.question, options: q!.options, blocks: q!.blocks, urgency: q!.urgency, gate: q!.gate, human_only: q!.humanOnly });
+    await emit("question.asked", t, { question_id: q!.id, question: q!.question, options: q!.options, blocks: q!.blocks, urgency: q!.urgency, human_only: q!.humanOnly });
     const u = await requireTask(tx, p.id, t.key);
     // 2.13: the reply says where the wait now lives, so nobody also writes it into next_action or a note.
     const waits = u.status === "Needs Jorge" ? "the ticket waits in Needs Jorge until he answers" : "the question waits in Jorge's inbox until he answers";
@@ -125,7 +122,7 @@ export async function ask(
   });
 }
 
-// The screen path. A human_only question, including every gate, needs the session cookie.
+// The screen path. A human_only question needs the session cookie.
 // answer_delegated does not call this: it uses answerInTx inside its own transaction.
 export async function answer(
   db: Db,
@@ -154,35 +151,28 @@ export async function answerInTx(
   if (!row) throw new ToolError("QUESTION_NOT_FOUND", { question_id: input.question_id });
   const { q, t } = row;
   if (q.answeredAt) throw new ToolError("ALREADY_ANSWERED", { answer: q.answer, answered_by: q.answeredBy });
-  // A gate always needs the screen, even if an old row still has human_only false.
-  // A human_only question that is not a gate is answered on the screen as free text.
+  // A human_only question is answered on the screen as free text.
   // human is set only by the screen session. The actor must be the screen actor too, so a caller
   // that spoofs the session id cannot store the answer. delegation is set only by answer_delegated,
   // after it has already required actor agent plania-bot and the owner's quote.
-  if ((q.gate || q.humanOnly) && !delegation) {
+  if (q.humanOnly && !delegation) {
     if (!ctx.human || !isScreenActor(ctx.actor)) {
-      throw new ToolError("HUMAN_ONLY", {
-        hint: q.gate
-          ? "human-only gates are answered by a click on the owner's screen; bots are refused"
-          : "a human-only question is answered on the owner's screen; bots are refused",
-      });
+      throw new ToolError("HUMAN_ONLY", { hint: "a human-only question is answered on the owner's screen; bots are refused" });
     }
   }
   if (delegation) {
-    const named = q.options.length > 0 && (!!q.gate || q.humanOnly);
+    const named = q.options.length > 0 && q.humanOnly;
     if (!named) throw new ToolError("NOT_DELEGABLE", { question_id: q.id, hint: "a named human_only option, or the screen" });
     if (!q.options.includes(input.answer)) throw new ToolError("INVALID_QUESTION", { field: "option" });
     const [prior] = await tx.select({ id: delegatedAnswers.id }).from(delegatedAnswers).where(eq(delegatedAnswers.questionId, q.id)).limit(1);
     if (prior) throw new ToolError("DELEGATION_LIMIT", { reason: "question", question_id: q.id });
-  } else if (q.gate && q.options.length > 0 && !q.options.includes(input.answer)) {
-    throw new ToolError("INVALID_QUESTION", { field: "option" });
   }
 
   // 2.1: an answer is a decision only when the caller says what was decided (decision_text);
   // otherwise the answer stays on the question and the decision log keeps its signal.
-  // A gate or human_only answer is the owner's, whatever else the caller sent. A delegated
+  // A human_only answer is the owner's, whatever else the caller sent. A delegated
   // answer is his too: the bot is only the messenger, and the evidence row says so.
-  const by = delegation || q.gate || q.humanOnly ? WEB_ACTOR : ctx.actor;
+  const by = delegation || q.humanOnly ? WEB_ACTOR : ctx.actor;
   let stamp: DelegatedView | undefined;
   if (delegation) {
     const [stored] = await tx
@@ -212,7 +202,6 @@ export async function answerInTx(
     .returning();
   const evidence = stamp ? { delegated: stamp } : {};
   await emit("question.answered", t, { question_id: q.id, answer: input.answer, decision_id: d?.id ?? null, ...evidence }, by);
-  if (q.gate) await emit("gate.answered", t, { question_id: q.id, option: input.answer, gate: q.gate, ...evidence }, by);
   if (d) await emit("decision.added", t, { decision_id: d.id, text: d.line, tags: ["answer"] }, by);
 
   // Back to where it was once nothing is left open. In progress without a live lease is Ready.

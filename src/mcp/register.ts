@@ -46,7 +46,6 @@ import { SEVERITIES } from "./lifecycle.js";
 import { writeTx } from "./tx.js";
 import { PROTOCOL_VERSION, instructions } from "./protocol.js";
 import { releasePlan } from "./release-plan.js";
-import { GATES } from "./ideas.js";
 import { answerDelegated } from "./delegate.js";
 import { URGENCIES, answer, ask } from "./questions.js";
 import { TTL, claim, createTask, handoff, setTask } from "./writes.js";
@@ -210,7 +209,7 @@ const setTaskFields = {
   approval_id: z.string().optional().describe("For Won't do or reopening: the id of an approval Jorge granted (request_approval). Spent on this move"),
   withdraw_blocker: z.string().optional().describe("Id of a human_action your own note created (JORGE_LINE_PARSED) that asks nothing of Jorge: it is removed. Same session or token only; needs no version"),
   no_pr_reason: z.string().optional().describe("Done, Merged or Released on a code ticket without pr_url: why the work had no PR (otherwise TASK_MISSING_PR_URL). Logged as task.no_pr"),
-  stage: z.string().optional().describe("Ideas only. One step along idea → research → design → planning → ready. A step back needs a note. Skipping a stage is INVALID_STAGE_MOVE; a move without that stage's doc or headings is STAGE_REQUIREMENTS_MISSING; a move whose gate is unanswered is GATE_NOT_PASSED"),
+  stage: z.string().optional().describe("Ideas only. One step along idea → research → design → planning → ready. A step back needs a note. Skipping a stage is INVALID_STAGE_MOVE; a move without that stage's doc or headings is STAGE_REQUIREMENTS_MISSING. Nothing else holds a forward move"),
   promoted_to: z.string().nullable().optional().describe("Ideas only: key of the initiative or standalone ticket this idea became. A phase or another idea is PROMOTED_TO_INVALID"),
   note: z.string().optional(),
   version: z.number().int().optional().describe("The version you read. Required unless note or withdraw_blocker is the only field"),
@@ -652,8 +651,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "A note goes to the task's log with your actor and a server timestamp; it is the only way to add text without a version. Blocked requires a note, stored as blocked_note.",
         "To tick one Done when item use set_check, not checks.",
         "Ticket moves: Backlog ⇄ Ready; Backlog, Ready, In progress or In review → Blocked (note required) → Backlog or Ready; In progress → In review, Ready or Backlog (each releases the lease). In progress only through claim.",
-        "Initiative moves: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold; next_action and in_progress_note feed get_resume. An initiative an idea was promoted to cannot become Active (from Planning or On hold) until that idea's gate C was answered ready on the screen (GATE_NOT_PASSED). No such answer, including when gate C was never asked, is the same error. An initiative no idea was promoted to is unchanged.",
-        "Idea status is Open, Done or Won't do. stage moves one step along idea → research → design → planning → ready; a step back needs a note (INVALID_STAGE_MOVE when it skips or the note is missing). Moving forward needs that stage's doc and headings (STAGE_REQUIREMENTS_MISSING) and, for idea, research and planning, a gate answer that moves it on — pursue, proceed or ready — given on the screen after it entered this stage (GATE_NOT_PASSED; an agent answer does not count, drop, later and rework do not pass, and a step back makes the previous answer stale). A Done or Won't do idea refuses stage and promoted_to (IDEA_CLOSED). promoted_to records the initiative or standalone ticket it became.",
+        "Initiative moves: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold; next_action and in_progress_note feed get_resume. An initiative an idea was promoted to moves like any other.",
+        "Idea status is Open, Done or Won't do. stage moves one step along idea → research → design → planning → ready; a step back needs a note (INVALID_STAGE_MOVE when it skips or the note is missing). Moving forward needs that stage's doc and headings (STAGE_REQUIREMENTS_MISSING), and nothing else: no approval is asked. A Done or Won't do idea refuses stage and promoted_to (IDEA_CLOSED). promoted_to records the initiative or standalone ticket it became.",
         "Anything else is INVALID_TRANSITION with the allowed moves.",
         "Finishing a phase: finish does add_result and In review in one call. By hand: add_result first, then status 'In review' (committed, not merged) with branch and pr_url; without fitting evidence it is EVIDENCE_REQUIRED.",
         "Merged and Released are the pollers' (GitHub merge, deploy); by hand they need a ci pass result naming the merge commit (and, for Released, the release target env containing it).",
@@ -791,7 +790,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Ask Jorge a question about a task, in Plania rather than only in your chat, so any session can see it and its answer.",
-        "On an idea, gate A, B or C fixes the options and only one gate stays open. A gate is always human_only: answer from here is HUMAN_ONLY. Human-only gates are answered by a click on the owner's screen; bots are refused.",
+        "human_only: true means only the owner's screen may answer it; bots are refused.",
         "A ticket moves to Needs Jorge (your lease stays; heartbeat to keep it) until every open question on it is answered.",
         "options are suggested answers; he may answer freely. blocks names other tickets waiting on the answer; urgency says how soon. get_resume lists open_questions.",
         "The reply carries question_id and waits (\"the ticket waits in Needs Jorge\"): nothing else to write.",
@@ -804,9 +803,9 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         verbose,
         key,
         question: z.string(),
-        options: z.array(z.string()).optional().describe("Suggested answers. Ignored when gate is set: the server stores that gate's options"),
-        gate: z.enum(GATES).optional().describe("Ideas only. A, B or C. One open gate per idea (GATE_OPEN). The options are fixed"),
-        human_only: z.boolean().optional().describe("On a question that is not a gate: only the screen may answer. A gate ignores this and is always human_only"),
+        options: z.array(z.string()).optional().describe("Suggested answers"),
+        gate: z.unknown().optional().describe("Removed in 2.17: gates no longer exist, and any value is INVALID_QUESTION"),
+        human_only: z.boolean().optional().describe("Only the screen may answer"),
         blocks: z.array(z.string()).optional().describe("Other task keys this answer holds up (shown in the inbox and the digest)"),
         urgency: z.enum(URGENCIES).optional().describe("How soon Jorge is needed: now | soon | whenever"),
       },
@@ -820,7 +819,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Record Jorge's answer to a question that is not human_only (he answers those on the screen; otherwise he may tell you in chat and you record it here, quoting him).",
-        "A human_only question, including every gate, is HUMAN_ONLY from here, including for actor agent plania-bot. Human-only gates are answered by a click on the owner's screen. The only bot path is answer_delegated, and only that agent may call it. Never answer a gate yourself, and never forward an answer.",
+        "A human_only question is HUMAN_ONLY from here, including for actor agent plania-bot: it is answered on the owner's screen. The only bot path is answer_delegated, and only that agent may call it. Never forward an answer.",
         "Pass decision_text when the answer settles something worth keeping: that line goes to the decision log (tag answer). Without it no decision is written.",
         "When no question is left open the ticket returns to its previous status (In progress without a live lease returns to Ready).",
       ].join(" "),

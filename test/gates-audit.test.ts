@@ -53,18 +53,19 @@ after(async () => {
   await raw?.end();
 });
 
-describe("protocol 2.16", () => {
-  test("gates are a click on the screen, the delegated path is honest, and the text stays under 900 words", () => {
+describe("protocol 2.17", () => {
+  test("no gates, human_only is a click on the screen, the delegated path is honest, and the text stays under 900 words", () => {
     const text = instructions(false);
-    assert.equal(PROTOCOL_VERSION, "2.16");
+    assert.equal(PROTOCOL_VERSION, "2.17");
     assert.match(text, /Unknown or missing data is caution, never ready/);
     assert.match(text, /ENV_UNKNOWN/);
     assert.match(text, /The screen shows the server's reason text/);
     assert.ok(text.split(/\s+/).length < 900, `${text.split(/\s+/).length} words`);
-    assert.match(text, /Human-only gates are answered by a click on the owner's screen/);
+    assert.match(text, /A human_only question is answered on the owner's screen/);
+    assert.equal(/\bgates?\b/i.test(text), false, "2.17: the protocol names no gate");
     assert.match(text, /answer_delegated/);
     assert.match(text, /cannot prove the caller is that bot or that the message exists/);
-    assert.match(text, /Never answer a gate yourself, and never forward an answer/);
+    assert.match(text, /Never forward an answer/);
     assert.equal(/authenticator|otpauth|TOTP|enrol/i.test(text), false);
   });
 });
@@ -166,46 +167,19 @@ describe("GATE_ANSWERED_BY_AGENT", () => {
 });
 
 describe("STAGE_DOC_STALE", () => {
-  test("a doc edited after its gate is stale; the normal order, and the same instant, are not", async () => {
-    const actor = JSON.stringify(A);
-    // Normal order: each doc, then the gate that approves it, then the next doc.
+  // PLA-I18-1: the finding measured docs against the gate that approved them. Gates are gone,
+  // so a doc edited after an old gate answer is just an edit.
+  test("is no longer emitted, even for a doc edited after an old gate answer", async () => {
     await raw.query(
       `insert into docs (project_id, task_id, title, markdown, version, actor, updated_at) values
-       ($1, $2, 'Idea', 'problem', 1, $3::jsonb, '2026-01-01T00:00:00Z'),
-       ($1, $2, 'Research', 'learned', 1, $3::jsonb, '2026-03-01T00:00:00Z'),
-       ($1, $2, 'Design', 'approach', 1, $3::jsonb, '2026-05-01T00:00:00Z'),
-       ($1, $2, 'Plan', 'steps', 1, $3::jsonb, '2026-06-01T00:00:00Z'),
-       ($1, $2, 'Notes', 'not a stage doc', 1, $3::jsonb, '2026-09-01T00:00:00Z')`,
-      [projectId, stageIdeaId, actor],
+       ($1, $2, 'Idea', 'problem', 2, $3::jsonb, '2026-03-01T00:00:00Z')`,
+      [projectId, stageIdeaId, AGENT],
     );
     await raw.query(
       `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by, answer, answered_by, answered_at) values
-       ($1, $2, 'A', '{pursue,drop,later}', 'A', true, $3::jsonb, 'pursue', $4::jsonb, '2026-02-01T00:00:00Z'),
-       ($1, $2, 'B', '{proceed,rework,drop}', 'B', true, $3::jsonb, 'proceed', $4::jsonb, '2026-04-01T00:00:00Z'),
-       ($1, $2, 'C', '{ready,rework,drop}', 'C', true, $3::jsonb, 'ready', $4::jsonb, '2026-07-01T00:00:00Z')`,
+       ($1, $2, 'A', '{pursue,drop,later}', 'A', true, $3::jsonb, 'pursue', $4::jsonb, '2026-02-01T00:00:00Z')`,
       [projectId, stageIdeaId, AGENT, SCREEN],
     );
-    const stale = async () => (await codes("STAGE_DOC_STALE")).filter((f) => f.key === "FIL-IDEA2").map((f) => f.detail.replace(/ \(.*\)$/, "")).sort();
-    assert.deepEqual(await stale(), [], "doc, then its gate, then the next doc is not stale");
-
-    await raw.query("update docs set updated_at = '2026-02-01T00:00:00Z' where task_id = $1 and title = 'Idea'", [stageIdeaId]);
-    assert.deepEqual(await stale(), [], "the same instant as the gate is not stale");
-
-    await raw.query(
-      `update docs set version = version + 1, updated_at = case title
-         when 'Idea' then '2026-02-02T00:00:00Z'
-         when 'Research' then '2026-04-02T00:00:00Z'
-         when 'Design' then '2026-07-02T00:00:00Z'
-         when 'Plan' then '2026-07-02T00:00:00Z'
-         else updated_at end
-       where task_id = $1 and title in ('Idea', 'Research', 'Design', 'Plan')`,
-      [stageIdeaId],
-    );
-    assert.deepEqual(await stale(), [
-      "Design v2 changed after gate C approved it",
-      "Idea v2 changed after gate A approved it",
-      "Plan v2 changed after gate C approved it",
-      "Research v2 changed after gate B approved it",
-    ]);
+    assert.deepEqual(await codes("STAGE_DOC_STALE"), []);
   });
 });

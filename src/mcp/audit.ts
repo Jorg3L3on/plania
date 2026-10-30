@@ -3,7 +3,6 @@ import type { Db } from "../db/client.js";
 import { approvals, auditRuns, blockers, branches, checks, decisions, delegatedAnswers, docs, envStates, pullRequests, questions, results, tasks, type Project, type Task } from "../db/schema.js";
 import { hasUnsatisfiedBlocker, openHumanActions } from "./blockers.js";
 import { footprintFindings } from "./footprint-audit.js";
-import { stageDocStale } from "./ideas.js";
 import { WAITING_ON_JORGE, gatingSql, parseJorgeLines } from "./jorge-lines.js";
 import { prefixOf } from "./keys.js";
 import { releasePending, releasePlan } from "./release-plan.js";
@@ -250,24 +249,6 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
       detail: `${what} delegated at ${iso(d.createdAt)} by ${d.actor.agent}: "${d.quote}" (message ${d.messageId})`,
       fix_hint: "review the quote on the Bandeja (badge Delegada). The kill switch on that screen turns delegated answers off; the bot cannot flip it",
       id: d.questionId ?? d.approvalId ?? d.id,
-    });
-  }
-  // PLA-I8-3: a stage doc edited after the gate that approved it (Idea/A, Research/B, Design and Plan/C).
-  const openIdeaIds = new Set(all.filter((t) => t.kind === "idea" && !CLOSED.includes(t.status)).map((t) => t.id));
-  const stageDocs = openIdeaIds.size
-    ? await db.select().from(docs).where(inArray(docs.taskId, [...openIdeaIds]))
-    : [];
-  for (const d of stageDocs) {
-    if (!d.taskId || !openIdeaIds.has(d.taskId)) continue;
-    const answers = gateRows.filter((q) => q.taskId === d.taskId).map((q) => ({ gate: q.gate, answeredAt: q.answeredAt }));
-    const stale = stageDocStale({ title: d.title, updatedAt: d.updatedAt }, answers);
-    if (!stale) continue;
-    out.push({
-      code: "STAGE_DOC_STALE",
-      key: byId.get(d.taskId)?.key ?? null,
-      detail: `${d.title} v${d.version} changed after gate ${stale.gate} approved it (${iso(stale.answeredAt)})`,
-      fix_hint: "the gate approved the previous version; ask it again after the rewrite",
-      id: d.id,
     });
   }
   // What this project's agents left running on the Mac (stale servers and databases, merged worktrees).
