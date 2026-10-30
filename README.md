@@ -183,6 +183,18 @@ psql -l | grep plania_test_
 dropdb plania_test_3f9a2c
 ```
 
+### Scanning a diff for personal data and secrets
+
+`pnpm scan:diff <repo-path> [base]` scans the lines a branch adds (`git diff <base>...HEAD`, base defaults to `main`) in any repo on this Mac. It is read-only: nothing is written to the scanned repo, and nothing about it lives there.
+
+```bash
+pnpm scan:diff ~/Developer/Projects/filmia sandbox
+```
+
+It prints `file:line`, `HIGH` or `hint`, what it found and a masked value (first 2 and last 4 characters, e.g. `01************4567`), never the full value, then `PII scan: N high, M hints`. HIGH: GitHub, OpenAI-style, Stripe, Slack, AWS and Google tokens, private keys, URLs with a password, CLABEs with a valid check digit, card numbers that pass Luhn, CURPs, and a committed `.env` file (not `.env.example`). Hints: emails and RFC-shaped strings. Emails at `example.com`, `*.test`, `*.invalid` and `users.noreply.github.com` are skipped.
+
+Exit codes: 0 no HIGH finding, 1 at least one HIGH finding, 2 usage or git error (a bad base is never a pass). Values that are fine to commit (fake emails, test CLABEs) go in `~/.config/plania/scan-allowlist`, one literal value or `/regex/` per line, `#` for comments; `PLANIA_SCAN_ALLOWLIST` points elsewhere. It is a hint tool, not a guarantee, and it does not look at history already pushed: rotate anything that leaked.
+
 ## Running locally as a service
 
 Plania runs on this Mac.

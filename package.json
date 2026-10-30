@@ -21,7 +21,8 @@
     "error-catalog": "tsx scripts/error-catalog.ts",
     "mcp-table": "tsx scripts/mcp-table.ts",
     "hash-password": "tsx scripts/hash-password.ts",
-    "vapid": "tsx scripts/vapid.ts"
+    "vapid": "tsx scripts/vapid.ts",
+    "scan:diff": "tsx scripts/scan-diff.ts"
   },
   "dependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.3.0",
