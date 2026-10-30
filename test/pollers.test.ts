@@ -12,7 +12,7 @@ const { createTask, claim, setTask } = await import("../src/mcp/writes.js");
 const { addResult } = await import("../src/mcp/evidence.js");
 const { setProject } = await import("../src/mcp/project.js");
 const { findProject, findTask, listEvents } = await import("../src/mcp/queries.js");
-const { pollGithubProject } = await import("../src/jobs/github.js");
+const { mergeLateReviews, pollGithubProject } = await import("../src/jobs/github.js");
 const { pollVercelProject } = await import("../src/jobs/vercel.js");
 
 type Json = Record<string, any>;
@@ -143,6 +143,7 @@ describe("github", () => {
       await close();
     }
   });
+
 });
 
 describe("merged gate (PLA-02)", () => {
@@ -241,6 +242,38 @@ describe("vercel", () => {
       await pollVercelProject(db, p, { fetch, env: {} });
       const { rows } = await raw.query("select error from poll_state where source = 'vercel'");
       assert.match(rows[0].error, /VERCEL_TOKEN/);
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe("late review (PLA-07)", () => {
+  test("a ticket that reaches In review after its PR was stored as merged moves to Merged; a second tick changes nothing", async () => {
+    const { db, close } = makeDb();
+    try {
+      const p = await findProject(db, "workia");
+      const url = "https://github.com/Jorg3L3on/workia/pull/77";
+      // What an earlier tick stored: #77 merged while the ticket was not in review yet.
+      await raw.query(
+        `insert into pull_requests (project_id, repo, number, url, title, state, head_branch, base_branch, merged_at, merge_sha, gh_updated_at)
+         values ($1, 'Jorg3L3on/workia', 77, $2, 'Late', 'merged', 'jl/late', 'sandbox', now(), 'ddddddd444444444444444444444444444444444', now())`,
+        [p.id, url],
+      );
+      const late = await createTask(db, { project: "workia", title: "Late", scope: "s", checks: ["c"], status: "Ready" }, ctx);
+      await claim(db, { project: "workia", key: late.key }, ctx);
+      await addResult(db, { project: "workia", key: late.key, kind: "unit", verdict: "pass", cite: "ok", check_ns: [1] }, ctx);
+      const t = (await findTask(db, p.id, late.key))!;
+      await setTask(db, { project: "workia", key: late.key, status: "In review", pr_url: url, version: t.version }, ctx);
+
+      assert.equal(await mergeLateReviews(db, p, "Jorg3L3on/workia"), 1);
+      assert.equal(await status(late.key), "Merged");
+      const ev = (await listEvents(db, p.id, { key: late.key, types: ["task.status"] })).events.at(-1)!;
+      assert.equal(ev.actor.agent, "plania");
+      assert.deepEqual([ev.payload.from, ev.payload.to], ["In review", "Merged"]);
+      assert.equal(await mergeLateReviews(db, p, "Jorg3L3on/workia"), 0, "a second tick changes nothing");
+      // The tick runs it with no GitHub change in between.
+      assert.match(readFileSync(new URL("../src/jobs/github.ts", import.meta.url), "utf8"), /summary\.merged! \+= await mergeLateReviews\(db, p, cfg\.repo\)/);
     } finally {
       await close();
     }

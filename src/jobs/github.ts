@@ -352,6 +352,10 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
     // contain from, the step is shipped (release.shipped) and the deploy poller does the rest.
     if (release) summary.release_shipped = await pollRelease(db, p, deps, token, cfg.repo, cursor);
 
+    // PLA-07: a ticket can reach In review after its PR was already read as merged. The loop above
+    // skips that PR (same updated_at, or a 304), so move those tickets from the stored rows.
+    summary.merged! += await mergeLateReviews(db, p, cfg.repo);
+
     // 4. Merged tickets whose merge commit the release target now contains.
     summary.released = await releaseMerged(db, p, async (merge, env) => {
       const cacheKey = `cmp:${merge}:${env}`;
@@ -407,6 +411,31 @@ async function pollRelease(db: Db, p: Project, deps: GithubDeps, token: string, 
   // Saved now so releasePlan (and the inbox) read it before the tick ends.
   await saveCursor(db, p.id, cursor, null);
   return shipped ? 1 : 0;
+}
+
+// In review tickets whose PR is already stored as merged (linked to the ticket, or the same pr_url)
+// move to Merged as the system, with the note the live path writes. No GitHub call.
+export async function mergeLateReviews(db: Db, p: Project, repo: string): Promise<number> {
+  const rows = await db
+    .select({ t: tasks, pr: pullRequests })
+    .from(tasks)
+    .innerJoin(
+      pullRequests,
+      and(eq(pullRequests.projectId, tasks.projectId), eq(pullRequests.repo, repo), sql`(${pullRequests.taskId} = ${tasks.id} or ${pullRequests.url} = ${tasks.prUrl})`),
+    )
+    .where(and(eq(tasks.projectId, p.id), eq(tasks.status, "In review"), eq(pullRequests.state, "merged")))
+    .orderBy(tasks.key);
+  const seen = new Set<string>();
+  for (const { t, pr } of rows) {
+    if (seen.has(t.id)) continue;
+    seen.add(t.id);
+    await setTask(
+      db,
+      { project: p.slug, key: t.key, status: "Merged", note: `PR #${pr.number} merged into ${pr.baseBranch ?? "?"} (${pr.mergeSha?.slice(0, 7) ?? "?"})` },
+      systemCtx(`gh:${repo}#${pr.number}:merged-late:${t.key}:${t.version}`, "jobs.github"),
+    );
+  }
+  return seen.size;
 }
 
 // Merged → Released once the release target env runs a commit that contains the merge commit:
