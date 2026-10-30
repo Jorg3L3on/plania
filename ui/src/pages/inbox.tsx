@@ -101,18 +101,21 @@ function ActionRow({ item }: { item: InboxItem }) {
 }
 
 // Something left on the Mac that nobody claims, or whose ticket is long done: the command is for Jorge to run.
-function DelegatedRow({ item }: { item: DelegatedReview }) {
+function DelegatedRow({ item, onSeen, busy }: { item: DelegatedReview; onSeen: () => void; busy: boolean }) {
   const what = item.action ? actionWord(item.action) : "Pregunta";
   const choice = item.answer;
   return (
     <li className="grid gap-1.5 px-4 py-3 text-sm">
-      <span className="flex flex-wrap items-baseline gap-x-2">
+      <span className="flex flex-wrap items-center gap-x-2">
         {item.key && (
           <Link to={`/p/${item.project}?task=${encodeURIComponent(item.key)}`} className="font-mono text-xs underline-offset-4 hover:underline">
             {item.key}
           </Link>
         )}
         <span className="text-muted-foreground">{what}{choice ? ` · ${choice}` : ""}</span>
+        <Button variant="ghost" size="sm" className="ml-auto h-7" disabled={busy} onClick={onSeen} aria-label={`Marcar como vista ${item.key ?? ""}`.trim()}>
+          Visto
+        </Button>
       </span>
       <DelegadaBadge quote={item.quote} at={item.at} />
     </li>
@@ -156,6 +159,14 @@ export function InboxPage() {
       void queryClient.invalidateQueries({ queryKey: ["inbox"] });
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
+  });
+
+  // PLA-06: a seen delegated answer leaves this list; the record stays on the server.
+  const seen = useMutation({
+    mutationFn: (ids: string[]) => api.reviewDelegated(ids),
+    onSuccess: (out) => toast(out.reviewed === 1 ? "1 marcada como vista" : `${out.reviewed} marcadas como vistas`),
+    onError: () => toast.error("No se pudo marcar."),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ["inbox"] }),
   });
 
   const [params, setParams] = useSearchParams();
@@ -225,11 +236,18 @@ export function InboxPage() {
       <DelegationSwitch />
       {inbox.data.delegated.length > 0 && (
         <section className="grid gap-3" aria-label="Respuestas delegadas">
-          <h2 className="text-sm font-medium text-orange-600 dark:text-orange-400">Respuestas delegadas</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-medium text-orange-600 dark:text-orange-400">
+              Respuestas delegadas <span className="tabular-nums text-muted-foreground">({inbox.data.delegated.length})</span>
+            </h2>
+            <Button variant="outline" size="sm" disabled={seen.isPending} onClick={() => seen.mutate(inbox.data.delegated.map((d) => d.id))}>
+              Marcar todas como vistas
+            </Button>
+          </div>
           <Card className="gap-0 py-0">
             <CardContent className="px-0">
               <ul className="divide-y">
-                {inbox.data.delegated.map((item) => <DelegatedRow key={item.id} item={item} />)}
+                {inbox.data.delegated.map((item) => <DelegatedRow key={item.id} item={item} busy={seen.isPending} onSeen={() => seen.mutate([item.id])} />)}
               </ul>
             </CardContent>
           </Card>

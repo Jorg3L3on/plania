@@ -211,6 +211,13 @@
       "when": 1793241600000,
       "tag": "0030_close_gates",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1793335292444,
+      "tag": "0031_delegated_reviewed",
+      "breakpoints": true
     }
   ]
 }

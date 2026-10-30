@@ -1,4 +1,4 @@
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { approvals, delegatedAnswers, machineState, questions, tasks, type Actor } from "../db/schema.js";
 import { DELEGABLE_APPROVALS, decideInTx } from "./approvals.js";
@@ -36,7 +36,7 @@ export async function delegatedForInbox(db: Q, projects: { id: string; slug: str
     .leftJoin(questions, eq(questions.id, delegatedAnswers.questionId))
     .leftJoin(tasks, eq(tasks.id, questions.taskId))
     .leftJoin(approvals, eq(approvals.id, delegatedAnswers.approvalId))
-    .where(inArray(delegatedAnswers.projectId, projects.map((p) => p.id)))
+    .where(and(inArray(delegatedAnswers.projectId, projects.map((p) => p.id)), isNull(delegatedAnswers.reviewedAt)))
     .orderBy(desc(delegatedAnswers.createdAt));
   return rows.map((r) => ({
     id: r.d.id,
@@ -49,6 +49,18 @@ export async function delegatedForInbox(db: Q, projects: { id: string; slug: str
     message_id: r.d.messageId,
     at: iso(r.d.createdAt),
   }));
+}
+
+// PLA-06: Jorge saw these on the Bandeja. Screen only: no MCP tool calls this. The rows stay as
+// the record; reviewed_at takes them off the list and the audit.
+export async function markDelegatedReviewed(db: Q, ids: string[]): Promise<number> {
+  if (!ids.length) return 0;
+  const rows = await db
+    .update(delegatedAnswers)
+    .set({ reviewedAt: sql`now()` })
+    .where(and(isNull(delegatedAnswers.reviewedAt), inArray(delegatedAnswers.id, ids)))
+    .returning({ id: delegatedAnswers.id });
+  return rows.length;
 }
 
 // PLA-I15-2. The owner stays the one who answers a human-only question, by a click on his screen.

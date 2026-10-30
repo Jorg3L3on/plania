@@ -65,6 +65,8 @@ export const api = {
   // Screen only. The bot cannot read or flip this.
   delegation: () => request<{ enabled: boolean }>("GET", "/delegation"),
   setDelegation: (enabled: boolean) => request<{ enabled: boolean }>("POST", "/delegation", { enabled }),
+  // PLA-06: mark delegated answers seen (they leave the Bandeja and the audit; the record stays).
+  reviewDelegated: (ids: string[]) => request<{ reviewed: number }>("POST", "/delegated/reviewed", { ids }),
   machine: () => request<Machine>("GET", "/machine"),
   // 2.12 Hoy: the digest since this device's cursor; "Visto" moves the server's bookmark too.
   digest: (since?: number) => request<Digest>("GET", since === undefined ? "/digest" : `/digest?since=${since}`),

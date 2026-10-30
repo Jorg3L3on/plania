@@ -205,8 +205,11 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
     });
   }
   // PLA-I18-2: gates were removed, so a gate answered by an agent is no longer a finding. Every
-  // delegated answer still is, so the owner can review the quote.
-  const delegatedRows = await db.select().from(delegatedAnswers).where(eq(delegatedAnswers.projectId, p.id));
+  // delegated answer still is, so the owner can review the quote, until he marks it seen (PLA-06).
+  const delegatedRows = await db
+    .select()
+    .from(delegatedAnswers)
+    .where(and(eq(delegatedAnswers.projectId, p.id), isNull(delegatedAnswers.reviewedAt)));
   // warn: it is his instruction recorded by a bot the server cannot prove, not a silent success.
   const questionById = new Map<string, typeof questions.$inferSelect>();
   const delegatedQuestionIds = delegatedRows.map((d) => d.questionId).filter((id): id is string => !!id);

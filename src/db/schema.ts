@@ -354,6 +354,8 @@ export const delegatedAnswers = pgTable(
     quote: text("quote").notNull(),
     actor: jsonb("actor").$type<Actor>().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // PLA-06: Jorge saw it on the Bandeja. The row stays; it leaves the list and the audit.
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("delegated_answers_question_unique").on(t.questionId).where(sql`${t.questionId} is not null`),
