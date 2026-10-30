@@ -14,7 +14,7 @@ import { bus } from "../events.js";
 import { backupFindings, backupStatus } from "../jobs/backup.js";
 import { machineInventory, machineTotals, thisMachine } from "../jobs/machine/index.js";
 import { decideApproval } from "../mcp/approvals.js";
-import { delegationEnabled, setDelegationEnabled } from "../mcp/delegate.js";
+import { delegationEnabled, markDelegatedReviewed, setDelegationEnabled } from "../mcp/delegate.js";
 import { resolveHumanAction, SETTLED_STATUSES } from "../mcp/blockers.js";
 import { waiveCheck } from "../mcp/checks.js";
 import { listDecisions } from "../mcp/decisions.js";
@@ -120,6 +120,17 @@ api.post("/delegation", async (c) => {
   if (body instanceof Response) return body;
   const enabled = await withDb((db) => setDelegationEnabled(db, body.enabled));
   return c.json({ enabled });
+});
+
+// PLA-06: Jorge marks the delegated answers he saw. Same rule as the kill switch: the
+// screen cookie only, never a Bearer, and no MCP tool, so a bot cannot hide its own answers.
+api.post("/delegated/reviewed", async (c) => {
+  const refused = delegationAuth(c);
+  if (refused) return refused;
+  const body = await readJson(c, z.object({ ids: z.array(z.string().uuid()).max(500) }).strict());
+  if (body instanceof Response) return body;
+  const reviewed = await withDb((db) => markDelegatedReviewed(db, body.ids));
+  return c.json({ reviewed });
 });
 
 // Everything below needs a valid session.

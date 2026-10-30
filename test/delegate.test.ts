@@ -396,4 +396,40 @@ describe("answer_delegated", () => {
     assert.equal((await raw.query("select answer from questions where id = $1", [g.id])).rows[0].answer, null);
     assert.equal((await raw.query("select count(*)::int as n from delegated_answers where question_id = $1", [g.id])).rows[0].n, 0);
   });
+
+  test("PLA-06: migration 0031 applies twice; Visto is the screen cookie only; a seen answer leaves the Bandeja and the audit, the row stays", async () => {
+    const sql = readFileSync(path.resolve(import.meta.dirname, "../drizzle/migrations/0031_delegated_reviewed.sql"), "utf8");
+    await raw.query(sql);
+    await raw.query(sql);
+
+    const g = await gate("Visto");
+    const done = await call("answer_delegated", { question_id: g.id, option: "pursue", actor: BOT, ...evidence("msg-owner-0600", "sigue con esa idea ya") });
+    assert.equal(done.__error, undefined, JSON.stringify(done));
+    const id = (await raw.query("select id from delegated_answers where question_id = $1", [g.id])).rows[0].id as string;
+    const listed = async () => ((await call("get_inbox", { project: "workia" })).delegated as Json[]).some((d) => d.id === id);
+    const audited = async () => (await auditProject(db, await findProject(db, "workia"))).some((f) => f.code === "DELEGATED_ANSWER" && f.id === g.id);
+    assert.equal(await listed(), true);
+    assert.equal(await audited(), true);
+
+    const noCookie = await req("POST", "/api/delegated/reviewed", { cookie: null, body: { ids: [id] } });
+    assert.equal(noCookie.status, 401);
+    const bearer = await req("POST", "/api/delegated/reviewed", { body: { ids: [id] }, headers: { Authorization: `Bearer ${TEST_BEARER}` } });
+    assert.equal(bearer.status, 403);
+    const bad = await req("POST", "/api/delegated/reviewed", { body: { all: true } });
+    assert.equal(bad.status, 400);
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    assert.equal(names.some((n) => /review|seen|visto/i.test(n)), false, "no MCP tool marks an answer seen");
+    assert.equal(await listed(), true);
+
+    const ok = await req("POST", "/api/delegated/reviewed", { body: { ids: [id] } });
+    assert.equal(ok.status, 200);
+    assert.deepEqual(await ok.json(), { reviewed: 1 });
+    const again = await req("POST", "/api/delegated/reviewed", { body: { ids: [id] } });
+    assert.deepEqual(await again.json(), { reviewed: 0 });
+    assert.equal(await listed(), false);
+    assert.equal(await audited(), false);
+    const row = (await raw.query("select quote, reviewed_at from delegated_answers where id = $1", [id])).rows[0];
+    assert.equal(row.quote, "sigue con esa idea ya");
+    assert.ok(row.reviewed_at);
+  });
 });
