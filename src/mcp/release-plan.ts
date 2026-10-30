@@ -32,8 +32,9 @@ export type ReleasePlan = {
   ship: { ready: boolean; reason: ShipBlock | null };
 };
 
-// Why Lanzar is off: command mode, nothing ahead, a before-step or a check still open, already merged.
-export type ShipBlock = "mode_command" | "no_repo" | "nothing_to_ship" | "before_steps" | "open_checks" | "merged";
+// Why Lanzar is off: command mode, nothing ahead, no GitHub data to know, a before-step or a check
+// still open, already merged.
+export type ShipBlock = "mode_command" | "no_repo" | "no_github_data" | "nothing_to_ship" | "before_steps" | "open_checks" | "merged";
 
 const BRANCH = /^[A-Za-z0-9._/-]{1,200}$/;
 const ENV = /^[a-z][a-z0-9_-]{0,29}$/;
@@ -130,6 +131,8 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
     mode !== "merge" ? "mode_command"
     : !p.settings.github?.repo ? "no_repo"
     : merged ? "merged"
+    // PLA-03: no compare for these heads (no token, a failed call) is unknown, not "nothing ahead".
+    : !shipped && ahead === null ? "no_github_data"
     : !pending ? "nothing_to_ship"
     : before.length ? "before_steps"
     : open_checks ? "open_checks"
@@ -166,6 +169,10 @@ async function mergedFromScreen(db: Q, projectId: string, fromHead: string): Pro
   const pl = e.payload as { merge_sha: string; pr: { url: string } };
   return { sha: pl.merge_sha, pr_url: pl.pr.url, at: e.at.toISOString() };
 }
+
+/** PLA-03: tickets are waiting but the poller has no compare for these heads, so whether `from` is
+ * ahead is unknown. Said as "sin datos de GitHub", never as nothing to ship. */
+export const releaseUnknown = (plan: ReleasePlan | null): plan is ReleasePlan => !!plan && !plan.shipped && plan.ahead === null && plan.tickets.length > 0;
 
 /** The plan waits on Jorge: `from` is ahead and carries tickets. */
 export const releasePending = (plan: ReleasePlan | null): plan is ReleasePlan => !!plan && !plan.shipped && (plan.ahead ?? 0) > 0 && plan.tickets.length > 0;

@@ -17,6 +17,8 @@ import { iso, type Q } from "./tx.js";
 export type Finding = { code: string; key: string | null; detail: string; fix_hint: string; id?: string; command?: string; level?: "info" | "warn" };
 
 const CLOSED = ["Done", "Won't do"];
+// A ticket that has not reached In review yet (PLA-03 drift).
+export const DRIFT_STATUSES = ["Backlog", "Ready", "In progress", "Blocked", "Needs Jorge"];
 export { WAITING_ON_JORGE };
 const SHA = /\b[0-9a-f]{7,40}\b/g;
 const PR = /pull\/(\d+)|#(\d{2,6})\b/g;
@@ -61,6 +63,19 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   for (const t of all.filter((t) => t.status === "In review")) {
     const pr = prOf(t);
     if (pr?.state === "merged") out.push({ code: "REVIEW_PR_MERGED", key: t.key, detail: `PR #${pr.number} merged ${iso(pr.mergedAt)}`, fix_hint: "the poller moves it to Merged on its next tick; check settings.github" });
+  }
+  // PLA-03: a merged PR whose ticket never reached In review. Nothing moves it; it is only said.
+  for (const t of all.filter((t) => t.kind === "ticket" && DRIFT_STATUSES.includes(t.status))) {
+    const pr = prOf(t) ?? prs.find((x) => !!t.prUrl && x.url === t.prUrl);
+    if (pr?.state === "merged") {
+      out.push({
+        code: "PR_MERGED_TICKET_OPEN",
+        key: t.key,
+        detail: `PR #${pr.number} merged ${iso(pr.mergedAt)} but the ticket is ${t.status}`,
+        fix_hint: "finish it (In review) if the PR is its work, or unlink the PR; nothing moves it on its own",
+        id: pr.url,
+      });
+    }
   }
   // Done or merged with open checks.
   for (const t of all.filter((t) => t.status === "Done")) {

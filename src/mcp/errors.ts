@@ -86,7 +86,7 @@ export const ERRORS = {
   LEASE_EXPIRED: [409, "heartbeat after your lease ran out: claim again"],
   NOT_CLAIMABLE: [409, "the ticket cannot be claimed (detail: status, or unsatisfied blocked_by)"],
   REQUEST_ID_REUSED: [409, "request_id was already used by a different tool in this project"],
-  RELEASE_NOT_READY: [409, "release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | nothing_to_ship | before_steps | open_checks | merged)"],
+  RELEASE_NOT_READY: [409, "release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | no_github_data | nothing_to_ship | before_steps | open_checks | merged)"],
   RELEASE_MERGE_FAILED: [409, "release/ship: a gh call failed (detail: step token | list | edit | create | merge | view, output); nothing was recorded"],
   NOT_OWNER: [409, "another session holds a live lease on this task (detail: owner, lease_until)"],
   SEQUENCE_TAKEN: [409, "the requested sequence value is held by another live ticket"],

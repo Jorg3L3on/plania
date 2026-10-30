@@ -184,7 +184,7 @@ export type ReleasePlan = {
   ship: { ready: boolean; reason: ShipBlock | null };
 };
 
-export type ShipBlock = "mode_command" | "no_repo" | "nothing_to_ship" | "before_steps" | "open_checks" | "merged";
+export type ShipBlock = "mode_command" | "no_repo" | "no_github_data" | "nothing_to_ship" | "before_steps" | "open_checks" | "merged";
 
 // POST /api/projects/:slug/release/ship: what was merged.
 export type ShipResult = {

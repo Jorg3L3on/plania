@@ -62,6 +62,8 @@ export function summarize(e: Ev): string {
       return `${prNum(p)} abierto${k ? ` (${k})` : ""}: ${str(p.title)}`;
     case "pr.merged":
       return `${prNum(p)} mezclado en ${str(p.base_branch)}${k ? ` (${k})` : ""}`;
+    case "pr.status_drift":
+      return `${prNum(p)} mezclado pero ${k} sigue en ${str(p.status)}`;
     case "pr.closed":
       return `${prNum(p)} cerrado sin mezclar${k ? ` (${k})` : ""}`;
     case "pr.ci_failed":

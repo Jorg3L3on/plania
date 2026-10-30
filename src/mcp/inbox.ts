@@ -4,7 +4,7 @@ import { describeStale } from "../jobs/machine/infer.js";
 import { pendingApprovals } from "./approvals.js";
 import { delegatedForInbox, type DelegatedReviewItem } from "./delegate.js";
 import { openHumanActions } from "./blockers.js";
-import { releasePending, releasePlan } from "./release-plan.js";
+import { releasePending, releasePlan, releaseUnknown } from "./release-plan.js";
 import { iso, type Q } from "./tx.js";
 
 // Jorge's inbox (R-28): everything waiting on him, in one list, oldest first within each kind:
@@ -178,7 +178,8 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
   }
   // 2.10: the release, one step per project once `from` is ahead with merged tickets on it.
   const plan = await releasePlan(db, p);
-  if (releasePending(plan)) {
+  // PLA-03: with no GitHub data the step still shows, saying so, instead of disappearing.
+  if (releasePending(plan) || releaseUnknown(plan)) {
     const n = plan.tickets.length;
     const since = await releaseWaitingSince(db, p.id, plan.tickets.map((t) => t.key));
     items.push({
@@ -190,7 +191,7 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
       task_kind: null,
       parent_key: null,
       title: `${plan.from.branch} → ${plan.into.branch}`,
-      why: `${n} ${n === 1 ? "ticket listo" : "tickets listos"} para ${plan.env}`,
+      why: `${n} ${n === 1 ? "ticket listo" : "tickets listos"} para ${plan.env}${plan.ahead === null ? "; sin datos de GitHub" : ""}`,
       action: "release",
       target: plan as unknown as Record<string, unknown>,
       waiting_since: iso(since),

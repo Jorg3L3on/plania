@@ -4,6 +4,7 @@ import { runInGroup, type GroupRun } from "./gh-process.js";
 import { oneLine, readTokenFile } from "./gh-token.js";
 import { commandPath } from "./machine/run.js";
 import { branches, pollState, projects, pullRequests, tasks, type Project, type Task } from "../db/schema.js";
+import { DRIFT_STATUSES } from "../mcp/audit.js";
 import { touchBranch } from "../mcp/branches.js";
 import { addResult } from "../mcp/evidence.js";
 import { findTask, prRowOf } from "../mcp/queries.js";
@@ -355,6 +356,8 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
     // PLA-07: a ticket can reach In review after its PR was already read as merged. The loop above
     // skips that PR (same updated_at, or a 304), so move those tickets from the stored rows.
     summary.merged! += await mergeLateReviews(db, p, cfg.repo);
+    // PLA-03: a merged PR whose ticket has not reached In review is said once, never moved.
+    summary.drift = await flagStatusDrift(db, p, cfg.repo);
 
     // 4. Merged tickets whose merge commit the release target now contains.
     summary.released = await releaseMerged(db, p, async (merge, env) => {
@@ -434,6 +437,30 @@ export async function mergeLateReviews(db: Db, p: Project, repo: string): Promis
       { project: p.slug, key: t.key, status: "Merged", note: `PR #${pr.number} merged into ${pr.baseBranch ?? "?"} (${pr.mergeSha?.slice(0, 7) ?? "?"})` },
       systemCtx(`gh:${repo}#${pr.number}:merged-late:${t.key}:${t.version}`, "jobs.github"),
     );
+  }
+  return seen.size;
+}
+
+// PLA-03: one pr.status_drift event per (PR, ticket) when a merged PR's ticket (linked, or the same
+// pr_url) is still before In review. The request id makes a later tick replay instead of writing again.
+// Returns how many tickets are drifting now (the audit says the same as PR_MERGED_TICKET_OPEN).
+export async function flagStatusDrift(db: Db, p: Project, repo: string): Promise<number> {
+  const rows = await db
+    .select({ t: tasks, pr: pullRequests })
+    .from(tasks)
+    .innerJoin(
+      pullRequests,
+      and(eq(pullRequests.projectId, tasks.projectId), eq(pullRequests.repo, repo), sql`(${pullRequests.taskId} = ${tasks.id} or ${pullRequests.url} = ${tasks.prUrl})`),
+    )
+    .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket"), inArray(tasks.status, DRIFT_STATUSES), eq(pullRequests.state, "merged")))
+    .orderBy(tasks.key);
+  const seen = new Set<string>();
+  for (const { t, pr } of rows) {
+    if (seen.has(t.id)) continue;
+    seen.add(t.id);
+    await writeTx(db, p, systemCtx(`gh:${repo}#${pr.number}:drift:${t.key}`, "jobs.github"), async (_tx, emit) => {
+      await emit("pr.status_drift", { id: t.id, key: t.key }, { repo, number: pr.number, url: pr.url, base_branch: pr.baseBranch, status: t.status });
+    });
   }
   return seen.size;
 }

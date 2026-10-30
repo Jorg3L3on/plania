@@ -26,10 +26,14 @@ export function releaseLine(plan: ReleasePlan): string {
 /** The plan waits on Jorge: from is ahead with merged tickets on it. */
 export const releasePending = (plan: ReleasePlan | null | undefined): plan is ReleasePlan => !!plan && !plan.shipped && (plan.ahead ?? 0) > 0 && plan.tickets.length > 0;
 
+/** PLA-03: tickets wait but there is no compare for these heads; unknown, never "nothing to ship". */
+export const releaseUnknown = (plan: ReleasePlan | null | undefined): plan is ReleasePlan => !!plan && !plan.shipped && plan.ahead === null && plan.tickets.length > 0;
+
 // Why Lanzar is off, said the way the row says everything else.
 const SHIP_BLOCK: Record<ShipBlock, string> = {
   mode_command: "Modo comando: lo corres tú",
   no_repo: "Falta settings.github.repo",
+  no_github_data: "Sin datos de GitHub",
   nothing_to_ship: "No hay nada por lanzar",
   before_steps: "Primero los pasos de arriba",
   open_checks: "Primero cierra los puntos abiertos",
@@ -125,7 +129,7 @@ export function ReleaseRow({ item }: { item: InboxItem }) {
         <ProjectMark slug={item.project} className="size-6" />
         <span className="font-medium">{releaseLine(plan)}</span>
         <span className="text-xs text-muted-foreground">
-          {plan.ahead !== null && `${plural(plan.ahead, "commit", "commits")} por delante · `}espera {waitText(item.wait_s)}
+          {plan.ahead !== null ? `${plural(plan.ahead, "commit", "commits")} por delante · ` : "sin datos de GitHub · "}espera {waitText(item.wait_s)}
         </span>
       </div>
       <ul className="flex flex-wrap gap-1.5" aria-label="Tickets">

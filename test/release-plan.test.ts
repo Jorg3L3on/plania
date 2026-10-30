@@ -176,3 +176,42 @@ describe("the release step", () => {
     assert.deepEqual(plan.before.map((b) => b.text).sort(), ["Poner las variables VAPID en Vercel Production antes de mergear sandbox → main", "Snapshot de Neon"]);
   });
 });
+
+describe("no GitHub data (PLA-03)", () => {
+  test("no token or a failed compare leaves ahead null and says 'sin datos de GitHub', never nothing to ship", async () => {
+    // New heads the poller has not compared yet, and a poll with no token: nothing to compare with.
+    heads = { sandbox: "5ddddddd44444444444444444444444444444444", main: SANDBOX };
+    await raw.query("update branches set head_sha = $1 where name = 'sandbox' and project_id = (select id from projects where slug = 'zigzag')", [heads.sandbox]);
+    await pollGithubProject(db, await project(), { fetch: fakeFetch().fetch, env: { PLANIA_GITHUB_TOKEN_FILE: "/nonexistent/plania-test-no-token" } });
+    let p = await project();
+    let plan = (await releasePlan(db, p))!;
+    assert.equal(plan.ahead, null);
+    assert.equal(plan.shipped, false);
+    assert.ok(plan.tickets.length > 0);
+    const item = (await inbox(db, p)).items.find((i) => i.kind === "release");
+    assert.ok(item, "the step still shows when GitHub data is missing");
+    assert.match(item!.why, /sin datos de GitHub/);
+
+    await setProject(db, { project: "zigzag", version: p.version, settings: { ...p.settings, release: { ...p.settings.release!, mode: "merge" } } }, ctx);
+    p = await project();
+    plan = (await releasePlan(db, p))!;
+    assert.equal(plan.ship.reason, "no_github_data");
+
+    // A token but a failed compare: still unknown.
+    const failing = async (url: string) => {
+      if (url.includes("/compare/")) return { status: 500, headers: { get: () => null }, json: async () => ({}) };
+      return fakeFetch().fetch(url);
+    };
+    await assert.rejects(pollGithubProject(db, p, deps(failing as ReturnType<typeof fakeFetch>["fetch"])), /GitHub 500/);
+    plan = (await releasePlan(db, await project()))!;
+    assert.equal(plan.ahead, null);
+    assert.equal(plan.ship.reason, "no_github_data");
+
+    // A working compare puts the number back: N ahead, and the reason is no longer the unknown one.
+    await pollGithubProject(db, await project(), deps(fakeFetch().fetch));
+    plan = (await releasePlan(db, await project()))!;
+    assert.equal(plan.ahead, 3);
+    assert.notEqual(plan.ship.reason, "no_github_data");
+    assert.doesNotMatch((await inbox(db, await project())).items.find((i) => i.kind === "release")!.why, /sin datos/);
+  });
+});

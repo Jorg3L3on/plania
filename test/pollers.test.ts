@@ -12,6 +12,7 @@ const { createTask, claim, setTask } = await import("../src/mcp/writes.js");
 const { addResult } = await import("../src/mcp/evidence.js");
 const { setProject } = await import("../src/mcp/project.js");
 const { findProject, findTask, listEvents } = await import("../src/mcp/queries.js");
+const { auditProject } = await import("../src/mcp/audit.js");
 const { mergeLateReviews, pollGithubProject } = await import("../src/jobs/github.js");
 const { pollVercelProject } = await import("../src/jobs/vercel.js");
 
@@ -274,6 +275,49 @@ describe("late review (PLA-07)", () => {
       assert.equal(await mergeLateReviews(db, p, "Jorg3L3on/workia"), 0, "a second tick changes nothing");
       // The tick runs it with no GitHub change in between.
       assert.match(readFileSync(new URL("../src/jobs/github.ts", import.meta.url), "utf8"), /summary\.merged! \+= await mergeLateReviews\(db, p, cfg\.repo\)/);
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe("status drift (PLA-03)", () => {
+  test("a merged PR linked to a Ready ticket yields one event and one finding across two polls; the token is never stored", async () => {
+    const { db, close } = makeDb();
+    try {
+      let p = await findProject(db, "micasa");
+      await setProject(db, { project: "micasa", version: p.version, settings: { ...p.settings, github: { repo: "Jorg3L3on/micasa" } } }, ctx);
+      p = await findProject(db, "micasa");
+      const ready = await createTask(db, { project: "micasa", title: "Drift", scope: "s", checks: ["c"], status: "Ready" }, ctx);
+      const taskId = (await findTask(db, p.id, ready.key))!.id;
+      await raw.query(
+        `insert into pull_requests (project_id, repo, number, url, title, task_id, state, head_branch, base_branch, merged_at, merge_sha, gh_updated_at)
+         values ($1, 'Jorg3L3on/micasa', 88, 'https://github.com/Jorg3L3on/micasa/pull/88', 'Drift', $2, 'merged', 'jl/drift', 'sandbox', now(), 'eeeeeee555555555555555555555555555555555', now())`,
+        [p.id, taskId],
+      );
+      const SECRET = "ghp_drift_test_token_value_0123456789";
+      const deps = () => ({
+        fetch: fakeFetch({ "/repos/Jorg3L3on/micasa/pulls?": [], "/repos/Jorg3L3on/micasa/branches": [] }).fetch,
+        env: { GITHUB_TOKEN: SECRET },
+      });
+      const first = await pollGithubProject(db, p, deps());
+      const second = await pollGithubProject(db, await findProject(db, "micasa"), deps());
+      assert.equal(first.drift, 1);
+      assert.equal(second.drift, 1, "still drifting, but said only once");
+      assert.equal(await status(ready.key), "Ready", "nothing moves it");
+      const ev = (await listEvents(db, p.id, { key: ready.key, types: ["pr.status_drift"] })).events;
+      assert.equal(ev.length, 1);
+      assert.deepEqual([ev[0]!.payload.number, ev[0]!.payload.status, ev[0]!.actor.agent], [88, "Ready", "plania"]);
+      const findings = (await auditProject(db, await findProject(db, "micasa"))).filter((f) => f.code === "PR_MERGED_TICKET_OPEN");
+      assert.equal(findings.length, 1);
+      assert.equal(findings[0]!.key, ready.key);
+      assert.match(findings[0]!.detail, /PR #88 merged .* but the ticket is Ready/);
+      const dump = JSON.stringify([
+        (await raw.query("select payload from events where project_id = $1", [p.id])).rows,
+        (await raw.query("select cursor, error from poll_state where project_id = $1", [p.id])).rows,
+        (await raw.query("select response from write_requests where project_id = $1", [p.id])).rows,
+      ]);
+      assert.equal(dump.includes(SECRET), false, "the token never lands in the database");
     } finally {
       await close();
     }

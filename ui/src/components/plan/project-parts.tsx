@@ -22,7 +22,7 @@ import {
   toneVar,
 } from "@/components/plan/visuals";
 import { ProjectMark } from "@/components/plania-mark";
-import { releasePending } from "@/components/release-step";
+import { releasePending, releaseUnknown } from "@/components/release-step";
 import { DecisionList, ResumeView } from "@/components/resume";
 import type { BranchEdge, Lane, StationTone } from "@/lib/lanes";
 import type { Decision, Headline, HeadlineNote, ReleasePlan, Resume } from "@/lib/types";
@@ -205,13 +205,14 @@ export function ProjectHeader({
           {slug && <ProjectMark slug={slug} className="size-8 sm:size-9" />}
           {title}
           {/* 2.10: merged tickets waiting for Jorge's sandbox → main; opens the step in the Bandeja. */}
-          {slug && releasePending(release) && (
+          {slug && (releasePending(release) || releaseUnknown(release)) && (
             <Link
               to={`/inbox?tab=pasos#${slug}`}
               title={`${release.from.branch} → ${release.into.branch}`}
               className="inline-flex h-7 items-center gap-1.5 rounded-full bg-orange-500/12 px-2.5 font-sans text-xs font-semibold tracking-normal text-ink-jorge transition hover:bg-orange-500/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
               Para lanzar <span className="tabular-nums">{release.tickets.length}</span>
+              {release.ahead === null && <span className="font-normal text-muted-foreground">· sin datos de GitHub</span>}
             </Link>
           )}
         </h1>
