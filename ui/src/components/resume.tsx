@@ -1,11 +1,9 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import { QuestionMarks } from "@/components/question-marks";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { optionLabel } from "@/lib/inbox";
 import { localTime } from "@/lib/time";
-import { useQuestionAnswer } from "@/lib/use-gate-answer";
+import { useQuestionAnswer } from "@/lib/use-question-answer";
 import type { Claim, Decision, NextTicket, Question, Resume } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -88,8 +86,6 @@ export function ResumeView({ resume, onOpen }: { resume: Resume; onOpen: (key: s
 }
 
 export function QuestionCard({ slug, q, onOpen }: { slug: string; q: Question; onOpen: (key: string) => void }) {
-  const humanOnly = !!q.human_only;
-  const isGate = !!q.gate;
   const flow = useQuestionAnswer(slug, q.id);
   const [free, setFree] = useState("");
   const [decision, setDecision] = useState("");
@@ -110,23 +106,20 @@ export function QuestionCard({ slug, q, onOpen }: { slug: string; q: Question; o
           <button type="button" className="font-mono underline-offset-4 hover:underline" onClick={() => onOpen(q.task_key)}>{q.task_key}</button>
           {" · "}{q.asked_by.agent} · {localTime(q.asked_at)}
         </p>
-        <QuestionMarks gate={q.gate} humanOnly={humanOnly} />
         <p className="whitespace-pre-wrap">{q.question}</p>
         {q.options.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {q.options.map((o) => (
-              <Button key={o} type="button" size="sm" variant="outline" className="h-auto min-h-7 py-1 text-left whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-9" disabled={pending} aria-label={optionLabel(o)} onClick={() => handleChoose(o)}>{optionLabel(o)}</Button>
+              <Button key={o} type="button" size="sm" variant="outline" className="h-auto min-h-7 py-1 text-left whitespace-normal pointer-coarse:h-auto pointer-coarse:min-h-9" disabled={pending} onClick={() => handleChoose(o)}>{o}</Button>
             ))}
           </div>
         )}
-        {!isGate && (
-          <form onSubmit={handleSubmitFree} className="grid gap-2">
-            <div className="flex gap-2">
-              <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" />
-              <Button type="submit" size="sm" disabled={!free.trim() || pending}>Responder</Button>
-            </div>
-          </form>
-        )}
+        <form onSubmit={handleSubmitFree} className="grid gap-2">
+          <div className="flex gap-2">
+            <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" />
+            <Button type="submit" size="sm" disabled={!free.trim() || pending}>Responder</Button>
+          </div>
+        </form>
         <Input
           value={decision}
           onChange={(e) => setDecision(e.target.value)}

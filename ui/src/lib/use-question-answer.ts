@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 
 type SendInput = { answer: string; decision?: string };
 
-// A question, including a human_only gate, is one click. The screen session is the proof.
+// A question is one click, or a free-text answer. The screen session is the proof.
 export const useQuestionAnswer = (slug: string, questionId: string) => {
   const queryClient = useQueryClient();
 

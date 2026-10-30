@@ -12,7 +12,7 @@ export const DelegationSwitch = () => {
     mutationFn: (enabled: boolean) => api.setDelegation(enabled),
     onSuccess: (data) => {
       queryClient.setQueryData(["delegation"], data);
-      toast(data.enabled ? "El bot puede responder por ti" : "Solo tú, en esta pantalla");
+      toast(data.enabled ? "El bot puede responder por ti" : "Solo respondes tú, en esta pantalla");
     },
     onError: () => toast.error("No se pudo cambiar."),
   });
@@ -27,7 +27,7 @@ export const DelegationSwitch = () => {
       <div className="grid gap-0.5">
         <Label htmlFor="delegation-enabled">El bot puede responder por ti</Label>
         <p className="text-xs text-muted-foreground">
-          Encendido por defecto. Apagado, una compuerta o una aprobación solo se responde con un clic aquí.
+          Encendido por defecto. Apagado, una pregunta solo para ti o una aprobación solo se responde aquí.
         </p>
       </div>
       <Switch

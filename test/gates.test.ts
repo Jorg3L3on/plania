@@ -7,7 +7,6 @@ import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type pg from "pg";
-import { questionMarkLabels } from "../ui/src/lib/inbox.js";
 import { resetTestDb, TEST_BEARER, useTestEnv } from "./helpers.js";
 
 useTestEnv();
@@ -19,27 +18,29 @@ const { WEB_ACTOR, isScreenActor } = await import("../src/mcp/tx.js");
 
 type Json = Record<string, any>;
 
-test("a gate card is the question and its answer buttons", () => {
-  assert.deepEqual(questionMarkLabels("A", true), ["Compuerta A", "Solo tú"]);
-  assert.deepEqual(questionMarkLabels(null, false), []);
+test("the screen has no gate UI: no Compuertas panel, gate chip or gate option words", () => {
+  for (const gone of ["../ui/src/components/gate-panel.tsx", "../ui/src/lib/use-gate-answer.ts", "../ui/src/components/question-marks.tsx"]) {
+    assert.equal(existsSync(path.resolve(import.meta.dirname, gone)), false, gone);
+  }
   const files = [
     "../ui/src/components/resume.tsx",
     "../ui/src/components/home/te-toca.tsx",
-    "../ui/src/components/gate-panel.tsx",
-    "../ui/src/lib/use-gate-answer.ts",
+    "../ui/src/components/task-sheet.tsx",
+    "../ui/src/pages/inbox.tsx",
+    "../ui/src/pages/ahora.tsx",
     "../ui/src/lib/inbox.ts",
-    "../ui/src/lib/api.ts",
+    "../ui/src/lib/ahora.ts",
+    "../ui/src/lib/types.ts",
   ];
   for (const rel of files) {
     const source = readFileSync(path.resolve(import.meta.dirname, rel), "utf8");
-    assert.equal(/otpauth|base32|Enrolar|autenticador|one-time-code|6 dígitos/i.test(source), false, rel);
+    assert.equal(/\bgates?\b|Compuerta|Puerta [ABC]|Solo tú|Seguir|Soltar|Después/.test(source), false, rel);
   }
-  const panel = readFileSync(path.resolve(import.meta.dirname, "../ui/src/components/gate-panel.tsx"), "utf8");
+  // A question card is still its options plus a free answer, on the screen session.
   const resume = readFileSync(path.resolve(import.meta.dirname, "../ui/src/components/resume.tsx"), "utf8");
-  assert.match(panel, /Compuertas/);
-  assert.match(panel, /QuestionCard/);
-  assert.match(resume, /optionLabel/);
   assert.match(resume, /handleChoose/);
+  assert.match(resume, /handleSubmitFree/);
+  assert.match(resume, /useQuestionAnswer/);
 });
 
 test("src/gate does not spawn security", () => {

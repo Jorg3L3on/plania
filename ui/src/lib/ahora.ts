@@ -248,11 +248,6 @@ export const IDEA_STAGE_LABEL: Record<IdeaStage, string> = {
   ready: "Lista",
 };
 
-/** Shown only when an idea has an open gate question waiting on Jorge. */
-export const GATE_MARK = "◆";
-
-const GATES = new Set(["A", "B", "C"]);
-
 // ideaWaitText (src/mcp/ideas.ts) says these when nothing is holding the idea. They are not a wait.
 const NOT_WAITING = new Set(["Puede avanzar", "Lista para promover"]);
 
@@ -262,13 +257,6 @@ export function isIdeaStage(stage: string): stage is IdeaStage {
 
 export function ideaStageLabel(stage: string): string {
   return isIdeaStage(stage) ? IDEA_STAGE_LABEL[stage] : stage;
-}
-
-export type IdeaQuestion = { task_key: string; gate?: string | null; answered_at?: string | null };
-
-/** True exactly when this idea has an open gate question (A, B or C) still unanswered. */
-export function ideaGateOpen(key: string, questions: IdeaQuestion[]): boolean {
-  return questions.some((q) => q.task_key === key && !!q.gate && GATES.has(q.gate) && !q.answered_at);
 }
 
 export type IdeaTask = {
@@ -293,7 +281,6 @@ export type AhoraIdea = {
   status: string;
   waits: string;
   promotedTo: string | null;
-  gateOpen: boolean;
   createdAt: string;
 };
 
@@ -301,7 +288,7 @@ export function ideaClosed(status: string): boolean {
   return status === "Done" || status === "Won't do";
 }
 
-/** Open, and held by a doc, a heading, a question or a gate. "Puede avanzar" and "Lista para promover" are free. */
+/** Open, and held by a doc, a heading or a question. "Puede avanzar" and "Lista para promover" are free. */
 export function ideaIsWaiting(idea: Pick<AhoraIdea, "status" | "waits">): boolean {
   if (ideaClosed(idea.status)) return false;
   const waits = idea.waits.trim();
@@ -314,8 +301,8 @@ export function ideaOutcome(idea: Pick<AhoraIdea, "status" | "promotedTo">): str
   return idea.promotedTo ? `Pasó a ${idea.promotedTo}` : "Sin destino";
 }
 
-/** Ideas on one project, from the per-project read (tasks plus its open questions). */
-export function ideasFromProject(project: { slug: string; title: string }, tasks: IdeaTask[], questions: IdeaQuestion[]): AhoraIdea[] {
+/** Ideas on one project, from the per-project read. */
+export function ideasFromProject(project: { slug: string; title: string }, tasks: IdeaTask[]): AhoraIdea[] {
   const ideas: AhoraIdea[] = [];
   for (const task of tasks) {
     if (task.kind !== "idea" || !task.stage || !isIdeaStage(task.stage)) continue;
@@ -328,8 +315,6 @@ export function ideasFromProject(project: { slug: string; title: string }, tasks
       status: task.status,
       waits: (task.waits ?? "").trim(),
       promotedTo: task.promoted_to?.trim() || null,
-      // A closed idea keeps no mark, even if an old gate question was left unanswered.
-      gateOpen: !ideaClosed(task.status) && ideaGateOpen(task.key, questions),
       createdAt: task.created_at || task.updated_at,
     });
   }

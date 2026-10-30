@@ -114,8 +114,6 @@ export type Question = {
   answered_by: Actor | null;
   answered_at: string | null;
   decision_id: string | null;
-  /** Ideas only: A, B or C when the question is a gate. Absent on an ordinary question. */
-  gate?: string | null;
   /** True when only the screen may answer, by a click. */
   human_only?: boolean;
   /** Set when the Plania bot recorded the owner's instruction. Absent on a screen click. */
@@ -225,8 +223,6 @@ export type InboxItem = {
   options?: string[];
   /** Questions only: how soon Jorge is needed (now | soon | whenever). */
   urgency?: string | null;
-  /** Questions only: A, B or C when this is a gate. */
-  gate?: string | null;
   /** Questions only: the screen must answer it, by a click. */
   human_only?: boolean;
   action?: string;
@@ -243,7 +239,6 @@ export type DelegatedReview = {
   project: string;
   key: string | null;
   kind: "question" | "approval";
-  gate: string | null;
   action: string | null;
   answer: string | null;
   quote: string;
@@ -290,7 +285,7 @@ export type TaskRow = {
   stage?: string | null;
   /** Ideas only: the initiative or standalone ticket this idea became. */
   promoted_to?: string | null;
-  /** Ideas only: the open gate, the missing doc, or that it can move. */
+  /** Ideas only: the open question, the missing doc, or that it can move. */
   waits?: string | null;
   priority: string | null;
   work_type: string | null;

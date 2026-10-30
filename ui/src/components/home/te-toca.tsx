@@ -6,13 +6,12 @@ import { ArrowRightIcon } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
-import { QuestionMarks } from "@/components/question-marks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
-import { actionWord, optionLabel, waitText } from "@/lib/inbox";
-import { useQuestionAnswer } from "@/lib/use-gate-answer";
+import { actionWord, waitText } from "@/lib/inbox";
+import { useQuestionAnswer } from "@/lib/use-question-answer";
 import type { InboxItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -36,8 +35,6 @@ const taskHref = (item: InboxItem) => `/p/${item.project}?task=${encodeURICompon
 
 // One question with its options; the optional decision line goes to the decision log, as in the Bandeja.
 function QuestionCard({ item, index, total, names, onNext, when }: { item: InboxItem; index: number; total: number; names: Names; onNext: () => void; when?: string }) {
-  const humanOnly = !!item.human_only;
-  const isGate = !!item.gate;
   const flow = useQuestionAnswer(item.project, item.id);
   const [free, setFree] = useState("");
   const [decision, setDecision] = useState("");
@@ -62,7 +59,6 @@ function QuestionCard({ item, index, total, names, onNext, when }: { item: Inbox
         </span>
         <span>{when ? `${when} · ` : ""}espera {waitText(item.wait_s)}</span>
       </p>
-      <QuestionMarks gate={item.gate} humanOnly={humanOnly} />
       <p className="text-[15px] leading-snug whitespace-pre-wrap">{item.why}</p>
       {(item.options?.length ?? 0) > 0 && (
         <div className="grid gap-1.5">
@@ -72,24 +68,22 @@ function QuestionCard({ item, index, total, names, onNext, when }: { item: Inbox
               type="button"
               disabled={pending}
               onClick={() => handleChoose(o)}
-              aria-label={optionLabel(o)}
+              aria-label={o}
               className={cn(
                 "flex min-h-11 items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left text-[13px] leading-snug transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50",
                 i === 0 ? "border-foreground/15 bg-foreground/[0.05]" : "border-foreground/10",
               )}
             >
-              <span>{optionLabel(o)}</span>
+              <span>{o}</span>
               {/propuesta/i.test(o) && <span className="shrink-0 text-[11px] font-semibold text-ink-jorge">propuesta</span>}
             </button>
           ))}
         </div>
       )}
-      {!isGate && (
-        <form onSubmit={handleSubmitFree} className="flex gap-2">
-          <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" className="bg-background/60" />
-          <Button type="submit" size="sm" disabled={!free.trim() || pending}>Responder</Button>
-        </form>
-      )}
+      <form onSubmit={handleSubmitFree} className="flex gap-2">
+        <Input value={free} onChange={(e) => setFree(e.target.value)} placeholder="Otra respuesta" aria-label="Otra respuesta" className="bg-background/60" />
+        <Button type="submit" size="sm" disabled={!free.trim() || pending}>Responder</Button>
+      </form>
       <Input
         value={decision}
         onChange={(e) => setDecision(e.target.value)}

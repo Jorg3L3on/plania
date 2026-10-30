@@ -13,7 +13,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Kicker, accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
 import {
-  GATE_MARK,
   QUIET_PREFIX,
   READINESS_BADGE,
   SUMMARY_ANYWAY,
@@ -90,22 +89,11 @@ function taskHref(slug: string, key: string) {
 
 const rowLink = "grid min-h-11 gap-0.5 rounded-xl bg-surface-sunken px-3 py-2.5 transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 
-function GateMark() {
-  return (
-    <span role="img" className="text-sm leading-none font-semibold text-ink-jorge" aria-label="Pregunta de compuerta abierta">
-      {GATE_MARK}
-    </span>
-  );
-}
-
 function IdeaCard({ idea }: { idea: AhoraIdea }) {
   const outcome = ideaOutcome(idea);
   return (
     <Link to={taskHref(idea.slug, idea.key)} className={cn(rowLink, "gap-1.5")}>
-      <span className="flex items-center justify-between gap-2">
-        <span className="font-mono text-xs text-muted-foreground">{idea.key}</span>
-        {idea.gateOpen && <GateMark />}
-      </span>
+      <span className="font-mono text-xs text-muted-foreground">{idea.key}</span>
       <span className="line-clamp-1 text-sm leading-snug">{idea.line}</span>
       <span className="flex flex-wrap items-center gap-2">
         <StageChip stage={idea.stage} />
@@ -150,7 +138,6 @@ function WaitingIdeaLine({ idea }: { idea: AhoraIdea }) {
           <span className="font-bold tracking-[0.08em] text-muted-foreground uppercase">Idea</span>
           <ProjectName slug={idea.slug} title={idea.projectTitle} />
           <span className="font-mono text-muted-foreground">{idea.key}</span>
-          {idea.gateOpen && <GateMark />}
         </span>
         <span className="line-clamp-1 text-sm leading-snug">
           <span className="text-muted-foreground">{ideaStageLabel(idea.stage)}. </span>
@@ -268,7 +255,7 @@ export function AhoraPage() {
   const ideasFailed = ideaQueries.some((q) => q.isError);
   const ideasReady = ideaSlugs.length === 0 || ideaQueries.every((q) => q.isSuccess || q.isError);
   const ideas = ideaQueries.flatMap((q) =>
-    q.data ? ideasFromProject({ slug: q.data.slug, title: q.data.title }, q.data.tasks, q.data.resume.open_questions) : [],
+    q.data ? ideasFromProject({ slug: q.data.slug, title: q.data.title }, q.data.tasks) : [],
   );
   const ideaColumns = ideasByStage(ideas);
   const waitingIdea = ideasReady ? oldestWaitingIdea(ideas) : null;
