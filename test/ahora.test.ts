@@ -17,6 +17,7 @@ import {
   IDEA_STAGE_LABEL,
   bloqueadoOf,
   enCursoOf,
+  ideaFinished,
   ideaOutcome,
   ideasByStage,
   lastMovementLine,
@@ -389,7 +390,7 @@ function ideaTask(key: string, extra: Partial<IdeaTask> = {}): IdeaTask {
     summary: "",
     status: "Open",
     stage: "idea",
-    waits: "Puerta A",
+    waits: "Doc Idea",
     updated_at: "2026-04-01T00:00:00.000Z",
     created_at: "2026-04-01T00:00:00.000Z",
     ...extra,
@@ -435,7 +436,17 @@ describe("ideas on Ahora", () => {
     assert.equal("gateOpen" in idea!, false);
   });
 
-  test("ideas land in their stage column with key and one line; a closed one says what it became", () => {
+  test("ideaFinished: ready, promoted, Done and Won't do are finished; an open idea in planning is not", () => {
+    assert.equal(ideaFinished({ status: "Open", stage: "ready" }), true);
+    assert.equal(ideaFinished({ status: "Open", stage: "design", promoted_to: "WRK-I1" }), true);
+    assert.equal(ideaFinished({ status: "Open", stage: "design", promotedTo: "WRK-01" }), true);
+    assert.equal(ideaFinished({ status: "Done", stage: "research" }), true);
+    assert.equal(ideaFinished({ status: "Won't do", stage: "idea" }), true);
+    assert.equal(ideaFinished({ status: "Open", stage: "planning" }), false);
+    assert.equal(ideaFinished({ status: "Open", stage: "planning", promoted_to: "  " }), false);
+  });
+
+  test("Ahora groups only unfinished ideas, by open stage, with key and one line", () => {
     const workia = ideasFromProject(
       { slug: "workia", title: "Workia" },
       [
@@ -443,6 +454,8 @@ describe("ideas on Ahora", () => {
         ideaTask("WRK-IDEA2", { title: "Notas de voz", summary: "Notas de voz", stage: "research", created_at: "2026-02-01T00:00:00.000Z", waits: "Doc Investigación" }),
         ideaTask("WRK-IDEA3", { title: "Cerrada", summary: "", stage: "design", status: "Done", promoted_to: "WRK-I1", waits: "Puede avanzar", created_at: "2026-01-01T00:00:00.000Z" }),
         ideaTask("WRK-IDEA4", { title: "Descartada", stage: "planning", status: "Won't do", waits: "", created_at: "2026-03-01T00:00:00.000Z" }),
+        ideaTask("WRK-IDEA5", { title: "Ya promovida", stage: "planning", promoted_to: "WRK-I2", waits: "Puede avanzar", created_at: "2026-03-03T00:00:00.000Z" }),
+        ideaTask("WRK-IDEA6", { title: "En plan", summary: "En plan", stage: "planning", waits: "Doc Plan", created_at: "2026-03-04T00:00:00.000Z" }),
         { key: "WRK-01", kind: "ticket", title: "Un ticket", summary: "", status: "Ready", updated_at: "2026-01-01T00:00:00.000Z" },
       ],
     );
@@ -451,13 +464,20 @@ describe("ideas on Ahora", () => {
       [ideaTask("TAL-IDEA1", { title: "Lista para el plan", summary: "Lista para el plan", stage: "ready", waits: "Lista para promover", created_at: "2026-03-02T00:00:00.000Z" })],
     );
     const columns = ideasByStage([...workia, ...taller]);
-    assert.deepEqual(columns.map((c) => c.label), ["Idea", "Investigación", "Diseño", "Planeación", "Lista"]);
+    assert.deepEqual(columns.map((c) => c.label), ["Idea", "Investigación", "Diseño", "Planeación"]);
     assert.deepEqual(columns[0]!.ideas.map((i) => [i.key, i.line]), [["WRK-IDEA1", "Cobrar en la app"]]);
     assert.deepEqual(columns[1]!.ideas.map((i) => i.key), ["WRK-IDEA2"]);
-    assert.deepEqual(columns[2]!.ideas.map((i) => [i.key, ideaOutcome(i)]), [["WRK-IDEA3", "Pasó a WRK-I1"]]);
-    assert.equal(ideaOutcome(columns[3]!.ideas[0]!), "Sin destino");
-    assert.deepEqual(columns[4]!.ideas.map((i) => i.key), ["TAL-IDEA1"]);
-    assert.equal(columns.flat().some((c) => c.ideas.some((i) => i.key === "WRK-01")), false);
+    assert.deepEqual(columns[2]!.ideas, [], "a Done idea is hidden");
+    assert.deepEqual(columns[3]!.ideas.map((i) => i.key), ["WRK-IDEA6"], "Won't do and promoted are hidden; an open one in planning stays");
+    assert.equal(columns.some((c) => c.ideas.some((i) => i.key === "TAL-IDEA1" || i.key === "WRK-01")), false);
+  });
+
+  test("the project Ideas table hides finished ideas behind Mostrar terminadas (N), not persisted", () => {
+    const parts = readFileSync(new URL("../ui/src/components/plan/project-parts.tsx", import.meta.url), "utf8");
+    assert.match(parts, /ideaFinished/);
+    assert.match(parts, /useState\(false\)/);
+    assert.match(parts, /Mostrar terminadas \(\$\{finished\.length\}\)/);
+    assert.equal(/localStorage|sessionStorage/.test(parts), false);
   });
 
   test("the oldest idea that is still waiting is one line, and a free or closed idea is not it", () => {
@@ -467,6 +487,7 @@ describe("ideas on Ahora", () => {
         ideaTask("WRK-IDEA1", { title: "Cobrar en la app", summary: "Cobrar en la app", waits: "¿Quién cobra?", created_at: "2026-01-02T00:00:00.000Z" }),
         ideaTask("WRK-IDEA2", { title: "Más vieja pero libre", summary: "Más vieja pero libre", waits: "Puede avanzar", created_at: "2026-01-01T00:00:00.000Z" }),
         ideaTask("WRK-IDEA3", { title: "Cerrada", summary: "Cerrada", status: "Done", promoted_to: "WRK-01", waits: "Doc Idea", created_at: "2025-12-01T00:00:00.000Z" }),
+        ideaTask("WRK-IDEA5", { title: "Promovida", summary: "Promovida", promoted_to: "WRK-I3", waits: "Doc Idea", created_at: "2025-11-01T00:00:00.000Z" }),
         ideaTask("WRK-IDEA4", { title: "Más nueva", summary: "Más nueva", stage: "design", waits: "Doc Diseño", created_at: "2026-05-01T00:00:00.000Z" }),
       ],
     );

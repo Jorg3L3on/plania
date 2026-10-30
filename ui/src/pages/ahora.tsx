@@ -110,7 +110,7 @@ function IdeaCard({ idea }: { idea: AhoraIdea }) {
 
 function IdeasBoard({ columns }: { columns: IdeaColumn[] }) {
   return (
-    <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-5">
+    <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {columns.map((col) => (
         <div key={col.stage} className="grid min-w-0 content-start gap-2">
           <h3 className={cn("text-[11px] font-bold tracking-[0.12em] uppercase", STAGE_TONE[col.stage])}>{col.label}</h3>
@@ -259,7 +259,8 @@ export function AhoraPage() {
   );
   const ideaColumns = ideasByStage(ideas);
   const waitingIdea = ideasReady ? oldestWaitingIdea(ideas) : null;
-  const ideaMeta = ideas.length === 0 ? undefined : ideas.length === 1 ? "1 idea" : `${ideas.length} ideas`;
+  const openIdeas = ideaColumns.reduce((n, col) => n + col.ideas.length, 0);
+  const ideaMeta = openIdeas === 0 ? undefined : openIdeas === 1 ? "1 idea" : `${openIdeas} ideas`;
   const siguienteEmpty = model.siguiente.length === 0 && !waitingIdea && !ideasPending;
 
   return (

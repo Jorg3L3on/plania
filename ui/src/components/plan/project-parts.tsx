@@ -26,6 +26,7 @@ import { releasePending } from "@/components/release-step";
 import { DecisionList, ResumeView } from "@/components/resume";
 import type { BranchEdge, Lane, StationTone } from "@/lib/lanes";
 import type { Decision, Headline, HeadlineNote, ReleasePlan, Resume } from "@/lib/types";
+import { ideaClosed, ideaFinished } from "@/lib/ahora";
 import { cn } from "@/lib/utils";
 
 // 2.11: the note beside the generated headline, for what the data cannot say. Anyone writes it
@@ -364,72 +365,93 @@ export type IdeaRow = {
   waits?: string | null;
 };
 
-const ideaClosed = (status: string) => status === "Done" || status === "Won't do";
 const oneLiner = (idea: IdeaRow) => idea.summary.trim() || idea.title;
 
-/** Open ideas, then what a closed one became. A table from sm up; stacked rows on a phone. */
+/** Ideas not finished (ideaFinished: ready, promoted, Done, Won't do); a toggle shows the rest after
+ * them, with what they became. Not persisted. A table from sm up; stacked rows on a phone. */
 export function IdeasTable({ ideas, onOpen }: { ideas: IdeaRow[]; onOpen: (key: string) => void }) {
-  const rows = [...ideas].sort((a, b) => {
-    const rank = (i: IdeaRow) => (ideaClosed(i.status) ? 1 : 0);
-    return rank(a) - rank(b) || a.key.localeCompare(b.key, undefined, { numeric: true });
-  });
-  if (rows.length === 0) return <p className="text-sm text-muted-foreground">Ninguna todavía.</p>;
+  const [showFinished, setShowFinished] = useState(false);
+  const byKey = (a: IdeaRow, b: IdeaRow) => a.key.localeCompare(b.key, undefined, { numeric: true });
+  const open = ideas.filter((i) => !ideaFinished(i)).sort(byKey);
+  const finished = ideas.filter((i) => ideaFinished(i)).sort(byKey);
+  const rows = showFinished ? [...open, ...finished] : open;
+  const toggle = finished.length > 0 && (
+    <button
+      type="button"
+      aria-pressed={showFinished}
+      onClick={() => setShowFinished((v) => !v)}
+      className="inline-flex min-h-8 w-fit items-center text-xs font-semibold text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+    >
+      {showFinished ? "Ocultar terminadas" : `Mostrar terminadas (${finished.length})`}
+    </button>
+  );
+  if (rows.length === 0) {
+    return (
+      <div className="grid gap-2">
+        <p className="text-sm text-muted-foreground">{ideas.length === 0 ? "Ninguna todavía." : "Ninguna abierta."}</p>
+        {toggle}
+      </div>
+    );
+  }
 
   const cells = (idea: IdeaRow) => ({
     waits: ideaClosed(idea.status) ? "—" : idea.waits || "—",
   });
 
   return (
-    <div className="lift animate-rise overflow-hidden rounded-[20px] border bg-card">
-      <ul className="divide-y text-[13px] sm:hidden">
-        {rows.map((idea) => {
-          const c = cells(idea);
-          return (
-            <li key={idea.key} className="grid gap-2 px-4 py-3.5">
-              <div className="flex items-start justify-between gap-3">
-                <TicketButton taskKey={idea.key} onOpen={onOpen} label={`${idea.key}: ${oneLiner(idea)}`} className="min-w-0 text-left">
-                  <span className="grid gap-0.5">
-                    <span className="font-mono text-xs text-muted-foreground">{idea.key}</span>
-                    <span className="font-medium underline-offset-4 group-hover/ticket:underline">{oneLiner(idea)}</span>
-                  </span>
-                </TicketButton>
-                {idea.stage && <StageChip stage={idea.stage} />}
-              </div>
-              <p className="text-muted-foreground">{ideaClosed(idea.status) ? (idea.promoted_to ? `Pasó a ${idea.promoted_to}` : "Sin destino") : c.waits}</p>
-            </li>
-          );
-        })}
-      </ul>
-      <div className="hidden overflow-x-auto sm:block">
-        <table className="w-full min-w-[640px] border-collapse text-left text-[13px]">
-          <thead>
-            <tr className="border-b bg-foreground/[0.03] text-[11px] font-bold tracking-[0.12em] text-muted-foreground uppercase">
-              <th className="px-5 py-3 font-bold">Idea</th>
-              <th className="px-3 py-3 font-bold">Etapa</th>
-              <th className="px-3 py-3 font-bold">Espera</th>
-              <th className="px-5 py-3 font-bold">Pasó a</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((idea) => {
-              const c = cells(idea);
-              return (
-                <tr key={idea.key} className="border-b transition-colors last:border-b-0 hover:bg-foreground/[0.04]">
-                  <td className="max-w-[360px] px-5 py-3">
-                    <TicketButton taskKey={idea.key} onOpen={onOpen} label={`${idea.key}: ${oneLiner(idea)}`} className="text-left">
+    <div className="grid gap-2">
+      <div className="lift animate-rise overflow-hidden rounded-[20px] border bg-card">
+        <ul className="divide-y text-[13px] sm:hidden">
+          {rows.map((idea) => {
+            const c = cells(idea);
+            return (
+              <li key={idea.key} className="grid gap-2 px-4 py-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <TicketButton taskKey={idea.key} onOpen={onOpen} label={`${idea.key}: ${oneLiner(idea)}`} className="min-w-0 text-left">
+                    <span className="grid gap-0.5">
                       <span className="font-mono text-xs text-muted-foreground">{idea.key}</span>
-                      <span className="mt-0.5 block font-medium underline-offset-4 group-hover/ticket:underline">{oneLiner(idea)}</span>
-                    </TicketButton>
-                  </td>
-                  <td className="px-3 py-3">{idea.stage ? <StageChip stage={idea.stage} /> : "—"}</td>
-                  <td className="max-w-[240px] px-3 py-3 text-muted-foreground">{c.waits}</td>
-                  <td className="px-5 py-3 font-mono text-xs">{idea.promoted_to ? <span className="text-foreground">{idea.promoted_to}</span> : <span className="text-muted-foreground">—</span>}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                      <span className="font-medium underline-offset-4 group-hover/ticket:underline">{oneLiner(idea)}</span>
+                    </span>
+                  </TicketButton>
+                  {idea.stage && <StageChip stage={idea.stage} />}
+                </div>
+                <p className="text-muted-foreground">{ideaClosed(idea.status) ? (idea.promoted_to ? `Pasó a ${idea.promoted_to}` : "Sin destino") : c.waits}</p>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="hidden overflow-x-auto sm:block">
+          <table className="w-full min-w-[640px] border-collapse text-left text-[13px]">
+            <thead>
+              <tr className="border-b bg-foreground/[0.03] text-[11px] font-bold tracking-[0.12em] text-muted-foreground uppercase">
+                <th className="px-5 py-3 font-bold">Idea</th>
+                <th className="px-3 py-3 font-bold">Etapa</th>
+                <th className="px-3 py-3 font-bold">Espera</th>
+                <th className="px-5 py-3 font-bold">Pasó a</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((idea) => {
+                const c = cells(idea);
+                return (
+                  <tr key={idea.key} className="border-b transition-colors last:border-b-0 hover:bg-foreground/[0.04]">
+                    <td className="max-w-[360px] px-5 py-3">
+                      <TicketButton taskKey={idea.key} onOpen={onOpen} label={`${idea.key}: ${oneLiner(idea)}`} className="text-left">
+                        <span className="font-mono text-xs text-muted-foreground">{idea.key}</span>
+                        <span className="mt-0.5 block font-medium underline-offset-4 group-hover/ticket:underline">{oneLiner(idea)}</span>
+                      </TicketButton>
+                    </td>
+                    <td className="px-3 py-3">{idea.stage ? <StageChip stage={idea.stage} /> : "—"}</td>
+                    <td className="max-w-[240px] px-3 py-3 text-muted-foreground">{c.waits}</td>
+                    <td className="px-5 py-3 font-mono text-xs">{idea.promoted_to ? <span className="text-foreground">{idea.promoted_to}</span> : <span className="text-muted-foreground">—</span>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
+      {toggle}
     </div>
   );
 }

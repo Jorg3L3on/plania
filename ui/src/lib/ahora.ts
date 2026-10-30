@@ -288,9 +288,19 @@ export function ideaClosed(status: string): boolean {
   return status === "Done" || status === "Won't do";
 }
 
+export type FinishedProbe = { status: string; stage?: string | null; promoted_to?: string | null; promotedTo?: string | null };
+
+/** Done for the idea lists (PLA-I18-6): closed, or it already became something (promoted_to), or it
+ * reached ready. Lists hide these by default. A closed idea uses ideaClosed for its outcome line. */
+export function ideaFinished(idea: FinishedProbe): boolean {
+  if (ideaClosed(idea.status)) return true;
+  if ((idea.promoted_to ?? idea.promotedTo ?? "").trim()) return true;
+  return idea.stage === "ready";
+}
+
 /** Open, and held by a doc, a heading or a question. "Puede avanzar" and "Lista para promover" are free. */
-export function ideaIsWaiting(idea: Pick<AhoraIdea, "status" | "waits">): boolean {
-  if (ideaClosed(idea.status)) return false;
+export function ideaIsWaiting(idea: Pick<AhoraIdea, "status" | "stage" | "promotedTo" | "waits">): boolean {
+  if (ideaFinished(idea)) return false;
   const waits = idea.waits.trim();
   return waits.length > 0 && !NOT_WAITING.has(waits);
 }
@@ -324,16 +334,19 @@ export function ideasFromProject(project: { slug: string; title: string }, tasks
 export type IdeaColumn = { stage: IdeaStage; label: string; ideas: AhoraIdea[] };
 
 function byAge(a: AhoraIdea, b: AhoraIdea): number {
-  const rank = (idea: AhoraIdea) => (ideaClosed(idea.status) ? 1 : 0);
-  return rank(a) - rank(b) || a.createdAt.localeCompare(b.createdAt) || a.key.localeCompare(b.key, undefined, { numeric: true }) || a.slug.localeCompare(b.slug);
+  return a.createdAt.localeCompare(b.createdAt) || a.key.localeCompare(b.key, undefined, { numeric: true }) || a.slug.localeCompare(b.slug);
 }
 
-/** One column per stage, in stage order. Open ideas first, oldest first; closed ones after them. */
+/** The stages an unfinished idea can be in: ready counts as finished (ideaFinished). */
+export const OPEN_IDEA_STAGES = IDEA_STAGES.filter((stage) => stage !== "ready");
+
+/** One column per open stage, in stage order, oldest first. Finished ideas are left out. */
 export function ideasByStage(ideas: AhoraIdea[]): IdeaColumn[] {
-  return IDEA_STAGES.map((stage) => ({
+  const open = ideas.filter((idea) => !ideaFinished(idea));
+  return OPEN_IDEA_STAGES.map((stage) => ({
     stage,
     label: IDEA_STAGE_LABEL[stage],
-    ideas: ideas.filter((idea) => idea.stage === stage).sort(byAge),
+    ideas: open.filter((idea) => idea.stage === stage).sort(byAge),
   }));
 }
 
