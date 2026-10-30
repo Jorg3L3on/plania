@@ -12,7 +12,6 @@ export type DelegatedReviewItem = {
   project: string;
   key: string | null;
   kind: "question" | "approval";
-  gate: string | null;
   action: string | null;
   answer: string | null;
   quote: string;
@@ -28,7 +27,6 @@ export async function delegatedForInbox(db: Q, projects: { id: string; slug: str
   const rows = await db
     .select({
       d: delegatedAnswers,
-      gate: questions.gate,
       answer: questions.answer,
       qkey: tasks.key,
       action: approvals.action,
@@ -45,7 +43,6 @@ export async function delegatedForInbox(db: Q, projects: { id: string; slug: str
     project: slugOf.get(r.d.projectId) ?? "",
     key: r.qkey ?? r.akey,
     kind: r.d.questionId ? "question" : "approval",
-    gate: r.gate,
     action: r.action,
     answer: r.answer,
     quote: r.d.quote,
@@ -54,7 +51,7 @@ export async function delegatedForInbox(db: Q, projects: { id: string; slug: str
   }));
 }
 
-// PLA-I15-2. The owner stays the one who answers a human-only gate, by a click on his screen.
+// PLA-I15-2. The owner stays the one who answers a human-only question, by a click on his screen.
 // When he is away he can tell the Plania bot in his own chat. Only actor.agent plania-bot may
 // record that one instruction, and only with the message id and a short quote. The server cannot
 // prove the caller is that bot or that the message exists: every bot on this Mac shares the write

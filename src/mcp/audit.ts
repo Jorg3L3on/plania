@@ -1,12 +1,12 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { approvals, auditRuns, blockers, branches, checks, decisions, delegatedAnswers, docs, envStates, pullRequests, questions, results, tasks, type Project, type Task } from "../db/schema.js";
+import { approvals, auditRuns, blockers, branches, checks, decisions, delegatedAnswers, envStates, pullRequests, questions, results, tasks, type Project, type Task } from "../db/schema.js";
 import { hasUnsatisfiedBlocker, openHumanActions } from "./blockers.js";
 import { footprintFindings } from "./footprint-audit.js";
 import { WAITING_ON_JORGE, gatingSql, parseJorgeLines } from "./jorge-lines.js";
 import { prefixOf } from "./keys.js";
 import { releasePending, releasePlan } from "./release-plan.js";
-import { isScreenActor, iso, type Q } from "./tx.js";
+import { iso, type Q } from "./tx.js";
 
 // The project audit (R-31): what the server can see is wrong, from data it already has. Pure
 // reads, one function per finding code; `audit(project)` runs them on demand and the audit job
@@ -204,33 +204,14 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
       id: pr.url,
     });
   }
-  // PLA-I8-3: a gate answered by anyone but the owner on the screen (web session, machine screen).
-  // Rows answered before 0027, when an agent was still accepted, stay flagged.
-  // PLA-I15-2: a delegated answer is stored as the owner and listed on its own, so this finding
-  // does not also fire for it. The quote stays on GATE_ANSWERED_DELEGATED for him to review.
-  const ideaIds = all.filter((t) => t.kind === "idea").map((t) => t.id);
-  const gateRows = ideaIds.length
-    ? await db.select().from(questions).where(and(inArray(questions.taskId, ideaIds), sql`${questions.gate} is not null`))
-    : [];
+  // PLA-I18-2: gates were removed, so a gate answered by an agent is no longer a finding. Every
+  // delegated answer still is, so the owner can review the quote.
   const delegatedRows = await db.select().from(delegatedAnswers).where(eq(delegatedAnswers.projectId, p.id));
-  const delegatedQuestionIds = new Set(delegatedRows.map((d) => d.questionId).filter((id): id is string => !!id));
-  for (const q of gateRows) {
-    if (!q.answeredAt || isScreenActor(q.answeredBy) || delegatedQuestionIds.has(q.id)) continue;
-    const who = q.answeredBy ? `${q.answeredBy.agent}${q.answeredBy.machine ? `/${q.answeredBy.machine}` : ""}` : "nobody";
-    out.push({
-      code: "GATE_ANSWERED_BY_AGENT",
-      key: byId.get(q.taskId)?.key ?? null,
-      detail: `gate ${q.gate} answered by ${who}, not Jorge on the screen`,
-      fix_hint: "ask the gate again; only the screen answers it, by a click",
-      id: q.id,
-    });
-  }
-  // Every delegated answer, gate or approval, so the owner can review the quote. warn: it is his
-  // instruction recorded by a bot the server cannot prove, not a silent success.
-  const questionById = new Map(gateRows.map((q) => [q.id, q]));
-  const otherQuestionIds = delegatedRows.map((d) => d.questionId).filter((id): id is string => !!id && !questionById.has(id));
-  if (otherQuestionIds.length) {
-    for (const q of await db.select().from(questions).where(inArray(questions.id, otherQuestionIds))) questionById.set(q.id, q);
+  // warn: it is his instruction recorded by a bot the server cannot prove, not a silent success.
+  const questionById = new Map<string, typeof questions.$inferSelect>();
+  const delegatedQuestionIds = delegatedRows.map((d) => d.questionId).filter((id): id is string => !!id);
+  if (delegatedQuestionIds.length) {
+    for (const q of await db.select().from(questions).where(inArray(questions.id, delegatedQuestionIds))) questionById.set(q.id, q);
   }
   const approvalById = new Map(
     delegatedRows.some((d) => d.approvalId)
@@ -241,9 +222,9 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
     const q = d.questionId ? questionById.get(d.questionId) : undefined;
     const a = d.approvalId ? approvalById.get(d.approvalId) : undefined;
     const key = q ? (byId.get(q.taskId)?.key ?? null) : (a?.taskKey ?? null);
-    const what = q?.gate ? `gate ${q.gate}` : a ? `approval ${a.action} ${a.state}` : "question";
+    const what = a ? `approval ${a.action} ${a.state}` : "question";
     out.push({
-      code: "GATE_ANSWERED_DELEGATED",
+      code: "DELEGATED_ANSWER",
       level: "warn",
       key,
       detail: `${what} delegated at ${iso(d.createdAt)} by ${d.actor.agent}: "${d.quote}" (message ${d.messageId})`,

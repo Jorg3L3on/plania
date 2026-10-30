@@ -201,12 +201,12 @@ describe("answer_delegated", () => {
 
     const p = await findProject(db, "workia");
     const findings = await auditProject(db, p);
-    const delegated = findings.filter((f) => f.code === "GATE_ANSWERED_DELEGATED" && f.id === g.id);
+    const delegated = findings.filter((f) => f.code === "DELEGATED_ANSWER" && f.id === g.id);
     assert.equal(delegated.length, 1);
     assert.equal(delegated[0]!.level, "warn");
     assert.match(delegated[0]!.detail, /question delegated/);
     assert.match(delegated[0]!.detail, /sigue la compuerta/);
-    assert.equal(findings.some((f) => f.code === "GATE_ANSWERED_BY_AGENT" && f.id === g.id), false);
+    assert.equal(findings.some((f) => f.code.startsWith("GATE_")), false, "2.17 emits no GATE_* finding");
 
     const again = await call("answer_delegated", { question_id: g.id, option: "drop", actor: BOT, ...evidence("msg-owner-0143", "otra instruccion distinta") });
     assert.equal(again.__error, "ALREADY_ANSWERED");
@@ -214,7 +214,7 @@ describe("answer_delegated", () => {
     const inbox = await call("get_inbox", { project: "workia" });
     const shown = inbox.delegated.find((d: Json) => d.quote === QUOTE);
     assert.ok(shown, JSON.stringify(inbox.delegated));
-    assert.equal(shown.gate, null);
+    assert.equal("gate" in shown, false);
     assert.equal(shown.key, g.key);
 
     const task = await call("get_task", { key: g.key });
@@ -222,19 +222,33 @@ describe("answer_delegated", () => {
     assert.equal(q.delegated.quote, QUOTE);
   });
 
-  test("a direct agent answer is still GATE_ANSWERED_BY_AGENT and a screen click is not delegated", async () => {
+  test("an old gate row is history: no audit finding, not in the inbox, not delegable; a screen click is not delegated", async () => {
     const project = await findProject(db, "workia");
     const idea = await call("create_task", { kind: "idea", title: "Directo" });
     const taskId = (await raw.query("select id from tasks where key = $1", [idea.key])).rows[0].id;
     const agent = JSON.stringify(A);
-    const inserted = await raw.query(
+    const answered = await raw.query(
       `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by, answer, answered_by, answered_at)
        values ($1, $2, 'Directa', '{pursue,drop,later}', 'A', true, $3::jsonb, 'pursue', $3::jsonb, now()) returning id`,
       [project.id, taskId, agent],
     );
+    const open = await raw.query(
+      `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by)
+       values ($1, $2, 'Abierta', '{ready,rework,drop}', 'C', true, $3::jsonb) returning id`,
+      [project.id, taskId, agent],
+    );
     const findings = await auditProject(db, project);
-    assert.equal(findings.some((f) => f.code === "GATE_ANSWERED_BY_AGENT" && f.id === inserted.rows[0].id), true);
-    assert.equal(findings.some((f) => f.code === "GATE_ANSWERED_DELEGATED" && f.id === inserted.rows[0].id), false);
+    assert.equal(findings.some((f) => f.id === answered.rows[0].id || f.id === open.rows[0].id), false);
+    assert.equal(findings.some((f) => f.code.startsWith("GATE_")), false);
+
+    const inbox = await call("get_inbox", { project: "workia" });
+    assert.equal(inbox.items.some((i: Json) => i.id === open.rows[0].id), false, "an old open gate is not a decision");
+    assert.equal(inbox.items.some((i: Json) => "gate" in i), false);
+
+    const refused = await call("answer_delegated", { question_id: open.rows[0].id, option: "ready", actor: BOT, ...evidence("msg-owner-0150", "dale lista a esa idea") });
+    assert.equal(refused.__error, "NOT_DELEGABLE");
+    const still = (await raw.query("select answer from questions where id = $1", [open.rows[0].id])).rows[0];
+    assert.equal(still.answer, null);
 
     const g = await gate("Clic");
     const res = await req("POST", `/api/projects/workia/questions/${g.id}/answer`, { body: { answer: "drop" } });
@@ -242,8 +256,7 @@ describe("answer_delegated", () => {
     const n = await raw.query("select count(*)::int as n from delegated_answers where question_id = $1", [g.id]);
     assert.equal(n.rows[0].n, 0);
     const after = await auditProject(db, project);
-    assert.equal(after.some((f) => f.code === "GATE_ANSWERED_DELEGATED" && f.id === g.id), false);
-    assert.equal(after.some((f) => f.code === "GATE_ANSWERED_BY_AGENT" && f.id === g.id), false);
+    assert.equal(after.some((f) => f.code === "DELEGATED_ANSWER" && f.id === g.id), false);
   });
 
   test("a question that is not human_only is unchanged, and one without options is not delegable", async () => {

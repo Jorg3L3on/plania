@@ -842,10 +842,10 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Record one answer the owner gave actor agent plania-bot in his own chat. Any other agent is HUMAN_ONLY, including a spoofed screen session.",
-        "One human_only question that has named options (every gate A, B or C): pass question_id and option, one of the stored options. The question closes as his.",
+        "One human_only question that has named options: pass question_id and option, one of the stored options. The question closes as his. An old gate question (before 2.17) is NOT_DELEGABLE.",
         "Or one pending approval whose action is wont_do or reopen: pass approval_id and decision grant or reject. Other approval actions are NOT_DELEGABLE.",
         "delegated_by_jorge is required: message_id (8 to 200 characters) and quote (8 to 280 characters) of his instruction. Missing, empty or short evidence is DELEGATION_EVIDENCE.",
-        "The server cannot prove this caller is the Plania bot or that the message exists: every bot shares the write token and the actor is declared on the request. The controls are the quote, GATE_ANSWERED_DELEGATED, the Delegada badge, 10 answers an hour, one per question, and the screen kill switch (default on). DELEGATION_OFF when that switch is off. DELEGATION_LIMIT when the hour or the question is already used.",
+        "The server cannot prove this caller is the Plania bot or that the message exists: every bot shares the write token and the actor is declared on the request. The controls are the quote, the DELEGATED_ANSWER audit finding, the Delegada badge, 10 answers an hour, one per question, and the screen kill switch (default on). DELEGATION_OFF when that switch is off. DELEGATION_LIMIT when the hour or the question is already used.",
         "This tool cannot raise the limit or flip the switch. The answer tool stays HUMAN_ONLY. The screen click is unchanged. Not available on /api, /hooks or /bot/v1.",
       ].join(" "),
       inputSchema: {
@@ -853,7 +853,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         actor,
         request_id,
         verbose,
-        question_id: z.string().optional().describe("A human_only question, including a gate. Not together with approval_id"),
+        question_id: z.string().optional().describe("A human_only question with named options. Not together with approval_id"),
         approval_id: z.string().optional().describe("A pending wont_do or reopen approval. Not together with question_id"),
         option: z.string().optional().describe("One of the question's stored options"),
         decision: z.enum(["grant", "reject"]).optional().describe("grant or reject, for an approval"),
@@ -985,7 +985,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
-        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, GATE_ANSWERED_BY_AGENT, GATE_ANSWERED_DELEGATED, STAGE_DOC_STALE, and the footprint codes.",
+        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, DELEGATED_ANSWER, and the footprint codes.",
         "Each finding has key, detail and fix_hint. It also runs every ten minutes; get_resume.status.audit_findings is the last count.",
       ].join(" "),
       inputSchema: { project },

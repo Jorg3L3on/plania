@@ -443,7 +443,7 @@ const ACTOR_HEADERS = ["x-actor", "x-plania-actor", "x-plania-session"];
 
 function rejectBotAnswer(c: Context): Response | null {
   if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) {
-    return c.json({ error: "HUMAN_ONLY", hint: "human-only gates are answered by a click on the owner's screen; bots are refused" }, 403);
+    return c.json({ error: "HUMAN_ONLY", hint: "a human-only question is answered on the owner's screen; bots are refused" }, 403);
   }
   if (ACTOR_HEADERS.some((name) => c.req.header(name))) {
     return c.json({ error: "HUMAN_ONLY", hint: "the screen actor comes from the session cookie" }, 403);
@@ -452,7 +452,7 @@ function rejectBotAnswer(c: Context): Response | null {
 }
 
 // Jorge answers a question an agent asked; with decision_text the answer is also logged as a decision.
-// A human_only gate is one click. The stored actor is always the screen actor, not anything in the body.
+// A human_only question is answered here. The stored actor is always the screen actor, not anything in the body.
 api.post("/projects/:slug/questions/:id/answer", async (c) => {
   const refused = rejectBotAnswer(c);
   if (refused) return refused;

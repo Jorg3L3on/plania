@@ -1,4 +1,4 @@
-// PLA-I8-3: three audit findings, and protocol 2.13 under 900 words.
+// PLA-I8-3 findings, after PLA-I18 removed the gate ones; protocol under 900 words.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type pg from "pg";
@@ -125,44 +125,19 @@ describe("PR_WITHOUT_PLANIA_KEY", () => {
 });
 
 describe("GATE_ANSWERED_BY_AGENT", () => {
-  test("a gate answered by an agent is flagged; a screen answer, or a question that is not a gate, is not", async () => {
-    const agent = await raw.query(
-      `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by, answer, answered_by, answered_at)
-       values ($1, $2, 'Puerta A', '{pursue,drop,later}', 'A', false, $3::jsonb, 'pursue', $3::jsonb, '2026-01-02T00:00:00Z')
-       returning id`,
-      [projectId, ideaId, AGENT],
-    );
-    const screen = await raw.query(
-      `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by, answer, answered_by, answered_at)
-       values ($1, $2, 'Puerta B', '{proceed,rework,drop}', 'B', true, $3::jsonb, 'proceed', $4::jsonb, '2026-01-03T00:00:00Z')
-       returning id`,
+  // PLA-I18-2: gates were removed. Old gate rows answered by an agent, by the screen or by nobody
+  // are history and raise no finding.
+  test("is no longer emitted for any old gate answer", async () => {
+    await raw.query(
+      `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by, answer, answered_by, answered_at) values
+       ($1, $2, 'Puerta A', '{pursue,drop,later}', 'A', false, $3::jsonb, 'pursue', $3::jsonb, '2026-01-02T00:00:00Z'),
+       ($1, $2, 'Puerta B', '{proceed,rework,drop}', 'B', true, $3::jsonb, 'proceed', $4::jsonb, '2026-01-03T00:00:00Z'),
+       ($1, $2, 'Sin actor', '{pursue,drop,later}', 'A', false, $3::jsonb, 'pursue', null, '2026-01-05T00:00:00Z')`,
       [projectId, ideaId, AGENT, SCREEN],
     );
-    await raw.query(
-      `insert into questions (project_id, task_id, question, asked_by, answer, answered_by, answered_at)
-       values ($1, $2, 'Which size?', $3::jsonb, 'large', $3::jsonb, '2026-01-04T00:00:00Z')`,
-      [projectId, ideaId, AGENT],
-    );
-    const hit = await codes("GATE_ANSWERED_BY_AGENT");
-    assert.equal(hit.length, 1);
-    assert.equal(hit[0]!.key, "FIL-IDEA1");
-    assert.equal(hit[0]!.id, agent.rows[0].id);
-    assert.match(hit[0]!.detail, /gate A answered by test-agent\/ci/);
-    assert.equal(hit.some((f) => f.id === screen.rows[0].id), false);
-
-    await raw.query("update questions set answered_by = $1::jsonb where id = $2", [SCREEN, agent.rows[0].id]);
-    assert.equal((await codes("GATE_ANSWERED_BY_AGENT")).length, 0);
-
-    const missing = await raw.query(
-      `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by, answer, answered_by, answered_at)
-       values ($1, $2, 'Sin actor', '{pursue,drop,later}', 'A', false, $3::jsonb, 'pursue', null, '2026-01-05T00:00:00Z')
-       returning id`,
-      [projectId, ideaId, AGENT],
-    );
-    const nobody = await codes("GATE_ANSWERED_BY_AGENT");
-    assert.equal(nobody.length, 1);
-    assert.equal(nobody[0]!.id, missing.rows[0].id);
-    assert.match(nobody[0]!.detail, /gate A answered by nobody/);
+    const p = await findProject(db, "filmia");
+    const all = await auditProject(db, p);
+    assert.deepEqual(all.filter((f) => f.code.startsWith("GATE_")), []);
   });
 });
 

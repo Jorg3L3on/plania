@@ -44,7 +44,7 @@ export function canFix(f: Finding): CanFix {
 }
 
 // Review, not a chore: the owner reads the quote. get_next does not offer it (not in AGENT_CHORES).
-const OWNER_REVIEW = new Set(["GATE_ANSWERED_DELEGATED"]);
+const OWNER_REVIEW = new Set(["DELEGATED_ANSWER"]);
 
 export const ordenShape = (f: Finding): OrdenFinding => {
   const can_fix = canFix(f);

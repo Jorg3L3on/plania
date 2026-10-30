@@ -36,7 +36,6 @@ export type InboxItem = {
   options?: string[];
   blocks?: string[];
   urgency?: string | null;
-  gate?: string | null;
   human_only?: boolean;
   action?: string;
   target?: Record<string, unknown>;
@@ -131,7 +130,8 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
     .select({ q: questions, t: tasks })
     .from(questions)
     .innerJoin(tasks, eq(tasks.id, questions.taskId))
-    .where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt)))
+    // Old gate rows (gates were removed in 2.17) are history, not decisions: migration 0030 closes them.
+    .where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt), isNull(questions.gate)))
     .orderBy(asc(questions.askedAt));
   for (const { q, t } of open) {
     items.push({
@@ -147,7 +147,6 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
       options: q.options,
       blocks: q.blocks,
       urgency: q.urgency,
-      gate: q.gate,
       human_only: q.humanOnly,
       waiting_since: iso(q.askedAt),
       wait_s: waitSeconds(q.askedAt),
