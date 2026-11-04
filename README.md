@@ -323,6 +323,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `assign` | Set a task's owner_agent to another roster agent and count the hop. |
 | `record_routine_run` | Record one run of a roster agent's routine. |
 | `report_tokens` | Record the tokens one agent reports for a task run. |
+| `create_company_project` | Create a project, a product-owner bot and a Playbook doc from the company template. |
 <!-- mcp-tools:end -->
 
 Rules every write follows:

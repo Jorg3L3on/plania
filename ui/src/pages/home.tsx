@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { GoalsHome } from "@/components/goals/goals-board";
 import { Ciudad } from "@/components/home/ciudad";
 import { Hoy } from "@/components/home/hoy";
+import { CompanyTemplate } from "@/components/home/company-template";
 import { PedirHome } from "@/components/pedir";
 import { LaMac, Proximo, Proyectos } from "@/components/home/parts";
 import { proximoOf } from "@/lib/due";
@@ -71,6 +72,7 @@ export function HomePage() {
     <div className="grid grid-cols-1 gap-6 sm:gap-7">
       {/* 2.12: one field to ask for something in any project. */}
       <PedirHome projects={projects.data} />
+      <CompanyTemplate />
 
       {/* 2.12: what changed since "Visto", and what waits on Jorge, above the city. */}
       <Hoy names={names} />
