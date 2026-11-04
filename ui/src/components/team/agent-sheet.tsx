@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { faceOf } from "@/components/team/studio";
 import { KIND_WORD, STATUS_DOT, STATUS_WORD, type TeamMember } from "@/components/team/types";
 import { ago } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,7 @@ export const AgentSheet = ({ agent, reportsTo, open, onOpenChange }: AgentSheetP
   const wide = useWide();
   const handleOpenChange = (next: boolean) => onOpenChange(next);
   if (!agent) return null;
+  const face = faceOf(agent);
   const word = STATUS_WORD[agent.status] ?? agent.status;
   const kind = KIND_WORD[agent.kind] ?? agent.kind;
   return (
@@ -41,7 +43,8 @@ export const AgentSheet = ({ agent, reportsTo, open, onOpenChange }: AgentSheetP
             {agent.name}
           </SheetTitle>
           <SheetDescription>
-            {agent.title} · {word}
+            {face.line} · {word}
+            {face.beat ? ` · ${face.beat}` : ""}
           </SheetDescription>
         </SheetHeader>
         <dl className="grid gap-4 px-4 pb-6 text-sm">

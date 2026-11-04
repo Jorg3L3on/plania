@@ -28,11 +28,11 @@ export const EquipoPage = () => {
     return (
       <div className="grid gap-4" aria-hidden>
         <Skeleton className="h-8 w-40" />
-        <Skeleton className="mx-auto h-16 w-full max-w-xs" />
-        <div className="grid gap-3 md:grid-cols-3">
-          <Skeleton className="h-40" />
-          <Skeleton className="h-40" />
-          <Skeleton className="h-40" />
+        <Skeleton className="mx-auto h-16 w-full max-w-xl" />
+        <Skeleton className="mx-auto h-16 w-full max-w-xl" />
+        <div className="mx-auto grid w-full max-w-xl grid-cols-2 gap-2">
+          <Skeleton className="h-20" />
+          <Skeleton className="h-20" />
         </div>
       </div>
     );
@@ -52,7 +52,9 @@ export const EquipoPage = () => {
       <header className="grid gap-2">
         <Kicker className="text-muted-foreground">Compañía</Kicker>
         <h1 className="font-display text-4xl leading-[0.95] font-extrabold tracking-[-0.03em] sm:text-5xl">Equipo</h1>
-        <p className="max-w-xl text-sm text-muted-foreground">Quién está, a quién reporta y qué tiene a su nombre.</p>
+        <p className="max-w-xl text-sm text-muted-foreground">
+          Plania como compañía. Cada ficha es un bot. El latido marca quién se despierta solo.
+        </p>
         <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {legend.map((item) => (
             <li key={item.status} className="inline-flex items-center gap-1.5">
