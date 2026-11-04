@@ -1,10 +1,10 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, sql } from "drizzle-orm";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { agents, taskComments, tasks, type TaskComment } from "../db/schema.js";
+import { ROUTINE_STATUSES, agents, routineRuns, taskComments, tasks, type RoutineRun, type TaskComment } from "../db/schema.js";
 import { ToolError } from "./errors.js";
 import type { InboxItem } from "./inbox.js";
 import { findProject, findTask } from "./queries.js";
@@ -48,10 +48,41 @@ function commentView(row: TaskComment): CommentView {
   };
 }
 
-function rosterSlug(raw: string): string {
+function rosterSlug(raw: string, field = "to_agent"): string {
   const slug = raw.trim().toLowerCase();
-  if (!SLUG.test(slug)) throw new ToolError("INVALID_FILTER", { field: "to_agent", hint: "roster slug" });
+  if (!SLUG.test(slug)) throw new ToolError("INVALID_FILTER", { field, hint: "roster slug" });
   return slug;
+}
+
+const ROUTINE_NAME = /^[a-z][a-z0-9._-]{0,79}$/;
+const SUMMARY_MAX = 2_000;
+
+function routineName(raw: string): string {
+  const name = raw.trim().toLowerCase();
+  if (!ROUTINE_NAME.test(name)) throw new ToolError("INVALID_FILTER", { field: "routine", hint: "lowercase letters, digits, dot, underscore, dash" });
+  return name;
+}
+
+function routineStatus(raw: string): (typeof ROUTINE_STATUSES)[number] {
+  if (!(ROUTINE_STATUSES as readonly string[]).includes(raw)) {
+    throw new ToolError("INVALID_FILTER", { field: "status", allowed: [...ROUTINE_STATUSES] });
+  }
+  return raw as (typeof ROUTINE_STATUSES)[number];
+}
+
+function parseTime(field: string, raw: string): Date {
+  const at = new Date(raw);
+  if (Number.isNaN(at.getTime())) throw new ToolError("INVALID_FILTER", { field, hint: "ISO-8601" });
+  return at;
+}
+
+function utcDay(date: string): { start: Date; end: Date } {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new ToolError("INVALID_FILTER", { field: "date", hint: "YYYY-MM-DD" });
+  const start = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime()) || start.toISOString().slice(0, 10) !== date) {
+    throw new ToolError("INVALID_FILTER", { field: "date", hint: "YYYY-MM-DD" });
+  }
+  return { start, end: new Date(start.getTime() + 86_400_000) };
 }
 
 function commentBody(raw: string): string {
@@ -168,6 +199,90 @@ export async function assign(
   return outcome.value;
 }
 
+export type RoutineRunView = {
+  id: string;
+  agent: string;
+  routine: string;
+  started_at: string;
+  ended_at: string | null;
+  status: (typeof ROUTINE_STATUSES)[number];
+  summary: string;
+  task_key: string | null;
+};
+
+export type RecordRoutineInput = {
+  agent: string;
+  routine: string;
+  started_at: string;
+  ended_at?: string | null;
+  status: string;
+  summary?: string;
+  task_key?: string | null;
+};
+
+function routineView(row: RoutineRun): RoutineRunView {
+  return {
+    id: row.id,
+    agent: row.agent,
+    routine: row.routine,
+    started_at: iso(row.startedAt),
+    ended_at: iso(row.endedAt),
+    status: routineStatus(row.status),
+    summary: row.summary,
+    task_key: row.taskKey,
+  };
+}
+
+async function requireRosterSlug(db: Q, raw: string, field: string): Promise<string> {
+  const slug = rosterSlug(raw, field);
+  const [row] = await db.select({ slug: agents.slug }).from(agents).where(eq(agents.slug, slug)).limit(1);
+  if (!row) throw new ToolError("AGENT_NOT_FOUND", { slug });
+  return row.slug;
+}
+
+export async function recordRoutineRun(db: Db, input: RecordRoutineInput): Promise<RoutineRunView> {
+  const agent = await requireRosterSlug(db, input.agent, "agent");
+  const routine = routineName(input.routine);
+  const status = routineStatus(input.status);
+  const startedAt = parseTime("started_at", input.started_at);
+  const endedAt = input.ended_at ? parseTime("ended_at", input.ended_at) : null;
+  if (endedAt && endedAt < startedAt) throw new ToolError("INVALID_FILTER", { field: "ended_at", hint: "not before started_at" });
+  const summary = (input.summary ?? "").trim();
+  if (summary.length > SUMMARY_MAX) throw new ToolError("TOO_LARGE", { field: "summary", max: SUMMARY_MAX });
+  const taskKey = input.task_key?.trim() || null;
+  if (taskKey && (taskKey.length > 40 || !/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(taskKey))) {
+    throw new ToolError("INVALID_FILTER", { field: "task_key" });
+  }
+  const [row] = await db
+    .insert(routineRuns)
+    .values({ agent, routine, startedAt, endedAt, status, summary, taskKey })
+    .returning();
+  return routineView(row!);
+}
+
+export async function listRoutineRuns(
+  db: Q,
+  filter: { agent?: string; date?: string; limit?: number } = {},
+): Promise<{ runs: RoutineRunView[] }> {
+  const agent = filter.agent ? await requireRosterSlug(db, filter.agent, "agent") : undefined;
+  const day = filter.date ? utcDay(filter.date) : undefined;
+  const limit = filter.limit ?? 100;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new ToolError("INVALID_FILTER", { field: "limit", max: 500 });
+  const rows = await db
+    .select()
+    .from(routineRuns)
+    .where(
+      and(
+        agent ? eq(routineRuns.agent, agent) : undefined,
+        day ? gte(routineRuns.startedAt, day.start) : undefined,
+        day ? lt(routineRuns.startedAt, day.end) : undefined,
+      ),
+    )
+    .orderBy(desc(routineRuns.startedAt), desc(routineRuns.id))
+    .limit(limit);
+  return { runs: rows.map(routineView) };
+}
+
 // Hop-cap refusals stay in limpieza for a day. One row per task, the latest refusal.
 export async function delegationChores(db: Q, projectId: string, project: string, now = new Date()): Promise<InboxItem[]> {
   const since = new Date(now.getTime() - LIMPIEZA_MS).toISOString();
@@ -224,7 +339,7 @@ export function registerDelegationTools(
     write: { readOnlyHint: false; destructiveHint: false; openWorldHint: false };
   },
 ): void {
-  const { db, identity, writeCtx, actor, request_id, run, write } = host;
+  const { db, identity, writeCtx, actor, request_id, run, readOnly, write } = host;
   const project = z.string().min(1).describe("Project slug, e.g. micasa");
   const key = z.string().min(1).describe("Human key, e.g. MIC-01");
 
@@ -277,5 +392,51 @@ export function registerDelegationTools(
         const ctx = writeCtx("assign", body, identity);
         return assign(db, { project: body.project, key: body.key, to_agent: body.to_agent, note: body.note }, ctx);
       }),
+  );
+
+  server.registerTool(
+    "record_routine_run",
+    {
+      description: [
+        "Record one run of a roster agent's routine.",
+        "status is ok, fail or skipped. started_at and ended_at are ISO-8601. summary is at most 2000 characters. task_key is optional.",
+        "Each call is one run. List them with list_routine_runs.",
+      ].join(" "),
+      inputSchema: {
+        actor,
+        request_id,
+        agent: z.string().min(1).describe("Roster slug whose routine ran"),
+        routine: z.string().min(1).describe("Routine name, e.g. morning-brief"),
+        started_at: z.string().min(1),
+        ended_at: z.string().nullable().optional(),
+        status: z.enum(ROUTINE_STATUSES),
+        summary: z.string().optional(),
+        task_key: z.string().nullable().optional().describe("Task key this run touched, if any"),
+      },
+      annotations: write,
+    },
+    (input) =>
+      run(() => {
+        const body = input as RecordRoutineInput & { actor: Ctx["actor"]; request_id?: string };
+        writeCtx("record_routine_run", body, identity);
+        return recordRoutineRun(db, body);
+      }),
+  );
+
+  server.registerTool(
+    "list_routine_runs",
+    {
+      description: [
+        "Routine runs, newest first.",
+        "Filter by agent (roster slug) and date (YYYY-MM-DD, UTC). Omit both for the latest runs across the company.",
+      ].join(" "),
+      inputSchema: {
+        agent: z.string().min(1).optional().describe("Roster slug"),
+        date: z.string().optional().describe("UTC day, YYYY-MM-DD"),
+        limit: z.number().int().min(1).max(500).optional(),
+      },
+      annotations: readOnly,
+    },
+    ({ agent, date, limit }) => run(() => listRoutineRuns(db, { agent, date, limit })),
   );
 }
