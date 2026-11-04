@@ -32,6 +32,7 @@ import { WEB_ACTOR, webCtx, writeTx } from "../mcp/tx.js";
 import { claim, createTask, setTask } from "../mcp/writes.js";
 import { getDigest, rememberCursor } from "../mcp/watch.js";
 import { subscribe, unsubscribe, vapidConfig } from "../push.js";
+import { teamRoutes } from "./team.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
 // the MCP Bearer never opens it and the cookie never opens /mcp.
@@ -638,6 +639,8 @@ api.get("/events", (c) =>
     );
   }),
 );
+
+api.route("/team", teamRoutes);
 
 // Mounted sub-apps do not use their own notFound, so claim unknown API paths explicitly.
 api.all("*", (c) => c.json({ error: "NOT_FOUND" }, 404));
