@@ -41,13 +41,10 @@ export const ERRORS = {
   VERSION_REQUIRED: [400, "set_task changes fields without the version you read"],
   // 403: only Jorge may do this.
   ACTOR_MISMATCH: [403, "actor.agent or actor.machine disagrees with the agent token's (detail: expected)"],
-  APPROVAL_MISMATCH: [403, "the approval_id is for another task, action or target (detail: expected)"],
-  APPROVAL_REQUIRED: [403, "that step was removed. A waiver needs only a reason, and a lease does not wait (detail: action, target)"],
   HUMAN_ONLY: [403, "Won't do or reopening a closed task: Jorge's call, on screen with a reason, or by an agent with a reason and delegated_by_jorge {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it"],
   DELEGATION_OFF: [403, "delegated answers and delegated moves are off: the kill switch on the screen is off"],
   NOT_DELEGABLE: [403, "answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored"],
   // 404: something named does not exist.
-  APPROVAL_NOT_FOUND: [404, "no approval with that id in this project"],
   CHECK_NOT_FOUND: [404, "no check with that n on this task"],
   UNKNOWN_BRANCH: [404, "get_context: no initiative or ticket is on that branch (detail: known)"],
   DECISION_NOT_FOUND: [404, "supersedes names no decision of this project"],
@@ -62,8 +59,6 @@ export const ERRORS = {
   AGENT_NOT_FOUND: [404, "unknown roster slug (owner_agent or reports_to)"],
   // 409: the state changed or is held by someone else; re-read, then decide.
   ALREADY_SUPERSEDED: [409, "the decision named in supersedes was already reversed (detail: superseded_by)"],
-  APPROVAL_NOT_GRANTED: [409, "the approval is pending, rejected or expired (detail: state)"],
-  APPROVAL_USED: [409, "the approval already unlocked one move (detail: used_at)"],
   BLOCKER_NOT_WITHDRAWABLE: [409, "set_task withdraw_blocker: not a pending blocker parsed from a note on this task, or another session's note (detail: reason)"],
   BRANCH_IN_USE: [409, "the branch belongs to another live initiative (detail: owner_key); pass share_branch: true with a reason to share it"],
   CHECKS_OPEN: [409, "In review, Merged, Released or Done while a check is neither done nor waived (detail: open, the check numbers)"],

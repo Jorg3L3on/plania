@@ -129,10 +129,10 @@ describe("GATE_ANSWERED_BY_AGENT", () => {
   // are history and raise no finding.
   test("is no longer emitted for any old gate answer", async () => {
     await raw.query(
-      `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by, answer, answered_by, answered_at) values
-       ($1, $2, 'Puerta A', '{pursue,drop,later}', 'A', false, $3::jsonb, 'pursue', $3::jsonb, '2026-01-02T00:00:00Z'),
-       ($1, $2, 'Puerta B', '{proceed,rework,drop}', 'B', true, $3::jsonb, 'proceed', $4::jsonb, '2026-01-03T00:00:00Z'),
-       ($1, $2, 'Sin actor', '{pursue,drop,later}', 'A', false, $3::jsonb, 'pursue', null, '2026-01-05T00:00:00Z')`,
+      `insert into questions (project_id, task_id, question, options, human_only, asked_by, answer, answered_by, answered_at) values
+       ($1, $2, 'Puerta A', '{pursue,drop,later}', false, $3::jsonb, 'pursue', $3::jsonb, '2026-01-02T00:00:00Z'),
+       ($1, $2, 'Puerta B', '{proceed,rework,drop}', true, $3::jsonb, 'proceed', $4::jsonb, '2026-01-03T00:00:00Z'),
+       ($1, $2, 'Sin actor', '{pursue,drop,later}', false, $3::jsonb, 'pursue', null, '2026-01-05T00:00:00Z')`,
       [projectId, ideaId, AGENT, SCREEN],
     );
     const p = await findProject(db, "filmia");
@@ -151,8 +151,8 @@ describe("STAGE_DOC_STALE", () => {
       [projectId, stageIdeaId, AGENT],
     );
     await raw.query(
-      `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by, answer, answered_by, answered_at) values
-       ($1, $2, 'A', '{pursue,drop,later}', 'A', true, $3::jsonb, 'pursue', $4::jsonb, '2026-02-01T00:00:00Z')`,
+      `insert into questions (project_id, task_id, question, options, human_only, asked_by, answer, answered_by, answered_at) values
+       ($1, $2, 'A', '{pursue,drop,later}', true, $3::jsonb, 'pursue', $4::jsonb, '2026-02-01T00:00:00Z')`,
       [projectId, stageIdeaId, AGENT, SCREEN],
     );
     assert.deepEqual(await codes("STAGE_DOC_STALE"), []);

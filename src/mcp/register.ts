@@ -855,7 +855,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Record one answer the owner gave actor agent plania-bot in his own chat. Any other agent is HUMAN_ONLY, including a spoofed screen session.",
-        "One human_only question that has named options: pass question_id and option, one of the stored options. The question closes as his. A row that still carries the pre-2.17 letter is NOT_DELEGABLE.",
+        "One human_only question that has named options: pass question_id and option, one of the stored options. The question closes as his.",
         "An approval_id is ignored and the reply says so. Won't do and reopening go through set_task, with reason and delegated_by_jorge.",
         "delegated_by_jorge is required: message_id (8 to 200 characters) and quote (8 to 280 characters) of his instruction. Empty or short evidence is DELEGATION_EVIDENCE.",
         "The server cannot prove this caller is the Plania bot or that the message exists: every bot shares the write token and the actor is declared on the request. The controls are the quote, the DELEGATED_ANSWER audit finding, the Delegada badge, 10 answers an hour, one per question, and the screen kill switch (default on). DELEGATION_OFF when that switch is off. DELEGATION_LIMIT when the hour or the question is already used.",

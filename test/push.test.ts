@@ -20,7 +20,6 @@ const { makeDb } = await import("../src/db/client.js");
 const { hashPassword } = await import("../src/auth/password.js");
 const writes = await import("../src/mcp/writes.js");
 const { ask } = await import("../src/mcp/questions.js");
-const { requestApproval } = await import("../src/mcp/approvals.js");
 const { runPush, messageFor } = await import("../src/jobs/push.js");
 const { generateVapidKeys, webPushSender } = await import("../src/push.js");
 const { JOBS } = await import("../src/jobs/index.js");
@@ -191,9 +190,8 @@ describe("the push job", () => {
     assert.equal((await withDb((db) => runPush(db, new Date(), fake.send))).new, 0, "nothing new, nothing sent");
     assert.equal(fake.sent.length, 0);
 
-    // A leftover approval row is not inbox news. A human_action and a Jorge: line are two steps.
+    // A human_action and a Jorge: line are two steps.
     await withDb(async (db) => {
-      await requestApproval(db, { project: "zigzag", key: "ZIG-01", action: "wont_do", reason: "dup" }, ctx);
       await writes.createTask(db, { project: "zigzag", title: "Con paso", ...T, blocked_by: [{ human_action: { text: "Crear la cuenta de Stripe" } }] }, ctx);
       await writes.setTask(db, { project: "zigzag", key: "ZIG-01", note: "Jorge: rotar la llave de Vercel" }, ctx);
     });

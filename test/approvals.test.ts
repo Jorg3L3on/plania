@@ -11,10 +11,7 @@ const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
-const { decideApproval, loadApproval, requestApproval, useApproval } = await import("../src/mcp/approvals.js");
 const { waiveCheck } = await import("../src/mcp/checks.js");
-const { findProject, requireTask } = await import("../src/mcp/queries.js");
-const { webCtx, writeTx } = await import("../src/mcp/tx.js");
 
 type Json = Record<string, any>;
 const A = { agent: "test-agent", session_id: "s1", machine: "ci" };
@@ -143,36 +140,16 @@ describe("the inbox on screen", () => {
     assert.equal(all.items.some((i: Json) => i.kind === "approval"), false);
     assert.equal(all.items.filter((i: Json) => i.kind === "question").length, 1);
     assert.equal(all.delegated.some((d: Json) => d.kind === "move" && d.message_id === "msg-owner-9101"), true);
-    assert.equal((await req("POST", "/api/approvals/decide", { ids: [], decision: "grant" })).status, 400);
+    assert.equal((await req("POST", "/api/approvals/decide", { ids: ["x"], decision: "grant" })).status, 404);
   });
 
-  test("an old row can still be decided, and the old error codes still fire", async () => {
-    const ctx = { actor: A };
+  test("a blank waiver reason is INVALID_APPROVAL", async () => {
     const { db, close } = makeDb();
-    const codeOf = async (run: () => Promise<unknown>) => {
-      try {
-        await run();
-        return "";
-      } catch (e) {
-        return (e as { code?: string }).code ?? "";
-      }
-    };
     try {
-      assert.equal(await codeOf(() => requestApproval(db, { project: "filmia", key: "FIL-I1-2", action: "done", reason: "x" }, ctx)), "INVALID_APPROVAL");
-      assert.equal(await codeOf(() => waiveCheck(db, { project: "filmia", key: "FIL-I1-2", n: 1, reason: "   " }, ctx)), "INVALID_APPROVAL");
-      const asked = await requestApproval(db, { project: "filmia", key: "FIL-I1-2", action: "lease_resource", reason: "fila vieja", target: { name: "neon" } }, ctx);
-      assert.equal(await codeOf(() => decideApproval(db, { approval_id: "00000000-0000-0000-0000-000000000000", decision: "grant" }, webCtx)), "APPROVAL_NOT_FOUND");
-      const p = await findProject(db, "filmia");
-      const task = await requireTask(db, p.id, "FIL-I1-2");
-      const pending = await loadApproval(db, p.id, asked.approval.id);
-      assert.equal(await codeOf(() => writeTx(db, p, webCtx, (tx, emit) => useApproval(tx, emit, pending, task, "wont_do", {}, webCtx))), "APPROVAL_MISMATCH");
-      assert.equal(await codeOf(() => writeTx(db, p, webCtx, (tx, emit) => useApproval(tx, emit, pending, task, "lease_resource", { name: "neon" }, webCtx))), "APPROVAL_NOT_GRANTED");
-      await decideApproval(db, { approval_id: asked.approval.id, decision: "grant" }, webCtx);
-      assert.equal(await codeOf(() => decideApproval(db, { approval_id: asked.approval.id, decision: "reject" }, webCtx)), "APPROVAL_NOT_GRANTED");
-      const granted = await loadApproval(db, p.id, asked.approval.id);
-      await writeTx(db, p, webCtx, (tx, emit) => useApproval(tx, emit, granted, task, "lease_resource", { name: "neon" }, webCtx));
-      const spent = await loadApproval(db, p.id, asked.approval.id);
-      assert.equal(await codeOf(() => writeTx(db, p, webCtx, (tx, emit) => useApproval(tx, emit, spent, task, "lease_resource", { name: "neon" }, webCtx))), "APPROVAL_USED");
+      await waiveCheck(db, { project: "filmia", key: "FIL-I1-2", n: 1, reason: "   " }, { actor: A });
+      assert.fail("expected INVALID_APPROVAL");
+    } catch (e) {
+      assert.equal((e as { code?: string }).code, "INVALID_APPROVAL");
     } finally {
       await close();
     }

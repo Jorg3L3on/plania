@@ -133,9 +133,13 @@ Until `0030` runs, an open old row stays out of the inbox and can only be closed
 
 ### Upgrading to 2.18 (direct moves)
 
-No migration and no schema change. `pnpm build`, then restart the service. The protocol moves to 2.18.
+Migration `0032_drop_gates_approvals` copies old approval rows and lettered questions into events, then drops the approval table, the letter column and its check. Take a dump first. The protocol moves to 2.18.
 
-`request_approval` is gone. Won't do and reopening a closed task are a direct `set_task`: a `reason`, and an agent also sends `delegated_by_jorge` `{message_id, quote}` (the same evidence as `answer_delegated`). The screen session needs only the reason. The move is logged (`task.delegated_move`) and, when an agent sent a quote, listed in the inbox delegated list. `waive_check` takes the reason alone, at every status. `lease_resource` ignores `needs_approval`. An `approval_id` on those calls is accepted and ignored, and the reply includes a hint, for one release. Old approval rows stay as history. A Won't do with no screen actor, no delegated evidence and no historical granted row is the audit finding `WONT_DO_WITHOUT_EVIDENCE`.
+`request_approval` is gone. Won't do and reopening a closed task are a direct `set_task`: a `reason`, and an agent also sends `delegated_by_jorge` `{message_id, quote}` (the same evidence as `answer_delegated`). The screen session needs only the reason. The move is logged (`task.delegated_move`) and, when an agent sent a quote, listed in the inbox delegated list. `waive_check` takes the reason alone, at every status. `lease_resource` ignores `needs_approval`. An `approval_id` on those calls is accepted and ignored, and the reply includes a hint, for one release. A Won't do with no screen actor, no delegated evidence and no archived granted row is the audit finding `WONT_DO_WITHOUT_EVIDENCE`.
+
+1. Take a dump first: `pg_dump --no-owner "$DATABASE_URL" | gzip > ~/plania-backups/plania-pre-0032-$(date +%Y%m%d).sql.gz`.
+2. Apply `drizzle/migrations/0032_drop_gates_approvals.sql` (`psql "$DATABASE_URL" -f …`). It copies those rows into `approval.archived` and `question.archived`, then drops them. A second run copies nothing and drops nothing.
+3. `pnpm build`, then restart `com.plania.server`.
 
 ### GitHub token file
 
@@ -151,11 +155,11 @@ Lanzar (`settings.release.mode` `merge`) uses the same helper (60 seconds) and s
 
 `ask` with `human_only: true` makes a question only the owner's screen can answer. `answer` from an agent returns `HUMAN_ONLY`, including from actor agent `plania-bot`. The screen session cookie is the only proof on that path. `POST /api/projects/:slug/questions/:id/answer` stores `answered_by` as the screen actor. It refuses a request that carries `Authorization: Bearer`, and it refuses an actor sent in the body or in a header. The MCP bearer never opens `/api`. On the screen every open question has its option buttons and a free answer. The Bandeja also has the kill switch «El bot puede responder por ti» (default on) and every delegated answer with the «Delegada» badge, the quote and the time.
 
-Questions asked before 2.17 may carry a letter (A, B or C) on an old column. That is history: it is shown as a plain answered question and changes nothing (see Upgrading to 2.17).
+Questions asked before 2.17 that carried a letter (A, B or C) are history in `question.archived` events (see Upgrading to 2.18). They are not stored on the question and they change nothing.
 
 ### Delegated answers
 
-When the owner is away from the Mac he can tell the Plania bot (actor agent exactly `plania-bot`) in his own chat what to answer. That bot calls MCP `answer_delegated` on the existing write token. The call answers one human_only question that has named options with one of those options. A row that still carries the pre-2.17 letter is `NOT_DELEGABLE`. An `approval_id` on that call is ignored. Required: `delegated_by_jorge.message_id` (8 to 200 characters) and `delegated_by_jorge.quote` (8 to 280 characters). Empty or short evidence is `DELEGATION_EVIDENCE`. Any other agent, including `jorge` (`RESERVED_ACTOR`) and a caller that spoofs the screen session, is refused. The normal `answer` tool stays `HUMAN_ONLY`.
+When the owner is away from the Mac he can tell the Plania bot (actor agent exactly `plania-bot`) in his own chat what to answer. That bot calls MCP `answer_delegated` on the existing write token. The call answers one human_only question that has named options with one of those options. An `approval_id` on that call is ignored. Required: `delegated_by_jorge.message_id` (8 to 200 characters) and `delegated_by_jorge.quote` (8 to 280 characters). Empty or short evidence is `DELEGATION_EVIDENCE`. Any other agent, including `jorge` (`RESERVED_ACTOR`) and a caller that spoofs the screen session, is refused. The normal `answer` tool stays `HUMAN_ONLY`.
 
 Won't do and reopening are not this tool. Any agent calls `set_task` with `reason` and the same `delegated_by_jorge` evidence. The screen does it with the reason alone. Both are logged. Agent moves join this delegated list.
 
@@ -346,7 +350,7 @@ Rules every write follows:
 - **Environments.** `deployed` takes the provider's record; `flags` hold configuration state and refuse anything
   that looks like a secret (`SECRET_LIKE_VALUE`); `migrations` is the list of tags applied.
 - **Resources.** `lease_resource` holds a name (a port gets `@machine`); `RESOURCE_HELD` names the holder. Policies in
-  `settings.resources` may require an approval; `settings.quotas` give `consume` a daily budget (`QUOTA_EXCEEDED`).
+  `settings.quotas` give `consume` a daily budget (`QUOTA_EXCEEDED`).
 - **Handoffs.** `handoff {to, note, head_sha}` ends your lease and holds the ticket for the receiver for ten minutes
   (`HANDOFF_HELD` for anyone else); the receiver's `claim` reply carries the note, and `get_task.workspace_history`
   lists every workspace the ticket has used.
@@ -377,7 +381,7 @@ Rules every write follows:
   `delegated_by_jorge` `{message_id, quote}`. Without that evidence the move is `HUMAN_ONLY`. Each move is logged
   (`task.delegated_move`) and an agent's quote is listed under delegated in the inbox. `waive_check` is the reason
   alone. `lease_resource` does not wait. `approval_id` is ignored for one release. Old rows stay as history.
-  `WONT_DO_WITHOUT_EVIDENCE` flags a Won't do that has neither a screen actor, nor a quote, nor a historical granted row.
+  `WONT_DO_WITHOUT_EVIDENCE` flags a Won't do that has neither a screen actor, nor a quote, nor an archived granted row.
 - **Start and finish.** `start` is `claim` plus `get_context` in one call (with any handoff note); `finish` is
   `add_result` plus In review with branch and pr_url in one transaction, so a failure writes neither.
 - **PRs.** Done, Merged or Released on a code ticket without `pr_url` is `TASK_MISSING_PR_URL` unless the write passes
@@ -455,13 +459,10 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `TOO_LARGE` | 400 | a text field exceeds its limit (detail: field, max) |
 | `VERSION_REQUIRED` | 400 | set_task changes fields without the version you read |
 | `ACTOR_MISMATCH` | 403 | actor.agent or actor.machine disagrees with the agent token's (detail: expected) |
-| `APPROVAL_MISMATCH` | 403 | the approval_id is for another task, action or target (detail: expected) |
-| `APPROVAL_REQUIRED` | 403 | that step was removed. A waiver needs only a reason, and a lease does not wait (detail: action, target) |
 | `DELEGATION_OFF` | 403 | delegated answers and delegated moves are off: the kill switch on the screen is off |
 | `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: Jorge's call, on screen with a reason, or by an agent with a reason and delegated_by_jorge {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it |
 | `NOT_DELEGABLE` | 403 | answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored |
 | `AGENT_NOT_FOUND` | 404 | unknown roster slug (owner_agent or reports_to) |
-| `APPROVAL_NOT_FOUND` | 404 | no approval with that id in this project |
 | `CHECK_NOT_FOUND` | 404 | no check with that n on this task |
 | `DECISION_NOT_FOUND` | 404 | supersedes names no decision of this project |
 | `DOC_NOT_FOUND` | 404 | no doc with that id in the project, or replacing (version given) a title that does not exist |
@@ -475,8 +476,6 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `UNKNOWN_BRANCH` | 404 | get_context: no initiative or ticket is on that branch (detail: known) |
 | `ALREADY_ANSWERED` | 409 | the question was answered already (detail: answer, answered_by) |
 | `ALREADY_SUPERSEDED` | 409 | the decision named in supersedes was already reversed (detail: superseded_by) |
-| `APPROVAL_NOT_GRANTED` | 409 | the approval is pending, rejected or expired (detail: state) |
-| `APPROVAL_USED` | 409 | the approval already unlocked one move (detail: used_at) |
 | `BATCH_FAILED` | 409 | an atomic batch rolled back because one op failed (detail: index, op, failed: {error, status, ...}) |
 | `BLOCKER_NOT_WITHDRAWABLE` | 409 | set_task withdraw_blocker: not a pending blocker parsed from a note on this task, or another session's note (detail: reason) |
 | `BRANCH_IN_USE` | 409 | the branch belongs to another live initiative (detail: owner_key); pass share_branch: true with a reason to share it |
@@ -578,8 +577,8 @@ system themes. Times arrive as UTC and show in the browser's local time.
 - `/` shows one track per project: progress, then an Ahora → Siguiente row per lane, and how many questions wait
   for Jorge. Past four initiatives, lanes still for a week fold behind "Ver todas". Projects without initiatives
   show their generated line. A "Te toca a ti" strip lists Needs Jorge tickets across projects.
-- `/inbox` lists everything waiting on Jorge: approvals (grant or reject several at once, one event each) and open
-  questions. The header shows the count. `/tokens` issues and revokes agent tokens.
+- `/inbox` lists everything waiting on Jorge: open questions, human actions, a release and footprint.
+  The header shows the count. `/tokens` issues and revokes agent tokens.
 - `/p/<slug>` shows the generated headline first, with the note under it (editable, "desactualizada" when the server marked it stale), then, in order: questions agents asked (answer with one click or free text, with an optional line for
   the decision log); the lane grid; each initiative's line of stations; a branch graph built from initiatives' `branch`
   and `base_branch`; the pinned decisions; and Orden, the audit collapsed with its count, grouped "Lo tuyo" (one-click
@@ -622,7 +621,7 @@ and the home indicator (`viewport-fit=cover` and `env(safe-area-inset-*)`, with 
   inside it. Steps in [docs/phone-access.md](docs/phone-access.md).
 - **Push** (2.12): "Avisarme cuando me toque" in the "⋯" menu subscribes the device (`ui/src/lib/push.ts`); `ui/sw.js`
   shows the message and a tap opens the Bandeja on its tab. The `push` job (`src/jobs/push.ts`) looks at the inbox
-  once a minute and sends one message per device for whatever is new in Decisiones or Pasos (approvals, questions,
+  once a minute and sends one message per device for whatever is new in Decisiones or Pasos (questions,
   human actions typed or parsed, a release ready). A 404/410 from the push service deletes the subscription.
 
 How live updates flow: every write runs in `writeTx` (`src/mcp/tx.ts`), which after commit publishes one change per
@@ -643,7 +642,7 @@ the UI refetches what changed.
 | `PATCH /api/projects/:slug/tasks/:key` | `{ status?, priority?, note?, version }`, as Jorge through `set_task` |
 | `POST /api/projects/:slug/tasks/:key/checks/:n/waive` | `{ reason }` |
 | `GET /api/machine` | What runs and is stored on this Mac for agent work: `{ machine, totals, items }`, every unreleased footprint with its project, initiative, ticket, session and any port lease; read-only |
-| `GET /api/inbox?project=` | Everything waiting on Jorge; `POST /api/approvals/decide` `{ ids, decision, note? }` grants or rejects, one event each |
+| `GET /api/inbox?project=` | Everything waiting on Jorge: questions, human actions, a release, footprint |
 | `GET /api/tokens`, `POST /api/tokens`, `DELETE /api/tokens/:id` | Agent tokens (the secret is in the create response only) |
 | `POST /api/projects/:slug/tasks/:key/release` | Free a lease |
 | `POST /api/projects/:slug/release/ship` | 2.13 Lanzar (merge mode): PR `from → into`, `gh pr merge --merge`, `release.merged`. Any `Authorization: Bearer` is refused with 403 |

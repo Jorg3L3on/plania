@@ -62,8 +62,6 @@ export const api = {
   shipRelease: (slug: string) => request<ShipResult>("POST", `/projects/${encodeURIComponent(slug)}/release/ship`),
   resolveBlocker: (slug: string, id: string, note?: string) =>
     request<{ key: string }>("POST", `/projects/${encodeURIComponent(slug)}/blockers/${encodeURIComponent(id)}/resolve`, note ? { note } : undefined),
-  decide: (ids: string[], decision: "grant" | "reject", note?: string) =>
-    request<{ results: { id: string; ok: boolean; error?: string }[]; decided: number }>("POST", "/approvals/decide", { ids, decision, note }),
   // Screen only. The bot cannot read or flip this.
   delegation: () => request<{ enabled: boolean }>("GET", "/delegation"),
   setDelegation: (enabled: boolean) => request<{ enabled: boolean }>("POST", "/delegation", { enabled }),

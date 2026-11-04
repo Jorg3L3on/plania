@@ -117,8 +117,8 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
     .select({ q: questions, t: tasks })
     .from(questions)
     .innerJoin(tasks, eq(tasks.id, questions.taskId))
-    // Rows that still carry the pre-2.17 letter are history, not decisions: migration 0030 closes them.
-    .where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt), isNull(questions.legacyMark)))
+    // Open questions are unanswered. Migration 0030 already closed the pre-2.17 letter rows.
+    .where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt)))
     .orderBy(asc(questions.askedAt));
   for (const { q, t } of open) {
     items.push({

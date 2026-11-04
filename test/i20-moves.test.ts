@@ -109,8 +109,10 @@ test("a raw Won't do is flagged, and a granted historical row is not", async () 
     [old.key],
   );
   await raw.query(
-    `insert into approvals (project_id, task_id, task_key, action, target, reason, requested_by, state, decided_at, decided_by)
-     values ($1, $2, $3, 'wont_do', '{}', 'ya se decidió', '{"agent":"jorge","session_id":"web","machine":"screen"}', 'granted', now(), '{"agent":"jorge","session_id":"web","machine":"screen"}')`,
+    `insert into events (project_id, task_id, task_key, type, actor, payload)
+     values ($1, $2, $3, 'approval.archived',
+       '{"agent":"jorge","session_id":"web","machine":"screen"}',
+       jsonb_build_object('approval_id', gen_random_uuid()::text, 'action', 'wont_do', 'state', 'granted', 'reason', 'ya se decidió'))`,
     [rows[0].project_id, rows[0].id, old.key],
   );
   const audit = await call("audit", P);

@@ -13,7 +13,6 @@ import { projects, tasks, type Actor } from "../db/schema.js";
 import { bus } from "../events.js";
 import { backupFindings, backupStatus } from "../jobs/backup.js";
 import { machineInventory, machineTotals, thisMachine } from "../jobs/machine/index.js";
-import { decideApproval } from "../mcp/approvals.js";
 import { delegationEnabled, markDelegatedReviewed, setDelegationEnabled } from "../mcp/delegate.js";
 import { resolveHumanAction, SETTLED_STATUSES } from "../mcp/blockers.js";
 import { waiveCheck } from "../mcp/checks.js";
@@ -495,7 +494,7 @@ api.post("/projects/:slug/questions/:id/answer", async (c) => {
   }
 });
 
-// ---- Inbox and approvals
+// ---- Inbox
 
 // Everything waiting on Jorge, for one project or all of them.
 api.get("/inbox", async (c) => {
@@ -506,26 +505,6 @@ api.get("/inbox", async (c) => {
   } catch (e) {
     return errorResponse(c, e);
   }
-});
-
-// Grant or reject approvals, several at once: each is its own write and its own event.
-api.post("/approvals/decide", async (c) => {
-  const body = await readJson(c, z.object({ ids: z.array(z.string().min(1)).min(1).max(100), decision: z.enum(["grant", "reject"]), note: z.string().optional() }));
-  if (body instanceof Response) return body;
-  const results = await withDb(async (db) =>
-    Promise.all(
-      body.ids.map(async (id) => {
-        try {
-          const { approval } = await decideApproval(db, { approval_id: id, decision: body.decision, note: body.note }, webCtx);
-          return { id, ok: true, state: approval.state };
-        } catch (e) {
-          if (e instanceof ToolError) return { id, ok: false, error: e.code, ...e.detail };
-          throw e;
-        }
-      }),
-    ),
-  );
-  return c.json({ results, decided: results.filter((r) => r.ok).length });
 });
 
 // ---- Hoy (2.12)
