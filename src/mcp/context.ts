@@ -1,5 +1,5 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
-import { approvals, branches, questions, tasks, type Project, type Task, type Workspace } from "../db/schema.js";
+import { branches, questions, tasks, type Project, type Task, type Workspace } from "../db/schema.js";
 import { listDecisions } from "./decisions.js";
 import { auditForKeys } from "./orden.js";
 import { ToolError } from "./errors.js";
@@ -11,7 +11,7 @@ import { iso, type Q } from "./tx.js";
 
 // get_context (R-03): one call for a session opening a worktree. From the branch (and machine /
 // worktree) it finds the initiative or tickets on it, the caller's live claims, the pinned decisions
-// that apply, unanswered questions and pending approvals on those tickets, and the events since the
+// that apply, unanswered questions on those tickets, and the events since the
 // cursor that touch them, plus the footprint on the Mac (src/mcp/footprint.ts) of those tickets and of the calling session. UNKNOWN_BRANCH when nothing is on that branch.
 
 export async function getContext(
@@ -50,9 +50,6 @@ export async function getContext(
         .innerJoin(tasks, eq(tasks.id, questions.taskId))
         .where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt), sql`${questions.taskId} in ${[...ticketIds]}`))
     : [];
-  const pending = family.size
-    ? await db.select().from(approvals).where(and(eq(approvals.projectId, p.id), sql`${approvals.taskId} in ${[...family]}`, sql`${approvals.state} in ('pending', 'granted')`, isNull(approvals.usedAt)))
-    : [];
   const events = input.since_cursor !== undefined ? await listEvents(db, p.id, { since: input.since_cursor, limit: 500 }) : null;
   // What is running on the Mac for these tickets (each row says which), and what this session registered.
   const footprint = await footprintsOf(db, [...family]);
@@ -82,7 +79,8 @@ export async function getContext(
     open_questions: open.map(({ q, key }) => ({ id: q.id, key, question: q.question, options: q.options, asked_at: iso(q.askedAt) })),
     footprint: footprint.map(({ taskId, ...f }) => ({ task_key: keyById.get(taskId!) ?? null, ...f })),
     my_footprint: input.session_id ? await sessionFootprint(db, p.id, input.session_id, input.workspace.machine) : [],
-    approvals: pending.map((a) => ({ id: a.id, key: a.taskKey, action: a.action, target: a.target, state: a.state, expires_at: iso(a.expiresAt) })),
+    // Kept as an empty list for one release. Old rows are history and no longer a step.
+    approvals: [],
     // 2.11: the audit's last count, and the findings on these tickets (fix them while you are here).
     audit: await auditForKeys(db, p, keys),
     events: events ? { items: events.events.filter((e) => e.task_key && keys.has(e.task_key)), next_cursor: events.next_cursor, more: events.more } : null,

@@ -10,8 +10,6 @@ import { resetTestDb, useTestEnv } from "./helpers.js";
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
-const { requestApproval, decideApproval } = await import("../src/mcp/approvals.js");
-const { webCtx } = await import("../src/mcp/tx.js");
 const { auditAll } = await import("../src/jobs/audit.js");
 const { recordRelease } = await import("../src/mcp/releases.js");
 const { findProject } = await import("../src/mcp/queries.js");
@@ -39,16 +37,6 @@ async function call(name: string, args: Json): Promise<Json> {
   return r.isError ? { __error: data.error, __status: data.status, ...data } : data;
 }
 const version = async (key: string) => (await call("get_task", { ...P, key, view: "summary" })).version;
-async function approve(key: string, action: string): Promise<string> {
-  const { db, close } = makeDb();
-  try {
-    const { approval } = await requestApproval(db, { project: "filmia", key, action, reason: "test" }, { actor: A });
-    await decideApproval(db, { approval_id: approval.id, decision: "grant" }, webCtx);
-    return approval.id;
-  } finally {
-    await close();
-  }
-}
 
 before(async () => {
   raw = await resetTestDb();

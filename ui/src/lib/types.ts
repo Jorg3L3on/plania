@@ -212,7 +212,7 @@ export type Orden = { project: string; at: string | null; count: number; finding
 export type InboxGroup = "decisiones" | "pasos" | "limpieza";
 export type InboxItem = {
   id: string;
-  kind: "approval" | "question" | "human_action" | "release" | "footprint" | "lease";
+  kind: "question" | "human_action" | "release" | "footprint" | "lease";
   group: InboxGroup;
   project: string;
   key: string | null;
@@ -238,7 +238,7 @@ export type DelegatedReview = {
   id: string;
   project: string;
   key: string | null;
-  kind: "question" | "approval";
+  kind: "question" | "approval" | "move";
   action: string | null;
   answer: string | null;
   quote: string;

@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
-import { approvals, blockers, branches, envStates, pullRequests, questions, tasks, type Project, type Task } from "../db/schema.js";
+import { blockers, branches, envStates, pullRequests, questions, tasks, type Project, type Task } from "../db/schema.js";
 import { lastAudit } from "./audit.js";
 import { envShape } from "./env.js";
 import { nextTask } from "./queries.js";
@@ -20,10 +20,6 @@ export async function statusBlock(db: Q, p: Project) {
   const heads = await db.select().from(branches).where(and(eq(branches.projectId, p.id), isNull(branches.deletedAt)));
   const prs = await db.select().from(pullRequests).where(eq(pullRequests.projectId, p.id));
   const prOf = (t: Task) => prs.filter((pr) => pr.taskId === t.id).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
-  const pending = await db
-    .select({ taskId: approvals.taskId, action: approvals.action })
-    .from(approvals)
-    .where(and(eq(approvals.projectId, p.id), eq(approvals.state, "pending")));
   const openQ = await db
     .select({ taskId: questions.taskId })
     .from(questions)
@@ -38,7 +34,6 @@ export async function statusBlock(db: Q, p: Project) {
   const waitingOn = (t: Task): string[] => {
     const why: string[] = [];
     if (t.status === "Needs Jorge" || openQ.some((q) => q.taskId === t.id)) why.push("question");
-    for (const a of pending.filter((a) => a.taskId === t.id)) why.push(`approval:${a.action}`);
     if (humanActions.some((h) => h.taskId === t.id)) why.push("human_action");
     return why;
   };
@@ -89,7 +84,7 @@ export async function statusBlock(db: Q, p: Project) {
     envs: envBlock,
     initiatives,
     open_questions: openQ.length,
-    pending_approvals: pending.length,
+    pending_approvals: 0,
     human_actions: humanActions.length,
     released_waiting_done: released.map((t) => t.key),
     standalone_waiting_on_jorge: standaloneWaiting,

@@ -181,7 +181,7 @@ describe("areas", () => {
 });
 
 describe("resources and quotas", () => {
-  test("a port is per machine; a held resource is RESOURCE_HELD; quotas count per UTC day; policies may need approval", async () => {
+  test("a port is per machine; a held resource is RESOURCE_HELD; quotas count per UTC day; a needs_approval flag is ignored", async () => {
     const mine = await call("lease_resource", { ...P, name: "port:3001", purpose: "filmia dev" });
     assert.equal(mine.resource.name, "port:3001@MacBook-Air");
     const other = await call("lease_resource", { ...P, name: "port:3001", actor: B });
@@ -203,8 +203,10 @@ describe("resources and quotas", () => {
     assert.equal(res.quotas["quota:omdb"].used, 3);
     assert.equal(res.leases.length, 2);
 
-    const gated = await call("lease_resource", { ...P, name: "neon-prod:migrate", purpose: "apply 0011" });
-    assert.equal(gated.__error, "APPROVAL_REQUIRED");
+    const leased = await call("lease_resource", { ...P, name: "neon-prod:migrate", purpose: "apply 0011", approval_id: "old-id" });
+    assert.notEqual(leased.__error, "APPROVAL_REQUIRED");
+    assert.equal(leased.resource.name, "neon-prod:migrate@MacBook-Air");
+    assert.match(leased.hint, /ignored approval_id/);
   });
 });
 

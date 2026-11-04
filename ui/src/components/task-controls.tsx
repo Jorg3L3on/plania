@@ -29,6 +29,55 @@ import { cn } from "@/lib/utils";
 // What the controls need from a task: a list row and the side panel's full task both have it.
 type TaskRow = Pick<Row, "key" | "title" | "kind" | "status" | "priority" | "blocked_note" | "version">;
 
+function ReasonDialog({
+  task,
+  to,
+  open,
+  onOpenChange,
+  onConfirm,
+}: {
+  task: TaskRow;
+  to: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!reason.trim()) return;
+    onConfirm(reason.trim());
+    setReason("");
+  }
+  const title = to === "Won't do" ? `Descartar «${task.title}»` : `Reabrir «${task.title}»`;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <form onSubmit={submit} className="grid gap-4">
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>Di por qué. El motivo queda en el registro.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor={`reason-${task.key}`}>Motivo</Label>
+            <Textarea
+              id={`reason-${task.key}`}
+              autoFocus
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Por qué"
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
+            <Button type="submit" disabled={!reason.trim()}>Guardar</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function BlockedDialog({
   task,
   open,
@@ -78,6 +127,7 @@ function BlockedDialog({
 export function TaskControls({ slug, task }: { slug: string; task: TaskRow }) {
   const { setStatus, setPriority } = useTaskPatch(slug);
   const [blocking, setBlocking] = useState(false);
+  const [reasonFor, setReasonFor] = useState<string | null>(null);
   const statuses = task.kind === "initiative" ? INITIATIVE_STATUSES : task.kind === "idea" ? IDEA_STATUSES : TICKET_STATUSES;
   // Jorge marks Done after merging: tickets offer it once In review, initiatives while open, ideas from Open.
   const from = { status: task.status, note: task.blocked_note };
@@ -86,6 +136,7 @@ export function TaskControls({ slug, task }: { slug: string; task: TaskRow }) {
   function chooseStatus(next: string) {
     if (next === task.status) return;
     if (next === "Blocked") setBlocking(true);
+    else if (next === "Won't do" || CLOSED_STATUSES.has(task.status)) setReasonFor(next);
     else setStatus(task, from, next);
   }
 
@@ -136,6 +187,20 @@ export function TaskControls({ slug, task }: { slug: string; task: TaskRow }) {
           </DropdownMenuRadioGroup>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <ReasonDialog
+        task={task}
+        to={reasonFor ?? "Won't do"}
+        open={reasonFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setReasonFor(null);
+        }}
+        onConfirm={(reason) => {
+          const next = reasonFor;
+          setReasonFor(null);
+          if (next) setStatus(task, from, next, undefined, reason);
+        }}
+      />
 
       <BlockedDialog
         task={task}

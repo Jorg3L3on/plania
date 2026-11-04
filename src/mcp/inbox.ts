@@ -1,18 +1,17 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { checks, footprints, projects, questions, results, tasks, type Project } from "../db/schema.js";
 import { describeStale } from "../jobs/machine/infer.js";
-import { pendingApprovals } from "./approvals.js";
 import { delegatedForInbox, type DelegatedReviewItem } from "./delegate.js";
 import { openHumanActions } from "./blockers.js";
 import { releasePending, releasePlan, releaseUnknown } from "./release-plan.js";
 import { iso, type Q } from "./tx.js";
 
 // Jorge's inbox (R-28): everything waiting on him, in one list, oldest first within each kind:
-// pending approvals, open questions, human actions a ticket is blocked on, and what agents left
-// running on the Mac that nobody claims (orphan) or that is stale for a day. Released tickets
-// are not his: agents close them. Later: runbook steps and S1/S2 bugs.
-// 2.10: three tones. decisiones (approvals, questions) and pasos (human actions, releases) are
-// what count; limpieza (footprints) is a chore, counted apart in `chores`.
+// open questions, human actions a ticket is blocked on, and what agents left running on the Mac
+// that nobody claims (orphan) or that is stale for a day. Released tickets are not his: agents
+// close them. Logged Won't do and reopen moves sit in `delegated`, not in this list.
+// 2.10: three tones. decisiones (questions) and pasos (human actions, releases) are what count;
+// limpieza (footprints) is a chore, counted apart in `chores`.
 
 // How long something on the Mac has to sit orphan or stale before it asks for Jorge.
 export const FOOTPRINT_INBOX_AFTER_MS = 24 * 3600_000;
@@ -20,9 +19,8 @@ export const FOOTPRINT_INBOX_AFTER_MS = 24 * 3600_000;
 export const MACHINE_INBOX_PROJECT = "machine";
 
 export type InboxGroup = "decisiones" | "pasos" | "limpieza";
-export type InboxKind = "approval" | "question" | "human_action" | "release" | "footprint" | "lease";
+export type InboxKind = "question" | "human_action" | "release" | "footprint" | "lease";
 export const GROUP_OF: Record<InboxKind, InboxGroup> = {
-  approval: "decisiones",
   question: "decisiones",
   human_action: "pasos",
   release: "pasos",
@@ -115,27 +113,6 @@ async function footprintItems(db: Q, projectId: string | null, project: string, 
 
 export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
   const items: InboxItem[] = [];
-  for (const row of await pendingApprovals(db, p.id)) {
-    const [task] = row.a.taskId ? await db.select({ prUrl: tasks.prUrl }).from(tasks).where(eq(tasks.id, row.a.taskId)).limit(1) : [];
-    items.push({
-      id: row.a.id,
-      kind: "approval",
-      group: "decisiones",
-      project: p.slug,
-      key: row.a.taskKey,
-      task_kind: row.kind,
-      parent_key: await parentKeyOf(db, row.parentId),
-      title: row.title,
-      why: row.a.reason,
-      action: row.a.action,
-      target: row.a.target,
-      waiting_since: iso(row.a.requestedAt),
-      wait_s: waitSeconds(row.a.requestedAt),
-      evidence: await evidenceOf(db, row.a.taskId),
-      pr_url: task?.prUrl ?? null,
-      action_hint: `approve or reject: ${row.a.action}`,
-    });
-  }
   const open = await db
     .select({ q: questions, t: tasks })
     .from(questions)

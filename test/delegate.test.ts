@@ -283,32 +283,34 @@ describe("answer_delegated", () => {
     assert.deepEqual(ok.question.answered_by, WEB_ACTOR);
   });
 
-  test("wont_do and reopen can be delegated; another approval action cannot", async () => {
+  test("an approval_id on answer_delegated is ignored, and Won't do is a direct logged move", async () => {
+    const ignored = await call("answer_delegated", { approval_id: "00000000-0000-0000-0000-000000000000", decision: "grant", actor: BOT, ...evidence("msg-owner-0300", "esto ya no abre nada") });
+    assert.equal(ignored.ignored, true);
+    assert.match(ignored.hint, /ignored approval_id/);
     const ticket = await call("create_task", { title: "Cerrar", scope: "s", checks: ["c"] });
     const version = async () => (await call("get_task", { key: ticket.key })).version;
-    const wont = await call("request_approval", { key: ticket.key, action: "wont_do", reason: "ya no hace falta" });
-    const waive = await call("request_approval", { key: ticket.key, action: "waive_check", target: { n: 1 }, reason: "no aplica" });
-    const blocked = await call("answer_delegated", { approval_id: waive.approval.id, decision: "grant", actor: BOT, ...evidence("msg-owner-0300", "no eximas ese punto") });
-    assert.equal(blocked.__error, "NOT_DELEGABLE");
-    const still = await raw.query("select state from approvals where id = $1", [waive.approval.id]);
-    assert.equal(still.rows[0].state, "pending");
-
-    const granted = await call("answer_delegated", { approval_id: wont.approval.id, decision: "grant", actor: BOT, ...evidence("msg-owner-0301", "marcalo wont do ya") });
-    assert.equal(granted.__error, undefined, JSON.stringify(granted));
-    assert.equal(granted.approval.state, "granted");
-    assert.deepEqual(granted.approval.decided_by, WEB_ACTOR);
-    assert.equal(granted.delegated.quote, "marcalo wont do ya");
-    const closed = await call("set_task", { key: ticket.key, status: "Won't do", version: await version(), approval_id: wont.approval.id });
+    const refused = await call("set_task", { key: ticket.key, status: "Won't do", version: await version(), reason: "ya no hace falta" });
+    assert.equal(refused.__error, "HUMAN_ONLY");
+    const closed = await call("set_task", {
+      key: ticket.key,
+      status: "Won't do",
+      version: await version(),
+      reason: "ya no hace falta",
+      approval_id: "old-id",
+      ...evidence("msg-owner-0301", "marcalo wont do ya"),
+    });
     assert.equal(closed.status, "Won't do", JSON.stringify(closed));
-
-    const reopen = await call("request_approval", { key: ticket.key, action: "reopen", reason: "volvemos" });
-    const opened = await call("answer_delegated", { approval_id: reopen.approval.id, decision: "grant", actor: BOT, ...evidence("msg-owner-0302", "reabre ese ticket ahora") });
-    assert.equal(opened.__error, undefined, JSON.stringify(opened));
-    const back = await call("set_task", { key: ticket.key, status: "Ready", version: await version(), approval_id: reopen.approval.id });
+    assert.match(closed.hint, /ignored approval_id/);
+    const back = await call("set_task", {
+      key: ticket.key,
+      status: "Ready",
+      version: await version(),
+      reason: "volvemos",
+      ...evidence("msg-owner-0302", "reabre ese ticket ahora"),
+    });
     assert.equal(back.status, "Ready", JSON.stringify(back));
-    const ev = await raw.query("select actor, payload from events where type = 'approval.granted' and payload->>'approval_id' = $1", [reopen.approval.id]);
-    assert.deepEqual(ev.rows[0].actor, WEB_ACTOR);
-    assert.equal(ev.rows[0].payload.delegated.message_id, "msg-owner-0302");
+    const ev = await raw.query("select actor, payload from events where type = 'task.delegated_move' and payload->>'message_id' = $1", ["msg-owner-0302"]);
+    assert.equal(ev.rows[0].payload.quote, "reabre ese ticket ahora");
     assert.equal(JSON.stringify(ev.rows[0]).includes(TEST_BEARER), false);
   });
 

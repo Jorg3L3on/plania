@@ -60,13 +60,15 @@ test("an idea is Open or Done; Won't do stays Jorge's", () => {
   assert.deepEqual(allowed("idea", IDEA_STATUSES), ["Open → Done"]);
 });
 
-test("Jorge on screen may make any move; an approval only opens the one move it is for", () => {
-  assert.equal(allowed("ticket", TICKET_STATUSES, { human: true }).length, TICKET_STATUSES.length * (TICKET_STATUSES.length - 1));
-  const wontDo = allowed("ticket", TICKET_STATUSES, { approval: { action: "wont_do" } });
-  assert.ok(wontDo.includes("In review → Won't do"));
-  assert.ok(!wontDo.includes("In review → Done"), "Done never takes an approval: it is where the work stands");
-  assert.ok(!wontDo.includes("Done → Ready"));
-  const reopen = allowed("ticket", TICKET_STATUSES, { approval: { action: "reopen" } });
-  assert.ok(reopen.includes("Done → Ready"));
-  assert.ok(!reopen.includes("Backlog → In review"));
+test("Jorge on screen may make any move once Won't do and reopening carry a reason", () => {
+  const human = allowed("ticket", TICKET_STATUSES, { human: true, reason: "en pantalla" });
+  assert.equal(human.length, TICKET_STATUSES.length * (TICKET_STATUSES.length - 1));
+  const bare = allowed("ticket", TICKET_STATUSES, { human: true });
+  assert.ok(!bare.includes("In review → Won't do"));
+  assert.ok(!bare.includes("Done → Ready"));
+  const delegated = allowed("ticket", TICKET_STATUSES, { delegated: true, reason: "él lo pidió" });
+  assert.ok(delegated.includes("In review → Won't do"));
+  assert.ok(delegated.includes("Done → Ready"));
+  assert.ok(!delegated.includes("Backlog → In review"), "evidence does not open an ordinary move");
+  assert.ok(!delegated.includes("In review → Done"), "Done stays where the work stands");
 });

@@ -68,8 +68,8 @@ export const agentTokens = pgTable("agent_tokens", {
   revokedReason: text("revoked_reason"),
 });
 
-// v2.1: Jorge's approvals. An agent asks (request_approval); Jorge grants or rejects on screen; the
-// granted id unlocks one move (Done, Won't do, reopen, a waiver...) once, then it is used.
+// v2.1 history. Nothing writes a new row. Old rows stay until the drop migration. A granted
+// wont_do row still keeps the audit from flagging that ticket.
 export const approvals = pgTable(
   "approvals",
   {

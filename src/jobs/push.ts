@@ -5,8 +5,8 @@ import { inbox, type InboxItem } from "../mcp/inbox.js";
 import { sendToAll, vapidConfig, webPushSender, type PushPayload, type Sender } from "../push.js";
 import type { Job } from "./index.js";
 
-// 2.12 push: once a minute, what is new in Jorge's inbox (decisiones and pasos: approval.requested,
-// question.asked, a human_action created or parsed from a Jorge: line, a release that became ready)
+// 2.12 push: once a minute, what is new in Jorge's inbox (decisiones and pasos: a question,
+// a human_action created or parsed from a Jorge: line, a release that became ready)
 // goes to every subscribed phone as one notification, so a burst is one message. The inbox is the
 // source rather than the event feed because it already says what waits on him, whatever wrote it,
 // and drops what was answered in the same minute. What was seen lives in machine_state (key "push"):
@@ -32,7 +32,7 @@ export function messageFor(items: InboxItem[], names: Map<string, string>): Push
   const where = names.get(first.project) ?? first.project;
   const line = `${where}${first.key ? ` · ${first.key}` : ""}: ${first.why || first.title || ""}`.trim();
   if (items.length === 1) {
-    const title = first.kind === "question" ? "Te preguntan" : first.kind === "approval" ? "Te piden aprobar" : first.kind === "release" ? "Listo para lanzar" : "Te toca";
+    const title = first.kind === "question" ? "Te preguntan" : first.kind === "release" ? "Listo para lanzar" : "Te toca";
     return { title, body: line, url: `/inbox?tab=${tab}`, tag: "plania-te-toca" };
   }
   const parts = [decisiones.length ? count(decisiones.length, "decisión", "decisiones") : "", pasos.length ? count(pasos.length, "paso", "pasos") : ""].filter(Boolean);

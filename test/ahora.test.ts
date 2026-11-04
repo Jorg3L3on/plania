@@ -215,7 +215,7 @@ describe("enCursoOf", () => {
     ])[0]!;
     assert.equal(summaryAction(decision.state), "none");
     assert.equal(unblockOf(decision, [{ project: "delta", key: "DEL-1", kind: "question" }])?.label, "Ver la pregunta de DEL-1");
-    assert.equal(unblockOf(decision, [{ project: "delta", key: "DEL-1", kind: "approval" }])?.label, "Ver la aprobación de DEL-1");
+    assert.equal(unblockOf(decision, [{ project: "delta", key: "DEL-1", kind: "human_action" }])?.label, "Ver la decisión de DEL-1");
     assert.equal(unblockOf(decision)?.label, "Ver la decisión de DEL-1");
   });
 

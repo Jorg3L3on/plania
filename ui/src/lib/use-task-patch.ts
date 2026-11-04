@@ -4,7 +4,9 @@ import { api, ApiError } from "./api";
 import { useLive } from "./live";
 import type { ProjectDetail } from "./types";
 
-type Patch = { status?: string; priority?: string; note?: string };
+type Patch = { status?: string; priority?: string; note?: string; reason?: string };
+
+const TERMINAL = new Set(["Done", "Won't do"]);
 type Target = { key: string; title: string; version: number };
 
 const MESSAGES: Record<string, string> = {
@@ -15,6 +17,7 @@ const MESSAGES: Record<string, string> = {
   STALE_VERSION: "Cambió mientras la veías. Ya está al día: revisa y vuelve a intentarlo.",
   CHECKS_OPEN: "Quedan puntos del Done when sin cerrar: márcalos o exímelos en la ficha.",
   INITIATIVE_CHILDREN_OPEN: "La iniciativa tiene tickets abiertos; ciérralos primero.",
+  HUMAN_ONLY: "Won't do y reabrir piden un motivo.",
 };
 
 const describe = (e: unknown) =>
@@ -93,9 +96,14 @@ export function useTaskPatch(slug: string) {
   });
 
   // Status changes get an undo that puts the previous status back (with its note, if it was Blocked).
-  function setStatus(target: Target, from: { status: string; note: string | null }, to: string, note?: string) {
-    const undo: Patch = { status: from.status, ...(from.status === "Blocked" && from.note ? { note: from.note } : {}) };
-    mutation.mutate({ target, patch: { status: to, note }, undo });
+  // Leaving Done or Won't do, or returning to Won't do, is a logged move and the undo carries a reason.
+  function setStatus(target: Target, from: { status: string; note: string | null }, to: string, note?: string, reason?: string) {
+    const undo: Patch = {
+      status: from.status,
+      ...(from.status === "Blocked" && from.note ? { note: from.note } : {}),
+      ...(TERMINAL.has(to) || from.status === "Won't do" ? { reason: "deshacer" } : {}),
+    };
+    mutation.mutate({ target, patch: { status: to, note, ...(reason ? { reason } : {}) }, undo });
   }
 
   const setPriority = (target: Target, priority: string) => mutation.mutate({ target, patch: { priority } });

@@ -72,7 +72,7 @@ export type AhoraInboxItem = {
   wait_s: number;
 };
 
-/** now, then soon, then whenever. No urgency (an approval, a step) sorts as now. Age is older first. */
+/** now, then soon, then whenever. No urgency (a step) sorts as now. Age is older first. */
 export function urgencyRank(urgency: string | null | undefined): number {
   if (urgency && Object.hasOwn(URGENCY_RANK, urgency)) return URGENCY_RANK[urgency]!;
   return 0;
@@ -177,7 +177,7 @@ export function summaryLabel(title: string, state: CourseState): string {
   return `${SUMMARY_BUTTON} de ${title}, ${READINESS_BADGE[state]}. ${SUMMARY_ONLY}`;
 }
 
-/** The blocked row links to the ticket, or to the question or approval that holds it. */
+/** The blocked row links to the ticket, or to the question that holds it. */
 export function unblockOf(row: Pick<CourseRow, "slug" | "state" | "reasons">, inbox: { project: string; key: string | null; kind: string }[] = []): UnblockLink | null {
   if (row.state !== "blocked") return null;
   const reason = row.reasons.find((item) => item.severity === "blocked");
@@ -186,7 +186,6 @@ export function unblockOf(row: Pick<CourseRow, "slug" | "state" | "reasons">, in
   const href = `/p/${row.slug}?task=${encodeURIComponent(key)}`;
   if (reason.code !== "DECISION_PENDING") return { href, label: `Ver ${key}` };
   const kinds = new Set(inbox.filter((item) => item.project === row.slug && item.key === key).map((item) => item.kind));
-  if (kinds.has("approval") && !kinds.has("question")) return { href, label: `Ver la aprobación de ${key}` };
   if (kinds.has("question")) return { href, label: `Ver la pregunta de ${key}` };
   return { href, label: `Ver la decisión de ${key}` };
 }

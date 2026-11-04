@@ -120,7 +120,7 @@ describe("Done and Won't do warn about what is still running", () => {
   test("Won't do from the screen names what is left to clean", async () => {
     await register("server", "4202", "kill 4202", "ZIG-I1-4");
     const t = await call("get_task", { ...P, key: "ZIG-I1-4" });
-    const reply = await setTask(db, { project: "zigzag", key: "ZIG-I1-4", status: "Won't do", version: t.version }, { ...webCtx, verbose: true });
+    const reply = await setTask(db, { project: "zigzag", key: "ZIG-I1-4", status: "Won't do", version: t.version, reason: "en pantalla" }, { ...webCtx, verbose: true });
     assert.equal(reply.status, "Won't do");
     assert.deepEqual(reply.warnings, [{ code: "FOOTPRINT_LIVE", kind: "server", locator: "port:4202", teardown: "kill 4202" }]);
   });

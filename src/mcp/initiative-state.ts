@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
-import { approvals, questions, tasks, type Task } from "../db/schema.js";
+import { questions, tasks, type Task } from "../db/schema.js";
 import { blockerList, type BlockerView } from "./blockers.js";
 import { liveOwner, prOf, type PrShape } from "./queries.js";
 import type { Q } from "./tx.js";
@@ -17,7 +17,7 @@ export type InitiativeState = {
   in_review: { key: string; pr: PrShape | null }[];
   /** Merged, waiting for the release target to run them. */
   to_release: string[];
-  /** What the initiative itself and its open tickets wait on: another ticket, Jorge (a step, a question, an approval), an env, a flag, a time, a metric. */
+  /** What the initiative itself and its open tickets wait on: another ticket, Jorge (a step, a question), an env, a flag, a time, a metric. */
   waiting_on: { key: string; on: string }[];
   /** The same in one Spanish line, for the screen and the resume. */
   line: string;
@@ -64,15 +64,12 @@ export async function initiativeState(db: Q, i: Pick<Task, "id" | "key" | "proje
   const open = kids.filter((c) => OPEN(c.status));
   const ids = open.map((c) => c.id);
   const asked = ids.length ? await db.select({ taskId: questions.taskId }).from(questions).where(and(inArray(questions.taskId, ids), isNull(questions.answeredAt))) : [];
-  const pending = ids.length ? await db.select({ taskId: approvals.taskId, action: approvals.action }).from(approvals).where(and(inArray(approvals.taskId, ids), eq(approvals.state, "pending"))) : [];
-
   const waiting_on: InitiativeState["waiting_on"] = [];
   for (const b of await blockerList(db, i)) if (!b.satisfied) waiting_on.push({ key: i.key, on: waitText(b) });
   for (const c of open) {
     if (c.status === "In review") continue;
     for (const b of await blockerList(db, c)) if (!b.satisfied) waiting_on.push({ key: c.key, on: waitText(b) });
     if (asked.some((q) => q.taskId === c.id)) waiting_on.push({ key: c.key, on: "Jorge: una pregunta" });
-    for (const a of pending.filter((a) => a.taskId === c.id)) waiting_on.push({ key: c.key, on: `Jorge: aprobar ${a.action}` });
   }
   const phases = kids.filter((c) => !ADVANCED.includes(c.status) && c.phase !== null).map((c) => c.phase!);
   const base = {

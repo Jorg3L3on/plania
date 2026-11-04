@@ -25,8 +25,14 @@ export function summarize(e: Ev): string {
       return `${k} actualizado${Array.isArray(p.fields) ? `: ${(p.fields as unknown[]).map(str).join(", ")}` : ""} (${by})`;
     case "task.rekeyed":
       return `${str(p.from) || k} ahora es ${str(p.to) || k}`;
+    case "task.delegated_move":
+      return p.quote ? `${k} movimiento por encargo de Jorge: ${str(p.quote).slice(0, 140)}` : `${k} movimiento registrado: ${str(p.reason).slice(0, 140)} (${by})`;
     case "task.approved_move":
-      return `${k} movido con aprobación → ${str(p.to)} (${by})`;
+    case "approval.requested":
+    case "approval.granted":
+    case "approval.denied":
+    case "approval.used":
+      return `${k ? `${k} ` : ""}evento antiguo`;
     case "note":
       return `${k} nota (${by}): ${str(p.text ?? p.note).slice(0, 140)}`;
     case "claim.acquired":
@@ -47,12 +53,6 @@ export function summarize(e: Ev): string {
       return `${k} pregunta a Jorge: ${str(p.question).slice(0, 140)}`;
     case "question.answered":
       return `${k} respondida: ${str(p.answer).slice(0, 140)}`;
-    case "approval.requested":
-      return `${k} pide aprobación: ${str(p.action)}`;
-    case "approval.granted":
-      return `${k} aprobación concedida: ${str(p.action)}`;
-    case "approval.denied":
-      return `${k} aprobación negada: ${str(p.action)}`;
     case "pr.opened":
       return `${prNum(p)} abierto${k ? ` (${k})` : ""}: ${str(p.title)}`;
     case "pr.merged":

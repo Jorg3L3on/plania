@@ -1,8 +1,7 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { checks, tasks, type Actor, type Project, type Task } from "../db/schema.js";
-import { loadApproval, useApproval } from "./approvals.js";
-import { GATED_STATUSES } from "./lifecycle.js";
+import { LEGACY_APPROVAL_HINT } from "./delegate.js";
 import { ToolError, findProject, liveOwner, requireTask, writeReply } from "./queries.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
@@ -135,30 +134,22 @@ export async function setCheckInTx(
 
 export type WaiveCheckInput = { project: string; key: string; n: number; reason: string; approval_id?: string };
 
-// A check that will not be done, with why. Free while the ticket is still being worked; once it is
-// In review or later it needs an approval Jorge granted (action waive_check, target {n}).
+// A check that will not be done, with why. The reason is the record at every status.
 export async function waiveCheckInTx(tx: Q, emit: Emit, p: Project, input: WaiveCheckInput, ctx: Ctx) {
   if (!input.reason.trim()) throw new ToolError("INVALID_APPROVAL", { field: "reason", hint: "say why the check is waived" });
   const t = await requireTask(tx, p.id, input.key);
   checkOwner(t, ctx);
   const [before] = await tx.select().from(checks).where(and(eq(checks.taskId, t.id), eq(checks.n, input.n))).limit(1);
   if (!before) throw new ToolError("CHECK_NOT_FOUND", { n: input.n });
-  const needsSignOff = (GATED_STATUSES as readonly string[]).includes(t.status) && !ctx.human;
-  let approvalId: string | null = null;
-  if (needsSignOff) {
-    if (!input.approval_id) throw new ToolError("APPROVAL_REQUIRED", { action: "waive_check", target: { n: input.n }, status: t.status });
-    const a = await loadApproval(tx, p.id, input.approval_id);
-    await useApproval(tx, emit, a, t, "waive_check", { n: input.n }, ctx);
-    approvalId = a.id;
-  }
   const [c] = await tx
     .update(checks)
-    .set({ waivedAt: sql`now()`, waivedBy: ctx.actor, waiveReason: input.reason.trim(), approvalId })
+    .set({ waivedAt: sql`now()`, waivedBy: ctx.actor, waiveReason: input.reason.trim(), approvalId: null })
     .where(eq(checks.id, before.id))
     .returning();
   const u = await touch(tx, t);
-  await emit("check.waived", u, { n: c!.n, text: c!.text, reason: c!.waiveReason, approval_id: approvalId });
-  return writeReply(tx, u, ctx, ["checks"], { check: { n: c!.n, done: c!.done, waived: true } });
+  await emit("check.waived", u, { n: c!.n, text: c!.text, reason: c!.waiveReason });
+  const hint = typeof input.approval_id === "string" && input.approval_id.trim() ? LEGACY_APPROVAL_HINT : undefined;
+  return writeReply(tx, u, ctx, ["checks"], { check: { n: c!.n, done: c!.done, waived: true }, ...(hint ? { hint } : {}) });
 }
 
 export async function waiveCheck(db: Db, input: WaiveCheckInput, ctx: Ctx) {

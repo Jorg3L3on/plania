@@ -12,8 +12,9 @@ import { ToolError } from "./errors.js";
 // Initiative: Planning ⇄ Active ⇄ Shipping, any of them ⇄ On hold.
 //
 // Done is the agents' once the work is finished (DONE_FROM, by work type); the checks still apply
-// (checks closed, an initiative's tickets closed). Won't do and reopening are Jorge's: on screen,
-// or by an agent holding an approval he granted (request_approval → approval_id), spent on that one move.
+// (checks closed, an initiative's tickets closed). Won't do and reopening are Jorge's: on screen
+// with a reason, or by an agent who also sends delegated_by_jorge {message_id, quote}. The move
+// is logged. Nothing is spent and nothing waits on a screen step.
 
 export const TERMINAL = ["Done", "Won't do"] as const;
 
@@ -75,28 +76,38 @@ export type ApprovalAction = "done" | "wont_do" | "reopen" | "waive_check" | "ru
 export type TransitionCtx = {
   human?: boolean; // Jorge's screen
   via?: "set_task" | "claim" | "ask" | "answer" | "system";
-  approval?: { action: string } | null; // an approval the caller holds
   workType?: string | null; // the ticket's, for where Done may come from
+  reason?: string; // required for Won't do and for reopening
+  delegated?: boolean; // an agent presented delegated_by_jorge evidence
 };
 
 const isTerminal = (s: string) => (TERMINAL as readonly string[]).includes(s);
 
-// The approval action a move needs, or null when it needs none.
+// The special action a move needs, or null when it needs none.
 export function actionForMove(from: string, to: string): ApprovalAction | null {
   if (to === "Won't do") return "wont_do";
   if (isTerminal(from)) return "reopen";
   return null;
 }
 
-// Throws if the move is not allowed. Returns true when it went through an approval.
+const SPECIAL_HINT =
+  "Won't do and reopening need a reason. On screen that is enough. An agent also sends delegated_by_jorge {message_id, quote}.";
+
+// Throws if the move is not allowed. Returns true when the move is a logged Won't do or reopen.
 export function assertTransition(kind: string, from: string, to: string, ctx: TransitionCtx): boolean {
   if (from === to) return false;
+  const needed = actionForMove(from, to);
+  if (needed) {
+    if (!ctx.reason?.trim() || (!ctx.human && !ctx.delegated)) {
+      throw new ToolError("HUMAN_ONLY", { from, to, needs: needed, hint: SPECIAL_HINT });
+    }
+    return true;
+  }
   if (ctx.human) return false;
   if (ctx.via === "system") {
     if (!(SYSTEM_MOVES[from] ?? []).includes(to)) throw new ToolError("INVALID_TRANSITION", { from, to, hint: "not a system move" });
     return false;
   }
-  const needed = actionForMove(from, to);
   if (to === "Done" && !needed) {
     const allowed = doneFrom(kind, ctx.workType);
     if (!allowed.includes(from)) {
@@ -104,15 +115,6 @@ export function assertTransition(kind: string, from: string, to: string, ctx: Tr
       throw new ToolError("INVALID_TRANSITION", { from, to, allowed_from: allowed, hint });
     }
     return false;
-  }
-  if (needed) {
-    if (ctx.approval?.action === needed) return true;
-    throw new ToolError("HUMAN_ONLY", {
-      from,
-      to,
-      needs: needed,
-      hint: "Won't do and reopening are Jorge's. Ask him with request_approval and pass the granted approval_id.",
-    });
   }
   // answer puts a ticket back where it was before the question, whatever that was.
   if (kind === "ticket" && from === "Needs Jorge" && ctx.via === "answer") return false;

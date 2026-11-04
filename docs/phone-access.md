@@ -89,7 +89,7 @@ In the installed app: the **⋯** menu (top right) → **Avisarme cuando me toqu
 permission; allow it. The switch subscribes this device (`POST /api/push/subscribe`); turning it off
 unsubscribes it (`DELETE /api/push/subscribe`). Each device has its own switch.
 
-What sends a notification: a new approval request, a question an agent asks, a step that waits on you
+What sends a notification: a question an agent asks, a step that waits on you
 (a `human_action` blocker, typed or parsed from a `Jorge:` line) and a release that is ready to ship.
 The server looks once a minute and sends one message per device for everything new in that minute, so a
 burst is one notification. Tapping it opens the Bandeja on the right tab (Decisiones or Pasos).

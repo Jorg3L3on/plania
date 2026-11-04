@@ -299,7 +299,7 @@ expects HTTPS. This is the "decide later" from the PWA work and needs Jorge's ye
   `ask` returns the question id with "the ticket waits in Needs Jorge" so agents stop writing it
   in text; a `set_task` with a Jorge line keeps the 2.10 warning.
 - Protocol 2.12 rewritten in three sections, Start / Work / Finish, under 900 words, listing
-  `start`, `finish`, `get_next`, `ask`, `request_approval`, `register_footprint` first; the
+  `start`, `finish`, `get_next`, `ask`, `register_footprint` first; the
   rules every tool already explains move to the tool descriptions.
 - `scripts/mcp-table.ts` from 2.9 keeps the README in step.
 - Done when: a fresh agent session on a filmia ticket goes start → finish without a protocol read
