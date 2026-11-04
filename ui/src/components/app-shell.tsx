@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellIcon, ClockIcon, CloudOffIcon, CpuIcon, EllipsisIcon, InboxIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
+import { BellIcon, ClockIcon, CloudOffIcon, CpuIcon, EllipsisIcon, FlagIcon, InboxIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -13,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { GoalsLink } from "@/components/goals/goals-link";
 import { PlaniaMark } from "@/components/plania-mark";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ThemeChoices, ThemeToggle } from "@/components/theme-toggle";
@@ -114,6 +115,9 @@ function PhoneMenu({ onLogout }: { onLogout: () => void }) {
           <ClockIcon /> Ahora
         </DropdownMenuItem>
         <EquipoMenuItem />
+        <DropdownMenuItem onSelect={() => navigate("/goals")}>
+          <FlagIcon /> Metas
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => navigate("/tokens")}>
           <KeyRoundIcon /> Tokens de agentes
         </DropdownMenuItem>
@@ -225,6 +229,7 @@ export function AppShell() {
             <div className="flex items-center gap-1 sm:gap-2">
               <AhoraLink />
               <InboxLink />
+              <GoalsLink />
               <MachineLink />
               <EquipoLink />
               <Tooltip>

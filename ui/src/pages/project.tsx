@@ -13,6 +13,7 @@ import {
   ProjectHeader,
   SectionTitle,
 } from "@/components/plan/project-parts";
+import { GoalsProject } from "@/components/goals/goals-board";
 import { OrdenSection } from "@/components/plan/orden";
 import { QuestionsPanel } from "@/components/resume";
 import { TaskList } from "@/components/plan/task-list";
@@ -145,6 +146,7 @@ export function ProjectPage() {
             onOpen={openTask}
           />
           {/* 2.12: Jorge asks for something; the new ticket opens in the sheet. */}
+          <GoalsProject slug={slug} />
           <PedirBox slug={slug} tasks={project.data.tasks} requests={resume?.requests} onOpen={openTask} />
           {/* Questions agents asked Jorge (Needs Jorge): answer in place, with an optional line for the decision log. */}
           <QuestionsPanel slug={slug} questions={project.data.resume.open_questions} onOpen={openTask} />

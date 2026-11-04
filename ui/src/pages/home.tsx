@@ -4,6 +4,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { GoalsHome } from "@/components/goals/goals-board";
 import { Ciudad } from "@/components/home/ciudad";
 import { Hoy } from "@/components/home/hoy";
 import { PedirHome } from "@/components/pedir";
@@ -75,6 +76,8 @@ export function HomePage() {
       <Hoy names={names} />
 
       <Ciudad districts={model.districts} loose={model.loose} headline={model.headline} envLines={model.envLines} nowMs={nowMs} />
+
+      <GoalsHome />
 
       <Proximo lines={model.proximo} names={names} nowMs={nowMs} />
 
