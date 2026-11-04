@@ -238,11 +238,10 @@ describe("ideas", () => {
     assert.equal(forward.status, "Open");
     assert.equal((await call("get_task", { key: "WRK-IDEA1" })).stage, "research");
 
-    const gate = await call("ask", { key: "WRK-IDEA1", gate: "A", question: "¿La seguimos?" });
-    assert.equal(gate.__error, "INVALID_QUESTION");
-    assert.equal(gate.field, "gate");
-    assert.match(String(gate.hint), /gates were removed/);
-    assert.equal((await call("get_task", { key: "WRK-IDEA1" })).questions.length, 0, "a refused gate stores nothing");
+    const kept = await call("ask", { key: "WRK-IDEA1", gate: "A", question: "¿La seguimos?" });
+    assert.equal(kept.__error, undefined, JSON.stringify(kept));
+    assert.match(String(kept.hint), /obsolete field/);
+    assert.equal((await call("get_task", { key: "WRK-IDEA1" })).questions.length, 1, "the removed field is ignored and the question is stored");
 
     const skip = await move("planning");
     assert.equal(skip.__error, "INVALID_STAGE_MOVE");
@@ -269,7 +268,7 @@ describe("ideas", () => {
     const ready = await move("ready");
     assert.equal(ready.__error, undefined);
     assert.equal((await call("get_task", { key: "WRK-IDEA1" })).stage, "ready");
-    assert.equal((await call("get_task", { key: "WRK-IDEA1" })).questions.length, 0, "idea → ready with no question asked");
+    assert.equal((await call("get_task", { key: "WRK-IDEA1" })).questions.length, 1, "idea → ready does not need a question, and the ignored field did not block it");
 
     const self = await call("set_task", { key: "WRK-IDEA1", promoted_to: "WRK-IDEA1", version });
     assert.equal(self.__error, "PROMOTED_TO_INVALID");

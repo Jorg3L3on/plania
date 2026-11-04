@@ -143,9 +143,9 @@ export async function waiveCheckInTx(tx: Q, emit: Emit, p: Project, input: Waive
   checkOwner(t, ctx);
   const [before] = await tx.select().from(checks).where(and(eq(checks.taskId, t.id), eq(checks.n, input.n))).limit(1);
   if (!before) throw new ToolError("CHECK_NOT_FOUND", { n: input.n });
-  const gated = (GATED_STATUSES as readonly string[]).includes(t.status) && !ctx.human;
+  const needsSignOff = (GATED_STATUSES as readonly string[]).includes(t.status) && !ctx.human;
   let approvalId: string | null = null;
-  if (gated) {
+  if (needsSignOff) {
     if (!input.approval_id) throw new ToolError("APPROVAL_REQUIRED", { action: "waive_check", target: { n: input.n }, status: t.status });
     const a = await loadApproval(tx, p.id, input.approval_id);
     await useApproval(tx, emit, a, t, "waive_check", { n: input.n }, ctx);

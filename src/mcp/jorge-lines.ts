@@ -63,10 +63,10 @@ export function parseJorgeLines(text: string | null | undefined, opts: { prefixO
 
 type ParsedSpec = { assignee: string; text: string; source: "parsed"; field: ParsedField; line_hash: string };
 
-/** A parsed blocker gates claims and keeps a ticket Blocked only when it came from blocked_note. */
+/** A parsed blocker holds claims and keeps a ticket Blocked only when it came from blocked_note. */
 export const isGating = (spec: Record<string, unknown>) => spec.source !== "parsed" || spec.field === "blocked_note";
 
-// SQL: the blocker row (alias) gates. Parsed lines from other fields only reach the inbox.
+// SQL: the blocker row (alias) holds. Parsed lines from other fields only reach the inbox.
 export const gatingSql = (alias: string) => sql.raw(`not (coalesce(${alias}.spec->>'source', '') = 'parsed' and coalesce(${alias}.spec->>'field', '') <> 'blocked_note')`);
 
 /**

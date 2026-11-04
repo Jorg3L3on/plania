@@ -13,7 +13,7 @@ export type Q = PgDatabase<NodePgQueryResultHKT, typeof schema>;
 // Who is writing and through which channel. human is true only for Jorge's screen (cookie),
 // never inferred from the actor value. requestId + tool make a retry replay the first response.
 // verbose: writes return the full task besides the compact {key, status, version, changed} reply.
-// system: a poller acting on GitHub or deploy data (moves In review → Merged → Released, no gates).
+// system: a poller acting on GitHub or deploy data (moves In review → Merged → Released, with no extra check).
 export type Ctx = { actor: Actor; human?: boolean; system?: boolean; requestId?: string; tool?: string; verbose?: boolean; tokenId?: string };
 
 const REQUEST_TTL = "30 days";
@@ -21,7 +21,7 @@ const WRITE_LOCK = 7_264_201; // arbitrary constant: the one advisory lock every
 
 export const WEB_ACTOR: Actor = { agent: "jorge", session_id: "web", machine: "screen" };
 
-// A gate answer counts only when this actor stored it. The screen route sets it from the session
+// A screen-session answer counts only when this actor stored it. The screen route sets it from the session
 // cookie. human on the context is never inferred from an actor a caller sent.
 export function isScreenActor(actor: { agent?: string; session_id?: string; machine?: string } | null | undefined): boolean {
   return !!actor && actor.agent === WEB_ACTOR.agent && actor.session_id === WEB_ACTOR.session_id && actor.machine === WEB_ACTOR.machine;

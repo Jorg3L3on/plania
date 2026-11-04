@@ -1,7 +1,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { auditRuns, tasks, type Project } from "../db/schema.js";
-import { auditProject, runAudit, type Finding } from "./audit.js";
+import { CLAIMABLE_BUT_WAITING, auditProject, canonicalAuditCode, runAudit, type Finding } from "./audit.js";
 import { retireDecision } from "./decisions.js";
 import { setEnv } from "./env.js";
 import { ToolError } from "./errors.js";
@@ -28,7 +28,7 @@ const ONE_CLICK: Record<string, CanFix> = {
 export const AGENT_CHORES = new Set([
   "TASK_MISSING_PR_URL",
   "BLOCKED_BUT_SATISFIED",
-  "CLAIMABLE_BUT_GATED",
+  CLAIMABLE_BUT_WAITING,
   "INITIATIVE_SCOPE_HAS_STATUS",
   "WAITING_ON_JORGE_FREE_TEXT",
   "STATE_NOTE_STALE",
@@ -47,8 +47,10 @@ export function canFix(f: Finding): CanFix {
 const OWNER_REVIEW = new Set(["DELEGATED_ANSWER"]);
 
 export const ordenShape = (f: Finding): OrdenFinding => {
-  const can_fix = canFix(f);
-  return { ...f, can_fix, owner: OWNER_REVIEW.has(f.code) || can_fix !== "open" ? "jorge" : "agents" };
+  const code = canonicalAuditCode(f.code);
+  const normalized = code === f.code ? f : { ...f, code };
+  const can_fix = canFix(normalized);
+  return { ...normalized, can_fix, owner: OWNER_REVIEW.has(normalized.code) || can_fix !== "open" ? "jorge" : "agents" };
 };
 
 /** GET /api/projects/:slug/audit: the latest stored run (one is made if the project has none yet). */
@@ -96,7 +98,7 @@ export async function fixFinding(db: Db, p: Project, input: FixInput) {
  */
 export async function choreFor(db: Q, p: Project): Promise<Finding | null> {
   const [row] = await db.select().from(auditRuns).where(eq(auditRuns.projectId, p.id)).limit(1);
-  const fromAudit = (row?.findings ?? []).find((f) => AGENT_CHORES.has(f.code));
+  const fromAudit = (row?.findings ?? []).find((f) => AGENT_CHORES.has(canonicalAuditCode(f.code)));
   if (fromAudit) return fromAudit;
   const stale = await db
     .select({ key: tasks.key, at: tasks.stateNoteAt })

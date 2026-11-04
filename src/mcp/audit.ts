@@ -16,6 +16,19 @@ import { iso, type Q } from "./tx.js";
 // command is the shell line Jorge copies, when the fix is one (src/mcp/orden.ts).
 export type Finding = { code: string; key: string | null; detail: string; fix_hint: string; id?: string; command?: string; level?: "info" | "warn" };
 
+/** Scope says the ticket must wait, and nothing typed holds it. */
+export const CLAIMABLE_BUT_WAITING = "CLAIMABLE_BUT_WAITING";
+/** Previous code, one release. Same finding as CLAIMABLE_BUT_WAITING. */
+export const CLAIMABLE_BUT_GATED = "CLAIMABLE_BUT_GATED";
+
+export const AUDIT_CODE_ALIASES: Record<string, string> = {
+  [CLAIMABLE_BUT_GATED]: CLAIMABLE_BUT_WAITING,
+};
+
+export function canonicalAuditCode(code: string): string {
+  return AUDIT_CODE_ALIASES[code] ?? code;
+}
+
 const CLOSED = ["Done", "Won't do"];
 // A ticket that has not reached In review yet (PLA-03 drift).
 export const DRIFT_STATUSES = ["Backlog", "Ready", "In progress", "Blocked", "Needs Jorge"];
@@ -140,7 +153,7 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   for (const t of all.filter((t) => t.kind === "ticket" && ["Backlog", "Ready"].includes(t.status))) {
     const hasBlockers = (await db.select({ id: blockers.id }).from(blockers).where(eq(blockers.taskId, t.id)).limit(1)).length > 0;
     if (!hasBlockers && /\b(no antes|not before|después de|after)\b/i.test(t.scope) && /\b(deploy|prod|30 nights|30 noches|credentials|credenciales)\b/i.test(t.scope)) {
-      out.push({ code: "CLAIMABLE_BUT_GATED", key: t.key, detail: "scope says it must wait, but it has no blocker the server can check", fix_hint: "blocked_by with a typed blocker (human_action, env_flag, time_after, metric_gte)" });
+      out.push({ code: CLAIMABLE_BUT_WAITING, key: t.key, detail: "scope says it must wait, but it has no blocker the server can check", fix_hint: "blocked_by with a typed blocker (human_action, env_flag, time_after, metric_gte)" });
     }
   }
   // Expired claims that left commits behind, PRs missing, branches merged but not deleted, branches nobody owns.
@@ -219,7 +232,7 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
       id: pr.url,
     });
   }
-  // PLA-I18-2: gates were removed, so a gate answered by an agent is no longer a finding. Every
+  // PLA-I18-2: the old screen step was removed, so an answer stored by an agent is no longer a finding. Every
   // delegated answer still is, so the owner can review the quote, until he marks it seen (PLA-06).
   const delegatedRows = await db
     .select()
