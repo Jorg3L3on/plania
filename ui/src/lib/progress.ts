@@ -75,3 +75,80 @@ export const isGif = (url: string): boolean => {
     return url.toLowerCase().split("?")[0]?.endsWith(".gif") ?? false;
   }
 };
+
+export const TYPE_MARK: Record<string, string> = {
+  bug: "🐞",
+  code: "✨",
+  ops: "⚙",
+  research: "🔎",
+  "decision-needed": "⚖",
+  debt: "🧹",
+  idea: "💡",
+  initiative: "🏁",
+  pr: "⎇",
+};
+
+const TYPE_CHIP: Record<string, string> = {
+  bug: "Bugs",
+  code: "Features",
+  ops: "Ops",
+  research: "Investigación",
+  "decision-needed": "Decisiones",
+  debt: "Deuda",
+  idea: "Ideas",
+  initiative: "Iniciativas",
+  pr: "PRs",
+};
+
+export const typeChip = (type: string): string => TYPE_CHIP[type] ?? type;
+
+/** Newest month first, `count` months back from a YYYY-MM-DD already in the project zone. */
+export const monthsBack = (today: string, count = 12): { key: string; label: string }[] => {
+  let year = Number(today.slice(0, 4));
+  let month = Number(today.slice(5, 7));
+  const out: { key: string; label: string }[] = [];
+  for (let i = 0; i < count; i++) {
+    const key = `${year}-${String(month).padStart(2, "0")}`;
+    out.push({ key, label: (MONTHS[month - 1] ?? "").toUpperCase() });
+    month -= 1;
+    if (month === 0) {
+      month = 12;
+      year -= 1;
+    }
+  }
+  return out;
+};
+
+export const monthSpan = (key: string): { from: string; to: string } => {
+  const year = Number(key.slice(0, 4));
+  const month = Number(key.slice(5, 7));
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return { from: `${key}-01`, to: `${key}-${String(last).padStart(2, "0")}` };
+};
+
+export type LogNeedle = { project?: string; type?: string; q?: string };
+
+type Matchable = {
+  project: string;
+  type: string;
+  title: string;
+  summary: string;
+  change: string;
+  key: string | null;
+  prs: { number: number; title: string }[];
+};
+
+// All three narrow the list. An empty field does not. Search looks at the title, the change,
+// the key and the PR number (`#293` or `293`).
+export const entryMatches = (entry: Matchable, needle: LogNeedle): boolean => {
+  if (needle.project && entry.project !== needle.project) return false;
+  if (needle.type && entry.type !== needle.type) return false;
+  const q = needle.q?.trim().toLowerCase() ?? "";
+  if (!q) return true;
+  const digits = q.startsWith("#") ? q.slice(1) : q;
+  const blob = [entry.title, entry.summary, entry.change, entry.key ?? "", entry.project, ...entry.prs.flatMap((pr) => [String(pr.number), pr.title])]
+    .join("\n")
+    .toLowerCase();
+  if (blob.includes(q)) return true;
+  return /^\d+$/.test(digits) && entry.prs.some((pr) => String(pr.number) === digits);
+};
