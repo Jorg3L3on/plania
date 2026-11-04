@@ -16,6 +16,7 @@ import { dayText, dueText } from "@/lib/due";
 import { TaskControls } from "@/components/task-controls";
 import { DelegadaBadge } from "@/components/delegada-badge";
 import { ClaimLine, StageChip } from "@/components/task-row";
+import { CommentThread } from "@/components/delegation/comment-thread";
 import { localTime } from "@/lib/time";
 import { api, ApiError } from "@/lib/api";
 import type { Check, TaskDetail, WhyLink } from "@/lib/types";
@@ -315,6 +316,8 @@ function Details({ slug, task, onOpen }: { slug: string; task: TaskDetail; onOpe
           </ul>
         </Section>
       )}
+
+      <CommentThread slug={slug} taskKey={task.key} />
 
       {task.log.length > 0 && (
         <Section title={`Historial (${task.log_total})`}>
