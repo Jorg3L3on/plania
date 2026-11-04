@@ -115,6 +115,16 @@ export const api = {
     request<ProgressItem>("GET", `/progress/item/${encodeURIComponent(project)}/${encodeURIComponent(key)}`),
   // PLA-I25: reported token totals. Informational.
   usage: () => request<UsageSummary>("GET", "/usage"),
+  // PLA-I25: a project, a product-owner bot and a Playbook. The same slug again changes nothing.
+  createCompany: (input: { slug: string; name: string; owner_bot_name: string }) => request<CompanyProject>("POST", "/templates/company", input),
+};
+
+export type CompanyProject = {
+  created: boolean;
+  project: string;
+  name: string;
+  owner: { slug: string; name: string; role: string } | null;
+  playbook: { title: string; version: number } | null;
 };
 
 export type UsageTotal = { agent: string; project: string; week: string; input: number; output: number };
