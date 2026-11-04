@@ -6,7 +6,6 @@ import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
 import { AGENT_ORIGINS, KINDS } from "../db/schema.js";
 import { FOOTPRINT_KINDS } from "../jobs/machine/infer.js";
-import { APPROVAL_ACTIONS, requestApproval } from "./approvals.js";
 import { inbox } from "./inbox.js";
 import { waiveCheck } from "./checks.js";
 import { addDecision, retireDecision } from "./decisions.js";
@@ -210,7 +209,14 @@ const setTaskFields = {
   regression: z.boolean().optional(),
   due_on: z.string().nullable().optional().describe("When it should be done, YYYY-MM-DD; null clears it"),
   cost_note: z.string().optional().describe("Debt only"),
-  approval_id: z.string().optional().describe("For Won't do or reopening: the id of an approval Jorge granted (request_approval). Spent on this move"),
+  reason: z.string().optional().describe("Required for Won't do and for reopening a closed task. On screen that is enough"),
+  delegated_by_jorge: z
+    .object({
+      message_id: z.string().optional().describe("Id of the owner's chat message, 8 to 200 characters"),
+      quote: z.string().optional().describe("8 to 280 characters of his instruction"),
+    })
+    .optional()
+    .describe("Required for an agent Won't do or reopen. The screen does not send it"),
   withdraw_blocker: z.string().optional().describe("Id of a human_action your own note created (JORGE_LINE_PARSED) that asks nothing of Jorge: it is removed. Same session or token only; needs no version"),
   no_pr_reason: z.string().optional().describe("Done, Merged or Released on a code ticket without pr_url: why the work had no PR (otherwise TASK_MISSING_PR_URL). Logged as task.no_pr"),
   stage: z.string().optional().describe("Ideas only. One step along idea → research → design → planning → ready. A step back needs a note. Skipping a stage is INVALID_STAGE_MOVE; a move without that stage's doc or headings is STAGE_REQUIREMENTS_MISSING. Nothing else holds a forward move"),
@@ -271,7 +277,7 @@ const workspace = z
 // batch ops: the same fields as the tool, plus op; project, actor and request_id come from the batch.
 const batchOp = z.discriminatedUnion("op", [
   z.object({ op: z.literal("create_task"), ...createFields }),
-  z.object({ op: z.literal("set_task"), ...setTaskFields }),
+  z.object({ op: z.literal("set_task"), ...setTaskFields }).loose(),
   z.object({ op: z.literal("set_check"), ...setCheckFields }),
   z.object({ op: z.literal("add_result"), ...addResultFields }),
   z.object({ op: z.literal("add_decision"), ...addDecisionFields }),
@@ -325,7 +331,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "and per open initiative its derived state {phase_now, done, total, in_progress, in_review, waiting_on, line}, the notes (state_note, in_progress, next_action with next_claimable), must_keep (pinned decisions) and status counts, plus readiness.",
         "readiness is read-only {state, reasons, line}. state is ready, caution, blocked or no_context: no_context wins, then blocked, then caution, else ready.",
         "no_context: no live or expired claim, no ticket In review, no initiative next_action, no next claimable ticket, and no event in 14 days.",
-        "blocked: BLOCKER_OPEN (unsatisfied blocker or Blocked), CI_FAILURE, DEPLOY_BLOCKED (failed deploy or env behind the integration branch, on a ticket In review), AREAS_OVERLAP, DECISION_PENDING (open question, pending approval or human_action on the ticket to resume).",
+        "blocked: BLOCKER_OPEN (unsatisfied blocker or Blocked), CI_FAILURE, DEPLOY_BLOCKED (failed deploy or env behind the integration branch, on a ticket In review), AREAS_OVERLAP, DECISION_PENDING (open question or human_action on the ticket to resume).",
         "caution: LEASE_EXPIRED, OWNER_ABSENT (footprint old or missing), CLAIM_QUIET (past PLANIA_QUIET_MIN), WORKTREE_DIRTY, DIRTY_UNKNOWN, ENV_UNKNOWN (missing environment commit or integration head, on a ticket In review), NOTE_STALE, PR_PENDING, PR_UNREADABLE, DECISION_ELSEWHERE, NO_NEXT.",
         "ready: a healthy live claim, a ticket In review with checks passing, or a clear next step, and none of the above. Unknown or missing data (dirty null, a live claim with no footprint, an unreadable PR, a missing environment commit or integration head) is caution, never ready.",
         "Each reason is {code, severity, text, task_key}; text is one short Spanish sentence naming the ticket. line is one sentence.",
@@ -658,21 +664,21 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "To tick one Done when item use set_check, not checks.",
         "Ticket moves: Backlog ⇄ Ready; Backlog, Ready, In progress or In review → Blocked (note required) → Backlog or Ready; In progress → In review, Ready or Backlog (each releases the lease). In progress only through claim.",
         "Initiative moves: Planning ⇄ Active ⇄ Shipping, any ⇄ On hold; next_action and in_progress_note feed get_resume. An initiative an idea was promoted to moves like any other.",
-        "Idea status is Open, Done or Won't do. stage moves one step along idea → research → design → planning → ready; a step back needs a note (INVALID_STAGE_MOVE when it skips or the note is missing). Moving forward needs that stage's doc and headings (STAGE_REQUIREMENTS_MISSING), and nothing else: no approval is asked. A Done or Won't do idea refuses stage and promoted_to (IDEA_CLOSED). promoted_to records the initiative or standalone ticket it became.",
+        "Idea status is Open, Done or Won't do. stage moves one step along idea → research → design → planning → ready; a step back needs a note (INVALID_STAGE_MOVE when it skips or the note is missing). Moving forward needs that stage's doc and headings (STAGE_REQUIREMENTS_MISSING), and nothing else. A Done or Won't do idea refuses stage and promoted_to (IDEA_CLOSED). promoted_to records the initiative or standalone ticket it became.",
         "Anything else is INVALID_TRANSITION with the allowed moves.",
         "Finishing a phase: finish does add_result and In review in one call. By hand: add_result first, then status 'In review' (committed, not merged) with branch and pr_url; without fitting evidence it is EVIDENCE_REQUIRED.",
         "Merged and Released are the pollers' (GitHub merge, deploy); by hand they need a ci pass result naming the merge commit (and, for Released, the release target env containing it).",
         "Done is yours once the work is finished: code, bug and debt tickets from Merged or Released; ops and research from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open status. Elsewhere it is INVALID_TRANSITION with allowed_from. get_resume status.released_waiting_done lists Released tickets nobody closed: close them.",
         "Done, Merged or Released on a code ticket needs pr_url (on the ticket or in this call): TASK_MISSING_PR_URL, unless no_pr_reason says why there is none.",
-        "Won't do and reopening a closed task are Jorge's: HUMAN_ONLY. Ask with request_approval; once he grants it on screen, pass approval_id here (it is spent on this move).",
+        "Won't do and reopening a closed task are Jorge's: HUMAN_ONLY unless this call has a reason. On screen the reason is enough. An agent also sends delegated_by_jorge {message_id, quote}. The move is logged. An approval_id is ignored.",
         "In review (and later Done) needs every check done or waived: CHECKS_OPEN lists the open numbers. An initiative needs every ticket closed: INITIATIVE_CHILDREN_OPEN.",
         "A line that starts with 'Jorge:' in summary, next_action, in_progress_note, state_note, blocked_note or a note becomes a human_action blocker (warning JORGE_LINE_PARSED); it reaches his inbox without moving the task, and only one from blocked_note holds it Blocked. In the fields (not notes) a sentence naming Jorge with a waiting cue counts too. A blocker your note created by mistake: withdraw_blocker with its id.",
         "The reply is {key, status, version, changed}; verbose: true adds the full task.",
       ].join(" "),
-      inputSchema: { project, actor, request_id, verbose, ...setTaskFields },
+      inputSchema: z.object({ project, actor, request_id, verbose, ...setTaskFields }).loose(),
       annotations: write,
     },
-    writeHandler("set_task", (input, ctx) => setTask(db, input, ctx)),
+    writeHandler("set_task", (input, ctx) => setTask(db, input as Parameters<typeof setTask>[1], ctx)),
   );
 
   server.registerTool(
@@ -800,7 +806,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "A ticket moves to Needs Jorge (your lease stays; heartbeat to keep it) until every open question on it is answered.",
         "options are suggested answers; he may answer freely. blocks names other tickets waiting on the answer; urgency says how soon. get_resume lists open_questions.",
         "The reply carries question_id and waits (\"the ticket waits in Needs Jorge\"): nothing else to write.",
-        "Never only write 'waiting on Jorge' in next_action or blocked_note: a line that starts with 'Jorge:' becomes a human_action blocker on its own (JORGE_LINE_PARSED), and the audit flags the rest (WAITING_ON_JORGE_FREE_TEXT); ask here, request_approval or blocked_by human_action instead.",
+        "Never only write 'waiting on Jorge' in next_action or blocked_note: a line that starts with 'Jorge:' becomes a human_action blocker on its own (JORGE_LINE_PARSED), and the audit flags the rest (WAITING_ON_JORGE_FREE_TEXT); ask here or blocked_by human_action instead.",
       ].join(" "),
       inputSchema: z
         .object({
@@ -850,30 +856,30 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       description: [
         "Record one answer the owner gave actor agent plania-bot in his own chat. Any other agent is HUMAN_ONLY, including a spoofed screen session.",
         "One human_only question that has named options: pass question_id and option, one of the stored options. The question closes as his. A row that still carries the pre-2.17 letter is NOT_DELEGABLE.",
-        "Or one pending approval whose action is wont_do or reopen: pass approval_id and decision grant or reject. Other approval actions are NOT_DELEGABLE.",
-        "delegated_by_jorge is required: message_id (8 to 200 characters) and quote (8 to 280 characters) of his instruction. Missing, empty or short evidence is DELEGATION_EVIDENCE.",
+        "An approval_id is ignored and the reply says so. Won't do and reopening go through set_task, with reason and delegated_by_jorge.",
+        "delegated_by_jorge is required: message_id (8 to 200 characters) and quote (8 to 280 characters) of his instruction. Empty or short evidence is DELEGATION_EVIDENCE.",
         "The server cannot prove this caller is the Plania bot or that the message exists: every bot shares the write token and the actor is declared on the request. The controls are the quote, the DELEGATED_ANSWER audit finding, the Delegada badge, 10 answers an hour, one per question, and the screen kill switch (default on). DELEGATION_OFF when that switch is off. DELEGATION_LIMIT when the hour or the question is already used.",
         "This tool cannot raise the limit or flip the switch. The answer tool stays HUMAN_ONLY. The screen click is unchanged. Not available on /api, /hooks or /bot/v1.",
       ].join(" "),
-      inputSchema: {
-        project,
-        actor,
-        request_id,
-        verbose,
-        question_id: z.string().optional().describe("A human_only question with named options. Not together with approval_id"),
-        approval_id: z.string().optional().describe("A pending wont_do or reopen approval. Not together with question_id"),
-        option: z.string().optional().describe("One of the question's stored options"),
-        decision: z.enum(["grant", "reject"]).optional().describe("grant or reject, for an approval"),
-        delegated_by_jorge: z
-          .object({
-            message_id: z.string().optional().describe("Id of the owner's chat message"),
-            quote: z.string().optional().describe("8 to 280 characters of his instruction"),
-          })
-          .optional(),
-      },
+      inputSchema: z
+        .object({
+          project,
+          actor,
+          request_id,
+          verbose,
+          question_id: z.string().optional().describe("A human_only question with named options"),
+          option: z.string().optional().describe("One of the question's stored options"),
+          delegated_by_jorge: z
+            .object({
+              message_id: z.string().optional().describe("Id of the owner's chat message"),
+              quote: z.string().optional().describe("8 to 280 characters of his instruction"),
+            })
+            .optional(),
+        })
+        .loose(),
       annotations: write,
     },
-    writeHandler("answer_delegated", (input, ctx) => answerDelegated(db, input, ctx)),
+    writeHandler("answer_delegated", (input, ctx) => answerDelegated(db, input as Parameters<typeof answerDelegated>[1], ctx)),
   );
 
   server.registerTool(
@@ -883,7 +889,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline.",
         "headline: the note (≤ 280 chars) beside the generated headline in get_resume, only for what the data cannot say; the server marks it stale when an env, an initiative or a Done moves after it.",
         "settings merge key by key (null removes one): release_target (env a Released ticket reached, default prod), branch_pattern (regex), claim_from (backlog | ready, what get_next offers),",
-        "resources ({'port:*': {needs_approval, ttl_max}}), quotas ({'quota:omdb': {daily}}), github ({repo, token_env}), vercel ({project_id, team_id, token_env, targets}), release ({from, into, env, mode}: the branch Jorge ships into another, e.g. sandbox → main for prod; mode command (default: he runs the command) or merge (he presses Lanzar on screen)). Never a secret: integrations name env vars.",
+        "resources ({'port:*': {ttl_max}}), quotas ({'quota:omdb': {daily}}), github ({repo, token_env}), vercel ({project_id, team_id, token_env, targets}), release ({from, into, env, mode}: the branch Jorge ships into another, e.g. sandbox → main for prod; mode command (default: he runs the command) or merge (he presses Lanzar on screen)). A needs_approval flag on an old settings row is ignored. Never a secret: integrations name env vars.",
         "Pass the version from get_project; STALE_VERSION if it moved. The old text stays in the log.",
       ].join(" "),
       inputSchema: {
@@ -929,38 +935,16 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
   );
 
   server.registerTool(
-    "request_approval",
-    {
-      description: [
-        "Ask Jorge to approve one move you cannot make yourself: action wont_do | reopen (a status change), waive_check (target {n}, once In review or later), runbook_step, lease_resource. Done needs no approval: set it yourself.",
-        "It shows in his inbox; he grants or rejects it on screen. Then pass the approval_id to set_task / waive_check: it unlocks that one move and is spent.",
-        "Asking again for the same task, action and target while one is pending returns it (existing: true).",
-      ].join(" "),
-      inputSchema: {
-        project,
-        actor,
-        request_id,
-        key,
-        action: z.enum(APPROVAL_ACTIONS),
-        reason: z.string().min(1).describe("Why: what is done, what the evidence shows"),
-        target: z.record(z.string(), z.unknown()).optional().describe("e.g. {n: 3} for waive_check"),
-      },
-      annotations: write,
-    },
-    writeHandler("request_approval", (input, ctx) => requestApproval(db, input, ctx)),
-  );
-
-  server.registerTool(
     "waive_check",
     {
       description: [
         "Mark one Done when item as not going to be done, with the reason (it then counts as closed for In review and Done).",
-        "Free while the ticket is still being worked; once it is In review or later it needs an approval Jorge granted (request_approval action waive_check, target {n}) as approval_id: APPROVAL_REQUIRED otherwise.",
+        "The reason is the record at every status, including once the ticket is In review or later. An approval_id is ignored.",
       ].join(" "),
-      inputSchema: { project, actor, request_id, verbose, key, n: z.number().int(), reason: z.string().min(1), approval_id: z.string().optional() },
+      inputSchema: z.object({ project, actor, request_id, verbose, key, n: z.number().int(), reason: z.string().min(1) }).loose(),
       annotations: write,
     },
-    writeHandler("waive_check", (input, ctx) => waiveCheck(db, input, ctx)),
+    writeHandler("waive_check", (input, ctx) => waiveCheck(db, input as Parameters<typeof waiveCheck>[1], ctx)),
   );
 
   server.registerTool(
@@ -977,9 +961,9 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "get_inbox",
     {
       description: [
-        "Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (pending approvals, open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac).",
+        "Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac).",
         "count and by_project count decisiones and pasos; chores counts limpieza. Each item says why it waits, how long (wait_s), the latest passing evidence and the PR. project: a slug, or 'all'. count 0 means nothing needs him.",
-        "delegated lists answers plania-bot recorded for the owner (quote, message id, time), including ones that already closed, so he can review them.",
+        "delegated lists answers plania-bot recorded and Won't do or reopen moves an agent logged (quote, message id, time), so he can review them.",
       ].join(" "),
       inputSchema: { project: z.string().min(1).describe("Project slug, or all") },
       annotations: readOnly,
@@ -992,7 +976,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
-        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, and the footprint codes.",
+        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, WONT_DO_WITHOUT_EVIDENCE, and the footprint codes.",
         "CLAIMABLE_BUT_GATED is the previous name of CLAIMABLE_BUT_WAITING, kept as an alias for one release.",
         "Each finding has key, detail and fix_hint. It also runs every ten minutes; get_resume.status.audit_findings is the last count.",
       ].join(" "),
@@ -1007,7 +991,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note),",
-        "the pinned decisions that apply, open questions and pending approvals on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). UNKNOWN_BRANCH when nothing is on the branch.",
+        "the pinned decisions that apply, open questions on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). approvals is always an empty list. UNKNOWN_BRANCH when nothing is on the branch.",
       ].join(" "),
       inputSchema: {
         project,
@@ -1051,20 +1035,21 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Hold a shared thing for a while so no other session uses it: a dev port (port:3001, scoped to your machine automatically), the production migrate step (neon-prod:migrate), anything by name.",
-        "RESOURCE_HELD says who has it and until when. Leasing again extends it. Names matching a settings.resources policy with needs_approval need an approval_id (request_approval, action lease_resource, target {name}) on a key-less approval: ask on the initiative.",
+        "RESOURCE_HELD says who has it and until when. Leasing again extends it. ttl_max on a settings.resources policy still caps the lease. A needs_approval flag is ignored, and so is approval_id.",
       ].join(" "),
-      inputSchema: {
-        project,
-        actor,
-        request_id,
-        name: z.string().min(1),
-        ttl_minutes: z.number().int().optional().describe("Default 30, max 1440"),
-        purpose: z.string().optional(),
-        approval_id: z.string().optional(),
-      },
+      inputSchema: z
+        .object({
+          project,
+          actor,
+          request_id,
+          name: z.string().min(1),
+          ttl_minutes: z.number().int().optional().describe("Default 30, max 1440"),
+          purpose: z.string().optional(),
+        })
+        .loose(),
       annotations: write,
     },
-    writeHandler("lease_resource", (input, ctx) => leaseResource(db, input, ctx)),
+    writeHandler("lease_resource", (input, ctx) => leaseResource(db, input as Parameters<typeof leaseResource>[1], ctx)),
   );
 
   server.registerTool(

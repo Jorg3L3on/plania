@@ -129,7 +129,7 @@ api.post("/delegation", async (c) => {
 api.post("/delegated/reviewed", async (c) => {
   const refused = delegationAuth(c);
   if (refused) return refused;
-  const body = await readJson(c, z.object({ ids: z.array(z.string().uuid()).max(500) }).strict());
+  const body = await readJson(c, z.object({ ids: z.array(z.string().min(1).max(80)).max(500) }).strict());
   if (body instanceof Response) return body;
   const reviewed = await withDb((db) => markDelegatedReviewed(db, body.ids));
   return c.json({ reviewed });
@@ -380,6 +380,7 @@ const taskPatch = z.object({
   status: z.string().optional(),
   priority: z.string().optional(),
   note: z.string().optional(),
+  reason: z.string().optional(),
   version: z.number().int().optional(),
 });
 

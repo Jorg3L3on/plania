@@ -1,12 +1,12 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { approvals, auditRuns, blockers, branches, checks, decisions, delegatedAnswers, envStates, pullRequests, questions, results, tasks, type Project, type Task } from "../db/schema.js";
+import { approvals, auditRuns, blockers, branches, checks, decisions, delegatedAnswers, envStates, events, pullRequests, questions, results, tasks, type Project, type Task } from "../db/schema.js";
 import { hasUnsatisfiedBlocker, openHumanActions } from "./blockers.js";
 import { footprintFindings } from "./footprint-audit.js";
 import { WAITING_ON_JORGE, gatingSql, parseJorgeLines } from "./jorge-lines.js";
 import { prefixOf } from "./keys.js";
 import { releasePending, releasePlan } from "./release-plan.js";
-import { iso, type Q } from "./tx.js";
+import { isScreenActor, iso, type Q } from "./tx.js";
 
 // The project audit (R-31): what the server can see is wrong, from data it already has. Pure
 // reads, one function per finding code; `audit(project)` runs them on demand and the audit job
@@ -17,6 +17,9 @@ import { iso, type Q } from "./tx.js";
 export type Finding = { code: string; key: string | null; detail: string; fix_hint: string; id?: string; command?: string; level?: "info" | "warn" };
 
 /** Scope says the ticket must wait, and nothing typed holds it. */
+/** Won't do with no screen actor and no delegated evidence, and no historical granted wont_do row. */
+export const WONT_DO_WITHOUT_EVIDENCE = "WONT_DO_WITHOUT_EVIDENCE";
+
 export const CLAIMABLE_BUT_WAITING = "CLAIMABLE_BUT_WAITING";
 /** Previous code, one release. Same finding as CLAIMABLE_BUT_WAITING. */
 export const CLAIMABLE_BUT_GATED = "CLAIMABLE_BUT_GATED";
@@ -97,7 +100,7 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   }
   for (const t of all.filter((t) => t.status === "Merged" || t.status === "Released")) {
     const open = openOf(t);
-    if (open.length) out.push({ code: "MERGED_CHECKS_OPEN", key: t.key, detail: `checks ${open.join(", ")} open after the merge`, fix_hint: "waive_check (needs an approval) or add the missing evidence" });
+    if (open.length) out.push({ code: "MERGED_CHECKS_OPEN", key: t.key, detail: `checks ${open.join(", ")} open after the merge`, fix_hint: "waive_check with the reason, or add the missing evidence" });
   }
   // Initiatives closed with open children, or a status section inside the spec.
   for (const i of all.filter((t) => t.kind === "initiative")) {
@@ -184,7 +187,6 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   }
   // 2.8: "waiting on Jorge" written as free text, with nothing he can act on in the inbox.
   const openQ = new Set((await db.select({ taskId: questions.taskId }).from(questions).where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt)))).map((r) => r.taskId));
-  const openA = new Set((await db.select({ taskId: approvals.taskId }).from(approvals).where(and(eq(approvals.projectId, p.id), eq(approvals.state, "pending")))).map((r) => r.taskId));
   const humanActionOn = new Set((await openHumanActions(db, p.id)).map((r) => r.b.taskId));
   // 2.10: the parser (jorge-lines.ts) turns most of these into blockers on the next write; the detail
   // says so, or names the parsed blocker when Jorge already marked it done and the text still waits.
@@ -197,22 +199,22 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   for (const t of all.filter((t) => !CLOSED.includes(t.status))) {
     const texts = [t.kind === "initiative" ? t.nextAction : "", t.blockedNote ?? ""].filter(Boolean);
     const hit = texts.find((x) => WAITING_ON_JORGE.test(x));
-    if (hit && !openQ.has(t.id) && !openA.has(t.id) && !humanActionOn.has(t.id)) {
+    if (hit && !openQ.has(t.id) && !humanActionOn.has(t.id)) {
       const lines = parseJorgeLines(hit);
       const done = parsedDone.find((b) => b.taskId === t.id && lines.some((l) => l.hash === b.hash));
       const detail = done
         ? `"${hit.slice(0, 80)}" parsed into blocker ${done.id}, already marked done, and the text still waits on Jorge`
         : lines.length
-          ? `"${hit.slice(0, 80)}" with no open question, approval or human_action; the parser makes it one on the next write of that field`
-          : `"${hit.slice(0, 80)}" with no open question, approval or human_action`;
-      const fix = done ? "rewrite the text now that it is done" : "ask (question) or request_approval, or blocked_by human_action, so it reaches his inbox";
+          ? `"${hit.slice(0, 80)}" with no open question or human_action; the parser makes it one on the next write of that field`
+          : `"${hit.slice(0, 80)}" with no open question or human_action`;
+      const fix = done ? "rewrite the text now that it is done" : "ask (question) or blocked_by human_action, so it reaches his inbox";
       out.push({ code: "WAITING_ON_JORGE_FREE_TEXT", key: t.key, detail, fix_hint: fix });
     }
   }
   // 2.8: due dates that passed with the task still open.
   const today = new Date().toISOString().slice(0, 10);
   for (const t of all.filter((t) => t.dueOn && t.dueOn < today && !CLOSED.includes(t.status) && !["Merged", "Released"].includes(t.status))) {
-    out.push({ code: "OVERDUE", key: t.key, detail: `due ${t.dueOn}, still ${t.status}`, fix_hint: "finish it, move due_on, or set_task Won't do via approval" });
+    out.push({ code: "OVERDUE", key: t.key, detail: `due ${t.dueOn}, still ${t.status}`, fix_hint: "finish it, move due_on, or set_task Won't do with a reason" });
   }
   // PLA-I8-3: an open linked PR whose title and head branch carry no Plania key.
   // Merged and closed rows stay: many were linked from a "Plania: KEY" line in the body, which is not stored.
@@ -262,6 +264,46 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
       fix_hint: "review the quote on the Bandeja (badge Delegada). The kill switch on that screen turns delegated answers off; the bot cannot flip it",
       id: d.questionId ?? d.approvalId ?? d.id,
     });
+  }
+  // A Won't do that no screen session wrote and no agent backed with a quote. A granted historical
+  // row still counts, so old decisions do not all light up.
+  const wontDo = all.filter((t) => t.status === "Won't do");
+  if (wontDo.length) {
+    const ids = wontDo.map((t) => t.id);
+    const statusEvents = await db
+      .select({ taskId: events.taskId, actor: events.actor })
+      .from(events)
+      .where(and(inArray(events.taskId, ids), eq(events.type, "task.status"), sql`${events.payload}->>'to' = ${"Won't do"}`))
+      .orderBy(desc(events.id));
+    const latest = new Map<string, (typeof statusEvents)[number]["actor"]>();
+    for (const e of statusEvents) if (e.taskId && !latest.has(e.taskId)) latest.set(e.taskId, e.actor);
+    const coveredMoves = await db
+      .select({ taskId: events.taskId })
+      .from(events)
+      .where(
+        and(
+          inArray(events.taskId, ids),
+          eq(events.type, "task.delegated_move"),
+          sql`${events.payload}->>'message_id' is not null`,
+          sql`${events.payload}->>'to' = ${"Won't do"}`,
+        ),
+      );
+    const coveredGrants = await db
+      .select({ taskId: approvals.taskId })
+      .from(approvals)
+      .where(and(inArray(approvals.taskId, ids), eq(approvals.action, "wont_do"), eq(approvals.state, "granted")));
+    const covered = new Set<string>([...coveredMoves.map((m) => m.taskId), ...coveredGrants.map((g) => g.taskId)].filter((id): id is string => !!id));
+    for (const t of wontDo) {
+      if (isScreenActor(latest.get(t.id))) continue;
+      if (covered.has(t.id)) continue;
+      out.push({
+        code: WONT_DO_WITHOUT_EVIDENCE,
+        level: "warn",
+        key: t.key,
+        detail: `${t.key} is Won't do with no screen actor and no delegated evidence`,
+        fix_hint: "review it with Jorge. A screen move needs a reason; an agent move also needs delegated_by_jorge {message_id, quote}",
+      });
+    }
   }
   // What this project's agents left running on the Mac (stale servers and databases, merged worktrees).
   out.push(...(await footprintFindings(db, { projectId: p.id })));

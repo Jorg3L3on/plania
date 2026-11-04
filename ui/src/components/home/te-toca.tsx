@@ -1,30 +1,17 @@
 // "Te toca": what waits on Jorge, decided from Inicio's city. One question at a time with its
-// options, each approval with Aprobar / Rechazar, and the rest (your own actions) counted with a
-// way into the Bandeja. Every write is the same call the Bandeja makes.
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+// options, and the rest (your own actions) counted with a way into the Bandeja.
 import { ArrowRightIcon } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { accentInk, projectAccent } from "@/components/plan/visuals";
-import { api } from "@/lib/api";
-import { actionWord, waitText } from "@/lib/inbox";
+import { waitText } from "@/lib/inbox";
 import { useQuestionAnswer } from "@/lib/use-question-answer";
 import type { InboxItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type Names = (slug: string) => string;
-
-function useRefresh() {
-  const queryClient = useQueryClient();
-  return (slug: string) => {
-    void queryClient.invalidateQueries({ queryKey: ["inbox"] });
-    void queryClient.invalidateQueries({ queryKey: ["projects"] });
-    void queryClient.invalidateQueries({ queryKey: ["project", slug] });
-  };
-}
 
 function ProjectWord({ slug, names }: { slug: string; names: Names }) {
   const [a] = projectAccent(slug);
@@ -100,43 +87,6 @@ function QuestionCard({ item, index, total, names, onNext, when }: { item: Inbox
   );
 }
 
-// An approval, granted or rejected right here; one write and one event, as from the Bandeja.
-function ApprovalCard({ item, names, when }: { item: InboxItem; names: Names; when?: string }) {
-  const refresh = useRefresh();
-  const decide = useMutation({
-    mutationFn: (decision: "grant" | "reject") => api.decide([item.id], decision),
-    onSuccess: (out, decision) => {
-      const r = out.results[0];
-      if (r?.ok) toast(decision === "grant" ? "Aprobado" : "Rechazado");
-      else toast.error("Esa petición ya no estaba.");
-    },
-    onError: () => toast.error("No se pudo guardar la decisión."),
-    onSettled: () => refresh(item.project),
-  });
-  const target = item.target && Object.keys(item.target).length ? ` ${JSON.stringify(item.target)}` : "";
-  return (
-    <article className="grid gap-1.5 rounded-[16px] border bg-surface-sunken px-4 py-3">
-      <p className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
-        <ProjectWord slug={item.project} names={names} />
-        <Link to={taskHref(item)} className="font-mono text-xs text-muted-foreground underline-offset-4 hover:underline">{item.key}</Link>
-        <span className="font-medium">quiere {actionWord(item.action)}{target}</span>
-      </p>
-      {item.title && <p className="text-[13px] text-foreground/80">{item.title}</p>}
-      <p className="text-[13px] leading-snug whitespace-pre-wrap text-foreground/80">{item.why}</p>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
-        {item.evidence?.last_pass && <span>último pass: {item.evidence.last_pass.kind} · {item.evidence.last_pass.cite}</span>}
-        {item.evidence && item.evidence.open_checks > 0 && <span>{item.evidence.open_checks} {item.evidence.open_checks === 1 ? "punto abierto" : "puntos abiertos"}</span>}
-        {item.pr_url && <a href={item.pr_url} target="_blank" rel="noreferrer" className="text-ink-review underline-offset-4 hover:underline">PR</a>}
-        <span>{when ? `${when} · ` : ""}espera {waitText(item.wait_s)}</span>
-        <span className="ml-auto flex gap-2">
-          <Button size="sm" variant="destructive" disabled={decide.isPending} onClick={() => decide.mutate("reject")}>Rechazar</Button>
-          <Button size="sm" disabled={decide.isPending} onClick={() => decide.mutate("grant")}>Aprobar</Button>
-        </span>
-      </div>
-    </article>
-  );
-}
-
 // Your own actions: counted here, done from the Bandeja.
 function CountRow({ n, tone, title, detail, to, cta }: { n: number; tone: string; title: string; detail: string; to: string; cta: string }) {
   return (
@@ -152,14 +102,14 @@ function CountRow({ n, tone, title, detail, to, cta }: { n: number; tone: string
 }
 
 // What waits on Jorge for one tower of the city (or outside every tower): one question at a time,
-// each approval, and Jorge's own actions counted with a way into the Bandeja.
+// and Jorge's own actions counted with a way into the Bandeja.
 export function TeTocaItems({ items, names, when }: { items: InboxItem[]; names: Names; when?: (item: InboxItem) => string | undefined }) {
   const [qi, setQi] = useState(0);
   const groups = useMemo(() => {
     const by = (kind: InboxItem["kind"]) => items.filter((i) => i.kind === kind);
     const actions = [...by("release"), ...by("human_action")];
     const actionProjects = [...new Set(actions.map((i) => i.project))];
-    return { questions: by("question"), approvals: by("approval"), actions, actionProjects };
+    return { questions: by("question"), actions, actionProjects };
   }, [items]);
   const question = groups.questions[Math.min(qi, Math.max(0, groups.questions.length - 1))];
   if (items.length === 0) return null;
@@ -176,7 +126,6 @@ export function TeTocaItems({ items, names, when }: { items: InboxItem[]; names:
           when={when?.(question)}
         />
       )}
-      {groups.approvals.map((item) => <ApprovalCard key={item.id} item={item} names={names} when={when?.(item)} />)}
       {groups.actionProjects.map((slug) => {
         const mine = groups.actions.filter((i) => i.project === slug);
         const word = when?.(mine[0]!);

@@ -1,17 +1,23 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { approvals, delegatedAnswers, machineState, questions, tasks, type Actor } from "../db/schema.js";
-import { DELEGABLE_APPROVALS, decideInTx } from "./approvals.js";
+import { approvals, delegatedAnswers, events, machineState, questions, tasks, type Actor } from "../db/schema.js";
 import { ToolError } from "./errors.js";
 import { findProject } from "./queries.js";
 import { answerInTx, type AnswerDelegation } from "./questions.js";
-import { iso, WEB_ACTOR, writeTx, type Ctx, type Q } from "./tx.js";
+import { iso, writeTx, type Ctx, type Q } from "./tx.js";
+
+/** Old clients still send this. Accepted and ignored for one release. */
+export const LEGACY_APPROVAL_HINT =
+  "ignored approval_id; that step was removed. Won't do and reopening take reason, and an agent also sends delegated_by_jorge {message_id, quote}.";
+
+// Event ids Jorge has already reviewed. delegated_answers use reviewed_at; these moves do not have that column.
+export const MOVE_SEEN_KEY = "delegated_move_seen";
 
 export type DelegatedReviewItem = {
   id: string;
   project: string;
   key: string | null;
-  kind: "question" | "approval";
+  kind: "question" | "approval" | "move";
   action: string | null;
   answer: string | null;
   quote: string;
@@ -38,7 +44,7 @@ export async function delegatedForInbox(db: Q, projects: { id: string; slug: str
     .leftJoin(approvals, eq(approvals.id, delegatedAnswers.approvalId))
     .where(and(inArray(delegatedAnswers.projectId, projects.map((p) => p.id)), isNull(delegatedAnswers.reviewedAt)))
     .orderBy(desc(delegatedAnswers.createdAt));
-  return rows.map((r) => ({
+  const out: DelegatedReviewItem[] = rows.map((r) => ({
     id: r.d.id,
     project: slugOf.get(r.d.projectId) ?? "",
     key: r.qkey ?? r.akey,
@@ -49,18 +55,73 @@ export async function delegatedForInbox(db: Q, projects: { id: string; slug: str
     message_id: r.d.messageId,
     at: iso(r.d.createdAt),
   }));
+  const seen = new Set(await seenMoveIds(db));
+  const moves = await db
+    .select({ id: events.id, projectId: events.projectId, key: events.taskKey, payload: events.payload, at: events.createdAt })
+    .from(events)
+    .where(
+      and(
+        inArray(events.projectId, projects.map((p) => p.id)),
+        eq(events.type, "task.delegated_move"),
+        sql`${events.payload}->>'message_id' is not null`,
+      ),
+    )
+    .orderBy(desc(events.id));
+  for (const m of moves) {
+    if (seen.has(m.id)) continue;
+    const payload = m.payload as { action?: unknown; quote?: unknown; message_id?: unknown };
+    const quote = typeof payload.quote === "string" ? payload.quote : "";
+    const messageId = typeof payload.message_id === "string" ? payload.message_id : "";
+    if (!quote || !messageId) continue;
+    out.push({
+      id: String(m.id),
+      project: slugOf.get(m.projectId) ?? "",
+      key: m.key,
+      kind: "move",
+      action: typeof payload.action === "string" ? payload.action : null,
+      answer: null,
+      quote,
+      message_id: messageId,
+      at: iso(m.at),
+    });
+  }
+  return out.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+}
+
+async function seenMoveIds(db: Q): Promise<number[]> {
+  const [row] = await db.select().from(machineState).where(eq(machineState.key, MOVE_SEEN_KEY)).limit(1);
+  const ids = (row?.value as { ids?: unknown } | undefined)?.ids;
+  return Array.isArray(ids) ? ids.filter((n): n is number => typeof n === "number") : [];
 }
 
 // PLA-06: Jorge saw these on the Bandeja. Screen only: no MCP tool calls this. The rows stay as
-// the record; reviewed_at takes them off the list and the audit.
+// the record; reviewed_at takes an answer off the list, and a numeric id takes a logged move off it.
 export async function markDelegatedReviewed(db: Q, ids: string[]): Promise<number> {
   if (!ids.length) return 0;
-  const rows = await db
-    .update(delegatedAnswers)
-    .set({ reviewedAt: sql`now()` })
-    .where(and(isNull(delegatedAnswers.reviewedAt), inArray(delegatedAnswers.id, ids)))
-    .returning({ id: delegatedAnswers.id });
-  return rows.length;
+  const answers = ids.filter((id) => id.includes("-"));
+  const moves = [...new Set(ids.filter((id) => /^\d+$/.test(id)).map((id) => Number(id)))];
+  let n = 0;
+  if (answers.length) {
+    const rows = await db
+      .update(delegatedAnswers)
+      .set({ reviewedAt: sql`now()` })
+      .where(and(isNull(delegatedAnswers.reviewedAt), inArray(delegatedAnswers.id, answers)))
+      .returning({ id: delegatedAnswers.id });
+    n += rows.length;
+  }
+  if (moves.length) {
+    const seen = new Set(await seenMoveIds(db));
+    const fresh = moves.filter((id) => !seen.has(id));
+    if (fresh.length) {
+      const idsNext = [...seen, ...fresh];
+      await db
+        .insert(machineState)
+        .values({ key: MOVE_SEEN_KEY, value: { ids: idsNext } })
+        .onConflictDoUpdate({ target: machineState.key, set: { value: { ids: idsNext }, updatedAt: sql`now()` } });
+      n += fresh.length;
+    }
+  }
+  return n;
 }
 
 // PLA-I15-2. The owner stays the one who answers a human-only question, by a click on his screen.
@@ -134,43 +195,39 @@ function assertBot(ctx: Ctx): void {
   }
 }
 
-async function assertUnderHourlyCap(tx: Q): Promise<void> {
-  const [row] = await tx
+// Answers and agent Won't do / reopen moves share one hourly budget.
+export async function assertDelegationHourlyCap(tx: Q): Promise<void> {
+  const [answers] = await tx
     .select({ n: sql<number>`count(*)::int` })
     .from(delegatedAnswers)
     .where(sql`${delegatedAnswers.createdAt} > now() - interval '1 hour'`);
-  if ((row?.n ?? 0) >= DELEGATION_HOUR_MAX) {
+  const [moves] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(events)
+    .where(sql`${events.type} = 'task.delegated_move' and ${events.payload}->>'message_id' is not null and ${events.createdAt} > now() - interval '1 hour'`);
+  if ((answers?.n ?? 0) + (moves?.n ?? 0) >= DELEGATION_HOUR_MAX) {
     throw new ToolError("DELEGATION_LIMIT", { reason: "hour", max: DELEGATION_HOUR_MAX });
   }
 }
 
 export async function answerDelegated(db: Db, input: DelegationInput, ctx: Ctx) {
+  const questionId = input.question_id?.trim() || "";
+  const legacy = typeof input.approval_id === "string" && input.approval_id.trim().length > 0;
+  // The old approval target is not a write. Any caller gets the hint and nothing is stored.
+  if (!questionId) {
+    if (legacy) return { ignored: true, hint: LEGACY_APPROVAL_HINT };
+    throw new ToolError("NOT_DELEGABLE", { field: "target", hint: "pass question_id" });
+  }
   assertBot(ctx);
   const evidence = parseDelegationEvidence(input.delegated_by_jorge);
-  const questionId = input.question_id?.trim() || "";
-  const approvalId = input.approval_id?.trim() || "";
-  if ((!questionId && !approvalId) || (questionId && approvalId)) {
-    throw new ToolError("NOT_DELEGABLE", { field: "target", hint: "pass question_id or approval_id, not both" });
-  }
-  if (questionId && input.decision !== undefined) throw new ToolError("NOT_DELEGABLE", { field: "decision" });
-  if (approvalId && input.option !== undefined) throw new ToolError("NOT_DELEGABLE", { field: "option" });
   const delegation: AnswerDelegation = { ...evidence, actor: delegatingActor(ctx.actor) };
   const p = await findProject(db, input.project);
   return writeTx(db, p, ctx, async (tx, emit) => {
     if (!(await delegationEnabled(tx))) throw new ToolError("DELEGATION_OFF");
-    await assertUnderHourlyCap(tx);
-    if (questionId) {
-      const option = input.option ?? "";
-      if (!option.trim()) throw new ToolError("INVALID_QUESTION", { field: "option" });
-      return answerInTx(tx, emit, p, { question_id: questionId, answer: option }, ctx, delegation);
-    }
-    if (input.decision !== "grant" && input.decision !== "reject") {
-      throw new ToolError("NOT_DELEGABLE", { field: "decision", accepts: ["grant", "reject"] });
-    }
-    // decidedBy is the owner. The evidence row keeps the bot. A grant then unlocks the one move
-    // the same way a click on the screen does. waive_check and the other actions are refused.
-    return decideInTx(tx, emit, p, { approval_id: approvalId, decision: input.decision }, WEB_ACTOR, delegation);
+    await assertDelegationHourlyCap(tx);
+    const option = input.option ?? "";
+    if (!option.trim()) throw new ToolError("INVALID_QUESTION", { field: "option" });
+    const answered = await answerInTx(tx, emit, p, { question_id: questionId, answer: option }, ctx, delegation);
+    return legacy ? { ...answered, hint: LEGACY_APPROVAL_HINT } : answered;
   });
 }
-
-export { DELEGABLE_APPROVALS };

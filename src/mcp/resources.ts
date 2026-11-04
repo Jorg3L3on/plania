@@ -1,14 +1,14 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { quotaUsage, resources, type Project } from "../db/schema.js";
-import { loadApproval, useApproval } from "./approvals.js";
+import { LEGACY_APPROVAL_HINT } from "./delegate.js";
 import { ToolError } from "./errors.js";
 import { findProject } from "./queries.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
 // Shared resources (R-10): a lease on a name (port:3001@MacBook-Air, neon-prod:migrate) that one
 // session holds at a time, and daily quotas (quota:omdb) counted with consume. Policies live in
-// projects.settings.resources (needs_approval, ttl_max) and settings.quotas ({daily}).
+// projects.settings.resources (ttl_max) and settings.quotas ({daily}). A needs_approval flag is ignored.
 
 const NAME = /^[a-z][a-z0-9:_./-]{0,79}(@[A-Za-z0-9._-]{1,60})?$/;
 const TTL = { default: 30, min: 1, max: 24 * 60 };
@@ -61,27 +61,17 @@ export async function leaseResource(
     if (held && held.holder.session_id !== ctx.actor.session_id) {
       throw new ToolError("RESOURCE_HELD", { name, holder: held.holder, lease_until: iso(held.leaseUntil), purpose: held.purpose });
     }
-    let approvalId: string | null = held?.approvalId ?? null;
-    if (policy?.needs_approval && !held) {
-      if (!input.approval_id) throw new ToolError("APPROVAL_REQUIRED", { action: "lease_resource", target: { name } });
-      const a = await loadApproval(tx, p.id, input.approval_id);
-      // Resource approvals hang off the project: a task-less approval with target {name}.
-      if (a.taskId || a.action !== "lease_resource" || (a.target as { name?: string }).name !== name) {
-        throw new ToolError("APPROVAL_MISMATCH", { approval_id: a.id, expected: { action: "lease_resource", target: { name } } });
-      }
-      await useApproval(tx, emit, a, { id: a.taskId ?? "", key: a.taskKey ?? "" } as never, "lease_resource", { name }, ctx);
-      approvalId = a.id;
-    }
     const [r] = await tx
       .insert(resources)
-      .values({ projectId: p.id, name, holder: ctx.actor, purpose: input.purpose?.trim() ?? "", leaseUntil: sql`now() + make_interval(mins => ${minutes})`, approvalId })
+      .values({ projectId: p.id, name, holder: ctx.actor, purpose: input.purpose?.trim() ?? "", leaseUntil: sql`now() + make_interval(mins => ${minutes})`, approvalId: null })
       .onConflictDoUpdate({
         target: [resources.projectId, resources.name],
         set: { leaseUntil: sql`now() + make_interval(mins => ${minutes})`, purpose: input.purpose?.trim() ?? held?.purpose ?? "", holder: ctx.actor },
       })
       .returning();
     await emit(held ? "resource.extended" : "resource.leased", null, { name, purpose: r!.purpose, lease_until: iso(r!.leaseUntil), minutes });
-    return { resource: resourceShape(r!), extended: !!held };
+    const hint = typeof input.approval_id === "string" && input.approval_id.trim() ? LEGACY_APPROVAL_HINT : undefined;
+    return { resource: resourceShape(r!), extended: !!held, ...(hint ? { hint } : {}) };
   });
 }
 

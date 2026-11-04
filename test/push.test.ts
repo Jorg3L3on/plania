@@ -191,17 +191,17 @@ describe("the push job", () => {
     assert.equal((await withDb((db) => runPush(db, new Date(), fake.send))).new, 0, "nothing new, nothing sent");
     assert.equal(fake.sent.length, 0);
 
-    // A burst in one minute: an approval, a human_action and a Jorge: line.
+    // A leftover approval row is not inbox news. A human_action and a Jorge: line are two steps.
     await withDb(async (db) => {
       await requestApproval(db, { project: "zigzag", key: "ZIG-01", action: "wont_do", reason: "dup" }, ctx);
       await writes.createTask(db, { project: "zigzag", title: "Con paso", ...T, blocked_by: [{ human_action: { text: "Crear la cuenta de Stripe" } }] }, ctx);
       await writes.setTask(db, { project: "zigzag", key: "ZIG-01", note: "Jorge: rotar la llave de Vercel" }, ctx);
     });
     const burst = await withDb((db) => runPush(db, new Date(), fake.send));
-    assert.equal(burst.new, 3);
-    assert.equal(fake.sent.length, 2, "three new things, still one message per device");
-    assert.equal(fake.sent[0]!.body.title, "Te toca: 1 decisión y 2 pasos");
-    assert.equal(fake.sent[0]!.body.url, "/inbox?tab=decisiones");
+    assert.equal(burst.new, 2);
+    assert.equal(fake.sent.length, 2, "two new steps, still one message per device");
+    assert.equal(fake.sent[0]!.body.title, "Te toca: 2 pasos");
+    assert.equal(fake.sent[0]!.body.url, "/inbox?tab=pasos");
   });
 
   test("a step alone opens Pasos; 410 removes the subscription, other failures stamp failed_at", async () => {

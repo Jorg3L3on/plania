@@ -78,8 +78,8 @@ const STAGE_OF: Record<string, Stage> = { Planning: "planning", Active: "buildin
 export const columnsFor = (n: number) => (n <= 20 ? 2 : n <= 45 ? 3 : 4);
 
 /**
- * A next step that is Jorge's now, as agents write them: "Jorge: …", "Jorge to …", "Awaiting Jorge's
- * approval", "Esperar el OK de Jorge …". Each sentence counts only up to its "then" / "luego", so
+ * A next step that is Jorge's now, as agents write them: "Jorge: …", "Jorge to …",
+ * "Esperar el OK de Jorge …". Each sentence counts only up to its "then" / "luego", so
  * "Get CI green, then Jorge merges" is still the agent's; "skipped by Jorge" is history, not a request.
  */
 export function addressedToJorge(note: string): boolean {

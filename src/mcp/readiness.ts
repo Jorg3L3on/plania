@@ -1,6 +1,5 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
-  approvals,
   blockers,
   branches,
   envStates,
@@ -108,7 +107,7 @@ export type ReadinessInput = {
   envUnknown: boolean;
   initiatives: { key: string; nextAction: string; stateNoteStale: boolean }[];
   tickets: ReadinessTicket[];
-  /** Open question, pending approval, or unsatisfied human_action, one entry per task. */
+  /** Open question or unsatisfied human_action, one entry per task. */
   decisions: { task_key: string | null }[];
 };
 
@@ -368,7 +367,7 @@ export type ReadinessCache = {
 };
 
 // One project. Reuses the digest's rows: tasks and leases, pull requests, blockers, questions,
-// approvals, footprints, env drift, areas, notes and the latest event. A few queries, no per-ticket loop
+// footprints, env drift, areas, notes and the latest event. A few queries, no per-ticket loop
 // except blockerList on tickets that already have an unsatisfied blocker.
 export async function loadReadiness(db: Q, p: Project, cache: ReadinessCache = {}): Promise<Readiness> {
   const now = new Date();
@@ -378,10 +377,9 @@ export async function loadReadiness(db: Q, p: Project, cache: ReadinessCache = {
   const owned = all.filter((t) => t.kind === "ticket" && t.leaseUntil && (liveOwner(t, now) !== null || t.owner !== null));
   const ownedIds = owned.map((t) => t.id);
 
-  const [prs, openQ, pending, humanRows, polls, footRows, activity, heldRows, lastEvent, nextKey, behind] = await Promise.all([
+  const [prs, openQ, humanRows, polls, footRows, activity, heldRows, lastEvent, nextKey, behind] = await Promise.all([
     db.select().from(pullRequests).where(eq(pullRequests.projectId, p.id)),
     db.select({ taskId: questions.taskId }).from(questions).where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt))),
-    db.select({ taskId: approvals.taskId }).from(approvals).where(and(eq(approvals.projectId, p.id), eq(approvals.state, "pending"))),
     db
       .select({ taskId: blockers.taskId })
       .from(blockers)
@@ -442,7 +440,6 @@ export async function loadReadiness(db: Q, p: Project, cache: ReadinessCache = {
     decisions.push({ task_key: key });
   };
   for (const row of openQ) addDecision(row.taskId);
-  for (const row of pending) addDecision(row.taskId);
   for (const row of humanRows) addDecision(row.taskId);
 
   const initiatives = all

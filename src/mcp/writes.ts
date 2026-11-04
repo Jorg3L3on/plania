@@ -24,8 +24,8 @@ import {
   writeReply,
   type WriteWarning,
 } from "./queries.js";
-import { loadApproval, useApproval } from "./approvals.js";
 import { parseBlockers, promoteUnblocked, replaceBlockers, resolveTaskBlockers, unsatisfiedBlockers, type BlockerInput } from "./blockers.js";
+import { LEGACY_APPROVAL_HINT, assertDelegationHourlyCap, delegationEnabled, parseDelegationEvidence } from "./delegate.js";
 import { assertBranchName, assertTicketBranch, registerIntegrationBranch } from "./branches.js";
 import { assertChecksClosed, replaceChecks, tickDerived, type CheckInput } from "./checks.js";
 import { hasDoc } from "./docs.js";
@@ -417,7 +417,11 @@ export type SetTaskInput = {
   work_type?: string;
   note?: string;
   version?: number;
+  /** Ignored for one release. Old clients still send it. */
   approval_id?: string;
+  /** Required when the status move is Won't do or a reopen. */
+  reason?: string;
+  delegated_by_jorge?: { message_id?: string; quote?: string };
   withdraw_blocker?: string;
   integration_branch?: string;
   share_branch?: boolean;
@@ -472,7 +476,19 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   rejectBody(input);
   checkPhase(input.phase);
   const blockedBy = input.blocked_by !== undefined ? parseBlockers(input.blocked_by) : undefined;
-  const { project: _p, key: _k, note: _n, version: _v, approval_id: _a, withdraw_blocker: _w, no_pr_reason: _r, ...fields } = input;
+  const {
+    project: _p,
+    key: _k,
+    note: _n,
+    version: _v,
+    approval_id: legacyApproval,
+    reason: _reason,
+    delegated_by_jorge: _evidence,
+    withdraw_blocker: _w,
+    no_pr_reason: _r,
+    ...fields
+  } = input;
+  const legacyHint = typeof legacyApproval === "string" && legacyApproval.trim() ? LEGACY_APPROVAL_HINT : undefined;
   // A note alone is an append and needs no version; any field change does. Withdrawing a blocker
   // parsed from your own note is the same kind of append-side write (checked against its author).
   const noteOnly = Object.values(fields).every((v) => v === undefined);
@@ -480,26 +496,28 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   rejectFields(t.kind, input, t.kind === "initiative" ? [...TICKET_ONLY, ...IDEA_ONLY] : t.kind === "idea" ? [...TICKET_ONLY, ...INITIATIVE_ONLY] : [...INITIATIVE_ONLY, ...IDEA_ONLY]);
   // The pollers write what GitHub and the deploys say: no version to carry, no lease to respect.
   checkVersion(t.version, input.version, !noteOnly && !ctx.system);
-  if (!noteOnly && !ctx.system) checkOwner(t, ctx);
+  const needed = input.status !== undefined && input.status !== t.status ? actionForMove(t.status, input.status) : null;
+  // Evidence is the authorization, so a bot that does not hold the lease may still make this one move.
+  let delegated: { messageId: string; quote: string } | undefined;
+  if (needed && !ctx.human && !ctx.system && input.delegated_by_jorge) {
+    if (!(await delegationEnabled(tx))) throw new ToolError("DELEGATION_OFF");
+    delegated = parseDelegationEvidence(input.delegated_by_jorge);
+    await assertDelegationHourlyCap(tx);
+  }
+  if (!noteOnly && !ctx.system && !delegated) checkOwner(t, ctx);
   const patch: TaskPatch = {};
-  let approved = false;
-  const approval = input.approval_id ? await loadApproval(tx, p.id, input.approval_id) : undefined;
-  const needed = input.status !== undefined ? actionForMove(t.status, input.status) : null;
+  let logged = false;
   const changes: Record<string, [unknown, unknown]> = {};
 
   if (input.status !== undefined) {
     checkStatus(t.kind, input.status);
-    if (approval && needed && approval.action !== needed) {
-      throw new ToolError("APPROVAL_MISMATCH", { approval_id: approval.id, expected: { key: approval.taskKey, action: approval.action, target: approval.target } });
-    }
-    approved = assertTransition(t.kind, t.status, input.status, {
+    logged = assertTransition(t.kind, t.status, input.status, {
       human: ctx.human,
       via: ctx.system ? "system" : "set_task",
-      approval: approval ? { action: approval.action } : null,
       workType: input.work_type ?? t.workType,
+      reason: input.reason,
+      delegated: !!delegated,
     });
-    // The approval is checked (and spent) before the status checks: a wrong or used one is refused first.
-    if (approved && approval && needed) await useApproval(tx, emit, approval, t, needed, {}, ctx);
     if (input.status === "In review" && t.kind === "ticket" && t.status !== "In review" && !ctx.human && !ctx.system) {
       await assertReviewEvidence(tx, t, hasDoc);
     }
@@ -638,7 +656,15 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   if (patch.status !== undefined && patch.status !== t.status) {
     changedNames.push("status");
     await emit("task.status", u, { from: t.status, to: patch.status, ...(patch.blockedNote ? { note: patch.blockedNote } : {}) });
-    if (approved && approval) await emit("task.approved_move", u, { from: t.status, to: patch.status, approval_id: approval.id });
+    if (logged) {
+      await emit("task.delegated_move", u, {
+        from: t.status,
+        to: patch.status,
+        action: actionForMove(t.status, input.status!),
+        reason: input.reason?.trim(),
+        ...(delegated ? { message_id: delegated.messageId, quote: delegated.quote } : {}),
+      });
+    }
     if (t.owner) {
       changedNames.push("claim");
       await emit("claim.released", u, { owner: t.owner, reason: "status" });
@@ -674,7 +700,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   // Blocked with blockers that already hold goes straight back to Ready.
   if (parsed.length || input.withdraw_blocker) changedNames.push("blocked_by");
   if (patch.status === "Blocked") await promoteUnblocked(tx, emit, p.id);
-  return writeReply(tx, u, ctx, changedNames, rekey ? { previous_key: rekey[0] } : {}, warnings);
+  return writeReply(tx, u, ctx, changedNames, { ...(rekey ? { previous_key: rekey[0] } : {}), ...(legacyHint ? { hint: legacyHint } : {}) }, warnings);
 }
 
 // R-06: hand a claim to another session (or "open" to anyone) with what is done, what is next and the

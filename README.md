@@ -131,6 +131,12 @@ Old question rows stay as read-only history: the letter column, its check constr
 
 Until `0030` runs, an open old row stays out of the inbox and can only be closed on the screen; it moves nothing. The protocol moves to 2.17.
 
+### Upgrading to 2.18 (direct moves)
+
+No migration and no schema change. `pnpm build`, then restart the service. The protocol moves to 2.18.
+
+`request_approval` is gone. Won't do and reopening a closed task are a direct `set_task`: a `reason`, and an agent also sends `delegated_by_jorge` `{message_id, quote}` (the same evidence as `answer_delegated`). The screen session needs only the reason. The move is logged (`task.delegated_move`) and, when an agent sent a quote, listed in the inbox delegated list. `waive_check` takes the reason alone, at every status. `lease_resource` ignores `needs_approval`. An `approval_id` on those calls is accepted and ignored, and the reply includes a hint, for one release. Old approval rows stay as history. A Won't do with no screen actor, no delegated evidence and no historical granted row is the audit finding `WONT_DO_WITHOUT_EVIDENCE`.
+
 ### GitHub token file
 
 No migration. `pnpm build`, then restart the service (`launchctl kickstart -k gui/$(id -u)/com.plania.server`).
@@ -149,11 +155,13 @@ Questions asked before 2.17 may carry a letter (A, B or C) on an old column. Tha
 
 ### Delegated answers
 
-When the owner is away from the Mac he can tell the Plania bot (actor agent exactly `plania-bot`) in his own chat what to answer. That bot calls MCP `answer_delegated` on the existing write token. The call grants or rejects one pending `wont_do` or `reopen` approval, or answers one human_only question that has named options with one of those options. A row that still carries the pre-2.17 letter is `NOT_DELEGABLE`. Required: `delegated_by_jorge.message_id` (8 to 200 characters) and `delegated_by_jorge.quote` (8 to 280 characters). Missing, empty or short evidence is `DELEGATION_EVIDENCE`. Any other agent, including `jorge` (`RESERVED_ACTOR`) and a caller that spoofs the screen session, is refused. The normal `answer` tool stays `HUMAN_ONLY`.
+When the owner is away from the Mac he can tell the Plania bot (actor agent exactly `plania-bot`) in his own chat what to answer. That bot calls MCP `answer_delegated` on the existing write token. The call answers one human_only question that has named options with one of those options. A row that still carries the pre-2.17 letter is `NOT_DELEGABLE`. An `approval_id` on that call is ignored. Required: `delegated_by_jorge.message_id` (8 to 200 characters) and `delegated_by_jorge.quote` (8 to 280 characters). Empty or short evidence is `DELEGATION_EVIDENCE`. Any other agent, including `jorge` (`RESERVED_ACTOR`) and a caller that spoofs the screen session, is refused. The normal `answer` tool stays `HUMAN_ONLY`.
+
+Won't do and reopening are not this tool. Any agent calls `set_task` with `reason` and the same `delegated_by_jorge` evidence. The screen does it with the reason alone. Both are logged. Agent moves join this delegated list.
 
 The answer or decision is stored as the owner's (the screen actor). `delegated_answers` keeps the message id, the quote, the delegating actor and the time. The audit lists each one as `DELEGATED_ANSWER` (warn) for review.
 
-Limits: 10 delegated answers per hour and one per question or approval (`DELEGATION_LIMIT`). The kill switch defaults on. Off, the tool returns `DELEGATION_OFF`. The switch is `POST /api/delegation` with the session cookie. No cookie is 401. A Bearer is 403, with or without the cookie. MCP, `/hooks` and `/bot/v1` cannot toggle it, and the bot cannot raise its own limit.
+Limits: 10 delegated answers and agent Won't do or reopen moves per hour, and one answer per question (`DELEGATION_LIMIT`). The kill switch defaults on. Off, the tool and those agent moves return `DELEGATION_OFF`. The switch is `POST /api/delegation` with the session cookie. No cookie is 401. A Bearer is 403, with or without the cookie. MCP, `/hooks` and `/bot/v1` cannot toggle it, and the bot cannot raise its own limit.
 
 Honest limit: the actor `plania-bot` is an identity declared in the request, and all bots on the Mac share the same write token, so the server cannot technically prove that the caller is the Plania bot or that the quoted message really exists. The controls are the required evidence (message id and quote), the audit plus the visible badge, the rate limit, the kill switch, and the rule that only the owner's own message counts. This is not a proof of identity. Do not treat it as one.
 
@@ -269,9 +277,9 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `list_projects` | Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim, else the last event, else empty), ticket counts (open, in_progress, in_review, needs_jorge, blocked, done), open_questions, claims, last_event_id and last_event_at, and readiness (state, reasons, line; same object as get_resume), sorted by slug. |
 | `get_running` | Every ticket with an owner, across projects, with a derived liveness: live (lease valid, activity in the last 20 min), quiet (lease valid, no heartbeat or event for longer), stale (lease ran out, not yet cleared). |
 | `get_digest` | One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects and readiness (state, reasons, line) on each changed project. |
-| `get_inbox` | Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (pending approvals, open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac). |
-| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, and the footprint codes. |
-| `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions and pending approvals on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). |
+| `get_inbox` | Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac). |
+| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, WONT_DO_WITHOUT_EVIDENCE, and the footprint codes. |
+| `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). |
 | `list_agents` | The company roster: every bot, coder and human, with role, title, who they report to, capabilities, kind, status, last check-in and note. |
 | `list_goals` | Company goals and the project goals under them. |
 
@@ -292,7 +300,6 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `answer_delegated` | Record one answer the owner gave actor agent plania-bot in his own chat. |
 | `set_project` | Edit the project's title, body (stack, repo, prod, constraints), rules (project-specific additions to the protocol) or headline. |
 | `set_env` | Record what an environment runs, as data other sessions can check: commit and branch deployed, migrations (the tags applied, e.g. ['0009_x']; migrations_applied is derived), flags (configuration state, never secret values: {google_oauth: false, omdb_key: 'valid'}; null removes one). |
-| `request_approval` | Ask Jorge to approve one move you cannot make yourself: action wont_do \| reopen (a status change), waive_check (target {n}, once In review or later), runbook_step, lease_resource. |
 | `waive_check` | Mark one Done when item as not going to be done, with the reason (it then counts as closed for In review and Done). |
 | `retire_decision` | Retire a decision that no longer holds and has no replacement (to replace one, add_decision with supersedes). |
 | `handoff` | Hand your claim to another session (its session_id) or to anyone ('open'), with a note: what is done, what is next, the branch head (head_sha). |
@@ -366,10 +373,11 @@ Rules every write follows:
 - **Tokens.** Issued on screen at `/tokens`, shown once, stored hashed: name, agent, machine and scopes `read`
   (read tools), `write` (every write but ops), `ops` (`set_env`, `reserve_sequence`). Revoking one stops its next call.
   The static `.env` tokens keep working, unbound.
-- **Approvals.** Won't do and reopening a closed task are Jorge's. An agent asks with `request_approval` (also for a waiver
-  once In review, a runbook step or a resource marked needs_approval); Jorge grants or rejects in the inbox, one event per decision;
-  the granted `approval_id` unlocks exactly one move (`APPROVAL_MISMATCH`, `APPROVAL_NOT_GRANTED`, `APPROVAL_USED`)
-  and expires after 7 days. `confirm_by_jorge` is gone. Jorge's own moves on screen need no approval.
+- **Won't do and reopening.** Jorge's. On screen, `set_task` with a `reason`. An agent sends `reason` and
+  `delegated_by_jorge` `{message_id, quote}`. Without that evidence the move is `HUMAN_ONLY`. Each move is logged
+  (`task.delegated_move`) and an agent's quote is listed under delegated in the inbox. `waive_check` is the reason
+  alone. `lease_resource` does not wait. `approval_id` is ignored for one release. Old rows stay as history.
+  `WONT_DO_WITHOUT_EVIDENCE` flags a Won't do that has neither a screen actor, nor a quote, nor a historical granted row.
 - **Start and finish.** `start` is `claim` plus `get_context` in one call (with any handoff note); `finish` is
   `add_result` plus In review with branch and pr_url in one transaction, so a failure writes neither.
 - **PRs.** Done, Merged or Released on a code ticket without `pr_url` is `TASK_MISSING_PR_URL` unless the write passes
@@ -391,7 +399,7 @@ Rules every write follows:
   Done is the agents' once the work is finished: code, bug and debt tickets from Merged or Released; ops and research
   from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open
   status once its tickets are closed. Elsewhere it is `INVALID_TRANSITION` with `allowed_from`. Won't do and reopening
-  are Jorge's: on screen, or with an approval he granted.
+  are Jorge's: on screen with a reason, or by an agent with a reason and `delegated_by_jorge`.
 - **Evidence.** In review needs a result recorded during the current claim: code a passing
   unit|integration|test|live|ci; ops live|verify|ci; research any result or a doc; decision-needed never.
 - **Template.** A ticket needs a scope; code and ops tickets need a check. Conventions only warn.
@@ -414,11 +422,11 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `BLOCKER_NOT_FOUND` | 400 | a blocked_by key does not exist in this project, or names the task itself |
 | `BODY_REMOVED` | 400 | body is gone in v2: use scope, checks, and note (the log) |
 | `BRANCH_NAME_INVALID` | 400 | the branch name does not match the project's branch_pattern (detail: pattern) |
-| `DELEGATION_EVIDENCE` | 400 | answer_delegated needs delegated_by_jorge.message_id and a quote of 8 to 280 characters; missing, empty or short evidence is refused |
+| `DELEGATION_EVIDENCE` | 400 | a delegated answer or a Won't do / reopen move needs delegated_by_jorge.message_id (8 to 200 characters) and a quote of 8 to 280 characters; empty or short evidence is refused |
 | `DEPLOY_SOURCE_REQUIRED` | 400 | set_env deployed needs a source {provider, deployment_id, url}: the server stores where the time came from |
 | `FIELD_NOT_ALLOWED` | 400 | a field of the other kind: priority/parent_key/origin/work_type/phase on an initiative, base_branch/next_action/in_progress_note on a ticket |
 | `FINDING_NOT_FIXABLE` | 400 | audit fix: the code has no one-click fix (copy findings: run the command; the rest: the tool the fix_hint names) |
-| `INVALID_APPROVAL` | 400 | request_approval action is not wont_do, reopen, waive_check, runbook_step or lease_resource |
+| `INVALID_APPROVAL` | 400 | a waiver needs a non-empty reason. The old approval action list is no longer a tool |
 | `INVALID_BATCH_OP` | 400 | batch: an op is not set_task, set_check, add_result, add_decision, create_task or note |
 | `INVALID_BLOCKER` | 400 | a blocked_by entry is malformed (detail: type, hint): human_action {assignee, text}, env_flag {env, flag, equals}, time_after {at}, metric_gte {name, value} |
 | `INVALID_ENV` | 400 | set_env: env is not lowercase [a-z][a-z0-9_-]*, a commit is not 7-40 hex, or migrations_applied is not a count |
@@ -448,10 +456,10 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `VERSION_REQUIRED` | 400 | set_task changes fields without the version you read |
 | `ACTOR_MISMATCH` | 403 | actor.agent or actor.machine disagrees with the agent token's (detail: expected) |
 | `APPROVAL_MISMATCH` | 403 | the approval_id is for another task, action or target (detail: expected) |
-| `APPROVAL_REQUIRED` | 403 | this needs an approval_id: request_approval first (detail: action, target) |
-| `DELEGATION_OFF` | 403 | delegated answers are off: the kill switch on the screen is off |
-| `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: Jorge's call, on screen or with an approval_id he granted (request_approval). Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it |
-| `NOT_DELEGABLE` | 403 | answer_delegated only answers one human_only question that has named options, or grants or rejects a pending wont_do or reopen approval |
+| `APPROVAL_REQUIRED` | 403 | that step was removed. A waiver needs only a reason, and a lease does not wait (detail: action, target) |
+| `DELEGATION_OFF` | 403 | delegated answers and delegated moves are off: the kill switch on the screen is off |
+| `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: Jorge's call, on screen with a reason, or by an agent with a reason and delegated_by_jorge {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it |
+| `NOT_DELEGABLE` | 403 | answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored |
 | `AGENT_NOT_FOUND` | 404 | unknown roster slug (owner_agent or reports_to) |
 | `APPROVAL_NOT_FOUND` | 404 | no approval with that id in this project |
 | `CHECK_NOT_FOUND` | 404 | no check with that n on this task |
@@ -475,7 +483,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `CHECKS_OPEN` | 409 | In review, Merged, Released or Done while a check is neither done nor waived (detail: open, the check numbers) |
 | `CLAIM_HELD` | 409 | another session holds a live lease (detail: owner, lease_until, workspace) |
 | `DECISION_RETIRED` | 409 | the decision was retired: it cannot be superseded, pinned or retired again |
-| `DELEGATION_LIMIT` | 409 | delegated answers are limited to 10 per hour and one per question or approval |
+| `DELEGATION_LIMIT` | 409 | delegated answers and Won't do or reopen moves are limited to 10 per hour, and one answer per question |
 | `DOC_EXISTS` | 409 | attach_doc without version for a title that exists (detail: doc_id, version): pass version to replace |
 | `EVIDENCE_REQUIRED` | 409 | In review without evidence for the work_type from the current claim (detail: accepts, since) |
 | `EVIDENCE_STALE` | 409 | In review needs a pass recorded against the branch's current head; the passes found are for older commits (detail: head, results) |

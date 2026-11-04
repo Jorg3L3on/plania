@@ -36,7 +36,7 @@ export const api = {
   task: (slug: string, key: string) =>
     request<TaskDetail>("GET", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}`),
   // version is the one shown on screen; if the task moved since, the server answers STALE_VERSION.
-  patchTask: (slug: string, key: string, patch: { status?: string; priority?: string; note?: string; version: number }) =>
+  patchTask: (slug: string, key: string, patch: { status?: string; priority?: string; note?: string; reason?: string; version: number }) =>
     request<TaskDetail>("PATCH", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}`, patch),
   // 2.12 Pedir: a Backlog ticket as Jorge (origin jorge); the reply is the new task.
   createTask: (slug: string, input: { title: string; summary?: string; priority?: string; parent_key?: string }) =>

@@ -1,6 +1,6 @@
 // Words the Bandeja and Inicio share for what waits on Jorge.
 
-/** What an agent asks permission for, in the words of the approval row. */
+/** Words for a logged move the Bandeja shows in the delegated list. */
 export const ACTION_WORD: Record<string, string> = {
   done: "marcar Done",
   wont_do: "marcar Won't do",
