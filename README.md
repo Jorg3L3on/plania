@@ -273,6 +273,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, and the footprint codes. |
 | `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions and pending approvals on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). |
 | `list_agents` | The company roster: every bot, coder and human, with role, title, who they report to, capabilities, kind, status, last check-in and note. |
+| `list_goals` | Company goals and the project goals under them. |
 
 | Write | |
 |---|---|
@@ -304,6 +305,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `batch` | Several writes in one call: ops of create_task, set_task, set_check, add_result, add_decision or note ({op: 'note', key, text}), each with the fields of its tool (project, actor and request_id come from the batch). |
 | `set_agent` | Create or update one roster row by slug. |
 | `check_in` | Say an agent is here. |
+| `set_goal` | Create or update a goal. |
 <!-- mcp-tools:end -->
 
 Rules every write follows:
@@ -423,6 +425,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `INVALID_ENV_CONDITION` | 400 | an env blocker's condition or value is wrong (contains_commit <sha>, migration_gte <n>, deployed_after [ISO]) |
 | `INVALID_FILTER` | 400 | a list filter is malformed (detail: field), e.g. updated_since is not an ISO-8601 time |
 | `INVALID_FOOTPRINT` | 400 | register_footprint / release_footprint: unknown kind, a locator that does not fit its kind, an empty purpose or teardown, or no actor.machine (detail: field, hint) |
+| `INVALID_GOAL` | 400 | a goal needs a title, status active|done|dropped, target_on as YYYY-MM-DD, a company goal cannot have a parent, and a parent must be a company goal |
 | `INVALID_METRIC` | 400 | set_metric name is not lowercase [a-z][a-z0-9_-]*, or value is not an integer |
 | `INVALID_PHASE` | 400 | phase is not an integer 0..999 |
 | `INVALID_PRIORITY` | 400 | priority is not P0, P1, P2 or P3 |
@@ -455,6 +458,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `DECISION_NOT_FOUND` | 404 | supersedes names no decision of this project |
 | `DOC_NOT_FOUND` | 404 | no doc with that id in the project, or replacing (version given) a title that does not exist |
 | `FINDING_NOT_FOUND` | 404 | audit fix: a fresh audit no longer has that finding (code and id), so there is nothing to fix |
+| `GOAL_NOT_FOUND` | 404 | no goal with that id, or the goal belongs to another project (detail: field goal_id or parent_id) |
 | `INITIATIVE_NOT_FOUND` | 404 | get_next initiative_key is not an initiative of this project |
 | `PROJECT_NOT_FOUND` | 404 | unknown project slug |
 | `QUESTION_NOT_FOUND` | 404 | no question with that id in this project |

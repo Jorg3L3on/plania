@@ -52,6 +52,7 @@ import { registerTeamTools } from "./team.js";
 import { TTL, claim, createTask, handoff, setTask } from "./writes.js";
 import { runAudit } from "./audit.js";
 import { getContext } from "./context.js";
+import { registerGoalTools } from "./goals.js";
 import { finish, start } from "./agent-surface.js";
 import { projectReleases } from "./releases.js";
 import { DIGEST_PER_PROJECT_DEFAULT, QUIET_MIN, getDigest, getRunning, listProjects, readerOf } from "./watch.js";
@@ -175,6 +176,7 @@ const createFields = {
   cost_note: z.string().optional().describe("Debt: what it costs while it stays"),
   due_on: z.string().optional().describe("When it should be done, YYYY-MM-DD (audit OVERDUE once past)"),
   owner_agent: z.string().nullable().optional().describe("Roster slug of the agent who owns this task. Informational: it does not take the lease. Null clears it"),
+  goal_id: z.string().uuid().nullable().optional().describe("Initiatives only: the goal this initiative serves (list_goals id). Null clears it. A ticket or idea is FIELD_NOT_ALLOWED"),
 };
 
 const setTaskFields = {
@@ -216,6 +218,7 @@ const setTaskFields = {
   note: z.string().optional(),
   version: z.number().int().optional().describe("The version you read. Required unless note or withdraw_blocker is the only field"),
   owner_agent: z.string().nullable().optional().describe("Roster slug of the agent who owns this task. Informational: it does not take the lease. Null clears it"),
+  goal_id: z.string().uuid().nullable().optional().describe("Initiatives only: the goal this initiative serves (list_goals id). Null clears it"),
 };
 
 const setCheckFields = {
@@ -1146,6 +1149,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
   );
 
   registerTeamTools(server, { db, identity, writeCtx, actor, request_id, run, readOnly, write });
+  registerGoalTools(server, db, { run, writeHandler: writeHandler as never });
 
   return server;
 }

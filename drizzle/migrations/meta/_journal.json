@@ -225,6 +225,13 @@
       "when": 1793400000000,
       "tag": "0034_agents",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1793424000000,
+      "tag": "0035_goals",
+      "breakpoints": true
     }
   ]
 }

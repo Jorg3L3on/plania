@@ -243,6 +243,8 @@ export const tasks = pgTable(
     promotedTo: text("promoted_to"),
     // PLA-I21: informational owner. It does not hold the lease (owner / lease_until do).
     ownerAgent: uuid("owner_agent").references((): AnyPgColumn => agents.id, { onDelete: "set null" }),
+    // PLA-I22: initiatives only. The goal this initiative serves; tickets inherit it through the parent.
+    goalId: uuid("goal_id").references((): AnyPgColumn => goals.id, { onDelete: "set null" }),
   },
   (t) => [
     unique("tasks_project_key_unique").on(t.projectId, t.key),
@@ -260,6 +262,7 @@ export const tasks = pgTable(
       "tasks_work_type_check",
       sql`${t.workType} is null or ${t.workType} in ('code', 'ops', 'research', 'decision-needed', 'bug', 'debt')`,
     ),
+    check("tasks_goal_initiative", sql`${t.goalId} is null or ${t.kind} = 'initiative'`),
   ],
 );
 
@@ -839,6 +842,34 @@ export const agents = pgTable(
 );
 
 export type Agent = typeof agents.$inferSelect;
+// PLA-I22: company goals (project_id null) and the project goals under them.
+// An initiative points here with tasks.goal_id. Progress is Done/total tickets of linked initiatives,
+// rolled up from project goals to their company goal. No scoring and no deadline enforcement.
+export const GOAL_STATUSES = ["active", "done", "dropped"] as const;
+
+export const goals = pgTable(
+  "goals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    parentId: uuid("parent_id").references((): AnyPgColumn => goals.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    why: text("why").notNull().default(""),
+    status: text("status").notNull().default("active"),
+    targetOn: date("target_on"),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    index("goals_project_idx").on(t.projectId),
+    index("goals_parent_idx").on(t.parentId),
+    check("goals_status_check", sql`${t.status} in ('active', 'done', 'dropped')`),
+    check("goals_company_root", sql`${t.projectId} is not null or ${t.parentId} is null`),
+    check("goals_not_self", sql`${t.parentId} is null or ${t.parentId} <> ${t.id}`),
+  ],
+);
+
+export type Goal = typeof goals.$inferSelect;
 
 export const INITIATIVE_STATUSES = ["Planning", "Active", "Shipping", "Done", "On hold", "Won't do"] as const;
 export const TICKET_STATUSES = ["Backlog", "Ready", "In progress", "In review", "Merged", "Released", "Blocked", "Needs Jorge", "Done", "Won't do"] as const;

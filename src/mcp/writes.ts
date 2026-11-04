@@ -32,6 +32,7 @@ import { hasDoc } from "./docs.js";
 import { liveTaskFootprint } from "./footprint-read.js";
 import { assertReviewEvidence } from "./evidence.js";
 import { syncJorgeLines, withdrawParsedBlocker, type ParsedField } from "./jorge-lines.js";
+import { resolveInitiativeGoal } from "./goals.js";
 import { assertForwardStage, assertStageMove } from "./ideas.js";
 import { addAlias, assignKey } from "./keys.js";
 import { GATED_STATUSES, SEVERITIES, TERMINAL, WORK_TYPES, actionForMove, assertTransition } from "./lifecycle.js";
@@ -136,7 +137,7 @@ const TICKET_ONLY = ["parent_key", "priority", "origin", "work_type", "phase", "
 const IDEA_ONLY = ["stage", "promoted_to"];
 // A ticket is born Backlog or Ready; anything else is reached through the state machine.
 const CREATE_STATUSES = ["Backlog", "Ready"];
-const INITIATIVE_ONLY = ["base_branch", "next_action", "in_progress_note", "integration_branch", "share_branch", "share_reason", "state_note"];
+const INITIATIVE_ONLY = ["base_branch", "next_action", "in_progress_note", "integration_branch", "share_branch", "share_reason", "state_note", "goal_id"];
 
 // v2 dropped the markdown body; a caller still sending it would lose notes silently, so it is an error.
 function rejectBody(input: { body?: unknown }): void {
@@ -179,6 +180,7 @@ export type CreateInput = {
   state_note?: string;
   due_on?: string | null;
   owner_agent?: string | null;
+  goal_id?: string | null;
 };
 
 // 2.8: a due date is a calendar date, YYYY-MM-DD; null clears it.
@@ -274,6 +276,7 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
     areas: normalizeAreas(input.areas) ?? [],
     ownerAgent: input.owner_agent ? await requireAgentId(tx, input.owner_agent) : null,
   };
+  const goalId = kind === "initiative" && input.goal_id !== undefined ? await resolveInitiativeGoal(tx, p.id, input.goal_id) : null;
   const values: TaskInsert =
     kind === "initiative"
       ? {
@@ -283,6 +286,7 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
           branch: integrationBranch ?? null,
           stateNote: input.state_note ?? "",
           stateNoteAt: input.state_note ? new Date() : null,
+          goalId,
         }
       : kind === "idea"
         ? { ...common, stage: "idea" }
@@ -353,6 +357,7 @@ const FIELD_NAMES: Partial<Record<keyof Task, string>> = {
   dueOn: "due_on",
   stage: "stage",
   promotedTo: "promoted_to",
+  goalId: "goal_id",
 };
 
 // Merged and Released by hand (R-12): only with proof. Merged needs a ci pass naming the merge
@@ -429,6 +434,7 @@ export type SetTaskInput = {
   stage?: string;
   promoted_to?: string | null;
   owner_agent?: string | null;
+  goal_id?: string | null;
 };
 
 // 2.13: a code ticket closes on a PR. Done, Merged or Released without one is refused at write
@@ -562,6 +568,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
       changes.owner_agent = [before?.slug ?? null, after?.slug ?? null];
     }
   }
+  if (input.goal_id !== undefined) patch.goalId = await resolveInitiativeGoal(tx, p.id, input.goal_id);
   // An initiative's integration branch is its `branch`; registering it enforces the naming rule and ownership.
   const integrationBranch = t.kind === "initiative" ? (input.integration_branch ?? input.branch)?.trim() : undefined;
   if (integrationBranch !== undefined) {
