@@ -53,6 +53,7 @@ import { runAudit } from "./audit.js";
 import { getContext } from "./context.js";
 import { registerGoalTools } from "./goals.js";
 import { registerDelegationTools } from "./delegation.js";
+import { registerDashboardTools } from "./dashboard.js";
 import { finish, start } from "./agent-surface.js";
 import { projectReleases } from "./releases.js";
 import { DIGEST_PER_PROJECT_DEFAULT, QUIET_MIN, getDigest, getRunning, listProjects, readerOf } from "./watch.js";
@@ -1139,6 +1140,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
   registerTeamTools(server, { db, identity, writeCtx, actor, request_id, run, readOnly, write });
   registerGoalTools(server, db, { run, writeHandler: writeHandler as never });
   registerDelegationTools(server, { db, identity, writeCtx, actor, request_id, run, readOnly, write });
+  registerDashboardTools();
 
   return server;
 }
