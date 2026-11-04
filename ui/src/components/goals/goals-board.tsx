@@ -27,13 +27,14 @@ function GoalList({
 }) {
   if (goals.length === 0) return <p className="text-sm text-muted-foreground">Sin metas.</p>;
   return (
-    <div className={compact ? "grid grid-cols-1 gap-3 sm:grid-cols-2" : "grid grid-cols-1 gap-3"}>
-      {goals.map((goal) => (
+    <div className="grid grid-cols-1 gap-2.5">
+      {goals.map((goal, index) => (
         <GoalCard
           key={goal.id}
           goal={goal}
+          index={index}
           compact={compact}
-          projectTitle={goal.project ? names.get(goal.project) : undefined}
+          names={names}
           onEdit={onEdit}
         />
       ))}
@@ -81,12 +82,10 @@ function GoalsBlock({
         {heading === "section" ? (
           <div className="grid gap-1">
             <h2 className="font-display text-2xl font-extrabold tracking-tight">Metas</h2>
-            <p className="text-sm text-muted-foreground">El porqué, y cuántos tickets ligados ya están hechos.</p>
+            <p className="text-xs text-muted-foreground">Meta de la empresa → meta del proyecto → iniciativa.</p>
           </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">El porqué, y cuántos tickets ligados ya están hechos.</p>
-        )}
-        <div className="flex items-center gap-2">
+        ) : null}
+        <div className="ml-auto flex items-center gap-2">
           {compact && (
             <Link to="/goals" className="inline-flex min-h-9 items-center text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
               Ver metas
