@@ -241,6 +241,8 @@ export const tasks = pgTable(
     stage: text("stage"),
     // Key of the initiative or standalone ticket an idea became. Null until it is promoted.
     promotedTo: text("promoted_to"),
+    // PLA-I21: informational owner. It does not hold the lease (owner / lease_until do).
+    ownerAgent: uuid("owner_agent").references((): AnyPgColumn => agents.id, { onDelete: "set null" }),
   },
   (t) => [
     unique("tasks_project_key_unique").on(t.projectId, t.key),
@@ -802,6 +804,39 @@ export type ReleaseSettings = { from: string; into: string; env: string; mode?: 
 
 export type Project = typeof projects.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
+
+// PLA-I21: company roster. Roles and bot labels only. reports_to is the org chart.
+// A row may match agent_tokens.agent by name or slug (list_agents); there is no token foreign key.
+export const AGENT_KINDS = ["bot", "coder", "human"] as const;
+export const AGENT_STATUSES = ["alive", "idle", "stuck"] as const;
+
+export const agents = pgTable(
+  "agents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    slug: text("slug").notNull().unique(),
+    name: text("name").notNull(),
+    role: text("role").notNull(),
+    title: text("title").notNull().default(""),
+    reportsTo: uuid("reports_to").references((): AnyPgColumn => agents.id, { onDelete: "set null" }),
+    capabilities: text("capabilities").array().notNull().default(sql`'{}'::text[]`),
+    kind: text("kind").notNull(),
+    wakeUrl: text("wake_url"),
+    lastCheckInAt: timestamp("last_check_in_at", { withTimezone: true }),
+    // Sweep wake throttle: at most one POST to wake_url per agent per hour.
+    lastWakeAt: timestamp("last_wake_at", { withTimezone: true }),
+    status: text("status").notNull().default("idle"),
+    note: text("note").notNull().default(""),
+    ...timestamps,
+  },
+  (t) => [
+    check("agents_kind_check", sql`${t.kind} in ('bot', 'coder', 'human')`),
+    check("agents_status_check", sql`${t.status} in ('alive', 'idle', 'stuck')`),
+    check("agents_not_self", sql`${t.reportsTo} is null or ${t.reportsTo} <> ${t.id}`),
+  ],
+);
+
+export type Agent = typeof agents.$inferSelect;
 
 export const INITIATIVE_STATUSES = ["Planning", "Active", "Shipping", "Done", "On hold", "Won't do"] as const;
 export const TICKET_STATUSES = ["Backlog", "Ready", "In progress", "In review", "Merged", "Released", "Blocked", "Needs Jorge", "Done", "Won't do"] as const;

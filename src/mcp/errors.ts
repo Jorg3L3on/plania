@@ -57,6 +57,7 @@ export const ERRORS = {
   QUESTION_NOT_FOUND: [404, "no question with that id in this project"],
   RESULT_NOT_FOUND: [404, "evidence_id is not a result of this project"],
   TASK_NOT_FOUND: [404, "unknown key in this project (also an unknown parent_key or task_key)"],
+  AGENT_NOT_FOUND: [404, "unknown roster slug (owner_agent or reports_to)"],
   // 409: the state changed or is held by someone else; re-read, then decide.
   ALREADY_SUPERSEDED: [409, "the decision named in supersedes was already reversed (detail: superseded_by)"],
   APPROVAL_NOT_GRANTED: [409, "the approval is pending, rejected or expired (detail: state)"],

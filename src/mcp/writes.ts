@@ -36,6 +36,7 @@ import { assertForwardStage, assertStageMove } from "./ideas.js";
 import { addAlias, assignKey } from "./keys.js";
 import { GATED_STATUSES, SEVERITIES, TERMINAL, WORK_TYPES, actionForMove, assertTransition } from "./lifecycle.js";
 import { markHeadlineStale } from "./project.js";
+import { requireAgentId, agentRefOf } from "./team.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
 // Write side. Every write runs in writeTx and records what it changed as events.
@@ -177,6 +178,7 @@ export type CreateInput = {
   cost_note?: string;
   state_note?: string;
   due_on?: string | null;
+  owner_agent?: string | null;
 };
 
 // 2.8: a due date is a calendar date, YYYY-MM-DD; null clears it.
@@ -270,6 +272,7 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
     scope: input.scope ?? "",
     status,
     areas: normalizeAreas(input.areas) ?? [],
+    ownerAgent: input.owner_agent ? await requireAgentId(tx, input.owner_agent) : null,
   };
   const values: TaskInsert =
     kind === "initiative"
@@ -425,6 +428,7 @@ export type SetTaskInput = {
   no_pr_reason?: string;
   stage?: string;
   promoted_to?: string | null;
+  owner_agent?: string | null;
 };
 
 // 2.13: a code ticket closes on a PR. Done, Merged or Released without one is refused at write
@@ -549,6 +553,15 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   const areas = normalizeAreas(input.areas);
   if (areas !== undefined) patch.areas = areas;
   if (input.due_on !== undefined) patch.dueOn = checkDueOn(input.due_on);
+  if (input.owner_agent !== undefined) {
+    const nextId = input.owner_agent ? await requireAgentId(tx, input.owner_agent) : null;
+    if (nextId !== t.ownerAgent) {
+      patch.ownerAgent = nextId;
+      const before = await agentRefOf(tx, t.ownerAgent);
+      const after = nextId ? await agentRefOf(tx, nextId) : null;
+      changes.owner_agent = [before?.slug ?? null, after?.slug ?? null];
+    }
+  }
   // An initiative's integration branch is its `branch`; registering it enforces the naming rule and ownership.
   const integrationBranch = t.kind === "initiative" ? (input.integration_branch ?? input.branch)?.trim() : undefined;
   if (integrationBranch !== undefined) {
