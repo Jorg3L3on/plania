@@ -1,6 +1,6 @@
 import type { TeamRoster } from "@/components/team/types";
 import type { Goal, GoalWrite } from "@/components/goals/model";
-import type { AgentToken, Digest, Inbox, Machine, Orden, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
+import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -84,6 +84,20 @@ export const api = {
   goals: (project?: string) => request<{ goals: Goal[] }>("GET", project ? `/goals?project=${encodeURIComponent(project)}` : "/goals"),
   createGoal: (input: GoalWrite) => request<Goal>("POST", "/goals", input),
   patchGoal: (id: string, input: GoalWrite) => request<Goal>("PATCH", `/goals/${encodeURIComponent(id)}`, input),
+  // PLA-I19: Mi progreso. Cookie session only; the server answers 401 to a bearer token.
+  progressSummary: (range: ProgressRange, date?: string) => {
+    const q = new URLSearchParams({ range });
+    if (date) q.set("date", date);
+    return request<ProgressSummary>("GET", `/progress/summary?${q}`);
+  },
+  progressLog: (query: { from?: string; to?: string; project?: string; type?: string; q?: string; cursor?: string }) => {
+    const q = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) if (value) q.set(key, value);
+    const suffix = q.size ? `?${q}` : "";
+    return request<ProgressLog>("GET", `/progress/log${suffix}`);
+  },
+  progressItem: (project: string, key: string) =>
+    request<ProgressItem>("GET", `/progress/item/${encodeURIComponent(project)}/${encodeURIComponent(key)}`),
 };
 
 export const isUnauthorized = (e: unknown) => e instanceof ApiError && e.status === 401;
