@@ -4,6 +4,7 @@ import { describeStale } from "../jobs/machine/infer.js";
 import { delegatedForInbox, type DelegatedReviewItem } from "./delegate.js";
 import { openHumanActions } from "./blockers.js";
 import { releasePending, releasePlan, releaseUnknown } from "./release-plan.js";
+import { delegationChores } from "./delegation.js";
 import { iso, type Q } from "./tx.js";
 
 // Jorge's inbox (R-28): everything waiting on him, in one list, oldest first within each kind:
@@ -19,13 +20,14 @@ export const FOOTPRINT_INBOX_AFTER_MS = 24 * 3600_000;
 export const MACHINE_INBOX_PROJECT = "machine";
 
 export type InboxGroup = "decisiones" | "pasos" | "limpieza";
-export type InboxKind = "question" | "human_action" | "release" | "footprint" | "lease";
+export type InboxKind = "question" | "human_action" | "release" | "footprint" | "lease" | "assign";
 export const GROUP_OF: Record<InboxKind, InboxGroup> = {
   question: "decisiones",
   human_action: "pasos",
   release: "pasos",
   footprint: "limpieza",
   lease: "limpieza",
+  assign: "limpieza",
 };
 
 // A past lease stays in limpieza for a day, or until someone claims the ticket again.
@@ -190,6 +192,7 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
   }
   items.push(...(await footprintItems(db, p.id, p.slug)));
   items.push(...(await leaseItems(db, p.id, p.slug)));
+  items.push(...(await delegationChores(db, p.id, p.slug)));
   return items;
 }
 

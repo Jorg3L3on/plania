@@ -232,6 +232,13 @@
       "when": 1793424000000,
       "tag": "0035_goals",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793510400000,
+      "tag": "0036_delegation",
+      "breakpoints": true
     }
   ]
 }

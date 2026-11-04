@@ -52,6 +52,7 @@ import { TTL, claim, createTask, handoff, setTask } from "./writes.js";
 import { runAudit } from "./audit.js";
 import { getContext } from "./context.js";
 import { registerGoalTools } from "./goals.js";
+import { registerDelegationTools } from "./delegation.js";
 import { finish, start } from "./agent-surface.js";
 import { projectReleases } from "./releases.js";
 import { DIGEST_PER_PROJECT_DEFAULT, QUIET_MIN, getDigest, getRunning, listProjects, readerOf } from "./watch.js";
@@ -1137,6 +1138,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
 
   registerTeamTools(server, { db, identity, writeCtx, actor, request_id, run, readOnly, write });
   registerGoalTools(server, db, { run, writeHandler: writeHandler as never });
+  registerDelegationTools(server, { db, identity, writeCtx, actor, request_id, run, readOnly, write });
 
   return server;
 }

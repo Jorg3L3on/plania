@@ -148,7 +148,7 @@ after(async () => {
 
 // The full tool surface. Update with the contract.
 const TOOLS = [
-  "add_decision", "add_result", "answer", "answer_delegated", "ask", "attach_doc", "audit", "batch", "check_in", "claim", "consume", "create_task", "finish",
+  "add_decision", "add_result", "answer", "answer_delegated", "ask", "assign", "attach_doc", "audit", "batch", "check_in", "claim", "comment", "consume", "create_task", "finish",
   "get_context", "get_digest", "get_doc", "get_inbox", "get_memory", "get_next", "get_project", "get_resume", "get_running", "get_task", "handoff", "lease_resource",
   "list_agents", "list_events", "list_goals", "list_projects", "list_tasks", "register_footprint", "release_footprint", "release_resource", "reserve_sequence", "retire_decision", "set_agent", "set_check", "set_env",
   "set_goal", "set_metric", "set_project", "set_task", "start", "waive_check",

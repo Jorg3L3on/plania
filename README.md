@@ -317,6 +317,8 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `set_agent` | Create or update one roster row by slug. |
 | `check_in` | Say an agent is here. |
 | `set_goal` | Create or update a goal. |
+| `comment` | Add a comment on a task. |
+| `assign` | Set a task's owner_agent to another roster agent and count the hop. |
 <!-- mcp-tools:end -->
 
 Rules every write follows:
@@ -488,6 +490,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `EVIDENCE_STALE` | 409 | In review needs a pass recorded against the branch's current head; the passes found are for older commits (detail: head, results) |
 | `FOOTPRINT_HELD` | 409 | another live session declared this footprint, or releasing one you did not declare (detail: holder, purpose) |
 | `HANDOFF_HELD` | 409 | the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note) |
+| `HOP_CAP` | 409 | assign would pass 3 hops (detail: hops, cap). The owner stays and a limpieza inbox item is posted |
 | `IDEA_CLOSED` | 409 | a Done or Won't do idea does not change stage or promoted_to (detail: status) |
 | `INITIATIVE_CHILDREN_OPEN` | 409 | an initiative cannot be Done or Won't do while a ticket of it is in another state (detail: open) |
 | `INVALID_STAGE_MOVE` | 409 | set_task stage is not one step along idea → research → design → planning → ready, or a step back without a note (detail: from, to) |
@@ -497,6 +500,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `LEASE_EXPIRED` | 409 | heartbeat after your lease ran out: claim again |
 | `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
 | `NOT_OWNER` | 409 | another session holds a live lease on this task (detail: owner, lease_until) |
+| `PING_PONG` | 409 | this owner pair already assigned the other way (detail: from, to). The owner stays |
 | `QUOTA_EXCEEDED` | 409 | consume would pass the daily quota (detail: limit, used, remaining) |
 | `RELEASE_MERGE_FAILED` | 409 | release/ship: a gh call failed (detail: step token | list | edit | create | merge | view, output); nothing was recorded |
 | `RELEASE_NOT_READY` | 409 | release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | no_github_data | nothing_to_ship | before_steps | open_checks | merged) |
