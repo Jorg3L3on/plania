@@ -11,6 +11,7 @@ import { AhoraPage } from "@/pages/ahora";
 import { InboxPage } from "@/pages/inbox";
 import { LoginPage } from "@/pages/login";
 import { MachinePage } from "@/pages/machine";
+import { GoalsPage } from "@/components/goals/goals-page";
 import { HomePage } from "@/pages/home";
 import { ProjectPage } from "@/pages/project";
 import { TokensPage } from "@/pages/tokens";
@@ -63,6 +64,7 @@ export function App() {
         <Route index element={<HomePage />} />
         <Route path="/ahora" element={<AhoraPage />} />
         <Route path="/p/:slug" element={<ProjectPage />} />
+        <Route path="/goals" element={<GoalsPage />} />
         <Route path="/inbox" element={<InboxPage />} />
         <Route path="/machine" element={<MachinePage />} />
         <Route path="/equipo" element={<EquipoPage />} />

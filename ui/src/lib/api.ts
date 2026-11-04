@@ -1,4 +1,5 @@
 import type { TeamRoster } from "@/components/team/types";
+import type { Goal, GoalWrite } from "@/components/goals/model";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
 
 export class ApiError extends Error {
@@ -82,6 +83,9 @@ export const api = {
     request<{ token: AgentToken; secret: string }>("POST", "/tokens", input),
   revokeToken: (id: string, reason?: string) =>
     request<AgentToken>("DELETE", `/tokens/${encodeURIComponent(id)}${reason ? `?reason=${encodeURIComponent(reason)}` : ""}`),
+  goals: (project?: string) => request<{ goals: Goal[] }>("GET", project ? `/goals?project=${encodeURIComponent(project)}` : "/goals"),
+  createGoal: (input: GoalWrite) => request<Goal>("POST", "/goals", input),
+  patchGoal: (id: string, input: GoalWrite) => request<Goal>("PATCH", `/goals/${encodeURIComponent(id)}`, input),
 };
 
 export const isUnauthorized = (e: unknown) => e instanceof ApiError && e.status === 401;

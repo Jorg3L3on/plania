@@ -51,6 +51,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       source.addEventListener("change", (msg) => {
         const event = JSON.parse((msg as MessageEvent).data) as LiveEvent;
         void queryClient.invalidateQueries({ queryKey: ["projects"] });
+        void queryClient.invalidateQueries({ queryKey: ["goals"] });
         void queryClient.invalidateQueries({ queryKey: ["project", event.project] });
         void queryClient.invalidateQueries({ queryKey: ["inbox"] });
         // 2.12: Inicio's Hoy strip reads the digest since this device's cursor.
