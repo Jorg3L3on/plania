@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellIcon, ClockIcon, CloudOffIcon, CpuIcon, EllipsisIcon, FlagIcon, InboxIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
+import { BellIcon, ClockIcon, CloudOffIcon, CpuIcon, EllipsisIcon, FlagIcon, FlameIcon, InboxIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -118,6 +118,9 @@ function PhoneMenu({ onLogout }: { onLogout: () => void }) {
         <DropdownMenuItem onSelect={() => navigate("/goals")}>
           <FlagIcon /> Metas
         </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => navigate("/progreso")}>
+          <FlameIcon /> Progreso
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => navigate("/tokens")}>
           <KeyRoundIcon /> Tokens de agentes
         </DropdownMenuItem>
@@ -176,6 +179,24 @@ function InboxLink() {
   );
 }
 
+function ProgresoLink() {
+  return (
+    <NavLink
+      to="/progreso"
+      aria-label="Progreso"
+      className={({ isActive }) =>
+        cn(
+          "inline-flex min-h-9 items-center gap-1.5 rounded-full px-2.5 text-[13px] font-medium transition hover:text-foreground sm:px-3",
+          isActive ? "bg-foreground text-background" : "text-muted-foreground",
+        )
+      }
+    >
+      <FlameIcon className="size-4" aria-hidden />
+      <span className="hidden sm:inline">Progreso</span>
+    </NavLink>
+  );
+}
+
 // What runs on the Mac. Icon only on phones, where the header is tight. The Bandeja's Limpieza
 // (what agents left behind) shows here as a quiet count, not on the Bandeja's badge.
 function MachineLink() {
@@ -230,6 +251,7 @@ export function AppShell() {
               <AhoraLink />
               <InboxLink />
               <GoalsLink />
+              <ProgresoLink />
               <MachineLink />
               <EquipoLink />
               <Tooltip>

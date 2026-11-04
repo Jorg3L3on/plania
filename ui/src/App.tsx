@@ -14,6 +14,7 @@ import { MachinePage } from "@/pages/machine";
 import { GoalsPage } from "@/components/goals/goals-page";
 import { HomePage } from "@/pages/home";
 import { ProjectPage } from "@/pages/project";
+import { ProgresoPage } from "@/pages/progreso";
 import { TokensPage } from "@/pages/tokens";
 import { EquipoPage } from "@/pages/equipo";
 
@@ -68,6 +69,7 @@ export function App() {
         <Route path="/inbox" element={<InboxPage />} />
         <Route path="/machine" element={<MachinePage />} />
         <Route path="/equipo" element={<EquipoPage />} />
+        <Route path="/progreso" element={<ProgresoPage />} />
         <Route path="/tokens" element={<TokensPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
