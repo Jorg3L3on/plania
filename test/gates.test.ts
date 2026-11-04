@@ -229,7 +229,7 @@ describe("screen gates", () => {
     assert.equal(ticket.__error, undefined);
     const asked = await call("ask", { key: ticket.key, question: "¿Color?", options: ["azul"] });
     assert.equal(asked.question.human_only, false);
-    assert.equal(asked.question.gate, null);
+    assert.equal("gate" in asked.question, false);
     const answered = await call("answer", { question_id: asked.question.id, answer: "azul" });
     assert.equal(answered.__error, undefined);
     const row = (await raw.query("select answer, answered_by from questions where id = $1", [asked.question.id])).rows[0];
@@ -237,22 +237,20 @@ describe("screen gates", () => {
     assert.equal(row.answered_by.agent, "test-agent");
   });
 
-  test("ask with gate is INVALID_QUESTION and stores nothing", async () => {
+  test("ask ignores the removed field, stores the question, and returns a hint", async () => {
     const idea = await call("create_task", { kind: "idea", title: "Puerta" });
     const ticket = await call("create_task", { title: "Con puerta", scope: "s", checks: ["c"] });
-    for (const [key, gate] of [[idea.key, "A"], [idea.key, "C"], [ticket.key, "B"], [idea.key, "Z"]] as const) {
-      const refused = await call("ask", { key, gate, question: "¿La seguimos?" });
-      assert.equal(refused.__error, "INVALID_QUESTION", `${key} ${gate}`);
-      assert.equal(refused.__status, 400);
-      assert.equal(refused.field, "gate");
-      assert.match(String(refused.hint), /gates were removed/);
+    for (const [key, mark] of [[idea.key, "A"], [idea.key, "C"], [ticket.key, "B"], [idea.key, "Z"]] as const) {
+      const stored = await call("ask", { key, gate: mark, question: `¿La seguimos? ${mark}` });
+      assert.equal(stored.__error, undefined, `${key} ${mark} ${JSON.stringify(stored)}`);
+      assert.match(String(stored.hint), /obsolete field/);
+      assert.equal("gate" in stored.question, false);
+      const row = (await raw.query("select gate from questions where id = $1", [stored.question.id])).rows[0];
+      assert.equal(row.gate, null, "the removed field is not stored");
     }
-    const stored = await raw.query(
-      "select count(*)::int as n from questions q join tasks t on t.id = q.task_id where t.key = any($1)",
-      [[idea.key, ticket.key]],
-    );
-    assert.equal(stored.rows[0].n, 0);
-    assert.equal((await call("get_task", { key: ticket.key })).status, "Backlog", "a refused gate does not move the ticket");
+    assert.equal((await call("get_task", { key: ticket.key })).status, "Needs Jorge");
+    const plain = await call("ask", { key: idea.key, question: "¿Sin el campo?" });
+    assert.equal(plain.hint, undefined);
   });
 
   test("MCP answer on a human_only question is HUMAN_ONLY, including a spoofed screen actor", async () => {
@@ -260,7 +258,7 @@ describe("screen gates", () => {
     const asked = await call("ask", { key: ticket.key, question: "¿Seguimos?", options: ["sí", "no"], human_only: true });
     assert.equal(asked.__error, undefined);
     assert.equal(asked.question.human_only, true);
-    assert.equal(asked.question.gate, null);
+    assert.equal("gate" in asked.question, false);
     const refused = await call("answer", { question_id: asked.question.id, answer: "sí" });
     assert.equal(refused.__error, "HUMAN_ONLY");
     assert.equal(refused.__status, 403);
@@ -321,7 +319,7 @@ describe("screen gates", () => {
   test("a human_only question with no options is free text on the screen", async () => {
     const ticket = await call("create_task", { title: "Solo", scope: "s", checks: ["c"] });
     const asked = await call("ask", { key: ticket.key, question: "¿Sigues tú?", human_only: true });
-    assert.equal(asked.question.gate, null);
+    assert.equal("gate" in asked.question, false);
     assert.equal(asked.question.human_only, true);
     assert.equal((await call("answer", { question_id: asked.question.id, answer: "sí" })).__error, "HUMAN_ONLY");
     const out = await answerScreen(asked.question.id, "sí");
@@ -365,7 +363,13 @@ describe("screen gates", () => {
     assert.equal(legacyActive.status, "Active");
 
     const history = (await call("get_task", { key: legacyIdea.key })).questions as Json[];
-    assert.deepEqual(history.map((q) => [q.question, q.gate]), [["Respuesta de agente", "C"], ["Fila anterior", "C"]]);
+    assert.deepEqual(history.map((q) => q.question), ["Respuesta de agente", "Fila anterior"]);
+    assert.equal(history.every((q) => !("gate" in q)), true, "the letter is history in the column, not in the reply");
+    const letters = await raw.query("select question, gate from questions where task_id = $1 order by question", [ids.task_id]);
+    assert.deepEqual(
+      letters.rows.map((r) => [r.question, r.gate]),
+      [["Fila anterior", "C"], ["Respuesta de agente", "C"]],
+    );
 
     // The open old row is still the owner's to close on the screen; it moves nothing and logs no gate event.
     const legacyId = inserted.rows[0].id as string;

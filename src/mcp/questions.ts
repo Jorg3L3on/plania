@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
+import { LEGACY_ASK_FIELD } from "../db/legacy-names.js";
 import { decisions, delegatedAnswers, questions, tasks, type Actor, type Task } from "../db/schema.js";
 import { decisionShape } from "./decisions.js";
 import { ToolError } from "./errors.js";
@@ -33,7 +34,6 @@ export function questionShape(q: QuestionRow, taskKey: string, delegated?: Deleg
     // 2.8: what else waits on this answer, and how soon Jorge is needed.
     blocks: q.blocks,
     urgency: q.urgency,
-    gate: q.gate,
     human_only: q.humanOnly,
     // Present only when plania-bot recorded the owner's instruction. The screen click has no row.
     ...(delegated ? { delegated } : {}),
@@ -46,6 +46,10 @@ function delegatedView(row: typeof delegatedAnswers.$inferSelect): DelegatedView
 
 export const URGENCIES = ["now", "soon", "whenever"] as const;
 export type Urgency = (typeof URGENCIES)[number];
+
+// One release: an older client may still send the removed field. It is not stored.
+export const LEGACY_ASK_HINT =
+  "ignored an obsolete field from an older client; ideas move stage by stage with only the stage doc checked";
 
 export async function taskQuestions(db: Q, t: Pick<Task, "id" | "key">) {
   const rows = await db.select().from(questions).where(eq(questions.taskId, t.id)).orderBy(asc(questions.askedAt));
@@ -69,13 +73,14 @@ export async function openQuestions(db: Q, projectId: string) {
 
 export async function ask(
   db: Db,
-  input: { project: string; key: string; question: string; options?: string[]; blocks?: string[]; urgency?: Urgency; gate?: unknown; human_only?: boolean },
+  input: { project: string; key: string; question: string; options?: string[]; blocks?: string[]; urgency?: Urgency; human_only?: boolean } & Record<string, unknown>,
   ctx: Ctx,
 ) {
   if (!input.question.trim()) throw new ToolError("INVALID_QUESTION");
   if (input.urgency !== undefined && !(URGENCIES as readonly string[]).includes(input.urgency)) throw new ToolError("INVALID_QUESTION", { field: "urgency", accepts: URGENCIES });
-  // 2.17 (PLA-I18): gates were removed. A 2.15 client that still sends one is told so, not ignored.
-  if (input.gate !== undefined && input.gate !== null) throw new ToolError("INVALID_QUESTION", { field: "gate", hint: "gates were removed; ideas move stage by stage with only the stage doc checked" });
+  // PLA-I20-1: a 2.16 client may still send the removed field. Ignore it and say so.
+  const legacy = input[LEGACY_ASK_FIELD];
+  const ignoredLegacy = legacy !== undefined && legacy !== null;
   const p = await findProject(db, input.project);
   return writeTx(db, p, ctx, async (tx, emit) => {
     const t = await requireTask(tx, p.id, input.key);
@@ -118,7 +123,12 @@ export async function ask(
     const u = await requireTask(tx, p.id, t.key);
     // 2.13: the reply says where the wait now lives, so nobody also writes it into next_action or a note.
     const waits = u.status === "Needs Jorge" ? "the ticket waits in Needs Jorge until he answers" : "the question waits in Jorge's inbox until he answers";
-    return writeReply(tx, u, ctx, moves ? ["questions", "status"] : ["questions"], { question_id: q!.id, waits, question: questionShape(q!, t.key) });
+    return writeReply(tx, u, ctx, moves ? ["questions", "status"] : ["questions"], {
+      question_id: q!.id,
+      waits,
+      question: questionShape(q!, t.key),
+      ...(ignoredLegacy ? { hint: LEGACY_ASK_HINT } : {}),
+    });
   });
 }
 
@@ -161,8 +171,8 @@ export async function answerInTx(
     }
   }
   if (delegation) {
-    // An old gate row (before 2.17) is history: the bot may not close it for him.
-    const named = q.options.length > 0 && q.humanOnly && !q.gate;
+    // A row that still carries the pre-2.17 letter is history: the bot may not close it for him.
+    const named = q.options.length > 0 && q.humanOnly && !q.legacyMark;
     if (!named) throw new ToolError("NOT_DELEGABLE", { question_id: q.id, hint: "a named human_only option, or the screen" });
     if (!q.options.includes(input.answer)) throw new ToolError("INVALID_QUESTION", { field: "option" });
     const [prior] = await tx.select({ id: delegatedAnswers.id }).from(delegatedAnswers).where(eq(delegatedAnswers.questionId, q.id)).limit(1);

@@ -5,7 +5,7 @@ import type { Q } from "./tx.js";
 
 // An idea moves one stage at a time: idea → research → design → planning → ready.
 // Leaving a stage (the forward move) needs that stage's doc, with the headings below as markdown
-// headings. Nothing else holds it: gates were removed in 2.17 (PLA-I18), and the old gate
+// headings. Nothing else holds it: that step was removed in 2.17 (PLA-I18), and the old
 // questions stay on the ideas as read-only history. A step back is one stage and needs a note.
 // Skipping a stage is INVALID_STAGE_MOVE.
 
@@ -74,7 +74,7 @@ const HEADING_ES: Record<string, string> = {
 };
 
 // One line for the project page: the open question, else the doc or headings still missing,
-// else that it can move. An old gate question still open (before migration 0030 closes it) reads
+// else that it can move. An old question still open (before migration 0030 closes it) reads
 // as its question, like any other.
 export function ideaWaitText(stage: string | null, docRows: StageDocRow[], qs: StageQuestion[]): string {
   const open = qs.find((q) => !q.answered);

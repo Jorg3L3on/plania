@@ -101,7 +101,7 @@ stays off and everything else works. Phone access over Tailscale and turning pus
 ### Upgrading to 2.13 (agent surface)
 
 No migration. `pnpm build`, then restart the service; agents get the `start` / `finish` tools on their
-next `initialize`. That release served protocol 2.12. PLA-I8-3 moved the protocol to 2.13: gates were answered only on the screen (gates were removed in 2.17). Shipping a release from the screen is off until a project asks for it: add `mode: "merge"` to its
+next `initialize`. That release served protocol 2.12. PLA-I8-3 moved the protocol to 2.13: those questions were answered only on the screen (that step was removed in 2.17). Shipping a release from the screen is off until a project asks for it: add `mode: "merge"` to its
 `settings.release` (on screen or `set_project settings {release: {from, into, env, mode: "merge"}}`) and keep
 `settings.github.repo` set. The merge runs `gh` with `GH_TOKEN` from `~/.config/plania/github-release-token`, or from
 `~/.config/plania/github-token` when that file has no token. The token needs write access to the repo. Without `mode`
@@ -109,7 +109,7 @@ the release row keeps the command to copy.
 
 ### Upgrading to 2.14 (screen click)
 
-Migration `0028` drops `gate_challenges` and deletes the `machine_state` row the old screen step stored. Take a dump first. Apply `0028`, `pnpm build`, then restart `com.plania.server`. The protocol moved to 2.14: human-only gates were answered by a click on the owner's screen (gates were removed in 2.17).
+Migration `0028` drops `gate_challenges` and deletes the `machine_state` row the old screen step stored. Take a dump first. Apply `0028`, `pnpm build`, then restart `com.plania.server`. The protocol moved to 2.14: human-only questions were answered by a click on the owner's screen (that step was removed in 2.17).
 
 ### Upgrading to 2.15 (delegated answers)
 
@@ -119,17 +119,17 @@ Migration `0029` adds `delegated_answers`. Take a dump first. Apply `0029`, `pnp
 
 No migration and no schema change. `pnpm build`, then restart the service. `get_resume`, `list_projects`, `get_digest` and `GET /api/projects` gain `readiness` (`state`, `reasons`, `line`). Existing fields keep their shape. The protocol moves to 2.16.
 
-### Upgrading to 2.17 (no gates)
+### Upgrading to 2.17 (stage docs only)
 
-Gates are gone (PLA-I18). An idea moves idea → research → design → planning → ready by `set_task stage` alone; the only check left is the stage doc and its headings (`STAGE_REQUIREMENTS_MISSING`). A promoted initiative goes Active like any other. `ask` with `gate` is `INVALID_QUESTION` ("gates were removed"), so a bot still on 2.16 gets a clear refusal. `GATE_NOT_PASSED`, `GATE_OPEN`, `GATE_ANSWERED_BY_AGENT` and `STAGE_DOC_STALE` no longer exist; `GATE_ANSWERED_DELEGATED` is now `DELEGATED_ANSWER`. The Bandeja has no Compuertas section.
+The old screen step is gone (PLA-I18). An idea moves idea → research → design → planning → ready by `set_task stage` alone; the only check left is the stage doc and its headings (`STAGE_REQUIREMENTS_MISSING`). A promoted initiative goes Active like any other. `ask` that still sends the removed field ignores it and the reply includes a hint, so a bot still on 2.16 stores the question. `GATE_NOT_PASSED`, `GATE_OPEN`, `GATE_ANSWERED_BY_AGENT` and `STAGE_DOC_STALE` no longer exist; `GATE_ANSWERED_DELEGATED` is now `DELEGATED_ANSWER`. The Bandeja has no section for that old step.
 
-Old gate questions stay as read-only history: the `questions.gate` column, its check constraint and every `delegated_answers` row are kept, and nothing is dropped. Migration `0030_close_gates` (PLA-I18-5) closes the gate questions that are still open:
+Old question rows stay as read-only history: the letter column, its check constraint and every `delegated_answers` row are kept, and nothing is dropped. Migration `0030_close_gates` (PLA-I18-5) closes the rows of that kind that are still open:
 
 1. Take a dump first: `pg_dump --no-owner "$DATABASE_URL" | gzip > ~/plania-backups/plania-pre-0030-$(date +%Y%m%d).sql.gz`.
-2. Apply `drizzle/migrations/0030_close_gates.sql` (`psql "$DATABASE_URL" -f …`). It only updates open gate rows and is safe to run twice.
+2. Apply `drizzle/migrations/0030_close_gates.sql` (`psql "$DATABASE_URL" -f …`). It only updates those open rows and is safe to run twice.
 3. `pnpm build`, then restart `com.plania.server`.
 
-Until `0030` runs, an open old gate question stays out of the inbox and can only be closed on the screen; it moves nothing. The protocol moves to 2.17.
+Until `0030` runs, an open old row stays out of the inbox and can only be closed on the screen; it moves nothing. The protocol moves to 2.17.
 
 ### GitHub token file
 
@@ -145,11 +145,11 @@ Lanzar (`settings.release.mode` `merge`) uses the same helper (60 seconds) and s
 
 `ask` with `human_only: true` makes a question only the owner's screen can answer. `answer` from an agent returns `HUMAN_ONLY`, including from actor agent `plania-bot`. The screen session cookie is the only proof on that path. `POST /api/projects/:slug/questions/:id/answer` stores `answered_by` as the screen actor. It refuses a request that carries `Authorization: Bearer`, and it refuses an actor sent in the body or in a header. The MCP bearer never opens `/api`. On the screen every open question has its option buttons and a free answer. The Bandeja also has the kill switch «El bot puede responder por ti» (default on) and every delegated answer with the «Delegada» badge, the quote and the time.
 
-Questions asked before 2.17 may carry a gate letter (A, B or C). That is history: it is shown as a plain answered question and changes nothing (see Upgrading to 2.17).
+Questions asked before 2.17 may carry a letter (A, B or C) on an old column. That is history: it is shown as a plain answered question and changes nothing (see Upgrading to 2.17).
 
 ### Delegated answers
 
-When the owner is away from the Mac he can tell the Plania bot (actor agent exactly `plania-bot`) in his own chat what to answer. That bot calls MCP `answer_delegated` on the existing write token. The call grants or rejects one pending `wont_do` or `reopen` approval, or answers one human_only question that has named options with one of those options. An old gate question is `NOT_DELEGABLE`. Required: `delegated_by_jorge.message_id` (8 to 200 characters) and `delegated_by_jorge.quote` (8 to 280 characters). Missing, empty or short evidence is `DELEGATION_EVIDENCE`. Any other agent, including `jorge` (`RESERVED_ACTOR`) and a caller that spoofs the screen session, is refused. The normal `answer` tool stays `HUMAN_ONLY`.
+When the owner is away from the Mac he can tell the Plania bot (actor agent exactly `plania-bot`) in his own chat what to answer. That bot calls MCP `answer_delegated` on the existing write token. The call grants or rejects one pending `wont_do` or `reopen` approval, or answers one human_only question that has named options with one of those options. A row that still carries the pre-2.17 letter is `NOT_DELEGABLE`. Required: `delegated_by_jorge.message_id` (8 to 200 characters) and `delegated_by_jorge.quote` (8 to 280 characters). Missing, empty or short evidence is `DELEGATION_EVIDENCE`. Any other agent, including `jorge` (`RESERVED_ACTOR`) and a caller that spoofs the screen session, is refused. The normal `answer` tool stays `HUMAN_ONLY`.
 
 The answer or decision is stored as the owner's (the screen actor). `delegated_answers` keeps the message id, the quote, the delegating actor and the time. The audit lists each one as `DELEGATED_ANSWER` (warn) for review.
 
@@ -270,7 +270,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `get_running` | Every ticket with an owner, across projects, with a derived liveness: live (lease valid, activity in the last 20 min), quiet (lease valid, no heartbeat or event for longer), stale (lease ran out, not yet cleared). |
 | `get_digest` | One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects and readiness (state, reasons, line) on each changed project. |
 | `get_inbox` | Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (pending approvals, open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac). |
-| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, and the footprint codes. |
+| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, and the footprint codes. |
 | `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions and pending approvals on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). |
 | `list_agents` | The company roster: every bot, coder and human, with role, title, who they report to, capabilities, kind, status, last check-in and note. |
 | `list_goals` | Company goals and the project goals under them. |
@@ -349,7 +349,7 @@ Rules every write follows:
   `set_check evidence_id` accepts any result of the project (the reply names its `source`).
 - **Audit.** `audit` finds, from data: tickets in review whose PR merged, Done with open checks, initiatives closed with
   open tickets, stale state notes, decisions citing commits or PRs the release target has moved past, environments
-  without a deploy time, drift, Blocked tickets whose blockers hold, gated scopes without a typed blocker, expired
+  without a deploy time, drift, Blocked tickets whose blockers hold, scopes that say to wait without a typed blocker, expired
   claims with commits, merged branches still on origin, branches without a ticket, missing PRs.
 - **Shipping.** `settings.release.mode` is `command` (default: the release row shows the command Jorge runs) or `merge`:
   the row shows "Lanzar", and `POST /api/projects/:slug/release/ship` (the screen's cookie only; any Bearer is `403`)
@@ -367,7 +367,7 @@ Rules every write follows:
   (read tools), `write` (every write but ops), `ops` (`set_env`, `reserve_sequence`). Revoking one stops its next call.
   The static `.env` tokens keep working, unbound.
 - **Approvals.** Won't do and reopening a closed task are Jorge's. An agent asks with `request_approval` (also for a waiver
-  once In review, a runbook step or a gated resource); Jorge grants or rejects in the inbox, one event per decision;
+  once In review, a runbook step or a resource marked needs_approval); Jorge grants or rejects in the inbox, one event per decision;
   the granted `approval_id` unlocks exactly one move (`APPROVAL_MISMATCH`, `APPROVAL_NOT_GRANTED`, `APPROVAL_USED`)
   and expires after 7 days. `confirm_by_jorge` is gone. Jorge's own moves on screen need no approval.
 - **Start and finish.** `start` is `claim` plus `get_context` in one call (with any handoff note); `finish` is

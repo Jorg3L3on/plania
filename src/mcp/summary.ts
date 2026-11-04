@@ -1,3 +1,4 @@
+import { LEGACY_EVENT_PREFIX } from "../db/legacy-names.js";
 import type { Actor } from "../db/schema.js";
 
 // 2.7: one Spanish line per event, for assistants that read the cross-project feed and the digest
@@ -13,6 +14,8 @@ export function summarize(e: Ev): string {
   const k = e.task_key ?? "";
   const p = e.payload;
   const by = who(e.actor);
+  // Events from the old screen step, kept as history. One neutral line, whatever the payload was.
+  if (e.type.startsWith(LEGACY_EVENT_PREFIX)) return `${k ? `${k} ` : ""}evento antiguo`;
   switch (e.type) {
     case "task.created":
       return `${k} creado${p.title ? `: ${str(p.title)}` : ""} (${by})`;
@@ -44,14 +47,6 @@ export function summarize(e: Ev): string {
       return `${k} pregunta a Jorge: ${str(p.question).slice(0, 140)}`;
     case "question.answered":
       return `${k} respondida: ${str(p.answer).slice(0, 140)}`;
-    case "gate.challenge.created":
-      return `${k} compuerta: paso anterior en pantalla${p.gate ? ` (${str(p.gate)})` : ""}`;
-    case "gate.answered":
-      return `${k} compuerta respondida en pantalla${p.gate ? ` (${str(p.gate)})` : ""}`;
-    case "gate.code.rejected":
-      return `${k} compuerta rechazada (${str(p.reason)})`;
-    case "gate.enrolled":
-      return "Compuerta: cambio en la pantalla";
     case "approval.requested":
       return `${k} pide aprobación: ${str(p.action)}`;
     case "approval.granted":

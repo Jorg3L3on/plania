@@ -802,22 +802,23 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "The reply carries question_id and waits (\"the ticket waits in Needs Jorge\"): nothing else to write.",
         "Never only write 'waiting on Jorge' in next_action or blocked_note: a line that starts with 'Jorge:' becomes a human_action blocker on its own (JORGE_LINE_PARSED), and the audit flags the rest (WAITING_ON_JORGE_FREE_TEXT); ask here, request_approval or blocked_by human_action instead.",
       ].join(" "),
-      inputSchema: {
-        project,
-        actor,
-        request_id,
-        verbose,
-        key,
-        question: z.string(),
-        options: z.array(z.string()).optional().describe("Suggested answers"),
-        gate: z.unknown().optional().describe("Removed in 2.17: gates no longer exist, and any value is INVALID_QUESTION"),
-        human_only: z.boolean().optional().describe("Only the screen may answer"),
-        blocks: z.array(z.string()).optional().describe("Other task keys this answer holds up (shown in the inbox and the digest)"),
-        urgency: z.enum(URGENCIES).optional().describe("How soon Jorge is needed: now | soon | whenever"),
-      },
+      inputSchema: z
+        .object({
+          project,
+          actor,
+          request_id,
+          verbose,
+          key,
+          question: z.string(),
+          options: z.array(z.string()).optional().describe("Suggested answers"),
+          human_only: z.boolean().optional().describe("Only the screen may answer"),
+          blocks: z.array(z.string()).optional().describe("Other task keys this answer holds up (shown in the inbox and the digest)"),
+          urgency: z.enum(URGENCIES).optional().describe("How soon Jorge is needed: now | soon | whenever"),
+        })
+        .loose(),
       annotations: write,
     },
-    writeHandler("ask", (input, ctx) => ask(db, input, ctx)),
+    writeHandler("ask", (input, ctx) => ask(db, input as Parameters<typeof ask>[1], ctx)),
   );
 
   server.registerTool(
@@ -848,7 +849,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "Record one answer the owner gave actor agent plania-bot in his own chat. Any other agent is HUMAN_ONLY, including a spoofed screen session.",
-        "One human_only question that has named options: pass question_id and option, one of the stored options. The question closes as his. An old gate question (before 2.17) is NOT_DELEGABLE.",
+        "One human_only question that has named options: pass question_id and option, one of the stored options. The question closes as his. A row that still carries the pre-2.17 letter is NOT_DELEGABLE.",
         "Or one pending approval whose action is wont_do or reopen: pass approval_id and decision grant or reject. Other approval actions are NOT_DELEGABLE.",
         "delegated_by_jorge is required: message_id (8 to 200 characters) and quote (8 to 280 characters) of his instruction. Missing, empty or short evidence is DELEGATION_EVIDENCE.",
         "The server cannot prove this caller is the Plania bot or that the message exists: every bot shares the write token and the actor is declared on the request. The controls are the quote, the DELEGATED_ANSWER audit finding, the Delegada badge, 10 answers an hour, one per question, and the screen kill switch (default on). DELEGATION_OFF when that switch is off. DELEGATION_LIMIT when the hour or the question is already used.",
@@ -991,7 +992,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     {
       description: [
         "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
-        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_GATED, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, and the footprint codes.",
+        "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, and the footprint codes.",
+        "CLAIMABLE_BUT_GATED is the previous name of CLAIMABLE_BUT_WAITING, kept as an alias for one release.",
         "Each finding has key, detail and fix_hint. It also runs every ten minutes; get_resume.status.audit_findings is the last count.",
       ].join(" "),
       inputSchema: { project },

@@ -498,7 +498,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
       approval: approval ? { action: approval.action } : null,
       workType: input.work_type ?? t.workType,
     });
-    // The approval is checked (and spent) before the gates: a wrong or used one is refused first.
+    // The approval is checked (and spent) before the status checks: a wrong or used one is refused first.
     if (approved && approval && needed) await useApproval(tx, emit, approval, t, needed, {}, ctx);
     if (input.status === "In review" && t.kind === "ticket" && t.status !== "In review" && !ctx.human && !ctx.system) {
       await assertReviewEvidence(tx, t, hasDoc);

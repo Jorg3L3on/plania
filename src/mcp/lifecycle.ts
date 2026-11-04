@@ -11,7 +11,7 @@ import { ToolError } from "./errors.js";
 //             an agent sets them only with a ci result that names the merge commit (writes.ts).
 // Initiative: Planning ⇄ Active ⇄ Shipping, any of them ⇄ On hold.
 //
-// Done is the agents' once the work is finished (DONE_FROM, by work type); the gates still apply
+// Done is the agents' once the work is finished (DONE_FROM, by work type); the checks still apply
 // (checks closed, an initiative's tickets closed). Won't do and reopening are Jorge's: on screen,
 // or by an agent holding an approval he granted (request_approval → approval_id), spent on that one move.
 

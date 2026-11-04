@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { LEGACY_QUESTION_COLUMN } from "./legacy-names.js";
 import {
   bigint,
   boolean,
@@ -329,16 +330,16 @@ export const questions = pgTable(
     // 2.8: other task keys this question holds up, and how soon Jorge is needed (now | soon | whenever).
     blocks: text("blocks").array().notNull().default(sql`'{}'::text[]`),
     urgency: text("urgency"),
-    // PLA-I8-1: gate A, B or C on an idea. A gate is human_only. answer refuses it unless the
-    // caller is the screen session. Migration 0027 set human_only on gate questions that were still
-    // open. Migration 0028 drops the challenge table that used to bind a screen step to the question.
-    // An answer from an agent does not move the gate.
-    gate: text("gate"),
+    // PLA-I8-1: a letter A, B or C on an idea, from before 2.17. Kept until migration 0032.
+    // A row that still has one stays out of the inbox and is not delegable. The screen may close it.
+    // Migration 0027 set human_only on those rows that were still open. Migration 0028 drops the
+    // challenge table that used to bind a screen step to the question.
+    legacyMark: text(LEGACY_QUESTION_COLUMN),
     humanOnly: boolean("human_only").notNull().default(false),
   },
   (t) => [
     index("questions_project_open_idx").on(t.projectId).where(sql`${t.answeredAt} is null`),
-    check("questions_gate_check", sql`${t.gate} is null or ${t.gate} in ('A', 'B', 'C')`),
+    check("questions_gate_check", sql`${t.legacyMark} is null or ${t.legacyMark} in ('A', 'B', 'C')`),
   ],
 );
 

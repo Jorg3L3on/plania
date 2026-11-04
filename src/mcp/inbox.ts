@@ -140,8 +140,8 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
     .select({ q: questions, t: tasks })
     .from(questions)
     .innerJoin(tasks, eq(tasks.id, questions.taskId))
-    // Old gate rows (gates were removed in 2.17) are history, not decisions: migration 0030 closes them.
-    .where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt), isNull(questions.gate)))
+    // Rows that still carry the pre-2.17 letter are history, not decisions: migration 0030 closes them.
+    .where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt), isNull(questions.legacyMark)))
     .orderBy(asc(questions.askedAt));
   for (const { q, t } of open) {
     items.push({
