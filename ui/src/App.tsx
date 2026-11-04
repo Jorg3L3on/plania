@@ -18,6 +18,7 @@ import { ProgressDayPage, ProgressItemPage, ProgressProjectPage, ProgressYearPag
 import { ProgresoPage } from "@/pages/progreso";
 import { TokensPage } from "@/pages/tokens";
 import { EquipoPage } from "@/pages/equipo";
+import { CeoPage } from "@/pages/ceo";
 
 // What the cached app shows when the server can't be reached, e.g. a home-screen launch with no network.
 // It retries on its own when the network comes back.
@@ -75,6 +76,7 @@ export function App() {
         <Route path="/progreso/anio/:year" element={<ProgressYearPage />} />
         <Route path="/progreso/proyecto/:slug" element={<ProgressProjectPage />} />
         <Route path="/progreso/:slug/:key" element={<ProgressItemPage />} />
+        <Route path="/ceo" element={<CeoPage />} />
         <Route path="/tokens" element={<TokensPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
