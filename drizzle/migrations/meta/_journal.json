@@ -239,6 +239,13 @@
       "when": 1793510400000,
       "tag": "0036_delegation",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1793600000000,
+      "tag": "0037_token_usage",
+      "breakpoints": true
     }
   ]
 }

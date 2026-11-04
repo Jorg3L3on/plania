@@ -287,6 +287,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `list_agents` | The company roster: every bot, coder and human, with role, title, who they report to, capabilities, kind, status, last check-in and note. |
 | `list_goals` | Company goals and the project goals under them. |
 | `list_routine_runs` | Routine runs, newest first. |
+| `usage_summary` | Totals of reported tokens per agent, project and week. |
 
 | Write | |
 |---|---|
@@ -321,6 +322,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `comment` | Add a comment on a task. |
 | `assign` | Set a task's owner_agent to another roster agent and count the hop. |
 | `record_routine_run` | Record one run of a roster agent's routine. |
+| `report_tokens` | Record the tokens one agent reports for a task run. |
 <!-- mcp-tools:end -->
 
 Rules every write follows:
