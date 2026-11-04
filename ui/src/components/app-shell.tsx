@@ -20,6 +20,7 @@ import { api } from "@/lib/api";
 import { disablePush, enablePush, PushError, pushHint, pushStatus, type PushStatus } from "@/lib/push";
 import { LiveProvider, useLive } from "@/lib/live";
 import { cn } from "@/lib/utils";
+import { EquipoLink, EquipoMenuItem } from "@/components/team/equipo-link";
 
 // On a phone only the dot shows; the label stays for screen readers.
 function LiveIndicator() {
@@ -112,6 +113,7 @@ function PhoneMenu({ onLogout }: { onLogout: () => void }) {
         <DropdownMenuItem onSelect={() => navigate("/ahora")}>
           <ClockIcon /> Ahora
         </DropdownMenuItem>
+        <EquipoMenuItem />
         <DropdownMenuItem onSelect={() => navigate("/tokens")}>
           <KeyRoundIcon /> Tokens de agentes
         </DropdownMenuItem>
@@ -224,6 +226,7 @@ export function AppShell() {
               <AhoraLink />
               <InboxLink />
               <MachineLink />
+              <EquipoLink />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Link to="/tokens" aria-label="Tokens de agentes" className="hidden size-9 items-center justify-center rounded-full text-muted-foreground hover:text-foreground sm:inline-flex">

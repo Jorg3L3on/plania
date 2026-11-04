@@ -14,6 +14,7 @@ import { MachinePage } from "@/pages/machine";
 import { HomePage } from "@/pages/home";
 import { ProjectPage } from "@/pages/project";
 import { TokensPage } from "@/pages/tokens";
+import { EquipoPage } from "@/pages/equipo";
 
 // What the cached app shows when the server can't be reached, e.g. a home-screen launch with no network.
 // It retries on its own when the network comes back.
@@ -64,6 +65,7 @@ export function App() {
         <Route path="/p/:slug" element={<ProjectPage />} />
         <Route path="/inbox" element={<InboxPage />} />
         <Route path="/machine" element={<MachinePage />} />
+        <Route path="/equipo" element={<EquipoPage />} />
         <Route path="/tokens" element={<TokensPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

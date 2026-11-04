@@ -1,3 +1,4 @@
+import type { TeamRoster } from "@/components/team/types";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
 
 export class ApiError extends Error {
@@ -68,6 +69,7 @@ export const api = {
   // PLA-06: mark delegated answers seen (they leave the Bandeja and the audit; the record stays).
   reviewDelegated: (ids: string[]) => request<{ reviewed: number }>("POST", "/delegated/reviewed", { ids }),
   machine: () => request<Machine>("GET", "/machine"),
+  team: () => request<TeamRoster>("GET", "/team"),
   // 2.12 Hoy: the digest since this device's cursor; "Visto" moves the server's bookmark too.
   digest: (since?: number) => request<Digest>("GET", since === undefined ? "/digest" : `/digest?since=${since}`),
   digestSeen: (cursor: number) => request<{ cursor: number }>("POST", "/digest/seen", { cursor }),
