@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { checks, events, projects, pullRequests, taskAliases, tasks, type Actor, type Project, type Task } from "../db/schema.js";
+import { agentRefOf } from "./team.js";
 import { blockerList, hasUnsatisfiedBlocker } from "./blockers.js";
 import { taskChecks } from "./checks.js";
 import { listDecisions, type DecisionFilters } from "./decisions.js";
@@ -233,6 +234,7 @@ export async function taskFull(db: Q, t: Task, opts: ShapeOptions = {}) {
     ...(t.workType === "bug" ? { severity: t.severity, found_in: t.foundIn, introduced_by: t.introducedBy, regression: t.regression } : {}),
     ...(t.workType === "debt" ? { cost_note: t.costNote } : {}),
     claim: claimShape(t),
+    owner_agent: await agentRefOf(db, t.ownerAgent),
     workspace: t.workspace,
     version: t.version,
     created_at: iso(t.createdAt),
@@ -303,6 +305,7 @@ export async function taskSummary(db: Q, t: Task) {
     pr: await prOf(db, t),
     due_on: t.dueOn,
     claim: claimShape(t),
+    owner_agent: await agentRefOf(db, t.ownerAgent),
     workspace: t.workspace,
     version: t.version,
     updated_at: iso(t.updatedAt),

@@ -404,7 +404,7 @@ describe("get_resume and GET /api/projects", () => {
     ]);
     assert.deepEqual(Object.keys(resume.headline).sort(), ["generated", "note"]);
     assert.deepEqual(Object.keys(resume.headline.note).sort(), ["at", "stale", "text", "version"]);
-    assert.deepEqual(Object.keys(resume.claims[0]).sort(), ["key", "kind", "lease_until", "owner", "title", "workspace"]);
+    assert.deepEqual(Object.keys(resume.claims[0]).sort(), ["key", "kind", "lease_until", "owner", "owner_agent", "title", "workspace"]);
     assert.equal(resume.claims[0].key, "ZIG-01");
     assert.equal(typeof resume.headline.generated, "string");
     assert.ok(Array.isArray(resume.status.envs));

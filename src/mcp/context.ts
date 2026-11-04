@@ -5,6 +5,7 @@ import { auditForKeys } from "./orden.js";
 import { ToolError } from "./errors.js";
 import { footprintsOf, sessionFootprint } from "./footprint-read.js";
 import { listEvents, liveOwner, taskSummary } from "./queries.js";
+import { agentRefOf } from "./team.js";
 import { openRequests } from "./requests.js";
 import { iso, type Q } from "./tx.js";
 
@@ -64,7 +65,15 @@ export async function getContext(
     // 2.12: what Jorge asked for on screen, newest first, whatever the branch.
     requests: await openRequests(db, p.id),
     tickets: await Promise.all(tickets.map((t) => taskSummary(db, t))),
-    my_claims: mine.map((t) => ({ key: t.key, lease_until: iso(t.leaseUntil), workspace: t.workspace, handoff: t.handoff })),
+    my_claims: await Promise.all(
+      mine.map(async (t) => ({
+        key: t.key,
+        lease_until: iso(t.leaseUntil),
+        workspace: t.workspace,
+        handoff: t.handoff,
+        owner_agent: await agentRefOf(db, t.ownerAgent),
+      })),
+    ),
     pinned_decisions: decisions,
     open_questions: open.map(({ q, key }) => ({ id: q.id, key, question: q.question, options: q.options, asked_at: iso(q.askedAt) })),
     footprint: footprint.map(({ taskId, ...f }) => ({ task_key: keyById.get(taskId!) ?? null, ...f })),

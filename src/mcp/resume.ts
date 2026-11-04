@@ -1,5 +1,6 @@
-import { desc, eq } from "drizzle-orm";
-import { events, tasks, type Project, type Task } from "../db/schema.js";
+import { desc, eq, inArray } from "drizzle-orm";
+import { agents, events, tasks, type Project, type Task } from "../db/schema.js";
+import type { AgentRef } from "./team.js";
 import { listDecisions } from "./decisions.js";
 import { machineLine } from "./footprint-read.js";
 import { liveOwner, nextTask } from "./queries.js";
@@ -21,12 +22,13 @@ import { iso, type Q } from "./tx.js";
 const CLOSED = ["Done", "Won't do"];
 const RECENT_EVENTS = 10;
 
-function claimLine(t: Task) {
+function claimLine(t: Task, owners: Map<string, AgentRef>) {
   return {
     key: t.key,
     kind: t.kind,
     title: t.title,
     owner: t.owner,
+    owner_agent: t.ownerAgent ? (owners.get(t.ownerAgent) ?? null) : null,
     lease_until: iso(t.leaseUntil),
     workspace: t.workspace,
   };
@@ -45,6 +47,15 @@ export async function resumeDigest(db: Q, p: Project) {
   const openIds = new Set(openInitiatives.map((i) => i.id));
   const tickets = all.filter((t) => t.kind === "ticket");
   const claimed = tickets.filter((t) => liveOwner(t));
+  const ownerIds = [...new Set(all.map((t) => t.ownerAgent).filter((id): id is string => !!id))];
+  const ownerRows = ownerIds.length
+    ? await db
+        .select({ id: agents.id, slug: agents.slug, name: agents.name, role: agents.role, title: agents.title, status: agents.status })
+        .from(agents)
+        .where(inArray(agents.id, ownerIds))
+    : [];
+  const owners = new Map(ownerRows.map((r) => [r.id, { slug: r.slug, name: r.name, role: r.role, title: r.title, status: r.status }]));
+  const line = (t: Task) => claimLine(t, owners);
 
   // Pinned and not reversed by a later decision.
   const pinnedRows = await listDecisions(db, p.id, { pinned: true, includeSuperseded: false, limit: 500 });
@@ -72,7 +83,7 @@ export async function resumeDigest(db: Q, p: Project) {
       // 2.11: the derived state first; the notes below are commentary.
       state: await initiativeState(db, i, children),
       state_note: i.stateNote,
-      in_progress: { note: i.inProgressNote, claims: children.filter((t) => liveOwner(t)).map(claimLine) },
+      in_progress: { note: i.inProgressNote, claims: children.filter((t) => liveOwner(t)).map(line) },
       next_action: { note: i.nextAction, next_claimable: (await nextTask(db, p.id, i.key)).task },
       must_keep: pinned.filter((d) => d.home === i.id).map((d) => d.shape),
       counts: statusCounts(children),
@@ -108,18 +119,18 @@ export async function resumeDigest(db: Q, p: Project) {
     project: p.slug,
     generated_at: new Date().toISOString(),
     // 2.11: generated from the status block; the note is what set_project headline wrote.
-    headline: { generated: await generatedHeadline(db, p, { status, next_claimable, claims: claimed.map(claimLine) }), note: headlineNoteShape(p) },
+    headline: { generated: await generatedHeadline(db, p, { status, next_claimable, claims: claimed.map(line) }), note: headlineNoteShape(p) },
     status,
     // What this project's agents have running on the Mac, in one line (null when nothing is).
     machine: await machineLine(db, p.id),
-    claims: claimed.map(claimLine),
+    claims: claimed.map(line),
     // 2.12: what Jorge asked for on screen, newest first. Read these before the backlog.
     requests: await openRequests(db, p.id),
     next_claimable,
     initiatives,
     standalone: {
       open: standalone.filter((t) => !CLOSED.includes(t.status)).length,
-      claims: standalone.filter((t) => liveOwner(t)).map(claimLine),
+      claims: standalone.filter((t) => liveOwner(t)).map(line),
     },
     must_keep: pinned.filter((d) => d.home === null).map((d) => d.shape),
     open_questions: await openQuestions(db, p.id),

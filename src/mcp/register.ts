@@ -48,6 +48,7 @@ import { PROTOCOL_VERSION, instructions } from "./protocol.js";
 import { releasePlan } from "./release-plan.js";
 import { answerDelegated } from "./delegate.js";
 import { URGENCIES, answer, ask } from "./questions.js";
+import { registerTeamTools } from "./team.js";
 import { TTL, claim, createTask, handoff, setTask } from "./writes.js";
 import { runAudit } from "./audit.js";
 import { getContext } from "./context.js";
@@ -173,6 +174,7 @@ const createFields = {
   regression: z.boolean().optional().describe("Bugs: it used to work"),
   cost_note: z.string().optional().describe("Debt: what it costs while it stays"),
   due_on: z.string().optional().describe("When it should be done, YYYY-MM-DD (audit OVERDUE once past)"),
+  owner_agent: z.string().nullable().optional().describe("Roster slug of the agent who owns this task. Informational: it does not take the lease. Null clears it"),
 };
 
 const setTaskFields = {
@@ -213,6 +215,7 @@ const setTaskFields = {
   promoted_to: z.string().nullable().optional().describe("Ideas only: key of the initiative or standalone ticket this idea became. A phase or another idea is PROMOTED_TO_INVALID"),
   note: z.string().optional(),
   version: z.number().int().optional().describe("The version you read. Required unless note or withdraw_blocker is the only field"),
+  owner_agent: z.string().nullable().optional().describe("Roster slug of the agent who owns this task. Informational: it does not take the lease. Null clears it"),
 };
 
 const setCheckFields = {
@@ -1141,6 +1144,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     },
     writeHandler("batch", (input, ctx) => runBatch(db, input, ctx)),
   );
+
+  registerTeamTools(server, { db, identity, writeCtx, actor, request_id, run, readOnly, write });
 
   return server;
 }
