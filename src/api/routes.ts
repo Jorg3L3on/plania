@@ -34,6 +34,7 @@ import { subscribe, unsubscribe, vapidConfig } from "../push.js";
 import { teamRoutes } from "./team.js";
 import { goalsApi } from "./goals.js";
 import { progressRoutes } from "./progress.js";
+import { delegationRoutes } from "./delegation.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
 // the MCP Bearer never opens it and the cookie never opens /mcp.
@@ -625,6 +626,7 @@ api.get("/events", (c) =>
 api.route("/team", teamRoutes);
 api.route("/goals", goalsApi);
 api.route("/progress", progressRoutes);
+api.route("/delegation", delegationRoutes);
 
 // Mounted sub-apps do not use their own notFound, so claim unknown API paths explicitly.
 api.all("*", (c) => c.json({ error: "NOT_FOUND" }, 404));

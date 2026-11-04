@@ -1,3 +1,4 @@
+import type { TaskComment, RoutineRun } from "@/components/delegation/types";
 import type { TeamRoster } from "@/components/team/types";
 import type { Goal, GoalWrite } from "@/components/goals/model";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
@@ -69,6 +70,18 @@ export const api = {
   reviewDelegated: (ids: string[]) => request<{ reviewed: number }>("POST", "/delegated/reviewed", { ids }),
   machine: () => request<Machine>("GET", "/machine"),
   team: () => request<TeamRoster>("GET", "/team"),
+  comments: (slug: string, key: string) =>
+    request<{ comments: TaskComment[] }>(
+      "GET",
+      `/delegation/comments?project=${encodeURIComponent(slug)}&key=${encodeURIComponent(key)}`,
+    ),
+  routines: (agent?: string, date?: string) => {
+    const params = new URLSearchParams();
+    if (agent) params.set("agent", agent);
+    if (date) params.set("date", date);
+    const query = params.toString();
+    return request<{ runs: RoutineRun[] }>("GET", query ? `/delegation/routines?${query}` : "/delegation/routines");
+  },
   // 2.12 Hoy: the digest since this device's cursor; "Visto" moves the server's bookmark too.
   digest: (since?: number) => request<Digest>("GET", since === undefined ? "/digest" : `/digest?since=${since}`),
   digestSeen: (cursor: number) => request<{ cursor: number }>("POST", "/digest/seen", { cursor }),
