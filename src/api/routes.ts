@@ -29,6 +29,7 @@ import { answer } from "../mcp/questions.js";
 import { nextStepLine, resumeDigest, resumeLine } from "../mcp/resume.js";
 import { WEB_ACTOR, webCtx, writeTx } from "../mcp/tx.js";
 import { claim, createTask, setTask } from "../mcp/writes.js";
+import { progressItem, progressLog, progressSummary } from "../mcp/progress.js";
 import { getDigest, rememberCursor } from "../mcp/watch.js";
 import { subscribe, unsubscribe, vapidConfig } from "../push.js";
 import { teamRoutes } from "./team.js";
@@ -623,6 +624,53 @@ api.get("/events", (c) =>
 
 api.route("/team", teamRoutes);
 api.route("/goals", goalsApi);
+// ---- Mi progreso (PLA-I19). Derived reads for Jorge's screen. A Bearer is a bot: 401, even with a cookie.
+
+function bearerRefused(c: Context): Response | null {
+  if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) return c.json({ error: "UNAUTHORIZED" }, 401);
+  return null;
+}
+
+api.get("/progress/summary", async (c) => {
+  const refused = bearerRefused(c);
+  if (refused) return refused;
+  try {
+    return c.json(await withDb((db) => progressSummary(db, { range: c.req.query("range"), date: c.req.query("date") })));
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
+
+api.get("/progress/log", async (c) => {
+  const refused = bearerRefused(c);
+  if (refused) return refused;
+  try {
+    return c.json(
+      await withDb((db) =>
+        progressLog(db, {
+          from: c.req.query("from"),
+          to: c.req.query("to"),
+          project: c.req.query("project"),
+          type: c.req.query("type"),
+          q: c.req.query("q"),
+          cursor: c.req.query("cursor"),
+        }),
+      ),
+    );
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
+
+api.get("/progress/item/:project/:key", async (c) => {
+  const refused = bearerRefused(c);
+  if (refused) return refused;
+  try {
+    return c.json(await withDb((db) => progressItem(db, c.req.param("project"), c.req.param("key"))));
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
 
 // Mounted sub-apps do not use their own notFound, so claim unknown API paths explicitly.
 api.all("*", (c) => c.json({ error: "NOT_FOUND" }, 404));
