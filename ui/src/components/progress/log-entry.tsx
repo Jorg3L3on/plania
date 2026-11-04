@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router";
 import { ProjectChip } from "@/components/progress/recap-bits";
 import { isGif, projectColor, TYPE_MARK } from "@/lib/progress";
 import type { ProgressLogEntry } from "@/lib/types";
@@ -84,7 +85,13 @@ export const LogEntryCard = ({ entry, q }: Props) => {
         </time>
       </div>
       <h3 className="text-[16px] leading-snug font-extrabold tracking-tight">
-        <Mark text={entry.title} q={q} />
+        {entry.key ? (
+          <Link to={`/progreso/${entry.project}/${entry.key}`} className="hover:underline">
+            <Mark text={entry.title} q={q} />
+          </Link>
+        ) : (
+          <Mark text={entry.title} q={q} />
+        )}
       </h3>
       {entry.summary && <p className="mt-1 text-[13px] leading-snug text-[#a1a1aa]">{entry.summary}</p>}
       {showChange && (

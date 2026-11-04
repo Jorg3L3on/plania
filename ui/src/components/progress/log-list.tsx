@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { LogEntryCard } from "@/components/progress/log-entry";
 import { LogScrubber } from "@/components/progress/log-scrubber";
 import { ProjectChip } from "@/components/progress/recap-bits";
@@ -95,10 +96,10 @@ const DayBlock = ({ day, q }: { day: ProgressLog["days"][number]; q: string }) =
   return (
     <div className="mb-4">
       <div className="mb-2.5 flex items-center gap-2.5">
-        <div className="flex h-[50px] w-[46px] shrink-0 flex-col items-center justify-center rounded-[14px] border border-white/15 bg-gradient-to-b from-white/10 to-white/5 leading-none">
+        <Link to={`/progreso/dia/${day.date}`} aria-label={day.date} className="flex h-[50px] w-[46px] shrink-0 flex-col items-center justify-center rounded-[14px] border border-white/15 bg-gradient-to-b from-white/10 to-white/5 leading-none">
           <b className="text-[20px] font-black">{Number(d)}</b>
           <small className="mt-0.5 text-[9px] font-extrabold tracking-wider text-[#ff8a5c]">{month}</small>
-        </div>
+        </Link>
         <div className="min-w-0">
           <h3 className="text-[16px] font-extrabold">{day.weekday}</h3>
           <p className="text-[12px] text-[#a1a1aa]">
