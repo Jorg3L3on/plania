@@ -20,8 +20,18 @@ export const FOOTPRINT_INBOX_AFTER_MS = 24 * 3600_000;
 export const MACHINE_INBOX_PROJECT = "machine";
 
 export type InboxGroup = "decisiones" | "pasos" | "limpieza";
-export type InboxKind = "approval" | "question" | "human_action" | "release" | "footprint";
-export const GROUP_OF: Record<InboxKind, InboxGroup> = { approval: "decisiones", question: "decisiones", human_action: "pasos", release: "pasos", footprint: "limpieza" };
+export type InboxKind = "approval" | "question" | "human_action" | "release" | "footprint" | "lease";
+export const GROUP_OF: Record<InboxKind, InboxGroup> = {
+  approval: "decisiones",
+  question: "decisiones",
+  human_action: "pasos",
+  release: "pasos",
+  footprint: "limpieza",
+  lease: "limpieza",
+};
+
+// A past lease stays in limpieza for a day, or until someone claims the ticket again.
+const LEASE_LIMPIEZA_MS = 24 * 3600_000;
 
 export type InboxItem = {
   id: string;
@@ -202,6 +212,44 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
     });
   }
   items.push(...(await footprintItems(db, p.id, p.slug)));
+  items.push(...(await leaseItems(db, p.id, p.slug)));
+  return items;
+}
+
+async function leaseItems(db: Q, projectId: string, project: string, now = new Date()): Promise<InboxItem[]> {
+  const since = new Date(now.getTime() - LEASE_LIMPIEZA_MS).toISOString();
+  const rows = await db.execute<{ id: string; task_key: string; created_at: Date; title: string; kind: string; parent_id: string | null; pr_url: string | null }>(sql`
+    select distinct on (e.task_id) e.id::text as id, e.task_key, e.created_at, t.title, t.kind, t.parent_id, t.pr_url
+    from events e
+    join tasks t on t.id = e.task_id
+    where e.project_id = ${projectId}
+      and e.type = 'claim.limpieza'
+      and e.created_at > ${since}::timestamptz
+      and not exists (
+        select 1 from events n
+        where n.task_id = e.task_id and n.type = 'claim.acquired' and n.id > e.id
+      )
+    order by e.task_id, e.id desc`);
+  const items: InboxItem[] = [];
+  for (const row of rows.rows) {
+    const at = new Date(row.created_at);
+    items.push({
+      id: row.id,
+      kind: "lease",
+      group: "limpieza",
+      project,
+      key: row.task_key,
+      task_kind: row.kind,
+      parent_key: await parentKeyOf(db, row.parent_id),
+      title: row.title,
+      why: "el turno venció y nadie lo renovó",
+      waiting_since: iso(at),
+      wait_s: waitSeconds(at),
+      evidence: null,
+      pr_url: row.pr_url,
+      action_hint: "reclamar de nuevo o soltar el trabajo",
+    });
+  }
   return items;
 }
 

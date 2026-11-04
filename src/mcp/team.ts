@@ -4,14 +4,58 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { AGENT_KINDS, AGENT_STATUSES, agentTokens, agents, type Agent } from "../db/schema.js";
+import { AGENT_KINDS, AGENT_STATUSES, agentTokens, agents, projects, tasks, type Agent, type ProjectSettings, type Task } from "../db/schema.js";
 import { ToolError } from "./errors.js";
-import { iso, type Ctx, type Q } from "./tx.js";
+import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 
 // PLA-I21: the company roster. Slugs only on the wire. Claims stay on tasks.owner;
 // owner_agent is informational. Tokens link by agent name or slug, never by a foreign key.
 
 const SLUG = /^[a-z][a-z0-9-]{0,58}$/;
+
+// A check-in older than this, with a live claim, is stuck. Projects override it with settings.team.idle_minutes.
+export const DEFAULT_IDLE_MINUTES = 120;
+export const WAKE_INTERVAL_MS = 60 * 60 * 1000;
+const MINUTE = 60_000;
+
+export function idleMinutesOf(settings: ProjectSettings | null | undefined): number {
+  const raw = settings?.team?.idle_minutes;
+  if (typeof raw === "number" && Number.isInteger(raw) && raw >= 1 && raw <= 24 * 60) return raw;
+  return DEFAULT_IDLE_MINUTES;
+}
+
+// No claim: alive while the last check-in is inside the default window, otherwise idle.
+// A live claim past its project's window: stuck. One fresh claim keeps the agent alive.
+export function presenceOf(lastCheckIn: Date | null, claimIdleMinutes: number[], now: Date): (typeof AGENT_STATUSES)[number] {
+  const fresh = (minutes: number) => !!lastCheckIn && now.getTime() - new Date(lastCheckIn).getTime() <= minutes * MINUTE;
+  if (claimIdleMinutes.length === 0) return fresh(DEFAULT_IDLE_MINUTES) ? "alive" : "idle";
+  return claimIdleMinutes.some((minutes) => !fresh(minutes)) ? "stuck" : "alive";
+}
+
+type LiveClaim = { agent: string; idleMinutes: number };
+
+export async function liveClaims(db: Q, now: Date): Promise<LiveClaim[]> {
+  const rows = await db.execute<{ agent: string | null; settings: ProjectSettings }>(sql`
+    select t.owner->>'agent' as agent, p.settings
+    from tasks t
+    join projects p on p.id = t.project_id
+    where t.owner is not null and t.lease_until > ${now.toISOString()}::timestamptz`);
+  return rows.rows.filter((r): r is { agent: string; settings: ProjectSettings } => !!r.agent).map((r) => ({ agent: r.agent, idleMinutes: idleMinutesOf(r.settings) }));
+}
+
+export function claimsFor(agent: { slug: string; name: string }, claims: LiveClaim[]): number[] {
+  const keys = new Set([agent.slug.trim().toLowerCase(), agent.name.trim().toLowerCase()]);
+  return claims.filter((c) => keys.has(c.agent.trim().toLowerCase())).map((c) => c.idleMinutes);
+}
+
+export async function statusByAgentId(
+  db: Q,
+  rows: { id: string; slug: string; name: string; lastCheckInAt: Date | null }[],
+  now = new Date(),
+): Promise<Map<string, (typeof AGENT_STATUSES)[number]>> {
+  const claims = await liveClaims(db, now);
+  return new Map(rows.map((r) => [r.id, presenceOf(r.lastCheckInAt, claimsFor(r, claims), now)]));
+}
 
 export type AgentRef = { slug: string; name: string; role: string; title: string; status: string };
 
@@ -72,14 +116,23 @@ function checkCapabilities(values: string[] | undefined): string[] | undefined {
   return out;
 }
 
-export async function agentRefOf(db: Q, id: string | null): Promise<AgentRef | null> {
+export async function agentRefOf(db: Q, id: string | null, now = new Date()): Promise<AgentRef | null> {
   if (!id) return null;
   const [row] = await db
-    .select({ slug: agents.slug, name: agents.name, role: agents.role, title: agents.title, status: agents.status })
+    .select({
+      id: agents.id,
+      slug: agents.slug,
+      name: agents.name,
+      role: agents.role,
+      title: agents.title,
+      lastCheckInAt: agents.lastCheckInAt,
+    })
     .from(agents)
     .where(eq(agents.id, id))
     .limit(1);
-  return row ?? null;
+  if (!row) return null;
+  const status = (await statusByAgentId(db, [row], now)).get(row.id) ?? "idle";
+  return { slug: row.slug, name: row.name, role: row.role, title: row.title, status };
 }
 
 export async function requireAgentId(db: Q, slug: string): Promise<string> {
@@ -106,7 +159,7 @@ function tokensFor(row: Agent, tokens: TokenRow[]): AgentView["tokens"] {
     .map((t) => ({ name: t.name, prefix: t.prefix, machine: t.machine }));
 }
 
-function viewOf(row: Agent, byId: Map<string, Agent>, tokens: TokenRow[]): AgentView {
+function viewOf(row: Agent, byId: Map<string, Agent>, tokens: TokenRow[], status: AgentView["status"]): AgentView {
   const parent = row.reportsTo ? byId.get(row.reportsTo) : undefined;
   return {
     slug: row.slug,
@@ -118,17 +171,22 @@ function viewOf(row: Agent, byId: Map<string, Agent>, tokens: TokenRow[]): Agent
     kind: row.kind,
     wake_url: row.wakeUrl,
     last_check_in_at: iso(row.lastCheckInAt),
-    status: row.status,
+    status,
     note: row.note,
     tokens: tokensFor(row, tokens),
   };
 }
 
-export async function listAgents(db: Q): Promise<{ agents: AgentView[] }> {
-  const rows = await db.select().from(agents).orderBy(asc(agents.slug));
+async function shapeRows(db: Q, rows: Agent[], now = new Date()): Promise<AgentView[]> {
   const byId = new Map(rows.map((r) => [r.id, r]));
   const tokens = await loadTokens(db);
-  return { agents: rows.map((r) => viewOf(r, byId, tokens)) };
+  const claims = await liveClaims(db, now);
+  return rows.map((r) => viewOf(r, byId, tokens, presenceOf(r.lastCheckInAt, claimsFor(r, claims), now)));
+}
+
+export async function listAgents(db: Q, now = new Date()): Promise<{ agents: AgentView[] }> {
+  const rows = await db.select().from(agents).orderBy(asc(agents.slug));
+  return { agents: await shapeRows(db, rows, now) };
 }
 
 async function wouldCycle(db: Q, selfId: string, parentId: string): Promise<boolean> {
@@ -219,10 +277,56 @@ export async function setAgent(db: Db, input: SetAgentInput): Promise<AgentView>
       row = updated!;
     }
     const rows = await tx.select().from(agents);
-    const byId = new Map(rows.map((r) => [r.id, r]));
-    const tokens = await loadTokens(tx);
-    return viewOf(row, byId, tokens);
+    return (await shapeRows(tx, rows)).find((a) => a.slug === row.slug)!;
   });
+}
+
+export type CheckInInput = { agent: string; working_on?: string; note?: string };
+
+// Heartbeat. Sets last check-in and alive. working_on, when it is a task key, sets owner_agent
+// and leaves the lease alone. note replaces the roster note.
+export async function checkIn(db: Db, input: CheckInInput, ctx: Ctx): Promise<AgentView & { working_on: string | null }> {
+  const slug = checkSlug(input.agent);
+  const [agent] = await db.select().from(agents).where(eq(agents.slug, slug)).limit(1);
+  if (!agent) throw new ToolError("AGENT_NOT_FOUND", { slug });
+
+  let working: { projectId: string; slug: string; task: Task } | null = null;
+  if (input.working_on !== undefined && input.working_on.trim() !== "") {
+    const key = input.working_on.trim();
+    const found = await db
+      .select({ task: tasks, projectId: projects.id, slug: projects.slug })
+      .from(tasks)
+      .innerJoin(projects, eq(projects.id, tasks.projectId))
+      .where(eq(tasks.key, key));
+    if (found.length === 0) throw new ToolError("TASK_NOT_FOUND", { key });
+    if (found.length > 1) throw new ToolError("INVALID_FILTER", { field: "working_on", hint: "key is in more than one project" });
+    working = { projectId: found[0]!.projectId, slug: found[0]!.slug, task: found[0]!.task };
+  }
+
+  await db
+    .update(agents)
+    .set({
+      lastCheckInAt: sql`now()`,
+      status: "alive",
+      ...(input.note !== undefined ? { note: input.note } : {}),
+      updatedAt: sql`now()`,
+    })
+    .where(eq(agents.id, agent.id));
+
+  if (working && working.task.ownerAgent !== agent.id) {
+    const before = await agentRefOf(db, working.task.ownerAgent);
+    await writeTx(db, { id: working.projectId, slug: working.slug }, { ...ctx, tool: "check_in" }, async (tx, emit) => {
+      const [updated] = await tx
+        .update(tasks)
+        .set({ ownerAgent: agent.id, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
+        .where(eq(tasks.id, working!.task.id))
+        .returning();
+      await emit("task.updated", updated!, { changes: { owner_agent: [before?.slug ?? null, agent.slug] } });
+    });
+  }
+
+  const view = (await listAgents(db)).agents.find((a) => a.slug === slug)!;
+  return { ...view, working_on: working ? working.task.key : null };
 }
 
 type WriteCtx = (
@@ -291,6 +395,33 @@ export function registerTeamTools(
         };
         writeCtx("set_agent", body, identity);
         return setAgent(db, body);
+      }),
+  );
+
+  server.registerTool(
+    "check_in",
+    {
+      description: [
+        "Say an agent is here. Sets last check-in to now and status to alive.",
+        "working_on is a task key: it sets that task's owner_agent and does not touch the lease. note replaces the roster note.",
+      ].join(" "),
+      inputSchema: {
+        actor,
+        request_id,
+        agent: z.string().min(1).describe("Roster slug"),
+        working_on: z.string().optional().describe("Task key this agent is on. Sets owner_agent; the claim stays as it is"),
+        note: z.string().optional(),
+      },
+      annotations: write,
+    },
+    (input) =>
+      run(() => {
+        const body = input as CheckInInput & {
+          actor: { agent?: string; session_id: string; machine?: string; model?: string };
+          request_id?: string;
+        };
+        const ctx = writeCtx("check_in", body, identity);
+        return checkIn(db, { agent: body.agent, working_on: body.working_on, note: body.note }, ctx);
       }),
   );
 }

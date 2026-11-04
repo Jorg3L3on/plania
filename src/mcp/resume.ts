@@ -1,6 +1,6 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import { agents, events, tasks, type Project, type Task } from "../db/schema.js";
-import type { AgentRef } from "./team.js";
+import { statusByAgentId, type AgentRef } from "./team.js";
 import { listDecisions } from "./decisions.js";
 import { machineLine } from "./footprint-read.js";
 import { liveOwner, nextTask } from "./queries.js";
@@ -50,11 +50,12 @@ export async function resumeDigest(db: Q, p: Project) {
   const ownerIds = [...new Set(all.map((t) => t.ownerAgent).filter((id): id is string => !!id))];
   const ownerRows = ownerIds.length
     ? await db
-        .select({ id: agents.id, slug: agents.slug, name: agents.name, role: agents.role, title: agents.title, status: agents.status })
+        .select({ id: agents.id, slug: agents.slug, name: agents.name, role: agents.role, title: agents.title, lastCheckInAt: agents.lastCheckInAt })
         .from(agents)
         .where(inArray(agents.id, ownerIds))
     : [];
-  const owners = new Map(ownerRows.map((r) => [r.id, { slug: r.slug, name: r.name, role: r.role, title: r.title, status: r.status }]));
+  const derived = await statusByAgentId(db, ownerRows);
+  const owners = new Map(ownerRows.map((r) => [r.id, { slug: r.slug, name: r.name, role: r.role, title: r.title, status: derived.get(r.id) ?? "idle" } satisfies AgentRef]));
   const line = (t: Task) => claimLine(t, owners);
 
   // Pinned and not reversed by a later decision.

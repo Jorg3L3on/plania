@@ -212,7 +212,7 @@ export type Orden = { project: string; at: string | null; count: number; finding
 export type InboxGroup = "decisiones" | "pasos" | "limpieza";
 export type InboxItem = {
   id: string;
-  kind: "approval" | "question" | "human_action" | "release" | "footprint";
+  kind: "approval" | "question" | "human_action" | "release" | "footprint" | "lease";
   group: InboxGroup;
   project: string;
   key: string | null;

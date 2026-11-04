@@ -122,6 +122,24 @@ function DelegatedRow({ item, onSeen, busy }: { item: DelegatedReview; onSeen: (
   );
 }
 
+function LeaseRow({ item }: { item: InboxItem }) {
+  return (
+    <li className="grid gap-1 px-4 py-3 text-sm">
+      <span className="flex flex-wrap items-baseline gap-x-2">
+        {item.key && (
+          <Link to={`/p/${item.project}?task=${encodeURIComponent(item.key)}`} className="font-mono text-xs underline-offset-4 hover:underline">
+            {item.key}
+          </Link>
+        )}
+        <span className="font-medium">{item.title}</span>
+        <span className="text-muted-foreground">{item.why}</span>
+        <span className="text-xs text-muted-foreground">desde hace {waitText(item.wait_s)}</span>
+      </span>
+      <span className="text-xs text-muted-foreground">{item.action_hint}</span>
+    </li>
+  );
+}
+
 function FootprintRow({ item }: { item: InboxItem }) {
   const teardown = typeof item.target?.teardown === "string" ? item.target.teardown : "";
   return (
@@ -194,6 +212,7 @@ export function InboxPage() {
       releases: items.filter((i) => i.project === project && i.kind === "release"),
       actions: items.filter((i) => i.project === project && i.kind === "human_action"),
       footprints: items.filter((i) => i.project === project && i.kind === "footprint"),
+      leases: items.filter((i) => i.project === project && i.kind === "lease"),
     }));
   }, [inbox.data, tab]);
 
@@ -273,7 +292,7 @@ export function InboxPage() {
 
       <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="grid gap-8">
       {grouped.length === 0 && <p className="text-sm text-muted-foreground">{TABS.find((t) => t.id === tab)!.empty}</p>}
-      {grouped.map(({ project, approvals, questions, releases, actions, footprints }) => (
+      {grouped.map(({ project, approvals, questions, releases, actions, footprints, leases }) => (
         <section key={project} id={project} className="scroll-mt-20 grid gap-3">
           <h2 className="font-display text-[15px] font-bold tracking-[0.08em] text-muted-foreground uppercase">
             <Link to={project === "machine" ? "/machine" : `/p/${project}`} className="underline-offset-4 hover:underline">{project === "machine" ? "Máquina" : project}</Link>
@@ -299,6 +318,13 @@ export function InboxPage() {
             <Card className="gap-0 divide-y py-0">
               <CardContent className="px-0">
                 <ul className="divide-y">{footprints.map((item) => <FootprintRow key={item.id} item={item} />)}</ul>
+              </CardContent>
+            </Card>
+          )}
+          {leases.length > 0 && (
+            <Card className="gap-0 divide-y py-0">
+              <CardContent className="px-0">
+                <ul className="divide-y">{leases.map((item) => <LeaseRow key={item.id} item={item} />)}</ul>
               </CardContent>
             </Card>
           )}
