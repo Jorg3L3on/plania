@@ -210,6 +210,8 @@ export const tasks = pgTable(
     ownerAgent: uuid("owner_agent").references((): AnyPgColumn => agents.id, { onDelete: "set null" }),
     // PLA-I22: initiatives only. The goal this initiative serves; tickets inherit it through the parent.
     goalId: uuid("goal_id").references((): AnyPgColumn => goals.id, { onDelete: "set null" }),
+    // PLA-I23: how many times assign moved owner_agent. Above 3 the next assign is refused.
+    assignHops: integer("assign_hops").notNull().default(0),
   },
   (t) => [
     unique("tasks_project_key_unique").on(t.projectId, t.key),
@@ -837,3 +839,49 @@ export const ORIGINS = ["chartered", "discovered", "jorge"] as const;
 // What an agent may pass to create_task; "jorge" is the screen's alone (POST /api/projects/:slug/tasks).
 export const AGENT_ORIGINS = ["chartered", "discovered"] as const;
 export const KINDS = ["initiative", "ticket", "idea"] as const;
+
+// PLA-I23: agents comment on a task and assign it to each other. assign_hops on tasks caps the chain.
+// routine_runs is the history of a roster agent's routine (recorded, newest first when listed).
+export const ROUTINE_STATUSES = ["ok", "fail", "skipped"] as const;
+
+export const taskComments = pgTable(
+  "task_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    authorAgent: text("author_agent").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("task_comments_task_idx").on(t.taskId, t.createdAt),
+    check("task_comments_author_check", sql`char_length(${t.authorAgent}) between 1 and 60`),
+    check("task_comments_body_check", sql`char_length(${t.body}) between 1 and 2000`),
+  ],
+);
+
+export type TaskComment = typeof taskComments.$inferSelect;
+
+export const routineRuns = pgTable(
+  "routine_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agent: text("agent").notNull(),
+    routine: text("routine").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    status: text("status").notNull(),
+    summary: text("summary").notNull().default(""),
+    taskKey: text("task_key"),
+  },
+  (t) => [
+    index("routine_runs_agent_started_idx").on(t.agent, t.startedAt),
+    check("routine_runs_status_check", sql`${t.status} in ('ok', 'fail', 'skipped')`),
+    check("routine_runs_agent_check", sql`char_length(${t.agent}) between 1 and 60`),
+    check("routine_runs_routine_check", sql`char_length(${t.routine}) between 1 and 80`),
+  ],
+);
+
+export type RoutineRun = typeof routineRuns.$inferSelect;

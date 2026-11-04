@@ -167,7 +167,7 @@ export function InboxPage() {
       releases: items.filter((i) => i.project === project && i.kind === "release"),
       actions: items.filter((i) => i.project === project && i.kind === "human_action"),
       footprints: items.filter((i) => i.project === project && i.kind === "footprint"),
-      leases: items.filter((i) => i.project === project && i.kind === "lease"),
+      leases: items.filter((i) => i.project === project && (i.kind === "lease" || i.kind === "assign")),
     }));
   }, [inbox.data, tab]);
 

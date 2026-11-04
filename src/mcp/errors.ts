@@ -87,6 +87,8 @@ export const ERRORS = {
   RELEASE_NOT_READY: [409, "release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | no_github_data | nothing_to_ship | before_steps | open_checks | merged)"],
   RELEASE_MERGE_FAILED: [409, "release/ship: a gh call failed (detail: step token | list | edit | create | merge | view, output); nothing was recorded"],
   NOT_OWNER: [409, "another session holds a live lease on this task (detail: owner, lease_until)"],
+  HOP_CAP: [409, "assign would pass 3 hops (detail: hops, cap). The owner stays and a limpieza inbox item is posted"],
+  PING_PONG: [409, "this owner pair already assigned the other way (detail: from, to). The owner stays"],
   SEQUENCE_TAKEN: [409, "the requested sequence value is held by another live ticket"],
   STALE_VERSION: [409, "the task (or doc) changed since you read it (detail: current_version)"],
 } as const satisfies Record<string, readonly [400 | 403 | 404 | 409, string]>;
