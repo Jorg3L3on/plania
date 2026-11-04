@@ -286,6 +286,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). |
 | `list_agents` | The company roster: every bot, coder and human, with role, title, who they report to, capabilities, kind, status, last check-in and note. |
 | `list_goals` | Company goals and the project goals under them. |
+| `list_routine_runs` | Routine runs, newest first. |
 
 | Write | |
 |---|---|
@@ -319,6 +320,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `set_goal` | Create or update a goal. |
 | `comment` | Add a comment on a task. |
 | `assign` | Set a task's owner_agent to another roster agent and count the hop. |
+| `record_routine_run` | Record one run of a roster agent's routine. |
 <!-- mcp-tools:end -->
 
 Rules every write follows:
