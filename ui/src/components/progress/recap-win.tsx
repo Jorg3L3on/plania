@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { ProjectChip, Shot } from "@/components/progress/recap-bits";
 import { formatDayLong } from "@/lib/progress";
 import type { ProgressWin } from "@/lib/types";
@@ -22,7 +23,9 @@ export const RecapWin = ({ win }: Props) => {
       </div>
       <div className="px-4 pt-3.5 pb-4">
         <ProjectChip slug={win.project}>{win.project_title}</ProjectChip>
-        <h2 className="mt-2 font-display text-[21px] leading-tight font-extrabold tracking-tight">{win.title}</h2>
+        <h2 className="mt-2 font-display text-[21px] leading-tight font-extrabold tracking-tight">
+          <Link to={`/progreso/${win.project}/${win.key}`} className="hover:underline">{win.title}</Link>
+        </h2>
         {win.change && <p className="mt-1.5 text-[13.5px] leading-snug text-[#a1a1aa]">{win.change}</p>}
         <div className="mt-3 flex flex-wrap gap-2">
           {prs && <Meta>{prs}</Meta>}

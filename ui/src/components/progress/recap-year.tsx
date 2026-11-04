@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { ProjectChip, recapKicker } from "@/components/progress/recap-bits";
 import { monthName, projectColor } from "@/lib/progress";
 import type { ProgressSummary } from "@/lib/types";
@@ -31,7 +32,9 @@ export const RecapYear = ({ data }: Props) => {
     >
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_50%_at_50%_0%,#7c3aed44,transparent_70%)]" />
       <div className="relative">
-        <p className={`${recapKicker} text-[#c4b5fd]`}>Tu año en Plania · {year.year}</p>
+        <p className={`${recapKicker} text-[#c4b5fd]`}>
+          <Link to={`/progreso/anio/${year.year}`} className="hover:underline">Tu año en Plania · {year.year}</Link>
+        </p>
         <h2 className="mt-1 font-display text-[44px] leading-[0.95] font-black tracking-tight">
           <span className="bg-gradient-to-r from-white via-[#ffd2b8] to-[#ff8a5c] bg-clip-text text-transparent">{year.finished}</span>
           <span className="mt-1 block text-[28px]">cosas terminadas</span>

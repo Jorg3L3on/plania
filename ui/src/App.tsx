@@ -14,6 +14,7 @@ import { MachinePage } from "@/pages/machine";
 import { GoalsPage } from "@/components/goals/goals-page";
 import { HomePage } from "@/pages/home";
 import { ProjectPage } from "@/pages/project";
+import { ProgressDayPage, ProgressItemPage, ProgressProjectPage, ProgressYearPage } from "@/pages/progreso-detail";
 import { ProgresoPage } from "@/pages/progreso";
 import { TokensPage } from "@/pages/tokens";
 import { EquipoPage } from "@/pages/equipo";
@@ -70,6 +71,10 @@ export function App() {
         <Route path="/machine" element={<MachinePage />} />
         <Route path="/equipo" element={<EquipoPage />} />
         <Route path="/progreso" element={<ProgresoPage />} />
+        <Route path="/progreso/dia/:date" element={<ProgressDayPage />} />
+        <Route path="/progreso/anio/:year" element={<ProgressYearPage />} />
+        <Route path="/progreso/proyecto/:slug" element={<ProgressProjectPage />} />
+        <Route path="/progreso/:slug/:key" element={<ProgressItemPage />} />
         <Route path="/tokens" element={<TokensPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

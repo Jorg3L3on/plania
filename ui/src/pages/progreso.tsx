@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSearchParams } from "react-router";
+import { useProgressScroll } from "@/components/progress/detail-frame";
 import { LogList } from "@/components/progress/log-list";
 import { RecapEmpty } from "@/components/progress/recap-empty";
 import { RecapHero } from "@/components/progress/recap-hero";
@@ -32,6 +33,7 @@ const setParam = (params: URLSearchParams, key: string, value: string) => {
 };
 
 export const ProgresoPage = () => {
+  useProgressScroll();
   const [params, setParams] = useSearchParams();
   const range = parseRange(params.get("range"));
   const date = params.get("date") ?? undefined;
