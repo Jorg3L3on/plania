@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { RutinasTab } from "@/components/delegation/rutinas-tab";
 import { AgentSheet } from "@/components/team/agent-sheet";
+import { UsageCard } from "@/components/team/usage-card";
 import { OrgChart } from "@/components/team/org-chart";
 import { STATUS_DOT } from "@/components/team/types";
 import { Kicker } from "@/components/plan/visuals";
@@ -112,6 +113,7 @@ export const EquipoPage = () => {
         )}
       </div>
       <AgentSheet agent={selected} reportsTo={reportsTo} open={tab === "org" && selected !== null} onOpenChange={handleOpenChange} />
+      <UsageCard />
     </div>
   );
 };

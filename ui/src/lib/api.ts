@@ -113,6 +113,12 @@ export const api = {
   },
   progressItem: (project: string, key: string) =>
     request<ProgressItem>("GET", `/progress/item/${encodeURIComponent(project)}/${encodeURIComponent(key)}`),
+  // PLA-I25: reported token totals. Informational.
+  usage: () => request<UsageSummary>("GET", "/usage"),
 };
+
+export type UsageTotal = { agent: string; project: string; week: string; input: number; output: number };
+
+export type UsageSummary = { label: "reportado"; totals: UsageTotal[] };
 
 export const isUnauthorized = (e: unknown) => e instanceof ApiError && e.status === 401;

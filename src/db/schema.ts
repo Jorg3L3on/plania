@@ -885,3 +885,32 @@ export const routineRuns = pgTable(
 );
 
 export type RoutineRun = typeof routineRuns.$inferSelect;
+
+// PLA-I25: tokens an agent reports for a task run. Totals per agent, project and week are informational.
+export const tokenUsage = pgTable(
+  "token_usage",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    agent: text("agent").notNull(),
+    taskKey: text("task_key").notNull(),
+    runId: text("run_id").notNull(),
+    model: text("model").notNull(),
+    input: integer("input").notNull(),
+    output: integer("output").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    unique("token_usage_run_unique").on(t.projectId, t.agent, t.taskKey, t.runId),
+    index("token_usage_at_idx").on(t.at),
+    check("token_usage_counts_check", sql`${t.input} >= 0 and ${t.output} >= 0`),
+    check("token_usage_agent_check", sql`char_length(${t.agent}) between 1 and 60`),
+    check("token_usage_task_key_check", sql`char_length(${t.taskKey}) between 1 and 80`),
+    check("token_usage_run_id_check", sql`char_length(${t.runId}) between 1 and 120`),
+    check("token_usage_model_check", sql`char_length(${t.model}) between 1 and 80`),
+  ],
+);
+
+export type TokenUsage = typeof tokenUsage.$inferSelect;
