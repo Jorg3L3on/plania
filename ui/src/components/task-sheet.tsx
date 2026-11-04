@@ -18,7 +18,7 @@ import { DelegadaBadge } from "@/components/delegada-badge";
 import { ClaimLine, StageChip } from "@/components/task-row";
 import { localTime } from "@/lib/time";
 import { api, ApiError } from "@/lib/api";
-import type { Check, TaskDetail } from "@/lib/types";
+import type { Check, TaskDetail, WhyLink } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // One Done when item: done, waived (with why), or open with a way for Jorge to waive it.
@@ -118,6 +118,33 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 const VERDICT: Record<string, string> = { pass: "✓", warn: "⚠", fail: "✗" };
+
+const WHY_LEVEL: Record<WhyLink["level"], string> = {
+  task: "Ticket",
+  initiative: "Iniciativa",
+  project_goal: "Meta del proyecto",
+  company_goal: "Meta de la empresa",
+};
+
+function WhyChain({ chain }: { chain: WhyLink[] }) {
+  if (chain.length === 0) return null;
+  return (
+    <Section title="Por qué">
+      <ol className="grid gap-2" aria-label="Por qué">
+        {chain.map((link, index) => (
+          <li key={`${link.level}-${index}`} className="grid gap-0.5 rounded-xl bg-surface-sunken px-3 py-2">
+            <span className="text-xs text-muted-foreground">{WHY_LEVEL[link.level]}</span>
+            <span className="text-sm">
+              {link.title}
+              {link.key ? <span className="ml-2 font-mono text-xs text-muted-foreground">{link.key}</span> : null}
+            </span>
+            {link.why ? <span className="text-sm text-muted-foreground">{link.why}</span> : null}
+          </li>
+        ))}
+      </ol>
+    </Section>
+  );
+}
 
 // A log line in words: notes show their text, status moves show from → to, the rest their type.
 function logText(e: TaskDetail["log"][number]): string {
@@ -220,6 +247,8 @@ function Details({ slug, task, onOpen }: { slug: string; task: TaskDetail; onOpe
           </Field>
         )}
       </dl>
+
+      {task.why_chain?.length ? <WhyChain chain={task.why_chain} /> : null}
 
       <Separator />
 

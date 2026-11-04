@@ -58,13 +58,17 @@ export async function getContext(
   const footprint = await footprintsOf(db, [...family]);
   const keyById = new Map([...tickets, ...(initiative ? [initiative] : [])].map((t) => [t.id, t.key]));
   const keys = new Set([...tickets.map((t) => t.key), ...(initiative ? [initiative.key] : [])]);
+  const initiativeSummary = initiative ? await taskSummary(db, initiative) : null;
+  const ticketSummaries = await Promise.all(tickets.map((t) => taskSummary(db, t)));
   return {
     project: p.slug,
     branch: branch ?? null,
-    initiative: initiative ? await taskSummary(db, initiative) : null,
+    initiative: initiativeSummary,
+    // PLA-I22: task → initiative → project goal → company goal, when the initiative has a goal.
+    why_chain: initiativeSummary?.why_chain ?? ticketSummaries.find((t) => t.why_chain)?.why_chain ?? null,
     // 2.12: what Jorge asked for on screen, newest first, whatever the branch.
     requests: await openRequests(db, p.id),
-    tickets: await Promise.all(tickets.map((t) => taskSummary(db, t))),
+    tickets: ticketSummaries,
     my_claims: await Promise.all(
       mine.map(async (t) => ({
         key: t.key,

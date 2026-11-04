@@ -352,6 +352,14 @@ export type Result = {
 };
 export type LogEntry = { id: number; at: string; type: string; actor: Actor; payload: Record<string, unknown> };
 
+/** One step of «por qué»: the task, its initiative, then the project goal and the company goal. */
+export type WhyLink = {
+  level: "task" | "initiative" | "project_goal" | "company_goal";
+  key: string | null;
+  title: string;
+  why: string | null;
+};
+
 // The get_task shape.
 export type TaskDetail = Omit<TaskRow, "claimed_by" | "lease_until"> & {
   /** Set by a status change: strings, or FOOTPRINT_LIVE for something still running on the Mac. */
@@ -364,6 +372,8 @@ export type TaskDetail = Omit<TaskRow, "claimed_by" | "lease_until"> & {
   docs: { id: string; title: string; version: number; updated_at: string }[];
   questions: Question[];
   origin: string | null;
+  /** Null when the initiative (or the ticket's parent) has no goal. */
+  why_chain: WhyLink[] | null;
   child_keys: string[];
   blocked_by: Blocker[];
   base_branch: string | null;

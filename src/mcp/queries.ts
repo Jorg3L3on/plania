@@ -12,6 +12,7 @@ import { taskResults } from "./evidence.js";
 import { taskQuestions } from "./questions.js";
 import { iso, type Ctx, type Q } from "./tx.js";
 import { summarize } from "./summary.js";
+import { whyChainOf } from "./goals.js";
 import { initiativeState } from "./initiative-state.js";
 
 export { ToolError };
@@ -217,6 +218,7 @@ export async function taskFull(db: Q, t: Task, opts: ShapeOptions = {}) {
     footprint: await taskFootprint(db, t.id),
     origin: t.origin,
     parent_key: await parentKeyOf(db, t),
+    why_chain: await whyChainOf(db, t),
     child_keys: await childKeysOf(db, t),
     blocked_by: await blockerList(db, t),
     blocked_note: t.blockedNote,
@@ -295,6 +297,7 @@ export async function taskSummary(db: Q, t: Task) {
     work_type: t.workType,
     phase: t.phase,
     parent_key: await parentKeyOf(db, t),
+    why_chain: await whyChainOf(db, t),
     child_keys: await childKeysOf(db, t),
     ...(t.kind === "initiative" ? { state: await initiativeState(db, t) } : {}),
     checks: (await taskChecks(db, t.id)).map((c) => ({ n: c.n, text: c.text, done: c.done, waived: !!c.waived })),
