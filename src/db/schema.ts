@@ -796,6 +796,8 @@ export type ProjectSettings = {
   local?: { repo_path?: string };
   // 2.10: the release step only Jorge takes, e.g. {from: "sandbox", into: "main", env: "prod"}. Absent: none.
   release?: ReleaseSettings;
+  // PLA-I21: how long since a check-in counts as idle. A live claim past this is stuck. Default 120.
+  team?: { idle_minutes?: number };
 };
 
 // 2.13: mode "command" (default) shows the command Jorge runs; "merge" lets him ship from the screen

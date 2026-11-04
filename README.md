@@ -303,6 +303,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `consume` | Count n (default 1) against a daily quota from settings.quotas (e.g. quota:omdb with daily 1000). |
 | `batch` | Several writes in one call: ops of create_task, set_task, set_check, add_result, add_decision or note ({op: 'note', key, text}), each with the fields of its tool (project, actor and request_id come from the batch). |
 | `set_agent` | Create or update one roster row by slug. |
+| `check_in` | Say an agent is here. |
 <!-- mcp-tools:end -->
 
 Rules every write follows:

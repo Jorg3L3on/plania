@@ -12,7 +12,7 @@ import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 // additions to the protocol) and the headline (one line on where it stands, ≤ 280 chars).
 // Replaced with the version you read; rules_version moves with the rules, headline_version with the headline.
 
-const SETTING_KEYS = ["release_target", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel", "release"] as const;
+const SETTING_KEYS = ["release_target", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel", "release", "team"] as const;
 
 // settings merge key by key; null removes one. Secrets never: integrations name env vars.
 function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>): ProjectSettings {
@@ -32,6 +32,13 @@ function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>)
   }
   if (next.release_target !== undefined && !/^[a-z][a-z0-9_-]{0,29}$/.test(String(next.release_target))) throw new ToolError("INVALID_FILTER", { field: "settings.release_target" });
   if (next.release !== undefined) next.release = checkReleaseSettings(next.release);
+  if (next.team !== undefined) {
+    const team = next.team as { idle_minutes?: unknown };
+    if (typeof team !== "object" || team === null || Array.isArray(team)) throw new ToolError("INVALID_FILTER", { field: "settings.team" });
+    if (team.idle_minutes !== undefined && (!Number.isInteger(team.idle_minutes) || (team.idle_minutes as number) < 1 || (team.idle_minutes as number) > 24 * 60)) {
+      throw new ToolError("INVALID_FILTER", { field: "settings.team.idle_minutes", hint: "minutes from 1 to 1440" });
+    }
+  }
   for (const [name, q] of Object.entries((next.quotas as Record<string, { daily?: unknown }> | undefined) ?? {})) {
     if (!Number.isInteger(q?.daily) || (q.daily as number) < 1) throw new ToolError("INVALID_FILTER", { field: `settings.quotas.${name}.daily`, hint: "a positive integer" });
   }
