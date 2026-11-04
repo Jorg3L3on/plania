@@ -22,6 +22,7 @@ import { disablePush, enablePush, PushError, pushHint, pushStatus, type PushStat
 import { LiveProvider, useLive } from "@/lib/live";
 import { cn } from "@/lib/utils";
 import { EquipoLink, EquipoMenuItem } from "@/components/team/equipo-link";
+import { CeoLink } from "@/components/dashboard/ceo-link";
 
 // On a phone only the dot shows; the label stays for screen readers.
 function LiveIndicator() {
@@ -248,6 +249,7 @@ export function AppShell() {
               Plania
             </Link>
             <div className="flex items-center gap-1 sm:gap-2">
+              <CeoLink />
               <AhoraLink />
               <InboxLink />
               <GoalsLink />

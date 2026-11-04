@@ -71,7 +71,7 @@ export type CeoDashboard = {
   waits: DashboardWait[];
 };
 
-const STATUS_RANK: Record<string, number> = { alive: 0, idle: 1, stuck: 2 };
+const STATUS_RANK: Record<string, number> = { alive: 0, stuck: 1, idle: 2 };
 const WINS = 12;
 
 type LiveClaim = { project: string; key: string; title: string; status: string; agent: string | null };
