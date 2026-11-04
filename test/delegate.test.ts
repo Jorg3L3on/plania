@@ -1,12 +1,13 @@
 // PLA-I15-2: plania-bot may record one answer the owner gave in his own chat.
 // The screen click stays. The server cannot prove the caller or the message.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { userInfo } from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
+import pg from "pg";
 import { resetTestDb, TEST_BEARER, TEST_CI_TOKEN, useTestEnv } from "./helpers.js";
 
 useTestEnv();
@@ -89,18 +90,43 @@ describe("answer_delegated", () => {
   });
 
   test("migration 0029 applies twice", async () => {
-    const sql = readFileSync(path.resolve(import.meta.dirname, "../drizzle/migrations/0029_delegated_answers.sql"), "utf8");
-    await raw.query(sql);
-    await raw.query(sql);
-    const tables = await raw.query("select to_regclass('public.delegated_answers') as t");
-    assert.equal(tables.rows[0].t, "delegated_answers");
-    const idx = await raw.query("select indexname from pg_indexes where tablename = 'delegated_answers' order by 1");
-    assert.deepEqual(idx.rows.map((r) => r.indexname), [
-      "delegated_answers_approval_unique",
-      "delegated_answers_created_idx",
-      "delegated_answers_pkey",
-      "delegated_answers_question_unique",
-    ]);
+    // 0029's foreign key names the approval table. 0032 drops that table, so this runs on a
+    // private copy that stops before 0029.
+    const name = "plania_mig_0029";
+    const adminUrl = `postgres://${userInfo().username}@localhost:5432/postgres`;
+    const admin = new pg.Client({ connectionString: adminUrl });
+    await admin.connect();
+    await admin.query(`drop database if exists ${name} with (force)`);
+    await admin.query(`create database ${name}`);
+    await admin.end();
+    const db = new pg.Client({ connectionString: `postgres://${userInfo().username}@localhost:5432/${name}` });
+    await db.connect();
+    try {
+      const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
+      for (const f of readdirSync(dir).filter((file) => file.endsWith(".sql") && file < "0029").sort()) {
+        await db.query(readFileSync(path.join(dir, f), "utf8"));
+      }
+      const sql = readFileSync(path.join(dir, "0029_delegated_answers.sql"), "utf8");
+      await db.query(sql);
+      await db.query(sql);
+      const tables = await db.query("select to_regclass('public.delegated_answers') as t");
+      assert.equal(tables.rows[0].t, "delegated_answers");
+      const idx = await db.query("select indexname from pg_indexes where tablename = 'delegated_answers' order by 1");
+      assert.deepEqual(idx.rows.map((r) => r.indexname), [
+        "delegated_answers_approval_unique",
+        "delegated_answers_created_idx",
+        "delegated_answers_pkey",
+        "delegated_answers_question_unique",
+      ]);
+      const fk = await db.query("select 1 from pg_constraint where conname = 'delegated_answers_approval_id_approvals_id_fk'");
+      assert.equal(fk.rows.length, 1);
+    } finally {
+      await db.end();
+      const drop = new pg.Client({ connectionString: adminUrl });
+      await drop.connect();
+      await drop.query(`drop database if exists ${name} with (force)`);
+      await drop.end();
+    }
   });
 
   test("missing or short evidence is refused and stores nothing", async () => {
@@ -222,35 +248,15 @@ describe("answer_delegated", () => {
     assert.equal(q.delegated.quote, QUOTE);
   });
 
-  test("an old gate row is history: no audit finding, not in the inbox, not delegable; a screen click is not delegated", async () => {
+  test("an open human_only question with options is in the inbox, and a screen click is not delegated", async () => {
     const project = await findProject(db, "workia");
-    const idea = await call("create_task", { kind: "idea", title: "Directo" });
-    const taskId = (await raw.query("select id from tasks where key = $1", [idea.key])).rows[0].id;
-    const agent = JSON.stringify(A);
-    const answered = await raw.query(
-      `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by, answer, answered_by, answered_at)
-       values ($1, $2, 'Directa', '{pursue,drop,later}', 'A', true, $3::jsonb, 'pursue', $3::jsonb, now()) returning id`,
-      [project.id, taskId, agent],
-    );
-    const open = await raw.query(
-      `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by)
-       values ($1, $2, 'Abierta', '{ready,rework,drop}', 'C', true, $3::jsonb) returning id`,
-      [project.id, taskId, agent],
-    );
     const findings = await auditProject(db, project);
-    assert.equal(findings.some((f) => f.id === answered.rows[0].id || f.id === open.rows[0].id), false);
     assert.equal(findings.some((f) => f.code.startsWith("GATE_")), false);
 
-    const inbox = await call("get_inbox", { project: "workia" });
-    assert.equal(inbox.items.some((i: Json) => i.id === open.rows[0].id), false, "an old open gate is not a decision");
-    assert.equal(inbox.items.some((i: Json) => "gate" in i), false);
-
-    const refused = await call("answer_delegated", { question_id: open.rows[0].id, option: "ready", actor: BOT, ...evidence("msg-owner-0150", "dale lista a esa idea") });
-    assert.equal(refused.__error, "NOT_DELEGABLE");
-    const still = (await raw.query("select answer from questions where id = $1", [open.rows[0].id])).rows[0];
-    assert.equal(still.answer, null);
-
     const g = await gate("Clic");
+    const inbox = await call("get_inbox", { project: "workia" });
+    assert.equal(inbox.items.some((i: Json) => i.id === g.id), true);
+    assert.equal(inbox.items.some((i: Json) => "gate" in i), false);
     const res = await req("POST", `/api/projects/workia/questions/${g.id}/answer`, { body: { answer: "drop" } });
     assert.equal(res.status, 200);
     const n = await raw.query("select count(*)::int as n from delegated_answers where question_id = $1", [g.id]);

@@ -32,6 +32,8 @@ export function summarize(e: Ev): string {
     case "approval.granted":
     case "approval.denied":
     case "approval.used":
+    case "approval.archived":
+    case "question.archived":
       return `${k ? `${k} ` : ""}evento antiguo`;
     case "note":
       return `${k} nota (${by}): ${str(p.text ?? p.note).slice(0, 140)}`;

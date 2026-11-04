@@ -1,5 +1,4 @@
 import { sql } from "drizzle-orm";
-import { LEGACY_QUESTION_COLUMN } from "./legacy-names.js";
 import {
   bigint,
   boolean,
@@ -67,41 +66,6 @@ export const agentTokens = pgTable("agent_tokens", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   revokedReason: text("revoked_reason"),
 });
-
-// v2.1 history. Nothing writes a new row. Old rows stay until the drop migration. A granted
-// wont_do row still keeps the audit from flagging that ticket.
-export const approvals = pgTable(
-  "approvals",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
-    taskId: uuid("task_id").references((): AnyPgColumn => tasks.id, { onDelete: "set null" }),
-    taskKey: text("task_key"),
-    action: text("action").notNull(), // done | wont_do | reopen | waive_check | runbook_step | lease_resource
-    target: jsonb("target").$type<Record<string, unknown>>().notNull().default({}),
-    reason: text("reason").notNull(),
-    requestedBy: jsonb("requested_by").$type<Actor>().notNull(),
-    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
-    state: text("state").notNull().default("pending"), // pending | granted | rejected | expired
-    decidedAt: timestamp("decided_at", { withTimezone: true }),
-    decidedBy: jsonb("decided_by").$type<Actor>(),
-    decisionNote: text("decision_note"),
-    expiresAt: timestamp("expires_at", { withTimezone: true }),
-    usedAt: timestamp("used_at", { withTimezone: true }),
-    usedBy: jsonb("used_by").$type<Actor>(),
-  },
-  (t) => [
-    index("approvals_project_pending_idx").on(t.projectId).where(sql`${t.state} = 'pending'`),
-    index("approvals_task_idx").on(t.taskId),
-    check(
-      "approvals_action_check",
-      sql`${t.action} in ('done', 'wont_do', 'reopen', 'waive_check', 'runbook_step', 'lease_resource')`,
-    ),
-    check("approvals_state_check", sql`${t.state} in ('pending', 'granted', 'rejected', 'expired')`),
-  ],
-);
 
 // v2.1: one counter per key scope ("initiative", "standalone", "idea", or a parent initiative's id).
 // Counters only move up, so a number is never reissued after a rename, move or delete.
@@ -330,23 +294,15 @@ export const questions = pgTable(
     // 2.8: other task keys this question holds up, and how soon Jorge is needed (now | soon | whenever).
     blocks: text("blocks").array().notNull().default(sql`'{}'::text[]`),
     urgency: text("urgency"),
-    // PLA-I8-1: a letter A, B or C on an idea, from before 2.17. Kept until migration 0032.
-    // A row that still has one stays out of the inbox and is not delegable. The screen may close it.
-    // Migration 0027 set human_only on those rows that were still open. Migration 0028 drops the
-    // challenge table that used to bind a screen step to the question.
-    legacyMark: text(LEGACY_QUESTION_COLUMN),
     humanOnly: boolean("human_only").notNull().default(false),
   },
-  (t) => [
-    index("questions_project_open_idx").on(t.projectId).where(sql`${t.answeredAt} is null`),
-    check("questions_gate_check", sql`${t.legacyMark} is null or ${t.legacyMark} in ('A', 'B', 'C')`),
-  ],
+  (t) => [index("questions_project_open_idx").on(t.projectId).where(sql`${t.answeredAt} is null`)],
 );
 
 // PLA-I15-2: one delegated answer. The owner told plania-bot in his own chat; the bot records
 // that single option or approval decision with the message id and a short quote. answered_by on
 // the question stays the screen actor (the owner). This row is the evidence, and it is what the
-// Bandeja badge and GATE_ANSWERED_DELEGATED read. The server cannot prove the message exists.
+// Bandeja badge and DELEGATED_ANSWER read. The server cannot prove the message exists.
 export const delegatedAnswers = pgTable(
   "delegated_answers",
   {
@@ -355,7 +311,8 @@ export const delegatedAnswers = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     questionId: uuid("question_id").references(() => questions.id, { onDelete: "cascade" }),
-    approvalId: uuid("approval_id").references(() => approvals.id, { onDelete: "cascade" }),
+    // Historical id. Migration 0032 dropped the table it pointed at; the uuid stays on old rows.
+    approvalId: uuid("approval_id"),
     messageId: text("message_id").notNull(),
     quote: text("quote").notNull(),
     actor: jsonb("actor").$type<Actor>().notNull(),

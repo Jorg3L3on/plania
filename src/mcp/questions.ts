@@ -171,8 +171,8 @@ export async function answerInTx(
     }
   }
   if (delegation) {
-    // A row that still carries the pre-2.17 letter is history: the bot may not close it for him.
-    const named = q.options.length > 0 && q.humanOnly && !q.legacyMark;
+    // answer_delegated closes one human_only question that has named options.
+    const named = q.options.length > 0 && q.humanOnly;
     if (!named) throw new ToolError("NOT_DELEGABLE", { question_id: q.id, hint: "a named human_only option, or the screen" });
     if (!q.options.includes(input.answer)) throw new ToolError("INVALID_QUESTION", { field: "option" });
     const [prior] = await tx.select({ id: delegatedAnswers.id }).from(delegatedAnswers).where(eq(delegatedAnswers.questionId, q.id)).limit(1);

@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { approvals, delegatedAnswers, events, machineState, questions, tasks, type Actor } from "../db/schema.js";
+import { delegatedAnswers, events, machineState, questions, tasks, type Actor } from "../db/schema.js";
 import { ToolError } from "./errors.js";
 import { findProject } from "./queries.js";
 import { answerInTx, type AnswerDelegation } from "./questions.js";
@@ -35,26 +35,46 @@ export async function delegatedForInbox(db: Q, projects: { id: string; slug: str
       d: delegatedAnswers,
       answer: questions.answer,
       qkey: tasks.key,
-      action: approvals.action,
-      akey: approvals.taskKey,
     })
     .from(delegatedAnswers)
     .leftJoin(questions, eq(questions.id, delegatedAnswers.questionId))
     .leftJoin(tasks, eq(tasks.id, questions.taskId))
-    .leftJoin(approvals, eq(approvals.id, delegatedAnswers.approvalId))
     .where(and(inArray(delegatedAnswers.projectId, projects.map((p) => p.id)), isNull(delegatedAnswers.reviewedAt)))
     .orderBy(desc(delegatedAnswers.createdAt));
-  const out: DelegatedReviewItem[] = rows.map((r) => ({
-    id: r.d.id,
-    project: slugOf.get(r.d.projectId) ?? "",
-    key: r.qkey ?? r.akey,
-    kind: r.d.questionId ? "question" : "approval",
-    action: r.action,
-    answer: r.answer,
-    quote: r.d.quote,
-    message_id: r.d.messageId,
-    at: iso(r.d.createdAt),
-  }));
+  const approvalIds = rows.map((r) => r.d.approvalId).filter((id): id is string => !!id);
+  const archived = new Map<string, { action: string | null; key: string | null }>();
+  if (approvalIds.length) {
+    const evs = await db
+      .select({ key: events.taskKey, payload: events.payload })
+      .from(events)
+      .where(
+        and(
+          inArray(events.projectId, projects.map((p) => p.id)),
+          eq(events.type, "approval.archived"),
+          sql`${events.payload}->>'approval_id' in (${sql.join(approvalIds.map((id) => sql`${id}`), sql`, `)})`,
+        ),
+      );
+    for (const e of evs) {
+      const payload = e.payload as { approval_id?: unknown; action?: unknown };
+      const id = typeof payload.approval_id === "string" ? payload.approval_id : "";
+      if (!id || archived.has(id)) continue;
+      archived.set(id, { action: typeof payload.action === "string" ? payload.action : null, key: e.key });
+    }
+  }
+  const out: DelegatedReviewItem[] = rows.map((r) => {
+    const old = r.d.approvalId ? archived.get(r.d.approvalId) : undefined;
+    return {
+      id: r.d.id,
+      project: slugOf.get(r.d.projectId) ?? "",
+      key: r.qkey ?? old?.key ?? null,
+      kind: r.d.questionId ? "question" : "approval",
+      action: old?.action ?? null,
+      answer: r.answer,
+      quote: r.d.quote,
+      message_id: r.d.messageId,
+      at: iso(r.d.createdAt),
+    };
+  });
   const seen = new Set(await seenMoveIds(db));
   const moves = await db
     .select({ id: events.id, projectId: events.projectId, key: events.taskKey, payload: events.payload, at: events.createdAt })

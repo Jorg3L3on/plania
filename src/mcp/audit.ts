@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { approvals, auditRuns, blockers, branches, checks, decisions, delegatedAnswers, envStates, events, pullRequests, questions, results, tasks, type Project, type Task } from "../db/schema.js";
+import { auditRuns, blockers, branches, checks, decisions, delegatedAnswers, envStates, events, pullRequests, questions, results, tasks, type Project, type Task } from "../db/schema.js";
 import { hasUnsatisfiedBlocker, openHumanActions } from "./blockers.js";
 import { footprintFindings } from "./footprint-audit.js";
 import { WAITING_ON_JORGE, gatingSql, parseJorgeLines } from "./jorge-lines.js";
@@ -246,11 +246,23 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   if (delegatedQuestionIds.length) {
     for (const q of await db.select().from(questions).where(inArray(questions.id, delegatedQuestionIds))) questionById.set(q.id, q);
   }
-  const approvalById = new Map(
-    delegatedRows.some((d) => d.approvalId)
-      ? (await db.select().from(approvals).where(eq(approvals.projectId, p.id))).map((a) => [a.id, a] as const)
-      : [],
-  );
+  const approvalById = new Map<string, { action: string; state: string; taskKey: string | null }>();
+  if (delegatedRows.some((d) => d.approvalId)) {
+    const archived = await db
+      .select({ taskKey: events.taskKey, payload: events.payload })
+      .from(events)
+      .where(and(eq(events.projectId, p.id), eq(events.type, "approval.archived")));
+    for (const e of archived) {
+      const payload = e.payload as { approval_id?: unknown; action?: unknown; state?: unknown };
+      const id = typeof payload.approval_id === "string" ? payload.approval_id : "";
+      if (!id) continue;
+      approvalById.set(id, {
+        action: typeof payload.action === "string" ? payload.action : "",
+        state: typeof payload.state === "string" ? payload.state : "",
+        taskKey: e.taskKey,
+      });
+    }
+  }
   for (const d of delegatedRows) {
     const q = d.questionId ? questionById.get(d.questionId) : undefined;
     const a = d.approvalId ? approvalById.get(d.approvalId) : undefined;
@@ -265,7 +277,7 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
       id: d.questionId ?? d.approvalId ?? d.id,
     });
   }
-  // A Won't do that no screen session wrote and no agent backed with a quote. A granted historical
+  // A Won't do that no screen session wrote and no agent backed with a quote. An archived granted
   // row still counts, so old decisions do not all light up.
   const wontDo = all.filter((t) => t.status === "Won't do");
   if (wontDo.length) {
@@ -289,9 +301,16 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
         ),
       );
     const coveredGrants = await db
-      .select({ taskId: approvals.taskId })
-      .from(approvals)
-      .where(and(inArray(approvals.taskId, ids), eq(approvals.action, "wont_do"), eq(approvals.state, "granted")));
+      .select({ taskId: events.taskId })
+      .from(events)
+      .where(
+        and(
+          inArray(events.taskId, ids),
+          eq(events.type, "approval.archived"),
+          sql`${events.payload}->>'action' = ${"wont_do"}`,
+          sql`${events.payload}->>'state' = ${"granted"}`,
+        ),
+      );
     const covered = new Set<string>([...coveredMoves.map((m) => m.taskId), ...coveredGrants.map((g) => g.taskId)].filter((id): id is string => !!id));
     for (const t of wontDo) {
       if (isScreenActor(latest.get(t.id))) continue;
