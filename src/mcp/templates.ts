@@ -120,6 +120,9 @@ export async function createCompanyProject(
       kind: "bot",
       ...(coo ? { reports_to: "plania" } : {}),
       capabilities: ["product-owner"],
+      adapter: "http",
+      adapter_config: {},
+      heartbeat_minutes: 60,
       note: skills,
     });
     await attachDoc(db, { project: slug, title: PLAYBOOK_TITLE, markdown: playbook }, { ...quiet, tool: "attach_doc" });

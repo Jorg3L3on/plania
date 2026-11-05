@@ -34,6 +34,7 @@ export const registerHeartbeatTools = (
     {
       description: [
         "Wake one roster agent through its adapter when its heartbeat is due.",
+        "Then the agent check_in, claims Ready work, does the work, report_tokens, and check_in when idle. See docs/bot-protocol.md.",
         "A second call inside heartbeat_minutes writes nothing.",
         "dry_run returns before any socket or process and does not record a run.",
         "Pass task_key to wake that Ready ticket, or omit it and Plania picks Ready work for this owner or role.",
@@ -66,6 +67,7 @@ export const registerHeartbeatTools = (
     {
       description: [
         "Recent heartbeat runs: agent, status, adapter, summary and task key, newest first.",
+        "A run is one wake. The agent then check_in, claims Ready work, report_tokens, and check_in when idle. See docs/bot-protocol.md.",
         "Filter by roster slug. Summaries do not include adapter config.",
       ].join(" "),
       inputSchema: {
