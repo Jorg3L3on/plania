@@ -2,21 +2,21 @@ import { Hono } from "hono";
 import { asc, eq, notInArray } from "drizzle-orm";
 import { withDb } from "../db/client.js";
 import { agents, projects, tasks } from "../db/schema.js";
-import { listAgents, type AgentView } from "../mcp/team.js";
+import { listAgents, workingOnBySlug, type AgentView, type WorkingOn } from "../mcp/team.js";
 
 // Closed work is not "owned" on the chart. The lease stays on tasks.owner; this list is informational.
 const CLOSED = ["Done", "Won't do"];
 
 export type OwnedTask = { project: string; key: string; title: string; status: string };
 
-export type TeamMember = Omit<AgentView, "wake_url" | "tokens"> & { tasks: OwnedTask[] };
+export type TeamMember = Omit<AgentView, "wake_url" | "tokens"> & { tasks: OwnedTask[]; working_on: WorkingOn | null };
 
 // Screen only. Mounted under the session middleware in routes.ts; a Bearer never reaches it.
 export const teamRoutes = new Hono();
 
 teamRoutes.get("/", async (c) => {
   const body = await withDb(async (db) => {
-    const { agents: roster } = await listAgents(db);
+    const [{ agents: roster }, working] = await Promise.all([listAgents(db), workingOnBySlug(db)]);
     const open = await db
       .select({
         slug: agents.slug,
@@ -39,6 +39,7 @@ teamRoutes.get("/", async (c) => {
     const members: TeamMember[] = roster.map(({ wake_url: _wake, tokens: _tokens, ...member }) => ({
       ...member,
       tasks: bySlug.get(member.slug) ?? [],
+      working_on: working.get(member.slug) ?? null,
     }));
     return { agents: members };
   });
