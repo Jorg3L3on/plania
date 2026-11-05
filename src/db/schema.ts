@@ -774,6 +774,14 @@ export type Task = typeof tasks.$inferSelect;
 // A row may match agent_tokens.agent by name or slug (list_agents); there is no token foreign key.
 export const AGENT_KINDS = ["bot", "coder", "human"] as const;
 export const AGENT_STATUSES = ["alive", "idle", "stuck"] as const;
+export const ADAPTERS = ["http", "cursor_agent", "claude_code", "grok_webhook", "none"] as const;
+export type AdapterName = (typeof ADAPTERS)[number];
+// Env var names only. The values stay in the process environment.
+export type AdapterConfig = {
+  command_env?: string;
+  args_env?: string;
+  url_env?: string;
+};
 
 export const agents = pgTable(
   "agents",
@@ -792,12 +800,19 @@ export const agents = pgTable(
     lastWakeAt: timestamp("last_wake_at", { withTimezone: true }),
     status: text("status").notNull().default("idle"),
     note: text("note").notNull().default(""),
+    // PLA-I26: which adapter a heartbeat uses, and how often. Null minutes means the job skips the row.
+    adapter: text("adapter").notNull().default("none"),
+    adapterConfig: jsonb("adapter_config").$type<AdapterConfig>().notNull().default({}),
+    heartbeatMinutes: integer("heartbeat_minutes"),
+    lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
     check("agents_kind_check", sql`${t.kind} in ('bot', 'coder', 'human')`),
     check("agents_status_check", sql`${t.status} in ('alive', 'idle', 'stuck')`),
     check("agents_not_self", sql`${t.reportsTo} is null or ${t.reportsTo} <> ${t.id}`),
+    check("agents_adapter_check", sql`${t.adapter} in ('http', 'cursor_agent', 'claude_code', 'grok_webhook', 'none')`),
+    check("agents_heartbeat_minutes_check", sql`${t.heartbeatMinutes} is null or (${t.heartbeatMinutes} between 1 and 1440)`),
   ],
 );
 
@@ -914,3 +929,31 @@ export const tokenUsage = pgTable(
 );
 
 export type TokenUsage = typeof tokenUsage.$inferSelect;
+
+// PLA-I26: one row each time a heartbeat or a manual wake runs an adapter.
+export const HEARTBEAT_STATUSES = ["ok", "fail", "skipped"] as const;
+
+export const heartbeatRuns = pgTable(
+  "heartbeat_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    status: text("status").notNull(),
+    adapter: text("adapter").notNull(),
+    summary: text("summary").notNull().default(""),
+    taskKey: text("task_key"),
+  },
+  (t) => [
+    index("heartbeat_runs_agent_started_idx").on(t.agentId, t.startedAt),
+    check("heartbeat_runs_status_check", sql`${t.status} in ('ok', 'fail', 'skipped')`),
+    check("heartbeat_runs_adapter_check", sql`${t.adapter} in ('http', 'cursor_agent', 'claude_code', 'grok_webhook', 'none')`),
+    check("heartbeat_runs_summary_check", sql`char_length(${t.summary}) <= 500`),
+    check("heartbeat_runs_task_key_check", sql`${t.taskKey} is null or char_length(${t.taskKey}) between 1 and 80`),
+  ],
+);
+
+export type HeartbeatRun = typeof heartbeatRuns.$inferSelect;
