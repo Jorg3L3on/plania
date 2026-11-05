@@ -13,11 +13,12 @@ export const AgentCard = ({ agent, onOpen }: AgentCardProps) => {
   const handleOpen = () => onOpen(agent.slug);
   const word = STATUS_WORD[agent.status] ?? agent.status;
   const taskLabel = agent.tasks.length === 1 ? "1 tarea" : `${agent.tasks.length} tareas`;
+  const workingKey = agent.working_on?.key;
   return (
     <button
       type="button"
       onClick={handleOpen}
-      aria-label={`${face.title}, ${word}`}
+      aria-label={workingKey ? `${face.title}, ${word}, ${workingKey}` : `${face.title}, ${word}`}
       className={cn(
         "flex min-h-11 w-full flex-col items-center gap-0.5 rounded-[14px] border bg-card px-2.5 py-2.5 text-center transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
         face.border,
@@ -36,6 +37,7 @@ export const AgentCard = ({ agent, onOpen }: AgentCardProps) => {
           {face.beat}
         </span>
       )}
+      {workingKey && <span className="font-mono text-[10px] text-foreground/80">{workingKey}</span>}
       {agent.tasks.length > 0 && <span className="text-[10px] text-foreground/80">{taskLabel}</span>}
     </button>
   );

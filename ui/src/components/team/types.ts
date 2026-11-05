@@ -1,5 +1,7 @@
 export type OwnedTask = { project: string; key: string; title: string; status: string };
 
+export type WorkingOn = { project: string; key: string; title: string };
+
 export type TeamMember = {
   slug: string;
   name: string;
@@ -12,6 +14,7 @@ export type TeamMember = {
   status: string;
   note: string;
   tasks: OwnedTask[];
+  working_on: WorkingOn | null;
 };
 
 export type TeamRoster = { agents: TeamMember[] };

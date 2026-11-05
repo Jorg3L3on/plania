@@ -7,6 +7,7 @@ import type { Db } from "../db/client.js";
 import { AGENT_KINDS, AGENT_STATUSES, agentTokens, agents, projects, tasks, type Agent, type ProjectSettings, type Task } from "../db/schema.js";
 import { ToolError } from "./errors.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
+export { workingOnBySlug, type WorkingOn } from "./working-on.js";
 
 // PLA-I21: the company roster. Slugs only on the wire. Claims stay on tasks.owner;
 // owner_agent is informational. Tokens link by agent name or slug, never by a foreign key.

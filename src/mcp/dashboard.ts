@@ -6,7 +6,7 @@ import type { Db } from "../db/client.js";
 import { inbox } from "./inbox.js";
 import { listGoals, type GoalView } from "./goals.js";
 import { isPruebaTitle, isoWeek, progressLog, progressSummary, weekRange, dayInTz } from "./progress.js";
-import { listAgents, type AgentView } from "./team.js";
+import { listAgents, workingOnBySlug, type AgentView } from "./team.js";
 import { USAGE_LABEL, usageSummary } from "./usage.js";
 
 export type DashboardAgent = {
@@ -145,7 +145,7 @@ export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
   const today = dayInTz(new Date());
   const week = weekRange(today);
   const weekId = isoWeekKey(today);
-  const [roster, board, summary, log, box, claims, usage] = await Promise.all([
+  const [roster, board, summary, log, box, claims, usage, working] = await Promise.all([
     listAgents(db),
     listGoals(db),
     progressSummary(db, { range: "week", date: today }),
@@ -153,6 +153,7 @@ export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
     inbox(db, "all"),
     liveClaims(db),
     usageSummary(db, { week: weekId }),
+    workingOnBySlug(db),
   ]);
 
   const byAgent = new Map<string, LiveClaim[]>();
@@ -167,7 +168,7 @@ export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
 
   const agents: DashboardAgent[] = roster.agents
     .map((agent) => {
-      const claim = byAgent.get(agent.slug)?.[0] ?? null;
+      const focus = working.get(agent.slug) ?? null;
       return {
         slug: agent.slug,
         name: agent.name,
@@ -175,7 +176,7 @@ export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
         title: agent.title,
         status: agent.status,
         note: agent.note,
-        claim: claim ? { project: claim.project, key: claim.key, title: claim.title } : null,
+        claim: focus,
       };
     })
     .sort((a, b) => (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9) || a.name.localeCompare(b.name, "es"));
