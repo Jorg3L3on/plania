@@ -11,7 +11,8 @@ process.env.PLANIA_TZ = "America/Mexico_City";
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
 const { makeDb } = await import("../src/db/client.js");
-const { clearProgressCache, dayInTz, weekRange } = await import("../src/mcp/progress.js");
+const { addDays, clearProgressCache, dayInTz, weekRange } = await import("../src/mcp/progress.js");
+const { isoWeekKey } = await import("../src/mcp/dashboard.js");
 const { ask } = await import("../src/mcp/questions.js");
 const { setGoal } = await import("../src/mcp/goals.js");
 const { webCtx } = await import("../src/mcp/tx.js");
@@ -89,6 +90,13 @@ before(async () => {
      values ($1, 'example/filmia', 44, 'https://example.com/pull/44', 'Ficha de ejemplo', 'merged', $2)`,
     [filmia, at],
   );
+  const older = `${addDays(week.from, -7)}T18:00:00Z`;
+  await raw.query(
+    `insert into token_usage (project_id, agent, task_key, run_id, model, input, output, at) values
+     ($1, 'cursor', 'FIL-SHIP', 'dash-week', 'fake-model', 120, 30, $2),
+     ($1, 'cursor', 'FIL-SHIP', 'dash-old', 'fake-model', 9, 1, $3)`,
+    [filmia, at, older],
+  );
 
   const held = await writes.createTask(
     opened.db,
@@ -132,6 +140,15 @@ test("the cookie read is the week, the roster, goals, stuck work and what waits 
   assert.equal(res.status, 200);
   const body = res.body;
   assert.equal(body.role, "CEO");
+  assert.equal(body.name, "Jorge");
+  const weekId = isoWeekKey(body.today);
+  const sqlWeek = await raw.query<{ week: string }>(`select to_char($1::date, 'IYYY-"W"IW') as week`, [body.today]);
+  assert.equal(weekId, sqlWeek.rows[0]!.week);
+  assert.equal(body.usage.label, "reportado");
+  assert.equal(body.usage.week, weekId);
+  assert.equal(body.usage.input, 120);
+  assert.equal(body.usage.output, 30);
+  assert.equal("usd" in body.usage, false);
   assert.equal(body.team.total, 14);
   assert.equal(body.team.alive, 1);
   assert.equal(body.team.stuck, 1);
@@ -175,4 +192,21 @@ test("the cookie read is the week, the roster, goals, stuck work and what waits 
   assert.equal(text.includes("approval"), false);
   assert.equal(text.includes("\"cost\""), false);
   assert.equal(text.includes("token"), false);
+});
+
+test("PLANIA_CEO_NAME sets the greeting and a blank value stays Jorge", async () => {
+  const previous = process.env.PLANIA_CEO_NAME;
+  try {
+    process.env.PLANIA_CEO_NAME = "  Demo  ";
+    const named = await get("/api/dashboard");
+    assert.equal(named.status, 200);
+    assert.equal(named.body.name, "Demo");
+    assert.equal(named.body.role, "CEO");
+    process.env.PLANIA_CEO_NAME = " \n ";
+    const blank = await get("/api/dashboard");
+    assert.equal(blank.body.name, "Jorge");
+  } finally {
+    if (previous === undefined) delete process.env.PLANIA_CEO_NAME;
+    else process.env.PLANIA_CEO_NAME = previous;
+  }
 });

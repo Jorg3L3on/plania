@@ -4,9 +4,10 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { AGENT_KINDS, AGENT_STATUSES, agentTokens, agents, projects, tasks, type Agent, type ProjectSettings, type Task } from "../db/schema.js";
+import { ADAPTERS, AGENT_KINDS, AGENT_STATUSES, agentTokens, agents, projects, tasks, type AdapterConfig, type Agent, type ProjectSettings, type Task } from "../db/schema.js";
 import { ToolError } from "./errors.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
+export { workingOnBySlug, type WorkingOn } from "./working-on.js";
 
 // PLA-I21: the company roster. Slugs only on the wire. Claims stay on tasks.owner;
 // owner_agent is informational. Tokens link by agent name or slug, never by a foreign key.
@@ -64,6 +65,10 @@ export type AgentView = AgentRef & {
   capabilities: string[];
   kind: string;
   wake_url: string | null;
+  adapter: string;
+  adapter_config: AdapterConfig;
+  heartbeat_minutes: number | null;
+  last_heartbeat_at: string | null;
   last_check_in_at: string | null;
   note: string;
   tokens: { name: string; prefix: string; machine: string | null }[];
@@ -81,6 +86,11 @@ function checkKind(kind: string): string {
   if (!(AGENT_KINDS as readonly string[]).includes(kind)) throw new ToolError("INVALID_FILTER", { field: "kind", allowed: AGENT_KINDS });
   return kind;
 }
+
+const checkAdapter = (adapter: string): string => {
+  if (!(ADAPTERS as readonly string[]).includes(adapter)) throw new ToolError("INVALID_FILTER", { field: "adapter", allowed: ADAPTERS });
+  return adapter;
+};
 
 function checkStatus(status: string): string {
   if (!(AGENT_STATUSES as readonly string[]).includes(status)) throw new ToolError("INVALID_FILTER", { field: "status", allowed: AGENT_STATUSES });
@@ -102,6 +112,39 @@ export function checkWakeUrl(url: string | null | undefined): string | null | un
   if (url.trim().length > 500) throw new ToolError("TOO_LARGE", { field: "wake_url", max: 500 });
   return url.trim();
 }
+
+const CONFIG_KEYS = ["command_env", "args_env", "url_env"] as const;
+const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
+
+// Names of environment variables only. Anything else is dropped on read and refused on write.
+export const publicAdapterConfig = (value: unknown): AdapterConfig => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: AdapterConfig = {};
+  for (const key of CONFIG_KEYS) {
+    const item = (value as Record<string, unknown>)[key];
+    if (typeof item === "string" && ENV_NAME.test(item)) out[key] = item;
+  }
+  return out;
+};
+
+const checkAdapterConfig = (value: Record<string, string> | null | undefined): AdapterConfig | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null) return {};
+  const keys = Object.keys(value);
+  if (keys.some((key) => !(CONFIG_KEYS as readonly string[]).includes(key))) {
+    throw new ToolError("INVALID_FILTER", { field: "adapter_config", hint: "command_env, args_env or url_env" });
+  }
+  const clean = publicAdapterConfig(value);
+  if (Object.keys(clean).length !== keys.length) throw new ToolError("INVALID_FILTER", { field: "adapter_config", hint: "environment variable name" });
+  return clean;
+};
+
+const checkHeartbeatMinutes = (value: number | null | undefined): number | null | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (!Number.isInteger(value) || value < 1 || value > 1440) throw new ToolError("INVALID_FILTER", { field: "heartbeat_minutes", hint: "1 to 1440, or null" });
+  return value;
+};
 
 function checkCapabilities(values: string[] | undefined): string[] | undefined {
   if (values === undefined) return undefined;
@@ -170,6 +213,10 @@ function viewOf(row: Agent, byId: Map<string, Agent>, tokens: TokenRow[], status
     capabilities: row.capabilities,
     kind: row.kind,
     wake_url: row.wakeUrl,
+    adapter: row.adapter,
+    adapter_config: publicAdapterConfig(row.adapterConfig),
+    heartbeat_minutes: row.heartbeatMinutes,
+    last_heartbeat_at: iso(row.lastHeartbeatAt),
     last_check_in_at: iso(row.lastCheckInAt),
     status,
     note: row.note,
@@ -210,6 +257,9 @@ export type SetAgentInput = {
   capabilities?: string[];
   kind?: string;
   wake_url?: string | null;
+  adapter?: string;
+  adapter_config?: Record<string, string> | null;
+  heartbeat_minutes?: number | null;
   status?: string;
   note?: string;
 };
@@ -220,6 +270,9 @@ export async function setAgent(db: Db, input: SetAgentInput): Promise<AgentView>
   const status = input.status !== undefined ? checkStatus(input.status) : undefined;
   const wakeUrl = checkWakeUrl(input.wake_url);
   const capabilities = checkCapabilities(input.capabilities);
+  const adapter = input.adapter === undefined ? undefined : checkAdapter(input.adapter);
+  const adapterConfig = checkAdapterConfig(input.adapter_config);
+  const heartbeatMinutes = checkHeartbeatMinutes(input.heartbeat_minutes);
   const name = input.name?.trim();
   const role = input.role?.trim();
   if (input.name !== undefined && !name) throw new ToolError("INVALID_FILTER", { field: "name" });
@@ -252,6 +305,9 @@ export async function setAgent(db: Db, input: SetAgentInput): Promise<AgentView>
           capabilities: capabilities ?? [],
           kind,
           wakeUrl: wakeUrl ?? null,
+          adapter: adapter ?? "none",
+          adapterConfig: adapterConfig ?? {},
+          heartbeatMinutes: heartbeatMinutes ?? null,
           status: status ?? "idle",
           note: input.note ?? "",
         })
@@ -268,6 +324,9 @@ export async function setAgent(db: Db, input: SetAgentInput): Promise<AgentView>
           ...(capabilities !== undefined ? { capabilities } : {}),
           ...(kind !== undefined ? { kind } : {}),
           ...(wakeUrl !== undefined ? { wakeUrl } : {}),
+          ...(adapter !== undefined ? { adapter } : {}),
+          ...(adapterConfig !== undefined ? { adapterConfig } : {}),
+          ...(heartbeatMinutes !== undefined ? { heartbeatMinutes } : {}),
           ...(status !== undefined ? { status } : {}),
           ...(input.note !== undefined ? { note: input.note } : {}),
           updatedAt: sql`now()`,
@@ -355,8 +414,8 @@ export function registerTeamTools(
     "list_agents",
     {
       description: [
-        "The company roster: every bot, coder and human, with role, title, who they report to, capabilities, kind, status, last check-in and note.",
-        "Tokens issued on the screen are linked by agent name or slug (prefix and machine only). Slugs, never ids.",
+        "The company roster: every bot, coder and human, with role, title, adapter, heartbeat, who they report to, capabilities, kind, status, last check-in and note.",
+        "adapter_config lists environment variable names only. Tokens issued on the screen are linked by agent name or slug (prefix and machine only). Slugs, never ids.",
       ].join(" "),
       inputSchema: {},
       annotations: readOnly,
@@ -382,6 +441,9 @@ export function registerTeamTools(
         capabilities: z.array(z.string()).optional().describe("Replaces the list"),
         kind: z.enum(AGENT_KINDS).optional(),
         wake_url: z.string().nullable().optional().describe("http(s) URL the sweep may POST; null clears it"),
+        adapter: z.enum(ADAPTERS).optional().describe("http, cursor_agent, claude_code, grok_webhook or none"),
+        adapter_config: z.record(z.string(), z.string()).nullable().optional().describe("Environment variable names only: command_env, args_env, url_env. Null clears it"),
+        heartbeat_minutes: z.number().int().nullable().optional().describe("Minutes between wakes. Null skips the job"),
         status: z.enum(AGENT_STATUSES).optional(),
         note: z.string().optional(),
       },

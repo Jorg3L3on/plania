@@ -1,4 +1,5 @@
-// Screen shape of GET /api/dashboard. Role is the label CEO, never a person's name.
+// Screen shape of GET /api/dashboard. Role is the label CEO.
+// name is the greeting (PLANIA_CEO_NAME, default Jorge). The roster row stays CEO.
 
 export type DashboardClaim = { project: string; key: string; title: string };
 
@@ -47,12 +48,22 @@ export type DashboardWait = {
   why: string;
 };
 
+export type DashboardUsage = {
+  label: "reportado";
+  week: string;
+  input: number;
+  output: number;
+  usd?: number;
+};
+
 export type Dashboard = {
   role: "CEO";
+  name: string;
   timezone: string;
   today: string;
   team: { alive: number; idle: number; stuck: number; total: number; agents: DashboardAgent[] };
   goals: DashboardGoal[];
+  usage: DashboardUsage;
   shipped: {
     from: string;
     to: string;

@@ -284,10 +284,11 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `get_inbox` | Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac). |
 | `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, WONT_DO_WITHOUT_EVIDENCE, and the footprint codes. |
 | `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). |
-| `list_agents` | The company roster: every bot, coder and human, with role, title, who they report to, capabilities, kind, status, last check-in and note. |
+| `list_agents` | The company roster: every bot, coder and human, with role, title, adapter, heartbeat, who they report to, capabilities, kind, status, last check-in and note. |
 | `list_goals` | Company goals and the project goals under them. |
 | `list_routine_runs` | Routine runs, newest first. |
 | `usage_summary` | Totals of reported tokens per agent, project and week. |
+| `list_heartbeat_runs` | Recent heartbeat runs: agent, status, adapter, summary and task key, newest first. |
 
 | Write | |
 |---|---|
@@ -324,6 +325,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `record_routine_run` | Record one run of a roster agent's routine. |
 | `report_tokens` | Record the tokens one agent reports for a task run. |
 | `create_company_project` | Create a project, a product-owner bot and a Playbook doc from the company template. |
+| `wake_agent` | Wake one roster agent through its adapter when its heartbeat is due. |
 <!-- mcp-tools:end -->
 
 Rules every write follows:

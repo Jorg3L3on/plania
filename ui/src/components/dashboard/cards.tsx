@@ -3,7 +3,10 @@ import { progressText } from "@/components/goals/model";
 import { STATUS_DOT, STATUS_WORD } from "@/components/team/types";
 import { statusWord } from "@/components/plan/visuals";
 import { cn } from "@/lib/utils";
-import type { Dashboard, DashboardAgent, DashboardGoal } from "@/components/dashboard/types";
+import type { Dashboard, DashboardAgent, DashboardGoal, DashboardUsage } from "@/components/dashboard/types";
+import { usageCaption } from "@/components/dashboard/usage-line";
+
+const count = (n: number) => n.toLocaleString("es-MX");
 
 const BARS = ["bg-status-done", "bg-status-blocked", "bg-status-review", "bg-status-ready", "bg-status-now"] as const;
 
@@ -19,6 +22,19 @@ const agentLine = (agent: DashboardAgent) => {
   if (agent.claim) return `${agent.claim.key} · ${agent.claim.title}`;
   if (agent.note) return agent.note;
   return STATUS_WORD[agent.status] ?? agent.status;
+};
+
+export const TokenWeek = ({ usage }: { usage: DashboardUsage }) => {
+  const total = usage.input + usage.output;
+  return (
+    <article className={panelClass} aria-labelledby="ceo-usage">
+      <h2 id="ceo-usage" className="text-[11px] font-bold tracking-[0.14em] text-muted-foreground uppercase">
+        Tokens esta semana
+      </h2>
+      <p className="mt-2 font-display text-4xl font-extrabold tracking-tight tabular-nums">{count(total)}</p>
+      <p className="text-xs text-muted-foreground">{usageCaption(usage)}</p>
+    </article>
+  );
 };
 
 export const StatRow = ({ data }: { data: Dashboard }) => {

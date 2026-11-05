@@ -1,11 +1,13 @@
 // PLA-I24: the CEO screen. One read composed from the roster, goals, the inbox, and the week
 // already cached by Mi progreso. No budgets, no new tables, no second scan of the year.
+// PLA-I27: the greeting name and this week's reported usage. Still no budgets.
 import { sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { inbox } from "./inbox.js";
 import { listGoals, type GoalView } from "./goals.js";
-import { isPruebaTitle, progressLog, progressSummary, weekRange, dayInTz } from "./progress.js";
-import { listAgents, type AgentView } from "./team.js";
+import { isPruebaTitle, isoWeek, progressLog, progressSummary, weekRange, dayInTz } from "./progress.js";
+import { listAgents, workingOnBySlug, type AgentView } from "./team.js";
+import { USAGE_LABEL, usageSummary } from "./usage.js";
 
 export type DashboardAgent = {
   slug: string;
@@ -52,12 +54,22 @@ export type DashboardWait = {
   why: string;
 };
 
+export type DashboardUsage = {
+  label: typeof USAGE_LABEL;
+  week: string;
+  input: number;
+  output: number;
+  usd?: number;
+};
+
 export type CeoDashboard = {
   role: "CEO";
+  name: string;
   timezone: string;
   today: string;
   team: { alive: number; idle: number; stuck: number; total: number; agents: DashboardAgent[] };
   goals: DashboardGoal[];
+  usage: DashboardUsage;
   shipped: {
     from: string;
     to: string;
@@ -73,6 +85,19 @@ export type CeoDashboard = {
 
 const STATUS_RANK: Record<string, number> = { alive: 0, stuck: 1, idle: 2 };
 const WINS = 12;
+const DEFAULT_CEO_NAME = "Jorge";
+
+// Greeting on /ceo. PLANIA_CEO_NAME overrides the default display name. The roster row stays «CEO».
+export function ceoDisplayName(raw = process.env.PLANIA_CEO_NAME): string {
+  const name = (raw ?? "").replace(/[\u0000-\u001f]/g, "").trim().replace(/\s+/g, " ");
+  return name ? name.slice(0, 80) : DEFAULT_CEO_NAME;
+}
+
+// Same ISO week usage_summary stores: IYYY-Www of the screen's calendar day.
+export function isoWeekKey(day: string): string {
+  const { week, weekYear } = isoWeek(day);
+  return `${weekYear}-W${String(week).padStart(2, "0")}`;
+}
 
 type LiveClaim = { project: string; key: string; title: string; status: string; agent: string | null };
 
@@ -119,13 +144,16 @@ async function liveClaims(db: Db): Promise<LiveClaim[]> {
 export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
   const today = dayInTz(new Date());
   const week = weekRange(today);
-  const [roster, board, summary, log, box, claims] = await Promise.all([
+  const weekId = isoWeekKey(today);
+  const [roster, board, summary, log, box, claims, usage, working] = await Promise.all([
     listAgents(db),
     listGoals(db),
     progressSummary(db, { range: "week", date: today }),
     progressLog(db, { from: week.from, to: week.to }),
     inbox(db, "all"),
     liveClaims(db),
+    usageSummary(db, { week: weekId }),
+    workingOnBySlug(db),
   ]);
 
   const byAgent = new Map<string, LiveClaim[]>();
@@ -140,7 +168,7 @@ export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
 
   const agents: DashboardAgent[] = roster.agents
     .map((agent) => {
-      const claim = byAgent.get(agent.slug)?.[0] ?? null;
+      const focus = working.get(agent.slug) ?? null;
       return {
         slug: agent.slug,
         name: agent.name,
@@ -148,7 +176,7 @@ export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
         title: agent.title,
         status: agent.status,
         note: agent.note,
-        claim: claim ? { project: claim.project, key: claim.key, title: claim.title } : null,
+        claim: focus,
       };
     })
     .sort((a, b) => (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9) || a.name.localeCompare(b.name, "es"));
@@ -199,12 +227,17 @@ export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
       why: item.why,
     }));
 
+  const input = usage.totals.reduce((sum, row) => sum + row.input, 0);
+  const output = usage.totals.reduce((sum, row) => sum + row.output, 0);
+
   return {
     role: "CEO",
+    name: ceoDisplayName(),
     timezone: summary.timezone,
     today: summary.today,
     team: { ...counts, agents },
     goals: flatGoals(board.goals),
+    usage: { label: usage.label, week: weekId, input, output },
     shipped: {
       from: summary.from,
       to: summary.to,

@@ -150,8 +150,8 @@ after(async () => {
 const TOOLS = [
   "add_decision", "add_result", "answer", "answer_delegated", "ask", "assign", "attach_doc", "audit", "batch", "check_in", "claim", "comment", "consume", "create_company_project", "create_task", "finish",
   "get_context", "get_digest", "get_doc", "get_inbox", "get_memory", "get_next", "get_project", "get_resume", "get_running", "get_task", "handoff", "lease_resource",
-  "list_agents", "list_events", "list_goals", "list_projects", "list_routine_runs", "list_tasks", "record_routine_run", "register_footprint", "release_footprint", "release_resource", "report_tokens", "reserve_sequence", "retire_decision", "set_agent", "set_check", "set_env",
-  "set_goal", "set_metric", "set_project", "set_task", "start", "usage_summary", "waive_check",
+  "list_agents", "list_events", "list_goals", "list_heartbeat_runs", "list_projects", "list_routine_runs", "list_tasks", "record_routine_run", "register_footprint", "release_footprint", "release_resource", "report_tokens", "reserve_sequence", "retire_decision", "set_agent", "set_check", "set_env",
+  "set_goal", "set_metric", "set_project", "set_task", "start", "usage_summary", "waive_check", "wake_agent",
 ];
 
 test("exposes exactly the contract tools", async () => {
