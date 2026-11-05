@@ -246,6 +246,13 @@
       "when": 1793600000000,
       "tag": "0037_token_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1793686400000,
+      "tag": "0038_heartbeats_adapters",
+      "breakpoints": true
     }
   ]
 }
