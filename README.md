@@ -288,6 +288,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `list_goals` | Company goals and the project goals under them. |
 | `list_routine_runs` | Routine runs, newest first. |
 | `usage_summary` | Totals of reported tokens per agent, project and week. |
+| `list_heartbeat_runs` | Recent heartbeat runs: agent, status, adapter, summary and task key, newest first. |
 
 | Write | |
 |---|---|
@@ -324,6 +325,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `record_routine_run` | Record one run of a roster agent's routine. |
 | `report_tokens` | Record the tokens one agent reports for a task run. |
 | `create_company_project` | Create a project, a product-owner bot and a Playbook doc from the company template. |
+| `wake_agent` | Wake one roster agent through its adapter when its heartbeat is due. |
 <!-- mcp-tools:end -->
 
 Rules every write follows:
