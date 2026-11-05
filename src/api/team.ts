@@ -9,7 +9,7 @@ const CLOSED = ["Done", "Won't do"];
 
 export type OwnedTask = { project: string; key: string; title: string; status: string };
 
-export type TeamMember = Omit<AgentView, "wake_url" | "tokens"> & { tasks: OwnedTask[]; working_on: WorkingOn | null };
+export type TeamMember = Omit<AgentView, "wake_url" | "tokens" | "adapter_config"> & { tasks: OwnedTask[]; working_on: WorkingOn | null };
 
 // Screen only. Mounted under the session middleware in routes.ts; a Bearer never reaches it.
 export const teamRoutes = new Hono();
@@ -36,7 +36,7 @@ teamRoutes.get("/", async (c) => {
       list.push({ project: row.project, key: row.key, title: row.title, status: row.status });
       bySlug.set(row.slug, list);
     }
-    const members: TeamMember[] = roster.map(({ wake_url: _wake, tokens: _tokens, ...member }) => ({
+    const members: TeamMember[] = roster.map(({ wake_url: _wake, tokens: _tokens, adapter_config: _config, ...member }) => ({
       ...member,
       tasks: bySlug.get(member.slug) ?? [],
       working_on: working.get(member.slug) ?? null,
