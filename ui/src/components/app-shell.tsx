@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellIcon, ClockIcon, CloudOffIcon, CpuIcon, EllipsisIcon, FlagIcon, FlameIcon, InboxIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
+import { BellIcon, CloudOffIcon, EllipsisIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, NavLink, Outlet, useNavigate } from "react-router";
+import { Outlet, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -13,16 +13,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { GoalsLink } from "@/components/goals/goals-link";
-import { PlaniaMark } from "@/components/plania-mark";
+import { HeaderNav, Logo, TabBar } from "@/components/main-nav";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ThemeChoices, ThemeToggle } from "@/components/theme-toggle";
+import { ThemeChoices } from "@/components/theme-toggle";
 import { api } from "@/lib/api";
 import { disablePush, enablePush, PushError, pushHint, pushStatus, type PushStatus } from "@/lib/push";
 import { LiveProvider, useLive } from "@/lib/live";
 import { cn } from "@/lib/utils";
-import { EquipoLink, EquipoMenuItem } from "@/components/team/equipo-link";
-import { CeoLink } from "@/components/dashboard/ceo-link";
 
 // On a phone only the dot shows; the label stays for screen readers.
 function LiveIndicator() {
@@ -101,27 +98,18 @@ function PushSwitch() {
   );
 }
 
-// Phones get one menu for what the desktop header shows as separate icons.
-function PhoneMenu({ onLogout }: { onLogout: () => void }) {
+// PLA-I30-2: everything that is not one of the four destinations lives in this menu, on every width:
+// agent tokens (the old key icon), push, theme and logout.
+function MoreMenu({ onLogout }: { onLogout: () => void }) {
   const navigate = useNavigate();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="Más" className="sm:hidden">
+        <Button variant="ghost" size="icon" aria-label="Más">
           <EllipsisIcon />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-64">
-        <DropdownMenuItem onSelect={() => navigate("/ahora")}>
-          <ClockIcon /> Ahora
-        </DropdownMenuItem>
-        <EquipoMenuItem />
-        <DropdownMenuItem onSelect={() => navigate("/goals")}>
-          <FlagIcon /> Metas
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => navigate("/progreso")}>
-          <FlameIcon /> Progreso
-        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => navigate("/tokens")}>
           <KeyRoundIcon /> Tokens de agentes
         </DropdownMenuItem>
@@ -138,94 +126,12 @@ function PhoneMenu({ onLogout }: { onLogout: () => void }) {
   );
 }
 
-// What is in flight and what Jorge should do next. Icon only on phones, where the header is tight.
-function AhoraLink() {
-  return (
-    <NavLink
-      to="/ahora"
-      aria-label="Ahora"
-      className={({ isActive }) =>
-        cn(
-          "inline-flex min-h-9 items-center gap-1.5 rounded-full px-2.5 text-[13px] font-medium transition hover:text-foreground sm:px-3",
-          isActive ? "bg-foreground text-background" : "text-muted-foreground",
-        )
-      }
-    >
-      <ClockIcon className="size-4" aria-hidden />
-      <span className="hidden sm:inline">Ahora</span>
-    </NavLink>
-  );
-}
-
-// The inbox link carries how many things wait for Jorge; live changes refresh it.
-function InboxLink() {
-  const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
-  const n = inbox.data?.count ?? 0;
-  return (
-    <NavLink
-      to="/inbox"
-      className={({ isActive }) =>
-        cn(
-          "inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition hover:text-foreground",
-          isActive ? "bg-foreground text-background" : "text-muted-foreground",
-        )
-      }
-    >
-      <InboxIcon className="size-4" aria-hidden />
-      Bandeja
-      {n > 0 && (
-        <span className="rounded-full bg-orange-500 px-1.5 text-[11px] font-semibold text-white" aria-label={`${n} pendientes`}>{n}</span>
-      )}
-    </NavLink>
-  );
-}
-
-function ProgresoLink() {
-  return (
-    <NavLink
-      to="/progreso"
-      aria-label="Progreso"
-      className={({ isActive }) =>
-        cn(
-          "inline-flex min-h-9 items-center gap-1.5 rounded-full px-2.5 text-[13px] font-medium transition hover:text-foreground sm:px-3",
-          isActive ? "bg-foreground text-background" : "text-muted-foreground",
-        )
-      }
-    >
-      <FlameIcon className="size-4" aria-hidden />
-      <span className="hidden sm:inline">Progreso</span>
-    </NavLink>
-  );
-}
-
-// What runs on the Mac. Icon only on phones, where the header is tight. The Bandeja's Limpieza
-// (what agents left behind) shows here as a quiet count, not on the Bandeja's badge.
-function MachineLink() {
-  const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
-  const chores = inbox.data?.chores ?? 0;
-  return (
-    <NavLink
-      to="/machine"
-      aria-label="Máquina"
-      className={({ isActive }) =>
-        cn(
-          "inline-flex min-h-9 items-center gap-1.5 rounded-full px-2.5 text-[13px] font-medium transition hover:text-foreground sm:px-3",
-          isActive ? "bg-foreground text-background" : "text-muted-foreground",
-        )
-      }
-    >
-      <CpuIcon className="size-4" aria-hidden />
-      <span className="hidden sm:inline">Máquina</span>
-      {chores > 0 && (
-        <span className="rounded-full bg-muted px-1.5 text-[11px] font-medium text-muted-foreground tabular-nums" aria-label={`${chores} por limpiar`}>{chores}</span>
-      )}
-    </NavLink>
-  );
-}
-
 export function AppShell() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  // The Bandeja badge and Máquina's quiet Limpieza count; live changes refresh them.
+  const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
+  const counts = { inbox: inbox.data?.count ?? 0, chores: inbox.data?.chores ?? 0 };
 
   async function logout() {
     await api.logout();
@@ -244,41 +150,19 @@ export function AppShell() {
         {/* In a home-screen app the page runs under the status bar and beside the notch: pad for both. */}
         <header className="sticky top-0 z-10 border-b bg-background/70 pt-[env(safe-area-inset-top)] backdrop-blur-md">
           <div className="mx-auto flex h-12 max-w-[1480px] items-center justify-between gap-2 gutter">
-            <Link to="/" className="flex min-h-9 items-center gap-2 font-display text-lg font-extrabold tracking-tight">
-              <PlaniaMark className="size-6" />
-              Plania
-            </Link>
-            <div className="flex items-center gap-1 sm:gap-2">
-              <CeoLink />
-              <AhoraLink />
-              <InboxLink />
-              <GoalsLink />
-              <ProgresoLink />
-              <MachineLink />
-              <EquipoLink />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link to="/tokens" aria-label="Tokens de agentes" className="hidden size-9 items-center justify-center rounded-full text-muted-foreground hover:text-foreground sm:inline-flex">
-                    <KeyRoundIcon className="size-4" />
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent>Tokens de agentes</TooltipContent>
-              </Tooltip>
+            <Logo />
+            <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+              <HeaderNav counts={counts} />
               <LiveIndicator />
-              <div className="hidden sm:contents">
-                <ThemeToggle />
-                <Button variant="ghost" size="icon" aria-label="Salir" onClick={logout}>
-                  <LogOutIcon />
-                </Button>
-              </div>
-              <PhoneMenu onLogout={logout} />
+              <MoreMenu onLogout={logout} />
             </div>
           </div>
           <OfflineBanner />
         </header>
-        <main className="mx-auto max-w-[1480px] gutter pt-5 tiny:pt-2 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <main className="mx-auto max-w-[1480px] gutter pt-5 tiny:pt-2 pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           <Outlet />
         </main>
+        <TabBar counts={counts} />
       </div>
     </LiveProvider>
   );

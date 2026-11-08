@@ -62,16 +62,26 @@ export const Kpis = ({ data }: { data: Dashboard }) => {
 
 // ---- Brief
 
-export const Brief = ({ lines }: { lines: string[] }) => (
-  <section aria-labelledby="ceo-brief" className="grid gap-2.5 rounded-2xl bg-gradient-to-b from-muted to-card p-4 ring-1 ring-foreground/10 sm:p-5">
-    <h2 id="ceo-brief" className="text-[11px] font-bold tracking-[0.14em] text-muted-foreground uppercase">
-      Hoy te toca
-    </h2>
-    <ol className="grid list-decimal gap-2 pl-5 text-[15px] leading-snug">
-      {lines.map((line) => (
-        <li key={line}>{line}</li>
-      ))}
-    </ol>
+// PLA-I30: Compañía titles it "Brief de hoy" and signs it as Asistente; the default stays for older callers.
+export const Brief = ({ lines, title = "Hoy te toca", sign }: { lines: string[]; title?: string; sign?: string }) => (
+  <section aria-labelledby="ceo-brief" className="grid gap-2.5 rounded-[22px] bg-gradient-to-b from-muted to-card p-4 ring-1 ring-foreground/10 sm:p-5">
+    <div className="flex items-baseline justify-between gap-3">
+      <h2 id="ceo-brief" className="text-[11px] font-bold tracking-[0.14em] text-muted-foreground uppercase">
+        {title}
+      </h2>
+      {sign && <span className="text-xs text-muted-foreground">{sign}</span>}
+    </div>
+    {lines.length === 0 ? (
+      <p className="text-[15px] text-muted-foreground">Nada nuevo desde ayer.</p>
+    ) : (
+      <ol className="grid list-decimal gap-2 pl-5 text-[15px] leading-snug">
+        {lines.map((line) => (
+          <li key={line} className="line-clamp-3 break-words">
+            {line}
+          </li>
+        ))}
+      </ol>
+    )}
   </section>
 );
 
@@ -114,7 +124,17 @@ const QueueAction = ({ item, onAssign }: { item: QueueItem; onAssign: (item: Que
   );
 };
 
-export const Queue = ({ items, onAssign }: { items: QueueItem[]; onAssign: (item: QueueItem) => void }) => {
+export const Queue = ({
+  items,
+  onAssign,
+  title = "Te necesitan",
+  note,
+}: {
+  items: QueueItem[];
+  onAssign: (item: QueueItem) => void;
+  title?: string;
+  note?: string;
+}) => {
   const [filter, setFilter] = useState<"todo" | QueueKind>("todo");
   const counts = useMemo(() => {
     const out: Record<string, number> = { todo: items.length };
@@ -125,9 +145,12 @@ export const Queue = ({ items, onAssign }: { items: QueueItem[]; onAssign: (item
   return (
     <section aria-labelledby="ceo-queue" className={cn(panel, "overflow-hidden")}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <h2 id="ceo-queue" className={heading}>
-          Te necesitan
-        </h2>
+        <div className="grid gap-0.5">
+          <h2 id="ceo-queue" className={heading}>
+            {title} <span className="font-mono text-sm font-normal text-muted-foreground">{items.length}</span>
+          </h2>
+          {note && <p className="text-xs text-muted-foreground">{note}</p>}
+        </div>
         <div role="tablist" aria-label="Filtrar" className="flex flex-wrap gap-1.5">
           {FILTERS.filter((kind) => kind === "todo" || counts[kind]).map((kind) => (
             <button
@@ -156,7 +179,7 @@ export const Queue = ({ items, onAssign }: { items: QueueItem[]; onAssign: (item
                 {KIND_LABEL[item.kind]}
               </span>
               <span className="grid min-w-0 flex-[1_1_220px] gap-0.5">
-                <span className="truncate text-[15px] font-medium" title={item.title}>
+                <span className="line-clamp-3 text-[15px] font-medium break-words" title={item.title}>
                   {item.title}
                 </span>
                 <span className="text-xs text-muted-foreground">
@@ -262,13 +285,13 @@ export const Goals = ({ goals }: { goals: DashboardGoal[] }) => {
         <h2 id="ceo-goals" className={heading}>
           Metas
         </h2>
-        <Link to="/goals" className="text-[13px] text-muted-foreground hover:text-foreground">
+        <Link to="/ceo#proyectos" className="text-[13px] text-muted-foreground hover:text-foreground">
           {company ? `Compañía ${company.progress.done} de ${company.progress.total}` : "Abrir metas"}
         </Link>
       </div>
       {products.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Todavía no hay metas. <Link to="/goals" className="underline">Crea la primera</Link>.
+          Todavía no hay metas. <Link to="/ceo#proyectos" className="underline">Crea la primera</Link>.
         </p>
       ) : (
         <ul className="grid gap-3">
