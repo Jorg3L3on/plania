@@ -5,6 +5,7 @@ import type { Db } from "../db/client.js";
 import type * as schema from "../db/schema.js";
 import { events, writeRequests, type Actor, type Project } from "../db/schema.js";
 import { bus, type PlaniaEvent } from "../events.js";
+import { onWriteEvent } from "../runner/events.js";
 import { ToolError } from "./errors.js";
 
 // A Db or an open transaction. Reads that run inside writeTx must use the transaction.
@@ -79,6 +80,8 @@ export async function writeTx<T>(
         tokenId: actor === ctx.actor ? (ctx.tokenId ?? null) : null,
         payload,
       });
+      // PLA-I31-1: an event that should wake a role queues it in this same transaction.
+      await onWriteEvent(tx, project, type, task, payload);
     };
     const result = await fn(tx, emit);
     if (ctx.requestId) {

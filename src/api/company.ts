@@ -6,12 +6,15 @@
 //   PUT  /api/company/budgets              {scope, role|project, weekly_limit|null}
 //   PUT  /api/company/settings             {max_concurrent?, cooldown_minutes?, plan_guard_pct?, reserve_tokens?, max_turns?, timeout_minutes?}
 //   POST /api/company/runs/:id/ack-usage   a run whose usage is unknown stops blocking
+//   POST /api/company/projects             {name, goal}  PLA-I31-3: a new project, paused, with its PO
+//        → 201 {slug, key_prefix, paused: true, po, prompt_doc_id}; 409 PROJECT_EXISTS | PROMPT_DOC_MISSING
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { z } from "zod";
 import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
+import { createProjectFromTemplate } from "../runner/new-project.js";
 import { ackUnknownUsage, companyState, setBudget, setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner/company.js";
 
 export const companyRoutes = new Hono();
@@ -96,4 +99,17 @@ companyRoutes.post("/runs/:id/ack-usage", async (c) => {
   const id = c.req.param("id");
   if (!/^[0-9a-f-]{36}$/i.test(id)) return c.json({ error: "INVALID_BODY" }, 400);
   return c.json(await withDb((db) => ackUnknownUsage(db, id)));
+});
+
+const NewProjectBody = z.object({ name: z.string().min(1).max(40), goal: z.string().min(1).max(280) }).strict();
+
+companyRoutes.post("/projects", async (c) => {
+  const input = await body(c, NewProjectBody);
+  if (input instanceof Response) return input;
+  const out = await withDb((db) => createProjectFromTemplate(db, input));
+  if ("error" in out) {
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  return c.json(out, 201);
 });

@@ -28,6 +28,7 @@ import { registerFootprint, releaseFootprint } from "../mcp/footprint.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
 import { denySettings } from "./deny.js";
+import { EVENT_SUMMARY } from "./events.js";
 import {
   PROMPT_DOCS,
   budgetGate,
@@ -300,6 +301,9 @@ export async function drainQueue(db: Db, now: Date, deps: RunnerDeps = {}): Prom
       if (!ctx.project) ctx.project = (await db.select().from(projects).where(eq(projects.id, run.projectId)).limit(1))[0] ?? null;
       const pre = await preflight(db, ctx, now, deps, { fromQueue: run.id });
       if (!pre.ok && pre.kind === "cap") break;
+      // PLA-I31-1: an event wake inside the agent's cooldown waits for it to end instead of being
+      // dropped, so events that arrive during the cooldown coalesce into this one run.
+      if (!pre.ok && pre.summary === "skipped: cooldown" && run.summary.startsWith(EVENT_SUMMARY)) continue;
       if (!pre.ok) {
         await endWithoutProcess(db, run, pre.kind === "fail" ? "fail" : "skipped", pre.summary, now);
         out.dropped += 1;
@@ -513,8 +517,10 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, warn: { scope: str
 
   let lastFlush = 0;
   const flushEvery = deps.liveFlushMs ?? 5_000;
+  // Plan readings are written as they stream; the run's end waits for them, so the next wake reads them.
+  const readings: Promise<unknown>[] = [];
   const reader = new StreamReader((reading) => {
-    void recordReading(db, { ...reading, source: "stream", runId: run.id }).catch(() => undefined);
+    readings.push(recordReading(db, { ...reading, source: "stream", runId: run.id }).catch(() => undefined));
   });
   const proc = supervise({
     command,
@@ -557,6 +563,10 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, warn: { scope: str
 
   const entry: LiveRun = { runId: run.id, agentId: ctx.agent.id, projectId: project.id, role, proc, finished: Promise.resolve(), stopReason: null };
   entry.finished = proc.done
+    .then(async (exit) => {
+      await Promise.all(readings);
+      return exit;
+    })
     .then((exit) => finishRun(db, { run: { ...run, startedAt }, agent: ctx.agent, project, reader, exit, stopReason: entry.stopReason, cwd }, deps))
     .catch(() => undefined)
     .finally(() => {

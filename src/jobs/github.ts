@@ -49,6 +49,9 @@ type Pr = {
   base: { ref: string };
 };
 type CheckRuns = { check_runs: { name: string; status: string; conclusion: string | null; html_url: string; head_sha: string }[] };
+type Review = { id: number; state: string; submitted_at?: string | null };
+// Reviews that ask Taller for something. An approval needs no wake.
+const REVIEW_WAKES = ["CHANGES_REQUESTED", "COMMENTED"];
 type Branch = { name: string; commit: { sha: string } };
 type Compare = { status: "ahead" | "behind" | "identical" | "diverged"; ahead_by?: number; commits?: { sha: string }[] };
 
@@ -273,6 +276,22 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
               systemCtx(`gh:${cfg.repo}#${pr.number}:merged:${mergeSha}${t.id === task.id ? "" : `:${t.key}`}`, "jobs.github"),
             );
             summary.merged!++;
+          }
+        }
+        // PLA-I31-1: a new review asking for changes (or commenting) on an open linked PR is said once
+        // (pr.reviewed, keyed by the review id), which wakes Taller on the ticket. Read only when the PR moved.
+        if (state === "open") {
+          const reviews = await gh(deps, token, `/repos/${cfg.repo}/pulls/${pr.number}/reviews?per_page=50`);
+          if (reviews.status === 200 && Array.isArray(reviews.data)) {
+            const latest = (reviews.data as Review[])
+              .filter((r) => REVIEW_WAKES.includes(r.state) && r.submitted_at)
+              .sort((a, b) => b.submitted_at!.localeCompare(a.submitted_at!))[0];
+            if (latest) {
+              await writeTx(db, p, systemCtx(`gh:${cfg.repo}#${pr.number}:review:${latest.id}`, "jobs.github"), async (_tx, emit) => {
+                await emit("pr.reviewed", { id: task!.id, key: task!.key }, { pr: pr.html_url, review_id: latest.id, state: latest.state, submitted_at: latest.submitted_at });
+              });
+              summary.reviews = (summary.reviews ?? 0) + 1;
+            }
           }
         }
         // 2. Check runs on open linked PRs.
