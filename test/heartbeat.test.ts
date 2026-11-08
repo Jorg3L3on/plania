@@ -41,6 +41,8 @@ before(async () => {
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
   await raw.query(`update agents set heartbeat_minutes = null, last_heartbeat_at = null, adapter = 'none', adapter_config = '{}'::jsonb`);
+  // PLA-I29-10: a paused project offers no Ready work, and projects start paused.
+  await raw.query(`update projects set runs_paused = false`);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await createMcpServer(db).connect(serverSide);
   client = new Client({ name: "heartbeat-test", version: "0" });
