@@ -400,7 +400,9 @@ export const AssignSheet = ({
           <SheetDescription>
             {target?.kind === "agent"
               ? "Elige un ticket listo. Queda como suyo; nadie se despierta solo."
-              : `${forInitiative.length} ${forInitiative.length === 1 ? "ticket listo" : "tickets listos"} pasan al agente que elijas.`}
+              : forInitiative.length === 1
+                ? "Su ticket listo pasa al agente que elijas."
+                : `Sus ${forInitiative.length} tickets listos pasan al agente que elijas.`}
           </SheetDescription>
         </SheetHeader>
         <ul className="grid gap-1.5 px-4 pb-6">

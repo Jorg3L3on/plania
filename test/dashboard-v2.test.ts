@@ -50,7 +50,7 @@ test("goal health: stopped, at risk, on track and no initiatives", () => {
   const risk = signals.goalSignal([item({ in_review: 3 })], NOW, dayOf);
   assert.deepEqual(risk, { health: "risk", why: "3 esperan tu revisión" });
   const on = signals.goalSignal([item({ in_progress: 1 })], NOW, dayOf);
-  assert.deepEqual(on, { health: "on", why: "1 de 4 hechos · 1 iniciativa en curso" });
+  assert.deepEqual(on, { health: "on", why: "1 iniciativa abierta · 2 listos · 1 en curso" });
   assert.equal(signals.goalSignal([], NOW, dayOf).health, "none");
   // One stalled and one moving initiative is not a stopped goal; On hold never stalls.
   assert.equal(signals.goalSignal([item({ last_move: daysAgo(9) }), item({ key: "FIL-I2" })], NOW, dayOf).health, "on");
@@ -88,7 +88,7 @@ test("queue order is decide, merge, stalled, step; the brief only repeats what t
   const brief = signals.buildBrief({ queue, finished: 117, previous: 110 });
   assert.deepEqual(brief, [
     "13 tickets esperan tu revisión: MiCasa 8, Workia 5.",
-    "Zigzag está quieto: ZIG-I1 sin cambios hace 8 días.",
+    "ZIG-I1 (Zigzag) lleva 8 días quieta, con trabajo listo y sin agente.",
     "1 decisión te espera: Decisión de ejemplo.",
     "Salieron 117 cosas esta semana, 6 % más que la anterior.",
   ]);
