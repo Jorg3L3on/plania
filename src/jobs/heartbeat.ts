@@ -38,6 +38,8 @@ export type ReadyWork = {
   priority: string | null;
   workType: string | null;
   ownerAgent: string | null;
+  // PLA-I29-10: the project's runs_paused switch. A paused project offers no work to anyone.
+  paused?: boolean;
 };
 
 export type HeartbeatRunView = {
@@ -82,12 +84,21 @@ const priorityRank = (priority: string | null): number => {
   return index === -1 ? PRIORITY.length : index;
 };
 
+// A product owner belongs to one project: po-<slug>, or a capability naming the project
+// (the same rule as the event wakes in src/runner/events.ts).
+const ownProject = (agent: { slug?: string; capabilities: string[] }, project: string): boolean =>
+  agent.slug === `po-${project}` || agent.capabilities.includes(project);
+
 // Owned Ready work wins. Otherwise an unowned Ready ticket in a capable project or work type.
-export const pickReady = (agent: { id: string; role: string; capabilities: string[] }, rows: ReadyWork[]): ReadyWork | null => {
+// PLA-I29-10: never from a paused project, and a product owner only inside its own project.
+export const pickReady = (agent: { id: string; slug?: string; role: string; capabilities: string[] }, rows: ReadyWork[]): ReadyWork | null => {
   const types = workTypesFor(agent.role, agent.capabilities);
   const caps = new Set(agent.capabilities);
+  const isPo = agent.role === "product-owner" || !!agent.slug?.startsWith("po-");
   const matches = rows.filter((row) => {
     if (row.title.includes("[PRUEBA]")) return false;
+    if (row.paused) return false;
+    if (isPo && !ownProject(agent, row.project)) return false;
     if (row.ownerAgent === agent.id) return true;
     if (row.ownerAgent) return false;
     if (caps.has(row.project)) return true;
@@ -112,10 +123,11 @@ const loadReady = async (db: Db): Promise<ReadyWork[]> => {
       priority: tasks.priority,
       workType: tasks.workType,
       ownerAgent: tasks.ownerAgent,
+      paused: projects.runsPaused,
     })
     .from(tasks)
     .innerJoin(projects, eq(projects.id, tasks.projectId))
-    .where(and(eq(tasks.kind, "ticket"), eq(tasks.status, "Ready")));
+    .where(and(eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), eq(projects.runsPaused, false)));
   return rows;
 };
 
