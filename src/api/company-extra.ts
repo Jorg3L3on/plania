@@ -7,11 +7,14 @@
 import { sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
+import { loadReady, pickReady } from "../jobs/heartbeat.js";
 import { PROMPT_DOCS, RUNNER_ROLES, roleOf, type RunnerRole } from "../runner/limits.js";
 
 export type PromptRef = { doc_id: string; title: string; version: number };
 
 export type RunBrief = {
+  // PLA-I30-8: a "fail: missing env X" run once X is set on the server: shown as resolved.
+  resolved?: boolean;
   id: string;
   agent: string;
   role: string;
@@ -41,6 +44,8 @@ export type ProjectFacts = {
   last_move_at: string | null;
   po: { slug: string; name: string } | null;
   last_run: RunBrief | null;
+  // PLA-I30-8: Ready tickets here that some runner bot would pick (0 in a paused project).
+  bot_work: number;
 };
 
 export type CompanyExtras = {
@@ -56,7 +61,27 @@ type Row = Record<string, unknown>;
 const rows = async (db: Db, query: ReturnType<typeof sql>): Promise<Row[]> => (await db.execute(query)).rows as Row[];
 const iso = (v: unknown): string | null => (v instanceof Date ? v.toISOString() : typeof v === "string" ? new Date(v).toISOString() : null);
 
+const MISSING_ENV = /^fail: missing env ([A-Z0-9_]+)/;
+const resolvedNow = (summary: string): boolean => {
+  const m = MISSING_ENV.exec(summary);
+  return !!m && !!process.env[m[1]!]?.trim();
+};
+
+// PLA-I30-8: per project, how many Ready tickets a runner bot (claude_code, with a runner role) would pick.
+export async function botWorkBy(db: Db): Promise<Map<string, number>> {
+  const ready = await loadReady(db);
+  const bots = (await rows(db, sql`select id, slug, role, capabilities from agents where adapter = 'claude_code'`))
+    .map((a) => ({ id: String(a.id), slug: String(a.slug), role: String(a.role), capabilities: (a.capabilities as string[]) ?? [] }))
+    .filter((a) => roleOf(a) !== null);
+  const out = new Map<string, number>();
+  for (const row of ready) {
+    if (bots.some((b) => pickReady(b, [row]) !== null)) out.set(row.project, (out.get(row.project) ?? 0) + 1);
+  }
+  return out;
+}
+
 const runOf = (r: Row): RunBrief => ({
+  ...(resolvedNow(String(r.summary ?? "")) ? { resolved: true } : {}),
   id: String(r.id),
   agent: String(r.agent),
   role: String(r.role),
@@ -148,6 +173,7 @@ export async function companyExtras(db: Db, now = new Date()): Promise<CompanyEx
         where g.status = 'active' order by g.project_id, g.position, g.created_at`,
   );
   const goalBy = new Map(goalRows.map((g) => [String(g.slug), String(g.title)]));
+  const botWork = await botWorkBy(db);
   const facts: Record<string, ProjectFacts> = {};
   for (const c of counts) {
     const slug = String(c.slug);
@@ -161,6 +187,7 @@ export async function companyExtras(db: Db, now = new Date()): Promise<CompanyEx
       last_move_at: iso(c.last_move_at),
       po: po ? { slug: po.slug, name: po.name } : null,
       last_run: run ? runOf(run) : null,
+      bot_work: botWork.get(slug) ?? 0,
     };
   }
   return { viewer: { can_edit_limits: true }, prompts: await promptRefs(db), roster, project_facts: facts };
@@ -175,8 +202,10 @@ export type ProjectSheet = {
   pipeline: { stage: (typeof PIPELINE_STAGES)[number]; count: number; newest: string | null }[];
   in_progress: { key: string; title: string; status: string; owner: string | null }[];
   blocked: { key: string; title: string; status: string; why: string }[];
-  next: { key: string; title: string; priority: string | null }[];
+  // yours: owned by the human seat (ceo); no bot takes it (PLA-I30-8).
+  next: { key: string; title: string; priority: string | null; yours: boolean }[];
   runs: RunBrief[];
+  bot_work: number;
 };
 
 export async function projectSheet(db: Db, slug: string): Promise<ProjectSheet> {
@@ -203,7 +232,9 @@ export async function projectSheet(db: Db, slug: string): Promise<ProjectSheet> 
   );
   const next = await rows(
     db,
-    sql`select t.key, t.title, t.priority from tasks t
+    sql`select t.key, t.title, t.priority,
+          exists (select 1 from agents a where a.id = t.owner_agent and (a.kind = 'human' or a.slug = 'ceo')) as yours
+        from tasks t
         where t.project_id = ${id} and t.kind = 'ticket' and t.status = 'Ready'
         order by coalesce(t.priority, 'P9'), t.created_at limit 5`,
   );
@@ -222,8 +253,9 @@ export async function projectSheet(db: Db, slug: string): Promise<ProjectSheet> 
     }),
     in_progress: inProgress.map((r) => ({ key: String(r.key), title: String(r.title), status: String(r.status), owner: (r.owner as string | null) ?? null })),
     blocked: blocked.map((r) => ({ key: String(r.key), title: String(r.title), status: String(r.status), why: String(r.why) })),
-    next: next.map((r) => ({ key: String(r.key), title: String(r.title), priority: (r.priority as string | null) ?? null })),
+    next: next.map((r) => ({ key: String(r.key), title: String(r.title), priority: (r.priority as string | null) ?? null, yours: r.yours === true })),
     runs: runs.map(runOf),
+    bot_work: (await botWorkBy(db)).get(String(project.slug)) ?? 0,
   };
 }
 

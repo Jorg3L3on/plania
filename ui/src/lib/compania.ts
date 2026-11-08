@@ -31,6 +31,8 @@ export type RunBrief = {
   started_at: string | null;
   ended_at: string | null;
   tokens: number;
+  // PLA-I30-8: a config failure ("fail: missing env X") whose X is now set.
+  resolved?: boolean;
 };
 
 export type PlanState = "ok" | "warn" | "stopped" | "unknown";
@@ -54,6 +56,8 @@ export type ProjectFacts = {
   last_move_at: string | null;
   po: { slug: string; name: string } | null;
   last_run: RunBrief | null;
+  // PLA-I30-8: Ready tickets a runner bot would pick here. Absent on an older server.
+  bot_work?: number;
 };
 export type PromptRef = { doc_id: string; title: string; version: number };
 export type RosterRow = {
@@ -88,9 +92,23 @@ export type ProjectSheetData = {
   pipeline: { stage: "idea" | "research" | "design" | "planning" | "ready"; count: number; newest: string | null }[];
   in_progress: { key: string; title: string; status: string; owner: string | null }[];
   blocked: { key: string; title: string; status: string; why: string }[];
-  next: { key: string; title: string; priority: string | null }[];
+  next: { key: string; title: string; priority: string | null; yours?: boolean }[];
   runs: RunBrief[];
+  bot_work?: number;
 };
+
+// PLA-I30-6/7: the sheet's two actions.
+export type AskResult = { key: string; title: string; po: string; wake: "queued" | "busy" | "off" };
+export type WakeOutcome = { woke: boolean; reason: string; ticket: string | null; summary: string };
+export function wakeWord(out: WakeOutcome): string {
+  if (out.reason === "idle") return "Sin trabajo para el PO: pídele algo.";
+  if (out.reason === "queued") return `En espera de turno · ${out.ticket ?? ""}`.trim();
+  if (out.reason === "coalesced") return "Ya tiene una corrida en curso o en espera.";
+  if (out.reason === "cadence") return "Acaba de despertar; espera un momento.";
+  if (out.summary.startsWith("skipped")) return `No arrancó: ${out.summary.replace(/^skipped:\s*/, "")}`;
+  if (out.summary.startsWith("fail")) return `Falló: ${out.summary.replace(/^fail:\s*/, "")}`;
+  return out.woke ? `Despertó · ${out.ticket ?? ""}`.trim() : out.summary || out.reason;
+}
 
 export type NewProjectResult = { slug: string; key_prefix: string; paused: true; po: string; prompt_doc_id: string | null };
 
@@ -177,7 +195,7 @@ export function ago(iso: string | null, now: number): string {
 // ---- health of a project card (Design 1a): green Bien; amber quiet > 48 h, ≥80% or no limit;
 // red Te necesita (an escalation waits on Jorge) or Detenido (100%); grey En pausa.
 
-export type Health = { tone: Tone; word: string; reason: "paused" | "company" | "stopped" | "needs" | "warn" | "unset" | "unknown" | "quiet" | "nogoal" | "ok" };
+export type Health = { tone: Tone; word: string; reason: "paused" | "company" | "stopped" | "needs" | "warn" | "unset" | "unknown" | "quiet" | "nogoal" | "nowork" | "ok" };
 export const QUIET_MS = 48 * 3_600_000;
 
 export function healthOf(
@@ -194,6 +212,8 @@ export function healthOf(
   if (b.reason === "unset") return { tone: "warn", word: "Sin límite", reason: "unset" };
   if (facts && !facts.goal) return { tone: "warn", word: "Sin meta", reason: "nogoal" };
   if (b.state === "warn") return { tone: "warn", word: `Presupuesto ${pct(b.pct)}`, reason: "warn" };
+  // PLA-I30-8: running, but no Ready ticket any bot would pick: nothing will move until Jorge asks.
+  if (facts?.bot_work === 0 && facts.in_flight === 0) return { tone: "warn", word: "Sin trabajo para bots", reason: "nowork" };
   const last = facts?.last_move_at ? new Date(facts.last_move_at).getTime() : null;
   if (last !== null && opts.now - last > QUIET_MS) return { tone: "warn", word: `Quieto ${Math.floor((opts.now - last) / 86_400_000)} días`, reason: "quiet" };
   return { tone: "ok", word: "Bien", reason: "ok" };
