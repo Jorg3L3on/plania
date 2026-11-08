@@ -14,7 +14,7 @@ export { workingOnBySlug, type WorkingOn } from "./working-on.js";
 
 const SLUG = /^[a-z][a-z0-9-]{0,58}$/;
 
-// A check-in older than this, with a live claim, is stuck. Projects override it with settings.team.idle_minutes.
+// A live claim with neither a check-in nor a heartbeat inside this window is stuck. Projects override it with settings.team.idle_minutes.
 export const DEFAULT_IDLE_MINUTES = 120;
 export const WAKE_INTERVAL_MS = 60 * 60 * 1000;
 const MINUTE = 60_000;
@@ -26,27 +26,32 @@ export function idleMinutesOf(settings: ProjectSettings | null | undefined): num
 }
 
 // No claim: alive while the last check-in is inside the default window, otherwise idle.
-// A live claim past its project's window: stuck. One fresh claim keeps the agent alive.
-export function presenceOf(lastCheckIn: Date | null, claimIdleMinutes: number[], now: Date): (typeof AGENT_STATUSES)[number] {
-  const fresh = (minutes: number) => !!lastCheckIn && now.getTime() - new Date(lastCheckIn).getTime() <= minutes * MINUTE;
-  if (claimIdleMinutes.length === 0) return fresh(DEFAULT_IDLE_MINUTES) ? "alive" : "idle";
-  return claimIdleMinutes.some((minutes) => !fresh(minutes)) ? "stuck" : "alive";
+// A live claim is fresh while the newest of the agent's check-in and that claim's last heartbeat (or claim time)
+// is inside its project's window. Any stale claim: stuck. PLA-11: taking or renewing a claim is a sign of life.
+export type ClaimPresence = { idleMinutes: number; seenAt: Date | null };
+
+export function presenceOf(lastCheckIn: Date | null, claims: ClaimPresence[], now: Date): (typeof AGENT_STATUSES)[number] {
+  const within = (at: Date | null, minutes: number) => !!at && now.getTime() - new Date(at).getTime() <= minutes * MINUTE;
+  if (claims.length === 0) return within(lastCheckIn, DEFAULT_IDLE_MINUTES) ? "alive" : "idle";
+  return claims.some((claim) => !within(lastCheckIn, claim.idleMinutes) && !within(claim.seenAt, claim.idleMinutes)) ? "stuck" : "alive";
 }
 
-type LiveClaim = { agent: string; idleMinutes: number };
+type LiveClaim = { agent: string; idleMinutes: number; seenAt: Date | null };
 
 export async function liveClaims(db: Q, now: Date): Promise<LiveClaim[]> {
-  const rows = await db.execute<{ agent: string | null; settings: ProjectSettings }>(sql`
-    select t.owner->>'agent' as agent, p.settings
+  const rows = await db.execute<{ agent: string | null; settings: ProjectSettings; seen_at: string | Date | null }>(sql`
+    select t.owner->>'agent' as agent, p.settings, coalesce(t.last_seen_at, t.claimed_at) as seen_at
     from tasks t
     join projects p on p.id = t.project_id
     where t.owner is not null and t.lease_until > ${now.toISOString()}::timestamptz`);
-  return rows.rows.filter((r): r is { agent: string; settings: ProjectSettings } => !!r.agent).map((r) => ({ agent: r.agent, idleMinutes: idleMinutesOf(r.settings) }));
+  return rows.rows
+    .filter((r) => !!r.agent)
+    .map((r) => ({ agent: r.agent!, idleMinutes: idleMinutesOf(r.settings), seenAt: r.seen_at ? new Date(r.seen_at) : null }));
 }
 
-export function claimsFor(agent: { slug: string; name: string }, claims: LiveClaim[]): number[] {
+export function claimsFor(agent: { slug: string; name: string }, claims: LiveClaim[]): ClaimPresence[] {
   const keys = new Set([agent.slug.trim().toLowerCase(), agent.name.trim().toLowerCase()]);
-  return claims.filter((c) => keys.has(c.agent.trim().toLowerCase())).map((c) => c.idleMinutes);
+  return claims.filter((c) => keys.has(c.agent.trim().toLowerCase())).map((c) => ({ idleMinutes: c.idleMinutes, seenAt: c.seenAt }));
 }
 
 export async function statusByAgentId(

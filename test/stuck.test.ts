@@ -60,7 +60,7 @@ test("idle threshold: a claim past it is stuck, a wider project setting stays al
     verbose: true,
   });
   await raw.query(
-    `update tasks set owner = $1::jsonb, claimed_at = now(), lease_until = now() + interval '1 hour', status = 'In progress' where key = $2`,
+    `update tasks set owner = $1::jsonb, claimed_at = now() - interval '3 hours', lease_until = now() + interval '1 hour', status = 'In progress' where key = $2`,
     [JSON.stringify({ agent: "Cursor", session_id: "s-cursor" }), created.key],
   );
   await raw.query(`update agents set last_check_in_at = now() - interval '3 hours' where slug = 'cursor'`);
@@ -124,7 +124,7 @@ test("a stuck agent is woken at most once per hour", async () => {
     verbose: true,
   });
   await raw.query(
-    `update tasks set owner = $1::jsonb, claimed_at = now(), lease_until = now() + interval '3 hours', status = 'In progress' where key = $2`,
+    `update tasks set owner = $1::jsonb, claimed_at = now() - interval '3 hours', lease_until = now() + interval '3 hours', status = 'In progress' where key = $2`,
     [JSON.stringify({ agent: "Claude Code", session_id: "s-claude" }), created.key],
   );
   await raw.query(`update agents set last_check_in_at = now() - interval '3 hours', wake_url = 'http://127.0.0.1/wake/claude' where slug = 'claude-code'`);
