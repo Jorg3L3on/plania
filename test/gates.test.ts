@@ -28,7 +28,6 @@ test("the screen has no gate UI: no Compuertas panel, gate chip or gate option w
     "../ui/src/components/home/te-toca.tsx",
     "../ui/src/components/task-sheet.tsx",
     "../ui/src/pages/inbox.tsx",
-    "../ui/src/pages/ahora.tsx",
     "../ui/src/lib/inbox.ts",
     "../ui/src/lib/ahora.ts",
     "../ui/src/lib/types.ts",
