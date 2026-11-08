@@ -104,7 +104,7 @@ before(async () => {
     ctx,
   );
   await raw.query(
-    `update tasks set owner = $1::jsonb, claimed_at = now(), lease_until = now() + interval '1 hour', status = 'In progress' where key = $2`,
+    `update tasks set owner = $1::jsonb, claimed_at = now() - interval '3 hours', lease_until = now() + interval '1 hour', status = 'In progress' where key = $2`,
     [JSON.stringify({ agent: "Cursor", session_id: "s-cursor" }), held.key],
   );
   await raw.query(`update agents set last_check_in_at = now() - interval '3 hours' where slug = 'cursor'`);
