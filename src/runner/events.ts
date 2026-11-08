@@ -1,5 +1,6 @@
 // PLA-I31-1: events wake the right role; the cadence stays as the slow fallback.
 //   ticket → Ready (a move, not a creation)  wakes Taller, on that ticket
+//   ticket Ready owned by a PO (moved or created Ready)  wakes that PO, on that ticket (PLA-I30-6)
 //   question answered                         wakes whoever asked it (a runner session or a roster slug)
 //   pr.reviewed / pr.ci_failed (GitHub job)   wakes Taller, on the PR's ticket
 //   idea stage → research / → design          wakes Research / Artist, on the idea
@@ -108,13 +109,22 @@ async function targetOf(
   if (type === "project.runs_resumed") return { agent: await poOf(tx, project), taskKey: null, reason: "project resumed" };
   if (!task) return null;
 
-  if (type === "task.status" && payload.to === "Ready" && payload.from !== "Ready") {
+  // PLA-I30-6: a ticket a product owner owns wakes that PO when it is Ready, created that way included
+  // (Pedirle al PO creates it Ready). Taller still wakes on a move only.
+  const readyNow =
+    (type === "task.status" && payload.to === "Ready" && payload.from !== "Ready") || (type === "task.created" && payload.kind === "ticket" && payload.status === "Ready");
+  if (readyNow) {
     const [t] = await tx
       .select({ kind: tasks.kind, title: tasks.title, workType: tasks.workType, ownerAgent: tasks.ownerAgent })
       .from(tasks)
       .where(eq(tasks.id, task.id))
       .limit(1);
     if (!t || t.kind !== "ticket" || t.title.includes("[PRUEBA]")) return null;
+    if (t.ownerAgent) {
+      const [owner] = await tx.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
+      if (owner && roleOf(owner) === "product-owner") return { agent: owner, taskKey: task.key, reason: "ticket ready" };
+    }
+    if (type === "task.created") return null;
     const taller = await serviceAgent(tx, "taller");
     if (t.ownerAgent && t.ownerAgent !== taller?.id) return null;
     if (!t.ownerAgent && !(t.workType && TALLER_WORK.has(t.workType))) return null;
@@ -139,7 +149,7 @@ async function targetOf(
   return null;
 }
 
-const WATCHED = new Set(["task.status", "pr.ci_failed", "pr.reviewed", "question.answered", "task.updated", "project.runs_resumed"]);
+const WATCHED = new Set(["task.created", "task.status","pr.ci_failed", "pr.reviewed", "question.answered", "task.updated", "project.runs_resumed"]);
 
 // Called by writeTx's emit for every event. Cheap for every other type. A queued wake is logged as
 // wake.queued (inserted directly, so it is never itself an event the hook reads).

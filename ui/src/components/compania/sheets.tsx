@@ -40,7 +40,7 @@ const RunList = ({ runs, now, projectTitle }: { runs: RunBrief[]; now: number; p
   ) : (
     <ul className="grid gap-1.5">
       {runs.map((run) => {
-        const failed = run.status === "fail" || run.status === "stopped";
+        const failed = !run.resolved && (run.status === "fail" || run.status === "stopped");
         const escalated = /escal/i.test(run.summary);
         return (
           <li key={run.id} className="flex items-center gap-2.5 text-sm" data-run-status={run.status}>
@@ -57,8 +57,9 @@ const RunList = ({ runs, now, projectTitle }: { runs: RunBrief[]; now: number; p
                 )}
                 {" · "}
                 {RUN_WORD[run.status] ?? run.status}
+                {run.resolved && <span className="text-muted-foreground"> · resuelto</span>}
               </span>
-              {run.summary && <span className="truncate text-xs text-muted-foreground">{run.summary}</span>}
+              {run.summary && <span className={cn("truncate text-xs text-muted-foreground", run.resolved && "line-through")}>{run.summary}</span>}
             </span>
             <span className="shrink-0 text-right font-mono text-xs whitespace-nowrap text-muted-foreground tabular-nums">
               {tokens(run.tokens)} tok · {ago(run.ended_at ?? run.started_at, now)}
@@ -85,6 +86,49 @@ const BudgetBlock = ({ budget, canEdit, onEdit }: { budget: Budget; canEdit: boo
   </div>
 );
 
+// ---- PLA-I30-6: Pedirle al PO. One sentence becomes a Ready ticket the PO owns; the PO wakes on it.
+
+export type AskState = { kind: "idle" } | { kind: "busy" } | { kind: "done"; key: string; wake: "queued" | "busy" | "off" } | { kind: "error"; message: string };
+
+export const AskBox = ({ paused, state, onAsk }: { paused: boolean; state: AskState; onAsk: (text: string) => void }) => {
+  const [text, setText] = useState("");
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (text.trim().length < 3 || state.kind === "busy" || paused) return;
+    onAsk(text.trim());
+    setText("");
+  };
+  return (
+    <form className="grid gap-2 rounded-2xl bg-muted/60 p-3" onSubmit={submit} data-testid="ask-po">
+      <label className={eyebrow} htmlFor="ask-po-text">
+        Pedirle al PO
+      </label>
+      <div className="flex gap-2">
+        <input
+          id="ask-po-text"
+          className="min-h-10 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+          placeholder={paused ? "Reanuda el proyecto para pedirle algo" : "Ej.: arma el borrador de Campos y flujos con la propuesta"}
+          value={text}
+          maxLength={500}
+          disabled={paused || state.kind === "busy"}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <button type="submit" className={cn(pillPrimary, "shrink-0")} disabled={paused || state.kind === "busy" || text.trim().length < 3}>
+          {state.kind === "busy" ? "Enviando…" : "Pedir"}
+        </button>
+      </div>
+      {state.kind === "done" && (
+        <p className="text-xs" data-ask-result={state.key}>
+          Listo: <span className="font-mono">{state.key}</span>
+          {state.wake === "queued" ? " · el PO despierta en su turno" : state.wake === "busy" ? " · el PO lo toma al terminar lo que corre" : " · el PO lo verá cuando despierte"}
+        </p>
+      )}
+      {state.kind === "error" && <p className="text-xs text-ink-blocked">{state.message}</p>}
+      {state.kind === "idle" && !paused && <p className="text-xs text-muted-foreground">Una frase basta: el PO escribe el alcance y lo hace o se lo pasa a Taller.</p>}
+    </form>
+  );
+};
+
 // ---- 2a / 2b
 
 export const ProjectSheetBody = ({
@@ -101,6 +145,10 @@ export const ProjectSheetBody = ({
   onEditGoal,
   onPause,
   onResume,
+  ask = { kind: "idle" },
+  onAsk,
+  wake,
+  onWake,
 }: {
   project: CompanyProjectRow;
   facts: ProjectFacts | undefined;
@@ -115,6 +163,10 @@ export const ProjectSheetBody = ({
   onEditGoal: () => void;
   onPause: () => void;
   onResume: () => void;
+  ask?: AskState;
+  onAsk?: (text: string) => void;
+  wake?: { busy: boolean; text: string | null };
+  onWake?: () => void;
 }) => {
   const goal = sheet?.goal ?? facts?.goal ?? null;
   const switchRow = (
@@ -146,7 +198,21 @@ export const ProjectSheetBody = ({
         <span className="text-muted-foreground">
           PO {facts?.po?.name ?? "sin asignar"} · {ago(facts?.last_move_at ?? null, now)}
         </span>
+        {canEdit && onWake && facts?.po && !project.paused && !companyPaused && (
+          <button type="button" className={cn(pillGhost, "ml-auto min-h-8 px-3 text-xs")} onClick={onWake} disabled={wake?.busy} data-control="despertar">
+            {wake?.busy ? "Despertando…" : "Despertar ahora"}
+          </button>
+        )}
       </div>
+      {wake?.text && (
+        <p className="-mt-3 text-xs text-muted-foreground" data-wake-result>
+          {wake.text}
+        </p>
+      )}
+      {health.reason === "nowork" && (
+        <p className="-mt-3 text-xs text-ink-now">Ningún bot tiene un ticket que pueda tomar aquí. Pídele algo al PO para que arranque.</p>
+      )}
+      {canEdit && onAsk && facts?.po && <AskBox paused={project.paused || companyPaused} state={ask} onAsk={onAsk} />}
       <div className="sm:hidden">{switchRow}</div>
       <div className={section}>
         <div className="flex items-baseline justify-between gap-2">
@@ -231,8 +297,9 @@ export const ProjectSheetBody = ({
             ) : (
               <ol className="grid list-decimal gap-1 pl-5 text-sm">
                 {sheet.next.map((t) => (
-                  <li key={t.key} className="truncate" title={t.title}>
+                  <li key={t.key} className="truncate" title={t.title} data-yours={t.yours ? "1" : undefined}>
                     <span className="font-mono text-xs">{t.key}</span> {t.title}
+                    {t.yours && <span className="ml-1.5 rounded-full bg-ink-now/15 px-1.5 py-0.5 text-[11px] font-semibold text-ink-now">Te toca</span>}
                   </li>
                 ))}
               </ol>

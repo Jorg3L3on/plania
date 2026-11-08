@@ -114,7 +114,7 @@ export const pickReady = (agent: { id: string; slug?: string; role: string; capa
   return matches[0] ?? null;
 };
 
-const loadReady = async (db: Db): Promise<ReadyWork[]> => {
+export const loadReady = async (db: Db): Promise<ReadyWork[]> => {
   const rows = await db
     .select({
       project: projects.slug,

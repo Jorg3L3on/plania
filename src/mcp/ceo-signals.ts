@@ -122,10 +122,24 @@ const KIND_RANK: Record<QueueKind, number> = { decidir: 0, merge: 1, atorado: 2,
 type WaitLike = { id: string; group: string; project: string; key: string | null; title: string | null; why: string; wait_s: number; pr_url: string | null };
 
 export function buildQueue(
-  input: { waits: WaitLike[]; reviews: ReviewGroup[]; initiatives: InitiativeSignal[] },
+  input: { waits: WaitLike[]; reviews: ReviewGroup[]; initiatives: InitiativeSignal[]; yours?: YoursTicket[] },
   now: Date,
 ): QueueItem[] {
   const out: QueueItem[] = [];
+  // PLA-I30-8: a Ready ticket Jorge owns (owner ceo) is his step; no bot will take it.
+  for (const t of input.yours ?? []) {
+    out.push({
+      id: `yours:${t.project}:${t.key}`,
+      kind: "paso",
+      project: t.project,
+      key: t.key,
+      title: t.title,
+      detail: "Te toca: ningún bot lo toma",
+      age_days: ageDays(t.since, now),
+      href: null,
+      action: "open",
+    });
+  }
   for (const wait of input.waits) {
     if (wait.group !== "decisiones" && wait.group !== "pasos") continue;
     out.push({
@@ -196,6 +210,13 @@ export function buildBrief(input: { queue: QueueItem[]; finished: number; previo
   const decisions = input.queue.filter((item) => item.kind === "decidir");
   if (decisions.length > 0) {
     lines.push(`${plural(decisions.length, "decisión te espera", "decisiones te esperan")}: ${decisions[0]!.title}.`);
+  }
+  // PLA-I30-8: a Ready ticket only Jorge can do (owner ceo).
+  const yours = input.queue.filter((item) => item.id.startsWith("yours:"));
+  if (yours.length > 0) {
+    const first = yours[0]!;
+    const more = yours.length > 1 ? ` (y ${yours.length - 1} más)` : "";
+    lines.push(`Te toca: ${first.key} ${first.title} (${projectName(first.project)})${more}.`);
   }
   if (input.finished > 0 || input.previous > 0) {
     if (input.previous > 0) {
@@ -348,6 +369,28 @@ export async function loadReadyTickets(db: Db): Promise<ReadyTicket[]> {
       title: String(row.title),
       parent_key: (row.parent_key as string | null) ?? null,
       owner_agent: (row.owner_agent as string | null) ?? null,
+    }));
+}
+
+// PLA-I30-8: Ready tickets owned by the human seat (ceo, or any agent of kind human).
+export type YoursTicket = { project: string; key: string; title: string; since: string | null };
+
+export async function loadYours(db: Db): Promise<YoursTicket[]> {
+  const rows = await db.execute<Record<string, unknown>>(sql`
+    select p.slug as project, t.key, t.title, t.status_changed_at as since
+    from tasks t
+    join projects p on p.id = t.project_id
+    join agents a on a.id = t.owner_agent
+    where t.kind = 'ticket' and t.status = 'Ready' and (a.kind = 'human' or a.slug = 'ceo')
+    order by p.slug, t.key
+    limit 20`);
+  return rows.rows
+    .filter((row) => !isPruebaTitle(String(row.title)))
+    .map((row) => ({
+      project: String(row.project),
+      key: String(row.key),
+      title: String(row.title),
+      since: row.since instanceof Date ? row.since.toISOString() : row.since ? String(row.since) : null,
     }));
 }
 
