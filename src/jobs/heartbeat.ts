@@ -196,7 +196,7 @@ export const wakeAgent = async (db: Db, input: { agent: string; taskKey?: string
 
   const task = chosen ?? pickReady(row, await loadReady(db));
 
-  // PLA-I29: claude_code wakes go through the runner (gates, worktree, supervised process).
+  // PLA-I29: claude_code wakes go through the runner (limits, worktree, supervised process).
   // A started run writes its heartbeat_runs row when it ends; a skip or a fail writes it now.
   if (spawnAgent.adapter === "claude_code") {
     const outcome = await wakeClaude(db, { agent: row, task, now }, deps?.runner);

@@ -1,4 +1,4 @@
-// PLA-I29: the autonomous runner. A wake of a claude_code agent passes the gates (switches,
+// PLA-I29: the autonomous runner. A wake of a claude_code agent passes the checks (switches,
 // coalescing, cooldown, goal, base branch, budgets, plan guard, cap), then starts one supervised
 // `claude -p` in a worktree outside every repo. When it exits, its result is read: modelUsage goes
 // to report_tokens per model, the turns/session/subtype to heartbeat_runs, the session to agent_sessions.
@@ -92,7 +92,7 @@ const MINUTE = 60_000;
 const DONE_STATUSES = ["Merged", "Released", "Done", "Won't do"];
 export const RUNNER_ADAPTER = "claude_code" as const;
 
-// Serializes gate + start so two wakes never both take the last slot.
+// Serializes the checks and the start so two wakes never both take the last slot.
 let chain: Promise<unknown> = Promise.resolve();
 function serial<T>(fn: () => Promise<T>): Promise<T> {
   const next = chain.then(fn, fn);
@@ -133,7 +133,7 @@ function claudeCommand(config: AdapterConfig | null, env: NodeJS.ProcessEnv): st
 
 const sysCtx = (tool: string): Ctx => ({ actor: { ...SYSTEM_ACTOR, machine: hostname() }, system: true, tool });
 
-// ---- Context the gates read
+// ---- Context the checks read
 
 type WakeContext = {
   agent: Agent;
@@ -178,9 +178,9 @@ async function loadContext(db: Db, agent: Agent, task: ReadyWork | null): Promis
   return { agent, role, project: project ?? null, task, taskRow };
 }
 
-// ---- Gates
+// ---- Checks
 
-type Gate = { ok: true; warn: { scope: string; pct: number }[]; reserve: number } | { ok: false; kind: "skipped" | "fail" | "cap"; summary: string };
+type Preflight = { ok: true; warn: { scope: string; pct: number }[]; reserve: number } | { ok: false; kind: "skipped" | "fail" | "cap"; summary: string };
 
 async function probeIfUnknown(db: Db, deps: RunnerDeps, now: Date): Promise<void> {
   if (Date.now() - lastProbeAt < PROBE_EVERY_MS) return;
@@ -196,7 +196,7 @@ async function runningCount(db: Db): Promise<number> {
   return row?.n ?? 0;
 }
 
-async function gates(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, opts: { fromQueue?: string } = {}): Promise<Gate> {
+async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, opts: { fromQueue?: string } = {}): Promise<Preflight> {
   const settings = await loadSettings(db);
   const { agent, role, project, task } = ctx;
   if (!project) return { ok: false, kind: "skipped", summary: "skipped: no project" };
@@ -265,8 +265,8 @@ export async function wakeClaude(
       .limit(1);
     if (busy) return { kind: "coalesced", summary: "coalesced" };
 
-    const gate = await gates(db, ctx, input.now, deps);
-    if (!gate.ok && gate.kind !== "cap") return { kind: gate.kind, summary: gate.summary, taskKey };
+    const pre = await preflight(db, ctx, input.now, deps);
+    if (!pre.ok && pre.kind !== "cap") return { kind: pre.kind, summary: pre.summary, taskKey };
     const settings = await loadSettings(db);
     const [row] = await db
       .insert(agentRuns)
@@ -276,17 +276,17 @@ export async function wakeClaude(
         taskKey,
         role: ctx.role!,
         status: "queued",
-        summary: gate.ok ? "starting" : "queued: cap reached",
+        summary: pre.ok ? "starting" : "queued: cap reached",
         queuedAt: input.now,
         reserveTokens: settings.reserveTokens,
       })
       .returning();
-    if (!gate.ok) return { kind: "queued", runId: row!.id, summary: "queued: cap reached", taskKey };
-    return start(db, row!, ctx, gate.warn, deps);
+    if (!pre.ok) return { kind: "queued", runId: row!.id, summary: "queued: cap reached", taskKey };
+    return start(db, row!, ctx, pre.warn, deps);
   });
 }
 
-// Queued runs, oldest first, while there is a free slot. A run whose gate now says no is dropped
+// Queued runs, oldest first, while there is a free slot. A run whose checks now say no is dropped
 // (skipped, with the reason); the cadence queues it again later.
 export async function drainQueue(db: Db, now: Date, deps: RunnerDeps = {}): Promise<{ started: number; dropped: number }> {
   return serial(async () => {
@@ -298,14 +298,14 @@ export async function drainQueue(db: Db, now: Date, deps: RunnerDeps = {}): Prom
       const task = run.taskKey ? await readyWorkOf(db, run.projectId, run.taskKey) : null;
       const ctx = await loadContext(db, agent, task);
       if (!ctx.project) ctx.project = (await db.select().from(projects).where(eq(projects.id, run.projectId)).limit(1))[0] ?? null;
-      const gate = await gates(db, ctx, now, deps, { fromQueue: run.id });
-      if (!gate.ok && gate.kind === "cap") break;
-      if (!gate.ok) {
-        await endWithoutProcess(db, run, gate.kind === "fail" ? "fail" : "skipped", gate.summary, now);
+      const pre = await preflight(db, ctx, now, deps, { fromQueue: run.id });
+      if (!pre.ok && pre.kind === "cap") break;
+      if (!pre.ok) {
+        await endWithoutProcess(db, run, pre.kind === "fail" ? "fail" : "skipped", pre.summary, now);
         out.dropped += 1;
         continue;
       }
-      await start(db, run, ctx, gate.warn, deps);
+      await start(db, run, ctx, pre.warn, deps);
       out.started += 1;
     }
     return out;
