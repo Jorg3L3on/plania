@@ -11,6 +11,7 @@
 // PLA-I30 (src/api/company-extra.ts): the read gains viewer, prompts, roster and project_facts, plus
 //   GET  /api/company/projects/:slug       the project sheet
 //   GET  /api/company/docs/:id             one role prompt doc (Prompt ↗)
+// PLA-I30-6/7: POST /api/company/projects/:slug/ask {text}  and  POST /api/company/projects/:slug/wake
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { z } from "zod";
@@ -18,6 +19,7 @@ import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { createProjectFromTemplate } from "../runner/new-project.js";
+import { askPo, wakePo } from "./company-actions.js";
 import { companyExtras, projectSheet, promptDoc } from "./company-extra.js";
 import { ackUnknownUsage, companyState, setBudget, setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner/company.js";
 
@@ -125,7 +127,38 @@ companyRoutes.post("/runs/:id/ack-usage", async (c) => {
   return c.json(await withDb((db) => ackUnknownUsage(db, id)));
 });
 
-const NewProjectBody = z.object({ name: z.string().min(1).max(40), goal: z.string().min(1).max(280) }).strict();
+// PLA-I30-6/7 (src/api/company-actions.ts): Pedirle al PO and Despertar ahora on the project sheet.
+const AskBody = z.object({ text: z.string().trim().min(3).max(500) }).strict();
+
+companyRoutes.post("/projects/:slug/ask", async (c) => {
+  const input = await body(c, AskBody);
+  if (input instanceof Response) return input;
+  try {
+    const out = await withDb((db) => askPo(db, c.req.param("slug"), input.text));
+    if ("error" in out) {
+      const { status, ...rest } = out;
+      return c.json(rest, status);
+    }
+    return c.json(out, 201);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+companyRoutes.post("/projects/:slug/wake", async (c) => {
+  try {
+    const out = await withDb((db) => wakePo(db, c.req.param("slug")));
+    if ("error" in out) {
+      const { status, ...rest } = out;
+      return c.json(rest, status);
+    }
+    return c.json(out);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+const NewProjectBody =z.object({ name: z.string().min(1).max(40), goal: z.string().min(1).max(280) }).strict();
 
 companyRoutes.post("/projects", async (c) => {
   const input = await body(c, NewProjectBody);

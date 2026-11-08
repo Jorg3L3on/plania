@@ -20,6 +20,7 @@ import {
   loadReadyTickets,
   loadReviews,
   loadTrend,
+  loadYours,
   wakeInfo,
   type GoalSignal,
   type Health,
@@ -295,7 +296,7 @@ export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
   const input = usage.totals.reduce((sum, row) => sum + row.input, 0);
   const output = usage.totals.reduce((sum, row) => sum + row.output, 0);
 
-  const queue = buildQueue({ waits: box.items, reviews, initiatives }, now);
+  const queue = buildQueue({ waits: box.items, reviews, initiatives, yours: await loadYours(db) }, now);
   const brief = buildBrief({ queue, finished: summary.finished, previous: previous.finished });
 
   return {

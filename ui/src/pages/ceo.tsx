@@ -30,13 +30,14 @@ import {
   PromptDocBody,
   limitTitle,
   type LimitTarget,
+  type AskState,
   type NewProjectState,
 } from "@/components/compania/sheets";
 import { GoalDialog } from "@/components/goals/goal-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ApiError, api } from "@/lib/api";
-import { bannersOf, byHealth, healthOf, pillOf, sheetOf } from "@/lib/compania";
+import { bannersOf, byHealth, healthOf, pillOf, sheetOf, wakeWord } from "@/lib/compania";
 import { greeting } from "@/lib/greeting";
 
 const dayLabel = (timeZone: string) =>
@@ -88,6 +89,8 @@ export const CeoPage = () => {
   const [goalFor, setGoalFor] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState<NewProjectState>({ kind: "idle" });
+  const [ask, setAsk] = useState<AskState>({ kind: "idle" });
+  const [wakeText, setWakeText] = useState<string | null>(null);
 
   const timeZone = dash.data?.timezone ?? company?.week.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const { hello, subtitle } = greeting(timeZone);
@@ -151,6 +154,42 @@ export const CeoPage = () => {
       else setCreating({ kind: "error", message: e instanceof ApiError ? `No se pudo crear (${e.code}).` : "No se pudo crear el proyecto." });
     },
   });
+
+  // PLA-I30-6/7: the sheet's two actions. Refusals come back as 409 with a code.
+  const REFUSAL: Record<string, string> = {
+    PROJECT_PAUSED: "El proyecto está en pausa: reanúdalo primero.",
+    COMPANY_PAUSED: "La compañía está detenida.",
+    NO_PO: "Este proyecto no tiene un PO que corra en Claude Code.",
+  };
+  const refusal = (e: unknown, what: string) => (e instanceof ApiError ? (REFUSAL[e.code] ?? `${what} (${e.code}).`) : `${what}.`);
+  const refreshSheet = () => {
+    refresh();
+    void client.invalidateQueries({ queryKey: ["company-project"] });
+    void client.invalidateQueries({ queryKey: ["dashboard"] });
+  };
+  const askPo = useMutation({
+    mutationFn: ({ slug, text }: { slug: string; text: string }) => api.askPo(slug, text),
+    onMutate: () => setAsk({ kind: "busy" }),
+    onSuccess: (r) => {
+      setAsk({ kind: "done", key: r.key, wake: r.wake });
+      setWakeText(null);
+      refreshSheet();
+    },
+    onError: (e) => setAsk({ kind: "error", message: refusal(e, "No se pudo pedir") }),
+  });
+  const wakePo = useMutation({
+    mutationFn: (slug: string) => api.wakePo(slug),
+    onMutate: () => setWakeText(null),
+    onSuccess: (r) => {
+      setWakeText(wakeWord(r));
+      refreshSheet();
+    },
+    onError: (e) => setWakeText(refusal(e, "No se pudo despertar")),
+  });
+  useEffect(() => {
+    setAsk({ kind: "idle" });
+    setWakeText(null);
+  }, [sheet?.kind === "project" ? sheet.slug : null]);
 
   const projectSheet = useQuery({
     queryKey: ["company-project", sheet?.kind === "project" ? sheet.slug : ""],
@@ -284,6 +323,10 @@ export const CeoPage = () => {
                 onEditGoal={() => setGoalFor(sheetProject.slug)}
                 onPause={() => setStop({ kind: "project", slug: sheetProject.slug, title: sheetProject.title })}
                 onResume={() => projectSwitch.mutate({ slug: sheetProject.slug, paused: false })}
+                ask={ask}
+                onAsk={(text) => askPo.mutate({ slug: sheetProject.slug, text })}
+                wake={{ busy: wakePo.isPending, text: wakeText }}
+                onWake={() => wakePo.mutate(sheetProject.slug)}
               />
             ) : comp.isPending ? (
               <div className="h-40 animate-pulse rounded-xl bg-muted" />

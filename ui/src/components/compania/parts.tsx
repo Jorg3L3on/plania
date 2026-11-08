@@ -32,6 +32,7 @@ import {
   type ProjectFacts,
   type RunnerRole,
   type Tone,
+  RUN_WORD,
 } from "@/lib/compania";
 
 export const panel = "rounded-[22px] bg-card ring-1 ring-foreground/10";
@@ -244,7 +245,8 @@ const poLine = (facts: ProjectFacts | undefined, now: number) => {
   const run = facts?.last_run;
   if (run?.status === "running") return { doing: `Corriendo ${run.ticket ?? "sin ticket"}`, when: `desde ${ago(run.started_at, now).replace("hace ", "")}` };
   if (run?.status === "queued") return { doing: `En espera de turno · ${run.ticket ?? "sin ticket"}`, when: facts?.last_move_at ? `se movió ${ago(facts.last_move_at, now)}` : "" };
-  if (run) return { doing: `Última corrida ${run.ticket ?? ""} · ${run.status}`.trim(), when: ago(run.ended_at ?? run.started_at, now) };
+  // PLA-I30-8: a config failure that no longer applies reads as resolved, not as a fresh failure.
+  if (run) return { doing: `Última corrida ${run.ticket ?? ""} · ${run.resolved ? "falló, ya resuelto" : (RUN_WORD[run.status] ?? run.status)}`.replace(/\s+·/, " ·"), when: ago(run.ended_at ?? run.started_at, now) };
   return { doing: "Sin corridas todavía", when: facts?.last_move_at ? `se movió ${ago(facts.last_move_at, now)}` : "" };
 };
 
