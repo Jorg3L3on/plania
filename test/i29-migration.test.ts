@@ -9,11 +9,10 @@ import pg from "pg";
 
 const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
-test("the journal's last entry is 0039_company_runner and the file exists", () => {
+test("the journal names 0039_company_runner and the file exists", () => {
   const journal = JSON.parse(readFileSync(path.join(dir, "meta/_journal.json"), "utf8")) as { entries: { idx: number; tag: string }[] };
-  const last = journal.entries.at(-1)!;
-  assert.equal(last.tag, "0039_company_runner");
-  assert.equal(last.idx, journal.entries.length - 1);
+  const entry = journal.entries.find((e) => e.tag === "0039_company_runner");
+  assert.equal(entry?.idx, 36);
   assert.equal(readdirSync(dir).filter((f) => f.startsWith("0039")).join(","), "0039_company_runner.sql");
 });
 

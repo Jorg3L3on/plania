@@ -397,31 +397,8 @@ function ideaTask(key: string, extra: Partial<IdeaTask> = {}): IdeaTask {
   };
 }
 
-describe("En curso on the page", () => {
-  const page = readFileSync(new URL("../ui/src/pages/ahora.tsx", import.meta.url), "utf8");
-  const sheet = readFileSync(new URL("../ui/src/components/retomar-sheet.tsx", import.meta.url), "utf8");
-
-  test("the section uses the server badge, the summary button, and a confirm step only in words", () => {
-    for (const word of ["SUMMARY_BUTTON", "SUMMARY_ONLY", "SUMMARY_ANYWAY", "SUMMARY_CANCEL", "QUIET_PREFIX", "READINESS_BADGE", "summaryAction", "quietLine", "unblockOf", "Ver resumen de "]) {
-      assert.equal(page.includes(word), true, word);
-    }
-    assert.equal(page.includes(">Retomar<"), false);
-    assert.equal(page.includes("LIVENESS_WORD"), false);
-    assert.equal(page.includes('variant="outline"'), true);
-    assert.equal(page.includes("onCloseAutoFocus={handleConfirmCloseAutoFocus}"), true);
-    assert.equal(page.includes("summaryButtonRef.current?.focus()"), true);
-    assert.equal(page.includes("Dialog"), true);
-  });
-
-  test("the sheet is a read-only summary and does not call a write", () => {
-    assert.equal(sheet.includes("READ_ONLY_LINE"), true);
-    assert.equal(sheet.includes("Resumen de "), true);
-    assert.equal(sheet.includes(">Retomar<"), false);
-    assert.equal(sheet.includes("api.project"), true);
-    assert.equal(sheet.replaceAll("api.project", "").includes("api."), false);
-    assert.equal(/mutate|method:\s*"POST"/.test(sheet), false);
-  });
-});
+// PLA-I30-5: the Ahora page and its Retomar sheet are retired (/ahora redirects to Compañía);
+// the model in ui/src/lib/ahora.ts stays and is tested above.
 
 describe("ideas on Ahora", () => {
   test("the stage labels are the five Spanish names", () => {
@@ -429,9 +406,6 @@ describe("ideas on Ahora", () => {
   });
 
   test("an idea card has no gate mark (gates were removed in 2.17)", () => {
-    const page = readFileSync(new URL("../ui/src/pages/ahora.tsx", import.meta.url), "utf8");
-    assert.equal(page.includes("◆"), false);
-    assert.equal(/gate|compuerta/i.test(page), false);
     const [idea] = ideasFromProject({ slug: "workia", title: "Workia" }, [ideaTask("WRK-IDEA1", { title: "Cobrar", summary: "Cobrar" })]);
     assert.equal("gateOpen" in idea!, false);
   });

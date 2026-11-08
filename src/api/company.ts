@@ -8,6 +8,9 @@
 //   POST /api/company/runs/:id/ack-usage   a run whose usage is unknown stops blocking
 //   POST /api/company/projects             {name, goal}  PLA-I31-3: a new project, paused, with its PO
 //        → 201 {slug, key_prefix, paused: true, po, prompt_doc_id}; 409 PROJECT_EXISTS | PROMPT_DOC_MISSING
+// PLA-I30 (src/api/company-extra.ts): the read gains viewer, prompts, roster and project_facts, plus
+//   GET  /api/company/projects/:slug       the project sheet
+//   GET  /api/company/docs/:id             one role prompt doc (Prompt ↗)
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { z } from "zod";
@@ -15,6 +18,7 @@ import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { createProjectFromTemplate } from "../runner/new-project.js";
+import { companyExtras, projectSheet, promptDoc } from "./company-extra.js";
 import { ackUnknownUsage, companyState, setBudget, setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner/company.js";
 
 export const companyRoutes = new Hono();
@@ -41,7 +45,27 @@ async function body<T extends z.ZodType>(c: Context, schema: T): Promise<z.infer
 
 const Paused = z.object({ paused: z.boolean() }).strict();
 
-companyRoutes.get("/", async (c) => c.json(await withDb((db) => companyState(db))));
+companyRoutes.get("/", async (c) =>
+  c.json(await withDb(async (db) => ({ ...(await companyState(db)), ...(await companyExtras(db)) }))),
+);
+
+companyRoutes.get("/projects/:slug", async (c) => {
+  try {
+    return c.json(await withDb((db) => projectSheet(db, c.req.param("slug"))));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+companyRoutes.get("/docs/:id", async (c) => {
+  const id = c.req.param("id");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return c.json({ error: "DOC_NOT_FOUND" }, 404);
+  try {
+    return c.json(await withDb((db) => promptDoc(db, id)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
 
 companyRoutes.post("/switch", async (c) => {
   const input = await body(c, Paused);

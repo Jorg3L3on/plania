@@ -90,7 +90,6 @@ export type DashboardUsage = {
   week: string;
   input: number;
   output: number;
-  usd?: number;
 };
 
 export type Dashboard = {

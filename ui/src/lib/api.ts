@@ -2,6 +2,7 @@ import type { TaskComment, RoutineRun } from "@/components/delegation/types";
 import type { TeamRoster } from "@/components/team/types";
 import type { Dashboard, WakeResult } from "@/components/dashboard/types";
 import type { Goal, GoalWrite } from "@/components/goals/model";
+import type { Company, NewProjectResult, ProjectSheetData } from "@/lib/compania";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
 
 export class ApiError extends Error {
@@ -120,6 +121,18 @@ export const api = {
     request<ProgressItem>("GET", `/progress/item/${encodeURIComponent(project)}/${encodeURIComponent(key)}`),
   // PLA-I25: reported token totals. Informational.
   usage: () => request<UsageSummary>("GET", "/usage"),
+  // PLA-I30 Compañía: GET /api/company and its Jorge-only writes (cookie session only; a Bearer is 403).
+  company: () => request<Company>("GET", "/company"),
+  companyProject: (slug: string) => request<ProjectSheetData>("GET", `/company/projects/${encodeURIComponent(slug)}`),
+  promptDoc: (id: string) => request<{ id: string; title: string; version: number; markdown: string }>("GET", `/company/docs/${encodeURIComponent(id)}`),
+  setCompanyPaused: (paused: boolean) => request<{ paused: boolean; stopped: number }>("POST", "/company/switch", { paused }),
+  setProjectPaused: (slug: string, paused: boolean) =>
+    request<{ project: string; paused: boolean; stopped: number }>("POST", `/company/projects/${encodeURIComponent(slug)}/switch`, { paused }),
+  setBudget: (input: { scope: "role"; role: string; weekly_limit: number | null } | { scope: "project"; project: string; weekly_limit: number | null }) =>
+    request<{ scope: string; key: string; weekly_limit: number | null }>("PUT", "/company/budgets", input),
+  setRunnerSettings: (input: { plan_guard_pct?: number }) => request<Company["settings"]>("PUT", "/company/settings", input),
+  // PLA-I31-3 adds this route; until then it is 404 and the dialog says so.
+  createCompanyProject: (input: { name: string; goal: string }) => request<NewProjectResult>("POST", "/company/projects", input),
   // PLA-I25: a project, a product-owner bot and a Playbook. The same slug again changes nothing.
   createCompany: (input: { slug: string; name: string; owner_bot_name: string }) => request<CompanyProject>("POST", "/templates/company", input),
 };

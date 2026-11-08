@@ -12,9 +12,8 @@ test("the caption names the week and the reported counts", () => {
   assert.equal(line.includes("$"), false);
 });
 
-test("a finite usd amount is appended and a missing one is not", () => {
-  const withUsd = usageCaption({ label: "reportado", week: "2026-W10", input: 1, output: 2, usd: 1.5 });
-  assert.match(withUsd, /\$/);
-  const without = usageCaption({ label: "reportado", week: "2026-W10", input: 1, output: 2 });
-  assert.equal(without.includes("$"), false);
+test("a dollar amount from the server is never shown (PLA-I30-4)", () => {
+  const withUsd = usageCaption({ label: "reportado", week: "2026-W10", input: 1, output: 2, usd: 1.5 } as Parameters<typeof usageCaption>[0]);
+  assert.equal(withUsd.includes("$"), false);
+  assert.equal(/usd/i.test(withUsd), false);
 });
