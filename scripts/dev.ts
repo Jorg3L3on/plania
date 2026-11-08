@@ -11,6 +11,8 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { app } from "../src/app.js";
 import { startJobs } from "../src/jobs/index.js";
+import { withDb } from "../src/db/client.js";
+import { sweepOrphans } from "../src/runner/runner.js";
 
 const { values } = parseArgs({ options: { port: { type: "string", default: "3737" } }, strict: false });
 const port = Number(values.port);
@@ -53,3 +55,10 @@ serve({ fetch: server.fetch, port, hostname }, () => console.log(`plania on http
 
 // Background jobs (lease warnings, legacy card archiving, later the pollers). PLANIA_JOBS=0 turns them off.
 if (process.env.PLANIA_JOBS !== "0") startJobs();
+
+// PLA-I29-2: runs left "running" by an earlier server are stopped and closed (fail: orphaned).
+if (process.env.PLANIA_JOBS !== "0") {
+  void withDb((db) => sweepOrphans(db))
+    .then((n) => n > 0 && console.log(`[runner] swept ${n} orphaned run(s)`))
+    .catch((e) => console.log(`[runner] orphan sweep failed: ${e instanceof Error ? e.message : String(e)}`));
+}

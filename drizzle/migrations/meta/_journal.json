@@ -253,6 +253,13 @@
       "when": 1793686400000,
       "tag": "0038_heartbeats_adapters",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1793772800000,
+      "tag": "0039_company_runner",
+      "breakpoints": true
     }
   ]
 }
