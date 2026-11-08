@@ -1,8 +1,9 @@
-import { spawn as nodeSpawn } from "node:child_process";
 import { ADAPTERS, type AdapterConfig, type AdapterName } from "../db/schema.js";
 
 // PLA-I26: wake an agent through its adapter. dryRun returns before any socket or process.
 // Summaries name env vars and task keys. They never include config values, URLs, or command paths.
+// PLA-I29-2: claude_code runs through the supervised runner (src/runner), never from here; the
+// old defaultRun/runCli path (stdio ignored, SIGTERM after 10 s) is gone, and so is the Cursor adapter (PLA-I30-1, migration 0040).
 
 export type SpawnAgent = {
   slug: string;
@@ -34,29 +35,12 @@ export type WakeFetch = (
   init: { method: string; headers: Record<string, string>; body: string; redirect: "error"; signal: AbortSignal },
 ) => Promise<{ ok: boolean }>;
 
-export type RunProcess = (command: string, args: string[]) => Promise<{ code: number | null }>;
-
 export type SpawnDeps = {
   fetch?: WakeFetch;
-  run?: RunProcess;
   env?: NodeJS.ProcessEnv;
 };
 
 const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
-
-const defaultRun: RunProcess = (command, args) =>
-  new Promise((resolve, reject) => {
-    const child = nodeSpawn(command, args, { stdio: "ignore" });
-    const timer = setTimeout(() => child.kill("SIGTERM"), 10_000);
-    child.once("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-    child.once("close", (code) => {
-      clearTimeout(timer);
-      resolve({ code });
-    });
-  });
 
 const isAdapter = (value: string): value is AdapterName => (ADAPTERS as readonly string[]).includes(value);
 
@@ -71,21 +55,6 @@ const readEnv = (env: NodeJS.ProcessEnv, name: string | null): string | null => 
   const value = env[name];
   if (typeof value !== "string" || value.trim() === "") return null;
   return value;
-};
-
-const parseArgs = (raw: string): string[] | null => {
-  const trimmed = raw.trim();
-  if (!trimmed) return [];
-  if (trimmed.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(trimmed) as unknown;
-      if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) return null;
-      return parsed;
-    } catch {
-      return null;
-    }
-  }
-  return trimmed.split(/\s+/);
 };
 
 const postJson = async (url: string, body: unknown, fetchImpl: WakeFetch): Promise<boolean> => {
@@ -106,35 +75,6 @@ const payloadOf = (agent: SpawnAgent, task: SpawnTask | null) => ({
 
 const woke = (task: SpawnTask | null): string => (task ? `woke for ${task.key}` : "woke");
 
-const runCli = async (
-  adapter: AdapterName,
-  request: SpawnRequest,
-  deps: Required<Pick<SpawnDeps, "run" | "env">>,
-): Promise<SpawnResult> => {
-  const task = request.task ?? null;
-  const commandName = namedEnv(request.agent.adapterConfig, "command_env");
-  if (!commandName) return { adapter, status: "fail", summary: "missing command_env" };
-  const command = readEnv(deps.env, commandName);
-  if (!command) return { adapter, status: "fail", summary: `missing env ${commandName}` };
-  const argsName = namedEnv(request.agent.adapterConfig, "args_env");
-  let extra: string[] = [];
-  if (argsName) {
-    const raw = readEnv(deps.env, argsName);
-    if (!raw) return { adapter, status: "fail", summary: `missing env ${argsName}` };
-    const parsed = parseArgs(raw);
-    if (!parsed) return { adapter, status: "fail", summary: `bad args env ${argsName}` };
-    extra = parsed;
-  }
-  const args = [...extra, "--agent", request.agent.slug, ...(task ? ["--project", task.project, "--task", task.key] : [])];
-  try {
-    const result = await deps.run(command, args);
-    if (result.code !== 0) return { adapter, status: "fail", summary: "command exited" };
-    return { adapter, status: "ok", summary: woke(task) };
-  } catch {
-    return { adapter, status: "fail", summary: "spawn failed" };
-  }
-};
-
 export const spawn = async (request: SpawnRequest, deps: SpawnDeps = {}): Promise<SpawnResult> => {
   const adapter = request.agent.adapter;
   if (!isAdapter(adapter)) return { adapter: "none", status: "fail", summary: "unknown adapter" };
@@ -142,7 +82,6 @@ export const spawn = async (request: SpawnRequest, deps: SpawnDeps = {}): Promis
 
   const task = request.task ?? null;
   const fetchImpl = deps.fetch ?? fetch;
-  const run = deps.run ?? defaultRun;
   const env = deps.env ?? process.env;
 
   if (adapter === "none") return { adapter, status: "skipped", summary: "adapter none" };
@@ -158,7 +97,7 @@ export const spawn = async (request: SpawnRequest, deps: SpawnDeps = {}): Promis
     }
   }
 
-  if (adapter === "cursor_agent" || adapter === "claude_code") return runCli(adapter, request, { run, env });
+  if (adapter === "claude_code") return { adapter, status: "fail", summary: "claude_code runs through the runner" };
 
   const urlName = namedEnv(request.agent.adapterConfig, "url_env");
   if (!urlName) return { adapter, status: "fail", summary: "missing url_env" };

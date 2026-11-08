@@ -1,4 +1,5 @@
 import { withDb, type Db } from "../db/client.js";
+import { asistenteJob } from "./asistente.js";
 import { auditJob } from "./audit.js";
 import { backupJob } from "./backup.js";
 import { blockersJob } from "./blockers.js";
@@ -18,7 +19,7 @@ import { vercelJob } from "./vercel.js";
 export type JobSummary = Record<string, number>;
 export type Job = { name: string; intervalMs: number; runOnce: (db: Db, now: Date) => Promise<JobSummary> };
 
-export const JOBS: Job[] = [leasesJob, blockersJob, githubJob, vercelJob, auditJob, machineJob, backupJob, pushJob, stuckJob];
+export const JOBS: Job[] = [leasesJob, blockersJob, githubJob, vercelJob, auditJob, machineJob, backupJob, pushJob, stuckJob, asistenteJob];
 
 // Heartbeats join the other jobs only when the process is started with PLANIA_JOBS=1.
 export const jobsToStart = (): Job[] => (process.env.PLANIA_JOBS === "1" ? [...JOBS, heartbeatJob] : [...JOBS]);

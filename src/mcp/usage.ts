@@ -38,6 +38,9 @@ export type ReportTokensInput = {
   model: string;
   input: number;
   output: number;
+  // PLA-I29: cache tokens from modelUsage. Optional; 0 when omitted.
+  cache_read?: number;
+  cache_create?: number;
   at?: string;
 };
 
@@ -53,7 +56,7 @@ export type ReportTokensResult = {
   at: string;
 };
 
-function checkCount(field: "input" | "output", value: number): number {
+function checkCount(field: "input" | "output" | "cache_read" | "cache_create", value: number): number {
   if (!Number.isInteger(value) || value < 0) throw new ToolError("INVALID_FILTER", { field });
   if (value > COUNT_MAX) throw new ToolError("TOO_LARGE", { field, max: COUNT_MAX });
   return value;
@@ -85,6 +88,8 @@ export async function reportTokens(db: Db, input: ReportTokensInput, ctx: Ctx): 
   const model = checkText("model", input.model, 80);
   const inputCount = checkCount("input", input.input);
   const outputCount = checkCount("output", input.output);
+  const cacheRead = checkCount("cache_read", input.cache_read ?? 0);
+  const cacheCreate = checkCount("cache_create", input.cache_create ?? 0);
   const at = parseAt(input.at);
 
   return writeTx(db, project, ctx, async (tx, emit) => {
@@ -99,11 +104,13 @@ export async function reportTokens(db: Db, input: ReportTokensInput, ctx: Ctx): 
         model,
         input: inputCount,
         output: outputCount,
+        cacheRead,
+        cacheCreate,
         at,
       })
       .onConflictDoUpdate({
         target: [tokenUsage.projectId, tokenUsage.agent, tokenUsage.taskKey, tokenUsage.runId],
-        set: { model, input: inputCount, output: outputCount, at },
+        set: { model, input: inputCount, output: outputCount, cacheRead, cacheCreate, at },
       })
       .returning();
     await emit("usage.reported", task, { agent, run_id: runId, model, input: inputCount, output: outputCount });
@@ -194,6 +201,8 @@ export function registerUsageTools(
         model: z.string().min(1).max(80),
         input: z.number().int().min(0).max(COUNT_MAX).describe("Input tokens reported for the run"),
         output: z.number().int().min(0).max(COUNT_MAX).describe("Output tokens reported for the run"),
+        cache_read: z.number().int().min(0).max(COUNT_MAX).optional().describe("Cache-read input tokens, when known"),
+        cache_create: z.number().int().min(0).max(COUNT_MAX).optional().describe("Cache-creation input tokens, when known"),
         at: z.string().optional().describe("When the run happened, ISO-8601. Omit for now"),
       },
       annotations: write,

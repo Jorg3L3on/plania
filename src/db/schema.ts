@@ -9,6 +9,7 @@ import {
   jsonb,
   pgTable,
   primaryKey,
+  real,
   text,
   timestamp,
   unique,
@@ -47,6 +48,9 @@ export const projects = pgTable("projects", {
   // v2.2: per-project settings as data: release_target (env), branch_pattern (regex), claim_from
   // (backlog|ready), resources and quotas policies, github and vercel integration config.
   settings: jsonb("settings").$type<ProjectSettings>().notNull().default({}),
+  // PLA-I29: the project kill switch. A new project starts paused; only Jorge resumes it, on screen.
+  runsPaused: boolean("runs_paused").notNull().default(true),
+  runsPausedAt: timestamp("runs_paused_at", { withTimezone: true }),
   ...timestamps,
 });
 
@@ -774,7 +778,7 @@ export type Task = typeof tasks.$inferSelect;
 // A row may match agent_tokens.agent by name or slug (list_agents); there is no token foreign key.
 export const AGENT_KINDS = ["bot", "coder", "human"] as const;
 export const AGENT_STATUSES = ["alive", "idle", "stuck"] as const;
-export const ADAPTERS = ["http", "cursor_agent", "claude_code", "grok_webhook", "none"] as const;
+export const ADAPTERS = ["http", "claude_code", "grok_webhook", "none"] as const;
 export type AdapterName = (typeof ADAPTERS)[number];
 // Env var names only. The values stay in the process environment.
 export type AdapterConfig = {
@@ -811,7 +815,7 @@ export const agents = pgTable(
     check("agents_kind_check", sql`${t.kind} in ('bot', 'coder', 'human')`),
     check("agents_status_check", sql`${t.status} in ('alive', 'idle', 'stuck')`),
     check("agents_not_self", sql`${t.reportsTo} is null or ${t.reportsTo} <> ${t.id}`),
-    check("agents_adapter_check", sql`${t.adapter} in ('http', 'cursor_agent', 'claude_code', 'grok_webhook', 'none')`),
+    check("agents_adapter_check", sql`${t.adapter} in ('http', 'claude_code', 'grok_webhook', 'none')`),
     check("agents_heartbeat_minutes_check", sql`${t.heartbeatMinutes} is null or (${t.heartbeatMinutes} between 1 and 1440)`),
   ],
 );
@@ -915,6 +919,9 @@ export const tokenUsage = pgTable(
     model: text("model").notNull(),
     input: integer("input").notNull(),
     output: integer("output").notNull(),
+    // PLA-I29: cache tokens from the runner's modelUsage (0 when an agent reports by hand).
+    cacheRead: integer("cache_read").notNull().default(0),
+    cacheCreate: integer("cache_create").notNull().default(0),
     at: timestamp("at", { withTimezone: true }).notNull(),
   },
   (t) => [
@@ -950,10 +957,138 @@ export const heartbeatRuns = pgTable(
   (t) => [
     index("heartbeat_runs_agent_started_idx").on(t.agentId, t.startedAt),
     check("heartbeat_runs_status_check", sql`${t.status} in ('ok', 'fail', 'skipped')`),
-    check("heartbeat_runs_adapter_check", sql`${t.adapter} in ('http', 'cursor_agent', 'claude_code', 'grok_webhook', 'none')`),
+    check("heartbeat_runs_adapter_check", sql`${t.adapter} in ('http', 'claude_code', 'grok_webhook', 'none')`),
     check("heartbeat_runs_summary_check", sql`char_length(${t.summary}) <= 500`),
     check("heartbeat_runs_task_key_check", sql`${t.taskKey} is null or char_length(${t.taskKey}) between 1 and 80`),
   ],
 );
 
 export type HeartbeatRun = typeof heartbeatRuns.$inferSelect;
+
+// PLA-I29: the autonomous runner. One settings row (company switch and the knobs only Jorge moves),
+// weekly token budgets, the run queue and live runs, the claude session per agent and project,
+// and plan-window readings. Migration 0039.
+export const runnerSettings = pgTable(
+  "runner_settings",
+  {
+    id: integer("id").primaryKey().default(1),
+    companyPaused: boolean("company_paused").notNull().default(false),
+    companyPausedAt: timestamp("company_paused_at", { withTimezone: true }),
+    maxConcurrent: integer("max_concurrent").notNull().default(1),
+    cooldownMinutes: integer("cooldown_minutes").notNull().default(30),
+    planGuardPct: integer("plan_guard_pct").notNull().default(70),
+    reserveTokens: integer("reserve_tokens").notNull().default(60000),
+    maxTurns: integer("max_turns").notNull().default(40),
+    timeoutMinutes: integer("timeout_minutes").notNull().default(45),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("runner_settings_singleton", sql`${t.id} = 1`)],
+);
+
+export type RunnerSettings = typeof runnerSettings.$inferSelect;
+
+export const BUDGET_SCOPES = ["role", "project"] as const;
+
+export const tokenBudgets = pgTable(
+  "token_budgets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    scope: text("scope").notNull(),
+    role: text("role"),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    weeklyLimit: bigint("weekly_limit", { mode: "number" }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("token_budgets_role_unique").on(t.role).where(sql`${t.scope} = 'role'`),
+    uniqueIndex("token_budgets_project_unique").on(t.projectId).where(sql`${t.scope} = 'project'`),
+  ],
+);
+
+export const RUN_STATUSES = ["queued", "running", "ok", "fail", "skipped", "stopped"] as const;
+export type RunStatus = (typeof RUN_STATUSES)[number];
+
+export const agentRuns = pgTable(
+  "agent_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    taskKey: text("task_key"),
+    role: text("role").notNull(),
+    status: text("status").notNull(),
+    summary: text("summary").notNull().default(""),
+    pid: integer("pid"),
+    claudeSessionId: text("claude_session_id"),
+    resumed: boolean("resumed").notNull().default(false),
+    cwd: text("cwd"),
+    worktreePath: text("worktree_path"),
+    branch: text("branch"),
+    logPath: text("log_path"),
+    queuedAt: timestamp("queued_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    turns: integer("turns").notNull().default(0),
+    inputTokens: bigint("input_tokens", { mode: "number" }).notNull().default(0),
+    outputTokens: bigint("output_tokens", { mode: "number" }).notNull().default(0),
+    cacheReadTokens: bigint("cache_read_tokens", { mode: "number" }).notNull().default(0),
+    cacheCreateTokens: bigint("cache_create_tokens", { mode: "number" }).notNull().default(0),
+    tokensTotal: bigint("tokens_total", { mode: "number" }).notNull().default(0),
+    reserveTokens: integer("reserve_tokens").notNull().default(0),
+    usageKnown: boolean("usage_known").notNull().default(true),
+    usageAckAt: timestamp("usage_ack_at", { withTimezone: true }),
+    exitCode: integer("exit_code"),
+    stopReason: text("stop_reason"),
+  },
+  (t) => [
+    index("agent_runs_status_idx").on(t.status, t.queuedAt),
+    index("agent_runs_agent_idx").on(t.agentId, t.queuedAt),
+    index("agent_runs_project_idx").on(t.projectId, t.startedAt),
+    check("agent_runs_status_check", sql`${t.status} in ('queued', 'running', 'ok', 'fail', 'skipped', 'stopped')`),
+    check("agent_runs_summary_check", sql`char_length(${t.summary}) <= 500`),
+  ],
+);
+
+export type AgentRun = typeof agentRuns.$inferSelect;
+
+export const agentSessions = pgTable(
+  "agent_sessions",
+  {
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    claudeSessionId: text("claude_session_id").notNull(),
+    cwd: text("cwd").notNull(),
+    runs: integer("runs").notNull().default(1),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.agentId, t.projectId] })],
+);
+
+export const PLAN_SOURCES = ["stream", "usage_probe"] as const;
+
+export const planReadings = pgTable(
+  "plan_readings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    source: text("source").notNull(),
+    status: text("status"),
+    fiveHourPct: real("five_hour_pct"),
+    sevenDayPct: real("seven_day_pct"),
+    fiveHourResetsAt: timestamp("five_hour_resets_at", { withTimezone: true }),
+    sevenDayResetsAt: timestamp("seven_day_resets_at", { withTimezone: true }),
+    overageStatus: text("overage_status"),
+    runId: uuid("run_id"),
+  },
+  (t) => [index("plan_readings_at_idx").on(t.at), check("plan_readings_source_check", sql`${t.source} in ('stream', 'usage_probe')`)],
+);
+
+export type PlanReading = typeof planReadings.$inferSelect;

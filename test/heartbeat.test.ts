@@ -55,55 +55,55 @@ after(async () => {
 });
 
 test("manual wake writes one run and a second wake inside the cadence is a no-op", async () => {
-  await raw.query(`update agents set heartbeat_minutes = 30, adapter = 'none' where slug = 'cursor'`);
+  await raw.query(`update agents set heartbeat_minutes = 30, adapter = 'none' where slug = 'taller'`);
   const created = await call("create_task", {
     actor: A,
     project: "micasa",
-    title: "Ready for cursor",
+    title: "Ready for taller",
     scope: "Scope",
     checks: ["Done"],
     status: "Ready",
-    owner_agent: "cursor",
+    owner_agent: "taller",
   });
   assert.equal(created.__error, undefined);
 
-  const first = await call("wake_agent", { actor: A, agent: "cursor" });
+  const first = await call("wake_agent", { actor: A, agent: "taller" });
   assert.equal(first.woke, true);
-  assert.equal(first.run.agent, "cursor");
+  assert.equal(first.run.agent, "taller");
   assert.equal(first.run.task_key, created.key);
   assert.equal(first.run.status, "skipped");
   assert.equal(first.run.adapter, "none");
-  assert.equal(await runsFor("cursor"), 1);
+  assert.equal(await runsFor("taller"), 1);
 
-  const second = await call("wake_agent", { actor: A, agent: "cursor" });
+  const second = await call("wake_agent", { actor: A, agent: "taller" });
   assert.equal(second.woke, false);
   assert.equal(second.reason, "cadence");
   assert.equal(second.run, null);
-  assert.equal(await runsFor("cursor"), 1);
+  assert.equal(await runsFor("taller"), 1);
 
-  const listed = await call("list_heartbeat_runs", { agent: "cursor" });
+  const listed = await call("list_heartbeat_runs", { agent: "taller" });
   assert.equal(listed.runs.length, 1);
   assert.equal(listed.runs[0].task_key, created.key);
   assert.equal(JSON.stringify(listed).includes("adapter_config"), false);
 
-  const dry = await call("wake_agent", { actor: A, agent: "cursor", dry_run: true });
+  const dry = await call("wake_agent", { actor: A, agent: "taller", dry_run: true });
   assert.equal(dry.reason, "dry-run");
   assert.equal(dry.run, null);
-  assert.equal(await runsFor("cursor"), 1);
+  assert.equal(await runsFor("taller"), 1);
 
   const missing = await call("wake_agent", { actor: A, agent: "no-such-agent" });
   assert.equal(missing.__error, "AGENT_NOT_FOUND");
 });
 
 test("the tick does not double-fire and runs when PLANIA_JOBS=1", async () => {
-  const before = await runsFor("cursor");
+  const before = await runsFor("taller");
   const held = await runHeartbeat(db, new Date());
   assert.equal((held.held ?? 0) >= 1, true);
-  assert.equal(await runsFor("cursor"), before);
+  assert.equal(await runsFor("taller"), before);
 
   const later = await runHeartbeat(db, new Date(Date.now() + 31 * 60_000));
   assert.equal(later.skipped, 1);
-  assert.equal(await runsFor("cursor"), before + 1);
+  assert.equal(await runsFor("taller"), before + 1);
 
   process.env.PLANIA_JOBS = "1";
   try {
@@ -112,7 +112,7 @@ test("the tick does not double-fire and runs when PLANIA_JOBS=1", async () => {
     const job = jobsToStart().find((item) => item.name === "heartbeat");
     const summary = await job!.runOnce(db, new Date());
     assert.equal(typeof summary.held, "number");
-    assert.equal(await runsFor("cursor"), before + 1);
+    assert.equal(await runsFor("taller"), before + 1);
   } finally {
     process.env.PLANIA_JOBS = "0";
   }
@@ -122,7 +122,7 @@ test("the tick does not double-fire and runs when PLANIA_JOBS=1", async () => {
 test("http wake records the run without the url, and Ready work follows owner then priority", async () => {
   let posts = 0;
   await raw.query(
-    `update agents set adapter = 'http', wake_url = $1, heartbeat_minutes = 15, last_heartbeat_at = null where slug = 'claude-code'`,
+    `update agents set adapter = 'http', wake_url = $1, heartbeat_minutes = 15, last_heartbeat_at = null where slug = 'research'`,
     [WAKE],
   );
   const owned = await call("create_task", {
@@ -170,7 +170,7 @@ test("http wake records the run without the url, and Ready work follows owner th
 
   const http = await wakeAgent(
     db,
-    { agent: "claude-code", now: new Date() },
+    { agent: "research", now: new Date() },
     {
       fetch: async (url) => {
         posts += 1;
@@ -182,7 +182,7 @@ test("http wake records the run without the url, and Ready work follows owner th
   assert.equal(posts, 1);
   assert.equal(http.run?.status, "ok");
   assert.equal(JSON.stringify(http).includes(WAKE), false);
-  const again = await wakeAgent(db, { agent: "claude-code", now: new Date() }, { fetch: async () => { posts += 1; return { ok: true }; } });
+  const again = await wakeAgent(db, { agent: "research", now: new Date() }, { fetch: async () => { posts += 1; return { ok: true }; } });
   assert.equal(again.reason, "cadence");
   assert.equal(posts, 1);
 });

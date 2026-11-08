@@ -1,6 +1,7 @@
 // PLA-I26-2: adapters wake an agent. A dry run never opens a socket or a process.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { ADAPTERS } from "../src/db/schema.js";
 import { spawn, type SpawnAgent, type SpawnDeps, type WakeFetch } from "../src/adapters/index.js";
 
 const BIN = "/tmp/plania-fake-bin";
@@ -20,12 +21,8 @@ const blocked = (): SpawnDeps => ({
   fetch: async () => {
     throw new Error("socket opened");
   },
-  run: async () => {
-    throw new Error("process opened");
-  },
   env: {
-    CURSOR_AGENT_BIN: BIN,
-    CURSOR_AGENT_ARGS: `["--flag","${SECRET}"]`,
+    CLAUDE_CODE_ARGS: `["--flag","${SECRET}"]`,
     CLAUDE_CODE_BIN: BIN,
     GROK_WAKE_URL: HOOK,
   },
@@ -34,7 +31,6 @@ const blocked = (): SpawnDeps => ({
 test("dry-run never calls fetch or a process and hides config values", async () => {
   for (const row of [
     agent({ adapter: "http", wakeUrl: WAKE }),
-    agent({ adapter: "cursor_agent", adapterConfig: { command_env: "CURSOR_AGENT_BIN", args_env: "CURSOR_AGENT_ARGS" } }),
     agent({ adapter: "claude_code", adapterConfig: { command_env: "CLAUDE_CODE_BIN" } }),
     agent({ adapter: "grok_webhook", adapterConfig: { url_env: "GROK_WAKE_URL" } }),
     agent({ adapter: "none" }),
@@ -59,7 +55,7 @@ test("http posts the wake url and none is a no-op", async () => {
   };
   const http = await spawn(
     { agent: agent({ adapter: "http", wakeUrl: WAKE }), task: { project: "micasa", key: "MIC-1", title: "Example" } },
-    { fetch: fetchImpl, run: async () => { throw new Error("process opened"); } },
+    { fetch: fetchImpl },
   );
   assert.equal(http.status, "ok");
   assert.equal(http.summary, "woke for MIC-1");
@@ -78,50 +74,20 @@ test("http posts the wake url and none is a no-op", async () => {
   assert.equal(idle.summary, "adapter none");
 });
 
-test("cli stubs read env names and grok posts the webhook without logging values", async () => {
-  const calls: { command: string; args: string[] }[] = [];
-  const env = {
-    CURSOR_AGENT_BIN: BIN,
-    CURSOR_AGENT_ARGS: `["--flag","${SECRET}"]`,
-    CLAUDE_CODE_BIN: BIN,
-    GROK_WAKE_URL: HOOK,
-  };
-  const cursor = await spawn(
-    {
-      agent: agent({ adapter: "cursor_agent", adapterConfig: { command_env: "CURSOR_AGENT_BIN", args_env: "CURSOR_AGENT_ARGS" } }),
-      task: { project: "micasa", key: "MIC-2", title: "Example" },
-    },
-    {
-      env,
-      run: async (command, args) => {
-        calls.push({ command, args });
-        return { code: 0 };
-      },
-      fetch: async () => { throw new Error("socket opened"); },
-    },
-  );
-  assert.equal(cursor.status, "ok");
-  assert.equal(cursor.summary, "woke for MIC-2");
-  assert.equal(calls[0]!.command, BIN);
-  assert.deepEqual(calls[0]!.args.slice(0, 2), ["--flag", SECRET]);
-  assert.equal(calls[0]!.args.includes("--task"), true);
-  assert.equal(JSON.stringify(cursor).includes(BIN), false);
-  assert.equal(JSON.stringify(cursor).includes(SECRET), false);
-
-  const missing = await spawn(
+test("the Cursor adapter is gone and claude_code never spawns from here (PLA-I29-2, PLA-I30-1)", async () => {
+  assert.deepEqual([...ADAPTERS], ["http", "claude_code", "grok_webhook", "none"]);
+  const env = { CLAUDE_CODE_BIN: BIN, GROK_WAKE_URL: HOOK };
+  const claude = await spawn(
     { agent: agent({ adapter: "claude_code", adapterConfig: { command_env: "CLAUDE_CODE_BIN" } }) },
-    { env: {}, run: async () => { throw new Error("process opened"); } },
+    { env, fetch: async () => { throw new Error("socket opened"); } },
   );
-  assert.equal(missing.status, "fail");
-  assert.equal(missing.summary, "missing env CLAUDE_CODE_BIN");
+  assert.equal(claude.status, "fail");
+  assert.equal(claude.summary, "claude_code runs through the runner");
+  assert.equal(JSON.stringify(claude).includes(BIN), false);
+});
 
-  const badArgs = await spawn(
-    { agent: agent({ adapter: "cursor_agent", adapterConfig: { command_env: "CURSOR_AGENT_BIN", args_env: "CURSOR_AGENT_ARGS" } }) },
-    { env: { CURSOR_AGENT_BIN: BIN, CURSOR_AGENT_ARGS: "[not-json" }, run: async () => ({ code: 0 }) },
-  );
-  assert.equal(badArgs.summary, "bad args env CURSOR_AGENT_ARGS");
-  assert.equal(badArgs.summary.includes("not-json"), false);
-
+test("grok posts the webhook without logging values", async () => {
+  const env = { GROK_WAKE_URL: HOOK };
   let hook: string | null = null;
   const grok = await spawn(
     { agent: agent({ adapter: "grok_webhook", adapterConfig: { url_env: "GROK_WAKE_URL" } }) },
@@ -131,7 +97,6 @@ test("cli stubs read env names and grok posts the webhook without logging values
         hook = url;
         return { ok: true };
       },
-      run: async () => { throw new Error("process opened"); },
     },
   );
   assert.equal(hook, HOOK);

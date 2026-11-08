@@ -55,7 +55,7 @@ test("list_routine_runs returns newest first and filters by agent and date", asy
   }
   const other = await call("record_routine_run", {
     actor: A,
-    agent: "cursor",
+    agent: "taller",
     routine: "pick-ready",
     started_at: "2026-11-04T08:00:00.000Z",
     status: "ok",
@@ -75,7 +75,7 @@ test("list_routine_runs returns newest first and filters by agent and date", asy
     [["morning-brief", "skipped"]],
   );
   const all = await call("list_routine_runs");
-  assert.equal(all.runs[0].agent, "cursor");
+  assert.equal(all.runs[0].agent, "taller");
   assert.equal(all.runs[0].started_at > all.runs[1].started_at, true);
 
   const missing = await call("list_routine_runs", { agent: "nobody" });

@@ -53,23 +53,23 @@ test("idle threshold: a claim past it is stuck, a wider project setting stays al
   const created = await call("create_task", {
     actor: A,
     project: "micasa",
-    title: "Held by Cursor",
+    title: "Held by Taller",
     scope: "Scope",
     checks: ["Done"],
-    owner_agent: "cursor",
+    owner_agent: "taller",
     verbose: true,
   });
   await raw.query(
     `update tasks set owner = $1::jsonb, claimed_at = now() - interval '3 hours', lease_until = now() + interval '1 hour', status = 'In progress' where key = $2`,
-    [JSON.stringify({ agent: "Cursor", session_id: "s-cursor" }), created.key],
+    [JSON.stringify({ agent: "Taller", session_id: "s-taller" }), created.key],
   );
-  await raw.query(`update agents set last_check_in_at = now() - interval '3 hours' where slug = 'cursor'`);
+  await raw.query(`update agents set last_check_in_at = now() - interval '3 hours' where slug = 'taller'`);
 
   const stuck = await sweepStuck(db, new Date());
   assert.ok(stuck.stuck >= 1);
   const resumeStuck = await call("get_resume", { project: "micasa" });
   const claim = resumeStuck.claims.find((c: { key: string }) => c.key === created.key);
-  assert.equal(claim.owner_agent.slug, "cursor");
+  assert.equal(claim.owner_agent.slug, "taller");
   assert.equal(claim.owner_agent.status, "stuck");
 
   const widened = await call("set_project", {
@@ -86,21 +86,21 @@ test("idle threshold: a claim past it is stuck, a wider project setting stays al
   await raw.query(`update tasks set owner = null, claimed_at = null, lease_until = null, status = 'Ready' where key = $1`, [created.key]);
   await sweepStuck(db, new Date());
   const listed = await call("list_agents");
-  assert.equal(listed.agents.find((a: { slug: string }) => a.slug === "cursor").status, "idle");
+  assert.equal(listed.agents.find((a: { slug: string }) => a.slug === "taller").status, "idle");
 
   await raw.query(
     `update tasks set owner = $1::jsonb, claimed_at = now(), lease_until = now() + interval '1 hour', status = 'In progress' where key = $2`,
-    [JSON.stringify({ agent: "Cursor", session_id: "s-cursor" }), created.key],
+    [JSON.stringify({ agent: "Taller", session_id: "s-taller" }), created.key],
   );
-  const beat = await call("check_in", { actor: A, agent: "cursor", working_on: created.key, note: "en ello" });
+  const beat = await call("check_in", { actor: A, agent: "taller", working_on: created.key, note: "en ello" });
   assert.equal(beat.status, "alive");
   assert.equal(beat.working_on, created.key);
   assert.equal(beat.note, "en ello");
   const { rows } = await raw.query(`select owner->>'session_id' as session, owner_agent is not null as owned from tasks where key = $1`, [created.key]);
-  assert.equal(rows[0].session, "s-cursor", "check-in does not take the lease");
+  assert.equal(rows[0].session, "s-taller", "check-in does not take the lease");
   assert.equal(rows[0].owned, true);
   const task = await call("get_task", { project: "micasa", key: created.key });
-  assert.equal(task.owner_agent.slug, "cursor");
+  assert.equal(task.owner_agent.slug, "taller");
   assert.equal(task.owner_agent.status, "alive");
 
   const bad = await call("set_project", {
@@ -118,17 +118,17 @@ test("a stuck agent is woken at most once per hour", async () => {
   const created = await call("create_task", {
     actor: A,
     project: "workia",
-    title: "Held by Claude Code",
+    title: "Held by Research",
     scope: "Scope",
     checks: ["Done"],
     verbose: true,
   });
   await raw.query(
     `update tasks set owner = $1::jsonb, claimed_at = now() - interval '3 hours', lease_until = now() + interval '3 hours', status = 'In progress' where key = $2`,
-    [JSON.stringify({ agent: "Claude Code", session_id: "s-claude" }), created.key],
+    [JSON.stringify({ agent: "Research", session_id: "s-claude" }), created.key],
   );
-  await raw.query(`update agents set last_check_in_at = now() - interval '3 hours', wake_url = 'http://127.0.0.1/wake/claude' where slug = 'claude-code'`);
-  await raw.query(`update agents set last_check_in_at = now() - interval '5 hours', wake_url = 'http://127.0.0.1/wake/coach' where slug = 'coach'`);
+  await raw.query(`update agents set last_check_in_at = now() - interval '3 hours', wake_url = 'http://127.0.0.1/wake/claude' where slug = 'research'`);
+  await raw.query(`update agents set last_check_in_at = now() - interval '5 hours', wake_url = 'http://127.0.0.1/wake/artist' where slug = 'artist'`);
 
   const calls: string[] = [];
   const wake: typeof fetch = async (url) => {
@@ -155,7 +155,7 @@ test("a claim past its lease becomes one limpieza item", async () => {
   });
   await raw.query(
     `update tasks set owner = $1::jsonb, claimed_at = now() - interval '2 hours', lease_until = now() - interval '1 minute', status = 'In progress' where key = $2`,
-    [JSON.stringify({ agent: "Cursor", session_id: "s-old" }), created.key],
+    [JSON.stringify({ agent: "Taller", session_id: "s-old" }), created.key],
   );
   await sweepStuck(db, new Date());
   await sweepStuck(db, new Date());

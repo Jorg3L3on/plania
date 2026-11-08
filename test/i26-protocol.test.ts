@@ -55,36 +55,36 @@ test("the bot protocol names the loop and the CEO adapter is none", async () => 
   assert.equal(bySlug.ceo!.adapter, "none");
   assert.equal(bySlug.ceo!.heartbeat_minutes, null);
   assert.deepEqual(bySlug.ceo!.adapter_config, {});
-  assert.equal(bySlug.cursor!.adapter, "cursor_agent");
-  assert.deepEqual(bySlug.cursor!.adapter_config, { command_env: "CURSOR_AGENT_BIN", args_env: "CURSOR_AGENT_ARGS" });
-  assert.equal(bySlug["claude-code"]!.adapter, "claude_code");
-  assert.equal(bySlug.housi!.adapter, "http");
-  assert.equal(bySlug.housi!.heartbeat_minutes, 60);
+  // PLA-I30-1: Claude Code only. Every bot role runs claude_code; cadence stays off until the pilot sets it.
+  assert.equal(bySlug.cursor, undefined);
+  assert.equal(bySlug["claude-code"], undefined);
+  assert.equal(bySlug.taller!.adapter, "claude_code");
+  assert.deepEqual(bySlug.taller!.adapter_config, { command_env: "CLAUDE_CODE_BIN", args_env: "CLAUDE_CODE_ARGS" });
+  assert.equal(bySlug.housi!.adapter, "claude_code");
+  assert.equal(bySlug.housi!.heartbeat_minutes, null);
   const text = JSON.stringify(rows);
   assert.equal(text.includes("http://"), false);
   assert.equal(text.includes("@"), false);
 
-  await raw.query(`update agents set adapter = 'http', heartbeat_minutes = 5 where slug = 'cursor'`);
+  await raw.query(`update agents set adapter = 'http', heartbeat_minutes = 5 where slug = 'taller'`);
   await seedOrg(db);
-  const kept = await raw.query(`select adapter, heartbeat_minutes from agents where slug = 'cursor'`);
+  const kept = await raw.query(`select adapter, heartbeat_minutes from agents where slug = 'taller'`);
   assert.equal(kept.rows[0].adapter, "http");
   assert.equal(kept.rows[0].heartbeat_minutes, 5);
-  await raw.query(
-    `update agents set adapter = 'cursor_agent', adapter_config = '{"command_env":"CURSOR_AGENT_BIN","args_env":"CURSOR_AGENT_ARGS"}'::jsonb, heartbeat_minutes = 15 where slug = 'cursor'`,
-  );
+  await raw.query(`update agents set adapter = 'claude_code', heartbeat_minutes = 15 where slug = 'taller'`);
 });
 
 test("list_agents returns adapter fields and the wake tools describe the loop", async () => {
   const listed = await call("list_agents");
   const ceo = listed.agents.find((agent: { slug: string }) => agent.slug === "ceo");
-  const cursor = listed.agents.find((agent: { slug: string }) => agent.slug === "cursor");
+  const taller = listed.agents.find((agent: { slug: string }) => agent.slug === "taller");
   assert.equal(ceo.adapter, "none");
   assert.equal(ceo.heartbeat_minutes, null);
   assert.deepEqual(ceo.adapter_config, {});
-  assert.equal(cursor.adapter, "cursor_agent");
-  assert.equal(cursor.adapter_config.command_env, "CURSOR_AGENT_BIN");
-  assert.equal(cursor.heartbeat_minutes, 15);
-  assert.equal(JSON.stringify(listed).includes("CURSOR_AGENT_BIN="), false);
+  assert.equal(taller.adapter, "claude_code");
+  assert.equal(taller.adapter_config.command_env, "CLAUDE_CODE_BIN");
+  assert.equal(taller.heartbeat_minutes, 15);
+  assert.equal(JSON.stringify(listed).includes("CLAUDE_CODE_BIN="), false);
 
   const tools = await client.listTools();
   const wake = tools.tools.find((tool) => tool.name === "wake_agent");

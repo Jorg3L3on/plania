@@ -2,6 +2,7 @@ import { and, desc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { ADAPTERS, agents, heartbeatRuns, projects, tasks, type AdapterConfig, type AdapterName } from "../db/schema.js";
 import { spawn, type SpawnDeps, type SpawnTask } from "../adapters/index.js";
+import { cleanupWorktrees, drainQueue, enforceLive, wakeClaude, type RunnerDeps } from "../runner/runner.js";
 import { ToolError } from "../mcp/errors.js";
 import { iso } from "../mcp/tx.js";
 import type { Job } from "./index.js";
@@ -49,11 +50,15 @@ export type HeartbeatRunView = {
   task_key: string | null;
 };
 
+// queued: the runner's cap is full, the run waits its turn. coalesced: a run of this agent is
+// already live or queued, so the wake wrote nothing.
 export type WakeResult = {
   woke: boolean;
-  reason: "ok" | "cadence" | "dry-run";
+  reason: "ok" | "cadence" | "dry-run" | "queued" | "coalesced";
   run: HeartbeatRunView | null;
 };
+
+export type HeartbeatDeps = SpawnDeps & { runner?: RunnerDeps };
 
 const checkSlug = (slug: string): string => {
   const trimmed = slug.trim().toLowerCase();
@@ -154,7 +159,7 @@ const explicitTask = async (db: Db, agentId: string, taskKey: string): Promise<R
   };
 };
 
-export const wakeAgent = async (db: Db, input: { agent: string; taskKey?: string; dryRun?: boolean; now?: Date }, deps?: SpawnDeps): Promise<WakeResult> => {
+export const wakeAgent = async (db: Db, input: { agent: string; taskKey?: string; dryRun?: boolean; now?: Date }, deps?: HeartbeatDeps): Promise<WakeResult> => {
   const slug = checkSlug(input.agent);
   const now = input.now ?? new Date();
   const [row] = await db.select().from(agents).where(eq(agents.slug, slug)).limit(1);
@@ -190,6 +195,28 @@ export const wakeAgent = async (db: Db, input: { agent: string; taskKey?: string
   if (claimed.length === 0) return { woke: false, reason: "cadence", run: null };
 
   const task = chosen ?? pickReady(row, await loadReady(db));
+
+  // PLA-I29: claude_code wakes go through the runner (limits, worktree, supervised process).
+  // A started run writes its heartbeat_runs row when it ends; a skip or a fail writes it now.
+  if (spawnAgent.adapter === "claude_code") {
+    const outcome = await wakeClaude(db, { agent: row, task, now }, deps?.runner);
+    if (outcome.kind === "coalesced") return { woke: false, reason: "coalesced", run: null };
+    if (outcome.kind === "queued") {
+      return { woke: false, reason: "queued", run: { agent: row.slug, started_at: iso(now)!, ended_at: null, status: "queued", adapter: "claude_code", summary: outcome.summary, task_key: outcome.taskKey } };
+    }
+    if (outcome.kind === "started") {
+      return { woke: true, reason: "ok", run: { agent: row.slug, started_at: iso(now)!, ended_at: null, status: "running", adapter: "claude_code", summary: outcome.summary, task_key: outcome.taskKey } };
+    }
+    if (outcome.recorded) {
+      return { woke: true, reason: "ok", run: { agent: row.slug, started_at: iso(now)!, ended_at: iso(new Date()), status: outcome.kind, adapter: "claude_code", summary: outcome.summary, task_key: outcome.taskKey } };
+    }
+    const [skipped] = await db
+      .insert(heartbeatRuns)
+      .values({ agentId: row.id, startedAt: now, endedAt: new Date(), status: outcome.kind, adapter: "claude_code", summary: outcome.summary.slice(0, 500), taskKey: outcome.taskKey })
+      .returning();
+    return { woke: true, reason: "ok", run: viewOf(row.slug, skipped!) };
+  }
+
   const outcome = await spawn({ agent: spawnAgent, task: taskOf(task) }, deps);
   const summary = task ? outcome.summary : outcome.status === "ok" ? "no ready work" : outcome.summary;
   const [inserted] = await db
@@ -235,17 +262,22 @@ export const listHeartbeatRuns = async (db: Db, filter: { agent?: string; limit?
   return { runs: rows.map((row) => viewOf(row.slug, row)) };
 };
 
-export const runHeartbeat = async (db: Db, now = new Date(), deps?: SpawnDeps): Promise<Record<string, number>> => {
+export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDeps): Promise<Record<string, number>> => {
+  // PLA-I29: switches and budgets stop live runs first, then queued runs take free slots.
+  const stopped = await enforceLive(db, now);
+  const drained = await drainQueue(db, now, deps?.runner);
+  const cleaned = await cleanupWorktrees(db, deps?.runner);
   const roster = await db.select({ slug: agents.slug, minutes: agents.heartbeatMinutes }).from(agents);
-  const counts = { woken: 0, skipped: 0, failed: 0, held: 0 };
+  const counts = { woken: 0, skipped: 0, failed: 0, held: 0, queued: 0, stopped, started_from_queue: drained.started, dropped_from_queue: drained.dropped, worktrees_removed: cleaned };
   for (const row of roster) {
     if (row.minutes == null) continue;
     const result = await wakeAgent(db, { agent: row.slug, now }, deps);
-    if (!result.run) {
+    if (!result.run || result.reason === "coalesced") {
       counts.held += 1;
       continue;
     }
-    if (result.run.status === "ok") counts.woken += 1;
+    if (result.reason === "queued") counts.queued += 1;
+    else if (result.run.status === "ok" || result.run.status === "running") counts.woken += 1;
     else if (result.run.status === "fail") counts.failed += 1;
     else counts.skipped += 1;
   }
