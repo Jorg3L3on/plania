@@ -5,6 +5,8 @@ import { Link } from "react-router";
 import { AssignSheet, Brief, Goals, Kpis, Queue, Ritmo, Team, type AssignTarget } from "@/components/dashboard/ceo-v2";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { claudeOnly } from "@/lib/ceo-team";
+import { greeting } from "@/lib/greeting";
 
 const dayLabel = (today: string, timeZone: string) => {
   const [year, month, day] = today.split("-").map(Number);
@@ -44,12 +46,15 @@ export const CeoPage = () => {
     );
   }
 
-  const data = dash.data;
+  const data = claudeOnly(dash.data);
+  const { hello, subtitle } = greeting(data.timezone);
   return (
     <div className="mx-auto grid w-full max-w-6xl gap-4">
       <header className="grid gap-1">
         <div className="flex items-start justify-between gap-3">
-          <h1 className="font-display text-4xl leading-[0.95] font-extrabold tracking-[-0.03em] sm:text-5xl">Buenos días, {data.name}</h1>
+          <h1 className="font-display text-4xl leading-[0.95] font-extrabold tracking-[-0.03em] sm:text-5xl">
+            {hello}, {data.name}
+          </h1>
           <Link
             to="/"
             className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
@@ -59,7 +64,7 @@ export const CeoPage = () => {
           </Link>
         </div>
         <p className="text-sm text-muted-foreground">
-          {dayLabel(data.today, data.timezone).replace(/^./, (letter) => letter.toUpperCase())} · la compañía mientras dormías
+          {dayLabel(data.today, data.timezone).replace(/^./, (letter) => letter.toUpperCase())} · {subtitle}
         </p>
       </header>
       <div className="hidden sm:block">
