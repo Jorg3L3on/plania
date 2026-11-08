@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import { AssignSheet, Brief, Goals, Kpis, Queue, Ritmo, Team, type AssignTarget } from "@/components/dashboard/ceo-v2";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { claudeOnly } from "@/lib/ceo-team";
 import { greeting } from "@/lib/greeting";
 
 const dayLabel = (today: string, timeZone: string) => {
@@ -45,7 +46,7 @@ export const CeoPage = () => {
     );
   }
 
-  const data = dash.data;
+  const data = claudeOnly(dash.data);
   const { hello, subtitle } = greeting(data.timezone);
   return (
     <div className="mx-auto grid w-full max-w-6xl gap-4">
