@@ -243,10 +243,12 @@ async function askOnce(db: Db, f: RepeatedFailure): Promise<boolean> {
   }
 }
 
-export async function runAsistente(db: Db, now = new Date(), deps: AsistenteDeps = {}): Promise<Record<string, number>> {
+export type AsistenteTick = { brief: number; check: number; asks: number; no_home: number };
+
+export async function runAsistente(db: Db, now = new Date(), deps: AsistenteDeps = {}): Promise<AsistenteTick> {
   const tz = deps.tz ?? screenTz();
   const env = deps.env ?? process.env;
-  const out = { brief: 0, check: 0, asks: 0, no_home: 0 };
+  const out: AsistenteTick = { brief: 0, check: 0, asks: 0, no_home: 0 };
   const [home] = await db.select().from(projects).where(eq(projects.slug, homeProjectSlug(env))).limit(1);
   const ctx = { actor: { ...ASISTENTE_ACTOR, machine: hostname() }, tool: "jobs.asistente" };
 
