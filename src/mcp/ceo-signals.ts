@@ -324,6 +324,32 @@ export async function loadTrend(db: Db, input: { timeZone: string; weekStarts: s
   };
 }
 
+export type ReadyTicket = { project: string; key: string; title: string; parent_key: string | null; owner_agent: string | null };
+
+export const READY_LIMIT = 80;
+
+// Ready tickets the screen can hand to an agent: unowned first, then by priority and key.
+export async function loadReadyTickets(db: Db): Promise<ReadyTicket[]> {
+  const rows = await db.execute<Record<string, unknown>>(sql`
+    select p.slug as project, t.key, t.title, i.key as parent_key, a.slug as owner_agent
+    from tasks t
+    join projects p on p.id = t.project_id
+    left join tasks i on i.id = t.parent_id
+    left join agents a on a.id = t.owner_agent
+    where t.kind = 'ticket' and t.status = 'Ready'
+    order by (t.owner_agent is not null), coalesce(t.priority, 'P9'), p.slug, t.key
+    limit ${READY_LIMIT}`);
+  return rows.rows
+    .filter((row) => !isPruebaTitle(String(row.title)))
+    .map((row) => ({
+      project: String(row.project),
+      key: String(row.key),
+      title: String(row.title),
+      parent_key: (row.parent_key as string | null) ?? null,
+      owner_agent: (row.owner_agent as string | null) ?? null,
+    }));
+}
+
 // Ready tickets each agent owns, by roster slug.
 export async function loadReadyByAgent(db: Db): Promise<Map<string, number>> {
   const rows = await db.execute<{ slug: string; ready: number }>(sql`

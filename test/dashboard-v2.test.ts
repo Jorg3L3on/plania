@@ -161,6 +161,9 @@ test("the read carries the brief, the queue, goal health, the trend and wake inf
   const code = data.team.agents.find((row: Json) => row.slug === "claude-code");
   assert.equal(typeof code.can_wake, "boolean");
   assert.ok("wake_reason" in code && "ready" in code);
+  const ready = data.ready_tickets.find((row: Json) => row.key === readyKey);
+  assert.equal(ready.owner_agent, null);
+  assert.ok(ready.parent_key);
   // PLA-I24 fields stay.
   assert.ok(data.shipped && data.waits && data.usage);
 });

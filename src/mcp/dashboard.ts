@@ -17,6 +17,7 @@ import {
   goalSignal,
   loadInitiatives,
   loadReadyByAgent,
+  loadReadyTickets,
   loadReviews,
   loadTrend,
   wakeInfo,
@@ -24,6 +25,7 @@ import {
   type Health,
   type InitiativeSignal,
   type QueueItem,
+  type ReadyTicket,
   type Trend,
 } from "./ceo-signals.js";
 
@@ -114,6 +116,7 @@ export type CeoDashboard = {
   queue: QueueItem[];
   trend: Trend;
   previous_finished: number;
+  ready_tickets: ReadyTicket[];
 };
 
 const STATUS_RANK: Record<string, number> = { alive: 0, stuck: 1, idle: 2 };
@@ -197,7 +200,7 @@ export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
   const week = weekRange(today);
   const weekId = isoWeekKey(today);
   const weekStarts = Array.from({ length: WEEKS }, (_, i) => addDays(week.from, (i - (WEEKS - 1)) * 7));
-  const [roster, board, summary, previous, log, box, claims, usage, working, initiatives, reviews, trend, readyBy] = await Promise.all([
+  const [roster, board, summary, previous, log, box, claims, usage, working, initiatives, reviews, trend, readyBy, readyTickets] = await Promise.all([
     listAgents(db),
     listGoals(db),
     progressSummary(db, { range: "week", date: today }),
@@ -211,6 +214,7 @@ export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
     loadReviews(db),
     loadTrend(db, { timeZone: progressTz(), weekStarts }),
     loadReadyByAgent(db),
+    loadReadyTickets(db),
   ]);
 
   const byAgent = new Map<string, LiveClaim[]>();
@@ -317,5 +321,6 @@ export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
     queue,
     trend: { ...trend, target: TREND_TARGET },
     previous_finished: previous.finished,
+    ready_tickets: readyTickets,
   };
 }
