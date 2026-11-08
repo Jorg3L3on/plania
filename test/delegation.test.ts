@@ -88,7 +88,7 @@ test("0036_delegation.sql applies twice on a throwaway database", async () => {
     assert.equal(hops.rows.length, 1);
     assert.match(String(hops.rows[0].column_default), /0/);
     await mig.query(
-      "insert into task_comments (task_id, author_agent, body) values ($1, 'cursor', 'hola')",
+      "insert into task_comments (task_id, author_agent, body) values ($1, 'taller', 'hola')",
       [task.rows[0].id],
     );
     await mig.query(
@@ -134,7 +134,7 @@ test("comment stores the author and refuses an empty or oversized body", async (
 
 test("assign counts hops, refuses the fourth with HOP_CAP, and posts one limpieza item", async () => {
   const key = await ticket("Cadena");
-  const chain = ["cursor", "claude-code", "artist", "research"];
+  const chain = ["taller", "workia", "artist", "research"];
   const owners: string[] = [];
   for (const to of chain.slice(0, 3)) {
     const moved = await call("assign", { actor: A, project: "micasa", key, to_agent: to, note: `pasa a ${to}` });
@@ -143,7 +143,7 @@ test("assign counts hops, refuses the fourth with HOP_CAP, and posts one limpiez
     assert.equal(moved.assign_hops, owners.length);
     assert.equal(moved.comment.body, `pasa a ${to}`);
   }
-  assert.deepEqual(owners, ["cursor", "claude-code", "artist"]);
+  assert.deepEqual(owners, ["taller", "workia", "artist"]);
 
   const refused = await call("assign", { actor: A, project: "micasa", key, to_agent: "research", request_id: "hop-once" });
   assert.equal(refused.__error, "HOP_CAP");
@@ -169,15 +169,15 @@ test("assign counts hops, refuses the fourth with HOP_CAP, and posts one limpiez
 
 test("assigning a pair back the way it went is PING_PONG and does not count a hop", async () => {
   const key = await ticket("Rebote");
-  const first = await call("assign", { actor: A, project: "micasa", key, to_agent: "cursor" });
+  const first = await call("assign", { actor: A, project: "micasa", key, to_agent: "taller" });
   assert.equal(first.assign_hops, 1);
-  const second = await call("assign", { actor: A, project: "micasa", key, to_agent: "claude-code" });
+  const second = await call("assign", { actor: A, project: "micasa", key, to_agent: "workia" });
   assert.equal(second.assign_hops, 2);
-  const back = await call("assign", { actor: A, project: "micasa", key, to_agent: "cursor" });
+  const back = await call("assign", { actor: A, project: "micasa", key, to_agent: "taller" });
   assert.equal(back.__error, "PING_PONG");
   assert.equal(back.__status, 409);
-  assert.equal(back.from, "claude-code");
-  assert.equal(back.to, "cursor");
+  assert.equal(back.from, "workia");
+  assert.equal(back.to, "taller");
 
   const sideways = await call("assign", { actor: A, project: "micasa", key, to_agent: "artist" });
   assert.equal(sideways.__error, undefined);

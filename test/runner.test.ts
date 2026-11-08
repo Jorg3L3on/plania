@@ -714,8 +714,8 @@ test("I29-8 #3: resuming the company leaves a self-paused project paused; new pr
   assert.equal(state.company.paused, false);
   assert.equal(state.projects.find((p) => p.slug === "micasa")!.paused, true);
   assert.equal(state.projects.find((p) => p.slug === "workia")!.paused, false);
-  // The read API shape the Compañía page uses.
-  assert.deepEqual(Object.keys(state).sort(), ["brief", "company", "plan", "projects", "roles", "runs", "settings", "week"]);
+  // The read API shape the Compañía page uses (PLA-I30 adds viewer, prompts, roster and project_facts; PLA-I31 adds brief).
+  assert.deepEqual(Object.keys(state).sort(), ["brief", "company", "plan", "project_facts", "projects", "prompts", "roles", "roster", "runs", "settings", "viewer", "week"]);
   assert.deepEqual(Object.keys(state.projects[0]!.budget).sort(), ["limit", "pct", "reason", "state", "used"]);
   assert.deepEqual(state.roles.map((r) => r.role), ["product-owner", "taller", "research", "artist", "asistente"]);
   assert.deepEqual(Object.keys(state.plan).sort(), ["five_hour_pct", "guard_pct", "read_at", "resets_at", "seven_day_pct", "seven_day_resets_at", "source", "state", "status"]);

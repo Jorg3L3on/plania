@@ -72,40 +72,35 @@ test("seed creates the org once, with a reports_to chain, and leaves edits in pl
   assert.equal(bySlug.asistente!.reports_to, "ceo");
   assert.equal(bySlug.artist!.reports_to, "asistente");
   assert.equal(bySlug.research!.reports_to, "asistente");
-  assert.equal(bySlug.coach!.reports_to, "asistente");
-  assert.equal(bySlug.plania!.reports_to, "ceo");
-  assert.equal(bySlug.housi!.reports_to, "plania");
-  assert.equal(bySlug.workia!.reports_to, "plania");
-  assert.equal(bySlug.filmia!.reports_to, "plania");
-  assert.equal(bySlug.zigzag!.reports_to, "plania");
-  assert.equal(bySlug["owner-plania"]!.reports_to, "plania");
+  for (const po of ["housi", "workia", "filmia", "zigzag", "owner-plania", "po-mianovia"]) assert.equal(bySlug[po]!.reports_to, "ceo", po);
   assert.equal(bySlug["owner-plania"]!.name, "Plania");
   assert.equal(bySlug.taller!.reports_to, "ceo");
-  assert.equal(bySlug.cursor!.reports_to, "taller");
-  assert.equal(bySlug["claude-code"]!.reports_to, "taller");
-  assert.equal(bySlug.cursor!.kind, "coder");
+  // PLA-I30-1: no Cursor, no Coach, no COO, no CTO layer, no separate claude-code row.
+  for (const gone of ["cursor", "coach", "plania", "claude-code"]) assert.equal(bySlug[gone], undefined, gone);
+  assert.equal(rows.filter((r) => r.name === "Plania").length, 1);
+  assert.equal(rows.length, 11);
   assert.ok(!JSON.stringify(rows).includes("@"), "no emails");
 
-  await raw.query(`update agents set title = 'Pair' where slug = 'cursor'`);
+  await raw.query(`update agents set title = 'Pair' where slug = 'taller'`);
   await seedOrg(db);
-  const { rows: edited } = await raw.query(`select title from agents where slug = 'cursor'`);
+  const { rows: edited } = await raw.query(`select title from agents where slug = 'taller'`);
   assert.equal(edited[0].title, "Pair");
 });
 
 test("list_agents links tokens by name and set_agent updates one row", async () => {
   await raw.query(
-    `insert into agent_tokens (name, agent, scopes, token_hash, prefix) values ('cursor-ci', 'Cursor', '{read}', 'hash-not-a-secret', 'pla_test')`,
+    `insert into agent_tokens (name, agent, scopes, token_hash, prefix) values ('taller-ci', 'Taller', '{read}', 'hash-not-a-secret', 'pla_test')`,
   );
   const listed = await call("list_agents");
-  const cursor = listed.agents.find((a: { slug: string }) => a.slug === "cursor");
-  assert.equal(cursor.reports_to, "taller");
-  assert.deepEqual(cursor.tokens, [{ name: "cursor-ci", prefix: "pla_test", machine: null }]);
+  const taller = listed.agents.find((a: { slug: string }) => a.slug === "taller");
+  assert.equal(taller.reports_to, "ceo");
+  assert.deepEqual(taller.tokens, [{ name: "taller-ci", prefix: "pla_test", machine: null }]);
   assert.equal(JSON.stringify(listed).includes("hash-not-a-secret"), false);
 
-  const updated = await call("set_agent", { actor: A, slug: "cursor", title: "Engineer" });
-  assert.equal(updated.title, "Engineer");
-  assert.equal(updated.reports_to, "taller");
-  const missing = await call("set_agent", { actor: A, slug: "cursor", reports_to: "nobody" });
+  const updated = await call("set_agent", { actor: A, slug: "research", title: "Servicio" });
+  assert.equal(updated.title, "Servicio");
+  assert.equal(updated.reports_to, "asistente");
+  const missing = await call("set_agent", { actor: A, slug: "research", reports_to: "nobody" });
   assert.equal(missing.__error, "AGENT_NOT_FOUND");
   assert.equal(missing.__status, 404);
 });
@@ -117,18 +112,18 @@ test("owner_agent round-trips in get_task and clears", async () => {
     title: "Owned ticket",
     scope: "Scope",
     checks: ["Done"],
-    owner_agent: "cursor",
+    owner_agent: "taller",
     verbose: true,
   });
   assert.equal(created.__error, undefined);
-  assert.equal(created.owner_agent.slug, "cursor");
+  assert.equal(created.owner_agent.slug, "taller");
   assert.equal(created.owner_agent.status, "idle");
   const got = await call("get_task", { project: "micasa", key: created.key });
-  assert.equal(got.owner_agent.slug, "cursor");
-  assert.equal(got.owner_agent.name, "Cursor");
+  assert.equal(got.owner_agent.slug, "taller");
+  assert.equal(got.owner_agent.name, "Taller");
 
-  const moved = await call("set_task", { actor: A, project: "micasa", key: created.key, owner_agent: "claude-code", version: got.version, verbose: true });
-  assert.equal(moved.owner_agent.slug, "claude-code");
+  const moved = await call("set_task", { actor: A, project: "micasa", key: created.key, owner_agent: "research", version: got.version, verbose: true });
+  assert.equal(moved.owner_agent.slug, "research");
   const cleared = await call("set_task", { actor: A, project: "micasa", key: created.key, owner_agent: null, version: moved.version, verbose: true });
   assert.equal(cleared.owner_agent, null);
 

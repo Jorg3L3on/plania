@@ -7,18 +7,16 @@ import { PlaniaMark } from "@/components/plania-mark";
 import { Button } from "@/components/ui/button";
 import { api, isUnauthorized } from "@/lib/api";
 import { useOnline } from "@/lib/live";
-import { AhoraPage } from "@/pages/ahora";
 import { InboxPage } from "@/pages/inbox";
 import { LoginPage } from "@/pages/login";
 import { MachinePage } from "@/pages/machine";
-import { GoalsPage } from "@/components/goals/goals-page";
 import { HomePage } from "@/pages/home";
 import { ProjectPage } from "@/pages/project";
 import { ProgressDayPage, ProgressItemPage, ProgressProjectPage, ProgressYearPage } from "@/pages/progreso-detail";
 import { ProgresoPage } from "@/pages/progreso";
 import { TokensPage } from "@/pages/tokens";
-import { EquipoPage } from "@/pages/equipo";
 import { CeoPage } from "@/pages/ceo";
+import { LEGACY_REDIRECTS } from "@/lib/compania";
 
 // What the cached app shows when the server can't be reached, e.g. a home-screen launch with no network.
 // It retries on its own when the network comes back.
@@ -65,18 +63,19 @@ export function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<RequireSession><AppShell /></RequireSession>}>
         <Route index element={<HomePage />} />
-        <Route path="/ahora" element={<AhoraPage />} />
         <Route path="/p/:slug" element={<ProjectPage />} />
-        <Route path="/goals" element={<GoalsPage />} />
         <Route path="/inbox" element={<InboxPage />} />
         <Route path="/machine" element={<MachinePage />} />
-        <Route path="/equipo" element={<EquipoPage />} />
         <Route path="/progreso" element={<ProgresoPage />} />
         <Route path="/progreso/dia/:date" element={<ProgressDayPage />} />
         <Route path="/progreso/anio/:year" element={<ProgressYearPage />} />
         <Route path="/progreso/proyecto/:slug" element={<ProgressProjectPage />} />
         <Route path="/progreso/:slug/:key" element={<ProgressItemPage />} />
         <Route path="/ceo" element={<CeoPage />} />
+        {/* PLA-I30-2: Ahora, Metas and Equipo live on Compañía now. */}
+        {Object.entries(LEGACY_REDIRECTS).map(([from, to]) => (
+          <Route key={from} path={from} element={<Navigate to={to} replace />} />
+        ))}
         <Route path="/tokens" element={<TokensPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
