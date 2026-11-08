@@ -107,7 +107,7 @@ export const PlanMeter = ({ plan, timeZone }: { plan: CompanyPlan; timeZone?: st
   const tone: Tone = plan.state === "stopped" ? "stop" : plan.state === "warn" || plan.state === "unknown" ? "warn" : "ok";
   return (
     <div className="grid gap-1.5">
-      <div className="flex items-baseline justify-between gap-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2">
         <span className="text-sm font-semibold">Ventana de 5 h del plan</span>
         <span className={cn("shrink-0 font-mono text-sm tabular-nums", TONE_INK[tone])}>
           {value == null ? "desconocido" : `${pct(value)}${plan.resets_at ? ` · se reinicia ${clock(plan.resets_at, timeZone)}` : ""}`}
@@ -243,6 +243,7 @@ export type CardItem = { project: CompanyProjectRow; facts: ProjectFacts | undef
 const poLine = (facts: ProjectFacts | undefined, now: number) => {
   const run = facts?.last_run;
   if (run?.status === "running") return { doing: `Corriendo ${run.ticket ?? "sin ticket"}`, when: `desde ${ago(run.started_at, now).replace("hace ", "")}` };
+  if (run?.status === "queued") return { doing: `En espera de turno · ${run.ticket ?? "sin ticket"}`, when: facts?.last_move_at ? `se movió ${ago(facts.last_move_at, now)}` : "" };
   if (run) return { doing: `Última corrida ${run.ticket ?? ""} · ${run.status}`.trim(), when: ago(run.ended_at ?? run.started_at, now) };
   return { doing: "Sin corridas todavía", when: facts?.last_move_at ? `se movió ${ago(facts.last_move_at, now)}` : "" };
 };
@@ -303,7 +304,7 @@ export const ProjectCard = ({
         </span>
       </div>
       {facts?.goal && (
-        <p className="line-clamp-2 font-voice text-[17px] leading-snug italic" title={facts.goal}>
+        <p className={cn("line-clamp-2 font-voice text-[17px] leading-snug italic", paused && "max-sm:hidden")} title={facts.goal}>
           {facts.goal}
         </p>
       )}
@@ -319,7 +320,9 @@ export const ProjectCard = ({
           <span className="truncate text-xs text-muted-foreground">{po.when}</span>
         </p>
       )}
-      <Meter budget={project.budget} label="Tokens esta semana" />
+      <div className={cn(paused && "max-sm:hidden")}>
+        <Meter budget={project.budget} label="Tokens esta semana" />
+      </div>
       {health.reason === "stopped" && <p className="text-xs text-ink-blocked">Detenido al 100%: lo que corría terminó su paso, rama guardada.</p>}
       {health.reason === "warn" && <p className="text-xs text-ink-now">Al llegar a 100% se detiene solo este proyecto.</p>}
       {health.reason === "unset" && <p className="text-xs text-ink-now">Sin límite semanal: no arranca hasta que tenga uno.</p>}

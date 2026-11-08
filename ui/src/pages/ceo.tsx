@@ -71,7 +71,7 @@ const titleCase = (slug: string) => (slug === "micasa" ? "MiCasa" : slug === "zi
 
 type StopScope = { kind: "company" } | { kind: "project"; slug: string; title: string };
 
-const sheetClass = "max-h-[92svh] overflow-y-auto bg-background sm:max-h-none sm:max-w-[560px]";
+const sheetClass = "max-h-[92svh] overflow-y-auto bg-background sm:max-h-none data-[side=right]:sm:max-w-[560px]";
 
 export const CeoPage = () => {
   const client = useQueryClient();
@@ -178,7 +178,7 @@ export const CeoPage = () => {
       .sort(byHealth);
   }, [company, needsJorge, now]);
 
-  const pill = pillOf(company, comp.isError && !company);
+  const pill = pillOf(company, comp.isError);
   const banners = company ? bannersOf(company) : [];
   const liveRuns = company?.runs.live ?? [];
   const sheetProject = sheet?.kind === "project" ? company?.projects.find((p) => p.slug === sheet.slug) : undefined;

@@ -207,7 +207,8 @@ export const byHealth = <T extends { health: Health; project: { slug: string } }
 
 export type Pill = { tone: Tone; word: string };
 export function pillOf(c: Company | undefined, error: boolean): Pill {
-  if (error || !c) return { tone: "stop", word: "Sin conexión" };
+  if (error) return { tone: "stop", word: "Sin conexión" };
+  if (!c) return { tone: "idle", word: "Cargando…" };
   if (c.company.paused) return { tone: "stop", word: "Detenida" };
   if (c.plan.state === "stopped") return { tone: "warn", word: "En espera" };
   if (c.plan.state === "unknown") return { tone: "warn", word: "Plan desconocido" };
