@@ -36,12 +36,12 @@ before(async () => {
   await seedOrg(db);
   await writes.createTask(
     db,
-    { project: "micasa", key: "MIC-READY", title: "Listo", scope: "pantalla", checks: ["c"], status: "Ready", owner_agent: "cursor" },
+    { project: "micasa", key: "MIC-READY", title: "Listo", scope: "pantalla", checks: ["c"], status: "Ready", owner_agent: "taller" },
     ctx,
   );
   await writes.createTask(
     db,
-    { project: "micasa", key: "MIC-NOW", title: "En curso", scope: "pantalla", checks: ["c"], status: "Ready", owner_agent: "cursor" },
+    { project: "micasa", key: "MIC-NOW", title: "En curso", scope: "pantalla", checks: ["c"], status: "Ready", owner_agent: "taller" },
     ctx,
   );
   await raw.query(`update tasks set status = 'In progress' where key = 'MIC-NOW'`);
@@ -62,7 +62,7 @@ test("dashboard stays cookie-only and both screens share the owner key", async (
   const team = await get("/api/team", { Cookie: cookie });
   assert.equal(dash.status, 200);
   assert.equal(team.status, 200);
-  const owned = keyOn(dash.body, team.body, "cursor");
+  const owned = keyOn(dash.body, team.body, "taller");
   assert.equal(owned.ceo, "MIC-NOW");
   assert.equal(owned.equipo, "MIC-NOW");
 });
@@ -70,16 +70,16 @@ test("dashboard stays cookie-only and both screens share the owner key", async (
 test("a live lease replaces the owned ticket on both screens", async () => {
   await writes.createTask(
     db,
-    { project: "workia", key: "WRK-LEASE", title: "Turno", scope: "pantalla", checks: ["c"], owner_agent: "cursor" },
+    { project: "workia", key: "WRK-LEASE", title: "Turno", scope: "pantalla", checks: ["c"], owner_agent: "taller" },
     ctx,
   );
   await raw.query(
     `update tasks set owner = $1::jsonb, claimed_at = now(), lease_until = now() + interval '1 hour', status = 'In progress' where key = 'WRK-LEASE'`,
-    [JSON.stringify({ agent: "Cursor", session_id: "s-cursor" })],
+    [JSON.stringify({ agent: "Taller", session_id: "s-taller" })],
   );
   const dash = await get("/api/dashboard", { Cookie: cookie });
   const team = await get("/api/team", { Cookie: cookie });
-  const leased = keyOn(dash.body, team.body, "cursor");
+  const leased = keyOn(dash.body, team.body, "taller");
   assert.equal(leased.ceo, "WRK-LEASE");
   assert.equal(leased.equipo, "WRK-LEASE");
   assert.equal(JSON.stringify(dash.body).includes("wake_url"), false);

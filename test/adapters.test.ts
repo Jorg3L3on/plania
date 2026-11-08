@@ -1,6 +1,7 @@
 // PLA-I26-2: adapters wake an agent. A dry run never opens a socket or a process.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { ADAPTERS } from "../src/db/schema.js";
 import { spawn, type SpawnAgent, type SpawnDeps, type WakeFetch } from "../src/adapters/index.js";
 
 const BIN = "/tmp/plania-fake-bin";
@@ -21,8 +22,7 @@ const blocked = (): SpawnDeps => ({
     throw new Error("socket opened");
   },
   env: {
-    CURSOR_AGENT_BIN: BIN,
-    CURSOR_AGENT_ARGS: `["--flag","${SECRET}"]`,
+    CLAUDE_CODE_ARGS: `["--flag","${SECRET}"]`,
     CLAUDE_CODE_BIN: BIN,
     GROK_WAKE_URL: HOOK,
   },
@@ -31,7 +31,6 @@ const blocked = (): SpawnDeps => ({
 test("dry-run never calls fetch or a process and hides config values", async () => {
   for (const row of [
     agent({ adapter: "http", wakeUrl: WAKE }),
-    agent({ adapter: "cursor_agent", adapterConfig: { command_env: "CURSOR_AGENT_BIN", args_env: "CURSOR_AGENT_ARGS" } }),
     agent({ adapter: "claude_code", adapterConfig: { command_env: "CLAUDE_CODE_BIN" } }),
     agent({ adapter: "grok_webhook", adapterConfig: { url_env: "GROK_WAKE_URL" } }),
     agent({ adapter: "none" }),
@@ -75,21 +74,16 @@ test("http posts the wake url and none is a no-op", async () => {
   assert.equal(idle.summary, "adapter none");
 });
 
-test("cursor_agent is removed and claude_code never spawns from here (PLA-I29-2)", async () => {
-  const env = { CURSOR_AGENT_BIN: BIN, CLAUDE_CODE_BIN: BIN, GROK_WAKE_URL: HOOK };
-  const cursor = await spawn(
-    { agent: agent({ adapter: "cursor_agent", adapterConfig: { command_env: "CURSOR_AGENT_BIN" } }), task: { project: "micasa", key: "MIC-2", title: "Example" } },
-    { env, fetch: async () => { throw new Error("socket opened"); } },
-  );
-  assert.equal(cursor.status, "skipped");
-  assert.equal(cursor.summary, "adapter cursor_agent removed");
+test("the Cursor adapter is gone and claude_code never spawns from here (PLA-I29-2, PLA-I30-1)", async () => {
+  assert.deepEqual([...ADAPTERS], ["http", "claude_code", "grok_webhook", "none"]);
+  const env = { CLAUDE_CODE_BIN: BIN, GROK_WAKE_URL: HOOK };
   const claude = await spawn(
     { agent: agent({ adapter: "claude_code", adapterConfig: { command_env: "CLAUDE_CODE_BIN" } }) },
     { env, fetch: async () => { throw new Error("socket opened"); } },
   );
   assert.equal(claude.status, "fail");
   assert.equal(claude.summary, "claude_code runs through the runner");
-  assert.equal(JSON.stringify([cursor, claude]).includes(BIN), false);
+  assert.equal(JSON.stringify(claude).includes(BIN), false);
 });
 
 test("grok posts the webhook without logging values", async () => {

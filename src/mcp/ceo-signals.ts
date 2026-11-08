@@ -220,7 +220,6 @@ export function wakeInfo(agent: Pick<AgentView, "adapter" | "adapter_config" | "
   switch (agent.adapter) {
     case "http":
       return agent.wake_url ? { can_wake: true, wake_reason: null } : { can_wake: false, wake_reason: "Sin URL para despertarlo" };
-    case "cursor_agent":
     case "claude_code": {
       const command = named("command_env");
       if (!command) return { can_wake: false, wake_reason: "Sin comando configurado" };

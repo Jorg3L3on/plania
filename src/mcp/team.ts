@@ -446,7 +446,7 @@ export function registerTeamTools(
         capabilities: z.array(z.string()).optional().describe("Replaces the list"),
         kind: z.enum(AGENT_KINDS).optional(),
         wake_url: z.string().nullable().optional().describe("http(s) URL the sweep may POST; null clears it"),
-        adapter: z.enum(ADAPTERS).optional().describe("http, cursor_agent, claude_code, grok_webhook or none"),
+        adapter: z.enum(ADAPTERS).optional().describe("http, claude_code, grok_webhook or none"),
         adapter_config: z.record(z.string(), z.string()).nullable().optional().describe("Environment variable names only: command_env, args_env, url_env. Null clears it"),
         heartbeat_minutes: z.number().int().nullable().optional().describe("Minutes between wakes. Null skips the job"),
         status: z.enum(AGENT_STATUSES).optional(),

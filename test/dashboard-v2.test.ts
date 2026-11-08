@@ -158,7 +158,7 @@ test("the read carries the brief, the queue, goal health, the trend and wake inf
   assert.equal(data.trend.weeks.length, 6);
   assert.equal(data.trend.target, 140);
   assert.equal(data.trend.in_review, 1);
-  const code = data.team.agents.find((row: Json) => row.slug === "claude-code");
+  const code = data.team.agents.find((row: Json) => row.slug === "taller");
   assert.equal(typeof code.can_wake, "boolean");
   assert.ok("wake_reason" in code && "ready" in code);
   const ready = data.ready_tickets.find((row: Json) => row.key === readyKey);
@@ -169,7 +169,7 @@ test("the read carries the brief, the queue, goal health, the trend and wake inf
 });
 
 test("wake: cookie only, unknown agent 404, no adapter answers why and records no run", async () => {
-  assert.equal((await call("POST", "/api/dashboard/wake", { agent: "claude-code" }, { Authorization: `Bearer ${TEST_BEARER}` })).status, 401);
+  assert.equal((await call("POST", "/api/dashboard/wake", { agent: "taller" }, { Authorization: `Bearer ${TEST_BEARER}` })).status, 401);
   assert.equal((await call("POST", "/api/dashboard/wake", { agent: "nadie" })).status, 404);
   const before = Number((await raw.query("select count(*) from heartbeat_runs")).rows[0].count);
   const res = await call("POST", "/api/dashboard/wake", { agent: "artist" });

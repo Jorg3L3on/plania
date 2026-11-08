@@ -81,7 +81,8 @@ test("create_company_project adds a project, a product owner and a Playbook", as
   assert.equal(owner.rows[0].note, skills);
   assert.equal(owner.rows[0].kind, "bot");
   assert.deepEqual(owner.rows[0].capabilities, ["product-owner"]);
-  assert.equal(owner.rows[0].reports_to, "plania");
+  // PLA-I30-1 removed the COO «plania»; the new-project template (PLA-I31-3) points the PO at ceo.
+  assert.ok(owner.rows[0].reports_to === null || owner.rows[0].reports_to === "ceo");
 
   const doc = await raw.query(
     `select d.markdown from docs d join projects p on p.id = d.project_id

@@ -93,21 +93,21 @@ before(async () => {
   const older = `${addDays(week.from, -7)}T18:00:00Z`;
   await raw.query(
     `insert into token_usage (project_id, agent, task_key, run_id, model, input, output, at) values
-     ($1, 'cursor', 'FIL-SHIP', 'dash-week', 'fake-model', 120, 30, $2),
-     ($1, 'cursor', 'FIL-SHIP', 'dash-old', 'fake-model', 9, 1, $3)`,
+     ($1, 'taller', 'FIL-SHIP', 'dash-week', 'fake-model', 120, 30, $2),
+     ($1, 'taller', 'FIL-SHIP', 'dash-old', 'fake-model', 9, 1, $3)`,
     [filmia, at, older],
   );
 
   const held = await writes.createTask(
     opened.db,
-    { project: "micasa", key: "MIC-HOLD", title: "Turno quieto", scope: "pantalla", checks: ["listo"], owner_agent: "cursor" },
+    { project: "micasa", key: "MIC-HOLD", title: "Turno quieto", scope: "pantalla", checks: ["listo"], owner_agent: "taller" },
     ctx,
   );
   await raw.query(
     `update tasks set owner = $1::jsonb, claimed_at = now() - interval '3 hours', lease_until = now() + interval '1 hour', status = 'In progress' where key = $2`,
-    [JSON.stringify({ agent: "Cursor", session_id: "s-cursor" }), held.key],
+    [JSON.stringify({ agent: "Taller", session_id: "s-taller" }), held.key],
   );
-  await raw.query(`update agents set last_check_in_at = now() - interval '3 hours' where slug = 'cursor'`);
+  await raw.query(`update agents set last_check_in_at = now() - interval '3 hours' where slug = 'taller'`);
   await raw.query(`update agents set last_check_in_at = now() where slug = 'housi'`);
 
   const question = await writes.createTask(
@@ -149,13 +149,13 @@ test("the cookie read is the week, the roster, goals, stuck work and what waits 
   assert.equal(body.usage.input, 120);
   assert.equal(body.usage.output, 30);
   assert.equal("usd" in body.usage, false);
-  assert.equal(body.team.total, 14);
+  assert.equal(body.team.total, 11);
   assert.equal(body.team.alive, 1);
   assert.equal(body.team.stuck, 1);
-  assert.equal(body.team.idle, 12);
-  const cursor = body.team.agents.find((agent: Json) => agent.slug === "cursor");
-  assert.equal(cursor.status, "stuck");
-  assert.equal(cursor.claim.key, "MIC-HOLD");
+  assert.equal(body.team.idle, 9);
+  const taller = body.team.agents.find((agent: Json) => agent.slug === "taller");
+  assert.equal(taller.status, "stuck");
+  assert.equal(taller.claim.key, "MIC-HOLD");
   assert.equal(body.team.agents.find((agent: Json) => agent.slug === "ceo").name, "CEO");
 
   const catalog = body.goals.find((goal: Json) => goal.title === "Catálogo limpio");
@@ -178,8 +178,8 @@ test("the cookie read is the week, the roster, goals, stuck work and what waits 
   assert.equal(winKeys.includes("FIL-SKIP"), false);
 
   assert.deepEqual(body.stuck.map((item: Json) => item.key), ["MIC-HOLD"]);
-  assert.equal(body.stuck[0].agent, "cursor");
-  assert.equal(body.stuck[0].name, "Cursor");
+  assert.equal(body.stuck[0].agent, "taller");
+  assert.equal(body.stuck[0].name, "Taller");
 
   assert.equal(body.waits.length, 1);
   assert.equal(body.waits[0].group, "decisiones");

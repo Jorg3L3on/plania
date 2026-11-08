@@ -3,7 +3,7 @@ import { ADAPTERS, type AdapterConfig, type AdapterName } from "../db/schema.js"
 // PLA-I26: wake an agent through its adapter. dryRun returns before any socket or process.
 // Summaries name env vars and task keys. They never include config values, URLs, or command paths.
 // PLA-I29-2: claude_code runs through the supervised runner (src/runner), never from here; the
-// old defaultRun/runCli path (stdio ignored, SIGTERM after 10 s) is gone, and so is cursor_agent.
+// old defaultRun/runCli path (stdio ignored, SIGTERM after 10 s) is gone, and so is the Cursor adapter (PLA-I30-1, migration 0040).
 
 export type SpawnAgent = {
   slug: string;
@@ -97,8 +97,6 @@ export const spawn = async (request: SpawnRequest, deps: SpawnDeps = {}): Promis
     }
   }
 
-  // Removed in PLA-I29-2; Initiative B drops the enum value and the roster row.
-  if (adapter === "cursor_agent") return { adapter, status: "skipped", summary: "adapter cursor_agent removed" };
   if (adapter === "claude_code") return { adapter, status: "fail", summary: "claude_code runs through the runner" };
 
   const urlName = namedEnv(request.agent.adapterConfig, "url_env");

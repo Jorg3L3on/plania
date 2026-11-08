@@ -778,7 +778,7 @@ export type Task = typeof tasks.$inferSelect;
 // A row may match agent_tokens.agent by name or slug (list_agents); there is no token foreign key.
 export const AGENT_KINDS = ["bot", "coder", "human"] as const;
 export const AGENT_STATUSES = ["alive", "idle", "stuck"] as const;
-export const ADAPTERS = ["http", "cursor_agent", "claude_code", "grok_webhook", "none"] as const;
+export const ADAPTERS = ["http", "claude_code", "grok_webhook", "none"] as const;
 export type AdapterName = (typeof ADAPTERS)[number];
 // Env var names only. The values stay in the process environment.
 export type AdapterConfig = {
@@ -815,7 +815,7 @@ export const agents = pgTable(
     check("agents_kind_check", sql`${t.kind} in ('bot', 'coder', 'human')`),
     check("agents_status_check", sql`${t.status} in ('alive', 'idle', 'stuck')`),
     check("agents_not_self", sql`${t.reportsTo} is null or ${t.reportsTo} <> ${t.id}`),
-    check("agents_adapter_check", sql`${t.adapter} in ('http', 'cursor_agent', 'claude_code', 'grok_webhook', 'none')`),
+    check("agents_adapter_check", sql`${t.adapter} in ('http', 'claude_code', 'grok_webhook', 'none')`),
     check("agents_heartbeat_minutes_check", sql`${t.heartbeatMinutes} is null or (${t.heartbeatMinutes} between 1 and 1440)`),
   ],
 );
@@ -957,7 +957,7 @@ export const heartbeatRuns = pgTable(
   (t) => [
     index("heartbeat_runs_agent_started_idx").on(t.agentId, t.startedAt),
     check("heartbeat_runs_status_check", sql`${t.status} in ('ok', 'fail', 'skipped')`),
-    check("heartbeat_runs_adapter_check", sql`${t.adapter} in ('http', 'cursor_agent', 'claude_code', 'grok_webhook', 'none')`),
+    check("heartbeat_runs_adapter_check", sql`${t.adapter} in ('http', 'claude_code', 'grok_webhook', 'none')`),
     check("heartbeat_runs_summary_check", sql`char_length(${t.summary}) <= 500`),
     check("heartbeat_runs_task_key_check", sql`${t.taskKey} is null or char_length(${t.taskKey}) between 1 and 80`),
   ],
