@@ -8,6 +8,7 @@ import { ToolError } from "../mcp/errors.js";
 import { findProject } from "../mcp/queries.js";
 import { webCtx, writeTx } from "../mcp/tx.js";
 import { RUNNER_ROLES, budgetView, lastReading, loadSettings, planView, screenTz, weekBounds, type BudgetView, type PlanView } from "./limits.js";
+import { latestBrief, type Brief } from "./asistente.js";
 import { stopLive } from "./runner.js";
 
 export type RunView = {
@@ -31,6 +32,8 @@ export type CompanyState = {
   roles: { role: string; budget: BudgetView }[];
   runs: { live: RunView[]; queued: RunView[] };
   plan: PlanView;
+  // PLA-I31-2: the latest Asistente brief (07:00 daily), or null before the first one.
+  brief: Brief | null;
 };
 
 export async function companyState(db: Db, now = new Date()): Promise<CompanyState> {
@@ -97,6 +100,7 @@ export async function companyState(db: Db, now = new Date()): Promise<CompanySta
     roles,
     runs: { live: runRows.filter((r) => r.status === "running").map(view), queued: runRows.filter((r) => r.status === "queued").map(view) },
     plan: planView(await lastReading(db), settings.planGuardPct, now),
+    brief: await latestBrief(db),
   };
 }
 
