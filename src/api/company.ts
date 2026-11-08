@@ -6,12 +6,16 @@
 //   PUT  /api/company/budgets              {scope, role|project, weekly_limit|null}
 //   PUT  /api/company/settings             {max_concurrent?, cooldown_minutes?, plan_guard_pct?, reserve_tokens?, max_turns?, timeout_minutes?}
 //   POST /api/company/runs/:id/ack-usage   a run whose usage is unknown stops blocking
+// PLA-I30 (src/api/company-extra.ts): the read gains viewer, prompts, roster and project_facts, plus
+//   GET  /api/company/projects/:slug       the project sheet
+//   GET  /api/company/docs/:id             one role prompt doc (Prompt ↗)
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { z } from "zod";
 import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
+import { companyExtras, projectSheet, promptDoc } from "./company-extra.js";
 import { ackUnknownUsage, companyState, setBudget, setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner/company.js";
 
 export const companyRoutes = new Hono();
@@ -38,7 +42,27 @@ async function body<T extends z.ZodType>(c: Context, schema: T): Promise<z.infer
 
 const Paused = z.object({ paused: z.boolean() }).strict();
 
-companyRoutes.get("/", async (c) => c.json(await withDb((db) => companyState(db))));
+companyRoutes.get("/", async (c) =>
+  c.json(await withDb(async (db) => ({ ...(await companyState(db)), ...(await companyExtras(db)) }))),
+);
+
+companyRoutes.get("/projects/:slug", async (c) => {
+  try {
+    return c.json(await withDb((db) => projectSheet(db, c.req.param("slug"))));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+companyRoutes.get("/docs/:id", async (c) => {
+  const id = c.req.param("id");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return c.json({ error: "DOC_NOT_FOUND" }, 404);
+  try {
+    return c.json(await withDb((db) => promptDoc(db, id)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
 
 companyRoutes.post("/switch", async (c) => {
   const input = await body(c, Paused);
