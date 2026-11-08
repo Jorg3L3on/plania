@@ -5,9 +5,27 @@ import { sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { inbox } from "./inbox.js";
 import { listGoals, type GoalView } from "./goals.js";
-import { isPruebaTitle, isoWeek, progressLog, progressSummary, weekRange, dayInTz } from "./progress.js";
+import { addDays, isPruebaTitle, isoWeek, progressLog, progressSummary, progressTz, weekRange, dayInTz } from "./progress.js";
 import { listAgents, workingOnBySlug, type AgentView } from "./team.js";
 import { USAGE_LABEL, usageSummary } from "./usage.js";
+import {
+  TREND_TARGET,
+  WEEKS,
+  buildBrief,
+  buildQueue,
+  companySignal,
+  goalSignal,
+  loadInitiatives,
+  loadReadyByAgent,
+  loadReviews,
+  loadTrend,
+  wakeInfo,
+  type GoalSignal,
+  type Health,
+  type InitiativeSignal,
+  type QueueItem,
+  type Trend,
+} from "./ceo-signals.js";
 
 export type DashboardAgent = {
   slug: string;
@@ -17,6 +35,12 @@ export type DashboardAgent = {
   status: string;
   note: string;
   claim: { project: string; key: string; title: string } | null;
+  // PLA-I28: what the screen's Despertar can do, and the Ready tickets this agent owns.
+  adapter: string;
+  can_wake: boolean;
+  wake_reason: string | null;
+  ready: number;
+  last_check_in_at: string | null;
 };
 
 export type DashboardGoal = {
@@ -25,6 +49,10 @@ export type DashboardGoal = {
   project: string | null;
   status: string;
   progress: { done: number; total: number };
+  // PLA-I28: derived, never typed: see goalSignal.
+  health: Health;
+  why: string;
+  initiatives: { key: string; title: string; status: string }[];
 };
 
 export type DashboardWin = {
@@ -81,6 +109,11 @@ export type CeoDashboard = {
   };
   stuck: DashboardStuck[];
   waits: DashboardWait[];
+  // PLA-I28: the brief, one queue of what needs the CEO, and the weekly trend.
+  brief: string[];
+  queue: QueueItem[];
+  trend: Trend;
+  previous_finished: number;
 };
 
 const STATUS_RANK: Record<string, number> = { alive: 0, stuck: 1, idle: 2 };
@@ -112,21 +145,38 @@ function matchAgent(label: string, roster: AgentView[]): AgentView | undefined {
   return roster.find((agent) => agent.slug.toLowerCase() === key || agent.name.trim().toLowerCase() === key);
 }
 
-function flatGoals(nodes: GoalView[]): DashboardGoal[] {
+// Parents stay before their children, as before; a company goal's health sums its project goals.
+function flatGoals(nodes: GoalView[], initiatives: InitiativeSignal[], now: Date): DashboardGoal[] {
+  const byGoal = new Map<string, InitiativeSignal[]>();
+  for (const item of initiatives) {
+    if (!item.goal_id) continue;
+    const list = byGoal.get(item.goal_id) ?? [];
+    list.push(item);
+    byGoal.set(item.goal_id, list);
+  }
+  const dayOf = (iso: string) => dayInTz(new Date(iso));
   const out: DashboardGoal[] = [];
-  const walk = (list: GoalView[]) => {
+  const walk = (list: GoalView[]): GoalSignal[] => {
+    const signals: GoalSignal[] = [];
     for (const node of list) {
-      if (node.status !== "dropped") {
-        out.push({
-          id: node.id,
-          title: node.title,
-          project: node.project,
-          status: node.status,
-          progress: node.progress,
-        });
-      }
-      walk(node.children);
+      const own = byGoal.get(node.id) ?? [];
+      const at = node.status !== "dropped" ? out.push({} as DashboardGoal) - 1 : -1;
+      const childSignals = walk(node.children);
+      const signal = node.project === null && node.children.length > 0 ? companySignal(childSignals) : goalSignal(own, now, dayOf);
+      if (at < 0) continue;
+      out[at] = {
+        id: node.id,
+        title: node.title,
+        project: node.project,
+        status: node.status,
+        progress: node.progress,
+        health: signal.health,
+        why: signal.why,
+        initiatives: own.map((item) => ({ key: item.key, title: item.title, status: item.status })),
+      };
+      signals.push(signal);
     }
+    return signals;
   };
   walk(nodes);
   return out;
@@ -142,18 +192,25 @@ async function liveClaims(db: Db): Promise<LiveClaim[]> {
 }
 
 export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
-  const today = dayInTz(new Date());
+  const now = new Date();
+  const today = dayInTz(now);
   const week = weekRange(today);
   const weekId = isoWeekKey(today);
-  const [roster, board, summary, log, box, claims, usage, working] = await Promise.all([
+  const weekStarts = Array.from({ length: WEEKS }, (_, i) => addDays(week.from, (i - (WEEKS - 1)) * 7));
+  const [roster, board, summary, previous, log, box, claims, usage, working, initiatives, reviews, trend, readyBy] = await Promise.all([
     listAgents(db),
     listGoals(db),
     progressSummary(db, { range: "week", date: today }),
+    progressSummary(db, { range: "week", date: addDays(today, -7) }),
     progressLog(db, { from: week.from, to: week.to }),
     inbox(db, "all"),
     liveClaims(db),
     usageSummary(db, { week: weekId }),
     workingOnBySlug(db),
+    loadInitiatives(db),
+    loadReviews(db),
+    loadTrend(db, { timeZone: progressTz(), weekStarts }),
+    loadReadyByAgent(db),
   ]);
 
   const byAgent = new Map<string, LiveClaim[]>();
@@ -177,6 +234,10 @@ export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
         status: agent.status,
         note: agent.note,
         claim: focus,
+        adapter: agent.adapter,
+        ...wakeInfo(agent),
+        ready: readyBy.get(agent.slug) ?? 0,
+        last_check_in_at: agent.last_check_in_at,
       };
     })
     .sort((a, b) => (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9) || a.name.localeCompare(b.name, "es"));
@@ -230,13 +291,16 @@ export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
   const input = usage.totals.reduce((sum, row) => sum + row.input, 0);
   const output = usage.totals.reduce((sum, row) => sum + row.output, 0);
 
+  const queue = buildQueue({ waits: box.items, reviews, initiatives }, now);
+  const brief = buildBrief({ queue, finished: summary.finished, previous: previous.finished });
+
   return {
     role: "CEO",
     name: ceoDisplayName(),
     timezone: summary.timezone,
     today: summary.today,
     team: { ...counts, agents },
-    goals: flatGoals(board.goals),
+    goals: flatGoals(board.goals, initiatives, now),
     usage: { label: usage.label, week: weekId, input, output },
     shipped: {
       from: summary.from,
@@ -249,5 +313,9 @@ export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
     },
     stuck,
     waits,
+    brief,
+    queue,
+    trend: { ...trend, target: TREND_TARGET },
+    previous_finished: previous.finished,
   };
 }
