@@ -99,11 +99,13 @@ export function goalSignal(items: InitiativeSignal[], now: Date, dayOf: (iso: st
   }
   const reviews = items.reduce((sum, item) => sum + item.in_review, 0);
   if (reviews >= RISK_REVIEWS) return { health: "risk", why: `${plural(reviews, "espera", "esperan")} tu revisión` };
-  const done = items.reduce((sum, item) => sum + item.done, 0);
-  const total = items.reduce((sum, item) => sum + item.total, 0);
+  // The screen already shows the goal's done/total; the why says what is open and moving, not the count again.
+  const ready = items.reduce((sum, item) => sum + item.ready, 0);
   const moving = items.filter((item) => item.in_progress > 0).length;
-  const tail = moving > 0 ? ` · ${plural(moving, "iniciativa en curso", "iniciativas en curso")}` : "";
-  return { health: "on", why: `${done} de ${total} hechos${tail}` };
+  const parts = [plural(items.length, "iniciativa abierta", "iniciativas abiertas")];
+  if (ready > 0) parts.push(plural(ready, "listo", "listos"));
+  if (moving > 0) parts.push(plural(moving, "en curso", "en curso"));
+  return { health: "on", why: parts.join(" · ") };
 }
 
 // The company goal sums its project goals' health: how many are on track.
@@ -189,7 +191,7 @@ export function buildBrief(input: { queue: QueueItem[]; finished: number; previo
   if (stalled.length > 0) {
     const first = stalled[0]!;
     const more = stalled.length > 1 ? ` (y ${stalled.length - 1} más)` : "";
-    lines.push(`${projectName(first.project)} está quieto: ${first.key} sin cambios hace ${first.age_days} días${more}.`);
+    lines.push(`${first.key} (${projectName(first.project)}) lleva ${first.age_days} días quieta, con trabajo listo y sin agente${more}.`);
   }
   const decisions = input.queue.filter((item) => item.kind === "decidir");
   if (decisions.length > 0) {
