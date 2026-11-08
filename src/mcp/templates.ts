@@ -100,7 +100,7 @@ export async function createCompanyProject(
   const [taken] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, ownerSlug)).limit(1);
   if (taken) throw new ToolError("INVALID_FILTER", { field: "slug", hint: "the product-owner slug is already on the roster" });
 
-  const [coo] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, "plania")).limit(1);
+  const [ceo] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, "ceo")).limit(1);
   const [created] = await db
     .insert(projects)
     .values({ slug, title: name, keyPrefix: prefixOf(slug) })
@@ -118,11 +118,11 @@ export async function createCompanyProject(
       role: "product-owner",
       title: "Product owner",
       kind: "bot",
-      ...(coo ? { reports_to: "plania" } : {}),
+      ...(ceo ? { reports_to: "ceo" } : {}),
       capabilities: ["product-owner"],
-      adapter: "http",
+      adapter: "claude_code",
       adapter_config: {},
-      heartbeat_minutes: 60,
+      heartbeat_minutes: null,
       note: skills,
     });
     await attachDoc(db, { project: slug, title: PLAYBOOK_TITLE, markdown: playbook }, { ...quiet, tool: "attach_doc" });
