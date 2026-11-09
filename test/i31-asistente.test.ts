@@ -9,7 +9,7 @@ process.env.PLANIA_HOME_PROJECT = "micasa";
 const { makeDb } = await import("../src/db/client.js");
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
-const { seedOrg } = await import("../scripts/seed-org.js");
+const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const writes = await import("../src/mcp/writes.js");
 const asistente = await import("../src/runner/asistente.js");
 const { jobsToStart } = await import("../src/jobs/index.js");
@@ -100,18 +100,22 @@ test("I31-2 #2: a project at 85% yields a brief line and no ask, and no line pro
   const check = (await raw.query(`select payload from events where type = 'asistente.check' order by id desc limit 1`)).rows[0];
   assert.equal(check.payload.lines.includes("MiCasa va al 85 % de su presupuesto semanal."), true);
 
-  // The brief reaches the Compañía read as {lines, generated_at}.
-  const res = await app.request("/api/company", { headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } });
-  const state = (await res.json()) as { brief: { lines: string[]; generated_at: string } | null };
-  assert.ok(state.brief);
-  assert.deepEqual(Object.keys(state.brief).sort(), ["generated_at", "lines"]);
-  assert.equal(state.brief.lines.includes("MiCasa va al 85 % de su presupuesto semanal."), true);
-  assert.equal(state.brief.generated_at, now.toISOString());
+  // The brief is stored as {lines, generated_at} and, PLA-I32-5, posted in the company thread (server summary:
+  // event wakes are off here, so no Asistente run could write it).
+  const brief = await asistente.latestBrief(db);
+  assert.ok(brief);
+  assert.deepEqual(Object.keys(brief).sort(), ["generated_at", "lines"]);
+  assert.equal(brief.lines.includes("MiCasa va al 85 % de su presupuesto semanal."), true);
+  assert.equal(brief.generated_at, now.toISOString());
+  const res = await app.request("/api/threads/company", { headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } });
+  const thread = (await res.json()) as { messages: { author: { agent: string }; body: string }[] };
+  const posted = thread.messages.filter((m) => m.body.startsWith("Resumen del servidor")).at(-1)!;
+  assert.equal(posted.author.agent, "asistente");
+  assert.match(posted.body, /MiCasa va al 85 % de su presupuesto semanal\./);
 });
 
-test("I31-2: GET /api/company brief is null before the first brief", async () => {
-  const res = await app.request("/api/company", { headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } });
-  assert.equal(((await res.json()) as { brief: unknown }).brief, null);
+test("I31-2: there is no brief before the first one", async () => {
+  assert.equal(await asistente.latestBrief(db), null);
 });
 
 test("I31-2 #3: the same failure twice yields exactly one ask; a different failure yields none", async () => {

@@ -91,14 +91,16 @@ const ownProject = (agent: { slug?: string; capabilities: string[] }, project: s
 
 // Owned Ready work wins. Otherwise an unowned Ready ticket in a capable project or work type.
 // PLA-I29-10: never from a paused project, and a product owner only inside its own project.
-export const pickReady = (agent: { id: string; slug?: string; role: string; capabilities: string[] }, rows: ReadyWork[]): ReadyWork | null => {
+// PLA-I32-5: a team member (projectSlug, from agents.project_id) only ever picks in its own project.
+export const pickReady = (agent: { id: string; slug?: string; role: string; capabilities: string[]; projectSlug?: string | null }, rows: ReadyWork[]): ReadyWork | null => {
   const types = workTypesFor(agent.role, agent.capabilities);
   const caps = new Set(agent.capabilities);
   const isPo = agent.role === "product-owner" || !!agent.slug?.startsWith("po-");
   const matches = rows.filter((row) => {
     if (row.title.includes("[PRUEBA]")) return false;
     if (row.paused) return false;
-    if (isPo && !ownProject(agent, row.project)) return false;
+    if (agent.projectSlug && row.project !== agent.projectSlug) return false;
+    if (isPo && !agent.projectSlug && !ownProject(agent, row.project)) return false;
     if (row.ownerAgent === agent.id) return true;
     if (row.ownerAgent) return false;
     if (caps.has(row.project)) return true;
@@ -206,7 +208,8 @@ export const wakeAgent = async (db: Db, input: { agent: string; taskKey?: string
     .returning({ id: agents.id });
   if (claimed.length === 0) return { woke: false, reason: "cadence", run: null };
 
-  const task = chosen ?? pickReady(row, await loadReady(db));
+  const projectSlug = row.projectId ? ((await db.select({ slug: projects.slug }).from(projects).where(eq(projects.id, row.projectId)).limit(1))[0]?.slug ?? null) : null;
+  const task = chosen ?? pickReady({ ...row, projectSlug }, await loadReady(db));
 
   // PLA-I29: claude_code wakes go through the runner (limits, worktree, supervised process).
   // A started run writes its heartbeat_runs row when it ends; a skip or a fail writes it now.

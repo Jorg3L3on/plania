@@ -57,6 +57,7 @@ import { registerDashboardTools } from "./dashboard.js";
 import { registerUsageTools } from "./usage.js";
 import { registerTemplateTools } from "./templates.js";
 import { registerHeartbeatTools } from "./heartbeat.js";
+import { closingLine, questionLine, registerThreadTools } from "./threads.js";
 import { finish, start } from "./agent-surface.js";
 import { projectReleases } from "./releases.js";
 import { DIGEST_PER_PROJECT_DEFAULT, QUIET_MIN, getDigest, getRunning, listProjects, readerOf } from "./watch.js";
@@ -635,7 +636,13 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       },
       annotations: write,
     },
-    writeHandler("finish", (input, ctx) => finish(db, input as never, ctx)),
+    writeHandler("finish", async (input, ctx) => {
+      const out = await finish(db, input as never, ctx);
+      // PLA-I32-3: a runner's finish leaves its line in the project thread (best effort, after the commit).
+      const i = input as { project: string; key: string; result?: { cite?: string; verdict?: string }; pr_url?: string };
+      await closingLine(db, ctx, { project: i.project, key: i.key, via: "finish", cite: i.result?.cite, verdict: i.result?.verdict, prUrl: i.pr_url }).catch(() => null);
+      return out;
+    }),
   );
 
   server.registerTool(
@@ -709,7 +716,12 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       inputSchema: { project, actor, request_id, verbose, ...addResultFields },
       annotations: write,
     },
-    writeHandler("add_result", (input, ctx) => addResult(db, input, ctx)),
+    writeHandler("add_result", async (input, ctx) => {
+      const out = await addResult(db, input, ctx);
+      const i = input as { project: string; key: string; cite?: string; verdict?: string };
+      await closingLine(db, ctx, { project: i.project, key: i.key, via: "add_result", cite: i.cite, verdict: i.verdict }).catch(() => null);
+      return out;
+    }),
   );
 
   server.registerTool(
@@ -829,7 +841,13 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         .loose(),
       annotations: write,
     },
-    writeHandler("ask", (input, ctx) => ask(db, input as Parameters<typeof ask>[1], ctx)),
+    writeHandler("ask", async (input, ctx) => {
+      const out = (await ask(db, input as Parameters<typeof ask>[1], ctx)) as { question_id?: string };
+      // PLA-I32-4: a runner's question also lands in its project thread, where Jorge can answer it in line.
+      const i = input as { project: string; key: string; question: string };
+      if (out.question_id) await questionLine(db, ctx, { project: i.project, key: i.key, question: i.question, questionId: out.question_id }).catch(() => null);
+      return out;
+    }),
   );
 
   server.registerTool(
@@ -1147,6 +1165,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
   registerUsageTools(server, { db, identity, writeCtx, actor, request_id, run, readOnly, write });
   registerTemplateTools(server, { db, identity, writeCtx, actor, request_id, run, write });
   registerHeartbeatTools(server, { db, identity, writeCtx, actor, request_id, run, readOnly, write });
+  registerThreadTools(server, { db, identity, writeCtx, actor, request_id, run, readOnly, write });
 
   return server;
 }

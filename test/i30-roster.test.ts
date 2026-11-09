@@ -13,12 +13,10 @@ import { ORG, seedOrg } from "../scripts/seed-org.js";
 
 const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
-test("the journal's last entry is 0040_roster_no_cursor at idx 37 and the file exists", () => {
+test("the journal has 0040_roster_no_cursor at idx 37 and the file exists", () => {
   const journal = JSON.parse(readFileSync(path.join(dir, "meta/_journal.json"), "utf8")) as { entries: { idx: number; tag: string }[] };
-  const last = journal.entries.at(-1)!;
-  assert.equal(last.tag, "0040_roster_no_cursor");
-  assert.equal(last.idx, 37);
-  assert.equal(last.idx, journal.entries.length - 1);
+  const entry = journal.entries.find((e) => e.tag === "0040_roster_no_cursor")!;
+  assert.equal(entry.idx, 37);
   assert.equal(readdirSync(dir).filter((f) => f.startsWith("0040")).join(","), "0040_roster_no_cursor.sql");
 });
 
@@ -94,30 +92,30 @@ test("0040 applies twice on a throwaway copy, then the seed leaves only the real
       /heartbeat_runs_adapter_check/,
     );
 
+    // Later migrations (0041 onward) the schema reads, then the seed.
+    for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql") && f > "0040").sort()) await mig.query(readFileSync(path.join(dir, f), "utf8"));
     const db = drizzle(pool, { schema });
     const first = await seedOrg(db);
     assert.deepEqual(first.removed.sort(), ["claude-code", "coach", "cursor", "plania"]);
     const second = await seedOrg(db);
     assert.deepEqual([second.inserted, second.removed], [[], []]);
 
-    const { rows } = await mig.query<{ slug: string; name: string; role: string; title: string; adapter: string; reports_to: string | null }>(
-      `select a.slug, a.name, a.role, a.title, a.adapter, p.slug as reports_to from agents a left join agents p on p.id = a.reports_to order by a.slug`,
+    // PLA-I32-2 changed what the seed leaves (one team per project; test/i32-roster.test.ts proves it).
+    // What 0040 and the PLA-I30-1 cut still guarantee: no COO or CTO, one «Plania» row (its PO), and every
+    // bot on claude_code except the retired shared rows.
+    const { rows } = await mig.query<{ slug: string; name: string; role: string; adapter: string; status: string }>(
+      `select a.slug, a.name, a.role, a.adapter, a.status from agents a order by a.slug`,
     );
-    const bySlug = Object.fromEntries(rows.map((r) => [r.slug, r]));
-    assert.deepEqual(rows.map((r) => r.slug).sort(), ["artist", "asistente", "ceo", "filmia", "housi", "owner-plania", "po-mianovia", "research", "taller", "workia", "zigzag"]);
+    assert.equal(rows.some((r) => ["cursor", "claude-code", "coach", "plania"].includes(r.slug)), false);
     assert.equal(rows.filter((r) => r.name === "Plania").length, 1, "one Plania: its product owner");
-    assert.equal(rows.some((r) => ["coo", "cto"].includes(r.role)), false);
-    assert.deepEqual([bySlug.taller!.role, bySlug.taller!.title, bySlug.taller!.adapter, bySlug.taller!.reports_to], ["taller", "Builder", "claude_code", "ceo"]);
-    for (const po of ["housi", "workia", "filmia", "zigzag", "owner-plania", "po-mianovia"]) assert.equal(bySlug[po]!.reports_to, "ceo", po);
-    assert.equal(bySlug.asistente!.reports_to, "ceo");
-    assert.equal(bySlug.research!.reports_to, "asistente");
-    assert.equal(bySlug.artist!.reports_to, "asistente");
-    assert.equal(bySlug["po-mianovia"]!.name, "Bot Mianovia", "an existing name is kept");
-    for (const r of rows.filter((r) => r.slug !== "ceo")) assert.equal(r.adapter, "claude_code", r.slug);
+    assert.equal(rows.some((r) => r.status !== "retired" && ["coo", "cto"].includes(r.role)), false);
+    for (const r of rows.filter((r) => r.slug !== "ceo" && r.status !== "retired")) assert.equal(r.adapter, "claude_code", r.slug);
+    assert.equal(rows.find((r) => r.slug === "po-mianovia")!.name, "Bot Mianovia", "an existing name is kept");
 
-    // claude-code folded into taller: its ticket and runs moved, nothing cascaded away.
+    // claude-code folded into taller (now retired, history kept): its open ticket went on to the project's
+    // Taller, its run stayed with taller, nothing cascaded away.
     const owners = (await mig.query(`select t.key, a.slug from tasks t left join agents a on a.id = t.owner_agent order by t.key`)).rows;
-    assert.deepEqual(owners, [{ key: "DEM-1", slug: "taller" }, { key: "DEM-2", slug: null }]);
+    assert.deepEqual(owners, [{ key: "DEM-1", slug: "taller-demo" }, { key: "DEM-2", slug: null }]);
     assert.equal((await mig.query(`select count(*)::int as n from agent_runs where agent_id = $1`, [await id("taller")])).rows[0].n, 1);
     assert.equal((await mig.query(`select count(*)::int as n from heartbeat_runs`)).rows[0].n, 2);
   } finally {

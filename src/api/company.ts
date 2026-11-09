@@ -1,3 +1,6 @@
+// PLA-I32-6: GET /api/company and GET /api/company/projects/:slug serve the Plan's read contract
+// (src/api/company-org.ts); POST /api/company/projects/:slug/team {template} adds a team member; the runner's
+// plumbing (switches, budgets, guard, runs, log) is read from GET /api/machine. The writes below stay.
 // PLA-I29: the runner's screen routes. Jorge's session cookie only, like the delegation switch:
 // a Bearer (any agent token) is 403 even with a cookie, no cookie is 401. No MCP tool writes these.
 //   GET  /api/company                      the Compañía read (switches, budgets, runs, plan reading)
@@ -20,8 +23,9 @@ import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { createProjectFromTemplate } from "../runner/new-project.js";
 import { askPo, wakePo } from "./company-actions.js";
-import { companyExtras, projectSheet, promptDoc } from "./company-extra.js";
-import { ackUnknownUsage, companyState, setBudget, setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner/company.js";
+import { promptDoc } from "./company-extra.js";
+import { addTeamMember, companyRead, projectRead } from "./company-org.js";
+import { ackUnknownUsage, setBudget, setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner/company.js";
 
 export const companyRoutes = new Hono();
 
@@ -47,16 +51,28 @@ async function body<T extends z.ZodType>(c: Context, schema: T): Promise<z.infer
 
 const Paused = z.object({ paused: z.boolean() }).strict();
 
-companyRoutes.get("/", async (c) =>
-  c.json(await withDb(async (db) => ({ ...(await companyState(db)), ...(await companyExtras(db)) }))),
-);
+// PLA-I32-6: the read contract (src/api/company-org.ts). The runner's plumbing moved to GET /api/machine.
+companyRoutes.get("/", async (c) => c.json(await withDb((db) => companyRead(db))));
 
 companyRoutes.get("/projects/:slug", async (c) => {
   try {
-    return c.json(await withDb((db) => projectSheet(db, c.req.param("slug"))));
+    return c.json(await withDb((db) => projectRead(db, c.req.param("slug"))));
   } catch (e) {
     return fail(c, e);
   }
+});
+
+const TeamBody = z.object({ template: z.string().min(1).max(40) }).strict();
+
+companyRoutes.post("/projects/:slug/team", async (c) => {
+  const input = await body(c, TeamBody);
+  if (input instanceof Response) return input;
+  const out = await withDb((db) => addTeamMember(db, c.req.param("slug"), input.template.trim()));
+  if ("error" in out) {
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  return c.json(out, 201);
 });
 
 companyRoutes.get("/docs/:id", async (c) => {
@@ -87,7 +103,7 @@ companyRoutes.post("/projects/:slug/switch", async (c) => {
 
 const Budget = z
   .object({
-    scope: z.enum(["role", "project"]),
+    scope: z.enum(["role", "project", "asistente"]),
     role: z.string().min(1).max(40).optional(),
     project: z.string().min(1).max(80).optional(),
     weekly_limit: z.number().int().min(1).max(10_000_000_000).nullable(),
@@ -112,6 +128,7 @@ const Settings = z
     reserve_tokens: z.number().int().min(0).max(5_000_000).optional(),
     max_turns: z.number().int().min(1).max(500).optional(),
     timeout_minutes: z.number().int().min(1).max(600).optional(),
+    asistente_weekly_limit: z.number().int().min(1).max(10_000_000_000).nullable().optional(),
   })
   .strict();
 

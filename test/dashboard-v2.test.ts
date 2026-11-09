@@ -14,7 +14,7 @@ const { makeDb } = await import("../src/db/client.js");
 const { clearProgressCache } = await import("../src/mcp/progress.js");
 const { setGoal } = await import("../src/mcp/goals.js");
 const { webCtx } = await import("../src/mcp/tx.js");
-const { seedOrg } = await import("../scripts/seed-org.js");
+const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const writes = await import("../src/mcp/writes.js");
 const signals = await import("../src/mcp/ceo-signals.js");
 

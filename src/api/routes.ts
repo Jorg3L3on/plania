@@ -39,6 +39,8 @@ import { dashboardRoutes } from "./dashboard.js";
 import { usageRoutes } from "./usage.js";
 import { templateRoutes } from "./templates.js";
 import { companyRoutes } from "./company.js";
+import { plumbing } from "./company-org.js";
+import { threadRoutes } from "./threads.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
 // the MCP Bearer never opens it and the cookie never opens /mcp.
@@ -143,6 +145,8 @@ api.post("/delegated/reviewed", async (c) => {
 // PLA-I29: runner limits and kill switches. Mounted here, before the session check, so a Bearer
 // is told 403 (not 401): the cookie alone opens it (src/api/company.ts checks both).
 api.route("/company", companyRoutes);
+// PLA-I32-3: the threads, the same way (src/api/threads.ts).
+api.route("/threads", threadRoutes);
 
 // Everything below needs a valid session.
 api.use("*", async (c, next) => {
@@ -572,17 +576,19 @@ api.delete("/push/subscribe", async (c) => {
 // every unreleased row with its project, initiative, ticket and session, and the header totals.
 // Read-only: the screen never stops or deletes anything.
 api.get("/machine", async (c) => {
-  const { items, findings, backup } = await withDb(async (db) => {
+  const { items, findings, backup, runner } = await withDb(async (db) => {
     const backup = await backupStatus(db);
     return {
       items: await machineInventory(db),
       backup,
+      // PLA-I32-6: the runner's plumbing (budgets per project and Asistente, plan guard, switches, runs, log).
+      runner: await plumbing(db),
       // What no project audit can hold: rows without a project (Plania's own repo, shared servers, nobody's),
       // and the nightly backup.
       findings: [...backupFindings(backup), ...(await footprintFindings(db, { projectless: true }))],
     };
   });
-  return c.json({ machine: thisMachine(), totals: machineTotals(items), backup, findings, items });
+  return c.json({ machine: thisMachine(), totals: machineTotals(items), backup, findings, items, plumbing: runner });
 });
 
 // ---- Agent tokens (issued here only; the secret is shown once)

@@ -14,7 +14,7 @@ useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
-const { seedOrg } = await import("../scripts/seed-org.js");
+const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const writes = await import("../src/mcp/writes.js");
 const { runHeartbeat, wakeAgent } = await import("../src/jobs/heartbeat.js");
 const runner = await import("../src/runner/runner.js");
@@ -557,7 +557,7 @@ test("I29-6 #3: a run whose usage is unknown blocks the next run until Jorge ack
   await ready("micasa", "RUN-UNK");
   const res = await wake("taller", f.deps, "RUN-UNK");
   assert.equal(res.run!.status, "skipped");
-  assert.match(res.run!.summary, /BUDGET_STOPPED role taller \(usage unknown\)/);
+  assert.match(res.run!.summary, /BUDGET_STOPPED project micasa \(usage unknown\)/);
   assert.equal(f.spawned.length, 0);
   const id = (await raw.query(`select id from agent_runs where usage_known = false`)).rows[0].id;
   const ack = await app.request(`/api/company/runs/${id}/ack-usage`, { method: "POST", headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } });
@@ -588,9 +588,14 @@ test("I29-6 #4 and I29-8 #4: an agent token on any limit or switch write gets 40
   const none = await app.request("/api/company/switch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paused: true }) });
   assert.equal(none.status, 401);
   const jorge = { "Content-Type": "application/json", Cookie: `${SESSION_COOKIE}=${createSession()}` };
-  const set = await app.request("/api/company/budgets", { method: "PUT", headers: jorge, body: JSON.stringify({ scope: "role", role: "taller", weekly_limit: 123_456 }) });
+  // PLA-I32-6: role budgets are retired; Asistente has its own.
+  const role = await app.request("/api/company/budgets", { method: "PUT", headers: jorge, body: JSON.stringify({ scope: "role", role: "taller", weekly_limit: 123_456 }) });
+  assert.equal(role.status, 400);
+  const set = await app.request("/api/company/budgets", { method: "PUT", headers: jorge, body: JSON.stringify({ scope: "asistente", weekly_limit: 123_456 }) });
   assert.equal(set.status, 200);
-  assert.equal(Number((await raw.query(`select weekly_limit from token_budgets where role = 'taller'`)).rows[0].weekly_limit), 123_456);
+  assert.equal(Number((await raw.query(`select asistente_weekly_limit from runner_settings`)).rows[0].asistente_weekly_limit), 123_456);
+  const viaSettings = await app.request("/api/company/settings", { method: "PUT", headers: jorge, body: JSON.stringify({ asistente_weekly_limit: 654_321 }) });
+  assert.equal(((await viaSettings.json()) as { asistente_weekly_limit: number }).asistente_weekly_limit, 654_321);
   const guard = await app.request("/api/company/settings", { method: "PUT", headers: jorge, body: JSON.stringify({ plan_guard_pct: 65 }) });
   assert.equal(((await guard.json()) as { plan_guard_pct: number }).plan_guard_pct, 65);
 });
@@ -709,18 +714,24 @@ test("I29-8 #3: resuming the company leaves a self-paused project paused; new pr
   await app.request("/api/company/projects/micasa/switch", { method: "POST", headers: jorge(), body: JSON.stringify({ paused: true }) });
   await app.request("/api/company/switch", { method: "POST", headers: jorge(), body: JSON.stringify({ paused: true }) });
   await app.request("/api/company/switch", { method: "POST", headers: jorge(), body: JSON.stringify({ paused: false }) });
-  const res = await app.request("/api/company", { headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } });
-  const state = (await res.json()) as Awaited<ReturnType<typeof companyState>>;
+  const cookie = { Cookie: `${SESSION_COOKIE}=${createSession()}` };
+  // PLA-I32-6: GET /api/company is the Plan's read contract; the runner's plumbing is in GET /api/machine.
+  const state = (await (await app.request("/api/company", { headers: cookie })).json()) as {
+    company: { paused: boolean };
+    week: { timezone: string };
+    projects: { slug: string; paused: boolean; budget: Record<string, unknown> }[];
+  };
   assert.equal(state.company.paused, false);
   assert.equal(state.projects.find((p) => p.slug === "micasa")!.paused, true);
   assert.equal(state.projects.find((p) => p.slug === "workia")!.paused, false);
-  // The read API shape the Compañía page uses (PLA-I30 adds viewer, prompts, roster and project_facts; PLA-I31 adds brief).
-  assert.deepEqual(Object.keys(state).sort(), ["brief", "company", "plan", "project_facts", "projects", "prompts", "roles", "roster", "runs", "settings", "viewer", "week"]);
+  assert.deepEqual(Object.keys(state).sort(), ["asistente", "company", "plumbing", "projects", "week"]);
   assert.deepEqual(Object.keys(state.projects[0]!.budget).sort(), ["limit", "pct", "reason", "state", "used"]);
-  assert.deepEqual(state.roles.map((r) => r.role), ["product-owner", "taller", "research", "artist", "asistente"]);
-  assert.deepEqual(Object.keys(state.plan).sort(), ["five_hour_pct", "guard_pct", "read_at", "resets_at", "seven_day_pct", "seven_day_resets_at", "source", "state", "status"]);
-  assert.equal(state.plan.guard_pct, 70);
   assert.equal(state.week.timezone, "America/Mexico_City");
+  const machine = (await (await app.request("/api/machine", { headers: cookie })).json()) as { plumbing: Awaited<ReturnType<typeof companyState>> & { budgets: unknown; log: unknown } };
+  const plan = machine.plumbing.plan;
+  assert.deepEqual(Object.keys(plan).sort(), ["five_hour_pct", "guard_pct", "read_at", "resets_at", "seven_day_pct", "seven_day_resets_at", "source", "state", "status"]);
+  assert.equal(plan.guard_pct, 70);
+  assert.equal("roles" in machine.plumbing, false, "no role budgets anywhere");
   // A project created now starts paused (the column default PLA-I31-3 relies on).
   await raw.query(`insert into projects (slug, title, key_prefix) values ('nuevo', 'Nuevo', 'NUE')`);
   assert.equal((await raw.query(`select runs_paused from projects where slug = 'nuevo'`)).rows[0].runs_paused, true);

@@ -1,43 +1,22 @@
-// PLA-I30-2: Compañía at /ceo (frames 1a Mac, 1b phone, as overridden by the pinned decisions: no Pedir here,
-// Inicio stays at /). Order: greeting → banners → brief → Solo tú → Proyectos → En marcha + Gasto → kill switch.
-// Data: GET /api/dashboard (brief, queue, greeting) and GET /api/company (switches, budgets, runs, plan).
-// Each block loads and fails on its own (5b, 5c). Sheets live in the URL: ?p=<slug>, ?equipo, ?doc=<id>, ?nuevo.
+// PLA-I33-1: Compañía como organización (ADR 31c1cead, Design 3a2c3385). Jorge talks with Asistente and sees
+// each team working. Mac: the thread on the left (fixed width), team cards on the right in two columns.
+// Phone: the thread on top folded to its last message, cards in one column. Plumbing (budgets, guard,
+// switches, En marcha, run log) lives in Máquina; one line here links there.
+// Data: GET /api/company and GET /api/threads/:id. Each block loads and fails on its own.
+// URL: ?vista=<slug> previews a project, ?doc=<id> a doc, ?nuevo the new project dialog;
+// ?p=<slug> redirects to /p/<slug> and ?equipo to Máquina.
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useNavigate } from "react-router";
-import { toast } from "sonner";
-import { Brief, Queue } from "@/components/dashboard/ceo-v2";
-import {
-  BlockError,
-  BriefSkeleton,
-  Banners,
-  CardsSkeleton,
-  CompanyPill,
-  EnMarcha,
-  Gasto,
-  KillSwitch,
-  ProjectCards,
-  SideSkeleton,
-  StopBody,
-  type CardItem,
-} from "@/components/compania/parts";
-import {
-  EquipoSheetBody,
-  LimitForm,
-  NewProjectDone,
-  NewProjectForm,
-  ProjectSheetBody,
-  PromptDocBody,
-  limitTitle,
-  type LimitTarget,
-  type AskState,
-  type NewProjectState,
-} from "@/components/compania/sheets";
-import { GoalDialog } from "@/components/goals/goal-dialog";
+import { Navigate, useLocation, useNavigate } from "react-router";
+import { BlockError } from "@/components/compania/parts";
+import { CompanyPlumbing, ProjectPreview, TeamCards, TeamCardsSkeleton, ThreadPanel, ThreadSkeleton } from "@/components/compania/org";
+import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
+import { useThread } from "@/components/compania/use-thread";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ApiError, api } from "@/lib/api";
-import { bannersOf, byHealth, healthOf, pillOf, sheetOf, wakeWord } from "@/lib/compania";
+import { ceoRedirect, sheetOf } from "@/lib/compania";
+import { byLight } from "@/lib/org";
 import { greeting } from "@/lib/greeting";
 
 const dayLabel = (timeZone: string) =>
@@ -45,7 +24,7 @@ const dayLabel = (timeZone: string) =>
     .format(new Date())
     .replace(/^./, (l) => l.toUpperCase());
 
-const useWide = () => {
+export const useWide = () => {
   const [wide, setWide] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 640px)").matches);
   useEffect(() => {
     const query = window.matchMedia("(min-width: 640px)");
@@ -56,98 +35,62 @@ const useWide = () => {
   return wide;
 };
 
-// Clocks tick only while something runs.
-const useNow = (ticking: boolean) => {
+// "hace 5 min" keeps moving without a refetch.
+export const useMinute = () => {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    setNow(Date.now());
-    if (!ticking) return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    const id = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(id);
-  }, [ticking]);
+  }, []);
   return now;
 };
-
-const titleCase = (slug: string) => (slug === "micasa" ? "MiCasa" : slug === "zigzag" ? "ZigZag" : slug.charAt(0).toUpperCase() + slug.slice(1));
-
-type StopScope = { kind: "company" } | { kind: "project"; slug: string; title: string };
 
 const sheetClass = "max-h-[92svh] overflow-y-auto bg-background sm:max-h-none data-[side=right]:sm:max-w-[560px]";
 
 export const CeoPage = () => {
+  const location = useLocation();
+  // Old links: the project sheet is now the project page, the Equipo sheet now lives in Máquina.
+  const to = ceoRedirect(location.search);
+  return to ? <Navigate to={to} replace /> : <Compania />;
+};
+
+const Compania = () => {
   const client = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
   const wide = useWide();
-  const dash = useQuery({ queryKey: ["dashboard"], queryFn: api.dashboard, staleTime: 15_000 });
+  const now = useMinute();
   const comp = useQuery({ queryKey: ["company"], queryFn: api.company, staleTime: 10_000, refetchInterval: 20_000 });
   const company = comp.data;
-  const now = useNow((company?.runs.live.length ?? 0) > 0);
   const sheet = sheetOf(location.search);
-  const [stop, setStop] = useState<StopScope | null>(null);
-  const [limit, setLimit] = useState<LimitTarget | null>(null);
-  const [goalFor, setGoalFor] = useState<string | null>(null);
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState<NewProjectState>({ kind: "idle" });
-  const [ask, setAsk] = useState<AskState>({ kind: "idle" });
-  const [wakeText, setWakeText] = useState<string | null>(null);
 
-  const timeZone = dash.data?.timezone ?? company?.week.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const timeZone = company?.week.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const { hello, subtitle } = greeting(timeZone);
-  const canEdit = company?.viewer?.can_edit_limits ?? true;
+  const asistente = useThread(company?.asistente.thread_id, { who: "Asistente", invalidate: [["company"]] });
+  const previewSlug = sheet?.kind === "vista" ? sheet.slug : null;
+  const previewProject = previewSlug ? company?.projects.find((p) => p.slug === previewSlug) : undefined;
+  const previewThread = useQuery({
+    queryKey: ["thread", previewProject?.thread.id],
+    queryFn: () => api.thread(previewProject!.thread.id),
+    enabled: !!previewProject?.thread.id,
+  });
+  const doc = useQuery({
+    queryKey: ["prompt-doc", sheet?.kind === "doc" ? sheet.id : ""],
+    queryFn: () => api.promptDoc(sheet?.kind === "doc" ? sheet.id : ""),
+    enabled: sheet?.kind === "doc",
+  });
 
-  const projectTitle = useMemo(() => {
-    const names = new Map((company?.projects ?? []).map((p) => [p.slug, p.title]));
-    return (slug: string) => names.get(slug) ?? titleCase(slug);
-  }, [company]);
-
-  // /goals lands on #proyectos.
-  useEffect(() => {
-    if (location.hash !== "#proyectos" || !company) return;
-    document.getElementById("proyectos")?.scrollIntoView({ block: "start" });
-  }, [location.hash, company]);
-
+  const projects = useMemo(() => [...(company?.projects ?? [])].sort(byLight), [company]);
   const openSheet = (search: string) => navigate({ pathname: "/ceo", search });
   const closeSheet = () => navigate({ pathname: "/ceo", search: "" }, { replace: true });
 
-  const refresh = () => void client.invalidateQueries({ queryKey: ["company"] });
-  const companySwitch = useMutation({
-    mutationFn: (paused: boolean) => api.setCompanyPaused(paused),
-    onSuccess: (r) => {
-      toast(r.paused ? `Compañía detenida${r.stopped ? ` · ${r.stopped} corridas cerrándose` : ""}` : "Compañía en marcha");
-      setStop(null);
-      refresh();
-    },
-    onError: () => toast.error("No se pudo cambiar el interruptor"),
-  });
-  const projectSwitch = useMutation({
-    mutationFn: ({ slug, paused }: { slug: string; paused: boolean }) => api.setProjectPaused(slug, paused),
-    onSuccess: (r) => {
-      toast(r.paused ? `${projectTitle(r.project)} en pausa` : `${projectTitle(r.project)} reanudado`);
-      setStop(null);
-      refresh();
-    },
-    onError: () => toast.error("No se pudo cambiar el interruptor del proyecto"),
-  });
-  const saveLimit = useMutation({
-    mutationFn: async ({ target, value }: { target: LimitTarget; value: number | null }) => {
-      if (target.kind === "guard") return api.setRunnerSettings({ plan_guard_pct: value ?? target.current });
-      if (target.kind === "role") return api.setBudget({ scope: "role", role: target.role, weekly_limit: value });
-      return api.setBudget({ scope: "project", project: target.slug, weekly_limit: value });
-    },
-    onSuccess: () => {
-      toast("Guardado");
-      setLimit(null);
-      refresh();
-    },
-    onError: () => toast.error("No se pudo guardar"),
-  });
   const createProject = useMutation({
     mutationFn: (input: { name: string; goal: string }) => api.createCompanyProject(input),
     onMutate: () => setCreating({ kind: "busy" }),
     onSuccess: (result, input) => {
       setCreating({ kind: "done", result, name: input.name, goal: input.goal });
-      refresh();
+      void client.invalidateQueries({ queryKey: ["company"] });
     },
     onError: (e) => {
       if (e instanceof ApiError && (e.status === 404 || e.status === 405)) setCreating({ kind: "missing" });
@@ -155,179 +98,70 @@ export const CeoPage = () => {
     },
   });
 
-  // PLA-I30-6/7: the sheet's two actions. Refusals come back as 409 with a code.
-  const REFUSAL: Record<string, string> = {
-    PROJECT_PAUSED: "El proyecto está en pausa: reanúdalo primero.",
-    COMPANY_PAUSED: "La compañía está detenida.",
-    NO_PO: "Este proyecto no tiene un PO que corra en Claude Code.",
-  };
-  const refusal = (e: unknown, what: string) => (e instanceof ApiError ? (REFUSAL[e.code] ?? `${what} (${e.code}).`) : `${what}.`);
-  const refreshSheet = () => {
-    refresh();
-    void client.invalidateQueries({ queryKey: ["company-project"] });
-    void client.invalidateQueries({ queryKey: ["dashboard"] });
-  };
-  const askPo = useMutation({
-    mutationFn: ({ slug, text }: { slug: string; text: string }) => api.askPo(slug, text),
-    onMutate: () => setAsk({ kind: "busy" }),
-    onSuccess: (r) => {
-      setAsk({ kind: "done", key: r.key, wake: r.wake });
-      setWakeText(null);
-      refreshSheet();
-    },
-    onError: (e) => setAsk({ kind: "error", message: refusal(e, "No se pudo pedir") }),
-  });
-  const wakePo = useMutation({
-    mutationFn: (slug: string) => api.wakePo(slug),
-    onMutate: () => setWakeText(null),
-    onSuccess: (r) => {
-      setWakeText(wakeWord(r));
-      refreshSheet();
-    },
-    onError: (e) => setWakeText(refusal(e, "No se pudo despertar")),
-  });
-  useEffect(() => {
-    setAsk({ kind: "idle" });
-    setWakeText(null);
-  }, [sheet?.kind === "project" ? sheet.slug : null]);
-
-  const projectSheet = useQuery({
-    queryKey: ["company-project", sheet?.kind === "project" ? sheet.slug : ""],
-    queryFn: () => api.companyProject(sheet?.kind === "project" ? sheet.slug : ""),
-    enabled: sheet?.kind === "project",
-  });
-  const doc = useQuery({
-    queryKey: ["prompt-doc", sheet?.kind === "doc" ? sheet.id : ""],
-    queryFn: () => api.promptDoc(sheet?.kind === "doc" ? sheet.id : ""),
-    enabled: sheet?.kind === "doc",
-  });
-  const goals = useQuery({ queryKey: ["goals"], queryFn: () => api.goals(), enabled: goalFor !== null });
-
-  const needsJorge = useMemo(
-    () => new Set((dash.data?.queue ?? []).filter((q) => q.kind === "decidir" || q.kind === "atorado").map((q) => q.project)),
-    [dash.data],
-  );
-  const cards: CardItem[] = useMemo(() => {
-    if (!company) return [];
-    return company.projects
-      .map((project) => {
-        const facts = company.project_facts?.[project.slug];
-        return { project, facts, health: healthOf(project, facts, { companyPaused: company.company.paused, needsJorge: needsJorge.has(project.slug), now }) };
-      })
-      .sort(byHealth);
-  }, [company, needsJorge, now]);
-
-  const pill = pillOf(company, comp.isError);
-  const banners = company ? bannersOf(company) : [];
-  const liveRuns = company?.runs.live ?? [];
-  const sheetProject = sheet?.kind === "project" ? company?.projects.find((p) => p.slug === sheet.slug) : undefined;
-  const sheetCard = sheetProject ? cards.find((c) => c.project.slug === sheetProject.slug) : undefined;
-
-  const onPill = () => {
-    if (!company) return void comp.refetch();
-    if (company.company.paused) return companySwitch.mutate(false);
-    setStop({ kind: "company" });
-  };
-
   return (
-    <div className="mx-auto grid w-full max-w-6xl gap-5">
-      <header className="grid gap-1">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 className="font-display text-4xl leading-[0.95] font-extrabold tracking-[-0.03em] sm:text-5xl">
-            {company && company.projects.length === 0 ? "Hola" : hello}, {dash.data?.name ?? "Jorge"}
-          </h1>
-          <CompanyPill pill={pill} onClick={onPill} />
+    <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-5">
+      <header className="grid min-w-0 gap-1">
+        <h1 className="font-display text-4xl leading-[0.95] font-extrabold tracking-[-0.03em] sm:text-5xl">
+          {company && company.projects.length === 0 ? "Hola" : hello}, Jorge
+        </h1>
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <p className="text-sm text-muted-foreground">
+            {dayLabel(timeZone)} · {subtitle}
+          </p>
+          {company && <CompanyPlumbing plumbing={company.plumbing} />}
         </div>
-        <p className="text-sm text-muted-foreground">
-          {dayLabel(timeZone)} · {subtitle}
-        </p>
+        {company?.company.paused && (
+          <p role="status" data-banner="paused" className="mt-2 rounded-[16px] bg-surface-sunken px-4 py-2.5 text-sm ring-1 ring-foreground/15">
+            La compañía está detenida: nada arranca. Se reanuda en Máquina.
+          </p>
+        )}
       </header>
 
       {comp.isError && !company && <BlockError what="la compañía" onRetry={() => void comp.refetch()} />}
-      {company && (
-        <Banners
-          banners={banners}
-          canEdit={canEdit}
-          timeZone={timeZone}
-          dismissed={dismissed}
-          onDismiss={(slug) => setDismissed(new Set([...dismissed, slug]))}
-          onResume={() => companySwitch.mutate(false)}
-          onRaise={(p) => setLimit({ kind: "project", slug: p.slug, title: p.title, current: p.budget.limit })}
-          onMoveGuard={() => setLimit({ kind: "guard", current: company.plan.guard_pct })}
-          onSeeSpend={() => document.getElementById("gasto")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-        />
-      )}
 
-      {dash.isPending ? (
-        <BriefSkeleton />
-      ) : dash.isError || !dash.data ? (
-        <BlockError what="el brief" onRetry={() => void dash.refetch()} />
-      ) : (
-        <>
-          <Brief lines={dash.data.brief} title="Brief de hoy" sign="Asistente · jefa de gabinete" />
-          <Queue items={dash.data.queue} title="Solo tú" note="Nada se detiene por esto: el equipo sigue con lo demás." onAssign={() => navigate("/inbox")} />
-        </>
-      )}
+      <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
+        <div className="min-w-0 lg:sticky lg:top-20">
+          {comp.isPending ? (
+            <ThreadSkeleton />
+          ) : company ? (
+            <ThreadPanel
+              title="Asistente"
+              subtitle={<p className="-mt-2 text-xs text-muted-foreground">Tu canal con la compañía. Dile qué quieres y a qué proyecto.</p>}
+              project={null}
+              now={now}
+              timeZone={timeZone}
+              placeholder="Dile a Asistente…"
+              {...asistente}
+            />
+          ) : null}
+        </div>
+        <div className="min-w-0">
+          {comp.isPending ? (
+            <TeamCardsSkeleton />
+          ) : company ? (
+            <TeamCards
+              projects={projects}
+              now={now}
+              onPreview={(slug) => openSheet(`?vista=${encodeURIComponent(slug)}`)}
+              onNew={() => {
+                setCreating({ kind: "idle" });
+                openSheet("?nuevo");
+              }}
+            />
+          ) : null}
+        </div>
+      </div>
 
-      {comp.isPending ? (
-        <CardsSkeleton />
-      ) : company ? (
-        <ProjectCards
-          items={cards}
-          now={now}
-          onOpen={(slug) => openSheet(`?p=${encodeURIComponent(slug)}`)}
-          onResume={(slug) => projectSwitch.mutate({ slug, paused: false })}
-          onWriteGoal={(slug) => setGoalFor(slug)}
-          onNew={() => {
-            setCreating({ kind: "idle" });
-            openSheet("?nuevo");
-          }}
-          onEquipo={() => openSheet("?equipo")}
-        />
-      ) : null}
-
-      {comp.isPending ? (
-        <SideSkeleton />
-      ) : company ? (
-        <>
-          <div className="grid items-start gap-4 lg:grid-cols-2">
-            <EnMarcha company={company} now={now} projectTitle={projectTitle} />
-            <Gasto company={company} canEdit={canEdit} projectTitle={projectTitle} onMoveGuard={() => setLimit({ kind: "guard", current: company.plan.guard_pct })} />
-          </div>
-          <KillSwitch company={company} onStop={() => setStop({ kind: "company" })} onResume={() => companySwitch.mutate(false)} />
-        </>
-      ) : null}
-
-      {/* Project sheet (2a side, 2b bottom) */}
-      <Sheet open={sheet?.kind === "project"} onOpenChange={(open) => !open && closeSheet()}>
+      {/* Vista previa: header, team, last 3 messages, Abrir */}
+      <Sheet open={sheet?.kind === "vista"} onOpenChange={(open) => !open && closeSheet()}>
         <SheetContent side={wide ? "right" : "bottom"} className={sheetClass}>
           <SheetHeader className="pr-10">
-            <SheetTitle className="font-display text-2xl font-extrabold tracking-tight break-words">
-              {sheetProject?.title ?? (sheet?.kind === "project" ? titleCase(sheet.slug) : "")}
-            </SheetTitle>
-            <SheetDescription className="sr-only">Hoja del proyecto</SheetDescription>
+            <SheetTitle className="font-display text-2xl font-extrabold tracking-tight break-words">{previewProject?.title ?? previewSlug ?? ""}</SheetTitle>
+            <SheetDescription className="sr-only">Vista previa del proyecto</SheetDescription>
           </SheetHeader>
           <div className="px-4 pb-8">
-            {sheetProject && sheetCard && company ? (
-              <ProjectSheetBody
-                project={sheetProject}
-                facts={sheetCard.facts}
-                health={sheetCard.health}
-                sheet={projectSheet.data}
-                sheetError={projectSheet.isError}
-                onRetry={() => void projectSheet.refetch()}
-                canEdit={canEdit}
-                companyPaused={company.company.paused}
-                now={now}
-                onEditBudget={() => setLimit({ kind: "project", slug: sheetProject.slug, title: sheetProject.title, current: sheetProject.budget.limit })}
-                onEditGoal={() => setGoalFor(sheetProject.slug)}
-                onPause={() => setStop({ kind: "project", slug: sheetProject.slug, title: sheetProject.title })}
-                onResume={() => projectSwitch.mutate({ slug: sheetProject.slug, paused: false })}
-                ask={ask}
-                onAsk={(text) => askPo.mutate({ slug: sheetProject.slug, text })}
-                wake={{ busy: wakePo.isPending, text: wakeText }}
-                onWake={() => wakePo.mutate(sheetProject.slug)}
-              />
+            {previewProject ? (
+              <ProjectPreview project={previewProject} messages={previewThread.data?.messages ?? []} now={now} timeZone={timeZone} />
             ) : comp.isPending ? (
               <div className="h-40 animate-pulse rounded-xl bg-muted" />
             ) : (
@@ -337,41 +171,18 @@ export const CeoPage = () => {
         </SheetContent>
       </Sheet>
 
-      {/* Equipo sheet (3a / 3b) */}
-      <Sheet open={sheet?.kind === "equipo"} onOpenChange={(open) => !open && closeSheet()}>
-        <SheetContent side={wide ? "right" : "bottom"} className={sheetClass}>
-          <SheetHeader className="pr-10">
-            <SheetTitle className="font-display text-2xl font-extrabold tracking-tight">Equipo</SheetTitle>
-            <SheetDescription>Los roles reales, en Claude Code. Cada uno lee su prompt de Plania.</SheetDescription>
-          </SheetHeader>
-          <div className="px-4 pb-8">
-            {company ? (
-              <EquipoSheetBody
-                company={company}
-                canEdit={canEdit}
-                now={now}
-                projectTitle={projectTitle}
-                onEditBudget={(role) => setLimit({ kind: "role", role, current: company.roles.find((r) => r.role === role)?.budget.limit ?? null })}
-              />
-            ) : (
-              <div className="h-40 animate-pulse rounded-xl bg-muted" />
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      {/* Prompt ↗ */}
+      {/* A doc linked from a message or a role row */}
       <Sheet open={sheet?.kind === "doc"} onOpenChange={(open) => !open && closeSheet()}>
         <SheetContent side={wide ? "right" : "bottom"} className={sheetClass}>
           <SheetHeader className="pr-10">
-            <SheetTitle className="font-display text-xl font-extrabold tracking-tight">{doc.data?.title ?? "Prompt"}</SheetTitle>
-            <SheetDescription className="sr-only">Prompt del rol</SheetDescription>
+            <SheetTitle className="font-display text-xl font-extrabold tracking-tight">{doc.data?.title ?? "Doc"}</SheetTitle>
+            <SheetDescription className="sr-only">Documento</SheetDescription>
           </SheetHeader>
           <div className="px-4 pb-8">
             {doc.data ? (
               <PromptDocBody doc={doc.data} />
             ) : doc.isError ? (
-              <BlockError what="el prompt" onRetry={() => void doc.refetch()} />
+              <BlockError what="el doc" onRetry={() => void doc.refetch()} />
             ) : (
               <div className="h-40 animate-pulse rounded-xl bg-muted" />
             )}
@@ -387,67 +198,16 @@ export const CeoPage = () => {
               {creating.kind === "done" ? `${creating.name} está listo` : "Nuevo proyecto"}
             </DialogTitle>
             <DialogDescription>
-              {creating.kind === "done" ? "Alguien ya está a cargo: su product owner." : "Un nombre y una meta. Lo demás tiene valores por defecto."}
+              {creating.kind === "done" ? "Llega con su equipo: PO, Research, Artist y Taller." : "Un nombre y una meta. Lo demás tiene valores por defecto."}
             </DialogDescription>
           </DialogHeader>
           {creating.kind === "done" ? (
-            <NewProjectDone state={creating} onOpen={(slug) => openSheet(`?p=${encodeURIComponent(slug)}`)} onClose={closeSheet} />
+            <NewProjectDone state={creating} onOpen={(slug) => navigate(`/p/${encodeURIComponent(slug)}`)} onClose={closeSheet} />
           ) : (
             <NewProjectForm state={creating} onSubmit={(input) => createProject.mutate(input)} onCancel={closeSheet} />
           )}
         </DialogContent>
       </Dialog>
-
-      {/* 5i: stop the company or pause a project */}
-      <Sheet open={stop !== null} onOpenChange={(open) => !open && setStop(null)}>
-        <SheetContent side="bottom" className="mx-auto max-h-[85svh] w-full max-w-xl overflow-y-auto rounded-t-[22px] bg-background">
-          <SheetHeader className="pr-10">
-            <SheetTitle className="font-display text-2xl font-extrabold tracking-tight">
-              {stop?.kind === "project" ? `¿Pausar ${stop.title}?` : "¿Detener la compañía?"}
-            </SheetTitle>
-            <SheetDescription>Se puede deshacer: reanudas cuando quieras.</SheetDescription>
-          </SheetHeader>
-          <div className="px-4 pb-8">
-            {stop && (
-              <StopBody
-                scope={stop}
-                runs={liveRuns}
-                projectTitle={projectTitle}
-                busy={companySwitch.isPending || projectSwitch.isPending}
-                onCancel={() => setStop(null)}
-                onConfirm={() => (stop.kind === "company" ? companySwitch.mutate(true) : projectSwitch.mutate({ slug: stop.slug, paused: true }))}
-              />
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      {/* Jorge-only limits */}
-      <Dialog open={limit !== null} onOpenChange={(open) => !open && setLimit(null)}>
-        <DialogContent className="bg-background sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-display text-xl font-extrabold tracking-tight">{limit ? limitTitle(limit) : ""}</DialogTitle>
-            <DialogDescription>Solo tú cambias límites. Los agentes no pueden.</DialogDescription>
-          </DialogHeader>
-          {limit && <LimitForm target={limit} busy={saveLimit.isPending} onCancel={() => setLimit(null)} onSave={(value) => saveLimit.mutate({ target: limit, value })} />}
-        </DialogContent>
-      </Dialog>
-
-      {goalFor !== null && (
-        <GoalDialog
-          open
-          fixedProject={goalFor}
-          goal={(goals.data?.goals ?? []).find((g) => g.project === goalFor && g.status === "active") ?? null}
-          projects={(company?.projects ?? []).map((p) => ({ slug: p.slug, title: p.title }))}
-          parents={(goals.data?.goals ?? []).filter((g) => g.project === null)}
-          onOpenChange={(open) => {
-            if (open) return;
-            setGoalFor(null);
-            refresh();
-            void client.invalidateQueries({ queryKey: ["company-project"] });
-          }}
-        />
-      )}
     </div>
   );
 };

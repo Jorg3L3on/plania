@@ -4,7 +4,7 @@
 //   POST /api/company/projects/:slug/wake         Despertar ahora: one wake of po-<slug> through wakeAgent,
 //        only when the PO has Ready work in this project; otherwise {woke: false, reason: "idle"} and no run.
 // Both refuse a paused project or company, and a project without a runner PO, with 409 and a reason.
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { agentRuns, agents, projects, type Agent } from "../db/schema.js";
 import { loadReady, pickReady, wakeAgent, type HeartbeatDeps } from "../jobs/heartbeat.js";
@@ -15,42 +15,59 @@ import { loadSettings, roleOf } from "../runner/limits.js";
 
 export type ActionRefusal = { error: "PROJECT_NOT_FOUND" | "PROJECT_PAUSED" | "COMPANY_PAUSED" | "NO_PO"; status: 404 | 409; hint: string };
 
-type Gate = { project: { id: string; slug: string }; po: Agent };
+// PLA-I32-2: the PO of a project is the runner agent on its team (project_id) made from the product-owner
+// template; a row from before 0041 is still found by po-<slug> or a capability naming the project.
+export async function projectPo(db: Db, project: { id: string; slug: string }): Promise<Agent | null> {
+  const rows = await db.select().from(agents).where(and(eq(agents.adapter, "claude_code"), sql`${agents.status} <> 'retired'`));
+  const pos = rows.filter((a) => roleOf(a) === "product-owner");
+  return (
+    pos.find((a) => a.projectId === project.id) ??
+    pos.find((a) => !a.projectId && (a.slug === `po-${project.slug}` || a.capabilities.includes(project.slug))) ??
+    null
+  );
+}
 
-async function gate(db: Db, slug: string): Promise<Gate | ActionRefusal> {
+type Guard = { project: { id: string; slug: string }; po: Agent };
+
+async function guard(db: Db, slug: string): Promise<Guard | ActionRefusal> {
   const [project] = await db.select({ id: projects.id, slug: projects.slug, paused: projects.runsPaused }).from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!project) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   if ((await loadSettings(db)).companyPaused) return { error: "COMPANY_PAUSED", status: 409, hint: "La compañía está detenida." };
   if (project.paused) return { error: "PROJECT_PAUSED", status: 409, hint: "El proyecto está en pausa: reanúdalo primero." };
-  const rows = await db.select().from(agents).where(eq(agents.adapter, "claude_code"));
-  const po = rows.find((a) => roleOf(a) === "product-owner" && (a.slug === `po-${slug}` || a.capabilities.includes(slug)));
+  const po = await projectPo(db, project);
   if (!po) return { error: "NO_PO", status: 409, hint: "Este proyecto no tiene un PO que corra en Claude Code." };
   return { project: { id: project.id, slug: project.slug }, po };
 }
 
-const firstLine = (text: string) => {
+export const firstLine = (text: string) => {
   const line = text.trim().split("\n")[0]!.trim();
   return line.length > 120 ? `${line.slice(0, 117)}…` : line;
 };
 
 export type AskResult = { key: string; title: string; po: string; wake: "queued" | "busy" | "off" };
 
-export async function askPo(db: Db, slug: string, text: string): Promise<AskResult | ActionRefusal> {
-  const g = await gate(db, slug);
-  if ("error" in g) return g;
+// A Ready ticket owned by the project's PO, origin jorge; the event hook queues the PO's wake in the same
+// write. wake says what happened: queued (on this ticket), busy (the PO already has a run), off (no wakes).
+export async function createPoTicket(
+  db: Db,
+  project: { slug: string },
+  po: Agent,
+  text: string,
+  from = "Compañía",
+): Promise<{ key: string; title: string; wake: "queued" | "busy" | "off" }> {
   const sentence = text.trim();
   const out = (await createTask(
     db,
     {
-      project: g.project.slug,
+      project: project.slug,
       title: firstLine(sentence),
       status: "Ready",
       origin: "jorge",
       work_type: "ops",
       priority: "P2",
-      owner_agent: g.po.slug,
+      owner_agent: po.slug,
       scope: [
-        `Pedido de Jorge desde Compañía: "${sentence}"`,
+        `Pedido de Jorge desde ${from}: "${sentence}"`,
         "",
         "Para el PO: escribe el alcance real y los checks de este ticket antes de empezar. Si es trabajo de PO (docs, plan, ideas), hazlo aquí. Si hace falta código, crea tickets Listos para Taller y cierra este con lo que dejaste.",
       ].join("\n"),
@@ -61,16 +78,23 @@ export async function askPo(db: Db, slug: string, text: string): Promise<AskResu
   const [run] = await db
     .select({ id: agentRuns.id, taskKey: agentRuns.taskKey })
     .from(agentRuns)
-    .where(and(eq(agentRuns.agentId, g.po.id), inArray(agentRuns.status, ["queued", "running"])))
+    .where(and(eq(agentRuns.agentId, po.id), inArray(agentRuns.status, ["queued", "running"])))
     .limit(1);
   const wake = !eventWakesEnabled() ? "off" : run?.taskKey === out.key ? "queued" : run ? "busy" : "off";
-  return { key: out.key, title: firstLine(sentence), po: g.po.slug, wake };
+  return { key: out.key, title: firstLine(sentence), wake };
+}
+
+export async function askPo(db: Db, slug: string, text: string): Promise<AskResult | ActionRefusal> {
+  const g = await guard(db, slug);
+  if ("error" in g) return g;
+  const made = await createPoTicket(db, g.project, g.po, text);
+  return { key: made.key, title: made.title, po: g.po.slug, wake: made.wake };
 }
 
 export type WakeOutcome = { woke: boolean; reason: string; ticket: string | null; summary: string };
 
 export async function wakePo(db: Db, slug: string, deps?: HeartbeatDeps): Promise<WakeOutcome | ActionRefusal> {
-  const g = await gate(db, slug);
+  const g = await guard(db, slug);
   if ("error" in g) return g;
   const work = pickReady(g.po, (await loadReady(db)).filter((r) => r.project === g.project.slug));
   if (!work) return { woke: false, reason: "idle", ticket: null, summary: "Sin trabajo para el PO: pídele algo." };

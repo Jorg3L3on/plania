@@ -1,12 +1,10 @@
-// PLA-I30: Compañía's model. GET /api/company (shape: decision 39f884b4 on PLA-I29, plus the PLA-I30 extras)
-// and the rules the screen applies to it. Pure and relative imports only, so test/compania.test.ts loads it
-// with node:test. Spend is tokens and % of the plan window, never money.
+// PLA-I30 Compañía's model, kept for the plumbing (budgets, plan, runs) that moved to Máquina in PLA-I33
+// and for the shared words and numbers. The organization's shapes (PLA-I33) are in api.ts and org.ts.
+// Pure and relative imports only, so test/compania.test.ts loads it with node:test. Tokens, never money.
 
 export type BudgetState = "ok" | "warn" | "stopped";
 export type Budget = { used: number; limit: number | null; pct: number | null; state: BudgetState; reason: "unset" | "usage_unknown" | null };
 export type RunnerRole = "product-owner" | "taller" | "research" | "artist" | "asistente";
-export const RUNNER_ROLES: RunnerRole[] = ["asistente", "product-owner", "taller", "research", "artist"];
-
 export type CompanyRun = {
   id: string;
   agent: string;
@@ -85,6 +83,9 @@ export type Company = {
   project_facts?: Record<string, ProjectFacts>;
 };
 
+// PLA-I33: what the plumbing blocks read. GET /api/company used to carry it; Máquina's plumbing does now.
+export type Plumbed = Pick<Company, "company" | "settings" | "week" | "projects" | "runs" | "plan">;
+
 export type ProjectSheetData = {
   slug: string;
   title: string;
@@ -97,19 +98,6 @@ export type ProjectSheetData = {
   bot_work?: number;
 };
 
-// PLA-I30-6/7: the sheet's two actions.
-export type AskResult = { key: string; title: string; po: string; wake: "queued" | "busy" | "off" };
-export type WakeOutcome = { woke: boolean; reason: string; ticket: string | null; summary: string };
-export function wakeWord(out: WakeOutcome): string {
-  if (out.reason === "idle") return "Sin trabajo para el PO: pídele algo.";
-  if (out.reason === "queued") return `En espera de turno · ${out.ticket ?? ""}`.trim();
-  if (out.reason === "coalesced") return "Ya tiene una corrida en curso o en espera.";
-  if (out.reason === "cadence") return "Acaba de despertar; espera un momento.";
-  if (out.summary.startsWith("skipped")) return `No arrancó: ${out.summary.replace(/^skipped:\s*/, "")}`;
-  if (out.summary.startsWith("fail")) return `Falló: ${out.summary.replace(/^fail:\s*/, "")}`;
-  return out.woke ? `Despertó · ${out.ticket ?? ""}`.trim() : out.summary || out.reason;
-}
-
 export type NewProjectResult = { slug: string; key_prefix: string; paused: true; po: string; prompt_doc_id: string | null };
 
 // ---- words and numbers
@@ -121,24 +109,9 @@ export const ROLE_LABEL: Record<RunnerRole, string> = {
   research: "Research",
   artist: "Artist",
 };
-export const ROLE_NOTE: Record<RunnerRole, string> = {
-  asistente: "jefa de gabinete",
-  "product-owner": "uno por proyecto",
-  taller: "construye",
-  research: "servicio",
-  artist: "servicio",
-};
 const ROLE_SHORT: Record<string, string> = { asistente: "As", "product-owner": "PO", taller: "T", research: "R", artist: "Ar" };
 export const roleInitials = (role: string) => ROLE_SHORT[role] ?? role.slice(0, 2);
 export const roleWord = (role: string) => (role === "product-owner" ? "PO" : (ROLE_LABEL[role as RunnerRole] ?? role));
-
-export const STAGE_LABEL: Record<ProjectSheetData["pipeline"][number]["stage"], string> = {
-  idea: "Idea",
-  research: "Research",
-  design: "Diseño",
-  planning: "Planeación",
-  ready: "Lista",
-};
 
 // 1.18M, 640k, 820. es-MX writes the decimal point as ".".
 export function tokens(n: number): string {
@@ -192,55 +165,14 @@ export function ago(iso: string | null, now: number): string {
   return `hace ${Math.round(h / 24)} días`;
 }
 
-// ---- health of a project card (Design 1a): green Bien; amber quiet > 48 h, ≥80% or no limit;
-// red Te necesita (an escalation waits on Jorge) or Detenido (100%); grey En pausa.
-
-export type Health = { tone: Tone; word: string; reason: "paused" | "company" | "stopped" | "needs" | "warn" | "unset" | "unknown" | "quiet" | "nogoal" | "nowork" | "ok" };
-export const QUIET_MS = 48 * 3_600_000;
-
-export function healthOf(
-  project: CompanyProjectRow,
-  facts: ProjectFacts | undefined,
-  opts: { companyPaused: boolean; needsJorge: boolean; now: number },
-): Health {
-  const b = project.budget;
-  if (opts.companyPaused) return { tone: "idle", word: project.paused ? "En pausa (propia)" : "Detenida", reason: "company" };
-  if (project.paused) return { tone: "idle", word: "En pausa", reason: "paused" };
-  if (opts.needsJorge) return { tone: "stop", word: "Te necesita", reason: "needs" };
-  if (b.reason === "usage_unknown") return { tone: "stop", word: "Uso desconocido", reason: "unknown" };
-  if (b.state === "stopped" && b.reason === null) return { tone: "stop", word: "Detenido", reason: "stopped" };
-  if (b.reason === "unset") return { tone: "warn", word: "Sin límite", reason: "unset" };
-  if (facts && !facts.goal) return { tone: "warn", word: "Sin meta", reason: "nogoal" };
-  if (b.state === "warn") return { tone: "warn", word: `Presupuesto ${pct(b.pct)}`, reason: "warn" };
-  // PLA-I30-8: running, but no Ready ticket any bot would pick: nothing will move until Jorge asks.
-  if (facts?.bot_work === 0 && facts.in_flight === 0) return { tone: "warn", word: "Sin trabajo para bots", reason: "nowork" };
-  const last = facts?.last_move_at ? new Date(facts.last_move_at).getTime() : null;
-  if (last !== null && opts.now - last > QUIET_MS) return { tone: "warn", word: `Quieto ${Math.floor((opts.now - last) / 86_400_000)} días`, reason: "quiet" };
-  return { tone: "ok", word: "Bien", reason: "ok" };
-}
-
-const RANK: Record<Tone, number> = { stop: 0, warn: 1, ok: 2, idle: 3 };
-export const byHealth = <T extends { health: Health; project: { slug: string } }>(a: T, b: T) =>
-  RANK[a.health.tone] - RANK[b.health.tone] || a.project.slug.localeCompare(b.project.slug);
-
-// ---- page-level state: the header pill and the banners (5e, 5g, 5h)
-
-export type Pill = { tone: Tone; word: string };
-export function pillOf(c: Company | undefined, error: boolean): Pill {
-  if (error) return { tone: "stop", word: "Sin conexión" };
-  if (!c) return { tone: "idle", word: "Cargando…" };
-  if (c.company.paused) return { tone: "stop", word: "Detenida" };
-  if (c.plan.state === "stopped") return { tone: "warn", word: "En espera" };
-  if (c.plan.state === "unknown") return { tone: "warn", word: "Plan desconocido" };
-  return { tone: "ok", word: "Compañía en marcha" };
-}
+// ---- the banners (5e, 5g, 5h), shown in Máquina since PLA-I33-3
 
 export type Banner =
   | { kind: "paused"; since: string | null }
   | { kind: "budget"; project: CompanyProjectRow }
   | { kind: "plan"; plan: CompanyPlan; waiting: number };
 
-export function bannersOf(c: Company): Banner[] {
+export function bannersOf(c: Plumbed): Banner[] {
   const out: Banner[] = [];
   if (c.company.paused) out.push({ kind: "paused", since: c.company.paused_at });
   for (const p of c.projects) {
@@ -266,12 +198,12 @@ export function pausedBannerText(since: string | null, timeZone?: string): strin
 }
 
 // What the En marcha header says, so an empty list never looks like a failure.
-export function capLine(c: Company): string {
+export function capLine(c: Plumbed): string {
   const cap = `Tope: ${c.settings.max_concurrent} a la vez`;
   return c.runs.queued.length ? `${cap} · ${c.runs.queued.length} en espera` : cap;
 }
 
-export function idleLine(c: Company): string {
+export function idleLine(c: Plumbed): string {
   if (c.company.paused) return "Nada corre: la compañía está detenida.";
   if (c.plan.state === "stopped") return `Nada arranca: ${c.runs.queued.length} en espera del guardia.`;
   if (c.projects.length > 0 && c.projects.every((p) => p.paused)) return "Nada corre: todos los proyectos están en pausa.";
@@ -280,40 +212,35 @@ export function idleLine(c: Company): string {
 
 export const planUnknownLine = "No se pudo leer el uso del plan. Desconocido = alto: no arranca nada nuevo.";
 
-export function weekLabel(c: Company): string {
-  const fmt = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone: c.week.timezone });
-  const end = new Date(new Date(c.week.resets_at).getTime() - 1);
-  return `Semana del ${fmt.format(new Date(c.week.starts_at))} al ${fmt.format(end)} · tokens reportados`;
-}
-
-// The next wake of a role, in words.
-export function nextWakeWord(row: Pick<RosterRow, "heartbeat_minutes" | "next_wake_at">, opts: { paused: boolean; timeZone?: string }): string {
-  if (opts.paused) return "en pausa";
-  if (row.heartbeat_minutes == null || !row.next_wake_at) return "al cambiar algo";
-  return clock(row.next_wake_at, opts.timeZone);
-}
-
 export const RUN_WORD: Record<string, string> = { ok: "ok", fail: "falló", skipped: "omitida", stopped: "detenida", running: "corriendo", queued: "en espera" };
 
-// The URL state: /ceo?p=<slug> opens the project sheet, ?equipo the Equipo sheet, ?doc=<id> a prompt doc.
-export type SheetParam = { kind: "project"; slug: string } | { kind: "equipo" } | { kind: "doc"; id: string } | { kind: "nuevo" } | null;
+// The URL state (PLA-I33): ?vista=<slug> previews a project, ?doc=<id> a doc, ?nuevo the new project dialog.
+// ?p=<slug> (the old project sheet) redirects to /p/<slug>; ?equipo (the old Equipo sheet) to Máquina.
+export type SheetParam = { kind: "project"; slug: string } | { kind: "vista"; slug: string } | { kind: "equipo" } | { kind: "doc"; id: string } | { kind: "nuevo" } | null;
 export function sheetOf(search: string): SheetParam {
   const q = new URLSearchParams(search);
   const p = q.get("p");
   if (p) return { kind: "project", slug: p };
+  const vista = q.get("vista");
+  if (vista) return { kind: "vista", slug: vista };
   const doc = q.get("doc");
   if (doc) return { kind: "doc", id: doc };
   if (q.has("equipo")) return { kind: "equipo" };
   if (q.has("nuevo")) return { kind: "nuevo" };
   return null;
 }
-export const promptHref = (ref: PromptRef | null | undefined) => (ref ? `/ceo?doc=${encodeURIComponent(ref.doc_id)}` : null);
-
-// Old routes land on Compañía (PLA-I30-2). /equipo opens the Equipo sheet, /goals scrolls to Proyectos.
+// /ceo?p=<slug> → /p/<slug>; /ceo?equipo → /machine. Null when /ceo stays.
+export function ceoRedirect(search: string): string | null {
+  const sheet = sheetOf(search);
+  if (sheet?.kind === "project") return `/p/${encodeURIComponent(sheet.slug)}`;
+  if (sheet?.kind === "equipo") return "/machine";
+  return null;
+}
+// Old routes (PLA-I30-2). /goals scrolls to the team cards; /equipo goes to Máquina, where the plumbing lives (PLA-I33).
 export const LEGACY_REDIRECTS: Record<string, string> = {
   "/ahora": "/ceo",
   "/goals": "/ceo#proyectos",
-  "/equipo": "/ceo?equipo",
+  "/equipo": "/machine",
 };
 
 // The header: Inicio is the logo, then these four.

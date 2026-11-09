@@ -44,6 +44,8 @@ export async function sweepStuck(db: Db, now = new Date(), wake: Wake = fetch): 
   const claims = await liveClaims(db, now);
   const counts = { alive: 0, idle: 0, stuck: 0, woken: 0, limpieza: 0 };
   for (const row of rows) {
+    // PLA-I32: a retired agent stays retired; its presence is not tracked.
+    if (row.status === "retired") continue;
     const status = presenceOf(row.lastCheckInAt, claimsFor(row, claims), now);
     counts[status]++;
     const wakeDue = status === "stuck" && !!row.wakeUrl && (!row.lastWakeAt || now.getTime() - new Date(row.lastWakeAt).getTime() >= WAKE_INTERVAL_MS);

@@ -1,9 +1,10 @@
 // PLA-I31-3: a new project from the company template. Jorge's screen only (POST /api/company/projects).
 // A name and a one-sentence goal make: the project (switch off, so it starts paused), its active goal,
 // a product owner on the runner (adapter claude_code, reports to ceo, no cadence) whose prompt is the
-// `Prompt: Product owner` doc, and a default weekly token limit for the project. Nothing is queued:
+// `Prompt: Product owner` doc, and a default weekly token limit for the project. PLA-I32-2: the PO comes
+// with its team, Research, Artist and Taller (research-<slug>, ...), all with project_id and role_template. Nothing is queued:
 // the PO's first wake comes when Jorge resumes the project (project.runs_resumed, src/runner/events.ts).
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { agents, docs, projects, tokenBudgets } from "../db/schema.js";
 import { setGoal } from "../mcp/goals.js";
@@ -11,6 +12,7 @@ import { setProject } from "../mcp/project.js";
 import { setAgent } from "../mcp/team.js";
 import { webCtx, writeTx } from "../mcp/tx.js";
 import { PROMPT_DOCS } from "./limits.js";
+import { CORE_TEMPLATES, ensureTeam, teamSlug } from "./team.js";
 
 // Tokens per week (input + output + cache). About 15 runs at the 60k reserve; Jorge changes it on screen.
 export const DEFAULT_PROJECT_WEEKLY_LIMIT = 1_000_000;
@@ -18,7 +20,7 @@ export const DEFAULT_PROJECT_WEEKLY_LIMIT = 1_000_000;
 const promptsProject = () => process.env.PLANIA_PROMPTS_PROJECT || "plania";
 const PROJECT_BODY = "Company project. The plan lives in Plania.";
 
-export type NewProject = { slug: string; key_prefix: string; paused: true; po: string; prompt_doc_id: string };
+export type NewProject = { slug: string; key_prefix: string; paused: true; po: string; team: string[]; prompt_doc_id: string };
 export type NewProjectError = { error: "INVALID_BODY" | "PROJECT_EXISTS" | "PROMPT_DOC_MISSING"; status: 400 | 409; field?: string; slug?: string };
 
 export function slugOf(name: string): string {
@@ -56,8 +58,9 @@ export async function createProjectFromTemplate(db: Db, input: { name: string; g
 
   const [existing] = await db.select({ id: projects.id }).from(projects).where(eq(projects.slug, slug)).limit(1);
   if (existing) return { error: "PROJECT_EXISTS", status: 409, slug };
-  const [poTaken] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, po)).limit(1);
-  if (poTaken) return { error: "PROJECT_EXISTS", status: 409, slug };
+  const team = CORE_TEMPLATES.map((t) => teamSlug(t, slug));
+  const [teamTaken] = await db.select({ id: agents.id }).from(agents).where(inArray(agents.slug, team)).limit(1);
+  if (teamTaken) return { error: "PROJECT_EXISTS", status: 409, slug };
 
   const [prompt] = await db
     .select({ id: docs.id })
@@ -96,11 +99,12 @@ export async function createProjectFromTemplate(db: Db, input: { name: string; g
       heartbeat_minutes: null,
       note: `Prompt: doc «${PROMPT_DOCS["product-owner"]}» (${prompt.id}).`,
     });
+    await ensureTeam(db, { id: project.id, slug, title: name });
     await db.insert(tokenBudgets).values({ scope: "project", projectId: project.id, weeklyLimit: DEFAULT_PROJECT_WEEKLY_LIMIT });
   } catch (err) {
-    await db.delete(agents).where(eq(agents.slug, po));
+    await db.delete(agents).where(inArray(agents.slug, team));
     await db.delete(projects).where(eq(projects.id, project.id));
     throw err;
   }
-  return { slug, key_prefix: keyPrefix, paused: true, po, prompt_doc_id: prompt.id };
+  return { slug, key_prefix: keyPrefix, paused: true, po, team, prompt_doc_id: prompt.id };
 }

@@ -289,6 +289,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `list_routine_runs` | Routine runs, newest first. |
 | `usage_summary` | Totals of reported tokens per agent, project and week. |
 | `list_heartbeat_runs` | Recent heartbeat runs: agent, status, adapter, summary and task key, newest first. |
+| `thread_read` | Read a thread's messages, oldest first (the last 200, or only those after `after`: an ISO time or a message id). |
 
 | Write | |
 |---|---|
@@ -326,6 +327,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `report_tokens` | Record the tokens one agent reports for a task run. |
 | `create_company_project` | Create a project, a product-owner bot and a Playbook doc from the company template. |
 | `wake_agent` | Wake one roster agent through its adapter when its heartbeat is due. |
+| `thread_post` | Write a message in a thread Jorge reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from him. |
 <!-- mcp-tools:end -->
 
 Rules every write follows:
@@ -471,6 +473,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `DELEGATION_OFF` | 403 | delegated answers and delegated moves are off: the kill switch on the screen is off |
 | `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: Jorge's call, on screen with a reason, or by an agent with a reason and delegated_by_jorge {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it |
 | `NOT_DELEGABLE` | 403 | answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored |
+| `THREAD_FORBIDDEN` | 403 | thread_post or thread_read on a thread that is not yours: Asistente may use every thread, a team member only its own project's (detail: thread, agent) |
 | `AGENT_NOT_FOUND` | 404 | unknown roster slug (owner_agent or reports_to) |
 | `CHECK_NOT_FOUND` | 404 | no check with that n on this task |
 | `DECISION_NOT_FOUND` | 404 | supersedes names no decision of this project |
@@ -482,6 +485,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `QUESTION_NOT_FOUND` | 404 | no question with that id in this project |
 | `RESULT_NOT_FOUND` | 404 | evidence_id is not a result of this project |
 | `TASK_NOT_FOUND` | 404 | unknown key in this project (also an unknown parent_key or task_key) |
+| `THREAD_NOT_FOUND` | 404 | thread is not "company", a project slug with a thread, or a thread id |
 | `UNKNOWN_BRANCH` | 404 | get_context: no initiative or ticket is on that branch (detail: known) |
 | `ALREADY_ANSWERED` | 409 | the question was answered already (detail: answer, answered_by) |
 | `ALREADY_SUPERSEDED` | 409 | the decision named in supersedes was already reversed (detail: superseded_by) |

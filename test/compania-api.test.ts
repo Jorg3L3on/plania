@@ -9,7 +9,7 @@ useTestEnv();
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
 const { makeDb } = await import("../src/db/client.js");
-const { seedOrg } = await import("../scripts/seed-org.js");
+const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 
 let raw: pg.Client;
 const cookie = () => ({ Cookie: `${SESSION_COOKIE}=${createSession()}` });
@@ -50,10 +50,14 @@ after(async () => {
   await raw?.end();
 });
 
-test("GET /api/company keeps its fields and adds viewer, prompts, roster and project_facts", async () => {
-  const { status, body } = await get("/api/company");
-  assert.equal(status, 200);
-  for (const key of ["company", "settings", "week", "projects", "roles", "runs", "plan"]) assert.ok(key in body, key);
+// PLA-I32-6: GET /api/company is now the Plan's read contract (test/i32-contract.test.ts); these facts are
+// still computed by companyExtras, read here directly.
+test("companyExtras computes viewer, prompts, roster and project_facts", async () => {
+  const { companyExtras } = await import("../src/api/company-extra.js");
+  const { makeDb } = await import("../src/db/client.js");
+  const { db, close } = makeDb();
+  const body = JSON.parse(JSON.stringify(await companyExtras(db))) as Json;
+  await close();
   assert.deepEqual(body.viewer, { can_edit_limits: true });
   const docs = (await raw.query(`select id, title from docs where title like 'Prompt: %'`)).rows;
   const byTitle = Object.fromEntries(docs.map((d) => [d.title, d.id]));
