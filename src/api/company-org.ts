@@ -13,6 +13,8 @@ import { PROMPT_DOCS, budgetView, isRunnerRole, lastReading, loadSettings, planV
 import { TEAM_TEMPLATES, TEMPLATE_ROWS, ensureMember, isTeamTemplate, teamOf, teamSlug, type TeamTemplate } from "../runner/team.js";
 import { actionsFor, companyThread, projectThread, threadSummary } from "../runner/threads.js";
 import { companyState, type CompanyState, type RunView } from "../runner/company.js";
+import { decisionsRead, type Decision } from "./company-decisions.js";
+import { ceoAgentId, nextOf, planOf, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
 
 const HOUR = 3_600_000;
 const QUIET_HOURS = 48;
@@ -43,6 +45,11 @@ export type ProjectCard = {
   budget: BudgetView;
   team: TeamMember[];
   thread: ThreadLine;
+  // PLA-I35-1: the card as a report (src/api/company-plan.ts).
+  plan: PlanLine | null;
+  this_week: ThisWeek;
+  next: NextLine | null;
+  work: WorkLine;
 };
 
 export type CompanyRead = {
@@ -51,6 +58,8 @@ export type CompanyRead = {
   asistente: { thread_id: string; budget: BudgetView; last_run: { status: string; at: string; summary: string } | null; state: MemberState };
   projects: ProjectCard[];
   plumbing: { spend: number; limit: number | null; running: number; paused: boolean };
+  // PLA-I35-1: Te toca (src/api/company-decisions.ts).
+  decisions: Decision[];
 };
 
 const ORDER = new Map<string, number>(TEAM_TEMPLATES.map((t, i) => [t, i]));
@@ -155,6 +164,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
   const cards: ProjectCard[] = [];
   let limitSum = 0;
   let anyLimit = false;
+  const ceoId = await ceoAgentId(db);
   for (const p of await db.select().from(projects).orderBy(asc(projects.slug))) {
     const budget = await budgetView(db, { kind: "project", projectId: p.id }, startsAt);
     if (budget.limit != null) {
@@ -163,6 +173,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     }
     const thread = await threadSummary(db, await projectThread(db, p.id), p);
     const paused = settings.companyPaused || p.runsPaused;
+    const plan = await planOf(db, p, now);
     cards.push({
       slug: p.slug,
       title: p.title,
@@ -172,6 +183,10 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       budget,
       team: await teamView(db, p, { paused, noBudget: budget.state === "stopped", threadId: thread.id }),
       thread: threadLine(thread),
+      plan,
+      this_week: await thisWeekOf(db, p, now),
+      next: await nextOf(db, p, ceoId, plan?.initiative.key ?? null),
+      work: await workOf(db, p),
     });
   }
 
@@ -202,6 +217,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     asistente: { thread_id: company.id, budget: asisBudget, last_run: lastRun, state },
     projects: cards,
     plumbing: { spend: Number(spend.rows[0]?.used ?? 0), limit: anyLimit ? limitSum : null, running: running?.n ?? 0, paused: settings.companyPaused },
+    decisions: await decisionsRead(db, now),
   };
 }
 
