@@ -132,9 +132,11 @@ test("I30-8 #1: the sheet counts bot work, marks Jorge's own Ready tickets, and 
 
   const micasa = (await (await app.request("/api/company/projects/micasa", { headers: jorge() })).json()) as { bot_work: number };
   assert.ok(micasa.bot_work >= 1, "po-micasa's Ready ticket counts");
-  const company = (await (await app.request("/api/company", { headers: jorge() })).json()) as { project_facts: Record<string, { bot_work: number }> };
-  assert.equal(company.project_facts.zigzag?.bot_work, 0);
-  assert.ok((company.project_facts.micasa?.bot_work ?? 0) >= 1);
+  // PLA-I32-6: the per-project count the old Compañía read carried, computed the same way.
+  const { botWorkBy } = await import("../src/api/company-extra.js");
+  const work = await botWorkBy(db);
+  assert.equal(work.get("zigzag") ?? 0, 0);
+  assert.ok((work.get("micasa") ?? 0) >= 1);
   delete process.env.PLANIA_TEST_SET_ENV;
 });
 

@@ -7,7 +7,7 @@ import { agentRuns, agents, projects, runnerSettings, tokenBudgets } from "../db
 import { ToolError } from "../mcp/errors.js";
 import { findProject } from "../mcp/queries.js";
 import { webCtx, writeTx } from "../mcp/tx.js";
-import { RUNNER_ROLES, budgetView, lastReading, loadSettings, planView, screenTz, weekBounds, type BudgetView, type PlanView } from "./limits.js";
+import { budgetView, lastReading, loadSettings, planView, screenTz, weekBounds, type BudgetView, type PlanView } from "./limits.js";
 import { latestBrief, type Brief } from "./asistente.js";
 import { stopLive } from "./runner.js";
 
@@ -29,7 +29,6 @@ export type CompanyState = {
   settings: { max_concurrent: number; cooldown_minutes: number; plan_guard_pct: number; reserve_tokens: number; max_turns: number; timeout_minutes: number };
   week: { starts_at: string; resets_at: string; timezone: string };
   projects: { slug: string; title: string; paused: boolean; paused_at: string | null; budget: BudgetView }[];
-  roles: { role: string; budget: BudgetView }[];
   runs: { live: RunView[]; queued: RunView[] };
   plan: PlanView;
   // PLA-I31-2: the latest Asistente brief (07:00 daily), or null before the first one.
@@ -51,8 +50,6 @@ export async function companyState(db: Db, now = new Date()): Promise<CompanySta
       budget: await budgetView(db, { kind: "project", projectId: p.id }, startsAt),
     });
   }
-  const roles = [];
-  for (const role of RUNNER_ROLES) roles.push({ role, budget: await budgetView(db, { kind: "role", role }, startsAt) });
 
   const runRows = await db
     .select({
@@ -97,7 +94,6 @@ export async function companyState(db: Db, now = new Date()): Promise<CompanySta
     },
     week: { starts_at: startsAt.toISOString(), resets_at: resetsAt.toISOString(), timezone: tz },
     projects: projectsOut,
-    roles,
     runs: { live: runRows.filter((r) => r.status === "running").map(view), queued: runRows.filter((r) => r.status === "queued").map(view) },
     plan: planView(await lastReading(db), settings.planGuardPct, now),
     brief: await latestBrief(db),
@@ -129,19 +125,18 @@ export async function setProjectPaused(db: Db, slug: string, paused: boolean): P
   return { project: project.slug, paused, stopped };
 }
 
-const ROLE_SET = new Set<string>(RUNNER_ROLES);
 
 // weekly_limit null removes the limit (which stops the scope: no limit = unknown = stop).
+// PLA-I32-6: scope role is retired (role caps are no longer read); scope asistente is Asistente's budget.
 export async function setBudget(
   db: Db,
-  input: { scope: "role" | "project"; role?: string; project?: string; weekly_limit: number | null },
+  input: { scope: "role" | "project" | "asistente"; role?: string; project?: string; weekly_limit: number | null },
 ): Promise<{ scope: string; key: string; weekly_limit: number | null }> {
-  if (input.scope === "role") {
-    const role = input.role?.trim() ?? "";
-    if (!ROLE_SET.has(role)) throw new ToolError("INVALID_FILTER", { field: "role", allowed: [...RUNNER_ROLES] });
-    await db.delete(tokenBudgets).where(and(eq(tokenBudgets.scope, "role"), eq(tokenBudgets.role, role)));
-    if (input.weekly_limit != null) await db.insert(tokenBudgets).values({ scope: "role", role, weeklyLimit: input.weekly_limit });
-    return { scope: "role", key: role, weekly_limit: input.weekly_limit };
+  if (input.scope === "role") throw new ToolError("INVALID_FILTER", { field: "scope", allowed: ["project", "asistente"], hint: "role budgets are retired: a project's budget is its team's" });
+  if (input.scope === "asistente") {
+    await loadSettings(db);
+    await db.update(runnerSettings).set({ asistenteWeeklyLimit: input.weekly_limit, updatedAt: sql`now()` }).where(eq(runnerSettings.id, 1));
+    return { scope: "asistente", key: "asistente", weekly_limit: input.weekly_limit };
   }
   const project = await findProject(db, input.project?.trim() ?? "");
   await db.delete(tokenBudgets).where(and(eq(tokenBudgets.scope, "project"), eq(tokenBudgets.projectId, project.id)));
@@ -156,9 +151,10 @@ export type SettingsPatch = Partial<{
   reserve_tokens: number;
   max_turns: number;
   timeout_minutes: number;
+  asistente_weekly_limit: number | null;
 }>;
 
-export async function setRunnerSettings(db: Db, patch: SettingsPatch): Promise<CompanyState["settings"]> {
+export async function setRunnerSettings(db: Db, patch: SettingsPatch): Promise<CompanyState["settings"] & { asistente_weekly_limit: number | null }> {
   await loadSettings(db);
   const set: Record<string, unknown> = { updatedAt: sql`now()` };
   if (patch.max_concurrent !== undefined) set.maxConcurrent = patch.max_concurrent;
@@ -167,6 +163,7 @@ export async function setRunnerSettings(db: Db, patch: SettingsPatch): Promise<C
   if (patch.reserve_tokens !== undefined) set.reserveTokens = patch.reserve_tokens;
   if (patch.max_turns !== undefined) set.maxTurns = patch.max_turns;
   if (patch.timeout_minutes !== undefined) set.timeoutMinutes = patch.timeout_minutes;
+  if (patch.asistente_weekly_limit !== undefined) set.asistenteWeeklyLimit = patch.asistente_weekly_limit;
   await db.update(runnerSettings).set(set).where(eq(runnerSettings.id, 1));
   const s = await loadSettings(db);
   return {
@@ -176,6 +173,7 @@ export async function setRunnerSettings(db: Db, patch: SettingsPatch): Promise<C
     reserve_tokens: s.reserveTokens,
     max_turns: s.maxTurns,
     timeout_minutes: s.timeoutMinutes,
+    asistente_weekly_limit: s.asistenteWeeklyLimit == null ? null : Number(s.asistenteWeeklyLimit),
   };
 }
 
