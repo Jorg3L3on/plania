@@ -2,7 +2,7 @@ import type { TaskComment, RoutineRun } from "@/components/delegation/types";
 import type { TeamRoster } from "@/components/team/types";
 import type { Dashboard, WakeResult } from "@/components/dashboard/types";
 import type { Goal, GoalWrite } from "@/components/goals/model";
-import type { AskResult, Budget, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief, WakeOutcome } from "@/lib/compania";
+import type { Budget, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
 
 export class ApiError extends Error {
@@ -141,9 +141,6 @@ export const api = {
   setBudget: (input: { scope: "role"; role: string; weekly_limit: number | null } | { scope: "project"; project: string; weekly_limit: number | null }) =>
     request<{ scope: string; key: string; weekly_limit: number | null }>("PUT", "/company/budgets", input),
   setRunnerSettings: (input: { plan_guard_pct?: number; asistente_weekly_limit?: number | null }) => request<Company["settings"]>("PUT", "/company/settings", input),
-  // PLA-I30-6/7: Pedirle al PO and Despertar ahora on the project sheet.
-  askPo: (slug: string, text: string) => request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, { text }),
-  wakePo: (slug: string) => request<WakeOutcome>("POST", `/company/projects/${encodeURIComponent(slug)}/wake`),
   // PLA-I31-3 adds this route; until then it is 404 and the dialog says so.
   createCompanyProject: (input: { name: string; goal: string }) => request<NewProjectResult>("POST", "/company/projects", input),
   // PLA-I25: a project, a product-owner bot and a Playbook. The same slug again changes nothing.

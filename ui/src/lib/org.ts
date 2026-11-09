@@ -1,8 +1,8 @@
 // PLA-I33: the words and rules of Compañía como organización (ADR 31c1cead, Design 3a2c3385). Pure: the
 // pages and test/compania-org.test.ts read the same functions. Spend is tokens, never money.
-import type { Budget } from "./compania";
+import type { Budget, Plumbed } from "./compania";
 import { ago, tokens, type Tone } from "./compania";
-import type { OrgLight, OrgMember, OrgMemberState, OrgPlumbing, OrgProduced, ThreadAction, ThreadActionState, ThreadLink, ThreadMessage } from "./api";
+import type { MachinePlumbing, OrgLight, OrgMember, OrgMemberState, OrgPlumbing, OrgProduced, ThreadAction, ThreadActionState, ThreadLink, ThreadMessage } from "./api";
 
 // ---- the light of a team (card and project header)
 
@@ -192,3 +192,13 @@ export const isBareLink = (text: string) => {
 };
 
 export const MESSAGE_MAX = 4000;
+
+// ---- Máquina: the plumbing blocks reuse the PLA-I30 pieces, which read this shape.
+export const plumbedOf = (p: MachinePlumbing): Plumbed => ({
+  company: p.company,
+  settings: p.settings,
+  week: p.week,
+  projects: p.budgets.projects,
+  runs: p.runs,
+  plan: p.plan,
+});
