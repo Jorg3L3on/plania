@@ -30,7 +30,10 @@ export function idleMinutesOf(settings: ProjectSettings | null | undefined): num
 // is inside its project's window. Any stale claim: stuck. PLA-11: taking or renewing a claim is a sign of life.
 export type ClaimPresence = { idleMinutes: number; seenAt: Date | null };
 
-export function presenceOf(lastCheckIn: Date | null, claims: ClaimPresence[], now: Date): (typeof AGENT_STATUSES)[number] {
+// PLA-I32: presence is alive, idle or stuck; retired is a roster state the sweep never writes.
+export type Presence = "alive" | "idle" | "stuck";
+
+export function presenceOf(lastCheckIn: Date | null, claims: ClaimPresence[], now: Date): Presence {
   const within = (at: Date | null, minutes: number) => !!at && now.getTime() - new Date(at).getTime() <= minutes * MINUTE;
   if (claims.length === 0) return within(lastCheckIn, DEFAULT_IDLE_MINUTES) ? "alive" : "idle";
   return claims.some((claim) => !within(lastCheckIn, claim.idleMinutes) && !within(claim.seenAt, claim.idleMinutes)) ? "stuck" : "alive";
@@ -58,7 +61,7 @@ export async function statusByAgentId(
   db: Q,
   rows: { id: string; slug: string; name: string; lastCheckInAt: Date | null }[],
   now = new Date(),
-): Promise<Map<string, (typeof AGENT_STATUSES)[number]>> {
+): Promise<Map<string, Presence>> {
   const claims = await liveClaims(db, now);
   return new Map(rows.map((r) => [r.id, presenceOf(r.lastCheckInAt, claimsFor(r, claims), now)]));
 }

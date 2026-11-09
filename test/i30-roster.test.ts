@@ -13,12 +13,10 @@ import { ORG, seedOrg } from "../scripts/seed-org.js";
 
 const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
-test("the journal's last entry is 0040_roster_no_cursor at idx 37 and the file exists", () => {
+test("the journal has 0040_roster_no_cursor at idx 37 and the file exists", () => {
   const journal = JSON.parse(readFileSync(path.join(dir, "meta/_journal.json"), "utf8")) as { entries: { idx: number; tag: string }[] };
-  const last = journal.entries.at(-1)!;
-  assert.equal(last.tag, "0040_roster_no_cursor");
-  assert.equal(last.idx, 37);
-  assert.equal(last.idx, journal.entries.length - 1);
+  const entry = journal.entries.find((e) => e.tag === "0040_roster_no_cursor")!;
+  assert.equal(entry.idx, 37);
   assert.equal(readdirSync(dir).filter((f) => f.startsWith("0040")).join(","), "0040_roster_no_cursor.sql");
 });
 
@@ -94,6 +92,8 @@ test("0040 applies twice on a throwaway copy, then the seed leaves only the real
       /heartbeat_runs_adapter_check/,
     );
 
+    // Later migrations (0041 onward) the schema reads, then the seed.
+    for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql") && f > "0040").sort()) await mig.query(readFileSync(path.join(dir, f), "utf8"));
     const db = drizzle(pool, { schema });
     const first = await seedOrg(db);
     assert.deepEqual(first.removed.sort(), ["claude-code", "coach", "cursor", "plania"]);
