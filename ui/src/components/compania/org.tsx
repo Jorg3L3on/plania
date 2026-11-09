@@ -1,5 +1,5 @@
 // PLA-I33: Compañía como organización (ADR 31c1cead, Design 3a2c3385). The thread with Asistente or a PO,
-// with Aceptar · Pedir cambios · Responder · Fusionar in line, and the team cards with one row per role.
+// with Aceptar · Pedir cambios · Responder · Fusionar in line, and the team rows of the project page.
 // Presentational: data and actions come in as props, so test/compania-org.test.ts renders them with fake data.
 // Spend is tokens, never money.
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -179,7 +179,20 @@ export const MessageRow = ({
 
 export type SendState = { kind: "idle" } | { kind: "busy" } | { kind: "done"; text: string } | { kind: "error"; message: string };
 
-export const Composer = ({ placeholder, state, disabled, onSend }: { placeholder: string; state: SendState; disabled?: string | null; onSend: (body: string) => void }) => {
+// PLA-I35-3: suggestions under the box fill it (a question to send, or "Mianovia: " to finish typing).
+export const Composer = ({
+  placeholder,
+  state,
+  disabled,
+  onSend,
+  suggestions,
+}: {
+  placeholder: string;
+  state: SendState;
+  disabled?: string | null;
+  onSend: (body: string) => void;
+  suggestions?: string[];
+}) => {
   const [body, setBody] = useState("");
   const link = isBareLink(body);
   const submit = (e: FormEvent) => {
@@ -208,6 +221,15 @@ export const Composer = ({ placeholder, state, disabled, onSend }: { placeholder
           {state.kind === "busy" ? "Enviando…" : "Enviar"}
         </button>
       </div>
+      {suggestions && suggestions.length > 0 && !disabled && (
+        <div className="flex min-w-0 flex-wrap gap-1.5" data-suggestions={suggestions.length}>
+          {suggestions.map((s) => (
+            <button key={s} type="button" className="inline-flex min-h-8 max-w-full items-center truncate rounded-full px-3 text-xs ring-1 ring-foreground/15 hover:bg-muted" onClick={() => setBody(s)}>
+              {s.endsWith(": ") ? `${s}…` : s}
+            </button>
+          ))}
+        </div>
+      )}
       {link && <p className="text-xs text-muted-foreground">Un enlace suelto: Asistente lo guarda en la biblioteca de diseño.</p>}
       {state.kind === "done" && (
         <p className="text-xs" data-sent>
@@ -354,7 +376,8 @@ export const ThreadPanel = ({
   );
 };
 
-// ---- the team: one row per role (card: short; project page: with ticket, turn and tokens)
+// ---- the team: one row per role, on the project page (with ticket, turn and tokens). PLA-I35 retired the
+// Compañía team cards and their preview sheet: the card is a report now (components/compania/v2.tsx).
 
 export const TeamRows = ({ team, project, now, runs, detail }: { team: OrgMember[]; project: string; now: number; runs?: RunBrief[]; detail?: boolean }) =>
   team.length === 0 ? (
@@ -398,129 +421,6 @@ export const TeamRows = ({ team, project, now, runs, detail }: { team: OrgMember
       })}
     </ul>
   );
-
-export const TeamCard = ({ project, now, onPreview }: { project: OrgProject; now: number; onPreview?: (slug: string) => void }) => {
-  const light = lightOf(project.light);
-  const paused = project.light === "paused" || project.paused;
-  const plumbing = budgetLine(project.budget, { paused });
-  const unread = project.thread?.unread ?? 0;
-  return (
-    <li
-      data-card={project.slug}
-      data-light={project.light}
-      className={cn(
-        "grid min-w-0 content-start gap-3 rounded-[20px] p-4 ring-1",
-        paused ? "bg-surface-sunken text-muted-foreground ring-foreground/10" : "bg-card ring-foreground/10",
-        light.tone === "stop" && !paused && "ring-2 ring-status-blocked/60",
-      )}
-    >
-      <div className="flex min-w-0 items-start justify-between gap-2">
-        <h3 className={cn("line-clamp-2 min-w-0 font-display text-lg font-extrabold tracking-tight break-words", paused && "opacity-70")} title={project.title}>
-          {project.title}
-        </h3>
-        <span className={cn("inline-flex shrink-0 items-center gap-1.5 pt-1 text-xs font-semibold", TONE_INK[light.tone])} data-light-word>
-          <Dot tone={light.tone} /> {light.word}
-        </span>
-      </div>
-      {project.goal ? (
-        <p className="line-clamp-2 font-voice text-[17px] leading-snug break-words italic" title={project.goal}>
-          {project.goal}
-        </p>
-      ) : (
-        <p className="text-sm text-ink-now">Sin meta: su PO no propone ideas sin una.</p>
-      )}
-      <TeamRows team={project.team} project={project.slug} now={now} />
-      {unread > 0 && (
-        <p className="text-xs font-semibold text-ink-jorge" data-unread={unread}>
-          {unread === 1 ? "1 mensaje nuevo del PO" : `${unread} mensajes nuevos del PO`}
-        </p>
-      )}
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border pt-2">
-        <PlumbingLink text={plumbing.text} tone={plumbing.tone} className="max-w-full" />
-        <span className="ml-auto flex shrink-0 items-center gap-1">
-          {onPreview && (
-            <button type="button" className="inline-flex min-h-9 items-center px-1.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => onPreview(project.slug)}>
-              Vista previa
-            </button>
-          )}
-          <Link to={`/p/${encodeURIComponent(project.slug)}`} className="inline-flex min-h-9 items-center px-1 text-sm font-semibold hover:underline">
-            Abrir →
-          </Link>
-        </span>
-      </div>
-    </li>
-  );
-};
-
-export const TeamCards = ({ projects, now, onPreview, onNew }: { projects: OrgProject[]; now: number; onPreview?: (slug: string) => void; onNew: () => void }) => (
-  <section id="proyectos" aria-labelledby="cia-equipos" className="grid min-w-0 scroll-mt-20 content-start gap-3">
-    <div className="flex flex-wrap items-baseline justify-between gap-3">
-      <h2 id="cia-equipos" className={heading}>
-        Equipos <span className="font-mono text-sm font-normal text-muted-foreground">{projects.length}</span>
-      </h2>
-      <button type="button" className={cn(pillPrimary, "min-h-9 px-3 text-[13px]")} onClick={onNew}>
-        + Nuevo proyecto
-      </button>
-    </div>
-    {projects.length === 0 ? (
-      <div className={cn(panel, "grid justify-items-start gap-3 p-5")} data-empty="projects">
-        <p className="font-display text-lg font-extrabold tracking-tight">Todavía no hay proyectos</p>
-        <p className="text-sm text-muted-foreground">Un proyecto es un nombre y una meta. Llega con su equipo: PO, Research, Artist y Taller.</p>
-        <button type="button" className={pillPrimary} onClick={onNew}>
-          Crear el primer proyecto
-        </button>
-      </div>
-    ) : (
-      <ul className="grid min-w-0 gap-3 md:grid-cols-2" data-testid="team-cards">
-        {projects.map((p) => (
-          <TeamCard key={p.slug} project={p} now={now} onPreview={onPreview} />
-        ))}
-      </ul>
-    )}
-  </section>
-);
-
-export const TeamCardsSkeleton = () => (
-  <div className="grid gap-3 md:grid-cols-2" aria-hidden data-testid="cards-skeleton">
-    {[0, 1, 2, 3].map((i) => (
-      <div key={i} className="h-60 animate-pulse rounded-[22px] bg-muted" />
-    ))}
-  </div>
-);
-
-// ---- the ?vista=<slug> sheet: header, team, last 3 messages, Abrir
-
-export const ProjectPreview = ({ project, messages, now, timeZone }: { project: OrgProject; messages: ThreadMessage[]; now: number; timeZone?: string }) => {
-  const light = lightOf(project.light);
-  const last = [...messages].sort((a, b) => a.at.localeCompare(b.at)).slice(-3);
-  return (
-    <div className="grid gap-4" data-testid="project-preview">
-      <span className={cn("inline-flex items-center gap-1.5 text-sm font-semibold", TONE_INK[light.tone])}>
-        <Dot tone={light.tone} /> {light.word}
-      </span>
-      {project.goal && <p className="font-voice text-xl leading-snug break-words italic">{project.goal}</p>}
-      <div className="grid gap-2">
-        <p className={eyebrow}>Equipo</p>
-        <TeamRows team={project.team} project={project.slug} now={now} />
-      </div>
-      <div className="grid gap-2">
-        <p className={eyebrow}>Últimos mensajes con el PO</p>
-        {last.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Todavía no hay mensajes.</p>
-        ) : (
-          <ol className="grid gap-2">
-            {last.map((m) => (
-              <MessageRow key={m.id} message={m} project={project.slug} timeZone={timeZone} readOnly busy={null} onAction={() => {}} />
-            ))}
-          </ol>
-        )}
-      </div>
-      <Link to={`/p/${encodeURIComponent(project.slug)}`} className={cn(pillPrimary, "justify-self-start")}>
-        Abrir {project.title}
-      </Link>
-    </div>
-  );
-};
 
 // ---- PLA-I33-2: the project page's top (/p/<slug>): light, goal with Editar, plumbing line, Pausar/Reanudar
 

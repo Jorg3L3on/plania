@@ -141,7 +141,9 @@ const ACTION_DONE: Record<ThreadAction, string> = {
 // "Aceptado · Done", "Fusionado a sandbox · 1abb07d", "Cambios pedidos · el PO despierta".
 export function actionStateText(s: ThreadActionState): string {
   const head = ACTION_DONE[s.action] ?? s.action;
-  const result = s.result?.trim();
+  // The server records an object ({ticket, status} or {merged, sha}); never print it raw.
+  const raw = s.result;
+  const result = typeof raw === "string" ? raw.trim() : raw && typeof raw === "object" ? String((raw as Record<string, unknown>).sha ?? (raw as Record<string, unknown>).status ?? "").slice(0, 12) : "";
   if (!result) return head;
   return result.toLowerCase().startsWith(head.toLowerCase()) ? result : `${head} · ${result}`;
 }
