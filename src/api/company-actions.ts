@@ -39,29 +39,35 @@ async function guard(db: Db, slug: string): Promise<Guard | ActionRefusal> {
   return { project: { id: project.id, slug: project.slug }, po };
 }
 
-const firstLine = (text: string) => {
+export const firstLine = (text: string) => {
   const line = text.trim().split("\n")[0]!.trim();
   return line.length > 120 ? `${line.slice(0, 117)}…` : line;
 };
 
 export type AskResult = { key: string; title: string; po: string; wake: "queued" | "busy" | "off" };
 
-export async function askPo(db: Db, slug: string, text: string): Promise<AskResult | ActionRefusal> {
-  const g = await guard(db, slug);
-  if ("error" in g) return g;
+// A Ready ticket owned by the project's PO, origin jorge; the event hook queues the PO's wake in the same
+// write. wake says what happened: queued (on this ticket), busy (the PO already has a run), off (no wakes).
+export async function createPoTicket(
+  db: Db,
+  project: { slug: string },
+  po: Agent,
+  text: string,
+  from = "Compañía",
+): Promise<{ key: string; title: string; wake: "queued" | "busy" | "off" }> {
   const sentence = text.trim();
   const out = (await createTask(
     db,
     {
-      project: g.project.slug,
+      project: project.slug,
       title: firstLine(sentence),
       status: "Ready",
       origin: "jorge",
       work_type: "ops",
       priority: "P2",
-      owner_agent: g.po.slug,
+      owner_agent: po.slug,
       scope: [
-        `Pedido de Jorge desde Compañía: "${sentence}"`,
+        `Pedido de Jorge desde ${from}: "${sentence}"`,
         "",
         "Para el PO: escribe el alcance real y los checks de este ticket antes de empezar. Si es trabajo de PO (docs, plan, ideas), hazlo aquí. Si hace falta código, crea tickets Listos para Taller y cierra este con lo que dejaste.",
       ].join("\n"),
@@ -72,10 +78,17 @@ export async function askPo(db: Db, slug: string, text: string): Promise<AskResu
   const [run] = await db
     .select({ id: agentRuns.id, taskKey: agentRuns.taskKey })
     .from(agentRuns)
-    .where(and(eq(agentRuns.agentId, g.po.id), inArray(agentRuns.status, ["queued", "running"])))
+    .where(and(eq(agentRuns.agentId, po.id), inArray(agentRuns.status, ["queued", "running"])))
     .limit(1);
   const wake = !eventWakesEnabled() ? "off" : run?.taskKey === out.key ? "queued" : run ? "busy" : "off";
-  return { key: out.key, title: firstLine(sentence), po: g.po.slug, wake };
+  return { key: out.key, title: firstLine(sentence), wake };
+}
+
+export async function askPo(db: Db, slug: string, text: string): Promise<AskResult | ActionRefusal> {
+  const g = await guard(db, slug);
+  if ("error" in g) return g;
+  const made = await createPoTicket(db, g.project, g.po, text);
+  return { key: made.key, title: made.title, po: g.po.slug, wake: made.wake };
 }
 
 export type WakeOutcome = { woke: boolean; reason: string; ticket: string | null; summary: string };

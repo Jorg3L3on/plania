@@ -5,6 +5,8 @@
 //   pr.reviewed / pr.ci_failed (GitHub job)   wakes Taller, on the PR's ticket
 //   idea stage → research / → design          wakes Research / Artist, on the idea
 //   project resumed (runs_resumed)            wakes that project's PO (a new project's first wake)
+//   thread.message from Jorge, company thread  wakes Asistente (PLA-I32-3); in a project thread the screen
+//                                             route makes a Ready PO ticket instead, which wakes the PO
 // The hook runs inside writeTx, in the same transaction as the write, and only queues: it inserts an
 // agent_runs row with status queued. The heartbeat job's drainQueue starts it through every runner
 // check (switches, cooldown, goal, base branch, budgets, plan guard, cap). Coalescing: an agent with a
@@ -57,6 +59,13 @@ export async function agentOfActor(tx: Q, actor: Actor | null | undefined): Prom
   return row ?? null;
 }
 
+// PLA-I32-3: the chief of staff on the runner (role_template asistente, else the old rules).
+export async function asistenteAgent(tx: Q): Promise<Agent | null> {
+  const rows = await tx.select().from(agents).where(and(eq(agents.adapter, RUNNER_ADAPTER), sql`${agents.status} <> 'retired'`)).orderBy(asc(agents.slug));
+  const matching = rows.filter((a) => roleOf(a) === "asistente");
+  return matching.find((a) => a.slug === "asistente") ?? matching[0] ?? null;
+}
+
 async function poOf(tx: Q, project: ProjectRef): Promise<Agent | null> {
   const rows = await tx.select().from(agents).where(eq(agents.adapter, RUNNER_ADAPTER)).orderBy(asc(agents.slug));
   return rows.find((a) => roleOf(a) === "product-owner" && (a.slug === `po-${project.slug}` || a.capabilities.includes(project.slug))) ?? null;
@@ -74,8 +83,9 @@ export async function enqueueWake(
   if (!role) return { kind: "none", reason: "no runner role" };
   const settings = await loadSettings(tx);
   if (settings.companyPaused) return { kind: "none", reason: "company paused" };
+  // Asistente works for the company: its home project's switch does not hold it (the company switch does).
   const [p] = await tx.select({ paused: projects.runsPaused }).from(projects).where(eq(projects.id, project.id)).limit(1);
-  if (!p || p.paused) return { kind: "none", reason: `project ${project.slug} paused` };
+  if (!p || (p.paused && role !== "asistente")) return { kind: "none", reason: `project ${project.slug} paused` };
   const [busy] = await tx
     .select({ id: agentRuns.id })
     .from(agentRuns)
@@ -107,6 +117,10 @@ async function targetOf(
   payload: Record<string, unknown>,
 ): Promise<{ agent: Agent | null; taskKey: string | null; reason: string } | null> {
   if (type === "project.runs_resumed") return { agent: await poOf(tx, project), taskKey: null, reason: "project resumed" };
+  if (type === "thread.message") {
+    if (payload.thread_kind !== "company" || payload.author !== "jorge") return null;
+    return { agent: await asistenteAgent(tx), taskKey: null, reason: "message from Jorge" };
+  }
   if (!task) return null;
 
   // PLA-I30-6: a ticket a product owner owns wakes that PO when it is Ready, created that way included
@@ -149,7 +163,7 @@ async function targetOf(
   return null;
 }
 
-const WATCHED = new Set(["task.created", "task.status","pr.ci_failed", "pr.reviewed", "question.answered", "task.updated", "project.runs_resumed"]);
+const WATCHED = new Set(["task.created", "task.status", "pr.ci_failed", "pr.reviewed", "question.answered", "task.updated", "project.runs_resumed", "thread.message"]);
 
 // Called by writeTx's emit for every event. Cheap for every other type. A queued wake is logged as
 // wake.queued (inserted directly, so it is never itself an event the hook reads).

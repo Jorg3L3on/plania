@@ -39,6 +39,7 @@ import { dashboardRoutes } from "./dashboard.js";
 import { usageRoutes } from "./usage.js";
 import { templateRoutes } from "./templates.js";
 import { companyRoutes } from "./company.js";
+import { threadRoutes } from "./threads.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
 // the MCP Bearer never opens it and the cookie never opens /mcp.
@@ -143,6 +144,8 @@ api.post("/delegated/reviewed", async (c) => {
 // PLA-I29: runner limits and kill switches. Mounted here, before the session check, so a Bearer
 // is told 403 (not 401): the cookie alone opens it (src/api/company.ts checks both).
 api.route("/company", companyRoutes);
+// PLA-I32-3: the threads, the same way (src/api/threads.ts).
+api.route("/threads", threadRoutes);
 
 // Everything below needs a valid session.
 api.use("*", async (c, next) => {
