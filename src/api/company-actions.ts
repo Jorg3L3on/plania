@@ -15,9 +15,9 @@ import { loadSettings, roleOf } from "../runner/limits.js";
 
 export type ActionRefusal = { error: "PROJECT_NOT_FOUND" | "PROJECT_PAUSED" | "COMPANY_PAUSED" | "NO_PO"; status: 404 | 409; hint: string };
 
-type Gate = { project: { id: string; slug: string }; po: Agent };
+type Guard = { project: { id: string; slug: string }; po: Agent };
 
-async function gate(db: Db, slug: string): Promise<Gate | ActionRefusal> {
+async function guard(db: Db, slug: string): Promise<Guard | ActionRefusal> {
   const [project] = await db.select({ id: projects.id, slug: projects.slug, paused: projects.runsPaused }).from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!project) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   if ((await loadSettings(db)).companyPaused) return { error: "COMPANY_PAUSED", status: 409, hint: "La compañía está detenida." };
@@ -36,7 +36,7 @@ const firstLine = (text: string) => {
 export type AskResult = { key: string; title: string; po: string; wake: "queued" | "busy" | "off" };
 
 export async function askPo(db: Db, slug: string, text: string): Promise<AskResult | ActionRefusal> {
-  const g = await gate(db, slug);
+  const g = await guard(db, slug);
   if ("error" in g) return g;
   const sentence = text.trim();
   const out = (await createTask(
@@ -70,7 +70,7 @@ export async function askPo(db: Db, slug: string, text: string): Promise<AskResu
 export type WakeOutcome = { woke: boolean; reason: string; ticket: string | null; summary: string };
 
 export async function wakePo(db: Db, slug: string, deps?: HeartbeatDeps): Promise<WakeOutcome | ActionRefusal> {
-  const g = await gate(db, slug);
+  const g = await guard(db, slug);
   if ("error" in g) return g;
   const work = pickReady(g.po, (await loadReady(db)).filter((r) => r.project === g.project.slug));
   if (!work) return { woke: false, reason: "idle", ticket: null, summary: "Sin trabajo para el PO: pídele algo." };
