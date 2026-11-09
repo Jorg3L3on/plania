@@ -73,6 +73,25 @@ export async function closingLine(db: Db, ctx: Ctx, c: Closing): Promise<string 
   return msg.id;
 }
 
+// A runner's ask, posted in its project thread with the question attached (Responder answers it there).
+export async function questionLine(db: Db, ctx: Ctx, q: { project: string; key: string; question: string; questionId: string }): Promise<string | null> {
+  if (!RUN_SESSION.test(ctx.actor.session_id ?? "")) return null;
+  const agent = await agentOfActor(db, ctx.actor);
+  const [project] = await db.select().from(projects).where(eq(projects.slug, q.project)).limit(1);
+  if (!agent || !project) return null;
+  const [t] = await db.select({ key: tasks.key, title: tasks.title, kind: tasks.kind }).from(tasks).where(and(eq(tasks.projectId, project.id), eq(tasks.key, q.key))).limit(1);
+  const links: ThreadLink[] = t ? [{ kind: t.kind === "idea" ? "idea" : "ticket", ref: t.key, title: t.title.slice(0, 200) }] : [];
+  links.push({ kind: "question", ref: q.questionId, title: q.question.slice(0, 200) });
+  const thread = await projectThread(db, project.id);
+  const msg = await postMessage(
+    db,
+    { thread, project },
+    { author: { agent: agent.slug, role: roleOf(agent) ?? agent.role }, body: `Pregunta${t ? ` sobre ${t.key}` : ""}: ${q.question}`.slice(0, 4000), links, questionId: q.questionId },
+    { ...ctx, requestId: undefined, tool: "thread.question_line" },
+  );
+  return msg.id;
+}
+
 // ---- Registration
 
 export const registerThreadTools = (

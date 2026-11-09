@@ -57,7 +57,7 @@ import { registerDashboardTools } from "./dashboard.js";
 import { registerUsageTools } from "./usage.js";
 import { registerTemplateTools } from "./templates.js";
 import { registerHeartbeatTools } from "./heartbeat.js";
-import { closingLine, registerThreadTools } from "./threads.js";
+import { closingLine, questionLine, registerThreadTools } from "./threads.js";
 import { finish, start } from "./agent-surface.js";
 import { projectReleases } from "./releases.js";
 import { DIGEST_PER_PROJECT_DEFAULT, QUIET_MIN, getDigest, getRunning, listProjects, readerOf } from "./watch.js";
@@ -841,7 +841,13 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         .loose(),
       annotations: write,
     },
-    writeHandler("ask", (input, ctx) => ask(db, input as Parameters<typeof ask>[1], ctx)),
+    writeHandler("ask", async (input, ctx) => {
+      const out = (await ask(db, input as Parameters<typeof ask>[1], ctx)) as { question_id?: string };
+      // PLA-I32-4: a runner's question also lands in its project thread, where Jorge can answer it in line.
+      const i = input as { project: string; key: string; question: string };
+      if (out.question_id) await questionLine(db, ctx, { project: i.project, key: i.key, question: i.question, questionId: out.question_id }).catch(() => null);
+      return out;
+    }),
   );
 
   server.registerTool(

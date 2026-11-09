@@ -6,7 +6,7 @@
 //        thread.message). In a project thread it also makes a Ready ticket for the PO, origin jorge (as
 //        Pedirle al PO does), whose creation wakes the PO; the message links that ticket.
 //        → 201 {message, created: {kind, key} | null, wake}
-// PLA-I32-4 adds POST /api/threads/:id/actions (src/api/thread-actions.ts).
+//   POST /api/threads/:id/actions {message_id, action, text?}  PLA-I32-4 (src/api/thread-actions.ts) → {ok, action_state}
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { and, eq, inArray } from "drizzle-orm";
@@ -20,6 +20,7 @@ import { asistenteAgent, eventWakesEnabled } from "../runner/events.js";
 import { loadSettings } from "../runner/limits.js";
 import { JORGE, listThreads, markRead, messageView, postMessage, readThread, resolveThread, type ThreadRef } from "../runner/threads.js";
 import { createPoTicket, projectPo } from "./company-actions.js";
+import { threadAction } from "./thread-actions.js";
 
 export const threadRoutes = new Hono();
 
@@ -106,6 +107,30 @@ threadRoutes.post("/:id/messages", async (c) => {
       await withDb(async (db) => jorgePosts(db, await resolveThread(db, c.req.param("id")), input.body)),
       201,
     );
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+const ActionBody = z
+  .object({
+    message_id: z.string().uuid(),
+    action: z.enum(["aceptar", "fusionar", "cambios", "responder"]),
+    text: z.string().trim().min(1).max(2000).optional(),
+  })
+  .strict();
+
+// PLA-I32-4 (src/api/thread-actions.ts): Aceptar / Fusionar, Pedir cambios, Responder.
+threadRoutes.post("/:id/actions", async (c) => {
+  const input = await body(c, ActionBody);
+  if (input instanceof Response) return input;
+  try {
+    const out = await withDb(async (db) => threadAction(db, await resolveThread(db, c.req.param("id")), input));
+    if ("error" in out) {
+      const { status, ...rest } = out;
+      return c.json(rest, status);
+    }
+    return c.json(out);
   } catch (e) {
     return fail(c, e);
   }
