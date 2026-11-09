@@ -177,7 +177,9 @@ test("I31-1 #1b: a question answered wakes whoever asked it (a runner session, o
     )
   ).rows;
   const asked = (await questions.ask(db, { project: "micasa", key: "EV-ASK", question: "¿A o B?" }, { actor: { agent: "Claude Code", session_id: `run-${String(run.id).slice(0, 8)}` } })) as { question_id: string };
-  assert.deepEqual(await wakes(), []);
+  // PLA-I32-5: a PO's question goes to Asistente first.
+  assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key, x.summary]), [["asistente", "EV-ASK", "queued: event question from housi"]]);
+  await raw.query(`delete from agent_runs where status = 'queued'`);
   await questions.answer(db, { project: "micasa", question_id: asked.question_id, answer: "A" }, webCtx);
   let w = await wakes();
   assert.equal(w.length, 1);
@@ -351,5 +353,6 @@ test("I31-1: resuming a project queues its PO's first wake; a second event while
   const q = (await questions.ask(db, { project: "micasa", key: "EV-CO", question: "¿?" }, { actor: { agent: "housi", session_id: "h1" } })) as { question_id: string };
   await questions.answer(db, { project: "micasa", question_id: q.question_id, answer: "Sí" }, webCtx);
   w = await wakes();
-  assert.equal(w.length, 1);
+  assert.equal(w.filter((x) => x.agent === "housi").length, 1);
+  assert.deepEqual(w.filter((x) => x.agent !== "housi").map((x) => x.agent), ["asistente"], "the question itself went to Asistente");
 });

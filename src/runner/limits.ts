@@ -1,5 +1,7 @@
 // PLA-I29-6/7/8: the limits a run must pass before it starts.
-// - Weekly token budgets per role and per project, from Monday 00:00 in Jorge's time zone.
+// - Weekly token budgets, from Monday 00:00 in Jorge's time zone. PLA-I32-5: one per project, shared by its
+//   team, and one for Asistente (runner_settings.asistente_weekly_limit; its runs are role asistente and do
+//   not count against the project they are recorded in). Role budgets are retired: never read for a run.
 //   80% warns, 100% stops that scope only. A running run counts its reserve until it ends.
 //   No limit set, or a run whose usage is unknown, stops the scope (unknown = stop).
 // - The plan guard: no new run when the last reading is allowed_warning/rejected, or the 5-hour
@@ -80,7 +82,8 @@ export type BudgetView = {
   reason: "unset" | "usage_unknown" | null;
 };
 
-export type BudgetScope = { kind: "role"; role: string } | { kind: "project"; projectId: string };
+// role: retired (PLA-I32-5); kept so old rows can still be shown, never checked before a run.
+export type BudgetScope = { kind: "role"; role: string } | { kind: "project"; projectId: string } | { kind: "asistente" };
 
 export function budgetState(used: number, limit: number | null, unknownRuns: number): BudgetView {
   if (limit == null || limit <= 0) return { used, limit: null, pct: null, state: "stopped", reason: "unset" };
@@ -92,6 +95,10 @@ export function budgetState(used: number, limit: number | null, unknownRuns: num
 }
 
 export async function budgetLimit(db: Q, scope: BudgetScope): Promise<number | null> {
+  if (scope.kind === "asistente") {
+    const v = (await loadSettings(db)).asistenteWeeklyLimit;
+    return v == null ? null : Number(v);
+  }
   const [row] = await db
     .select({ limit: tokenBudgets.weeklyLimit })
     .from(tokenBudgets)
@@ -104,9 +111,16 @@ export async function budgetLimit(db: Q, scope: BudgetScope): Promise<number | n
   return row ? Number(row.limit) : null;
 }
 
+// Which runs a scope counts. A project's budget is its team's: Asistente's runs (role asistente) are its own.
+export function scopeWhere(scope: BudgetScope) {
+  if (scope.kind === "role") return sql`r.role = ${scope.role}`;
+  if (scope.kind === "asistente") return sql`r.role = 'asistente'`;
+  return sql`r.project_id = ${scope.projectId} and r.role <> 'asistente'`;
+}
+
 // Used this week: ended runs count their tokens; running runs count the larger of tokens so far and their reserve.
 export async function budgetUsage(db: Q, scope: BudgetScope, weekStart: Date): Promise<{ used: number; unknown: number }> {
-  const where = scope.kind === "role" ? sql`r.role = ${scope.role}` : sql`r.project_id = ${scope.projectId}`;
+  const where = scopeWhere(scope);
   const rows = await db.execute<{ used: string | null; unknown: number }>(sql`
     select coalesce(sum(case when r.status = 'running' then greatest(r.tokens_total, r.reserve_tokens) else r.tokens_total end), 0)::bigint as used,
            count(*) filter (where r.usage_known = false and r.usage_ack_at is null)::int as unknown

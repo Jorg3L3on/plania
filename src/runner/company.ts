@@ -125,7 +125,7 @@ export async function setProjectPaused(db: Db, slug: string, paused: boolean): P
       .where(eq(projects.id, project.id));
     await emit(paused ? "project.runs_paused" : "project.runs_resumed", null, {});
   });
-  const stopped = paused ? stopLive((run) => run.projectId === project.id, `project ${project.slug} paused`) : 0;
+  const stopped = paused ? stopLive((run) => run.projectId === project.id && run.role !== "asistente", `project ${project.slug} paused`) : 0;
   return { project: project.slug, paused, stopped };
 }
 

@@ -5,6 +5,7 @@
 //   pr.reviewed / pr.ci_failed (GitHub job)   wakes Taller, on the PR's ticket
 //   idea stage → research / → design          wakes Research / Artist, on the idea
 //   project resumed (runs_resumed)            wakes that project's PO (a new project's first wake)
+//   question asked by a PO (not human_only)   wakes Asistente, on that ticket (PLA-I32-5)
 //   thread.message from Jorge, company thread  wakes Asistente (PLA-I32-3); in a project thread the screen
 //                                             route makes a Ready PO ticket instead, which wakes the PO
 // The hook runs inside writeTx, in the same transaction as the write, and only queues: it inserts an
@@ -30,11 +31,16 @@ export type EventWake =
 type ProjectRef = { id: string; slug: string };
 type TaskRef = { id: string; key: string } | null;
 
-// The runner agent for a service role: the roster row named after the role first, else the first by slug.
-async function serviceAgent(tx: Q, role: RunnerRole): Promise<Agent | null> {
-  const rows = await tx.select().from(agents).where(eq(agents.adapter, RUNNER_ADAPTER)).orderBy(asc(agents.slug));
+// PLA-I32-5: the runner agent for a role in a project is that project's team member (project_id). Only when
+// the project has no such member does a company-level row (no project, before 0041) take it: the one named
+// after the role first, else the first by slug. A member of another project's team never does.
+export async function serviceAgent(tx: Q, role: RunnerRole, project: ProjectRef): Promise<Agent | null> {
+  const rows = await tx.select().from(agents).where(and(eq(agents.adapter, RUNNER_ADAPTER), sql`${agents.status} <> 'retired'`)).orderBy(asc(agents.slug));
   const matching = rows.filter((a) => roleOf(a) === role);
-  return matching.find((a) => a.slug === role) ?? matching[0] ?? null;
+  const team = matching.filter((a) => a.projectId === project.id);
+  if (team.length) return team[0]!;
+  const shared = matching.filter((a) => !a.projectId);
+  return shared.find((a) => a.slug === role) ?? shared[0] ?? null;
 }
 
 // Who asked: a runner session is run-<first 8 of the agent_runs id> (see userPrompt); otherwise the
@@ -67,8 +73,13 @@ export async function asistenteAgent(tx: Q): Promise<Agent | null> {
 }
 
 async function poOf(tx: Q, project: ProjectRef): Promise<Agent | null> {
-  const rows = await tx.select().from(agents).where(eq(agents.adapter, RUNNER_ADAPTER)).orderBy(asc(agents.slug));
-  return rows.find((a) => roleOf(a) === "product-owner" && (a.slug === `po-${project.slug}` || a.capabilities.includes(project.slug))) ?? null;
+  const rows = await tx.select().from(agents).where(and(eq(agents.adapter, RUNNER_ADAPTER), sql`${agents.status} <> 'retired'`)).orderBy(asc(agents.slug));
+  const pos = rows.filter((a) => roleOf(a) === "product-owner");
+  return (
+    pos.find((a) => a.projectId === project.id) ??
+    pos.find((a) => !a.projectId && (a.slug === `po-${project.slug}` || a.capabilities.includes(project.slug))) ??
+    null
+  );
 }
 
 // Queue one wake, or say why not. Never spawns.
@@ -139,13 +150,22 @@ async function targetOf(
       if (owner && roleOf(owner) === "product-owner") return { agent: owner, taskKey: task.key, reason: "ticket ready" };
     }
     if (type === "task.created") return null;
-    const taller = await serviceAgent(tx, "taller");
+    const taller = await serviceAgent(tx, "taller", project);
     if (t.ownerAgent && t.ownerAgent !== taller?.id) return null;
     if (!t.ownerAgent && !(t.workType && TALLER_WORK.has(t.workType))) return null;
     return { agent: taller, taskKey: task.key, reason: "ticket ready" };
   }
   if (type === "pr.ci_failed" || type === "pr.reviewed") {
-    return { agent: await serviceAgent(tx, "taller"), taskKey: task.key, reason: type === "pr.ci_failed" ? "ci red" : "pr review" };
+    return { agent: await serviceAgent(tx, "taller", project), taskKey: task.key, reason: type === "pr.ci_failed" ? "ci red" : "pr review" };
+  }
+  // PLA-I32-5: a PO's question goes to Asistente first; it answers what Plania already says, or leaves it to Jorge.
+  if (type === "question.asked") {
+    const id = typeof payload.question_id === "string" ? payload.question_id : null;
+    if (!id || payload.human_only === true) return null;
+    const [q] = await tx.execute<{ asked_by: Actor }>(sql`select asked_by from questions where id = ${id}::uuid limit 1`).then((r) => r.rows);
+    const asker = await agentOfActor(tx, q?.asked_by);
+    if (!asker || roleOf(asker) !== "product-owner") return null;
+    return { agent: await asistenteAgent(tx), taskKey: task.key, reason: `question from ${asker.slug}` };
   }
   if (type === "question.answered") {
     const id = typeof payload.question_id === "string" ? payload.question_id : null;
@@ -158,12 +178,12 @@ async function targetOf(
     if (!Array.isArray(stage) || stage[0] === stage[1]) return null;
     const role: RunnerRole | null = stage[1] === "research" ? "research" : stage[1] === "design" ? "artist" : null;
     if (!role) return null;
-    return { agent: await serviceAgent(tx, role), taskKey: task.key, reason: `idea stage ${stage[1]}` };
+    return { agent: await serviceAgent(tx, role, project), taskKey: task.key, reason: `idea stage ${stage[1]}` };
   }
   return null;
 }
 
-const WATCHED = new Set(["task.created", "task.status", "pr.ci_failed", "pr.reviewed", "question.answered", "task.updated", "project.runs_resumed", "thread.message"]);
+const WATCHED = new Set(["task.created", "task.status", "pr.ci_failed", "pr.reviewed", "question.answered", "task.updated", "project.runs_resumed", "thread.message", "question.asked"]);
 
 // Called by writeTx's emit for every event. Cheap for every other type. A queued wake is logged as
 // wake.queued (inserted directly, so it is never itself an event the hook reads).

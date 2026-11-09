@@ -557,7 +557,7 @@ test("I29-6 #3: a run whose usage is unknown blocks the next run until Jorge ack
   await ready("micasa", "RUN-UNK");
   const res = await wake("taller", f.deps, "RUN-UNK");
   assert.equal(res.run!.status, "skipped");
-  assert.match(res.run!.summary, /BUDGET_STOPPED role taller \(usage unknown\)/);
+  assert.match(res.run!.summary, /BUDGET_STOPPED project micasa \(usage unknown\)/);
   assert.equal(f.spawned.length, 0);
   const id = (await raw.query(`select id from agent_runs where usage_known = false`)).rows[0].id;
   const ack = await app.request(`/api/company/runs/${id}/ack-usage`, { method: "POST", headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } });

@@ -29,6 +29,7 @@ import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
 import { denySettings } from "./deny.js";
 import { EVENT_SUMMARY } from "./events.js";
+import { asistenteHome } from "./threads.js";
 import {
   PROMPT_DOCS,
   budgetGate,
@@ -42,6 +43,7 @@ import {
   planView,
   recordReading,
   roleOf,
+  scopeWhere,
   weekBounds,
   type RunnerRole,
 } from "./limits.js";
@@ -144,8 +146,11 @@ type WakeContext = {
   taskRow: { branch: string | null; base: string | null } | null;
 };
 
-// A PO's project: a capability that names a project, else its slug po-<project> (po-mianovia).
+// PLA-I32-5: an agent's project is its team's (project_id); Asistente's is its home project (where its runs
+// are recorded). Rows from before 0041: a capability that names a project, else po-<project>.
 async function projectOfAgent(db: Db, agent: Agent): Promise<Project | null> {
+  if (agent.projectId) return (await db.select().from(projects).where(eq(projects.id, agent.projectId)).limit(1))[0] ?? null;
+  if (roleOf(agent) === "asistente") return asistenteHome(db, process.env);
   const names = [...agent.capabilities, ...(agent.slug.startsWith("po-") ? [agent.slug.slice(3)] : [])];
   if (names.length === 0) return null;
   const [row] = await db.select().from(projects).where(inArray(projects.slug, names)).orderBy(asc(projects.slug)).limit(1);
@@ -202,8 +207,9 @@ async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, 
   const { agent, role, project, task } = ctx;
   if (!project) return { ok: false, kind: "skipped", summary: "skipped: no project" };
   if (settings.companyPaused) return { ok: false, kind: "skipped", summary: "skipped: company paused" };
-  if (project.runsPaused) return { ok: false, kind: "skipped", summary: `skipped: project ${project.slug} paused` };
   if (!role) return { ok: false, kind: "skipped", summary: "skipped: no runner role" };
+  // Asistente works for the company: only the company switch holds it, not its home project's.
+  if (project.runsPaused && role !== "asistente") return { ok: false, kind: "skipped", summary: `skipped: project ${project.slug} paused` };
 
   if (settings.cooldownMinutes > 0) {
     const [last] = await db
@@ -218,7 +224,7 @@ async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, 
   }
 
   if (role === "product-owner" && !(await projectGoal(db, project.id))) return { ok: false, kind: "skipped", summary: "skipped: no goal" };
-  if (!task && role !== "product-owner") return { ok: false, kind: "skipped", summary: "no ready work" };
+  if (!task && role !== "product-owner" && role !== "asistente") return { ok: false, kind: "skipped", summary: "no ready work" };
 
   if (task) {
     const base = checkBase(ctx.taskRow?.branch ?? branchFor(task.key), ctx.taskRow?.base ?? null);
@@ -227,11 +233,11 @@ async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, 
 
   const { startsAt } = await weekBounds(db, now);
   const reserve = settings.reserveTokens;
+  // PLA-I32-5: one budget per run: Asistente's own, or the project's (its team shares it). Role caps are retired.
   const budget = budgetGate(
-    [
-      { label: `role ${role}`, view: await budgetView(db, { kind: "role", role }, startsAt) },
-      { label: `project ${project.slug}`, view: await budgetView(db, { kind: "project", projectId: project.id }, startsAt) },
-    ],
+    role === "asistente"
+      ? [{ label: "asistente", view: await budgetView(db, { kind: "asistente" }, startsAt) }]
+      : [{ label: `project ${project.slug}`, view: await budgetView(db, { kind: "project", projectId: project.id }, startsAt) }],
     reserve,
   );
   if (!budget.ok) return { ok: false, kind: "skipped", summary: budget.summary };
@@ -349,12 +355,24 @@ export function userPrompt(input: {
   task: { key: string; title: string } | null;
   workspace: { path: string; branch: string | null } | null;
   sessionId: string;
+  reason?: string | null;
 }): string {
+  const company = input.role === "asistente";
   const lines = [
-    `You are ${input.agent} (${input.role}) for project ${input.project.slug} (${input.project.title}), woken by the Plania runner.`,
+    company
+      ? `You are ${input.agent} (asistente), the company's chief of staff, woken by the Plania runner. Your runs are recorded in project ${input.project.slug}.`
+      : `You are ${input.agent} (${input.role}) for project ${input.project.slug} (${input.project.title}), woken by the Plania runner.`,
     input.goal ? `Project goal: ${input.goal.title}${input.goal.why ? ` (why: ${input.goal.why})` : ""}` : "Project goal: none set.",
     input.task ? `Ticket: ${input.task.key}: ${input.task.title}` : "Ticket: none. Read the project in Plania (get_resume) and take the next step toward the goal.",
   ];
+  if (company) lines.splice(1, 2, input.task ? `Ticket: ${input.task.key}: ${input.task.title}` : "Ticket: none. Read the company thread (thread_read company) first.");
+  if (input.reason) lines.push(`Why you woke: ${input.reason}.`);
+  // PLA-I32-3/5: the conversation is where Jorge reads you.
+  lines.push(
+    company
+      ? "Answer Jorge in the company thread with thread_post (thread company); write in a project's thread when it is about that project. Never merge anything."
+      : `End the run with one line in your project's thread (thread_post, thread ${input.project.slug}): what you did, with a link to it, and what you need.`,
+  );
   if (input.workspace) {
     lines.push(`Workspace: ${input.workspace.path}${input.workspace.branch ? ` on branch ${input.workspace.branch}` : ""}, base sandbox.`);
   }
@@ -502,6 +520,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, warn: { scope: str
     task: ctx.task ? { key: ctx.task.key, title: ctx.task.title } : null,
     workspace: { path: cwd, branch },
     sessionId: planiaSession,
+    reason: run.summary.startsWith(EVENT_SUMMARY) ? run.summary.slice(EVENT_SUMMARY.length).trim() || null : null,
   });
   const args = claudeArgs({ prompt, settingsPath, mcpConfigPath, systemPromptPath, maxTurns: settings.maxTurns, resume });
   const command = claudeCommand(ctx.agent.adapterConfig, env);
@@ -717,25 +736,25 @@ export async function enforceLive(db: Db, now: Date): Promise<number> {
   let n = 0;
   const projectIds = [...new Set([...live.values()].map((run) => run.projectId))];
   const rows = await db.select({ id: projects.id, slug: projects.slug, paused: projects.runsPaused }).from(projects).where(inArray(projects.id, projectIds));
-  for (const p of rows) if (p.paused) n += stopLive((run) => run.projectId === p.id, `project ${p.slug} paused`);
+  for (const p of rows) if (p.paused) n += stopLive((run) => run.projectId === p.id && run.role !== "asistente", `project ${p.slug} paused`);
 
   const { startsAt } = await weekBounds(db, now);
-  const realUsage = async (scope: { kind: "role"; role: string } | { kind: "project"; projectId: string }) => {
+  const realUsage = async (scope: { kind: "project"; projectId: string } | { kind: "asistente" }) => {
     const limit = await budgetLimit(db, scope);
-    const where = scope.kind === "role" ? sql`role = ${scope.role}` : sql`project_id = ${scope.projectId}`;
     const r = await db.execute<{ used: string }>(sql`
-      select coalesce(sum(tokens_total), 0)::bigint as used from agent_runs
-      where ${where} and status in ('running', 'ok', 'fail', 'stopped')
-        and coalesce(started_at, queued_at) >= ${startsAt.toISOString()}::timestamptz`);
+      select coalesce(sum(r.tokens_total), 0)::bigint as used from agent_runs r
+      where ${scopeWhere(scope)} and r.status in ('running', 'ok', 'fail', 'stopped')
+        and coalesce(r.started_at, r.queued_at) >= ${startsAt.toISOString()}::timestamptz`);
     return budgetState(Number(r.rows[0]?.used ?? 0), limit, 0);
   };
-  for (const role of new Set([...live.values()].map((run) => run.role))) {
-    const view = await realUsage({ kind: "role", role });
-    if (view.limit != null && view.used >= view.limit) n += stopLive((run) => run.role === role, `BUDGET_STOPPED role ${role}`);
+  // PLA-I32-5: no role caps. A project's budget stops its team's live runs; Asistente's stops Asistente's.
+  if ([...live.values()].some((run) => run.role === "asistente")) {
+    const view = await realUsage({ kind: "asistente" });
+    if (view.limit != null && view.used >= view.limit) n += stopLive((run) => run.role === "asistente", "BUDGET_STOPPED asistente");
   }
   for (const p of rows) {
     const view = await realUsage({ kind: "project", projectId: p.id });
-    if (view.limit != null && view.used >= view.limit) n += stopLive((run) => run.projectId === p.id, `BUDGET_STOPPED project ${p.slug}`);
+    if (view.limit != null && view.used >= view.limit) n += stopLive((run) => run.projectId === p.id && run.role !== "asistente", `BUDGET_STOPPED project ${p.slug}`);
   }
   return n;
 }
