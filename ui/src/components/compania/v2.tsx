@@ -79,7 +79,7 @@ const DecisionRow = ({
       className={cn("grid min-w-0 gap-x-4 gap-y-2 border-t border-status-jorge/20 py-3 first:border-t-0 first:pt-1 sm:grid-cols-[9rem_minmax(0,1fr)]", acted && "opacity-60")}
     >
       <span className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-        <Dot tone={acted ? "idle" : "stop"} />
+        <span className={cn("inline-block size-2 shrink-0 rounded-full", acted ? "bg-status-idle" : "bg-status-jorge")} aria-hidden />
         <span className="truncate">{title}</span>
       </span>
       <div className="grid min-w-0 gap-1.5">

@@ -212,7 +212,7 @@ const Compania = () => {
           ) : company ? (
             <>
               {live.length > 0 && (
-                <ul className="grid min-w-0 gap-3 xl:grid-cols-2" data-testid="project-cards">
+                <ul className={cn("grid min-w-0 gap-3", live.length > 1 && "xl:grid-cols-2")} data-testid="project-cards">
                   {live.map((p) => (
                     <ProjectReport key={p.slug} project={p} decisions={decisions} now={now} companyPaused={company.company.paused} timeZone={timeZone} />
                   ))}
