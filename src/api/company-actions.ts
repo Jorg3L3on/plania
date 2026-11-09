@@ -4,7 +4,7 @@
 //   POST /api/company/projects/:slug/wake         Despertar ahora: one wake of po-<slug> through wakeAgent,
 //        only when the PO has Ready work in this project; otherwise {woke: false, reason: "idle"} and no run.
 // Both refuse a paused project or company, and a project without a runner PO, with 409 and a reason.
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { agentRuns, agents, projects, type Agent } from "../db/schema.js";
 import { loadReady, pickReady, wakeAgent, type HeartbeatDeps } from "../jobs/heartbeat.js";
@@ -15,6 +15,18 @@ import { loadSettings, roleOf } from "../runner/limits.js";
 
 export type ActionRefusal = { error: "PROJECT_NOT_FOUND" | "PROJECT_PAUSED" | "COMPANY_PAUSED" | "NO_PO"; status: 404 | 409; hint: string };
 
+// PLA-I32-2: the PO of a project is the runner agent on its team (project_id) made from the product-owner
+// template; a row from before 0041 is still found by po-<slug> or a capability naming the project.
+export async function projectPo(db: Db, project: { id: string; slug: string }): Promise<Agent | null> {
+  const rows = await db.select().from(agents).where(and(eq(agents.adapter, "claude_code"), sql`${agents.status} <> 'retired'`));
+  const pos = rows.filter((a) => roleOf(a) === "product-owner");
+  return (
+    pos.find((a) => a.projectId === project.id) ??
+    pos.find((a) => !a.projectId && (a.slug === `po-${project.slug}` || a.capabilities.includes(project.slug))) ??
+    null
+  );
+}
+
 type Guard = { project: { id: string; slug: string }; po: Agent };
 
 async function guard(db: Db, slug: string): Promise<Guard | ActionRefusal> {
@@ -22,8 +34,7 @@ async function guard(db: Db, slug: string): Promise<Guard | ActionRefusal> {
   if (!project) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   if ((await loadSettings(db)).companyPaused) return { error: "COMPANY_PAUSED", status: 409, hint: "La compañía está detenida." };
   if (project.paused) return { error: "PROJECT_PAUSED", status: 409, hint: "El proyecto está en pausa: reanúdalo primero." };
-  const rows = await db.select().from(agents).where(eq(agents.adapter, "claude_code"));
-  const po = rows.find((a) => roleOf(a) === "product-owner" && (a.slug === `po-${slug}` || a.capabilities.includes(slug)));
+  const po = await projectPo(db, project);
   if (!po) return { error: "NO_PO", status: 409, hint: "Este proyecto no tiene un PO que corra en Claude Code." };
   return { project: { id: project.id, slug: project.slug }, po };
 }

@@ -13,7 +13,7 @@ import { resetTestDb, useTestEnv } from "./helpers.js";
 useTestEnv();
 process.env.PLANIA_EVENT_WAKES = "1";
 const { makeDb } = await import("../src/db/client.js");
-const { seedOrg } = await import("../scripts/seed-org.js");
+const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const writes = await import("../src/mcp/writes.js");
 const questions = await import("../src/mcp/questions.js");
 const { attachDoc } = await import("../src/mcp/docs.js");

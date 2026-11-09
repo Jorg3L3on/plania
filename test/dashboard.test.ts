@@ -16,7 +16,7 @@ const { isoWeekKey } = await import("../src/mcp/dashboard.js");
 const { ask } = await import("../src/mcp/questions.js");
 const { setGoal } = await import("../src/mcp/goals.js");
 const { webCtx } = await import("../src/mcp/tx.js");
-const { seedOrg } = await import("../scripts/seed-org.js");
+const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const writes = await import("../src/mcp/writes.js");
 
 type Json = Record<string, any>;

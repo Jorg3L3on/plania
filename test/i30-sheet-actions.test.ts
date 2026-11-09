@@ -50,7 +50,7 @@ test("I30-6 #1: a paused project refuses with 409 PROJECT_PAUSED; a project with
   assert.equal(paused.status, 409);
   assert.equal(((await paused.json()) as { error: string }).error, "PROJECT_PAUSED");
   await raw.query(`update projects set runs_paused = false where slug = 'workia'`);
-  await raw.query(`update agents set adapter = 'none' where slug = 'workia'`);
+  await raw.query(`update agents set adapter = 'none' where slug = 'po-workia'`);
   const noPo = await ask("workia", { text: "Arma el plan de lanzamiento" });
   assert.equal(noPo.status, 409);
   assert.equal(((await noPo.json()) as { error: string }).error, "NO_PO");
@@ -63,25 +63,25 @@ test("I30-6 #1 #2: a request becomes a Ready ticket the PO owns, origin jorge, a
   const res = await ask("micasa", { text: "Arma el borrador de Campos y flujos con la propuesta" });
   assert.equal(res.status, 201);
   const body = (await res.json()) as { key: string; po: string; wake: string };
-  assert.equal(body.po, "housi");
+  assert.equal(body.po, "po-micasa");
   assert.equal(body.wake, "queued");
   const t = (
     await raw.query(`select t.status, t.origin, t.work_type, a.slug as owner, t.title from tasks t join agents a on a.id = t.owner_agent where t.key = $1`, [body.key])
   ).rows[0];
-  assert.deepEqual(t, { status: "Ready", origin: "jorge", work_type: "ops", owner: "housi", title: "Arma el borrador de Campos y flujos con la propuesta" });
-  assert.deepEqual(await runsOf("housi"), [{ status: "queued", task_key: body.key }]);
+  assert.deepEqual(t, { status: "Ready", origin: "jorge", work_type: "ops", owner: "po-micasa", title: "Arma el borrador de Campos y flujos con la propuesta" });
+  assert.deepEqual(await runsOf("po-micasa"), [{ status: "queued", task_key: body.key }]);
 });
 
 test("I30-6 #2: a PO-owned ticket moved to Ready wakes that PO; an unowned ops ticket created Ready wakes nobody", async () => {
   await raw.query(`delete from agent_runs`);
   const created = (await writes.createTask(
     db,
-    { project: "micasa", title: "Plan de la semana", scope: "s", checks: ["c"], owner_agent: "housi", work_type: "ops" },
+    { project: "micasa", title: "Plan de la semana", scope: "s", checks: ["c"], owner_agent: "po-micasa", work_type: "ops" },
     A,
   )) as { key: string; version: number };
-  assert.deepEqual(await runsOf("housi"), [], "Backlog wakes nobody");
+  assert.deepEqual(await runsOf("po-micasa"), [], "Backlog wakes nobody");
   await writes.setTask(db, { project: "micasa", key: created.key, status: "Ready", version: created.version }, A);
-  assert.deepEqual(await runsOf("housi"), [{ status: "queued", task_key: created.key }]);
+  assert.deepEqual(await runsOf("po-micasa"), [{ status: "queued", task_key: created.key }]);
 
   await raw.query(`delete from agent_runs`);
   await writes.createTask(db, { project: "micasa", title: "Suelto", scope: "s", checks: ["c"], status: "Ready", work_type: "ops" }, A);
@@ -95,9 +95,9 @@ test("I30-7 #1: Despertar ahora with no PO work answers idle and records no run;
   assert.equal(idle.status, 200);
   assert.deepEqual(await idle.json(), { woke: false, reason: "idle", ticket: null, summary: "Sin trabajo para el PO: pídele algo." });
   assert.equal((await raw.query(`select count(*)::int as n from agent_runs`)).rows[0].n, 0);
-  assert.equal((await raw.query(`select count(*)::int as n from heartbeat_runs hr join agents a on a.id = hr.agent_id where a.slug = 'zigzag'`)).rows[0].n, 0);
+  assert.equal((await raw.query(`select count(*)::int as n from heartbeat_runs hr join agents a on a.id = hr.agent_id where a.slug = 'po-zigzag'`)).rows[0].n, 0);
 
-  // micasa has Ready work owned by housi. Cap 0: the runner queues it instead of spawning.
+  // micasa has Ready work owned by po-micasa. Cap 0: the runner queues it instead of spawning.
   await raw.query(`update runner_settings set max_concurrent = 0`);
   const busy = await wake("micasa");
   assert.equal(busy.status, 200);
@@ -114,7 +114,7 @@ test("I30-8 #1: the sheet counts bot work, marks Jorge's own Ready tickets, and 
     A,
   )) as { key: string };
   const project = (await raw.query(`select id from projects where slug = 'zigzag'`)).rows[0].id;
-  const agent = (await raw.query(`select id from agents where slug = 'zigzag'`)).rows[0].id;
+  const agent = (await raw.query(`select id from agents where slug = 'po-zigzag'`)).rows[0].id;
   process.env.PLANIA_TEST_SET_ENV = "yes";
   await raw.query(
     `insert into agent_runs (agent_id, project_id, role, status, summary, ended_at) values
@@ -131,7 +131,7 @@ test("I30-8 #1: the sheet counts bot work, marks Jorge's own Ready tickets, and 
   assert.equal(sheet.runs.find((r) => r.summary.endsWith("PLANIA_TEST_NOT_SET"))?.resolved, undefined);
 
   const micasa = (await (await app.request("/api/company/projects/micasa", { headers: jorge() })).json()) as { bot_work: number };
-  assert.ok(micasa.bot_work >= 1, "housi's Ready ticket counts");
+  assert.ok(micasa.bot_work >= 1, "po-micasa's Ready ticket counts");
   const company = (await (await app.request("/api/company", { headers: jorge() })).json()) as { project_facts: Record<string, { bot_work: number }> };
   assert.equal(company.project_facts.zigzag?.bot_work, 0);
   assert.ok((company.project_facts.micasa?.bot_work ?? 0) >= 1);

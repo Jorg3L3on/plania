@@ -14,7 +14,7 @@ useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
-const { seedOrg } = await import("../scripts/seed-org.js");
+const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const writes = await import("../src/mcp/writes.js");
 const { runHeartbeat, wakeAgent } = await import("../src/jobs/heartbeat.js");
 const runner = await import("../src/runner/runner.js");
@@ -717,7 +717,7 @@ test("I29-8 #3: resuming the company leaves a self-paused project paused; new pr
   // The read API shape the Compañía page uses (PLA-I30 adds viewer, prompts, roster and project_facts; PLA-I31 adds brief).
   assert.deepEqual(Object.keys(state).sort(), ["brief", "company", "plan", "project_facts", "projects", "prompts", "roles", "roster", "runs", "settings", "viewer", "week"]);
   assert.deepEqual(Object.keys(state.projects[0]!.budget).sort(), ["limit", "pct", "reason", "state", "used"]);
-  assert.deepEqual(state.roles.map((r) => r.role), ["product-owner", "taller", "research", "artist", "asistente"]);
+  assert.deepEqual(state.roles.map((r) => r.role), ["product-owner", "taller", "research", "artist", "asistente", "qa", "copy", "marketing", "data"]);
   assert.deepEqual(Object.keys(state.plan).sort(), ["five_hour_pct", "guard_pct", "read_at", "resets_at", "seven_day_pct", "seven_day_resets_at", "source", "state", "status"]);
   assert.equal(state.plan.guard_pct, 70);
   assert.equal(state.week.timezone, "America/Mexico_City");

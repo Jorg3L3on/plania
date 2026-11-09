@@ -58,7 +58,9 @@ test("0034_agents.sql applies twice", async () => {
 
 test("seed creates the org once, with a reports_to chain, and leaves edits in place", async () => {
   const first = await seedOrg(db);
-  assert.deepEqual(first.inserted.sort(), ORG.map((r) => r.slug).sort());
+  // PLA-I32-2: the company rows (ceo, asistente) and one team of four per project (four in this database).
+  const teams = ["micasa", "workia", "filmia", "zigzag"].flatMap((p) => [`po-${p}`, `research-${p}`, `artist-${p}`, `taller-${p}`]);
+  assert.deepEqual(first.inserted.sort(), [...ORG.map((r) => r.slug), ...teams].sort());
   const second = await seedOrg(db);
   assert.deepEqual(second.inserted, []);
 
@@ -70,37 +72,36 @@ test("seed creates the org once, with a reports_to chain, and leaves edits in pl
   assert.equal(bySlug.ceo!.kind, "human");
   assert.equal(bySlug.ceo!.reports_to, null);
   assert.equal(bySlug.asistente!.reports_to, "ceo");
-  assert.equal(bySlug.artist!.reports_to, "asistente");
-  assert.equal(bySlug.research!.reports_to, "asistente");
-  for (const po of ["housi", "workia", "filmia", "zigzag", "owner-plania", "po-mianovia"]) assert.equal(bySlug[po]!.reports_to, "ceo", po);
-  assert.equal(bySlug["owner-plania"]!.name, "Plania");
-  assert.equal(bySlug.taller!.reports_to, "ceo");
-  // PLA-I30-1: no Cursor, no Coach, no COO, no CTO layer, no separate claude-code row.
-  for (const gone of ["cursor", "coach", "plania", "claude-code"]) assert.equal(bySlug[gone], undefined, gone);
-  assert.equal(rows.filter((r) => r.name === "Plania").length, 1);
-  assert.equal(rows.length, 11);
+  for (const p of ["micasa", "workia", "filmia", "zigzag"]) {
+    assert.equal(bySlug[`po-${p}`]!.reports_to, "ceo", p);
+    for (const r of ["research", "artist", "taller"]) assert.equal(bySlug[`${r}-${p}`]!.reports_to, `po-${p}`, `${r}-${p}`);
+  }
+  assert.equal(bySlug["po-micasa"]!.name, "PO MiCasa");
+  // PLA-I30-1 and PLA-I32-2: no Cursor, no Coach, no COO, no CTO layer, no shared services.
+  for (const gone of ["cursor", "coach", "plania", "claude-code", "taller", "research", "artist"]) assert.equal(bySlug[gone], undefined, gone);
+  assert.equal(rows.length, 18);
   assert.ok(!JSON.stringify(rows).includes("@"), "no emails");
 
-  await raw.query(`update agents set title = 'Pair' where slug = 'taller'`);
+  await raw.query(`update agents set title = 'Pair' where slug = 'taller-micasa'`);
   await seedOrg(db);
-  const { rows: edited } = await raw.query(`select title from agents where slug = 'taller'`);
+  const { rows: edited } = await raw.query(`select title from agents where slug = 'taller-micasa'`);
   assert.equal(edited[0].title, "Pair");
 });
 
 test("list_agents links tokens by name and set_agent updates one row", async () => {
   await raw.query(
-    `insert into agent_tokens (name, agent, scopes, token_hash, prefix) values ('taller-ci', 'Taller', '{read}', 'hash-not-a-secret', 'pla_test')`,
+    `insert into agent_tokens (name, agent, scopes, token_hash, prefix) values ('taller-ci', 'Taller MiCasa', '{read}', 'hash-not-a-secret', 'pla_test')`,
   );
   const listed = await call("list_agents");
-  const taller = listed.agents.find((a: { slug: string }) => a.slug === "taller");
-  assert.equal(taller.reports_to, "ceo");
+  const taller = listed.agents.find((a: { slug: string }) => a.slug === "taller-micasa");
+  assert.equal(taller.reports_to, "po-micasa");
   assert.deepEqual(taller.tokens, [{ name: "taller-ci", prefix: "pla_test", machine: null }]);
   assert.equal(JSON.stringify(listed).includes("hash-not-a-secret"), false);
 
-  const updated = await call("set_agent", { actor: A, slug: "research", title: "Servicio" });
+  const updated = await call("set_agent", { actor: A, slug: "research-micasa", title: "Servicio" });
   assert.equal(updated.title, "Servicio");
-  assert.equal(updated.reports_to, "asistente");
-  const missing = await call("set_agent", { actor: A, slug: "research", reports_to: "nobody" });
+  assert.equal(updated.reports_to, "po-micasa");
+  const missing = await call("set_agent", { actor: A, slug: "research-micasa", reports_to: "nobody" });
   assert.equal(missing.__error, "AGENT_NOT_FOUND");
   assert.equal(missing.__status, 404);
 });
@@ -112,18 +113,18 @@ test("owner_agent round-trips in get_task and clears", async () => {
     title: "Owned ticket",
     scope: "Scope",
     checks: ["Done"],
-    owner_agent: "taller",
+    owner_agent: "taller-micasa",
     verbose: true,
   });
   assert.equal(created.__error, undefined);
-  assert.equal(created.owner_agent.slug, "taller");
+  assert.equal(created.owner_agent.slug, "taller-micasa");
   assert.equal(created.owner_agent.status, "idle");
   const got = await call("get_task", { project: "micasa", key: created.key });
-  assert.equal(got.owner_agent.slug, "taller");
-  assert.equal(got.owner_agent.name, "Taller");
+  assert.equal(got.owner_agent.slug, "taller-micasa");
+  assert.equal(got.owner_agent.name, "Taller MiCasa");
 
-  const moved = await call("set_task", { actor: A, project: "micasa", key: created.key, owner_agent: "research", version: got.version, verbose: true });
-  assert.equal(moved.owner_agent.slug, "research");
+  const moved = await call("set_task", { actor: A, project: "micasa", key: created.key, owner_agent: "research-micasa", version: got.version, verbose: true });
+  assert.equal(moved.owner_agent.slug, "research-micasa");
   const cleared = await call("set_task", { actor: A, project: "micasa", key: created.key, owner_agent: null, version: moved.version, verbose: true });
   assert.equal(cleared.owner_agent, null);
 

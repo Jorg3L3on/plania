@@ -8,7 +8,7 @@ useTestEnv();
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
 const { makeDb } = await import("../src/db/client.js");
-const { seedOrg } = await import("../scripts/seed-org.js");
+const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const { comment, recordRoutineRun } = await import("../src/mcp/delegation.js");
 const writes = await import("../src/mcp/writes.js");
 

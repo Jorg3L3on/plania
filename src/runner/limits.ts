@@ -15,7 +15,8 @@ export const STOP_PCT = 100;
 // A reading older than this, or past its 5-hour reset, says nothing about now.
 export const READING_TTL_MS = 30 * 60_000;
 
-export const RUNNER_ROLES = ["product-owner", "taller", "research", "artist", "asistente"] as const;
+// PLA-I32-2: the specialists (qa, copy, marketing, data) are runner roles too, once a team has one.
+export const RUNNER_ROLES = ["product-owner", "taller", "research", "artist", "asistente", "qa", "copy", "marketing", "data"] as const;
 export type RunnerRole = (typeof RUNNER_ROLES)[number];
 
 export const PROMPT_DOCS: Record<RunnerRole, string> = {
@@ -24,9 +25,20 @@ export const PROMPT_DOCS: Record<RunnerRole, string> = {
   research: "Prompt: Research",
   artist: "Prompt: Artist",
   asistente: "Prompt: Asistente",
+  qa: "Prompt: QA",
+  copy: "Prompt: Copy",
+  marketing: "Prompt: Marketing",
+  data: "Prompt: Data",
 };
 
-export function roleOf(agent: { slug: string; role: string; capabilities: string[] }): RunnerRole | null {
+const ROLE_SET = new Set<string>(RUNNER_ROLES);
+export const isRunnerRole = (v: string | null | undefined): v is RunnerRole => !!v && ROLE_SET.has(v);
+
+// PLA-I32-2: role_template first (every team member has one); the older slug and capability rules
+// stay for rows made before 0041.
+export function roleOf(agent: { slug: string; role: string; capabilities: string[]; roleTemplate?: string | null; role_template?: string | null }): RunnerRole | null {
+  const template = agent.roleTemplate ?? agent.role_template ?? null;
+  if (isRunnerRole(template)) return template;
   const caps = new Set(agent.capabilities);
   if (agent.role === "product-owner" || agent.slug.startsWith("po-")) return "product-owner";
   if (agent.slug === "asistente" || agent.role === "chief-of-staff") return "asistente";
