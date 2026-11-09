@@ -71,7 +71,7 @@ after(async () => {
 
 test("I32-6 #1: GET /api/company has exactly the contract keys, a team of four per project and the plumbing line", async () => {
   const c = await get("/api/company");
-  assert.deepEqual(keys(c), ["asistente", "company", "plumbing", "projects", "week"]);
+  assert.deepEqual(keys(c), ["asistente", "company", "decisions", "plumbing", "projects", "week"], "PLA-I35-1 added decisions");
   assert.deepEqual(keys(c.company), ["paused"]);
   assert.deepEqual(keys(c.week), ["resets_at", "starts_at", "timezone"]);
   assert.deepEqual(keys(c.asistente), ["budget", "last_run", "state", "thread_id"]);
@@ -82,7 +82,7 @@ test("I32-6 #1: GET /api/company has exactly the contract keys, a team of four p
   assert.deepEqual([c.plumbing.running, c.plumbing.paused, c.plumbing.spend, c.plumbing.limit], [1, false, 1200, 1000000 + 500000 + 500000]);
   assert.deepEqual(c.projects.map((p: Json) => p.slug), ["filmia", "mianovia", "micasa", "workia", "zigzag"]);
   for (const p of c.projects) {
-    assert.deepEqual(keys(p), ["budget", "goal", "light", "paused", "slug", "team", "thread", "title"], p.slug);
+    assert.deepEqual(keys(p), ["budget", "goal", "light", "next", "paused", "plan", "slug", "team", "this_week", "thread", "title", "work"], p.slug);
     assert.deepEqual(keys(p.budget), BUDGET);
     assert.ok(LIGHTS.includes(p.light), p.light);
     assert.deepEqual(keys(p.thread), ["id", "last", "unread"]);

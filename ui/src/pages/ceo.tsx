@@ -1,23 +1,26 @@
-// PLA-I33-1: Compañía como organización (ADR 31c1cead, Design 3a2c3385). Jorge talks with Asistente and sees
-// each team working. Mac: the thread on the left (fixed width), team cards on the right in two columns.
-// Phone: the thread on top folded to its last message, cards in one column. Plumbing (budgets, guard,
-// switches, En marcha, run log) lives in Máquina; one line here links there.
-// Data: GET /api/company and GET /api/threads/:id. Each block loads and fails on its own.
-// URL: ?vista=<slug> previews a project, ?doc=<id> a doc, ?nuevo the new project dialog;
-// ?p=<slug> redirects to /p/<slug> and ?equipo to Máquina.
+// PLA-I35: Compañía v2 (Design afdb15dd v2, canvas docs/company-mockups/compania-v2.html). A report, not a
+// board of bots: Te toca on top (the decisions, options with names), Asistente folded on the left (360 px on a
+// Mac), on the right each running project as a report card and the paused ones as a list with Reanudar.
+// Phone: one column, Te toca first. Plumbing lives in Máquina; one line in the header links there.
+// Data: GET /api/company (decisions[] included) and GET /api/threads/:id; POST /api/company/decisions/:id acts.
+// URL: ?doc=<id> a doc, ?nuevo the new project dialog; ?p=<slug> and ?vista=<slug> redirect to /p/<slug>,
+// ?equipo to Máquina.
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate, useLocation, useNavigate } from "react-router";
-import { BlockError } from "@/components/compania/parts";
-import { CompanyPlumbing, ProjectPreview, TeamCards, TeamCardsSkeleton, ThreadPanel, ThreadSkeleton } from "@/components/compania/org";
+import { BlockError, eyebrow, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
+import { CompanyPlumbing, ThreadSkeleton } from "@/components/compania/org";
+import { AsistenteFolded, PausedList, ProjectReport, ProjectsSkeleton, TeToca, type DecisionBusy } from "@/components/compania/v2";
 import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
 import { useThread } from "@/components/compania/use-thread";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { ApiError, api } from "@/lib/api";
+import { ApiError, api, type Decision, type DecisionInput } from "@/lib/api";
 import { ceoRedirect, sheetOf } from "@/lib/compania";
 import { byLight } from "@/lib/org";
 import { greeting } from "@/lib/greeting";
+import { cn } from "@/lib/utils";
+import { companyLine } from "@/lib/v2";
 
 const dayLabel = (timeZone: string) =>
   new Intl.DateTimeFormat("es-MX", { weekday: "long", day: "numeric", month: "long", timeZone })
@@ -54,6 +57,14 @@ export const CeoPage = () => {
   return to ? <Navigate to={to} replace /> : <Compania />;
 };
 
+const DECISION_REFUSAL: Record<string, string> = {
+  ALREADY_ACTED: "Ya actuaste sobre esto.",
+  CHECKS_OPEN: "El ticket tiene checks abiertos.",
+  NOT_IN_REVIEW: "Ya no está en revisión.",
+  MERGE_FAILED: "No se pudo fusionar: revisa el PR.",
+  BASE_NOT_SANDBOX: "El PR no apunta a sandbox.",
+};
+
 const Compania = () => {
   const client = useQueryClient();
   const location = useLocation();
@@ -66,15 +77,8 @@ const Compania = () => {
   const [creating, setCreating] = useState<NewProjectState>({ kind: "idle" });
 
   const timeZone = company?.week.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const { hello, subtitle } = greeting(timeZone);
+  const { hello } = greeting(timeZone);
   const asistente = useThread(company?.asistente.thread_id, { who: "Asistente", invalidate: [["company"]] });
-  const previewSlug = sheet?.kind === "vista" ? sheet.slug : null;
-  const previewProject = previewSlug ? company?.projects.find((p) => p.slug === previewSlug) : undefined;
-  const previewThread = useQuery({
-    queryKey: ["thread", previewProject?.thread.id],
-    queryFn: () => api.thread(previewProject!.thread.id),
-    enabled: !!previewProject?.thread.id,
-  });
   const doc = useQuery({
     queryKey: ["prompt-doc", sheet?.kind === "doc" ? sheet.id : ""],
     queryFn: () => api.promptDoc(sheet?.kind === "doc" ? sheet.id : ""),
@@ -82,8 +86,44 @@ const Compania = () => {
   });
 
   const projects = useMemo(() => [...(company?.projects ?? [])].sort(byLight), [company]);
+  const live = projects.filter((p) => !p.paused && p.light !== "paused");
+  const paused = projects.filter((p) => p.paused || p.light === "paused");
+  const titles = useMemo(() => Object.fromEntries(projects.map((p) => [p.slug, p.title])), [projects]);
   const openSheet = (search: string) => navigate({ pathname: "/ceo", search });
   const closeSheet = () => navigate({ pathname: "/ceo", search: "" }, { replace: true });
+
+  // Te toca: the result is written in the row at once; the next read keeps it (acted rows stay 24 h).
+  const [acted, setActed] = useState<Record<string, Decision>>({});
+  const [busy, setBusy] = useState<DecisionBusy>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const decisions = useMemo(() => (company?.decisions ?? []).map((d) => acted[d.id] ?? d), [company, acted]);
+  const act = useMutation({
+    mutationFn: (v: { d: Decision; input: DecisionInput; key: string }) => api.actDecision(v.d.id, v.input),
+    onMutate: (v) => {
+      setBusy({ id: v.d.id, key: v.key });
+      setErrors((e) => ({ ...e, [v.d.id]: "" }));
+    },
+    onSuccess: (r, v) => {
+      setActed((a) => ({ ...a, [v.d.id]: r.decision ?? { ...v.d, state: r.state, actions: [] } }));
+      void client.invalidateQueries({ queryKey: ["company"] });
+      void client.invalidateQueries({ queryKey: ["thread"] });
+    },
+    onError: (e, v) =>
+      setErrors((x) => ({
+        ...x,
+        [v.d.id]: e instanceof ApiError ? (DECISION_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar.",
+      })),
+    onSettled: () => setBusy(null),
+  });
+  const [resuming, setResuming] = useState<string | null>(null);
+  const resume = useMutation({
+    mutationFn: (slug: string) => api.setProjectPaused(slug, false),
+    onMutate: (slug) => setResuming(slug),
+    onSettled: () => {
+      setResuming(null);
+      void client.invalidateQueries({ queryKey: ["company"] });
+    },
+  });
 
   const createProject = useMutation({
     mutationFn: (input: { name: string; goal: string }) => api.createCompanyProject(input),
@@ -97,6 +137,10 @@ const Compania = () => {
       else setCreating({ kind: "error", message: e instanceof ApiError ? `No se pudo crear (${e.code}).` : "No se pudo crear el proyecto." });
     },
   });
+  const onNew = () => {
+    setCreating({ kind: "idle" });
+    openSheet("?nuevo");
+  };
 
   return (
     <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-5">
@@ -105,8 +149,9 @@ const Compania = () => {
           {company && company.projects.length === 0 ? "Hola" : hello}, Jorge
         </h1>
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          <p className="text-sm text-muted-foreground">
-            {dayLabel(timeZone)} · {subtitle}
+          <p className="min-w-0 text-sm text-muted-foreground">
+            {dayLabel(timeZone)}
+            {company && company.projects.length > 0 ? ` · ${companyLine(company.projects)}` : ""}
           </p>
           {company && <CompanyPlumbing plumbing={company.plumbing} />}
         </div>
@@ -119,57 +164,65 @@ const Compania = () => {
 
       {comp.isError && !company && <BlockError what="la compañía" onRetry={() => void comp.refetch()} />}
 
-      <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
+      {comp.isPending ? (
+        <div className="h-36 animate-pulse rounded-[22px] bg-muted" aria-hidden data-testid="te-toca-skeleton" />
+      ) : company ? (
+        <TeToca decisions={decisions} titles={titles} now={now} busy={busy} errors={errors} onAct={(d, input, key) => act.mutate({ d, input, key })} />
+      ) : null}
+
+      <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
         <div className="min-w-0 lg:sticky lg:top-20">
           {comp.isPending ? (
             <ThreadSkeleton />
           ) : company ? (
-            <ThreadPanel
-              title="Asistente"
-              subtitle={<p className="-mt-2 text-xs text-muted-foreground">Tu canal con la compañía. Dile qué quieres y a qué proyecto.</p>}
-              project={null}
-              now={now}
-              timeZone={timeZone}
-              placeholder="Dile a Asistente…"
-              {...asistente}
-            />
-          ) : null}
-        </div>
-        <div className="min-w-0">
-          {comp.isPending ? (
-            <TeamCardsSkeleton />
-          ) : company ? (
-            <TeamCards
+            <AsistenteFolded
+              thread={asistente.thread}
+              loading={asistente.loading}
+              error={asistente.error}
+              onRetry={asistente.onRetry}
               projects={projects}
               now={now}
-              onPreview={(slug) => openSheet(`?vista=${encodeURIComponent(slug)}`)}
-              onNew={() => {
-                setCreating({ kind: "idle" });
-                openSheet("?nuevo");
-              }}
+              timeZone={timeZone}
+              send={asistente.send}
+              onSend={asistente.onSend}
+              expanded={asistente.expanded}
+              onToggle={asistente.onToggle}
             />
           ) : null}
         </div>
-      </div>
-
-      {/* Vista previa: header, team, last 3 messages, Abrir */}
-      <Sheet open={sheet?.kind === "vista"} onOpenChange={(open) => !open && closeSheet()}>
-        <SheetContent side={wide ? "right" : "bottom"} className={sheetClass}>
-          <SheetHeader className="pr-10">
-            <SheetTitle className="font-display text-2xl font-extrabold tracking-tight break-words">{previewProject?.title ?? previewSlug ?? ""}</SheetTitle>
-            <SheetDescription className="sr-only">Vista previa del proyecto</SheetDescription>
-          </SheetHeader>
-          <div className="px-4 pb-8">
-            {previewProject ? (
-              <ProjectPreview project={previewProject} messages={previewThread.data?.messages ?? []} now={now} timeZone={timeZone} />
-            ) : comp.isPending ? (
-              <div className="h-40 animate-pulse rounded-xl bg-muted" />
-            ) : (
-              <p className="text-sm text-muted-foreground">Ese proyecto no está.</p>
-            )}
+        <section id="proyectos" aria-labelledby="cia-proyectos" className="grid min-w-0 scroll-mt-20 content-start gap-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <h2 id="cia-proyectos" className={eyebrow}>
+              Proyectos <span className="ml-1 font-mono text-foreground">{projects.length}</span>
+            </h2>
+            <button type="button" className={cn(pillGhost, "min-h-9 px-3 text-[13px]")} onClick={onNew}>
+              + Nuevo proyecto
+            </button>
           </div>
-        </SheetContent>
-      </Sheet>
+          {comp.isPending ? (
+            <ProjectsSkeleton />
+          ) : company && projects.length === 0 ? (
+            <div className={cn(panel, "grid justify-items-start gap-3 p-5")} data-empty="projects">
+              <p className="font-display text-lg font-extrabold tracking-tight">Todavía no hay proyectos</p>
+              <p className="text-sm text-muted-foreground">Un proyecto es un nombre y una meta. Llega con su equipo: PO, Research, Artist y Taller.</p>
+              <button type="button" className={pillPrimary} onClick={onNew}>
+                Crear el primer proyecto
+              </button>
+            </div>
+          ) : company ? (
+            <>
+              {live.length > 0 && (
+                <ul className={cn("grid min-w-0 gap-3", live.length > 1 && "xl:grid-cols-2")} data-testid="project-cards">
+                  {live.map((p) => (
+                    <ProjectReport key={p.slug} project={p} decisions={decisions} now={now} companyPaused={company.company.paused} timeZone={timeZone} />
+                  ))}
+                </ul>
+              )}
+              <PausedList projects={paused} now={now} busy={resuming} onResume={(slug) => resume.mutate(slug)} />
+            </>
+          ) : null}
+        </section>
+      </div>
 
       {/* A doc linked from a message or a role row */}
       <Sheet open={sheet?.kind === "doc"} onOpenChange={(open) => !open && closeSheet()}>

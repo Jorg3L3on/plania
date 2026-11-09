@@ -232,7 +232,7 @@ export function sheetOf(search: string): SheetParam {
 // /ceo?p=<slug> → /p/<slug>; /ceo?equipo → /machine. Null when /ceo stays.
 export function ceoRedirect(search: string): string | null {
   const sheet = sheetOf(search);
-  if (sheet?.kind === "project") return `/p/${encodeURIComponent(sheet.slug)}`;
+  if (sheet?.kind === "project" || sheet?.kind === "vista") return `/p/${encodeURIComponent(sheet.slug)}`;
   if (sheet?.kind === "equipo") return "/machine";
   return null;
 }
