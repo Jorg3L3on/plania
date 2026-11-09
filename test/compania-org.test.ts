@@ -196,3 +196,67 @@ test("I33-1 a bare link in the text box says Asistente saves it to the library",
   assert.equal(lib.isBareLink("mira https://example.test/a"), false);
   assert.equal(lib.isBareLink("Mianovia: algo"), false);
 });
+
+// ---- PLA-I33-2 project page /p/<slug>
+
+const compLib = await load("lib/compania.ts");
+const poThread = {
+  id: "t-mianovia",
+  kind: "project",
+  project: "mianovia",
+  messages: [
+    msg("p1", "2026-11-08T10:00:00Z", { author: { agent: "jorge", role: "jorge" }, body: "Quiero que la lista se comparta por WhatsApp." }),
+    msg("p2", "2026-11-08T11:00:00Z", { author: { agent: "po-mianovia", role: "product-owner" }, body: "La idea pasa a Research." }),
+    msg("p3", "2026-11-08T12:00:00Z", { author: { agent: "po-mianovia", role: "product-owner" }, body: "Terminé el doc.", links: [{ kind: "doc", ref: "d-1", title: "Campos y flujos" }], actions: ["aceptar", "cambios"] }),
+    msg("p4", "2026-11-08T13:00:00Z", { author: { agent: "taller-mianovia", role: "taller" }, body: "PR del botón.", links: [{ kind: "pr", ref: "https://example.test/pr/12", title: "PR #12" }], actions: ["fusionar", "cambios"] }),
+  ],
+};
+const TEMPLATES = [
+  { slug: "qa", title: "QA" },
+  { slug: "copy", title: "Copy" },
+  { slug: "marketing", title: "Marketing" },
+  { slug: "data", title: "Data" },
+];
+
+test("I33-2 project page: header with light, goal and Editar, plumbing line, Pausar; the team; the PO thread; Añadir al equipo", () => {
+  const p = SIX[0]!;
+  const bar = html(h(org.ProjectOrgBar, { project: p, companyPaused: false, canEdit: true, onEditGoal: noop, onPause: noop, onResume: noop }));
+  for (const t of ["Te necesita", "Meta", "Editar", "Meta de prueba de Mianovia.", "912k / 6M · en marcha", "→ Máquina", "Pausar"]) assert.ok(bar.includes(t), t);
+  assert.ok(bar.includes('href="/machine"'));
+  const runs = [{ id: "r", agent: "taller-mianovia", role: "taller", project: "mianovia", ticket: "MIA-I3-3", status: "ok", summary: "", started_at: null, ended_at: "2026-11-08T13:40:00Z", tokens: 120_000 }];
+  const teamOut = html(h(org.ProjectTeam, { project: "mianovia", team: p.team, runs, templates: TEMPLATES, now: NOW, add: { kind: "idle" }, onAdd: noop, canEdit: true }));
+  assert.equal(count(teamOut, /data-role-row=/g), 4);
+  for (const t of ["Equipo", "po-mianovia", "MIA-I3-3 · 120k tokens", "Añadir al equipo", ">QA<", ">Copy<", ">Marketing<", ">Data<", "Añadir"]) assert.ok(teamOut.includes(t), t);
+  const added = html(h(org.AddToTeam, { templates: TEMPLATES, team: [...p.team, member("qa", "mianovia", { template: "qa" })], state: { kind: "done", agent: "qa-mianovia" }, onAdd: noop }));
+  assert.equal(added.includes(">QA<"), false, "a template already on the team is not offered again");
+  assert.ok(added.includes("Listo: qa-mianovia"));
+  const thread = html(h(org.ThreadPanel, threadProps({ title: "PO", thread: poThread, project: "mianovia", placeholder: "Dile al PO…" })));
+  for (const t of ["Dile al PO…", ">Aceptar<", ">Pedir cambios<", ">Fusionar<", "2 te esperan"]) assert.ok(thread.includes(t), t);
+  assert.ok(thread.includes('href="/ceo?doc=d-1"'));
+  noMoney(bar + teamOut + thread);
+});
+
+test("I33-2 the old Pedir box is gone from /p and the page holds the team, the PO thread and the plan", async () => {
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../ui/src/pages/project.tsx", import.meta.url), "utf8");
+  assert.equal(count(page, /PedirBox/g), 0);
+  const order = ["<ProjectHeader", "<ProjectOrg slug", "<QuestionsPanel", "<LaneGrid", "<InitiativeTable"].map((t) => page.indexOf(t));
+  assert.ok(order.every((i) => i > 0), "all blocks present");
+  assert.ok(order[1]! < order[3]!, "team and thread above the plan");
+  const pedir = readFileSync(new URL("../ui/src/components/pedir.tsx", import.meta.url), "utf8");
+  assert.equal(pedir.includes("export function PedirBox"), false);
+});
+
+test("I33-2 preview sheet: header, team, the last 3 messages and Abrir; /ceo?p=x redirects to /p/x", () => {
+  const out = html(h(org.ProjectPreview, { project: SIX[0], messages: poThread.messages, now: NOW, timeZone: TZ }));
+  assert.equal(count(out, /data-message=/g), 3);
+  assert.equal(out.includes("Quiero que la lista"), false, "only the last three");
+  assert.equal(count(out, /data-role-row=/g), 4);
+  assert.ok(out.includes('href="/p/mianovia"'));
+  assert.ok(out.includes("Abrir Mianovia"));
+  assert.equal(count(out, /data-action=/g), 0, "the preview does not act; Abrir does");
+  assert.equal(compLib.ceoRedirect("?p=x"), "/p/x");
+  assert.equal(compLib.ceoRedirect("?equipo"), "/machine");
+  assert.equal(compLib.ceoRedirect("?vista=x"), null);
+  assert.equal(compLib.ceoRedirect(""), null);
+});

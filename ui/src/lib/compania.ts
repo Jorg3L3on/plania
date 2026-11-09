@@ -310,6 +310,13 @@ export function sheetOf(search: string): SheetParam {
   if (q.has("nuevo")) return { kind: "nuevo" };
   return null;
 }
+// /ceo?p=<slug> → /p/<slug>; /ceo?equipo → /machine. Null when /ceo stays.
+export function ceoRedirect(search: string): string | null {
+  const sheet = sheetOf(search);
+  if (sheet?.kind === "project") return `/p/${encodeURIComponent(sheet.slug)}`;
+  if (sheet?.kind === "equipo") return "/machine";
+  return null;
+}
 export const promptHref = (ref: PromptRef | null | undefined) => (ref ? `/ceo?doc=${encodeURIComponent(ref.doc_id)}` : null);
 
 // Old routes (PLA-I30-2). /goals scrolls to the team cards; /equipo goes to Máquina, where the plumbing lives (PLA-I33).

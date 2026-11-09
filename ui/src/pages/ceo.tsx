@@ -15,7 +15,7 @@ import { useThread } from "@/components/compania/use-thread";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ApiError, api } from "@/lib/api";
-import { sheetOf } from "@/lib/compania";
+import { ceoRedirect, sheetOf } from "@/lib/compania";
 import { byLight } from "@/lib/org";
 import { greeting } from "@/lib/greeting";
 
@@ -49,11 +49,9 @@ const sheetClass = "max-h-[92svh] overflow-y-auto bg-background sm:max-h-none da
 
 export const CeoPage = () => {
   const location = useLocation();
-  const sheet = sheetOf(location.search);
   // Old links: the project sheet is now the project page, the Equipo sheet now lives in Máquina.
-  if (sheet?.kind === "project") return <Navigate to={`/p/${encodeURIComponent(sheet.slug)}`} replace />;
-  if (sheet?.kind === "equipo") return <Navigate to="/machine" replace />;
-  return <Compania />;
+  const to = ceoRedirect(location.search);
+  return to ? <Navigate to={to} replace /> : <Compania />;
 };
 
 const Compania = () => {

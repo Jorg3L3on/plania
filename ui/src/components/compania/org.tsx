@@ -521,3 +521,139 @@ export const ProjectPreview = ({ project, messages, now, timeZone }: { project: 
     </div>
   );
 };
+
+// ---- PLA-I33-2: the project page's top (/p/<slug>): light, goal with Editar, plumbing line, Pausar/Reanudar
+
+export const ProjectOrgBar = ({
+  project,
+  companyPaused,
+  canEdit,
+  onEditGoal,
+  onPause,
+  onResume,
+}: {
+  project: OrgProject;
+  companyPaused: boolean;
+  canEdit: boolean;
+  onEditGoal: () => void;
+  onPause: () => void;
+  onResume: () => void;
+}) => {
+  const light = lightOf(project.light);
+  const paused = project.paused || project.light === "paused";
+  const plumbing = budgetLine(project.budget, { paused });
+  return (
+    <section aria-label="Proyecto" data-testid="project-org-bar" className={cn(panel, "grid min-w-0 gap-3 p-4", paused && "bg-surface-sunken")}>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <span className={cn("inline-flex items-center gap-1.5 text-sm font-semibold", TONE_INK[light.tone])} data-light-word>
+          <Dot tone={light.tone} /> {light.word}
+        </span>
+        <PlumbingLink text={plumbing.text} tone={plumbing.tone} className="max-w-full" />
+        {canEdit &&
+          (project.paused ? (
+            <button type="button" className={cn(pillPrimary, "min-h-9 px-3 text-xs")} onClick={onResume} data-control="reanudar">
+              Reanudar
+            </button>
+          ) : (
+            <button type="button" className={cn(pillGhost, "min-h-9 px-3 text-xs")} onClick={onPause} data-control="pausar">
+              Pausar
+            </button>
+          ))}
+      </div>
+      <div className="grid min-w-0 gap-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className={eyebrow}>Meta</p>
+          <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={onEditGoal} data-control="editar-meta">
+            Editar
+          </button>
+        </div>
+        {project.goal ? (
+          <p className="line-clamp-3 font-voice text-xl leading-snug break-words italic" title={project.goal}>
+            {project.goal}
+          </p>
+        ) : (
+          <p className="text-sm text-ink-now">Sin meta: su PO no propone ideas sin una.</p>
+        )}
+      </div>
+      {paused && <p className="text-xs text-muted-foreground">En pausa: nada arranca aquí. Su PO despierta cuando lo reanudes.</p>}
+      {!paused && companyPaused && <p className="text-xs text-muted-foreground">La compañía está detenida: nada arranca hasta reanudarla en Máquina.</p>}
+    </section>
+  );
+};
+
+// ---- Añadir al equipo: pick a role template and the agent is created
+
+export type AddState = { kind: "idle" } | { kind: "busy" } | { kind: "done"; agent: string } | { kind: "error"; message: string };
+
+export const AddToTeam = ({ templates, team, state, onAdd }: { templates: { slug: string; title: string }[]; team: OrgMember[]; state: AddState; onAdd: (template: string) => void }) => {
+  const have = new Set(team.map((m) => m.template));
+  const free = templates.filter((t) => !have.has(t.slug));
+  const [pick, setPick] = useState(free[0]?.slug ?? "");
+  if (templates.length === 0) return null;
+  return (
+    <form
+      className="grid gap-1.5 border-t border-border pt-3"
+      data-testid="add-to-team"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (pick && state.kind !== "busy") onAdd(pick);
+      }}
+    >
+      <label className={eyebrow} htmlFor="add-template">
+        Añadir al equipo
+      </label>
+      {free.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Ya tiene todas las plantillas.</p>
+      ) : (
+        <div className="flex gap-2">
+          <select
+            id="add-template"
+            className="min-h-10 min-w-0 flex-1 rounded-xl border border-border bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            value={pick}
+            onChange={(e) => setPick(e.target.value)}
+          >
+            {free.map((t) => (
+              <option key={t.slug} value={t.slug}>
+                {t.title}
+              </option>
+            ))}
+          </select>
+          <button type="submit" className={cn(pillGhost, "min-h-10")} disabled={!pick || state.kind === "busy"}>
+            {state.kind === "busy" ? "Añadiendo…" : "Añadir"}
+          </button>
+        </div>
+      )}
+      {state.kind === "done" && <p className="text-xs">Listo: {state.agent} lee su prompt y las notas del proyecto.</p>}
+      {state.kind === "error" && <p className="text-xs text-ink-blocked">{state.message}</p>}
+      {state.kind === "idle" && free.length > 0 && <p className="text-xs text-muted-foreground">Una plantilla de rol; el agente nuevo comparte el presupuesto del proyecto.</p>}
+    </form>
+  );
+};
+
+export const ProjectTeam = ({
+  project,
+  team,
+  runs,
+  templates,
+  now,
+  add,
+  onAdd,
+  canEdit,
+}: {
+  project: string;
+  team: OrgMember[];
+  runs?: RunBrief[];
+  templates: { slug: string; title: string }[];
+  now: number;
+  add: AddState;
+  onAdd: (template: string) => void;
+  canEdit: boolean;
+}) => (
+  <section aria-labelledby="equipo-title" className={cn(panel, "grid min-w-0 content-start gap-3 p-4")} data-testid="project-team">
+    <h2 id="equipo-title" className={heading}>
+      Equipo <span className="font-mono text-sm font-normal text-muted-foreground">{team.length}</span>
+    </h2>
+    <TeamRows team={team} project={project} now={now} runs={runs} detail />
+    {canEdit && <AddToTeam templates={templates} team={team} state={add} onAdd={onAdd} />}
+  </section>
+);
