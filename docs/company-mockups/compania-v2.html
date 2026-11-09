@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compañía v2 · lienzo</title>
+<style>
+/* App fonts, from the repo's node_modules (relative to docs/company-mockups/). Missing = system fallback. */
+@font-face{font-family:'Bricolage Grotesque Variable';font-style:normal;font-weight:200 800;font-display:swap;src:url(../../node_modules/@fontsource-variable/bricolage-grotesque/files/bricolage-grotesque-latin-wght-normal.woff2) format('woff2-variations')}
+@font-face{font-family:'Geist Variable';font-style:normal;font-weight:100 900;font-display:swap;src:url(../../node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2) format('woff2-variations')}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:400;font-display:swap;src:url(../../node_modules/@fontsource/geist-mono/files/geist-mono-latin-400-normal.woff2) format('woff2')}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:500;font-display:swap;src:url(../../node_modules/@fontsource/geist-mono/files/geist-mono-latin-500-normal.woff2) format('woff2')}
+@font-face{font-family:'Instrument Serif';font-style:italic;font-weight:400;font-display:swap;src:url(../../node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-italic.woff2) format('woff2')}
+/* Tokens copied from ui/src/index.css (light :root and .dark). Fonts: the canvas loads the app bundled fonts from node_modules when opened from the repo;
+   loads nothing, so on a Mac without Bricolage/Geist installed it falls back to system-ui. */
+:root{
+  --font-display:'Bricolage Grotesque Variable','Bricolage Grotesque','Geist Variable','Geist',ui-sans-serif,system-ui,-apple-system,sans-serif;
+  --font-sans:'Geist Variable','Geist','Helvetica Neue',ui-sans-serif,system-ui,-apple-system,Arial,sans-serif;
+  --font-mono:'Geist Mono',ui-monospace,'SF Mono',Menlo,monospace;
+  --font-voice:'Instrument Serif',Georgia,'Times New Roman',serif;
+  --radius:10px;
+}
+.light{
+  --bg:#f3f5f9;--fg:#141822;--card:#fff;--muted:#e8eaf0;--mfg:#5a6072;--border:#dfe2ea;--sunken:#eceff4;
+  --done:#0f8a5f;--now:#e09c00;--review:#6d4fe0;--ready:#0a6fa8;--blocked:#c22a52;--jorge:#ea7a12;--pending:#b8bdcb;--idle:#8a90a2;
+  --ink-done:#0b7a53;--ink-now:#8a5a00;--ink-review:#6d4fe0;--ink-ready:#0a6fa8;--ink-blocked:#c22a52;--ink-jorge:#a34a00;
+  --orb1:rgb(255 95 162/.10);--orb2:rgb(94 200 255/.12);--scrim:rgb(20 24 34/.35);--primary:#141822;--primary-fg:#f3f5f9;
+}
+.dark{
+  --bg:#0f1118;--fg:#eef0f6;--card:#161926;--muted:#1c2030;--mfg:#a3a9bd;--border:rgb(255 255 255/.08);--sunken:#131521;
+  --done:#3ddc97;--now:#ffc145;--review:#b094ff;--ready:#5ec8ff;--blocked:#ff6b8a;--jorge:#ff9f43;--pending:#4a5068;--idle:#8d94aa;
+  --ink-done:#3ddc97;--ink-now:#ffc145;--ink-review:#b094ff;--ink-ready:#5ec8ff;--ink-blocked:#ff6b8a;--ink-jorge:#ff9f43;
+  --orb1:rgb(255 95 162/.20);--orb2:rgb(94 200 255/.13);--scrim:rgb(0 0 0/.55);--primary:#eef0f6;--primary-fg:#0f1118;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:#2a2e3a;color:#eef0f6;font-family:var(--font-sans);padding:40px 48px 120px;min-width:1800px}
+/* ---------- canvas chrome (not part of the app) ---------- */
+.canvas-head{max-width:1720px;margin-bottom:28px}
+.canvas-head h1{font-family:var(--font-display);font-weight:800;font-size:40px;letter-spacing:-.02em;margin:0 0 6px}
+.canvas-head p{margin:4px 0;color:#c4c9d8;font-size:15px;line-height:1.5;max-width:1100px}
+.tag{display:inline-block;font:600 11px/1 var(--font-mono);letter-spacing:.06em;padding:6px 8px;border-radius:6px;background:#ffc14522;color:#ffc145;border:1px solid #ffc14555;vertical-align:middle}
+.section-title{font-family:var(--font-display);font-weight:800;font-size:28px;letter-spacing:-.01em;margin:64px 0 6px;color:#fff}
+.section-note{color:#c4c9d8;font-size:14px;margin:0 0 20px;max-width:1200px;line-height:1.5}
+.row{display:flex;gap:40px;align-items:flex-start;flex-wrap:nowrap}
+.frame{flex:none}
+.frame-label{font:600 13px/1.3 var(--font-mono);color:#ffc145;margin:0 0 4px}
+.frame-why{font-size:13px;color:#c4c9d8;margin:0 0 12px;line-height:1.45;max-width:100%}
+.w1280{width:1280px}.w390{width:390px}
+.annot{background:#1b1f2b;border:1px dashed #5a6072;border-radius:12px;padding:16px 18px;font-size:13px;line-height:1.5;color:#d6dae5;width:330px;flex:none}
+.annot h4{margin:0 0 6px;font:700 12px/1.2 var(--font-mono);color:#ffc145;letter-spacing:.05em;text-transform:uppercase}
+.annot ul{margin:6px 0 0;padding-left:18px}
+.annot li{margin:3px 0}
+.pin{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#ffc145;color:#141822;font:700 11px/1 var(--font-mono);flex:none}
+
+/* ---------- app screen ---------- */
+.screen{background:var(--bg);color:var(--fg);font-family:var(--font-sans);position:relative;overflow:hidden;border-radius:16px;box-shadow:0 30px 60px -20px rgb(0 0 0/.6);font-size:14px;line-height:1.45}
+.screen::before{content:"";position:absolute;inset:-120px auto auto -120px;width:520px;height:420px;background:radial-gradient(closest-side,var(--orb1),transparent);pointer-events:none}
+.screen::after{content:"";position:absolute;inset:-80px -120px auto auto;width:520px;height:380px;background:radial-gradient(closest-side,var(--orb2),transparent);pointer-events:none}
+.screen > *{position:relative;z-index:1}
+.phone{border-radius:36px;border:8px solid #0b0d12}
+.status-bar{height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font:600 13px var(--font-sans)}
+.hdr{display:flex;align-items:center;gap:16px;height:58px;padding:0 28px;border-bottom:1px solid var(--border)}
+.logo{display:flex;align-items:center;gap:8px;font:800 19px/1 var(--font-display);letter-spacing:-.02em}
+.logo i{display:inline-block;width:18px;height:20px;border-radius:4px;background:linear-gradient(180deg,#7c5cff,#5a3ee0);position:relative}
+.logo i::after{content:"";position:absolute;left:6px;top:4px;width:9px;height:3px;border-radius:2px;background:#fff;box-shadow:0 5px 0 #fff}
+.nav{display:flex;gap:4px;margin-left:auto;margin-right:auto}
+.nav a{display:flex;align-items:center;gap:7px;padding:8px 14px;border-radius:999px;color:var(--mfg);text-decoration:none;font-weight:500;font-size:14px}
+.nav a.on{background:var(--fg);color:var(--bg)}
+.badge{min-width:18px;height:18px;border-radius:999px;background:#f97316;color:#fff;font:600 11px/18px var(--font-sans);text-align:center;padding:0 5px}
+.badge.grey{background:var(--muted);color:var(--mfg)}
+.ico{width:16px;height:16px;border-radius:4px;border:1.6px solid currentColor;display:inline-block;opacity:.8}
+.ico.round{border-radius:50%}
+.co-pill{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;border:1px solid var(--border);font-size:12.5px;font-weight:500;color:var(--fg);background:var(--card)}
+.co-pill.stopped{border-color:var(--blocked);color:var(--ink-blocked)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.d-done{background:var(--done)}.d-now{background:var(--now)}.d-blocked{background:var(--blocked)}.d-idle{background:var(--idle)}.d-review{background:var(--review)}.d-ready{background:var(--ready)}.d-jorge{background:var(--jorge)}
+.live{box-shadow:0 0 0 3px color-mix(in srgb,var(--done) 25%,transparent)}
+.page{padding:28px 0 40px;margin:0 auto;width:1080px}
+.pp{padding:16px 16px 28px}
+.eyebrow{font:700 11px/1.2 var(--font-sans);letter-spacing:.14em;text-transform:uppercase;color:var(--mfg);margin:0 0 12px;display:flex;align-items:center;gap:8px}
+.eyebrow .n{letter-spacing:0;color:var(--fg)}
+.eyebrow .right{margin-left:auto;letter-spacing:0;text-transform:none;font-weight:500;font-size:12.5px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:22px;padding:20px 22px}
+.card.tight{padding:16px 18px;border-radius:18px}
+.sunken{background:var(--sunken);border-radius:14px;padding:12px 14px}
+.h1{font:800 46px/1.02 var(--font-display);letter-spacing:-.035em;margin:0}
+.h1.ph{font-size:34px}
+.sub{color:var(--mfg);font-size:15px;margin:6px 0 0}
+.voice{font:italic 400 22px/1.3 var(--font-voice);margin:0;color:var(--fg)}
+.voice.ph{font-size:19px}
+.muted{color:var(--mfg)}
+.small{font-size:12.5px}.xs{font-size:11.5px}
+.mono{font-family:var(--font-mono);font-size:12px}
+.key{font:500 11.5px var(--font-mono);color:var(--mfg);white-space:nowrap}
+.stack{display:grid;gap:22px;grid-template-columns:minmax(0,1fr)}
+.grid2 > *,.grid3 > *{min-width:0}
+.stack.s14{gap:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.flex{display:flex;align-items:center;gap:10px}
+.between{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;padding:0 14px;border-radius:999px;font:600 13px var(--font-sans);border:1px solid var(--border);background:var(--card);color:var(--fg);white-space:nowrap}
+.btn.primary{background:var(--primary);color:var(--primary-fg);border-color:transparent}
+.btn.danger{background:transparent;color:var(--ink-blocked);border-color:color-mix(in srgb,var(--blocked) 55%,transparent)}
+.btn.danger-solid{background:var(--blocked);color:#fff;border-color:transparent}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--mfg)}
+.btn.sm{height:28px;padding:0 11px;font-size:12px}
+.chip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:999px;font:600 11.5px var(--font-sans);background:var(--muted);color:var(--mfg);white-space:nowrap}
+.chip.jorge{background:color-mix(in srgb,var(--jorge) 16%,transparent);color:var(--ink-jorge)}
+.chip.blocked{background:color-mix(in srgb,var(--blocked) 14%,transparent);color:var(--ink-blocked)}
+.chip.now{background:color-mix(in srgb,var(--now) 18%,transparent);color:var(--ink-now)}
+.chip.done{background:color-mix(in srgb,var(--done) 15%,transparent);color:var(--ink-done)}
+.chip.review{background:color-mix(in srgb,var(--review) 15%,transparent);color:var(--ink-review)}
+.chip.ready{background:color-mix(in srgb,var(--ready) 15%,transparent);color:var(--ink-ready)}
+.chip.outline{background:transparent;border:1px solid var(--border)}
+/* Pedir */
+.pedir{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:999px;padding:6px 6px 6px 18px;box-shadow:0 6px 20px -12px rgb(0 0 0/.25)}
+.pedir .ph{flex:1;color:var(--mfg);font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pedir .sel{font-size:12.5px;color:var(--fg);padding:6px 10px;border-radius:999px;background:var(--muted);white-space:nowrap}
+/* Brief */
+.brief{border-radius:22px;padding:22px 24px;background:var(--card);border:1px solid var(--border)}
+.brief ul{margin:12px 0 0;padding:0;list-style:none;display:grid;gap:8px}
+.brief li{display:flex;gap:10px;align-items:baseline}
+.brief li .dot{transform:translateY(-1px)}
+.sig{display:flex;align-items:center;gap:8px;margin-top:14px;color:var(--mfg);font-size:12.5px}
+.avatar{width:22px;height:22px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font:700 11px var(--font-mono);color:#fff;flex:none}
+.av-asis{background:#7c5cff}.av-po{background:#0a6fa8}.av-taller{background:#0f8a5f}.av-res{background:#b8458f}.av-art{background:#e09c00}
+/* Solo tú */
+.solo{border:1.5px solid color-mix(in srgb,var(--jorge) 60%,transparent);background:linear-gradient(0deg,color-mix(in srgb,var(--jorge) 4%,var(--card)),var(--card))}
+.solo-item{display:flex;align-items:center;gap:14px;padding:12px 0;border-top:1px solid var(--border)}
+.solo-item:first-of-type{border-top:0;padding-top:4px}
+.solo-item .t{flex:1;min-width:0}
+.solo-item .t b{font-weight:600}
+.clamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.clamp3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.ellip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Project card */
+.pc{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:18px 18px 14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.pc .name{font:800 19px/1.1 var(--font-display);letter-spacing:-.02em}
+.pc .goal{font-size:13.5px;color:var(--fg);opacity:.9}
+.pc .po{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--mfg)}
+.pc .po b{color:var(--fg);font-weight:500}
+.pc .foot{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mfg);border-top:1px solid var(--border);padding-top:10px;margin-top:2px}
+.pc.paused{background:var(--sunken)}
+.pc.paused .name,.pc.paused .goal,.pc.paused .po{opacity:.55}
+.pc.stopped{border-color:color-mix(in srgb,var(--blocked) 55%,transparent)}
+.health{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600}
+.h-ok{color:var(--ink-done)}.h-warn{color:var(--ink-now)}.h-bad{color:var(--ink-blocked)}.h-off{color:var(--mfg)}
+.meter{height:6px;border-radius:999px;background:var(--muted);overflow:hidden;position:relative}
+.meter > i{display:block;height:100%;border-radius:999px;background:var(--ready)}
+.meter.warn > i{background:var(--now)}
+.meter.bad > i{background:var(--blocked)}
+.meter.off > i{background:var(--idle)}
+.meter.big{height:10px}
+.meter .mark{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--fg);opacity:.55;border-radius:2px}
+.mrow{display:flex;justify-content:space-between;font-size:12px;color:var(--mfg);margin-bottom:5px}
+.mrow b{color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
+/* runs */
+.run{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--border)}
+.run:first-of-type{border-top:0}
+.run .t{flex:1;min-width:0}
+.run .el{font:500 12.5px var(--font-mono);font-variant-numeric:tabular-nums;color:var(--fg)}
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.tbl td{padding:7px 0;border-top:1px solid var(--border);vertical-align:middle}
+.tbl tr:first-child td{border-top:0}
+.tbl td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;padding-left:10px}
+.tbl td.bar{width:42%;padding-left:12px}
+/* kill switch */
+.kill{display:flex;align-items:center;gap:18px;border-radius:22px;padding:18px 22px;border:1px dashed color-mix(in srgb,var(--blocked) 45%,var(--border));background:var(--card)}
+.switch{width:46px;height:26px;border-radius:999px;background:var(--done);position:relative;flex:none}
+.switch::after{content:"";position:absolute;right:3px;top:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgb(0 0 0/.3)}
+.switch.off{background:var(--pending)}
+.switch.off::after{right:auto;left:3px}
+/* banners (LIB-0059) */
+.banner{display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:18px;font-size:13.5px}
+.banner.bad{background:color-mix(in srgb,var(--blocked) 13%,var(--card));border:1px solid color-mix(in srgb,var(--blocked) 45%,transparent)}
+.banner.warn{background:color-mix(in srgb,var(--now) 14%,var(--card));border:1px solid color-mix(in srgb,var(--now) 50%,transparent)}
+.banner.off{background:var(--sunken);border:1px solid var(--border)}
+.banner .big{font:800 22px/1 var(--font-display);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.banner .t{flex:1;min-width:0}
+/* pipeline */
+.pipe{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.stage{border-radius:12px;padding:10px 10px 9px;background:var(--sunken);border:1px solid transparent;min-width:0}
+.stage .lbl{font:700 10.5px/1.2 var(--font-sans);letter-spacing:.1em;text-transform:uppercase;color:var(--mfg)}
+.stage .ct{font:800 22px/1.1 var(--font-display);margin-top:4px}
+.stage .it{font-size:11.5px;color:var(--mfg);margin-top:4px}
+.stage.has{background:var(--card);border-color:var(--border)}
+.stage.hot{border-color:color-mix(in srgb,var(--review) 60%,transparent)}
+.arrow{color:var(--mfg)}
+/* sheets */
+.scrim{position:absolute;inset:0;background:var(--scrim);z-index:2}
+.side-sheet{position:absolute;top:0;right:0;bottom:0;width:560px;background:var(--bg);border-left:1px solid var(--border);z-index:3;overflow:hidden;box-shadow:-30px 0 60px -30px rgb(0 0 0/.5)}
+.sheet-hd{display:flex;align-items:center;gap:12px;padding:18px 24px;border-bottom:1px solid var(--border);background:var(--card)}
+.sheet-bd{padding:20px 24px;display:grid;gap:18px}
+.x{width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--muted);color:var(--mfg);font-size:16px;margin-left:auto;flex:none}
+.grab{width:40px;height:5px;border-radius:9px;background:var(--pending);margin:8px auto 4px}
+.bottom-sheet{background:var(--bg);border-radius:24px 24px 0 0;border-top:1px solid var(--border)}
+.list-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--border)}
+.list-row:first-child{border-top:0}
+.list-row .t{flex:1;min-width:0}
+a.lnk{color:var(--ink-ready);text-decoration:none;font-weight:500}
+.dialog{position:absolute;left:50%;top:90px;transform:translateX(-50%);width:560px;background:var(--card);border:1px solid var(--border);border-radius:24px;z-index:3;box-shadow:0 40px 80px -30px rgb(0 0 0/.55)}
+.field{border:1px solid var(--border);border-radius:14px;padding:12px 14px;background:var(--bg);font-size:15px}
+.field.focus{border-color:var(--ready);box-shadow:0 0 0 3px color-mix(in srgb,var(--ready) 20%,transparent)}
+.label{font-size:12.5px;font-weight:600;margin:0 0 6px}
+.hint{font-size:12px;color:var(--mfg);margin-top:6px}
+.sk{background:linear-gradient(90deg,var(--muted),var(--sunken),var(--muted));border-radius:12px}
+.tabbar{display:flex;justify-content:space-around;border-top:1px solid var(--border);background:var(--card);padding:8px 4px 20px}
+.tabbar a{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:var(--mfg);text-decoration:none;position:relative;min-width:72px}
+.tabbar a.on{color:var(--fg);font-weight:600}
+.tabbar a .badge{position:absolute;top:-4px;right:14px;height:16px;min-width:16px;font-size:10px;line-height:16px}
+.phdr{display:flex;align-items:center;gap:10px;padding:8px 16px 10px}
+.hr{height:1px;background:var(--border);margin:0}
+.dim{opacity:.5}
+
+/* ---------- v2 additions ---------- */
+.tag.v2{background:#3ddc9722;color:#3ddc97;border-color:#3ddc9755}
+.canvas-head .cols{display:grid;grid-template-columns:1fr 1fr;gap:28px;max-width:1500px;margin-top:14px}
+.canvas-head .cols h3{font:700 12px/1.2 var(--font-mono);letter-spacing:.06em;text-transform:uppercase;color:#ffc145;margin:0 0 6px}
+.canvas-head .cols ul{margin:0;padding-left:18px;color:#d6dae5;font-size:14px;line-height:1.55}
+.page.v2{width:1180px}
+.topline{display:flex;align-items:flex-end;justify-content:space-between;gap:24px}
+.co-line{display:flex;align-items:center;gap:8px;color:var(--mfg);font-size:12.5px;white-space:nowrap}
+.co-line b{color:var(--fg);font-weight:600}
+.lnk{color:var(--fg);font-weight:600;text-decoration:none;border-bottom:1px solid var(--border)}
+.lnk.m{color:var(--mfg);font-weight:500}
+/* Te toca strip */
+.tt{border-radius:22px;padding:16px 20px 8px;border:1.5px solid color-mix(in srgb,var(--jorge) 60%,transparent);background:linear-gradient(0deg,color-mix(in srgb,var(--jorge) 5%,var(--card)),var(--card))}
+.tt .eyebrow{margin-bottom:6px;color:var(--ink-jorge)}
+.tt-row{display:grid;grid-template-columns:112px minmax(0,1fr) auto;align-items:center;gap:16px;padding:12px 0;border-top:1px solid var(--border)}
+.tt-row:first-of-type{border-top:0}
+.tt-row .proj{font:800 14px/1.1 var(--font-display);letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
+.tt-row .what{min-width:0}
+.tt-row .what b{font-weight:600}
+.tt-row .what .why{color:var(--mfg);font-size:12.5px;margin-top:2px}
+.tt-row .acts{display:flex;gap:6px;align-items:center;flex:none}
+.tt-row.done .what,.tt-row.done .proj{opacity:.55}
+.tt-empty{padding:4px 0 10px;color:var(--mfg);font-size:13.5px}
+.opts{display:grid;gap:5px;margin-top:8px}
+.opt{display:flex;align-items:center;gap:10px;font-size:13px;min-width:0}
+.opt .n{font:700 11px var(--font-mono);color:var(--mfg);width:14px;flex:none}
+.opt .t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.opt.rec .t{font-weight:600}
+.opt .btn{margin-left:auto;flex:none}
+.tt-row.wide{grid-template-columns:112px minmax(0,1fr)}
+.pace{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600}
+.pace.ok{color:var(--ink-done)}.pace.late{color:var(--ink-now)}.pace.bad{color:var(--ink-blocked)}
+.week{font-size:12.5px;color:var(--mfg)}
+.week b{color:var(--fg);font-weight:600}
+.conv{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:14px;font-size:12.5px;color:var(--mfg)}
+.conv b{color:var(--fg);font-weight:600}
+.brief-msg{background:var(--sunken);border-radius:14px;padding:12px 14px}
+.two{grid-template-columns:360px minmax(0,1fr)}
+.asis{min-height:0}
+.uptt{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--ink-jorge)}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:999px;overflow:hidden}
+.seg span{padding:0 11px;height:30px;display:inline-flex;align-items:center;font:600 12.5px var(--font-sans);border-left:1px solid var(--border);color:var(--fg)}
+.seg span:first-child{border-left:0}
+.seg span.rec{background:var(--primary);color:var(--primary-fg)}
+/* layout */
+.two{display:grid;grid-template-columns:400px minmax(0,1fr);gap:24px;align-items:start}
+/* Asistente */
+.asis{background:var(--card);border:1px solid var(--border);border-radius:22px;padding:18px 18px 14px;display:flex;flex-direction:column;gap:14px;min-height:560px}
+.asis-h{display:flex;align-items:center;gap:10px}
+.asis-h .t{font:800 17px/1.1 var(--font-display);letter-spacing:-.02em}
+.asis-h .s{color:var(--mfg);font-size:12px}
+.msgs{display:flex;flex-direction:column;gap:12px;flex:1}
+.day{text-align:center;color:var(--mfg);font:600 11px var(--font-sans);letter-spacing:.1em;text-transform:uppercase}
+.msg{display:grid;grid-template-columns:22px minmax(0,1fr);gap:10px;align-items:start}
+.msg .who{font-size:12px;color:var(--mfg);display:flex;gap:8px;align-items:baseline;margin-bottom:3px}
+.msg .who b{color:var(--fg);font-weight:600}
+.msg .body{font-size:13.5px;line-height:1.45}
+.msg .body p{margin:0 0 6px}
+.msg .body ol{margin:4px 0 6px;padding-left:18px}
+.msg .body li{margin:2px 0}
+.msg.me{grid-template-columns:minmax(0,1fr)}
+.msg.me .bub{justify-self:end;background:var(--primary);color:var(--primary-fg);border-radius:16px 16px 4px 16px;padding:8px 12px;font-size:13.5px;max-width:85%}
+.links{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 6px}
+.acts-inline{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.result{font-size:12px;color:var(--ink-done);display:flex;align-items:center;gap:6px;margin-top:4px}
+.composer{display:flex;flex-direction:column;gap:8px}
+.composer .box{display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:16px;padding:6px 6px 6px 14px;background:var(--bg)}
+.composer .box .ph{flex:1;color:var(--mfg);font-size:14px}
+.sugg{display:flex;flex-wrap:wrap;gap:6px}
+.sugg .chip{cursor:pointer;background:transparent;border:1px solid var(--border);color:var(--fg);font-weight:500;height:26px}
+/* project cards v2 */
+.pcv{background:var(--card);border:1px solid var(--border);border-radius:22px;padding:18px 20px 14px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.pcv .head{display:flex;align-items:center;gap:10px}
+.pcv .name{font:800 22px/1.05 var(--font-display);letter-spacing:-.025em}
+.pcv .light{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600}
+.pcv .goal{font:italic 400 16px/1.3 var(--font-voice);color:var(--fg);opacity:.9}
+.plan{display:grid;gap:6px}
+.plan .lbl{display:flex;justify-content:space-between;font-size:12.5px;color:var(--mfg)}
+.plan .lbl b{color:var(--fg);font-weight:600}
+.weeks{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+.weeks i{height:6px;border-radius:3px;background:var(--muted);display:block}
+.weeks i.d{background:var(--done)}
+.weeks i.h{background:linear-gradient(90deg,var(--done) 60%,var(--muted) 60%)}
+.next{display:flex;align-items:center;gap:8px;font-size:13.5px}
+.next .k{font:700 11px/1 var(--font-sans);letter-spacing:.12em;text-transform:uppercase;color:var(--mfg)}
+.pomsg{border-radius:14px;background:var(--sunken);padding:10px 12px;display:grid;grid-template-columns:22px minmax(0,1fr);gap:10px}
+.pomsg .who{font-size:12px;color:var(--mfg);margin-bottom:2px}
+.pomsg .who b{color:var(--fg);font-weight:600}
+.pomsg .txt{font-size:13.5px;line-height:1.45}
+.now{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mfg)}
+.now b{color:var(--fg);font-weight:600}
+.pcv .foot{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--mfg);border-top:1px solid var(--border);padding-top:10px}
+.pcv .foot .r{margin-left:auto;display:flex;gap:10px;align-items:center}
+.pcv.quiet .light{color:var(--ink-now)}
+.pcv.nobud .light{color:var(--ink-blocked)}
+.pcv.needs{border-color:color-mix(in srgb,var(--jorge) 55%,transparent)}
+/* paused list */
+.paused{background:var(--sunken);border:1px solid var(--border);border-radius:22px;padding:14px 18px 6px}
+.paused .eyebrow{margin-bottom:4px}
+.prow{display:grid;grid-template-columns:120px minmax(0,1fr) auto;align-items:center;gap:14px;padding:10px 0;border-top:1px solid var(--border);font-size:13px}
+.prow:first-of-type{border-top:0}
+.prow .n{font:700 14px/1.1 var(--font-display);letter-spacing:-.01em;opacity:.75}
+.prow .s{color:var(--mfg);min-width:0}
+.prow .s b{color:var(--fg);font-weight:500}
+/* anatomy frames */
+.w520{width:520px}.w560{width:560px}
+.anat{display:grid;gap:16px}
+.callout{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:#d6dae5;line-height:1.45}
+/* phone */
+.tabbar{display:flex;justify-content:space-around;align-items:center;height:64px;border-top:1px solid var(--border);background:var(--card);padding-bottom:10px}
+.tab{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10.5px;color:var(--mfg)}
+.tab.on{color:var(--fg);font-weight:600}
+.ph-asis{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:14px;display:grid;gap:10px}
+.pace{white-space:nowrap;flex:none}
+.plan .lbl{align-items:flex-start;gap:12px}
+.opt .btn + .btn{margin-left:0}
+</style>
+</head>
+<body>
+<div class="canvas-head">
+  <h1>Compañía v2 <span class="tag v2">LIENZO · PLA-IDEA8</span> <span class="tag">DATOS DE EJEMPLO</span></h1>
+  <p>Segunda pasada de la página Compañía, 2026-11-08, después de ver en vivo la v1 construida (PLA-I33). Jorge: "no me sirve ver qué hizo cada bot". Un CEO quiere lo que diría un buen gerente en una respiración: dónde va cada proyecto, qué sigue, qué me toca, qué propone el equipo.</p>
+  <p><b>Revisión 2 (misma noche)</b>: una decisión vive en un solo lugar (Te toca; la tarjeta y el hilo solo apuntan a ella) · las opciones llevan nombre, no número · Asistente muestra su último mensaje y la caja, la conversación se pliega · cada proyecto dice si va a tiempo contra su fecha y qué hizo esta semana · la meta sale de la tarjeta (vive en la página del proyecto) · Te toca son las cinco primeras, Bandeja la lista completa · se va "Vista previa".</p>
+  <div class="cols">
+    <div><h3>Qué cambia respecto a la v1 en vivo</h3><ul>
+      <li><b>Te toca</b> vuelve, pero como franja de decisiones con botones en línea, arriba de todo. Es lo primero que se lee.</li>
+      <li>La <b>tarjeta de proyecto</b> es un reporte: semana del plan, siguiente hito y su dueño, el último mensaje del PO con sus botones. El equipo solo aparece cuando alguien corre o está atorado.</li>
+      <li>Los proyectos <b>en pausa</b> no son tarjetas: una lista corta con Reanudar. Cinco tarjetas grises idénticas no dicen nada.</li>
+      <li><b>Asistente</b> conversa de verdad: contesta preguntas, resume, y cada mensaje con decisión lleva botones. Sugerencias bajo la caja para no empezar en blanco.</li>
+      <li>La plomería es una línea en la cabecera que lleva a Máquina. Nada de tokens por bot.</li>
+    </ul></div>
+    <div><h3>Reglas de la tarjeta</h3><ul>
+      <li>Nunca "Sin corridas todavía", nunca una clave nula. Si no hay nada que decir, la fila no existe.</li>
+      <li>Orden fijo: nombre y luz · meta · plan (semana x de y, hechos) · Siguiente · último mensaje del PO · Ahora (solo si alguien corre) · pie.</li>
+      <li>La luz dice el estado del negocio: Bien · Te necesita · Quieto · Sin presupuesto · En pausa.</li>
+      <li>Botones en la tarjeta actúan sin abrir el proyecto; el resultado se escribe en el mismo lugar.</li>
+      <li>Teléfono: mismo orden, una columna, Asistente plegado a su último mensaje.</li>
+    </ul></div>
+  </div>
+</div>
+
+<!-- ===================== 1 · Compañía ===================== -->
+<h2 class="section-title">1 · Compañía</h2>
+<p class="section-note">Orden: cabecera con la línea de la compañía · Te toca · Asistente (izquierda) y Proyectos (derecha): la tarjeta del proyecto en marcha, la lista de los pausados, Nuevo proyecto.</p>
+
+<div class="row">
+<div class="frame w1280">
+  <p class="frame-label">1a · Compañía · Mac 1280 · oscuro · Mianovia en marcha, dos cosas te tocan</p>
+  <p class="frame-why">Qué hace: en cinco segundos dice qué me toca, cómo va cada proyecto y qué propone el equipo. Por qué: la v1 en vivo mostraba cuatro filas "Sin corridas todavía" por proyecto y una clave nula; eso es telemetría de bots, no el negocio.</p>
+  <div class="screen dark w1280">
+    <div class="hdr">
+      <div class="logo"><i></i>Plania</div>
+      <nav class="nav">
+        <a class="on"><span class="ico"></span>Compañía</a>
+        <a><span class="ico"></span>Bandeja</a>
+        <a><span class="ico round"></span>Progreso</a>
+        <a><span class="ico"></span>Máquina <span class="badge grey">9</span></a>
+      </nav>
+      <span class="co-pill"><span class="dot d-done live"></span>En vivo</span>
+      <span class="ico round" style="opacity:.5"></span>
+    </div>
+    <div class="page v2 stack">
+      <div class="topline">
+        <div>
+          <h1 class="h1">Buenas noches, Jorge</h1>
+          <p class="sub">Domingo 8 de noviembre · <b style="color:var(--fg);font-weight:500">Mianovia</b> avanza, cinco proyectos en pausa</p>
+        </div>
+        <div class="co-line"><span class="dot d-done"></span><b>1.25M / 6.5M</b> esta semana · nada corre ahora · <a class="lnk m">Máquina →</a></div>
+      </div>
+
+      <!-- Te toca -->
+      <div class="tt">
+        <p class="eyebrow">Te toca <span class="n">2</span><span class="right muted">Las cinco primeras · <a class="lnk m">Todo lo tuyo en Bandeja</a></span></p>
+        <div class="tt-row wide">
+          <div class="proj"><span class="dot d-jorge"></span>Mianovia</div>
+          <div class="what"><b>El PO propone 3 pasos para no esperar al kickoff</b> <span class="muted small">· hace 52 min</span>
+            <div class="opts">
+              <div class="opt rec"><span class="n">1</span><span class="t">Planear el formulario con las respuestas por defecto del borrador, provisional · <span class="muted">recomendado</span></span><span class="btn sm primary">Elegir</span></div>
+              <div class="opt"><span class="n">2</span><span class="t">Wireframes del formulario (375 y 768 px) para llevarlos al kickoff</span><span class="btn sm">Elegir</span></div>
+              <div class="opt"><span class="n">3</span><span class="t">Research sin costo: anti-spam del formulario y acceso al panel</span><span class="btn sm">Elegir</span></div>
+              <div class="opt"><span class="n"></span><span class="t muted">1 y 2 pueden ir en paralelo</span><span class="btn sm ghost">1 + 2</span><span class="btn sm ghost">Responder</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="tt-row">
+          <div class="proj"><span class="dot d-jorge"></span>Mianovia</div>
+          <div class="what"><b>Kickoff con la boutique</b> <span class="key">MIA-I1-1</span><div class="why">Llevar el borrador "Campos y flujos": 23 preguntas con propuesta por defecto. Hasta que pase, MIA-I2 queda provisional.</div></div>
+          <div class="acts"><span class="btn sm primary">Hecho</span><span class="btn sm">Aplazar</span></div>
+        </div>
+      </div>
+
+      <div class="two">
+        <!-- Asistente -->
+        <div class="asis">
+          <div class="asis-h"><span class="avatar av-asis">A</span><div><div class="t">Asistente</div><div class="s">Tu canal con la compañía. Pregunta o pide; va al PO correcto.</div></div></div>
+          <div class="composer">
+            <div class="box"><span class="ph">Dile a Asistente…</span><span class="btn sm primary">Enviar</span></div>
+            <div class="sugg"><span class="chip">¿Cómo va Mianovia?</span><span class="chip">Mianovia: …</span><span class="chip">¿Qué espera de mí?</span><span class="chip">Pausa todo</span></div>
+          </div>
+          <div class="brief-msg">
+            <div class="msg"><span class="avatar av-asis">A</span><div><div class="who"><b>Asistente</b> 21:12 · <span class="muted">a “¿Dónde quedó Mianovia?”</span></div><div class="body"><p>Semana 1 de 5, <b>Arranque</b> 3/5: repo, base de datos y receta de verificación hechos. Todo corre local por tu decisión. Queda el kickoff con la boutique (tuyo) y el hosting, aplazado.</p><p>Las semanas 2 a 5 no tienen tickets: sus planes esperan las respuestas del kickoff. Su PO te propuso 3 pasos para no quedarse esperando; está arriba, en Te toca.</p><div class="links"><span class="chip outline">MIA-I1 ↗</span><span class="chip outline">Campos y flujos ↗</span></div></div></div></div>
+          </div>
+          <div class="conv"><span><b>Conversación de hoy</b> · 4 mensajes · acepté Campos y flujos a las 21:06</span><a class="lnk m">Ver</a></div>
+        </div>
+
+        <!-- Proyectos -->
+        <div class="stack s14">
+          <p class="eyebrow" style="margin:0">Proyectos <span class="n">6</span><span class="right"><span class="btn sm">+ Nuevo proyecto</span></span></p>
+
+          <div class="pcv needs">
+            <div class="head"><span class="name">Mianovia</span><span class="light" style="color:var(--ink-jorge)"><span class="dot d-jorge"></span>Te necesita</span></div>
+            <div class="plan">
+              <div class="lbl"><span><b>Semana 1 de 5</b> · Arranque y configuración · 3 de 5 hechos</span><span class="pace ok"><span class="dot d-done"></span>a tiempo · entrega 12 dic</span></div>
+              <div class="weeks"><i class="h"></i><i></i><i></i><i></i><i></i></div>
+              <div class="week">Esta semana: <b>3 hechos</b> · <b>1 doc</b> aceptado · 0 PRs</div>
+            </div>
+            <div class="next"><span class="k">Siguiente</span><span>Kickoff con la boutique</span><span class="chip jorge">te toca</span></div>
+            <div class="pomsg"><span class="avatar av-po">PO</span><div><div class="who"><b>Bot Mianovia</b> · hace 52 min</div><div class="txt clamp2">Leí el proyecto: Arranque 3/5, el borrador aceptado, lo siguiente es el kickoff. Propongo tres pasos para no esperar el kickoff y recomiendo el primero.</div><div class="acts-inline"><span class="uptt">↑ Decidir en Te toca</span></div></div></div>
+            <div class="now"><span class="dot d-idle"></span>Nadie trabaja ahora · <b>el PO espera tu elección</b></div>
+            <div class="foot"><span class="dot d-done"></span>1.25M / 6M · en marcha<span class="r"><a class="lnk">Abrir →</a></span></div>
+          </div>
+
+          <div class="paused">
+            <p class="eyebrow">En pausa <span class="n">5</span><span class="right muted">Nada arranca aquí hasta que reanudes</span></p>
+            <div class="prow"><span class="n">Filmia</span><span class="s"><b>22 tickets en curso</b> guardados · quieto 6 días</span><span class="btn sm">Reanudar</span></div>
+            <div class="prow"><span class="n">Workia</span><span class="s"><b>5 en curso</b> guardados · quieto 6 días</span><span class="btn sm">Reanudar</span></div>
+            <div class="prow"><span class="n">MiCasa</span><span class="s">Sin trabajo abierto · su PO escribirá ideas al reanudar</span><span class="btn sm">Reanudar</span></div>
+            <div class="prow"><span class="n">Plania</span><span class="s">Sin trabajo abierto</span><span class="btn sm">Reanudar</span></div>
+            <div class="prow"><span class="n">Zigzag</span><span class="s">Sin trabajo abierto</span><span class="btn sm">Reanudar</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="annot">
+  <h4>Notas del marco 1a</h4>
+  <ul>
+    <li><b>Cabecera</b>: saludo, la frase del día (qué avanza, qué está en pausa) y una sola línea de plomería a la derecha, que es la puerta a Máquina.</li>
+    <li><b>Te toca</b> en borde naranja (status-jorge): una fila por decisión, proyecto a la izquierda. Una propuesta muestra sus opciones con nombre, la recomendada primero y en negro; se elige sin abrir nada. Son las cinco primeras; Bandeja tiene todo. Vacío: "Nada te espera. El equipo sigue."</li>
+    <li><b>Asistente</b>: caja y sugerencias arriba, su último mensaje debajo (respuesta a tu pregunta, o el brief de las 07:00), la conversación plegada en una línea. Un mensaje nunca repite una decisión: apunta a Te toca.</li>
+    <li><b>Tarjeta</b>: la luz es del negocio (Te necesita), no del runner. Plan en semanas con barra, ritmo contra la fecha de entrega (a tiempo · n semanas atrás) y lo hecho esta semana; Siguiente con dueño; el último mensaje del PO en dos líneas, y si trae decisión, "Decidir en Te toca"; "Ahora" solo dice quién trabaja o por qué nadie. Sin meta: vive en la página del proyecto.</li>
+    <li><b>En pausa</b>: lista en fondo hundido. Dice qué hay guardado dentro, no cuatro roles sin corridas.</li>
+  </ul>
+</div>
+</div>
+
+<div class="row" style="margin-top:48px">
+<div class="frame w390">
+  <p class="frame-label">1b · Compañía · teléfono 390 · claro</p>
+  <p class="frame-why">Mismo orden en una columna. Asistente plegado a su último mensaje y la caja; se abre con un toque. Te toca primero porque es lo que se responde desde el teléfono.</p>
+  <div class="screen light phone w390">
+    <div class="status-bar"><span>9:41</span><span>●●● ▮</span></div>
+    <div class="pp stack s14">
+      <div><h1 class="h1 ph">Buenas noches, Jorge</h1><p class="sub small">Dom 8 nov · Mianovia avanza, 5 en pausa · <a class="lnk m">1.25M / 6.5M</a></p></div>
+      <div class="tt" style="padding:12px 14px 4px">
+        <p class="eyebrow">Te toca <span class="n">2</span></p>
+        <div class="tt-row" style="grid-template-columns:1fr;gap:6px">
+          <div class="what"><span class="key">Mianovia</span><br><b>El PO propone 3 pasos para no esperar al kickoff</b>
+            <div class="opts">
+              <div class="opt rec"><span class="n">1</span><span class="t">Planear el formulario con las respuestas por defecto</span><span class="btn sm primary">Elegir</span></div>
+              <div class="opt"><span class="n">2</span><span class="t">Wireframes para el kickoff</span><span class="btn sm">Elegir</span></div>
+              <div class="opt"><span class="n">3</span><span class="t">Research anti-spam y acceso al panel</span><span class="btn sm">Elegir</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="tt-row" style="grid-template-columns:1fr;gap:8px">
+          <div class="what"><span class="key">Mianovia · MIA-I1-1</span><br><b>Kickoff con la boutique</b></div>
+          <div class="acts"><span class="btn sm primary">Hecho</span><span class="btn sm">Aplazar</span></div>
+        </div>
+      </div>
+      <div class="ph-asis">
+        <div class="asis-h"><span class="avatar av-asis">A</span><div><div class="t" style="font-size:15px">Asistente</div><div class="s">21:20 · El PO de Mianovia propone 3 pasos…</div></div><span class="muted" style="margin-left:auto">▾</span></div>
+        <div class="composer"><div class="box"><span class="ph">Dile a Asistente…</span><span class="btn sm primary">Enviar</span></div></div>
+      </div>
+      <div class="pcv needs" style="padding:14px 14px 10px">
+        <div class="head"><span class="name" style="font-size:19px">Mianovia</span><span class="light" style="color:var(--ink-jorge)"><span class="dot d-jorge"></span>Te necesita</span></div>
+        <div class="plan"><div class="lbl"><span><b>Semana 1 de 5</b> · 3/5 hechos</span><span class="pace ok"><span class="dot d-done"></span>a tiempo</span></div><div class="weeks"><i class="h"></i><i></i><i></i><i></i><i></i></div></div>
+        <div class="next"><span class="k">Siguiente</span><span class="ellip">Kickoff con la boutique</span><span class="chip jorge">te toca</span></div>
+        <div class="pomsg"><span class="avatar av-po">PO</span><div><div class="who"><b>Bot Mianovia</b> · hace 52 min</div><div class="txt clamp2">Propongo tres pasos para no esperar el kickoff y recomiendo el primero.</div><div class="acts-inline"><span class="uptt">↑ Decidir en Te toca</span></div></div></div>
+        <div class="foot"><span class="dot d-done"></span>1.25M / 6M<span class="r"><a class="lnk">Abrir →</a></span></div>
+      </div>
+      <div class="paused" style="padding:12px 14px 4px">
+        <p class="eyebrow">En pausa <span class="n">5</span></p>
+        <div class="prow" style="grid-template-columns:1fr auto"><span class="s"><b>Filmia</b> · 22 en curso guardados · quieto 6 días</span><span class="btn sm">Reanudar</span></div>
+        <div class="prow" style="grid-template-columns:1fr auto"><span class="s muted">Workia, MiCasa, Plania, Zigzag</span><a class="lnk m xs">4 más</a></div>
+      </div>
+    </div>
+    <div class="tabbar"><span class="tab on"><span class="ico"></span>Compañía</span><span class="tab"><span class="ico"></span>Bandeja</span><span class="tab"><span class="ico round"></span>Progreso</span><span class="tab"><span class="ico"></span>Máquina</span></div>
+  </div>
+</div>
+<div class="annot">
+  <h4>Notas del marco 1b</h4>
+  <ul>
+    <li>Te toca: las opciones con nombre, una por línea, cada una con su Elegir; la recomendada en negro.</li>
+    <li>Asistente plegado: nombre, último mensaje en una línea, caja. Al tocar, se despliega la conversación a alto completo.</li>
+    <li>La tarjeta pierde "Ahora" y la línea de la semana en teléfono; conserva plan con ritmo, Siguiente y el mensaje del PO, que apunta a Te toca.</li>
+    <li>En pausa: la fila con trabajo guardado y una línea con el resto.</li>
+  </ul>
+</div>
+</div>
+
+<!-- ===================== 2 · Tarjeta ===================== -->
+<h2 class="section-title">2 · La tarjeta de proyecto, en sus estados</h2>
+<p class="section-note">Una tarjeta es un reporte, no un tablero. Cada estado cambia la luz, el bloque "Ahora" y los botones; el orden de los bloques nunca cambia.</p>
+
+<div class="row">
+<div class="frame w520">
+  <p class="frame-label">2a · Bien · alguien trabaja ahora</p>
+  <p class="frame-why">La única vez que aparece un rol: cuando está corriendo o atorado. Dice qué construye y desde cuándo.</p>
+  <div class="screen dark" style="padding:16px">
+    <div class="pcv">
+      <div class="head"><span class="name">Mianovia</span><span class="light" style="color:var(--ink-done)"><span class="dot d-done live"></span>Bien</span></div>
+      <div class="plan"><div class="lbl"><span><b>Semana 2 de 5</b> · Formulario de bienvenida · 1 de 6 hechos</span><span class="pace ok"><span class="dot d-done"></span>a tiempo · entrega 12 dic</span></div><div class="weeks"><i class="d"></i><i class="h"></i><i></i><i></i><i></i></div><div class="week">Esta semana: <b>1 hecho</b> · <b>1 PR</b> en sandbox · plan de MIA-I2 listo</div></div>
+      <div class="next"><span class="k">Siguiente</span><span>Primera revisión del formulario con la boutique</span><span class="chip">jueves</span></div>
+      <div class="pomsg"><span class="avatar av-po">PO</span><div><div class="who"><b>Bot Mianovia</b> · hace 2 h</div><div class="txt clamp2">Plan de MIA-I2 listo con las respuestas por defecto; Taller ya construye el formulario. Te aviso cuando haya algo que ver en sandbox.</div></div></div>
+      <div class="now"><span class="dot d-done live"></span><b>Taller</b> construye MIA-I2-1 · turno 18 de 40 · 92k tokens · 14:32</div>
+      <div class="foot"><span class="dot d-done"></span>2.1M / 6M · en marcha<span class="r"><a class="lnk">Abrir →</a></span></div>
+    </div>
+  </div>
+</div>
+<div class="frame w520">
+  <p class="frame-label">2b · Quieto · nadie tiene trabajo</p>
+  <p class="frame-why">Luz ámbar. "Ahora" explica por qué nadie trabaja y ofrece la salida en un botón.</p>
+  <div class="screen dark" style="padding:16px">
+    <div class="pcv quiet">
+      <div class="head"><span class="name">Workia</span><span class="light"><span class="dot d-now"></span>Quieto 3 días</span></div>
+      <div class="plan"><div class="lbl"><span><b>Semana 3 de 6</b> · Factura en un minuto · 4 de 7 hechos</span><span class="pace late"><span class="dot d-now"></span>1 semana atrás · entrega 5 dic</span></div><div class="weeks" style="grid-template-columns:repeat(6,1fr)"><i class="d"></i><i class="d"></i><i class="h"></i><i></i><i></i><i></i></div><div class="week">Esta semana: <b>nada</b> · la última vez, hace 3 días</div></div>
+      <div class="next"><span class="k">Siguiente</span><span class="muted">Sin tickets listos</span></div>
+      <div class="pomsg"><span class="avatar av-po">PO</span><div><div class="who"><b>Bot Workia</b> · hace 3 días</div><div class="txt clamp2">Cerré WRK-I3-4. No queda trabajo listo hacia la meta; ¿quieres que proponga los siguientes pasos?</div><div class="acts-inline"><span class="uptt">↑ Responder en Te toca</span></div></div></div>
+      <div class="now"><span class="dot d-now"></span>Nadie trabaja · <b>el PO espera tu respuesta</b></div>
+      <div class="foot"><span class="dot d-done"></span>35k / 1M · en marcha<span class="r"><a class="lnk">Abrir →</a></span></div>
+    </div>
+  </div>
+</div>
+<div class="frame w520">
+  <p class="frame-label">2c · Sin presupuesto · detenido por tokens</p>
+  <p class="frame-why">Luz roja, y el único botón es el que arregla la causa. El PO no habla porque no puede correr.</p>
+  <div class="screen dark" style="padding:16px">
+    <div class="pcv nobud">
+      <div class="head"><span class="name">MiCasa</span><span class="light"><span class="dot d-blocked"></span>Sin presupuesto</span></div>
+      <div class="plan"><div class="lbl"><span><b>Semana 4 de 8</b> · Pagos · 2 de 5 hechos</span><span class="pace bad"><span class="dot d-blocked"></span>2 semanas atrás · entrega 20 dic</span></div><div class="weeks" style="grid-template-columns:repeat(8,1fr)"><i class="d"></i><i class="d"></i><i class="d"></i><i class="h"></i><i></i><i></i><i></i><i></i></div><div class="week">Esta semana: <b>2 hechos</b> · detenido desde el jueves</div></div>
+      <div class="next"><span class="k">Siguiente</span><span>Pantalla de pagos</span><span class="chip blocked">detenido</span></div>
+      <div class="now"><span class="dot d-blocked"></span>Gastó <b>2.0M de 2M</b> esta semana · se reinicia lun 00:00 · <a class="lnk">Subir límite</a></div>
+      <div class="foot"><span class="dot d-blocked"></span>2.0M / 2M · detenido<span class="r"><a class="lnk">Abrir →</a></span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="row" style="margin-top:40px">
+<div class="frame w560">
+  <p class="frame-label">2d · Te toca · después de actuar</p>
+  <p class="frame-why">El botón no abre nada: el resultado se escribe en la misma fila y la fila se apaga. Deshacer vive ahí mismo durante un minuto.</p>
+  <div class="screen dark" style="padding:16px">
+    <div class="tt">
+      <p class="eyebrow">Te toca <span class="n">1</span></p>
+      <div class="tt-row done">
+        <div class="proj"><span class="dot d-done"></span>Mianovia</div>
+        <div class="what"><b>El PO propone 3 pasos</b><div class="result">✓ Elegiste 1 · Planear MIA-I2 · el PO despierta en su turno <a class="lnk m" style="margin-left:6px">Deshacer</a></div></div>
+        <div class="acts"></div>
+      </div>
+      <div class="tt-row">
+        <div class="proj"><span class="dot d-jorge"></span>Mianovia</div>
+        <div class="what"><b>Kickoff con la boutique</b> <span class="key">MIA-I1-1</span></div>
+        <div class="acts"><span class="btn sm primary">Hecho</span><span class="btn sm">Aplazar</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="frame w560">
+  <p class="frame-label">2e · Te toca · vacío, y Asistente sin mensajes</p>
+  <p class="frame-why">Vacío no es silencio: dice que el equipo sigue, y Asistente da tres cosas que se pueden preguntar.</p>
+  <div class="screen dark" style="padding:16px;display:grid;gap:16px">
+    <div class="tt"><p class="eyebrow">Te toca <span class="n">0</span></p><div class="tt-empty">Nada te espera. El equipo sigue; Asistente te avisa cuando haga falta.</div></div>
+    <div class="asis" style="min-height:0">
+      <div class="asis-h"><span class="avatar av-asis">A</span><div><div class="t">Asistente</div><div class="s">Tu canal con la compañía.</div></div></div>
+      <div class="msgs" style="flex:none"><div class="msg"><span class="avatar av-asis">A</span><div><div class="who"><b>Asistente</b></div><div class="body"><p>Todavía no hay mensajes. Pregúntame cómo va un proyecto o dime qué quieres y se lo paso a su PO.</p></div></div></div></div>
+      <div class="composer"><div class="box"><span class="ph">Dile a Asistente…</span><span class="btn sm primary">Enviar</span></div><div class="sugg"><span class="chip">¿Cómo va Mianovia?</span><span class="chip">¿Qué espera de mí?</span><span class="chip">Mianovia: …</span></div></div>
+    </div>
+  </div>
+</div>
+<div class="annot">
+  <h4>Lo que la tarjeta ya no muestra</h4>
+  <ul>
+    <li>Filas por rol con "Sin corridas todavía". Un rol que no ha corrido no existe para el CEO.</li>
+    <li>Claves nulas o de corrida ("null · ok"). Si una corrida no tiene ticket, se nombra por lo que produjo.</li>
+    <li>Tokens por rol. Solo la línea del pie: gastado / límite y el estado del interruptor.</li>
+    <li>La meta: vive en la página del proyecto. Su línea se gasta en el ritmo (a tiempo · n semanas atrás · entrega) y en lo hecho esta semana.</li>
+    <li>Botones repetidos: una decisión vive en Te toca; la tarjeta y Asistente solo apuntan allí. "Vista previa" se va: Abrir basta.</li>
+  </ul>
+  <h4 style="margin-top:14px">Datos que ya existen en Plania</h4>
+  <ul>
+    <li>Semana y hechos: iniciativas del proyecto con sus conteos (get_resume).</li>
+    <li>Siguiente y dueño: next_claimable y waiting_on_jorge. Ritmo: due_on de la iniciativa contra la semana actual; "esta semana": eventos Done, docs aceptados y PRs de los últimos 7 días.</li>
+    <li>Mensaje del PO y sus botones: el último mensaje del hilo del proyecto con sus actions.</li>
+    <li>Ahora: runs.live del proyecto; Quieto: días sin evento.</li>
+  </ul>
+</div>
+</div>
+
+<!-- ===================== 3 · Asistente ===================== -->
+<h2 class="section-title">3 · Asistente, los tres mensajes que importan</h2>
+<p class="section-note">Brief de la mañana, respuesta a una pregunta, y una decisión que llega por el hilo. Los tres con enlaces a Plania y, cuando toca, botones.</p>
+<div class="row">
+<div class="frame w520">
+  <p class="frame-label">3a · Brief de las 07:00</p>
+  <p class="frame-why">Una frase con la voz y tres a cinco puntos con luz. Lo que aceptó Asistente va al final, en gris.</p>
+  <div class="screen dark" style="padding:16px">
+    <div class="msg"><span class="avatar av-asis">A</span><div><div class="who"><b>Asistente</b> 07:00 · brief</div><div class="body"><p class="voice" style="font-size:18px;margin-bottom:8px">Mianovia avanza sola; lo único tuyo es el kickoff.</p><ul class="small" style="margin:0 0 6px;padding:0;list-style:none;display:grid;gap:6px"><li class="flex"><span class="dot d-done"></span><span><b>Mianovia</b> planeó el formulario (6 tickets); Taller empezó MIA-I2-1.</span></li><li class="flex"><span class="dot d-jorge"></span><span><b>Kickoff</b> MIA-I1-1 sigue tuyo; el PO lo necesita antes del jueves.</span></li><li class="flex"><span class="dot d-idle"></span><span>Cinco proyectos en pausa, sin cambios.</span></li></ul><p class="muted small">Acepté MIA-01 (Campos y flujos) anoche.</p></div></div></div>
+  </div>
+</div>
+<div class="frame w520">
+  <p class="frame-label">3b · Pregunta y respuesta</p>
+  <p class="frame-why">Asistente responde desde Plania, corto, con los enlaces que prueban lo que dice. Sin preguntar de vuelta si puede resolverlo.</p>
+  <div class="screen dark" style="padding:16px;display:grid;gap:12px">
+    <div class="msg me"><div class="bub">¿Qué hizo Mianovia esta semana y qué sigue?</div></div>
+    <div class="msg"><span class="avatar av-asis">A</span><div><div class="who"><b>Asistente</b> 21:12</div><div class="body"><p>Esta semana: repo, base de datos y receta de verificación (3 tickets Done) y el borrador Campos y flujos. Sigue el kickoff con la boutique, que es tuyo, y con sus respuestas el plan del formulario.</p><div class="links"><span class="chip outline">MIA-I1 ↗</span><span class="chip outline">MIA-01 ↗</span></div></div></div></div>
+  </div>
+</div>
+<div class="frame w520">
+  <p class="frame-label">3c · Una pregunta que solo tú decides</p>
+  <p class="frame-why">Cuando un PO escala dinero, producción o dirección, Asistente la trae con las opciones como botones; responder aquí es responder en Plania.</p>
+  <div class="screen dark" style="padding:16px">
+    <div class="msg"><span class="avatar av-asis">A</span><div><div class="who"><b>Asistente</b> 16:40 · <span class="muted">Mianovia</span></div><div class="body"><p>El PO pregunta dónde vivirá el formulario en producción. Tu decisión fijada dice local hasta nuevo aviso; el PO necesita saber si eso sigue antes del kickoff.</p><div class="links"><span class="chip jorge">MIA-Q2 · solo tú</span></div><div class="acts-inline"><span class="uptt">↑ Responder en Te toca</span><span class="muted small">· las opciones (Sigue local · Ya decidiremos) viven allí</span></div></div></div></div>
+  </div>
+</div>
+</div>
+
+<p class="section-note" style="margin-top:56px">Fuera de este lienzo: la página de proyecto (misma regla: equipo solo cuando corre), Máquina y los estados de carga y error, que siguen los marcos 5b y 5c de la v1.</p>
+</body>
+</html>

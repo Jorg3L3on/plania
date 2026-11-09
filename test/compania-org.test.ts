@@ -11,6 +11,7 @@ import { MemoryRouter } from "react-router";
 // Loaded by URL so the root typecheck (NodeNext, no JSX) does not follow them; `pnpm build` checks them.
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
 const org = await load("components/compania/org.tsx");
+const v2 = await load("components/compania/v2.tsx");
 const lib = await load("lib/org.ts");
 
 const h = React.createElement;
@@ -50,6 +51,10 @@ const orgProject = (slug: string, title: string, patch: Record<string, unknown> 
   budget: budget(912_000, 6_000_000),
   team: team(slug),
   thread: { id: `t-${slug}`, unread: 0, last: null },
+  plan: null,
+  this_week: { done: 0, docs: 0, prs: 0, last_at: "2026-11-08T13:00:00Z" },
+  next: null,
+  work: { open: 0, in_progress: 0 },
   ...patch,
 });
 
@@ -159,26 +164,28 @@ test("I33-1 phone: the thread folds to its last message; the toggle shows only o
   assert.ok(open.includes("Plegar el hilo"));
 });
 
-test("I33-1 team cards: six cards, four role rows each, light, goal, plumbing line to Máquina, Abrir to /p", () => {
-  const out = html(h(org.TeamCards, { projects: SIX, now: NOW, onPreview: noop, onNew: noop }));
-  assert.equal(count(out, /data-card=/g), 6);
-  assert.equal(count(out, /data-role-row=/g), 24);
-  for (const slug of SIX.map((p) => p.slug)) assert.ok(out.includes(`href="/p/${slug}"`), slug);
-  assert.deepEqual([...new Set([...out.matchAll(/data-role-row="([^"]+)"/g)].map((m) => m[1]))], ["product-owner", "research", "artist", "taller"]);
-  for (const t of ["Te necesita", "En pausa", "Quieto", "Bien", "Sin presupuesto", "PO", "Research", "Artist", "Taller", "MIA-I3-4", "desde 18 min", 'doc “Campos y flujos”', "espera: que aceptes", "912k / 6M · en marcha", "→ Máquina", "2 mensajes nuevos del PO"]) {
-    assert.ok(out.includes(t), t);
-  }
-  assert.equal(count(out, /href="\/machine"/g), 6);
-  assert.ok(out.includes("md:grid-cols-2"), "two columns from the Mac width");
-  noMoney(out);
+test("I33-1 → I35-3 project cards: a report per running project, no idle role rows, plumbing line to Máquina, Abrir to /p", () => {
+  const live = SIX.filter((p) => !p.paused);
+  const out = html(h("ul", null, ...live.map((p) => h(v2.ProjectReport, { key: p.slug, project: p, decisions: [], now: NOW, companyPaused: false, timeZone: TZ }))));
+  assert.equal(count(out, /data-card=/g), 4);
+  for (const slug of live.map((p) => p.slug)) assert.ok(out.includes(`href="/p/${slug}"`), slug);
+  // PLA-I35: a role shows only while it runs or is stuck; idle roles have no row.
+  assert.deepEqual([...out.matchAll(/data-role-row="([^"]+)"/g)].map((m) => m[1]), ["PO", "Taller"]);
+  for (const t of ["Te necesita", "Quieto", "Bien", "Sin presupuesto", "construye MIA-I3-4", "espera: que aceptes", "912k / 6M · en marcha", "→ Máquina"]) assert.ok(out.includes(t), t);
+  assert.equal(out.includes("Vista previa"), false, "no preview: Abrir is enough");
+  assert.equal(out.includes("Meta de prueba"), false, "the goal lives on the project page");
+  assert.equal(count(out, /href="\/machine"/g), 5, "four plumbing lines and Subir límite");
+  const paused = html(h(v2.PausedList, { projects: SIX.filter((p) => p.paused), now: NOW, onResume: noop }));
+  assert.equal(count(paused, /data-paused=/g), 2);
+  noMoney(out + paused);
 });
 
 test("I33-1 the retired blocks are gone from the page: Solo tú, En marcha, Gasto, the switch and the Equipo sheet", async () => {
   const { readFileSync } = await import("node:fs");
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  for (const gone of ["Solo tú", "EnMarcha", "Gasto", "KillSwitch", "EquipoSheetBody", "setCompanyPaused", "Queue"]) assert.equal(page.includes(gone), false, gone);
-  assert.ok(page.includes("lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]"), "thread left at a fixed width, cards right");
-  assert.ok(page.includes("ThreadPanel") && page.includes("TeamCards") && page.includes("CompanyPlumbing"));
+  for (const gone of ["Solo tú", "EnMarcha", "Gasto", "KillSwitch", "EquipoSheetBody", "setCompanyPaused", "Queue", "TeamCards", "ProjectPreview", "Vista previa"]) assert.equal(page.includes(gone), false, gone);
+  assert.ok(page.includes("lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]"), "Asistente left at 360 px, projects right (PLA-I35)");
+  assert.ok(page.includes("AsistenteFolded") && page.includes("ProjectReport") && page.includes("TeToca") && page.includes("CompanyPlumbing"));
 });
 
 test("I33-1 the company plumbing line reads tokens and what runs, amber at 80 % and red at 100 %", () => {
@@ -247,40 +254,37 @@ test("I33-2 the old Pedir box is gone from /p and the page holds the team, the P
   assert.equal(pedir.includes("export function PedirBox"), false);
 });
 
-test("I33-2 preview sheet: header, team, the last 3 messages and Abrir; /ceo?p=x redirects to /p/x", () => {
-  const out = html(h(org.ProjectPreview, { project: SIX[0], messages: poThread.messages, now: NOW, timeZone: TZ }));
-  assert.equal(count(out, /data-message=/g), 3);
-  assert.equal(out.includes("Quiero que la lista"), false, "only the last three");
-  assert.equal(count(out, /data-role-row=/g), 4);
-  assert.ok(out.includes('href="/p/mianovia"'));
-  assert.ok(out.includes("Abrir Mianovia"));
-  assert.equal(count(out, /data-action=/g), 0, "the preview does not act; Abrir does");
+test("I33-2 → I35: the preview sheet is gone; /ceo?p=x and ?vista=x redirect to /p/x", () => {
+  assert.equal("ProjectPreview" in org, false);
   assert.equal(compLib.ceoRedirect("?p=x"), "/p/x");
   assert.equal(compLib.ceoRedirect("?equipo"), "/machine");
-  assert.equal(compLib.ceoRedirect("?vista=x"), null);
+  assert.equal(compLib.ceoRedirect("?vista=x"), "/p/x");
   assert.equal(compLib.ceoRedirect(""), null);
 });
 
 // ---- PLA-I33-4: one test per state in the Design doc's Scope
 
-const card = (p: Record<string, unknown>) => html(h(org.TeamCard, { project: p, now: NOW, onPreview: noop }));
+const card = (p: Record<string, unknown>, decisions: unknown[] = []) => html(h(v2.ProjectReport, { project: p, decisions, now: NOW, companyPaused: false, timeZone: TZ }));
 const parts = await load("components/compania/parts.tsx");
 
-test("I33-4 state vacío: no projects, no messages, a team with no runs", () => {
-  const cards = html(h(org.TeamCards, { projects: [], now: NOW, onNew: noop }));
-  assert.ok(cards.includes('data-empty="projects"'));
-  assert.ok(cards.includes("Crear el primer proyecto"));
+test("I33-4 state vacío: no projects, no messages, a team with no runs", async () => {
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes('data-empty="projects"'));
+  assert.ok(page.includes("Crear el primer proyecto"));
   const thread = html(h(org.ThreadPanel, threadProps({ thread: { ...asistenteThread, messages: [] } })));
   assert.ok(thread.includes('data-empty="thread"'));
   assert.ok(thread.includes("Dile a Asistente…"), "the text box stays");
   const fresh = card(orgProject("nuevo", "Nuevo", { team: team("nuevo", { "product-owner": { last: null }, research: { last: null }, artist: { last: null }, taller: { last: null } }) }));
-  assert.equal(count(fresh, />Sin corridas todavía</g), 4);
-  assert.ok(card(orgProject("solo", "Solo", { team: [] })).includes("Sin equipo todavía."));
+  // PLA-I35: a team that never ran says nothing about its roles; never "Sin corridas todavía".
+  assert.equal(fresh.includes("Sin corridas todavía"), false);
+  assert.ok(fresh.includes("Nadie trabaja ahora"));
+  assert.ok(card(orgProject("solo", "Solo", { team: [] })).includes("Sin tickets listos"));
 });
 
 test("I33-4 state carga: a skeleton per block", () => {
   assert.ok(html(h(org.ThreadSkeleton, {})).includes("thread-skeleton"));
-  assert.ok(html(h(org.TeamCardsSkeleton, {})).includes("cards-skeleton"));
+  assert.ok(html(h(v2.ProjectsSkeleton, {})).includes("cards-skeleton"));
   const loading = html(h(org.ThreadPanel, threadProps({ thread: undefined, loading: true })));
   assert.ok(loading.includes("thread-skeleton"));
   assert.equal(loading.includes("data-message"), false);
@@ -296,10 +300,15 @@ test("I33-4 state error por bloque: the thread says the Mac may be asleep and of
   assert.ok(team.includes("No se pudo cargar el equipo."));
 });
 
-test("I33-4 state texto largo: goal, title, message and ticket clamp or truncate", () => {
+test("I33-4 state texto largo: title, the PO's line, message and ticket clamp or truncate", () => {
   const long = "Un nombre de proyecto larguísimo que no cabe en dos líneas de ninguna tarjeta ni en el teléfono";
-  const out = card(orgProject("largo", long, { goal: long.repeat(3), team: team("largo", { taller: { now: { ticket: `MIA-I3-4 · ${long}`, since: "2026-11-08T14:00:00Z" }, last: null } }) }));
-  assert.ok(count(out, /line-clamp-2/g) >= 2, "title and goal");
+  const out = card(
+    orgProject("largo", long, {
+      thread: { id: "t", unread: 0, last: { at: "2026-11-08T14:00:00Z", author_role: "product-owner", body: long.repeat(3) } },
+      team: team("largo", { taller: { state: "running", now: { ticket: `MIA-I3-4 · ${long}`, since: "2026-11-08T14:00:00Z" }, last: null } }),
+    }),
+  );
+  assert.ok(count(out, /line-clamp-2/g) >= 2, "title and the PO's line");
   assert.ok(out.includes("truncate"), "ticket line");
   const message = html(h(org.MessageRow, { message: msg("x", "2026-11-08T14:00:00Z", { body: long.repeat(5) }), project: null, busy: null, onAction: noop }));
   assert.ok(message.includes("line-clamp-6"));
@@ -308,12 +317,12 @@ test("I33-4 state texto largo: goal, title, message and ticket clamp or truncate
   assert.ok(bar.includes("line-clamp-3"));
 });
 
-test("I33-4 state proyecto en pausa: grey card, read-only thread with a notice, Reanudar", () => {
+test("I33-4 state proyecto en pausa: a row in the En pausa list with Reanudar, read-only thread with a notice", () => {
   const p = SIX[1]!;
-  const out = card(p);
+  const out = html(h(v2.PausedList, { projects: [p], now: NOW, onResume: noop }));
   assert.ok(out.includes("bg-surface-sunken"));
   assert.ok(out.includes("En pausa"));
-  assert.ok(out.includes("en pausa"), "the plumbing line");
+  assert.ok(out.includes('data-control="reanudar"'));
   const thread = html(h(org.ThreadPanel, threadProps({ title: "PO", thread: poThread, project: "micasa", placeholder: "Dile al PO…", readOnly: "En pausa: el PO no despierta. Reanuda el proyecto para escribirle." })));
   assert.ok(thread.includes("data-readonly"));
   assert.ok(thread.includes("Reanuda el proyecto para escribirle."));
@@ -337,7 +346,7 @@ test("I33-4 state sin presupuesto: red light, the plumbing line says sin presupu
   assert.ok(out.includes("Sin presupuesto"));
   assert.ok(out.includes("2M / 2M · sin presupuesto"));
   assert.ok(out.includes('data-plumbing="stop"'));
-  assert.ok(out.includes('data-state="no_budget"'));
+  assert.ok(out.includes("Subir límite"), "the one button that fixes the cause");
 });
 
 test("I33-4 state presupuesto al 80 % y al 100 %: the plumbing line turns amber, then red", () => {
@@ -348,11 +357,11 @@ test("I33-4 state presupuesto al 80 % y al 100 %: the plumbing line turns amber,
   assert.equal(lib.plumbingLine({ spend: 6_000_000, limit: 6_000_000, running: 1, paused: false }).tone, "stop");
 });
 
-test("I33-4 state rol quieto: a role that has not run in days reads quieto desde hace N días", () => {
-  const out = card(orgProject("filmia", "Filmia", { light: "quiet", team: team("filmia", { research: { last: { ticket: "FIL-1", status: "Done", at: "2026-11-05T15:00:00Z" } } }) }));
-  assert.ok(out.includes("quieto desde hace 3 días"));
-  assert.equal(count(out, /data-still="1"/g), 1);
-  assert.ok(out.includes("Quieto"));
+test("I33-4 → I35 state quieto: the light reads Quieto n días from the last event, this week says when", () => {
+  const out = card(orgProject("filmia", "Filmia", { light: "quiet", this_week: { done: 0, docs: 0, prs: 0, last_at: "2026-11-05T15:00:00Z" } }));
+  assert.ok(out.includes("Quieto 3 días"));
+  assert.ok(out.includes("Esta semana: nada · la última vez, hace 3 días"));
+  assert.equal(count(out, /data-role-row=/g), 0, "no idle role rows");
 });
 
 test("I33-4 state esperando a Jorge: Te necesita on the card, the message with buttons ringed in the thread", () => {
@@ -378,8 +387,8 @@ test("I33-4 phone: the pages keep one column under 640 px and nothing sets a wid
   const { readFileSync } = await import("node:fs");
   const read = (p: string) => readFileSync(new URL(`../ui/src/${p}`, import.meta.url), "utf8");
   const ceo = read("pages/ceo.tsx");
-  assert.ok(ceo.includes("lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]"), "two columns from lg only");
-  const files = ["pages/ceo.tsx", "components/compania/org.tsx", "components/compania/plumbing.tsx"].map(read).join("\n");
+  assert.ok(ceo.includes("lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]"), "two columns from lg only");
+  const files = ["pages/ceo.tsx", "components/compania/org.tsx", "components/compania/v2.tsx", "components/compania/plumbing.tsx"].map(read).join("\n");
   assert.equal(/(?:^|[\s"\'`])(?:min-)?w-\[\d{3,}px\]/m.test(files), false, "no fixed width of 100 px or more without a breakpoint");
-  assert.ok(html(h(org.TeamCards, { projects: SIX, now: NOW, onNew: noop })).includes("md:grid-cols-2"));
+  assert.ok(ceo.includes("xl:grid-cols-2"), "running cards two by two on a wide Mac only");
 });

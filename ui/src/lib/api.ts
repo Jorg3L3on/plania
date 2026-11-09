@@ -126,6 +126,7 @@ export const api = {
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   addToTeam: (slug: string, template: string) =>
     request<{ agent: string; role: string; template: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, { template }),
+  actDecision: (id: string, input: DecisionInput) => request<DecisionResult>("POST", `/company/decisions/${encodeURIComponent(id)}`, input),
   thread: (id: string, after?: string) =>
     request<Thread>("GET", `/threads/${encodeURIComponent(id)}${after ? `?after=${encodeURIComponent(after)}` : ""}`),
   postMessage: (id: string, body: string) => request<ThreadPostResult>("POST", `/threads/${encodeURIComponent(id)}/messages`, { body }),
@@ -173,7 +174,40 @@ export type OrgProject = {
   budget: Budget;
   team: OrgMember[];
   thread: OrgThreadRef;
+  // PLA-I35-1: the card as a report.
+  plan: OrgPlan | null;
+  this_week: { done: number; docs: number; prs: number; last_at: string | null };
+  next: { title: string; key: string; owner: string; due: string | null } | null;
+  work: { open: number; in_progress: number };
 };
+export type OrgPlan = {
+  week: number;
+  weeks: number;
+  initiative: { key: string; title: string };
+  done: number;
+  total: number;
+  due_on: string | null;
+  pace: "ok" | "late" | "bad" | null;
+  weeks_behind: number | null;
+};
+// PLA-I35-1: Te toca rows (GET /api/company decisions[]) and POST /api/company/decisions/:id.
+export type DecisionKind = "proposal" | "action" | "question" | "deliverable" | "pr";
+export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios";
+export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
+export type Decision = {
+  id: string;
+  project: string | null;
+  title: string;
+  kind: DecisionKind;
+  options: { n: number; label: string; recommended: boolean }[] | null;
+  actions: DecisionAction[];
+  state: DecisionState | null;
+  at: string;
+  ref: string | null;
+  detail: string | null;
+};
+export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string };
+export type DecisionResult = { ok: boolean; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
 export type OrgPlumbing = { spend: number; limit: number | null; running: number; paused: boolean };
 export type OrgCompany = {
   company: { paused: boolean };
@@ -181,13 +215,15 @@ export type OrgCompany = {
   asistente: { thread_id: string; budget: Budget; last_run: { status: string; at: string | null; summary?: string } | null; state: OrgMemberState };
   projects: OrgProject[];
   plumbing: OrgPlumbing;
+  decisions: Decision[];
 };
 export type OrgTemplate = { slug: string; title: string };
 export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[] };
 
 export type ThreadAction = "aceptar" | "cambios" | "responder" | "fusionar";
 export type ThreadLink = { kind: "ticket" | "doc" | "pr" | "idea" | "question"; ref: string; title: string };
-export type ThreadActionState = { action: ThreadAction; at: string; result: string };
+// result is an object on the server ({ticket, status} …); older fixtures carry a string.
+export type ThreadActionState = { action: ThreadAction; at: string; result: string | Record<string, unknown> | null };
 export type ThreadMessage = {
   id: string;
   at: string;

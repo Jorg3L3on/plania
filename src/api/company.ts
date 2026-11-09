@@ -1,3 +1,5 @@
+// PLA-I35-1: GET /api/company adds plan, this_week, next and work per project and decisions[] (Te toca);
+// POST /api/company/decisions/:id {action, option?, text?} acts on one row (src/api/company-decisions.ts).
 // PLA-I32-6: GET /api/company and GET /api/company/projects/:slug serve the Plan's read contract
 // (src/api/company-org.ts); POST /api/company/projects/:slug/team {template} adds a team member; the runner's
 // plumbing (switches, budgets, guard, runs, log) is read from GET /api/machine. The writes below stay.
@@ -25,6 +27,7 @@ import { createProjectFromTemplate } from "../runner/new-project.js";
 import { askPo, wakePo } from "./company-actions.js";
 import { promptDoc } from "./company-extra.js";
 import { addTeamMember, companyRead, projectRead } from "./company-org.js";
+import { actOnDecision } from "./company-decisions.js";
 import { ackUnknownUsage, setBudget, setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner/company.js";
 
 export const companyRoutes = new Hono();
@@ -57,6 +60,30 @@ companyRoutes.get("/", async (c) => c.json(await withDb((db) => companyRead(db))
 companyRoutes.get("/projects/:slug", async (c) => {
   try {
     return c.json(await withDb((db) => projectRead(db, c.req.param("slug"))));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I35-1 (src/api/company-decisions.ts): act on one Te toca row.
+const DecisionBody = z
+  .object({
+    action: z.enum(["elegir", "responder", "hecho", "aplazar", "aceptar", "fusionar", "cambios"]),
+    option: z.union([z.number().int().min(1).max(20), z.array(z.number().int().min(1).max(20)).min(1).max(5)]).optional(),
+    text: z.string().trim().min(1).max(2000).optional(),
+  })
+  .strict();
+
+companyRoutes.post("/decisions/:id", async (c) => {
+  const input = await body(c, DecisionBody);
+  if (input instanceof Response) return input;
+  try {
+    const out = await withDb((db) => actOnDecision(db, c.req.param("id"), input));
+    if ("error" in out) {
+      const { status, ...rest } = out;
+      return c.json(rest, status);
+    }
+    return c.json(out);
   } catch (e) {
     return fail(c, e);
   }
