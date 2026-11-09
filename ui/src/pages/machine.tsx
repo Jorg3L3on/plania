@@ -1,4 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { StopBody } from "@/components/compania/parts";
+import { PlumbingMissing, PlumbingSection } from "@/components/compania/plumbing";
+import { LimitForm, limitTitle, type LimitTarget } from "@/components/compania/sheets";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import type { MachinePlumbing } from "@/lib/api";
 import { BoxIcon, CableIcon, CogIcon, DatabaseIcon, GitBranchIcon, GlobeIcon, HardDriveIcon, LayersIcon, ServerIcon } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent } from "react";
 import { Link, useSearchParams } from "react-router";
@@ -297,12 +304,113 @@ function Tabs({ active, counts, onChange }: { active: TabId; counts: Record<TabI
 }
 
 function useMachine() {
-  return useQuery({ queryKey: ["machine"], queryFn: api.machine, staleTime: 15_000 });
+  // PLA-I33-3: the same GET /api/machine, read with its plumbing.
+  return useQuery({ queryKey: ["machine"], queryFn: api.machinePlumbing, staleTime: 15_000, refetchInterval: 20_000 });
+}
+
+type StopScope = { kind: "company" } | { kind: "project"; slug: string; title: string };
+
+// PLA-I33-3: budgets, plan guard, switches, En marcha and the run log, with their Jorge-only writes
+// (the PLA-I30 routes under /api/company, cookie session only).
+function Plumbing({ plumbing, nowMs }: { plumbing: MachinePlumbing; nowMs: number }) {
+  const client = useQueryClient();
+  const [stop, setStop] = useState<StopScope | null>(null);
+  const [limit, setLimit] = useState<LimitTarget | null>(null);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const canEdit = plumbing.viewer?.can_edit_limits ?? true;
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: ["machine"] });
+    void client.invalidateQueries({ queryKey: ["company"] });
+  };
+  const titles = new Map(plumbing.budgets.projects.map((p) => [p.slug, p.title]));
+  const companySwitch = useMutation({
+    mutationFn: (paused: boolean) => api.setCompanyPaused(paused),
+    onSuccess: (r) => {
+      toast(r.paused ? `Compañía detenida${r.stopped ? ` · ${r.stopped} corridas cerrándose` : ""}` : "Compañía en marcha");
+      setStop(null);
+      refresh();
+    },
+    onError: () => toast.error("No se pudo cambiar el interruptor"),
+  });
+  const projectSwitch = useMutation({
+    mutationFn: ({ slug, paused }: { slug: string; paused: boolean }) => api.setProjectPaused(slug, paused),
+    onSuccess: (r) => {
+      toast(r.paused ? `${titles.get(r.project) ?? r.project} en pausa` : `${titles.get(r.project) ?? r.project} reanudado`);
+      setStop(null);
+      refresh();
+    },
+    onError: () => toast.error("No se pudo cambiar el interruptor del proyecto"),
+  });
+  const saveLimit = useMutation({
+    mutationFn: async ({ target, value }: { target: LimitTarget; value: number | null }) => {
+      if (target.kind === "guard") return api.setRunnerSettings({ plan_guard_pct: value ?? target.current });
+      if (target.kind === "asistente") return api.setRunnerSettings({ asistente_weekly_limit: value });
+      if (target.kind === "project") return api.setBudget({ scope: "project", project: target.slug, weekly_limit: value });
+      throw new Error("per-role limits are retired");
+    },
+    onSuccess: () => {
+      toast("Guardado");
+      setLimit(null);
+      refresh();
+    },
+    onError: () => toast.error("No se pudo guardar"),
+  });
+  return (
+    <>
+      <PlumbingSection
+        plumbing={plumbing}
+        now={nowMs}
+        canEdit={canEdit}
+        dismissed={dismissed}
+        onDismiss={(slug) => setDismissed(new Set([...dismissed, slug]))}
+        onEditProject={(p) => setLimit({ kind: "project", slug: p.slug, title: p.title, current: p.budget.limit })}
+        onEditAsistente={() => setLimit({ kind: "asistente", current: plumbing.budgets.asistente.limit })}
+        onMoveGuard={() => setLimit({ kind: "guard", current: plumbing.plan.guard_pct })}
+        onStopCompany={() => setStop({ kind: "company" })}
+        onResumeCompany={() => companySwitch.mutate(false)}
+        onPauseProject={(p) => setStop({ kind: "project", slug: p.slug, title: p.title })}
+        onResumeProject={(p) => projectSwitch.mutate({ slug: p.slug, paused: false })}
+      />
+      {/* 5i: stop the company or pause a project */}
+      <Sheet open={stop !== null} onOpenChange={(open) => !open && setStop(null)}>
+        <SheetContent side="bottom" className="mx-auto max-h-[85svh] w-full max-w-xl overflow-y-auto rounded-t-[22px] bg-background">
+          <SheetHeader className="pr-10">
+            <SheetTitle className="font-display text-2xl font-extrabold tracking-tight">
+              {stop?.kind === "project" ? `¿Pausar ${stop.title}?` : "¿Detener la compañía?"}
+            </SheetTitle>
+            <SheetDescription>Se puede deshacer: reanudas cuando quieras.</SheetDescription>
+          </SheetHeader>
+          <div className="px-4 pb-8">
+            {stop && (
+              <StopBody
+                scope={stop}
+                runs={plumbing.runs.live}
+                projectTitle={(slug) => titles.get(slug) ?? slug}
+                busy={companySwitch.isPending || projectSwitch.isPending}
+                onCancel={() => setStop(null)}
+                onConfirm={() => (stop.kind === "company" ? companySwitch.mutate(true) : projectSwitch.mutate({ slug: stop.slug, paused: true }))}
+              />
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+      <Dialog open={limit !== null} onOpenChange={(open) => !open && setLimit(null)}>
+        <DialogContent className="bg-background sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl font-extrabold tracking-tight">{limit ? limitTitle(limit) : ""}</DialogTitle>
+            <DialogDescription>Solo tú cambias límites. Los agentes no pueden.</DialogDescription>
+          </DialogHeader>
+          {limit && <LimitForm target={limit} busy={saveLimit.isPending} onCancel={() => setLimit(null)} onSave={(value) => saveLimit.mutate({ target: limit, value })} />}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
 
 export function MachinePage() {
   const machine = useMachine();
-  const nowMs = useNow();
+  // En marcha's clocks tick by the second only while something runs.
+  const nowMs = useNow(machine.data?.plumbing?.runs.live.length ? 1000 : 30_000);
   const [params, setParams] = useSearchParams();
   const tab = TABS.find((t) => t.id === params.get("tab")) ?? TABS[0]!;
   // Stopped things wait a day before they are released; hidden unless asked for.
@@ -327,6 +435,8 @@ export function MachinePage() {
         </div>
         {machine.data && <Totals machine={machine.data} />}
       </header>
+
+      {machine.data && (machine.data.plumbing ? <Plumbing plumbing={machine.data.plumbing} nowMs={nowMs} /> : <PlumbingMissing />)}
 
       {machine.data && <Findings findings={machine.data.findings ?? []} />}
 

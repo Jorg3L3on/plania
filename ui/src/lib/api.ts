@@ -2,7 +2,7 @@ import type { TaskComment, RoutineRun } from "@/components/delegation/types";
 import type { TeamRoster } from "@/components/team/types";
 import type { Dashboard, WakeResult } from "@/components/dashboard/types";
 import type { Goal, GoalWrite } from "@/components/goals/model";
-import type { AskResult, Company, NewProjectResult, ProjectSheetData, WakeOutcome } from "@/lib/compania";
+import type { Budget, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
 
 export class ApiError extends Error {
@@ -121,24 +121,99 @@ export const api = {
     request<ProgressItem>("GET", `/progress/item/${encodeURIComponent(project)}/${encodeURIComponent(key)}`),
   // PLA-I25: reported token totals. Informational.
   usage: () => request<UsageSummary>("GET", "/usage"),
-  // PLA-I30 Compañía: GET /api/company and its Jorge-only writes (cookie session only; a Bearer is 403).
-  company: () => request<Company>("GET", "/company"),
-  companyProject: (slug: string) => request<ProjectSheetData>("GET", `/company/projects/${encodeURIComponent(slug)}`),
+  // PLA-I33 Compañía como organización: the contract in the Plan doc (61ad843a, "Contrato de API").
+  company: () => request<OrgCompany>("GET", "/company"),
+  companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
+  addToTeam: (slug: string, template: string) =>
+    request<{ agent: string; role: string; template: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, { template }),
+  thread: (id: string, after?: string) =>
+    request<Thread>("GET", `/threads/${encodeURIComponent(id)}${after ? `?after=${encodeURIComponent(after)}` : ""}`),
+  postMessage: (id: string, body: string) => request<ThreadPostResult>("POST", `/threads/${encodeURIComponent(id)}/messages`, { body }),
+  threadAction: (id: string, input: { message_id: string; action: ThreadAction; text?: string }) =>
+    request<ThreadActionResult>("POST", `/threads/${encodeURIComponent(id)}/actions`, input),
+  // Máquina's plumbing rides on GET /api/machine (MachineWithPlumbing).
+  machinePlumbing: () => request<MachineWithPlumbing>("GET", "/machine"),
+  // PLA-I30 writes, kept (cookie session only; a Bearer is 403).
   promptDoc: (id: string) => request<{ id: string; title: string; version: number; markdown: string }>("GET", `/company/docs/${encodeURIComponent(id)}`),
   setCompanyPaused: (paused: boolean) => request<{ paused: boolean; stopped: number }>("POST", "/company/switch", { paused }),
   setProjectPaused: (slug: string, paused: boolean) =>
     request<{ project: string; paused: boolean; stopped: number }>("POST", `/company/projects/${encodeURIComponent(slug)}/switch`, { paused }),
   setBudget: (input: { scope: "role"; role: string; weekly_limit: number | null } | { scope: "project"; project: string; weekly_limit: number | null }) =>
     request<{ scope: string; key: string; weekly_limit: number | null }>("PUT", "/company/budgets", input),
-  setRunnerSettings: (input: { plan_guard_pct?: number }) => request<Company["settings"]>("PUT", "/company/settings", input),
-  // PLA-I30-6/7: Pedirle al PO and Despertar ahora on the project sheet.
-  askPo: (slug: string, text: string) => request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, { text }),
-  wakePo: (slug: string) => request<WakeOutcome>("POST", `/company/projects/${encodeURIComponent(slug)}/wake`),
+  setRunnerSettings: (input: { plan_guard_pct?: number; asistente_weekly_limit?: number | null }) => request<Company["settings"]>("PUT", "/company/settings", input),
   // PLA-I31-3 adds this route; until then it is 404 and the dialog says so.
   createCompanyProject: (input: { name: string; goal: string }) => request<NewProjectResult>("POST", "/company/projects", input),
   // PLA-I25: a project, a product-owner bot and a Playbook. The same slug again changes nothing.
   createCompany: (input: { slug: string; name: string; owner_bot_name: string }) => request<CompanyProject>("POST", "/templates/company", input),
 };
+
+// ---- PLA-I33: the organization (Plan doc 61ad843a, "Contrato de API"). Fields the contract leaves
+// untyped (week, budget, last_run) reuse the PLA-I30 shapes.
+
+export type OrgLight = "ok" | "needs_jorge" | "quiet" | "paused" | "no_budget";
+export type OrgMemberState = "running" | "idle" | "waiting_jorge" | "paused" | "no_budget";
+export type OrgProduced = { kind: "doc" | "pr" | "idea" | "plan"; ref: string; title: string };
+export type OrgMember = {
+  agent: string;
+  role: string;
+  template: string;
+  state: OrgMemberState;
+  now: { ticket: string; since: string } | null;
+  last: { ticket: string; status: string; at: string } | null;
+  produced: OrgProduced | null;
+  waiting: string | null;
+};
+export type OrgThreadRef = { id: string; unread: number; last: { at: string; author_role: string; body: string } | null };
+export type OrgProject = {
+  slug: string;
+  title: string;
+  paused: boolean;
+  light: OrgLight;
+  goal: string | null;
+  budget: Budget;
+  team: OrgMember[];
+  thread: OrgThreadRef;
+};
+export type OrgPlumbing = { spend: number; limit: number | null; running: number; paused: boolean };
+export type OrgCompany = {
+  company: { paused: boolean };
+  week: Company["week"];
+  asistente: { thread_id: string; budget: Budget; last_run: { status: string; at: string | null; summary?: string } | null; state: OrgMemberState };
+  projects: OrgProject[];
+  plumbing: OrgPlumbing;
+};
+export type OrgTemplate = { slug: string; title: string };
+export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[] };
+
+export type ThreadAction = "aceptar" | "cambios" | "responder" | "fusionar";
+export type ThreadLink = { kind: "ticket" | "doc" | "pr" | "idea" | "question"; ref: string; title: string };
+export type ThreadActionState = { action: ThreadAction; at: string; result: string };
+export type ThreadMessage = {
+  id: string;
+  at: string;
+  author: { agent: string; role: string };
+  body: string;
+  links: ThreadLink[];
+  actions: ThreadAction[];
+  action_state: ThreadActionState | null;
+  question_id: string | null;
+};
+export type Thread = { id: string; kind: "company" | "project"; project: string | null; messages: ThreadMessage[] };
+export type ThreadPostResult = { message: ThreadMessage; created: { kind: string; key: string } | null; wake: string };
+export type ThreadActionResult = { ok: boolean; action_state: ThreadActionState };
+
+// GET /api/machine plus the plumbing blocks that left Compañía (budgets, plan guard, switches, runs, log).
+export type MachinePlumbing = {
+  company: { paused: boolean; paused_at: string | null };
+  settings: Company["settings"];
+  week: Company["week"];
+  plan: CompanyPlan;
+  budgets: { asistente: Budget; projects: CompanyProjectRow[] };
+  runs: { live: CompanyRun[]; queued: CompanyRun[] };
+  log: RunBrief[];
+  viewer?: { can_edit_limits: boolean };
+};
+export type MachineWithPlumbing = Machine & { plumbing?: MachinePlumbing };
 
 export type CompanyProject = {
   created: boolean;
