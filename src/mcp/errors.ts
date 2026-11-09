@@ -42,6 +42,7 @@ export const ERRORS = {
   // 403: only Jorge may do this.
   ACTOR_MISMATCH: [403, "actor.agent or actor.machine disagrees with the agent token's (detail: expected)"],
   HUMAN_ONLY: [403, "Won't do or reopening a closed task: Jorge's call, on screen with a reason, or by an agent with a reason and delegated_by_jorge {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it"],
+  THREAD_FORBIDDEN: [403, "thread_post or thread_read on a thread that is not yours: Asistente may use every thread, a team member only its own project's (detail: thread, agent)"],
   DELEGATION_OFF: [403, "delegated answers and delegated moves are off: the kill switch on the screen is off"],
   NOT_DELEGABLE: [403, "answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored"],
   // 404: something named does not exist.
@@ -53,6 +54,7 @@ export const ERRORS = {
   FINDING_NOT_FOUND: [404, "audit fix: a fresh audit no longer has that finding (code and id), so there is nothing to fix"],
   INITIATIVE_NOT_FOUND: [404, "get_next initiative_key is not an initiative of this project"],
   PROJECT_NOT_FOUND: [404, "unknown project slug"],
+  THREAD_NOT_FOUND: [404, "thread is not \"company\", a project slug with a thread, or a thread id"],
   QUESTION_NOT_FOUND: [404, "no question with that id in this project"],
   RESULT_NOT_FOUND: [404, "evidence_id is not a result of this project"],
   TASK_NOT_FOUND: [404, "unknown key in this project (also an unknown parent_key or task_key)"],

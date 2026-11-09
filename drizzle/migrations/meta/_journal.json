@@ -267,6 +267,13 @@
       "when": 1793859200000,
       "tag": "0040_roster_no_cursor",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1793945600000,
+      "tag": "0041_company_org",
+      "breakpoints": true
     }
   ]
 }

@@ -58,7 +58,14 @@ test("I31-3 #1: a created project is paused, has its goal, a PO with the templat
   const res = await post({ name: "Café Lindo", goal: "Vender café en línea a 100 clientes." });
   assert.equal(res.status, 201);
   const body = (await res.json()) as Record<string, unknown>;
-  assert.deepEqual(body, { slug: "cafe-lindo", key_prefix: "CAF", paused: true, po: "po-cafe-lindo", prompt_doc_id: promptDocId });
+  assert.deepEqual(body, {
+    slug: "cafe-lindo",
+    key_prefix: "CAF",
+    paused: true,
+    po: "po-cafe-lindo",
+    team: ["po-cafe-lindo", "research-cafe-lindo", "artist-cafe-lindo", "taller-cafe-lindo"],
+    prompt_doc_id: promptDocId,
+  });
 
   const project = (await raw.query(`select id, title, runs_paused, key_prefix from projects where slug = 'cafe-lindo'`)).rows[0];
   assert.equal(project.title, "Café Lindo");
@@ -74,6 +81,21 @@ test("I31-3 #1: a created project is paused, has its goal, a PO with the templat
   assert.deepEqual(po.capabilities, ["cafe-lindo"]);
   assert.equal(roleOf({ slug: po.slug, role: po.role, capabilities: po.capabilities }), "product-owner");
   assert.match(po.note, new RegExp(`Prompt: Product owner.*${promptDocId}`));
+
+  // PLA-I32-2 #2: the PO comes with its team, every member on the project with its role template.
+  const team = (
+    await raw.query(
+      `select a.slug, a.role_template, a.adapter, b.slug as boss from agents a left join agents b on b.id = a.reports_to where a.project_id = $1 order by a.slug`,
+      [project.id],
+    )
+  ).rows;
+  assert.deepEqual(team, [
+    { slug: "artist-cafe-lindo", role_template: "artist", adapter: "claude_code", boss: "po-cafe-lindo" },
+    { slug: "po-cafe-lindo", role_template: "product-owner", adapter: "claude_code", boss: "ceo" },
+    { slug: "research-cafe-lindo", role_template: "research", adapter: "claude_code", boss: "po-cafe-lindo" },
+    { slug: "taller-cafe-lindo", role_template: "taller", adapter: "claude_code", boss: "po-cafe-lindo" },
+  ]);
+  for (const m of team) assert.equal(roleOf({ slug: m.slug, role: "x", capabilities: [], roleTemplate: m.role_template }), m.role_template);
 
   const limit = (await raw.query(`select weekly_limit from token_budgets where scope = 'project' and project_id = $1`, [project.id])).rows[0];
   assert.equal(Number(limit.weekly_limit), DEFAULT_PROJECT_WEEKLY_LIMIT);

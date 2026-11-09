@@ -777,7 +777,8 @@ export type Task = typeof tasks.$inferSelect;
 // PLA-I21: company roster. Roles and bot labels only. reports_to is the org chart.
 // A row may match agent_tokens.agent by name or slug (list_agents); there is no token foreign key.
 export const AGENT_KINDS = ["bot", "coder", "human"] as const;
-export const AGENT_STATUSES = ["alive", "idle", "stuck"] as const;
+// PLA-I32: retired agents leave the roster but keep their runs and history.
+export const AGENT_STATUSES = ["alive", "idle", "stuck", "retired"] as const;
 export const ADAPTERS = ["http", "claude_code", "grok_webhook", "none"] as const;
 export type AdapterName = (typeof ADAPTERS)[number];
 // Env var names only. The values stay in the process environment.
@@ -809,11 +810,17 @@ export const agents = pgTable(
     adapterConfig: jsonb("adapter_config").$type<AdapterConfig>().notNull().default({}),
     heartbeatMinutes: integer("heartbeat_minutes"),
     lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+    // PLA-I32: the project whose team this agent is on (null: the company, i.e. ceo and asistente),
+    // and the role template it was made from (product-owner, research, artist, taller, ...). Migration 0041.
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    roleTemplate: text("role_template"),
     ...timestamps,
   },
   (t) => [
+    index("agents_project_idx").on(t.projectId),
     check("agents_kind_check", sql`${t.kind} in ('bot', 'coder', 'human')`),
-    check("agents_status_check", sql`${t.status} in ('alive', 'idle', 'stuck')`),
+    check("agents_status_check", sql`${t.status} in ('alive', 'idle', 'stuck', 'retired')`),
+    check("agents_role_template_check", sql`${t.roleTemplate} is null or ${t.roleTemplate} ~ '^[a-z][a-z0-9-]{0,39}$'`),
     check("agents_not_self", sql`${t.reportsTo} is null or ${t.reportsTo} <> ${t.id}`),
     check("agents_adapter_check", sql`${t.adapter} in ('http', 'claude_code', 'grok_webhook', 'none')`),
     check("agents_heartbeat_minutes_check", sql`${t.heartbeatMinutes} is null or (${t.heartbeatMinutes} between 1 and 1440)`),
@@ -981,12 +988,21 @@ export const runnerSettings = pgTable(
     maxTurns: integer("max_turns").notNull().default(40),
     timeoutMinutes: integer("timeout_minutes").notNull().default(45),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // PLA-I32-1: Asistente's weekly token budget (its runs are role asistente). Null stops them.
+    asistenteWeeklyLimit: bigint("asistente_weekly_limit", { mode: "number" }).default(500_000),
   },
-  (t) => [check("runner_settings_singleton", sql`${t.id} = 1`)],
+  (t) => [
+    check("runner_settings_singleton", sql`${t.id} = 1`),
+    check(
+      "runner_settings_asistente_limit_check",
+      sql`${t.asistenteWeeklyLimit} is null or (${t.asistenteWeeklyLimit} > 0 and ${t.asistenteWeeklyLimit} <= 10000000000)`,
+    ),
+  ],
 );
 
 export type RunnerSettings = typeof runnerSettings.$inferSelect;
 
+// PLA-I32-1: scope 'role' is retired. The rows stay for history; no run is checked against them.
 export const BUDGET_SCOPES = ["role", "project"] as const;
 
 export const tokenBudgets = pgTable(
@@ -1092,3 +1108,58 @@ export const planReadings = pgTable(
 );
 
 export type PlanReading = typeof planReadings.$inferSelect;
+
+// PLA-I32: conversations. One company thread (Jorge and Asistente) and one per project (Jorge and its PO;
+// the team answers there too). Messages link what they talk about and keep the action Jorge took.
+export const THREAD_KINDS = ["company", "project"] as const;
+export type ThreadKind = (typeof THREAD_KINDS)[number];
+export const LINK_KINDS = ["ticket", "doc", "pr", "idea", "question"] as const;
+export type ThreadLink = { kind: (typeof LINK_KINDS)[number]; ref: string; title: string };
+export const THREAD_ACTIONS = ["aceptar", "cambios", "responder"] as const;
+export type ThreadAction = (typeof THREAD_ACTIONS)[number];
+export type ActionState = { action: ThreadAction; at: string; result: Record<string, unknown> };
+
+export const threads = pgTable(
+  "threads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind").notNull(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    // When Jorge last read it on screen; later messages that are not his are unread.
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("threads_company_unique").on(t.kind).where(sql`${t.kind} = 'company'`),
+    uniqueIndex("threads_project_unique").on(t.projectId).where(sql`${t.kind} = 'project'`),
+    check("threads_kind_check", sql`(${t.kind} = 'company' and ${t.projectId} is null) or (${t.kind} = 'project' and ${t.projectId} is not null)`),
+  ],
+);
+
+export type Thread = typeof threads.$inferSelect;
+
+export const threadMessages = pgTable(
+  "thread_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    authorAgent: text("author_agent").notNull(),
+    authorRole: text("author_role").notNull(),
+    body: text("body").notNull(),
+    links: jsonb("links").$type<ThreadLink[]>().notNull().default([]),
+    actionState: jsonb("action_state").$type<ActionState | null>(),
+    questionId: uuid("question_id").references(() => questions.id, { onDelete: "set null" }),
+  },
+  (t) => [
+    index("thread_messages_thread_idx").on(t.threadId, t.at),
+    check("thread_messages_body_check", sql`char_length(${t.body}) between 1 and 4000`),
+    check("thread_messages_author_check", sql`char_length(${t.authorAgent}) between 1 and 60 and char_length(${t.authorRole}) between 1 and 40`),
+    check("thread_messages_links_check", sql`jsonb_typeof(${t.links}) = 'array' and jsonb_array_length(${t.links}) <= 10`),
+    check("thread_messages_action_state_check", sql`${t.actionState} is null or jsonb_typeof(${t.actionState}) = 'object'`),
+  ],
+);
+
+export type ThreadMessage = typeof threadMessages.$inferSelect;

@@ -14,7 +14,7 @@ import { resetTestDb, useTestEnv } from "./helpers.js";
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
-const { seedOrg } = await import("../scripts/seed-org.js");
+const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const { listComments } = await import("../src/mcp/delegation.js");
 
 let raw: pgTypes.Client;
