@@ -295,12 +295,15 @@ export function nextWakeWord(row: Pick<RosterRow, "heartbeat_minutes" | "next_wa
 
 export const RUN_WORD: Record<string, string> = { ok: "ok", fail: "falló", skipped: "omitida", stopped: "detenida", running: "corriendo", queued: "en espera" };
 
-// The URL state: /ceo?p=<slug> opens the project sheet, ?equipo the Equipo sheet, ?doc=<id> a prompt doc.
-export type SheetParam = { kind: "project"; slug: string } | { kind: "equipo" } | { kind: "doc"; id: string } | { kind: "nuevo" } | null;
+// The URL state (PLA-I33): ?vista=<slug> previews a project, ?doc=<id> a doc, ?nuevo the new project dialog.
+// ?p=<slug> (the old project sheet) redirects to /p/<slug>; ?equipo (the old Equipo sheet) to Máquina.
+export type SheetParam = { kind: "project"; slug: string } | { kind: "vista"; slug: string } | { kind: "equipo" } | { kind: "doc"; id: string } | { kind: "nuevo" } | null;
 export function sheetOf(search: string): SheetParam {
   const q = new URLSearchParams(search);
   const p = q.get("p");
   if (p) return { kind: "project", slug: p };
+  const vista = q.get("vista");
+  if (vista) return { kind: "vista", slug: vista };
   const doc = q.get("doc");
   if (doc) return { kind: "doc", id: doc };
   if (q.has("equipo")) return { kind: "equipo" };
@@ -309,11 +312,11 @@ export function sheetOf(search: string): SheetParam {
 }
 export const promptHref = (ref: PromptRef | null | undefined) => (ref ? `/ceo?doc=${encodeURIComponent(ref.doc_id)}` : null);
 
-// Old routes land on Compañía (PLA-I30-2). /equipo opens the Equipo sheet, /goals scrolls to Proyectos.
+// Old routes (PLA-I30-2). /goals scrolls to the team cards; /equipo goes to Máquina, where the plumbing lives (PLA-I33).
 export const LEGACY_REDIRECTS: Record<string, string> = {
   "/ahora": "/ceo",
   "/goals": "/ceo#proyectos",
-  "/equipo": "/ceo?equipo",
+  "/equipo": "/machine",
 };
 
 // The header: Inicio is the logo, then these four.

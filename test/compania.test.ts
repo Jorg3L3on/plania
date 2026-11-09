@@ -81,15 +81,16 @@ test("banners: grey paused, red 100% per project, amber plan guard; the pill fol
   assert.equal(pillOf(undefined, true).word, "Sin conexión");
 });
 
-test("URL state: ?p opens the project sheet, ?equipo the Equipo sheet, ?doc a prompt; redirects and nav", () => {
+test("URL state: ?p and ?equipo are old links that redirect, ?vista previews, ?doc a doc; redirects and nav", () => {
   assert.deepEqual(sheetOf("?p=mianovia"), { kind: "project", slug: "mianovia" });
+  assert.deepEqual(sheetOf("?vista=mianovia"), { kind: "vista", slug: "mianovia" });
   assert.deepEqual(sheetOf("?equipo"), { kind: "equipo" });
   assert.deepEqual(sheetOf("?doc=abc"), { kind: "doc", id: "abc" });
   assert.equal(sheetOf(""), null);
   assert.equal(promptHref({ doc_id: "f449a74e-fd0f-492d-80ab-eb90718c2c86", title: "Prompt: Taller", version: 1 }), "/ceo?doc=f449a74e-fd0f-492d-80ab-eb90718c2c86");
   assert.equal(promptHref(null), null);
-  assert.deepEqual(LEGACY_REDIRECTS, { "/ahora": "/ceo", "/goals": "/ceo#proyectos", "/equipo": "/ceo?equipo" });
-  for (const to of Object.values(LEGACY_REDIRECTS)) assert.ok(to.startsWith("/ceo"));
+  // PLA-I33: the Equipo sheet left Compañía; its old route lands in Máquina, with the plumbing.
+  assert.deepEqual(LEGACY_REDIRECTS, { "/ahora": "/ceo", "/goals": "/ceo#proyectos", "/equipo": "/machine" });
   assert.deepEqual(NAV.map((n) => n.label), ["Compañía", "Bandeja", "Progreso", "Máquina"]);
 });
 
@@ -97,7 +98,7 @@ test("URL state: ?p opens the project sheet, ?equipo the Equipo sheet, ?doc a pr
 // are code, not spend text, so they are stripped before looking for a dollar sign.
 test("no dollar, USD or total_cost in the Compañía page and dashboard components", () => {
   const root = path.resolve(import.meta.dirname, "../ui/src");
-  const files = ["pages/ceo.tsx", "lib/compania.ts"];
+  const files = ["pages/ceo.tsx", "pages/project.tsx", "pages/machine.tsx", "lib/compania.ts", "lib/org.ts"];
   for (const dir of ["components/dashboard", "components/compania"]) {
     for (const f of readdirSync(path.join(root, dir))) if (statSync(path.join(root, dir, f)).isFile()) files.push(path.join(dir, f));
   }
