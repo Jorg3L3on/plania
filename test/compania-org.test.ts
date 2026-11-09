@@ -260,3 +260,126 @@ test("I33-2 preview sheet: header, team, the last 3 messages and Abrir; /ceo?p=x
   assert.equal(compLib.ceoRedirect("?vista=x"), null);
   assert.equal(compLib.ceoRedirect(""), null);
 });
+
+// ---- PLA-I33-4: one test per state in the Design doc's Scope
+
+const card = (p: Record<string, unknown>) => html(h(org.TeamCard, { project: p, now: NOW, onPreview: noop }));
+const parts = await load("components/compania/parts.tsx");
+
+test("I33-4 state vacío: no projects, no messages, a team with no runs", () => {
+  const cards = html(h(org.TeamCards, { projects: [], now: NOW, onNew: noop }));
+  assert.ok(cards.includes('data-empty="projects"'));
+  assert.ok(cards.includes("Crear el primer proyecto"));
+  const thread = html(h(org.ThreadPanel, threadProps({ thread: { ...asistenteThread, messages: [] } })));
+  assert.ok(thread.includes('data-empty="thread"'));
+  assert.ok(thread.includes("Dile a Asistente…"), "the text box stays");
+  const fresh = card(orgProject("nuevo", "Nuevo", { team: team("nuevo", { "product-owner": { last: null }, research: { last: null }, artist: { last: null }, taller: { last: null } }) }));
+  assert.equal(count(fresh, />Sin corridas todavía</g), 4);
+  assert.ok(card(orgProject("solo", "Solo", { team: [] })).includes("Sin equipo todavía."));
+});
+
+test("I33-4 state carga: a skeleton per block", () => {
+  assert.ok(html(h(org.ThreadSkeleton, {})).includes("thread-skeleton"));
+  assert.ok(html(h(org.TeamCardsSkeleton, {})).includes("cards-skeleton"));
+  const loading = html(h(org.ThreadPanel, threadProps({ thread: undefined, loading: true })));
+  assert.ok(loading.includes("thread-skeleton"));
+  assert.equal(loading.includes("data-message"), false);
+});
+
+test("I33-4 state error por bloque: the thread says the Mac may be asleep and offers Reintentar; the box stays", () => {
+  const out = html(h(org.ThreadPanel, threadProps({ thread: undefined, error: true })));
+  assert.ok(out.includes("No se pudo cargar el hilo."));
+  assert.ok(out.includes("Si la Mac está dormida"));
+  assert.ok(out.includes("Reintentar"));
+  assert.ok(out.includes("Dile a Asistente…"));
+  const team = html(h(parts.BlockError, { what: "el equipo", onRetry: noop }));
+  assert.ok(team.includes("No se pudo cargar el equipo."));
+});
+
+test("I33-4 state texto largo: goal, title, message and ticket clamp or truncate", () => {
+  const long = "Un nombre de proyecto larguísimo que no cabe en dos líneas de ninguna tarjeta ni en el teléfono";
+  const out = card(orgProject("largo", long, { goal: long.repeat(3), team: team("largo", { taller: { now: { ticket: `MIA-I3-4 · ${long}`, since: "2026-11-08T14:00:00Z" }, last: null } }) }));
+  assert.ok(count(out, /line-clamp-2/g) >= 2, "title and goal");
+  assert.ok(out.includes("truncate"), "ticket line");
+  const message = html(h(org.MessageRow, { message: msg("x", "2026-11-08T14:00:00Z", { body: long.repeat(5) }), project: null, busy: null, onAction: noop }));
+  assert.ok(message.includes("line-clamp-6"));
+  assert.ok(message.includes("Ver todo"));
+  const bar = html(h(org.ProjectOrgBar, { project: orgProject("largo", long, { goal: long.repeat(3) }), companyPaused: false, canEdit: true, onEditGoal: noop, onPause: noop, onResume: noop }));
+  assert.ok(bar.includes("line-clamp-3"));
+});
+
+test("I33-4 state proyecto en pausa: grey card, read-only thread with a notice, Reanudar", () => {
+  const p = SIX[1]!;
+  const out = card(p);
+  assert.ok(out.includes("bg-surface-sunken"));
+  assert.ok(out.includes("En pausa"));
+  assert.ok(out.includes("en pausa"), "the plumbing line");
+  const thread = html(h(org.ThreadPanel, threadProps({ title: "PO", thread: poThread, project: "micasa", placeholder: "Dile al PO…", readOnly: "En pausa: el PO no despierta. Reanuda el proyecto para escribirle." })));
+  assert.ok(thread.includes("data-readonly"));
+  assert.ok(thread.includes("Reanuda el proyecto para escribirle."));
+  assert.equal(count(thread, /data-action=/g), 0, "no buttons while paused");
+  assert.ok(/<textarea[^>]*disabled/.test(thread));
+  const bar = html(h(org.ProjectOrgBar, { project: p, companyPaused: false, canEdit: true, onEditGoal: noop, onPause: noop, onResume: noop }));
+  assert.ok(bar.includes('data-control="reanudar"'));
+  assert.ok(bar.includes("Su PO despierta cuando lo reanudes."));
+});
+
+test("I33-4 state compañía detenida: the plumbing line reads detenida, the project page says so", () => {
+  const line = html(h(org.CompanyPlumbing, { plumbing: { spend: 912_000, limit: 6_000_000, running: 0, paused: true } }));
+  assert.ok(line.includes("detenida"));
+  assert.ok(line.includes('data-plumbing="idle"'));
+  const bar = html(h(org.ProjectOrgBar, { project: SIX[3], companyPaused: true, canEdit: true, onEditGoal: noop, onPause: noop, onResume: noop }));
+  assert.ok(bar.includes("La compañía está detenida"));
+});
+
+test("I33-4 state sin presupuesto: red light, the plumbing line says sin presupuesto, roles wait", () => {
+  const out = card(orgProject("workia", "Workia", { light: "no_budget", budget: budget(2_000_000, 2_000_000), team: team("workia", { "product-owner": { state: "no_budget" } }) }));
+  assert.ok(out.includes("Sin presupuesto"));
+  assert.ok(out.includes("2M / 2M · sin presupuesto"));
+  assert.ok(out.includes('data-plumbing="stop"'));
+  assert.ok(out.includes('data-state="no_budget"'));
+});
+
+test("I33-4 state presupuesto al 80 % y al 100 %: the plumbing line turns amber, then red", () => {
+  assert.ok(card(orgProject("a", "A", { budget: budget(1_640_000, 2_000_000) })).includes('data-plumbing="warn"'));
+  assert.ok(card(orgProject("b", "B", { budget: budget(2_000_000, 2_000_000) })).includes('data-plumbing="stop"'));
+  assert.ok(card(orgProject("c", "C", { budget: budget(400_000, 2_000_000) })).includes('data-plumbing="ok"'));
+  assert.equal(lib.plumbingLine({ spend: 4_800_000, limit: 6_000_000, running: 1, paused: false }).tone, "warn");
+  assert.equal(lib.plumbingLine({ spend: 6_000_000, limit: 6_000_000, running: 1, paused: false }).tone, "stop");
+});
+
+test("I33-4 state rol quieto: a role that has not run in days reads quieto desde hace N días", () => {
+  const out = card(orgProject("filmia", "Filmia", { light: "quiet", team: team("filmia", { research: { last: { ticket: "FIL-1", status: "Done", at: "2026-11-05T15:00:00Z" } } }) }));
+  assert.ok(out.includes("quieto desde hace 3 días"));
+  assert.equal(count(out, /data-still="1"/g), 1);
+  assert.ok(out.includes("Quieto"));
+});
+
+test("I33-4 state esperando a Jorge: Te necesita on the card, the message with buttons ringed in the thread", () => {
+  const out = card(SIX[0]!);
+  assert.ok(out.includes("Te necesita"));
+  assert.ok(out.includes("espera: que aceptes"));
+  const thread = html(h(org.ThreadPanel, threadProps()));
+  assert.equal(count(thread, /data-waiting="1"/g), 3);
+  assert.ok(thread.includes("ring-status-jorge/60"));
+});
+
+test("I33-4 state PR fusionado and pregunta respondida: the result replaces the buttons", () => {
+  const merged = html(h(org.MessageRow, { message: asistenteThread.messages[5], project: null, busy: null, onAction: noop }));
+  assert.ok(merged.includes("Fusionado a sandbox · 1abb07d"));
+  assert.equal(count(merged, /data-action=/g), 0);
+  const answered = html(h(org.MessageRow, { message: asistenteThread.messages[6], project: null, busy: null, onAction: noop }));
+  assert.ok(answered.includes("Respondido"));
+  assert.equal(count(answered, /data-action=/g), 0);
+  assert.equal(lib.actionStateText({ action: "cambios", at: "x", result: "el PO despierta" }), "Cambios pedidos · el PO despierta");
+});
+
+test("I33-4 phone: the pages keep one column under 640 px and nothing sets a width wider than a phone", async () => {
+  const { readFileSync } = await import("node:fs");
+  const read = (p: string) => readFileSync(new URL(`../ui/src/${p}`, import.meta.url), "utf8");
+  const ceo = read("pages/ceo.tsx");
+  assert.ok(ceo.includes("lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]"), "two columns from lg only");
+  const files = ["pages/ceo.tsx", "components/compania/org.tsx", "components/compania/plumbing.tsx"].map(read).join("\n");
+  assert.equal(/(?:^|[\s"\'`])(?:min-)?w-\[\d{3,}px\]/m.test(files), false, "no fixed width of 100 px or more without a breakpoint");
+  assert.ok(html(h(org.TeamCards, { projects: SIX, now: NOW, onNew: noop })).includes("md:grid-cols-2"));
+});
