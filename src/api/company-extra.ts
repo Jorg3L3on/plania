@@ -2,7 +2,8 @@
 // Read only, on the same cookie-only routes (src/api/company.ts):
 //   GET /api/company            gains viewer, prompts, roster and project_facts (existing fields keep their meaning)
 //   GET /api/company/projects/:slug   the project sheet: goal, idea pipeline, en curso / bloqueado / siguiente, recent runs
-//   GET /api/company/docs/:id   one role prompt doc (title "Prompt: …"), for Prompt ↗
+//   GET /api/company/docs/:id   one role prompt doc (title "Prompt: …"), for Prompt ↗; PLA-I36-2: or a doc attached
+//                               to a ticket (the evidence a Te toca row links). Project-level docs stay out.
 // Tokens are input + output + cache counts, as everywhere on this page. No money.
 import { sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
@@ -265,7 +266,7 @@ export async function promptDoc(db: Db, id: string): Promise<{ id: string; title
   const [doc] = await rows(
     db,
     sql`select d.id, d.title, d.version, d.markdown from docs d join projects p on p.id = d.project_id
-        where d.id = ${id} and p.slug = ${promptsProject()} and d.task_id is null and d.title in (${sql.join(titles.map((t) => sql`${t}`), sql`, `)})`,
+        where d.id = ${id} and (d.task_id is not null or (p.slug = ${promptsProject()} and d.task_id is null and d.title in (${sql.join(titles.map((t) => sql`${t}`), sql`, `)})))`,
   );
   if (!doc) throw new ToolError("DOC_NOT_FOUND", { doc_id: id });
   return { id: String(doc.id), title: String(doc.title), version: Number(doc.version), markdown: String(doc.markdown) };

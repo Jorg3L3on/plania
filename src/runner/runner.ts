@@ -727,6 +727,15 @@ export function stopLive(filter: (run: { agentId: string; projectId: string; rol
   return n;
 }
 
+// PLA-I36-9: stop one run (Detener on Compañía), not its project. false when it is not live in this process.
+export function stopRun(runId: string, reason = "detenido desde Compañía"): boolean {
+  const run = live.get(runId);
+  if (!run || run.stopReason) return false;
+  run.stopReason = reason;
+  run.proc.stop(reason);
+  return true;
+}
+
 // Each tick: switches off and budgets at 100% stop the live runs in their scope.
 // Budgets here count real tokens only (a run's own reserve never stops it).
 export async function enforceLive(db: Db, now: Date): Promise<number> {

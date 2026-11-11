@@ -13,15 +13,21 @@ import { PROMPT_DOCS, budgetView, isRunnerRole, lastReading, loadSettings, planV
 import { TEAM_TEMPLATES, TEMPLATE_ROWS, ensureMember, isTeamTemplate, teamOf, teamSlug, type TeamTemplate } from "../runner/team.js";
 import { actionsFor, companyThread, projectThread, threadSummary } from "../runner/threads.js";
 import { companyState, type CompanyState, type RunView } from "../runner/company.js";
-import { decisionsRead, type Decision } from "./company-decisions.js";
-import { ceoAgentId, nextOf, planOf, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
+import { decisionsRead, inboxByProject, type Decision } from "./company-decisions.js";
+import { ordersOf, type Order } from "./company-orders.js";
+import { loadReadiness } from "../mcp/readiness.js";
+import type { InboxItem } from "../mcp/inbox.js";
+import { ceoAgentId, planOf, readyOf, type ReadyLine, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
 
 const HOUR = 3_600_000;
 const QUIET_HOURS = 48;
 const promptsProject = () => process.env.PLANIA_PROMPTS_PROJECT || "plania";
 
 export type MemberState = "running" | "idle" | "waiting_jorge" | "paused" | "no_budget";
-export type Light = "ok" | "needs_jorge" | "quiet" | "paused" | "no_budget";
+// PLA-I36-1: the worst of, in order: something is Jorge's, a run failed, the work is blocked, the plan is
+// late, nothing moved in 48 h; else ok. Paused and no budget come first, as before.
+export type Light = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused" | "no_budget";
+export type LightReason = { text: string; action: { label: string; href: string } | null };
 
 export type TeamMember = {
   agent: string;
@@ -41,7 +47,11 @@ export type ProjectCard = {
   title: string;
   paused: boolean;
   light: Light;
+  // PLA-I36-1: why, in one sentence, and the action that clears it. Null when Bien or paused.
+  light_reason: LightReason | null;
   goal: string | null;
+  // PLA-I36-4: the destination: the goal sentence, its delivery date and the forecast; missing says Fijar.
+  rumbo: Rumbo;
   budget: BudgetView;
   team: TeamMember[];
   thread: ThreadLine;
@@ -49,7 +59,14 @@ export type ProjectCard = {
   plan: PlanLine | null;
   this_week: ThisWeek;
   next: NextLine | null;
+  // PLA-I36-6: the next Ready tickets, for Cambiar lo siguiente.
+  ready: ReadyLine[];
+  // PLA-I36-8: whether a PO's plan waits for "Sí, empiecen". PLA-I36-10: the running preview.
+  plan_approval: boolean;
+  preview_url: string | null;
   work: WorkLine;
+  // PLA-I36-3: Tus órdenes (src/api/company-orders.ts).
+  orders: Order[];
 };
 
 export type CompanyRead = {
@@ -60,6 +77,8 @@ export type CompanyRead = {
   plumbing: { spend: number; limit: number | null; running: number; paused: boolean };
   // PLA-I35-1: Te toca (src/api/company-decisions.ts).
   decisions: Decision[];
+  // PLA-I36-2: what Bandeja counts, so Te toca never says "Nada te espera" while it holds something.
+  inbox: { decisiones: number; pasos: number };
 };
 
 const ORDER = new Map<string, number>(TEAM_TEMPLATES.map((t, i) => [t, i]));
@@ -128,25 +147,115 @@ async function memberView(db: Db, a: Agent, ctx: { paused: boolean; noBudget: bo
   };
 }
 
-async function goalOf(db: Db, projectId: string): Promise<string | null> {
-  const rows = await db.execute<{ title: string }>(sql`select title from goals where project_id = ${projectId} and status = 'active' order by position, created_at limit 1`);
-  return rows.rows[0]?.title ?? null;
+type GoalRow = { id: string; title: string; why: string; target_on: string | null };
+async function goalOf(db: Db, projectId: string): Promise<GoalRow | null> {
+  const rows = await db.execute<{ id: string; title: string; why: string; target_on: string | Date | null }>(
+    sql`select id, title, why, target_on from goals where project_id = ${projectId} and status = 'active' and parent_id is null order by position, created_at limit 1`,
+  );
+  const r = rows.rows[0];
+  if (!r) return null;
+  const target = r.target_on instanceof Date ? r.target_on.toISOString().slice(0, 10) : (r.target_on ?? null);
+  return { id: String(r.id), title: r.title, why: r.why, target_on: target };
 }
 
-// paused, then no budget, then something waits on Jorge (an open question, a Needs Jorge ticket, a message
-// with buttons), then quiet (no event in 48 h), else ok.
-async function lightOf(db: Db, p: Project, paused: boolean, budget: BudgetView, threadId: string, now: Date): Promise<Light> {
-  if (paused) return "paused";
-  if (budget.state === "stopped") return "no_budget";
-  const [q] = await db.select({ id: questions.id }).from(questions).where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt))).limit(1);
-  const [nj] = await db.select({ id: tasks.id }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.status, "Needs Jorge"))).limit(1);
-  if (q || nj) return "needs_jorge";
-  const recent = await db.select().from(threadMessages).where(and(eq(threadMessages.threadId, threadId), isNull(threadMessages.actionState))).orderBy(desc(threadMessages.at)).limit(30);
-  for (const m of recent) if ((await actionsFor(db, m, p.id)).length > 0) return "needs_jorge";
-  const [last] = await db.select({ at: events.createdAt }).from(events).where(eq(events.projectId, p.id)).orderBy(desc(events.id)).limit(1);
-  if (!last || now.getTime() - last.at.getTime() > QUIET_HOURS * HOUR) return "quiet";
-  return "ok";
+// PLA-I36-4: the seeded placeholder ("Avance del producto (slug)") is not a destination.
+export const PLACEHOLDER_GOAL = /^Avance del producto\b/i;
+export type Rumbo = { goal_id: string | null; goal: string | null; why: string; target_on: string | null; forecast_on: string | null; weeks_behind: number | null; missing: boolean };
+export function rumboOf(goal: GoalRow | null, plan: PlanLine | null): Rumbo {
+  const real = goal && !PLACEHOLDER_GOAL.test(goal.title.trim()) ? goal : null;
+  return {
+    goal_id: goal?.id ?? null,
+    goal: real?.title ?? null,
+    why: goal?.why ?? "",
+    target_on: goal?.target_on ?? null,
+    forecast_on: goal?.target_on && plan?.due_on === goal.target_on ? plan.forecast_on : null,
+    weeks_behind: goal?.target_on && plan?.due_on === goal.target_on ? plan.weeks_behind : null,
+    missing: !real || !goal?.target_on,
+  };
 }
+
+// PLA-I36-1. paused, then no budget, then the worst of: Jorge's (an open question, a Needs Jorge ticket, a
+// ceo-owned Ready ticket, a manual step, a release, a message with buttons), a run that failed (a member's
+// last ended run), blocked (readiness blocked), late (the plan's pace), quiet (no event in 48 h); else ok.
+const quote = (s: string, n = 80) => `«${s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s}»`;
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+const TE_TOCA = { label: "Ver en Te toca", href: "#te-toca" };
+
+type LightCtx = { paused: boolean; budget: BudgetView; threadId: string; now: Date; ceoId: string | null; team: TeamMember[]; plan: PlanLine | null; inbox: InboxItem[] };
+
+async function lightOf(db: Db, p: Project, c: LightCtx): Promise<{ light: Light; reason: LightReason | null }> {
+  const open = `/p/${encodeURIComponent(p.slug)}`;
+  if (c.paused) return { light: "paused", reason: null };
+  if (c.budget.state === "stopped") return { light: "no_budget", reason: { text: "Gastó su límite de la semana: nada arranca hasta que lo subas.", action: { label: "Subir límite", href: "/machine" } } };
+
+  const jorge = (text: string): { light: Light; reason: LightReason } => ({ light: "needs_jorge", reason: { text, action: TE_TOCA } });
+  const [q] = await db.select({ id: questions.id }).from(questions).where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt))).limit(1);
+  if (q) return jorge("El equipo te hizo una pregunta y espera tu respuesta.");
+  const [nj] = await db.select({ title: tasks.title }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.status, "Needs Jorge"))).limit(1);
+  if (nj) return jorge(`${quote(nj.title)} espera tu decisión.`);
+  if (c.ceoId) {
+    const [mine] = await db
+      .select({ title: tasks.title })
+      .from(tasks)
+      .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), eq(tasks.ownerAgent, c.ceoId)))
+      .limit(1);
+    if (mine) return jorge(`Lo siguiente es tuyo: ${quote(mine.title)}.`);
+  }
+  const step = c.inbox.find((i) => i.kind === "human_action");
+  if (step) return jorge(`Un paso es tuyo: ${quote(step.why, 100)}.`);
+  const release = c.inbox.find((i) => i.kind === "release");
+  if (release) {
+    const n = (release.target as { tickets?: unknown[] } | undefined)?.tickets?.length ?? 0;
+    return jorge(`${plural(n, "cambio listo espera", "cambios listos esperan")} que lo publiques.`);
+  }
+  const recent = await db.select().from(threadMessages).where(and(eq(threadMessages.threadId, c.threadId), isNull(threadMessages.actionState))).orderBy(desc(threadMessages.at)).limit(30);
+  for (const m of recent) if ((await actionsFor(db, m, p.id)).length > 0) return jorge("Una entrega espera tu visto bueno.");
+
+  const failed = c.team.find((m) => m.state !== "running" && m.last?.status === "fail");
+  if (failed) {
+    const [run] = await db
+      .select({ summary: agentRuns.summary })
+      .from(agentRuns)
+      .innerJoin(agents, eq(agents.id, agentRuns.agentId))
+      .where(and(eq(agents.slug, failed.agent), eq(agentRuns.status, "fail")))
+      .orderBy(desc(agentRuns.endedAt))
+      .limit(1);
+    const why = run?.summary.trim().split("\n")[0]?.trim();
+    const who = roleWord(failed.role);
+    return { light: "failed", reason: { text: why ? `La última corrida ${who} falló: ${why.length > 140 ? `${why.slice(0, 139)}…` : why}` : `La última corrida ${who} falló.`, action: { label: "Ver en Máquina", href: "/machine" } } };
+  }
+
+  const ready = await loadReadiness(db, p);
+  if (ready.state === "blocked") {
+    const r = ready.reasons.find((x) => x.severity === "blocked") ?? ready.reasons[0]!;
+    const [t] = r.task_key ? await db.select({ title: tasks.title }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, r.task_key))).limit(1) : [];
+    const name = t ? quote(t.title) : "Un ticket";
+    const text =
+      r.code === "CI_FAILURE"
+        ? `Las pruebas de ${name} fallaron.`
+        : r.code === "DEPLOY_BLOCKED"
+          ? `${name} espera un despliegue que falló o va atrás.`
+          : r.code === "AREAS_OVERLAP"
+            ? "Dos trabajos tocan los mismos archivos a la vez."
+            : `${name} está bloqueado.`;
+    return { light: "blocked", reason: { text, action: { label: "Abrir", href: open } } };
+  }
+
+  if (c.plan && (c.plan.pace === "late" || c.plan.pace === "bad")) {
+    const n = c.plan.weeks_behind ?? 1;
+    return { light: "late", reason: { text: `Va ${plural(n, "semana", "semanas")} atrás de la entrega del ${c.plan.due_on}.`, action: { label: "Abrir", href: open } } };
+  }
+
+  const [last] = await db.select({ at: events.createdAt }).from(events).where(eq(events.projectId, p.id)).orderBy(desc(events.id)).limit(1);
+  if (!last || c.now.getTime() - last.at.getTime() > QUIET_HOURS * HOUR) {
+    const days = last ? Math.floor((c.now.getTime() - last.at.getTime()) / (24 * HOUR)) : null;
+    return { light: "quiet", reason: { text: days ? `Nada se movió en ${plural(days, "día", "días")}.` : "Nada se movió todavía.", action: { label: "Abrir", href: open } } };
+  }
+  return { light: "ok", reason: null };
+}
+
+const ROLE_WORD: Record<string, string> = { "product-owner": "del PO", research: "de Research", artist: "de Artist", taller: "de Taller" };
+const roleWord = (role: string) => ROLE_WORD[role] ?? `de ${role}`;
 
 async function teamView(db: Db, p: Project, ctx: { paused: boolean; noBudget: boolean; threadId: string }): Promise<TeamMember[]> {
   const waiting = await openQuestionsByAgent(db, p.id);
@@ -154,6 +263,13 @@ async function teamView(db: Db, p: Project, ctx: { paused: boolean; noBudget: bo
   for (const a of (await teamOf(db, p.id)).sort(byTemplate)) out.push(await memberView(db, a, { ...ctx, waiting }));
   return out;
 }
+
+const countInbox = (inbox: Map<string, InboxItem[]>) => {
+  let decisiones = 0;
+  let pasos = 0;
+  for (const items of inbox.values()) for (const i of items) i.group === "decisiones" ? decisiones++ : i.group === "pasos" ? pasos++ : null;
+  return { decisiones, pasos };
+};
 
 const threadLine = (s: Awaited<ReturnType<typeof threadSummary>>): ThreadLine => ({ id: s.id, unread: s.unread, last: s.last });
 
@@ -165,7 +281,9 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
   let limitSum = 0;
   let anyLimit = false;
   const ceoId = await ceoAgentId(db);
-  for (const p of await db.select().from(projects).orderBy(asc(projects.slug))) {
+  const all = await db.select().from(projects).orderBy(asc(projects.slug));
+  const inbox = await inboxByProject(db, all);
+  for (const p of all) {
     const budget = await budgetView(db, { kind: "project", projectId: p.id }, startsAt);
     if (budget.limit != null) {
       limitSum += budget.limit;
@@ -173,20 +291,30 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     }
     const thread = await threadSummary(db, await projectThread(db, p.id), p);
     const paused = settings.companyPaused || p.runsPaused;
-    const plan = await planOf(db, p, now);
+    const goal = await goalOf(db, p.id);
+    const plan = await planOf(db, p, now, goal?.target_on ?? null);
+    const team = await teamView(db, p, { paused, noBudget: budget.state === "stopped", threadId: thread.id });
+    const upNext = await readyOf(db, p, ceoId, plan?.initiative.key ?? null);
+    const light = await lightOf(db, p, { paused, budget, threadId: thread.id, now, ceoId, team, plan, inbox: inbox.get(p.slug) ?? [] });
     cards.push({
       slug: p.slug,
       title: p.title,
       paused: p.runsPaused,
-      light: await lightOf(db, p, paused, budget, thread.id, now),
-      goal: await goalOf(db, p.id),
+      light: light.light,
+      light_reason: light.reason,
+      goal: goal?.title ?? null,
+      rumbo: rumboOf(goal, plan),
       budget,
-      team: await teamView(db, p, { paused, noBudget: budget.state === "stopped", threadId: thread.id }),
+      team,
       thread: threadLine(thread),
       plan,
       this_week: await thisWeekOf(db, p, now),
-      next: await nextOf(db, p, ceoId, plan?.initiative.key ?? null),
+      next: upNext.next,
+      ready: upNext.ready,
+      plan_approval: !!p.settings.plan_approval,
+      preview_url: p.settings.preview_url ?? null,
       work: await workOf(db, p),
+      orders: await ordersOf(db, p, thread.id, now),
     });
   }
 
@@ -217,7 +345,8 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     asistente: { thread_id: company.id, budget: asisBudget, last_run: lastRun, state },
     projects: cards,
     plumbing: { spend: Number(spend.rows[0]?.used ?? 0), limit: anyLimit ? limitSum : null, running: running?.n ?? 0, paused: settings.companyPaused },
-    decisions: await decisionsRead(db, now),
+    decisions: await decisionsRead(db, now, inbox),
+    inbox: countInbox(inbox),
   };
 }
 

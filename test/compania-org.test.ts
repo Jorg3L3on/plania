@@ -171,7 +171,7 @@ test("I33-1 → I35-3 project cards: a report per running project, no idle role 
   for (const slug of live.map((p) => p.slug)) assert.ok(out.includes(`href="/p/${slug}"`), slug);
   // PLA-I35: a role shows only while it runs or is stuck; idle roles have no row.
   assert.deepEqual([...out.matchAll(/data-role-row="([^"]+)"/g)].map((m) => m[1]), ["PO", "Taller"]);
-  for (const t of ["Te necesita", "Quieto", "Bien", "Sin presupuesto", "construye MIA-I3-4", "espera: que aceptes", "912k / 6M · en marcha", "→ Máquina"]) assert.ok(out.includes(t), t);
+  for (const t of ["Te necesita", "Quieto", "Bien", "Sin presupuesto", "Taller", "trabaja", "espera: que aceptes", "912k / 6M · en marcha", "→ Máquina"]) assert.ok(out.includes(t), t);
   assert.equal(out.includes("Vista previa"), false, "no preview: Abrir is enough");
   assert.equal(out.includes("Meta de prueba"), false, "the goal lives on the project page");
   assert.equal(count(out, /href="\/machine"/g), 5, "four plumbing lines and Subir límite");

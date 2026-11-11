@@ -150,7 +150,7 @@ after(async () => {
 const TOOLS = [
   "add_decision", "add_result", "answer", "answer_delegated", "ask", "assign", "attach_doc", "audit", "batch", "check_in", "claim", "comment", "consume", "create_company_project", "create_task", "finish",
   "get_context", "get_digest", "get_doc", "get_inbox", "get_memory", "get_next", "get_project", "get_resume", "get_running", "get_task", "handoff", "lease_resource",
-  "list_agents", "list_events", "list_goals", "list_heartbeat_runs", "list_projects", "list_routine_runs", "list_tasks", "record_routine_run", "register_footprint", "release_footprint", "release_resource", "report_tokens", "reserve_sequence", "retire_decision", "set_agent", "set_check", "set_env",
+  "list_agents", "list_events", "list_goals", "list_heartbeat_runs", "list_projects", "list_routine_runs", "list_tasks", "propose", "record_routine_run", "register_footprint", "release_footprint", "release_resource", "report_tokens", "reserve_sequence", "retire_decision", "set_agent", "set_check", "set_env",
   "set_goal", "set_metric", "set_project", "set_task", "start", "thread_post", "thread_read", "usage_summary", "waive_check", "wake_agent",
 ];
 
@@ -1145,7 +1145,7 @@ describe("v2 C2: list_events", () => {
 describe("v2 C4: protocol and project text", () => {
   test("the protocol comes with initialize, versioned", async () => {
     const text = client.getInstructions() ?? "";
-    assert.match(text, /^Plania protocol 2\.18\./);
+    assert.match(text, /^Plania protocol 2\.19\./);
     assert.match(text, /A human_only question is answered on the owner's screen/);
     assert.equal(/\bgates?\b/i.test(text), false, "2.17: the protocol names no gate");
     assert.match(text, /answer_delegated/);
@@ -1153,9 +1153,9 @@ describe("v2 C4: protocol and project text", () => {
     assert.match(text, /set_task Done once it is Merged or Released/);
     assert.match(text, /Won't do and reopening a closed task need a reason/);
     assert.match(text, /Unknown or missing data is caution, never ready/);
-    assert.equal(client.getServerVersion()?.version, "2.18.0");
+    assert.equal(client.getServerVersion()?.version, "2.19.0");
     const p = await call("get_project", { project: "zigzag" });
-    assert.equal(p.protocol_version, "2.18");
+    assert.equal(p.protocol_version, "2.19");
   });
 
   test("set_project edits body and rules with the version; rules_version follows the rules", async () => {

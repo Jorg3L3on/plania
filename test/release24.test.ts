@@ -165,7 +165,7 @@ describe("write-time guards", () => {
 describe("protocol 2.13", () => {
   test("three sections under 900 words, naming the six tools first", () => {
     const text = instructions(false);
-    assert.equal(PROTOCOL_VERSION, "2.18");
+    assert.equal(PROTOCOL_VERSION, "2.19");
     assert.ok(text.split(/\s+/).length < 900, `${text.split(/\s+/).length} words`);
     assert.match(text, /Never forward an answer/);
     for (const section of ["\nStart\n", "\nWork\n", "\nFinish\n"]) assert.ok(text.includes(section), section);

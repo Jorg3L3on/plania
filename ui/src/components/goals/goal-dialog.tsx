@@ -27,7 +27,10 @@ export function GoalDialog({
   projects,
   parents,
   onOpenChange,
+  onSaved,
 }: {
+  // PLA-I36-4: Compañía refreshes its cards after Fijar.
+  onSaved?: () => void;
   open: boolean;
   goal: Goal | null;
   fixedProject?: string;
@@ -58,6 +61,7 @@ export function GoalDialog({
     mutationFn: (body: GoalWrite) => (goal ? api.patchGoal(goal.id, body) : api.createGoal(body)),
     onSuccess: () => {
       toast(editing ? "Meta actualizada" : "Meta creada");
+      onSaved?.();
       onOpenChange(false);
     },
     onError: (error) => toast.error(goalError(error)),
