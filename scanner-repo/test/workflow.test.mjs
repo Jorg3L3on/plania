@@ -11,7 +11,7 @@ const usage = readFileSync(join(root, ".github/workflows/usage.yml"), "utf8");
 const gitleaks = readFileSync(join(root, "src/scan/gitleaks.ts"), "utf8");
 
 test("the scan workflow fast-exits before checkout and pins the gitleaks archive", () => {
-  assert.match(workflow, /cron:\s*"17 \* \* \* \*"/);
+  assert.match(workflow, /cron:\s*"0 9 \* \* \*"/);
   assert.match(workflow, /group:\s*plania-scan\n\s*cancel-in-progress:\s*false/);
   assert.match(workflow, /timeout-minutes:\s*10/);
   assert.equal(/uses:[^\n]*gitleaks/i.test(workflow), false);
