@@ -1,0 +1,31 @@
+# Manual minute estimate for this private repo. No schedule, so it costs a minute only when dispatched.
+# This is wall-clock of workflow runs, not the billing usage report. See README for the billing command.
+
+name: usage
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: plania-scan-usage
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  usage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check out the scanner
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Estimate minutes from this repo's workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node src/usage.mjs --live | tee -a "$GITHUB_STEP_SUMMARY"

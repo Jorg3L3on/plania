@@ -87,4 +87,8 @@ The salt can also come from `PLANIA_SCAN_HASH_SALT`. The command prints how many
 { "v": 1, "algorithm": "sha256", "salt": "...", "hashes": ["<64 hex chars>"] }
 ```
 
-`scripts/scan/hashes.example.json` is the only hash file in git. Its salt is `example-salt` and its digests are the three synthetic lines `persona ficticia`, `nombre ejemplo`, and `cuenta-demo-000`. Do not put a real name, email, id, or salt in that file. `scan-hashes.json`, `scan-hashes.local.json`, and `.scan-hashes.json` are gitignored.
+`scripts/scan/hashes.example.json` is the sample hash file. The private scanner template copies it to `scanner-repo/fixtures/hashes.example.json`. Its salt is `example-salt` and its digests are the three synthetic lines `persona ficticia`, `nombre ejemplo`, and `cuenta-demo-000`. Do not put a real name, email, id, or salt in that file. `scan-hashes.json`, `scan-hashes.local.json`, and `.scan-hashes.json` are gitignored.
+
+## External status
+
+`scanner-repo/` is the template for a private repository that posts the `plania-scan` commit status onto open pull requests in filmia, micasa, zigzag, and workia. Those repositories get no workflow and no other files. Setup, the Free-plan minute budget, and the prepared rulesets are in [scanner-repo/README.md](../scanner-repo/README.md). The template vendors this scan library. Custom values still come only from `PLANIA_SCAN_HASHES_JSON`.

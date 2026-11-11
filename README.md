@@ -206,6 +206,8 @@ pnpm scan:diff --json <repo-path> --base main --head HEAD
 
 It prints `file:line` and a rule id. It does not print the matched value. Exit 0 when there are no findings, 1 when there is at least one, 2 when the scan does not finish (usage, git, or gitleaks). The allowlist is `~/.config/plania/scan-allowlist` or `PLANIA_SCAN_ALLOWLIST`: a literal value, `/regex/`, or `path:` entry per line.
 
+`scanner-repo/` is the template for a private `plania-scan` repository that posts the same check as a commit status. The application repositories stay unchanged. Setup is in [scanner-repo/README.md](scanner-repo/README.md). `pnpm test:scanner` runs the template's tests.
+
 ## Running locally as a service
 
 Plania runs on this Mac.
