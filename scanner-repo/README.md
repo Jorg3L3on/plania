@@ -18,30 +18,31 @@ Sources:
 
 One job is billed on its own, rounded up. A 10-second run costs 1 minute. The workflow is one job.
 
-Target about **1,320 minutes / month**, against 2,000:
+At most **300 minutes / month**, against 2,000:
 
-| Piece | Arithmetic | Minutes |
+| Day | Arithmetic | Minutes / month |
 | --- | --- | --- |
-| Hourly idle run | 24 runs/day × 30 × 1 billed minute | 720 |
-| Scans | 10 heads/day × 30 × about 2 minutes | 600 |
-| Total | | 1,320 |
+| Idle day (nothing unmarked) | 30 runs × 1 billed minute | 30 |
+| Worst case (every day hits the cap) | 30 runs × 10 minutes (`timeout-minutes: 10`) | 300 |
 
-The idle run and a scan in the same hour are **one job**, not two. 1,320 adds them as if they were separate, so it is a high estimate. An empty hour is one minute. An hour that also scans is one longer job (the guard plus the scans), rounded up once. Headroom under the high estimate is about 680 minutes.
+There is one job per day, so the guard, checkout and Node setup are paid once and the day's scans run inside that job. The job picks up new heads for 7 minutes and is killed at 10, so no day costs more than 10 minutes. Manual dispatches add at least 1 minute each. Headroom is at least 1,700 minutes.
 
-The schedule is `17 * * * *` (minute 17, every hour) plus `workflow_dispatch`. Minute 17 stays off the top of the hour, which is when GitHub delays scheduled workflows. Scheduled workflows run only from the default branch. The 60-day auto-disable sentence in the docs applies to a public repository; this one is private.
+The schedule is `0 9 * * *` (09:00 UTC, 3:00 AM Mexico City, which has no daylight saving) plus `workflow_dispatch`. GitHub can delay scheduled runs at the top of the hour, so the run may start a few minutes after 3:00. Scheduled workflows run only from the default branch. The 60-day auto-disable sentence in the docs applies to a public repository; this one is private.
+
+**Latency.** A head pushed during the day gets its `plania-scan` status at the next 3:00 AM run, up to about 24 hours later. Heads not picked up in the 7-minute window wait for the next day. When a merge cannot wait, dispatch the workflow by hand (Actions, plania-scan, Run workflow; at least 1 billed minute). `pnpm merge-gate` in plania scans locally at merge time and does not depend on this status.
 
 - [Events that trigger workflows: schedule](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#schedule)
 
-`concurrency` group `plania-scan` with `cancel-in-progress: false` so a new hour waits instead of killing a scan (a kill can leave `pending` on the commit). A queued run still executes later and bills at least a minute. `timeout-minutes: 10` caps a stuck job. Inside the job, new heads stop being picked up after 7 minutes and stay unmarked for the next run.
+`concurrency` group `plania-scan` with `cancel-in-progress: false` so a new run waits instead of killing a scan (a kill can leave `pending` on the commit). A queued run still executes later and bills at least a minute. `timeout-minutes: 10` caps a stuck job. Inside the job, new heads stop being picked up after 7 minutes and stay unmarked for the next run.
 
-The usage workflow is `workflow_dispatch` only. It costs about 1 minute when you run it, and it is not part of the 1,320.
+The usage workflow is `workflow_dispatch` only. It costs about 1 minute when you run it, and it is not part of the 300.
 
 ## What a run does
 
 1. The first step uses `curl` to download `src/select.mjs` and `src/guard.mjs`, then `gh api` to list open pull requests. It does not checkout, it does not run `actions/setup-node`, and it does not download gitleaks. Heads that already have a `plania-scan` status are skipped. A `pending` status older than 15 minutes is scanned again, so a killed job does not stick. If nothing is unmarked, the job exits 0. That is the 1-minute idle run.
 2. Only then: checkout this repository, restore the gitleaks cache, set up Node 22, and scan each `base...head` with a partial fetch (`--filter=blob:none`, depth 80, one deepen if the merge base is missing).
 3. Gitleaks is the CLI **8.30.1**, checked against the SHA-256 in `src/scan/gitleaks.ts` (linux-x64 `551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb`). The binary is cached at `~/.cache/plania/gitleaks`. This is not `gitleaks-action`.
-4. For each head the job posts `pending`, then `success` or `failure`. A scan that does not finish is `failure` with description `scan did not finish`, so it does not look clean. Findings fail the status and do not fail the Actions run, so the next hour does not rescan that commit. An operational error fails the Actions run.
+4. For each head the job posts `pending`, then `success` or `failure`. A scan that does not finish is `failure` with description `scan did not finish`, so it does not look clean. Findings fail the status and do not fail the Actions run, so the next run does not rescan that commit. An operational error fails the Actions run.
 
 The hash secret is removed from the environment before git and gitleaks run, and written to a `0600` temp file that is deleted at the end. Actions still masks the secret if it ever reaches a log. Do not print it.
 
@@ -231,7 +232,7 @@ Authoritative number, run locally with your own `gh` login (the scan token canno
 gh api "/users/Jorg3L3on/settings/billing/usage" | node src/usage.mjs
 ```
 
-`actionMinutes` sums `quantity` where the product name contains `action` and `unitType` contains `minute`. Compare it with 1,320 and with 2,000. `actionNet` is the net amount on those rows after GitHub's own discounts; included usage often shows a net of 0. If `actionItems` is 0 and the raw `usageItems` array is not empty, read the `product` strings before trusting the summary.
+`actionMinutes` sums `quantity` where the product name contains `action` and `unitType` contains `minute`. Compare it with 300 and with 2,000. `actionNet` is the net amount on those rows after GitHub's own discounts; included usage often shows a net of 0. If `actionItems` is 0 and the raw `usageItems` array is not empty, read the `product` strings before trusting the summary.
 
 A cheaper in-repo stand-in, about once a week: Actions, workflow `usage`, Run workflow. It lists this repository's workflow runs and rounds each completed run up to a minute. That is wall-clock, not the bill. It does not use `PLANIA_SCAN_TOKEN`. It has no schedule.
 
