@@ -63,6 +63,7 @@ const DECISION_REFUSAL: Record<string, string> = {
   NOT_IN_REVIEW: "Ya no está en revisión.",
   MERGE_FAILED: "No se pudo fusionar: revisa el PR.",
   BASE_NOT_SANDBOX: "El PR no apunta a sandbox.",
+  OWNER_CODE: "Publicar se hace en Bandeja, con tu código.",
 };
 
 const Compania = () => {
@@ -167,7 +168,7 @@ const Compania = () => {
       {comp.isPending ? (
         <div className="h-36 animate-pulse rounded-[22px] bg-muted" aria-hidden data-testid="te-toca-skeleton" />
       ) : company ? (
-        <TeToca decisions={decisions} titles={titles} now={now} busy={busy} errors={errors} onAct={(d, input, key) => act.mutate({ d, input, key })} />
+        <TeToca decisions={decisions} inbox={company.inbox} open={new URLSearchParams(location.search).get("decision")} titles={titles} now={now} busy={busy} errors={errors} onAct={(d, input, key) => act.mutate({ d, input, key })} />
       ) : null}
 
       <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">

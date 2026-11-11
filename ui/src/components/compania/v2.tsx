@@ -5,6 +5,9 @@
 //   ProjectReport   the card as a report, in a fixed order: name and light · week of the plan with its bar and
 //                   pace · this week · Siguiente with its owner · the PO's last line (pointing to Te toca) ·
 //                   Ahora (only who runs or is stuck, else why nobody) · spent / limit · Abrir. No goal, no preview.
+//                   PLA-I36-1: the light's reason under the name, with the action that clears it.
+//                   PLA-I36-2: a Te toca row shows its checks, links and full message in place; steps and releases.
+//                   PLA-I36-3: Tus órdenes, the last five things asked or chosen, each with its state.
 //   PausedList      paused projects as a list: what each keeps inside, and Reanudar.
 //   AsistenteFolded box and suggestions, Asistente's latest message, the day folded to one line with Ver.
 // Presentational: data and actions come in as props (test/compania-v2.test.ts renders them with fake data).
@@ -13,23 +16,26 @@ import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { ago, clock } from "@/lib/compania";
 import type { Decision, DecisionInput, OrgProject, Thread, ThreadMessage } from "@/lib/api";
-import { budgetLine, lightOf, roleName, threadItems } from "@/lib/org";
+import { budgetLine, lightOf, linkHref, linkLabel, roleName, threadItems } from "@/lib/org";
 import {
   SUGGESTIONS,
-  TE_TOCA_EMPTY,
+  checksText,
   foldLine,
   latestFromAsistente,
   lightWord,
   nobodyWhy,
   nowLines,
+  orderText,
   ordered,
   ownerChip,
   paceText,
   pausedText,
   poLine,
   pointerFor,
+  releaseText,
   stateText,
   teToca,
+  teTocaEmpty,
   thisWeekText,
   todayMessages,
   weekBar,
@@ -50,17 +56,23 @@ const DecisionRow = ({
   busy,
   error,
   onAct,
+  opened,
 }: {
   d: Decision;
   title: string;
   now: number;
   busy: DecisionBusy;
   error?: string | null;
+  opened?: boolean;
   onAct: (d: Decision, input: DecisionInput, key: string) => void;
 }) => {
   const [reply, setReply] = useState(false);
   const [text, setText] = useState("");
+  const [open, setOpen] = useState(!!opened);
   const acted = !!d.state;
+  const checks = checksText(d);
+  const release = releaseText(d);
+  const links = (d.links ?? []).map((l) => ({ ...l, href: linkHref(l, d.project) })).filter((l) => l.href);
   const busyHere = busy?.id === d.id;
   const options = ordered(d);
   const label = (key: string, word: string) => (busyHere && busy?.key === key ? "…" : word);
@@ -89,6 +101,41 @@ const DecisionRow = ({
           <span className="text-xs text-muted-foreground"> · {ago(d.at, now)}</span>
         </p>
         {d.detail && d.kind !== "proposal" && <p className="line-clamp-2 text-xs text-muted-foreground">{d.detail}</p>}
+        {release && (
+          <p className="text-xs break-words text-muted-foreground" data-release>
+            {release}
+          </p>
+        )}
+        {checks && (
+          <p className={cn("inline-flex items-center gap-1.5 text-xs font-semibold", TONE_INK[checks.tone])} data-checks={checks.open ? "open" : "done"}>
+            <Dot tone={checks.tone} /> {checks.text}
+          </p>
+        )}
+        {(links.length > 0 || d.body) && (
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs" data-links={links.length}>
+            {d.body && (
+              <button type="button" className="font-semibold hover:underline" aria-expanded={open} onClick={() => setOpen(!open)} data-control="ver-mensaje">
+                {open ? "Ocultar mensaje" : "Ver mensaje"}
+              </button>
+            )}
+            {links.map((l) =>
+              /^https?:/.test(l.href!) ? (
+                <a key={`${l.kind}-${l.ref}`} href={l.href!} target="_blank" rel="noreferrer" className="min-w-0 truncate font-semibold text-foreground hover:underline" data-link={l.kind}>
+                  {linkLabel(l)} ↗
+                </a>
+              ) : (
+                <Link key={`${l.kind}-${l.ref}`} to={l.href!} className="min-w-0 truncate font-semibold text-foreground hover:underline" data-link={l.kind}>
+                  {linkLabel(l)}
+                </Link>
+              ),
+            )}
+          </div>
+        )}
+        {open && d.body && (
+          <p className="max-h-80 overflow-y-auto rounded-xl bg-muted/60 p-3 text-sm leading-relaxed break-words whitespace-pre-wrap" data-body>
+            {d.body}
+          </p>
+        )}
         {acted ? (
           <p className="text-xs font-semibold text-ink-done" data-state={d.state!.action}>
             ✓ {stateText(d.state!)}
@@ -129,6 +176,11 @@ const DecisionRow = ({
                 >
                   {label("combo", "1 + 2")}
                 </button>
+              )}
+              {d.kind === "release" && (
+                <Link to="/inbox" className={cn(pillPrimary, pillSmall)} data-action="publicar">
+                  Publicar en Bandeja
+                </Link>
               )}
               {d.actions.includes("hecho") && (
                 <button type="button" data-action="hecho" className={cn(pillPrimary, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "hecho" }, "hecho")}>
@@ -204,7 +256,12 @@ export const TeToca = ({
   busy,
   errors,
   onAct,
+  inbox,
+  open,
 }: {
+  inbox?: { decisiones: number; pasos: number };
+  // ?decision=<id>: that row opens with its full message.
+  open?: string | null;
   decisions: Decision[];
   titles: Record<string, string>;
   now: number;
@@ -228,12 +285,12 @@ export const TeToca = ({
       </div>
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground" data-empty="te-toca">
-          {TE_TOCA_EMPTY}
+          {teTocaEmpty(inbox)}
         </p>
       ) : (
         <ul className="grid min-w-0">
           {rows.map((d) => (
-            <DecisionRow key={d.id} d={d} title={(d.project && titles[d.project]) || d.project || "Compañía"} now={now} busy={busy} error={errors?.[d.id] ?? null} onAct={onAct} />
+            <DecisionRow key={d.id} d={d} title={(d.project && titles[d.project]) || d.project || "Compañía"} now={now} busy={busy} error={errors?.[d.id] ?? null} onAct={onAct} opened={open === d.id} />
           ))}
         </ul>
       )}
@@ -261,6 +318,22 @@ export const ProjectReport = ({ project: p, decisions, now, companyPaused, timeZ
           <Dot tone={light.tone} /> {lightWord(p, light.word, now)}
         </span>
       </div>
+
+      {p.light_reason && (
+        <p className={cn("-mt-1 min-w-0 text-sm break-words", light.tone === "stop" ? "text-ink-blocked" : "text-muted-foreground")} data-light-reason>
+          {p.light_reason.text}
+          {p.light_reason.action &&
+            (p.light_reason.action.href.startsWith("#") ? (
+              <a href={p.light_reason.action.href} className="ml-1.5 font-semibold whitespace-nowrap text-foreground hover:underline" data-light-action>
+                {p.light_reason.action.label}
+              </a>
+            ) : (
+              <Link to={p.light_reason.action.href} className="ml-1.5 font-semibold whitespace-nowrap text-foreground hover:underline" data-light-action>
+                {p.light_reason.action.label} →
+              </Link>
+            ))}
+        </p>
+      )}
 
       {p.plan && (
         <div className="grid gap-1.5" data-plan>
@@ -350,6 +423,34 @@ export const ProjectReport = ({ project: p, decisions, now, companyPaused, timeZ
           </p>
         )}
       </div>
+
+      {(p.orders?.length ?? 0) > 0 && (
+        <div className="grid min-w-0 gap-1" data-orders={p.orders!.length}>
+          <p className={eyebrow}>Tus órdenes</p>
+          <ul className="grid min-w-0 gap-1">
+            {p.orders!.map((o) => {
+              const st = orderText(o, now);
+              const href = o.link ? linkHref(o.link, p.slug) : null;
+              return (
+                <li key={o.id} className="grid min-w-0 gap-0.5 text-sm" data-order={o.state} data-order-kind={o.kind}>
+                  <span className="flex min-w-0 items-start justify-between gap-2">
+                    <span className="min-w-0 break-words">{o.title}</span>
+                    <span className={cn("inline-flex shrink-0 items-center gap-1.5 pt-0.5 text-xs font-semibold", TONE_INK[st.tone])}>
+                      <Dot tone={st.tone} /> {st.text}
+                    </span>
+                  </span>
+                  {o.understood && <span className="min-w-0 text-xs break-words text-muted-foreground">El PO entendió: {o.understood}</span>}
+                  {o.state === "entregada" && href && (
+                    <a href={href} {...(/^https?:/.test(href) ? { target: "_blank", rel: "noreferrer" } : {})} className="justify-self-start text-xs font-semibold hover:underline" data-order-link={o.link!.kind}>
+                      Ver lo que salió: {linkLabel(o.link!)}
+                    </a>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border pt-2">
         <PlumbingLink text={plumbing.text} tone={plumbing.tone} className="max-w-full" />

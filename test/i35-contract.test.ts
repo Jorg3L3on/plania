@@ -96,9 +96,9 @@ test("I35-1 #1: parseProposal reads numbered options, the recommended one and th
 
 test("I35-1 #1: GET /api/company has plan, this_week, next and work per project and decisions[]", async () => {
   const c = await company();
-  assert.deepEqual(keys(c), ["asistente", "company", "decisions", "plumbing", "projects", "week"]);
+  assert.deepEqual(keys(c), ["asistente", "company", "decisions", "inbox", "plumbing", "projects", "week"]);
   for (const p of c.projects) {
-    assert.deepEqual(keys(p), ["budget", "goal", "light", "next", "paused", "plan", "slug", "team", "this_week", "thread", "title", "work"], p.slug);
+    assert.deepEqual(keys(p), ["budget", "goal", "light", "light_reason", "next", "orders", "paused", "plan", "slug", "team", "this_week", "thread", "title", "work"], p.slug);
     assert.deepEqual(keys(p.this_week), ["docs", "done", "last_at", "prs"]);
     assert.deepEqual(keys(p.work), ["in_progress", "open"]);
   }
@@ -118,7 +118,7 @@ test("I35-1 #1: GET /api/company has plan, this_week, next and work per project 
   assert.deepEqual(mia.work, { open: 2, in_progress: 0 });
   assert.equal(c.projects.find((p: Json) => p.slug === "filmia").plan, null, "no Active initiative, no plan");
 
-  for (const d of c.decisions) assert.deepEqual(keys(d), ["actions", "at", "detail", "id", "kind", "options", "project", "ref", "state", "title"]);
+  for (const d of c.decisions) assert.deepEqual(keys(d), ["actions", "at", "body", "checks", "detail", "id", "kind", "links", "options", "project", "ref", "release", "state", "title"]);
   const proposal = c.decisions.find((d: Json) => d.kind === "proposal");
   assert.equal(proposal.project, "mianovia");
   assert.equal(proposal.options.length, 3);

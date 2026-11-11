@@ -3,7 +3,7 @@
 // Asistente point to it. Never "Sin corridas todavía", never a null key: when there is nothing to say, the line
 // does not exist. Spend is tokens, never money.
 import { ago, tokens, type Tone } from "./compania";
-import type { Decision, DecisionState, OrgPlan, OrgProject, ThreadMessage } from "./api";
+import type { Decision, DecisionState, OrgOrder, OrgPlan, OrgProject, ThreadMessage } from "./api";
 import { roleName } from "./org";
 
 export const TE_TOCA_MAX = 5;
@@ -11,7 +11,43 @@ export const TE_TOCA_EMPTY = "Nada te espera. El equipo sigue; Asistente te avis
 
 // ---- Te toca
 
-export const pending = (d: Decision) => d.state === null && d.actions.length > 0;
+// A release has no button here (publishing asks for the owner's code in Bandeja) and still waits.
+export const pending = (d: Decision) => d.state === null && (d.actions.length > 0 || d.kind === "release");
+
+// PLA-I36-2: "Nada te espera" only when Bandeja's decisiones and pasos are empty too.
+export function teTocaEmpty(inbox: { decisiones: number; pasos: number } | undefined): string {
+  const n = (inbox?.decisiones ?? 0) + (inbox?.pasos ?? 0);
+  if (n === 0) return TE_TOCA_EMPTY;
+  return `Nada urgente aquí · ${n === 1 ? "1 cosa te espera" : `${n} cosas te esperan`} en Bandeja.`;
+}
+
+// "2 checks abiertos · pruebas fallando"; null when there is nothing to say.
+export function checksText(d: Pick<Decision, "checks">): { text: string; tone: Tone; open: boolean } | null {
+  const c = d.checks;
+  if (!c) return null;
+  const parts: string[] = [];
+  if (c.open > 0) parts.push(c.open === 1 ? "1 check abierto" : `${c.open} checks abiertos`);
+  if (c.ci === "failure") parts.push("pruebas fallando");
+  else if (c.ci === "pending") parts.push("pruebas corriendo");
+  else if (c.ci === "success") parts.push("pruebas en verde");
+  if (parts.length === 0) return c.open === 0 && c.ci === null ? null : { text: "checks completos", tone: "ok", open: false };
+  const open = c.open > 0 || c.ci === "failure" || c.ci === "pending";
+  return { text: parts.join(" · "), tone: c.ci === "failure" ? "stop" : open ? "warn" : "ok", open };
+}
+
+// "4 commits · 3 cambios · 1 check abierto · 1 paso antes".
+export function releaseText(d: Pick<Decision, "release">): string | null {
+  const r = d.release;
+  if (!r) return null;
+  return [
+    r.ahead == null ? "sin datos de GitHub" : r.ahead === 1 ? "1 commit" : `${r.ahead} commits`,
+    r.tickets.length === 1 ? "1 cambio" : `${r.tickets.length} cambios`,
+    r.open_checks ? (r.open_checks === 1 ? "1 check abierto" : `${r.open_checks} checks abiertos`) : "",
+    r.before ? (r.before === 1 ? "1 paso antes" : `${r.before} pasos antes`) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 // The first five rows (acted rows keep their place), how many wait, and how many more Bandeja holds.
 export function teToca(decisions: Decision[]): { rows: Decision[]; waiting: number; more: number } {
@@ -59,7 +95,12 @@ export function stateText(s: DecisionState): string {
   }
 }
 
-export const KIND_POINTER: Record<string, string> = { question: "↑ Responder en Te toca", proposal: "↑ Decidir en Te toca" };
+export const KIND_POINTER: Record<string, string> = {
+  question: "↑ Responder en Te toca",
+  proposal: "↑ Decidir en Te toca",
+  step: "↑ Un paso tuyo en Te toca",
+  release: "↑ Listo para publicar en Te toca",
+};
 // The card's pointer when its project has a decision waiting.
 export const pointerFor = (decisions: Decision[], slug: string): string | null => {
   const d = decisions.find((x) => x.project === slug && pending(x));
@@ -119,23 +160,56 @@ export function poLine(p: OrgProject): { role: string; at: string; body: string 
 }
 
 // Ahora: who runs or is stuck. Nobody: why, in a few words.
+// PLA-I36-1: a member whose last run failed says so ("su última corrida falló").
 export function nowLines(p: OrgProject): { role: string; text: string; tone: Tone; since: string | null }[] {
   return p.team
-    .filter((m) => m.state === "running" || m.state === "waiting_jorge")
+    .filter((m) => m.state === "running" || m.state === "waiting_jorge" || (m.state !== "paused" && m.last?.status === "fail"))
     .map((m) =>
       m.state === "running"
         ? { role: roleName(m.role), text: m.now?.ticket ? `construye ${m.now.ticket}` : "trabaja", tone: "ok" as Tone, since: m.now?.since ?? null }
-        : { role: roleName(m.role), text: m.waiting ? `espera: ${m.waiting}` : "te espera", tone: "stop" as Tone, since: null },
+        : m.state === "waiting_jorge"
+          ? { role: roleName(m.role), text: m.waiting ? `espera: ${m.waiting}` : "te espera", tone: "stop" as Tone, since: null }
+          : { role: roleName(m.role), text: "su última corrida falló", tone: "stop" as Tone, since: m.last?.at ?? null },
     );
 }
 export function nobodyWhy(p: OrgProject, decisions: Decision[], companyPaused: boolean): string {
   if (companyPaused) return "la compañía está detenida";
   if (p.light === "no_budget") return "sin presupuesto esta semana";
+  if (p.light === "failed") return "la última corrida falló";
+  if (p.light === "blocked") return "el trabajo está bloqueado";
   const d = decisions.find((x) => x.project === p.slug && pending(x));
-  if (d) return d.kind === "question" ? "el PO espera tu respuesta" : d.kind === "action" ? "lo siguiente es tuyo" : "el PO espera tu elección";
+  if (d)
+    return d.kind === "question"
+      ? "el PO espera tu respuesta"
+      : d.kind === "action" || d.kind === "step"
+        ? "lo siguiente es tuyo"
+        : d.kind === "release"
+          ? "hay cambios listos para publicar"
+          : "el PO espera tu elección";
   if (!p.next) return "sin trabajo listo";
   if (p.next.owner === "jorge") return "lo siguiente es tuyo";
   return "lo siguiente arranca en su turno";
+}
+
+// ---- Tus órdenes (PLA-I36-3)
+
+export function orderText(o: OrgOrder, now: number): { text: string; tone: Tone } {
+  switch (o.state) {
+    case "entregada":
+      return { text: "entregada", tone: "ok" };
+    case "en_curso":
+      return { text: o.who ? `en curso · ${roleName(o.who)}` : "en curso", tone: "ok" };
+    case "entendida":
+      return { text: "entendida", tone: "idle" };
+    case "sin_tomar": {
+      const h = o.age_h ?? 0;
+      return { text: `sin tomar · ${h >= 48 ? `${Math.floor(h / 24)} días` : `${h} h`}`, tone: "warn" };
+    }
+    case "cancelada":
+      return { text: "cancelada", tone: "idle" };
+    default:
+      return { text: `enviada · ${ago(o.at, now)}`, tone: "idle" };
+  }
 }
 
 // ---- En pausa

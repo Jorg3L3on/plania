@@ -151,7 +151,21 @@ export const api = {
 // ---- PLA-I33: the organization (Plan doc 61ad843a, "Contrato de API"). Fields the contract leaves
 // untyped (week, budget, last_run) reuse the PLA-I30 shapes.
 
-export type OrgLight = "ok" | "needs_jorge" | "quiet" | "paused" | "no_budget";
+export type OrgLight = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused" | "no_budget";
+export type OrgLightReason = { text: string; action: { label: string; href: string } | null };
+// PLA-I36-3: Tus órdenes.
+export type OrderState = "enviada" | "entendida" | "en_curso" | "entregada" | "sin_tomar" | "cancelada";
+export type OrgOrder = {
+  id: string;
+  kind: "order" | "choice";
+  title: string;
+  at: string;
+  state: OrderState;
+  understood: string | null;
+  who: string | null;
+  link: { kind: "pr" | "doc"; ref: string; title: string } | null;
+  age_h: number | null;
+};
 export type OrgMemberState = "running" | "idle" | "waiting_jorge" | "paused" | "no_budget";
 export type OrgProduced = { kind: "doc" | "pr" | "idea" | "plan"; ref: string; title: string };
 export type OrgMember = {
@@ -170,6 +184,7 @@ export type OrgProject = {
   title: string;
   paused: boolean;
   light: OrgLight;
+  light_reason?: OrgLightReason | null;
   goal: string | null;
   budget: Budget;
   team: OrgMember[];
@@ -179,6 +194,7 @@ export type OrgProject = {
   this_week: { done: number; docs: number; prs: number; last_at: string | null };
   next: { title: string; key: string; owner: string; due: string | null } | null;
   work: { open: number; in_progress: number };
+  orders?: OrgOrder[];
 };
 export type OrgPlan = {
   week: number;
@@ -191,7 +207,10 @@ export type OrgPlan = {
   weeks_behind: number | null;
 };
 // PLA-I35-1: Te toca rows (GET /api/company decisions[]) and POST /api/company/decisions/:id.
-export type DecisionKind = "proposal" | "action" | "question" | "deliverable" | "pr";
+export type DecisionKind = "proposal" | "action" | "question" | "deliverable" | "pr" | "step" | "release";
+export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
+export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | null };
+export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number };
 export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios";
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
 export type Decision = {
@@ -205,6 +224,11 @@ export type Decision = {
   at: string;
   ref: string | null;
   detail: string | null;
+  // PLA-I36-2: the evidence in the row. Optional so older fixtures still render.
+  links?: DecisionLink[];
+  body?: string | null;
+  checks?: DecisionChecks | null;
+  release?: DecisionRelease | null;
 };
 export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string };
 export type DecisionResult = { ok: boolean; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
@@ -216,6 +240,7 @@ export type OrgCompany = {
   projects: OrgProject[];
   plumbing: OrgPlumbing;
   decisions: Decision[];
+  inbox?: { decisiones: number; pasos: number };
 };
 export type OrgTemplate = { slug: string; title: string };
 export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[] };

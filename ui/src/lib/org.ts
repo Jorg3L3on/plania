@@ -9,14 +9,17 @@ import type { MachinePlumbing, OrgLight, OrgMember, OrgMemberState, OrgPlumbing,
 export const LIGHT: Record<OrgLight, { word: string; tone: Tone }> = {
   ok: { word: "Bien", tone: "ok" },
   needs_jorge: { word: "Te necesita", tone: "stop" },
+  failed: { word: "Falló", tone: "stop" },
+  blocked: { word: "Bloqueado", tone: "stop" },
+  late: { word: "Atrasado", tone: "warn" },
   quiet: { word: "Quieto", tone: "warn" },
   paused: { word: "En pausa", tone: "idle" },
   no_budget: { word: "Sin presupuesto", tone: "stop" },
 };
 export const lightOf = (light: OrgLight) => LIGHT[light] ?? { word: light, tone: "idle" as Tone };
 
-// Needs Jorge first, then the rest by name; paused last.
-const LIGHT_RANK: Record<OrgLight, number> = { needs_jorge: 0, no_budget: 1, quiet: 2, ok: 3, paused: 4 };
+// The worst first (PLA-I36-1), then the rest by name; paused last.
+const LIGHT_RANK: Record<OrgLight, number> = { needs_jorge: 0, failed: 1, blocked: 2, no_budget: 3, late: 4, quiet: 5, ok: 6, paused: 7 };
 export const byLight = <T extends { light: OrgLight; slug: string }>(a: T, b: T) =>
   (LIGHT_RANK[a.light] ?? 9) - (LIGHT_RANK[b.light] ?? 9) || a.slug.localeCompare(b.slug);
 
