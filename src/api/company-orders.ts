@@ -7,7 +7,7 @@
 // more than 24 h and no run ever took it; age in hours), else enviada. A Won't do order is cancelada.
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agentRuns, agents, docs, events, projects, tasks, threadMessages, type Actor, type Project, type Task } from "../db/schema.js";
+import { agentRuns, agents, docs, events, projects, taskAliases, tasks, threadMessages, type Actor, type Project, type Task } from "../db/schema.js";
 import { agentOfActor } from "../runner/events.js";
 import { orderText } from "./company-decisions.js";
 import { runView, type RunLine } from "./company-runs.js";
@@ -128,10 +128,11 @@ export async function ordersOf(db: Db, p: Project, threadId: string, now = new D
   const stageOf = async (t: Task | undefined, st: OrderState): Promise<{ stage: OrderStage; plan: OrderPlan | null; run: RunLine | null }> => {
     if (!t) return { stage: "enviada", plan: null, run: null };
     const pl = plans.get(t.key);
-    const created = pl?.data.created ?? [];
+    // PLA-I36-12: the keys Plania gave the steps; a PO may have moved them since (the old key is an alias).
+    const created = await currentKeys(db, p.id, pl?.data.created ?? []);
     const steps = created.length ? await db.select({ key: tasks.key, status: tasks.status }).from(tasks).where(and(eq(tasks.projectId, p.id), inArray(tasks.key, created))) : [];
     const done = steps.filter((x) => DELIVERED.includes(x.status)).length;
-    const plan = pl ? { needs_approval: pl.data.needs_approval, approved: created.length > 0, steps: pl.data.steps.length, done, decision: `m-${pl.id}` } : null;
+    const plan = pl ? { needs_approval: pl.data.needs_approval, approved: (pl.data.created ?? []).length > 0, steps: pl.data.steps.length, done, decision: `m-${pl.id}` } : null;
     const run = await runView(db, p.id, [t.key, ...created]);
     const open = steps.filter((x) => x.status !== "Won't do");
     let stage: OrderStage;
@@ -179,7 +180,7 @@ export async function cancelOrder(db: Db, slug: string, key: string): Promise<{ 
   const plans = thread
     ? await db.select({ proposal: threadMessages.proposal }).from(threadMessages).where(and(eq(threadMessages.threadId, thread.id), isNotNull(threadMessages.proposal)))
     : [];
-  const created = plans.flatMap((r) => (r.proposal?.kind === "plan" && r.proposal.order === key ? r.proposal.created : []));
+  const created = await currentKeys(db, p.id, plans.flatMap((r) => (r.proposal?.kind === "plan" && r.proposal.order === key ? r.proposal.created : [])));
   const ctx = { ...webCtx, tool: "screen.order_cancel" };
   const live = await db.select({ id: agentRuns.id }).from(agentRuns).where(and(eq(agentRuns.projectId, p.id), eq(agentRuns.status, "running"), inArray(agentRuns.taskKey, [key, ...created])));
   for (const r of live) stopRun(r.id, "pedido cancelado desde Compañía");
@@ -199,4 +200,17 @@ export async function cancelOrder(db: Db, slug: string, key: string): Promise<{ 
     closed.push(k);
   }
   return { cancelled: closed };
+}
+
+// PLA-I36-12: a ticket's key today, from the key it had or any of its aliases (a ticket moved under an initiative
+// gets a new key; the old one stays in task_aliases). Unknown keys drop out.
+export async function currentKeys(db: Db, projectId: string, keys: string[]): Promise<string[]> {
+  if (keys.length === 0) return [];
+  const direct = await db.select({ key: tasks.key }).from(tasks).where(and(eq(tasks.projectId, projectId), inArray(tasks.key, keys)));
+  const moved = await db
+    .select({ key: tasks.key })
+    .from(taskAliases)
+    .innerJoin(tasks, eq(tasks.id, taskAliases.taskId))
+    .where(and(eq(taskAliases.projectId, projectId), inArray(taskAliases.alias, keys)));
+  return [...new Set([...direct, ...moved].map((r) => r.key))];
 }

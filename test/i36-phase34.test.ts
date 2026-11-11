@@ -408,3 +408,43 @@ test("I36-8 #5: phone at 390: the box, the stages and the buttons fit in one col
   assert.ok(stages.includes("flex-wrap") && stages.includes('data-stage="trabajando"'));
   assert.equal((stages.match(/aria-current="step"/g) ?? []).length, 1);
 });
+
+// ---- PLA-I36-12
+
+test("I36-12 #1-#3: a plan whose tickets the PO moved under an initiative still shows their progress, its run and its stages; Cancelar closes them", async () => {
+  await post("/api/company/projects/workia/options", { plan_approval: false }, "PUT");
+  await writes.createTask(db, { project: "workia", kind: "initiative", key: "WRK-I9", title: "Tienda", scope: "s" } as never, PO());
+  const moveAll = async (keys: string[]) => {
+    const now: string[] = [];
+    for (const k of keys) {
+      const [t] = (await raw.query(`select version from tasks where key = $1`, [k])).rows;
+      const out = (await writes.setTask(db, { project: "workia", key: k, version: t.version, parent_key: "WRK-I9" } as never, PO())) as Json;
+      now.push(out.key as string);
+    }
+    return now;
+  };
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega un carrito" })).json()) as Json).key as string;
+  const out = (await propose(db, plan(order, { title: "Carrito" }), PO() as never)) as Json;
+  const moved = await moveAll(out.proposal.created as string[]);
+  assert.ok(moved.every((k) => k.startsWith("WRK-I9-")), moved.join(","));
+  await raw.query(`update tasks set status = 'Done' where key = $1`, [moved[0]]);
+  let o = (await card()).orders.find((x: Json) => x.key === order);
+  assert.deepEqual([o.plan.steps, o.plan.done, o.stage], [2, 1, "trabajando"]);
+  // A run on a moved step shows on the request.
+  const agentId = (await raw.query(`select id from agents where slug = $1`, [po])).rows[0].id;
+  const run = await raw.query(`insert into agent_runs (agent_id, project_id, role, status, task_key, started_at, queued_at) select $1, id, 'taller', 'running', $2, now(), now() from projects where slug = 'workia' returning id`, [agentId, moved[1]]);
+  o = (await card()).orders.find((x: Json) => x.key === order);
+  assert.equal(o.run?.ticket, moved[1]);
+  await raw.query(`delete from agent_runs where id = $1`, [run.rows[0].id]);
+  await raw.query(`update tasks set status = 'In review' where key = $1`, [moved[1]]);
+  assert.equal((await card()).orders.find((x: Json) => x.key === order).stage, "pruebalo");
+  await raw.query(`update tasks set status = 'Done' where key = $1`, [moved[1]]);
+  assert.equal((await card()).orders.find((x: Json) => x.key === order).stage, "listo");
+
+  const other = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega cupones" })).json()) as Json).key as string;
+  const second = (await propose(db, plan(other, { title: "Cupones" }), PO() as never)) as Json;
+  const moved2 = await moveAll(second.proposal.created as string[]);
+  assert.equal((await post(`/api/company/projects/workia/orders/${other}/cancel`)).status, 200);
+  const statuses = (await raw.query(`select status from tasks where key = any($1)`, [moved2])).rows.map((r) => r.status);
+  assert.deepEqual(statuses, ["Won't do", "Won't do"]);
+});
