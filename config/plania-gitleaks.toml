@@ -1,0 +1,40 @@
+# Plania pre-merge rules for the official gitleaks CLI (MIT).
+# Default secret rules stay on. Base58 and Solana shapes are intentionally absent: they need a
+# checksum or a decoded length, which scripts/scan-diff.ts checks in TypeScript.
+title = "plania scan"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "plania-email"
+description = "Email address"
+regex = '''(?i)\b[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}\b'''
+keywords = ["@"]
+
+  [[rules.allowlists]]
+  description = "RFC 2606 names and GitHub noreply addresses"
+  regexTarget = "secret"
+  regexes = ['''(?i)@(?:[a-z0-9-]+\.)*(?:example\.(?:com|org|net)|[a-z0-9-]+\.(?:test|invalid|example|localhost)|users\.noreply\.github\.com)$''']
+
+[[rules]]
+id = "plania-evm-address"
+description = "EVM address shape"
+regex = '''\b0x[a-fA-F0-9]{40}\b'''
+keywords = ["0x"]
+
+  [[rules.allowlists]]
+  regexTarget = "secret"
+  regexes = ['''(?i)^0x0{40}$''']
+
+[[rules]]
+id = "plania-btc-bech32"
+description = "Bitcoin bech32 address shape"
+regex = '''(?i)\b(?:bc|tb)1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{14,74}\b'''
+keywords = ["bc1", "tb1"]
+
+[[rules]]
+id = "plania-balance"
+description = "Balance-like amount"
+regex = '''(?i)(?:saldo|monto|importe).{0,48}\d[\d,]*(?:\.\d{1,2})?|(?:balance|amount).{0,48}\d[\d,]*\.\d{2}|\d[\d,]*\.\d{2}.{0,48}(?:balance|amount|saldo|monto|importe)|(?:mxn|usd|eur|cad|gbp|usdt|usdc)\s?\$?\s?\d[\d,]*(?:\.\d{1,2})?|\d[\d,]*(?:\.\d{1,2})?\s?(?:mxn|usd|eur|cad|gbp|usdt|usdc)|\$\s?\d{2,}(?:[.,]\d{1,2})?|\$\s?\d+\.\d{2}'''
+keywords = ["saldo", "monto", "importe", "balance", "amount", "mxn", "usd", "eur", "cad", "gbp", "usdt", "usdc"]

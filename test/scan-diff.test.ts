@@ -1,6 +1,6 @@
-// PLA-04: scan-diff finds personal data and secrets in the lines a branch adds, masks every value,
-// passes a clean diff and respects the allowlist. All values are synthetic, and the token-shaped ones
-// are built at run time so no secret-shaped string is committed. The repo is a scratch one in tmp.
+// PLA-04 / PLA-I38-1: scan-diff finds personal data and secrets in the lines a branch adds.
+// Output is rule, file, and line. All values are synthetic, and the token-shaped ones are built at
+// run time so no secret-shaped string is committed. The repo is a scratch one in tmp.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -105,9 +105,9 @@ describe("scan-diff on a scratch repo", () => {
     assert.equal(r.status, 0, r.stderr);
   };
   const run = (env: Record<string, string> = {}) =>
-    spawnSync(process.execPath, ["--import", "tsx", path.resolve(import.meta.dirname, "../scripts/scan-diff.ts"), repo, "main"], {
+    spawnSync(process.execPath, ["--import", "tsx", path.resolve(import.meta.dirname, "../scripts/scan-diff.ts"), "--no-gitleaks", repo, "main"], {
       encoding: "utf8",
-      env: { ...process.env, PLANIA_SCAN_ALLOWLIST: path.join(home, "no-allowlist"), ...env },
+      env: { ...process.env, PLANIA_SCAN_ALLOWLIST: path.join(home, "no-allowlist"), PLANIA_SCAN_HASHES: "", PLANIA_SCAN_HASHES_JSON: "", ...env },
     });
 
   before(() => {
@@ -133,23 +133,23 @@ describe("scan-diff on a scratch repo", () => {
     git("commit", "-q", "-m", "clean");
     const r = run();
     assert.equal(r.status, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /PII scan: 0 high, 0 hints/);
+    assert.match(r.stdout, /^scan: 0 findings$/m);
   });
 
-  test("findings print masked with file and line, exit 1, and never the full value", () => {
+  test("findings print rule, file, and line, exit 1, and never the value", () => {
     writeFileSync(path.join(repo, "leak.ts"), [`export const token = "${GH_TOKEN}";`, `// cuenta ${CLABE}`, `// ${EMAIL}`, `const db = "${CRED_URL}";`, ""].join("\n"));
     writeFileSync(path.join(repo, ".env"), "SECRET=1\n");
     git("add", ".");
     git("commit", "-q", "-m", "leak");
     const r = run();
-    assert.equal(r.status, 1, r.stdout + r.stderr);
-    assert.match(r.stdout, /leak\.ts:1: HIGH token de GitHub /);
-    assert.match(r.stdout, /leak\.ts:2: HIGH CLABE válida /);
-    assert.match(r.stdout, /leak\.ts:3: hint correo /);
-    assert.match(r.stdout, /leak\.ts:4: HIGH URL con credenciales /);
-    assert.match(r.stdout, /\.env: HIGH archivo \.env en el diff/);
-    assert.match(r.stdout, /PII scan: 4 high, 1 hint/);
-    for (const v of [GH_TOKEN, CLABE, EMAIL, CRED_URL, "s3cretpw"]) assert.equal((r.stdout + r.stderr).includes(v), false, `leaked ${v.slice(0, 4)}`);
+    assert.equal(r.status, 1);
+    assert.match(r.stdout, /^leak\.ts:1 github-pat$/m);
+    assert.match(r.stdout, /^leak\.ts:2 clabe$/m);
+    assert.match(r.stdout, /^leak\.ts:3 plania-email$/m);
+    assert.match(r.stdout, /^leak\.ts:4 credential-url$/m);
+    assert.match(r.stdout, /^\.env:0 env-file$/m);
+    assert.match(r.stdout, /^scan: 5 findings$/m);
+    for (const v of [GH_TOKEN, CLABE, EMAIL, CRED_URL, "s3cretpw"]) assert.equal((r.stdout + r.stderr).includes(v), false);
     // Read-only: the scan left the scratch repo clean.
     assert.equal(spawnSync("git", ["-C", repo, "status", "--porcelain"], { encoding: "utf8" }).stdout, "");
   });
@@ -158,8 +158,9 @@ describe("scan-diff on a scratch repo", () => {
     const list = path.join(home, "scan-allowlist");
     writeFileSync(list, `${EMAIL}\n`);
     const r = run({ PLANIA_SCAN_ALLOWLIST: list });
-    assert.match(r.stdout, /PII scan: 4 high, 0 hints/);
-    assert.equal(r.stdout.includes("correo"), false);
+    assert.match(r.stdout, /^scan: 4 findings$/m);
+    assert.equal(r.stdout.includes("plania-email"), false);
+    assert.equal(r.stdout.includes(EMAIL), false);
   });
 
   test("a bad base is a usage error, not a pass", () => {
