@@ -62,7 +62,8 @@ export const api = {
     request<Orden>("POST", `/projects/${encodeURIComponent(slug)}/audit/fix`, finding),
   inbox: (project?: string) => request<Inbox>("GET", project ? `/inbox?project=${encodeURIComponent(project)}` : "/inbox"),
   // 2.13: Jorge ships the release step (merge mode): a PR from → into, merged with a merge commit.
-  shipRelease: (slug: string) => request<ShipResult>("POST", `/projects/${encodeURIComponent(slug)}/release/ship`),
+  // PLA-I36-11: publishing carries the owner's code.
+  shipRelease: (slug: string, code?: string) => request<ShipResult>("POST", `/projects/${encodeURIComponent(slug)}/release/ship`, { code }),
   resolveBlocker: (slug: string, id: string, note?: string) =>
     request<{ key: string }>("POST", `/projects/${encodeURIComponent(slug)}/blockers/${encodeURIComponent(id)}/resolve`, note ? { note } : undefined),
   // Screen only. The bot cannot read or flip this.
@@ -139,9 +140,20 @@ export const api = {
   setCompanyPaused: (paused: boolean) => request<{ paused: boolean; stopped: number }>("POST", "/company/switch", { paused }),
   setProjectPaused: (slug: string, paused: boolean) =>
     request<{ project: string; paused: boolean; stopped: number }>("POST", `/company/projects/${encodeURIComponent(slug)}/switch`, { paused }),
-  setBudget: (input: { scope: "role"; role: string; weekly_limit: number | null } | { scope: "project"; project: string; weekly_limit: number | null }) =>
+  setBudget: (input: ({ scope: "role"; role: string; weekly_limit: number | null } | { scope: "project"; project: string; weekly_limit: number | null }) & { code?: string }) =>
     request<{ scope: string; key: string; weekly_limit: number | null }>("PUT", "/company/budgets", input),
-  setRunnerSettings: (input: { plan_guard_pct?: number; asistente_weekly_limit?: number | null }) => request<Company["settings"]>("PUT", "/company/settings", input),
+  setRunnerSettings: (input: { plan_guard_pct?: number; asistente_weekly_limit?: number | null; code?: string }) => request<Company["settings"]>("PUT", "/company/settings", input),
+  // PLA-I36: steer a project from its card.
+  askProject: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean }) => request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, input),
+  pickNext: (slug: string, key: string) => request<{ next: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/next`, { key }),
+  setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null }) =>
+    request<{ plan_approval: boolean; preview_url: string | null }>("PUT", `/company/projects/${encodeURIComponent(slug)}/options`, input),
+  stopRun: (id: string) => request<{ stopped: true; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/stop`),
+  resumeRun: (id: string) => request<{ woke: boolean; reason: string; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/resume`),
+  noteTask: (slug: string, key: string, text: string) => request<{ noted: true }>("POST", `/company/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/note`, { text }),
+  cancelOrder: (slug: string, key: string) => request<{ cancelled: string[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/orders/${encodeURIComponent(key)}/cancel`),
+  ownerCode: () => request<{ enrolled: boolean }>("GET", "/company/owner-code"),
+  enrolOwnerCode: (input: { password: string; code?: string }) => request<{ secret_base32: string; otpauth_uri: string }>("POST", "/company/owner-code/enroll", input),
   // PLA-I31-3 adds this route; until then it is 404 and the dialog says so.
   createCompanyProject: (input: { name: string; goal: string }) => request<NewProjectResult>("POST", "/company/projects", input),
   // PLA-I25: a project, a product-owner bot and a Playbook. The same slug again changes nothing.
@@ -151,7 +163,30 @@ export const api = {
 // ---- PLA-I33: the organization (Plan doc 61ad843a, "Contrato de API"). Fields the contract leaves
 // untyped (week, budget, last_run) reuse the PLA-I30 shapes.
 
-export type OrgLight = "ok" | "needs_jorge" | "quiet" | "paused" | "no_budget";
+export type OrderKind = "cambio" | "direccion" | "idea";
+export type AskResult = { key: string; title: string; po: string; wake: "queued" | "busy" | "off"; woke: { woke: boolean; reason: string; ticket: string | null; summary: string } | null };
+export type OrgLight = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused" | "no_budget";
+export type OrgLightReason = { text: string; action: { label: string; href: string } | null };
+// PLA-I36-3: Tus órdenes.
+export type OrderState = "enviada" | "entendida" | "en_curso" | "entregada" | "sin_tomar" | "cancelada";
+export type OrderStage = "enviada" | "entendido" | "trabajando" | "pruebalo" | "listo" | "cancelada";
+export type OrgRun = { id: string; role: string; agent: string; step: string; ticket: string; since: string; last: string | null; status: "running" | "stopped" };
+export type OrgOrder = {
+  id: string;
+  kind: "order" | "choice";
+  key?: string | null;
+  title: string;
+  text?: string | null;
+  at: string;
+  state: OrderState;
+  stage?: OrderStage;
+  understood: string | null;
+  who: string | null;
+  link: { kind: "pr" | "doc"; ref: string; title: string } | null;
+  age_h: number | null;
+  plan?: { needs_approval: boolean; approved: boolean; steps: number; done: number; decision: string } | null;
+  run?: OrgRun | null;
+};
 export type OrgMemberState = "running" | "idle" | "waiting_jorge" | "paused" | "no_budget";
 export type OrgProduced = { kind: "doc" | "pr" | "idea" | "plan"; ref: string; title: string };
 export type OrgMember = {
@@ -170,7 +205,9 @@ export type OrgProject = {
   title: string;
   paused: boolean;
   light: OrgLight;
+  light_reason?: OrgLightReason | null;
   goal: string | null;
+  rumbo?: OrgRumbo;
   budget: Budget;
   team: OrgMember[];
   thread: OrgThreadRef;
@@ -179,32 +216,61 @@ export type OrgProject = {
   this_week: { done: number; docs: number; prs: number; last_at: string | null };
   next: { title: string; key: string; owner: string; due: string | null } | null;
   work: { open: number; in_progress: number };
+  orders?: OrgOrder[];
+  // PLA-I36-6/8/10.
+  ready?: { key: string; title: string }[];
+  plan_approval?: boolean;
+  preview_url?: string | null;
 };
+// PLA-I36-5: position by calendar. weeks, today_pct, done_pct are null without a delivery date (no bar).
 export type OrgPlan = {
-  week: number;
-  weeks: number;
   initiative: { key: string; title: string };
   done: number;
   total: number;
+  start_on: string | null;
   due_on: string | null;
+  weeks: number | null;
+  today_pct: number | null;
+  done_pct: number | null;
   pace: "ok" | "late" | "bad" | null;
   weeks_behind: number | null;
+  forecast_on: string | null;
 };
+// PLA-I36-4: the destination.
+export type OrgRumbo = { goal_id: string | null; goal: string | null; why: string; target_on: string | null; forecast_on: string | null; weeks_behind: number | null; missing: boolean };
 // PLA-I35-1: Te toca rows (GET /api/company decisions[]) and POST /api/company/decisions/:id.
-export type DecisionKind = "proposal" | "action" | "question" | "deliverable" | "pr";
-export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios";
+export type DecisionKind = "proposal" | "plan" | "action" | "question" | "deliverable" | "pr" | "step" | "release";
+export type DecisionPlan = { order: string; understood: string; steps: { title: string; done_when: string }[]; cost: string; needs_approval: boolean; created: string[] };
+export type DecisionEvidence = { verdict: string; kind: string; cite: string; pass: number | null; fail: number | null; at: string };
+export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
+export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | null };
+export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number };
+export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar";
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
 export type Decision = {
   id: string;
   project: string | null;
   title: string;
   kind: DecisionKind;
-  options: { n: number; label: string; recommended: boolean }[] | null;
+  options: { n: number; label: string; recommended: boolean; effect?: string; cost?: string }[] | null;
   actions: DecisionAction[];
   state: DecisionState | null;
   at: string;
   ref: string | null;
   detail: string | null;
+  // PLA-I36-2: the evidence in the row. Optional so older fixtures still render.
+  links?: DecisionLink[];
+  body?: string | null;
+  checks?: DecisionChecks | null;
+  release?: DecisionRelease | null;
+  // PLA-I36-7/8/10.
+  combinable?: number[][];
+  recommended_reason?: string | null;
+  plan?: DecisionPlan | null;
+  evidence?: DecisionEvidence | null;
+  files?: number | null;
+  preview_url?: string | null;
+  hold?: string | null;
 };
 export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string };
 export type DecisionResult = { ok: boolean; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
@@ -216,6 +282,7 @@ export type OrgCompany = {
   projects: OrgProject[];
   plumbing: OrgPlumbing;
   decisions: Decision[];
+  inbox?: { decisiones: number; pasos: number };
 };
 export type OrgTemplate = { slug: string; title: string };
 export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[] };

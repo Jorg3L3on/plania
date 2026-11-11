@@ -328,6 +328,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `create_company_project` | Create a project, a product-owner bot and a Playbook doc from the company template. |
 | `wake_agent` | Wake one roster agent through its adapter when its heartbeat is due. |
 | `thread_post` | Write a message in a thread Jorge reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from him. |
+| `propose` | Post a proposal as data in your project's thread; Jorge decides it in Te toca. |
 <!-- mcp-tools:end -->
 
 Rules every write follows:

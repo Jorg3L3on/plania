@@ -8,9 +8,10 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { after, before, beforeEach, test } from "node:test";
 import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, ownerCode, resetTestDb, useOwnerCode, useTestEnv } from "./helpers.js";
 
 useTestEnv();
+await useOwnerCode();
 const { makeDb } = await import("../src/db/client.js");
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
@@ -591,10 +592,11 @@ test("I29-6 #4 and I29-8 #4: an agent token on any limit or switch write gets 40
   // PLA-I32-6: role budgets are retired; Asistente has its own.
   const role = await app.request("/api/company/budgets", { method: "PUT", headers: jorge, body: JSON.stringify({ scope: "role", role: "taller", weekly_limit: 123_456 }) });
   assert.equal(role.status, 400);
-  const set = await app.request("/api/company/budgets", { method: "PUT", headers: jorge, body: JSON.stringify({ scope: "asistente", weekly_limit: 123_456 }) });
+  // PLA-I36-11: raising a limit carries the owner's code.
+  const set = await app.request("/api/company/budgets", { method: "PUT", headers: jorge, body: JSON.stringify({ scope: "asistente", weekly_limit: 123_456, code: await ownerCode() }) });
   assert.equal(set.status, 200);
   assert.equal(Number((await raw.query(`select asistente_weekly_limit from runner_settings`)).rows[0].asistente_weekly_limit), 123_456);
-  const viaSettings = await app.request("/api/company/settings", { method: "PUT", headers: jorge, body: JSON.stringify({ asistente_weekly_limit: 654_321 }) });
+  const viaSettings = await app.request("/api/company/settings", { method: "PUT", headers: jorge, body: JSON.stringify({ asistente_weekly_limit: 654_321, code: await ownerCode() }) });
   assert.equal(((await viaSettings.json()) as { asistente_weekly_limit: number }).asistente_weekly_limit, 654_321);
   const guard = await app.request("/api/company/settings", { method: "PUT", headers: jorge, body: JSON.stringify({ plan_guard_pct: 65 }) });
   assert.equal(((await guard.json()) as { plan_guard_pct: number }).plan_guard_pct, 65);
@@ -710,6 +712,33 @@ test("I29-8 #2: with only micasa off, workia still runs; its live run is stopped
   await runner.waitForAllRuns();
 });
 
+test("I36-9 #2, #3: Detener ends that one run as stopped and frees its ticket; the project keeps running; Seguir queues the same ticket", async () => {
+  const f = fakes({ onSignal: (child, signal) => signal === "SIGINT" && child.exit(130) });
+  await raw.query(`update runner_settings set max_concurrent = 2`);
+  await app.request("/api/company/projects/micasa/switch", { method: "POST", headers: jorge(), body: JSON.stringify({ paused: false }) });
+  await ready("micasa", "RUN-STOP");
+  const started = await wake("taller", f.deps, "RUN-STOP");
+  const runId = (await raw.query(`select id from agent_runs where task_key = 'RUN-STOP' and status = 'running'`)).rows[0]?.id as string;
+  assert.ok(runId, JSON.stringify(started));
+  const res = await app.request(`/api/company/runs/${runId}/stop`, { method: "POST", headers: jorge() });
+  assert.equal(res.status, 200, await res.clone().text());
+  await runner.waitForAllRuns();
+  assert.equal((await raw.query(`select status from agent_runs where id = $1`, [runId])).rows[0].status, "stopped");
+  assert.equal((await raw.query(`select runs_paused from projects where slug = 'micasa'`)).rows[0].runs_paused, false, "the project keeps running");
+  assert.ok(f.signals.some((s) => s.signal === "SIGINT"));
+  const note = (await raw.query(`select payload->>'text' as text from events where task_key = 'RUN-STOP' and type = 'note' order by id desc limit 1`)).rows[0];
+  assert.match(note.text, /Se detuvo la corrida/);
+  // Seguir: the same agent on the same ticket again (cap 0 queues it instead of spawning a real process).
+  await raw.query(`update runner_settings set max_concurrent = 0`);
+  const again = await app.request(`/api/company/runs/${runId}/resume`, { method: "POST", headers: jorge() });
+  assert.equal(again.status, 200, await again.clone().text());
+  const queued = (await raw.query(`select status from agent_runs where task_key = 'RUN-STOP' and id <> $1 order by queued_at desc limit 1`, [runId])).rows[0];
+  assert.equal(queued.status, "queued");
+  assert.equal((await app.request(`/api/company/runs/${runId}/stop`, { method: "POST", headers: jorge() })).status, 409, "a stopped run cannot be stopped again");
+  await raw.query(`delete from agent_runs where task_key = 'RUN-STOP' and status = 'queued'`);
+  await raw.query(`update runner_settings set max_concurrent = 1`);
+});
+
 test("I29-8 #3: resuming the company leaves a self-paused project paused; new projects start paused", async () => {
   await app.request("/api/company/projects/micasa/switch", { method: "POST", headers: jorge(), body: JSON.stringify({ paused: true }) });
   await app.request("/api/company/switch", { method: "POST", headers: jorge(), body: JSON.stringify({ paused: true }) });
@@ -724,7 +753,7 @@ test("I29-8 #3: resuming the company leaves a self-paused project paused; new pr
   assert.equal(state.company.paused, false);
   assert.equal(state.projects.find((p) => p.slug === "micasa")!.paused, true);
   assert.equal(state.projects.find((p) => p.slug === "workia")!.paused, false);
-  assert.deepEqual(Object.keys(state).sort(), ["asistente", "company", "decisions", "plumbing", "projects", "week"]);
+  assert.deepEqual(Object.keys(state).sort(), ["asistente", "company", "decisions", "inbox", "plumbing", "projects", "week"]);
   assert.deepEqual(Object.keys(state.projects[0]!.budget).sort(), ["limit", "pct", "reason", "state", "used"]);
   assert.equal(state.week.timezone, "America/Mexico_City");
   const machine = (await (await app.request("/api/machine", { headers: cookie })).json()) as { plumbing: Awaited<ReturnType<typeof companyState>> & { budgets: unknown; log: unknown } };

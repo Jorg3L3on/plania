@@ -76,7 +76,7 @@ export async function createProjectFromTemplate(db: Db, input: { name: string; g
   const [ceo] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, "ceo")).limit(1);
   const [created] = await db
     .insert(projects)
-    .values({ slug, title: name, keyPrefix, runsPaused: true, runsPausedAt: new Date() })
+    .values({ slug, title: name, keyPrefix, runsPaused: true, runsPausedAt: new Date(), settings: { plan_approval: true } })
     .returning();
   const project = created!;
   try {

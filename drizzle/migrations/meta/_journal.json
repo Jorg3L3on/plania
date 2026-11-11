@@ -274,6 +274,13 @@
       "when": 1793945600000,
       "tag": "0041_company_org",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1794038400000,
+      "tag": "0042_compania_timon",
+      "breakpoints": true
     }
   ]
 }

@@ -5,6 +5,9 @@
 //   ProjectReport   the card as a report, in a fixed order: name and light · week of the plan with its bar and
 //                   pace · this week · Siguiente with its owner · the PO's last line (pointing to Te toca) ·
 //                   Ahora (only who runs or is stuck, else why nobody) · spent / limit · Abrir. No goal, no preview.
+//                   PLA-I36-1: the light's reason under the name, with the action that clears it.
+//                   PLA-I36-2: a Te toca row shows its checks, links and full message in place; steps and releases.
+//                   PLA-I36-3: Tus órdenes, the last five things asked or chosen, each with its state.
 //   PausedList      paused projects as a list: what each keeps inside, and Reanudar.
 //   AsistenteFolded box and suggestions, Asistente's latest message, the day folded to one line with Ver.
 // Presentational: data and actions come in as props (test/compania-v2.test.ts renders them with fake data).
@@ -13,27 +16,35 @@ import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { ago, clock } from "@/lib/compania";
 import type { Decision, DecisionInput, OrgProject, Thread, ThreadMessage } from "@/lib/api";
-import { budgetLine, lightOf, roleName, threadItems } from "@/lib/org";
+import { budgetLine, lightOf, linkHref, linkLabel, roleName, threadItems } from "@/lib/org";
 import {
   SUGGESTIONS,
-  TE_TOCA_EMPTY,
+  checksText,
   foldLine,
   latestFromAsistente,
   lightWord,
   nobodyWhy,
   nowLines,
+  orderText,
   ordered,
   ownerChip,
   paceText,
   pausedText,
   poLine,
   pointerFor,
+  releaseText,
   stateText,
   teToca,
+  teTocaEmpty,
   thisWeekText,
   todayMessages,
-  weekBar,
+  calendarBar,
+  rumboText,
+  RUMBO_MISSING,
+  evidenceText,
+  plainLink,
 } from "@/lib/v2";
+import { Detalles, Levers, OrderBox, RequestList, type Steer } from "@/components/compania/timon";
 import { Composer, MessageRow, PlumbingLink, type SendState } from "@/components/compania/org";
 import { BlockError, Dot, TONE_INK, eyebrow, heading, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
 
@@ -50,17 +61,28 @@ const DecisionRow = ({
   busy,
   error,
   onAct,
+  opened,
 }: {
   d: Decision;
   title: string;
   now: number;
   busy: DecisionBusy;
   error?: string | null;
+  opened?: boolean;
   onAct: (d: Decision, input: DecisionInput, key: string) => void;
 }) => {
   const [reply, setReply] = useState(false);
   const [text, setText] = useState("");
+  const [open, setOpen] = useState(!!opened);
   const acted = !!d.state;
+  const checks = checksText(d);
+  const release = releaseText(d);
+  // PLA-I36-11: tickets and keys go to Detalles; the main line links the doc, the change and the preview.
+  const all = (d.links ?? []).map((l) => ({ ...l, href: linkHref(l, d.project) })).filter((l) => l.href);
+  const links = all.filter((l) => l.kind !== "ticket");
+  const keyed = all.filter((l) => l.kind === "ticket");
+  const evidence = evidenceText(d);
+  const work = d.kind === "pr" || d.kind === "deliverable";
   const busyHere = busy?.id === d.id;
   const options = ordered(d);
   const label = (key: string, word: string) => (busyHere && busy?.key === key ? "…" : word);
@@ -85,10 +107,81 @@ const DecisionRow = ({
       <div className="grid min-w-0 gap-1.5">
         <p className="min-w-0 text-sm break-words">
           <span className="font-semibold">{d.title}</span>
-          {d.ref && <span className="ml-1.5 font-mono text-xs text-muted-foreground">{d.ref}</span>}
           <span className="text-xs text-muted-foreground"> · {ago(d.at, now)}</span>
         </p>
         {d.detail && d.kind !== "proposal" && <p className="line-clamp-2 text-xs text-muted-foreground">{d.detail}</p>}
+        {release && (
+          <p className="text-xs break-words text-muted-foreground" data-release>
+            {release}
+          </p>
+        )}
+        {checks && (
+          <p className={cn("inline-flex items-center gap-1.5 text-xs font-semibold", TONE_INK[checks.tone])} data-checks={checks.open ? "open" : "done"}>
+            <Dot tone={checks.tone} /> {checks.text}
+          </p>
+        )}
+        {(links.length > 0 || d.body) && (
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs" data-links={links.length}>
+            {d.body && (
+              <button type="button" className="font-semibold hover:underline" aria-expanded={open} onClick={() => setOpen(!open)} data-control="ver-mensaje">
+                {open ? "Ocultar mensaje" : "Ver mensaje"}
+              </button>
+            )}
+            {links.map((l) =>
+              /^https?:/.test(l.href!) ? (
+                <a key={`${l.kind}-${l.ref}`} href={l.href!} target="_blank" rel="noreferrer" className="min-w-0 truncate font-semibold text-foreground hover:underline" data-link={l.kind}>
+                  {plainLink(l)} ↗
+                </a>
+              ) : (
+                <Link key={`${l.kind}-${l.ref}`} to={l.href!} className="min-w-0 truncate font-semibold text-foreground hover:underline" data-link={l.kind}>
+                  {plainLink(l)}
+                </Link>
+              ),
+            )}
+          </div>
+        )}
+        {open && d.body && (
+          <p className="max-h-80 overflow-y-auto rounded-xl bg-muted/60 p-3 text-sm leading-relaxed break-words whitespace-pre-wrap" data-body>
+            {d.body}
+          </p>
+        )}
+        {work && (evidence || d.preview_url !== undefined) && (
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs" data-evidence>
+            {evidence && (
+              <span className={cn("inline-flex items-center gap-1.5 font-semibold", TONE_INK[evidence.tone])}>
+                <Dot tone={evidence.tone} /> {evidence.text}
+              </span>
+            )}
+            {d.preview_url ? (
+              <a href={d.preview_url} target="_blank" rel="noreferrer" className="font-semibold text-foreground hover:underline" data-control="vista-previa">
+                Ver la vista previa ↗
+              </a>
+            ) : (
+              <span className="text-muted-foreground" data-no-preview>
+                Sin vista previa: se configura en Detalles del proyecto
+              </span>
+            )}
+          </div>
+        )}
+        {d.plan && (
+          <div className="grid min-w-0 gap-1.5 rounded-xl bg-muted/60 p-3 text-sm" data-plan-row>
+            <p className="break-words">
+              <span className="font-semibold">Lo entendí: </span>
+              {d.plan.understood}
+            </p>
+            <ol className="grid gap-1">
+              {d.plan.steps.map((st, i) => (
+                <li key={i} className="grid min-w-0 gap-0.5" data-step={i + 1}>
+                  <span className="min-w-0 break-words">
+                    <span className="font-mono text-xs text-muted-foreground">{i + 1}.</span> {st.title}
+                  </span>
+                  <span className="pl-4 text-xs break-words text-muted-foreground">Hecho cuando: {st.done_when}</span>
+                </li>
+              ))}
+            </ol>
+            {d.plan.cost && <p className="text-xs text-muted-foreground">Cuesta: {d.plan.cost}</p>}
+          </div>
+        )}
         {acted ? (
           <p className="text-xs font-semibold text-ink-done" data-state={d.state!.action}>
             ✓ {stateText(d.state!)}
@@ -103,6 +196,11 @@ const DecisionRow = ({
                     <span className={cn("min-w-0 flex-1 pt-1.5 text-sm break-words", o.recommended && "font-semibold")}>
                       {o.label}
                       {o.recommended && <span className="font-normal text-muted-foreground"> · recomendado</span>}
+                      {(o.effect || o.cost) && (
+                        <span className="block text-xs font-normal text-muted-foreground" data-option-cost>
+                          {[o.effect, o.cost].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
                     </span>
                     <button
                       type="button"
@@ -118,17 +216,41 @@ const DecisionRow = ({
               </ol>
             )}
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              {d.kind === "proposal" && d.detail && <span className="mr-auto min-w-0 text-xs text-muted-foreground">{d.detail}</span>}
-              {d.kind === "proposal" && options.length >= 2 && (
-                <button
-                  type="button"
-                  data-action="combo"
-                  className={cn(pillGhost, pillSmall)}
-                  disabled={busyHere}
-                  onClick={() => onAct(d, { action: "elegir", option: [1, 2] }, "combo")}
-                >
-                  {label("combo", "1 + 2")}
+              {d.kind === "proposal" && (d.recommended_reason || d.detail) && (
+                <span className="mr-auto min-w-0 text-xs text-muted-foreground">{d.recommended_reason ? `Recomienda: ${d.recommended_reason}` : d.detail}</span>
+              )}
+              {d.kind === "proposal" &&
+                (d.combinable ?? []).map((set) => (
+                  <button
+                    key={set.join("+")}
+                    type="button"
+                    data-action="combo"
+                    className={cn(pillGhost, pillSmall)}
+                    disabled={busyHere}
+                    onClick={() => onAct(d, { action: "elegir", option: set }, `combo-${set.join("+")}`)}
+                  >
+                    {label(`combo-${set.join("+")}`, set.join(" + "))}
+                  </button>
+                ))}
+              {d.actions.includes("empezar") && (
+                <button type="button" data-action="empezar" className={cn(pillPrimary, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "empezar" }, "empezar")}>
+                  {label("empezar", "Sí, empiecen")}
                 </button>
+              )}
+              {d.actions.includes("cambiar") && (
+                <button type="button" data-action="cambiar" className={cn(pillGhost, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "cambiar" }, "cambiar")}>
+                  {label("cambiar", "Cambiar algo")}
+                </button>
+              )}
+              {d.actions.includes("cancelar") && (
+                <button type="button" data-action="cancelar" className={cn(pillGhost, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "cancelar" }, "cancelar")}>
+                  {label("cancelar", "Cancelar")}
+                </button>
+              )}
+              {d.kind === "release" && (
+                <Link to="/inbox" className={cn(pillPrimary, pillSmall)} data-action="publicar">
+                  Publicar en Bandeja
+                </Link>
               )}
               {d.actions.includes("hecho") && (
                 <button type="button" data-action="hecho" className={cn(pillPrimary, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "hecho" }, "hecho")}>
@@ -145,11 +267,17 @@ const DecisionRow = ({
                   type="button"
                   data-action={d.actions.includes("fusionar") ? "fusionar" : "aceptar"}
                   className={cn(pillPrimary, pillSmall)}
-                  disabled={busyHere}
+                  disabled={busyHere || !!d.hold}
+                  title={d.hold ?? undefined}
                   onClick={() => onAct(d, { action: d.actions.includes("fusionar") ? "fusionar" : "aceptar" }, "aceptar")}
                 >
-                  {label("aceptar", d.actions.includes("fusionar") ? "Fusionar" : "Aceptar")}
+                  {label("aceptar", "Aceptar")}
                 </button>
+              )}
+              {d.hold && (d.actions.includes("fusionar") || d.actions.includes("aceptar")) && (
+                <span className="text-xs font-semibold text-ink-blocked" data-hold>
+                  {d.hold}
+                </span>
               )}
               {d.actions.includes("cambios") && (
                 <button type="button" data-action="cambios" className={cn(pillGhost, pillSmall)} disabled={busyHere} aria-expanded={reply} onClick={() => setReply(!reply)}>
@@ -191,6 +319,12 @@ const DecisionRow = ({
             )}
           </>
         )}
+        {(d.ref || keyed.length > 0) && (
+          <details className="text-xs text-muted-foreground" data-detalles>
+            <summary className="cursor-pointer select-none">Detalles</summary>
+            <p className="pt-1 font-mono break-words">{[d.ref, ...keyed.map((l) => l.ref)].filter((x, i, a) => x && a.indexOf(x) === i).join(" · ")}</p>
+          </details>
+        )}
         {error && <p className="text-xs text-ink-blocked">{error}</p>}
       </div>
     </li>
@@ -204,7 +338,12 @@ export const TeToca = ({
   busy,
   errors,
   onAct,
+  inbox,
+  open,
 }: {
+  inbox?: { decisiones: number; pasos: number };
+  // ?decision=<id>: that row opens with its full message.
+  open?: string | null;
   decisions: Decision[];
   titles: Record<string, string>;
   now: number;
@@ -228,12 +367,12 @@ export const TeToca = ({
       </div>
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground" data-empty="te-toca">
-          {TE_TOCA_EMPTY}
+          {teTocaEmpty(inbox)}
         </p>
       ) : (
         <ul className="grid min-w-0">
           {rows.map((d) => (
-            <DecisionRow key={d.id} d={d} title={(d.project && titles[d.project]) || d.project || "Compañía"} now={now} busy={busy} error={errors?.[d.id] ?? null} onAct={onAct} />
+            <DecisionRow key={d.id} d={d} title={(d.project && titles[d.project]) || d.project || "Compañía"} now={now} busy={busy} error={errors?.[d.id] ?? null} onAct={onAct} opened={open === d.id} />
           ))}
         </ul>
       )}
@@ -243,9 +382,27 @@ export const TeToca = ({
 
 // ---- the card as a report
 
-export const ProjectReport = ({ project: p, decisions, now, companyPaused, timeZone }: { project: OrgProject; decisions: Decision[]; now: number; companyPaused: boolean; timeZone?: string }) => {
+export const ProjectReport = ({
+  project: p,
+  decisions,
+  now,
+  companyPaused,
+  timeZone,
+  onFijar,
+  steer,
+}: {
+  project: OrgProject;
+  decisions: Decision[];
+  now: number;
+  companyPaused: boolean;
+  timeZone?: string;
+  onFijar?: (p: OrgProject) => void;
+  steer?: Steer;
+}) => {
   const light = lightOf(p.light);
   const pace = p.plan ? paceText(p.plan) : null;
+  const bar = p.plan ? calendarBar(p.plan) : null;
+  const rumbo = rumboText(p);
   const po = poLine(p);
   const pointer = pointerFor(decisions, p.slug);
   const working = nowLines(p);
@@ -262,14 +419,63 @@ export const ProjectReport = ({ project: p, decisions, now, companyPaused, timeZ
         </span>
       </div>
 
+      {p.light_reason && (
+        <p className={cn("-mt-1 min-w-0 text-sm break-words", light.tone === "stop" ? "text-ink-blocked" : "text-muted-foreground")} data-light-reason>
+          {p.light_reason.text}
+          {p.light_reason.action &&
+            (p.light_reason.action.href.startsWith("#") ? (
+              <a href={p.light_reason.action.href} className="ml-1.5 font-semibold whitespace-nowrap text-foreground hover:underline" data-light-action>
+                {p.light_reason.action.label}
+              </a>
+            ) : (
+              <Link to={p.light_reason.action.href} className="ml-1.5 font-semibold whitespace-nowrap text-foreground hover:underline" data-light-action>
+                {p.light_reason.action.label} →
+              </Link>
+            ))}
+        </p>
+      )}
+
+      {/* PLA-I36-8: the box, the card's main control. */}
+      {steer && !p.paused && p.light !== "paused" && <OrderBox project={p} steer={steer} />}
+
+      {/* PLA-I36-4: Rumbo, the destination. */}
+      {rumbo.missing ? (
+        <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl bg-status-now/10 px-3 py-2 text-sm text-ink-now" data-rumbo="missing">
+          <span className="font-semibold">{RUMBO_MISSING}</span>
+          {rumbo.goal && <span className="min-w-0 break-words text-muted-foreground">· {rumbo.goal}</span>}
+          {onFijar && (
+            <button type="button" className="ml-auto font-semibold text-foreground hover:underline" onClick={() => onFijar(p)} data-control="fijar">
+              Fijar
+            </button>
+          )}
+        </p>
+      ) : (
+        <div className="grid min-w-0 gap-0.5" data-rumbo="set">
+          <p className={eyebrow}>Rumbo</p>
+          <p className="line-clamp-3 min-w-0 text-sm font-semibold break-words" title={rumbo.goal ?? undefined} data-goal>
+            {rumbo.goal}
+          </p>
+          <p className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+            <span data-target>Entrega {rumbo.date}</span>
+            {rumbo.forecast && (
+              <span className={cn("inline-flex items-center gap-1.5 font-semibold", TONE_INK[rumbo.forecast.tone])} data-forecast>
+                <Dot tone={rumbo.forecast.tone} /> {rumbo.forecast.text}
+              </span>
+            )}
+            {onFijar && (
+              <button type="button" className="ml-auto font-semibold hover:underline" onClick={() => onFijar(p)} data-control="fijar">
+                Cambiar
+              </button>
+            )}
+          </p>
+        </div>
+      )}
+
       {p.plan && (
-        <div className="grid gap-1.5" data-plan>
+        <div className="grid gap-1.5" data-plan={bar ? "calendar" : "initiative"}>
           <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-sm">
             <span className="min-w-0">
-              <span className="font-semibold">
-                Semana {p.plan.week} de {p.plan.weeks}
-              </span>
-              <span className="text-muted-foreground max-sm:hidden"> · {p.plan.initiative.title}</span>
+              <span className="font-semibold break-words">{p.plan.initiative.title}</span>
               <span className="text-muted-foreground">
                 {" "}
                 · {p.plan.done} de {p.plan.total} hechos
@@ -281,13 +487,17 @@ export const ProjectReport = ({ project: p, decisions, now, companyPaused, timeZ
               </span>
             )}
           </div>
-          <div className="flex gap-1" aria-hidden>
-            {weekBar(p.plan).map((fill, i) => (
-              <span key={i} className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                <span className="block h-full rounded-full bg-status-done" style={{ width: `${fill}%` }} />
-              </span>
-            ))}
-          </div>
+          {bar && (
+            <>
+              <div className="relative h-2 rounded-full bg-muted" role="img" aria-label={bar.line} data-weeks={bar.weeks}>
+                <span className="absolute inset-y-0 left-0 rounded-full bg-status-done" style={{ width: `${bar.done}%` }} data-fill={bar.done} />
+                <span className="absolute -inset-y-1 w-0.5 rounded-full bg-foreground" style={{ left: `calc(${bar.today}% - 1px)` }} data-today={bar.today} />
+              </div>
+              <p className="min-w-0 text-xs break-words text-muted-foreground" data-gap>
+                {bar.line}
+              </p>
+            </>
+          )}
         </div>
       )}
 
@@ -351,12 +561,17 @@ export const ProjectReport = ({ project: p, decisions, now, companyPaused, timeZ
         )}
       </div>
 
+      <RequestList project={p} now={now} timeZone={timeZone} steer={steer} />
+
+      {steer && <Levers project={p} steer={steer} />}
+
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border pt-2">
         <PlumbingLink text={plumbing.text} tone={plumbing.tone} className="max-w-full" />
         <Link to={`/p/${encodeURIComponent(p.slug)}`} className="ml-auto inline-flex min-h-9 items-center px-1 text-sm font-semibold hover:underline">
           Abrir →
         </Link>
       </div>
+      <Detalles project={p} steer={steer} />
     </li>
   );
 };

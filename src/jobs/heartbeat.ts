@@ -40,6 +40,8 @@ export type ReadyWork = {
   ownerAgent: string | null;
   // PLA-I29-10: the project's runs_paused switch. A paused project offers no work to anyone.
   paused?: boolean;
+  // PLA-I36-6: Jorge picked this ticket to go first in its project (settings.next_first).
+  first?: boolean;
 };
 
 export type HeartbeatRunView = {
@@ -109,6 +111,8 @@ export const pickReady = (agent: { id: string; slug?: string; role: string; capa
   matches.sort((a, b) => {
     const owned = Number(b.ownerAgent === agent.id) - Number(a.ownerAgent === agent.id);
     if (owned) return owned;
+    const first = Number(!!b.first) - Number(!!a.first);
+    if (first) return first;
     const priority = priorityRank(a.priority) - priorityRank(b.priority);
     if (priority) return priority;
     return a.project.localeCompare(b.project) || a.key.localeCompare(b.key);
@@ -126,6 +130,7 @@ export const loadReady = async (db: Db): Promise<ReadyWork[]> => {
       workType: tasks.workType,
       ownerAgent: tasks.ownerAgent,
       paused: projects.runsPaused,
+      first: sql<boolean>`coalesce(${projects.settings}->>'next_first' = ${tasks.key}, false)`,
     })
     .from(tasks)
     .innerJoin(projects, eq(projects.id, tasks.projectId))

@@ -8,14 +8,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate, useLocation, useNavigate } from "react-router";
-import { BlockError, eyebrow, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
+import { BlockError, StopBody, eyebrow, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
+import type { Steer } from "@/components/compania/timon";
+import { toast } from "sonner";
 import { CompanyPlumbing, ThreadSkeleton } from "@/components/compania/org";
 import { AsistenteFolded, PausedList, ProjectReport, ProjectsSkeleton, TeToca, type DecisionBusy } from "@/components/compania/v2";
 import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
 import { useThread } from "@/components/compania/use-thread";
+import { GoalDialog } from "@/components/goals/goal-dialog";
+import type { Goal } from "@/components/goals/model";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { ApiError, api, type Decision, type DecisionInput } from "@/lib/api";
+import { ApiError, api, type Decision, type DecisionInput, type OrgProject } from "@/lib/api";
 import { ceoRedirect, sheetOf } from "@/lib/compania";
 import { byLight } from "@/lib/org";
 import { greeting } from "@/lib/greeting";
@@ -57,12 +61,21 @@ export const CeoPage = () => {
   return to ? <Navigate to={to} replace /> : <Compania />;
 };
 
+const STEER_REFUSAL: Record<string, string> = {
+  PROJECT_PAUSED: "El proyecto está en pausa: reanúdalo primero.",
+  COMPANY_PAUSED: "La compañía está detenida.",
+  RUN_NOT_LIVE: "Esa corrida ya terminó.",
+  NOT_READY: "Ese ya no está listo.",
+};
+
 const DECISION_REFUSAL: Record<string, string> = {
+  NOT_COMBINABLE: "Esas opciones no van juntas.",
   ALREADY_ACTED: "Ya actuaste sobre esto.",
   CHECKS_OPEN: "El ticket tiene checks abiertos.",
   NOT_IN_REVIEW: "Ya no está en revisión.",
   MERGE_FAILED: "No se pudo fusionar: revisa el PR.",
-  BASE_NOT_SANDBOX: "El PR no apunta a sandbox.",
+  BASE_NOT_SANDBOX: "El cambio no apunta a la copia de prueba.",
+  OWNER_CODE: "Publicar se hace en Bandeja, con tu código.",
 };
 
 const Compania = () => {
@@ -94,6 +107,8 @@ const Compania = () => {
 
   // Te toca: the result is written in the row at once; the next read keeps it (acted rows stay 24 h).
   const [acted, setActed] = useState<Record<string, Decision>>({});
+  // PLA-I36-8: words handed back to a card's box by Cambiar algo, per project.
+  const [prefill, setPrefill] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<DecisionBusy>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const decisions = useMemo(() => (company?.decisions ?? []).map((d) => acted[d.id] ?? d), [company, acted]);
@@ -105,6 +120,8 @@ const Compania = () => {
     },
     onSuccess: (r, v) => {
       setActed((a) => ({ ...a, [v.d.id]: r.decision ?? { ...v.d, state: r.state, actions: [] } }));
+      // PLA-I36-8: Cambiar algo hands the order's words back to its card's box.
+      if (v.input.action === "cambiar" && v.d.project && typeof r.state.result.text === "string") setPrefill((x) => ({ ...x, [v.d.project!]: r.state.result.text as string }));
       void client.invalidateQueries({ queryKey: ["company"] });
       void client.invalidateQueries({ queryKey: ["thread"] });
     },
@@ -114,6 +131,62 @@ const Compania = () => {
         [v.d.id]: e instanceof ApiError ? (DECISION_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar.",
       })),
     onSettled: () => setBusy(null),
+  });
+  // PLA-I36-4: Fijar opens the goal dialog for that project's goal (the placeholder is edited, not kept).
+  const [fijar, setFijar] = useState<OrgProject | null>(null);
+  const fijarGoal: Goal | null =
+    fijar?.rumbo?.goal_id != null
+      ? {
+          id: fijar.rumbo.goal_id,
+          title: fijar.rumbo.goal ?? "",
+          why: fijar.rumbo.why,
+          status: "active",
+          target_on: fijar.rumbo.target_on,
+          position: 0,
+          project: fijar.slug,
+          parent_id: null,
+          progress: { done: 0, total: 0 },
+          initiatives: [],
+          children: [],
+        }
+      : null;
+  // PLA-I36-6/8/9: steering from the card.
+  const [steerBusy, setSteerBusy] = useState<string | null>(null);
+  const [pausing, setPausing] = useState<OrgProject | null>(null);
+  const refresh = () => void client.invalidateQueries({ queryKey: ["company"] });
+  const quietly = async (key: string, fn: () => Promise<unknown>) => {
+    setSteerBusy(key);
+    try {
+      await fn();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar.");
+    } finally {
+      setSteerBusy(null);
+      refresh();
+    }
+  };
+  const steer: Steer = {
+    onAsk: async (slug, input) => {
+      const r = await api.askProject(slug, input);
+      setPrefill((x) => ({ ...x, [slug]: "" }));
+      refresh();
+      return r;
+    },
+    onPickNext: (slug, key) => void quietly(`next-${key}`, () => api.pickNext(slug, key)),
+    onPause: (p) => setPausing(p),
+    onRun: (action, id) => void quietly(id, () => (action === "stop" ? api.stopRun(id) : api.resumeRun(id))),
+    onNote: (slug, key, text) => void quietly(`note-${key}`, async () => (await api.noteTask(slug, key, text), toast("Se lo dijiste; lo lee en su siguiente paso"))),
+    onCancelOrder: (slug, key) => void quietly(`cancel-${key}`, () => api.cancelOrder(slug, key)),
+    onOptions: (slug, input) => void quietly(`options-${slug}`, () => api.setProjectOptions(slug, input)),
+    prefill,
+    busy: steerBusy,
+  };
+  const pause = useMutation({
+    mutationFn: (slug: string) => api.setProjectPaused(slug, true),
+    onSettled: () => {
+      setPausing(null);
+      refresh();
+    },
   });
   const [resuming, setResuming] = useState<string | null>(null);
   const resume = useMutation({
@@ -167,7 +240,7 @@ const Compania = () => {
       {comp.isPending ? (
         <div className="h-36 animate-pulse rounded-[22px] bg-muted" aria-hidden data-testid="te-toca-skeleton" />
       ) : company ? (
-        <TeToca decisions={decisions} titles={titles} now={now} busy={busy} errors={errors} onAct={(d, input, key) => act.mutate({ d, input, key })} />
+        <TeToca decisions={decisions} inbox={company.inbox} open={new URLSearchParams(location.search).get("decision")} titles={titles} now={now} busy={busy} errors={errors} onAct={(d, input, key) => act.mutate({ d, input, key })} />
       ) : null}
 
       <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
@@ -214,7 +287,7 @@ const Compania = () => {
               {live.length > 0 && (
                 <ul className={cn("grid min-w-0 gap-3", live.length > 1 && "xl:grid-cols-2")} data-testid="project-cards">
                   {live.map((p) => (
-                    <ProjectReport key={p.slug} project={p} decisions={decisions} now={now} companyPaused={company.company.paused} timeZone={timeZone} />
+                    <ProjectReport key={p.slug} project={p} decisions={decisions} now={now} companyPaused={company.company.paused} timeZone={timeZone} onFijar={setFijar} steer={steer} />
                   ))}
                 </ul>
               )}
@@ -238,6 +311,38 @@ const Compania = () => {
               <BlockError what="el doc" onRetry={() => void doc.refetch()} />
             ) : (
               <div className="h-40 animate-pulse rounded-xl bg-muted" />
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <GoalDialog
+        open={fijar !== null}
+        goal={fijarGoal}
+        fixedProject={fijar?.slug}
+        projects={[]}
+        parents={[]}
+        onOpenChange={(open) => !open && setFijar(null)}
+        onSaved={() => void client.invalidateQueries({ queryKey: ["company"] })}
+      />
+
+      {/* PLA-I36-6: Pausar from the card, with the confirmation the project page uses. */}
+      <Sheet open={pausing !== null} onOpenChange={(open) => !open && setPausing(null)}>
+        <SheetContent side="bottom" className="mx-auto max-h-[85svh] w-full max-w-xl overflow-y-auto rounded-t-[22px] bg-background">
+          <SheetHeader className="pr-10">
+            <SheetTitle className="font-display text-2xl font-extrabold tracking-tight">¿Pausar {pausing?.title}?</SheetTitle>
+            <SheetDescription>Se puede deshacer: reanudas cuando quieras.</SheetDescription>
+          </SheetHeader>
+          <div className="px-4 pb-8">
+            {pausing && (
+              <StopBody
+                scope={{ kind: "project", slug: pausing.slug, title: pausing.title }}
+                runs={[]}
+                projectTitle={() => pausing.title}
+                busy={pause.isPending}
+                onCancel={() => setPausing(null)}
+                onConfirm={() => pause.mutate(pausing.slug)}
+              />
             )}
           </div>
         </SheetContent>

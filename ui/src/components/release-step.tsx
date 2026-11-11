@@ -9,6 +9,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 import { CopyCommand } from "@/components/copy-command";
 import { ProjectMark } from "@/components/plania-mark";
+import { OWNER_CODE_WORDS, OwnerCodeInput, isOwnerCode } from "@/components/compania/sheets";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ApiError, api } from "@/lib/api";
@@ -42,6 +43,7 @@ const SHIP_BLOCK: Record<ShipBlock, string> = {
 
 function shipError(e: unknown): string {
   if (!(e instanceof ApiError)) return "No se pudo lanzar.";
+  if (OWNER_CODE_WORDS[e.code]) return OWNER_CODE_WORDS[e.code]!;
   if (e.code === "RELEASE_MERGE_FAILED") return `GitHub no aceptó el paso ${String(e.detail.step)}: ${String(e.detail.output ?? "")}`;
   if (e.code === "RELEASE_NOT_READY") return `Ya no se puede lanzar: ${SHIP_BLOCK[e.detail.reason as ShipBlock] ?? String(e.detail.reason)}.`;
   return e.code;
@@ -49,9 +51,11 @@ function shipError(e: unknown): string {
 
 function ShipButton({ item, plan }: { item: InboxItem; plan: ReleasePlan }) {
   const [open, setOpen] = useState(false);
+  // PLA-I36-11: publishing to main asks for the owner's code.
+  const [code, setCode] = useState("");
   const queryClient = useQueryClient();
   const ship = useMutation({
-    mutationFn: () => api.shipRelease(item.project),
+    mutationFn: () => api.shipRelease(item.project, code),
     onSuccess: (out) => {
       toast(`${plan.from.branch} → ${plan.into.branch} fusionado (${out.merge_sha.slice(0, 7)}); el deploy lo cierra`);
       setOpen(false);
@@ -100,6 +104,7 @@ function ShipButton({ item, plan }: { item: InboxItem; plan: ReleasePlan }) {
                 {plural(plan.migrations.length, "migración", "migraciones")}: {plan.migrations.join(", ")}. {plan.into.branch} las necesita en {plan.env}.
               </p>
             )}
+            <OwnerCodeInput value={code} onChange={setCode} why="Publicar pide el código del dueño." />
             {ship.isError && (
               <p role="alert" className="rounded-lg border border-destructive/40 px-3 py-2 text-destructive">
                 {shipError(ship.error)}
@@ -110,7 +115,7 @@ function ShipButton({ item, plan }: { item: InboxItem; plan: ReleasePlan }) {
             <Button variant="outline" className="h-11 sm:h-9" onClick={() => setOpen(false)} disabled={ship.isPending}>
               Cancelar
             </Button>
-            <Button className="h-11 sm:h-9" onClick={() => ship.mutate()} disabled={ship.isPending}>
+            <Button className="h-11 sm:h-9" onClick={() => ship.mutate()} disabled={ship.isPending || !isOwnerCode(code)}>
               {ship.isPending ? "Lanzando…" : `Lanzar ${plural(plan.tickets.length, "ticket", "tickets")}`}
             </Button>
           </SheetFooter>

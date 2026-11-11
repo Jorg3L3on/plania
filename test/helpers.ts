@@ -53,3 +53,22 @@ export async function resetTestDb(): Promise<pg.Client> {
   );
   return raw;
 }
+
+// PLA-I36-11: the owner's code in tests. A fixed secret in a memory store (never the keychain); each call moves
+// the TOTP clock one step, so two codes in the same test never share a time step.
+const OWNER_SECRET = Buffer.alloc(20, 7);
+let ownerTick = 0;
+export async function useOwnerCode(enrolled = true): Promise<void> {
+  const { MemoryOwnerSecretStore, useOwnerStore } = await import("../src/auth/owner-store.js");
+  const store = new MemoryOwnerSecretStore();
+  if (enrolled) await store.set(OWNER_SECRET);
+  useOwnerStore(store);
+}
+export async function ownerCode(): Promise<string> {
+  const { ownerClock, totp } = await import("../src/auth/owner-totp.js");
+  const base = Date.now();
+  ownerTick += 1;
+  const at = base + ownerTick * 30_000;
+  ownerClock.now = () => at;
+  return totp(OWNER_SECRET, at);
+}

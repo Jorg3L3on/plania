@@ -621,6 +621,8 @@ export const pullRequests = pgTable(
     mergeSha: text("merge_sha"),
     ciState: text("ci_state"), // pending | success | failure
     ciUrl: text("ci_url"),
+    // PLA-I36-10: how many files the PR changes, when the poller read it.
+    changedFiles: integer("changed_files"),
     ghUpdatedAt: timestamp("gh_updated_at", { withTimezone: true }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -765,6 +767,12 @@ export type ProjectSettings = {
   release?: ReleaseSettings;
   // PLA-I21: how long since a check-in counts as idle. A live claim past this is stuck. Default 120.
   team?: { idle_minutes?: number };
+  // PLA-I36-6: the Ready ticket Jorge picked to go first (Cambiar lo siguiente); ignored once it leaves Ready.
+  next_first?: string;
+  // PLA-I36-8: a PO's plan waits for "Sí, empiecen" before any ticket is made. On for a new project.
+  plan_approval?: boolean;
+  // PLA-I36-10: where the project's running preview lives (Ver la vista previa).
+  preview_url?: string;
 };
 
 // 2.13: mode "command" (default) shows the command Jorge runs; "merge" lets him ship from the screen
@@ -1115,6 +1123,26 @@ export const THREAD_KINDS = ["company", "project"] as const;
 export type ThreadKind = (typeof THREAD_KINDS)[number];
 export const LINK_KINDS = ["ticket", "doc", "pr", "idea", "question"] as const;
 export type ThreadLink = { kind: (typeof LINK_KINDS)[number]; ref: string; title: string };
+// PLA-I36-7/8: what a PO proposes. choice: options to pick from. plan: what it understood of an order, the steps
+// (each with what done means) and the cost; on approval the server makes one Ready ticket per step.
+export type ProposalCost = { tickets?: number; days?: number; tokens?: number; delays?: string };
+export type ProposalOption = { n: number; label: string; effect: string; cost: ProposalCost; recommended: boolean };
+export type ProposalStep = { title: string; done_when: string; work_type: string };
+export type ProposalData = {
+  kind: "choice" | "plan";
+  title: string;
+  options: ProposalOption[];
+  recommended_reason: string | null;
+  combinable: number[][];
+  order: string | null;
+  understood: string | null;
+  steps: ProposalStep[];
+  cost: ProposalCost;
+  links: ThreadLink[];
+  // plan: whether it waited for approval (the project's switch when it was posted), and the tickets made.
+  needs_approval: boolean;
+  created: string[];
+};
 export const THREAD_ACTIONS = ["aceptar", "cambios", "responder"] as const;
 export type ThreadAction = (typeof THREAD_ACTIONS)[number];
 export type ActionState = { action: ThreadAction; at: string; result: Record<string, unknown> };
@@ -1152,6 +1180,8 @@ export const threadMessages = pgTable(
     links: jsonb("links").$type<ThreadLink[]>().notNull().default([]),
     actionState: jsonb("action_state").$type<ActionState | null>(),
     questionId: uuid("question_id").references(() => questions.id, { onDelete: "set null" }),
+    // PLA-I36-7: a PO's proposal as data (the `propose` tool). The body keeps a prose copy.
+    proposal: jsonb("proposal").$type<ProposalData | null>(),
   },
   (t) => [
     index("thread_messages_thread_idx").on(t.threadId, t.at),
@@ -1159,6 +1189,7 @@ export const threadMessages = pgTable(
     check("thread_messages_author_check", sql`char_length(${t.authorAgent}) between 1 and 60 and char_length(${t.authorRole}) between 1 and 40`),
     check("thread_messages_links_check", sql`jsonb_typeof(${t.links}) = 'array' and jsonb_array_length(${t.links}) <= 10`),
     check("thread_messages_action_state_check", sql`${t.actionState} is null or jsonb_typeof(${t.actionState}) = 'object'`),
+    check("thread_messages_proposal_check", sql`${t.proposal} is null or jsonb_typeof(${t.proposal}) = 'object'`),
   ],
 );
 
