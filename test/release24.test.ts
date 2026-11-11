@@ -140,10 +140,10 @@ describe("write-time guards", () => {
     const refused = await call("set_task", { ...P, key: "FIL-I1-4", status: "Merged", version: v });
     assert.equal(refused.__error, "TASK_MISSING_PR_URL");
     assert.equal(refused.to, "Merged");
-    await call("add_result", { ...P, key: "FIL-I1-4", kind: "scan", verdict: "pass", cite: "pnpm merge-gate example/filmia 41", commit: "ccccccc3" });
+    await call("add_result", { ...P, key: "FIL-I1-4", kind: "scan", verdict: "pass", cite: "pnpm merge-gate example/filmia 41", commit: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" });
     await raw.query(
       `insert into pull_requests (project_id, repo, number, url, title, task_id, state, head_sha, merge_sha, merged_at, head_branch, base_branch)
-       select p.id, 'example/filmia', 41, $1, 'phase', t.id, 'merged', 'ccccccc3', 'ccccccc3', now(), 'jl/fil-surface', 'main'
+       select p.id, 'example/filmia', 41, $1, 'phase', t.id, 'merged', 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', 'ccccccc3', now(), 'jl/fil-surface', 'main'
        from projects p join tasks t on t.project_id = p.id where p.slug = 'filmia' and t.key = 'FIL-I1-4'`,
       [PR],
     );

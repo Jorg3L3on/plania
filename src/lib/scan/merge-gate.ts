@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { oneLine, readTokenFile } from "../../jobs/gh-token.js";
 import type { MergeMethod } from "./merge-cli.js";
+import { recordScanViaMcp, type ScanRecord } from "./merge-record.js";
 import type { ScanReport } from "./report.js";
 import { execute } from "./run.js";
 
@@ -41,6 +42,7 @@ export type MergeGateDeps = {
   /** Source ref to fetch as the head. Default is refs/pull/<pr>/head. */
   headRefspec?: string;
   scan?: (repoPath: string, base: string, head: string) => Promise<ScanReport>;
+  record?: (input: ScanRecord) => Promise<void>;
 };
 
 type Pull = { sha: string; baseRef: string };
@@ -180,7 +182,7 @@ export function renderMergeJson(result: MergeGateResult): string {
 }
 
 export async function runMergeGate(
-  input: { repo: string; pr: number; method?: MergeMethod },
+  input: { repo: string; pr: number; method?: MergeMethod; ticket?: string },
   deps: MergeGateDeps = {},
 ): Promise<MergeGateResult> {
   const method = input.method ?? null;
@@ -202,6 +204,30 @@ export async function runMergeGate(
     const findings = report.findings.map(({ rule, file, line }) => ({ rule, file, line }));
     const gitleaks = { ran: report.gitleaks.ran, error: report.gitleaks.error };
     const scanError = report.error && !passed(report) ? report.error : null;
+    const finished = report.gitleaks.ran && !report.gitleaks.error && !report.error;
+    if (input.ticket && finished && SHA.test(first.sha)) {
+      const cite = JSON.stringify({
+        ok: passed(report),
+        repo: input.repo,
+        pr: input.pr,
+        base: first.baseRef,
+        head: first.sha,
+        findings,
+        gitleaks,
+      });
+      try {
+        await (deps.record ?? recordScanViaMcp)({
+          ticket: input.ticket,
+          commit: first.sha,
+          cite,
+          command: "merge-gate",
+          verdict: passed(report) ? "pass" : "fail",
+        });
+      } catch (error) {
+        const message = error instanceof Error ? redact(error.message) : "plania record failed";
+        return { ok: false, repo: input.repo, pr: input.pr, base: first.baseRef, head: first.sha, method, merged: false, findings, gitleaks, error: message };
+      }
+    }
     if (!passed(report)) {
       return {
         ok: false,

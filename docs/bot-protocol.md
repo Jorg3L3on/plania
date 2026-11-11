@@ -23,10 +23,16 @@ Titles, labels and `understood` use plain words: no ticket keys, branch names or
 
 ## App-repo merges (protocol 2.20)
 
-Before merging a pull request in filmia, micasa, zigzag, or workia, run this from the plania repo and no other merge:
+Before merging a pull request in filmia, micasa, zigzag, or workia, run this from the plania repo:
 
 ```bash
-pnpm merge-gate <owner/repo> <pr-number> --merge squash
+pnpm merge-gate <owner/repo> <pr-number> --merge squash --record <TICKET>
 ```
 
-`--json` prints one object. Exit 0 only when `ok` is true, `gitleaks.ran` is true, and `gitleaks.error` is null. Then `add_result` on the ticket: kind `scan`, verdict `pass`, `commit` the `head` that was scanned (after a squash that head is the one that was scanned, not the squash commit). `SCAN_REQUIRED` blocks Merged without that pass. A finding blocks the merge unless that path or string is on the allowlist. Only Jorge appends an allowlist entry. Do not merge any other way, and do not add files to the app repo for this.
+`--record` writes the scan result through Plania. The cite is the redacted report, `command` is `merge-gate`, and `commit` is the scanned head (40 hex). Do not call `add_result` yourself for this pass. Exit 0 only when `ok` is true, `gitleaks.ran` is true, and `gitleaks.error` is null.
+
+A finding blocks the merge unless that path or string is on the allowlist. Only Jorge appends an allowlist entry. `SCAN_REQUIRED` blocks Merged unless that pass's commit is exactly the PR head.
+
+A merge that does not go through merge-gate is only detected: the ticket stays In review. Stopping that merge is the PLA-I38-3 ruleset, which is not here yet. When that ruleset is live, the pass should also accept or require a GitHub check named `plania-scan` with success on the head. A bot cannot fabricate that status.
+
+Do not add files to the app repo for this. The write token may be a static token with actor `merge-gate`, or set `PLANIA_MERGE_GATE_AGENT` to the agent named on a bound token. `PLANIA_MCP_URL` defaults to `http://127.0.0.1:3737/mcp`.

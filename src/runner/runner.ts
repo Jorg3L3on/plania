@@ -380,7 +380,7 @@ export function userPrompt(input: {
   lines.push(
     `Plania first: open the ticket with start (actor session_id ${input.sessionId}, that workspace) before you touch code.`,
     appRepo
-      ? "Commit on your branch and open the PR into sandbox. Merge it only with pnpm merge-gate <owner/repo> <pr> --merge squash, then add_result kind scan, verdict pass, commit the scanned head. Never merge any other way."
+      ? "Commit on your branch and open the PR into sandbox. Merge it only with pnpm merge-gate <owner/repo> <pr> --merge squash --record <TICKET>. Never merge any other way."
       : "Never main: commit on your branch, open PRs into sandbox only, never merge. Stop when the ticket is In review or when only Jorge can decide (ask).",
   );
   return lines.join("\n");

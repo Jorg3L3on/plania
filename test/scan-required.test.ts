@@ -8,7 +8,7 @@ import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -20,6 +20,7 @@ const { createMcpServer } = await import("../src/mcp/register.js");
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
 const { ToolError } = await import("../src/mcp/errors.js");
+const { recordScanViaMcp } = await import("../src/lib/scan/merge-record.js");
 
 const HEAD = "abcabca111111111111111111111111111111111";
 const SQUASH = "ddddddd222222222222222222222222222222222";
@@ -92,6 +93,68 @@ test("a scan pass on the PR head allows Merged; a missing, failing, or squash-on
   });
   await addResult(db, { project: "filmia", key, kind: "scan", verdict: "pass", cite: "pnpm merge-gate example/filmia 8", commit: HEAD }, ctx);
   const merged = await setTask(db, { project: "filmia", key, status: "Merged", version: await version() }, ctx);
+  assert.equal(merged.status, "Merged");
+});
+
+test("an empty, short, or mismatched scan commit does not allow Merged", async () => {
+  const key = await codeTicket("Short scan");
+  await review(key, 12);
+  await addResult(db, { project: "filmia", key, kind: "ci", verdict: "pass", cite: "ci", commit: SQUASH }, ctx);
+  const version = async () => (await raw.query(`select version from tasks where key = $1`, [key])).rows[0].version as number;
+  for (const commit of ["", "a", "aaaaaaa"]) {
+    await assert.rejects(addResult(db, { project: "filmia", key, kind: "scan", verdict: "pass", cite: "short", commit }, ctx), (error: unknown) => {
+      assert.ok(error instanceof ToolError);
+      assert.equal(error.code, "INVALID_RESULT");
+      assert.equal(error.detail.field, "commit");
+      return true;
+    });
+  }
+  const taskId = (await raw.query(`select id from tasks where key = $1`, [key])).rows[0].id as string;
+  for (const commit of ["", "a", "b".repeat(40)]) {
+    await raw.query(`delete from results where task_id = $1 and kind = 'scan'`, [taskId]);
+    await raw.query(`insert into results (task_id, kind, verdict, cite, commit, actor) values ($1, 'scan', 'pass', 'stored', $2, $3::jsonb)`, [
+      taskId,
+      commit,
+      JSON.stringify(ctx.actor),
+    ]);
+    await assert.rejects(setTask(db, { project: "filmia", key, status: "Merged", version: await version() }, ctx), (error: unknown) => {
+      assert.ok(error instanceof ToolError);
+      assert.equal(error.code, "SCAN_REQUIRED");
+      return true;
+    });
+  }
+  await raw.query(`delete from results where task_id = $1 and kind = 'scan'`, [taskId]);
+  await addResult(db, { project: "filmia", key, kind: "scan", verdict: "pass", cite: "full", commit: HEAD.toUpperCase() }, ctx);
+  const merged = await setTask(db, { project: "filmia", key, status: "Merged", version: await version() }, ctx);
+  assert.equal(merged.status, "Merged");
+});
+
+test("--record writes a scan pass through MCP with command merge-gate", async () => {
+  const key = await codeTicket("Recorded scan");
+  await review(key, 13);
+  await addResult(db, { project: "filmia", key, kind: "ci", verdict: "pass", cite: "ci", commit: SQUASH }, ctx);
+  const seen: { name: string; args: Record<string, unknown> }[] = [];
+  await recordScanViaMcp(
+    { ticket: key, commit: HEAD, cite: '{"ok":true,"findings":[]}', command: "merge-gate", verdict: "pass" },
+    {
+      token: TEST_BEARER,
+      url: "http://127.0.0.1/mcp",
+      fetch: async (_url, init) => {
+        const body = JSON.parse(init?.body ?? "{}") as { params?: { name?: string; arguments?: Record<string, unknown> } };
+        seen.push({ name: body.params?.name ?? "", args: body.params?.arguments ?? {} });
+        const res = await app.request("/mcp", { method: "POST", headers: init?.headers, body: init?.body });
+        return { ok: res.ok, status: res.status, json: async () => res.json() };
+      },
+    },
+  );
+  const added = seen.find((call) => call.name === "add_result");
+  assert.equal(added?.args.command, "merge-gate");
+  assert.equal(added?.args.commit, HEAD);
+  assert.equal(added?.args.kind, "scan");
+  assert.equal(added?.args.verdict, "pass");
+  assert.equal(added?.args.cite, '{"ok":true,"findings":[]}');
+  const version = (await raw.query(`select version from tasks where key = $1`, [key])).rows[0].version as number;
+  const merged = await setTask(db, { project: "filmia", key, status: "Merged", version }, ctx);
   assert.equal(merged.status, "Merged");
 });
 

@@ -206,7 +206,7 @@ pnpm scan:diff --json <repo-path> --base main --head HEAD
 
 It prints `file:line` and a rule id. It does not print the matched value. Exit 0 when there are no findings, 1 when there is at least one, 2 when the scan does not finish (usage, git, or gitleaks). The allowlist is `~/.config/plania/scan-allowlist` or `PLANIA_SCAN_ALLOWLIST`: a literal value, `/regex/`, or `path:` entry per line.
 
-`pnpm merge-gate <owner/repo> <pr> [--merge squash] [--json]` fetches that pull request into a temporary bare partial clone, runs the same scan, and exits 0 only when the report is clean and gitleaks ran. `--merge` calls the GitHub API with `sha` pinned to the scanned head and stops if that head moved. Output is a rule, a file, and a line. Only the screen session may append an allowlist entry (`POST /api/scan-allowlist`). A code ticket in filmia, micasa, zigzag, or workia stays out of Merged until a `scan` pass names that head (`SCAN_REQUIRED`).
+`pnpm merge-gate <owner/repo> <pr> [--merge squash] [--record <ticket>] [--json]` fetches that pull request into a temporary bare partial clone, runs the same scan, and exits 0 only when the report is clean and gitleaks ran. `--merge` calls the GitHub API with `sha` pinned to the scanned head and stops if that head moved. `--record` writes the scan result through Plania (`command` `merge-gate`, `commit` the 40-hex head, cite the redacted report). Output is a rule, a file, and a line. Only the screen session may append an allowlist entry (`POST /api/scan-allowlist`). A code ticket in filmia, micasa, zigzag, or workia stays out of Merged until a `scan` pass's commit is exactly that head (`SCAN_REQUIRED`).
 
 ## Running locally as a service
 

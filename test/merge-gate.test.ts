@@ -9,6 +9,7 @@ import { after, before, test } from "node:test";
 import { webCtx } from "../src/mcp/tx.js";
 import { recordAllowlistException } from "../src/mcp/scan-allow.js";
 import { parseMergeArgs } from "../src/lib/scan/merge-cli.js";
+import { projectForTicket } from "../src/lib/scan/merge-record.js";
 import { mergeGateExit, renderMergeJson, runMergeGate, type FetchLike } from "../src/lib/scan/merge-gate.js";
 import type { ScanReport } from "../src/lib/scan/report.js";
 
@@ -193,4 +194,62 @@ test("an unchanged head is merged with sha pinned to the scanned head", async ()
   assert.equal(sent.sha, scanned);
   assert.equal(sent.merge_method, "squash");
   assert.equal(renderMergeJson(result).includes(EMAIL), false);
+});
+
+test("--record sends the redacted report, command merge-gate, and the scanned head", async () => {
+  const scanned = shaOf(repo, "feature");
+  const recorded: { ticket: string; commit: string; cite: string; command: string; verdict: string }[] = [];
+  const result = await runMergeGate(
+    { repo: "example/app", pr: 4, ticket: "FIL-1" },
+    {
+      token: null,
+      origin: repo,
+      headRefspec: "refs/heads/feature",
+      scan: cleanScan,
+      record: async (input) => {
+        recorded.push(input);
+      },
+      fetch: async () => ({ ok: true, status: 200, json: async () => pull(scanned) }),
+    },
+  );
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(recorded.length, 1);
+  assert.equal(recorded[0]!.ticket, "FIL-1");
+  assert.equal(recorded[0]!.commit, scanned);
+  assert.equal(recorded[0]!.command, "merge-gate");
+  assert.equal(recorded[0]!.verdict, "pass");
+  const cite = JSON.parse(recorded[0]!.cite) as { head: string; findings: unknown[] };
+  assert.equal(cite.head, scanned);
+  assert.deepEqual(cite.findings, []);
+  assert.equal(recorded[0]!.cite.includes(EMAIL), false);
+  assert.equal(parseMergeArgs(["example/app", "4", "--record", "FIL-1", "--merge", "squash"]).ok, true);
+  assert.equal(projectForTicket([{ slug: "filmia", key_prefix: "FIL" }, { slug: "other", key_prefix: "F" }], "FIL-1"), "filmia");
+});
+
+test("a failed record does not merge", async () => {
+  const scanned = shaOf(repo, "feature");
+  let merges = 0;
+  const result = await runMergeGate(
+    { repo: "example/app", pr: 4, method: "squash", ticket: "FIL-1" },
+    {
+      token: null,
+      origin: repo,
+      headRefspec: "refs/heads/feature",
+      scan: cleanScan,
+      record: async () => {
+        throw new Error("plania record failed");
+      },
+      fetch: async (url) => {
+        if (url.endsWith("/merge")) {
+          merges += 1;
+          return { ok: true, status: 200, json: async () => ({ merged: true }) };
+        }
+        return { ok: true, status: 200, json: async () => pull(scanned) };
+      },
+    },
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.merged, false);
+  assert.equal(merges, 0);
+  assert.equal(result.error, "plania record failed");
 });

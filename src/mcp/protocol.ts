@@ -39,7 +39,7 @@ Work
 
 Finish
 11. Commit, push, open the PR with "Plania: <KEY>" in its body, then finish {key, result, pr_url, branch}: the result and the move to In review land together or not at all. Every check must be done or waived (CHECKS_OPEN lists what is left) and the pass must name the branch head (EVIDENCE_STALE says which).
-12. filmia, micasa, zigzag, workia: merge only with pnpm merge-gate <owner/repo> <pr> --merge squash, then add_result kind scan, verdict pass, commit the scanned head. SCAN_REQUIRED otherwise. Bots cannot record an allowlist exception. Pollers set Merged when the pass matches the PR head, and Released when the target runs it. Never merge another way or a release branch.
+12. filmia, micasa, zigzag, workia: merge only with pnpm merge-gate <owner/repo> <pr> --merge squash --record <TICKET>. SCAN_REQUIRED otherwise. Bots cannot record an allowlist exception. Pollers set Merged when that pass matches the PR head. Never merge another way.
 13. Close what you finished: set_task Done once it is Merged or Released (ops and research from In review). A code ticket closes with its pr_url (TASK_MISSING_PR_URL), or no_pr_reason when there was none. An initiative is Done once all its tickets are closed. Won't do and reopening a closed task need a reason. On screen that is enough. An agent also sends delegated_by_jorge {message_id, quote}; without that evidence the move is HUMAN_ONLY. The move is logged and listed for review. The same hourly cap and kill switch as answer_delegated apply. Sending approval_id does nothing: it is ignored.
 14. Leave the initiative current: finish's note (or set_task) updates its next_action; state_note is optional commentary.
 

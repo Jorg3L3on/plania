@@ -8,7 +8,15 @@ import type { Q } from "./tx.js";
 
 export const APP_PROJECTS = ["filmia", "micasa", "zigzag", "workia"] as const;
 
-const sameSha = (a: string, b: string) => a.startsWith(b) || b.startsWith(a);
+// A scan commit is the whole head. A short prefix, or an empty string, is not a match.
+// PLA-I38-3 may also accept or require the GitHub check plania-scan = success on this head.
+const SCAN_SHA = /^[0-9a-f]{40}$/;
+
+export function scanCommitMatches(commit: string, head: string): boolean {
+  const left = commit.trim().toLowerCase();
+  const right = head.trim().toLowerCase();
+  return SCAN_SHA.test(left) && SCAN_SHA.test(right) && left === right;
+}
 
 export function scanApplies(slug: string, kind: string, workType: string | null): boolean {
   return (APP_PROJECTS as readonly string[]).includes(slug) && kind === "ticket" && (workType ?? "code") === "code";
@@ -22,12 +30,12 @@ export async function assertScanEvidence(tx: Q, p: Project, t: Task): Promise<vo
     .select({ commit: results.commit })
     .from(results)
     .where(and(eq(results.taskId, t.id), eq(results.kind, "scan"), eq(results.verdict, "pass"), sql`${results.commit} is not null`));
-  if (head && passes.some((row) => sameSha(row.commit!, head))) return;
+  if (head && passes.some((row) => scanCommitMatches(row.commit!, head))) return;
   throw new ToolError("SCAN_REQUIRED", {
-    head: head ? head.slice(0, 7) : null,
-    accepts: ["scan pass with commit"],
+    head: head && SCAN_SHA.test(head.trim().toLowerCase()) ? head.trim().toLowerCase() : null,
+    accepts: ["scan pass with a 40-hex commit"],
     hint: head
-      ? `a scan pass whose commit is ${head.slice(0, 7)} (the PR head; after a squash that is the scanned head, not the squash commit)`
-      : "a scan pass whose commit is the PR head. Run pnpm merge-gate, then add_result kind scan.",
+      ? "a scan pass whose commit is exactly the PR head (40 hex, the scanned head after a squash). Run pnpm merge-gate --record."
+      : "a scan pass whose commit is the PR head (40 hex). Run pnpm merge-gate --record.",
   });
 }

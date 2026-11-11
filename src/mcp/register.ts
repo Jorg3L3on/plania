@@ -621,7 +621,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Every check must be done or waived: CHECKS_OPEN lists each open one with its n and text (tick them with result.check_ns, set_check, or waive_check with a reason).",
         "The result must be a pass of a kind the work_type accepts, at the branch head: EVIDENCE_STALE says the head the poller sees and the commit your pass named.",
         "version: the one you read (STALE_VERSION if it moved); omit it to take the current one. note: the initiative's new next_action, when it changed.",
-        "On filmia, micasa, zigzag and workia, merge the PR only with pnpm merge-gate <owner/repo> <pr> --merge squash, then add_result kind scan, verdict pass, commit the scanned head. SCAN_REQUIRED blocks Merged without that pass. A bot cannot record an allowlist exception. Pollers set Merged when the pass matches the PR head, and Released when the target runs it. Never merge another way.",
+        "On filmia, micasa, zigzag and workia, merge the PR only with pnpm merge-gate <owner/repo> <pr> --merge squash --record <TICKET>. --record writes the scan pass. SCAN_REQUIRED blocks Merged without a 40-hex commit equal to the PR head. A bot cannot record an allowlist exception. Never merge another way.",
       ].join(" "),
       inputSchema: {
         project,
@@ -714,7 +714,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "A result that names a commit on a branch the poller tracks is marked stale_for_head once the branch moves; In review then needs a fresh pass (EVIDENCE_STALE).",
         "Anyone may add results: the owner, a QA session, CI. A pass with check_ns also ticks those Done when items, linked to this result.",
         `In review needs a pass recorded during the current claim: code ${REVIEW_EVIDENCE.code!.join("|")}; ops ${REVIEW_EVIDENCE.ops!.join("|")}; research any result or a doc; decision-needed never (it is answered).`,
-        "kind scan, verdict pass, commit the scanned head: the pass pnpm merge-gate prints. A bot cannot waive it.",
+        "kind scan needs a 40-hex commit. pnpm merge-gate --record writes that pass. A bot cannot waive it.",
       ].join(" "),
       inputSchema: { project, actor, request_id, verbose, ...addResultFields },
       annotations: write,
