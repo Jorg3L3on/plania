@@ -16,7 +16,7 @@ const { seedOrg } = await import("../scripts/seed-org.js");
 const writes = await import("../src/mcp/writes.js");
 const questions = await import("../src/mcp/questions.js");
 const { parseProposal } = await import("../src/api/company-decisions.js");
-const { paceOf } = await import("../src/api/company-plan.js");
+const { calendarOf } = await import("../src/api/company-plan.js");
 
 type Json = Record<string, any>;
 let raw: pg.Client;
@@ -98,20 +98,24 @@ test("I35-1 #1: GET /api/company has plan, this_week, next and work per project 
   const c = await company();
   assert.deepEqual(keys(c), ["asistente", "company", "decisions", "inbox", "plumbing", "projects", "week"]);
   for (const p of c.projects) {
-    assert.deepEqual(keys(p), ["budget", "goal", "light", "light_reason", "next", "orders", "paused", "plan", "slug", "team", "this_week", "thread", "title", "work"], p.slug);
+    assert.deepEqual(keys(p), ["budget", "goal", "light", "light_reason", "next", "orders", "paused", "plan", "rumbo", "slug", "team", "this_week", "thread", "title", "work"], p.slug);
     assert.deepEqual(keys(p.this_week), ["docs", "done", "last_at", "prs"]);
     assert.deepEqual(keys(p.work), ["in_progress", "open"]);
   }
   const mia = c.projects.find((p: Json) => p.slug === "mianovia");
+  // PLA-I36-5: no delivery date, no week bar: the active initiative and its tickets only.
   assert.deepEqual(mia.plan, {
-    week: 1,
-    weeks: 5,
     initiative: { key: "MIA-I1", title: "Arranque y configuración" },
     done: 3,
     total: 5,
+    start_on: null,
     due_on: null,
+    weeks: null,
+    today_pct: null,
+    done_pct: null,
     pace: null,
     weeks_behind: null,
+    forecast_on: null,
   });
   assert.deepEqual([mia.this_week.done, mia.this_week.docs, mia.this_week.prs], [3, 1, 0]);
   assert.deepEqual(mia.next, { title: "Kickoff con la boutique", key: "MIA-I1-1", owner: "jorge", due: null });
@@ -130,19 +134,18 @@ test("I35-1 #1: GET /api/company has plan, this_week, next and work per project 
   assert.equal(c.decisions[0].kind, "proposal", "a proposal before Jorge's own tickets");
 });
 
-test("I35-1 #3: pace is null without due_on, late or bad by the weeks behind", async () => {
+test("I35-1 #3 (PLA-I36-5): pace is null without a delivery date, late or bad by the calendar", async () => {
   const today = new Date("2026-11-09T12:00:00Z");
-  assert.deepEqual(paceOf({ week: 1, dueIndex: 5, dueOn: "2026-12-12", today }), { pace: "ok", weeks_behind: 0 });
-  assert.deepEqual(paceOf({ week: 1, dueIndex: 5, dueOn: "2026-11-30", today }), { pace: "late", weeks_behind: 1 }, "five weeks of work, four left");
-  assert.deepEqual(paceOf({ week: 1, dueIndex: 1, dueOn: "2026-11-05", today }), { pace: "late", weeks_behind: 1 }, "its own week, past by days");
-  assert.deepEqual(paceOf({ week: 3, dueIndex: 6, dueOn: "2026-11-16", today }), { pace: "bad", weeks_behind: 2 });
+  assert.deepEqual(calendarOf({ startOn: "2026-11-02", dueOn: "2026-12-07", today, done: 1, total: 5 }).pace, "ok");
+  assert.deepEqual(calendarOf({ startOn: "2026-10-12", dueOn: "2026-11-30", today, done: 0, total: 5 }).pace, "bad");
 
   await raw.query(`update tasks set due_on = current_date + 34 where key = 'MIA-I5'`);
   let mia = (await company()).projects.find((p: Json) => p.slug === "mianovia");
-  assert.deepEqual([mia.plan.pace, mia.plan.weeks_behind], ["ok", 0], "the delivery five weeks out");
-  await raw.query(`update tasks set due_on = current_date - 10 where key = 'MIA-I1'`);
+  assert.deepEqual([mia.plan.pace, mia.plan.weeks_behind], ["ok", 0], "the delivery five weeks out, the plan just started");
+  await raw.query(`update tasks set created_at = now() - interval '60 days' where key like 'MIA-I_' and kind = 'initiative'`);
+  await raw.query(`update tasks set due_on = current_date + 1 where key = 'MIA-I5'`);
   mia = (await company()).projects.find((p: Json) => p.slug === "mianovia");
-  assert.deepEqual([mia.plan.due_on !== null, mia.plan.pace, mia.plan.weeks_behind], [true, "bad", 2], "the week's own date, ten days past");
+  assert.equal(mia.plan.pace, "bad", "almost all the time gone, a fraction of the work done");
   await raw.query(`update tasks set due_on = null where key in ('MIA-I1', 'MIA-I5')`);
 });
 

@@ -50,6 +50,8 @@ export type ProjectCard = {
   // PLA-I36-1: why, in one sentence, and the action that clears it. Null when Bien or paused.
   light_reason: LightReason | null;
   goal: string | null;
+  // PLA-I36-4: the destination: the goal sentence, its delivery date and the forecast; missing says Fijar.
+  rumbo: Rumbo;
   budget: BudgetView;
   team: TeamMember[];
   thread: ThreadLine;
@@ -140,9 +142,31 @@ async function memberView(db: Db, a: Agent, ctx: { paused: boolean; noBudget: bo
   };
 }
 
-async function goalOf(db: Db, projectId: string): Promise<string | null> {
-  const rows = await db.execute<{ title: string }>(sql`select title from goals where project_id = ${projectId} and status = 'active' order by position, created_at limit 1`);
-  return rows.rows[0]?.title ?? null;
+type GoalRow = { id: string; title: string; why: string; target_on: string | null };
+async function goalOf(db: Db, projectId: string): Promise<GoalRow | null> {
+  const rows = await db.execute<{ id: string; title: string; why: string; target_on: string | Date | null }>(
+    sql`select id, title, why, target_on from goals where project_id = ${projectId} and status = 'active' and parent_id is null order by position, created_at limit 1`,
+  );
+  const r = rows.rows[0];
+  if (!r) return null;
+  const target = r.target_on instanceof Date ? r.target_on.toISOString().slice(0, 10) : (r.target_on ?? null);
+  return { id: String(r.id), title: r.title, why: r.why, target_on: target };
+}
+
+// PLA-I36-4: the seeded placeholder ("Avance del producto (slug)") is not a destination.
+export const PLACEHOLDER_GOAL = /^Avance del producto\b/i;
+export type Rumbo = { goal_id: string | null; goal: string | null; why: string; target_on: string | null; forecast_on: string | null; weeks_behind: number | null; missing: boolean };
+export function rumboOf(goal: GoalRow | null, plan: PlanLine | null): Rumbo {
+  const real = goal && !PLACEHOLDER_GOAL.test(goal.title.trim()) ? goal : null;
+  return {
+    goal_id: goal?.id ?? null,
+    goal: real?.title ?? null,
+    why: goal?.why ?? "",
+    target_on: goal?.target_on ?? null,
+    forecast_on: goal?.target_on && plan?.due_on === goal.target_on ? plan.forecast_on : null,
+    weeks_behind: goal?.target_on && plan?.due_on === goal.target_on ? plan.weeks_behind : null,
+    missing: !real || !goal?.target_on,
+  };
 }
 
 // PLA-I36-1. paused, then no budget, then the worst of: Jorge's (an open question, a Needs Jorge ticket, a
@@ -262,7 +286,8 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     }
     const thread = await threadSummary(db, await projectThread(db, p.id), p);
     const paused = settings.companyPaused || p.runsPaused;
-    const plan = await planOf(db, p, now);
+    const goal = await goalOf(db, p.id);
+    const plan = await planOf(db, p, now, goal?.target_on ?? null);
     const team = await teamView(db, p, { paused, noBudget: budget.state === "stopped", threadId: thread.id });
     const light = await lightOf(db, p, { paused, budget, threadId: thread.id, now, ceoId, team, plan, inbox: inbox.get(p.slug) ?? [] });
     cards.push({
@@ -271,7 +296,8 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       paused: p.runsPaused,
       light: light.light,
       light_reason: light.reason,
-      goal: await goalOf(db, p.id),
+      goal: goal?.title ?? null,
+      rumbo: rumboOf(goal, plan),
       budget,
       team,
       thread: threadLine(thread),

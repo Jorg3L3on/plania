@@ -59,7 +59,7 @@ const project = (slug: string, title: string, patch: Record<string, unknown> = {
 
 const MIANOVIA = project("mianovia", "Mianovia", {
   light: "needs_jorge",
-  plan: { week: 1, weeks: 5, initiative: { key: "MIA-I1", title: "Arranque y configuración" }, done: 3, total: 5, due_on: "2026-12-12", pace: "ok", weeks_behind: 0 },
+  plan: { initiative: { key: "MIA-I1", title: "Arranque y configuración" }, done: 3, total: 5, start_on: "2026-11-02", due_on: "2026-12-12", weeks: 6, today_pct: 12, done_pct: 30, pace: "ok", weeks_behind: 0, forecast_on: "2026-12-12" },
   this_week: { done: 3, docs: 1, prs: 0, last_at: "2026-11-09T02:08:00Z" },
   next: { title: "Kickoff con la boutique", key: "MIA-I1-1", owner: "jorge", due: null },
   thread: { id: "t-mianovia", unread: 1, last: { at: "2026-11-09T02:08:00Z", author_role: "product-owner", body: "Leí el proyecto. Propongo tres pasos para no esperar el kickoff y recomiendo el primero." } },
@@ -203,25 +203,26 @@ test("I35-2 six decisions show the first five and the link to Bandeja", () => {
 
 // ---- PLA-I35-3 the card as a report, En pausa, Asistente folded
 
-test("I35-3 Mianovia's card: Semana 1 de 5 · Arranque y configuración · 3 de 5 hechos, pace, this week, Siguiente te toca, the PO's line pointing to Te toca", () => {
+test("I35-3 Mianovia's card (PLA-I36-5: by calendar): Arranque y configuración · 3 de 5 hechos, pace, this week, Siguiente te toca, the PO's line pointing to Te toca", () => {
   const out = card(MIANOVIA, [proposal()]);
   const text = out.replace(/<[^>]+>/g, "").replace(/\s+/g, " ");
-  assert.ok(text.includes("Semana 1 de 5 · Arranque y configuración · 3 de 5 hechos"), text);
+  assert.ok(text.includes("Arranque y configuración · 3 de 5 hechos"), text);
+  assert.equal(text.includes("Semana 1 de"), false, "no week of a list (PLA-I36-5)");
   for (const t of ["a tiempo · entrega 12 dic", "Esta semana: 3 hechos · 1 doc", "Kickoff con la boutique", "te toca", "Propongo tres pasos", "↑ Decidir en Te toca", "Nadie trabaja ahora", "el PO espera tu elección", "1.25M / 6M · en marcha", "Abrir →"]) {
     assert.ok(text.includes(t), t);
   }
-  // Fixed order: plan, this week, Siguiente, the PO's line, Ahora, the foot.
-  const order = ["data-plan", "data-this-week", "data-next", "data-po-line", "data-now", "data-plumbing"].map((k) => out.indexOf(k));
+  // Fixed order: Rumbo (PLA-I36-4), plan, this week, Siguiente, the PO's line, Ahora, the foot.
+  const order = ["data-rumbo", "data-plan", "data-this-week", "data-next", "data-po-line", "data-now", "data-plumbing"].map((k) => out.indexOf(k));
   assert.deepEqual([...order].sort((a, b) => a - b), order, "the blocks keep their order");
   assert.equal(count(out, /data-action=/g), 0, "a decision lives in Te toca only");
-  assert.equal(out.includes("Meta de prueba"), false, "no goal on the card");
+  assert.ok(out.includes('data-rumbo="missing"'), "no rumbo in the payload: Sin meta ni fecha (PLA-I36-4)");
   assert.equal(out.includes("Vista previa"), false);
   clean(out);
 });
 
 test("I35-3 state Bien corriendo: one role row, the one that runs; the pace a week behind turns amber", () => {
   const p = project("mianovia", "Mianovia", {
-    plan: { week: 2, weeks: 5, initiative: { key: "MIA-I2", title: "Formulario de bienvenida" }, done: 1, total: 6, due_on: "2026-12-12", pace: "late", weeks_behind: 1 },
+    plan: { initiative: { key: "MIA-I2", title: "Formulario de bienvenida" }, done: 1, total: 6, start_on: "2026-10-20", due_on: "2026-12-12", weeks: 8, today_pct: 40, done_pct: 30, pace: "late", weeks_behind: 1, forecast_on: "2026-12-19" },
     this_week: { done: 1, docs: 0, prs: 1, last_at: "2026-11-09T02:00:00Z" },
     next: { title: "Primera revisión del formulario", key: "MIA-I2-2", owner: "po", due: null },
     team: team("mianovia", { taller: { state: "running", now: { ticket: "MIA-I2-1", since: "2026-11-09T02:32:00Z" } } }),
@@ -259,7 +260,7 @@ test("I35-3 state Sin presupuesto: red light, spent of limit and Subir límite a
   const p = project("micasa", "MiCasa", {
     light: "no_budget",
     budget: budget(2_000_000, 2_000_000),
-    plan: { week: 4, weeks: 8, initiative: { key: "MIC-I4", title: "Pagos" }, done: 2, total: 5, due_on: "2026-12-20", pace: "bad", weeks_behind: 2 },
+    plan: { initiative: { key: "MIC-I4", title: "Pagos" }, done: 2, total: 5, start_on: "2026-10-01", due_on: "2026-12-20", weeks: 12, today_pct: 50, done_pct: 30, pace: "bad", weeks_behind: 2, forecast_on: "2027-01-03" },
   });
   const out = card(p);
   for (const t of ["Sin presupuesto", "Gastó 2M / 2M esta semana", "Subir límite", "2 semanas atrás · entrega 20 dic", "2M / 2M · sin presupuesto"]) assert.ok(out.includes(t), t);

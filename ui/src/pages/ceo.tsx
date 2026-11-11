@@ -13,9 +13,11 @@ import { CompanyPlumbing, ThreadSkeleton } from "@/components/compania/org";
 import { AsistenteFolded, PausedList, ProjectReport, ProjectsSkeleton, TeToca, type DecisionBusy } from "@/components/compania/v2";
 import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
 import { useThread } from "@/components/compania/use-thread";
+import { GoalDialog } from "@/components/goals/goal-dialog";
+import type { Goal } from "@/components/goals/model";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { ApiError, api, type Decision, type DecisionInput } from "@/lib/api";
+import { ApiError, api, type Decision, type DecisionInput, type OrgProject } from "@/lib/api";
 import { ceoRedirect, sheetOf } from "@/lib/compania";
 import { byLight } from "@/lib/org";
 import { greeting } from "@/lib/greeting";
@@ -116,6 +118,24 @@ const Compania = () => {
       })),
     onSettled: () => setBusy(null),
   });
+  // PLA-I36-4: Fijar opens the goal dialog for that project's goal (the placeholder is edited, not kept).
+  const [fijar, setFijar] = useState<OrgProject | null>(null);
+  const fijarGoal: Goal | null =
+    fijar?.rumbo?.goal_id != null
+      ? {
+          id: fijar.rumbo.goal_id,
+          title: fijar.rumbo.goal ?? "",
+          why: fijar.rumbo.why,
+          status: "active",
+          target_on: fijar.rumbo.target_on,
+          position: 0,
+          project: fijar.slug,
+          parent_id: null,
+          progress: { done: 0, total: 0 },
+          initiatives: [],
+          children: [],
+        }
+      : null;
   const [resuming, setResuming] = useState<string | null>(null);
   const resume = useMutation({
     mutationFn: (slug: string) => api.setProjectPaused(slug, false),
@@ -215,7 +235,7 @@ const Compania = () => {
               {live.length > 0 && (
                 <ul className={cn("grid min-w-0 gap-3", live.length > 1 && "xl:grid-cols-2")} data-testid="project-cards">
                   {live.map((p) => (
-                    <ProjectReport key={p.slug} project={p} decisions={decisions} now={now} companyPaused={company.company.paused} timeZone={timeZone} />
+                    <ProjectReport key={p.slug} project={p} decisions={decisions} now={now} companyPaused={company.company.paused} timeZone={timeZone} onFijar={setFijar} />
                   ))}
                 </ul>
               )}
@@ -243,6 +263,16 @@ const Compania = () => {
           </div>
         </SheetContent>
       </Sheet>
+
+      <GoalDialog
+        open={fijar !== null}
+        goal={fijarGoal}
+        fixedProject={fijar?.slug}
+        projects={[]}
+        parents={[]}
+        onOpenChange={(open) => !open && setFijar(null)}
+        onSaved={() => void client.invalidateQueries({ queryKey: ["company"] })}
+      />
 
       {/* New project (4a / 4b) */}
       <Dialog open={sheet?.kind === "nuevo"} onOpenChange={(open) => !open && closeSheet()}>

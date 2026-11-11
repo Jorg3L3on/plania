@@ -38,7 +38,9 @@ import {
   teTocaEmpty,
   thisWeekText,
   todayMessages,
-  weekBar,
+  calendarBar,
+  rumboText,
+  RUMBO_MISSING,
 } from "@/lib/v2";
 import { Composer, MessageRow, PlumbingLink, type SendState } from "@/components/compania/org";
 import { BlockError, Dot, TONE_INK, eyebrow, heading, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
@@ -300,9 +302,25 @@ export const TeToca = ({
 
 // ---- the card as a report
 
-export const ProjectReport = ({ project: p, decisions, now, companyPaused, timeZone }: { project: OrgProject; decisions: Decision[]; now: number; companyPaused: boolean; timeZone?: string }) => {
+export const ProjectReport = ({
+  project: p,
+  decisions,
+  now,
+  companyPaused,
+  timeZone,
+  onFijar,
+}: {
+  project: OrgProject;
+  decisions: Decision[];
+  now: number;
+  companyPaused: boolean;
+  timeZone?: string;
+  onFijar?: (p: OrgProject) => void;
+}) => {
   const light = lightOf(p.light);
   const pace = p.plan ? paceText(p.plan) : null;
+  const bar = p.plan ? calendarBar(p.plan) : null;
+  const rumbo = rumboText(p);
   const po = poLine(p);
   const pointer = pointerFor(decisions, p.slug);
   const working = nowLines(p);
@@ -335,14 +353,44 @@ export const ProjectReport = ({ project: p, decisions, now, companyPaused, timeZ
         </p>
       )}
 
+      {/* PLA-I36-4: Rumbo, the destination, first. */}
+      {rumbo.missing ? (
+        <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl bg-status-now/10 px-3 py-2 text-sm text-ink-now" data-rumbo="missing">
+          <span className="font-semibold">{RUMBO_MISSING}</span>
+          {rumbo.goal && <span className="min-w-0 break-words text-muted-foreground">· {rumbo.goal}</span>}
+          {onFijar && (
+            <button type="button" className="ml-auto font-semibold text-foreground hover:underline" onClick={() => onFijar(p)} data-control="fijar">
+              Fijar
+            </button>
+          )}
+        </p>
+      ) : (
+        <div className="grid min-w-0 gap-0.5" data-rumbo="set">
+          <p className={eyebrow}>Rumbo</p>
+          <p className="line-clamp-3 min-w-0 text-sm font-semibold break-words" title={rumbo.goal ?? undefined} data-goal>
+            {rumbo.goal}
+          </p>
+          <p className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+            <span data-target>Entrega {rumbo.date}</span>
+            {rumbo.forecast && (
+              <span className={cn("inline-flex items-center gap-1.5 font-semibold", TONE_INK[rumbo.forecast.tone])} data-forecast>
+                <Dot tone={rumbo.forecast.tone} /> {rumbo.forecast.text}
+              </span>
+            )}
+            {onFijar && (
+              <button type="button" className="ml-auto font-semibold hover:underline" onClick={() => onFijar(p)} data-control="fijar">
+                Cambiar
+              </button>
+            )}
+          </p>
+        </div>
+      )}
+
       {p.plan && (
-        <div className="grid gap-1.5" data-plan>
+        <div className="grid gap-1.5" data-plan={bar ? "calendar" : "initiative"}>
           <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-sm">
             <span className="min-w-0">
-              <span className="font-semibold">
-                Semana {p.plan.week} de {p.plan.weeks}
-              </span>
-              <span className="text-muted-foreground max-sm:hidden"> · {p.plan.initiative.title}</span>
+              <span className="font-semibold break-words">{p.plan.initiative.title}</span>
               <span className="text-muted-foreground">
                 {" "}
                 · {p.plan.done} de {p.plan.total} hechos
@@ -354,13 +402,17 @@ export const ProjectReport = ({ project: p, decisions, now, companyPaused, timeZ
               </span>
             )}
           </div>
-          <div className="flex gap-1" aria-hidden>
-            {weekBar(p.plan).map((fill, i) => (
-              <span key={i} className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                <span className="block h-full rounded-full bg-status-done" style={{ width: `${fill}%` }} />
-              </span>
-            ))}
-          </div>
+          {bar && (
+            <>
+              <div className="relative h-2 rounded-full bg-muted" role="img" aria-label={bar.line} data-weeks={bar.weeks}>
+                <span className="absolute inset-y-0 left-0 rounded-full bg-status-done" style={{ width: `${bar.done}%` }} data-fill={bar.done} />
+                <span className="absolute -inset-y-1 w-0.5 rounded-full bg-foreground" style={{ left: `calc(${bar.today}% - 1px)` }} data-today={bar.today} />
+              </div>
+              <p className="min-w-0 text-xs break-words text-muted-foreground" data-gap>
+                {bar.line}
+              </p>
+            </>
+          )}
         </div>
       )}
 

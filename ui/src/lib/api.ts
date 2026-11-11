@@ -186,6 +186,7 @@ export type OrgProject = {
   light: OrgLight;
   light_reason?: OrgLightReason | null;
   goal: string | null;
+  rumbo?: OrgRumbo;
   budget: Budget;
   team: OrgMember[];
   thread: OrgThreadRef;
@@ -196,16 +197,22 @@ export type OrgProject = {
   work: { open: number; in_progress: number };
   orders?: OrgOrder[];
 };
+// PLA-I36-5: position by calendar. weeks, today_pct, done_pct are null without a delivery date (no bar).
 export type OrgPlan = {
-  week: number;
-  weeks: number;
   initiative: { key: string; title: string };
   done: number;
   total: number;
+  start_on: string | null;
   due_on: string | null;
+  weeks: number | null;
+  today_pct: number | null;
+  done_pct: number | null;
   pace: "ok" | "late" | "bad" | null;
   weeks_behind: number | null;
+  forecast_on: string | null;
 };
+// PLA-I36-4: the destination.
+export type OrgRumbo = { goal_id: string | null; goal: string | null; why: string; target_on: string | null; forecast_on: string | null; weeks_behind: number | null; missing: boolean };
 // PLA-I35-1: Te toca rows (GET /api/company decisions[]) and POST /api/company/decisions/:id.
 export type DecisionKind = "proposal" | "action" | "question" | "deliverable" | "pr" | "step" | "release";
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };

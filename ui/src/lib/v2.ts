@@ -121,15 +121,33 @@ export function paceText(plan: OrgPlan): { text: string; tone: Tone } | null {
   return { text: `${n === 1 ? "1 semana" : `${n} semanas`} atrás${due}`, tone: plan.pace === "late" ? "warn" : "stop" };
 }
 
-// The bar: one segment per week; weeks before this one full, this one by its tickets done.
-export function weekBar(plan: OrgPlan): number[] {
-  return Array.from({ length: Math.max(1, plan.weeks) }, (_, i) => {
-    const w = i + 1;
-    if (w < plan.week) return 100;
-    if (w > plan.week) return 0;
-    return plan.total > 0 ? Math.round((plan.done / plan.total) * 100) : 0;
-  });
+// PLA-I36-5: one bar, two marks. null without a delivery date: no fake weeks.
+export function calendarBar(plan: OrgPlan): { weeks: number; today: number; done: number; line: string } | null {
+  if (plan.weeks == null || plan.today_pct == null || plan.done_pct == null) return null;
+  const gap = plan.today_pct - plan.done_pct;
+  const behind = plan.weeks_behind ?? 0;
+  const line =
+    behind > 0
+      ? `Hoy va al ${plan.today_pct}% del tiempo y la obra al ${plan.done_pct}%: ${behind === 1 ? "1 semana" : `${behind} semanas`} atrás`
+      : gap <= 0
+        ? `La obra (${plan.done_pct}%) va por delante del tiempo (${plan.today_pct}%)`
+        : `La obra (${plan.done_pct}%) va con el tiempo (${plan.today_pct}%)`;
+  return { weeks: plan.weeks, today: plan.today_pct, done: plan.done_pct, line };
 }
+
+// PLA-I36-4: Rumbo. The goal sentence, the delivery date and the forecast; or what is missing.
+export function rumboText(p: OrgProject): { goal: string | null; date: string | null; forecast: { text: string; tone: Tone } | null; missing: boolean } {
+  const r = p.rumbo;
+  if (!r || r.missing) return { goal: r?.goal ?? null, date: r?.target_on ? shortDate(r.target_on) : null, forecast: null, missing: true };
+  const behind = r.weeks_behind ?? 0;
+  const forecast = r.forecast_on
+    ? behind > 0
+      ? { text: `pronóstico ${shortDate(r.forecast_on)}`, tone: (behind === 1 ? "warn" : "stop") as Tone }
+      : { text: "a tiempo", tone: "ok" as Tone }
+    : null;
+  return { goal: r.goal, date: shortDate(r.target_on!), forecast, missing: false };
+}
+export const RUMBO_MISSING = "Sin meta ni fecha";
 
 export function thisWeekText(p: OrgProject, now: number): string {
   const w = p.this_week;
