@@ -10,7 +10,7 @@ import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
 export const RESULT_KINDS = [
   "unit", "integration", "test", "verify", "live", "grep", "subagent", "ci",
-  "e2e", "visual", "a11y", "perf", "security", "migration",
+  "e2e", "visual", "a11y", "perf", "security", "migration", "scan",
 ] as const;
 export const VERDICTS = ["pass", "warn", "fail"] as const;
 

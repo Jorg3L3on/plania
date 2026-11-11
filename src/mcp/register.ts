@@ -34,6 +34,7 @@ import { WORK_TYPES } from "./lifecycle.js";
 import { setCheck } from "./checks.js";
 import { attachDoc, getDoc } from "./docs.js";
 import { REVIEW_EVIDENCE, RESULT_KINDS, VERDICTS, addResult, validateEvidence } from "./evidence.js";
+import { setScanAllowlist } from "./scan-allow.js";
 import { checkSizes } from "./limits.js";
 import type { Ctx } from "./tx.js";
 import { ENV_CONDITIONS, projectMetricsOf, setMetricInTx } from "./blockers.js";
@@ -620,7 +621,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Every check must be done or waived: CHECKS_OPEN lists each open one with its n and text (tick them with result.check_ns, set_check, or waive_check with a reason).",
         "The result must be a pass of a kind the work_type accepts, at the branch head: EVIDENCE_STALE says the head the poller sees and the commit your pass named.",
         "version: the one you read (STALE_VERSION if it moved); omit it to take the current one. note: the initiative's new next_action, when it changed.",
-        "Afterwards the pollers move the ticket to Merged when the PR merges and to Released when the release target runs the merge; close it with set_task Done then. Never merge the PR or the release yourself.",
+        "On filmia, micasa, zigzag and workia, merge the PR only with pnpm merge-gate <owner/repo> <pr> --merge squash, then add_result kind scan, verdict pass, commit the scanned head. SCAN_REQUIRED blocks Merged without that pass. A bot cannot record an allowlist exception. Pollers set Merged when the pass matches the PR head, and Released when the target runs it. Never merge another way.",
       ].join(" "),
       inputSchema: {
         project,
@@ -680,7 +681,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Idea status is Open, Done or Won't do. stage moves one step along idea → research → design → planning → ready; a step back needs a note (INVALID_STAGE_MOVE when it skips or the note is missing). Moving forward needs that stage's doc and headings (STAGE_REQUIREMENTS_MISSING), and nothing else. A Done or Won't do idea refuses stage and promoted_to (IDEA_CLOSED). promoted_to records the initiative or standalone ticket it became.",
         "Anything else is INVALID_TRANSITION with the allowed moves.",
         "Finishing a phase: finish does add_result and In review in one call. By hand: add_result first, then status 'In review' (committed, not merged) with branch and pr_url; without fitting evidence it is EVIDENCE_REQUIRED.",
-        "Merged and Released are the pollers' (GitHub merge, deploy); by hand they need a ci pass result naming the merge commit (and, for Released, the release target env containing it).",
+        "Merged and Released are the pollers' (GitHub merge, deploy); by hand they need a ci pass result naming the merge commit (and, for Released, the release target env containing it). A code ticket in filmia, micasa, zigzag or workia also needs a scan pass on the PR head (SCAN_REQUIRED), recorded after pnpm merge-gate. A bot cannot waive it.",
         "Done is yours once the work is finished: code, bug and debt tickets from Merged or Released; ops and research from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open status. Elsewhere it is INVALID_TRANSITION with allowed_from. get_resume status.released_waiting_done lists Released tickets nobody closed: close them.",
         "Done, Merged or Released on a code ticket needs pr_url (on the ticket or in this call): TASK_MISSING_PR_URL, unless no_pr_reason says why there is none.",
         "Won't do and reopening a closed task are Jorge's: HUMAN_ONLY unless this call has a reason. On screen the reason is enough. An agent also sends delegated_by_jorge {message_id, quote}. The move is logged. An approval_id is ignored.",
@@ -713,6 +714,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "A result that names a commit on a branch the poller tracks is marked stale_for_head once the branch moves; In review then needs a fresh pass (EVIDENCE_STALE).",
         "Anyone may add results: the owner, a QA session, CI. A pass with check_ns also ticks those Done when items, linked to this result.",
         `In review needs a pass recorded during the current claim: code ${REVIEW_EVIDENCE.code!.join("|")}; ops ${REVIEW_EVIDENCE.ops!.join("|")}; research any result or a doc; decision-needed never (it is answered).`,
+        "kind scan, verdict pass, commit the scanned head: the pass pnpm merge-gate prints. A bot cannot waive it.",
       ].join(" "),
       inputSchema: { project, actor, request_id, verbose, ...addResultFields },
       annotations: write,
@@ -723,6 +725,25 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       await closingLine(db, ctx, { project: i.project, key: i.key, via: "add_result", cite: i.cite, verdict: i.verdict }).catch(() => null);
       return out;
     }),
+  );
+
+  server.registerTool(
+    "set_scan_allowlist",
+    {
+      description: [
+        "Append one scan allowlist exception (a path: line, a /regex/, or a literal) to the local allowlist file that pnpm merge-gate reads.",
+        "HUMAN_ONLY: the screen session. A bot is refused and cannot waive a finding.",
+      ].join(" "),
+      inputSchema: {
+        project,
+        actor,
+        request_id,
+        verbose,
+        entry: z.string().min(1).max(200).describe("One allowlist line: path:<prefix>, /regex/, or a literal value"),
+      },
+      annotations: write,
+    },
+    writeHandler("set_scan_allowlist", (input, ctx) => setScanAllowlist(db, input as { project: string; entry: string }, ctx)),
   );
 
   server.registerTool(

@@ -2,8 +2,9 @@
 // repo reads the same version. Project-specific additions live in the project's rules (set_project).
 // Bump PROTOCOL_VERSION whenever the text changes meaning.
 
-export const PROTOCOL_VERSION = "2.19";
+export const PROTOCOL_VERSION = "2.20";
 
+// 2.20: app-repo merges go through pnpm merge-gate, then a scan pass on the scanned head (PLA-I38-2).
 // 2.19: propose (PLA-I36-7/8). A PO proposes as data: a choice with what each option changes and costs, or the
 // plan for one of Jorge's orders (what it understood, steps with done-when, cost). With plan approval on, the
 // PO makes no ticket for the order; Plania makes them when someone presses "Sí, empiecen".
@@ -38,9 +39,9 @@ Work
 
 Finish
 11. Commit, push, open the PR with "Plania: <KEY>" in its body, then finish {key, result, pr_url, branch}: the result and the move to In review land together or not at all. Every check must be done or waived (CHECKS_OPEN lists what is left) and the pass must name the branch head (EVIDENCE_STALE says which).
-12. The pollers move the ticket to Merged when the PR merges and to Released when the release target runs it. Never merge a PR, and never merge a release branch into another: a merged ticket waits in the release step until Jorge ships it.
+12. filmia, micasa, zigzag, workia: merge only with pnpm merge-gate <owner/repo> <pr> --merge squash, then add_result kind scan, verdict pass, commit the scanned head. SCAN_REQUIRED otherwise. Bots cannot record an allowlist exception. Pollers set Merged when the pass matches the PR head, and Released when the target runs it. Never merge another way or a release branch.
 13. Close what you finished: set_task Done once it is Merged or Released (ops and research from In review). A code ticket closes with its pr_url (TASK_MISSING_PR_URL), or no_pr_reason when there was none. An initiative is Done once all its tickets are closed. Won't do and reopening a closed task need a reason. On screen that is enough. An agent also sends delegated_by_jorge {message_id, quote}; without that evidence the move is HUMAN_ONLY. The move is logged and listed for review. The same hourly cap and kill switch as answer_delegated apply. Sending approval_id does nothing: it is ignored.
-14. Leave the initiative current: finish's note (or set_task) updates its next_action; state_note is optional commentary. The headline is generated.
+14. Leave the initiative current: finish's note (or set_task) updates its next_action; state_note is optional commentary.
 
 Never type dates: the server stamps them. Pass request_id on writes you may retry. Errors come back as {error, status, ...detail}; 409 means the state moved or someone else holds it: re-read before deciding.`;
 

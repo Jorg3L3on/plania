@@ -28,6 +28,7 @@ import { shipRelease } from "../mcp/release-ship.js";
 import { ToolError, findProject, findTask, taskFull } from "../mcp/queries.js";
 import { answer } from "../mcp/questions.js";
 import { nextStepLine, resumeDigest, resumeLine } from "../mcp/resume.js";
+import { recordAllowlistException } from "../mcp/scan-allow.js";
 import { WEB_ACTOR, webCtx, writeTx } from "../mcp/tx.js";
 import { claim, createTask, setTask } from "../mcp/writes.js";
 import { getDigest, rememberCursor } from "../mcp/watch.js";
@@ -156,6 +157,21 @@ api.use("*", async (c, next) => {
 });
 
 api.get("/session", (c) => c.body(null, 204));
+
+// One allowlist exception. The session cookie is Jorge. A bearer is a bot and is refused.
+api.post("/scan-allowlist", async (c) => {
+  if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) {
+    return c.json({ error: "HUMAN_ONLY", hint: "only Jorge records a scan allowlist exception" }, 403);
+  }
+  const raw = await c.req.json().catch(() => null);
+  const entry = raw && typeof raw === "object" && typeof (raw as { entry?: unknown }).entry === "string" ? (raw as { entry: string }).entry : "";
+  try {
+    const recorded = recordAllowlistException(webCtx, entry);
+    return c.json({ recorded: recorded.recorded, entry_kind: recorded.entry_kind });
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
 
 // ---- Projects
 

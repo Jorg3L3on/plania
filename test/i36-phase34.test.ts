@@ -163,8 +163,8 @@ test("I36-7 #3: 1 + 2 shows and is accepted only when the proposal marks them co
   assert.equal(ok.status, 200, await ok.clone().text());
 });
 
-test("I36-7 #5: the protocol is 2.19 and docs/bot-protocol.md describes propose", async () => {
-  assert.equal(PROTOCOL_VERSION, "2.19");
+test("I36-7 #5: the protocol is 2.20 and docs/bot-protocol.md describes propose", async () => {
+  assert.equal(PROTOCOL_VERSION, "2.20");
   const { readFileSync } = await import("node:fs");
   const doc = readFileSync(new URL("../docs/bot-protocol.md", import.meta.url), "utf8");
   assert.ok(doc.includes("## Proposals (protocol 2.19)") && doc.includes('kind: "plan"') && doc.includes("combinable"));

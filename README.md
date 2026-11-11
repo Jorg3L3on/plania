@@ -206,6 +206,8 @@ pnpm scan:diff --json <repo-path> --base main --head HEAD
 
 It prints `file:line` and a rule id. It does not print the matched value. Exit 0 when there are no findings, 1 when there is at least one, 2 when the scan does not finish (usage, git, or gitleaks). The allowlist is `~/.config/plania/scan-allowlist` or `PLANIA_SCAN_ALLOWLIST`: a literal value, `/regex/`, or `path:` entry per line.
 
+`pnpm merge-gate <owner/repo> <pr> [--merge squash] [--json]` fetches that pull request into a temporary bare partial clone, runs the same scan, and exits 0 only when the report is clean and gitleaks ran. `--merge` calls the GitHub API with `sha` pinned to the scanned head and stops if that head moved. Output is a rule, a file, and a line. Only the screen session may append an allowlist entry (`POST /api/scan-allowlist`). A code ticket in filmia, micasa, zigzag, or workia stays out of Merged until a `scan` pass names that head (`SCAN_REQUIRED`).
+
 ## Running locally as a service
 
 Plania runs on this Mac.
@@ -298,6 +300,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `set_task` | Update a ticket, an initiative or an idea. |
 | `set_check` | Tick (or untick) one Done when item by its n, amend its text, or lift a waiver. |
 | `add_result` | Record evidence on a task: kind, verdict pass\|warn\|fail, cite (what ran and what it showed), url (CI run, screenshot, recording), and the structured fields: commit, branch, env, command, exit_code, counts, duration_s, attachments, viewport, device, metrics. |
+| `set_scan_allowlist` | Append one scan allowlist exception (a path: line, a /regex/, or a literal) to the local allowlist file that pnpm merge-gate reads. |
 | `attach_doc` | Store a markdown doc in Plania so every machine can read it: a spec or plan on a task (key), or a project doc such as a design page (no key). |
 | `claim` | Lease a ticket so no other session works on it. |
 | `add_decision` | Append one decision to the log. |
@@ -417,6 +420,7 @@ Rules every write follows:
   are Jorge's: on screen with a reason, or by an agent with a reason and `delegated_by_jorge`.
 - **Evidence.** In review needs a result recorded during the current claim: code a passing
   unit|integration|test|live|ci; ops live|verify|ci; research any result or a doc; decision-needed never.
+  Merged on a code ticket in filmia, micasa, zigzag, or workia also needs a `scan` pass whose commit is the PR head (`SCAN_REQUIRED`). A bot cannot waive it.
 - **Template.** A ticket needs a scope; code and ops tickets need a check. Conventions only warn.
 - **Idempotency.** A write with `request_id` that is retried returns the first response and writes nothing.
   Without it, `create_task` with an existing key is `KEY_EXISTS`. Request ids are kept 30 days.
@@ -517,6 +521,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `RELEASE_NOT_READY` | 409 | release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | no_github_data | nothing_to_ship | before_steps | open_checks | merged) |
 | `REQUEST_ID_REUSED` | 409 | request_id was already used by a different tool in this project |
 | `RESOURCE_HELD` | 409 | another session holds the resource (detail: holder, lease_until, purpose) |
+| `SCAN_REQUIRED` | 409 | Merged on a code ticket in filmia, micasa, zigzag or workia without a scan pass whose commit is the PR head (after a squash, the scanned head). A bot cannot waive it (detail: head, accepts) |
 | `SEQUENCE_TAKEN` | 409 | the requested sequence value is held by another live ticket |
 | `STAGE_REQUIREMENTS_MISSING` | 409 | moving an idea forward without that stage's doc or its headings (detail: doc, missing) |
 | `STALE_VERSION` | 409 | the task (or doc) changed since you read it (detail: current_version) |

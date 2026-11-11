@@ -20,3 +20,13 @@ A product owner offers options or answers one of Jorge's orders with `propose`, 
 - `kind: "plan"`: the answer to an order (`order` is the order ticket's key). It says what the PO `understood` in one plain line, the `steps` (each with `done_when` and `work_type`) and the `cost`. When the project approves plans (on by default for a new project), the PO creates no ticket for the order: Plania creates one Ready ticket per step when someone presses "Sí, empiecen". "Cambiar algo" sends the order back to the box and "Cancelar" closes it. Without approval the tickets are created at once and the plan shows as information.
 
 Titles, labels and `understood` use plain words: no ticket keys, branch names or the word sandbox. Anyone at the Mac reads them.
+
+## App-repo merges (protocol 2.20)
+
+Before merging a pull request in filmia, micasa, zigzag, or workia, run this from the plania repo and no other merge:
+
+```bash
+pnpm merge-gate <owner/repo> <pr-number> --merge squash
+```
+
+`--json` prints one object. Exit 0 only when `ok` is true, `gitleaks.ran` is true, and `gitleaks.error` is null. Then `add_result` on the ticket: kind `scan`, verdict `pass`, `commit` the `head` that was scanned (after a squash that head is the one that was scanned, not the squash commit). `SCAN_REQUIRED` blocks Merged without that pass. A finding blocks the merge unless that path or string is on the allowlist. Only Jorge appends an allowlist entry. Do not merge any other way, and do not add files to the app repo for this.

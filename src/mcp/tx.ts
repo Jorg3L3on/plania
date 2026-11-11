@@ -14,7 +14,8 @@ export type Q = PgDatabase<NodePgQueryResultHKT, typeof schema>;
 // Who is writing and through which channel. human is true only for Jorge's screen (cookie),
 // never inferred from the actor value. requestId + tool make a retry replay the first response.
 // verbose: writes return the full task besides the compact {key, status, version, changed} reply.
-// system: a poller acting on GitHub or deploy data (moves In review → Merged → Released, with no extra check).
+// system: a poller acting on GitHub or deploy data (moves In review → Merged → Released).
+// An app-repo code ticket still needs a scan pass before Merged.
 export type Ctx = { actor: Actor; human?: boolean; system?: boolean; requestId?: string; tool?: string; verbose?: boolean; tokenId?: string };
 
 const REQUEST_TTL = "30 days";

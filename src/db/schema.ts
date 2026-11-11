@@ -345,7 +345,7 @@ export const results = pgTable(
     taskId: uuid("task_id")
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
-    kind: text("kind").notNull(), // unit|integration|test|verify|live|grep|subagent|ci|e2e|visual|a11y|perf|security|migration
+    kind: text("kind").notNull(), // unit|integration|test|verify|live|grep|subagent|ci|e2e|visual|a11y|perf|security|migration|scan
     verdict: text("verdict").notNull(), // pass|warn|fail
     cite: text("cite").notNull(),
     url: text("url"), // CI run, screenshot, recording
