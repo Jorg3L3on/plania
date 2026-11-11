@@ -9,3 +9,7 @@ dist
 .claude/
 # Plans, requests and replies live in Plania or chat, not in the repo.
 docs/
+# Local personal-data hash lists for scan:diff. Commit scripts/scan/hashes.example.json only.
+scan-hashes.json
+scan-hashes.local.json
+.scan-hashes.json

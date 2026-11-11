@@ -1,0 +1,13 @@
+{
+  "name": "plania-scan",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/*.test.mjs && node --experimental-strip-types --test --test-concurrency=1 test/*.test.ts",
+    "hashes": "node --experimental-strip-types src/build-hashes.ts",
+    "rulesets": "node rulesets/check.mjs"
+  }
+}

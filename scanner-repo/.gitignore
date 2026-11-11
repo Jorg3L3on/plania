@@ -1,0 +1,5 @@
+node_modules
+*.log
+scan-hashes.json
+scan-hashes.local.json
+.scan-hashes.json

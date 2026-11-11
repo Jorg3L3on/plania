@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "algorithm": "sha256",
+  "salt": "example-salt",
+  "hashes": [
+    "c03b4d73ec24feaabb31b9a16dc76580055a6dcc20824ed836fcb981d921ed89",
+    "ea3f6ba1d6b9149369e457f5c215084e9fa7e733ff90972e39620cdf842926c2",
+    "cbc8bbd7a0f4b5b6192662cb941c39a4c35cbcd9ca0f9549522df368eda9ac99"
+  ]
+}

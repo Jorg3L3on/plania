@@ -13,7 +13,7 @@
     "dev:ui": "vite",
     "start": "tsx --env-file=.env scripts/dev.ts",
     "build": "tsc --noEmit && tsc -p ui && vite build",
-    "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts",
+    "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts && pnpm test:scanner",
     "db:generate": "drizzle-kit generate",
     "seed": "tsx --env-file=.env scripts/seed.ts",
     "project:add": "tsx --env-file=.env scripts/register-project.ts",
@@ -22,7 +22,9 @@
     "mcp-table": "tsx scripts/mcp-table.ts",
     "hash-password": "tsx scripts/hash-password.ts",
     "vapid": "tsx scripts/vapid.ts",
-    "scan:diff": "tsx scripts/scan-diff.ts"
+    "scan:diff": "tsx scripts/scan-diff.ts",
+    "scan:hashes": "tsx scripts/scan-hashes.ts",
+    "test:scanner": "node --test --test-concurrency=1 scanner-repo/test/*.test.mjs && node --experimental-strip-types --test --test-concurrency=1 scanner-repo/test/*.test.ts"
   },
   "dependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.3.0",

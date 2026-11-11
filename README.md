@@ -197,15 +197,16 @@ dropdb plania_test_3f9a2c
 
 ### Scanning a diff for personal data and secrets
 
-`pnpm scan:diff <repo-path> [base]` scans the lines a branch adds (`git diff <base>...HEAD`, base defaults to `main`) in any repo on this Mac. It is read-only: nothing is written to the scanned repo, and nothing about it lives there.
+`pnpm scan:diff` is the pre-merge scan. Flags, the JSON report, the local hash file, and the gitleaks pin are in [docs/scan-diff.md](docs/scan-diff.md).
 
 ```bash
-pnpm scan:diff ~/Developer/Projects/filmia sandbox
+pnpm scan:diff <repo-path> [base]
+pnpm scan:diff --json <repo-path> --base main --head HEAD
 ```
 
-It prints `file:line`, `HIGH` or `hint`, what it found and a masked value (first 2 and last 4 characters, e.g. `01************4567`), never the full value, then `PII scan: N high, M hints`. HIGH: GitHub, OpenAI-style, Stripe, Slack, AWS and Google tokens, private keys, URLs with a password, CLABEs with a valid check digit, card numbers that pass Luhn, CURPs, and a committed `.env` file (not `.env.example`). Hints: emails and RFC-shaped strings. Emails at `example.com`, `*.test`, `*.invalid` and `users.noreply.github.com` are skipped.
+It prints `file:line` and a rule id. It does not print the matched value. Exit 0 when there are no findings, 1 when there is at least one, 2 when the scan does not finish (usage, git, or gitleaks). The allowlist is `~/.config/plania/scan-allowlist` or `PLANIA_SCAN_ALLOWLIST`: a literal value, `/regex/`, or `path:` entry per line.
 
-Exit codes: 0 no HIGH finding, 1 at least one HIGH finding, 2 usage or git error (a bad base is never a pass). Values that are fine to commit (fake emails, test CLABEs) go in `~/.config/plania/scan-allowlist`, one literal value or `/regex/` per line, `#` for comments; `PLANIA_SCAN_ALLOWLIST` points elsewhere. It is a hint tool, not a guarantee, and it does not look at history already pushed: rotate anything that leaked.
+`scanner-repo/` is the template for a private `plania-scan` repository that posts the same check as a commit status. The application repositories stay unchanged. Setup is in [scanner-repo/README.md](scanner-repo/README.md). `pnpm test:scanner` runs the template's tests.
 
 ## Running locally as a service
 
