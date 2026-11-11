@@ -28,7 +28,7 @@ The clean path exits 0. The failing path exits 1 and prints `plania-email` with 
 1. In one application repository, branch from the default branch. Name the branch `scan-fixture-clean`.
 2. Copy `fixtures/clean/note.md` in as `scan-fixture-clean.md`.
 3. Open a pull request into the default branch. Do not merge it.
-4. Dispatch the `plania-scan` workflow, or wait for the `17 * * * *` run.
+4. Dispatch the `plania-scan` workflow, or wait for the daily `0 9 * * *` run (3:00 AM Mexico City).
 5. The head commit gets `plania-scan` pending, then success. The description is `0 findings, 0 rules`.
 
 ## Failing pull request
