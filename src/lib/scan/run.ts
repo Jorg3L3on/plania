@@ -50,8 +50,13 @@ export function emptyReport(partial: Partial<ScanReport> & { error: string }): S
   };
 }
 
+/** The allowlist file. Same path scan:diff and merge-gate read. */
+export function allowlistPath(explicit?: string): string {
+  return explicit || process.env.PLANIA_SCAN_ALLOWLIST || join(homedir(), ".config", "plania", "scan-allowlist");
+}
+
 function loadAllowlist(explicit?: string): Allowlist {
-  const path = explicit || process.env.PLANIA_SCAN_ALLOWLIST || join(homedir(), ".config", "plania", "scan-allowlist");
+  const path = allowlistPath(explicit);
   if (!existsSync(path)) return EMPTY_ALLOWLIST;
   return parseAllowlist(readFileSync(path, "utf8"));
 }

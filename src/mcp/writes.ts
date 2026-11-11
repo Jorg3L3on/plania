@@ -31,6 +31,7 @@ import { assertChecksClosed, replaceChecks, tickDerived, type CheckInput } from 
 import { hasDoc } from "./docs.js";
 import { liveTaskFootprint } from "./footprint-read.js";
 import { assertReviewEvidence } from "./evidence.js";
+import { assertScanEvidence } from "./scan-evidence.js";
 import { syncJorgeLines, withdrawParsedBlocker, type ParsedField } from "./jorge-lines.js";
 import { resolveInitiativeGoal } from "./goals.js";
 import { assertForwardStage, assertStageMove } from "./ideas.js";
@@ -525,6 +526,8 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     if ((GATED_STATUSES as readonly string[]).includes(input.status) && input.status !== t.status && !ctx.system) await assertChecksClosed(tx, t);
     if (!ctx.human && !ctx.system) assertPrUrl(t, input.status, input.pr_url ?? t.prUrl, input);
     if ((input.status === "Merged" || input.status === "Released") && input.status !== t.status && !ctx.human && !ctx.system) await assertMergeEvidence(tx, p, t, input.status);
+    // App-repo code tickets: Merged needs a scan pass on the PR head. Humans and pollers included. A bot cannot skip it.
+    if (input.status === "Merged" && input.status !== t.status) await assertScanEvidence(tx, p, { ...t, workType: input.work_type ?? t.workType });
     if (t.kind === "initiative" && (TERMINAL as readonly string[]).includes(input.status) && input.status !== t.status) {
       await assertChildrenClosed(tx, t);
     }

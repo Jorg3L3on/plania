@@ -16,7 +16,7 @@ pnpm scan:diff --path <checkout-or-file>
 
 Exit `0` when the scan finishes with no findings. Exit `1` when there is at least one finding (including emails and RFC-shaped strings). Exit `2` when the scan does not finish: usage, a bad ref, git, a hash-list problem, or gitleaks. A bad base is never a pass.
 
-`--no-gitleaks` runs only the TypeScript rules. A merge gate should not use it. Treat a run as clean only when the process exits `0`, `ok` is true, `gitleaks.ran` is true, and `gitleaks.error` is null.
+`--no-gitleaks` runs only the TypeScript rules. merge-gate must not pass it. Treat a run as clean only when the process exits `0`, `ok` is true, `gitleaks.ran` is true, and `gitleaks.error` is null.
 
 ## Output
 

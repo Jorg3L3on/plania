@@ -13,18 +13,16 @@ const WORD = /\bgates?\b|\bgated\b|compuerta/i;
 
 test("src, ui, docs and the README have none of the removed words", () => {
   let out = "";
-  let status = 0;
   try {
-    out = execFileSync("git", ["grep", "-i", "-w", "-E", "-n", "gates?|gated|compuerta", "--", "src", "ui/src", "docs", "README.md"], {
+    out = execFileSync("git", ["grep", "-i", "-n", "-E", "gates?|gated|compuerta", "--", "src", "ui/src", "docs", "README.md"], {
       encoding: "utf8",
     });
   } catch (err) {
-    const failed = err as { status?: number; stdout?: string };
-    status = failed.status ?? 0;
-    out = failed.stdout ?? "";
+    out = (err as { stdout?: string }).stdout ?? "";
   }
-  assert.equal(status, 1, out);
-  assert.equal(out, "");
+  // PLA-I38-2: the command merge-gate is the allowed token. The old approval word stays banned.
+  const lines = out.split("\n").filter((line) => line && WORD.test(line.replaceAll(/merge-gate/gi, "")));
+  assert.deepEqual(lines, []);
 });
 
 test("CLAIMABLE_BUT_GATED is an alias of CLAIMABLE_BUT_WAITING for one release", () => {
@@ -58,7 +56,7 @@ describe("tools/list", () => {
     await Promise.all([server.connect(a), client.connect(b)]);
     try {
       const tools = (await client.listTools()).tools;
-      const blob = JSON.stringify(tools);
+      const blob = JSON.stringify(tools).replaceAll(/merge-gate/gi, "");
       assert.equal(WORD.test(blob), false, blob.match(WORD)?.[0] ?? "");
       const audit = tools.find((t) => t.name === "audit");
       assert.match(audit?.description ?? "", /CLAIMABLE_BUT_WAITING/);

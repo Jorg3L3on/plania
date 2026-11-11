@@ -9,6 +9,7 @@ import { ToolError } from "./errors.js";
 //             In review goes back to In progress through claim (rework).
 //             Merged and Released are the server's (the GitHub and Vercel pollers, via "system");
 //             an agent sets them only with a ci result that names the merge commit (writes.ts).
+//             A code ticket in an app repo also needs a scan pass on the PR head (scan-evidence.ts).
 // Initiative: Planning ⇄ Active ⇄ Shipping, any of them ⇄ On hold.
 //
 // Done is the agents' once the work is finished (DONE_FROM, by work type); the checks still apply
