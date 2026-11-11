@@ -49,7 +49,7 @@ An empty `PLANIA_SCAN_HASHES_JSON` skips name matching and still runs the struct
 
 ## 1. Keep the bill at zero
 
-Yes/no. [Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions) says that with no payment method on file, usage stops once the included compute is gone. If a payment method is on file, set an Actions product budget to $0 with "Stop usage when budget limit is reached", or confirm you are willing for overage to be blocked some other way. See [Setting up budgets](https://docs.github.com/en/billing/how-tos/set-up-budgets). Do not raise a spending limit to keep this scanner running. The admin bypass in the ruleset is how a merge still happens when the minutes are gone.
+Yes/no. [Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions) says that with no payment method on file, usage stops once the included compute is gone. If a payment method is on file, set an Actions product budget to $0 with "Stop usage when budget limit is reached", or confirm you are willing for overage to be blocked some other way. See [Setting up budgets](https://docs.github.com/en/billing/how-tos/set-up-budgets). Do not raise a spending limit to keep this scanner running. When the minutes are gone or Actions is down, run the one command under "Unblock a merge" that sets that ruleset to `enforcement: disabled`. Do not add an admin bypass for this. Bots merge as the repository owner, and the owner is an admin, so an admin bypass lets them through.
 
 ## 2. Create the private repository
 
@@ -88,7 +88,7 @@ Repository permissions, and nothing else:
 
 No account permissions. No Administration, Actions, Secrets, or Workflows. That token cannot edit rulesets. Set an expiration you will rotate. Store the value only as the Actions secret in the next step.
 
-Docs: [fine-grained personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token) and [permissions required for fine-grained personal access tokens](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens). Commit statuses are posted with [the commit status API](https://docs.github.com/en/rest/commits/statuses). The context is `plania-scan`. There is no `integration_id`, because this is a token and not a GitHub App. Anyone with write access on an application repository can post the same context. On these personal repositories that is the admin, who can already bypass the ruleset.
+Docs: [fine-grained personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token) and [permissions required for fine-grained personal access tokens](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens). Commit statuses are posted with [the commit status API](https://docs.github.com/en/rest/commits/statuses). The context is `plania-scan`. There is no `integration_id`, because this is a token and not a GitHub App. Without `integration_id`, the required check accepts any `plania-scan` status from anyone with commit statuses write on that repository: the owner, a collaborator, or an app whose token has that permission. GitHub does not check who posted it. Pinning `integration_id` is only available when a GitHub App posts the status, which this setup does not use.
 
 ## 5. Add the two secrets
 
@@ -126,25 +126,22 @@ Availability, from the note on [About rulesets](https://docs.github.com/en/repos
 
 Prepared files, shared by all four repositories (`~DEFAULT_BRANCH` plus `refs/heads/sandbox`):
 
-| File | Enforcement |
-| --- | --- |
-| `rulesets/plania-scan.evaluate.json` | `evaluate` |
-| `rulesets/plania-scan.disabled.json` | `disabled` |
-| `rulesets/plania-scan.active.json` | `active` |
+| File | Enforcement | Bypass |
+| --- | --- | --- |
+| `rulesets/plania-scan.disabled.json` | `disabled` | none |
+| `rulesets/plania-scan.active.json` | `active` | none |
+| `rulesets/plania-scan.evaluate.json` | `evaluate` | none |
+| `rulesets/plania-scan.active.admin-bypass.json` | `active` | admin, do not apply |
 
-All three require the status check `plania-scan`, with `strict_required_status_checks_policy` false (loose). Loose avoids a new scan every time the base branch moves. See [Required status checks](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets#require-status-checks-to-pass-before-merging). No `integration_id`.
+The three default files use `"bypass_actors": []`. They require the status check `plania-scan`, with `strict_required_status_checks_policy` false (loose). Loose avoids a new scan every time the base branch moves. See [Required status checks](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets#require-status-checks-to-pass-before-merging). No `integration_id`. Without `integration_id`, the check accepts any `plania-scan` status from anyone with commit statuses write.
 
-One bypass actor: repository role admin, `actor_id` 5, `actor_type` `RepositoryRole`, `bypass_mode` `always`. Write is 4 and maintain is 2; they are not included, so a bot or a write collaborator cannot bypass. GitHub's REST reference does not publish this table. The ids are the ones the Terraform provider documents for the base roles (admin 5, maintain 2, write 4): [github_repository_ruleset](https://registry.terraform.io/providers/integrations/github/latest/docs/resources/repository_ruleset). If a create call rejects actor 5, stop. Do not substitute write or maintain.
+`rulesets/plania-scan.active.admin-bypass.json` is not a default. It adds one bypass actor: repository role admin, `actor_id` 5, `actor_type` `RepositoryRole`, `bypass_mode` `always`. GitHub's REST reference does not publish that role id. The Terraform provider documents admin as 5, maintain as 2, and write as 4: [github_repository_ruleset](https://registry.terraform.io/providers/integrations/github/latest/docs/resources/repository_ruleset). Do not apply this file. Bots merge as the repository owner, and the owner is an admin, so this bypass lets those bots through. Write and maintain are not a safer substitute.
 
-`bypass_mode: always` is the quota hatch. You can merge when Actions is out of minutes or down. Bots are not repository admins, so they cannot.
+### On Free: disabled, then active
 
-### Start with evaluate, and expect Free to reject it
+The realistic path on this Free account is `disabled`, then `active`. [Create a repository ruleset](https://docs.github.com/en/rest/repos/rules#create-a-repository-ruleset) says `evaluate` "is only available with GitHub Enterprise". [About rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets) lists **Active** and **Disabled** as the enforcement statuses on GitHub.com. The evaluate file is kept for an Enterprise account. Do not start there.
 
-Recommendation: start in `evaluate` for the first month so merges are not blocked while you confirm the minute math, then switch to `active`.
-
-[Create a repository ruleset](https://docs.github.com/en/rest/repos/rules#create-a-repository-ruleset) says `evaluate` "is only available with GitHub Enterprise". [About rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets) lists **Active** and **Disabled** as the enforcement statuses on GitHub.com. On this Free account, the evaluate POST may return 422.
-
-If it is rejected, do not switch to `active` the same day. Apply `rulesets/plania-scan.disabled.json` instead. Disabled does not block merges. Statuses still show on pull requests. Watch the usage numbers. When a month of runs is inside the budget, PUT the active file.
+Apply `rulesets/plania-scan.disabled.json` first. Disabled does not block merges. Statuses still show on pull requests. Watch the usage numbers. When a month of runs is inside the budget, PUT `rulesets/plania-scan.active.json`.
 
 These commands use your own `gh` login, not `PLANIA_SCAN_TOKEN`.
 
@@ -154,7 +151,7 @@ These commands use your own `gh` login, not `PLANIA_SCAN_TOKEN`.
 node rulesets/check.mjs
 ```
 
-From a plania checkout: `node scanner-repo/rulesets/check.mjs`. This checks the name, the single admin bypass, the two branch targets, the context `plania-scan`, and the absence of `integration_id`.
+From a plania checkout: `node scanner-repo/rulesets/check.mjs`. This checks the name, an empty `bypass_actors` list on the three defaults, the admin-only alternative file, the two branch targets, the context `plania-scan`, and the absence of `integration_id`.
 
 ### Read-only check
 
@@ -165,16 +162,7 @@ gh api repos/Jorg3L3on/zigzag/rulesets --jq '.[] | {id,name,enforcement}'
 gh api repos/Jorg3L3on/workia/rulesets --jq '.[] | {id,name,enforcement}'
 ```
 
-### Apply evaluate
-
-```bash
-for repo in filmia micasa zigzag workia; do
-  gh api --method POST "repos/Jorg3L3on/${repo}/rulesets" \
-    --input rulesets/plania-scan.evaluate.json
-done
-```
-
-Save each numeric `id` from the response. If the call is 422 and the message says evaluate is unavailable, apply the disabled file the same way:
+### Apply disabled
 
 ```bash
 for repo in filmia micasa zigzag workia; do
@@ -183,13 +171,13 @@ for repo in filmia micasa zigzag workia; do
 done
 ```
 
-Confirm the bypass before you do anything else:
+Save each numeric `id` from the response. Confirm the payload before you do anything else:
 
 ```bash
 gh api repos/Jorg3L3on/filmia/rulesets/RULESET_ID --jq '{enforcement,bypass:.bypass_actors,context:.rules[0].parameters.required_status_checks}'
 ```
 
-You want one actor, `actor_id` 5, `RepositoryRole`, `bypass_mode` `always`, context `plania-scan`, and no `integration_id`. `current_user_can_bypass` should be `always` for the admin.
+You want `enforcement` `disabled`, `bypass` `[]`, context `plania-scan`, and no `integration_id`. `current_user_can_bypass` should not be `always`.
 
 `GET /repos/{owner}/{repo}/rules/branches/{branch}` does **not** return rules from an `evaluate` or `disabled` ruleset. Use the ruleset id. After the ruleset is `active`, that branch endpoint should list `plania-scan`. See the same REST page.
 
@@ -211,6 +199,16 @@ gh api repos/Jorg3L3on/filmia/rules/branches/main
 ```
 
 Use the default branch name if it is not `main`. The payload should include the `plania-scan` status check. `sandbox` is targeted by the same ruleset even when you query `main`.
+
+### Unblock a merge
+
+When the quota is used up or Actions is down, this one command sets that ruleset to `enforcement: disabled`. Merges are not blocked. Statuses already posted stay. Run it with your own `gh` login, not `PLANIA_SCAN_TOKEN`. Replace `REPO` and `RULESET_ID`.
+
+```bash
+gh api --method PUT "repos/Jorg3L3on/REPO/rulesets/RULESET_ID" --input rulesets/plania-scan.disabled.json
+```
+
+PUT replaces the ruleset, so the input is the full disabled file (empty `bypass_actors`, same status check). When Actions is back and the minutes allow it, PUT `rulesets/plania-scan.active.json` with the same id. Do not use `rulesets/plania-scan.active.admin-bypass.json` for this.
 
 ### Roll back
 

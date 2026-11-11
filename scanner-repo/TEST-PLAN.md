@@ -37,7 +37,7 @@ The clean path exits 0. The failing path exits 1 and prints `plania-email` with 
 2. Copy `fixtures/fail/note.md` in as `scan-fixture-fail.md`.
 3. Open a pull request. Do not merge it.
 4. After the scanner runs, `plania-scan` is failure. The description is a count, such as `1 finding, 1 rule`. It has no address and no file path.
-5. While the ruleset is `evaluate` or `disabled`, the pull request can still merge. After you switch the ruleset to `active`, this pull request cannot merge unless the repository admin bypasses it.
+5. While the ruleset is `disabled`, the pull request can still merge. After you switch it to `active`, this pull request cannot merge. To unblock a merge when Actions is out of minutes or down, run the one command in the README that sets `enforcement` to `disabled`. Do not apply `plania-scan.active.admin-bypass.json` for that.
 
 ## After both
 
