@@ -6,6 +6,7 @@ import { asc, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { verifyPassword } from "../auth/password.js";
+import { checkOwnerCode } from "../auth/owner-code.js";
 import { SESSION_COOKIE, createSession, sessionCookieOptions, verifySession } from "../auth/session.js";
 import { issueToken, listTokens, revokeToken, TOKEN_SCOPES } from "../auth/tokens.js";
 import { withDb, type Db } from "../db/client.js";
@@ -443,9 +444,17 @@ api.post("/projects/:slug/blockers/:id/resolve", async (c) => {
 // 2.13: Jorge ships the release (settings.release.mode "merge"): a PR from → into, merged with
 // gh pr merge --merge. The screen's cookie only: a request that carries any Bearer token is refused,
 // so no agent token, CI token or MCP client can ever merge into `into`, whatever else it holds.
+// PLA-I36-11: publishing to `into` (main) also needs the owner's code, {code} in the body.
 api.post("/projects/:slug/release/ship", async (c) => {
   if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) return c.json({ error: "HUMAN_ONLY", hint: "the release ships from the screen only" }, 403);
+  const raw = c.req.header("Content-Type")?.startsWith("application/json") ? await c.req.json().catch(() => ({})) : {};
+  const code = typeof (raw as { code?: unknown })?.code === "string" ? (raw as { code: string }).code : undefined;
   try {
+    const refused = await withDb((db) => checkOwnerCode(db, code));
+    if (refused) {
+      const { status, ...rest } = refused;
+      return c.json(rest, status);
+    }
     return c.json(await withDb((db) => shipRelease(db, c.req.param("slug"), webCtx)));
   } catch (e) {
     return errorResponse(c, e);

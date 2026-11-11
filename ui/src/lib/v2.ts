@@ -3,7 +3,7 @@
 // Asistente point to it. Never "Sin corridas todavía", never a null key: when there is nothing to say, the line
 // does not exist. Spend is tokens, never money.
 import { ago, tokens, type Tone } from "./compania";
-import type { Decision, DecisionState, OrgOrder, OrgPlan, OrgProject, ThreadMessage } from "./api";
+import type { AskResult, Decision, DecisionState, OrderKind, OrderStage, OrgOrder, OrgPlan, OrgProject, OrgRun, ThreadMessage } from "./api";
 import { roleName } from "./org";
 
 export const TE_TOCA_MAX = 5;
@@ -81,15 +81,23 @@ export function stateText(s: DecisionState): string {
     case "responder":
       return ["Respondiste", str(r.text) || str(r.answer), WAKE[str(r.wake)] ?? ""].filter(Boolean).join(" · ");
     case "hecho":
-      return ["Hecho", ticket].filter(Boolean).join(" · ");
+      return "Hecho";
     case "aplazar":
-      return ["Aplazado", ticket && `${ticket} vuelve al backlog`].filter(Boolean).join(" · ");
+      return "Aplazado · vuelve a la lista de pendientes";
     case "aceptar":
-      return r.merged ? "Fusionado a sandbox" : ["Aceptado", ticket].filter(Boolean).join(" · ");
+      return r.merged ? "Aceptado en la copia de prueba" : "Aceptado";
     case "fusionar":
-      return "Fusionado a sandbox";
+      return "Aceptado en la copia de prueba";
+    case "empezar": {
+      const n = Array.isArray(r.created) ? r.created.length : 0;
+      return `Empezó · ${n === 1 ? "1 paso" : `${n} pasos`} en marcha`;
+    }
+    case "cambiar":
+      return "Lo cambias · el pedido volvió a la caja";
+    case "cancelar":
+      return "Cancelado";
     case "cambios":
-      return ["Cambios pedidos", ticket].filter(Boolean).join(" · ");
+      return "Cambios pedidos · vuelve al equipo";
     default:
       return "Hecho";
   }
@@ -184,7 +192,7 @@ export function nowLines(p: OrgProject): { role: string; text: string; tone: Ton
     .filter((m) => m.state === "running" || m.state === "waiting_jorge" || (m.state !== "paused" && m.last?.status === "fail"))
     .map((m) =>
       m.state === "running"
-        ? { role: roleName(m.role), text: m.now?.ticket ? `construye ${m.now.ticket}` : "trabaja", tone: "ok" as Tone, since: m.now?.since ?? null }
+        ? { role: roleName(m.role), text: "trabaja", tone: "ok" as Tone, since: m.now?.since ?? null }
         : m.state === "waiting_jorge"
           ? { role: roleName(m.role), text: m.waiting ? `espera: ${m.waiting}` : "te espera", tone: "stop" as Tone, since: null }
           : { role: roleName(m.role), text: "su última corrida falló", tone: "stop" as Tone, since: m.last?.at ?? null },
@@ -273,3 +281,54 @@ export const SUGGESTIONS = (projects: OrgProject[]) => {
 };
 
 export { tokens };
+
+// ---- PLA-I36-6/8/9/10/11: steering from the card
+
+export const KIND_WORDS: { id: OrderKind; word: string; hint: string }[] = [
+  { id: "cambio", word: "Cambio", hint: "algo concreto que cambiar" },
+  { id: "direccion", word: "Dirección", hint: "hacia dónde llevar el proyecto" },
+  { id: "idea", word: "Idea", hint: "algo para pensar antes de hacer" },
+];
+
+export const STAGES: { id: OrderStage; word: string }[] = [
+  { id: "entendido", word: "Lo entendí" },
+  { id: "trabajando", word: "Trabajando" },
+  { id: "pruebalo", word: "Pruébalo" },
+  { id: "listo", word: "Listo" },
+];
+// How many of the four stages are reached (0 = sent, nothing understood yet).
+export const stageReached = (stage: OrderStage | undefined) => (stage ? STAGES.findIndex((s) => s.id === stage) + 1 : 0);
+
+const WOKE: Record<string, string> = { queued: "en cola: el PO arranca en cuanto haya lugar", busy: "el PO termina lo que corre y sigue con esto", idle: "el PO no tenía trabajo listo" };
+export function askText(r: AskResult): string {
+  if (r.woke) return r.woke.woke ? "Enviado · el PO ya está en ello" : `Enviado · ${WOKE[r.woke.reason] ?? r.woke.summary ?? r.woke.reason}`;
+  return r.wake === "queued" ? "Enviado · el PO lo toma en su turno" : r.wake === "busy" ? "Enviado · el PO lo toma al terminar lo que corre" : "Enviado · el PO lo ve en su próximo turno";
+}
+
+// "Taller trabaja en «Formulario» desde 10:42 · último: registró pruebas"
+export function runText(run: OrgRun, clockOf: (iso: string) => string): string {
+  if (run.status === "stopped") return `Detenido · ${roleName(run.role)} en «${run.step}»`;
+  return [`${roleName(run.role)} trabaja en «${run.step}» desde ${clockOf(run.since)}`, run.last ? `último: ${run.last}` : ""].filter(Boolean).join(" · ");
+}
+
+// "Pruebas: 12 pasan · 1 falla · 8 archivos cambiados"
+export function evidenceText(d: Pick<Decision, "evidence" | "files">): { text: string; tone: Tone } | null {
+  const e = d.evidence;
+  const parts: string[] = [];
+  if (e) {
+    if (e.pass != null) parts.push(`${e.pass} ${e.pass === 1 ? "pasa" : "pasan"}`);
+    if (e.fail != null) parts.push(`${e.fail} ${e.fail === 1 ? "falla" : "fallan"}`);
+    if (e.pass == null && e.fail == null) parts.push(e.verdict === "pass" ? "en verde" : e.verdict === "fail" ? "fallaron" : "con avisos");
+  }
+  if (d.files != null) parts.push(`${d.files} ${d.files === 1 ? "archivo cambiado" : "archivos cambiados"}`);
+  if (parts.length === 0) return null;
+  const red = e && (e.verdict === "fail" || (e.fail ?? 0) > 0);
+  return { text: `${e ? "Pruebas: " : ""}${parts.join(" · ")}`, tone: red ? "stop" : e?.verdict === "pass" ? "ok" : "idle" };
+}
+
+// Plain words for a link on the main lines: no keys, no "PR de …".
+export function plainLink(l: { kind: string; ref: string; title: string }): string {
+  if (l.kind === "pr") return "Ver el cambio";
+  if (l.kind === "doc") return `doc «${l.title || "sin título"}»`;
+  return l.title || "Abrir";
+}

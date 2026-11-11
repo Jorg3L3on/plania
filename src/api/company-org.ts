@@ -17,7 +17,7 @@ import { decisionsRead, inboxByProject, type Decision } from "./company-decision
 import { ordersOf, type Order } from "./company-orders.js";
 import { loadReadiness } from "../mcp/readiness.js";
 import type { InboxItem } from "../mcp/inbox.js";
-import { ceoAgentId, nextOf, planOf, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
+import { ceoAgentId, planOf, readyOf, type ReadyLine, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
 
 const HOUR = 3_600_000;
 const QUIET_HOURS = 48;
@@ -59,6 +59,11 @@ export type ProjectCard = {
   plan: PlanLine | null;
   this_week: ThisWeek;
   next: NextLine | null;
+  // PLA-I36-6: the next Ready tickets, for Cambiar lo siguiente.
+  ready: ReadyLine[];
+  // PLA-I36-8: whether a PO's plan waits for "Sí, empiecen". PLA-I36-10: the running preview.
+  plan_approval: boolean;
+  preview_url: string | null;
   work: WorkLine;
   // PLA-I36-3: Tus órdenes (src/api/company-orders.ts).
   orders: Order[];
@@ -289,6 +294,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     const goal = await goalOf(db, p.id);
     const plan = await planOf(db, p, now, goal?.target_on ?? null);
     const team = await teamView(db, p, { paused, noBudget: budget.state === "stopped", threadId: thread.id });
+    const upNext = await readyOf(db, p, ceoId, plan?.initiative.key ?? null);
     const light = await lightOf(db, p, { paused, budget, threadId: thread.id, now, ceoId, team, plan, inbox: inbox.get(p.slug) ?? [] });
     cards.push({
       slug: p.slug,
@@ -303,7 +309,10 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       thread: threadLine(thread),
       plan,
       this_week: await thisWeekOf(db, p, now),
-      next: await nextOf(db, p, ceoId, plan?.initiative.key ?? null),
+      next: upNext.next,
+      ready: upNext.ready,
+      plan_approval: !!p.settings.plan_approval,
+      preview_url: p.settings.preview_url ?? null,
       work: await workOf(db, p),
       orders: await ordersOf(db, p, thread.id, now),
     });

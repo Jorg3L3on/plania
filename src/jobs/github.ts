@@ -241,6 +241,17 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
             },
           });
         summary.prs!++;
+        // PLA-I36-10: how many files an open PR changes (the list does not say; the PR does). Only on a change.
+        if (state === "open" && task) {
+          try {
+            const one = await gh(deps, token, `/repos/${cfg.repo}/pulls/${pr.number}`);
+            const files = one.status === 200 ? (one.data as { changed_files?: unknown }).changed_files : undefined;
+            if (typeof files === "number")
+              await db.update(pullRequests).set({ changedFiles: files }).where(and(eq(pullRequests.projectId, p.id), eq(pullRequests.repo, cfg.repo), eq(pullRequests.number, pr.number)));
+          } catch {
+            // The count is a nicety; the poll goes on without it.
+          }
+        }
         // 2.7: the feed hears a PR open, merge or close once. A first poll that meets an already
         // merged or closed PR says nothing, so history does not flood the digest.
         const prEvent = !current ? (state === "open" ? "pr.opened" : null) : current.state !== state && state !== "open" ? (state === "merged" ? "pr.merged" : "pr.closed") : null;

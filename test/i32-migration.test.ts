@@ -12,12 +12,11 @@ import { agents, runnerSettings, threadMessages, threads } from "../src/db/schem
 
 const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
-test("the journal's last entry is 0041_company_org at idx 38 and the file exists", () => {
+test("the journal has 0041_company_org at idx 38 and the file exists", () => {
   const journal = JSON.parse(readFileSync(path.join(dir, "meta/_journal.json"), "utf8")) as { entries: { idx: number; tag: string }[] };
-  const last = journal.entries.at(-1)!;
-  assert.equal(last.tag, "0041_company_org");
-  assert.equal(last.idx, 38);
-  assert.equal(last.idx, journal.entries.length - 1);
+  const entry = journal.entries.find((e) => e.tag === "0041_company_org")!;
+  assert.equal(entry.idx, 38);
+  assert.equal(journal.entries.at(-1)!.idx, journal.entries.length - 1);
   assert.equal(readdirSync(dir).filter((f) => f.startsWith("0041")).join(","), "0041_company_org.sql");
 });
 
@@ -30,12 +29,13 @@ test("schema.ts exposes project_id, role_template, threads and thread_messages w
   assert.deepEqual(t.columns.map((c) => c.name).sort(), ["created_at", "id", "kind", "project_id", "read_at"]);
   assert.ok(t.checks.some((c) => c.name === "threads_kind_check"));
   const m = getTableConfig(threadMessages);
-  assert.deepEqual(m.columns.map((c) => c.name).sort(), ["action_state", "at", "author_agent", "author_role", "body", "id", "links", "question_id", "thread_id"]);
+  assert.deepEqual(m.columns.map((c) => c.name).sort(), ["action_state", "at", "author_agent", "author_role", "body", "id", "links", "proposal", "question_id", "thread_id"]);
   assert.deepEqual(m.checks.map((c) => c.name).sort(), [
     "thread_messages_action_state_check",
     "thread_messages_author_check",
     "thread_messages_body_check",
     "thread_messages_links_check",
+    "thread_messages_proposal_check",
   ]);
   assert.ok(getTableConfig(runnerSettings).columns.some((c) => c.name === "asistente_weekly_limit"));
 });

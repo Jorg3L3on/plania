@@ -207,7 +207,7 @@ test("I36-3 #1-#4: Tus órdenes lists each with its state; entregada links what 
       ],
     }),
   );
-  assert.ok(out.includes("Tus órdenes") && out.includes('data-orders="5"'));
+  assert.ok(out.includes("Tus pedidos") && out.includes('data-orders="5"'));
   assert.ok(out.includes("enviada · hace"));
   assert.ok(out.includes("El PO entendió: logo nuevo en el encabezado"));
   assert.ok(out.includes("en curso · Taller"));
@@ -219,5 +219,5 @@ test("I36-3 #1-#4: Tus órdenes lists each with its state; entregada links what 
 });
 
 test("I36-3: no orders, no block", () => {
-  assert.equal(card(project()).includes("Tus órdenes"), false);
+  assert.equal(card(project()).includes("Tus pedidos"), false);
 });

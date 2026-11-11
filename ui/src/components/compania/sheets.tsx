@@ -170,17 +170,37 @@ export type LimitTarget =
   | { kind: "asistente"; current: number | null }
   | { kind: "guard"; current: number };
 
-export const LimitForm = ({ target, busy, onSave, onCancel }: { target: LimitTarget; busy?: boolean; onSave: (value: number | null) => void; onCancel: () => void }) => {
+// PLA-I36-11: raising a limit (higher, or where there was none) asks for the owner's code.
+// Six digits, nothing else.
+export const isOwnerCode = (c: string) => c.length === 6 && !/\D/.test(c);
+export const raisesLimit = (current: number | null, next: number | null) => next != null && (current == null || next > current);
+
+export const LimitForm = ({
+  target,
+  busy,
+  onSave,
+  onCancel,
+  error,
+}: {
+  target: LimitTarget;
+  busy?: boolean;
+  onSave: (value: number | null, code?: string) => void;
+  onCancel: () => void;
+  error?: string | null;
+}) => {
   const guard = target.kind === "guard";
   const [value, setValue] = useState(target.current == null ? "" : String(target.current));
+  const [code, setCode] = useState("");
   const parsed = value.trim() === "" ? null : Number(value.replace(/[_\s,]/g, ""));
-  const valid = guard ? parsed !== null && Number.isInteger(parsed) && parsed >= 0 && parsed <= 100 : parsed === null || (Number.isInteger(parsed) && parsed >= 1);
+  const valid0 = guard ? parsed !== null && Number.isInteger(parsed) && parsed >= 0 && parsed <= 100 : parsed === null || (Number.isInteger(parsed) && parsed >= 1);
+  const needsCode = !guard && valid0 && raisesLimit(target.current, parsed);
+  const valid = valid0 && (!needsCode || isOwnerCode(code));
   return (
     <form
       className="grid gap-3"
       onSubmit={(e) => {
         e.preventDefault();
-        if (valid) onSave(parsed);
+        if (valid) onSave(parsed, needsCode ? code : undefined);
       }}
     >
       <label className="grid gap-1.5 text-sm">
@@ -198,6 +218,8 @@ export const LimitForm = ({ target, busy, onSave, onCancel }: { target: LimitTar
             : `${parsed ? tokens(parsed) : "Vacío = sin límite, y sin límite no arranca nada"} · aviso al 80%, alto al 100%`}
         </span>
       </label>
+      {needsCode && <OwnerCodeInput value={code} onChange={setCode} why="Subir un límite pide el código del dueño." />}
+      {error && <p className="text-sm text-ink-blocked">{error}</p>}
       <div className="flex flex-wrap gap-2">
         <button type="submit" className={pillPrimary} disabled={!valid || busy}>
           Guardar
@@ -218,3 +240,86 @@ export const limitTitle = (t: LimitTarget) =>
       : t.kind === "asistente"
         ? "Presupuesto de Asistente"
         : `Límite de ${ROLE_LABEL[t.role]}`;
+
+// PLA-I36-11: the owner's six-digit code, from an authenticator app.
+export const OwnerCodeInput = ({ value, onChange, why }: { value: string; onChange: (v: string) => void; why: string }) => (
+  <label className="grid gap-1.5 text-sm" data-owner-code>
+    <span className="font-semibold">Código del dueño</span>
+    <input
+      inputMode="numeric"
+      autoComplete="one-time-code"
+      maxLength={6}
+      className="min-h-11 w-40 rounded-xl bg-background px-3 font-mono tracking-[0.3em] ring-1 ring-foreground/15 outline-none focus:ring-2 focus:ring-foreground/40"
+      value={value}
+      onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 6))}
+      placeholder="000000"
+      aria-label="Código del dueño"
+    />
+    <span className="text-xs text-muted-foreground">{why}</span>
+  </label>
+);
+
+export const OWNER_CODE_WORDS: Record<string, string> = {
+  OWNER_CODE_REQUIRED: "Esto pide el código del dueño.",
+  OWNER_CODE_INVALID: "Ese código no es válido o ya se usó; espera el siguiente.",
+  OWNER_CODE_UNSET: "Falta configurar el código del dueño en Máquina.",
+};
+
+// PLA-I36-11: the owner's code in Máquina. Enrolled or not; set it up (or replace it) with the Plania password
+// (and the current code, to replace). The secret shows once, to add it to the authenticator.
+export const OwnerCodeRow = ({
+  enrolled,
+  busy,
+  error,
+  secret,
+  onEnrol,
+}: {
+  enrolled: boolean | null;
+  busy?: boolean;
+  error?: string | null;
+  secret?: { secret_base32: string; otpauth_uri: string } | null;
+  onEnrol: (input: { password: string; code?: string }) => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  return (
+    <section className="grid gap-2 rounded-[18px] bg-card p-4 ring-1 ring-foreground/10" data-owner-code-row={enrolled ? "1" : "0"}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm">
+          <span className="font-semibold">Código del dueño</span>
+          <span className="text-muted-foreground"> · {enrolled == null ? "…" : enrolled ? "configurado: publicar, subir límites y borrar proyectos lo piden" : "sin configurar: publicar y subir límites no se pueden hasta configurarlo"}</span>
+        </p>
+        <button type="button" className={pillGhost} onClick={() => setOpen(!open)} aria-expanded={open}>
+          {enrolled ? "Cambiar" : "Configurar"}
+        </button>
+      </div>
+      {open && !secret && (
+        <form
+          className="grid gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (password) onEnrol({ password, code: enrolled ? code : undefined });
+          }}
+        >
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-semibold">Contraseña de Plania</span>
+            <input type="password" className="min-h-11 rounded-xl bg-background px-3 ring-1 ring-foreground/15" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+          </label>
+          {enrolled && <OwnerCodeInput value={code} onChange={setCode} why="Para cambiarlo, el código actual." />}
+          {error && <p className="text-sm text-ink-blocked">{error}</p>}
+          <button type="submit" className={pillPrimary} disabled={busy || !password || (!!enrolled && !isOwnerCode(code))}>
+            {busy ? "…" : "Generar código"}
+          </button>
+        </form>
+      )}
+      {secret && (
+        <div className="grid gap-1 text-sm" data-owner-secret>
+          <p className="font-semibold">Agrégalo a tu app de autenticación ahora; no se vuelve a mostrar.</p>
+          <p className="font-mono break-all">{secret.secret_base32}</p>
+          <p className="text-xs break-all text-muted-foreground">{secret.otpauth_uri}</p>
+        </div>
+      )}
+    </section>
+  );
+};

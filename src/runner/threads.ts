@@ -18,6 +18,7 @@ import {
   type Thread,
   type ThreadLink,
   type ThreadMessage,
+  type ProposalData,
 } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
 import { writeTx, type Ctx, type Q } from "../mcp/tx.js";
@@ -93,6 +94,7 @@ export type PostInput = {
   body: string;
   links?: ThreadLink[];
   questionId?: string | null;
+  proposal?: ProposalData | null;
 };
 
 export async function postMessage(db: Db, ref: ThreadRef, input: PostInput, ctx: Ctx): Promise<ThreadMessage> {
@@ -114,7 +116,7 @@ export async function postMessage(db: Db, ref: ThreadRef, input: PostInput, ctx:
     }
     const [msg] = await tx
       .insert(threadMessages)
-      .values({ threadId: ref.thread.id, authorAgent: input.author.agent.slice(0, 60), authorRole: input.author.role.slice(0, 40), body, links, questionId })
+      .values({ threadId: ref.thread.id, authorAgent: input.author.agent.slice(0, 60), authorRole: input.author.role.slice(0, 40), body, links, questionId, proposal: input.proposal ?? null })
       .returning();
     await emit("thread.message", null, {
       thread_id: ref.thread.id,

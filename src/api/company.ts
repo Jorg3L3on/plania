@@ -17,6 +17,11 @@
 //   GET  /api/company/projects/:slug       the project sheet
 //   GET  /api/company/docs/:id             one role prompt doc (Prompt ↗)
 // PLA-I30-6/7: POST /api/company/projects/:slug/ask {text}  and  POST /api/company/projects/:slug/wake
+// PLA-I36-11: raising a limit (a higher weekly_limit, or a limit where there was none) and deleting a project
+//   need the owner's code ({code}); lowering a limit does not. src/auth/owner-code.ts.
+//   GET  /api/company/owner-code          {enrolled}
+//   POST /api/company/owner-code/enroll   {password, code?} → {secret_base32, otpauth_uri} once
+//   DELETE /api/company/projects/:slug    {code}  the project and everything in it
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { z } from "zod";
@@ -24,11 +29,18 @@ import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { createProjectFromTemplate } from "../runner/new-project.js";
-import { askPo, wakePo } from "./company-actions.js";
+import { askPo, pickNext, setProjectOptions, wakePo } from "./company-actions.js";
+import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
+import { cancelOrder } from "./company-orders.js";
 import { promptDoc } from "./company-extra.js";
 import { addTeamMember, companyRead, projectRead } from "./company-org.js";
 import { actOnDecision } from "./company-decisions.js";
 import { ackUnknownUsage, setBudget, setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner/company.js";
+import { checkOwnerCode, enrolOwnerCode, ownerCodeEnrolled } from "../auth/owner-code.js";
+import { budgetLimit } from "../runner/limits.js";
+import { findProject } from "../mcp/queries.js";
+import { projects } from "../db/schema.js";
+import { eq } from "drizzle-orm";
 
 export const companyRoutes = new Hono();
 
@@ -68,7 +80,7 @@ companyRoutes.get("/projects/:slug", async (c) => {
 // PLA-I35-1 (src/api/company-decisions.ts): act on one Te toca row.
 const DecisionBody = z
   .object({
-    action: z.enum(["elegir", "responder", "hecho", "aplazar", "aceptar", "fusionar", "cambios"]),
+    action: z.enum(["elegir", "responder", "hecho", "aplazar", "aceptar", "fusionar", "cambios", "empezar", "cambiar", "cancelar"]),
     option: z.union([z.number().int().min(1).max(20), z.array(z.number().int().min(1).max(20)).min(1).max(5)]).optional(),
     text: z.string().trim().min(1).max(2000).optional(),
   })
@@ -134,13 +146,27 @@ const Budget = z
     role: z.string().min(1).max(40).optional(),
     project: z.string().min(1).max(80).optional(),
     weekly_limit: z.number().int().min(1).max(10_000_000_000).nullable(),
+    code: z.string().max(12).optional(),
   })
   .strict();
 
+// A limit goes up when the new one is higher, or when there was none (no limit means nothing runs).
+const raises = (before: number | null, after: number | null | undefined) => after != null && (before == null || after > before);
+
 companyRoutes.put("/budgets", async (c) => {
-  const input = await body(c, Budget);
-  if (input instanceof Response) return input;
+  const parsed = await body(c, Budget);
+  if (parsed instanceof Response) return parsed;
+  const { code, ...input } = parsed;
   try {
+    const refused = await withDb(async (db) => {
+      if (input.scope === "role") return null;
+      const before = input.scope === "asistente" ? await budgetLimit(db, { kind: "asistente" }) : await budgetLimit(db, { kind: "project", projectId: (await findProject(db, input.project?.trim() ?? "")).id });
+      return raises(before, input.weekly_limit) ? checkOwnerCode(db, code) : null;
+    });
+    if (refused) {
+      const { status, ...rest } = refused;
+      return c.json(rest, status);
+    }
     return c.json(await withDb((db) => setBudget(db, input)));
   } catch (e) {
     return fail(c, e);
@@ -156,13 +182,56 @@ const Settings = z
     max_turns: z.number().int().min(1).max(500).optional(),
     timeout_minutes: z.number().int().min(1).max(600).optional(),
     asistente_weekly_limit: z.number().int().min(1).max(10_000_000_000).nullable().optional(),
+    code: z.string().max(12).optional(),
   })
   .strict();
 
 companyRoutes.put("/settings", async (c) => {
-  const input = await body(c, Settings);
-  if (input instanceof Response) return input;
+  const parsed = await body(c, Settings);
+  if (parsed instanceof Response) return parsed;
+  const { code, ...input } = parsed;
+  const refused = await withDb(async (db) =>
+    input.asistente_weekly_limit !== undefined && raises(await budgetLimit(db, { kind: "asistente" }), input.asistente_weekly_limit) ? checkOwnerCode(db, code) : null,
+  );
+  if (refused) {
+    const { status, ...rest } = refused;
+    return c.json(rest, status);
+  }
   return c.json(await withDb((db) => setRunnerSettings(db, input)));
+});
+
+// ---- PLA-I36-11: the owner's code
+
+companyRoutes.get("/owner-code", async (c) => c.json({ enrolled: await ownerCodeEnrolled() }));
+
+companyRoutes.post("/owner-code/enroll", async (c) => {
+  const input = await body(c, z.object({ password: z.string().min(1).max(200), code: z.string().max(12).optional() }).strict());
+  if (input instanceof Response) return input;
+  const out = await withDb((db) => enrolOwnerCode(db, input));
+  if ("error" in out) {
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  return c.json(out);
+});
+
+companyRoutes.delete("/projects/:slug", async (c) => {
+  const input = await body(c, z.object({ code: z.string().max(12).optional() }).strict());
+  if (input instanceof Response) return input;
+  try {
+    return await withDb(async (db) => {
+      const p = await findProject(db, c.req.param("slug"));
+      const refused = await checkOwnerCode(db, input.code);
+      if (refused) {
+        const { status, ...rest } = refused;
+        return c.json(rest, status);
+      }
+      await db.delete(projects).where(eq(projects.id, p.id));
+      return c.json({ deleted: p.slug });
+    });
+  } catch (e) {
+    return fail(c, e);
+  }
 });
 
 companyRoutes.post("/runs/:id/ack-usage", async (c) => {
@@ -172,13 +241,13 @@ companyRoutes.post("/runs/:id/ack-usage", async (c) => {
 });
 
 // PLA-I30-6/7 (src/api/company-actions.ts): Pedirle al PO and Despertar ahora on the project sheet.
-const AskBody = z.object({ text: z.string().trim().min(3).max(500) }).strict();
+const AskBody = z.object({ text: z.string().trim().min(3).max(500), kind: z.enum(["cambio", "direccion", "idea"]).optional(), now: z.boolean().optional() }).strict();
 
 companyRoutes.post("/projects/:slug/ask", async (c) => {
   const input = await body(c, AskBody);
   if (input instanceof Response) return input;
   try {
-    const out = await withDb((db) => askPo(db, c.req.param("slug"), input.text));
+    const out = await withDb((db) => askPo(db, c.req.param("slug"), input.text, { kind: input.kind, now: input.now }));
     if ("error" in out) {
       const { status, ...rest } = out;
       return c.json(rest, status);
@@ -200,6 +269,47 @@ companyRoutes.post("/projects/:slug/wake", async (c) => {
   } catch (e) {
     return fail(c, e);
   }
+});
+
+// PLA-I36-9: stop one run, resume it, or tell its agent something. PLA-I36-8: cancel an order.
+const send = (c: Context, out: object) => {
+  if ("error" in out) {
+    const { status, ...rest } = out as unknown as { status: 400 | 404 | 409 };
+    return c.json(rest, status);
+  }
+  return c.json(out);
+};
+companyRoutes.post("/runs/:id/stop", async (c) => send(c, await withDb((db) => stopOneRun(db, c.req.param("id")))));
+companyRoutes.post("/runs/:id/resume", async (c) => send(c, await withDb((db) => resumeRun(db, c.req.param("id")))));
+companyRoutes.post("/projects/:slug/tasks/:key/note", async (c) => {
+  const input = await body(c, z.object({ text: z.string().trim().min(2).max(1000) }).strict());
+  if (input instanceof Response) return input;
+  return send(c, await withDb((db) => noteForAgent(db, c.req.param("slug"), c.req.param("key"), input.text)));
+});
+companyRoutes.post("/projects/:slug/orders/:key/cancel", async (c) => send(c, await withDb((db) => cancelOrder(db, c.req.param("slug"), c.req.param("key")))));
+
+// PLA-I36-6: Cambiar lo siguiente.
+companyRoutes.post("/projects/:slug/next", async (c) => {
+  const input = await body(c, z.object({ key: z.string().min(1).max(40) }).strict());
+  if (input instanceof Response) return input;
+  const out = await withDb((db) => pickNext(db, c.req.param("slug"), input.key));
+  if ("error" in out) {
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  return c.json(out);
+});
+
+// PLA-I36-8/10: plan approval and the preview address.
+companyRoutes.put("/projects/:slug/options", async (c) => {
+  const input = await body(c, z.object({ plan_approval: z.boolean().optional(), preview_url: z.string().url().regex(/^https?:\/\//).max(300).nullable().optional() }).strict());
+  if (input instanceof Response) return input;
+  const out = await withDb((db) => setProjectOptions(db, c.req.param("slug"), input));
+  if ("error" in out) {
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  return c.json(out);
 });
 
 const NewProjectBody =z.object({ name: z.string().min(1).max(40), goal: z.string().min(1).max(280) }).strict();

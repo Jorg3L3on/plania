@@ -7,9 +7,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, beforeEach, describe, test } from "node:test";
 import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, ownerCode, resetTestDb, useOwnerCode, useTestEnv } from "./helpers.js";
 
 useTestEnv();
+await useOwnerCode();
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
 const { makeDb } = await import("../src/db/client.js");
@@ -65,8 +66,13 @@ function stubGh() {
   };
 }
 
-function ship(headers: Record<string, string> = {}) {
-  return app.request(PATH, { method: "POST", headers: { Cookie: `${SESSION_COOKIE}=${createSession()}`, ...headers } });
+// PLA-I36-11: shipping to main carries the owner's code.
+async function ship(headers: Record<string, string> = {}) {
+  return app.request(PATH, {
+    method: "POST",
+    headers: { Cookie: `${SESSION_COOKIE}=${createSession()}`, "Content-Type": "application/json", ...headers },
+    body: JSON.stringify({ code: await ownerCode() }),
+  });
 }
 
 async function merged(key: string, number: number) {

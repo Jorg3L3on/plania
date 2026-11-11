@@ -149,9 +149,12 @@ test("I35-2 a proposal shows its three named options, the recommended one first 
   const out = teToca([proposal(), kickoff()]);
   assert.equal(count(out, /data-option=/g), 3);
   assert.deepEqual([...out.matchAll(/data-option="(\d)"/g)].map((m) => m[1]), ["1", "2", "3"]);
-  for (const t of ["Planear el formulario con las respuestas por defecto del borrador, provisional", "Wireframes del formulario", "Research sin costo", "· recomendado", "1 + 2", "Responder", "1 y 2 pueden ir en paralelo."]) {
+  for (const t of ["Planear el formulario con las respuestas por defecto del borrador, provisional", "Wireframes del formulario", "Research sin costo", "· recomendado", "Responder", "1 y 2 pueden ir en paralelo."]) {
     assert.ok(out.includes(t), t);
   }
+  // PLA-I36-7: "1 + 2" only when the PO marked the options combinable.
+  assert.equal(out.includes('data-action="combo"'), false);
+  assert.ok(teToca([proposal({ combinable: [[1, 2]] })]).includes("1 + 2"));
   const first = out.slice(out.indexOf('data-option="1"'), out.indexOf('data-option="2"'));
   assert.ok(first.includes("bg-foreground"), "the recommended Elegir is the primary button");
   const second = out.slice(out.indexOf('data-option="2"'), out.indexOf('data-option="3"'));
@@ -179,7 +182,7 @@ test("I35-2 an acted row keeps its place, dimmed, with the result written in it 
   assert.ok(out.includes("opacity-60"));
   assert.equal(count(out.slice(0, out.indexOf("Kickoff")), /data-action=/g), 0, "no buttons on the acted row");
   assert.ok(out.includes('data-te-toca="1"'), "only the kickoff still waits");
-  assert.equal(lib.stateText({ action: "hecho", at: "x", result: { ticket: "MIA-I1-1", status: "Done" } }), "Hecho · MIA-I1-1");
+  assert.equal(lib.stateText({ action: "hecho", at: "x", result: { ticket: "MIA-I1-1", status: "Done" } }), "Hecho", "PLA-I36-11: no key on the main line");
   assert.equal(lib.stateText({ action: "elegir", at: "x", result: { option: [1, 2], label: "A + B", wake: "busy" } }), "Elegiste 1 + 2 · A + B · el PO lo toma al terminar lo que corre");
   clean(out);
 });
@@ -230,7 +233,7 @@ test("I35-3 state Bien corriendo: one role row, the one that runs; the pace a we
   const out = card(p);
   assert.equal(count(out, /data-role-row=/g), 1);
   assert.ok(out.includes('data-role-row="Taller"'));
-  assert.ok(out.includes("construye MIA-I2-1"));
+  assert.ok(out.includes(">trabaja<"), "PLA-I36-11: no key on the main line");
   assert.ok(out.includes("1 semana atrás · entrega 12 dic"));
   assert.ok(out.includes('data-pace="late"') && out.includes("text-ink-now"));
   assert.ok(out.includes("Esta semana: 1 hecho · 1 PR"));

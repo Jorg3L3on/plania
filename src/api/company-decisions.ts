@@ -20,7 +20,8 @@
 // a question still open.
 import { and, desc, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { checks, projects, pullRequests, questions, tasks, threadMessages, threads, type ActionState, type Project, type Task, type ThreadLink } from "../db/schema.js";
+import { checks, projects, pullRequests, questions, results, tasks, threadMessages, threads, type ActionState, type Project, type ProposalData, type Task, type ThreadLink } from "../db/schema.js";
+import { costText, makeSteps } from "../mcp/proposals.js";
 import { inboxFor, type InboxItem } from "../mcp/inbox.js";
 import { resolveHumanAction } from "../mcp/blockers.js";
 import { writeTx } from "../mcp/tx.js";
@@ -31,18 +32,23 @@ import { answer } from "../mcp/questions.js";
 import { webCtx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
 import { loadSettings } from "../runner/limits.js";
-import { JORGE, actionsFor, resolveThread, type MessageAction } from "../runner/threads.js";
+import { JORGE, actionsFor, postMessage, resolveThread, type MessageAction } from "../runner/threads.js";
 import { ceoAgentId } from "./company-plan.js";
 import { threadAction } from "./thread-actions.js";
 import { jorgePosts } from "./threads.js";
 
 const HOUR = 3_600_000;
 const KEEP_ACTED = 24 * HOUR;
-const RANK: Record<DecisionKind, number> = { proposal: 0, question: 1, pr: 2, deliverable: 3, step: 4, action: 5, release: 6 };
+const RANK: Record<DecisionKind, number> = { plan: 0, proposal: 1, question: 2, pr: 3, deliverable: 4, step: 5, action: 6, release: 7 };
 
-export type DecisionKind = "proposal" | "action" | "question" | "deliverable" | "pr" | "step" | "release";
-export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios";
-export type DecisionOption = { n: number; label: string; recommended: boolean };
+export type DecisionKind = "proposal" | "plan" | "action" | "question" | "deliverable" | "pr" | "step" | "release";
+export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar";
+// PLA-I36-7: a structured option also says what it changes and what it costs (cost as words).
+export type DecisionOption = { n: number; label: string; recommended: boolean; effect?: string; cost?: string };
+// PLA-I36-8: a PO's plan for an order.
+export type DecisionPlan = { order: string; understood: string; steps: { title: string; done_when: string }[]; cost: string; needs_approval: boolean; created: string[] };
+// PLA-I36-10: the latest result of the work, how many files changed, and whether accepting is held.
+export type DecisionEvidence = { verdict: string; kind: string; cite: string; pass: number | null; fail: number | null; at: string };
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | null };
@@ -62,6 +68,15 @@ export type Decision = {
   body: string | null;
   checks: DecisionChecks | null;
   release: DecisionRelease | null;
+  // PLA-I36-7: the option sets the PO marked as combinable ("1 + 2" shows only for these).
+  combinable: number[][];
+  recommended_reason: string | null;
+  plan: DecisionPlan | null;
+  // PLA-I36-10.
+  evidence: DecisionEvidence | null;
+  files: number | null;
+  preview_url: string | null;
+  hold: string | null;
 };
 
 // ---- parsing a PO's proposal
@@ -125,7 +140,19 @@ export function parseProposal(body: string): Proposal | null {
 
 const firstLine = (s: string, n = 140) => cut(clean(s.trim().split("\n").find((l) => l.trim()) ?? ""), n);
 const stateOf = (s: ActionState | null | undefined): DecisionState | null => (s ? { action: s.action, at: s.at, result: s.result ?? {} } : null);
-const NO_EVIDENCE = { links: [] as DecisionLink[], body: null, checks: null, release: null };
+const NO_EVIDENCE = {
+  links: [] as DecisionLink[],
+  body: null,
+  checks: null,
+  release: null,
+  combinable: [] as number[][],
+  recommended_reason: null,
+  plan: null,
+  evidence: null,
+  files: null,
+  preview_url: null,
+  hold: null,
+};
 const linksOf = (links: ThreadLink[]): DecisionLink[] =>
   links.filter((l): l is ThreadLink & { kind: DecisionLink["kind"] } => l.kind !== "question").map((l) => ({ kind: l.kind, ref: l.ref, title: l.title }));
 const CI = new Set(["pending", "success", "failure"]);
@@ -149,12 +176,41 @@ async function evidenceOf(db: Db, t: Task | null, prUrl: string | null): Promise
   return { open, ci };
 }
 
+// PLA-I36-10: what a finished piece of work shows before Aceptar: its checks and CI, the latest result (pass and
+// fail counts), how many files the PR changes, the project's preview, and why accepting is held (null: it is not).
+async function workEvidence(db: Db, p: Project | null, t: Task | null, prUrl: string | null) {
+  const checks = await evidenceOf(db, t, prUrl);
+  let evidence: DecisionEvidence | null = null;
+  if (t) {
+    const [r] = await db.select().from(results).where(eq(results.taskId, t.id)).orderBy(desc(results.createdAt)).limit(1);
+    if (r) evidence = { verdict: r.verdict, kind: r.kind, cite: cut(clean(r.cite), 200), pass: r.counts?.pass ?? null, fail: r.counts?.fail ?? null, at: r.createdAt.toISOString() };
+  }
+  const url = prUrl ?? t?.prUrl ?? null;
+  const [pr] = url || t ? await db.select({ files: pullRequests.changedFiles }).from(pullRequests).where(url ? eq(pullRequests.url, url) : eq(pullRequests.taskId, t!.id)).orderBy(desc(pullRequests.updatedAt)).limit(1) : [];
+  const hold =
+    checks?.ci === "failure"
+      ? "Las pruebas fallan."
+      : checks && checks.open > 0
+        ? `${checks.open === 1 ? "Falta 1 check" : `Faltan ${checks.open} checks`}.`
+        : evidence?.verdict === "fail" || (evidence?.fail ?? 0) > 0
+          ? "La última prueba falló."
+          : checks?.ci === "pending"
+            ? "Las pruebas siguen corriendo."
+            : null;
+  return { checks, release: null, combinable: [] as number[][], recommended_reason: null, plan: null, evidence, files: pr?.files ?? null, preview_url: p?.settings.preview_url ?? null, hold };
+}
+
 async function ticketByKey(db: Db, projectId: string | null | undefined, key: string | null | undefined): Promise<Task | null> {
   if (!projectId || !key) return null;
   const [t] = await db.select().from(tasks).where(and(eq(tasks.projectId, projectId), eq(tasks.key, key))).limit(1);
   return t ?? null;
 }
 
+const optionsOf = (p: ProposalData): DecisionOption[] =>
+  p.options.map((o) => ({ n: o.n, label: o.label, recommended: o.recommended, effect: o.effect || undefined, cost: costText(o.cost) || undefined }));
+
+// PLA-I36-7: a structured proposal stays until answered, whatever the PO writes after it. A prose one is the PO's
+// latest message with numbered options and nothing from Jorge after it (PLA-I35).
 async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>): Promise<Decision[]> {
   const out: Decision[] = [];
   const rows = await db.select().from(threads).where(and(eq(threads.kind, "project"), isNotNull(threads.projectId)));
@@ -162,16 +218,45 @@ async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>)
     const p = slugById.get(th.projectId!);
     if (!p) continue;
     const msgs = await db.select().from(threadMessages).where(eq(threadMessages.threadId, th.id)).orderBy(desc(threadMessages.at), desc(threadMessages.id)).limit(40);
-    // The PO's latest message; nothing from Jorge after it unless it is his choice on it.
+    for (const m of msgs) {
+      const data = m.proposal;
+      if (!data || m.authorRole === "jorge") continue;
+      if (m.actionState && Date.parse(m.actionState.at) < since.getTime()) continue;
+      if (data.kind === "plan" && !data.needs_approval) continue;
+      const plan = data.kind === "plan";
+      out.push({
+        ...NO_EVIDENCE,
+        id: `m-${m.id}`,
+        project: p.slug,
+        title: data.title,
+        kind: plan ? "plan" : "proposal",
+        options: plan ? null : optionsOf(data),
+        actions: m.actionState ? [] : plan ? ["empezar", "cambiar", "cancelar"] : ["elegir", "responder"],
+        state: stateOf(m.actionState),
+        at: m.at.toISOString(),
+        ref: null,
+        detail: null,
+        links: linksOf(m.links),
+        body: m.body,
+        combinable: data.combinable,
+        recommended_reason: data.recommended_reason,
+        plan: plan
+          ? { order: data.order!, understood: data.understood ?? "", steps: data.steps.map((x) => ({ title: x.title, done_when: x.done_when })), cost: costText(data.cost), needs_approval: data.needs_approval, created: data.created }
+          : null,
+      });
+    }
+    // The PO's latest message in prose; nothing from Jorge after it unless it is his choice on it.
     const idx = msgs.findIndex((m) => m.authorRole === "product-owner");
     if (idx < 0) continue;
     const m = msgs[idx]!;
+    if (m.proposal) continue;
     const parsed = parseProposal(m.body);
     if (!parsed) continue;
     if (!m.actionState && msgs.slice(0, idx).some((x) => x.authorAgent === JORGE.agent)) continue;
     if (m.actionState && Date.parse(m.actionState.at) < since.getTime()) continue;
     if (!m.actionState && (await actionsFor(db, m, p.id)).length > 0) continue; // a message with buttons is its own row
     out.push({
+      ...NO_EVIDENCE,
       id: `m-${m.id}`,
       project: p.slug,
       title: parsed.title,
@@ -184,8 +269,6 @@ async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>)
       detail: parsed.note,
       links: linksOf(m.links),
       body: m.body,
-      checks: null,
-      release: null,
     });
   }
   return out;
@@ -228,10 +311,9 @@ async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, 
       at: m.at.toISOString(),
       ref: link?.ref ?? null,
       detail: firstLine(m.body, 200),
+      ...(await workEvidence(db, p ?? null, link?.kind === "ticket" ? await ticketByKey(db, projectId, link.ref) : null, m.links.find((l) => l.kind === "pr")?.ref ?? null)),
       links: linksOf(m.links),
       body: m.body,
-      checks: await evidenceOf(db, link?.kind === "ticket" ? await ticketByKey(db, projectId, link.ref) : null, m.links.find((l) => l.kind === "pr")?.ref ?? null),
-      release: null,
     });
   }
   return out;
@@ -310,6 +392,7 @@ async function pasoRows(db: Db, all: Project[], inbox: Map<string, InboxItem[]>,
         if (it.key && ceoTickets.has(`${p.slug}/${it.key}`)) continue;
         const t = await ticketByKey(db, p.id, it.key);
         out.push({
+          ...NO_EVIDENCE,
           id: `b-${it.id}`,
           project: p.slug,
           title: firstLine(it.why, 200),
@@ -329,6 +412,7 @@ async function pasoRows(db: Db, all: Project[], inbox: Map<string, InboxItem[]>,
         const plan = it.target as unknown as ReleasePlan;
         const n = plan.tickets.length;
         out.push({
+          ...NO_EVIDENCE,
           id: `r-${p.slug}`,
           project: p.slug,
           title: `${n} ${n === 1 ? "cambio listo" : "cambios listos"} para publicar`,
@@ -412,7 +496,8 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
   if (!m) return refuse("DECISION_NOT_FOUND", "Esa decisión ya no está.", 404);
   if (m.actionState) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.", 409, { state: stateOf(m.actionState) });
   const ref = await resolveThread(db, m.threadId);
-  const proposal = m.authorRole === "product-owner" ? parseProposal(m.body) : null;
+  if (m.proposal?.kind === "plan") return actOnPlan(db, id, m, input);
+  const proposal = m.proposal?.kind === "choice" ? { title: m.proposal.title, options: optionsOf(m.proposal), note: null } : m.authorRole === "product-owner" ? parseProposal(m.body) : null;
 
   if (proposal && (input.action === "elegir" || input.action === "responder")) {
     let body: string;
@@ -420,6 +505,9 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
     if (input.action === "elegir") {
       const picked = chosen(proposal.options, input.option);
       if (!Array.isArray(picked)) return picked;
+      // PLA-I36-7: two options at once only when the PO marked them combinable.
+      if (picked.length > 1 && m.proposal && !m.proposal.combinable.some((set) => set.length === picked.length && set.every((n, i) => n === picked[i]!.n)))
+        return refuse("NOT_COMBINABLE", "Esas opciones no van juntas.", 400);
       const ns = picked.map((o) => o.n).join(" + ");
       body = `Elijo ${ns}: ${picked.map((o) => o.label).join(" + ")}`;
       result = { option: picked.length === 1 ? picked[0]!.n : picked.map((o) => o.n), label: picked.map((o) => o.label).join(" + ") };
@@ -454,6 +542,51 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
   if ("error" in out) return { ...out, status: out.status } as DecisionRefusal;
   return after(db, id, stateOf(out.action_state)!);
 }
+
+// PLA-I36-8: Sí, empiecen makes one Ready ticket per step; Cambiar algo closes the order and hands its text back to
+// the box; Cancelar closes the order. Each claims the message's action_state first, like Elegir.
+async function actOnPlan(db: Db, id: string, m: typeof threadMessages.$inferSelect, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
+  if (!["empezar", "cambiar", "cancelar"].includes(input.action)) return refuse("INVALID_ACTION", "Aquí: Sí, empiecen · Cambiar algo · Cancelar.", 400);
+  const data = m.proposal!;
+  const ref = await resolveThread(db, m.threadId);
+  const p = ref.project!;
+  const [order] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, data.order!))).limit(1);
+  const at = new Date().toISOString();
+  const claimed = await db
+    .update(threadMessages)
+    .set({ actionState: { action: input.action, at, result: {} } as unknown as ActionState })
+    .where(and(eq(threadMessages.id, m.id), isNull(threadMessages.actionState)))
+    .returning({ id: threadMessages.id });
+  if (claimed.length === 0) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.");
+  const ctx = { ...webCtx, tool: `screen.plan_${input.action}` };
+  let result: Record<string, unknown>;
+  try {
+    if (input.action === "empezar") {
+      const created = await makeSteps(db, p.slug, data, ctx);
+      await db.update(threadMessages).set({ proposal: { ...data, created } }).where(eq(threadMessages.id, m.id));
+      if (order) await setTask(db, { project: p.slug, key: order.key, note: `Jorge aprobó el plan: ${created.join(", ")}.` } as never, ctx);
+      await postMessage(db, ref, { author: JORGE, body: "Sí, empiecen." }, ctx);
+      result = { created, order: data.order };
+    } else {
+      const text = order ? orderText(order) : data.title;
+      if (order && !["Done", "Won't do"].includes(order.status)) {
+        await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: input.action === "cambiar" ? "Jorge cambia el pedido: vuelve a la caja." : "Jorge canceló el pedido." } as never, ctx);
+      }
+      await postMessage(db, ref, { author: JORGE, body: input.action === "cambiar" ? "Cambio el pedido; te lo vuelvo a escribir." : "Cancelo este pedido." }, ctx);
+      result = { order: data.order, text };
+    }
+  } catch (e) {
+    await db.update(threadMessages).set({ actionState: null }).where(eq(threadMessages.id, m.id));
+    if (e instanceof ToolError) return refuse(e.code, "Plania no dejó hacerlo.", 409, e.detail);
+    throw e;
+  }
+  const state = { action: input.action, at, result };
+  await db.update(threadMessages).set({ actionState: state as unknown as ActionState }).where(eq(threadMessages.id, m.id));
+  return after(db, id, state);
+}
+
+// The words Jorge typed, from the order's scope (`Pedido de Jorge desde …: "texto"`), else its title.
+export const orderText = (t: Pick<Task, "scope" | "title">) => /^Pedido de Jorge[^:]*: "([\s\S]*?)"\s*$/m.exec(t.scope ?? "")?.[1] ?? t.title;
 
 async function actOnTicket(db: Db, id: string, taskId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
   const [t] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);

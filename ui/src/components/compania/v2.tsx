@@ -41,7 +41,10 @@ import {
   calendarBar,
   rumboText,
   RUMBO_MISSING,
+  evidenceText,
+  plainLink,
 } from "@/lib/v2";
+import { Detalles, Levers, OrderBox, RequestList, type Steer } from "@/components/compania/timon";
 import { Composer, MessageRow, PlumbingLink, type SendState } from "@/components/compania/org";
 import { BlockError, Dot, TONE_INK, eyebrow, heading, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
 
@@ -74,7 +77,12 @@ const DecisionRow = ({
   const acted = !!d.state;
   const checks = checksText(d);
   const release = releaseText(d);
-  const links = (d.links ?? []).map((l) => ({ ...l, href: linkHref(l, d.project) })).filter((l) => l.href);
+  // PLA-I36-11: tickets and keys go to Detalles; the main line links the doc, the change and the preview.
+  const all = (d.links ?? []).map((l) => ({ ...l, href: linkHref(l, d.project) })).filter((l) => l.href);
+  const links = all.filter((l) => l.kind !== "ticket");
+  const keyed = all.filter((l) => l.kind === "ticket");
+  const evidence = evidenceText(d);
+  const work = d.kind === "pr" || d.kind === "deliverable";
   const busyHere = busy?.id === d.id;
   const options = ordered(d);
   const label = (key: string, word: string) => (busyHere && busy?.key === key ? "…" : word);
@@ -99,7 +107,6 @@ const DecisionRow = ({
       <div className="grid min-w-0 gap-1.5">
         <p className="min-w-0 text-sm break-words">
           <span className="font-semibold">{d.title}</span>
-          {d.ref && <span className="ml-1.5 font-mono text-xs text-muted-foreground">{d.ref}</span>}
           <span className="text-xs text-muted-foreground"> · {ago(d.at, now)}</span>
         </p>
         {d.detail && d.kind !== "proposal" && <p className="line-clamp-2 text-xs text-muted-foreground">{d.detail}</p>}
@@ -123,11 +130,11 @@ const DecisionRow = ({
             {links.map((l) =>
               /^https?:/.test(l.href!) ? (
                 <a key={`${l.kind}-${l.ref}`} href={l.href!} target="_blank" rel="noreferrer" className="min-w-0 truncate font-semibold text-foreground hover:underline" data-link={l.kind}>
-                  {linkLabel(l)} ↗
+                  {plainLink(l)} ↗
                 </a>
               ) : (
                 <Link key={`${l.kind}-${l.ref}`} to={l.href!} className="min-w-0 truncate font-semibold text-foreground hover:underline" data-link={l.kind}>
-                  {linkLabel(l)}
+                  {plainLink(l)}
                 </Link>
               ),
             )}
@@ -137,6 +144,43 @@ const DecisionRow = ({
           <p className="max-h-80 overflow-y-auto rounded-xl bg-muted/60 p-3 text-sm leading-relaxed break-words whitespace-pre-wrap" data-body>
             {d.body}
           </p>
+        )}
+        {work && (evidence || d.preview_url !== undefined) && (
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs" data-evidence>
+            {evidence && (
+              <span className={cn("inline-flex items-center gap-1.5 font-semibold", TONE_INK[evidence.tone])}>
+                <Dot tone={evidence.tone} /> {evidence.text}
+              </span>
+            )}
+            {d.preview_url ? (
+              <a href={d.preview_url} target="_blank" rel="noreferrer" className="font-semibold text-foreground hover:underline" data-control="vista-previa">
+                Ver la vista previa ↗
+              </a>
+            ) : (
+              <span className="text-muted-foreground" data-no-preview>
+                Sin vista previa: se configura en Detalles del proyecto
+              </span>
+            )}
+          </div>
+        )}
+        {d.plan && (
+          <div className="grid min-w-0 gap-1.5 rounded-xl bg-muted/60 p-3 text-sm" data-plan-row>
+            <p className="break-words">
+              <span className="font-semibold">Lo entendí: </span>
+              {d.plan.understood}
+            </p>
+            <ol className="grid gap-1">
+              {d.plan.steps.map((st, i) => (
+                <li key={i} className="grid min-w-0 gap-0.5" data-step={i + 1}>
+                  <span className="min-w-0 break-words">
+                    <span className="font-mono text-xs text-muted-foreground">{i + 1}.</span> {st.title}
+                  </span>
+                  <span className="pl-4 text-xs break-words text-muted-foreground">Hecho cuando: {st.done_when}</span>
+                </li>
+              ))}
+            </ol>
+            {d.plan.cost && <p className="text-xs text-muted-foreground">Cuesta: {d.plan.cost}</p>}
+          </div>
         )}
         {acted ? (
           <p className="text-xs font-semibold text-ink-done" data-state={d.state!.action}>
@@ -152,6 +196,11 @@ const DecisionRow = ({
                     <span className={cn("min-w-0 flex-1 pt-1.5 text-sm break-words", o.recommended && "font-semibold")}>
                       {o.label}
                       {o.recommended && <span className="font-normal text-muted-foreground"> · recomendado</span>}
+                      {(o.effect || o.cost) && (
+                        <span className="block text-xs font-normal text-muted-foreground" data-option-cost>
+                          {[o.effect, o.cost].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
                     </span>
                     <button
                       type="button"
@@ -167,16 +216,35 @@ const DecisionRow = ({
               </ol>
             )}
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              {d.kind === "proposal" && d.detail && <span className="mr-auto min-w-0 text-xs text-muted-foreground">{d.detail}</span>}
-              {d.kind === "proposal" && options.length >= 2 && (
-                <button
-                  type="button"
-                  data-action="combo"
-                  className={cn(pillGhost, pillSmall)}
-                  disabled={busyHere}
-                  onClick={() => onAct(d, { action: "elegir", option: [1, 2] }, "combo")}
-                >
-                  {label("combo", "1 + 2")}
+              {d.kind === "proposal" && (d.recommended_reason || d.detail) && (
+                <span className="mr-auto min-w-0 text-xs text-muted-foreground">{d.recommended_reason ? `Recomienda: ${d.recommended_reason}` : d.detail}</span>
+              )}
+              {d.kind === "proposal" &&
+                (d.combinable ?? []).map((set) => (
+                  <button
+                    key={set.join("+")}
+                    type="button"
+                    data-action="combo"
+                    className={cn(pillGhost, pillSmall)}
+                    disabled={busyHere}
+                    onClick={() => onAct(d, { action: "elegir", option: set }, `combo-${set.join("+")}`)}
+                  >
+                    {label(`combo-${set.join("+")}`, set.join(" + "))}
+                  </button>
+                ))}
+              {d.actions.includes("empezar") && (
+                <button type="button" data-action="empezar" className={cn(pillPrimary, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "empezar" }, "empezar")}>
+                  {label("empezar", "Sí, empiecen")}
+                </button>
+              )}
+              {d.actions.includes("cambiar") && (
+                <button type="button" data-action="cambiar" className={cn(pillGhost, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "cambiar" }, "cambiar")}>
+                  {label("cambiar", "Cambiar algo")}
+                </button>
+              )}
+              {d.actions.includes("cancelar") && (
+                <button type="button" data-action="cancelar" className={cn(pillGhost, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "cancelar" }, "cancelar")}>
+                  {label("cancelar", "Cancelar")}
                 </button>
               )}
               {d.kind === "release" && (
@@ -199,11 +267,17 @@ const DecisionRow = ({
                   type="button"
                   data-action={d.actions.includes("fusionar") ? "fusionar" : "aceptar"}
                   className={cn(pillPrimary, pillSmall)}
-                  disabled={busyHere}
+                  disabled={busyHere || !!d.hold}
+                  title={d.hold ?? undefined}
                   onClick={() => onAct(d, { action: d.actions.includes("fusionar") ? "fusionar" : "aceptar" }, "aceptar")}
                 >
-                  {label("aceptar", d.actions.includes("fusionar") ? "Fusionar" : "Aceptar")}
+                  {label("aceptar", "Aceptar")}
                 </button>
+              )}
+              {d.hold && (d.actions.includes("fusionar") || d.actions.includes("aceptar")) && (
+                <span className="text-xs font-semibold text-ink-blocked" data-hold>
+                  {d.hold}
+                </span>
               )}
               {d.actions.includes("cambios") && (
                 <button type="button" data-action="cambios" className={cn(pillGhost, pillSmall)} disabled={busyHere} aria-expanded={reply} onClick={() => setReply(!reply)}>
@@ -244,6 +318,12 @@ const DecisionRow = ({
               </form>
             )}
           </>
+        )}
+        {(d.ref || keyed.length > 0) && (
+          <details className="text-xs text-muted-foreground" data-detalles>
+            <summary className="cursor-pointer select-none">Detalles</summary>
+            <p className="pt-1 font-mono break-words">{[d.ref, ...keyed.map((l) => l.ref)].filter((x, i, a) => x && a.indexOf(x) === i).join(" · ")}</p>
+          </details>
         )}
         {error && <p className="text-xs text-ink-blocked">{error}</p>}
       </div>
@@ -309,6 +389,7 @@ export const ProjectReport = ({
   companyPaused,
   timeZone,
   onFijar,
+  steer,
 }: {
   project: OrgProject;
   decisions: Decision[];
@@ -316,6 +397,7 @@ export const ProjectReport = ({
   companyPaused: boolean;
   timeZone?: string;
   onFijar?: (p: OrgProject) => void;
+  steer?: Steer;
 }) => {
   const light = lightOf(p.light);
   const pace = p.plan ? paceText(p.plan) : null;
@@ -353,7 +435,10 @@ export const ProjectReport = ({
         </p>
       )}
 
-      {/* PLA-I36-4: Rumbo, the destination, first. */}
+      {/* PLA-I36-8: the box, the card's main control. */}
+      {steer && !p.paused && p.light !== "paused" && <OrderBox project={p} steer={steer} />}
+
+      {/* PLA-I36-4: Rumbo, the destination. */}
       {rumbo.missing ? (
         <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl bg-status-now/10 px-3 py-2 text-sm text-ink-now" data-rumbo="missing">
           <span className="font-semibold">{RUMBO_MISSING}</span>
@@ -476,33 +561,9 @@ export const ProjectReport = ({
         )}
       </div>
 
-      {(p.orders?.length ?? 0) > 0 && (
-        <div className="grid min-w-0 gap-1" data-orders={p.orders!.length}>
-          <p className={eyebrow}>Tus órdenes</p>
-          <ul className="grid min-w-0 gap-1">
-            {p.orders!.map((o) => {
-              const st = orderText(o, now);
-              const href = o.link ? linkHref(o.link, p.slug) : null;
-              return (
-                <li key={o.id} className="grid min-w-0 gap-0.5 text-sm" data-order={o.state} data-order-kind={o.kind}>
-                  <span className="flex min-w-0 items-start justify-between gap-2">
-                    <span className="min-w-0 break-words">{o.title}</span>
-                    <span className={cn("inline-flex shrink-0 items-center gap-1.5 pt-0.5 text-xs font-semibold", TONE_INK[st.tone])}>
-                      <Dot tone={st.tone} /> {st.text}
-                    </span>
-                  </span>
-                  {o.understood && <span className="min-w-0 text-xs break-words text-muted-foreground">El PO entendió: {o.understood}</span>}
-                  {o.state === "entregada" && href && (
-                    <a href={href} {...(/^https?:/.test(href) ? { target: "_blank", rel: "noreferrer" } : {})} className="justify-self-start text-xs font-semibold hover:underline" data-order-link={o.link!.kind}>
-                      Ver lo que salió: {linkLabel(o.link!)}
-                    </a>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
+      <RequestList project={p} now={now} timeZone={timeZone} steer={steer} />
+
+      {steer && <Levers project={p} steer={steer} />}
 
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border pt-2">
         <PlumbingLink text={plumbing.text} tone={plumbing.tone} className="max-w-full" />
@@ -510,6 +571,7 @@ export const ProjectReport = ({
           Abrir →
         </Link>
       </div>
+      <Detalles project={p} steer={steer} />
     </li>
   );
 };

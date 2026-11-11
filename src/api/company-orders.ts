@@ -5,10 +5,16 @@
 // State: entregada (Done, Merged or Released; the link is its PR, else its newest doc), en_curso (In progress or
 // In review, or a run on it; who names the role), entendida (the PO wrote "Entendí: …" on it), sin_tomar (Ready
 // more than 24 h and no run ever took it; age in hours), else enviada. A Won't do order is cancelada.
-import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agentRuns, agents, docs, events, tasks, threadMessages, type Actor, type Project, type Task } from "../db/schema.js";
+import { agentRuns, agents, docs, events, projects, tasks, threadMessages, type Actor, type Project, type Task } from "../db/schema.js";
 import { agentOfActor } from "../runner/events.js";
+import { orderText } from "./company-decisions.js";
+import { runView, type RunLine } from "./company-runs.js";
+import { claim, setTask } from "../mcp/writes.js";
+import { ToolError } from "../mcp/errors.js";
+import { webCtx } from "../mcp/tx.js";
+import { stopRun } from "../runner/runner.js";
 import { roleOf } from "../runner/limits.js";
 
 export const ORDERS_MAX = 5;
@@ -18,16 +24,25 @@ const DELIVERED = ["Done", "Merged", "Released"];
 const UNDERSTOOD = /^\s*entend[ií]\s*[:：-]\s*/i;
 
 export type OrderState = "enviada" | "entendida" | "en_curso" | "entregada" | "sin_tomar" | "cancelada";
+// PLA-I36-8: the request as one object with four stages: Lo entendí, Trabajando, Pruébalo, Listo.
+export type OrderStage = "enviada" | "entendido" | "trabajando" | "pruebalo" | "listo" | "cancelada";
+export type OrderPlan = { needs_approval: boolean; approved: boolean; steps: number; done: number; decision: string };
 export type Order = {
   id: string;
   kind: "order" | "choice";
+  key: string | null;
   title: string;
+  text: string | null;
   at: string;
   state: OrderState;
+  stage: OrderStage;
   understood: string | null;
   who: string | null;
   link: { kind: "pr" | "doc"; ref: string; title: string } | null;
   age_h: number | null;
+  plan: OrderPlan | null;
+  // PLA-I36-9: the run working on it now (or stopped), on the order or one of its plan's tickets.
+  run: RunLine | null;
 };
 
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
@@ -100,6 +115,35 @@ export async function ordersOf(db: Db, p: Project, threadId: string, now = new D
   const byKey = new Map(mine.map((t) => [t.key, t]));
   const out: Order[] = [];
   const used = new Set<string>();
+  // PLA-I36-8: each order's newest plan (a PO proposal of kind plan naming it).
+  const plans = new Map<string, { id: string; data: NonNullable<(typeof choices)[number]["proposal"]>; acted: string | null }>();
+  const planRows = await db
+    .select({ id: threadMessages.id, proposal: threadMessages.proposal, actionState: threadMessages.actionState })
+    .from(threadMessages)
+    .where(and(eq(threadMessages.threadId, threadId), isNotNull(threadMessages.proposal)))
+    .orderBy(desc(threadMessages.at))
+    .limit(40);
+  for (const r of planRows) if (r.proposal?.kind === "plan" && r.proposal.order && !plans.has(r.proposal.order)) plans.set(r.proposal.order, { id: r.id, data: r.proposal, acted: r.actionState?.action ?? null });
+
+  const stageOf = async (t: Task | undefined, st: OrderState): Promise<{ stage: OrderStage; plan: OrderPlan | null; run: RunLine | null }> => {
+    if (!t) return { stage: "enviada", plan: null, run: null };
+    const pl = plans.get(t.key);
+    const created = pl?.data.created ?? [];
+    const steps = created.length ? await db.select({ key: tasks.key, status: tasks.status }).from(tasks).where(and(eq(tasks.projectId, p.id), inArray(tasks.key, created))) : [];
+    const done = steps.filter((x) => DELIVERED.includes(x.status)).length;
+    const plan = pl ? { needs_approval: pl.data.needs_approval, approved: created.length > 0, steps: pl.data.steps.length, done, decision: `m-${pl.id}` } : null;
+    const run = await runView(db, p.id, [t.key, ...created]);
+    const open = steps.filter((x) => x.status !== "Won't do");
+    let stage: OrderStage;
+    if (st === "cancelada" || pl?.acted === "cancelar" || pl?.acted === "cambiar") stage = "cancelada";
+    else if (open.length && open.every((x) => DELIVERED.includes(x.status))) stage = "listo";
+    else if (open.length && open.every((x) => DELIVERED.includes(x.status) || x.status === "In review")) stage = "pruebalo";
+    else if (open.length || run?.status === "running" || st === "en_curso") stage = !open.length && t.status === "In review" ? "pruebalo" : "trabajando";
+    else if (!open.length && st === "entregada") stage = "listo";
+    else if (pl || st === "entendida") stage = "entendido";
+    else stage = "enviada";
+    return { stage, plan, run };
+  };
 
   for (const m of choices) {
     const s = m.actionState!;
@@ -114,12 +158,45 @@ export async function ordersOf(db: Db, p: Project, threadId: string, now = new D
     const option = Array.isArray(r.option) ? r.option.join(" + ") : r.option != null ? String(r.option) : null;
     const title = action === "responder" ? `Respondiste: ${oneLine(label, 120)}` : `Elegiste${option ? ` ${option}` : ""}: ${oneLine(label, 120)}`;
     const state = t ? await orderState(db, t, now, ctx) : { state: "enviada" as const, understood: null, who: null, link: null, age_h: null };
-    out.push({ id: `m-${m.id}`, kind: "choice", title, at: s.at, ...state });
+    out.push({ id: `m-${m.id}`, kind: "choice", key: t?.key ?? null, title, text: null, at: s.at, ...state, ...(await stageOf(t, state.state)) });
   }
   for (const t of mine) {
     if (used.has(t.key)) continue;
-    out.push({ id: `t-${t.id}`, kind: "order", title: t.title, at: t.createdAt.toISOString(), ...(await orderState(db, t, now, ctx)) });
+    const state = await orderState(db, t, now, ctx);
+    out.push({ id: `t-${t.id}`, kind: "order", key: t.key, title: t.title, text: orderText(t), at: t.createdAt.toISOString(), ...state, ...(await stageOf(t, state.state)) });
   }
   return out.sort((a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id)).slice(0, ORDERS_MAX);
 }
 
+
+// PLA-I36-8: Cancelar closes the order and the tickets its plan made (live runs on them stop).
+export async function cancelOrder(db: Db, slug: string, key: string): Promise<{ cancelled: string[] } | { error: string; status: 404 | 409; hint: string }> {
+  const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
+  if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
+  const [order] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
+  if (!order || order.origin !== "jorge") return { error: "ORDER_NOT_FOUND", status: 404, hint: "Ese pedido no está." };
+  const [thread] = await db.execute<{ id: string }>(sql`select id from threads where project_id = ${p.id} and kind = 'project' limit 1`).then((r) => r.rows);
+  const plans = thread
+    ? await db.select({ proposal: threadMessages.proposal }).from(threadMessages).where(and(eq(threadMessages.threadId, thread.id), isNotNull(threadMessages.proposal)))
+    : [];
+  const created = plans.flatMap((r) => (r.proposal?.kind === "plan" && r.proposal.order === key ? r.proposal.created : []));
+  const ctx = { ...webCtx, tool: "screen.order_cancel" };
+  const live = await db.select({ id: agentRuns.id }).from(agentRuns).where(and(eq(agentRuns.projectId, p.id), eq(agentRuns.status, "running"), inArray(agentRuns.taskKey, [key, ...created])));
+  for (const r of live) stopRun(r.id, "pedido cancelado desde Compañía");
+  const closed: string[] = [];
+  for (const k of [key, ...created]) {
+    const [t] = await db.select({ status: tasks.status, version: tasks.version, owner: tasks.owner }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, k))).limit(1);
+    if (!t || ["Done", "Merged", "Released", "Won't do"].includes(t.status)) continue;
+    if (t.owner) {
+      try {
+        await claim(db, { project: slug, key: k, action: "release" } as never, ctx);
+      } catch (e) {
+        if (!(e instanceof ToolError)) throw e;
+      }
+    }
+    const [fresh] = await db.select({ version: tasks.version }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, k))).limit(1);
+    await setTask(db, { project: slug, key: k, status: "Won't do", version: fresh!.version, reason: "Jorge canceló el pedido desde Compañía." } as never, ctx);
+    closed.push(k);
+  }
+  return { cancelled: closed };
+}

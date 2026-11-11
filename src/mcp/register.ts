@@ -58,6 +58,7 @@ import { registerUsageTools } from "./usage.js";
 import { registerTemplateTools } from "./templates.js";
 import { registerHeartbeatTools } from "./heartbeat.js";
 import { closingLine, questionLine, registerThreadTools } from "./threads.js";
+import { registerProposalTools } from "./proposals.js";
 import { finish, start } from "./agent-surface.js";
 import { projectReleases } from "./releases.js";
 import { DIGEST_PER_PROJECT_DEFAULT, QUIET_MIN, getDigest, getRunning, listProjects, readerOf } from "./watch.js";
@@ -1166,6 +1167,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
   registerTemplateTools(server, { db, identity, writeCtx, actor, request_id, run, write });
   registerHeartbeatTools(server, { db, identity, writeCtx, actor, request_id, run, readOnly, write });
   registerThreadTools(server, { db, identity, writeCtx, actor, request_id, run, readOnly, write });
+  registerProposalTools(server, { db, identity, writeCtx, actor, request_id, run, write });
 
   return server;
 }

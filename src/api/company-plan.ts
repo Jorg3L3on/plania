@@ -124,27 +124,37 @@ export async function ceoAgentId(db: Db): Promise<string | null> {
 
 const PRIORITY = (p: string | null) => (p ? Number(p.slice(1)) : 9);
 
+// PLA-I36-6: the next Ready tickets (not Jorge's), in Siguiente's order, for Cambiar lo siguiente.
+export type ReadyLine = { key: string; title: string };
+
 export async function nextOf(db: Db, p: Project, ceoId: string | null, activeKey: string | null): Promise<NextLine | null> {
+  return (await readyOf(db, p, ceoId, activeKey)).next;
+}
+
+export async function readyOf(db: Db, p: Project, ceoId: string | null, activeKey: string | null): Promise<{ next: NextLine | null; ready: ReadyLine[] }> {
   const open = await db
     .select()
     .from(tasks)
     .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket"), inArray(tasks.status, ["Ready", "Needs Jorge"])))
     .orderBy(asc(tasks.phase), asc(tasks.createdAt));
-  if (open.length === 0) return null;
+  if (open.length === 0) return { next: null, ready: [] };
   const parents = new Map<string, string>();
   const parentIds = [...new Set(open.map((t) => t.parentId).filter((x): x is string => !!x))];
   if (parentIds.length) for (const r of await db.select({ id: tasks.id, key: tasks.key }).from(tasks).where(inArray(tasks.id, parentIds))) parents.set(r.id, r.key);
   const inActive = (t: Task) => (activeKey && t.parentId && parents.get(t.parentId) === activeKey ? 0 : 1);
   const jorge = (t: Task) => t.status === "Needs Jorge" || (!!ceoId && t.ownerAgent === ceoId);
-  const sorted = [...open].sort((a, b) => Number(!jorge(a)) - Number(!jorge(b)) || inActive(a) - inActive(b) || PRIORITY(a.priority) - PRIORITY(b.priority) || (a.phase ?? 99) - (b.phase ?? 99) || byKey(a, b));
+  // PLA-I36-6: the ticket Jorge picked goes first after his own.
+  const first = (t: Task) => (p.settings.next_first === t.key ? 0 : 1);
+  const sorted = [...open].sort((a, b) => Number(!jorge(a)) - Number(!jorge(b)) || first(a) - first(b) || inActive(a) - inActive(b) || PRIORITY(a.priority) - PRIORITY(b.priority) || (a.phase ?? 99) - (b.phase ?? 99) || byKey(a, b));
   const t = sorted[0]!;
+  const ready = sorted.filter((x) => x.status === "Ready" && !jorge(x)).slice(0, 5).map((x) => ({ key: x.key, title: x.title }));
   let owner: NextOwner = jorge(t) ? "jorge" : (t.workType ?? "code") === "code" ? "taller" : "po";
   if (!jorge(t) && t.ownerAgent) {
     const [a] = await db.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
     const role = a ? roleOf(a) : null;
     if (role) owner = role === "product-owner" ? "po" : role;
   }
-  return { title: t.title, key: t.key, owner, due: t.dueOn ?? null };
+  return { next: { title: t.title, key: t.key, owner, due: t.dueOn ?? null }, ready };
 }
 
 export async function workOf(db: Db, p: Project): Promise<WorkLine> {
