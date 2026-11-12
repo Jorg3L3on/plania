@@ -261,3 +261,13 @@ export function askedLine(r: AskResult, project?: string): string {
   return r.wake === "busy" ? `Le llegó a ${who}; lo toma al terminar lo que corre.` : r.wake === "queued" ? `Le llegó a ${who}; lo toma en su turno.` : `Le llegó a ${who}; lo ve en su próximo turno.`;
 }
 export const RECIBIRIA = "Recibiría tu pedido";
+
+// The run of a teammate that covers t, if any (what it was on at that hour).
+export function runAt(history: OrgHistory, project: string, agent: string, t: number) {
+  const now = Date.parse(history.to);
+  return history.projects.find((x) => x.slug === project)?.runs.find((r) => r.agent === agent && Date.parse(r.from) <= t && t <= (r.to ? Date.parse(r.to) : now)) ?? null;
+}
+// The time a position on the bar (0..1000) stands for, and back. The bar ends at now.
+export const RANGE = 1000;
+export const timeAt = (v: number, history: OrgHistory) => clampTime(Date.parse(history.from) + (Math.min(RANGE, Math.max(0, v)) / RANGE) * (Date.parse(history.to) - Date.parse(history.from)), history);
+export const valueAt = (t: number, history: OrgHistory) => Math.round(((clampTime(t, history) - Date.parse(history.from)) / Math.max(1, Date.parse(history.to) - Date.parse(history.from))) * RANGE);

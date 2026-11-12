@@ -15,6 +15,7 @@ import { ThreadPanel } from "@/components/compania/org";
 import type { DecisionBusy } from "@/components/compania/v2";
 import { AskBox } from "@/components/compania/edificio/ask";
 import { AsistenteFab } from "@/components/compania/edificio/asistente";
+import { ClockBar } from "@/components/compania/edificio/clock";
 import { Building, BuildingBlock } from "@/components/compania/edificio/building";
 import { AddPage, MemberHead, MemberSide, PlanPage, SidePage, memberTitle } from "@/components/compania/edificio/side";
 import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
@@ -25,7 +26,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ApiError, api, type Decision, type DecisionInput, type OrgProject } from "@/lib/api";
 import { ceoRedirect, sheetOf, sheetSearch } from "@/lib/compania";
-import { caption } from "@/lib/edificio";
+import { caption, marksOf } from "@/lib/edificio";
 import { byLight, plumbingLine } from "@/lib/org";
 import { greeting } from "@/lib/greeting";
 
@@ -126,6 +127,49 @@ const Compania = () => {
     enabled: !!sideProject && (sheet?.kind === "plan" || sheet?.kind === "add"),
   });
   const [added, setAdded] = useState<string | null>(null);
+  // PLA-I39-8: the clock. null is now; a time is the past on screen. Plays from the first event to now.
+  const history = useQuery({ queryKey: ["company-history"], queryFn: () => api.companyHistory(20), staleTime: 60_000, refetchInterval: 120_000 });
+  const [viewAt, setViewAt] = useState<number | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const play = useRef<number | null>(null);
+  const stopPlay = () => {
+    if (play.current != null) window.clearInterval(play.current);
+    play.current = null;
+    setPlaying(false);
+  };
+  useEffect(() => stopPlay, []);
+  const onPlay = () => {
+    const h = history.data;
+    if (!h) return;
+    const marks = marksOf(h);
+    const start = marks[0]?.at ?? Date.parse(h.from);
+    // Reduced motion: no autoplay; jump to the first event and let the arrow keys walk.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setViewAt(start);
+      return;
+    }
+    const end = Date.parse(h.to);
+    const began = Date.now();
+    const span = 8_000;
+    if (play.current != null) window.clearInterval(play.current);
+    setPlaying(true);
+    setViewAt(start);
+    // A plain timer (20 steps a second): it plays the same whether or not the browser is painting frames.
+    play.current = window.setInterval(() => {
+      const f = (Date.now() - began) / span;
+      if (f >= 1) {
+        stopPlay();
+        setViewAt(null);
+        return;
+      }
+      setViewAt(start + f * (end - start));
+    }, 50);
+  };
+  const toNow = () => {
+    stopPlay();
+    setViewAt(null);
+  };
+  const past = viewAt != null && history.data ? { at: viewAt, history: history.data } : null;
   // PLA-I39-7: floors whose ask box has text: their PO's window says "Recibiría tu pedido".
   const [typing, setTyping] = useState<Record<string, boolean>>({});
   const opener = useRef<HTMLElement | null>(null);
@@ -318,12 +362,14 @@ const Compania = () => {
                 key={p.slug}
                 project={p}
                 prefill={prefill[p.slug]}
-                disabled={company.company.paused}
+                disabled={company.company.paused || past != null}
                 onAsk={(slug, input) => steer.onAsk(slug, { text: input.text, now: input.now })}
                 onTyping={(slug, on) => setTyping((t) => (!!t[slug] === on ? t : { ...t, [slug]: on }))}
               />
             )}
             typing={typing}
+            past={past}
+            onNow={toNow}
             onAdd={(slug, el) => {
               opener.current = el;
               setAdded(null);
@@ -332,6 +378,22 @@ const Compania = () => {
           />
         )}
       </BuildingBlock>
+
+      {/* PLA-I39-8: the clock, docked at the bottom. */}
+      {company && history.data && company.projects.length > 0 && (
+        <ClockBar
+          history={history.data}
+          at={viewAt}
+          playing={playing}
+          timeZone={timeZone}
+          onAt={(t) => {
+            stopPlay();
+            setViewAt(t);
+          }}
+          onPlay={onPlay}
+          onNow={toNow}
+        />
+      )}
 
       {/* PLA-I39-7: Asistente floats; room so it never covers the last floor's controls. */}
       {company && (

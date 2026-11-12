@@ -22,6 +22,7 @@ export const Window = ({
   companyPaused,
   state: forced,
   hint,
+  pastTitle,
   onOpen,
 }: {
   member: OrgMember;
@@ -31,13 +32,15 @@ export const Window = ({
   // PLA-I39-8: a past time on the clock decides the light instead.
   state?: WindowState;
   hint?: string | null;
+  // PLA-I39-8: what its run at that hour was on.
+  pastTitle?: string | null;
   onOpen?: (m: OrgMember, el: HTMLElement) => void;
 }) => {
   const state = hint ? "ghost" : (forced ?? windowState(m, companyPaused));
   const c = caption(m, now, { companyPaused });
-  const doing = hint ?? (forced && forced !== windowState(m, companyPaused) ? (forced === "work" ? "Trabajaba" : "Sin trabajo") : c.doing);
+  const doing = hint ?? (forced ? (forced === "work" ? (pastTitle ?? "Trabajando") : "Sin trabajo") : c.doing);
   const sub = hint || forced ? "" : c.sub;
-  const label = forced ? `${c.who} de ${project}, ${forced === "work" ? "trabajando" : "sin trabajo"} a esa hora` : windowLabel(m, project, now, companyPaused);
+  const label = forced ? `${c.who} de ${project}, ${forced === "work" ? "trabajando" : "sin trabajo"} a esa hora: ${doing}` : windowLabel(m, project, now, companyPaused);
   const body = (
     <>
       <span className="edi-glass">

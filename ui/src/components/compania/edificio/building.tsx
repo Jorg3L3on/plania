@@ -9,8 +9,9 @@
 // PLA-I39-5: each decision hangs under its asker's window (question.tsx); one nobody on a team asked opens from its
 //   roof chip, in place.
 import type { ReactNode } from "react";
-import type { Decision, OrgCompany, OrgMember, OrgProject } from "@/lib/api";
-import { floorOrder, hourIn } from "@/lib/edificio";
+import type { Decision, OrgCompany, OrgHistory, OrgMember, OrgProject } from "@/lib/api";
+import { eventText, floorOrder, hourIn, lastBefore, marksOf } from "@/lib/edificio";
+import { clockText } from "./clock";
 import { companyLine } from "@/lib/v2";
 import { BlockError } from "@/components/compania/parts";
 import { Floor } from "./floor";
@@ -47,21 +48,30 @@ export type BuildingProps = {
   // PLA-I39-7: the ask box of a floor, and which floors the owner is typing in.
   askFor?: (p: OrgProject) => ReactNode;
   typing?: Record<string, boolean>;
+  // PLA-I39-8: a past time on the clock. Actions are disabled and one line says so.
+  past?: { at: number; history: OrgHistory } | null;
+  onNow?: () => void;
 };
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing }: BuildingProps) => {
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, past, onNow }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
   const summary = company.asistente.last_run?.summary ? firstLine(company.asistente.last_run.summary) : "";
   const empty = company.projects.length === 0;
+  const viewed = past ? clockText(past.at, timeZone) : null;
+  const lastEvent = past ? lastBefore(marksOf(past.history), past.at) : null;
+  const pastActs = acts && past ? { ...acts, disabled: true } : acts;
   return (
     <Scene
-      hour={hourIn(now, timeZone)}
-      pre={`${hello}, Jorge · ${day}`}
-      line={empty ? "Todavía no hay pisos." : `${companyLine(company.projects).replace(/^./, (c) => c.toUpperCase())}.`}
+      hour={hourIn(past ? past.at : now, timeZone)}
+      mode={past ? "past" : "now"}
+      pre={past ? `Mirando atrás · ${day}` : `${hello}, Jorge · ${day}`}
+      line={past ? `A las ${viewed}.` : empty ? "Todavía no hay pisos." : `${companyLine(company.projects).replace(/^./, (c) => c.toUpperCase())}.`}
       meta={meta}
       by={
-        summary ? (
+        past ? (
+          <span data-past-line>{lastEvent ? `Lo último antes: ${eventText(lastEvent)} (${clockText(lastEvent.at, timeZone)})` : "Nada pasó antes de esta hora en el reloj."}</span>
+        ) : summary ? (
           <>
             <span className="edi-face" aria-hidden>
               A
@@ -73,7 +83,17 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
         ) : null
       }
     >
-      {!empty && <Roof decisions={decisions} projects={company.projects} plumbing={company.plumbing} onChip={onChip} open={roofOpen} acts={acts} />}
+      {past && (
+        <p className="edi-pastline" role="status" data-past={viewed}>
+          Estás viendo las {viewed}: las acciones esperan a que vuelvas.
+          {onNow && (
+            <button type="button" className="edi-mini" onClick={onNow} data-control="volver">
+              Volver a ahora
+            </button>
+          )}
+        </p>
+      )}
+      {!empty && <Roof decisions={decisions} projects={company.projects} plumbing={company.plumbing} onChip={onChip} open={roofOpen} acts={pastActs} />}
       <div className="edi-tower" data-tower={floors.length}>
         {empty ? (
           <div className="edi-empty" data-empty="projects">
@@ -94,9 +114,10 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
                 onFijar={onFijar}
                 onPlan={onPlan}
                 decisions={decisions}
-                acts={acts}
+                acts={pastActs}
                 ask={askFor?.(p)}
                 typing={!!typing?.[p.slug]}
+                past={past}
               >
                 {onAdd && p.team.length < 8 ? (
                   <button type="button" className="edi-win edi-add" onClick={(e) => onAdd(p.slug, e.currentTarget)} data-control="sumar" aria-label={`Sumar a alguien al equipo de ${p.title}`}>
@@ -129,6 +150,7 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
               project={p}
               now={now}
               companyPaused={paused}
+              past={past}
               onOpen={onOpen ? (m, el) => onOpen(p.slug, m, el) : undefined}
               plate={
                 <Plate project={p} onPlan={onPlan}>

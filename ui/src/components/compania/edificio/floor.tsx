@@ -1,8 +1,8 @@
 // PLA-I39-3: one project is one floor: its plate on the left, its team as windows on the right. The floor's
 // colour is one of six fixed hues picked from the slug. PLA-I39-4: the plate (plate.tsx).
 import { Fragment, type CSSProperties, type ReactNode } from "react";
-import type { Decision, OrgMember, OrgProject } from "@/lib/api";
-import { RECIBIRIA, floorHue, hangingFor } from "@/lib/edificio";
+import type { Decision, OrgHistory, OrgMember, OrgProject } from "@/lib/api";
+import { RECIBIRIA, floorHue, hangingFor, litAt, runAt } from "@/lib/edificio";
 import { byRole } from "@/lib/org";
 import { Plate } from "./plate";
 import { Question, bubblePlace, type QuestionActs } from "./question";
@@ -20,6 +20,7 @@ export const Floor = ({
   acts,
   ask,
   typing,
+  past,
   children,
 }: {
   project: OrgProject;
@@ -35,6 +36,8 @@ export const Floor = ({
   // PLA-I39-7: the ask box under the plate, and the PO's line while the owner types in it.
   ask?: ReactNode;
   typing?: boolean;
+  // PLA-I39-8: a past time on the clock: each window's light is whether a run of it covered that time.
+  past?: { at: number; history: OrgHistory } | null;
   children?: ReactNode;
 }) => {
   const team = [...p.team].sort(byRole);
@@ -50,7 +53,16 @@ export const Floor = ({
           return (
             <Fragment key={m.agent}>
               <div className="edi-slot" style={{ "--i": i } as CSSProperties}>
-                <Window member={m} project={p.title} now={now} companyPaused={companyPaused} onOpen={onOpen} hint={typing && m.role === "product-owner" ? RECIBIRIA : null} />
+                <Window
+                  member={m}
+                  project={p.title}
+                  now={now}
+                  companyPaused={companyPaused}
+                  onOpen={onOpen}
+                  hint={!past && typing && m.role === "product-owner" ? RECIBIRIA : null}
+                  state={past ? (litAt(past.history, p.slug, m.agent, past.at) ? "work" : "idle") : undefined}
+                  pastTitle={past ? (runAt(past.history, p.slug, m.agent, past.at)?.title ?? null) : null}
+                />
               </div>
               {hanging && acts && <Question hanging={hanging} role={m.role} anchor={anchor} style={bubblePlace(i, team.length + (children ? 1 : 0))} acts={acts} />}
             </Fragment>
