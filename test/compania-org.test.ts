@@ -186,7 +186,7 @@ test("I33-1 the retired blocks are gone from the page: Solo tú, En marcha, Gast
   for (const gone of ["Solo tú", "EnMarcha", "Gasto", "KillSwitch", "EquipoSheetBody", "setCompanyPaused", "Queue", "TeamCards", "ProjectPreview", "Vista previa"]) assert.equal(page.includes(gone), false, gone);
   // PLA-I39-3: the building replaces the 360 px column and the cards grid.
   assert.ok(page.includes("<Building") && !page.includes("360px"), "the building, no 360 px column (PLA-I39)");
-  assert.ok(page.includes("TeToca") && page.includes("plumbingLine"));
+  assert.ok(page.includes("plumbingLine") && !page.includes("<TeToca"), "Te toca lives on the floors now (PLA-I39-5)");
 });
 
 test("I33-1 the company plumbing line reads tokens and what runs, amber at 80 % and red at 100 %", () => {
