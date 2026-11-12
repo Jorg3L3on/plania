@@ -1,10 +1,14 @@
-// PLA-I35: Compañía v2 (Design afdb15dd v2, canvas docs/company-mockups/compania-v2.html). A report, not a
-// board of bots: Te toca on top (the decisions, options with names), Asistente folded on the left (360 px on a
-// Mac), on the right each running project as a report card and the paused ones as a list with Reanudar.
-// Phone: one column, Te toca first. Plumbing lives in Máquina; one line in the header links there.
-// Data: GET /api/company (decisions[] included) and GET /api/threads/:id; POST /api/company/decisions/:id acts.
-// URL: ?doc=<id> a doc, ?nuevo the new project dialog; ?p=<slug> and ?vista=<slug> redirect to /p/<slug>,
-// ?equipo to Máquina.
+// PLA-I39: Compañía v4, the building (Design doc of PLA-IDEA11). /ceo is one building at night, seen from across the
+// street: the sky says the moment, the roof ("Tu oficina") what waits on you, a floor per running project (its plate,
+// one ask box, a window per teammate lit only while its run is live), the question hanging under the window of who
+// asked it, the street with the door to a new floor, paused projects below the street. Any window, the project's
+// name and the "+" window open the side page on the right (from the bottom on a phone); Asistente floats bottom right
+// and opens there too. The clock docked at the bottom replays the last hours from real runs and ends at now.
+// Data: GET /api/company (decisions[] with asker, team[] with queue), GET /api/company/history, GET /api/threads/:id,
+// GET /api/company/projects/:slug for the plan and adding someone; POST /api/company/decisions/:id acts.
+// URL: ?m=<slug>:<agent> a teammate, ?plan=<slug> the plan, ?add=<slug> adding someone, ?asistente the thread,
+// ?decision=<id> scrolls to that decision, ?doc=<id> a doc, ?nuevo the new project dialog; ?p=<slug> and
+// ?vista=<slug> redirect to /p/<slug>, ?equipo to Máquina.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";

@@ -6,26 +6,8 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { clock, tokens, type RunBrief, type Tone } from "@/lib/compania";
-import type { OrgMember, OrgPlumbing, OrgProject, Thread, ThreadAction, ThreadMessage } from "@/lib/api";
-import {
-  ACTION_LABEL,
-  MESSAGE_MAX,
-  THREAD_PAGE,
-  actionStateText,
-  budgetLine,
-  byRole,
-  isBareLink,
-  lightOf,
-  linkHref,
-  linkLabel,
-  memberLine,
-  needsText,
-  plumbingLine,
-  roleName,
-  threadItems,
-  visibleMessages,
-  waitsOnJorge,
-} from "@/lib/org";
+import type { OrgMember, OrgProject, Thread, ThreadAction, ThreadMessage } from "@/lib/api";
+import { ACTION_LABEL, MESSAGE_MAX, THREAD_PAGE, actionStateText, budgetLine, byRole, isBareLink, lightOf, linkHref, linkLabel, memberLine, needsText, roleName, threadItems, visibleMessages, waitsOnJorge } from "@/lib/org";
 import { BlockError, Dot, TONE_INK, eyebrow, heading, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
 
 // ---- the one-line plumbing link to Máquina
@@ -41,11 +23,6 @@ export const PlumbingLink = ({ text, tone, className }: { text: string; tone: To
     <span aria-hidden className="shrink-0">→ Máquina</span>
   </Link>
 );
-export const CompanyPlumbing = ({ plumbing }: { plumbing: OrgPlumbing }) => {
-  const line = plumbingLine(plumbing);
-  return <PlumbingLink text={`Plomería · ${line.text}`} tone={line.tone} />;
-};
-
 // ---- a link chip (MIA-01 · doc "Campos y flujos" · PR #12)
 
 const Chip = ({ href, children }: { href: string | null; children: ReactNode }) => {
@@ -242,14 +219,6 @@ export const Composer = ({
 };
 
 // ---- the thread: last 30 messages with day separators, folded to its last message on a phone
-
-export const ThreadSkeleton = () => (
-  <div className={cn(panel, "grid gap-2 p-4")} aria-hidden data-testid="thread-skeleton">
-    {[0, 1, 2].map((i) => (
-      <div key={i} className="h-16 animate-pulse rounded-2xl bg-muted" />
-    ))}
-  </div>
-);
 
 export const ThreadPanel = ({
   title,

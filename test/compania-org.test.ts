@@ -164,22 +164,6 @@ test("I33-1 phone: the thread folds to its last message; the toggle shows only o
   assert.ok(open.includes("Plegar el hilo"));
 });
 
-test("I33-1 → I35-3 project cards: a report per running project, no idle role rows, plumbing line to Máquina, Abrir to /p", () => {
-  const live = SIX.filter((p) => !p.paused);
-  const out = html(h("ul", null, ...live.map((p) => h(v2.ProjectReport, { key: p.slug, project: p, decisions: [], now: NOW, companyPaused: false, timeZone: TZ }))));
-  assert.equal(count(out, /data-card=/g), 4);
-  for (const slug of live.map((p) => p.slug)) assert.ok(out.includes(`href="/p/${slug}"`), slug);
-  // PLA-I35: a role shows only while it runs or is stuck; idle roles have no row.
-  assert.deepEqual([...out.matchAll(/data-role-row="([^"]+)"/g)].map((m) => m[1]), ["PO", "Taller"]);
-  for (const t of ["Te necesita", "Quieto", "Bien", "Sin presupuesto", "Taller", "trabaja", "espera: que aceptes", "912k / 6M · en marcha", "→ Máquina"]) assert.ok(out.includes(t), t);
-  assert.equal(out.includes("Vista previa"), false, "no preview: Abrir is enough");
-  assert.equal(out.includes("Meta de prueba"), false, "the goal lives on the project page");
-  assert.equal(count(out, /href="\/machine"/g), 5, "four plumbing lines and Subir límite");
-  const paused = html(h(v2.PausedList, { projects: SIX.filter((p) => p.paused), now: NOW, onResume: noop }));
-  assert.equal(count(paused, /data-paused=/g), 2);
-  noMoney(out + paused);
-});
-
 test("I33-1 the retired blocks are gone from the page: Solo tú, En marcha, Gasto, the switch and the Equipo sheet", async () => {
   const { readFileSync } = await import("node:fs");
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
@@ -189,14 +173,15 @@ test("I33-1 the retired blocks are gone from the page: Solo tú, En marcha, Gast
   assert.ok(page.includes("plumbingLine") && !page.includes("<TeToca"), "Te toca lives on the floors now (PLA-I39-5)");
 });
 
-test("I33-1 the company plumbing line reads tokens and what runs, amber at 80 % and red at 100 %", () => {
+test("I33-1 the company plumbing line reads tokens and what runs, amber at 80 % and red at 100 %", async () => {
   assert.deepEqual(lib.plumbingLine({ spend: 912_000, limit: 6_000_000, running: 1, paused: false }), { text: "912k / 6M · 1 en marcha", tone: "ok" });
   assert.equal(lib.plumbingLine({ spend: 4_900_000, limit: 6_000_000, running: 0, paused: false }).tone, "warn");
   assert.equal(lib.plumbingLine({ spend: 6_000_000, limit: 6_000_000, running: 0, paused: false }).tone, "stop");
   assert.deepEqual(lib.plumbingLine({ spend: 0, limit: null, running: 0, paused: true }), { text: "0 · sin límite · detenida", tone: "idle" });
-  const out = html(h(org.CompanyPlumbing, { plumbing: { spend: 912_000, limit: 6_000_000, running: 1, paused: false } }));
-  assert.ok(out.includes("Plomería · 912k / 6M · 1 en marcha"));
-  assert.ok(out.includes('href="/machine"'));
+  // PLA-I39: the line sits in the building's sky, linking to Máquina.
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes("Plomería · {plumbingLine(company.plumbing).text}") && page.includes('to="/machine"'));
 });
 
 test("I33-1 a bare link in the text box says Asistente saves it to the library", () => {
@@ -265,7 +250,6 @@ test("I33-2 → I35: the preview sheet is gone; /ceo?p=x and ?vista=x redirect t
 
 // ---- PLA-I33-4: one test per state in the Design doc's Scope
 
-const card = (p: Record<string, unknown>, decisions: unknown[] = []) => html(h(v2.ProjectReport, { project: p, decisions, now: NOW, companyPaused: false, timeZone: TZ }));
 const parts = await load("components/compania/parts.tsx");
 
 test("I33-4 state vacío: no projects, no messages, a team with no runs", async () => {
@@ -277,16 +261,9 @@ test("I33-4 state vacío: no projects, no messages, a team with no runs", async 
   const thread = html(h(org.ThreadPanel, threadProps({ thread: { ...asistenteThread, messages: [] } })));
   assert.ok(thread.includes('data-empty="thread"'));
   assert.ok(thread.includes("Dile a Asistente…"), "the text box stays");
-  const fresh = card(orgProject("nuevo", "Nuevo", { team: team("nuevo", { "product-owner": { last: null }, research: { last: null }, artist: { last: null }, taller: { last: null } }) }));
-  // PLA-I35: a team that never ran says nothing about its roles; never "Sin corridas todavía".
-  assert.equal(fresh.includes("Sin corridas todavía"), false);
-  assert.ok(fresh.includes("Nadie trabaja ahora"));
-  assert.ok(card(orgProject("solo", "Solo", { team: [] })).includes("Sin tickets listos"));
 });
 
 test("I33-4 state carga: a skeleton per block", () => {
-  assert.ok(html(h(org.ThreadSkeleton, {})).includes("thread-skeleton"));
-  assert.ok(html(h(v2.ProjectsSkeleton, {})).includes("cards-skeleton"));
   const loading = html(h(org.ThreadPanel, threadProps({ thread: undefined, loading: true })));
   assert.ok(loading.includes("thread-skeleton"));
   assert.equal(loading.includes("data-message"), false);
@@ -304,14 +281,6 @@ test("I33-4 state error por bloque: the thread says the Mac may be asleep and of
 
 test("I33-4 state texto largo: title, the PO's line, message and ticket clamp or truncate", () => {
   const long = "Un nombre de proyecto larguísimo que no cabe en dos líneas de ninguna tarjeta ni en el teléfono";
-  const out = card(
-    orgProject("largo", long, {
-      thread: { id: "t", unread: 0, last: { at: "2026-11-08T14:00:00Z", author_role: "product-owner", body: long.repeat(3) } },
-      team: team("largo", { taller: { state: "running", now: { ticket: `MIA-I3-4 · ${long}`, since: "2026-11-08T14:00:00Z" }, last: null } }),
-    }),
-  );
-  assert.ok(count(out, /line-clamp-2/g) >= 2, "title and the PO's line");
-  assert.ok(out.includes("truncate"), "ticket line");
   const message = html(h(org.MessageRow, { message: msg("x", "2026-11-08T14:00:00Z", { body: long.repeat(5) }), project: null, busy: null, onAction: noop }));
   assert.ok(message.includes("line-clamp-6"));
   assert.ok(message.includes("Ver todo"));
@@ -321,10 +290,6 @@ test("I33-4 state texto largo: title, the PO's line, message and ticket clamp or
 
 test("I33-4 state proyecto en pausa: a row in the En pausa list with Reanudar, read-only thread with a notice", () => {
   const p = SIX[1]!;
-  const out = html(h(v2.PausedList, { projects: [p], now: NOW, onResume: noop }));
-  assert.ok(out.includes("bg-surface-sunken"));
-  assert.ok(out.includes("En pausa"));
-  assert.ok(out.includes('data-control="reanudar"'));
   const thread = html(h(org.ThreadPanel, threadProps({ title: "PO", thread: poThread, project: "micasa", placeholder: "Dile al PO…", readOnly: "En pausa: el PO no despierta. Reanuda el proyecto para escribirle." })));
   assert.ok(thread.includes("data-readonly"));
   assert.ok(thread.includes("Reanuda el proyecto para escribirle."));
@@ -336,40 +301,17 @@ test("I33-4 state proyecto en pausa: a row in the En pausa list with Reanudar, r
 });
 
 test("I33-4 state compañía detenida: the plumbing line reads detenida, the project page says so", () => {
-  const line = html(h(org.CompanyPlumbing, { plumbing: { spend: 912_000, limit: 6_000_000, running: 0, paused: true } }));
-  assert.ok(line.includes("detenida"));
-  assert.ok(line.includes('data-plumbing="idle"'));
+  assert.deepEqual(lib.plumbingLine({ spend: 912_000, limit: 6_000_000, running: 0, paused: true }), { text: "912k / 6M · detenida", tone: "idle" });
   const bar = html(h(org.ProjectOrgBar, { project: SIX[3], companyPaused: true, canEdit: true, onEditGoal: noop, onPause: noop, onResume: noop }));
   assert.ok(bar.includes("La compañía está detenida"));
 });
 
-test("I33-4 state sin presupuesto: red light, the plumbing line says sin presupuesto, roles wait", () => {
-  const out = card(orgProject("workia", "Workia", { light: "no_budget", budget: budget(2_000_000, 2_000_000), team: team("workia", { "product-owner": { state: "no_budget" } }) }));
-  assert.ok(out.includes("Sin presupuesto"));
-  assert.ok(out.includes("2M / 2M · sin presupuesto"));
-  assert.ok(out.includes('data-plumbing="stop"'));
-  assert.ok(out.includes("Subir límite"), "the one button that fixes the cause");
-});
-
 test("I33-4 state presupuesto al 80 % y al 100 %: the plumbing line turns amber, then red", () => {
-  assert.ok(card(orgProject("a", "A", { budget: budget(1_640_000, 2_000_000) })).includes('data-plumbing="warn"'));
-  assert.ok(card(orgProject("b", "B", { budget: budget(2_000_000, 2_000_000) })).includes('data-plumbing="stop"'));
-  assert.ok(card(orgProject("c", "C", { budget: budget(400_000, 2_000_000) })).includes('data-plumbing="ok"'));
   assert.equal(lib.plumbingLine({ spend: 4_800_000, limit: 6_000_000, running: 1, paused: false }).tone, "warn");
   assert.equal(lib.plumbingLine({ spend: 6_000_000, limit: 6_000_000, running: 1, paused: false }).tone, "stop");
 });
 
-test("I33-4 → I35 state quieto: the light reads Quieto n días from the last event, this week says when", () => {
-  const out = card(orgProject("filmia", "Filmia", { light: "quiet", this_week: { done: 0, docs: 0, prs: 0, last_at: "2026-11-05T15:00:00Z" } }));
-  assert.ok(out.includes("Quieto 3 días"));
-  assert.ok(out.includes("Esta semana: nada · la última vez, hace 3 días"));
-  assert.equal(count(out, /data-role-row=/g), 0, "no idle role rows");
-});
-
 test("I33-4 state esperando a Jorge: Te necesita on the card, the message with buttons ringed in the thread", () => {
-  const out = card(SIX[0]!);
-  assert.ok(out.includes("Te necesita"));
-  assert.ok(out.includes("espera: que aceptes"));
   const thread = html(h(org.ThreadPanel, threadProps()));
   assert.equal(count(thread, /data-waiting="1"/g), 3);
   assert.ok(thread.includes("ring-status-jorge/60"));

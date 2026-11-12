@@ -333,13 +333,22 @@ test("I39-5 #1: a proposal hangs under the PO's window and a question under the 
 });
 
 test("I39-5 #2: each of the eight decision kinds shows the same actions Te toca shows", () => {
-  const titles = { workia: "Workia" };
+  // What Te toca showed for each kind (recorded from its rows before the block left the page, PLA-I39-9).
+  const TE_TOCA: Record<string, string[]> = {
+    proposal: ["combo", "elegir", "elegir", "responder"],
+    plan: ["cambiar", "cancelar", "empezar"],
+    action: ["aplazar", "hecho"],
+    question: ["elegir", "elegir", "responder"],
+    deliverable: ["aceptar", "cambios"],
+    pr: ["cambios", "fusionar"],
+    step: ["hecho"],
+    release: ["publicar"],
+  };
   for (const d of KINDS) {
-    const before = html(h(v2.TeToca, { decisions: [d], titles, now: NOW, busy: null, onAct: noop }));
     const out = render(company({ decisions: [d] }), { acts: acts(), roofOpen: d.id });
     const where = d.asker ? out.slice(out.indexOf('data-floor="workia"')) : out.slice(out.indexOf("data-roof"), out.indexOf("edi-tower"));
     assert.ok(where.includes(`data-bubble="${d.id}"`), `${d.kind} is shown`);
-    assert.deepEqual(actionsIn(where), actionsIn(before), d.kind);
+    assert.deepEqual(actionsIn(where), TE_TOCA[d.kind], d.kind);
     clean(where);
   }
 });
@@ -692,4 +701,61 @@ test("I39-8 #4: the bar cannot be dragged past now", () => {
   r.props.onChange({ target: { value: "500" } });
   assert.deepEqual(seen, ["now", T(hist.from) + (to - T(hist.from)) / 2]);
   assert.ok(seen.every((x) => x === "now" || (x as number) <= to));
+});
+
+// ---- PLA-I39-9
+
+// WCAG relative luminance and contrast; colours are read from index.css so the test follows the stylesheet.
+const lum = (hex: string) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+};
+const contrast = (a: string, b: string) => {
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (x! + 0.05) / (y! + 0.05);
+};
+// a over b at alpha (the floor's hue tint is 11 % over the wall).
+const over = (a: string, b: string, alpha: number) =>
+  "#" + [1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * alpha + parseInt(b.slice(i, i + 2), 16) * (1 - alpha)).toString(16).padStart(2, "0")).join("");
+
+test("I39-9 #2: every window is named with role, state and what it is on; the tab order goes from a window to its question", () => {
+  const team = [
+    member("product-owner", { state: "waiting_jorge", waiting: "¿Qué tienda?" }),
+    member("research"),
+    member("taller", { state: "running", now: { ticket: "WRK-3", title: "Pantalla del carrito", since: "2026-11-10T17:20:00Z" } }),
+  ];
+  const out = render(company({ projects: [project({ team })], decisions: [proposal] }), { acts: acts(), onOpen: noop });
+  const names = [...out.matchAll(/<button type="button" class="edi-win"[^>]*aria-label="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(names, ["PO de Workia, te espera: Te pregunta algo, ¿Qué tienda?", "Research de Workia, libre: Sin trabajo", "Taller de Workia, trabajando: Pantalla del carrito, desde hace 40 min"]);
+  // DOM order (the tab order): the PO's window, then its question, then the next window.
+  const po = out.indexOf('data-agent="product-owner-workia"');
+  const q = out.indexOf(`data-bubble="${proposal.id}"`);
+  const next = out.indexOf('data-agent="research-workia"');
+  assert.ok(po < q && q < next, "window → its question → the next window");
+  const firstButtonInQuestion = out.indexOf("<button", q);
+  assert.ok(firstButtonInQuestion < next, "the question's controls come before the next window");
+});
+
+test("I39-9 #3: caption, plate and question text on the night panel reach 4.5:1", () => {
+  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
+  const v = (name: string, scope: string) => new RegExp(`${scope}[\\s\\S]*?${name}: (#[0-9a-f]{6})`, "i").exec(css)![1]!;
+  const wall = v("--e-wall", "\\.edi \\{");
+  const fg = v("--e-fg", "\\.edi \\{");
+  const muted = v("--e-muted", "\\.edi \\{");
+  const youInk = v("--e-you-ink", "\\.edi \\{");
+  const workInk = /\.edi-win\[data-state="work"\] \.edi-do \{ color: (#[0-9a-f]{6})/.exec(css)![1]!;
+  const darkCard = v("--card", "\\.dark \\{");
+  const darkFg = v("--foreground", "\\.dark \\{");
+  const darkMuted = v("--muted-foreground", "\\.dark \\{");
+  // The worst floor background: the brightest hue tinted 11 % over the wall.
+  const floors = lib.HUES.map((h: string) => over(h, wall, 0.11));
+  const pairs: [string, string, string][] = [];
+  for (const bg of [wall, ...floors]) {
+    pairs.push(["plate and caption text", fg, bg], ["muted caption and plate lines", muted, bg], ["asking and out-of-budget captions", youInk, bg], ["working caption", workInk, bg]);
+  }
+  pairs.push(["question text", darkFg, darkCard], ["question muted text", darkMuted, darkCard], ["question eyebrow", youInk, darkCard]);
+  const low = pairs.map(([what, a, b]) => ({ what, a, b, ratio: Math.round(contrast(a, b) * 100) / 100 })).filter((p) => p.ratio < 4.5);
+  assert.deepEqual(low, []);
+  const worst = Math.min(...pairs.map(([, a, b]) => contrast(a, b)));
+  console.log(`edificio contrast: worst ${worst.toFixed(2)}:1 over ${pairs.length} pairs`);
 });
