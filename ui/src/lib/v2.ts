@@ -30,6 +30,7 @@ export function checksText(d: Pick<Decision, "checks">): { text: string; tone: T
   if (c.ci === "failure") parts.push("pruebas fallando");
   else if (c.ci === "pending") parts.push("pruebas corriendo");
   else if (c.ci === "success") parts.push("pruebas en verde");
+  else if (c.ci === "none") parts.push("repo sin CI");
   if (parts.length === 0) return c.open === 0 && c.ci === null ? null : { text: "checks completos", tone: "ok", open: false };
   const open = c.open > 0 || c.ci === "failure" || c.ci === "pending";
   return { text: parts.join(" · "), tone: c.ci === "failure" ? "stop" : open ? "warn" : "ok", open };

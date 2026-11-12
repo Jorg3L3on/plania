@@ -619,7 +619,7 @@ export const pullRequests = pgTable(
     baseBranch: text("base_branch"),
     mergedAt: timestamp("merged_at", { withTimezone: true }),
     mergeSha: text("merge_sha"),
-    ciState: text("ci_state"), // pending | success | failure
+    ciState: text("ci_state"), // pending | success | failure | none (PLA-14: the head has no check run and no status)
     ciUrl: text("ci_url"),
     // PLA-I36-10: how many files the PR changes, when the poller read it.
     changedFiles: integer("changed_files"),

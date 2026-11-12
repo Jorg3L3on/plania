@@ -175,6 +175,8 @@ test("I36-2 #5: a PR row shows its link and open checks before Fusionar", () => 
   assert.ok(out.includes('href="https://github.com/x/w/pull/9"'));
   assert.ok(out.indexOf("data-checks") < out.indexOf('data-action="fusionar"'), "checks before Fusionar");
   assert.deepEqual(lib.checksText({ checks: { open: 0, ci: "success" } }), { text: "pruebas en verde", tone: "ok", open: false });
+  // PLA-14: a repo with no CI is not "pruebas corriendo".
+  assert.deepEqual(lib.checksText({ checks: { open: 0, ci: "none" } }), { text: "repo sin CI", tone: "ok", open: false });
 });
 
 // ---- PLA-I36-3

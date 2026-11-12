@@ -327,3 +327,87 @@ describe("status drift (PLA-03)", () => {
     }
   });
 });
+
+describe("no CI (PLA-14)", () => {
+  test("a head with no check run and no status is none, not pending; a PR stuck at pending is corrected on the next poll; real CI still pends and fails", async () => {
+    const { db, close } = makeDb();
+    try {
+      let p = await findProject(db, "zigzag");
+      await setProject(db, { project: "zigzag", version: p.version, settings: { ...p.settings, github: { repo: "Jorg3L3on/zigzag" } } }, ctx);
+      p = await findProject(db, "zigzag");
+      const NOCI = "bbbbbbb222222222222222222222222222222222";
+      const RUNS = "ccccccc333333333333333333333333333333333";
+      const STATUS = "fffffff666666666666666666666666666666666";
+      const made: string[] = [];
+      for (const title of ["Sin CI", "Con checks", "Con status"]) {
+        const t = await createTask(db, { project: "zigzag", title, scope: "s", checks: ["c"], status: "Ready" }, ctx);
+        await raw.query(`update tasks set status = 'In review' where key = $1`, [t.key]);
+        made.push(t.key);
+      }
+      // What an earlier poll stored: every PR open, linked, pending, and unchanged on GitHub since.
+      const prs = [
+        { n: 3, sha: NOCI, key: made[0] },
+        { n: 4, sha: RUNS, key: made[1] },
+        { n: 5, sha: STATUS, key: made[2] },
+      ];
+      for (const pr of prs) {
+        await raw.query(
+          `insert into pull_requests (project_id, repo, number, url, title, task_id, state, ci_state, head_sha, head_branch, base_branch, gh_updated_at)
+           select $1, 'Jorg3L3on/zigzag', $2, $3, 'pr', id, 'open', 'pending', $4, $5, 'sandbox', '2026-11-10T10:00:00Z' from tasks where key = $6`,
+          [p.id, pr.n, `https://github.com/Jorg3L3on/zigzag/pull/${pr.n}`, pr.sha, `jl/pr-${pr.n}`, pr.key],
+        );
+      }
+      const list = prs.map((pr) => ({
+        number: pr.n,
+        html_url: `https://github.com/Jorg3L3on/zigzag/pull/${pr.n}`,
+        title: "pr",
+        state: "open",
+        body: "",
+        merged_at: null,
+        merge_commit_sha: null,
+        updated_at: "2026-11-10T10:00:00Z",
+        head: { sha: pr.sha, ref: `jl/pr-${pr.n}` },
+        base: { ref: "sandbox" },
+      }));
+      const c = "/repos/Jorg3L3on/zigzag/commits";
+      const running = { name: "test", status: "in_progress", conclusion: null, html_url: "https://github.com/Jorg3L3on/zigzag/actions/runs/9", head_sha: RUNS };
+      const routes: Record<string, unknown> = {
+        "/repos/Jorg3L3on/zigzag/pulls?": list,
+        "/repos/Jorg3L3on/zigzag/branches": [],
+        // GitHub's answers for a commit with no CI: no check run, and a combined status of pending with total_count 0.
+        [`${c}/${NOCI}/check-runs`]: { total_count: 0, check_runs: [] },
+        [`${c}/${NOCI}/status`]: { state: "pending", total_count: 0, statuses: [] },
+        [`${c}/${RUNS}/check-runs`]: { total_count: 1, check_runs: [running] },
+        [`${c}/${RUNS}/status`]: { state: "pending", total_count: 0, statuses: [] },
+        [`${c}/${STATUS}/check-runs`]: { total_count: 0, check_runs: [] },
+        [`${c}/${STATUS}/status`]: { state: "pending", total_count: 1, statuses: [{ context: "vercel", state: "pending", target_url: "https://vercel.test/1" }] },
+      };
+      const { fetch } = fakeFetch(routes);
+      const deps = { fetch, env: { GITHUB_TOKEN: "ghp_test" } };
+      const ci = async () => Object.fromEntries((await raw.query(`select number, ci_state from pull_requests where repo = 'Jorg3L3on/zigzag' order by number`)).rows.map((r) => [r.number, r.ci_state]));
+      const ciResults = async () => (await raw.query(`select t.key, r.verdict from results r join tasks t on t.id = r.task_id where r.kind = 'ci' and t.key = any($1) order by r.created_at`, [made])).rows;
+
+      await pollGithubProject(db, p, deps);
+      assert.deepEqual(await ci(), { 3: "none", 4: "pending", 5: "pending" }, "the stuck no-CI PR is corrected; real CI keeps pending");
+      assert.deepEqual(await ciResults(), [], "none adds no ci result");
+      const none = await pollGithubProject(db, p, deps);
+      assert.equal(none.ci, 0);
+      assert.deepEqual(await ci(), { 3: "none", 4: "pending", 5: "pending" }, "a second tick changes nothing");
+
+      // Real CI finishes without touching the PR's updated_at: the next poll still hears it.
+      routes[`${c}/${RUNS}/check-runs`] = { total_count: 1, check_runs: [{ ...running, status: "completed", conclusion: "failure" }] };
+      routes[`${c}/${STATUS}/status`] = { state: "failure", total_count: 1, statuses: [{ context: "vercel", state: "error", target_url: "https://vercel.test/1" }] };
+      const red = await pollGithubProject(db, p, deps);
+      assert.equal(red.ci, 2);
+      assert.deepEqual(await ci(), { 3: "none", 4: "failure", 5: "failure" });
+      assert.deepEqual(await ciResults(), [
+        { key: made[1], verdict: "fail" },
+        { key: made[2], verdict: "fail" },
+      ]);
+      assert.equal(await status(made[1]!), "Ready", "a red check still sends the ticket back from review");
+      assert.equal(await status(made[0]!), "In review", "no CI never sends it back");
+    } finally {
+      await close();
+    }
+  });
+});
