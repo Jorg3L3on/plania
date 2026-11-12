@@ -356,3 +356,119 @@ test("I31-1: resuming a project queues its PO's first wake; a second event while
   assert.equal(w.filter((x) => x.agent === "housi").length, 1);
   assert.deepEqual(w.filter((x) => x.agent !== "housi").map((x) => x.agent), ["asistente"], "the question itself went to Asistente");
 });
+
+// ---- PLA-15: a ticket landing wakes Taller on the Ready ticket it was blocking.
+// The steps of a plan are created Ready and wait on blocked_by, so no move to Ready ever wakes Taller on them.
+
+const { addResult } = await import("../src/mcp/evidence.js");
+let prNumber = 500;
+const move = async (key: string, status: string) => {
+  const { version } = (await raw.query(`select version from tasks where key = $1`, [key])).rows[0];
+  return writes.setTask(db, { project: "micasa", key, status, version } as never, webCtx);
+};
+// In review with its PR and the scan pass merge-gate records, then Merged the way the screen moves it.
+async function land(key: string): Promise<void> {
+  const number = ++prNumber;
+  const head = number.toString(16).padStart(40, "0");
+  const url = `https://github.com/acme/micasa/pull/${number}`;
+  const t = (await raw.query(`update tasks set status = 'In review', pr_url = $2 where key = $1 returning id`, [key, url])).rows[0];
+  await raw.query(
+    `insert into pull_requests (project_id, repo, number, url, title, task_id, state, head_sha, head_branch, base_branch)
+     values ($1, 'acme/micasa', $2, $3, $4, $5, 'open', $6, $7, 'sandbox')`,
+    [await id("projects", "micasa"), number, url, key, t.id, head, `jl/${key.toLowerCase()}`],
+  );
+  await addResult(db, { project: "micasa", key, kind: "scan", verdict: "pass", cite: "pnpm merge-gate acme/micasa", commit: head, check_ns: [1] } as never, ctx);
+  await move(key, "Merged");
+}
+const step = (key: string, blockedBy: unknown[], extra: Record<string, unknown> = {}) => backlog(key, { status: "Ready", blocked_by: blockedBy, ...extra });
+
+test("PLA-15 #1: a ticket landing queues one Taller wake on the Ready ticket it was blocking", async () => {
+  await backlog("LD-A1");
+  await step("LD-A2", ["LD-A1"]);
+  await step("LD-A3", ["LD-A2"]);
+  assert.deepEqual(await wakes(), [], "steps created Ready wake nobody");
+
+  await land("LD-A1");
+  const w = await wakes();
+  assert.equal(w.length, 1);
+  assert.deepEqual({ agent: w[0]!.agent, task: w[0]!.task_key, status: w[0]!.status }, { agent: "taller", task: "LD-A2", status: "queued" });
+  assert.equal(w[0]!.summary, "queued: event unblocked by LD-A1");
+  const logged = (await raw.query(`select payload from events where type = 'wake.queued' and task_key = 'LD-A1'`)).rows;
+  assert.equal(logged.length, 1);
+  assert.deepEqual(
+    { agent: logged[0].payload.agent, reason: logged[0].payload.reason, from: logged[0].payload.from_event },
+    { agent: "taller", reason: "unblocked by LD-A1", from: "task.status" },
+  );
+
+  // #3: Merged → Released → Done is the same landing: no second wake.
+  await raw.query(`delete from agent_runs`);
+  await move("LD-A1", "Released");
+  await move("LD-A1", "Done");
+  assert.equal((await raw.query(`select status from tasks where key = 'LD-A1'`)).rows[0].status, "Done");
+  assert.deepEqual(await wakes(), []);
+});
+
+test("PLA-15 #2: a landing queues nothing when the next ticket is not Taller's to start yet", async () => {
+  // Another ticket it waits on is only In review (its code is not in the branch): held until that one lands too.
+  await backlog("LD-B1");
+  await backlog("LD-B2");
+  await step("LD-B3", ["LD-B1", "LD-B2"]);
+  await raw.query(`update tasks set status = 'In review' where key = 'LD-B2'`);
+  await land("LD-B1");
+  assert.deepEqual(await wakes(), [], "LD-B2 has not landed");
+  await land("LD-B2");
+  assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key, x.summary]), [["taller", "LD-B3", "queued: event unblocked by LD-B2"]]);
+  await raw.query(`delete from agent_runs`);
+
+  // Not Ready, owned by another agent, a [PRUEBA] ticket, or a human action still open.
+  await backlog("LD-C1");
+  await backlog("LD-C2", { blocked_by: ["LD-C1"] });
+  await step("LD-C3", ["LD-C1"], { owner_agent: "research" });
+  await step("LD-C4", ["LD-C1"], { title: "[PRUEBA] nada" });
+  await step("LD-C5", ["LD-C1", { human_action: { text: "Crear la llave" } }]);
+  await land("LD-C1");
+  assert.deepEqual(await wakes(), []);
+
+  // A ticket that blocks nothing.
+  await backlog("LD-D1");
+  await land("LD-D1");
+  assert.deepEqual(await wakes(), []);
+
+  // The switches: a paused project, a paused company.
+  await backlog("LD-E1");
+  await step("LD-E2", ["LD-E1"]);
+  await setProjectPaused(db, "micasa", true);
+  await land("LD-E1");
+  assert.deepEqual(await wakes(), []);
+  await raw.query(`update projects set runs_paused = false where slug = 'micasa'`);
+  await backlog("LD-F1");
+  await step("LD-F2", ["LD-F1"]);
+  await setCompanyPaused(db, true);
+  await land("LD-F1");
+  assert.deepEqual(await wakes(), []);
+  await setCompanyPaused(db, false);
+});
+
+test("PLA-15: several tickets freed at once: Jorge's pick first, then priority; a busy Taller gets nothing new", async () => {
+  await backlog("LD-G1");
+  await step("LD-G2", ["LD-G1"], { priority: "P2" });
+  await step("LD-G3", ["LD-G1"], { priority: "P1" });
+  await step("LD-G4", ["LD-G1"], { priority: "P3" });
+  await land("LD-G1");
+  assert.deepEqual((await wakes()).map((x) => x.task_key), ["LD-G3"]);
+
+  await raw.query(`delete from agent_runs`);
+  await backlog("LD-H1");
+  await step("LD-H2", ["LD-H1"], { priority: "P1" });
+  await step("LD-H3", ["LD-H1"], { priority: "P3" });
+  await raw.query(`update projects set settings = settings || '{"next_first": "LD-H3"}'::jsonb where slug = 'micasa'`);
+  await land("LD-H1");
+  assert.deepEqual((await wakes()).map((x) => x.task_key), ["LD-H3"]);
+  await raw.query(`update projects set settings = settings - 'next_first' where slug = 'micasa'`);
+
+  // Taller already has a run queued (LD-H3): the next landing coalesces.
+  await backlog("LD-I1");
+  await step("LD-I2", ["LD-I1"]);
+  await land("LD-I1");
+  assert.deepEqual((await wakes()).map((x) => x.task_key), ["LD-H3"]);
+});
