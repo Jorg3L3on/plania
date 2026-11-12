@@ -10,7 +10,7 @@ import { webCtx } from "../src/mcp/tx.js";
 import { recordAllowlistException } from "../src/mcp/scan-allow.js";
 import { parseMergeArgs } from "../src/lib/scan/merge-cli.js";
 import { projectForTicket } from "../src/lib/scan/merge-record.js";
-import { mergeGateExit, renderMergeJson, runMergeGate, type FetchLike } from "../src/lib/scan/merge-gate.js";
+import { gitAuthHeader, mergeGateExit, renderMergeJson, runMergeGate, type FetchLike } from "../src/lib/scan/merge-gate.js";
 import type { ScanReport } from "../src/lib/scan/report.js";
 
 const EMAIL = "fixture@scan-demo.co";
@@ -252,4 +252,12 @@ test("a failed record does not merge", async () => {
   assert.equal(result.merged, false);
   assert.equal(merges, 0);
   assert.equal(result.error, "plania record failed");
+});
+
+test("PLA-12: the clone authenticates with Basic x-access-token, not bearer", () => {
+  const header = gitAuthHeader("gho_synthetic123");
+  assert.match(header, /^AUTHORIZATION: basic /);
+  assert.doesNotMatch(header, /bearer/i);
+  const encoded = header.replace(/^AUTHORIZATION: basic /, "");
+  assert.equal(Buffer.from(encoded, "base64").toString("utf8"), "x-access-token:gho_synthetic123");
 });

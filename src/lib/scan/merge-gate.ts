@@ -91,6 +91,16 @@ export function fetchBare(input: { dir: string; origin: string; baseRef: string;
   };
 }
 
+/**
+ * The git http header for the temporary clone (PLA-12). GitHub's git server
+ * rejects `bearer` for OAuth (gho_) tokens, so the token goes as Basic with
+ * `x-access-token` as the user, which it accepts for every token type. The
+ * REST calls below keep `Authorization: Bearer`.
+ */
+export function gitAuthHeader(token: string): string {
+  return `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
+}
+
 function authEnv(token: string | null): () => void {
   const keys = ["GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GIT_TERMINAL_PROMPT"] as const;
   const previous = new Map(keys.map((key) => [key, process.env[key]]));
@@ -98,7 +108,7 @@ function authEnv(token: string | null): () => void {
   if (token) {
     process.env.GIT_CONFIG_COUNT = "1";
     process.env.GIT_CONFIG_KEY_0 = "http.extraheader";
-    process.env.GIT_CONFIG_VALUE_0 = `AUTHORIZATION: bearer ${token}`;
+    process.env.GIT_CONFIG_VALUE_0 = gitAuthHeader(token);
   } else {
     delete process.env.GIT_CONFIG_COUNT;
     delete process.env.GIT_CONFIG_KEY_0;
