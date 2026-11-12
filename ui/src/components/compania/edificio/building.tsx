@@ -6,6 +6,8 @@
 //   empty      no projects: an empty lot with the door "Abrir el primer piso"
 // PLA-I39-4: each floor's plate (plate.tsx); the street with the door "Abrir un piso nuevo" (the new-project dialog);
 //   below the street, paused projects with their blinds down and Reanudar (the project switch).
+// PLA-I39-5: each decision hangs under its asker's window (question.tsx); one nobody on a team asked opens from its
+//   roof chip, in place.
 import type { ReactNode } from "react";
 import type { Decision, OrgCompany, OrgMember, OrgProject } from "@/lib/api";
 import { floorOrder, hourIn } from "@/lib/edificio";
@@ -13,6 +15,7 @@ import { companyLine } from "@/lib/v2";
 import { BlockError } from "@/components/compania/parts";
 import { Floor } from "./floor";
 import { Plate } from "./plate";
+import type { QuestionActs } from "./question";
 import { Roof } from "./roof";
 import { EdificioSkeleton, Scene } from "./scene";
 
@@ -36,9 +39,12 @@ export type BuildingProps = {
   onPlan?: (p: OrgProject, el: HTMLElement) => void;
   onResume?: (slug: string) => void;
   resuming?: string | null;
+  // PLA-I39-5: acting on a decision where it hangs, and the roof chip opened in place.
+  acts?: QuestionActs;
+  roofOpen?: string | null;
 };
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming }: BuildingProps) => {
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
   const summary = company.asistente.last_run?.summary ? firstLine(company.asistente.last_run.summary) : "";
@@ -62,7 +68,7 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
         ) : null
       }
     >
-      {!empty && <Roof decisions={decisions} projects={company.projects} plumbing={company.plumbing} onChip={onChip} />}
+      {!empty && <Roof decisions={decisions} projects={company.projects} plumbing={company.plumbing} onChip={onChip} open={roofOpen} acts={acts} />}
       <div className="edi-tower" data-tower={floors.length}>
         {empty ? (
           <div className="edi-empty" data-empty="projects">
@@ -82,6 +88,8 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
                 onOpen={onOpen ? (m, el) => onOpen(p.slug, m, el) : undefined}
                 onFijar={onFijar}
                 onPlan={onPlan}
+                decisions={decisions}
+                acts={acts}
               />
             ))}
             <div className="edi-lobby">

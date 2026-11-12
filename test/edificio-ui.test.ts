@@ -24,7 +24,9 @@ const TZ = "America/Mexico_City";
 const clean = (s: string) => {
   assert.equal(/\bnull\b|\bundefined\b|NaN|\[object Object\]/.test(s), false, "never a null key");
   assert.equal(/\$|USD/.test(s), false, "tokens, never money");
-  assert.equal(/\b[A-Z]{2,4}-(I\d+-)?\d+\b/.test(s.replace(/data-[a-z-]+="[^"]*"/g, "").replace(/id="[^"]*"/g, "")), false, "never a ticket key on screen");
+  // Keys live only behind Detalles (PLA-I36-11), folded.
+  const shown = s.replace(/<details[^>]*data-detalles[\s\S]*?<\/details>/g, "").replace(/data-[a-z-]+="[^"]*"/g, "").replace(/id="[^"]*"/g, "");
+  assert.equal(/\b[A-Z]{2,4}-(I\d+-)?\d+\b/.test(shown), false, "never a ticket key on screen");
 };
 const text = (s: string) => s.replace(/<[^>]+>/g, " ");
 
@@ -222,7 +224,7 @@ test("I39-4 #1: the plate shows name, deliverable, steps done of total, goal wit
   assert.ok(out.includes("Formulario de bienvenida") && out.includes("2 de 5 pasos hechos"));
   assert.equal((out.match(/edi-seg edi-seg-done/g) ?? []).length, 2);
   assert.ok(out.includes("Meta: <b>Que una tienda reciba su primer pedido</b> · 5 dic") && out.includes("a tiempo"));
-  assert.ok(out.includes("El equipo te hizo una pregunta y espera tu respuesta.") && out.includes('href="#te-toca"'));
+  assert.ok(out.includes("El equipo te hizo una pregunta y espera tu respuesta.") && out.includes('href="#pregunta-workia"'));
   assert.ok(out.includes("100k tokens esta semana"));
   clean(out);
   const missing = render(company({ projects: [project({ next: { title: "Pantalla del carrito", key: "WRK-3", owner: "taller", due: null } })] }), { onFijar: noop });
@@ -279,4 +281,112 @@ test("I39-4 #5: the door opens the new-project dialog and a created project show
   assert.ok(page.includes('openSheet("?nuevo")') && page.includes("onNew={onNew}") && page.includes('sheet?.kind === "nuevo"'));
   const after = render(company({ projects: [project(), project({ slug: "faro", title: "Faro" })] }));
   assert.ok(after.includes('data-floor="faro"') && after.includes('data-tower="2"'));
+});
+
+// ---- PLA-I39-5
+
+const v2 = await load("components/compania/v2.tsx");
+const acts = (patch: Json = {}) => ({ now: NOW, busy: null, errors: {}, opened: null, onAct: noop, ...patch });
+const proposal = decision({
+  id: "m-00000000-0000-4000-8000-0000000000a1",
+  kind: "proposal",
+  title: "¿Con qué arrancamos el formulario?",
+  options: [
+    { n: 1, label: "Con el borrador", recommended: true, effect: "Taller arranca hoy", cost: "3 tickets · 2 días" },
+    { n: 2, label: "Esperar a la tienda", recommended: false, effect: "Nadie construye", cost: "7 días" },
+  ],
+  combinable: [[1, 2]],
+  recommended_reason: "deja probar algo esta semana",
+  ref: null,
+  asker: { agent: "product-owner-workia", role: "product-owner" },
+});
+const KINDS: Json[] = [
+  proposal,
+  decision({ id: "m-plan", kind: "plan", options: null, actions: ["empezar", "cambiar", "cancelar"], plan: { order: "WRK-9", understood: "Una tienda", steps: [{ title: "Pantalla", done_when: "se ve" }], cost: "2 días", needs_approval: true, created: [] }, asker: { agent: "product-owner-workia", role: "product-owner" } }),
+  decision({ id: "t-action", kind: "action", options: null, actions: ["hecho", "aplazar"], asker: { agent: "artist-workia", role: "artist" } }),
+  decision(),
+  decision({ id: "m-deliv", kind: "deliverable", options: null, actions: ["aceptar", "cambios"], evidence: { verdict: "pass", kind: "test", cite: "ok", pass: 3, fail: 0, at: "2026-11-10T15:00:00Z" }, preview_url: null, hold: null, asker: { agent: "taller-workia", role: "taller" } }),
+  decision({ id: "m-pr", kind: "pr", options: null, actions: ["fusionar", "cambios"], hold: "Las pruebas siguen corriendo.", asker: { agent: "taller-workia", role: "taller" } }),
+  decision({ id: "b-step", kind: "step", options: null, actions: ["hecho"], asker: { agent: "research-workia", role: "research" } }),
+  decision({ id: "r-workia", kind: "release", options: null, actions: [], ref: null, asker: null, release: { from: "sandbox", into: "main", env: "prod", ahead: 2, tickets: [{ key: "WRK-1", title: "Uno" }], open_checks: 0, before: 0 } }),
+];
+const actionsIn = (s: string) => [...s.matchAll(/data-action="([a-z]+)"/g)].map((m) => m[1]).sort();
+
+test("I39-5 #1: a proposal hangs under the PO's window and a question under the window of who asked it", () => {
+  const out = render(company({ decisions: [proposal, decision()] }), { acts: acts() });
+  const floor = out.slice(out.indexOf('data-floor="workia"'));
+  assert.match(floor, new RegExp(`data-bubble="${proposal.id}"[^>]*data-asker="product-owner-workia"`));
+  assert.match(floor, /data-bubble="q-00000000-0000-4000-8000-000000000001"[^>]*data-asker="research-workia"/);
+  assert.ok(floor.includes("PO te pregunta") && floor.includes("Research te pregunta"));
+  // The bubble follows its asker's row: PO is window 0, Research window 1 (five per row on a Mac, two on a phone).
+  assert.match(floor, /data-bubble="m-[^"]+"[^>]*style="--o-wide:7;--o-phone:3;--nx-wide:10%;--nx-phone:25%"/);
+  assert.match(floor, /data-asker="research-workia"[^>]*style="--o-wide:7;--o-phone:3;--nx-wide:30%;--nx-phone:75%"/);
+  // The plate's pointer goes to the question on this floor, and Te toca's block is gone from the page.
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.equal(page.includes("<TeToca"), false);
+  assert.ok(page.includes('get("decision")'));
+  const reason = render(company({ projects: [project({ light: "needs_jorge", light_reason: { text: "Te preguntan.", action: { label: "Ver en Te toca", href: "#te-toca" } } })], decisions: [decision()] }), { acts: acts() });
+  assert.ok(reason.includes('href="#pregunta-workia"') && reason.includes('id="pregunta-workia"') && reason.includes("Ver la pregunta"));
+  clean(out);
+});
+
+test("I39-5 #2: each of the eight decision kinds shows the same actions Te toca shows", () => {
+  const titles = { workia: "Workia" };
+  for (const d of KINDS) {
+    const before = html(h(v2.TeToca, { decisions: [d], titles, now: NOW, busy: null, onAct: noop }));
+    const out = render(company({ decisions: [d] }), { acts: acts(), roofOpen: d.id });
+    const where = d.asker ? out.slice(out.indexOf('data-floor="workia"')) : out.slice(out.indexOf("data-roof"), out.indexOf("edi-tower"));
+    assert.ok(where.includes(`data-bubble="${d.id}"`), `${d.kind} is shown`);
+    assert.deepEqual(actionsIn(where), actionsIn(before), d.kind);
+    clean(where);
+  }
+});
+
+test("I39-5 #3: choosing an option acts once with that option; the result line and a refusal show in place", () => {
+  const calls: Json[] = [];
+  const ui = { reply: false, setReply: noop, text: "", setText: noop, open: false, setOpen: noop };
+  const view = expand(h(v2.DecisionView, { d: proposal, now: NOW, busy: null, onAct: (d: Json, input: Json, key: string) => calls.push({ id: d.id, input, key }), ui }));
+  const elegir = findAll(view, (el) => el.props?.["data-action"] === "elegir");
+  assert.equal(elegir.length, 2);
+  elegir[0]!.props.onClick();
+  assert.deepEqual(calls, [{ id: proposal.id, input: { action: "elegir", option: 1 }, key: "elegir-1" }]);
+  // While it is on its way the buttons are disabled, so it is sent once.
+  const busy = expand(h(v2.DecisionView, { d: proposal, now: NOW, busy: { id: proposal.id, key: "elegir-1" }, onAct: noop, ui }));
+  assert.ok(findAll(busy, (el) => el.props?.["data-action"] === "elegir").every((b) => b.props.disabled === true));
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes("api.actDecision(v.d.id, v.input)") && page.includes("onAct: (d, input, key) => act.mutate({ d, input, key })"));
+  // Acted: the floor keeps the result line.
+  const done = render(company({ decisions: [{ ...proposal, actions: [], state: { action: "elegir", at: "2026-11-10T17:55:00Z", result: { option: 1, label: "Con el borrador" } } }] }), { acts: acts() });
+  assert.ok(/data-bubble="m-[^"]+"[^>]*data-acted="1"/.test(done) && done.includes("✓") && done.includes("PO te preguntó"));
+  // Refused: its sentence in place.
+  const refused = render(company({ decisions: [proposal] }), { acts: acts({ errors: { [proposal.id]: "Ya actuaste sobre esto." } }) });
+  const bubble = refused.slice(refused.indexOf(`data-bubble="${proposal.id}"`));
+  assert.ok(bubble.includes("Ya actuaste sobre esto."));
+});
+
+test("I39-5 #4: two decisions from one asker: the oldest shows and +1 más is there", () => {
+  const older = decision({ id: "q-old", title: "¿Primero la tienda de ropa?", at: "2026-11-10T10:00:00Z" });
+  const newer = decision({ id: "q-new", title: "¿Y la de libros?", at: "2026-11-10T16:00:00Z" });
+  const out = render(company({ decisions: [newer, older] }), { acts: acts() });
+  assert.equal((out.match(/data-bubble="/g) ?? []).length, 1);
+  assert.ok(out.includes('data-bubble="q-old"') && out.includes('data-more="1"') && out.includes("+1 más"));
+  const floor = out.slice(out.indexOf('data-floor="workia"'));
+  assert.ok(floor.indexOf("¿Primero la tienda de ropa?") < floor.indexOf("¿Y la de libros?"));
+  const hang = lib.hangingFor([newer, older], "workia", "research-workia");
+  assert.deepEqual([hang.decision.id, hang.more.map((d: Json) => d.id)], ["q-old", ["q-new"]]);
+});
+
+test("I39-5 #5: a release is a chip on the roof and not a bubble under a window", () => {
+  const release = KINDS.at(-1)!;
+  const closed = render(company({ decisions: [release] }), { acts: acts(), onChip: noop });
+  assert.ok(closed.includes(`data-chip="${release.id}"`) && /data-on-team="0"/.test(closed));
+  assert.equal(closed.includes("data-bubble"), false);
+  const calls: string[] = [];
+  const [chip] = findAll(tree(company({ decisions: [release] }), { acts: acts(), onChip: (d: Json) => calls.push(d.id) }), (el) => el.props?.["data-chip"] === release.id);
+  chip!.props.onClick();
+  assert.deepEqual(calls, [release.id]);
+  const opened = render(company({ decisions: [release] }), { acts: acts(), onChip: noop, roofOpen: release.id });
+  const roofPart = opened.slice(opened.indexOf("data-roof"), opened.indexOf("edi-tower"));
+  assert.ok(roofPart.includes(`data-bubble="${release.id}"`) && roofPart.includes("Publicar en Bandeja"));
+  assert.equal(opened.slice(opened.indexOf("edi-tower")).includes("data-bubble"), false);
 });

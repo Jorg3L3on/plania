@@ -12,7 +12,7 @@ import { BlockError, StopBody } from "@/components/compania/parts";
 import type { Steer } from "@/components/compania/timon";
 import { toast } from "sonner";
 import { ThreadSkeleton } from "@/components/compania/org";
-import { AsistenteFolded, TeToca, type DecisionBusy } from "@/components/compania/v2";
+import { AsistenteFolded, type DecisionBusy } from "@/components/compania/v2";
 import { Building, BuildingBlock } from "@/components/compania/edificio/building";
 import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
 import { useThread } from "@/components/compania/use-thread";
@@ -111,7 +111,6 @@ const Compania = () => {
   });
 
   const projects = useMemo(() => [...(company?.projects ?? [])].sort(byLight), [company]);
-  const titles = useMemo(() => Object.fromEntries(projects.map((p) => [p.slug, p.title])), [projects]);
   const openSheet = (search: string) => navigate({ pathname: "/ceo", search });
   const closeSheet = () => navigate({ pathname: "/ceo", search: "" }, { replace: true });
 
@@ -120,6 +119,14 @@ const Compania = () => {
   // PLA-I36-8: words handed back to a card's box by Cambiar algo, per project.
   const [prefill, setPrefill] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<DecisionBusy>(null);
+  // PLA-I39-5: ?decision=<id> still opens that decision: where it hangs, else from its roof chip.
+  const openDecision = new URLSearchParams(location.search).get("decision");
+  const [roofOpen, setRoofOpen] = useState<string | null>(openDecision);
+  useEffect(() => {
+    if (!openDecision || !company) return;
+    const el = document.querySelector(`[data-bubble="${CSS.escape(openDecision)}"]`);
+    el?.scrollIntoView({ block: "center" });
+  }, [openDecision, company]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const decisions = useMemo(() => (company?.decisions ?? []).map((d) => acted[d.id] ?? d), [company, acted]);
   const act = useMutation({
@@ -245,21 +252,6 @@ const Compania = () => {
         </p>
       )}
 
-      {comp.isPending ? (
-        <div className="h-36 animate-pulse rounded-[22px] bg-muted" aria-hidden data-testid="te-toca-skeleton" />
-      ) : company ? (
-        <TeToca
-          decisions={decisions}
-          inbox={company.inbox}
-          open={new URLSearchParams(location.search).get("decision")}
-          titles={titles}
-          now={now}
-          busy={busy}
-          errors={errors}
-          onAct={(d, input, key) => act.mutate({ d, input, key })}
-        />
-      ) : null}
-
       {/* PLA-I39-3: the building in place of the 360 px column and the cards grid. */}
       <BuildingBlock loading={comp.isPending} error={comp.isError && !company} onRetry={() => void comp.refetch()}>
         {company && (
@@ -279,13 +271,15 @@ const Compania = () => {
               </>
             }
             onNew={onNew}
-          onFijar={setFijar}
-          onResume={(slug) => resume.mutate(slug)}
-          resuming={resuming}
+            onFijar={setFijar}
+            onResume={(slug) => resume.mutate(slug)}
+            resuming={resuming}
+            acts={{ now, busy, errors, opened: openDecision, onAct: (d, input, key) => act.mutate({ d, input, key }) }}
+            roofOpen={roofOpen}
+            onChip={(d) => setRoofOpen((x) => (x === d.id ? null : d.id))}
           />
         )}
       </BuildingBlock>
-
 
       {/* Until PLA-I39-7: Asistente folded under the building. */}
       {comp.isPending ? (

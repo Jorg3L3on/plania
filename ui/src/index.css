@@ -536,6 +536,19 @@
   .edi-win[data-state="idle"] .edi-do, .edi-win[data-state="off"] .edi-do { font-weight: 500; color: var(--e-muted); }
   .edi-win.edi-add .edi-glass { background: none; box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.2); display: grid; place-items: center; font-size: 30px; font-weight: 300; color: var(--e-muted); }
 
+  /* PLA-I39-5: the question someone holds out of their window. The app's .dark tokens apply inside. */
+  .edi-slot { order: calc(var(--i) * 2); min-width: 0; display: grid; }
+  .edi-bubble { order: var(--o-wide); grid-column: 1 / -1; position: relative; margin-top: 8px; background: var(--card); color: var(--foreground); border: 1.5px solid var(--e-you); border-radius: 18px; padding: 15px 18px 16px; display: grid; gap: 10px; box-shadow: 0 0 0 4px rgb(255 159 67 / 0.13); min-width: 0; scroll-margin-top: 90px; }
+  .edi-bubble::before { content: ""; position: absolute; top: -8.5px; left: calc(var(--nx-wide, 50%) - 7px); width: 14px; height: 14px; background: var(--card); border-left: 1.5px solid var(--e-you); border-top: 1.5px solid var(--e-you); transform: rotate(45deg); }
+  .edi-bubble[data-acted] { border-color: var(--e-rail); box-shadow: none; }
+  .edi-bubble[data-acted]::before { border-color: var(--e-rail); }
+  .edi-roof-q { margin-top: 4px; }
+  .edi-roof-q::before { display: none; }
+  .edi-bq { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--e-you-ink); }
+  .edi-more summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--e-you-ink); }
+  .edi-more-list { display: grid; gap: 12px; padding-top: 10px; }
+  .edi-more-row { border-top: 1px solid var(--e-line); padding-top: 10px; }
+
   /* lobby, street, basement */
   .edi-lobby { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 16px; padding: 14px 28px 0; }
   .edi-lobby .edi-muted { padding-bottom: 14px; font-size: 13px; }
@@ -559,6 +572,8 @@
     .edi-pent > .edi-win .edi-glass { width: 64px; height: 58px; }
     .edi-floor { grid-template-columns: minmax(0, 1fr); padding: 18px 14px 20px; }
     .edi-wins { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; margin-top: 8px; }
+    .edi-bubble { order: var(--o-phone); padding: 13px 14px 14px; }
+    .edi-bubble::before { left: calc(var(--nx-phone, 50%) - 7px); }
     .edi-glass { height: 108px; }
     .edi-lobby { padding: 12px 14px 0; }
     .edi-street, .edi-under { margin: 0 -14px; }

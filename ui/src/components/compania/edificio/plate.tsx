@@ -29,7 +29,8 @@ export const Plate = ({
   const total = p.plan?.total ?? 0;
   const segs = Math.min(total, MAX_SEGS);
   const lit = total > 0 ? Math.round((done / total) * segs) : 0;
-  const reason = p.light_reason;
+  // PLA-I39-5: Te toca left the page; its pointer goes to the question on this floor.
+  const reason = p.light_reason?.action?.href === "#te-toca" ? { ...p.light_reason, action: { label: "Ver la pregunta", href: `#pregunta-${p.slug}` } } : p.light_reason;
   return (
     <>
       <h2 className="edi-fname">
