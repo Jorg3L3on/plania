@@ -17,7 +17,7 @@ import { decisionsRead, inboxByProject, type Decision } from "./company-decision
 import { ordersOf, type Order } from "./company-orders.js";
 import { loadReadiness } from "../mcp/readiness.js";
 import type { InboxItem } from "../mcp/inbox.js";
-import { ceoAgentId, planOf, readyOf, type ReadyLine, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
+import { ceoAgentId, planOf, readyOf, type QueuedTicket, type ReadyLine, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
 
 const HOUR = 3_600_000;
 const QUIET_HOURS = 48;
@@ -34,11 +34,17 @@ export type TeamMember = {
   role: string;
   template: string | null;
   state: MemberState;
-  now: { ticket: string | null; since: string } | null;
-  last: { ticket: string | null; status: string; at: string } | null;
+  // PLA-I39-1: title is the ticket's title, null when the run has no ticket (the key stays in ticket).
+  now: { ticket: string | null; title: string | null; since: string } | null;
+  last: { ticket: string | null; title: string | null; status: string; at: string } | null;
+  // PLA-I39-1: up to three Ready tickets waiting for this teammate (by owner, else code to Taller, the rest to the PO).
+  queue: QueueItem[];
   produced: { kind: "doc" | "pr" | "idea" | "plan"; ref: string; title: string } | null;
   waiting: string | null;
 };
+
+export type QueueItem = { key: string; title: string };
+const QUEUE_MAX = 3;
 
 export type ThreadLine = { id: string; unread: number; last: { at: string; author_role: string; body: string } | null };
 
@@ -72,7 +78,8 @@ export type ProjectCard = {
 export type CompanyRead = {
   company: { paused: boolean };
   week: { starts_at: string; resets_at: string; timezone: string };
-  asistente: { thread_id: string; budget: BudgetView; last_run: { status: string; at: string; summary: string } | null; state: MemberState };
+  // PLA-I39-1: unread, the company thread's unread messages (counted as a project thread's are).
+  asistente: { thread_id: string; budget: BudgetView; last_run: { status: string; at: string; summary: string } | null; state: MemberState; unread: number };
   projects: ProjectCard[];
   plumbing: { spend: number; limit: number | null; running: number; paused: boolean };
   // PLA-I35-1: Te toca (src/api/company-decisions.ts).
@@ -131,6 +138,12 @@ async function producedBy(db: Db, threadId: string, slug: string): Promise<TeamM
   return null;
 }
 
+async function ticketTitle(db: Db, projectId: string | null, key: string | null): Promise<string | null> {
+  if (!projectId || !key) return null;
+  const [t] = await db.select({ title: tasks.title }).from(tasks).where(and(eq(tasks.projectId, projectId), eq(tasks.key, key))).limit(1);
+  return t?.title ?? null;
+}
+
 async function memberView(db: Db, a: Agent, ctx: { paused: boolean; noBudget: boolean; threadId: string; waiting: Map<string, string> }): Promise<TeamMember> {
   const { running, ended } = await lastRunOf(db, a.id);
   const waiting = ctx.waiting.get(a.id) ?? null;
@@ -140,8 +153,9 @@ async function memberView(db: Db, a: Agent, ctx: { paused: boolean; noBudget: bo
     role: roleOf(a) ?? a.role,
     template: a.roleTemplate ?? null,
     state,
-    now: running ? { ticket: running.taskKey, since: (running.startedAt ?? new Date()).toISOString() } : null,
-    last: ended ? { ticket: ended.taskKey, status: ended.status, at: ended.endedAt!.toISOString() } : null,
+    now: running ? { ticket: running.taskKey, title: await ticketTitle(db, a.projectId, running.taskKey), since: (running.startedAt ?? new Date()).toISOString() } : null,
+    last: ended ? { ticket: ended.taskKey, title: await ticketTitle(db, a.projectId, ended.taskKey), status: ended.status, at: ended.endedAt!.toISOString() } : null,
+    queue: [],
     produced: await producedBy(db, ctx.threadId, a.slug),
     waiting,
   };
@@ -264,6 +278,17 @@ async function teamView(db: Db, p: Project, ctx: { paused: boolean; noBudget: bo
   return out;
 }
 
+// PLA-I39-1: each Ready ticket joins the queue of the teammate whose agent owns it; else code goes to Taller and
+// anything else to the PO. Siguiente's order; at most three each; a ticket with no such teammate joins none.
+export function fillQueues(team: TeamMember[], queued: QueuedTicket[], agentSlugById: Map<string, string>): void {
+  const byTemplate = (t: string) => team.find((m) => m.template === t);
+  for (const q of queued) {
+    const owner = q.owner ? team.find((m) => m.agent === agentSlugById.get(q.owner!)) : undefined;
+    const m = owner ?? (q.work_type === "code" ? byTemplate("taller") : byTemplate("product-owner"));
+    if (m && m.queue.length < QUEUE_MAX) m.queue.push({ key: q.key, title: q.title });
+  }
+}
+
 const countInbox = (inbox: Map<string, InboxItem[]>) => {
   let decisiones = 0;
   let pasos = 0;
@@ -295,6 +320,9 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     const plan = await planOf(db, p, now, goal?.target_on ?? null);
     const team = await teamView(db, p, { paused, noBudget: budget.state === "stopped", threadId: thread.id });
     const upNext = await readyOf(db, p, ceoId, plan?.initiative.key ?? null);
+    const owners = [...new Set(upNext.queued.map((q) => q.owner).filter((x): x is string => !!x))];
+    const slugs = owners.length ? await db.select({ id: agents.id, slug: agents.slug }).from(agents).where(inArray(agents.id, owners)) : [];
+    fillQueues(team, upNext.queued, new Map(slugs.map((r) => [r.id, r.slug])));
     const light = await lightOf(db, p, { paused, budget, threadId: thread.id, now, ceoId, team, plan, inbox: inbox.get(p.slug) ?? [] });
     cards.push({
       slug: p.slug,
@@ -324,6 +352,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     anyLimit = true;
   }
   const company = await companyThread(db);
+  const companyUnread = (await threadSummary(db, company, null)).unread;
   const asis = await asistenteAgent(db);
   let lastRun: CompanyRead["asistente"]["last_run"] = null;
   let state: MemberState = settings.companyPaused ? "paused" : asisBudget.state === "stopped" ? "no_budget" : "idle";
@@ -342,7 +371,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
   return {
     company: { paused: settings.companyPaused },
     week: { starts_at: startsAt.toISOString(), resets_at: resetsAt.toISOString(), timezone: tz },
-    asistente: { thread_id: company.id, budget: asisBudget, last_run: lastRun, state },
+    asistente: { thread_id: company.id, budget: asisBudget, last_run: lastRun, state, unread: companyUnread },
     projects: cards,
     plumbing: { spend: Number(spend.rows[0]?.used ?? 0), limit: anyLimit ? limitSum : null, running: running?.n ?? 0, paused: settings.companyPaused },
     decisions: await decisionsRead(db, now, inbox),

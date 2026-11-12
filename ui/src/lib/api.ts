@@ -194,10 +194,13 @@ export type OrgMember = {
   role: string;
   template: string;
   state: OrgMemberState;
-  now: { ticket: string; since: string } | null;
-  last: { ticket: string; status: string; at: string } | null;
+  // PLA-I39-1: title is the ticket's title (null when the run has no ticket). Optional so older fixtures render.
+  now: { ticket: string | null; title?: string | null; since: string } | null;
+  last: { ticket: string | null; title?: string | null; status: string; at: string } | null;
   produced: OrgProduced | null;
   waiting: string | null;
+  // PLA-I39-1: up to three Ready tickets waiting for this teammate.
+  queue?: { key: string; title: string }[];
 };
 export type OrgThreadRef = { id: string; unread: number; last: { at: string; author_role: string; body: string } | null };
 export type OrgProject = {
@@ -271,14 +274,17 @@ export type Decision = {
   files?: number | null;
   preview_url?: string | null;
   hold?: string | null;
+  // PLA-I39-1: who asked (null: nobody on a team, e.g. a release).
+  asker?: DecisionAsker | null;
 };
+export type DecisionAsker = { agent: string; role: string };
 export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string };
 export type DecisionResult = { ok: boolean; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
 export type OrgPlumbing = { spend: number; limit: number | null; running: number; paused: boolean };
 export type OrgCompany = {
   company: { paused: boolean };
   week: Company["week"];
-  asistente: { thread_id: string; budget: Budget; last_run: { status: string; at: string | null; summary?: string } | null; state: OrgMemberState };
+  asistente: { thread_id: string; budget: Budget; last_run: { status: string; at: string | null; summary?: string } | null; state: OrgMemberState; unread?: number };
   projects: OrgProject[];
   plumbing: OrgPlumbing;
   decisions: Decision[];

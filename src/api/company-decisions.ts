@@ -20,7 +20,7 @@
 // a question still open.
 import { and, desc, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { checks, projects, pullRequests, questions, results, tasks, threadMessages, threads, type ActionState, type Project, type ProposalData, type Task, type ThreadLink } from "../db/schema.js";
+import { agents, checks, projects, pullRequests, questions, results, tasks, threadMessages, threads, type ActionState, type Actor, type Agent, type Project, type ProposalData, type Task, type ThreadLink } from "../db/schema.js";
 import { costText, makeSteps } from "../mcp/proposals.js";
 import { inboxFor, type InboxItem } from "../mcp/inbox.js";
 import { resolveHumanAction } from "../mcp/blockers.js";
@@ -31,7 +31,8 @@ import { setCheck } from "../mcp/checks.js";
 import { answer } from "../mcp/questions.js";
 import { webCtx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
-import { loadSettings } from "../runner/limits.js";
+import { loadSettings, roleOf } from "../runner/limits.js";
+import { agentOfActor } from "../runner/events.js";
 import { JORGE, actionsFor, postMessage, resolveThread, type MessageAction } from "../runner/threads.js";
 import { ceoAgentId } from "./company-plan.js";
 import { threadAction } from "./thread-actions.js";
@@ -52,6 +53,8 @@ export type DecisionEvidence = { verdict: string; kind: string; cite: string; pa
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | null };
+// PLA-I39-1: who asked, so the screen hangs the decision under that teammate's window. Null: nobody on a team.
+export type DecisionAsker = { agent: string; role: string };
 export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number };
 export type Decision = {
   id: string;
@@ -77,6 +80,7 @@ export type Decision = {
   files: number | null;
   preview_url: string | null;
   hold: string | null;
+  asker: DecisionAsker | null;
 };
 
 // ---- parsing a PO's proposal
@@ -152,6 +156,7 @@ const NO_EVIDENCE = {
   files: null,
   preview_url: null,
   hold: null,
+  asker: null as DecisionAsker | null,
 };
 const linksOf = (links: ThreadLink[]): DecisionLink[] =>
   links.filter((l): l is ThreadLink & { kind: DecisionLink["kind"] } => l.kind !== "question").map((l) => ({ kind: l.kind, ref: l.ref, title: l.title }));
@@ -206,6 +211,31 @@ async function ticketByKey(db: Db, projectId: string | null | undefined, key: st
   return t ?? null;
 }
 
+const asAsker = (a: Agent | null): DecisionAsker | null => (a ? { agent: a.slug, role: roleOf(a) ?? a.role } : null);
+// PLA-I39-1. An agent counts as the asker only when it sits on that project's team.
+const onTeam = (a: Agent | null | undefined, p: Project | null | undefined): DecisionAsker | null =>
+  a && p && a.projectId === p.id && a.status !== "retired" ? { agent: a.slug, role: roleOf(a) ?? a.role } : null;
+async function agentBySlug(db: Db, slug: string | null | undefined): Promise<Agent | null> {
+  if (!slug) return null;
+  const [a] = await db.select().from(agents).where(eq(agents.slug, slug)).limit(1);
+  return a ?? null;
+}
+async function agentById(db: Db, id: string | null | undefined): Promise<Agent | null> {
+  if (!id) return null;
+  const [a] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
+  return a ?? null;
+}
+// A proposal's asker is the author of its message: the roster's role when the slug is known, else the message's.
+async function authorOf(db: Db, m: { authorAgent: string; authorRole: string }): Promise<DecisionAsker> {
+  const a = await agentBySlug(db, m.authorAgent);
+  return { agent: m.authorAgent, role: (a && roleOf(a)) ?? m.authorRole };
+}
+// An action, deliverable, PR or step: the ticket's owner when it is on the team. A delivery whose ticket has no
+// owner on the team falls back to the teammate who posted it.
+async function ownerAsker(db: Db, p: Project | null | undefined, t: Task | null, author?: string | null): Promise<DecisionAsker | null> {
+  return onTeam(await agentById(db, t?.ownerAgent), p) ?? (author ? onTeam(await agentBySlug(db, author), p) : null);
+}
+
 const optionsOf = (p: ProposalData): DecisionOption[] =>
   p.options.map((o) => ({ n: o.n, label: o.label, recommended: o.recommended, effect: o.effect || undefined, cost: costText(o.cost) || undefined }));
 
@@ -243,6 +273,7 @@ async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>)
         plan: plan
           ? { order: data.order!, understood: data.understood ?? "", steps: data.steps.map((x) => ({ title: x.title, done_when: x.done_when })), cost: costText(data.cost), needs_approval: data.needs_approval, created: data.created }
           : null,
+        asker: await authorOf(db, m),
       });
     }
     // The PO's latest message in prose; nothing from Jorge after it unless it is his choice on it.
@@ -269,6 +300,7 @@ async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>)
       detail: parsed.note,
       links: linksOf(m.links),
       body: m.body,
+      asker: await authorOf(db, m),
     });
   }
   return out;
@@ -300,6 +332,7 @@ async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, 
     } else if (!["aceptar", "cambios"].includes(m.actionState.action)) continue;
     const link = m.links.find((l) => l.kind === "ticket" || l.kind === "idea");
     const pr = m.actionState ? m.links.some((l) => l.kind === "pr") || !!m.actionState.result?.merged : actions.includes("fusionar");
+    const ticket = link?.kind === "ticket" ? await ticketByKey(db, projectId, link.ref) : null;
     out.push({
       id: `m-${m.id}`,
       project: p?.slug ?? null,
@@ -311,9 +344,10 @@ async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, 
       at: m.at.toISOString(),
       ref: link?.ref ?? null,
       detail: firstLine(m.body, 200),
-      ...(await workEvidence(db, p ?? null, link?.kind === "ticket" ? await ticketByKey(db, projectId, link.ref) : null, m.links.find((l) => l.kind === "pr")?.ref ?? null)),
+      ...(await workEvidence(db, p ?? null, ticket, m.links.find((l) => l.kind === "pr")?.ref ?? null)),
       links: linksOf(m.links),
       body: m.body,
+      asker: await ownerAsker(db, p, ticket, m.authorAgent),
     });
   }
   return out;
@@ -350,6 +384,7 @@ async function ticketRows(db: Db, since: Date, slugById: Map<string, Project>): 
       detail: t.summary ? firstLine(t.summary, 200) : t.scope ? firstLine(t.scope, 200) : null,
       ...NO_EVIDENCE,
       links: t.prUrl ? [{ kind: "pr", ref: t.prUrl, title: "PR" }] : [],
+      asker: await ownerAsker(db, p, t),
     });
   }
   return out;
@@ -378,6 +413,7 @@ async function questionRows(db: Db, since: Date, slugById: Map<string, Project>,
       ref: key,
       detail: q.humanOnly ? "solo tú" : null,
       ...NO_EVIDENCE,
+      asker: asAsker(await agentOfActor(db, q.askedBy as Actor)),
     });
   }
   return out;
@@ -407,6 +443,7 @@ async function pasoRows(db: Db, all: Project[], inbox: Map<string, InboxItem[]>,
           body: null,
           checks: await evidenceOf(db, t, it.pr_url),
           release: null,
+          asker: await ownerAsker(db, p, t),
         });
       } else if (it.kind === "release") {
         const plan = it.target as unknown as ReleasePlan;
