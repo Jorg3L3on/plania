@@ -7,12 +7,13 @@
 // ?equipo to Máquina.
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Navigate, useLocation, useNavigate } from "react-router";
-import { BlockError, StopBody, eyebrow, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
+import { Link, Navigate, useLocation, useNavigate } from "react-router";
+import { BlockError, StopBody } from "@/components/compania/parts";
 import type { Steer } from "@/components/compania/timon";
 import { toast } from "sonner";
-import { CompanyPlumbing, ThreadSkeleton } from "@/components/compania/org";
-import { AsistenteFolded, PausedList, ProjectReport, ProjectsSkeleton, TeToca, type DecisionBusy } from "@/components/compania/v2";
+import { ThreadSkeleton } from "@/components/compania/org";
+import { AsistenteFolded, PausedList, TeToca, type DecisionBusy } from "@/components/compania/v2";
+import { Building, BuildingBlock } from "@/components/compania/edificio/building";
 import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
 import { useThread } from "@/components/compania/use-thread";
 import { GoalDialog } from "@/components/goals/goal-dialog";
@@ -21,13 +22,16 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ApiError, api, type Decision, type DecisionInput, type OrgProject } from "@/lib/api";
 import { ceoRedirect, sheetOf } from "@/lib/compania";
-import { byLight } from "@/lib/org";
+import { byLight, plumbingLine } from "@/lib/org";
 import { greeting } from "@/lib/greeting";
-import { cn } from "@/lib/utils";
-import { companyLine } from "@/lib/v2";
 
 const dayLabel = (timeZone: string) =>
-  new Intl.DateTimeFormat("es-MX", { weekday: "long", day: "numeric", month: "long", timeZone })
+  new Intl.DateTimeFormat("es-MX", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone,
+  })
     .format(new Date())
     .replace(/^./, (l) => l.toUpperCase());
 
@@ -84,14 +88,22 @@ const Compania = () => {
   const navigate = useNavigate();
   const wide = useWide();
   const now = useMinute();
-  const comp = useQuery({ queryKey: ["company"], queryFn: api.company, staleTime: 10_000, refetchInterval: 20_000 });
+  const comp = useQuery({
+    queryKey: ["company"],
+    queryFn: api.company,
+    staleTime: 10_000,
+    refetchInterval: 20_000,
+  });
   const company = comp.data;
   const sheet = sheetOf(location.search);
   const [creating, setCreating] = useState<NewProjectState>({ kind: "idle" });
 
   const timeZone = company?.week.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const { hello } = greeting(timeZone);
-  const asistente = useThread(company?.asistente.thread_id, { who: "Asistente", invalidate: [["company"]] });
+  const asistente = useThread(company?.asistente.thread_id, {
+    who: "Asistente",
+    invalidate: [["company"]],
+  });
   const doc = useQuery({
     queryKey: ["prompt-doc", sheet?.kind === "doc" ? sheet.id : ""],
     queryFn: () => api.promptDoc(sheet?.kind === "doc" ? sheet.id : ""),
@@ -119,9 +131,16 @@ const Compania = () => {
       setErrors((e) => ({ ...e, [v.d.id]: "" }));
     },
     onSuccess: (r, v) => {
-      setActed((a) => ({ ...a, [v.d.id]: r.decision ?? { ...v.d, state: r.state, actions: [] } }));
+      setActed((a) => ({
+        ...a,
+        [v.d.id]: r.decision ?? { ...v.d, state: r.state, actions: [] },
+      }));
       // PLA-I36-8: Cambiar algo hands the order's words back to its card's box.
-      if (v.input.action === "cambiar" && v.d.project && typeof r.state.result.text === "string") setPrefill((x) => ({ ...x, [v.d.project!]: r.state.result.text as string }));
+      if (v.input.action === "cambiar" && v.d.project && typeof r.state.result.text === "string")
+        setPrefill((x) => ({
+          ...x,
+          [v.d.project!]: r.state.result.text as string,
+        }));
       void client.invalidateQueries({ queryKey: ["company"] });
       void client.invalidateQueries({ queryKey: ["thread"] });
     },
@@ -175,7 +194,8 @@ const Compania = () => {
     onPickNext: (slug, key) => void quietly(`next-${key}`, () => api.pickNext(slug, key)),
     onPause: (p) => setPausing(p),
     onRun: (action, id) => void quietly(id, () => (action === "stop" ? api.stopRun(id) : api.resumeRun(id))),
-    onNote: (slug, key, text) => void quietly(`note-${key}`, async () => (await api.noteTask(slug, key, text), toast("Se lo dijiste; lo lee en su siguiente paso"))),
+    onNote: (slug, key, text) =>
+      void quietly(`note-${key}`, async () => (await api.noteTask(slug, key, text), toast("Se lo dijiste; lo lee en su siguiente paso"))),
     onCancelOrder: (slug, key) => void quietly(`cancel-${key}`, () => api.cancelOrder(slug, key)),
     onOptions: (slug, input) => void quietly(`options-${slug}`, () => api.setProjectOptions(slug, input)),
     prefill,
@@ -207,7 +227,11 @@ const Compania = () => {
     },
     onError: (e) => {
       if (e instanceof ApiError && (e.status === 404 || e.status === 405)) setCreating({ kind: "missing" });
-      else setCreating({ kind: "error", message: e instanceof ApiError ? `No se pudo crear (${e.code}).` : "No se pudo crear el proyecto." });
+      else
+        setCreating({
+          kind: "error",
+          message: e instanceof ApiError ? `No se pudo crear (${e.code}).` : "No se pudo crear el proyecto.",
+        });
     },
   });
   const onNew = () => {
@@ -216,86 +240,71 @@ const Compania = () => {
   };
 
   return (
-    <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-5">
-      <header className="grid min-w-0 gap-1">
-        <h1 className="font-display text-4xl leading-[0.95] font-extrabold tracking-[-0.03em] sm:text-5xl">
-          {company && company.projects.length === 0 ? "Hola" : hello}, Jorge
-        </h1>
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          <p className="min-w-0 text-sm text-muted-foreground">
-            {dayLabel(timeZone)}
-            {company && company.projects.length > 0 ? ` · ${companyLine(company.projects)}` : ""}
-          </p>
-          {company && <CompanyPlumbing plumbing={company.plumbing} />}
-        </div>
-        {company?.company.paused && (
-          <p role="status" data-banner="paused" className="mt-2 rounded-[16px] bg-surface-sunken px-4 py-2.5 text-sm ring-1 ring-foreground/15">
-            La compañía está detenida: nada arranca. Se reanuda en Máquina.
-          </p>
-        )}
-      </header>
-
-      {comp.isError && !company && <BlockError what="la compañía" onRetry={() => void comp.refetch()} />}
+    <div className="mx-auto grid w-full max-w-[1380px] min-w-0 gap-5">
+      {company?.company.paused && (
+        <p role="status" data-banner="paused" className="rounded-[16px] bg-surface-sunken px-4 py-2.5 text-sm ring-1 ring-foreground/15">
+          La compañía está detenida: nada arranca. Se reanuda en Máquina.
+        </p>
+      )}
 
       {comp.isPending ? (
         <div className="h-36 animate-pulse rounded-[22px] bg-muted" aria-hidden data-testid="te-toca-skeleton" />
       ) : company ? (
-        <TeToca decisions={decisions} inbox={company.inbox} open={new URLSearchParams(location.search).get("decision")} titles={titles} now={now} busy={busy} errors={errors} onAct={(d, input, key) => act.mutate({ d, input, key })} />
+        <TeToca
+          decisions={decisions}
+          inbox={company.inbox}
+          open={new URLSearchParams(location.search).get("decision")}
+          titles={titles}
+          now={now}
+          busy={busy}
+          errors={errors}
+          onAct={(d, input, key) => act.mutate({ d, input, key })}
+        />
       ) : null}
 
-      <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
-        <div className="min-w-0 lg:sticky lg:top-20">
-          {comp.isPending ? (
-            <ThreadSkeleton />
-          ) : company ? (
-            <AsistenteFolded
-              thread={asistente.thread}
-              loading={asistente.loading}
-              error={asistente.error}
-              onRetry={asistente.onRetry}
-              projects={projects}
-              now={now}
-              timeZone={timeZone}
-              send={asistente.send}
-              onSend={asistente.onSend}
-              expanded={asistente.expanded}
-              onToggle={asistente.onToggle}
-            />
-          ) : null}
-        </div>
-        <section id="proyectos" aria-labelledby="cia-proyectos" className="grid min-w-0 scroll-mt-20 content-start gap-3">
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <h2 id="cia-proyectos" className={eyebrow}>
-              Proyectos <span className="ml-1 font-mono text-foreground">{projects.length}</span>
-            </h2>
-            <button type="button" className={cn(pillGhost, "min-h-9 px-3 text-[13px]")} onClick={onNew}>
-              + Nuevo proyecto
-            </button>
-          </div>
-          {comp.isPending ? (
-            <ProjectsSkeleton />
-          ) : company && projects.length === 0 ? (
-            <div className={cn(panel, "grid justify-items-start gap-3 p-5")} data-empty="projects">
-              <p className="font-display text-lg font-extrabold tracking-tight">Todavía no hay proyectos</p>
-              <p className="text-sm text-muted-foreground">Un proyecto es un nombre y una meta. Llega con su equipo: PO, Research, Artist y Taller.</p>
-              <button type="button" className={pillPrimary} onClick={onNew}>
-                Crear el primer proyecto
-              </button>
-            </div>
-          ) : company ? (
-            <>
-              {live.length > 0 && (
-                <ul className={cn("grid min-w-0 gap-3", live.length > 1 && "xl:grid-cols-2")} data-testid="project-cards">
-                  {live.map((p) => (
-                    <ProjectReport key={p.slug} project={p} decisions={decisions} now={now} companyPaused={company.company.paused} timeZone={timeZone} onFijar={setFijar} steer={steer} />
-                  ))}
-                </ul>
-              )}
-              <PausedList projects={paused} now={now} busy={resuming} onResume={(slug) => resume.mutate(slug)} />
-            </>
-          ) : null}
-        </section>
-      </div>
+      {/* PLA-I39-3: the building in place of the 360 px column and the cards grid. */}
+      <BuildingBlock loading={comp.isPending} error={comp.isError && !company} onRetry={() => void comp.refetch()}>
+        {company && (
+          <Building
+            company={company}
+            decisions={decisions}
+            now={now}
+            timeZone={timeZone}
+            hello={company.projects.length === 0 ? "Hola" : hello}
+            day={dayLabel(timeZone)}
+            meta={
+              <>
+                <span className="edi-eyebrow">Compañía</span>
+                <Link to="/machine" className="edi-mini" data-plumbing>
+                  Plomería · {plumbingLine(company.plumbing).text}
+                </Link>
+              </>
+            }
+            onNew={onNew}
+          />
+        )}
+      </BuildingBlock>
+
+      {company && <PausedList projects={paused} now={now} busy={resuming} onResume={(slug) => resume.mutate(slug)} />}
+
+      {/* Until PLA-I39-7: Asistente folded under the building. */}
+      {comp.isPending ? (
+        <ThreadSkeleton />
+      ) : company ? (
+        <AsistenteFolded
+          thread={asistente.thread}
+          loading={asistente.loading}
+          error={asistente.error}
+          onRetry={asistente.onRetry}
+          projects={projects}
+          now={now}
+          timeZone={timeZone}
+          send={asistente.send}
+          onSend={asistente.onSend}
+          expanded={asistente.expanded}
+          onToggle={asistente.onToggle}
+        />
+      ) : null}
 
       {/* A doc linked from a message or a role row */}
       <Sheet open={sheet?.kind === "doc"} onOpenChange={(open) => !open && closeSheet()}>
@@ -336,7 +345,11 @@ const Compania = () => {
           <div className="px-4 pb-8">
             {pausing && (
               <StopBody
-                scope={{ kind: "project", slug: pausing.slug, title: pausing.title }}
+                scope={{
+                  kind: "project",
+                  slug: pausing.slug,
+                  title: pausing.title,
+                }}
                 runs={[]}
                 projectTitle={() => pausing.title}
                 busy={pause.isPending}

@@ -1,0 +1,186 @@
+// PLA-I39-3..9: the building on /ceo rendered with fake data (Design doc of PLA-IDEA11, frames F1-F11). One test per
+// state the tickets name. Server-rendered with react-dom/server; no browser, no database. Fake names and numbers.
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
+
+(globalThis as { React?: unknown }).React = React;
+const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
+const building = await load("components/compania/edificio/building.tsx");
+const win = await load("components/compania/edificio/window.tsx");
+const roof = await load("components/compania/edificio/roof.tsx");
+const scene = await load("components/compania/edificio/scene.tsx");
+const lib = await load("lib/edificio.ts");
+
+type Json = Record<string, any>;
+const h = React.createElement;
+const html = (el: React.ReactElement) => renderToStaticMarkup(h(MemoryRouter, null, el));
+const noop = () => {};
+const NOW = new Date("2026-11-10T18:00:00Z").getTime();
+const TZ = "America/Mexico_City";
+const clean = (s: string) => {
+  assert.equal(/\bnull\b|\bundefined\b|NaN|\[object Object\]/.test(s), false, "never a null key");
+  assert.equal(/\$|USD/.test(s), false, "tokens, never money");
+  assert.equal(/\b[A-Z]{2,4}-(I\d+-)?\d+\b/.test(s.replace(/data-[a-z-]+="[^"]*"/g, "").replace(/id="[^"]*"/g, "")), false, "never a ticket key on screen");
+};
+const text = (s: string) => s.replace(/<[^>]+>/g, " ");
+
+const member = (role: string, patch: Json = {}): Json => ({ agent: `${role}-workia`, role, template: role, state: "idle", now: null, last: null, produced: null, waiting: null, queue: [], ...patch });
+const project = (patch: Json = {}): Json => ({
+  slug: "workia",
+  title: "Workia",
+  paused: false,
+  light: "ok",
+  light_reason: null,
+  goal: null,
+  rumbo: { goal_id: null, goal: null, why: "", target_on: null, forecast_on: null, weeks_behind: null, missing: true },
+  budget: { used: 100_000, limit: 5_000_000, pct: 2, state: "ok", reason: null },
+  team: ["product-owner", "research", "artist", "taller"].map((r) => member(r)),
+  thread: { id: "t-workia", unread: 0, last: null },
+  plan: null,
+  this_week: { done: 2, docs: 0, prs: 0, last_at: "2026-11-10T17:00:00Z" },
+  next: null,
+  ready: [],
+  work: { open: 2, in_progress: 0 },
+  orders: [],
+  ...patch,
+});
+const decision = (patch: Json = {}): Json => ({
+  id: "q-00000000-0000-4000-8000-000000000001",
+  project: "workia",
+  title: "¿Qué tienda abrimos primero?",
+  kind: "question",
+  options: [
+    { n: 1, label: "La de ropa", recommended: true },
+    { n: 2, label: "La de libros", recommended: false },
+  ],
+  actions: ["elegir", "responder"],
+  state: null,
+  at: "2026-11-10T16:00:00Z",
+  ref: "WRK-7",
+  detail: null,
+  links: [],
+  body: null,
+  checks: null,
+  release: null,
+  asker: { agent: "research-workia", role: "research" },
+  ...patch,
+});
+const company = (patch: Json = {}): Json => ({
+  company: { paused: false },
+  week: { starts_at: "2026-11-09T06:00:00Z", resets_at: "2026-11-16T06:00:00Z", timezone: TZ },
+  asistente: { thread_id: "t-co", budget: { used: 0, limit: null, pct: null, state: "ok", reason: null }, last_run: { status: "ok", at: "2026-11-10T17:00:00Z", summary: "Resumen: Workia avanza." }, state: "idle", unread: 0 },
+  projects: [project()],
+  plumbing: { spend: 1_250_000, limit: 6_000_000, running: 1, paused: false },
+  decisions: [],
+  inbox: { decisiones: 0, pasos: 0 },
+  ...patch,
+});
+const render = (c: Json, extra: Json = {}) =>
+  html(h(building.Building, { company: c, decisions: c.decisions, now: NOW, timeZone: TZ, hello: "Buenas tardes", day: "Martes 10 de noviembre", onNew: noop, ...extra }));
+const one = (m: Json, extra: Json = {}) => html(h(win.Window, { member: m, project: "Workia", now: NOW, ...extra }));
+
+// ---- PLA-I39-3
+
+test("I39-3 #1: a window is lit with a laptop only while running; orange with a hand when it asks; blinds when paused; dim when out of budget", () => {
+  const work = one(member("taller", { state: "running", now: { ticket: "WRK-3", title: "Pantalla del carrito", since: "2026-11-10T17:20:00Z" } }));
+  assert.match(work, /data-state="work"/);
+  assert.ok(work.includes("edi-lap"));
+  const ask = one(member("product-owner", { state: "waiting_jorge", waiting: "¿Qué tienda abrimos primero?" }));
+  assert.match(ask, /data-state="ask"/);
+  assert.ok(ask.includes("edi-arm") && ask.includes("Te pregunta algo"));
+  const off = one(member("research", { state: "paused" }));
+  assert.match(off, /data-state="off"/);
+  assert.ok(off.includes("En pausa"));
+  const hold = one(member("artist", { state: "no_budget" }));
+  assert.match(hold, /data-state="hold"/);
+  assert.ok(/sin presupuesto/i.test(hold));
+  const idle = one(member("artist"));
+  assert.match(idle, /data-state="idle"/);
+  // Only running lights a window: idle, paused and out of budget are never "work".
+  for (const s of [ask, off, hold, idle]) assert.equal(/data-state="work"/.test(s), false);
+  // The company switch puts every blind down, except a run that is really live.
+  assert.match(one(member("research"), { companyPaused: true }), /data-state="off"/);
+  // The laptop and the hand are CSS-gated by state.
+  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
+  assert.ok(css.includes('.edi-win[data-state="work"] .edi-lap { display: block; }'));
+  assert.ok(css.includes('.edi-win[data-state="ask"] .edi-arm { display: block; }'));
+  assert.ok(css.includes(".edi-arm, .edi-lap { display: none; }"));
+});
+
+test("I39-3 #2: the caption is role and verb, then what it is on with since when, else its queue, else its last delivery", () => {
+  const work = one(member("taller", { state: "running", now: { ticket: "WRK-3", title: "Pantalla del carrito", since: "2026-11-10T17:20:00Z" } }));
+  assert.ok(text(work).includes("Taller") && text(work).includes("construye") && work.includes("Pantalla del carrito") && work.includes("desde hace 40 min"));
+  const queued = one(member("product-owner", { queue: [{ key: "WRK-5", title: "Entrevistar a tres tiendas" }, { key: "WRK-6", title: "Otra" }] }));
+  assert.ok(queued.includes("Sigue: Entrevistar a tres tiendas") && queued.includes("1 más en fila") && text(queued).includes("coordina"));
+  const delivered = one(member("artist", { produced: { kind: "doc", ref: "d-1", title: "Boceto del carrito" }, last: { ticket: "WRK-2", title: "Boceto", status: "ok", at: "2026-11-10T15:00:00Z" } }));
+  assert.ok(delivered.includes("Entregó: Boceto del carrito") && delivered.includes("hace 3 h"));
+  const none = one(member("research"));
+  assert.ok(none.includes("Sin trabajo"));
+  // A run without a ticket title never shows its key.
+  const keyOnly = one(member("taller", { state: "running", now: { ticket: "WRK-9", title: null, since: "2026-11-10T17:58:00Z" } }));
+  assert.ok(keyOnly.includes("Trabajando"));
+  const qa = one(member("qa"));
+  assert.ok(text(qa).includes("QA") && text(qa).includes("prueba") && qa.includes('data-prop="magnifier"'));
+  for (const s of [work, queued, delivered, none, keyOnly, qa]) clean(s);
+  // Every prop by role.
+  assert.deepEqual(["product-owner", "research", "artist", "taller", "qa", "copy"].map(lib.propOf), ["headset", "glasses", "beret", "hardhat", "magnifier", "none"]);
+});
+
+test("I39-3 #3: the roof shows Te toca with the number, one chip per decision, deliveries and tokens this week", () => {
+  const ds = [decision(), decision({ id: "m-2", kind: "proposal", title: "Dos caminos", asker: { agent: "product-owner-workia", role: "product-owner" } })];
+  const out = html(h(roof.Roof, { decisions: ds, projects: [project()], plumbing: { spend: 1_250_000, limit: 6_000_000, running: 1, paused: false } }));
+  assert.match(out, /data-te-toca="2"/);
+  assert.ok(text(out).includes("Te toca") && out.includes(">2<"));
+  assert.equal((out.match(/data-chip=/g) ?? []).length, 2);
+  assert.ok(out.includes("Workia: ¿Qué tienda abrimos primero?") && out.includes('href="#piso-workia"'));
+  assert.ok(out.includes("2 entregas esta semana") && out.includes("1.25M tokens esta semana"));
+  clean(out);
+  const calm = html(h(roof.Roof, { decisions: [], projects: [project()], plumbing: { spend: 0, limit: null, running: 0, paused: false } }));
+  assert.ok(calm.includes("Nada te espera.") && /data-te-toca="0"/.test(calm));
+});
+
+test("I39-3 #4: empty is a lot with the door, loading the outline with dark windows, error the existing block", () => {
+  const empty = render(company({ projects: [] }));
+  assert.ok(empty.includes('data-empty="projects"') && empty.includes("Abrir el primer piso"));
+  assert.equal(empty.includes("data-roof"), false);
+  const loading = html(h(building.BuildingBlock, { loading: true, error: false, onRetry: noop, children: null }));
+  assert.ok(loading.includes('data-testid="edificio-skeleton"'));
+  assert.equal((loading.match(/class="edi-floor"/g) ?? []).length, 3);
+  assert.equal(/data-state="(work|ask)"/.test(loading), false);
+  const error = html(h(building.BuildingBlock, { loading: false, error: true, onRetry: noop, children: null }));
+  assert.ok(error.includes("data-edificio-error") && /la compañía/.test(error));
+  const full = render(company({ decisions: [decision()] }));
+  assert.ok(full.includes("data-roof") && full.includes('data-floor="workia"') && full.includes("Workia avanza."));
+  assert.ok(full.includes("Resumen: Workia avanza."));
+  clean(full);
+});
+
+test("I39-3 #5: floors that need the owner come first; the hue is fixed per slug; the sky follows the hour", () => {
+  const a = project({ slug: "alfa", title: "Alfa" });
+  const b = project({ slug: "beta", title: "Beta", light: "quiet" });
+  const c = project({ slug: "gama", title: "Gama", paused: true, light: "paused" });
+  const { floors, basement } = lib.floorOrder([a, b, c], [decision({ project: "beta" })]);
+  assert.deepEqual(floors.map((p: Json) => p.slug), ["beta", "alfa"]);
+  assert.deepEqual(basement.map((p: Json) => p.slug), ["gama"]);
+  assert.equal(lib.floorHue("workia"), lib.floorHue("workia"));
+  assert.ok(lib.HUES.includes(lib.floorHue("plania")));
+  assert.equal(lib.skyAt(23).orb, "moon");
+  assert.equal(lib.skyAt(12).orb, "sun");
+  assert.notEqual(lib.skyAt(12).top, lib.skyAt(2).top);
+});
+
+test("I39-3 #6: with prefers-reduced-motion nothing in the scene animates", () => {
+  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
+  const block = /@media \(prefers-reduced-motion: reduce\) \{\s*\.edi \*, \.edi \*::before, \.edi \*::after \{ animation: none !important; transition: none !important; \}/.test(css);
+  assert.ok(block, "the .edi reduced-motion rule");
+  // Nothing in the scene moves to look busy: the only animations are the stars and the antenna.
+  const edi = css.slice(css.indexOf("/* PLA-I39: the building"), css.indexOf("@keyframes edi-twinkle"));
+  const animated = [...edi.matchAll(/^\s*(\.[^{]+)\{[^}]*animation:/gm)].map((m) => m[1]!.trim());
+  assert.deepEqual(animated, [".edi-star", ".edi-antenna::after"]);
+  const out = html(h(scene.EdificioSkeleton, {}));
+  assert.ok(out.includes("edi"));
+});
