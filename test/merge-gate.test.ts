@@ -10,7 +10,7 @@ import { webCtx } from "../src/mcp/tx.js";
 import { recordAllowlistException } from "../src/mcp/scan-allow.js";
 import { parseMergeArgs } from "../src/lib/scan/merge-cli.js";
 import { projectForTicket } from "../src/lib/scan/merge-record.js";
-import { mergeGateExit, renderMergeJson, runMergeGate, type FetchLike } from "../src/lib/scan/merge-gate.js";
+import { gitAuthHeader, mergeGateExit, redact, renderMergeJson, runMergeGate, type FetchLike } from "../src/lib/scan/merge-gate.js";
 import type { ScanReport } from "../src/lib/scan/report.js";
 
 const EMAIL = "fixture@scan-demo.co";
@@ -252,4 +252,12 @@ test("a failed record does not merge", async () => {
   assert.equal(result.merged, false);
   assert.equal(merges, 0);
   assert.equal(result.error, "plania record failed");
+});
+
+test("PLA-13: git auth uses basic x-access-token, never bearer, and is redacted", () => {
+  const header = gitAuthHeader("gho_example123");
+  assert.equal(header, `AUTHORIZATION: basic ${Buffer.from("x-access-token:gho_example123").toString("base64")}`);
+  assert.doesNotMatch(header, /bearer/i);
+  const leaked = `fatal: unable to access: ${header.replace("AUTHORIZATION: ", "")} failed`;
+  assert.doesNotMatch(redact(leaked), /eC1hY2Nlc3MtdG9rZW46/);
 });

@@ -54,6 +54,7 @@ export function mergeGateToken(env: Record<string, string | undefined> = process
 export function redact(text: string): string {
   const cleaned = text
     .replace(/bearer\s+\S+/gi, "bearer [redacted]")
+    .replace(/basic\s+\S+/gi, "basic [redacted]")
     .replace(/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]+\b/g, "[redacted]")
     .replace(/\bgithub_pat_\S+/g, "[redacted]")
     .split(/\r?\n/)
@@ -91,6 +92,15 @@ export function fetchBare(input: { dir: string; origin: string; baseRef: string;
   };
 }
 
+/**
+ * git-over-https header for a GitHub token. github.com's git endpoint rejects
+ * `bearer` for OAuth (gho_) and classic tokens; basic with x-access-token works
+ * for every token type (PLA-13).
+ */
+export function gitAuthHeader(token: string): string {
+  return `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
+}
+
 function authEnv(token: string | null): () => void {
   const keys = ["GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GIT_TERMINAL_PROMPT"] as const;
   const previous = new Map(keys.map((key) => [key, process.env[key]]));
@@ -98,7 +108,7 @@ function authEnv(token: string | null): () => void {
   if (token) {
     process.env.GIT_CONFIG_COUNT = "1";
     process.env.GIT_CONFIG_KEY_0 = "http.extraheader";
-    process.env.GIT_CONFIG_VALUE_0 = `AUTHORIZATION: bearer ${token}`;
+    process.env.GIT_CONFIG_VALUE_0 = gitAuthHeader(token);
   } else {
     delete process.env.GIT_CONFIG_COUNT;
     delete process.env.GIT_CONFIG_KEY_0;
