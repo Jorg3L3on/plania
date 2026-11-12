@@ -138,19 +138,19 @@ const project = (patch: Record<string, unknown> = {}) => ({
   orders: [],
   ...patch,
 });
-const render = (p: Json, onFijar: unknown = () => {}) => html(h(v2.ProjectReport, { project: p, decisions: [], now: NOW, companyPaused: false, onFijar }));
+// PLA-I39-4: Rumbo lives on the floor's plate now.
+const plate = await load("components/compania/edificio/plate.tsx");
+const render = (p: Json, onFijar: unknown = () => {}) => html(h(plate.Plate, { project: p, onFijar }));
 
-test("I36-4 #1 (UI): Rumbo opens the card with the goal, Entrega and the forecast", () => {
+test("I36-4 #1 (UI): the plate shows the goal, its date and the forecast", () => {
   const out = render(project({ rumbo: { goal_id: "g1", goal: "Tienda en línea con pagos", why: "", target_on: "2026-12-20", forecast_on: "2027-01-03", weeks_behind: 2, missing: false } }));
-  assert.ok(out.includes('data-rumbo="set"') && out.includes("Tienda en línea con pagos") && out.includes("Entrega 20 dic"));
-  assert.ok(out.includes("pronóstico 3 ene") && out.includes("text-ink-blocked"));
-  assert.ok(out.indexOf("data-rumbo") < out.indexOf("data-this-week"), "Rumbo is the first block");
+  assert.ok(out.includes('data-rumbo="set"') && out.includes("Meta: <b>Tienda en línea con pagos</b> · 20 dic"));
+  assert.ok(out.includes("pronóstico 3 ene") && out.includes("edi-warn"));
 });
 
-test("I36-4 #2, #3 (UI): the placeholder shows Sin meta ni fecha and Fijar; the page opens the goal dialog in place", async () => {
+test("I36-4 #2, #3 (UI): the placeholder shows Sin meta and Fijar; the page opens the goal dialog in place", async () => {
   const out = render(project());
-  assert.ok(out.includes('data-rumbo="missing"') && out.includes("Sin meta ni fecha") && out.includes('data-control="fijar"'));
-  assert.ok(out.includes("text-ink-now"), "amber");
+  assert.ok(out.includes('data-rumbo="missing"') && out.includes("Sin meta") && out.includes('data-control="fijar"'));
   const { readFileSync } = await import("node:fs");
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
   assert.ok(page.includes("onFijar={setFijar}") && page.includes("<GoalDialog") && page.includes('invalidateQueries({ queryKey: ["company"] })'));
@@ -158,22 +158,20 @@ test("I36-4 #2, #3 (UI): the placeholder shows Sin meta ni fecha and Fijar; the 
   assert.ok(dialog.includes('type="date"'), "the dialog has the date field");
 });
 
-test("I36-4 #4 (UI): a long goal wraps to three lines at most, the full text in a title", () => {
+test("I36-4 #4 (UI): a long goal wraps whole on the plate", async () => {
   const long = "Una meta muy larga ".repeat(20).trim();
   const out = render(project({ rumbo: { goal_id: "g1", goal: long, why: "", target_on: "2026-12-20", forecast_on: null, weeks_behind: null, missing: false } }));
-  const tag = /<p class="([^"]*)" title="([^"]*)" data-goal/.exec(out)!;
-  assert.ok(tag[1]!.includes("line-clamp-3") && tag[1]!.includes("break-words"));
-  assert.equal(tag[2], long);
+  assert.ok(out.includes(`<b>${long}</b>`));
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
+  assert.ok(/\.edi-dest \{[^}]*overflow-wrap: anywhere/.test(css));
 });
 
-test("I36-5 #1, #2 (UI): a dated plan draws one bar with today and the fill and says the gap; undated draws no bar", () => {
+test("I36-5 #1, #2 (UI): the plate shows the plan's steps done of total; the calendar words stay in the lib", () => {
   const dated = { initiative: { key: "X-I1", title: "Pagos" }, done: 1, total: 4, start_on: "2026-11-01", due_on: "2026-12-27", weeks: 8, today_pct: 50, done_pct: 25, pace: "bad", weeks_behind: 2, forecast_on: "2027-01-10" };
   const out = render(project({ plan: dated }));
-  assert.ok(out.includes('data-plan="calendar"') && out.includes('data-today="50"') && out.includes('data-fill="25"'));
-  assert.ok(out.includes("Hoy va al 50% del tiempo y la obra al 25%: 2 semanas atrás"));
-  const undated = render(project({ plan: { ...dated, start_on: null, due_on: null, weeks: null, today_pct: null, done_pct: null, pace: null, weeks_behind: null, forecast_on: null } }));
-  assert.ok(undated.includes('data-plan="initiative"') && undated.includes("Pagos") && undated.includes("1 de 4 hechos"));
-  assert.equal(undated.includes("data-today"), false);
-  assert.equal(/Semana \d+ de/.test(undated), false);
+  assert.ok(out.includes("Pagos") && out.includes("1 de 4 pasos hechos") && out.includes('data-segs="4"'));
+  assert.equal(/Semana \d+ de/.test(out), false);
+  assert.equal(lib.calendarBar(dated)!.line, "Hoy va al 50% del tiempo y la obra al 25%: 2 semanas atrás");
   assert.equal(lib.calendarBar({ ...dated, weeks: null }), null);
 });

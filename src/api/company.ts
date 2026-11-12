@@ -1,3 +1,4 @@
+// PLA-I39-2: GET /api/company/history?hours=N (1..72, default 20): runs and events of the last hours, per project.
 // PLA-I35-1: GET /api/company adds plan, this_week, next and work per project and decisions[] (Te toca);
 // POST /api/company/decisions/:id {action, option?, text?} acts on one row (src/api/company-decisions.ts).
 // PLA-I32-6: GET /api/company and GET /api/company/projects/:slug serve the Plan's read contract
@@ -34,6 +35,7 @@ import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
 import { cancelOrder } from "./company-orders.js";
 import { promptDoc } from "./company-extra.js";
 import { addTeamMember, companyRead, projectRead } from "./company-org.js";
+import { companyHistory, parseHours } from "./company-history.js";
 import { actOnDecision } from "./company-decisions.js";
 import { ackUnknownUsage, setBudget, setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner/company.js";
 import { checkOwnerCode, enrolOwnerCode, ownerCodeEnrolled } from "../auth/owner-code.js";
@@ -68,6 +70,13 @@ const Paused = z.object({ paused: z.boolean() }).strict();
 
 // PLA-I32-6: the read contract (src/api/company-org.ts). The runner's plumbing moved to GET /api/machine.
 companyRoutes.get("/", async (c) => c.json(await withDb((db) => companyRead(db))));
+
+// PLA-I39-2: what happened in the last hours (the clock of the building).
+companyRoutes.get("/history", async (c) => {
+  const hours = parseHours(c.req.query("hours"));
+  if (hours == null) return c.json({ error: "INVALID_FILTER", field: "hours", hint: "hours is a whole number from 1 to 72" }, 400);
+  return c.json(await withDb((db) => companyHistory(db, hours)));
+});
 
 companyRoutes.get("/projects/:slug", async (c) => {
   try {

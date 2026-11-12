@@ -74,12 +74,12 @@ export const MEMBER_STATE: Record<OrgMemberState, { word: string; tone: Tone }> 
 export type MemberLine = { doing: string; when: string; tone: Tone; still: boolean };
 export function memberLine(m: OrgMember, now: number): MemberLine {
   const state = MEMBER_STATE[m.state] ?? { word: m.state, tone: "idle" as Tone };
-  if (m.now) return { doing: m.now.ticket, when: `desde ${ago(m.now.since, now).replace(/^hace /, "")}`, tone: "ok", still: false };
+  if (m.now) return { doing: m.now.ticket ?? "Trabajando", when: `desde ${ago(m.now.since, now).replace(/^hace /, "")}`, tone: "ok", still: false };
   if (m.last) {
     const age = now - new Date(m.last.at).getTime();
     const still = m.state !== "paused" && age > STILL_MS;
     return {
-      doing: `${m.last.ticket} · ${statusWord(m.last.status)}`,
+      doing: `${m.last.ticket ?? "Corrida"} · ${statusWord(m.last.status)}`,
       when: still ? `quieto desde ${ago(m.last.at, now)}` : ago(m.last.at, now),
       tone: still ? "warn" : state.tone,
       still,

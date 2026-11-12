@@ -422,6 +422,222 @@
   @keyframes city-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.12; } }
   @keyframes city-sweep { from { transform: rotate(-11deg); } to { transform: rotate(11deg); } }
 
+  /* PLA-I39: the building (/ceo). A night panel in both themes, as .city is. Your office on the roof, a floor per
+     project, a window per teammate: lit only while its run is live. Nothing moves to look busy. */
+  .edi {
+    --e-fg: #eef0f6;
+    --e-muted: #b4bad0;
+    --e-card: #252a45;
+    --e-line: rgb(255 255 255 / 0.12);
+    --e-rail: #4a5170;
+    --e-wall: #191d33;
+    --e-you: #ff9f43;
+    --e-you-ink: #ffbd7a;
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    min-width: 0;
+    border-radius: 28px;
+    color: var(--e-fg);
+    color-scheme: dark;
+    background: linear-gradient(180deg, var(--sky1, #070a18) 0%, var(--sky2, #171d3d) 46%, var(--sky2, #171d3d) 100%);
+    padding: 28px 30px 0;
+  }
+  .edi-star { position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #fff; opacity: calc(var(--dark, 1) * 0.75); animation: edi-twinkle 4s ease-in-out infinite; }
+  .edi-orb { position: absolute; right: 5%; top: 78px; width: 46px; height: 46px; border-radius: 50%; background: #f2efe0; box-shadow: 0 0 60px 14px rgb(242 239 224 / 0.22); z-index: 0; }
+  .edi-orb[data-orb="sun"] { background: #ffd58a; box-shadow: 0 0 70px 18px rgb(255 200 120 / 0.3); }
+  .edi-sky { position: relative; z-index: 1; padding-bottom: 26px; }
+  .edi-meta { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 16px; font-size: 13px; color: var(--e-muted); }
+  .edi-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--e-muted); }
+  .edi-voice { font-family: var(--font-voice); font-style: italic; font-weight: 400; font-size: clamp(30px, 4.3vw, 56px); line-height: 1.06; margin: 12px 0; max-width: 1100px; text-wrap: balance; overflow-wrap: anywhere; }
+  .edi-vpre { display: block; font-family: var(--font-sans); font-style: normal; font-size: 14px; line-height: 1.3; color: var(--e-muted); margin-bottom: 0.4em; }
+  .edi-by { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 13.5px; color: var(--e-muted); min-width: 0; }
+  .edi-face { width: 22px; height: 22px; border-radius: 50%; background: var(--e-you); display: inline-grid; place-items: center; font-family: var(--font-display); font-weight: 800; color: #141822; font-size: 12px; flex: none; }
+  .edi-mini { background: none; border: 0; padding: 0; font-size: 12.5px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; color: var(--e-fg); white-space: nowrap; cursor: pointer; }
+  .edi-muted { color: var(--e-muted); }
+  .edi :focus-visible { outline: 2px solid var(--e-you); outline-offset: 2px; }
+
+  /* the roof */
+  .edi-rooftop { position: relative; z-index: 1; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; padding: 0 56px; }
+  .edi-pent { display: flex; gap: 18px; align-items: center; padding: 14px 22px 14px 18px; min-width: 0; max-width: 760px; min-height: 104px; background: var(--e-wall); border: 1px solid rgb(255 255 255 / 0.09); border-bottom: 0; border-radius: 16px 16px 0 0; }
+  .edi-pent > .edi-win { flex: none; }
+  .edi-pent > .edi-win .edi-glass { width: 86px; height: 76px; }
+  .edi-pent-ghost { width: min(520px, 100%); }
+  .edi-penttxt { display: grid; gap: 7px; min-width: 0; }
+  .edi-toca { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 14px; }
+  .edi-toca-n b { font-family: var(--font-mono); color: var(--e-you-ink); }
+  .edi-stat { font-size: 12.5px; color: var(--e-muted); }
+  .edi-chip { display: inline-block; max-width: 100%; overflow-wrap: anywhere; border: 1px solid color-mix(in srgb, var(--e-you) 60%, transparent); background: rgb(255 159 67 / 0.13); color: var(--e-you-ink); border-radius: 999px; min-height: 32px; padding: 5px 13px; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; }
+  .edi-chip:hover { background: rgb(255 159 67 / 0.24); }
+  .edi-antenna { width: 2px; height: 58px; background: rgb(255 255 255 / 0.35); position: relative; margin-right: 8%; flex: none; }
+  .edi-antenna::after { content: ""; position: absolute; left: -3px; top: -4px; width: 8px; height: 8px; border-radius: 50%; background: #ff5a6e; box-shadow: 0 0 12px 3px rgb(255 90 110 / 0.7); animation: city-blink 2.2s ease-in-out infinite; }
+
+  /* the tower and its floors */
+  .edi-tower { position: relative; z-index: 1; margin: 0 22px; background: var(--e-wall); border: 1px solid rgb(255 255 255 / 0.09); border-bottom: 0; border-radius: 16px 16px 0 0; box-shadow: 0 -12px 70px rgb(0 0 0 / 0.35); }
+  .edi-floor { display: grid; grid-template-columns: 266px minmax(0, 1fr); gap: 10px 30px; padding: 24px 28px 26px; position: relative; scroll-margin-top: 80px; background: linear-gradient(90deg, color-mix(in srgb, var(--c) 11%, transparent), transparent 48%); }
+  .edi-floor + .edi-floor, .edi-lobby { border-top: 6px solid rgb(255 255 255 / 0.065); }
+  .edi-plate { display: grid; gap: 7px; align-content: start; min-width: 0; }
+  .edi-fname { display: flex; align-items: center; gap: 10px; min-width: 0; font-family: var(--font-display); font-weight: 800; letter-spacing: -0.02em; font-size: 27px; line-height: 1.1; }
+  .edi-bullet { width: 30px; height: 30px; border-radius: 50%; background: var(--c); color: #12152a; display: grid; place-items: center; font-size: 15px; flex: none; }
+  .edi-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; letter-spacing: inherit; background: none; border: 0; padding: 0; color: var(--c); text-align: left; }
+  button.edi-nm { cursor: pointer; }
+  .edi-deliv { font-size: 14.5px; font-weight: 600; margin-top: 4px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+  .edi-segs { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; min-height: 10px; }
+  .edi-seg { width: 17px; height: 6px; border-radius: 3px; background: rgb(255 255 255 / 0.15); }
+  .edi-seg-done { background: var(--c); }
+  .edi-count { font-size: 12.5px; color: var(--e-muted); }
+  .edi-dest { font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
+  .edi-warn { color: var(--e-you-ink); font-weight: 600; }
+  .edi-reason { font-size: 12.5px; color: var(--e-muted); overflow-wrap: anywhere; }
+  .edi-reason .edi-mini { margin-left: 6px; }
+  .edi-links { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 4px; }
+  .edi-btn { min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--e-rail); background: transparent; font-weight: 600; font-size: 13.5px; color: var(--e-fg); white-space: nowrap; cursor: pointer; }
+  .edi-btn:hover { background: rgb(255 255 255 / 0.08); }
+  .edi-btn:disabled { opacity: 0.45; cursor: default; }
+  .edi-btn-primary { background: var(--e-fg); color: #12152a; border-color: var(--e-fg); }
+  .edi-btn-primary:hover { background: #fff; }
+  .edi-ghost-line { display: block; height: 28px; width: min(420px, 70%); border-radius: 8px; background: rgb(255 255 255 / 0.06); }
+  .edi-empty { display: grid; justify-items: start; gap: 10px; padding: 28px; }
+  .edi-empty p { font-size: 14px; color: var(--e-muted); max-width: 52ch; }
+
+  /* windows: the team */
+  .edi-wins { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px 16px; align-content: start; min-width: 0; }
+  .edi-win { --fig: rgb(255 255 255 / 0.12); --cut: #1c2138; --lap: rgb(255 255 255 / 0.16); display: grid; gap: 6px; align-content: start; background: none; border: 0; padding: 0; text-align: left; color: inherit; min-width: 0; font: inherit; }
+  button.edi-win { cursor: pointer; }
+  .edi-glass { position: relative; display: block; height: 124px; overflow: hidden; border-radius: 50% 50% 10px 10px / 60% 60% 10px 10px; background: linear-gradient(155deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.03) 58%); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.13), 0 6px 0 -2px rgb(255 255 255 / 0.12); transition: transform 0.2s; }
+  @media (hover: hover) { button.edi-win:hover .edi-glass { transform: translateY(-3px); } }
+  .edi-fig { position: absolute; left: 0; right: 0; bottom: -2px; margin: 0 auto; height: 88%; display: block; }
+  .edi-fig .f { fill: var(--fig); }
+  .edi-fig .s { fill: none; stroke: var(--fig); stroke-linecap: round; }
+  .edi-fig .c { fill: none; stroke: var(--cut); stroke-width: 2.6; }
+  .edi-fig .l { fill: var(--lap); }
+  .edi-fig .d { fill: var(--cut); }
+  .edi-arm, .edi-lap { display: none; }
+  .edi-win[data-state="work"] { --fig: #3a2410; --cut: #ffeabd; --lap: #1d1208; }
+  .edi-win[data-state="work"] .edi-glass { background: radial-gradient(95% 85% at 50% 100%, #ffe9b5, #ffc46b 62%, #f0a046); box-shadow: inset 0 0 0 1px rgb(255 236 190 / 0.5), 0 6px 0 -2px rgb(255 255 255 / 0.16), 0 0 46px rgb(255 190 100 / 0.42); }
+  .edi-win[data-state="work"] .edi-lap { display: block; }
+  .edi-win[data-state="ask"] { --fig: #4a2305; --cut: #ffdcae; --lap: #2a1403; }
+  .edi-win[data-state="ask"] .edi-glass { background: radial-gradient(95% 85% at 50% 100%, #ffd9a6, #ff9f43 64%, #ef7c17); box-shadow: inset 0 0 0 1px rgb(255 220 170 / 0.6), 0 6px 0 -2px rgb(255 255 255 / 0.16), 0 0 0 4px rgb(255 159 67 / 0.22), 0 0 52px rgb(255 140 50 / 0.55); }
+  .edi-win[data-state="ask"] .edi-arm { display: block; }
+  .edi-pent .edi-win[data-state="ask"] .edi-arm { display: none; }
+  .edi-win[data-state="hold"] { --fig: #2a2114; --cut: #c9b48a; }
+  .edi-win[data-state="hold"] .edi-glass { background: linear-gradient(180deg, #5a4c33, #43382a); opacity: 0.8; }
+  .edi-win[data-state="off"] { --fig: rgb(255 255 255 / 0.06); }
+  .edi-win[data-state="off"] .edi-glass { background: repeating-linear-gradient(180deg, rgb(255 255 255 / 0.075) 0 2px, transparent 2px 11px), rgb(255 255 255 / 0.02); }
+  .edi-win[data-state="ghost"] { --fig: rgb(255 214 150 / 0.5); --cut: #3a3148; }
+  .edi-win[data-state="ghost"] .edi-glass { background: rgb(255 190 100 / 0.24); box-shadow: inset 0 0 0 2px rgb(255 196 107 / 0.75), 0 6px 0 -2px rgb(255 255 255 / 0.12); }
+  .edi-who { display: flex; flex-wrap: wrap; gap: 0 7px; align-items: baseline; margin-top: 5px; }
+  .edi-who b { font-size: 13.5px; font-weight: 700; }
+  .edi-who i { font-style: normal; font-size: 12px; color: var(--e-muted); }
+  .edi-do { font-size: 13.5px; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+  .edi-sub { font-size: 12px; color: var(--e-muted); line-height: 1.35; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+  .edi-win[data-state="work"] .edi-do { color: #ffd591; }
+  .edi-win[data-state="ask"] .edi-do, .edi-win[data-state="ghost"] .edi-do, .edi-win[data-state="hold"] .edi-do { color: var(--e-you-ink); }
+  .edi-win[data-state="idle"] .edi-do, .edi-win[data-state="off"] .edi-do { font-weight: 500; color: var(--e-muted); }
+  .edi-tile { display: block; flex: none; background: #191d33; border-radius: 14px; padding: 8px 8px 6px; }
+  .edi-tile .edi-glass { width: 62px; height: 58px; }
+  .edi-win.edi-add .edi-glass { background: none; box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.2); display: grid; place-items: center; font-size: 30px; font-weight: 300; color: var(--e-muted); }
+
+  /* PLA-I39-7: the ask box on the plate, and Asistente floating */
+  .edi-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .edi-ask { display: grid; gap: 6px; margin-top: 8px; min-width: 0; }
+  .edi-ask-row { display: flex; gap: 6px; min-width: 0; }
+  .edi-ask input[type="text"] { min-width: 0; flex: 1; height: 38px; border-radius: 999px; font: inherit; font-size: 13.5px; padding: 0 14px; color: var(--e-fg); background: rgb(255 255 255 / 0.08); border: 1px solid var(--e-line); }
+  .edi-ask input[type="text"]::placeholder { color: var(--e-muted); }
+  .edi-now { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--e-muted); cursor: pointer; }
+  .edi-now input { accent-color: var(--e-you); width: 15px; height: 15px; }
+  .edi-sent { font-size: 12.5px; font-weight: 600; color: #9fe3b0; overflow-wrap: anywhere; }
+  .edi-fab { position: fixed; right: max(20px, env(safe-area-inset-right, 0px)); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); z-index: 30; display: inline-flex; align-items: center; gap: 10px; min-height: 54px; padding: 0 20px 0 13px; border-radius: 999px; border: 0; background: var(--foreground); color: var(--background); font-weight: 700; box-shadow: 0 18px 50px rgb(20 24 34 / 0.25); cursor: pointer; }
+  .edi-fab-face { width: 30px; height: 30px; font-size: 16px; background: var(--status-jorge); }
+  .edi-badge { min-width: 20px; height: 20px; border-radius: 99px; background: var(--status-jorge); color: #141822; font-size: 12px; display: grid; place-items: center; padding: 0 6px; font-family: var(--font-mono); }
+  .edi-fab-dot { position: absolute; top: 6px; left: 34px; width: 10px; height: 10px; border-radius: 50%; background: var(--status-jorge); box-shadow: 0 0 0 2px var(--foreground); }
+  .edi-fab-room { height: 96px; }
+  @media (width < 64rem) { .edi-fab-room { height: 170px; } }
+  @media (width < 40rem) {
+    .edi-fab { bottom: calc(4.5rem + 14px + env(safe-area-inset-bottom, 0px)); right: 16px; min-height: 50px; padding: 0 16px 0 10px; }
+  }
+
+  /* PLA-I39-8: the clock, docked at the bottom; the past disables what acts */
+  .edi-clock { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); width: min(780px, calc(100% - 440px)); z-index: 25; background: var(--card); color: var(--foreground); border: 1px solid var(--border); border-radius: 22px; box-shadow: 0 18px 50px rgb(20 24 34 / 0.18); padding: 8px 16px 6px 10px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center; }
+  .edi-play { height: 40px; padding: 0 15px 0 12px; border-radius: 999px; border: 1px solid var(--border); background: transparent; display: flex; gap: 8px; align-items: center; font-weight: 600; font-size: 13.5px; white-space: nowrap; cursor: pointer; color: inherit; }
+  .edi-play:disabled { opacity: 0.6; cursor: default; }
+  .edi-ruler { position: relative; height: 60px; min-width: 0; }
+  .edi-rbar { position: absolute; left: 0; right: 0; top: 26px; height: 12px; border-radius: 6px; background: var(--muted); }
+  .edi-mark { position: absolute; top: 15px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--muted-foreground); }
+  .edi-mark[data-mark="asked"], .edi-mark[data-mark="answered"] { top: 28px; border-radius: 1px; transform: rotate(45deg); background: var(--status-jorge); z-index: 1; }
+  .edi-mark[data-mark="delivered"] { background: var(--status-done); }
+  .edi-tick { position: absolute; top: 43px; transform: translateX(-50%); font: 11px var(--font-mono); color: var(--muted-foreground); white-space: nowrap; }
+  .edi-tick:first-of-type { transform: none; }
+  .edi-tick-now { transform: translateX(-100%); color: var(--foreground); font-weight: 600; }
+  .edi-scrub { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; background: none; -webkit-appearance: none; appearance: none; cursor: ew-resize; z-index: 3; }
+  .edi-scrub::-webkit-slider-runnable-track { background: none; height: 100%; }
+  .edi-scrub::-moz-range-track { background: none; height: 100%; }
+  .edi-scrub::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 30px; margin-top: 17px; border-radius: 7px; background: var(--foreground); border: 3px solid var(--card); box-shadow: 0 2px 8px rgb(0 0 0 / 0.35); }
+  .edi-scrub::-moz-range-thumb { width: 8px; height: 24px; border-radius: 7px; background: var(--foreground); border: 3px solid var(--card); }
+  .edi-scrub:focus-visible { outline: 2px solid var(--status-jorge); outline-offset: 2px; border-radius: 8px; }
+  .edi-back { position: absolute; right: 8px; top: -46px; box-shadow: 0 10px 30px rgb(0 0 0 / 0.25); background: var(--foreground); color: var(--background); border-color: var(--foreground); }
+  .edi-pastline { position: relative; z-index: 1; margin: 0 0 14px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 13.5px; color: var(--e-you-ink); }
+  .edi[data-mode="past"] .edi-ask, .edi[data-mode="past"] .edi-lobby, .edi[data-mode="past"] .edi-add, .edi[data-mode="past"] .edi-bubble, .edi[data-mode="past"] .edi-chip, .edi[data-mode="past"] .edi-links { opacity: 0.4; pointer-events: none; }
+  @media (width < 64rem) {
+    .edi-clock { left: max(10px, env(safe-area-inset-left, 0px)); right: max(10px, env(safe-area-inset-right, 0px)); transform: none; width: auto; gap: 10px; padding-right: 14px; }
+    .edi-play { width: 40px; padding: 0; justify-content: center; }
+    .edi-play-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .edi-back { right: auto; left: 0; }
+    .edi-fab { bottom: calc(18px + 76px + env(safe-area-inset-bottom, 0px)); }
+  }
+  @media (width < 40rem) {
+    .edi-clock { bottom: calc(4.5rem + 8px + env(safe-area-inset-bottom, 0px)); }
+    .edi-fab { bottom: calc(4.5rem + 8px + 76px + env(safe-area-inset-bottom, 0px)); }
+  }
+
+  /* PLA-I39-5: the question someone holds out of their window. The app's .dark tokens apply inside. */
+  .edi-slot { order: calc(var(--i) * 2); min-width: 0; display: grid; }
+  .edi-bubble { order: var(--o-wide); grid-column: 1 / -1; position: relative; margin-top: 8px; background: var(--card); color: var(--foreground); border: 1.5px solid var(--e-you); border-radius: 18px; padding: 15px 18px 16px; display: grid; gap: 10px; box-shadow: 0 0 0 4px rgb(255 159 67 / 0.13); min-width: 0; scroll-margin-top: 90px; }
+  .edi-bubble::before { content: ""; position: absolute; top: -8.5px; left: calc(var(--nx-wide, 50%) - 7px); width: 14px; height: 14px; background: var(--card); border-left: 1.5px solid var(--e-you); border-top: 1.5px solid var(--e-you); transform: rotate(45deg); }
+  .edi-bubble[data-acted] { border-color: var(--e-rail); box-shadow: none; }
+  .edi-bubble[data-acted]::before { border-color: var(--e-rail); }
+  .edi-roof-q { margin-top: 4px; }
+  .edi-roof-q::before { display: none; }
+  .edi-bq { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--e-you-ink); }
+  .edi-more summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--e-you-ink); }
+  .edi-more-list { display: grid; gap: 12px; padding-top: 10px; }
+  .edi-more-row { border-top: 1px solid var(--e-line); padding-top: 10px; }
+
+  /* lobby, street, basement */
+  .edi-lobby { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 16px; padding: 14px 28px 0; }
+  .edi-lobby .edi-muted { padding-bottom: 14px; font-size: 13px; }
+  .edi-door { display: inline-flex; align-items: center; gap: 10px; min-height: 50px; padding: 0 16px 0 14px; border-radius: 12px 12px 0 0; border: 1.5px dashed rgb(255 255 255 / 0.3); border-bottom: 0; background: none; font-weight: 600; font-size: 13.5px; color: var(--e-fg); cursor: pointer; }
+  .edi-door:hover { background: rgb(255 255 255 / 0.06); }
+  .edi-street { position: relative; z-index: 1; height: 12px; margin: 0 -30px; background: #090b15; border-top: 2px solid rgb(255 255 255 / 0.22); }
+  .edi-under { position: relative; z-index: 1; margin: 0 -30px; padding: 16px 52px 30px; background: #0a0c17; display: grid; gap: 10px; }
+  .edi-under .edi-floor { background: #111526; border: 1px solid rgb(255 255 255 / 0.07); border-top: 0; border-radius: 0 0 16px 16px; }
+  .edi-under .edi-nm { color: var(--e-muted); text-shadow: none; }
+  .edi-under .edi-bullet { background: var(--e-muted); }
+
+  @keyframes edi-twinkle { 50% { opacity: calc(var(--dark, 1) * 0.2); } }
+
+  @media (width < 64rem) {
+    .edi { padding: 20px 14px 0; border-radius: 22px; }
+    .edi-rooftop { padding: 0 10px; }
+    .edi-tower { margin: 0; }
+    .edi-orb { width: 34px; height: 34px; top: 92px; right: 6%; }
+    .edi-antenna { display: none; }
+    .edi-pent { padding: 12px 14px; gap: 12px; }
+    .edi-pent > .edi-win .edi-glass { width: 64px; height: 58px; }
+    .edi-floor { grid-template-columns: minmax(0, 1fr); padding: 18px 14px 20px; }
+    .edi-wins { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; margin-top: 8px; }
+    .edi-bubble { order: var(--o-phone); padding: 13px 14px 14px; }
+    .edi-bubble::before { left: calc(var(--nx-phone, 50%) - 7px); }
+    .edi-glass { height: 108px; }
+    .edi-lobby { padding: 12px 14px 0; }
+    .edi-street, .edi-under { margin: 0 -14px; }
+    .edi-under { padding: 14px 14px 22px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .edi *, .edi *::before, .edi *::after { animation: none !important; transition: none !important; }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .city-star, .city-win, .city-beam, .city-beacon::after, .city-crane i { animation: none !important; }
     .city-tower:hover .city-bld { transform: none; }

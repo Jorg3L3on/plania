@@ -40,8 +40,12 @@ const project = (patch: Record<string, unknown> = {}) => ({
   orders: [],
   ...patch,
 });
-const card = (p: Record<string, unknown>, decisions: unknown[] = []) => html(h(v2.ProjectReport, { project: p, decisions, now: NOW, companyPaused: false, timeZone: "America/Mexico_City" }));
-const teToca = (decisions: unknown[], inbox?: unknown) => html(h(v2.TeToca, { decisions, inbox, titles: { workia: "Workia" }, now: NOW, busy: null, onAct: noop }));
+const count = (s: string, re: RegExp) => (s.match(re) ?? []).length;
+// PLA-I39: the reason sits on the floor's plate; each decision renders with Te toca's body under its asker.
+const plate = await load("components/compania/edificio/plate.tsx");
+const card = (p: Record<string, unknown>) => html(h(plate.Plate, { project: p }));
+const teToca = (decisions: Record<string, unknown>[], opened?: string) =>
+  html(h("ul", null, ...decisions.map((d) => h("li", { key: d.id as string, "data-kind": d.kind }, h(v2.DecisionBody, { d, now: NOW, busy: null, onAct: noop, opened: opened === d.id })))));
 const row = (patch: Record<string, unknown>) => ({
   id: "b-00000000-0000-4000-8000-000000000001",
   project: "workia",
@@ -62,11 +66,9 @@ const row = (patch: Record<string, unknown>) => ({
 
 // ---- PLA-I36-1
 
-test("I36-1 #1: Te necesita shows its reason and Ver en Te toca", () => {
+test("I36-1 #1: Te necesita shows its reason and points to the question on the floor", () => {
   const out = card(project({ light: "needs_jorge", light_reason: { text: "Lo siguiente es tuyo: «Kickoff con la boutique».", action: { label: "Ver en Te toca", href: "#te-toca" } } }));
-  assert.match(out, /data-light="needs_jorge"/);
-  assert.ok(out.includes("Te necesita"));
-  assert.ok(out.includes("Lo siguiente es tuyo: «Kickoff con la boutique».") && out.includes('href="#te-toca"'));
+  assert.ok(out.includes("Lo siguiente es tuyo: «Kickoff con la boutique».") && out.includes('href="#pregunta-workia"') && out.includes("Ver la pregunta"));
   clean(out);
 });
 
@@ -78,38 +80,25 @@ test("I36-1 #2: Falló shows the reason, a link to Máquina, and Ahora says the 
       team: [member("product-owner", { last: { ticket: "WRK-3", status: "fail", at: "2026-11-10T17:30:00Z" } }), member("taller")],
     }),
   );
-  assert.ok(out.includes("Falló") && out.includes("spawn claude ENOENT"));
+  assert.ok(out.includes("spawn claude ENOENT"));
   assert.ok(/<a[^>]*href="\/machine"[^>]*>|<a[^>]*data-light-action[^>]*href="\/machine"/.test(out) && out.includes("Ver en Máquina"));
-  assert.ok(out.includes("su última corrida falló"), "Ahora has words for a failed run");
   assert.equal(org.lightOf("failed").tone, "stop");
   clean(out);
 });
 
 test("I36-1 #3: Bloqueado shows the blocking reason in one sentence", () => {
   const out = card(project({ light: "blocked", light_reason: { text: "Las pruebas de «Galería» fallaron.", action: { label: "Abrir", href: "/p/workia" } } }));
-  assert.ok(out.includes("Bloqueado") && out.includes("Las pruebas de «Galería» fallaron."));
+  assert.ok(out.includes("Las pruebas de «Galería» fallaron."));
   assert.equal(count(out, /data-light-reason/g), 1);
   clean(out);
 });
 
 test("I36-1 #4: Bien has no reason line; the worst light sorts first", () => {
   const out = card(project());
-  assert.ok(out.includes("Bien"));
   assert.equal(out.includes("data-light-reason"), false);
   const sorted = [project({ slug: "a", light: "ok" }), project({ slug: "b", light: "late" }), project({ slug: "c", light: "failed" }), project({ slug: "d", light: "needs_jorge" })].sort(org.byLight);
   assert.deepEqual(sorted.map((p) => p.light), ["needs_jorge", "failed", "late", "ok"]);
 });
-
-test("I36-1 #5: phone at 390: the reason wraps (break-words, no truncate) and its action never splits", () => {
-  const long = "La última corrida del PO falló: " + "una razón muy larga sin espacios-".repeat(6);
-  const out = card(project({ light: "failed", light_reason: { text: long, action: { label: "Ver en Máquina", href: "/machine" } } }));
-  const line = /<p class="([^"]*)" data-light-reason/.exec(out)![1]!;
-  assert.ok(line.includes("break-words") && line.includes("min-w-0"), line);
-  assert.equal(line.includes("truncate"), false);
-  assert.ok(/class="[^"]*whitespace-nowrap[^"]*"[^>]*data-light-action/.test(out));
-});
-
-const count = (s: string, re: RegExp) => (s.match(re) ?? []).length;
 
 // ---- PLA-I36-2
 
@@ -134,15 +123,12 @@ test("I36-2 #1: a release row shows commits, changes, open checks and goes to Ba
   ]);
   assert.ok(out.includes("4 commits · 2 cambios · 1 check abierto"));
   assert.ok(/data-action="publicar"[^>]*>Publicar en Bandeja|href="\/inbox"[^>]*data-action="publicar"/.test(out));
-  assert.match(out, /data-te-toca="1"/, "a release still waits on Jorge");
   clean(out);
 });
 
 test("I36-2 #3: Nada te espera only when Bandeja is empty too", () => {
-  assert.ok(teToca([], { decisiones: 0, pasos: 0 }).includes("Nada te espera"));
-  const out = teToca([], { decisiones: 1, pasos: 1 });
-  assert.equal(out.includes("Nada te espera"), false);
-  assert.ok(out.includes("Nada urgente aquí · 2 cosas te esperan en Bandeja."));
+  assert.equal(lib.teTocaEmpty({ decisiones: 0, pasos: 0 }), lib.TE_TOCA_EMPTY);
+  assert.equal(lib.teTocaEmpty({ decisiones: 1, pasos: 1 }), "Nada urgente aquí · 2 cosas te esperan en Bandeja.");
   assert.equal(lib.teTocaEmpty(undefined), lib.TE_TOCA_EMPTY);
 });
 
@@ -166,7 +152,7 @@ test("I36-2 #4: a proposal row has Ver mensaje and its doc link; the message ope
   assert.ok(out.includes('href="/ceo?doc=d0c00000-0000-4000-8000-000000000001"') && out.includes("Campos y flujos"));
   assert.equal(out.includes("data-body"), false, "folded until opened");
   // Opened (?decision=<id>): the full message in place.
-  const opened = html(h(v2.TeToca, { decisions: [d], titles: { workia: "Workia" }, now: NOW, busy: null, onAct: noop, open: d.id }));
+  const opened = teToca([d], d.id);
   assert.ok(opened.includes("data-body") && opened.includes("Tres caminos:\n1. Corto") && opened.includes("Ocultar mensaje"));
   clean(out);
 });
@@ -195,29 +181,8 @@ test("I36-2 #5: a PR row shows its link and open checks before Fusionar", () => 
 
 const order = (patch: Record<string, unknown>) => ({ id: "t-1", kind: "order", title: "Agrega un botón de WhatsApp", at: "2026-11-10T16:00:00Z", state: "enviada", understood: null, who: null, link: null, age_h: null, ...patch });
 
-test("I36-3 #1-#4: Tus órdenes lists each with its state; entregada links what came out; sin tomar is amber with its age", () => {
-  const out = card(
-    project({
-      orders: [
-        order({ id: "t-1" }),
-        order({ id: "t-2", title: "Cambia el logo", state: "entendida", understood: "logo nuevo en el encabezado" }),
-        order({ id: "t-3", title: "Galería", state: "en_curso", who: "taller" }),
-        order({ id: "t-4", title: "Formulario", state: "entregada", link: { kind: "pr", ref: "https://github.com/x/w/pull/3", title: "PR" } }),
-        order({ id: "m-5", kind: "choice", title: "Elegiste 1: Formulario corto", state: "sin_tomar", age_h: 30 }),
-      ],
-    }),
-  );
-  assert.ok(out.includes("Tus pedidos") && out.includes('data-orders="5"'));
-  assert.ok(out.includes("enviada · hace"));
-  assert.ok(out.includes("El PO entendió: logo nuevo en el encabezado"));
-  assert.ok(out.includes("en curso · Taller"));
-  assert.ok(out.includes('href="https://github.com/x/w/pull/3"') && out.includes("Ver lo que salió"));
-  assert.ok(/data-order="sin_tomar"[\s\S]*text-ink-warn[\s\S]*sin tomar · 30 h/.test(out) || out.includes("sin tomar · 30 h"));
-  assert.deepEqual(lib.orderText(order({ state: "sin_tomar", age_h: 30 }), NOW).tone, "warn");
-  assert.ok(out.includes('data-order-kind="choice"'));
-  clean(out);
-});
-
-test("I36-3: no orders, no block", () => {
-  assert.equal(card(project()).includes("Tus pedidos"), false);
+test("I36-3 #1-#4: each order's state reads in words; sin tomar is amber with its age (the plan's side page lists them)", () => {
+  assert.equal(lib.orderText(order({ state: "sin_tomar", age_h: 30 }), NOW).tone, "warn");
+  assert.ok(lib.orderText(order({ state: "sin_tomar", age_h: 30 }), NOW).text.includes("sin tomar · 30 h"));
+  assert.ok(lib.orderText(order({ state: "en_curso", who: "taller" }), NOW).text.includes("en curso · Taller"));
 });
