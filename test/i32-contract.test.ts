@@ -30,7 +30,7 @@ const keys = (o: Json) => Object.keys(o).sort();
 const STATES = ["running", "idle", "waiting_jorge", "paused", "no_budget"];
 const LIGHTS = ["ok", "needs_jorge", "failed", "blocked", "late", "quiet", "paused", "no_budget"];
 const BUDGET = ["limit", "pct", "reason", "state", "used"];
-const MEMBER = ["agent", "last", "now", "produced", "role", "state", "template", "waiting"];
+const MEMBER = ["agent", "last", "now", "produced", "queue", "role", "state", "template", "waiting"];
 
 before(async () => {
   raw = await resetTestDb();
@@ -74,7 +74,7 @@ test("I32-6 #1: GET /api/company has exactly the contract keys, a team of four p
   assert.deepEqual(keys(c), ["asistente", "company", "decisions", "inbox", "plumbing", "projects", "week"], "PLA-I35-1 added decisions, PLA-I36-2 inbox");
   assert.deepEqual(keys(c.company), ["paused"]);
   assert.deepEqual(keys(c.week), ["resets_at", "starts_at", "timezone"]);
-  assert.deepEqual(keys(c.asistente), ["budget", "last_run", "state", "thread_id"]);
+  assert.deepEqual(keys(c.asistente), ["budget", "last_run", "state", "thread_id", "unread"]);
   assert.deepEqual(keys(c.asistente.budget), BUDGET);
   assert.equal(c.asistente.budget.limit, 500000);
   assert.ok(STATES.includes(c.asistente.state));
@@ -97,10 +97,10 @@ test("I32-6 #1: GET /api/company has exactly the contract keys, a team of four p
   assert.equal(mia.light, "needs_jorge");
   const by = Object.fromEntries(mia.team.map((m: Json) => [m.agent, m]));
   assert.equal(by["taller-mianovia"].state, "running");
-  assert.deepEqual(keys(by["taller-mianovia"].now), ["since", "ticket"]);
+  assert.deepEqual(keys(by["taller-mianovia"].now), ["since", "ticket", "title"]);
   assert.equal(by["taller-mianovia"].now.ticket, "MIA-1");
   assert.deepEqual(by["research-mianovia"].last.status, "ok");
-  assert.deepEqual(keys(by["research-mianovia"].last), ["at", "status", "ticket"]);
+  assert.deepEqual(keys(by["research-mianovia"].last), ["at", "status", "ticket", "title"]);
   assert.deepEqual(by["research-mianovia"].produced, { kind: "doc", ref: "00000000-0000-4000-8000-000000000001", title: "Research" });
   assert.equal(by["po-mianovia"].state, "waiting_jorge");
   assert.equal(by["po-mianovia"].waiting, "¿Papel o digital?");
