@@ -12,7 +12,7 @@ import { BlockError, StopBody } from "@/components/compania/parts";
 import type { Steer } from "@/components/compania/timon";
 import { toast } from "sonner";
 import { ThreadSkeleton } from "@/components/compania/org";
-import { AsistenteFolded, PausedList, TeToca, type DecisionBusy } from "@/components/compania/v2";
+import { AsistenteFolded, TeToca, type DecisionBusy } from "@/components/compania/v2";
 import { Building, BuildingBlock } from "@/components/compania/edificio/building";
 import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
 import { useThread } from "@/components/compania/use-thread";
@@ -111,8 +111,6 @@ const Compania = () => {
   });
 
   const projects = useMemo(() => [...(company?.projects ?? [])].sort(byLight), [company]);
-  const live = projects.filter((p) => !p.paused && p.light !== "paused");
-  const paused = projects.filter((p) => p.paused || p.light === "paused");
   const titles = useMemo(() => Object.fromEntries(projects.map((p) => [p.slug, p.title])), [projects]);
   const openSheet = (search: string) => navigate({ pathname: "/ceo", search });
   const closeSheet = () => navigate({ pathname: "/ceo", search: "" }, { replace: true });
@@ -281,11 +279,13 @@ const Compania = () => {
               </>
             }
             onNew={onNew}
+          onFijar={setFijar}
+          onResume={(slug) => resume.mutate(slug)}
+          resuming={resuming}
           />
         )}
       </BuildingBlock>
 
-      {company && <PausedList projects={paused} now={now} busy={resuming} onResume={(slug) => resume.mutate(slug)} />}
 
       {/* Until PLA-I39-7: Asistente folded under the building. */}
       {comp.isPending ? (

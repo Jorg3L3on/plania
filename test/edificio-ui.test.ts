@@ -102,7 +102,7 @@ test("I39-3 #1: a window is lit with a laptop only while running; orange with a 
   assert.match(idle, /data-state="idle"/);
   // Only running lights a window: idle, paused and out of budget are never "work".
   for (const s of [ask, off, hold, idle]) assert.equal(/data-state="work"/.test(s), false);
-  // The company switch puts every blind down, except a run that is really live.
+  // The company switch puts every blind down.
   assert.match(one(member("research"), { companyPaused: true }), /data-state="off"/);
   // The laptop and the hand are CSS-gated by state.
   const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
@@ -183,4 +183,100 @@ test("I39-3 #6: with prefers-reduced-motion nothing in the scene animates", () =
   assert.deepEqual(animated, [".edi-star", ".edi-antenna::after"]);
   const out = html(h(scene.EdificioSkeleton, {}));
   assert.ok(out.includes("edi"));
+});
+
+// ---- handlers without a DOM: expand hook-free components into their element tree and call the handler.
+type El = { type: unknown; props: Json };
+const expand = (node: unknown): unknown => {
+  if (Array.isArray(node)) return node.map(expand);
+  if (!node || typeof node !== "object" || !("type" in node)) return node;
+  const el = node as El;
+  if (typeof el.type === "function") return expand((el.type as (p: Json) => unknown)(el.props));
+  return { ...el, props: { ...el.props, children: expand(el.props?.children) } };
+};
+const findAll = (node: unknown, pred: (el: El) => boolean, out: El[] = []): El[] => {
+  if (Array.isArray(node)) for (const n of node) findAll(n, pred, out);
+  else if (node && typeof node === "object" && "props" in node) {
+    const el = node as El;
+    if (pred(el)) out.push(el);
+    findAll(el.props?.children, pred, out);
+  }
+  return out;
+};
+const control = (tree: unknown, name: string) => findAll(tree, (el) => el.props?.["data-control"] === name);
+const tree = (c: Json, extra: Json = {}) => expand(h(building.Building, { company: c, decisions: c.decisions, now: NOW, timeZone: TZ, hello: "Hola", day: "Martes", onNew: noop, ...extra }));
+
+// ---- PLA-I39-4
+
+const plan = { initiative: { key: "WRK-I2", title: "Formulario de bienvenida" }, done: 2, total: 5, start_on: null, due_on: null, weeks: null, today_pct: null, done_pct: null, pace: null, weeks_behind: null, forecast_on: null };
+
+test("I39-4 #1: the plate shows name, deliverable, steps done of total, goal with date or Sin meta: Fijar, and the light's reason", () => {
+  const set = project({
+    plan,
+    rumbo: { goal_id: "g-1", goal: "Que una tienda reciba su primer pedido", why: "", target_on: "2026-12-05", forecast_on: "2026-12-05", weeks_behind: 0, missing: false },
+    light: "needs_jorge",
+    light_reason: { text: "El equipo te hizo una pregunta y espera tu respuesta.", action: { label: "Ver en Te toca", href: "#te-toca" } },
+  });
+  const out = render(company({ projects: [set] }), { onFijar: noop });
+  assert.ok(out.includes("Workia") && out.includes('title="Workia"'));
+  assert.ok(out.includes("Formulario de bienvenida") && out.includes("2 de 5 pasos hechos"));
+  assert.equal((out.match(/edi-seg edi-seg-done/g) ?? []).length, 2);
+  assert.ok(out.includes("Meta: <b>Que una tienda reciba su primer pedido</b> · 5 dic") && out.includes("a tiempo"));
+  assert.ok(out.includes("El equipo te hizo una pregunta y espera tu respuesta.") && out.includes('href="#te-toca"'));
+  assert.ok(out.includes("100k tokens esta semana"));
+  clean(out);
+  const missing = render(company({ projects: [project({ next: { title: "Pantalla del carrito", key: "WRK-3", owner: "taller", due: null } })] }), { onFijar: noop });
+  assert.ok(missing.includes('data-rumbo="missing"') && missing.includes("Sin meta: ") && missing.includes('data-control="fijar"'));
+  assert.ok(missing.includes("Pantalla del carrito") && missing.includes("Aún no hay pasos"));
+  clean(missing);
+  // Fijar opens the goal dialog for that project.
+  let fixed: Json | null = null;
+  control(tree(company({ projects: [project()] }), { onFijar: (p: Json) => (fixed = p) }), "fijar")[0]!.props.onClick();
+  assert.equal(fixed!.slug, "workia");
+});
+
+test("I39-4 #2: a paused project sits below the street with Reanudar and no lit window; Reanudar calls the project switch", () => {
+  const paused = project({ slug: "nido", title: "Nido", paused: true, light: "paused", team: ["product-owner", "taller"].map((r) => member(r, { agent: `${r}-nido`, state: "paused" })) });
+  const c = company({ projects: [project(), paused] });
+  const out = render(c, { onResume: noop });
+  const under = out.slice(out.indexOf("data-basement"));
+  assert.ok(under.includes("Bajo la calle · en pausa") && under.includes('data-floor="nido"') && under.includes("Reanudar"));
+  assert.equal(/data-state="(work|ask)"/.test(under), false);
+  assert.ok(out.indexOf('data-floor="workia"') < out.indexOf("edi-street") && out.indexOf("edi-street") < out.indexOf('data-floor="nido"'));
+  const calls: string[] = [];
+  const [btn] = control(tree(c, { onResume: (slug: string) => calls.push(slug) }), "reanudar");
+  btn!.props.onClick();
+  assert.deepEqual(calls, ["nido"]);
+  assert.equal(control(tree(c, { onResume: noop, resuming: "nido" }), "reanudar")[0]!.props.disabled, true);
+});
+
+test("I39-4 #3: company paused: no window is lit and the banner says it resumes in Máquina", () => {
+  const busy = project({ team: [member("taller", { state: "running", now: { ticket: "WRK-3", title: "Pantalla", since: "2026-11-10T17:00:00Z" } }), member("product-owner", { state: "waiting_jorge" })] });
+  const out = render(company({ company: { paused: true }, projects: [busy] }));
+  assert.equal(/data-state="(work|ask|hold|idle)"/.test(out.slice(out.indexOf("edi-tower"))), false);
+  assert.ok((out.match(/data-state="off"/g) ?? []).length >= 2);
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes('data-banner="paused"') && page.includes("La compañía está detenida: nada arranca. Se reanuda en Máquina."));
+});
+
+test("I39-4 #4: a long name stays on one line with ellipsis and its full text in title; a long deliverable wraps to two lines", () => {
+  const name = "Telar de cuentos para niños y abuelos que leen en voz alta";
+  const deliv = "Una pantalla del cuento con un título muy largo que ocupa por lo menos dos líneas en el teléfono y algo más";
+  const out = render(company({ projects: [project({ title: name, plan: { ...plan, initiative: { key: "WRK-I3", title: deliv } } })] }));
+  assert.ok(new RegExp(`<a[^>]*class="edi-nm"[^>]*title="${name}"`).test(out) && out.includes(`>${name}</a>`));
+  assert.ok(new RegExp(`class="edi-deliv"[^>]*title="${deliv}"`).test(out));
+  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
+  assert.ok(/\.edi-nm \{[^}]*overflow: hidden; text-overflow: ellipsis; white-space: nowrap;/.test(css), "one line with ellipsis");
+  assert.ok(/\.edi-deliv \{[^}]*-webkit-line-clamp: 2;/.test(css), "two lines at most");
+});
+
+test("I39-4 #5: the door opens the new-project dialog and a created project shows as a new floor", () => {
+  let opened = 0;
+  const c = company();
+  control(tree(c, { onNew: () => opened++ }), "piso-nuevo")[0]!.props.onClick();
+  assert.equal(opened, 1);
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes('openSheet("?nuevo")') && page.includes("onNew={onNew}") && page.includes('sheet?.kind === "nuevo"'));
+  const after = render(company({ projects: [project(), project({ slug: "faro", title: "Faro" })] }));
+  assert.ok(after.includes('data-floor="faro"') && after.includes('data-tower="2"'));
 });

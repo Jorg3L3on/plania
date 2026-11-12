@@ -4,14 +4,17 @@
 //   roof       Tu oficina (roof.tsx)
 //   tower      one floor per running project, those that need the owner first
 //   empty      no projects: an empty lot with the door "Abrir el primer piso"
+// PLA-I39-4: each floor's plate (plate.tsx); the street with the door "Abrir un piso nuevo" (the new-project dialog);
+//   below the street, paused projects with their blinds down and Reanudar (the project switch).
 import type { ReactNode } from "react";
-import type { Decision, OrgCompany, OrgMember } from "@/lib/api";
+import type { Decision, OrgCompany, OrgMember, OrgProject } from "@/lib/api";
 import { floorOrder, hourIn } from "@/lib/edificio";
 import { companyLine } from "@/lib/v2";
+import { BlockError } from "@/components/compania/parts";
 import { Floor } from "./floor";
+import { Plate } from "./plate";
 import { Roof } from "./roof";
 import { EdificioSkeleton, Scene } from "./scene";
-import { BlockError } from "@/components/compania/parts";
 
 const firstLine = (s: string, n = 160) => {
   const one = (s.split("\n").find((l) => l.trim()) ?? "").replace(/[*_#`]/g, "").trim();
@@ -29,10 +32,14 @@ export type BuildingProps = {
   onNew: () => void;
   onOpen?: (project: string, m: OrgMember, el: HTMLElement) => void;
   onChip?: (d: Decision, onTeam: boolean) => void;
+  onFijar?: (p: OrgProject) => void;
+  onPlan?: (p: OrgProject, el: HTMLElement) => void;
+  onResume?: (slug: string) => void;
+  resuming?: string | null;
 };
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip }: BuildingProps) => {
-  const { floors } = floorOrder(company.projects, decisions);
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming }: BuildingProps) => {
+  const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
   const summary = company.asistente.last_run?.summary ? firstLine(company.asistente.last_run.summary) : "";
   const empty = company.projects.length === 0;
@@ -65,10 +72,53 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
             </button>
           </div>
         ) : (
-          floors.map((p) => <Floor key={p.slug} project={p} now={now} companyPaused={paused} onOpen={onOpen ? (m, el) => onOpen(p.slug, m, el) : undefined} />)
+          <>
+            {floors.map((p) => (
+              <Floor
+                key={p.slug}
+                project={p}
+                now={now}
+                companyPaused={paused}
+                onOpen={onOpen ? (m, el) => onOpen(p.slug, m, el) : undefined}
+                onFijar={onFijar}
+                onPlan={onPlan}
+              />
+            ))}
+            <div className="edi-lobby">
+              <button type="button" className="edi-door" onClick={onNew} data-control="piso-nuevo">
+                ＋ Abrir un piso nuevo
+              </button>
+              <span className="edi-muted">Un proyecto nuevo llega con su equipo: PO, Research, Artist y Taller.</span>
+            </div>
+          </>
         )}
       </div>
       <div className="edi-street" aria-hidden />
+      {basement.length > 0 && (
+        <div className="edi-under" data-basement={basement.length}>
+          <p className="edi-eyebrow">Bajo la calle · en pausa</p>
+          {basement.map((p) => (
+            <Floor
+              key={p.slug}
+              project={p}
+              now={now}
+              companyPaused={paused}
+              onOpen={onOpen ? (m, el) => onOpen(p.slug, m, el) : undefined}
+              plate={
+                <Plate project={p} onPlan={onPlan}>
+                  {onResume && (
+                    <div className="edi-links">
+                      <button type="button" className="edi-btn" disabled={resuming === p.slug} onClick={() => onResume(p.slug)} data-control="reanudar">
+                        {resuming === p.slug ? "…" : "Reanudar"}
+                      </button>
+                    </div>
+                  )}
+                </Plate>
+              }
+            />
+          ))}
+        </div>
+      )}
     </Scene>
   );
 };

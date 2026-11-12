@@ -18,8 +18,8 @@ const STATE: Record<OrgMemberState, WindowState> = {
   no_budget: "hold",
   paused: "off",
 };
-export const windowState = (m: Pick<OrgMember, "state">, companyPaused = false): WindowState =>
-  companyPaused && m.state !== "running" ? "off" : (STATE[m.state] ?? "idle");
+// The company switch puts every blind down: nothing starts and live runs are stopped.
+export const windowState = (m: Pick<OrgMember, "state">, companyPaused = false): WindowState => (companyPaused ? "off" : (STATE[m.state] ?? "idle"));
 
 // role → [name, verb]. Any other role gets its name and "trabaja".
 const VERB: Record<string, string> = {

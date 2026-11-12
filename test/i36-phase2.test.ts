@@ -153,7 +153,7 @@ test("I36-4 #2, #3 (UI): the placeholder shows Sin meta ni fecha and Fijar; the 
   assert.ok(out.includes("text-ink-now"), "amber");
   const { readFileSync } = await import("node:fs");
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("<GoalDialog") && page.includes('invalidateQueries({ queryKey: ["company"] })'));
+  assert.ok(page.includes("onFijar={setFijar}") && page.includes("<GoalDialog") && page.includes('invalidateQueries({ queryKey: ["company"] })'));
   const dialog = readFileSync(new URL("../ui/src/components/goals/goal-dialog.tsx", import.meta.url), "utf8");
   assert.ok(dialog.includes('type="date"'), "the dialog has the date field");
 });
