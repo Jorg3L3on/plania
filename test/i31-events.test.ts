@@ -472,3 +472,139 @@ test("PLA-15: several tickets freed at once: Jorge's pick first, then priority; 
   await land("LD-I1");
   assert.deepEqual((await wakes()).map((x) => x.task_key), ["LD-H3"]);
 });
+
+// ---- PLA-16: a run that failed holding its ticket is retried once; a second failure in a row goes to Jorge.
+
+const { sweepFailedRuns, failureWords } = await import("../src/runner/failed.js");
+const { resolveHumanAction } = await import("../src/mcp/blockers.js");
+const { writeTx, WEB_ACTOR } = await import("../src/mcp/tx.js");
+const MAX_TURNS = "fail: error_max_turns (41 turns, session 491bc14d)";
+
+// The ticket In progress, leased to the runner session of that run (run-<first 8 of its id>).
+async function leaseTo(key: string, runId: string, lease = "now() + interval '110 minutes'"): Promise<void> {
+  const owner = JSON.stringify({ agent: "plania-runner", session_id: `run-${runId.slice(0, 8)}`, machine: "test" });
+  await raw.query(`update tasks set status = 'In progress', owner = $2::jsonb, claimed_at = now() - interval '9 minutes', lease_until = ${lease} where key = $1`, [key, owner]);
+}
+// A Taller run on the ticket that ended (fail by default) and still holds its lease.
+async function endedRunHolding(key: string, status = "fail", summary = MAX_TURNS): Promise<string> {
+  const run = (
+    await raw.query(
+      `insert into agent_runs (agent_id, project_id, task_key, role, status, summary, queued_at, started_at, ended_at)
+       values ($1, $2, $3, 'taller', $4, $5, now() - interval '10 minutes', now() - interval '10 minutes', now() - interval '1 minute') returning id`,
+      [await id("agents", "taller"), await id("projects", "micasa"), key, status, summary],
+    )
+  ).rows[0].id as string;
+  await leaseTo(key, run);
+  return run;
+}
+const ticket = async (key: string) => (await raw.query(`select id, status, owner, lease_until, blocked_note from tasks where key = $1`, [key])).rows[0];
+const eventsOf = async (key: string, type: string) => (await raw.query(`select payload from events where task_key = $1 and type = $2 order by id`, [key, type])).rows.map((r) => r.payload);
+
+test("PLA-16 #1, #2: a failed run frees its ticket and the same agent is queued on it once; the second failure in a row goes to Jorge", async () => {
+  assert.equal(failureWords(MAX_TURNS), "error_max_turns (41 turns)");
+  await backlog("FR-A1");
+  await endedRunHolding("FR-A1");
+
+  // First failure: Ready, no lease, one Taller wake on the same ticket.
+  assert.deepEqual(await sweepFailedRuns(db), { retried: 1, held: 0 });
+  let t = await ticket("FR-A1");
+  assert.deepEqual([t.status, t.owner, t.lease_until], ["Ready", null, null]);
+  let w = await wakes();
+  assert.deepEqual(w.map((x) => [x.agent, x.task_key, x.status, x.summary]), [["taller", "FR-A1", "queued", "queued: event retry after a failed run"]]);
+  const released = await eventsOf("FR-A1", "claim.released");
+  assert.deepEqual([released[0].from, released[0].to, released[0].reason], ["In progress", "Ready", "run failed"]);
+  assert.match(released[0].owner.session_id, /^run-[0-9a-f]{8}$/);
+  assert.match((await eventsOf("FR-A1", "note"))[0].text, /terminó con error \(error_max_turns \(41 turns\)\).*lo reintenta una vez/);
+  const queuedLog = (await eventsOf("FR-A1", "wake.queued"))[0];
+  assert.deepEqual([queuedLog.agent, queuedLog.reason, queuedLog.from_event], ["taller", "retry after a failed run", "run.failed"]);
+  // Nothing left to sweep.
+  assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 0 });
+
+  // The retry fails too, holding the ticket again: no third run. The ticket is Blocked with a step for Jorge.
+  const retryRun = (await raw.query(`update agent_runs set status = 'fail', summary = $1, started_at = now(), ended_at = now() where status = 'queued' returning id`, [MAX_TURNS])).rows[0].id as string;
+  await leaseTo("FR-A1", retryRun);
+  assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 1 });
+  t = await ticket("FR-A1");
+  assert.deepEqual([t.status, t.owner, t.lease_until], ["Blocked", null, null]);
+  assert.match(t.blocked_note, /^Jorge: Taller falló dos veces seguidas en este paso \(error_max_turns \(41 turns\)\)/);
+  assert.deepEqual(await wakes(), []);
+  assert.equal((await eventsOf("FR-A1", "claim.released"))[1].reason, "run failed twice");
+  const steps = (await raw.query(`select id, spec, satisfied_at from blockers where task_id = $1 and type = 'human_action'`, [t.id])).rows;
+  assert.equal(steps.length, 1, "one step in Jorge's inbox");
+  assert.equal(steps[0].satisfied_at, null);
+  assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 0 });
+
+  // Jorge marks it done: Ready again, and the move wakes Taller. A third failure is the first of a new pair.
+  const p = { id: await id("projects", "micasa"), slug: "micasa" };
+  await writeTx(db, p, webCtx, (tx, emit) => resolveHumanAction(tx, emit, p.id, steps[0].id, WEB_ACTOR));
+  assert.equal((await ticket("FR-A1")).status, "Ready");
+  w = await wakes();
+  assert.deepEqual(w.map((x) => [x.agent, x.task_key, x.summary]), [["taller", "FR-A1", "queued: event ticket ready"]]);
+  const third = (await raw.query(`update agent_runs set status = 'fail', summary = $1, started_at = now(), ended_at = now() where status = 'queued' returning id`, [MAX_TURNS])).rows[0].id as string;
+  await leaseTo("FR-A1", third);
+  assert.deepEqual(await sweepFailedRuns(db), { retried: 1, held: 0 });
+});
+
+test("PLA-16: the retry waits for a busy agent and a closed switch; a stopped run, a run that ended ok and a person's lease are left alone", async () => {
+  // Taller is busy on another ticket: FR-B1 keeps its lease until Taller is free.
+  await backlog("FR-B1");
+  await endedRunHolding("FR-B1");
+  await raw.query(`insert into agent_runs (agent_id, project_id, task_key, role, status, summary) values ($1, $2, 'FR-OTHER', 'taller', 'queued', 'queued: event ticket ready')`, [
+    await id("agents", "taller"),
+    await id("projects", "micasa"),
+  ]);
+  assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 0 });
+  assert.equal((await ticket("FR-B1")).status, "In progress");
+  await raw.query(`delete from agent_runs where status = 'queued'`);
+
+  // A paused project, then a paused company.
+  await raw.query(`update projects set runs_paused = true where slug = 'micasa'`);
+  assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 0 });
+  await raw.query(`update projects set runs_paused = false where slug = 'micasa'`);
+  await raw.query(`update runner_settings set company_paused = true`);
+  assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 0 });
+  assert.equal((await ticket("FR-B1")).status, "In progress");
+  await raw.query(`update runner_settings set company_paused = false`);
+  assert.deepEqual(await sweepFailedRuns(db), { retried: 1, held: 0 });
+  assert.deepEqual((await wakes()).map((x) => x.task_key), ["FR-B1"]);
+  await raw.query(`delete from agent_runs`);
+
+  // Not failures, and not runner leases.
+  await backlog("FR-C1");
+  await endedRunHolding("FR-C1", "stopped", "stopped: project micasa paused (no result)");
+  await backlog("FR-C2");
+  await endedRunHolding("FR-C2", "ok", "ok: success, 12 turns, session 0a1b2c3d");
+  await backlog("FR-C3");
+  await raw.query(`update tasks set status = 'In progress', owner = '{"agent":"Claude Code","session_id":"cc-a-person"}'::jsonb, lease_until = now() + interval '20 minutes' where key = 'FR-C3'`);
+  assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 0 });
+  assert.deepEqual(await Promise.all(["FR-C1", "FR-C2", "FR-C3"].map(async (k) => (await ticket(k)).status)), ["In progress", "In progress", "In progress"]);
+  assert.deepEqual(await wakes(), []);
+});
+
+test("PLA-16: the heartbeat tick sweeps the failed run and starts its retry in the same tick", async () => {
+  await backlog("FR-D1");
+  await endedRunHolding("FR-D1");
+  const f = fakes();
+  const counts = await runHeartbeat(db, new Date(), { runner: f.deps as never });
+  assert.deepEqual([counts.retried_after_fail, counts.handed_to_jorge, counts.started_from_queue], [1, 0, 1]);
+  assert.equal(f.spawned.length, 1);
+  const running = await wakes();
+  assert.deepEqual(running.map((x) => [x.agent, x.task_key, x.status]), [["taller", "FR-D1", "running"]]);
+  f.spawned[0]!.finish();
+  await runner.waitForAllRuns();
+});
+
+test("PLA-16 #3: a runner run's lease that runs out wakes Taller on the ticket; a person's expired lease wakes nobody", async () => {
+  await backlog("FR-E1");
+  const run = await endedRunHolding("FR-E1", "ok", "ok: success, 12 turns, session 0a1b2c3d");
+  await leaseTo("FR-E1", run, "now() - interval '1 minute'");
+  await backlog("FR-E2");
+  await raw.query(`update tasks set status = 'In progress', owner = '{"agent":"Claude Code","session_id":"cc-a-person"}'::jsonb, lease_until = now() - interval '1 minute' where key = 'FR-E2'`);
+  // Any write in the project reaps both leases.
+  await backlog("FR-E3");
+  assert.deepEqual(await Promise.all(["FR-E1", "FR-E2"].map(async (k) => (await ticket(k)).status)), ["Ready", "Ready"]);
+  const w = await wakes();
+  assert.deepEqual(w.map((x) => [x.agent, x.task_key, x.summary]), [["taller", "FR-E1", "queued: event lease expired"]]);
+  assert.equal((await eventsOf("FR-E1", "wake.queued"))[0].from_event, "claim.expired");
+  assert.deepEqual(await eventsOf("FR-E2", "wake.queued"), []);
+});

@@ -2,6 +2,7 @@ import { and, desc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { ADAPTERS, agents, heartbeatRuns, projects, tasks, type AdapterConfig, type AdapterName } from "../db/schema.js";
 import { spawn, type SpawnDeps, type SpawnTask } from "../adapters/index.js";
+import { sweepFailedRuns } from "../runner/failed.js";
 import { cleanupWorktrees, drainQueue, enforceLive, wakeClaude, type RunnerDeps } from "../runner/runner.js";
 import { ToolError } from "../mcp/errors.js";
 import { iso } from "../mcp/tx.js";
@@ -285,10 +286,25 @@ export const listHeartbeatRuns = async (db: Db, filter: { agent?: string; limit?
 export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDeps): Promise<Record<string, number>> => {
   // PLA-I29: switches and budgets stop live runs first, then queued runs take free slots.
   const stopped = await enforceLive(db, now);
+  // PLA-16: a run that failed holding its ticket is retried once (queued here, started by the drain below),
+  // or its ticket is handed to Jorge after a second failure in a row.
+  const failed = await sweepFailedRuns(db);
   const drained = await drainQueue(db, now, deps?.runner);
   const cleaned = await cleanupWorktrees(db, deps?.runner);
   const roster = await db.select({ slug: agents.slug, minutes: agents.heartbeatMinutes }).from(agents);
-  const counts = { woken: 0, skipped: 0, failed: 0, held: 0, queued: 0, stopped, started_from_queue: drained.started, dropped_from_queue: drained.dropped, worktrees_removed: cleaned };
+  const counts = {
+    woken: 0,
+    skipped: 0,
+    failed: 0,
+    held: 0,
+    queued: 0,
+    stopped,
+    started_from_queue: drained.started,
+    dropped_from_queue: drained.dropped,
+    worktrees_removed: cleaned,
+    retried_after_fail: failed.retried,
+    handed_to_jorge: failed.held,
+  };
   for (const row of roster) {
     if (row.minutes == null) continue;
     const result = await wakeAgent(db, { agent: row.slug, now }, deps);
