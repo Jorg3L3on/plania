@@ -18,7 +18,7 @@ import { Dot, TONE_INK, eyebrow, pillGhost, pillPrimary } from "@/components/com
 const pillSmall = "min-h-9 px-3.5 text-xs";
 
 export type Steer = {
-  onAsk: (slug: string, input: { text: string; kind: OrderKind; now: boolean }) => Promise<AskResult>;
+  onAsk: (slug: string, input: { text: string; kind?: OrderKind; now: boolean }) => Promise<AskResult>;
   onPickNext: (slug: string, key: string) => void;
   onPause: (p: OrgProject) => void;
   onRun: (action: "stop" | "resume", runId: string) => void;

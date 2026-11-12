@@ -5,7 +5,7 @@
 // Data: GET /api/company (decisions[] included) and GET /api/threads/:id; POST /api/company/decisions/:id acts.
 // URL: ?doc=<id> a doc, ?nuevo the new project dialog; ?p=<slug> and ?vista=<slug> redirect to /p/<slug>,
 // ?equipo to Máquina.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { BlockError, StopBody } from "@/components/compania/parts";
@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { ThreadSkeleton } from "@/components/compania/org";
 import { AsistenteFolded, type DecisionBusy } from "@/components/compania/v2";
 import { Building, BuildingBlock } from "@/components/compania/edificio/building";
+import { AddPage, MemberHead, MemberSide, PlanPage, SidePage, memberTitle } from "@/components/compania/edificio/side";
 import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
 import { useThread } from "@/components/compania/use-thread";
 import { GoalDialog } from "@/components/goals/goal-dialog";
@@ -21,7 +22,8 @@ import type { Goal } from "@/components/goals/model";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ApiError, api, type Decision, type DecisionInput, type OrgProject } from "@/lib/api";
-import { ceoRedirect, sheetOf } from "@/lib/compania";
+import { ceoRedirect, sheetOf, sheetSearch } from "@/lib/compania";
+import { caption } from "@/lib/edificio";
 import { byLight, plumbingLine } from "@/lib/org";
 import { greeting } from "@/lib/greeting";
 
@@ -113,6 +115,28 @@ const Compania = () => {
   const projects = useMemo(() => [...(company?.projects ?? [])].sort(byLight), [company]);
   const openSheet = (search: string) => navigate({ pathname: "/ceo", search });
   const closeSheet = () => navigate({ pathname: "/ceo", search: "" }, { replace: true });
+  // PLA-I39-6: the side page. Its project and teammate come from the company read; plan and add read the project.
+  const sideProject = sheet && (sheet.kind === "member" || sheet.kind === "plan" || sheet.kind === "add") ? (company?.projects.find((p) => p.slug === sheet.slug) ?? null) : null;
+  const sideMember = sheet?.kind === "member" ? (sideProject?.team.find((m) => m.agent === sheet.agent) ?? null) : null;
+  const detail = useQuery({
+    queryKey: ["company-project", sideProject?.slug ?? ""],
+    queryFn: () => api.companyProject(sideProject!.slug),
+    enabled: !!sideProject && (sheet?.kind === "plan" || sheet?.kind === "add"),
+  });
+  const [added, setAdded] = useState<string | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  // The side page last open, so closing (which clears the address first) still knows what to focus.
+  const lastSide = useRef(sheet);
+  if (sheet && (sheet.kind === "member" || sheet.kind === "plan" || sheet.kind === "add")) lastSide.current = sheet;
+  const addMember = useMutation({
+    mutationFn: (v: { slug: string; template: string }) => api.addToTeam(v.slug, v.template),
+    onSuccess: (r, v) => {
+      setAdded(detail.data?.templates.find((t) => t.slug === v.template)?.title ?? r.role);
+      void client.invalidateQueries({ queryKey: ["company"] });
+      void client.invalidateQueries({ queryKey: ["company-project", v.slug] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? `No se pudo sumar (${e.code}).` : "No se pudo. Si la Mac está dormida, intenta al despertar."),
+  });
 
   // Te toca: the result is written in the row at once; the next read keeps it (acted rows stay 24 h).
   const [acted, setActed] = useState<Record<string, Decision>>({});
@@ -277,6 +301,19 @@ const Compania = () => {
             acts={{ now, busy, errors, opened: openDecision, onAct: (d, input, key) => act.mutate({ d, input, key }) }}
             roofOpen={roofOpen}
             onChip={(d) => setRoofOpen((x) => (x === d.id ? null : d.id))}
+            onOpen={(slug, m, el) => {
+              opener.current = el;
+              openSheet(sheetSearch({ kind: "member", slug, agent: m.agent }));
+            }}
+            onPlan={(p, el) => {
+              opener.current = el;
+              openSheet(sheetSearch({ kind: "plan", slug: p.slug }));
+            }}
+            onAdd={(slug, el) => {
+              opener.current = el;
+              setAdded(null);
+              openSheet(sheetSearch({ kind: "add", slug }));
+            }}
           />
         )}
       </BuildingBlock>
@@ -299,6 +336,38 @@ const Compania = () => {
           onToggle={asistente.onToggle}
         />
       ) : null}
+
+      {/* PLA-I39-6: the side page: a teammate, the plan, adding someone. */}
+      <SidePage
+        open={!!sideProject && (sheet?.kind !== "member" || !!sideMember)}
+        wide={wide}
+        title={sideMember && sideProject ? memberTitle(sideMember, sideProject) : sheet?.kind === "add" ? `Sumar a ${sideProject?.title ?? ""}` : (sideProject?.title ?? "")}
+        description={sideMember ? caption(sideMember, now, { companyPaused: company?.company.paused }).doing : sheet?.kind === "add" ? "Un puesto más en el equipo, con su ventana." : "El plan del proyecto"}
+        head={sideMember ? <MemberHead m={sideMember} companyPaused={company?.company.paused} /> : undefined}
+        onClose={closeSheet}
+        returnTo={() => {
+          // What opened it; after a reload, the window or the name it belongs to.
+          if (opener.current?.isConnected) return opener.current;
+          const last = lastSide.current;
+          if (last?.kind === "member") return document.querySelector<HTMLElement>(`button[data-agent="${CSS.escape(last.agent)}"]`);
+          if (last && "slug" in last) return document.querySelector<HTMLElement>(`[data-floor="${CSS.escape(last.slug)}"] [data-control="${last.kind === "add" ? "sumar" : "plan"}"]`);
+          return null;
+        }}
+      >
+        {sideProject && sideMember && <MemberSide key={sideMember.agent} project={sideProject} member={sideMember} now={now} steer={steer} />}
+        {sideProject && sheet?.kind === "plan" && (
+          <PlanPage project={sideProject} sheet={detail.data} loading={detail.isPending} error={detail.isError} onRetry={() => void detail.refetch()} now={now} steer={steer} onFijar={setFijar} />
+        )}
+        {sideProject && sheet?.kind === "add" && (
+          <AddPage
+            templates={detail.data?.templates}
+            loading={detail.isPending}
+            busy={addMember.isPending ? (addMember.variables?.template ?? null) : null}
+            added={added}
+            onAdd={(template) => addMember.mutate({ slug: sideProject.slug, template })}
+          />
+        )}
+      </SidePage>
 
       {/* A doc linked from a message or a role row */}
       <Sheet open={sheet?.kind === "doc"} onOpenChange={(open) => !open && closeSheet()}>

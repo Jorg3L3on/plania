@@ -534,6 +534,8 @@
   .edi-win[data-state="work"] .edi-do { color: #ffd591; }
   .edi-win[data-state="ask"] .edi-do, .edi-win[data-state="ghost"] .edi-do, .edi-win[data-state="hold"] .edi-do { color: var(--e-you-ink); }
   .edi-win[data-state="idle"] .edi-do, .edi-win[data-state="off"] .edi-do { font-weight: 500; color: var(--e-muted); }
+  .edi-tile { display: block; flex: none; background: #191d33; border-radius: 14px; padding: 8px 8px 6px; }
+  .edi-tile .edi-glass { width: 62px; height: 58px; }
   .edi-win.edi-add .edi-glass { background: none; box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.2); display: grid; place-items: center; font-size: 30px; font-weight: 300; color: var(--e-muted); }
 
   /* PLA-I39-5: the question someone holds out of their window. The app's .dark tokens apply inside. */

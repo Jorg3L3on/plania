@@ -97,10 +97,10 @@ test("I32-6 #1: GET /api/company has exactly the contract keys, a team of four p
   assert.equal(mia.light, "needs_jorge");
   const by = Object.fromEntries(mia.team.map((m: Json) => [m.agent, m]));
   assert.equal(by["taller-mianovia"].state, "running");
-  assert.deepEqual(keys(by["taller-mianovia"].now), ["since", "ticket", "title"]);
+  assert.deepEqual(keys(by["taller-mianovia"].now), ["run_id", "since", "ticket", "title"]);
   assert.equal(by["taller-mianovia"].now.ticket, "MIA-1");
   assert.deepEqual(by["research-mianovia"].last.status, "ok");
-  assert.deepEqual(keys(by["research-mianovia"].last), ["at", "status", "ticket", "title"]);
+  assert.deepEqual(keys(by["research-mianovia"].last), ["at", "run_id", "status", "ticket", "title"]);
   assert.deepEqual(by["research-mianovia"].produced, { kind: "doc", ref: "00000000-0000-4000-8000-000000000001", title: "Research" });
   assert.equal(by["po-mianovia"].state, "waiting_jorge");
   assert.equal(by["po-mianovia"].waiting, "¿Papel o digital?");

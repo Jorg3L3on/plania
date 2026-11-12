@@ -239,3 +239,14 @@ const EVENT_WORD: Record<OrgHistoryEvent["kind"], string> = {
 };
 export const eventText = (m: Mark) =>
   m.kind === "answered" || m.kind === "ordered" ? `${EVENT_WORD[m.kind]}: ${m.title}` : `${roleName(m.role)} ${EVENT_WORD[m.kind]}: ${m.title}`;
+
+// ---- the side page (PLA-I39-6)
+
+// "Dile algo": a note on the teammate's current ticket, or, with none, an order to the PO that names the role.
+export type Say = { kind: "note"; key: string; text: string } | { kind: "order"; text: string };
+export function sayTo(m: Pick<OrgMember, "role" | "now">, text: string): Say | null {
+  const t = text.trim();
+  if (t.length < 2) return null;
+  if (m.now?.ticket) return { kind: "note", key: m.now.ticket, text: t };
+  return { kind: "order", text: m.role === "product-owner" ? t : `Para ${roleName(m.role)}: ${t}` };
+}

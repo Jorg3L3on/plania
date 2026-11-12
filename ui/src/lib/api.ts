@@ -197,8 +197,8 @@ export type OrgMember = {
   template: string;
   state: OrgMemberState;
   // PLA-I39-1: title is the ticket's title (null when the run has no ticket). Optional so older fixtures render.
-  now: { ticket: string | null; title?: string | null; since: string } | null;
-  last: { ticket: string | null; title?: string | null; status: string; at: string } | null;
+  now: { ticket: string | null; title?: string | null; since: string; run_id?: string } | null;
+  last: { ticket: string | null; title?: string | null; status: string; at: string; run_id?: string } | null;
   produced: OrgProduced | null;
   waiting: string | null;
   // PLA-I39-1: up to three Ready tickets waiting for this teammate.

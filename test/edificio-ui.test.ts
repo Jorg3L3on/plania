@@ -189,11 +189,13 @@ test("I39-3 #6: with prefers-reduced-motion nothing in the scene animates", () =
 
 // ---- handlers without a DOM: expand hook-free components into their element tree and call the handler.
 type El = { type: unknown; props: Json };
+// Components that hold state are left as elements (their own handlers are tested where they live).
+const STATEFUL = new Set<unknown>();
 const expand = (node: unknown): unknown => {
   if (Array.isArray(node)) return node.map(expand);
   if (!node || typeof node !== "object" || !("type" in node)) return node;
   const el = node as El;
-  if (typeof el.type === "function") return expand((el.type as (p: Json) => unknown)(el.props));
+  if (typeof el.type === "function" && !STATEFUL.has(el.type)) return expand((el.type as (p: Json) => unknown)(el.props));
   return { ...el, props: { ...el.props, children: expand(el.props?.children) } };
 };
 const findAll = (node: unknown, pred: (el: El) => boolean, out: El[] = []): El[] => {
@@ -389,4 +391,133 @@ test("I39-5 #5: a release is a chip on the roof and not a bubble under a window"
   const roofPart = opened.slice(opened.indexOf("data-roof"), opened.indexOf("edi-tower"));
   assert.ok(roofPart.includes(`data-bubble="${release.id}"`) && roofPart.includes("Publicar en Bandeja"));
   assert.equal(opened.slice(opened.indexOf("edi-tower")).includes("data-bubble"), false);
+});
+
+// ---- PLA-I39-6
+
+const side = await load("components/compania/edificio/side.tsx");
+const timon = await load("components/compania/timon.tsx");
+const companiaLib = await load("lib/compania.ts");
+STATEFUL.add(timon.Detalles);
+const taller = member("taller", {
+  state: "running",
+  now: { ticket: "WRK-3", title: "Pantalla del carrito", since: "2026-11-10T17:20:00Z", run_id: "00000000-0000-4000-8000-0000000000r1" },
+  queue: [{ key: "WRK-5", title: "Guardar el carrito" }, { key: "WRK-6", title: "Pagar" }],
+  produced: { kind: "doc", ref: "00000000-0000-4000-8000-0000000000d1", title: "Notas del carrito" },
+  last: { ticket: "WRK-2", title: "Lista", status: "ok", at: "2026-11-10T15:00:00Z", run_id: "00000000-0000-4000-8000-0000000000r0" },
+});
+const steerSpy = () => {
+  const calls: Json[] = [];
+  const steer = {
+    onAsk: async (slug: string, input: Json) => (calls.push({ ask: slug, ...input }), { key: "WRK-9", title: "x", po: "po", wake: "off", woke: null }),
+    onPickNext: (slug: string, key: string) => calls.push({ next: slug, key }),
+    onPause: (p: Json) => calls.push({ pause: p.slug }),
+    onRun: (action: string, id: string) => calls.push({ run: action, id }),
+    onNote: (slug: string, key: string, text: string) => calls.push({ note: slug, key, text }),
+    onCancelOrder: (slug: string, key: string) => calls.push({ cancel: slug, key }),
+    onOptions: noop,
+    busy: null,
+  };
+  return { steer, calls };
+};
+const memberPage = (m: Json, extra: Json = {}) => h(side.MemberPage, { project: project({ team: [m] }), member: m, now: NOW, steer: steerSpy().steer, text: "", setText: noop, onSay: noop, ...extra });
+
+test("I39-6 #1: a window opens that teammate's page with what it is on, its queue and its last delivery; the address carries ?m=", () => {
+  const out = html(memberPage(taller));
+  assert.ok(out.includes("Pantalla del carrito") && out.includes("desde hace 40 min"));
+  assert.ok(out.includes('data-queue="2"') && out.includes("Guardar el carrito") && out.includes("Pagar"));
+  assert.ok(out.includes("Notas del carrito") && out.includes("data-produced"));
+  clean(out);
+  // The address: ?m=<slug>:<agent>, and reading it back opens the same page (a reload reopens it).
+  const search = companiaLib.sheetSearch({ kind: "member", slug: "workia", agent: "taller-workia" });
+  assert.equal(search, "?m=workia:taller-workia");
+  assert.deepEqual(companiaLib.sheetOf(search), { kind: "member", slug: "workia", agent: "taller-workia" });
+  assert.deepEqual(companiaLib.sheetOf("?plan=workia"), { kind: "plan", slug: "workia" });
+  assert.deepEqual(companiaLib.sheetOf("?add=workia"), { kind: "add", slug: "workia" });
+  assert.deepEqual(companiaLib.sheetOf("?doc=d-1"), { kind: "doc", id: "d-1" });
+  assert.deepEqual(companiaLib.sheetOf("?nuevo"), { kind: "nuevo" });
+  // A window click goes there.
+  const opened: string[] = [];
+  const [win0] = findAll(tree(company({ projects: [project({ team: [taller] })] }), { onOpen: (slug: string, m: Json) => opened.push(companiaLib.sheetSearch({ kind: "member", slug, agent: m.agent })) }), (el) => el.props?.["data-agent"] === "taller-workia");
+  win0!.props.onClick({ currentTarget: {} });
+  assert.deepEqual(opened, ["?m=workia:taller-workia"]);
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes('sheetSearch({ kind: "member", slug, agent: m.agent })') && page.includes("sheetOf(location.search)"));
+});
+
+test("I39-6 #2: Dile algo notes the teammate's current ticket, or sends an order to the PO naming the role", () => {
+  assert.deepEqual(lib.sayTo(taller, "  usa el verde  "), { kind: "note", key: "WRK-3", text: "usa el verde" });
+  assert.deepEqual(lib.sayTo(member("artist"), "otro boceto"), { kind: "order", text: "Para Artist: otro boceto" });
+  assert.deepEqual(lib.sayTo(member("product-owner"), "prioriza pagos"), { kind: "order", text: "prioriza pagos" });
+  assert.equal(lib.sayTo(taller, " a "), null);
+  const said: Json[] = [];
+  const view = expand(memberPage(taller, { text: "usa el verde", onSay: (x: Json) => said.push(x) }));
+  const [form] = findAll(view, (el) => el.type === "form" && "data-say" in el.props);
+  form!.props.onSubmit({ preventDefault: noop });
+  assert.deepEqual(said, [{ kind: "note", key: "WRK-3", text: "usa el verde" }]);
+});
+
+test("I39-6 #3: Detener shows only for a live run and calls the stop route", () => {
+  const { steer, calls } = steerSpy();
+  const view = expand(memberPage(taller, { steer }));
+  const [stop] = control(view, "detener");
+  stop!.props.onClick();
+  assert.deepEqual(calls, [{ run: "stop", id: "00000000-0000-4000-8000-0000000000r1" }]);
+  assert.equal(html(memberPage(member("taller", { last: taller.last }))).includes('data-control="detener"'), false);
+  const stopped = member("taller", { last: { ...taller.last, status: "stopped" } });
+  const again = steerSpy();
+  control(expand(memberPage(stopped, { steer: again.steer })), "reanudar-corrida")[0]!.props.onClick();
+  assert.deepEqual(again.calls, [{ run: "resume", id: "00000000-0000-4000-8000-0000000000r0" }]);
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes('action === "stop" ? api.stopRun(id) : api.resumeRun(id)'));
+});
+
+test("I39-6 #4: the plan page lists in progress, next and blocked, and your orders; Hacer primero and Quitar call their routes", () => {
+  const sheet = {
+    slug: "workia",
+    title: "Workia",
+    goal: null,
+    pipeline: [],
+    in_progress: [{ key: "WRK-3", title: "Pantalla del carrito", status: "In progress", owner: "Taller Workia" }],
+    blocked: [{ key: "WRK-8", title: "Pagos con tarjeta", status: "Blocked", why: "falta la cuenta" }],
+    next: [{ key: "WRK-5", title: "Guardar el carrito", priority: "P1", yours: false }],
+    runs: [],
+    bot_work: 1,
+  };
+  const orders = [{ id: "o-1", kind: "order", key: "WRK-9", title: "Una portada de otoño", text: null, at: "2026-11-10T12:00:00Z", state: "enviada", stage: "enviada", understood: null, who: null, link: null, age_h: 2, plan: null, run: null }];
+  const p = project({ orders });
+  const { steer, calls } = steerSpy();
+  const el = h(side.PlanPage, { project: p, sheet, now: NOW, steer, onFijar: noop });
+  const out = html(el);
+  for (const t of ["Pantalla del carrito", "Guardar el carrito", "Pagos con tarjeta", "falta la cuenta", "Una portada de otoño"]) assert.ok(out.includes(t), t);
+  assert.ok(out.includes('data-section="en-curso"') && out.includes('data-section="sigue"') && out.includes('data-section="bloqueado"') && out.includes('data-section="pedidos"'));
+  const view = expand(el);
+  control(view, "hacer-primero")[0]!.props.onClick();
+  control(view, "quitar")[0]!.props.onClick();
+  control(view, "pausar")[0]!.props.onClick();
+  assert.deepEqual(calls, [{ next: "workia", key: "WRK-9" }, { cancel: "workia", key: "WRK-9" }, { pause: "workia" }]);
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes("api.pickNext(slug, key)") && page.includes("api.cancelOrder(slug, key)"));
+  // The project's name opens the plan.
+  const plans: string[] = [];
+  control(tree(company(), { onPlan: (x: Json) => plans.push(x.slug) }), "plan")[0]!.props.onClick({ currentTarget: {} });
+  assert.deepEqual(plans, ["workia"]);
+});
+
+test("I39-6 #5: adding someone lists only the templates not on the team; the new window shows after the next read", () => {
+  const added: string[] = [];
+  const el = h(side.AddPage, { templates: [{ slug: "qa", title: "QA" }, { slug: "copy", title: "Copy" }], onAdd: (t: string) => added.push(t) });
+  const out = html(el);
+  assert.ok(out.includes('data-templates="2"') && out.includes("QA") && out.includes("Copy"));
+  findAll(expand(el), (x) => x.props?.["data-add"] === "qa")[0]!.props.onClick();
+  assert.deepEqual(added, ["qa"]);
+  assert.ok(html(h(side.AddPage, { templates: [], onAdd: noop })).includes('data-empty="templates"'));
+  // The "+" window opens it; after the next read the new teammate has its window.
+  const opened: string[] = [];
+  control(tree(company(), { onAdd: (slug: string) => opened.push(slug) }), "sumar")[0]!.props.onClick();
+  assert.deepEqual(opened, ["workia"]);
+  const after = render(company({ projects: [project({ team: [...project().team, member("qa")] })] }), { onAdd: noop });
+  assert.ok(after.includes('data-agent="qa-workia"') && after.includes('data-prop="magnifier"'));
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes("api.addToTeam(v.slug, v.template)") && page.includes('invalidateQueries({ queryKey: ["company"] })'));
 });

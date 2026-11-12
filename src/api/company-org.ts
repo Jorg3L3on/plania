@@ -35,8 +35,9 @@ export type TeamMember = {
   template: string | null;
   state: MemberState;
   // PLA-I39-1: title is the ticket's title, null when the run has no ticket (the key stays in ticket).
-  now: { ticket: string | null; title: string | null; since: string } | null;
-  last: { ticket: string | null; title: string | null; status: string; at: string } | null;
+  // PLA-I39-6: run_id, for Detener (a live run) and Reanudar (a stopped one) from the side page.
+  now: { ticket: string | null; title: string | null; since: string; run_id: string } | null;
+  last: { ticket: string | null; title: string | null; status: string; at: string; run_id: string } | null;
   // PLA-I39-1: up to three Ready tickets waiting for this teammate (by owner, else code to Taller, the rest to the PO).
   queue: QueueItem[];
   produced: { kind: "doc" | "pr" | "idea" | "plan"; ref: string; title: string } | null;
@@ -108,12 +109,12 @@ async function openQuestionsByAgent(db: Db, projectId?: string): Promise<Map<str
 
 async function lastRunOf(db: Db, agentId: string) {
   const [running] = await db
-    .select({ taskKey: agentRuns.taskKey, startedAt: agentRuns.startedAt })
+    .select({ id: agentRuns.id, taskKey: agentRuns.taskKey, startedAt: agentRuns.startedAt })
     .from(agentRuns)
     .where(and(eq(agentRuns.agentId, agentId), eq(agentRuns.status, "running")))
     .limit(1);
   const [ended] = await db
-    .select({ taskKey: agentRuns.taskKey, status: agentRuns.status, endedAt: agentRuns.endedAt, summary: agentRuns.summary })
+    .select({ id: agentRuns.id, taskKey: agentRuns.taskKey, status: agentRuns.status, endedAt: agentRuns.endedAt, summary: agentRuns.summary })
     .from(agentRuns)
     .where(and(eq(agentRuns.agentId, agentId), sql`${agentRuns.endedAt} is not null`))
     .orderBy(desc(agentRuns.endedAt))
@@ -153,8 +154,8 @@ async function memberView(db: Db, a: Agent, ctx: { paused: boolean; noBudget: bo
     role: roleOf(a) ?? a.role,
     template: a.roleTemplate ?? null,
     state,
-    now: running ? { ticket: running.taskKey, title: await ticketTitle(db, a.projectId, running.taskKey), since: (running.startedAt ?? new Date()).toISOString() } : null,
-    last: ended ? { ticket: ended.taskKey, title: await ticketTitle(db, a.projectId, ended.taskKey), status: ended.status, at: ended.endedAt!.toISOString() } : null,
+    now: running ? { ticket: running.taskKey, title: await ticketTitle(db, a.projectId, running.taskKey), since: (running.startedAt ?? new Date()).toISOString(), run_id: running.id } : null,
+    last: ended ? { ticket: ended.taskKey, title: await ticketTitle(db, a.projectId, ended.taskKey), status: ended.status, at: ended.endedAt!.toISOString(), run_id: ended.id } : null,
     queue: [],
     produced: await producedBy(db, ctx.threadId, a.slug),
     waiting,
