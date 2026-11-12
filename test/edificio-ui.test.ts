@@ -759,3 +759,12 @@ test("I39-9 #3: caption, plate and question text on the night panel reach 4.5:1"
   const worst = Math.min(...pairs.map(([, a, b]) => contrast(a, b)));
   console.log(`edificio contrast: worst ${worst.toFixed(2)}:1 over ${pairs.length} pairs`);
 });
+
+test("I39-9 live: the sky quotes Asistente only from a run that finished ok; the button keeps clear of the clock on a phone", () => {
+  const skipped = render(company({ asistente: { ...company().asistente, last_run: { status: "skipped", at: "2026-11-10T17:00:00Z", summary: "skipped: BUDGET/STOPPED asistente at 177%" } } }));
+  assert.equal(skipped.includes("BUDGET") || skipped.includes("data-asistente-line"), false);
+  assert.ok(render(company()).includes("Resumen: Workia avanza."));
+  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
+  // The clock is 76 px tall on a phone; the button sits 88 px above its bottom edge, so 12 px apart.
+  assert.ok(css.includes(".edi-fab { bottom: calc(4.5rem + 8px + 88px + env(safe-area-inset-bottom, 0px)); }"));
+});
