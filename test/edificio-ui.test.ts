@@ -514,7 +514,7 @@ test("I39-6 #5: adding someone lists only the templates not on the team; the new
   assert.ok(html(h(side.AddPage, { templates: [], onAdd: noop })).includes('data-empty="templates"'));
   // The "+" window opens it; after the next read the new teammate has its window.
   const opened: string[] = [];
-  control(tree(company(), { onAdd: (slug: string) => opened.push(slug) }), "sumar")[0]!.props.onClick();
+  control(tree(company(), { onAdd: (slug: string) => opened.push(slug) }), "sumar")[0]!.props.onClick({ currentTarget: {} });
   assert.deepEqual(opened, ["workia"]);
   const after = render(company({ projects: [project({ team: [...project().team, member("qa")] })] }), { onAdd: noop });
   assert.ok(after.includes('data-agent="qa-workia"') && after.includes('data-prop="magnifier"'));
