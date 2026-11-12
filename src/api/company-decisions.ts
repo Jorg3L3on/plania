@@ -28,6 +28,7 @@ import { writeTx } from "../mcp/tx.js";
 import { ToolError } from "../mcp/errors.js";
 import type { ReleasePlan } from "../mcp/release-plan.js";
 import { setCheck } from "../mcp/checks.js";
+import { headFor, resultShape } from "../mcp/evidence.js";
 import { answer } from "../mcp/questions.js";
 import { webCtx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
@@ -52,7 +53,8 @@ export type DecisionPlan = { order: string; understood: string; steps: { title: 
 export type DecisionEvidence = { verdict: string; kind: string; cite: string; pass: number | null; fail: number | null; at: string };
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
-export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | null };
+// PLA-14: ci none is a repo with no CI at all (no check run, no status on the head); it never reads as running.
+export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 // PLA-I39-1: who asked, so the screen hangs the decision under that teammate's window. Null: nobody on a team.
 export type DecisionAsker = { agent: string; role: string };
 export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number };
@@ -160,7 +162,7 @@ const NO_EVIDENCE = {
 };
 const linksOf = (links: ThreadLink[]): DecisionLink[] =>
   links.filter((l): l is ThreadLink & { kind: DecisionLink["kind"] } => l.kind !== "question").map((l) => ({ kind: l.kind, ref: l.ref, title: l.title }));
-const CI = new Set(["pending", "success", "failure"]);
+const CI = new Set(["pending", "success", "failure", "none"]);
 
 // A ticket's open checks and its PR's CI (the PR by url, else the newest PR on the ticket).
 async function evidenceOf(db: Db, t: Task | null, prUrl: string | null): Promise<DecisionChecks | null> {
@@ -181,6 +183,17 @@ async function evidenceOf(db: Db, t: Task | null, prUrl: string | null): Promise
   return { open, ci };
 }
 
+// PLA-14: with no CI on the repo, Aceptar needs the ticket's own pass on the PR's current head (not stale_for_head).
+async function passOnHead(db: Db, t: Task | null, head: string | null, branch: string | null): Promise<boolean> {
+  if (!t) return false;
+  const passes = await db.select().from(results).where(and(eq(results.taskId, t.id), eq(results.verdict, "pass"))).orderBy(desc(results.createdAt));
+  for (const r of passes) {
+    const at = head ?? (await headFor(db, t, r.branch ?? branch ?? t.branch ?? null));
+    if (resultShape(r, at).stale_for_head !== true) return true;
+  }
+  return false;
+}
+
 // PLA-I36-10: what a finished piece of work shows before Aceptar: its checks and CI, the latest result (pass and
 // fail counts), how many files the PR changes, the project's preview, and why accepting is held (null: it is not).
 async function workEvidence(db: Db, p: Project | null, t: Task | null, prUrl: string | null) {
@@ -191,7 +204,7 @@ async function workEvidence(db: Db, p: Project | null, t: Task | null, prUrl: st
     if (r) evidence = { verdict: r.verdict, kind: r.kind, cite: cut(clean(r.cite), 200), pass: r.counts?.pass ?? null, fail: r.counts?.fail ?? null, at: r.createdAt.toISOString() };
   }
   const url = prUrl ?? t?.prUrl ?? null;
-  const [pr] = url || t ? await db.select({ files: pullRequests.changedFiles }).from(pullRequests).where(url ? eq(pullRequests.url, url) : eq(pullRequests.taskId, t!.id)).orderBy(desc(pullRequests.updatedAt)).limit(1) : [];
+  const [pr] = url || t ? await db.select({ files: pullRequests.changedFiles, head: pullRequests.headSha, branch: pullRequests.headBranch }).from(pullRequests).where(url ? eq(pullRequests.url, url) : eq(pullRequests.taskId, t!.id)).orderBy(desc(pullRequests.updatedAt)).limit(1) : [];
   const hold =
     checks?.ci === "failure"
       ? "Las pruebas fallan."
@@ -201,7 +214,9 @@ async function workEvidence(db: Db, p: Project | null, t: Task | null, prUrl: st
           ? "La última prueba falló."
           : checks?.ci === "pending"
             ? "Las pruebas siguen corriendo."
-            : null;
+            : checks?.ci === "none" && !(await passOnHead(db, t, pr?.head ?? null, pr?.branch ?? null))
+              ? "Este repo no tiene CI y falta una prueba que pase en el último commit."
+              : null;
   return { checks, release: null, combinable: [] as number[][], recommended_reason: null, plan: null, evidence, files: pr?.files ?? null, preview_url: p?.settings.preview_url ?? null, hold };
 }
 

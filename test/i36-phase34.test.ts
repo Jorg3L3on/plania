@@ -327,6 +327,56 @@ test("I36-10 #1-#4: a delivery shows pass and fail counts, files and the preview
   assert.match(note.text, /la galería se corta en el teléfono/);
 });
 
+// ---- PLA-14
+
+test("PLA-14 #2, #3: a repo with no CI says so and Aceptar opens with a pass on the head; real CI pending or red still holds", async () => {
+  const t = (await writes.createTask(db, { project: "workia", title: "Sin CI", scope: "s", checks: ["c1"], owner_agent: po } as never, PO())) as Json;
+  const url = "https://github.com/x/workia/pull/32";
+  const OLD = "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const HEAD = "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  await raw.query(`update tasks set status = 'In review', pr_url = $2 where key = $1`, [t.key, url]);
+  await raw.query(`update checks set done = true where task_id = (select id from tasks where key = $1)`, [t.key]);
+  await raw.query(
+    `insert into pull_requests (project_id, repo, number, url, title, task_id, state, ci_state, head_sha, head_branch, changed_files) select project_id, 'x/workia', 32, $2, 'pr', id, 'open', 'none', $3, 'jl/sin-ci', 3 from tasks where key = $1`,
+    [t.key, url, HEAD],
+  );
+  const pass = (commit: string) =>
+    raw.query(`insert into results (task_id, kind, verdict, cite, counts, commit, branch, actor) select id, 'test', 'pass', 'pnpm test', '{"pass": 56, "fail": 0}'::jsonb, $2, 'jl/sin-ci', '{"agent":"taller"}'::jsonb from tasks where key = $1`, [t.key, commit]);
+  await pass(OLD);
+  const thread = (await raw.query(`select id from threads where kind = 'project' and project_id = (select id from projects where slug = 'workia')`)).rows[0].id;
+  await raw.query(`insert into thread_messages (thread_id, author_agent, author_role, body, links, at) values ($1, 'taller', 'taller', 'Listo para revisar.', $2::jsonb, now() + interval '10 minutes')`, [
+    thread,
+    JSON.stringify([
+      { kind: "ticket", ref: t.key, title: "Sin CI" },
+      { kind: "pr", ref: url, title: "PR" },
+    ]),
+  ]);
+  const find = async () => (await company()).decisions.find((d: Json) => d.ref === t.key && (d.kind === "pr" || d.kind === "deliverable"));
+  const button = (h: string) => /<button[^>]*data-action="(?:fusionar|aceptar)"[^>]*>/.exec(h)![0];
+  // A pass on an older commit is stale for the head: still held, and the reason names the missing CI.
+  let d = await find();
+  assert.deepEqual(d.checks, { open: 0, ci: "none" });
+  assert.match(d.hold, /no tiene CI/);
+  let html = renderTeToca([d]);
+  assert.ok(html.includes("repo sin CI") && !html.includes("pruebas corriendo") && !html.includes("siguen corriendo"));
+  assert.ok(button(html).includes(' disabled=""'));
+  // A pass on the current head opens Aceptar.
+  await pass(HEAD);
+  d = await find();
+  assert.equal(d.hold, null);
+  html = renderTeToca([d]);
+  assert.equal(button(html).includes(' disabled=""'), false, "Aceptar enabled with a fresh pass and no CI");
+  // Real CI keeps today's behaviour, even with that fresh pass.
+  await raw.query(`update pull_requests set ci_state = 'pending' where url = $1`, [url]);
+  d = await find();
+  assert.equal(d.hold, "Las pruebas siguen corriendo.");
+  assert.ok(button(renderTeToca([d])).includes(' disabled=""'));
+  await raw.query(`update pull_requests set ci_state = 'failure' where url = $1`, [url]);
+  d = await find();
+  assert.equal(d.hold, "Las pruebas fallan.");
+  assert.ok(button(renderTeToca([d])).includes(' disabled=""'));
+});
+
 // ---- PLA-I36-11
 
 test("I36-11 #2: publishing to main without a valid code is refused by the server", async () => {
