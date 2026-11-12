@@ -44,9 +44,12 @@ export type BuildingProps = {
   roofOpen?: string | null;
   // PLA-I39-6: the "+" window opens adding someone.
   onAdd?: (slug: string, el: HTMLElement) => void;
+  // PLA-I39-7: the ask box of a floor, and which floors the owner is typing in.
+  askFor?: (p: OrgProject) => ReactNode;
+  typing?: Record<string, boolean>;
 };
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd }: BuildingProps) => {
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
   const summary = company.asistente.last_run?.summary ? firstLine(company.asistente.last_run.summary) : "";
@@ -92,6 +95,8 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
                 onPlan={onPlan}
                 decisions={decisions}
                 acts={acts}
+                ask={askFor?.(p)}
+                typing={!!typing?.[p.slug]}
               >
                 {onAdd && p.team.length < 8 ? (
                   <button type="button" className="edi-win edi-add" onClick={(e) => onAdd(p.slug, e.currentTarget)} data-control="sumar" aria-label={`Sumar a alguien al equipo de ${p.title}`}>

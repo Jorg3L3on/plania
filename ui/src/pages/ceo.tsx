@@ -11,8 +11,10 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { BlockError, StopBody } from "@/components/compania/parts";
 import type { Steer } from "@/components/compania/timon";
 import { toast } from "sonner";
-import { ThreadSkeleton } from "@/components/compania/org";
-import { AsistenteFolded, type DecisionBusy } from "@/components/compania/v2";
+import { ThreadPanel } from "@/components/compania/org";
+import type { DecisionBusy } from "@/components/compania/v2";
+import { AskBox } from "@/components/compania/edificio/ask";
+import { AsistenteFab } from "@/components/compania/edificio/asistente";
 import { Building, BuildingBlock } from "@/components/compania/edificio/building";
 import { AddPage, MemberHead, MemberSide, PlanPage, SidePage, memberTitle } from "@/components/compania/edificio/side";
 import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
@@ -124,6 +126,8 @@ const Compania = () => {
     enabled: !!sideProject && (sheet?.kind === "plan" || sheet?.kind === "add"),
   });
   const [added, setAdded] = useState<string | null>(null);
+  // PLA-I39-7: floors whose ask box has text: their PO's window says "Recibiría tu pedido".
+  const [typing, setTyping] = useState<Record<string, boolean>>({});
   const opener = useRef<HTMLElement | null>(null);
   // The side page last open, so closing (which clears the address first) still knows what to focus.
   const lastSide = useRef(sheet);
@@ -309,6 +313,17 @@ const Compania = () => {
               opener.current = el;
               openSheet(sheetSearch({ kind: "plan", slug: p.slug }));
             }}
+            askFor={(p) => (
+              <AskBox
+                key={p.slug}
+                project={p}
+                prefill={prefill[p.slug]}
+                disabled={company.company.paused}
+                onAsk={(slug, input) => steer.onAsk(slug, { text: input.text, now: input.now })}
+                onTyping={(slug, on) => setTyping((t) => (!!t[slug] === on ? t : { ...t, [slug]: on }))}
+              />
+            )}
+            typing={typing}
             onAdd={(slug, el) => {
               opener.current = el;
               setAdded(null);
@@ -318,24 +333,50 @@ const Compania = () => {
         )}
       </BuildingBlock>
 
-      {/* Until PLA-I39-7: Asistente folded under the building. */}
-      {comp.isPending ? (
-        <ThreadSkeleton />
-      ) : company ? (
-        <AsistenteFolded
+      {/* PLA-I39-7: Asistente floats; room so it never covers the last floor's controls. */}
+      {company && (
+        <>
+          <div className="edi-fab-room" aria-hidden />
+          <AsistenteFab
+            unread={company.asistente.unread ?? 0}
+            waiting={company.asistente.state === "waiting_jorge"}
+            onOpen={(el) => {
+              opener.current = el;
+              openSheet(sheetSearch({ kind: "asistente" }));
+            }}
+          />
+        </>
+      )}
+      <SidePage
+        open={sheet?.kind === "asistente" && !!company}
+        wide={wide}
+        title="Asistente"
+        description="Tu canal con la compañía. Pregunta o pide; va al PO correcto."
+        onClose={closeSheet}
+        returnTo={() => (opener.current?.isConnected ? opener.current : document.querySelector<HTMLElement>('[data-control="asistente"]'))}
+      >
+        <ThreadPanel
+          title="Asistente"
           thread={asistente.thread}
           loading={asistente.loading}
           error={asistente.error}
           onRetry={asistente.onRetry}
-          projects={projects}
+          project={null}
           now={now}
           timeZone={timeZone}
+          placeholder="Dile a Asistente…"
           send={asistente.send}
           onSend={asistente.onSend}
-          expanded={asistente.expanded}
+          busy={asistente.busy}
+          actionError={asistente.actionError}
+          onAction={asistente.onAction}
+          expanded
           onToggle={asistente.onToggle}
+          shown={asistente.shown}
+          onMore={asistente.onMore}
+          className="ring-0 p-0"
         />
-      ) : null}
+      </SidePage>
 
       {/* PLA-I39-6: the side page: a teammate, the plan, adding someone. */}
       <SidePage

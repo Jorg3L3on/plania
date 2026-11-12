@@ -6,7 +6,7 @@
 //   floorOrder   the floors: those that need the owner first, then by light; paused ones go to the basement.
 //   skyAt        the sky's colours for an hour; floorHue one of six fixed hues from the slug.
 //   The clock (PLA-I39-8): litAt, marksOf, stepEvent.
-import type { Decision, OrgHistory, OrgHistoryEvent, OrgMember, OrgMemberState, OrgProject } from "./api";
+import type { AskResult, Decision, OrgHistory, OrgHistoryEvent, OrgMember, OrgMemberState, OrgProject } from "./api";
 import { byLight, roleName } from "./org";
 import { pending } from "./v2";
 
@@ -250,3 +250,14 @@ export function sayTo(m: Pick<OrgMember, "role" | "now">, text: string): Say | n
   if (m.now?.ticket) return { kind: "note", key: m.now.ticket, text: t };
   return { kind: "order", text: m.role === "product-owner" ? t : `Para ${roleName(m.role)}: ${t}` };
 }
+
+// ---- asking from the floor (PLA-I39-7)
+
+// Where the order landed, in plain words: the PO of that project, and whether it woke.
+export function askedLine(r: AskResult, project?: string): string {
+  const who = project ? `el PO de ${project}` : "el PO";
+  if (r.woke?.woke) return `Le llegó a ${who} y ya está en ello.`;
+  if (r.woke) return `Le llegó a ${who}; ${r.woke.reason === "busy" ? "termina lo que corre y sigue con esto" : r.woke.reason === "queued" ? "arranca en cuanto haya lugar" : "lo toma en su turno"}.`;
+  return r.wake === "busy" ? `Le llegó a ${who}; lo toma al terminar lo que corre.` : r.wake === "queued" ? `Le llegó a ${who}; lo toma en su turno.` : `Le llegó a ${who}; lo ve en su próximo turno.`;
+}
+export const RECIBIRIA = "Recibiría tu pedido";

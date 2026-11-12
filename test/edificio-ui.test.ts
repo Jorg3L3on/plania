@@ -521,3 +521,69 @@ test("I39-6 #5: adding someone lists only the templates not on the team; the new
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
   assert.ok(page.includes("api.addToTeam(v.slug, v.template)") && page.includes('invalidateQueries({ queryKey: ["company"] })'));
 });
+
+// ---- PLA-I39-7
+
+const ask = await load("components/compania/edificio/ask.tsx");
+const fab = await load("components/compania/edificio/asistente.tsx");
+const askView = (patch: Json = {}) => h(ask.AskView, { project: project(), text: "", setText: noop, now: false, setNow: noop, onSubmit: noop, ...patch });
+
+test("I39-7 #1: a floor has one box and one send button; sending posts the text, with Que empiece ya also now: true; the plate confirms", () => {
+  const out = render(company(), { askFor: (p: Json) => h(ask.AskView, { project: p, text: "", setText: noop, now: false, setNow: noop, onSubmit: noop }) });
+  const floor = out.slice(out.indexOf('data-floor="workia"'));
+  assert.equal((floor.match(/<input[^>]*type="text"/g) ?? []).length, 1);
+  assert.equal((floor.match(/data-control="pedir"/g) ?? []).length, 1);
+  assert.ok(floor.includes("Pide algo para Workia") && floor.includes("Que empiece ya"));
+  assert.equal(/data-kind="(cambio|direccion|idea)"/.test(floor), false, "no kind picker");
+  const sent: Json[] = [];
+  const view = expand(askView({ text: "  un botón de WhatsApp  ", now: true, onSubmit: (i: Json) => sent.push(i) }));
+  findAll(view, (el) => el.type === "form")[0]!.props.onSubmit({ preventDefault: noop });
+  assert.deepEqual(sent, [{ text: "un botón de WhatsApp", now: true }]);
+  const later: Json[] = [];
+  findAll(expand(askView({ text: "otra cosa", onSubmit: (i: Json) => later.push(i) })), (el) => el.type === "form")[0]!.props.onSubmit({ preventDefault: noop });
+  assert.deepEqual(later, [{ text: "otra cosa", now: false }]);
+  // Too short: nothing is sent.
+  const none: Json[] = [];
+  findAll(expand(askView({ text: "ok", onSubmit: (i: Json) => none.push(i) })), (el) => el.type === "form")[0]!.props.onSubmit({ preventDefault: noop });
+  assert.deepEqual(none, []);
+  // The plate says where it landed, in plain words.
+  assert.equal(lib.askedLine({ key: "WRK-9", title: "x", po: "po-workia", wake: "queued", woke: { woke: true, reason: "started", ticket: "WRK-9", summary: "" } }, "Workia"), "Le llegó a el PO de Workia y ya está en ello.");
+  assert.equal(lib.askedLine({ key: "WRK-9", title: "x", po: "po-workia", wake: "queued", woke: null }, "Workia"), "Le llegó a el PO de Workia; lo toma en su turno.");
+  const confirmed = html(askView({ sent: "Le llegó a el PO de Workia; lo toma en su turno." }));
+  assert.ok(confirmed.includes("data-sent") && confirmed.includes("lo toma en su turno"));
+  clean(confirmed);
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes("steer.onAsk(slug, { text: input.text, now: input.now })") && page.includes("api.askProject(slug, input)"));
+});
+
+test("I39-7 #2: while the box has text the PO's window says Recibiría tu pedido; clearing it removes the line", () => {
+  const typing = render(company(), { typing: { workia: true } });
+  assert.match(typing, /data-state="ghost" data-agent="product-owner-workia"/);
+  assert.ok(typing.includes("Recibiría tu pedido"));
+  const cleared = render(company(), { typing: { workia: false } });
+  assert.equal(cleared.includes("Recibiría tu pedido"), false);
+  assert.equal(cleared.includes('data-state="ghost"'), false);
+  // The box reports typing on every change.
+  const box = readFileSync(new URL("../ui/src/components/compania/edificio/ask.tsx", import.meta.url), "utf8");
+  assert.ok(box.includes("onTyping?.(project.slug, v.trim().length > 0)"));
+});
+
+test("I39-7 #3: the floating button shows the unread count and a dot when Asistente waits; it opens the thread in the side page", () => {
+  const out = html(h(fab.AsistenteFab, { unread: 3, waiting: true, onOpen: noop }));
+  assert.ok(out.includes('data-unread="3"') && out.includes('class="edi-badge"') && out.includes(">3<") && out.includes("edi-fab-dot") && out.includes('data-waiting="1"'));
+  assert.ok(out.includes("3 mensajes sin leer, te espera"));
+  const quiet = html(h(fab.AsistenteFab, { unread: 0, waiting: false, onOpen: noop }));
+  assert.equal(quiet.includes("edi-badge") || quiet.includes("edi-fab-dot"), false);
+  const opened: number[] = [];
+  expand(h(fab.AsistenteFab, { unread: 0, waiting: false, onOpen: () => opened.push(1) }));
+  (expand(h(fab.AsistenteFab, { unread: 0, waiting: false, onOpen: () => opened.push(1) })) as El).props.onClick({ currentTarget: {} });
+  assert.deepEqual(opened, [1]);
+  assert.deepEqual(companiaLib.sheetOf("?asistente"), { kind: "asistente" });
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes('sheet?.kind === "asistente"') && page.includes("<ThreadPanel") && page.includes("onSend={asistente.onSend}") && page.includes("useThread(company?.asistente.thread_id"));
+});
+
+test("I39-7 #4: no 360 px column and no folded Asistente remain on the page", () => {
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.equal(page.includes("360px") || page.includes("AsistenteFolded") || page.includes("lg:grid-cols"), false);
+});

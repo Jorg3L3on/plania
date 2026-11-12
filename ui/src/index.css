@@ -538,6 +538,24 @@
   .edi-tile .edi-glass { width: 62px; height: 58px; }
   .edi-win.edi-add .edi-glass { background: none; box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.2); display: grid; place-items: center; font-size: 30px; font-weight: 300; color: var(--e-muted); }
 
+  /* PLA-I39-7: the ask box on the plate, and Asistente floating */
+  .edi-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .edi-ask { display: grid; gap: 6px; margin-top: 8px; min-width: 0; }
+  .edi-ask-row { display: flex; gap: 6px; min-width: 0; }
+  .edi-ask input[type="text"] { min-width: 0; flex: 1; height: 38px; border-radius: 999px; font: inherit; font-size: 13.5px; padding: 0 14px; color: var(--e-fg); background: rgb(255 255 255 / 0.08); border: 1px solid var(--e-line); }
+  .edi-ask input[type="text"]::placeholder { color: var(--e-muted); }
+  .edi-now { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--e-muted); cursor: pointer; }
+  .edi-now input { accent-color: var(--e-you); width: 15px; height: 15px; }
+  .edi-sent { font-size: 12.5px; font-weight: 600; color: #9fe3b0; overflow-wrap: anywhere; }
+  .edi-fab { position: fixed; right: max(20px, env(safe-area-inset-right, 0px)); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); z-index: 30; display: inline-flex; align-items: center; gap: 10px; min-height: 54px; padding: 0 20px 0 13px; border-radius: 999px; border: 0; background: var(--foreground); color: var(--background); font-weight: 700; box-shadow: 0 18px 50px rgb(20 24 34 / 0.25); cursor: pointer; }
+  .edi-fab-face { width: 30px; height: 30px; font-size: 16px; background: var(--status-jorge); }
+  .edi-badge { min-width: 20px; height: 20px; border-radius: 99px; background: var(--status-jorge); color: #141822; font-size: 12px; display: grid; place-items: center; padding: 0 6px; font-family: var(--font-mono); }
+  .edi-fab-dot { position: absolute; top: 6px; left: 34px; width: 10px; height: 10px; border-radius: 50%; background: var(--status-jorge); box-shadow: 0 0 0 2px var(--foreground); }
+  .edi-fab-room { height: 84px; }
+  @media (width < 40rem) {
+    .edi-fab { bottom: calc(4.5rem + 14px + env(safe-area-inset-bottom, 0px)); right: 16px; min-height: 50px; padding: 0 16px 0 10px; }
+  }
+
   /* PLA-I39-5: the question someone holds out of their window. The app's .dark tokens apply inside. */
   .edi-slot { order: calc(var(--i) * 2); min-width: 0; display: grid; }
   .edi-bubble { order: var(--o-wide); grid-column: 1 / -1; position: relative; margin-top: 8px; background: var(--card); color: var(--foreground); border: 1.5px solid var(--e-you); border-radius: 18px; padding: 15px 18px 16px; display: grid; gap: 10px; box-shadow: 0 0 0 4px rgb(255 159 67 / 0.13); min-width: 0; scroll-margin-top: 90px; }
