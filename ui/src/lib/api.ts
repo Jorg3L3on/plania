@@ -124,6 +124,8 @@ export const api = {
   usage: () => request<UsageSummary>("GET", "/usage"),
   // PLA-I33 Compañía como organización: the contract in the Plan doc (61ad843a, "Contrato de API").
   company: () => request<OrgCompany>("GET", "/company"),
+  // PLA-I39-2: the clock's read.
+  companyHistory: (hours = 20) => request<OrgHistory>("GET", `/company/history?hours=${hours}`),
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   addToTeam: (slug: string, template: string) =>
     request<{ agent: string; role: string; template: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, { template }),
@@ -290,6 +292,10 @@ export type OrgCompany = {
   decisions: Decision[];
   inbox?: { decisiones: number; pasos: number };
 };
+// PLA-I39-2: GET /api/company/history. A live run has to null; events are oldest first.
+export type OrgHistoryRun = { agent: string; role: string; ticket: string | null; title: string | null; from: string; to: string | null; status: string };
+export type OrgHistoryEvent = { at: string; kind: "delivered" | "asked" | "answered" | "ordered"; role: string; title: string };
+export type OrgHistory = { from: string; to: string; projects: { slug: string; runs: OrgHistoryRun[]; events: OrgHistoryEvent[] }[] };
 export type OrgTemplate = { slug: string; title: string };
 export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[] };
 
