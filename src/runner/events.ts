@@ -8,19 +8,24 @@
 //   question asked by a PO (not human_only)   wakes Asistente, on that ticket (PLA-I32-5)
 //   thread.message from Jorge, company thread  wakes Asistente (PLA-I32-3); in a project thread the screen
 //                                             route makes a Ready PO ticket instead, which wakes the PO
+//   ticket → Merged, Released or Done          wakes Taller, on the first Ready ticket it was blocking (PLA-15)
 // The hook runs inside writeTx, in the same transaction as the write, and only queues: it inserts an
 // agent_runs row with status queued. The heartbeat job's drainQueue starts it through every runner
 // check (switches, cooldown, goal, base branch, budgets, plan guard, cap). Coalescing: an agent with a
 // queued or running run gets nothing new. A company or project switch that is off enqueues nothing.
 // Off unless the heartbeat job runs (PLANIA_JOBS=1), so nothing waits in a queue nobody drains.
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { agentRuns, agents, events, projects, tasks, type Actor, type Agent } from "../db/schema.js";
+import { agentRuns, agents, events, projects, taskBlockers, tasks, type Actor, type Agent } from "../db/schema.js";
+import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
 import type { Q } from "../mcp/tx.js";
 import { loadSettings, roleOf, type RunnerRole } from "./limits.js";
 
 export const EVENT_SUMMARY = "queued: event";
 const RUNNER_ADAPTER = "claude_code";
 const TALLER_WORK = new Set(["code", "bug", "debt", "ops"]);
+// PLA-15: the statuses where a ticket's work is in the integration branch (or needed no merge).
+const LANDED = new Set(["Merged", "Released", "Done"]);
+const PRIORITY = ["P0", "P1", "P2", "P3"];
 
 export const eventWakesEnabled = (env: NodeJS.ProcessEnv = process.env): boolean => env.PLANIA_JOBS === "1" || env.PLANIA_EVENT_WAKES === "1";
 
@@ -80,6 +85,44 @@ async function poOf(tx: Q, project: ProjectRef): Promise<Agent | null> {
     pos.find((a) => !a.projectId && (a.slug === `po-${project.slug}` || a.capabilities.includes(project.slug))) ??
     null
   );
+}
+
+// PLA-15: the steps of a plan are created Ready and wait on blocked_by, so no move to Ready ever wakes
+// Taller on step N+1: the landing of step N does. The Ready ticket this one was blocking that Taller may
+// take (its own, or unowned Taller work; never [PRUEBA]), with every ticket it waits on landed too (a
+// blocker still In review holds by the blocker rule, but its code is not in the branch yet) and every
+// other blocker holding. Several freed at once: the project's next_first, then priority, phase, key.
+export async function freedBy(tx: Q, project: ProjectRef, landedId: string, taller: Agent | null): Promise<string | null> {
+  if (!taller) return null;
+  const rows = await tx
+    .select({ key: tasks.key, title: tasks.title, priority: tasks.priority, phase: tasks.phase, workType: tasks.workType, ownerAgent: tasks.ownerAgent })
+    .from(tasks)
+    .innerJoin(taskBlockers, and(eq(taskBlockers.taskId, tasks.id), eq(taskBlockers.blockerId, landedId)))
+    .where(
+      and(
+        eq(tasks.projectId, project.id),
+        eq(tasks.kind, "ticket"),
+        eq(tasks.status, "Ready"),
+        sql`not ${hasUnsatisfiedBlocker(tasks.id)}`,
+        sql`not exists (
+          select 1 from ${taskBlockers} tb join ${tasks} b on b.id = tb.blocker_id
+          where tb.task_id = ${tasks.id} and tb.blocker_id <> ${landedId}::uuid and b.status not in ('Merged', 'Released', 'Done')
+        )`,
+      ),
+    );
+  const [p] = await tx.select({ settings: projects.settings }).from(projects).where(eq(projects.id, project.id)).limit(1);
+  const first = p?.settings.next_first;
+  const rank = (priority: string | null) => (PRIORITY.includes(priority ?? "") ? PRIORITY.indexOf(priority!) : PRIORITY.length);
+  const mine = rows
+    .filter((t) => !t.title.includes("[PRUEBA]") && (t.ownerAgent ? t.ownerAgent === taller.id : !!t.workType && TALLER_WORK.has(t.workType)))
+    .sort(
+      (a, b) =>
+        Number(b.key === first) - Number(a.key === first) ||
+        rank(a.priority) - rank(b.priority) ||
+        (a.phase ?? Number.MAX_SAFE_INTEGER) - (b.phase ?? Number.MAX_SAFE_INTEGER) ||
+        a.key.localeCompare(b.key, "en", { numeric: true }),
+    );
+  return mine[0]?.key ?? null;
 }
 
 // Queue one wake, or say why not. Never spawns.
@@ -154,6 +197,12 @@ async function targetOf(
     if (t.ownerAgent && t.ownerAgent !== taller?.id) return null;
     if (!t.ownerAgent && !(t.workType && TALLER_WORK.has(t.workType))) return null;
     return { agent: taller, taskKey: task.key, reason: "ticket ready" };
+  }
+  // PLA-15: a ticket lands once (In review → Merged; Merged → Released → Done after it is not a landing).
+  if (type === "task.status" && LANDED.has(String(payload.to)) && !LANDED.has(String(payload.from))) {
+    const taller = await serviceAgent(tx, "taller", project);
+    const next = await freedBy(tx, project, task.id, taller);
+    return next ? { agent: taller, taskKey: next, reason: `unblocked by ${task.key}` } : null;
   }
   if (type === "pr.ci_failed" || type === "pr.reviewed") {
     return { agent: await serviceAgent(tx, "taller", project), taskKey: task.key, reason: type === "pr.ci_failed" ? "ci red" : "pr review" };
