@@ -335,6 +335,6 @@ test("I35-4 phone at 390: Te toca options wrap their Elegir under the label, the
   assert.ok(c.includes('class="grid gap-1 text-sm max-sm:hidden" data-now'), "Ahora hides on a phone");
   const { readFileSync } = await import("node:fs");
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]"));
-  assert.ok(page.indexOf("<TeToca") < page.indexOf("<AsistenteFolded"), "Te toca first");
+  assert.ok(page.includes("<Building"));
+  assert.ok(page.indexOf("<TeToca") < page.indexOf("<Building"), "Te toca first");
 });
