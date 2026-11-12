@@ -1,18 +1,27 @@
-// PLA-I35: Compañía v2 (Design afdb15dd v2, canvas docs/company-mockups/compania-v2.html). A report, not a
-// board of bots: Te toca on top (the decisions, options with names), Asistente folded on the left (360 px on a
-// Mac), on the right each running project as a report card and the paused ones as a list with Reanudar.
-// Phone: one column, Te toca first. Plumbing lives in Máquina; one line in the header links there.
-// Data: GET /api/company (decisions[] included) and GET /api/threads/:id; POST /api/company/decisions/:id acts.
-// URL: ?doc=<id> a doc, ?nuevo the new project dialog; ?p=<slug> and ?vista=<slug> redirect to /p/<slug>,
-// ?equipo to Máquina.
-import { useEffect, useMemo, useState } from "react";
+// PLA-I39: Compañía v4, the building (Design doc of PLA-IDEA11). /ceo is one building at night, seen from across the
+// street: the sky says the moment, the roof ("Tu oficina") what waits on you, a floor per running project (its plate,
+// one ask box, a window per teammate lit only while its run is live), the question hanging under the window of who
+// asked it, the street with the door to a new floor, paused projects below the street. Any window, the project's
+// name and the "+" window open the side page on the right (from the bottom on a phone); Asistente floats bottom right
+// and opens there too. The clock docked at the bottom replays the last hours from real runs and ends at now.
+// Data: GET /api/company (decisions[] with asker, team[] with queue), GET /api/company/history, GET /api/threads/:id,
+// GET /api/company/projects/:slug for the plan and adding someone; POST /api/company/decisions/:id acts.
+// URL: ?m=<slug>:<agent> a teammate, ?plan=<slug> the plan, ?add=<slug> adding someone, ?asistente the thread,
+// ?decision=<id> scrolls to that decision, ?doc=<id> a doc, ?nuevo the new project dialog; ?p=<slug> and
+// ?vista=<slug> redirect to /p/<slug>, ?equipo to Máquina.
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Navigate, useLocation, useNavigate } from "react-router";
-import { BlockError, StopBody, eyebrow, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
+import { Link, Navigate, useLocation, useNavigate } from "react-router";
+import { BlockError, StopBody } from "@/components/compania/parts";
 import type { Steer } from "@/components/compania/timon";
 import { toast } from "sonner";
-import { CompanyPlumbing, ThreadSkeleton } from "@/components/compania/org";
-import { AsistenteFolded, PausedList, ProjectReport, ProjectsSkeleton, TeToca, type DecisionBusy } from "@/components/compania/v2";
+import { ThreadPanel } from "@/components/compania/org";
+import type { DecisionBusy } from "@/components/compania/v2";
+import { AskBox } from "@/components/compania/edificio/ask";
+import { AsistenteFab } from "@/components/compania/edificio/asistente";
+import { ClockBar } from "@/components/compania/edificio/clock";
+import { Building, BuildingBlock } from "@/components/compania/edificio/building";
+import { AddPage, MemberHead, MemberSide, PlanPage, SidePage, memberTitle } from "@/components/compania/edificio/side";
 import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
 import { useThread } from "@/components/compania/use-thread";
 import { GoalDialog } from "@/components/goals/goal-dialog";
@@ -20,14 +29,18 @@ import type { Goal } from "@/components/goals/model";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ApiError, api, type Decision, type DecisionInput, type OrgProject } from "@/lib/api";
-import { ceoRedirect, sheetOf } from "@/lib/compania";
-import { byLight } from "@/lib/org";
+import { ceoRedirect, sheetOf, sheetSearch } from "@/lib/compania";
+import { caption, marksOf } from "@/lib/edificio";
+import { byLight, plumbingLine } from "@/lib/org";
 import { greeting } from "@/lib/greeting";
-import { cn } from "@/lib/utils";
-import { companyLine } from "@/lib/v2";
 
 const dayLabel = (timeZone: string) =>
-  new Intl.DateTimeFormat("es-MX", { weekday: "long", day: "numeric", month: "long", timeZone })
+  new Intl.DateTimeFormat("es-MX", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone,
+  })
     .format(new Date())
     .replace(/^./, (l) => l.toUpperCase());
 
@@ -84,14 +97,22 @@ const Compania = () => {
   const navigate = useNavigate();
   const wide = useWide();
   const now = useMinute();
-  const comp = useQuery({ queryKey: ["company"], queryFn: api.company, staleTime: 10_000, refetchInterval: 20_000 });
+  const comp = useQuery({
+    queryKey: ["company"],
+    queryFn: api.company,
+    staleTime: 10_000,
+    refetchInterval: 20_000,
+  });
   const company = comp.data;
   const sheet = sheetOf(location.search);
   const [creating, setCreating] = useState<NewProjectState>({ kind: "idle" });
 
   const timeZone = company?.week.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const { hello } = greeting(timeZone);
-  const asistente = useThread(company?.asistente.thread_id, { who: "Asistente", invalidate: [["company"]] });
+  const asistente = useThread(company?.asistente.thread_id, {
+    who: "Asistente",
+    invalidate: [["company"]],
+  });
   const doc = useQuery({
     queryKey: ["prompt-doc", sheet?.kind === "doc" ? sheet.id : ""],
     queryFn: () => api.promptDoc(sheet?.kind === "doc" ? sheet.id : ""),
@@ -99,17 +120,89 @@ const Compania = () => {
   });
 
   const projects = useMemo(() => [...(company?.projects ?? [])].sort(byLight), [company]);
-  const live = projects.filter((p) => !p.paused && p.light !== "paused");
-  const paused = projects.filter((p) => p.paused || p.light === "paused");
-  const titles = useMemo(() => Object.fromEntries(projects.map((p) => [p.slug, p.title])), [projects]);
   const openSheet = (search: string) => navigate({ pathname: "/ceo", search });
   const closeSheet = () => navigate({ pathname: "/ceo", search: "" }, { replace: true });
+  // PLA-I39-6: the side page. Its project and teammate come from the company read; plan and add read the project.
+  const sideProject = sheet && (sheet.kind === "member" || sheet.kind === "plan" || sheet.kind === "add") ? (company?.projects.find((p) => p.slug === sheet.slug) ?? null) : null;
+  const sideMember = sheet?.kind === "member" ? (sideProject?.team.find((m) => m.agent === sheet.agent) ?? null) : null;
+  const detail = useQuery({
+    queryKey: ["company-project", sideProject?.slug ?? ""],
+    queryFn: () => api.companyProject(sideProject!.slug),
+    enabled: !!sideProject && (sheet?.kind === "plan" || sheet?.kind === "add"),
+  });
+  const [added, setAdded] = useState<string | null>(null);
+  // PLA-I39-8: the clock. null is now; a time is the past on screen. Plays from the first event to now.
+  const history = useQuery({ queryKey: ["company-history"], queryFn: () => api.companyHistory(20), staleTime: 60_000, refetchInterval: 120_000 });
+  const [viewAt, setViewAt] = useState<number | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const play = useRef<number | null>(null);
+  const stopPlay = () => {
+    if (play.current != null) window.clearInterval(play.current);
+    play.current = null;
+    setPlaying(false);
+  };
+  useEffect(() => stopPlay, []);
+  const onPlay = () => {
+    const h = history.data;
+    if (!h) return;
+    const marks = marksOf(h);
+    const start = marks[0]?.at ?? Date.parse(h.from);
+    // Reduced motion: no autoplay; jump to the first event and let the arrow keys walk.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setViewAt(start);
+      return;
+    }
+    const end = Date.parse(h.to);
+    const began = Date.now();
+    const span = 8_000;
+    if (play.current != null) window.clearInterval(play.current);
+    setPlaying(true);
+    setViewAt(start);
+    // A plain timer (20 steps a second): it plays the same whether or not the browser is painting frames.
+    play.current = window.setInterval(() => {
+      const f = (Date.now() - began) / span;
+      if (f >= 1) {
+        stopPlay();
+        setViewAt(null);
+        return;
+      }
+      setViewAt(start + f * (end - start));
+    }, 50);
+  };
+  const toNow = () => {
+    stopPlay();
+    setViewAt(null);
+  };
+  const past = viewAt != null && history.data ? { at: viewAt, history: history.data } : null;
+  // PLA-I39-7: floors whose ask box has text: their PO's window says "Recibiría tu pedido".
+  const [typing, setTyping] = useState<Record<string, boolean>>({});
+  const opener = useRef<HTMLElement | null>(null);
+  // The side page last open, so closing (which clears the address first) still knows what to focus.
+  const lastSide = useRef(sheet);
+  if (sheet && (sheet.kind === "member" || sheet.kind === "plan" || sheet.kind === "add")) lastSide.current = sheet;
+  const addMember = useMutation({
+    mutationFn: (v: { slug: string; template: string }) => api.addToTeam(v.slug, v.template),
+    onSuccess: (r, v) => {
+      setAdded(detail.data?.templates.find((t) => t.slug === v.template)?.title ?? r.role);
+      void client.invalidateQueries({ queryKey: ["company"] });
+      void client.invalidateQueries({ queryKey: ["company-project", v.slug] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? `No se pudo sumar (${e.code}).` : "No se pudo. Si la Mac está dormida, intenta al despertar."),
+  });
 
   // Te toca: the result is written in the row at once; the next read keeps it (acted rows stay 24 h).
   const [acted, setActed] = useState<Record<string, Decision>>({});
   // PLA-I36-8: words handed back to a card's box by Cambiar algo, per project.
   const [prefill, setPrefill] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<DecisionBusy>(null);
+  // PLA-I39-5: ?decision=<id> still opens that decision: where it hangs, else from its roof chip.
+  const openDecision = new URLSearchParams(location.search).get("decision");
+  const [roofOpen, setRoofOpen] = useState<string | null>(openDecision);
+  useEffect(() => {
+    if (!openDecision || !company) return;
+    const el = document.querySelector(`[data-bubble="${CSS.escape(openDecision)}"]`);
+    el?.scrollIntoView({ block: "center" });
+  }, [openDecision, company]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const decisions = useMemo(() => (company?.decisions ?? []).map((d) => acted[d.id] ?? d), [company, acted]);
   const act = useMutation({
@@ -119,9 +212,16 @@ const Compania = () => {
       setErrors((e) => ({ ...e, [v.d.id]: "" }));
     },
     onSuccess: (r, v) => {
-      setActed((a) => ({ ...a, [v.d.id]: r.decision ?? { ...v.d, state: r.state, actions: [] } }));
+      setActed((a) => ({
+        ...a,
+        [v.d.id]: r.decision ?? { ...v.d, state: r.state, actions: [] },
+      }));
       // PLA-I36-8: Cambiar algo hands the order's words back to its card's box.
-      if (v.input.action === "cambiar" && v.d.project && typeof r.state.result.text === "string") setPrefill((x) => ({ ...x, [v.d.project!]: r.state.result.text as string }));
+      if (v.input.action === "cambiar" && v.d.project && typeof r.state.result.text === "string")
+        setPrefill((x) => ({
+          ...x,
+          [v.d.project!]: r.state.result.text as string,
+        }));
       void client.invalidateQueries({ queryKey: ["company"] });
       void client.invalidateQueries({ queryKey: ["thread"] });
     },
@@ -175,7 +275,8 @@ const Compania = () => {
     onPickNext: (slug, key) => void quietly(`next-${key}`, () => api.pickNext(slug, key)),
     onPause: (p) => setPausing(p),
     onRun: (action, id) => void quietly(id, () => (action === "stop" ? api.stopRun(id) : api.resumeRun(id))),
-    onNote: (slug, key, text) => void quietly(`note-${key}`, async () => (await api.noteTask(slug, key, text), toast("Se lo dijiste; lo lee en su siguiente paso"))),
+    onNote: (slug, key, text) =>
+      void quietly(`note-${key}`, async () => (await api.noteTask(slug, key, text), toast("Se lo dijiste; lo lee en su siguiente paso"))),
     onCancelOrder: (slug, key) => void quietly(`cancel-${key}`, () => api.cancelOrder(slug, key)),
     onOptions: (slug, input) => void quietly(`options-${slug}`, () => api.setProjectOptions(slug, input)),
     prefill,
@@ -207,7 +308,11 @@ const Compania = () => {
     },
     onError: (e) => {
       if (e instanceof ApiError && (e.status === 404 || e.status === 405)) setCreating({ kind: "missing" });
-      else setCreating({ kind: "error", message: e instanceof ApiError ? `No se pudo crear (${e.code}).` : "No se pudo crear el proyecto." });
+      else
+        setCreating({
+          kind: "error",
+          message: e instanceof ApiError ? `No se pudo crear (${e.code}).` : "No se pudo crear el proyecto.",
+        });
     },
   });
   const onNew = () => {
@@ -216,86 +321,160 @@ const Compania = () => {
   };
 
   return (
-    <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-5">
-      <header className="grid min-w-0 gap-1">
-        <h1 className="font-display text-4xl leading-[0.95] font-extrabold tracking-[-0.03em] sm:text-5xl">
-          {company && company.projects.length === 0 ? "Hola" : hello}, Jorge
-        </h1>
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          <p className="min-w-0 text-sm text-muted-foreground">
-            {dayLabel(timeZone)}
-            {company && company.projects.length > 0 ? ` · ${companyLine(company.projects)}` : ""}
-          </p>
-          {company && <CompanyPlumbing plumbing={company.plumbing} />}
-        </div>
-        {company?.company.paused && (
-          <p role="status" data-banner="paused" className="mt-2 rounded-[16px] bg-surface-sunken px-4 py-2.5 text-sm ring-1 ring-foreground/15">
-            La compañía está detenida: nada arranca. Se reanuda en Máquina.
-          </p>
+    <div className="mx-auto grid w-full max-w-[1380px] min-w-0 gap-5">
+      {company?.company.paused && (
+        <p role="status" data-banner="paused" className="rounded-[16px] bg-surface-sunken px-4 py-2.5 text-sm ring-1 ring-foreground/15">
+          La compañía está detenida: nada arranca. Se reanuda en Máquina.
+        </p>
+      )}
+
+      {/* PLA-I39-3: the building in place of the 360 px column and the cards grid. */}
+      <BuildingBlock loading={comp.isPending} error={comp.isError && !company} onRetry={() => void comp.refetch()}>
+        {company && (
+          <Building
+            company={company}
+            decisions={decisions}
+            now={now}
+            timeZone={timeZone}
+            hello={company.projects.length === 0 ? "Hola" : hello}
+            day={dayLabel(timeZone)}
+            meta={
+              <>
+                <span className="edi-eyebrow">Compañía</span>
+                <Link to="/machine" className="edi-mini" data-plumbing>
+                  Plomería · {plumbingLine(company.plumbing).text}
+                </Link>
+              </>
+            }
+            onNew={onNew}
+            onFijar={setFijar}
+            onResume={(slug) => resume.mutate(slug)}
+            resuming={resuming}
+            acts={{ now, busy, errors, opened: openDecision, onAct: (d, input, key) => act.mutate({ d, input, key }) }}
+            roofOpen={roofOpen}
+            onChip={(d) => setRoofOpen((x) => (x === d.id ? null : d.id))}
+            onOpen={(slug, m, el) => {
+              opener.current = el;
+              openSheet(sheetSearch({ kind: "member", slug, agent: m.agent }));
+            }}
+            onPlan={(p, el) => {
+              opener.current = el;
+              openSheet(sheetSearch({ kind: "plan", slug: p.slug }));
+            }}
+            askFor={(p) => (
+              <AskBox
+                key={p.slug}
+                project={p}
+                prefill={prefill[p.slug]}
+                disabled={company.company.paused || past != null}
+                onAsk={(slug, input) => steer.onAsk(slug, { text: input.text, now: input.now })}
+                onTyping={(slug, on) => setTyping((t) => (!!t[slug] === on ? t : { ...t, [slug]: on }))}
+              />
+            )}
+            typing={typing}
+            past={past}
+            onNow={toNow}
+            onAdd={(slug, el) => {
+              opener.current = el;
+              setAdded(null);
+              openSheet(sheetSearch({ kind: "add", slug }));
+            }}
+          />
         )}
-      </header>
+      </BuildingBlock>
 
-      {comp.isError && !company && <BlockError what="la compañía" onRetry={() => void comp.refetch()} />}
+      {/* PLA-I39-8: the clock, docked at the bottom. */}
+      {company && history.data && company.projects.length > 0 && (
+        <ClockBar
+          history={history.data}
+          at={viewAt}
+          playing={playing}
+          timeZone={timeZone}
+          onAt={(t) => {
+            stopPlay();
+            setViewAt(t);
+          }}
+          onPlay={onPlay}
+          onNow={toNow}
+        />
+      )}
 
-      {comp.isPending ? (
-        <div className="h-36 animate-pulse rounded-[22px] bg-muted" aria-hidden data-testid="te-toca-skeleton" />
-      ) : company ? (
-        <TeToca decisions={decisions} inbox={company.inbox} open={new URLSearchParams(location.search).get("decision")} titles={titles} now={now} busy={busy} errors={errors} onAct={(d, input, key) => act.mutate({ d, input, key })} />
-      ) : null}
+      {/* PLA-I39-7: Asistente floats; room so it never covers the last floor's controls. */}
+      {company && (
+        <>
+          <div className="edi-fab-room" aria-hidden />
+          <AsistenteFab
+            unread={company.asistente.unread ?? 0}
+            waiting={company.asistente.state === "waiting_jorge"}
+            onOpen={(el) => {
+              opener.current = el;
+              openSheet(sheetSearch({ kind: "asistente" }));
+            }}
+          />
+        </>
+      )}
+      <SidePage
+        open={sheet?.kind === "asistente" && !!company}
+        wide={wide}
+        title="Asistente"
+        description="Tu canal con la compañía. Pregunta o pide; va al PO correcto."
+        onClose={closeSheet}
+        returnTo={() => (opener.current?.isConnected ? opener.current : document.querySelector<HTMLElement>('[data-control="asistente"]'))}
+      >
+        <ThreadPanel
+          title="Asistente"
+          thread={asistente.thread}
+          loading={asistente.loading}
+          error={asistente.error}
+          onRetry={asistente.onRetry}
+          project={null}
+          now={now}
+          timeZone={timeZone}
+          placeholder="Dile a Asistente…"
+          send={asistente.send}
+          onSend={asistente.onSend}
+          busy={asistente.busy}
+          actionError={asistente.actionError}
+          onAction={asistente.onAction}
+          expanded
+          onToggle={asistente.onToggle}
+          shown={asistente.shown}
+          onMore={asistente.onMore}
+          className="ring-0 p-0"
+        />
+      </SidePage>
 
-      <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
-        <div className="min-w-0 lg:sticky lg:top-20">
-          {comp.isPending ? (
-            <ThreadSkeleton />
-          ) : company ? (
-            <AsistenteFolded
-              thread={asistente.thread}
-              loading={asistente.loading}
-              error={asistente.error}
-              onRetry={asistente.onRetry}
-              projects={projects}
-              now={now}
-              timeZone={timeZone}
-              send={asistente.send}
-              onSend={asistente.onSend}
-              expanded={asistente.expanded}
-              onToggle={asistente.onToggle}
-            />
-          ) : null}
-        </div>
-        <section id="proyectos" aria-labelledby="cia-proyectos" className="grid min-w-0 scroll-mt-20 content-start gap-3">
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <h2 id="cia-proyectos" className={eyebrow}>
-              Proyectos <span className="ml-1 font-mono text-foreground">{projects.length}</span>
-            </h2>
-            <button type="button" className={cn(pillGhost, "min-h-9 px-3 text-[13px]")} onClick={onNew}>
-              + Nuevo proyecto
-            </button>
-          </div>
-          {comp.isPending ? (
-            <ProjectsSkeleton />
-          ) : company && projects.length === 0 ? (
-            <div className={cn(panel, "grid justify-items-start gap-3 p-5")} data-empty="projects">
-              <p className="font-display text-lg font-extrabold tracking-tight">Todavía no hay proyectos</p>
-              <p className="text-sm text-muted-foreground">Un proyecto es un nombre y una meta. Llega con su equipo: PO, Research, Artist y Taller.</p>
-              <button type="button" className={pillPrimary} onClick={onNew}>
-                Crear el primer proyecto
-              </button>
-            </div>
-          ) : company ? (
-            <>
-              {live.length > 0 && (
-                <ul className={cn("grid min-w-0 gap-3", live.length > 1 && "xl:grid-cols-2")} data-testid="project-cards">
-                  {live.map((p) => (
-                    <ProjectReport key={p.slug} project={p} decisions={decisions} now={now} companyPaused={company.company.paused} timeZone={timeZone} onFijar={setFijar} steer={steer} />
-                  ))}
-                </ul>
-              )}
-              <PausedList projects={paused} now={now} busy={resuming} onResume={(slug) => resume.mutate(slug)} />
-            </>
-          ) : null}
-        </section>
-      </div>
+      {/* PLA-I39-6: the side page: a teammate, the plan, adding someone. */}
+      <SidePage
+        open={!!sideProject && (sheet?.kind !== "member" || !!sideMember)}
+        wide={wide}
+        title={sideMember && sideProject ? memberTitle(sideMember, sideProject) : sheet?.kind === "add" ? `Sumar a ${sideProject?.title ?? ""}` : (sideProject?.title ?? "")}
+        description={sideMember ? caption(sideMember, now, { companyPaused: company?.company.paused }).doing : sheet?.kind === "add" ? "Un puesto más en el equipo, con su ventana." : "El plan del proyecto"}
+        head={sideMember ? <MemberHead m={sideMember} companyPaused={company?.company.paused} /> : undefined}
+        onClose={closeSheet}
+        returnTo={() => {
+          // What opened it; after a reload, the window or the name it belongs to.
+          if (opener.current?.isConnected) return opener.current;
+          const last = lastSide.current;
+          if (last?.kind === "member") return document.querySelector<HTMLElement>(`button[data-agent="${CSS.escape(last.agent)}"]`);
+          if (last && "slug" in last) return document.querySelector<HTMLElement>(`[data-floor="${CSS.escape(last.slug)}"] [data-control="${last.kind === "add" ? "sumar" : "plan"}"]`);
+          return null;
+        }}
+      >
+        {sideProject && sideMember && <MemberSide key={sideMember.agent} project={sideProject} member={sideMember} now={now} steer={steer} />}
+        {sideProject && sheet?.kind === "plan" && (
+          <PlanPage project={sideProject} sheet={detail.data} loading={detail.isPending} error={detail.isError} onRetry={() => void detail.refetch()} now={now} steer={steer} onFijar={setFijar} />
+        )}
+        {sideProject && sheet?.kind === "add" && (
+          <AddPage
+            templates={detail.data?.templates}
+            loading={detail.isPending}
+            busy={addMember.isPending ? (addMember.variables?.template ?? null) : null}
+            added={added}
+            onAdd={(template) => addMember.mutate({ slug: sideProject.slug, template })}
+          />
+        )}
+      </SidePage>
 
       {/* A doc linked from a message or a role row */}
       <Sheet open={sheet?.kind === "doc"} onOpenChange={(open) => !open && closeSheet()}>
@@ -336,7 +515,11 @@ const Compania = () => {
           <div className="px-4 pb-8">
             {pausing && (
               <StopBody
-                scope={{ kind: "project", slug: pausing.slug, title: pausing.title }}
+                scope={{
+                  kind: "project",
+                  slug: pausing.slug,
+                  title: pausing.title,
+                }}
                 runs={[]}
                 projectTitle={() => pausing.title}
                 busy={pause.isPending}

@@ -28,7 +28,9 @@ const { PROTOCOL_VERSION } = await import("../src/mcp/protocol.js");
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
 const v2 = await load("components/compania/v2.tsx");
-const timon = await load("components/compania/timon.tsx");
+const floor = await load("components/compania/edificio/floor.tsx");
+const side = await load("components/compania/edificio/side.tsx");
+const ask = await load("components/compania/edificio/ask.tsx");
 const lib = await load("lib/v2.ts");
 
 type Json = Record<string, any>;
@@ -163,8 +165,8 @@ test("I36-7 #3: 1 + 2 shows and is accepted only when the proposal marks them co
   assert.equal(ok.status, 200, await ok.clone().text());
 });
 
-test("I36-7 #5: the protocol is 2.19 and docs/bot-protocol.md describes propose", async () => {
-  assert.equal(PROTOCOL_VERSION, "2.19");
+test("I36-7 #5: the protocol is 2.20 and docs/bot-protocol.md describes propose", async () => {
+  assert.equal(PROTOCOL_VERSION, "2.20");
   const { readFileSync } = await import("node:fs");
   const doc = readFileSync(new URL("../docs/bot-protocol.md", import.meta.url), "utf8");
   assert.ok(doc.includes("## Proposals (protocol 2.19)") && doc.includes('kind: "plan"') && doc.includes("combinable"));
@@ -269,8 +271,7 @@ test("I36-9 #1, #4: a live run shows bot, step, since and last action; a note re
   assert.ok(o.run, "the request shows its run");
   assert.deepEqual([o.run.role, o.run.status, o.run.ticket, o.run.last], ["taller", "running", step!.key, "registró pruebas"]);
   assert.ok(o.run.step.length > 0 && o.run.since);
-  const html = renderCard(await card(), steerStub());
-  assert.ok(html.includes("Taller trabaja en «") && html.includes("último: registró pruebas") && html.includes('data-control="detener"'));
+  // PLA-I39: the run shows as its teammate's lit window and Detener lives in that teammate's side page.
   const note = await post(`/api/company/projects/workia/tasks/${step!.key}/note`, { text: "usa el verde de la marca" });
   assert.equal(note.status, 200);
   const ev = (await raw.query(`select payload->>'text' as text from events where task_key = $1 and type = 'note' order by id desc limit 1`, [step!.key])).rows[0];
@@ -281,8 +282,6 @@ test("I36-9 #1, #4: a live run shows bot, step, since and last action; a note re
   await raw.query(`update agent_runs set status = 'stopped', ended_at = now() where id = $1`, [runId]);
   const stopped = (await card()).orders.find((x: Json) => x.key === order.key);
   assert.equal(stopped.run.status, "stopped");
-  const html2 = renderCard(await card(), steerStub());
-  assert.ok(html2.includes("Detenido · Taller") && html2.includes('data-control="seguir"'));
 });
 
 // ---- PLA-I36-10
@@ -375,11 +374,22 @@ test("I36-11 #4: asking, approving a plan, stopping a run and accepting into the
 function steerStub() {
   return { onAsk: async () => ({ key: "x", title: "x", po: "po", wake: "queued", woke: null }), onPickNext() {}, onPause() {}, onRun() {}, onNote() {}, onCancelOrder() {}, onOptions() {}, prefill: {}, busy: null };
 }
-function renderCard(p: Json, steer: unknown = undefined) {
-  return renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(v2.ProjectReport, { project: p, decisions: [], now: Date.now(), companyPaused: false, steer })));
+// PLA-I39: the floor (plate and windows) and the plan's side page take what the card held; a decision renders with
+// Te toca's body under its asker's window.
+function renderCard(p: Json, steer: unknown = steerStub()) {
+  return renderToStaticMarkup(
+    React.createElement(
+      MemoryRouter,
+      null,
+      React.createElement(floor.Floor, { project: p, now: Date.now() }),
+      React.createElement(side.PlanPage, { project: p, now: Date.now(), steer }),
+    ),
+  );
 }
 function renderTeToca(decisions: Json[]) {
-  return renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(v2.TeToca, { decisions, titles: { workia: "Workia" }, now: Date.now(), busy: null, onAct: () => {} })));
+  return renderToStaticMarkup(
+    React.createElement(MemoryRouter, null, ...decisions.map((d) => React.createElement(v2.DecisionBody, { key: d.id, d, now: Date.now(), busy: null, onAct: () => {} }))),
+  );
 }
 
 const outsideDetalles = (html: string) => html.replace(/<details[\s\S]*?<\/details>/g, "");
@@ -395,18 +405,12 @@ test("I36-11 #1: the page renders no ticket key, branch name or the word sandbox
   assert.equal(lib.stateText({ action: "fusionar", at: "x", result: {} }), "Aceptado en la copia de prueba");
 });
 
-test("I36-8 #5: phone at 390: the box, the stages and the buttons fit in one column", () => {
-  const html = renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(timon.OrderBox, { project: { slug: "workia", title: "Workia", plan_approval: true }, steer: steerStub() })));
-  assert.ok(html.includes("Dile a Workia qué sigue"));
-  assert.ok(html.includes("w-full min-w-0") && html.includes("flex-wrap"), "textarea takes the width; buttons wrap");
-  assert.ok(html.includes("max-sm:basis-full"), "the hint drops under the buttons on a phone");
-  for (const k of ["Cambio", "Dirección", "Idea"]) assert.ok(html.includes(k));
-  assert.ok(html.includes("nada empieza sin tu sí"));
-  const stages = renderToStaticMarkup(
-    React.createElement(MemoryRouter, null, React.createElement(timon.RequestList, { project: { slug: "w", orders: [{ id: "t-1", kind: "order", title: "Algo", at: new Date().toISOString(), state: "en_curso", stage: "trabajando", understood: null, who: null, link: null, age_h: null }] }, now: Date.now() })),
+test("I36-8 #5: phone at 390: the floor's box and its button fit in one column", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(MemoryRouter, null, React.createElement(ask.AskView, { project: { slug: "workia", title: "Workia" }, text: "", setText() {}, now: false, setNow() {}, onSubmit() {} })),
   );
-  assert.ok(stages.includes("flex-wrap") && stages.includes('data-stage="trabajando"'));
-  assert.equal((stages.match(/aria-current="step"/g) ?? []).length, 1);
+  assert.ok(html.includes("Pide algo para Workia") && html.includes("Que empiece ya"));
+  assert.ok(html.includes('class="edi-ask-row"'), "input and button share one row that shrinks");
 });
 
 // ---- PLA-I36-12

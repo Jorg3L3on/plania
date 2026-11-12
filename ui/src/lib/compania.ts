@@ -216,9 +216,31 @@ export const RUN_WORD: Record<string, string> = { ok: "ok", fail: "falló", skip
 
 // The URL state (PLA-I33): ?vista=<slug> previews a project, ?doc=<id> a doc, ?nuevo the new project dialog.
 // ?p=<slug> (the old project sheet) redirects to /p/<slug>; ?equipo (the old Equipo sheet) to Máquina.
-export type SheetParam = { kind: "project"; slug: string } | { kind: "vista"; slug: string } | { kind: "equipo" } | { kind: "doc"; id: string } | { kind: "nuevo" } | null;
+// PLA-I39-6: the building's side page is in the address too: ?m=<slug>:<agent> a teammate, ?plan=<slug> the plan,
+// ?add=<slug> adding someone. A link reopens it.
+export type SheetParam =
+  | { kind: "project"; slug: string }
+  | { kind: "vista"; slug: string }
+  | { kind: "equipo" }
+  | { kind: "doc"; id: string }
+  | { kind: "nuevo" }
+  | { kind: "member"; slug: string; agent: string }
+  | { kind: "plan"; slug: string }
+  | { kind: "add"; slug: string }
+  | { kind: "asistente" }
+  | null;
 export function sheetOf(search: string): SheetParam {
   const q = new URLSearchParams(search);
+  const m = q.get("m");
+  if (m && m.includes(":")) {
+    const [slug, agent] = [m.slice(0, m.indexOf(":")), m.slice(m.indexOf(":") + 1)];
+    if (slug && agent) return { kind: "member", slug, agent };
+  }
+  const plan = q.get("plan");
+  if (plan) return { kind: "plan", slug: plan };
+  const add = q.get("add");
+  if (add) return { kind: "add", slug: add };
+  if (q.has("asistente")) return { kind: "asistente" };
   const p = q.get("p");
   if (p) return { kind: "project", slug: p };
   const vista = q.get("vista");
@@ -229,6 +251,16 @@ export function sheetOf(search: string): SheetParam {
   if (q.has("nuevo")) return { kind: "nuevo" };
   return null;
 }
+export const sheetSearch = (sheet: Exclude<SheetParam, null>): string =>
+  sheet.kind === "member"
+    ? `?m=${encodeURIComponent(sheet.slug)}:${encodeURIComponent(sheet.agent)}`
+    : sheet.kind === "plan"
+      ? `?plan=${encodeURIComponent(sheet.slug)}`
+      : sheet.kind === "add"
+        ? `?add=${encodeURIComponent(sheet.slug)}`
+        : sheet.kind === "asistente"
+          ? "?asistente"
+          : "";
 // /ceo?p=<slug> → /p/<slug>; /ceo?equipo → /machine. Null when /ceo stays.
 export function ceoRedirect(search: string): string | null {
   const sheet = sheetOf(search);

@@ -10,7 +10,7 @@ import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
 export const RESULT_KINDS = [
   "unit", "integration", "test", "verify", "live", "grep", "subagent", "ci",
-  "e2e", "visual", "a11y", "perf", "security", "migration",
+  "e2e", "visual", "a11y", "perf", "security", "migration", "scan",
 ] as const;
 export const VERDICTS = ["pass", "warn", "fail"] as const;
 
@@ -162,6 +162,7 @@ export type AddResultInput = {
 };
 
 const SHA = /^[0-9a-f]{7,40}$/;
+const SCAN_SHA = /^[0-9a-f]{40}$/;
 
 export async function addResultInTx(tx: Q, emit: Emit, p: Project, input: AddResultInput, ctx: Ctx) {
   if (!(RESULT_KINDS as readonly string[]).includes(input.kind)) throw new ToolError("INVALID_RESULT", { field: "kind", allowed: RESULT_KINDS });
@@ -169,7 +170,9 @@ export async function addResultInTx(tx: Q, emit: Emit, p: Project, input: AddRes
   if (!input.cite.trim()) throw new ToolError("INVALID_RESULT", { field: "cite" });
   if (input.check_ns?.length && input.verdict !== "pass") throw new ToolError("INVALID_RESULT", { field: "check_ns", hint: "only a pass ticks checks" });
   const commit = input.commit?.trim().toLowerCase();
-  if (commit !== undefined && !SHA.test(commit)) throw new ToolError("INVALID_RESULT", { field: "commit", hint: "7-40 hex" });
+  if (input.kind === "scan") {
+    if (!commit || !SCAN_SHA.test(commit)) throw new ToolError("INVALID_RESULT", { field: "commit", hint: "scan commit is 40 hex" });
+  } else if (commit !== undefined && !SHA.test(commit)) throw new ToolError("INVALID_RESULT", { field: "commit", hint: "7-40 hex" });
   if (input.exit_code !== undefined && !Number.isInteger(input.exit_code)) throw new ToolError("INVALID_RESULT", { field: "exit_code" });
   if (input.duration_s !== undefined && (!Number.isInteger(input.duration_s) || input.duration_s < 0)) throw new ToolError("INVALID_RESULT", { field: "duration_s" });
   if (input.counts) {

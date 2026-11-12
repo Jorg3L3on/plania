@@ -124,6 +124,8 @@ export const api = {
   usage: () => request<UsageSummary>("GET", "/usage"),
   // PLA-I33 Compañía como organización: the contract in the Plan doc (61ad843a, "Contrato de API").
   company: () => request<OrgCompany>("GET", "/company"),
+  // PLA-I39-2: the clock's read.
+  companyHistory: (hours = 20) => request<OrgHistory>("GET", `/company/history?hours=${hours}`),
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   addToTeam: (slug: string, template: string) =>
     request<{ agent: string; role: string; template: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, { template }),
@@ -194,10 +196,13 @@ export type OrgMember = {
   role: string;
   template: string;
   state: OrgMemberState;
-  now: { ticket: string; since: string } | null;
-  last: { ticket: string; status: string; at: string } | null;
+  // PLA-I39-1: title is the ticket's title (null when the run has no ticket). Optional so older fixtures render.
+  now: { ticket: string | null; title?: string | null; since: string; run_id?: string } | null;
+  last: { ticket: string | null; title?: string | null; status: string; at: string; run_id?: string } | null;
   produced: OrgProduced | null;
   waiting: string | null;
+  // PLA-I39-1: up to three Ready tickets waiting for this teammate.
+  queue?: { key: string; title: string }[];
 };
 export type OrgThreadRef = { id: string; unread: number; last: { at: string; author_role: string; body: string } | null };
 export type OrgProject = {
@@ -271,19 +276,26 @@ export type Decision = {
   files?: number | null;
   preview_url?: string | null;
   hold?: string | null;
+  // PLA-I39-1: who asked (null: nobody on a team, e.g. a release).
+  asker?: DecisionAsker | null;
 };
+export type DecisionAsker = { agent: string; role: string };
 export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string };
 export type DecisionResult = { ok: boolean; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
 export type OrgPlumbing = { spend: number; limit: number | null; running: number; paused: boolean };
 export type OrgCompany = {
   company: { paused: boolean };
   week: Company["week"];
-  asistente: { thread_id: string; budget: Budget; last_run: { status: string; at: string | null; summary?: string } | null; state: OrgMemberState };
+  asistente: { thread_id: string; budget: Budget; last_run: { status: string; at: string | null; summary?: string } | null; state: OrgMemberState; unread?: number };
   projects: OrgProject[];
   plumbing: OrgPlumbing;
   decisions: Decision[];
   inbox?: { decisiones: number; pasos: number };
 };
+// PLA-I39-2: GET /api/company/history. A live run has to null; events are oldest first.
+export type OrgHistoryRun = { agent: string; role: string; ticket: string | null; title: string | null; from: string; to: string | null; status: string };
+export type OrgHistoryEvent = { at: string; kind: "delivered" | "asked" | "answered" | "ordered"; role: string; title: string };
+export type OrgHistory = { from: string; to: string; projects: { slug: string; runs: OrgHistoryRun[]; events: OrgHistoryEvent[] }[] };
 export type OrgTemplate = { slug: string; title: string };
 export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[] };
 

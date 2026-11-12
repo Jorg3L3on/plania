@@ -120,6 +120,8 @@ describe("github", () => {
       await raw.query("update branches set head_sha = 'bbbbbbb222222222222222222222222222222222' where name = 'jl/catalog-split'");
       await claim(db, { project: "filmia", key: "FIL-I1-1" }, ctx);
       await addResult(db, { project: "filmia", key: "FIL-I1-1", kind: "ci", verdict: "pass", cite: "green", commit: "bbbbbbb222222222222222222222222222222222", branch: "jl/catalog-split" }, ctx);
+      await addResult(db, { project: "filmia", key: "FIL-I1-1", kind: "scan", verdict: "pass", cite: "pnpm merge-gate example/filmia 130", commit: "bbbbbbb222222222222222222222222222222222" }, ctx);
+      await addResult(db, { project: "filmia", key: "FIL-I1-2", kind: "scan", verdict: "pass", cite: "pnpm merge-gate example/filmia 130", commit: "bbbbbbb222222222222222222222222222222222" }, ctx);
       const t = (await findTask(db, p.id, "FIL-I1-1"))!;
       await setTask(db, { project: "filmia", key: "FIL-I1-1", status: "In review", version: t.version }, ctx);
       const { fetch } = fakeFetch({
@@ -159,7 +161,7 @@ describe("merged gate (PLA-02)", () => {
       await setTask(db, { project: "filmia", key: "FIL-I1-3", status: "In review", pr_url: "https://github.com/Jorg3L3on/filmia/pull/131", version: t.version }, ctx);
       // A row written before 2.11: open, with GitHub's test-merge sha stored.
       await raw.query(
-        "insert into pull_requests (project_id, repo, number, url, title, state, head_sha, head_branch, base_branch, merge_sha) values ($1, 'Jorg3L3on/filmia', 131, 'https://github.com/Jorg3L3on/filmia/pull/131', 'Ratings', 'open', 'abcabca000', 'jl/ratings', 'main', 'f8a4e19000')",
+        "insert into pull_requests (project_id, repo, number, url, title, state, head_sha, head_branch, base_branch, merge_sha) values ($1, 'Jorg3L3on/filmia', 131, 'https://github.com/Jorg3L3on/filmia/pull/131', 'Ratings', 'open', 'abcabca000000000000000000000000000000000', 'jl/ratings', 'main', 'f8a4e19000')",
         [p.id],
       );
       await addResult(db, { project: "filmia", key: "FIL-I1-3", kind: "ci", verdict: "pass", cite: "PR head green", commit: "abcabca000" }, ctx);
@@ -170,6 +172,7 @@ describe("merged gate (PLA-02)", () => {
         return true;
       });
       await addResult(db, { project: "filmia", key: "FIL-I1-3", kind: "ci", verdict: "pass", cite: "main green after merge", commit: "1234567890" }, ctx);
+      await addResult(db, { project: "filmia", key: "FIL-I1-3", kind: "scan", verdict: "pass", cite: "pnpm merge-gate example/filmia 131", commit: "abcabca000000000000000000000000000000000" }, ctx);
       t = (await findTask(db, p.id, "FIL-I1-3"))!;
       await setTask(db, { project: "filmia", key: "FIL-I1-3", status: "Merged", version: t.version }, ctx);
       assert.equal(await status("FIL-I1-3"), "Merged");
@@ -257,13 +260,14 @@ describe("late review (PLA-07)", () => {
       const url = "https://github.com/Jorg3L3on/workia/pull/77";
       // What an earlier tick stored: #77 merged while the ticket was not in review yet.
       await raw.query(
-        `insert into pull_requests (project_id, repo, number, url, title, state, head_branch, base_branch, merged_at, merge_sha, gh_updated_at)
-         values ($1, 'Jorg3L3on/workia', 77, $2, 'Late', 'merged', 'jl/late', 'sandbox', now(), 'ddddddd444444444444444444444444444444444', now())`,
+        `insert into pull_requests (project_id, repo, number, url, title, state, head_sha, head_branch, base_branch, merged_at, merge_sha, gh_updated_at)
+         values ($1, 'Jorg3L3on/workia', 77, $2, 'Late', 'merged', 'aaaaaaa111111111111111111111111111111111', 'jl/late', 'sandbox', now(), 'ddddddd444444444444444444444444444444444', now())`,
         [p.id, url],
       );
       const late = await createTask(db, { project: "workia", title: "Late", scope: "s", checks: ["c"], status: "Ready" }, ctx);
       await claim(db, { project: "workia", key: late.key }, ctx);
       await addResult(db, { project: "workia", key: late.key, kind: "unit", verdict: "pass", cite: "ok", check_ns: [1] }, ctx);
+      await addResult(db, { project: "workia", key: late.key, kind: "scan", verdict: "pass", cite: "pnpm merge-gate example/workia 77", commit: "aaaaaaa111111111111111111111111111111111" }, ctx);
       const t = (await findTask(db, p.id, late.key))!;
       await setTask(db, { project: "workia", key: late.key, status: "In review", pr_url: url, version: t.version }, ctx);
 

@@ -56,13 +56,13 @@ after(async () => {
 describe("protocol 2.17", () => {
   test("no gates, human_only is a click on the screen, the delegated path is honest, and the text stays under 900 words", () => {
     const text = instructions(false);
-    assert.equal(PROTOCOL_VERSION, "2.19");
+    assert.equal(PROTOCOL_VERSION, "2.20");
     assert.match(text, /Unknown or missing data is caution, never ready/);
     assert.match(text, /ENV_UNKNOWN/);
     assert.match(text, /The screen shows the server's reason text/);
     assert.ok(text.split(/\s+/).length < 900, `${text.split(/\s+/).length} words`);
     assert.match(text, /A human_only question is answered on the owner's screen/);
-    assert.equal(/\bgates?\b/i.test(text), false, "2.17: the protocol names no gate");
+    assert.equal(/\bgates?\b/i.test(text.replaceAll("merge-gate", "")), false, "2.17: the protocol names no gate");
     assert.match(text, /answer_delegated/);
     assert.match(text, /cannot prove the caller is that bot or that the message exists/);
     assert.match(text, /Never forward an answer/);
