@@ -56,7 +56,8 @@ export type BuildingProps = {
 export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, past, onNow }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
-  const summary = company.asistente.last_run?.summary ? firstLine(company.asistente.last_run.summary) : "";
+  // Only what Asistente wrote in a run that finished: a skipped or failed run's summary is the runner's own words.
+  const summary = company.asistente.last_run?.status === "ok" && company.asistente.last_run.summary ? firstLine(company.asistente.last_run.summary) : "";
   const empty = company.projects.length === 0;
   const viewed = past ? clockText(past.at, timeZone) : null;
   const lastEvent = past ? lastBefore(marksOf(past.history), past.at) : null;

@@ -583,11 +583,11 @@
     .edi-play { width: 40px; padding: 0; justify-content: center; }
     .edi-play-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
     .edi-back { right: auto; left: 0; }
-    .edi-fab { bottom: calc(18px + 76px + env(safe-area-inset-bottom, 0px)); }
+    .edi-fab { bottom: calc(18px + 88px + env(safe-area-inset-bottom, 0px)); }
   }
   @media (width < 40rem) {
     .edi-clock { bottom: calc(4.5rem + 8px + env(safe-area-inset-bottom, 0px)); }
-    .edi-fab { bottom: calc(4.5rem + 8px + 76px + env(safe-area-inset-bottom, 0px)); }
+    .edi-fab { bottom: calc(4.5rem + 8px + 88px + env(safe-area-inset-bottom, 0px)); }
   }
 
   /* PLA-I39-5: the question someone holds out of their window. The app's .dark tokens apply inside. */
