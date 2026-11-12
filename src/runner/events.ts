@@ -9,6 +9,8 @@
 //   thread.message from Jorge, company thread  wakes Asistente (PLA-I32-3); in a project thread the screen
 //                                             route makes a Ready PO ticket instead, which wakes the PO
 //   ticket → Merged, Released or Done          wakes Taller, on the first Ready ticket it was blocking (PLA-15)
+//   a runner run's lease expired (reaper)      wakes Taller (or the PO that owns it), on that ticket (PLA-16)
+// A run that ended in fail holding its ticket is not an event: src/runner/failed.ts sweeps it each tick.
 // The hook runs inside writeTx, in the same transaction as the write, and only queues: it inserts an
 // agent_runs row with status queued. The heartbeat job's drainQueue starts it through every runner
 // check (switches, cooldown, goal, base branch, budgets, plan guard, cap). Coalescing: an agent with a
@@ -28,6 +30,9 @@ const LANDED = new Set(["Merged", "Released", "Done"]);
 const PRIORITY = ["P0", "P1", "P2", "P3"];
 
 export const eventWakesEnabled = (env: NodeJS.ProcessEnv = process.env): boolean => env.PLANIA_JOBS === "1" || env.PLANIA_EVENT_WAKES === "1";
+
+// A runner run writes as session run-<first 8 of its agent_runs id> (see userPrompt in runner.ts).
+export const isRunSession = (sessionId: string | null | undefined): boolean => /^run-[0-9a-f]{8}$/.test(sessionId ?? "");
 
 export type EventWake =
   | { kind: "queued"; runId: string; agent: string; role: RunnerRole; taskKey: string | null; reason: string }
@@ -179,8 +184,14 @@ async function targetOf(
 
   // PLA-I30-6: a ticket a product owner owns wakes that PO when it is Ready, created that way included
   // (Pedirle al PO creates it Ready). Taller still wakes on a move only.
+  // PLA-16: a runner run's lease that ran out (the run ended without finishing or freeing its ticket) puts
+  // the ticket back in Ready like a move. A person's or another client's expired lease wakes nobody.
+  const runnerLeaseExpired =
+    type === "claim.expired" && payload.from === "In progress" && payload.to === "Ready" && isRunSession((payload.owner as Actor | null | undefined)?.session_id);
   const readyNow =
-    (type === "task.status" && payload.to === "Ready" && payload.from !== "Ready") || (type === "task.created" && payload.kind === "ticket" && payload.status === "Ready");
+    (type === "task.status" && payload.to === "Ready" && payload.from !== "Ready") ||
+    (type === "task.created" && payload.kind === "ticket" && payload.status === "Ready") ||
+    runnerLeaseExpired;
   if (readyNow) {
     const [t] = await tx
       .select({ kind: tasks.kind, title: tasks.title, workType: tasks.workType, ownerAgent: tasks.ownerAgent })
@@ -196,7 +207,7 @@ async function targetOf(
     const taller = await serviceAgent(tx, "taller", project);
     if (t.ownerAgent && t.ownerAgent !== taller?.id) return null;
     if (!t.ownerAgent && !(t.workType && TALLER_WORK.has(t.workType))) return null;
-    return { agent: taller, taskKey: task.key, reason: "ticket ready" };
+    return { agent: taller, taskKey: task.key, reason: runnerLeaseExpired ? "lease expired" : "ticket ready" };
   }
   // PLA-15: a ticket lands once (In review → Merged; Merged → Released → Done after it is not a landing).
   if (type === "task.status" && LANDED.has(String(payload.to)) && !LANDED.has(String(payload.from))) {
@@ -232,10 +243,10 @@ async function targetOf(
   return null;
 }
 
-const WATCHED = new Set(["task.created", "task.status", "pr.ci_failed", "pr.reviewed", "question.answered", "task.updated", "project.runs_resumed", "thread.message", "question.asked"]);
+const WATCHED = new Set(["task.created", "task.status", "pr.ci_failed", "pr.reviewed", "question.answered", "task.updated", "project.runs_resumed", "thread.message", "question.asked", "claim.expired"]);
 
-// Called by writeTx's emit for every event. Cheap for every other type. A queued wake is logged as
-// wake.queued (inserted directly, so it is never itself an event the hook reads).
+// Called by writeTx's emit for every event (and by the lease reaper for claim.expired). Cheap for every
+// other type.
 export async function onWriteEvent(
   tx: Q,
   project: ProjectRef,
@@ -247,6 +258,17 @@ export async function onWriteEvent(
   if (!WATCHED.has(type) || !eventWakesEnabled(env)) return null;
   const target = await targetOf(tx, project, type, task, payload);
   if (!target) return null;
+  return queueWake(tx, project, task, target, type);
+}
+
+// Queue one wake and log it as wake.queued (inserted directly, so it is never itself an event the hook reads).
+export async function queueWake(
+  tx: Q,
+  project: ProjectRef,
+  task: TaskRef,
+  target: { agent: Agent | null; taskKey: string | null; reason: string },
+  fromEvent: string,
+): Promise<EventWake> {
   const out = await enqueueWake(tx, { ...target, project });
   if (out.kind === "queued") {
     await tx.insert(events).values({
@@ -255,7 +277,7 @@ export async function onWriteEvent(
       taskKey: task?.key ?? null,
       type: "wake.queued",
       actor: { agent: "plania", session_id: "system" },
-      payload: { agent: out.agent, role: out.role, reason: out.reason, run_id: out.runId, from_event: type },
+      payload: { agent: out.agent, role: out.role, reason: out.reason, run_id: out.runId, from_event: fromEvent },
     });
   }
   return out;
