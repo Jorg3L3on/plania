@@ -1,10 +1,10 @@
 // PLA-23: publishing from the building. A floor whose finished changes wait to go out says so on its plate with a
 // "Publicar" button (and its roof chip opens the same thing); this is what that button opens. It says what goes out
-// (the changes by title, never a ticket key), from where to where in plain words, asks the owner's code and publishes
-// through the same route Bandeja uses (POST /api/projects/:slug/release/ship). Presentational: the page holds the
-// sheet, the code and the call, so test/edificio-ui.test.ts renders it with fake data.
+// (the changes by title, never a ticket key), from where to where in plain words, and publishes through the same
+// route Bandeja uses (POST /api/projects/:slug/release/ship). PLA-24: no owner's code; this sheet is the confirm.
+// Presentational: the page holds the sheet and the call, so test/edificio-ui.test.ts renders it with fake data.
 import type { DecisionRelease } from "@/lib/api";
-import { OWNER_CODE_WORDS, OwnerCodeInput, isOwnerCode } from "@/components/compania/sheets";
+import { OWNER_CODE_WORDS } from "@/components/compania/sheets";
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -26,19 +26,15 @@ export function publishError(code: string, detail: Record<string, unknown> = {})
 export const PublishBody = ({
   title,
   release,
-  code,
   busy,
   error,
-  onCode,
   onPublish,
   onCancel,
 }: {
   title: string;
   release: DecisionRelease;
-  code: string;
   busy?: boolean;
   error?: string | null;
-  onCode: (v: string) => void;
   onPublish: () => void;
   onCancel: () => void;
 }) => {
@@ -71,7 +67,6 @@ export const PublishBody = ({
           rechazará hasta que se resuelva.
         </p>
       )}
-      <OwnerCodeInput value={code} onChange={onCode} why="Publicar pide el código del dueño (tu app de códigos)." />
       {error && (
         <p role="alert" className="rounded-lg border border-destructive/40 px-3 py-2 text-destructive" data-publish-error>
           {error}
@@ -81,7 +76,7 @@ export const PublishBody = ({
         <button
           type="button"
           className="inline-flex min-h-11 items-center rounded-full bg-foreground px-5 text-sm font-semibold text-background hover:opacity-90 disabled:opacity-40"
-          disabled={busy || !isOwnerCode(code)}
+          disabled={busy}
           onClick={onPublish}
           data-control="publicar-confirmar"
         >

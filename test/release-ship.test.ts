@@ -66,12 +66,12 @@ function stubGh() {
   };
 }
 
-// PLA-I36-11: shipping to main carries the owner's code.
+// PLA-24: shipping needs Jorge's cookie only, no owner's code.
 async function ship(headers: Record<string, string> = {}) {
   return app.request(PATH, {
     method: "POST",
     headers: { Cookie: `${SESSION_COOKIE}=${createSession()}`, "Content-Type": "application/json", ...headers },
-    body: JSON.stringify({ code: await ownerCode() }),
+    body: JSON.stringify({}),
   });
 }
 
