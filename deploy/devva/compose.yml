@@ -1,0 +1,35 @@
+# Plania's devva engine: its own compose project and volume, bound to loopback only.
+# The image binds 0.0.0.0 inside the container and refuses to start without a token, so the token travels
+# as a compose secret from a file you create (see README.md beside this file).
+#
+#   DEVVA_TOKEN_FILE=<absolute path> docker compose -f deploy/devva/compose.yml up -d
+name: plania-devva
+
+services:
+  engine:
+    image: ${DEVVA_IMAGE:-devva-engine:dev01}
+    command:
+      - "--port"
+      - "2505"
+      - "--path"
+      - "/data/devva"
+      - "--bind"
+      - "0.0.0.0"
+      - "--auth-token"
+      - "/run/secrets/devva-token"
+      - "--durability"
+      - "durable"
+    secrets:
+      - devva-token
+    volumes:
+      - engine-data:/data
+    ports:
+      - "127.0.0.1:${DEVVA_PORT:-2505}:2505"
+    restart: unless-stopped
+
+secrets:
+  devva-token:
+    file: ${DEVVA_TOKEN_FILE:?absolute path of the file holding the engine token}
+
+volumes:
+  engine-data: {}

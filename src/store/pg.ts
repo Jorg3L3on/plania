@@ -7,7 +7,7 @@ import type { Q } from "../mcp/tx.js";
 import { withDefaults } from "./defaults.js";
 import { RequestIdReused, type Change, type Committed, type FindOptions, type Idempotency, type NewRow, type Reader, type Row, type Store, type TableName, type UnitOfWork, type Where } from "./types.js";
 
-const REQUEST_TTL = "30 days";
+const REQUEST_TTL_MS = 30 * 24 * 3_600_000;
 const WRITE_LOCK = 7_264_201; // arbitrary constant: the one advisory lock every write takes
 
 type AnyRow = Record<string, unknown>;
@@ -133,8 +133,11 @@ export class PgStore implements Store {
       const uow = new PgUnitOfWork(tx);
       const value = await fn(uow);
       if (idem.requestId) {
-        await tx.delete(writeRequests).where(and(eq(writeRequests.projectId, projectId), sql`${writeRequests.createdAt} < now() - ${REQUEST_TTL}::interval`));
-        await tx.insert(writeRequests).values({
+        // The idempotency record is part of the write set like any other row, so a second store replays it too.
+        for (const old of await uow.find("writeRequests", { projectId })) {
+          if (old.createdAt.getTime() < uow.now.getTime() - REQUEST_TTL_MS) await uow.delete("writeRequests", { projectId, requestId: old.requestId });
+        }
+        await uow.insert("writeRequests", {
           projectId,
           requestId: idem.requestId,
           tool: idem.tool ?? "",

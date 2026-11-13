@@ -444,6 +444,32 @@ export class DevvaStore implements Store {
     return next;
   }
 
+  // Applies a write set produced by another store (the Postgres adapter, while devva runs as its shadow).
+  replicate(c: Committed): Promise<void> {
+    const run = async (): Promise<void> => {
+      if (c.changes.length === 0) return;
+      for (;;) {
+        const commit: Commit = { seq: this.head + 1, nonce: crypto.randomUUID(), at: new Date().toISOString(), projectId: c.projectId, changes: clone([...c.changes]) };
+        if (await this.commit(commit)) {
+          this.fold(commit);
+          this.stats.commits += 1;
+          await this.apply(commit.changes);
+          return;
+        }
+        this.stats.conflicts += 1;
+        await this.catchUp();
+      }
+    };
+    const next = this.chain.then(run, run);
+    this.chain = next.catch(() => undefined);
+    return next;
+  }
+
+  // How many commits the log holds.
+  get commits(): number {
+    return this.head;
+  }
+
   onCommit(listener: (c: Committed) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
