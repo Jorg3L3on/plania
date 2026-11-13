@@ -70,20 +70,23 @@ export async function weekBounds(db: Q, now: Date, tz = screenTz()): Promise<{ s
 // A project's usage is its team's; Asistente's runs (role asistente) count apart.
 export type UsageScope = { kind: "project"; projectId: string } | { kind: "asistente" };
 export type WeekUsage = { used: number };
+// PLA-23: a card shows last week next to this week, so the number has something to compare with.
+export type CardUsage = WeekUsage & { last_week: number };
 
 export function scopeWhere(scope: UsageScope) {
   if (scope.kind === "asistente") return sql`r.role = 'asistente'`;
   return sql`r.project_id = ${scope.projectId} and r.role <> 'asistente'`;
 }
 
-// Tokens this week, ended and running runs alike.
-export async function weekUsage(db: Q, scope: UsageScope, weekStart: Date): Promise<WeekUsage> {
+// Tokens from weekStart (to weekEnd when given), ended and running runs alike.
+export async function weekUsage(db: Q, scope: UsageScope, weekStart: Date, weekEnd?: Date): Promise<WeekUsage> {
   const rows = await db.execute<{ used: string | null }>(sql`
     select coalesce(sum(r.tokens_total), 0)::bigint as used
     from agent_runs r
     where ${scopeWhere(scope)}
       and r.status in ('running', 'ok', 'fail', 'stopped')
-      and coalesce(r.started_at, r.queued_at) >= ${weekStart.toISOString()}::timestamptz`);
+      and coalesce(r.started_at, r.queued_at) >= ${weekStart.toISOString()}::timestamptz
+      and (${weekEnd?.toISOString() ?? null}::timestamptz is null or coalesce(r.started_at, r.queued_at) < ${weekEnd?.toISOString() ?? null}::timestamptz)`);
   return { used: Number(rows.rows[0]?.used ?? 0) };
 }
 

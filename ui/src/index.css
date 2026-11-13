@@ -490,6 +490,10 @@
   .edi-warn { color: var(--e-you-ink); font-weight: 600; }
   .edi-reason { font-size: 12.5px; color: var(--e-muted); overflow-wrap: anywhere; }
   .edi-reason .edi-mini { margin-left: 6px; }
+  /* PLA-23: the one action the floor wants from the owner reads as a button, not a link. */
+  .edi-reason .edi-mini-strong { display: inline-flex; align-items: center; min-height: 40px; padding: 0 16px; margin-left: 8px; border-radius: 999px; background: var(--status-jorge); color: #141822; text-decoration: none; }
+  .edi-reason .edi-mini-strong:hover { opacity: 0.9; }
+  .edi-reason .edi-mini-strong:focus-visible { outline: 2px solid var(--e-fg); outline-offset: 2px; }
   .edi-links { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 4px; }
   .edi-btn { min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--e-rail); background: transparent; font-weight: 600; font-size: 13.5px; color: var(--e-fg); white-space: nowrap; cursor: pointer; }
   .edi-btn:hover { background: rgb(255 255 255 / 0.08); }
@@ -560,6 +564,9 @@
   .edi-bubble { order: var(--o-wide); grid-column: 1 / -1; position: relative; margin-top: 8px; background: var(--card); color: var(--foreground); border: 1.5px solid var(--e-you); border-radius: 18px; padding: 15px 18px 16px; display: grid; gap: 10px; box-shadow: 0 0 0 4px rgb(255 159 67 / 0.13); min-width: 0; scroll-margin-top: 90px; }
   .edi-bubble::before { content: ""; position: absolute; top: -8.5px; left: calc(var(--nx-wide, 50%) - 7px); width: 14px; height: 14px; background: var(--card); border-left: 1.5px solid var(--e-you); border-top: 1.5px solid var(--e-you); transform: rotate(45deg); }
   .edi-bubble[data-acted] { border-color: var(--e-rail); box-shadow: none; }
+  /* PLA-23: "Ver la pregunta" marks where it landed for a moment. */
+  [data-flash] { outline: 3px solid var(--status-jorge); outline-offset: 4px; transition: outline-color 0.6s; }
+  @media (prefers-reduced-motion: reduce) { [data-flash] { transition: none; } }
   .edi-bubble[data-acted]::before { border-color: var(--e-rail); }
   .edi-roof-q { margin-top: 4px; }
   .edi-roof-q::before { display: none; }

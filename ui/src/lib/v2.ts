@@ -33,7 +33,9 @@ export function checksText(d: Pick<Decision, "checks">): { text: string; tone: T
   else if (c.ci === "none") parts.push("repo sin CI");
   if (parts.length === 0) return c.open === 0 && c.ci === null ? null : { text: "checks completos", tone: "ok", open: false };
   const open = c.open > 0 || c.ci === "failure" || c.ci === "pending";
-  return { text: parts.join(" · "), tone: c.ci === "failure" ? "stop" : open ? "warn" : "ok", open };
+  // PLA-23: a repo with no CI is neither good nor bad news: neutral, unless something else is open.
+  const tone: Tone = c.ci === "failure" ? "stop" : open ? "warn" : c.ci === "none" ? "idle" : "ok";
+  return { text: parts.join(" · "), tone, open };
 }
 
 // "4 commits · 3 cambios · 1 check abierto · 1 paso antes".

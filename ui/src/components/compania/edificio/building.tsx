@@ -47,9 +47,11 @@ export type BuildingProps = {
   // PLA-I39-7: the ask box of a floor, and which floors the owner is typing in.
   askFor?: (p: OrgProject) => ReactNode;
   typing?: Record<string, boolean>;
+  // PLA-23: publishing a floor's finished changes, from its plate or its roof chip.
+  onPublish?: (p: OrgProject) => void;
 };
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing }: BuildingProps) => {
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
   // Only what Asistente wrote in a run that finished: a skipped or failed run's summary is the runner's own words.
@@ -94,6 +96,7 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
                 onOpen={onOpen ? (m, el) => onOpen(p.slug, m, el) : undefined}
                 onFijar={onFijar}
                 onPlan={onPlan}
+                onPublish={onPublish}
                 decisions={decisions}
                 acts={acts}
                 ask={askFor?.(p)}

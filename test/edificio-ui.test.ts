@@ -114,7 +114,7 @@ test("I39-3 #2: the caption is role and verb, then what it is on with since when
   const work = one(member("taller", { state: "running", now: { ticket: "WRK-3", title: "Pantalla del carrito", since: "2026-11-10T17:20:00Z" } }));
   assert.ok(text(work).includes("Taller") && text(work).includes("construye") && work.includes("Pantalla del carrito") && work.includes("desde hace 40 min"));
   const queued = one(member("product-owner", { queue: [{ key: "WRK-5", title: "Entrevistar a tres tiendas" }, { key: "WRK-6", title: "Otra" }] }));
-  assert.ok(queued.includes("Sigue: Entrevistar a tres tiendas") && queued.includes("1 más en fila") && text(queued).includes("coordina"));
+  assert.ok(queued.includes("Siguiente: Entrevistar a tres tiendas") && queued.includes("aún no empieza · 1 más en fila") && text(queued).includes("coordina"));
   const delivered = one(member("artist", { produced: { kind: "doc", ref: "d-1", title: "Boceto del carrito" }, last: { ticket: "WRK-2", title: "Boceto", status: "ok", at: "2026-11-10T15:00:00Z" } }));
   assert.ok(delivered.includes("Entregó: Boceto del carrito") && delivered.includes("hace 3 h"));
   const none = one(member("research"));
@@ -223,7 +223,7 @@ test("I39-4 #1: the plate shows name, deliverable, steps done of total, goal wit
   assert.ok(out.includes("Formulario de bienvenida") && out.includes("2 de 5 pasos hechos"));
   assert.equal((out.match(/edi-seg edi-seg-done/g) ?? []).length, 2);
   assert.ok(out.includes("Meta: <b>Que una tienda reciba su primer pedido</b> · 5 dic") && out.includes("a tiempo"));
-  assert.ok(out.includes("El equipo te hizo una pregunta y espera tu respuesta.") && out.includes('href="#pregunta-workia"'));
+  assert.ok(out.includes("El equipo te hizo una pregunta y espera tu respuesta.") && out.includes('data-control="ver-pregunta"'));
   assert.ok(out.includes("100k tokens esta semana"));
   clean(out);
   const missing = render(company({ projects: [project({ next: { title: "Pantalla del carrito", key: "WRK-3", owner: "taller", due: null } })] }), { onFijar: noop });
@@ -325,7 +325,7 @@ test("I39-5 #1: a proposal hangs under the PO's window and a question under the 
   assert.equal(page.includes("<TeToca"), false);
   assert.ok(page.includes('get("decision")'));
   const reason = render(company({ projects: [project({ light: "needs_jorge", light_reason: { text: "Te preguntan.", action: { label: "Ver en Te toca", href: "#te-toca" } } })], decisions: [decision()] }), { acts: acts() });
-  assert.ok(reason.includes('href="#pregunta-workia"') && reason.includes('id="pregunta-workia"') && reason.includes("Ver la pregunta"));
+  assert.ok(reason.includes('data-control="ver-pregunta"') && reason.includes('id="pregunta-workia"') && reason.includes("Ver la pregunta"));
   clean(out);
 });
 
@@ -365,7 +365,7 @@ test("I39-5 #3: choosing an option acts once with that option; the result line a
   assert.ok(page.includes("api.actDecision(v.d.id, v.input)") && page.includes("onAct: (d, input, key) => act.mutate({ d, input, key })"));
   // Acted: the floor keeps the result line.
   const done = render(company({ decisions: [{ ...proposal, actions: [], state: { action: "elegir", at: "2026-11-10T17:55:00Z", result: { option: 1, label: "Con el borrador" } } }] }), { acts: acts() });
-  assert.ok(/data-bubble="m-[^"]+"[^>]*data-acted="1"/.test(done) && done.includes("✓") && done.includes("PO te preguntó"));
+  assert.ok(/data-bubble="m-[^"]+"[^>]*data-acted="1"/.test(done) && done.includes("✓") && done.includes("Ya respondiste a PO"));
   // Refused: its sentence in place.
   const refused = render(company({ decisions: [proposal] }), { acts: acts({ errors: { [proposal.id]: "Ya actuaste sobre esto." } }) });
   const bubble = refused.slice(refused.indexOf(`data-bubble="${proposal.id}"`));
@@ -676,3 +676,88 @@ test("I39-9 live: the sky quotes Asistente only from a run that finished ok; the
   // PLA-22: no clock under it any more; on a phone the button sits just above the tab bar.
   assert.ok(css.includes(".edi-fab { bottom: calc(4.5rem + 14px + env(safe-area-inset-bottom, 0px));"));
 });
+
+// ---- PLA-23: the floor says what it wants, and its action acts
+
+const publishUi = await load("components/compania/edificio/publish.tsx");
+const questionUi = await load("components/compania/edificio/question.tsx");
+const release = (patch: Json = {}): Json =>
+  decision({
+    id: "r-workia",
+    kind: "release",
+    title: "2 cambios listos para publicar",
+    options: null,
+    actions: [],
+    asker: null,
+    release: { from: "sandbox", into: "main", env: "prod", ahead: 9, tickets: [{ key: "WRK-1", title: "Opciones y reglas" }, { key: "WRK-2", title: "Pantalla en dos secciones" }], open_checks: 0, before: 0 },
+    ...patch,
+  });
+const waitingRelease = project({ light: "needs_jorge", light_reason: { text: "2 cambios listos esperan que los publiques.", action: { label: "Publicar", href: "#publicar" } } });
+
+test("PLA-23 #1: a floor with a release has a Publicar button on its plate that opens publishing for that project", () => {
+  const opened: string[] = [];
+  const t = tree(company({ projects: [waitingRelease], decisions: [release()] }), { acts: acts(), onPublish: (p: Json) => opened.push(p.slug) });
+  const [btn] = control(t, "publicar");
+  assert.ok(btn, "the plate has Publicar");
+  btn!.props.onClick();
+  assert.deepEqual(opened, ["workia"]);
+  const out = render(company({ projects: [waitingRelease], decisions: [release()] }), { acts: acts(), onPublish: noop });
+  assert.ok(out.includes("2 cambios listos esperan que los publiques.") && !out.includes('href="#publicar"'));
+  // Without a handler (an older page), it still goes somewhere: Bandeja.
+  assert.ok(render(company({ projects: [waitingRelease] })).includes('href="/inbox"'));
+});
+
+test("PLA-23 #1: the roof chip of a release publishes in place, and the sheet says what goes out, where, and asks the code", () => {
+  const published: string[] = [];
+  const ui = { reply: false, setReply: noop, text: "", setText: noop, open: false, setOpen: noop };
+  const row = expand(h(v2.DecisionView, { d: release(), now: NOW, busy: null, onAct: noop, onPublish: (d: Json) => published.push(d.project), ui }));
+  const [btn] = findAll(row, (el) => el.props?.["data-action"] === "publicar");
+  assert.equal(btn!.type, "button");
+  btn!.props.onClick();
+  assert.deepEqual(published, ["workia"]);
+  const body = html(h(publishUi.PublishBody, { title: "Mianovia", release: release().release, code: "", onCode: noop, onPublish: noop, onCancel: noop }));
+  for (const t of ["2 cambios terminados de Mianovia pasan de la copia de prueba a la versión principal", "sandbox → main, 9 commits", "Opciones y reglas", "Pantalla en dos secciones", "Código del dueño", "Publicar 2 cambios", "Ahora no"]) assert.ok(text(body).includes(t), t);
+  assert.equal(body.includes("WRK-1"), false, "no ticket keys");
+  const confirm = (out: string) => /<button[^>]*data-control="publicar-confirmar"[^>]*>/.exec(out)![0];
+  assert.ok(confirm(body).includes('disabled=""'), "no code, no publishing");
+  const ready = html(h(publishUi.PublishBody, { title: "Mianovia", release: release().release, code: "123456", onCode: noop, onPublish: noop, onCancel: noop }));
+  assert.equal(confirm(ready).includes('disabled=""'), false);
+  assert.equal(publishUi.publishError("OWNER_CODE_INVALID"), "Ese código no es válido o ya se usó; espera el siguiente.");
+  assert.match(publishUi.publishError("RELEASE_NOT_READY", { reason: "open_checks" }), /puntos abiertos/);
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes("api.shipRelease(v.slug, v.code)") && page.includes("onPublish: (d) => openPublish(d.project)"));
+});
+
+test("PLA-23 #2: Ver la pregunta is a button that brings the question into view", () => {
+  const seen: string[] = [];
+  const out = render(company({ projects: [project({ light: "needs_jorge", light_reason: { text: "Te preguntan.", action: { label: "Ver en Te toca", href: "#te-toca" } } })], decisions: [decision()] }), { acts: acts() });
+  assert.match(out, /<button type="button" class="edi-mini"[^>]*data-control="ver-pregunta"/);
+  const p = plateReveal((x: Json) => seen.push(x.slug));
+  p.props.onClick();
+  assert.deepEqual(seen, ["workia"]);
+  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
+  assert.ok(css.includes("[data-flash]"));
+});
+const plateUi = await load("components/compania/edificio/plate.tsx");
+function plateReveal(onReveal: (p: Json) => void): El {
+  const p = project({ light: "needs_jorge", light_reason: { text: "Te preguntan.", action: { label: "Ver en Te toca", href: "#te-toca" } } });
+  return control(expand(h(plateUi.Plate, { project: p, onReveal })), "ver-pregunta")[0]!;
+}
+
+test("PLA-23 #3: bubbles, captions, goal and tokens say what they mean", () => {
+  assert.equal(questionUi.bubbleHead({ kind: "pr", state: null }, "taller"), "Taller te entrega");
+  assert.equal(questionUi.bubbleHead({ kind: "question", state: null }, "research"), "Research te pregunta");
+  assert.equal(questionUi.bubbleHead({ kind: "pr", state: { action: "aceptar", at: "x", result: {} } }, "taller"), "Ya respondiste a Taller");
+  const goalNoDate = render(company({ projects: [project({ rumbo: { goal_id: "g", goal: "Primera boda", why: "", target_on: null, forecast_on: null, weeks_behind: null, missing: true } })] }), { onFijar: noop });
+  assert.ok(text(goalNoDate).includes("Meta sin fecha") && goalNoDate.includes("Poner fecha"));
+  const noGoal = render(company({ projects: [project()] }), { onFijar: noop });
+  assert.ok(text(noGoal).includes("Sin meta") && noGoal.includes("Fijar meta"));
+  const tok = render(company({ projects: [project({ usage: { used: 14_620_000, last_week: 9_400_000 } })] }));
+  assert.ok(text(tok).includes("14.62M tokens esta semana") && text(tok).includes("9.4M la pasada"));
+  const ci = v2lib.checksText({ checks: { open: 0, ci: "none" } });
+  assert.deepEqual(ci, { text: "repo sin CI", tone: "idle", open: false });
+  const msg = html(h(v2.DecisionBody, { d: decision({ kind: "pr", body: "Hice esto.", asker: { agent: "taller-workia", role: "taller" } }), now: NOW, busy: null, onAct: noop }));
+  assert.ok(msg.includes("Ver el mensaje de Taller"));
+});
+const v2lib = await load("lib/v2.ts");
+

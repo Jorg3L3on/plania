@@ -9,7 +9,7 @@ import type { Db } from "../db/client.js";
 import { agentRuns, agents, docs, events, projects, questions, tasks, threadMessages, type Actor, type Agent, type Project } from "../db/schema.js";
 import { projectSheet, type ProjectSheet, type RunBrief } from "./company-extra.js";
 import { agentOfActor, asistenteAgent } from "../runner/events.js";
-import { PROMPT_DOCS, isRunnerRole, lastReading, loadSettings, planView, roleOf, screenTz, weekBounds, weekUsage, type PlanView, type WeekUsage } from "../runner/limits.js";
+import { PROMPT_DOCS, isRunnerRole, lastReading, loadSettings, planView, roleOf, screenTz, weekBounds, weekUsage, type CardUsage, type PlanView, type WeekUsage } from "../runner/limits.js";
 import { TEAM_TEMPLATES, TEMPLATE_ROWS, ensureMember, isTeamTemplate, teamOf, teamSlug, type TeamTemplate } from "../runner/team.js";
 import { actionsFor, companyThread, projectThread, threadSummary } from "../runner/threads.js";
 import { companyState, type CompanyState, type RunView } from "../runner/company.js";
@@ -59,8 +59,8 @@ export type ProjectCard = {
   goal: string | null;
   // PLA-I36-4: the destination: the goal sentence, its delivery date and the forecast; missing says Fijar.
   rumbo: Rumbo;
-  // PLA-21: this week's tokens, shown only.
-  usage: WeekUsage;
+  // PLA-21: this week's tokens, shown only. PLA-23: and last week's, to compare.
+  usage: CardUsage;
   team: TeamMember[];
   thread: ThreadLine;
   // PLA-I35-1: the card as a report (src/api/company-plan.ts).
@@ -197,9 +197,9 @@ const quote = (s: string, n = 80) => `«${s.length > n ? `${s.slice(0, n - 1).tr
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const TE_TOCA = { label: "Ver en Te toca", href: "#te-toca" };
 
-type LightCtx = { paused: boolean; threadId: string; now: Date; ceoId: string | null; team: TeamMember[]; plan: PlanLine | null; inbox: InboxItem[] };
+export type LightCtx = { paused: boolean; threadId: string; now: Date; ceoId: string | null; team: TeamMember[]; plan: PlanLine | null; inbox: InboxItem[] };
 
-async function lightOf(db: Db, p: Project, c: LightCtx): Promise<{ light: Light; reason: LightReason | null }> {
+export async function lightOf(db: Db, p: Project, c: LightCtx): Promise<{ light: Light; reason: LightReason | null }> {
   const open = `/p/${encodeURIComponent(p.slug)}`;
   if (c.paused) return { light: "paused", reason: null };
 
@@ -221,7 +221,11 @@ async function lightOf(db: Db, p: Project, c: LightCtx): Promise<{ light: Light;
   const release = c.inbox.find((i) => i.kind === "release");
   if (release) {
     const n = (release.target as { tickets?: unknown[] } | undefined)?.tickets?.length ?? 0;
-    return jorge(`${plural(n, "cambio listo espera", "cambios listos esperan")} que lo publiques.`);
+    // PLA-23: the action publishes from the floor (the plate opens the sheet); Te toca no longer exists.
+    return {
+      light: "needs_jorge",
+      reason: { text: n === 1 ? "1 cambio listo espera que lo publiques." : `${n} cambios listos esperan que los publiques.`, action: { label: "Publicar", href: "#publicar" } },
+    };
   }
   const recent = await db.select().from(threadMessages).where(and(eq(threadMessages.threadId, c.threadId), isNull(threadMessages.actionState))).orderBy(desc(threadMessages.at)).limit(30);
   for (const m of recent) if ((await actionsFor(db, m, p.id)).length > 0) return jorge("Una entrega espera tu visto bueno.");
@@ -308,7 +312,11 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
   const all = await db.select().from(projects).orderBy(asc(projects.slug));
   const inbox = await inboxByProject(db, all);
   for (const p of all) {
-    const usage = await weekUsage(db, { kind: "project", projectId: p.id }, startsAt);
+    const lastWeek = new Date(startsAt.getTime() - 7 * 24 * HOUR);
+    const usage: CardUsage = {
+      used: (await weekUsage(db, { kind: "project", projectId: p.id }, startsAt)).used,
+      last_week: (await weekUsage(db, { kind: "project", projectId: p.id }, lastWeek, startsAt)).used,
+    };
     const thread = await threadSummary(db, await projectThread(db, p.id), p);
     const paused = settings.companyPaused || p.runsPaused;
     const goal = await goalOf(db, p.id);
