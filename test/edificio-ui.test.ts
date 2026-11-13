@@ -715,17 +715,21 @@ test("PLA-23 #1: the roof chip of a release publishes in place, and the sheet sa
   assert.equal(btn!.type, "button");
   btn!.props.onClick();
   assert.deepEqual(published, ["workia"]);
-  const body = html(h(publishUi.PublishBody, { title: "Mianovia", release: release().release, code: "", onCode: noop, onPublish: noop, onCancel: noop }));
-  for (const t of ["2 cambios terminados de Mianovia pasan de la copia de prueba a la versión principal", "sandbox → main, 9 commits", "Opciones y reglas", "Pantalla en dos secciones", "Código del dueño", "Publicar 2 cambios", "Ahora no"]) assert.ok(text(body).includes(t), t);
+  const body = html(h(publishUi.PublishBody, { title: "Mianovia", release: release().release, onPublish: noop, onCancel: noop }));
+  for (const t of ["2 cambios terminados de Mianovia pasan de la copia de prueba a la versión principal", "sandbox → main, 9 commits", "Opciones y reglas", "Pantalla en dos secciones", "Publicar 2 cambios", "Ahora no"]) assert.ok(text(body).includes(t), t);
   assert.equal(body.includes("WRK-1"), false, "no ticket keys");
+  // PLA-24: no owner's code; the sheet itself is the confirm, so Publicar is on at once (off only while sending).
+  assert.equal(/Código del dueño|data-owner-code/.test(body), false);
   const confirm = (out: string) => /<button[^>]*data-control="publicar-confirmar"[^>]*>/.exec(out)![0];
-  assert.ok(confirm(body).includes('disabled=""'), "no code, no publishing");
-  const ready = html(h(publishUi.PublishBody, { title: "Mianovia", release: release().release, code: "123456", onCode: noop, onPublish: noop, onCancel: noop }));
-  assert.equal(confirm(ready).includes('disabled=""'), false);
+  assert.equal(confirm(body).includes('disabled=""'), false);
+  const sending = html(h(publishUi.PublishBody, { title: "Mianovia", release: release().release, busy: true, onPublish: noop, onCancel: noop }));
+  assert.ok(confirm(sending).includes('disabled=""') && sending.includes("Publicando…"));
   assert.equal(publishUi.publishError("OWNER_CODE_INVALID"), "Ese código no es válido o ya se usó; espera el siguiente.");
   assert.match(publishUi.publishError("RELEASE_NOT_READY", { reason: "open_checks" }), /puntos abiertos/);
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("api.shipRelease(v.slug, v.code)") && page.includes("onPublish: (d) => openPublish(d.project)"));
+  assert.ok(page.includes("api.shipRelease(v.slug)") && page.includes("onPublish: (d) => openPublish(d.project)"));
+  const bandeja = readFileSync(new URL("../ui/src/components/release-step.tsx", import.meta.url), "utf8");
+  assert.equal(/OwnerCodeInput|isOwnerCode/.test(bandeja), false, "Bandeja's Lanzar asks no code either");
 });
 
 test("PLA-23 #2: Ver la pregunta is a button that brings the question into view", () => {

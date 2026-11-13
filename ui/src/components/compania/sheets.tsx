@@ -267,7 +267,7 @@ export const OwnerCodeRow = ({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm">
           <span className="font-semibold">Código del dueño</span>
-          <span className="text-muted-foreground"> · {enrolled == null ? "…" : enrolled ? "configurado: publicar y borrar proyectos lo piden" : "sin configurar: publicar no se puede hasta configurarlo"}</span>
+          <span className="text-muted-foreground"> · {enrolled == null ? "…" : enrolled ? "configurado: borrar un proyecto lo pide" : "sin configurar: solo hace falta para borrar un proyecto"}</span>
         </p>
         <button type="button" className={pillGhost} onClick={() => setOpen(!open)} aria-expanded={open}>
           {enrolled ? "Cambiar" : "Configurar"}

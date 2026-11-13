@@ -63,7 +63,7 @@ export const api = {
   inbox: (project?: string) => request<Inbox>("GET", project ? `/inbox?project=${encodeURIComponent(project)}` : "/inbox"),
   // 2.13: Jorge ships the release step (merge mode): a PR from → into, merged with a merge commit.
   // PLA-I36-11: publishing carries the owner's code.
-  shipRelease: (slug: string, code?: string) => request<ShipResult>("POST", `/projects/${encodeURIComponent(slug)}/release/ship`, { code }),
+  shipRelease: (slug: string) => request<ShipResult>("POST", `/projects/${encodeURIComponent(slug)}/release/ship`, {}),
   resolveBlocker: (slug: string, id: string, note?: string) =>
     request<{ key: string }>("POST", `/projects/${encodeURIComponent(slug)}/blockers/${encodeURIComponent(id)}/resolve`, note ? { note } : undefined),
   // Screen only. The bot cannot read or flip this.

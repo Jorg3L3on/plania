@@ -8,7 +8,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import type pg from "pg";
-import { ownerCode, resetTestDb, useOwnerCode, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, ownerCode, resetTestDb, useOwnerCode, useTestEnv } from "./helpers.js";
 
 useTestEnv();
 await useOwnerCode();
@@ -375,15 +375,16 @@ test("PLA-14 #2, #3: a repo with no CI says so and Aceptar opens with a pass on 
 
 // ---- PLA-I36-11
 
-test("I36-11 #2: publishing to main without a valid code is refused by the server", async () => {
-  const none = await app.request("/api/projects/zigzag/release/ship", { method: "POST", headers: jorge(), body: JSON.stringify({}) });
-  assert.equal(none.status, 403);
-  assert.equal(((await none.json()) as Json).error, "OWNER_CODE_REQUIRED");
-  const bad = await app.request("/api/projects/zigzag/release/ship", { method: "POST", headers: jorge(), body: JSON.stringify({ code: "000000" }) });
-  assert.equal(((await bad.json()) as Json).error, "OWNER_CODE_INVALID");
+test("PLA-24: publishing asks no owner's code, even with none enrolled; a Bearer is still refused", async () => {
   await useOwnerCode(false);
-  const unset = await app.request("/api/projects/zigzag/release/ship", { method: "POST", headers: jorge(), body: JSON.stringify({ code: "123456" }) });
-  assert.equal(((await unset.json()) as Json).error, "OWNER_CODE_UNSET");
+  for (const body of [{}, { code: "000000" }]) {
+    const res = await app.request("/api/projects/zigzag/release/ship", { method: "POST", headers: jorge(), body: JSON.stringify(body) });
+    const err = String(((await res.json()) as Json).error ?? "");
+    assert.equal(err.startsWith("OWNER_CODE"), false, err);
+  }
+  const bearer = await app.request("/api/projects/zigzag/release/ship", { method: "POST", headers: { ...jorge(), Authorization: `Bearer ${TEST_BEARER}` }, body: "{}" });
+  assert.equal(bearer.status, 403);
+  assert.equal(((await bearer.json()) as Json).error, "HUMAN_ONLY");
   await useOwnerCode(true);
 });
 

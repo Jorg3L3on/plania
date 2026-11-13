@@ -251,22 +251,19 @@ const Compania = () => {
   // publishing keeps the project while the sheet slides closed, so it never flashes an empty name.
   const [publishing, setPublishing] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
-  const [publishCode, setPublishCode] = useState("");
   const publishRelease = publishing ? (decisions.find((d) => d.kind === "release" && d.project === publishing && !d.state) ?? null) : null;
   const publishTitle = publishing ? (company?.projects.find((p) => p.slug === publishing)?.title ?? publishing) : "";
   const openPublish = (slug: string | null | undefined) => {
     if (!slug) return;
     publish.reset();
-    setPublishCode("");
     setPublishing(slug);
     setPublishOpen(true);
   };
   const publish = useMutation({
-    mutationFn: (v: { slug: string; code: string }) => api.shipRelease(v.slug, v.code),
+    mutationFn: (v: { slug: string }) => api.shipRelease(v.slug),
     onSuccess: (_r, v) => {
       toast(`${publishTitle || v.slug}: publicado. Ya está en la versión principal.`);
       setPublishOpen(false);
-      setPublishCode("");
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ["company"] });
@@ -484,11 +481,9 @@ const Compania = () => {
               <PublishBody
                 title={publishTitle}
                 release={publishRelease.release}
-                code={publishCode}
                 busy={publish.isPending}
                 error={publish.isError ? (publish.error instanceof ApiError ? publishError(publish.error.code, publish.error.detail) : "No se pudo. Si la Mac está dormida, intenta al despertar.") : null}
-                onCode={setPublishCode}
-                onPublish={() => publish.mutate({ slug: publishing, code: publishCode })}
+                onPublish={() => publish.mutate({ slug: publishing })}
                 onCancel={() => setPublishOpen(false)}
               />
             ) : (
