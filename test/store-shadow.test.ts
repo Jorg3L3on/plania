@@ -57,6 +57,6 @@ describe("devva shadow", { skip: live ? false : "set DEVVA_TEST=1 with the spike
     await raw.query("update projects set title = 'changed behind the port' where slug = 'micasa'");
     await raw.query("insert into machine_state (key, value) values ('raw', '{}')");
     const drift = (await shadow.parity()).drift.sort((a: Drift, b: Drift) => a.table.localeCompare(b.table));
-    assert.deepEqual(drift.map((d: Drift) => [d.table, d.missing, d.extra, d.differing]), [["machineState", 1, 0, 0], ["projects", 0, 0, 1]]);
+    assert.deepEqual(drift.map((d: Drift) => [d.table, d.missing, d.extra, d.differing, d.columns]), [["machineState", 1, 0, 0, []], ["projects", 0, 0, 1, ["title"]]]);
   });
 });

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { userInfo } from "node:os";
 import path from "node:path";
+import { after } from "node:test";
 import pg from "pg";
 import { resetPool } from "../src/db/client.js";
 
@@ -39,6 +40,7 @@ export function useTestEnv(): void {
 // Drops and recreates this checkout's test database, applies every migration, inserts the four projects.
 // Returns a raw client for assertions; the caller ends it.
 export async function resetTestDb(): Promise<pg.Client> {
+  await parityReport();
   // The shared pool holds connections to the database about to be dropped; the next query opens a fresh one.
   await resetPool();
   const admin = new pg.Client({ connectionString: ADMIN_URL });
@@ -56,8 +58,48 @@ export async function resetTestDb(): Promise<pg.Client> {
   await raw.query(
     "insert into projects (slug, title, key_prefix) values ('micasa','MiCasa','MIC'), ('workia','Workia','WRK'), ('filmia','Filmia','FIL'), ('zigzag','Zigzag','ZIG')",
   );
+  await parityStart(raw);
   return raw;
 }
+
+// PLANIA_PARITY=1 (with the devva engine of spike/devva-commit-log running): every test database gets a devva
+// shadow, and when the database is dropped or the file ends, the two stores are compared. A table the test
+// itself changed with raw SQL is expected to differ and is marked; any other difference is a write the store
+// port did not carry. One line per database goes to PLANIA_PARITY_LOG.
+type ShadowT = Awaited<ReturnType<typeof import("../src/store/shadow.js").Shadow.start>>;
+let shadow: ShadowT | null = null;
+const rawTouched = new Set<string>();
+async function parityStart(raw: pg.Client): Promise<void> {
+  if (process.env.PLANIA_PARITY !== "1") return;
+  const { Shadow } = await import("../src/store/shadow.js");
+  const { makeDb } = await import("../src/db/client.js");
+  rawTouched.clear();
+  const query = raw.query.bind(raw) as (...args: unknown[]) => unknown;
+  (raw as unknown as { query: (...args: unknown[]) => unknown }).query = (...args: unknown[]) => {
+    const text = typeof args[0] === "string" ? args[0] : ((args[0] as { text?: string })?.text ?? "");
+    for (const m of text.matchAll(/\b(?:insert\s+into|update|delete\s+from|truncate(?:\s+table)?)\s+"?([a-z_]+)"?/gi)) rawTouched.add(m[1]!.toLowerCase());
+    return query(...args);
+  };
+  shadow = await Shadow.start(makeDb().db, { prefix: `par_${process.pid}_${Date.now().toString(36)}` }, () => {});
+  await shadow.settled();
+}
+async function parityReport(): Promise<void> {
+  const s = shadow;
+  shadow = null;
+  if (!s) return;
+  const { tableOf } = await import("../src/store/meta.js");
+  const { getTableConfig } = await import("drizzle-orm/pg-core");
+  const { appendFileSync } = await import("node:fs");
+  await s.settled();
+  const drift = (await s.parity()).drift.map((d) => ({ ...d, raw: rawTouched.has(getTableConfig(tableOf(d.table)).name) }));
+  const unexplained = drift.filter((d) => !d.raw);
+  const line = JSON.stringify({ file: path.basename(process.argv.find((a) => a.endsWith(".test.ts")) ?? ""), commits: s.devva.commits, errors: s.errors.length, unexplained, expected: drift.filter((d) => d.raw).map((d) => d.table) });
+  if (process.env.PLANIA_PARITY_LOG) appendFileSync(process.env.PLANIA_PARITY_LOG, `${line}\n`);
+  if (unexplained.length || s.errors.length) console.log(`PARITY ${line}`);
+  await s.devva.purge();
+  s.close();
+}
+if (process.env.PLANIA_PARITY === "1") after(parityReport);
 
 // PLA-I36-11: the owner's code in tests. A fixed secret in a memory store (never the keychain); each call moves
 // the TOTP clock one step, so two codes in the same test never share a time step.

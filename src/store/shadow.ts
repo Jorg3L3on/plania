@@ -13,7 +13,8 @@ const CHUNK_BYTES = 2 * 1024 * 1024; // a commit is one statement, and a stateme
 const text = (row: unknown): string => JSON.stringify(row, (_k, v) => (typeof v === "bigint" ? `${v}n` : v));
 const keyText = (table: TableName, row: AnyRow) => text(metaOf(table).key.map((k) => row[k]));
 
-export type Drift = { table: TableName; missing: number; extra: number; differing: number };
+// columns: which columns differ, across the differing rows.
+export type Drift = { table: TableName; missing: number; extra: number; differing: number; columns: string[] };
 export type Parity = { tables: number; rows: number; drift: Drift[] };
 
 export class Shadow {
@@ -79,12 +80,16 @@ export class Shadow {
   async parity(): Promise<Parity> {
     const out: Parity = { tables: 0, rows: 0, drift: [] };
     for (const table of tableNames()) {
-      const pg = new Map(((await pgStore(this.db).read((r) => r.find(table))) as AnyRow[]).map((row) => [keyText(table, row), text(row)]));
-      const dv = new Map(((await this.devva.read((r) => r.find(table))) as AnyRow[]).map((row) => [keyText(table, row), text(row)]));
-      const d: Drift = { table, missing: 0, extra: 0, differing: 0 };
+      const pg = new Map(((await pgStore(this.db).read((r) => r.find(table))) as AnyRow[]).map((row) => [keyText(table, row), row]));
+      const dv = new Map(((await this.devva.read((r) => r.find(table))) as AnyRow[]).map((row) => [keyText(table, row), row]));
+      const d: Drift = { table, missing: 0, extra: 0, differing: 0, columns: [] };
       for (const [k, row] of pg) {
-        if (!dv.has(k)) d.missing += 1;
-        else if (dv.get(k) !== row) d.differing += 1;
+        const other = dv.get(k);
+        if (!other) d.missing += 1;
+        else if (text(other) !== text(row)) {
+          d.differing += 1;
+          for (const col of metaOf(table).columns) if (text(other[col]) !== text(row[col]) && !d.columns.includes(col)) d.columns.push(col);
+        }
       }
       for (const k of dv.keys()) if (!pg.has(k)) d.extra += 1;
       out.tables += 1;
