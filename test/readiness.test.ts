@@ -4,8 +4,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 import {
   CONTEXT_WINDOW_DAYS,
   FOOTPRINT_FRESH_MS,
@@ -315,7 +314,7 @@ describe("readinessOf", () => {
 });
 
 describe("get_resume and GET /api/projects", () => {
-  let raw: pg.Client;
+  let store: TestStore;
   let client: Client;
   let closeDb: () => Promise<void>;
   let cookie: string;
@@ -330,7 +329,7 @@ describe("get_resume and GET /api/projects", () => {
   }
 
   before(async () => {
-    raw = await resetTestDb();
+    store = await resetTestStore();
     const { makeDb } = await import("../src/db/client.js");
     const { createMcpServer } = await import("../src/mcp/register.js");
     const { createTask, claim } = await import("../src/mcp/writes.js");
@@ -340,18 +339,16 @@ describe("get_resume and GET /api/projects", () => {
     closeDb = made.close;
     await createTask(made.db, { project: "zigzag", title: "Corte", scope: "s", checks: ["c"], status: "Ready" }, ctx);
     await claim(made.db, { project: "zigzag", key: "ZIG-01" }, ctx);
-    await raw.query(
-      `insert into footprints (machine, kind, locator, project_id, task_id, state, details, last_seen_at, first_seen_at, source)
-       select 'test-mac', 'worktree', '/tmp/wt-mc', p.id, t.id, 'live', '{"dirty":false}'::jsonb, now(), now(), 'observed'
-       from projects p join tasks t on t.project_id = p.id
-       where p.slug = 'zigzag' and t.key = 'ZIG-01'`,
+    const zigzagId = await store.projectId("zigzag");
+    await store.fix(async (uow) => {
+      const t = (await uow.get("tasks", { projectId: zigzagId, key: "ZIG-01" }))!;
+      await uow.insert("footprints", { machine: "test-mac", kind: "worktree", locator: "/tmp/wt-mc", projectId: zigzagId, taskId: t.id, state: "live", details: { dirty: false }, lastSeenAt: uow.now, firstSeenAt: uow.now, source: "observed" });
+    });
+    const workiaId = await store.projectId("workia");
+    await store.fix((uow) =>
+      uow.insert("events", { projectId: workiaId, type: "note", actor: { agent: "test", session_id: "s1" }, payload: {}, createdAt: new Date(Date.now() - 30 * 24 * 3_600_000) }),
     );
-    await raw.query(
-      `insert into events (project_id, type, actor, payload, created_at)
-       select id, 'note', '{"agent":"test","session_id":"s1"}'::jsonb, '{}'::jsonb, now() - interval '30 days'
-       from projects where slug = 'workia'`,
-    );
-    await raw.query("insert into projects (slug, title, key_prefix) values ('alfa', 'Alfa', 'ALF')");
+    await store.fix((uow) => uow.insert("projects", { slug: "alfa", title: "Alfa", keyPrefix: "ALF" }));
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
     await createMcpServer(made.db).connect(serverSide);
     client = new Client({ name: "test", version: "0" });
@@ -361,7 +358,7 @@ describe("get_resume and GET /api/projects", () => {
   after(async () => {
     await client?.close();
     await closeDb?.();
-    await raw?.end();
+    await store?.end();
   });
 
   test("the same readiness, and old consumer fields keep their shape", async () => {
@@ -449,30 +446,14 @@ describe("get_resume and GET /api/projects", () => {
   });
 
   test("a missing commit or a missing integration head is caution, never ready", async () => {
-    await raw.query(
-      `insert into tasks (project_id, kind, key, title, status, branch)
-       select id, 'initiative', 'ALF-I1', 'Corte', 'Active', 'jl/corte' from projects where slug = 'alfa'`,
-    );
-    await raw.query(
-      `insert into tasks (project_id, parent_id, kind, key, title, status, pr_url)
-       select p.id, i.id, 'ticket', 'ALF-1', 'Demo', 'In review', 'https://example.test/pr/1'
-       from projects p join tasks i on i.project_id = p.id and i.key = 'ALF-I1'
-       where p.slug = 'alfa'`,
-    );
-    await raw.query(
-      `insert into pull_requests (project_id, repo, number, url, title, task_id, state, ci_state)
-       select p.id, 'example/demo', 1, 'https://example.test/pr/1', 'Demo', t.id, 'open', 'success'
-       from projects p join tasks t on t.project_id = p.id and t.key = 'ALF-1'
-       where p.slug = 'alfa'`,
-    );
-    await raw.query(
-      `insert into branches (project_id, name, head_sha)
-       select id, 'jl/corte', 'abc123abc123abc123abc123abc123abc123ab' from projects where slug = 'alfa'`,
-    );
-    await raw.query(
-      `insert into env_states (project_id, env, commit, by)
-       select id, 'prod', null, '{"agent":"test-agent","session_id":"s1"}'::jsonb from projects where slug = 'alfa'`,
-    );
+    const alfa = await store.projectId("alfa");
+    await store.fix(async (uow) => {
+      const initiative = await uow.insert("tasks", { projectId: alfa, kind: "initiative", key: "ALF-I1", title: "Corte", status: "Active", branch: "jl/corte" });
+      const ticket = await uow.insert("tasks", { projectId: alfa, parentId: initiative.id, kind: "ticket", key: "ALF-1", title: "Demo", status: "In review", prUrl: "https://example.test/pr/1" });
+      await uow.insert("pullRequests", { projectId: alfa, repo: "example/demo", number: 1, url: "https://example.test/pr/1", title: "Demo", taskId: ticket.id, state: "open", ciState: "success" });
+      await uow.insert("branches", { projectId: alfa, name: "jl/corte", headSha: "abc123abc123abc123abc123abc123abc123ab" });
+      await uow.insert("envStates", { projectId: alfa, env: "prod", commit: null, by: { agent: "test-agent", session_id: "s1" } });
+    });
 
     const missingCommit = await call("get_resume", { project: "alfa" });
     assert.equal(missingCommit.readiness.state, "caution");
@@ -480,27 +461,18 @@ describe("get_resume and GET /api/projects", () => {
     assert.equal(missingCommit.readiness.reasons[0].code, "ENV_UNKNOWN");
     assert.equal(missingCommit.readiness.line, "ALF-1: no se sabe si el entorno está al día.");
 
-    await raw.query(
-      `update env_states set commit = 'abc123abc123abc123abc123abc123abc123ab'
-       where env = 'prod' and project_id = (select id from projects where slug = 'alfa')`,
-    );
-    await raw.query(
-      `update branches set head_sha = null
-       where name = 'jl/corte' and project_id = (select id from projects where slug = 'alfa')`,
-    );
+    await store.fix((uow) => uow.update("envStates", { env: "prod", projectId: alfa }, { commit: "abc123abc123abc123abc123abc123abc123ab" }));
+    await store.fix((uow) => uow.update("branches", { name: "jl/corte", projectId: alfa }, { headSha: null }));
     const missingHead = await call("get_resume", { project: "alfa" });
     assert.equal(missingHead.readiness.state, "caution");
     assert.equal(missingHead.readiness.reasons[0].code, "ENV_UNKNOWN");
 
-    await raw.query(`delete from env_states where env = 'prod' and project_id = (select id from projects where slug = 'alfa')`);
+    await store.fix((uow) => uow.delete("envStates", { env: "prod", projectId: alfa }));
     const noEnvNoHead = await call("get_resume", { project: "alfa" });
     assert.equal(noEnvNoHead.readiness.state, "caution");
     assert.equal(noEnvNoHead.readiness.reasons[0].code, "ENV_UNKNOWN");
 
-    await raw.query(
-      `update branches set head_sha = 'abc123abc123abc123abc123abc123abc123ab'
-       where name = 'jl/corte' and project_id = (select id from projects where slug = 'alfa')`,
-    );
+    await store.fix((uow) => uow.update("branches", { name: "jl/corte", projectId: alfa }, { headSha: "abc123abc123abc123abc123abc123abc123ab" }));
     const knownHead = await call("get_resume", { project: "alfa" });
     assert.equal(knownHead.readiness.state, "ready");
     assert.deepEqual(knownHead.readiness.reasons, []);

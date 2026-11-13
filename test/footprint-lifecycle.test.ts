@@ -4,8 +4,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -19,7 +18,7 @@ const A = { agent: "claude", session_id: "s1", machine: "test-mac" };
 const P = { project: "zigzag" };
 
 let client: Client;
-let raw: pg.Client;
+let store: TestStore;
 let db: ReturnType<typeof makeDb>["db"];
 let closeDb: () => Promise<void>;
 
@@ -32,7 +31,7 @@ const register = (kind: string, locator: string, teardown: string, key?: string)
   call("register_footprint", { ...P, kind, locator, purpose: `${kind} for the test`, teardown, ...(key ? { task_key: key } : {}) });
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const made = makeDb();
   db = made.db;
   closeDb = made.close;
@@ -49,7 +48,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("handoff carries the live footprint", () => {
@@ -59,7 +58,7 @@ describe("handoff carries the live footprint", () => {
     await register("container", "pg-hand", "docker rm -f pg-hand", "ZIG-I1-1");
     await register("tunnel", "4300", "kill 4300", "ZIG-I1-1");
     await register("browser", "4400", "kill 4400", "ZIG-I1-1");
-    await raw.query("update footprints set state = 'gone' where locator = 'pid:4300'");
+    await store.fix((uow) => uow.update("footprints", { locator: "pid:4300" }, { state: "gone" }));
     await call("release_footprint", { ...P, locator: "4400", kind: "browser" });
 
     const h = await call("handoff", { ...P, key: "ZIG-I1-1", to: "open", note: "server on 4200 is running; the scratch Postgres is in docker" });
@@ -72,10 +71,10 @@ describe("handoff carries the live footprint", () => {
     // the receiver gets it back with the claim
     const taken = await call("claim", { ...P, key: "ZIG-I1-1", actor: { ...A, session_id: "s2" }, workspace: { worktree_path: "/w/one", branch: "jl/scratch" } });
     assert.deepEqual(taken.handoff.footprint.map((f: Json) => f.locator).sort(), listed);
-    const stored = (await raw.query("select handoff from tasks where key = 'ZIG-I1-1'")).rows[0];
+    const stored = (await store.get("tasks", { key: "ZIG-I1-1" }))!;
     assert.equal(stored.handoff, null, "claimed: the hold is cleared");
-    const ev = await raw.query("select payload from events where type = 'claim.handoff' and task_key = 'ZIG-I1-1'");
-    assert.deepEqual(ev.rows[0].payload.footprint.map((f: Json) => f.locator).sort(), listed);
+    const ev = await store.find("events", { type: "claim.handoff", taskKey: "ZIG-I1-1" });
+    assert.deepEqual((ev[0]!.payload as Json).footprint.map((f: Json) => f.locator).sort(), listed);
   });
 
   test("a ticket with nothing running hands off an empty list", async () => {
@@ -92,7 +91,7 @@ describe("Done and Won't do warn about what is still running", () => {
     await register("database", "zigzag_zig_i1_2_copy@5433", "dropdb -p 5433 zigzag_zig_i1_2_copy", "ZIG-I1-2");
     await register("browser", "4401", "kill 4401", "ZIG-I1-2");
     await register("tunnel", "4301", "kill 4301", "ZIG-I1-2");
-    await raw.query("update footprints set state = 'gone' where locator = 'pid:4401'");
+    await store.fix((uow) => uow.update("footprints", { locator: "pid:4401" }, { state: "gone" }));
     await call("release_footprint", { ...P, locator: "4301", kind: "tunnel" });
 
     const t = await call("get_task", { ...P, key: "ZIG-I1-2" });
@@ -106,7 +105,7 @@ describe("Done and Won't do warn about what is still running", () => {
     );
     assert.deepEqual(Object.keys(warnings[0]).sort(), ["code", "kind", "locator", "teardown"]);
     // the row is still there: Plania only names it
-    assert.equal((await raw.query("select 1 from footprints where locator = 'port:4201' and released_at is null")).rowCount, 1);
+    assert.equal(await store.count("footprints", { locator: "port:4201", releasedAt: null }), 1);
   });
 
   test("a ticket with nothing live closes with no warnings at all", async () => {

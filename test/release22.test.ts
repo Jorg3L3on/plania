@@ -5,8 +5,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -22,7 +21,7 @@ const P = { project: "filmia" };
 const T = { scope: "s", checks: ["c"] };
 
 let client: Client;
-let raw: pg.Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
 let cookie: string;
 
@@ -42,8 +41,8 @@ const req = (method: string, path: string, body?: unknown) =>
   app.request(path, { method, headers: { Cookie: cookie, ...(body !== undefined ? { "Content-Type": "application/json" } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
 
 before(async () => {
-  raw = await resetTestDb();
-  cookie = `${SESSION_COOKIE}=${createSession()}`;
+  store = await resetTestStore();
+  cookie =`${SESSION_COOKIE}=${createSession()}`;
   const { db, close } = makeDb();
   closeDb = close;
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -57,7 +56,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("environments", () => {
@@ -125,7 +124,9 @@ describe("typed blockers", () => {
       await call("add_result", { ...P, key: "FIL-I1-2", kind: "verify", verdict: "pass", cite: "31 nights in the table", metrics: { pickevent_nights: 31 } });
       assert.equal((await call("get_task", { ...P, key: "FIL-I1-2", view: "summary" })).status, "Blocked", "time_after still holds it");
       // The clock moves on (the job runs every 30 s).
-      await raw.query(`update blockers set spec = jsonb_set(spec, '{at}', '"2020-01-01T00:00:00.000Z"') where type = 'time_after'`);
+      await store.fix(async (uow) => {
+        for (const b of await uow.find("blockers", { type: "time_after" })) await uow.update("blockers", { id: b.id }, { spec: { ...b.spec, at: "2020-01-01T00:00:00.000Z" } });
+      });
       assert.equal(await promoteDue(db, new Date()), 1);
     } finally {
       await close();
@@ -221,7 +222,7 @@ describe("evidence and the review gate", () => {
     assert.equal((await call("add_result", { ...P, key: "FIL-I1-1", kind: "ci", verdict: "pass", cite: "x", commit: "nope" })).__error, "INVALID_RESULT");
     assert.equal((await call("add_result", { ...P, key: "FIL-I1-1", kind: "ci", verdict: "pass", cite: "x", attachments: ["file:///x"] })).__error, "INVALID_RESULT");
     // The poller learns a newer head.
-    await raw.query("update branches set head_sha = 'bbbbbbb1234' where name = 'jl/google-sso'");
+    await store.fix((uow) => uow.update("branches", { name: "jl/google-sso" }, { headSha: "bbbbbbb1234" }));
     const t = await call("get_task", { ...P, key: "FIL-I1-1" });
     assert.equal(t.results.find((x: Json) => x.kind === "e2e").stale_for_head, true);
     await call("set_check", { ...P, key: "FIL-I1-1", n: 1, done: true });
@@ -237,14 +238,27 @@ describe("evidence and the review gate", () => {
     const v = () => version("FIL-I1-1");
     const noProof = await call("set_task", { ...P, key: "FIL-I1-1", status: "Released", version: await v() });
     assert.equal(noProof.__error, "INVALID_TRANSITION");
-    await raw.query("update results set commit = null where kind = 'ci'");
+    await store.fix((uow) => uow.update("results", { kind: "ci" }, { commit: null }));
     assert.equal((await call("set_task", { ...P, key: "FIL-I1-1", status: "Merged", version: await v() })).__error, "EVIDENCE_REQUIRED");
     await call("add_result", { ...P, key: "FIL-I1-1", kind: "ci", verdict: "pass", cite: "merge commit green", commit: "cccccccc1" });
-    await raw.query(
-      `insert into pull_requests (project_id, repo, number, url, title, task_id, state, head_sha, merge_sha, merged_at, head_branch, base_branch)
-       select p.id, 'example/filmia', 130, t.pr_url, 'phase', t.id, 'merged', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'cccccccc1', now(), 'jl/google-sso', 'main'
-       from projects p join tasks t on t.project_id = p.id where p.slug = 'filmia' and t.key = 'FIL-I1-1'`,
-    );
+    const filmia = await store.projectId("filmia");
+    await store.fix(async (uow) => {
+      const t = (await uow.get("tasks", { projectId: filmia, key: "FIL-I1-1" }))!;
+      await uow.insert("pullRequests", {
+        projectId: filmia,
+        repo: "example/filmia",
+        number: 130,
+        url: t.prUrl!,
+        title: "phase",
+        taskId: t.id,
+        state: "merged",
+        headSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        mergeSha: "cccccccc1",
+        mergedAt: uow.now,
+        headBranch: "jl/google-sso",
+        baseBranch: "main",
+      });
+    });
     const merged = await call("set_task", { ...P, key: "FIL-I1-1", status: "Merged", version: await v() });
     assert.equal(merged.status, "Merged");
     const early = await call("set_task", { ...P, key: "FIL-I1-1", status: "Released", version: await v() });

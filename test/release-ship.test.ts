@@ -6,8 +6,7 @@ import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, beforeEach, describe, test } from "node:test";
-import type pg from "pg";
-import { TEST_BEARER, ownerCode, resetTestDb, useOwnerCode, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, ownerCode, resetTestStore, useOwnerCode, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 await useOwnerCode();
@@ -23,7 +22,7 @@ const { releaseGh, runReleaseGh, shipRelease } = await import("../src/mcp/releas
 const { inbox } = await import("../src/mcp/inbox.js");
 
 type Json = Record<string, any>;
-let raw: pg.Client;
+let store: TestStore;
 let db: ReturnType<typeof makeDb>["db"];
 let closeDb: () => Promise<void>;
 const ctx = { actor: { agent: "t", session_id: "s1", machine: "ci" } };
@@ -78,10 +77,23 @@ async function ship(headers: Record<string, string> = {}) {
 async function merged(key: string, number: number) {
   const p = await project();
   const t = (await findTask(db, p.id, key))!;
-  await raw.query("update tasks set status = 'Merged', pr_url = $2 where id = $1", [t.id, `https://github.com/${REPO}/pull/${number}`]);
-  await raw.query(
-    "insert into pull_requests (project_id, repo, number, url, title, task_id, state, head_sha, head_branch, base_branch, merged_at, merge_sha) values ($1, $2, $3, $4, $5, $6, 'merged', $7, $8, 'sandbox', now(), $7)",
-    [p.id, REPO, number, `https://github.com/${REPO}/pull/${number}`, key, t.id, `${number}`.padEnd(40, "e"), `jl/${key.toLowerCase()}`],
+  await store.fix((uow) => uow.update("tasks", { id: t.id }, { status: "Merged", prUrl: `https://github.com/${REPO}/pull/${number}` }));
+  const sha = `${number}`.padEnd(40, "e");
+  await store.fix((uow) =>
+    uow.insert("pullRequests", {
+      projectId: p.id,
+      repo: REPO,
+      number,
+      url: `https://github.com/${REPO}/pull/${number}`,
+      title: key,
+      taskId: t.id,
+      state: "merged",
+      headSha: sha,
+      headBranch: `jl/${key.toLowerCase()}`,
+      baseBranch: "sandbox",
+      mergedAt: uow.now,
+      mergeSha: sha,
+    }),
   );
 }
 
@@ -91,7 +103,7 @@ const setRelease = async (release: Json) => {
 };
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const made = makeDb();
   db = made.db;
   closeDb = made.close;
@@ -114,7 +126,7 @@ beforeEach(() => {
 
 after(async () => {
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("settings.release.mode", () => {
@@ -138,12 +150,13 @@ describe("settings.release.mode", () => {
 describe("the Lanzar gate", () => {
   test("off while a before-step is open, then while a check is open", async () => {
     assert.equal((await releasePlan(db, await project()))!.ship.reason, "before_steps");
-    await raw.query("update blockers set satisfied_at = now() where type = 'human_action'");
+    await store.fix((uow) => uow.update("blockers", { type: "human_action" }, { satisfiedAt: uow.now }));
     assert.equal((await releasePlan(db, await project()))!.ship.reason, "open_checks");
     const res = await ship();
     assert.equal(res.status, 409);
     assert.equal(((await res.json()) as Json).reason, "open_checks");
-    await raw.query("update checks set done = true where task_id in (select id from tasks where key in ('ZIG-I1-1', 'ZIG-I1-2'))");
+    const phases = await store.find("tasks", { key: ["ZIG-I1-1", "ZIG-I1-2"] });
+    await store.fix((uow) => uow.update("checks", { taskId: phases.map((t) => t.id) }, { done: true }));
     assert.deepEqual((await releasePlan(db, await project()))!.ship, { ready: true, reason: null });
   });
 
@@ -255,7 +268,7 @@ describe("shipping", () => {
 
   test("without an open PR one is created; the poller then sees main contain sandbox and the step goes", async () => {
     // A new sandbox head (another release) makes the step shippable again.
-    await raw.query("delete from events where type = 'release.merged'");
+    await store.fix((uow) => uow.delete("events", { type: "release.merged" }));
     const res = await ship();
     assert.equal(res.status, 200);
     assert.deepEqual(calls.map((c) => c[1]), ["list", "create", "merge", "view"]);

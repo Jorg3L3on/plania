@@ -2,8 +2,7 @@
 // task rows carry due_on and time_after, and Inicio's Próximo puts overdue first.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -14,14 +13,14 @@ const { createTask } = await import("../src/mcp/writes.js");
 const { dayText, dueText, isOverdue, proximoOf } = await import("../ui/src/lib/due.js");
 
 type Json = Record<string, any>;
-let raw: pg.Client;
+let store: TestStore;
 const cookie = `${SESSION_COOKIE}=${createSession()}`;
 const ctx = { actor: { agent: "t", session_id: "s1", machine: "ci" } };
 const get = async (path: string) => (await (await app.request(path, { headers: { Cookie: cookie } })).json()) as Json;
 const day = (offset: number) => new Intl.DateTimeFormat("en-CA", { timeZone: process.env.PLANIA_TZ || "America/Mexico_City" }).format(new Date(Date.now() + offset * 86_400_000));
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const { db, close } = makeDb();
   try {
     const T = { project: "filmia", scope: "s", checks: ["c"], status: "Ready" };
@@ -33,11 +32,11 @@ before(async () => {
   } finally {
     await close();
   }
-  await raw.query("update tasks set status = 'Done' where key = 'FIL-05'");
+  await store.fix((uow) => uow.update("tasks", { key: "FIL-05" }, { status: "Done" }));
 });
 
 after(async () => {
-  await raw?.end();
+  await store?.end();
 });
 
 describe("dates in the API", () => {

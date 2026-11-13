@@ -6,11 +6,11 @@ import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
+const { notNull } = await import("../src/store/types.js");
 const { createTask, claim } = await import("../src/mcp/writes.js");
 const { findProject } = await import("../src/mcp/queries.js");
 const parse = await import("../src/jobs/machine/parse.js");
@@ -238,17 +238,18 @@ describe("owner inference", () => {
 });
 
 describe("reconcile", () => {
-  let raw: pg.Client;
+  let store: TestStore;
   before(async () => {
-    raw = await resetTestDb();
+    store = await resetTestStore();
   });
   after(async () => {
-    await raw?.end();
+    await store?.end();
   });
 
   const server = (port: number): Observed => ({ kind: "server", locator: `port:${port}`, cwd: ZIG, details: { port, pid: 1000 + port } });
   const NOW = (min: number) => new Date(Date.UTC(2026, 9, 9, 12, min, 0));
-  const state = async (locator: string) => (await raw.query("select * from footprints where locator = $1 and released_at is null", [locator])).rows[0];
+  const state = async (locator: string): Promise<Record<string, any>> => (await store.get("footprints", { locator, releasedAt: null })) as Record<string, any>;
+  const footprintEvents = async () => (await store.find("events", {}, { orderBy: [{ column: "id" }] })).filter((e) => e.type.startsWith("footprint."));
 
   async function tick(items: Observed[], ran: string[], min: number, dir?: Directory) {
     const { db, close } = makeDb();
@@ -282,11 +283,11 @@ describe("reconcile", () => {
     off();
     assert.equal(r.seen, 2);
     const s = await state("port:3069");
-    assert.deepEqual([s.state, s.project_id !== null, s.source, s.misses], ["live", true, "observed", 0]);
+    assert.deepEqual([s.state, s.projectId !== null, s.source, s.misses], ["live", true, "observed", 0]);
     assert.equal((await state("postgres:5433")).state, "system");
-    const ev = await raw.query("select type, payload from events where type like 'footprint.%'");
-    assert.deepEqual(ev.rows.map((e) => e.type), ["footprint.seen"]);
-    assert.equal(ev.rows[0].payload.locator, "port:3069");
+    const ev = await footprintEvents();
+    assert.deepEqual(ev.map((e) => e.type), ["footprint.seen"]);
+    assert.equal(ev[0]!.payload.locator, "port:3069");
     assert.ok(heard.includes("footprint:"), "the live bus is told the inventory changed");
     assert.ok(heard.includes("project:zigzag"));
   });
@@ -295,8 +296,8 @@ describe("reconcile", () => {
     const r = await tick([server(3069)], ["ports"], 1);
     assert.deepEqual([r.seen, r.gone, r.updated], [0, 0, 0]);
     const s = await state("port:3069");
-    assert.equal(s.last_seen_at.toISOString(), NOW(1).toISOString());
-    assert.equal((await raw.query("select 1 from events where type like 'footprint.%'")).rowCount, 1);
+    assert.equal(s.lastSeenAt.toISOString(), NOW(1).toISOString());
+    assert.equal((await footprintEvents()).length, 1);
   });
 
   test("not seen on one run it stays; a collector that did not run leaves the row alone; two misses make it gone", async () => {
@@ -308,9 +309,9 @@ describe("reconcile", () => {
     const r = await tick([server(3069)], ["ports"], 3);
     assert.equal(r.gone, 1);
     const g = await state("postgres:5433");
-    assert.deepEqual([g.state, g.last_seen_at.toISOString()], ["gone", NOW(0).toISOString()]); // last_seen frozen
+    assert.deepEqual([g.state, g.lastSeenAt.toISOString()], ["gone", NOW(0).toISOString()]); // last_seen frozen
     // gone rows of a project-less item have no event; the project's server is still live
-    assert.equal((await raw.query("select 1 from events where type = 'footprint.gone'")).rowCount, 0);
+    assert.equal(await store.count("events", { type: "footprint.gone" }), 0);
     assert.equal((await state("port:3069")).state, "live");
   });
 
@@ -319,14 +320,14 @@ describe("reconcile", () => {
     const r = await tick([], ["ports"], 5);
     assert.equal(r.gone, 1);
     assert.equal((await state("port:3069")).state, "gone");
-    const ev = await raw.query("select payload from events where type = 'footprint.gone'");
-    assert.equal(ev.rows[0].payload.locator, "port:3069");
-    const before = (await raw.query("select count(*)::int as n from footprints")).rows[0].n;
+    const ev = await store.find("events", { type: "footprint.gone" });
+    assert.equal(ev[0]!.payload.locator, "port:3069");
+    const before = await store.count("footprints");
     const back = await tick([server(3069)], ["ports"], 6);
     assert.equal(back.revived, 1);
     const s = await state("port:3069");
     assert.deepEqual([s.state, s.misses], ["live", 0]);
-    assert.equal((await raw.query("select count(*)::int as n from footprints")).rows[0].n, before);
+    assert.equal(await store.count("footprints"), before);
   });
 
   test("a gone row is released a day after it was last seen, which frees its locator", async () => {
@@ -341,17 +342,17 @@ describe("reconcile", () => {
       await close();
     }
     assert.equal(await state("port:3069"), undefined);
-    assert.ok((await raw.query("select 1 from footprints where locator = 'port:3069' and released_at is not null")).rowCount! >= 1);
+    assert.ok((await store.count("footprints", { locator: "port:3069", releasedAt: notNull() })) >= 1);
   });
 
   test("a declared owner is not overwritten by inference", async () => {
-    await raw.query(
-      `insert into footprints (machine, kind, locator, source, purpose, project_id, state, first_seen_at, last_seen_at)
-       values ('test-mac', 'server', 'port:4000', 'declared', 'my server', (select id from projects where slug = 'filmia'), 'live', now(), now())`,
+    const filmiaId = await store.projectId("filmia");
+    await store.fix((uow) =>
+      uow.insert("footprints", { machine: "test-mac", kind: "server", locator: "port:4000", source: "declared", purpose: "my server", projectId: filmiaId, state: "live", firstSeenAt: uow.now, lastSeenAt: uow.now }),
     );
     await tick([{ ...server(4000), cwd: ZIG }], ["ports"], 10); // inference would say zigzag
     const s = await state("port:4000");
-    assert.equal((await raw.query("select slug from projects where id = $1", [s.project_id])).rows[0].slug, "filmia");
+    assert.equal((await store.get("projects", { id: s.projectId }))!.slug, "filmia");
     assert.equal(s.purpose, "my server");
   });
 
@@ -367,12 +368,12 @@ describe("reconcile", () => {
 });
 
 describe("a whole tick", () => {
-  let raw: pg.Client;
+  let store: TestStore;
   before(async () => {
-    raw = await resetTestDb();
+    store = await resetTestStore();
   });
   after(async () => {
-    await raw?.end();
+    await store?.end();
   });
 
   test("recorded output end to end: servers, worktrees and databases are matched to a claimed ticket; docker is missing; the second tick adds nothing", async () => {

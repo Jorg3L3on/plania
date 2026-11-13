@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -19,7 +18,7 @@ const P = { project: "zigzag" };
 const T = { scope: "s", checks: ["c"] };
 
 let client: Client;
-let raw: pg.Client;
+let store: TestStore;
 let db: ReturnType<typeof makeDb>["db"];
 let closeDb: () => Promise<void>;
 
@@ -31,7 +30,7 @@ async function call(name: string, args: Json): Promise<Json> {
 const version = async (key: string) => (await call("get_task", { ...P, key, view: "summary" })).version;
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const made = makeDb();
   db = made.db;
   closeDb = made.close;
@@ -44,7 +43,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("generated headline", () => {
@@ -66,7 +65,7 @@ describe("generated headline", () => {
     await call("create_task", { ...P, title: "Phone run", ...T, parent_key: "ZIG-I1", phase: 3, status: "Ready", blocked_by: [{ human_action: { text: "run it on the phone" } }] }); // ZIG-I1-3
     await call("set_env", { ...P, env: "prod", commit: "abc1234def", branch: "main", deployed: { provider: "vercel", deployment_id: "dpl_1" } });
     const p = await findProject(db, "zigzag");
-    await raw.query("insert into releases (project_id, env, commit, task_keys) values ($1, 'prod', 'abc1234def', '{ZIG-I1-1}')", [p.id]);
+    await store.fix((uow) => uow.insert("releases", { projectId: p.id, env: "prod", commit: "abc1234def", taskKeys: ["ZIG-I1-1"] }));
     await call("claim", { ...P, key: "ZIG-I1-2" });
 
     r = await call("get_resume", P);
@@ -96,7 +95,7 @@ describe("generated headline", () => {
 
 describe("derived initiative state", () => {
   test("phase now, done of total, in review with its PR, what open tickets wait on; the same in get_task and get_resume", async () => {
-    await raw.query("update tasks set status = 'Done' where key = 'ZIG-I1-1'");
+    await store.fix((uow) => uow.update("tasks", { key: "ZIG-I1-1" }, { status: "Done" }));
     await call("add_result", { ...P, key: "ZIG-I1-2", kind: "unit", verdict: "pass", cite: "ok", check_ns: [1] });
     await call("set_task", { ...P, key: "ZIG-I1-2", status: "In review", pr_url: "https://github.com/Jorg3L3on/zigzag/pull/7", version: await version("ZIG-I1-2") });
 
@@ -125,7 +124,7 @@ describe("derived initiative state", () => {
 
   test("a stale state_note is a flag on the note, not an audit finding", async () => {
     await call("set_task", { ...P, key: "ZIG-I1", state_note: "phone run next", version: await version("ZIG-I1") });
-    await raw.query("update tasks set status_changed_at = now() + interval '1 minute' where key = 'ZIG-I1-3'");
+    await store.fix((uow) => uow.update("tasks", { key: "ZIG-I1-3" }, { statusChangedAt: new Date(Date.now() + 60_000) }));
     const i = await call("get_task", { ...P, key: "ZIG-I1" });
     assert.equal(i.state_note.stale, true);
     const p = await findProject(db, "zigzag");
@@ -143,7 +142,10 @@ describe("evidence timeline (fix d)", () => {
     let t = await call("get_task", { ...P, key: "ZIG-01" });
     assert.deepEqual(t.results.map((r: Json) => [r.kind, r.ticked_checks, r.stale_for_head]), [["unit", [2, 3], false], ["visual", [], null]]);
     const p = await findProject(db, "zigzag");
-    await raw.query("insert into branches (project_id, name, head_sha) values ($1, 'jl/timeline', 'def5678') on conflict (project_id, name) do update set head_sha = 'def5678'", [p.id]);
+    await store.fix(async (uow) => {
+      const updated = await uow.update("branches", { projectId: p.id, name: "jl/timeline" }, { headSha: "def5678" });
+      if (updated.length === 0) await uow.insert("branches", { projectId: p.id, name: "jl/timeline", headSha: "def5678" });
+    });
     t = await call("get_task", { ...P, key: "ZIG-01" });
     assert.equal(t.results[0].stale_for_head, true, "the branch moved on");
     assert.deepEqual([t.results[0].command, t.results[0].counts, t.results[0].duration_s], ["pnpm test", { pass: 12 }, 40]);
