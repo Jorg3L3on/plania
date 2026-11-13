@@ -1,12 +1,11 @@
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { homedir, hostname, userInfo } from "node:os";
 import path from "node:path";
 import type { Db } from "../../db/client.js";
-import { alias } from "drizzle-orm/pg-core";
-import { branches, events, footprints, projects, resources, taskAliases, tasks } from "../../db/schema.js";
 import { sameMachine } from "../../mcp/footprint-read.js";
 import { liveOwner } from "../../mcp/queries.js";
 import { SYSTEM_ACTOR, iso, writeTx } from "../../mcp/tx.js";
+import { readerOf } from "../../store/pg.js";
+import type { Reader } from "../../store/types.js";
 import type { Job, JobSummary } from "../index.js";
 import {
   collectBrew,
@@ -65,30 +64,31 @@ function defaultDeps(): MachineDeps {
 
 const due = (s: MachineState, name: string, every: number, now: Date) => now.getTime() - (s.lastRun[name] ?? -Infinity) >= every;
 
+// The unreleased worktree rows of this machine: what the table knows between worktree collections.
+const knownWorktrees = (r: Reader, machine: string) => r.find("footprints", { machine, kind: "worktree", releasedAt: null });
+
 // Everything the inference needs, loaded once per tick.
 export async function loadDirectory(db: Db, deps: Pick<MachineDeps, "projectsRoot" | "machine">): Promise<Directory> {
-  const projs = await db.select({ id: projects.id, slug: projects.slug, keyPrefix: projects.keyPrefix, settings: projects.settings }).from(projects);
-  const taskRows = await db
-    .select({
-      id: tasks.id,
-      key: tasks.key,
-      projectId: tasks.projectId,
-      status: tasks.status,
-      owner: tasks.owner,
-      leaseUntil: tasks.leaseUntil,
-      workspace: tasks.workspace,
-      kind: tasks.kind,
-      parentId: tasks.parentId,
-      statusChangedAt: tasks.statusChangedAt,
-      lastSeenAt: tasks.lastSeenAt,
-    })
-    .from(tasks);
-  const aliasRows = await db.select({ projectId: taskAliases.projectId, alias: taskAliases.alias, taskId: taskAliases.taskId }).from(taskAliases);
-  const branchRows = await db.select({ projectId: branches.projectId, name: branches.name, ownerTaskId: branches.ownerTaskId, mergedAt: branches.mergedAt }).from(branches);
-  const known = await db
-    .select({ details: footprints.details })
-    .from(footprints)
-    .where(and(eq(footprints.machine, deps.machine), eq(footprints.kind, "worktree"), isNull(footprints.releasedAt)));
+  const r = readerOf(db);
+  const projs = (await r.find("projects")).map((p) => ({ id: p.id, slug: p.slug, keyPrefix: p.keyPrefix, settings: p.settings }));
+  const taskRows = (await r.find("tasks")).map(
+    (t): TaskLite => ({
+      id: t.id,
+      key: t.key,
+      projectId: t.projectId,
+      status: t.status,
+      owner: t.owner,
+      leaseUntil: t.leaseUntil,
+      workspace: t.workspace,
+      kind: t.kind,
+      parentId: t.parentId,
+      statusChangedAt: t.statusChangedAt,
+      lastSeenAt: t.lastSeenAt,
+    }),
+  );
+  const aliasRows = await r.find("taskAliases");
+  const branchRows = await r.find("branches");
+  const known = await knownWorktrees(r, deps.machine);
 
   const tasksById = new Map<string, TaskLite>(taskRows.map((t) => [t.id, t]));
   const tasksByKey = new Map<string, Map<string, TaskLite>>();
@@ -149,9 +149,7 @@ export async function runMachineTick(db: Db, now: Date, over: Partial<MachineDep
   let wt: Collected = { ran: [], items: [] };
   if (slow || sizes) {
     const previous = new Map(
-      (await db.select({ details: footprints.details }).from(footprints).where(and(eq(footprints.machine, deps.machine), eq(footprints.kind, "worktree"), isNull(footprints.releasedAt)))).map(
-        (r) => [String((r.details as { path?: string }).path), r.details as { size_kb?: number; size_at?: string }],
-      ),
+      (await knownWorktrees(readerOf(db), deps.machine)).map((r) => [String((r.details as { path?: string }).path), r.details as { size_kb?: number; size_at?: string }]),
     );
     wt = await collectWorktrees(run, dir.repos, { sizes, previous, now });
     state.lastRun.slow = now.getTime();
@@ -201,12 +199,8 @@ export async function markStaleClaims(db: Db, machine: string, dir: Directory, r
     const project = dir.projects.find((p) => p.id === t.projectId);
     if (!project) continue;
     const leaseUntil = iso(t.leaseUntil);
-    const [already] = await db
-      .select({ id: events.id })
-      .from(events)
-      .where(and(eq(events.taskId, t.id), eq(events.type, "claim.stale"), sql`${events.payload}->>'lease_until' = ${leaseUntil}`))
-      .limit(1);
-    if (already) continue;
+    const marks = await readerOf(db).find("events", { taskId: t.id, type: "claim.stale" });
+    if (marks.some((e) => e.payload.lease_until === leaseUntil)) continue;
     await writeTx(db, project, { actor: SYSTEM_ACTOR, requestId: `claim-stale:${t.key}:${leaseUntil}`, tool: "jobs.machine" }, async (_tx, emit) => {
       await emit("claim.stale", t, { owner: t.owner, worktree_path: ws.worktree_path, lease_until: leaseUntil, machine });
     });
@@ -226,21 +220,31 @@ export const machineJob: Job = {
 // `GET /api/machine`. A server on a port someone leased (lease_resource port:N) carries `lease`,
 // joined at read time so it cannot go stale: the lease's holder, purpose and expiry.
 export async function machineInventory(db: Db, machine?: string) {
-  const parent = alias(tasks, "parent");
-  const rows = await db
-    .select({ f: footprints, projectSlug: projects.slug, t: { key: tasks.key, title: tasks.title, kind: tasks.kind }, init: { key: parent.key, title: parent.title } })
-    .from(footprints)
-    .leftJoin(projects, eq(projects.id, footprints.projectId))
-    .leftJoin(tasks, eq(tasks.id, footprints.taskId))
-    .leftJoin(parent, eq(parent.id, tasks.parentId))
-    .where(machine ? and(isNull(footprints.releasedAt), eq(footprints.machine, machine)) : isNull(footprints.releasedAt))
-    .orderBy(footprints.kind, footprints.locator);
-  const leases = rows.some((r) => r.f.kind === "server")
-    ? await db
-        .select({ name: resources.name, holder: resources.holder, purpose: resources.purpose, leaseUntil: resources.leaseUntil, project: projects.slug })
-        .from(resources)
-        .innerJoin(projects, eq(projects.id, resources.projectId))
-        .where(and(gt(resources.leaseUntil, sql`now()`), sql`${resources.name} like 'port:%'`))
+  const r = readerOf(db);
+  const found = await r.find("footprints", machine ? { releasedAt: null, machine } : { releasedAt: null }, { orderBy: [{ column: "kind" }, { column: "locator" }] });
+  const slugs = new Map((await r.find("projects")).map((p) => [p.id, p.slug]));
+  // Each row's ticket, and the ticket's parent: the initiative above it.
+  const ids = (list: (string | null)[]) => [...new Set(list.filter((id): id is string => !!id))];
+  const tickets = ids(found.map((f) => f.taskId));
+  const ticketRows = tickets.length ? await r.find("tasks", { id: tickets }) : [];
+  const parents = ids(ticketRows.map((t) => t.parentId));
+  const parentRows = parents.length ? await r.find("tasks", { id: parents }) : [];
+  const tasksById = new Map([...ticketRows, ...parentRows].map((t) => [t.id, t]));
+  const rows = found.map((f) => {
+    const t = f.taskId ? tasksById.get(f.taskId) : undefined;
+    const init = t?.parentId ? tasksById.get(t.parentId) : undefined;
+    return {
+      f,
+      projectSlug: (f.projectId && slugs.get(f.projectId)) ?? null,
+      t: t ? { key: t.key, title: t.title, kind: t.kind } : null,
+      init: init ? { key: init.key, title: init.title } : null,
+    };
+  });
+  const now = new Date();
+  const leases = rows.some((x) => x.f.kind === "server")
+    ? (await r.find("resources"))
+        .filter((l) => l.leaseUntil > now && l.name.startsWith("port:") && slugs.has(l.projectId))
+        .map((l) => ({ name: l.name, holder: l.holder, purpose: l.purpose, leaseUntil: l.leaseUntil, project: slugs.get(l.projectId)! }))
     : [];
   const leaseOf = (kind: string, locator: string, host: string) => {
     if (kind !== "server") return null;

@@ -1,8 +1,7 @@
-import { eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { machineState, projects, pushSubscriptions } from "../db/schema.js";
 import { inbox, type InboxItem } from "../mcp/inbox.js";
 import { sendToAll, vapidConfig, webPushSender, type PushPayload, type Sender } from "../push.js";
+import { pgStore, readerOf } from "../store/pg.js";
 import type { Job } from "./index.js";
 
 // 2.12 push: once a minute, what is new in Jorge's inbox (decisiones and pasos: a question,
@@ -40,16 +39,19 @@ export function messageFor(items: InboxItem[], names: Map<string, string>): Push
 }
 
 async function readState(db: Db): Promise<PushState | null> {
-  const [row] = await db.select().from(machineState).where(eq(machineState.key, STATE_KEY)).limit(1);
+  const row = await readerOf(db).get("machineState", { key: STATE_KEY });
   return row ? (row.value as unknown as PushState) : null;
 }
 
+// A store write belongs to a project; machine_state belongs to the Mac, so its writes belong to none.
+const NO_PROJECT = "";
+
 async function writeState(db: Db, state: PushState) {
   const value = state as unknown as Record<string, unknown>;
-  await db
-    .insert(machineState)
-    .values({ key: STATE_KEY, value })
-    .onConflictDoUpdate({ target: machineState.key, set: { value, updatedAt: sql`now()` } });
+  await pgStore(db).write(NO_PROJECT, {}, async (uow) => {
+    if (await uow.get("machineState", { key: STATE_KEY })) await uow.update("machineState", { key: STATE_KEY }, { value, updatedAt: uow.now });
+    else await uow.insert("machineState", { key: STATE_KEY, value });
+  });
 }
 
 export async function runPush(db: Db, now = new Date(), send: Sender = webPushSender) {
@@ -61,9 +63,8 @@ export async function runPush(db: Db, now = new Date(), send: Sender = webPushSe
   const summary = { new: fresh.length, sent: 0, failed: 0, removed: 0 };
   const vapid = vapidConfig();
   if (fresh.length && vapid) {
-    const [subs] = await db.select({ n: sql<number>`count(*)::int` }).from(pushSubscriptions);
-    if (subs?.n) {
-      const names = new Map((await db.select({ slug: projects.slug, title: projects.title }).from(projects)).map((p) => [p.slug, p.title]));
+    if (await readerOf(db).count("pushSubscriptions")) {
+      const names = new Map((await readerOf(db).find("projects")).map((p) => [p.slug, p.title]));
       Object.assign(summary, await sendToAll(db, messageFor(fresh, names), vapid, send));
     }
   }
