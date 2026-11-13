@@ -185,6 +185,9 @@ test("I40-4 #3: Que empiece ya calls the start of that teammate; once it runs th
   assert.match(after, /data-now="work"/);
   assert.ok(text(after).includes("Trabajando"));
   assert.equal(/data-countdown|data-now-action/.test(after), false);
+  // Held by usage, the clock counts down to the retry, not to a start.
+  const held = floor(resting({ hold: "usage", starts_at: "2026-11-13T23:10:00Z", text: "El uso de Claude va en 77 % y el tope es 70 %." }));
+  assert.ok(text(held).includes("para reintentar") && !text(held).includes("para arrancar"));
   clean(after);
 });
 

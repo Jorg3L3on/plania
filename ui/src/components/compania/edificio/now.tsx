@@ -24,7 +24,7 @@ export type NowActs = {
   busy?: string | null;
 };
 
-const Tick = ({ until, now, onElapsed }: { until: string; now: number; onElapsed?: () => void }) => {
+const Tick = ({ until, now, label, onElapsed }: { until: string; now: number; label: string; onElapsed?: () => void }) => {
   const [at, setAt] = useState(now);
   const told = useRef(false);
   useEffect(() => {
@@ -41,7 +41,7 @@ const Tick = ({ until, now, onElapsed }: { until: string; now: number; onElapsed
   return (
     <p className="edi-ntick" data-countdown={until} role="timer" aria-live="off">
       <b>{countdown(until, at)}</b>
-      <span>para arrancar</span>
+      <span>{label}</span>
     </p>
   );
 };
@@ -104,7 +104,7 @@ export const Now = ({
           </div>
         )}
       </div>
-      {line.starts_at && <Tick key={line.starts_at} until={line.starts_at} now={now} onElapsed={acts?.onElapsed} />}
+      {line.starts_at && <Tick key={line.starts_at} until={line.starts_at} now={now} label={line.state === "stuck" ? "para reintentar" : "para arrancar"} onElapsed={acts?.onElapsed} />}
     </div>
   );
 };
