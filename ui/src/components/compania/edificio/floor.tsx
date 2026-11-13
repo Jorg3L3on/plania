@@ -8,6 +8,7 @@ import { Figure } from "./figure";
 import { Now, type NowActs } from "./now";
 import { Plate } from "./plate";
 import { Question, bubblePlace, type QuestionActs } from "./question";
+import { Route } from "./route";
 import { Window } from "./window";
 
 export const Floor = ({
@@ -55,7 +56,7 @@ export const Floor = ({
   const slots = team.length + 1 + (children ? 1 : 0);
   return (
     <article id={`piso-${p.slug}`} className="edi-floor" data-floor={p.slug} data-light={p.light} style={{ "--c": floorHue(p.slug) } as CSSProperties} aria-label={p.title}>
-      <div className="edi-plate">{plate ?? <Plate project={p} onFijar={onFijar} onPlan={onPlan} onPublish={onPublish}>{ask}</Plate>}</div>
+      <div className="edi-plate">{plate ?? <Plate project={p} onFijar={onFijar} onPlan={onPlan} onPublish={onPublish} noSteps={p.route !== undefined}>{ask}</Plate>}</div>
       <div className="edi-wins">
         <Now project={p} line={line} now={now} decisions={decisions} acts={nowActs} qacts={acts} onFijar={onFijar} onPublish={onPublish} />
         {team.map((m, i) => {
@@ -100,6 +101,7 @@ export const Floor = ({
             {children}
           </div>
         )}
+        <Route project={p} now={now} timeZone={timeZone} onPlan={nowActs?.onPlan} busy={nowActs?.busy === `${p.slug}:plan`} />
       </div>
     </article>
   );

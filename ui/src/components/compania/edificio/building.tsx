@@ -141,7 +141,7 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
               timeZone={timeZone}
               onOpen={onOpen ? (m, el) => onOpen(p.slug, m, el) : undefined}
               plate={
-                <Plate project={p} onPlan={onPlan}>
+                <Plate project={p} onPlan={onPlan} noSteps={p.route !== undefined}>
                   {onResume && (
                     <div className="edi-links">
                       <button type="button" className="edi-btn" disabled={resuming === p.slug} onClick={() => onResume(p.slug)} data-control="reanudar">

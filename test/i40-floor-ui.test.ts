@@ -200,6 +200,88 @@ test("I40-4 #4: six windows across on a Mac and two on a phone; the band is one 
   assert.equal(bubblePlace(3, 6)["--nx-wide"], `${(3.5 / 6) * 100}%`);
 });
 
+// ---- PLA-I40-5
+
+const step = (key: string, title: string, state: string, at: string | null = null): Json => ({ key, title, state, who: "taller", at });
+const mianovia: Json = {
+  legs: [
+    { key: "WRK-I1", title: "Arranque y configuración", done: 4, total: 5, state: "planned", note: "Pospuesto: Hosting y dominio" },
+    { key: "WRK-I2", title: "Formulario de bienvenida", done: 5, total: 5, state: "done", note: null },
+    {
+      key: "WRK-I3",
+      title: "Panel administrativo",
+      done: 2,
+      total: 4,
+      state: "here",
+      note: null,
+      steps: [
+        step("WRK-7", "Acceso privado del equipo", "published", "2026-11-13T20:35:00Z"),
+        step("WRK-8", "Listado de novias con búsqueda y filtros", "published", "2026-11-13T20:35:00Z"),
+        step("WRK-9", ficha, "next"),
+        step("WRK-10", "Revisión del panel y lista de supuestos", "later"),
+      ],
+    },
+    { key: "WRK-I4", title: "Contacto, exportación y avisos", done: 0, total: 0, state: "unplanned", note: null },
+    { key: "WRK-I5", title: "Ajustes finales y entrega", done: 0, total: 0, state: "unplanned", note: null },
+  ],
+  more_legs: 0,
+};
+
+test("I40-5 #1: five legs with their counts, the current one opened into named steps; the plate drops its dashes", () => {
+  const s = floor({ ...resting(), route: mianovia, plan: { initiative: { key: "WRK-I3", title: "Panel administrativo" }, done: 2, total: 4 } });
+  assert.equal((s.match(/class="edi-leg"/g) ?? []).length, 5);
+  assert.match(s, /data-leg="here" aria-current="step"/);
+  const t = text(s).replace(/\s+/g, " ");
+  assert.ok(t.includes("11 de 14 pasos · 2 entregables sin planear"));
+  for (const words of ["4 de 5 · pospuesto: Hosting y dominio", "completo", "2 de 4 · aquí", "sin planear"]) assert.ok(t.includes(words), words);
+  assert.deepEqual([...s.matchAll(/data-step="([a-z]+)" data-mark="([a-z]+)"/g)].map((m) => `${m[1]}:${m[2]}`), ["published:done", "published:done", "next:now", "later:later"]);
+  assert.ok(t.includes("Publicado hoy 2:35 pm") && t.includes("Después · espera el paso anterior"));
+  assert.equal(/edi-segs|pasos hechos/.test(s), false, "the route says the steps, not the plate");
+  // An older server sends no route: the plate keeps its strip and the floor draws no route.
+  const old = floor({ ...resting(), plan: { initiative: { key: "WRK-I3", title: "Panel administrativo" }, done: 2, total: 4 } });
+  assert.ok(old.includes("2 de 4 pasos hechos") && !old.includes("edi-route"));
+  clean(s);
+});
+
+test("I40-5 #2: the step that comes next says what the band says", () => {
+  const p: Json = { ...resting(), route: mianovia };
+  const band = line(p);
+  const next = lib.stepLine(mianovia.legs[2].steps[2], p.team, NOW, TZ);
+  assert.equal(next, "Sigue · Taller arranca a las 2:52 pm");
+  assert.ok(band.say.includes("a las 2:52 pm") && band.say.includes(ficha));
+  // Other holds, and the other states.
+  const held = resting({ hold: "usage", starts_at: null, text: "x" });
+  assert.equal(lib.stepLine(mianovia.legs[2].steps[2], held.team, NOW, TZ), "Sigue · Taller: detenido por el uso");
+  assert.equal(lib.stepLine(step("WRK-9", ficha, "next"), [], NOW, TZ), "Sigue · Taller");
+  assert.equal(lib.stepLine(step("WRK-9", ficha, "delivered"), [], NOW, TZ), "Entregado · espera que lo aceptes");
+  const busy = [member("taller", { state: "running", now: { ticket: "WRK-9", title: ficha, since: "2026-11-13T20:41:00Z" } })];
+  assert.equal(lib.stepLine(step("WRK-9", ficha, "working"), busy, NOW, TZ), "En curso · Taller, desde hace 3 min");
+  assert.equal(lib.stepLine(step("WRK-9", ficha, "done", "2026-11-12T20:00:00Z"), [], NOW, TZ), "Aceptado ayer");
+  assert.equal(lib.stepLine(step("WRK-9", ficha, "published", "2026-11-02T20:00:00Z"), [], NOW, TZ), "Publicado el 2 nov");
+});
+
+test("I40-5 #1: no plan says so with Que PO lo planee; one leg; a 120-character step wraps whole", () => {
+  const none = floor(project({ route: null }));
+  assert.match(none, /data-route="empty"/);
+  assert.ok(text(none).includes("Aún no hay plan") && none.includes('data-control="planear"'));
+  assert.equal(floor(project({ route: null, paused: true, light: "paused" })).includes('data-control="planear"'), false, "a paused floor asks nothing");
+
+  const long = "Importar el inventario de la bodega desde la hoja de cálculo que la tienda ya usa, con códigos, precios y existencias";
+  assert.ok(long.length >= 115);
+  const one = floor(project({ route: { legs: [{ key: "WRK-I1", title: "Inventario", done: 0, total: 1, state: "here", note: null, steps: [step("WRK-1", long, "next")], more_steps: 3 }], more_legs: 2 } }));
+  assert.equal((one.match(/class="edi-leg"/g) ?? []).length, 1);
+  assert.ok(one.includes(long), "never clipped");
+  assert.ok(text(one).includes("+3 pasos más") && text(one).includes("+2 más"));
+});
+
+test("I40-5 #3: the legs wrap instead of scrolling sideways, and long text breaks", () => {
+  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
+  assert.ok(css.includes(".edi-legs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));"));
+  assert.match(css, /\.edi-leg b \{[^}]*overflow-wrap: anywhere/);
+  assert.match(css, /\.edi-stext b \{[^}]*overflow-wrap: anywhere/);
+  assert.match(css, /\.edi-route \{[^}]*grid-column: 1 \/ -1[^}]*min-width: 0/);
+});
+
 function findButton(el: any): any {
   if (!el || typeof el !== "object") return null;
   if (el.type === "button") return el;
