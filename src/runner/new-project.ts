@@ -5,11 +5,9 @@
 // with its team, Research, Artist and Taller (research-<slug>, ...), all with project_id and role_template. Nothing is queued:
 // the PO's first wake comes when Jorge resumes the project (project.runs_resumed, src/runner/events.ts).
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { projects } from "../db/schema.js";
 import { setGoal } from "../mcp/goals.js";
-import { setProject } from "../mcp/project.js";
+import { deleteProject, setProject } from "../mcp/project.js";
 import { setAgent } from "../mcp/team.js";
 import { webCtx, writeTx } from "../mcp/tx.js";
 import { pgStore, readerOf } from "../store/pg.js";
@@ -99,9 +97,8 @@ export async function createProjectFromTemplate(db: Db, input: { name: string; g
     await ensureTeam(db, { id: project.id, slug, title: name });
   } catch (err) {
     await pgStore(db).write(COMPANY, {}, (uow) => uow.delete("agents", { slug: team }));
-    // Left on Drizzle on purpose: deleting a project relies on the foreign keys' cascades (its tasks, events,
-    // goals, threads...), which the store port does not do.
-    await db.delete(projects).where(eq(projects.id, project.id));
+    // The project and everything made under it so far (its goal, events, threads...), removed through the port.
+    await pgStore(db).write(project.id, {}, (uow) => deleteProject(uow, project.id));
     throw err;
   }
   return { slug, key_prefix: keyPrefix, paused: true, po, team, prompt_doc_id: prompt.id };

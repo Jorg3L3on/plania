@@ -3,9 +3,9 @@
 // from an authenticator app (secret in the macOS keychain, service plania-owner, src/auth/owner-store.ts).
 // The code is never stored or logged. A time step once accepted cannot be spent again (machine_state
 // "owner.totp" keeps the last steps). No secret enrolled: OWNER_CODE_UNSET, and the screen offers enrolment.
-import { eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { machineState } from "../db/schema.js";
+import { writeVia } from "../runner/limits.js";
+import type { Row } from "../store/types.js";
 import { ownerEnrolled, ownerStore } from "./owner-store.js";
 import { base32Encode, matchTotp, otpauthUri, randomSecret } from "./owner-totp.js";
 import { verifyPassword } from "./password.js";
@@ -15,21 +15,22 @@ const KEEP_STEPS = 20;
 
 export type OwnerCodeRefusal = { error: "OWNER_CODE_REQUIRED" | "OWNER_CODE_INVALID" | "OWNER_CODE_UNSET"; status: 403 | 409; hint: string };
 
-async function spentSteps(db: Db): Promise<number[]> {
-  const [row] = await db.select({ value: machineState.value }).from(machineState).where(eq(machineState.key, STATE_KEY)).limit(1);
+function spentSteps(row: Row<"machineState"> | undefined): number[] {
   const steps = (row?.value as { steps?: unknown } | undefined)?.steps;
   return Array.isArray(steps) ? steps.filter((n): n is number => typeof n === "number") : [];
 }
 
+// One serialized write reads the spent steps and adds this one, so two requests with the same code cannot both spend it.
 async function spend(db: Db, step: number): Promise<boolean> {
-  const steps = await spentSteps(db);
-  if (steps.includes(step)) return false;
-  const next = [...steps, step].slice(-KEEP_STEPS);
-  await db
-    .insert(machineState)
-    .values({ key: STATE_KEY, value: { steps: next } })
-    .onConflictDoUpdate({ target: machineState.key, set: { value: { steps: next }, updatedAt: sql`now()` } });
-  return true;
+  return writeVia(db, async (uow) => {
+    const row = await uow.get("machineState", { key: STATE_KEY });
+    const steps = spentSteps(row);
+    if (steps.includes(step)) return false;
+    const next = [...steps, step].slice(-KEEP_STEPS);
+    if (row) await uow.update("machineState", { key: STATE_KEY }, { value: { steps: next }, updatedAt: uow.now });
+    else await uow.insert("machineState", { key: STATE_KEY, value: { steps: next } });
+    return true;
+  });
 }
 
 // null when the code is good (and now spent), else the refusal to send back.

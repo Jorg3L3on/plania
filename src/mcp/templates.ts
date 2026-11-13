@@ -1,15 +1,17 @@
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { agents, docs, projects, type Project } from "../db/schema.js";
+import type { Project } from "../db/schema.js";
+import { COMPANY } from "../runner/limits.js";
+import { pgStore, readerOf } from "../store/pg.js";
 import { attachDoc } from "./docs.js";
 import { ToolError } from "./errors.js";
-import { setProject } from "./project.js";
+import { deleteProject, setProject } from "./project.js";
 import { setAgent } from "./team.js";
 import { writeTx, type Ctx, type Q } from "./tx.js";
 
@@ -68,12 +70,9 @@ function ownerSlugOf(slug: string): string {
 }
 
 async function shapeOf(db: Q, project: Project, created: boolean): Promise<CompanyProject> {
-  const [owner] = await db.select().from(agents).where(eq(agents.slug, ownerSlugOf(project.slug))).limit(1);
-  const [doc] = await db
-    .select()
-    .from(docs)
-    .where(and(eq(docs.projectId, project.id), isNull(docs.taskId), eq(docs.title, PLAYBOOK_TITLE)))
-    .limit(1);
+  const r = readerOf(db);
+  const owner = await r.get("agents", { slug: ownerSlugOf(project.slug) });
+  const doc = await r.get("docs", { projectId: project.id, taskId: null, title: PLAYBOOK_TITLE });
   return {
     created,
     project: project.slug,
@@ -94,18 +93,17 @@ export async function createCompanyProject(
   const { skills, playbook } = readProductOwnerTemplate();
   const ownerSlug = ownerSlugOf(slug);
 
-  const [existing] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
+  const r = readerOf(db);
+  const existing = await r.get("projects", { slug });
   if (existing) return shapeOf(db, existing, false);
 
-  const [taken] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, ownerSlug)).limit(1);
+  const taken = await r.get("agents", { slug: ownerSlug });
   if (taken) throw new ToolError("INVALID_FILTER", { field: "slug", hint: "the product-owner slug is already on the roster" });
 
-  const [ceo] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, "ceo")).limit(1);
-  const [created] = await db
-    .insert(projects)
-    .values({ slug, title: name, keyPrefix: prefixOf(slug) })
-    .returning();
-  const project = created!;
+  const ceo = await r.get("agents", { slug: "ceo" });
+  // The new project's id is chosen here, so its first write is already its own.
+  const id = randomUUID();
+  const project = await pgStore(db).write(id, {}, (uow) => uow.insert("projects", { id, slug, title: name, keyPrefix: prefixOf(slug) }));
   try {
     const quiet = { ...ctx, requestId: undefined };
     await writeTx(db, project, { ...quiet, tool: "create_company_project" }, async (_tx, emit) => {
@@ -126,11 +124,12 @@ export async function createCompanyProject(
       note: skills,
     });
     await attachDoc(db, { project: slug, title: PLAYBOOK_TITLE, markdown: playbook }, { ...quiet, tool: "attach_doc" });
-    const [fresh] = await db.select().from(projects).where(eq(projects.id, project.id)).limit(1);
+    const fresh = await r.get("projects", { id: project.id });
     return shapeOf(db, fresh!, true);
   } catch (err) {
-    await db.delete(agents).where(eq(agents.slug, ownerSlug));
-    await db.delete(projects).where(eq(projects.id, project.id));
+    await pgStore(db).write(COMPANY, {}, (uow) => uow.delete("agents", { slug: ownerSlug }));
+    // The project and everything made under it so far, removed through the port (no request id, not a writeTx).
+    await pgStore(db).write(project.id, {}, (uow) => deleteProject(uow, project.id));
     throw err;
   }
 }

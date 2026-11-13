@@ -21,7 +21,7 @@ import { footprintFindings } from "../mcp/footprint-audit.js";
 import { ideaWaits } from "../mcp/ideas.js";
 import { inbox } from "../mcp/inbox.js";
 import { auditCounts, fixFinding, projectAudit } from "../mcp/orden.js";
-import { gatingSql } from "../mcp/jorge-lines.js";
+import { gatingSql } from "../mcp/blockers-sql.js";
 import { setProject } from "../mcp/project.js";
 import { shipRelease } from "../mcp/release-ship.js";
 import { ToolError, findProject, findTask, taskFull } from "../mcp/queries.js";

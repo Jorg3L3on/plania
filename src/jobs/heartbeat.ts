@@ -1,11 +1,13 @@
-import { and, desc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { ADAPTERS, agents, heartbeatRuns, projects, tasks, type AdapterConfig, type AdapterName } from "../db/schema.js";
+import { ADAPTERS, type AdapterConfig, type AdapterName } from "../db/schema.js";
 import { spawn, type SpawnDeps, type SpawnTask } from "../adapters/index.js";
 import { requeueHeld, sweepFailedRuns, sweepStoppedRuns } from "../runner/failed.js";
+import { COMPANY } from "../runner/limits.js";
 import { cleanupWorktrees, drainQueue, enforceLive, wakeClaude, type RunnerDeps } from "../runner/runner.js";
 import { ToolError } from "../mcp/errors.js";
 import { iso } from "../mcp/tx.js";
+import { pgStore, readerOf } from "../store/pg.js";
+import type { NewRow } from "../store/types.js";
 import type { Job } from "./index.js";
 
 // PLA-I26: on each agent's cadence, pick Ready work and wake them through their adapter.
@@ -122,21 +124,23 @@ export const pickReady = (agent: { id: string; slug?: string; role: string; capa
 };
 
 export const loadReady = async (db: Db): Promise<ReadyWork[]> => {
-  const rows = await db
-    .select({
-      project: projects.slug,
-      key: tasks.key,
-      title: tasks.title,
-      priority: tasks.priority,
-      workType: tasks.workType,
-      ownerAgent: tasks.ownerAgent,
-      paused: projects.runsPaused,
-      first: sql<boolean>`coalesce(${projects.settings}->>'next_first' = ${tasks.key}, false)`,
-    })
-    .from(tasks)
-    .innerJoin(projects, eq(projects.id, tasks.projectId))
-    .where(and(eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), eq(projects.runsPaused, false)));
-  return rows;
+  const r = readerOf(db);
+  const live = new Map((await r.find("projects", { runsPaused: false })).map((p) => [p.id, p]));
+  if (!live.size) return [];
+  const rows = await r.find("tasks", { projectId: [...live.keys()], kind: "ticket", status: "Ready" });
+  return rows.map((t) => {
+    const p = live.get(t.projectId)!;
+    return {
+      project: p.slug,
+      key: t.key,
+      title: t.title,
+      priority: t.priority,
+      workType: t.workType,
+      ownerAgent: t.ownerAgent,
+      paused: p.runsPaused,
+      first: p.settings.next_first === t.key,
+    };
+  });
 };
 
 const taskOf = (row: ReadyWork | null): SpawnTask | null => (row ? { project: row.project, key: row.key, title: row.title } : null);
@@ -154,35 +158,35 @@ const viewOf = (
   task_key: row.taskKey,
 });
 
+// A heartbeat run belongs to an agent, a company row: its write carries no project.
+const recordRun = (db: Db, run: NewRow<"heartbeatRuns">) => pgStore(db).write(COMPANY, {}, (uow) => uow.insert("heartbeatRuns", run));
+
 const explicitTask = async (db: Db, agentId: string, taskKey: string): Promise<ReadyWork> => {
   const key = taskKey.trim();
-  const found = await db
-    .select({
-      task: tasks,
-      project: projects.slug,
-    })
-    .from(tasks)
-    .innerJoin(projects, eq(projects.id, tasks.projectId))
-    .where(eq(tasks.key, key));
+  // The key in every project: a key is unique only inside its own.
+  const r = readerOf(db);
+  const found = await r.find("tasks", { key });
   if (found.length === 0) throw new ToolError("TASK_NOT_FOUND", { key });
   if (found.length > 1) throw new ToolError("INVALID_FILTER", { field: "task_key", hint: "key is in more than one project" });
-  const row = found[0]!;
-  if (row.task.kind !== "ticket" || row.task.status !== "Ready") throw new ToolError("INVALID_FILTER", { field: "task_key", hint: "not Ready" });
-  if (row.task.ownerAgent && row.task.ownerAgent !== agentId) throw new ToolError("INVALID_FILTER", { field: "task_key", hint: "owned by another agent" });
+  const task = found[0]!;
+  if (task.kind !== "ticket" || task.status !== "Ready") throw new ToolError("INVALID_FILTER", { field: "task_key", hint: "not Ready" });
+  if (task.ownerAgent && task.ownerAgent !== agentId) throw new ToolError("INVALID_FILTER", { field: "task_key", hint: "owned by another agent" });
+  const project = (await r.get("projects", { id: task.projectId }))!;
   return {
-    project: row.project,
-    key: row.task.key,
-    title: row.task.title,
-    priority: row.task.priority,
-    workType: row.task.workType,
-    ownerAgent: row.task.ownerAgent,
+    project: project.slug,
+    key: task.key,
+    title: task.title,
+    priority: task.priority,
+    workType: task.workType,
+    ownerAgent: task.ownerAgent,
   };
 };
 
 export const wakeAgent = async (db: Db, input: { agent: string; taskKey?: string; dryRun?: boolean; now?: Date }, deps?: HeartbeatDeps): Promise<WakeResult> => {
   const slug = checkSlug(input.agent);
   const now = input.now ?? new Date();
-  const [row] = await db.select().from(agents).where(eq(agents.slug, slug)).limit(1);
+  const r = readerOf(db);
+  const row = await r.get("agents", { slug });
   if (!row) throw new ToolError("AGENT_NOT_FOUND", { slug });
 
   const chosen = input.taskKey ? await explicitTask(db, row.id, input.taskKey) : null;
@@ -202,19 +206,17 @@ export const wakeAgent = async (db: Db, input: { agent: string; taskKey?: string
   const cadenceOpen = dueBefore == null || !row.lastHeartbeatAt || new Date(row.lastHeartbeatAt).getTime() <= dueBefore.getTime();
   if (!cadenceOpen) return { woke: false, reason: "cadence", run: null };
 
-  const claimed = await db
-    .update(agents)
-    .set({ lastHeartbeatAt: now, updatedAt: sql`now()` })
-    .where(
-      and(
-        eq(agents.id, row.id),
-        dueBefore == null ? sql`true` : or(isNull(agents.lastHeartbeatAt), lte(agents.lastHeartbeatAt, dueBefore)),
-      ),
-    )
-    .returning({ id: agents.id });
-  if (claimed.length === 0) return { woke: false, reason: "cadence", run: null };
+  // The cadence is taken inside one serialized write: of two wakes at once, only the first finds it still open.
+  const claimed = await pgStore(db).write(COMPANY, {}, async (uow) => {
+    const cur = await uow.get("agents", { id: row.id });
+    if (!cur) return false;
+    if (dueBefore != null && cur.lastHeartbeatAt != null && cur.lastHeartbeatAt.getTime() > dueBefore.getTime()) return false;
+    await uow.update("agents", { id: row.id }, { lastHeartbeatAt: now, updatedAt: uow.now });
+    return true;
+  });
+  if (!claimed) return { woke: false, reason: "cadence", run: null };
 
-  const projectSlug = row.projectId ? ((await db.select({ slug: projects.slug }).from(projects).where(eq(projects.id, row.projectId)).limit(1))[0]?.slug ?? null) : null;
+  const projectSlug = row.projectId ? ((await r.get("projects", { id: row.projectId }))?.slug ?? null) : null;
   const task = chosen ?? pickReady({ ...row, projectSlug }, await loadReady(db));
 
   // PLA-I29: claude_code wakes go through the runner (limits, worktree, supervised process).
@@ -231,56 +233,45 @@ export const wakeAgent = async (db: Db, input: { agent: string; taskKey?: string
     if (outcome.recorded) {
       return { woke: true, reason: "ok", run: { agent: row.slug, started_at: iso(now)!, ended_at: iso(new Date()), status: outcome.kind, adapter: "claude_code", summary: outcome.summary, task_key: outcome.taskKey } };
     }
-    const [skipped] = await db
-      .insert(heartbeatRuns)
-      .values({ agentId: row.id, startedAt: now, endedAt: new Date(), status: outcome.kind, adapter: "claude_code", summary: outcome.summary.slice(0, 500), taskKey: outcome.taskKey })
-      .returning();
-    return { woke: true, reason: "ok", run: viewOf(row.slug, skipped!) };
+    const skipped = await recordRun(db, { agentId: row.id, startedAt: now, endedAt: new Date(), status: outcome.kind, adapter: "claude_code", summary: outcome.summary.slice(0, 500), taskKey: outcome.taskKey });
+    return { woke: true, reason: "ok", run: viewOf(row.slug, skipped) };
   }
 
   const outcome = await spawn({ agent: spawnAgent, task: taskOf(task) }, deps);
   const summary = task ? outcome.summary : outcome.status === "ok" ? "no ready work" : outcome.summary;
-  const [inserted] = await db
-    .insert(heartbeatRuns)
-    .values({
-      agentId: row.id,
-      startedAt: now,
-      endedAt: new Date(),
-      status: outcome.status,
-      adapter: outcome.adapter,
-      summary: summary.slice(0, 500),
-      taskKey: task?.key ?? null,
-    })
-    .returning();
-  return { woke: true, reason: "ok", run: viewOf(row.slug, inserted!) };
+  const inserted = await recordRun(db, {
+    agentId: row.id,
+    startedAt: now,
+    endedAt: new Date(),
+    status: outcome.status,
+    adapter: outcome.adapter,
+    summary: summary.slice(0, 500),
+    taskKey: task?.key ?? null,
+  });
+  return { woke: true, reason: "ok", run: viewOf(row.slug, inserted) };
 };
 
 export const listHeartbeatRuns = async (db: Db, filter: { agent?: string; limit?: number } = {}): Promise<{ runs: HeartbeatRunView[] }> => {
   const limit = filter.limit ?? 50;
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ToolError("INVALID_FILTER", { field: "limit", max: 100 });
   const slug = filter.agent ? checkSlug(filter.agent) : undefined;
+  const r = readerOf(db);
   let agentId: string | undefined;
   if (slug) {
-    const [row] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, slug)).limit(1);
+    const row = await r.get("agents", { slug });
     if (!row) throw new ToolError("AGENT_NOT_FOUND", { slug });
     agentId = row.id;
   }
-  const rows = await db
-    .select({
-      slug: agents.slug,
-      startedAt: heartbeatRuns.startedAt,
-      endedAt: heartbeatRuns.endedAt,
-      status: heartbeatRuns.status,
-      adapter: heartbeatRuns.adapter,
-      summary: heartbeatRuns.summary,
-      taskKey: heartbeatRuns.taskKey,
-    })
-    .from(heartbeatRuns)
-    .innerJoin(agents, eq(agents.id, heartbeatRuns.agentId))
-    .where(agentId ? eq(heartbeatRuns.agentId, agentId) : undefined)
-    .orderBy(desc(heartbeatRuns.startedAt), desc(heartbeatRuns.id))
-    .limit(limit);
-  return { runs: rows.map((row) => viewOf(row.slug, row)) };
+  // Every run has its agent (the foreign key cascades), so the limit applies before the agents are read.
+  const rows = await r.find("heartbeatRuns", agentId ? { agentId } : {}, {
+    orderBy: [
+      { column: "startedAt", desc: true },
+      { column: "id", desc: true },
+    ],
+    limit,
+  });
+  const slugOf = new Map(rows.length ? (await r.find("agents", { id: [...new Set(rows.map((row) => row.agentId))] })).map((a) => [a.id, a.slug]) : []);
+  return { runs: rows.filter((row) => slugOf.has(row.agentId)).map((row) => viewOf(slugOf.get(row.agentId)!, row)) };
 };
 
 export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDeps): Promise<Record<string, number>> => {
@@ -295,7 +286,7 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
   const held = await requeueHeld(db, now, deps?.runner);
   const drained = await drainQueue(db, now, deps?.runner);
   const cleaned = await cleanupWorktrees(db, deps?.runner);
-  const roster = await db.select({ slug: agents.slug, minutes: agents.heartbeatMinutes }).from(agents);
+  const roster = (await readerOf(db).find("agents")).map((a) => ({ slug: a.slug, minutes: a.heartbeatMinutes }));
   const counts = {
     woken: 0,
     skipped: 0,
