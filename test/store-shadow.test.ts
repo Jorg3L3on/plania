@@ -3,8 +3,9 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { pgOnlyFile, resetTestDb, useTestEnv } from "./helpers.js";
 
+pgOnlyFile("devva as a shadow of Postgres");
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { pgStore } = await import("../src/store/pg.js");

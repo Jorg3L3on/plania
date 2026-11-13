@@ -8,6 +8,9 @@ import pg from "pg";
 import { resetPool } from "../src/db/client.js";
 import type { Reader, UnitOfWork } from "../src/store/types.js";
 
+// The comparisons a filter can use, for tests: find("events", { id: gt(cursor) }).
+export { gt, gte, lt, lte, ne, notNull } from "../src/store/types.js";
+
 // Where the test databases live. PLANIA_TEST_PG names the server and role, without a database:
 // postgres://postgres@127.0.0.1:5432. The default is Homebrew's: the OS user on localhost, no password.
 const PG_BASE = (process.env.PLANIA_TEST_PG || `postgres://${encodeURIComponent(userInfo().username)}@localhost:5432`).replace(/\/+$/, "");
@@ -99,6 +102,8 @@ export async function resetTestStore(): Promise<TestStore> {
     useDb(devva.handle);
     await devva.write("", {}, async (uow) => {
       for (const [slug, title, keyPrefix] of SEED) await uow.insert("projects", { slug, title, keyPrefix });
+      // On Postgres a migration seeds the one runner settings row; a fresh devva store starts without it.
+      await uow.insert("runnerSettings", { id: 1 });
     });
     end = endDevva;
   } else {
