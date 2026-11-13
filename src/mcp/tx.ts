@@ -3,9 +3,11 @@ import type { NodePgQueryResultHKT } from "drizzle-orm/node-postgres";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import type { Db } from "../db/client.js";
 import type * as schema from "../db/schema.js";
-import { events, writeRequests, type Actor, type Project } from "../db/schema.js";
+import { events, type Actor, type Project } from "../db/schema.js";
 import { bus, type PlaniaEvent } from "../events.js";
 import { onWriteEvent } from "../runner/events.js";
+import { pgStore } from "../store/pg.js";
+import { RequestIdReused } from "../store/types.js";
 import { ToolError } from "./errors.js";
 
 // A Db or an open transaction. Reads that run inside writeTx must use the transaction.
@@ -18,8 +20,6 @@ export type Q = PgDatabase<NodePgQueryResultHKT, typeof schema>;
 // An app-repo code ticket still needs a scan pass before Merged.
 export type Ctx = { actor: Actor; human?: boolean; system?: boolean; requestId?: string; tool?: string; verbose?: boolean; tokenId?: string };
 
-const REQUEST_TTL = "30 days";
-const WRITE_LOCK = 7_264_201; // arbitrary constant: the one advisory lock every writeTx takes
 
 export const WEB_ACTOR: Actor = { agent: "jorge", session_id: "web", machine: "screen" };
 
@@ -56,49 +56,32 @@ export async function writeTx<T>(
       : { type: type.startsWith("decision.") ? "decision" : "project", project: project.slug };
     changes.set(JSON.stringify(change), change);
   };
-  const result = await db.transaction(async (tx) => {
-    // One global lock serializes every writer, so event ids commit in order across projects and a
-    // single list_events / get_digest cursor over "all" never skips one. Plania is one Mac with a
-    // handful of agents; the concurrency given up is nil. (Until 2.7 the lock was per project.)
-    await tx.execute(sql`select pg_advisory_xact_lock(${WRITE_LOCK})`);
-    if (ctx.requestId) {
-      const [seen] = await tx
-        .select()
-        .from(writeRequests)
-        .where(and(eq(writeRequests.projectId, project.id), eq(writeRequests.requestId, ctx.requestId)));
-      if (seen && seen.tool !== ctx.tool) throw new ToolError("REQUEST_ID_REUSED", { tool: seen.tool });
-      if (seen) return ((seen.response as { __void?: boolean })?.__void ? undefined : seen.response) as T;
-    }
-    for (const key of await reapExpiredLeases(tx, project.id, project.slug)) touched("claim.expired", key);
-    const emit: Emit = async (type, task, payload = {}, actor = ctx.actor) => {
-      touched(type, task?.key ?? null);
-      await tx.insert(events).values({
-        projectId: project.id,
-        taskId: task?.id ?? null,
-        taskKey: task?.key ?? null,
-        type,
-        actor,
-        tokenId: actor === ctx.actor ? (ctx.tokenId ?? null) : null,
-        payload,
-      });
-      // PLA-I31-1: an event that should wake a role queues it in this same transaction.
-      await onWriteEvent(tx, project, type, task, payload);
-    };
-    const result = await fn(tx, emit);
-    if (ctx.requestId) {
-      await tx
-        .delete(writeRequests)
-        .where(and(eq(writeRequests.projectId, project.id), sql`${writeRequests.createdAt} < now() - ${REQUEST_TTL}::interval`));
-      await tx.insert(writeRequests).values({
-        projectId: project.id,
-        requestId: ctx.requestId,
-        tool: ctx.tool ?? "",
-        // A write with nothing to return (a poller's event) still replays as "done".
-        response: result === undefined ? { __void: true } : JSON.parse(JSON.stringify(result)),
-      });
-    }
-    return result;
-  });
+  let result: T;
+  try {
+    // The store serializes the write, replays a retried request id, and commits everything fn did together.
+    result = await pgStore(db).write(project.id, { requestId: ctx.requestId, tool: ctx.tool }, async (uow) => {
+      const tx = uow.sql;
+      for (const key of await reapExpiredLeases(tx, project.id, project.slug)) touched("claim.expired", key);
+      const emit: Emit = async (type, task, payload = {}, actor = ctx.actor) => {
+        touched(type, task?.key ?? null);
+        await tx.insert(events).values({
+          projectId: project.id,
+          taskId: task?.id ?? null,
+          taskKey: task?.key ?? null,
+          type,
+          actor,
+          tokenId: actor === ctx.actor ? (ctx.tokenId ?? null) : null,
+          payload,
+        });
+        // PLA-I31-1: an event that should wake a role queues it in this same transaction.
+        await onWriteEvent(tx, project, type, task, payload);
+      };
+      return fn(tx, emit);
+    });
+  } catch (err) {
+    if (err instanceof RequestIdReused) throw new ToolError("REQUEST_ID_REUSED", { tool: err.tool });
+    throw err;
+  }
   for (const change of changes.values()) bus.publish(change);
   return result;
 }
