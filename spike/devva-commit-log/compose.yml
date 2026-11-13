@@ -1,0 +1,33 @@
+# Spike engine: its own compose project, volume and port (2511), apart from the
+# devva-onboarding and devva-eval projects. The token is a compose secret read
+# from ./.token (generated locally, ignored by git).
+name: plania-devva-spike
+
+services:
+  engine:
+    image: devva-engine:dev01
+    command:
+      - "--port"
+      - "2505"
+      - "--path"
+      - "/data/devva"
+      - "--bind"
+      - "0.0.0.0"
+      - "--auth-token"
+      - "/run/secrets/devva-token"
+      - "--durability"
+      - "durable"
+    secrets:
+      - devva-token
+    volumes:
+      - engine-data:/data
+    ports:
+      - "127.0.0.1:2511:2505"
+    restart: "no"
+
+secrets:
+  devva-token:
+    file: ./.token
+
+volumes:
+  engine-data: {}
