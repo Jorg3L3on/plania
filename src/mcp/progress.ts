@@ -2,17 +2,18 @@
 // bucketed by calendar day in PLANIA_TZ (America/Mexico_City). A reopen clears resolved_at, so a
 // ticket that was Done, reopened and Done again counts once, on the day it is Done now.
 // Titles containing [PRUEBA] and Won't do never count. Ideas stay in the bitácora only.
-// The year path groups tasks and pull requests per day in SQL and caches the summary. It does not
-// scan events, so it does not need the events.created_at index.
-import { sql, type SQL } from "drizzle-orm";
+// The year path reads the closes and merges of the span once, groups them per day in TypeScript and
+// caches the summary. It does not scan events.
 import type { Db } from "../db/client.js";
+import type { Task } from "../db/schema.js";
+import { readerOf } from "../store/pg.js";
+import { gte, notNull, type Reader, type Row } from "../store/types.js";
 import { ToolError } from "./errors.js";
 
 export type Range = "day" | "week" | "year";
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PRUEBA = "[PRUEBA]";
-const PRUEBA_LIKE = `%${PRUEBA}%`;
 const WONT = "Won't do";
 const PROJECT_ORDER = ["micasa", "workia", "filmia", "zigzag", "plania"];
 const WEEK_SHORT = ["L", "M", "M", "J", "V", "S", "D"] as const;
@@ -213,8 +214,15 @@ export function isPruebaTitle(title: string): boolean {
   return title.includes(PRUEBA);
 }
 
+// One formatter per zone: building one costs more than formatting, and the trend formats every close.
+const dayFormats = new Map<string, Intl.DateTimeFormat>();
 export function dayInTz(date: Date, tz = progressTz()): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+  let format = dayFormats.get(tz);
+  if (!format) {
+    format = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" });
+    dayFormats.set(tz, format);
+  }
+  return format.format(date);
 }
 
 export function addDays(day: string, n: number): string {
@@ -394,31 +402,82 @@ function eachDay(from: string, to: string): string[] {
   return out;
 }
 
-function tzStart(day: string, tz: string): SQL {
-  return sql`(${day}::date::timestamp at time zone ${tz})`;
+const DAY_MS = 86_400_000;
+const zoneFormats = new Map<string, Intl.DateTimeFormat>();
+const zoneOffsets = new Map<string, number | null>();
+
+// The zone's wall clock at an instant, to the second, written as if it were UTC.
+function wallClock(at: number, tz: string): number {
+  let format = zoneFormats.get(tz);
+  if (!format) {
+    const parts = { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" } as const;
+    format = new Intl.DateTimeFormat("en-CA", { timeZone: tz, hourCycle: "h23", ...parts });
+    zoneFormats.set(tz, format);
+  }
+  const p: Record<string, string> = {};
+  for (const part of format.formatToParts(at)) p[part.type] = part.value;
+  return Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour) % 24, Number(p.minute), Number(p.second));
 }
 
-function tzEnd(day: string, tz: string): SQL {
-  return sql`((${day}::date + interval '1 day')::timestamp at time zone ${tz})`;
+// The zone's offset from UTC through the UTC day holding `at`, or null when it differs between the day's first
+// and last second (a clock change falls inside that day). Formatting every close through Intl is too slow for
+// a year of them; a zone's offset holds for months, so one reading per day serves every close of that day.
+function dayOffset(at: number, tz: string): number | null {
+  const start = Math.floor(at / DAY_MS) * DAY_MS;
+  const key = `${tz}|${start}`;
+  let offset = zoneOffsets.get(key);
+  if (offset === undefined) {
+    const last = start + DAY_MS - 1000;
+    const first = wallClock(start, tz) - start;
+    offset = first === wallClock(last, tz) - last ? first : null;
+    zoneOffsets.set(key, offset);
+  }
+  return offset;
 }
 
-async function q<T extends Record<string, unknown>>(db: Db, query: SQL): Promise<T[]> {
-  return (await db.execute<T>(query)).rows as T[];
+// Calendar day, hour and HH:MM of an instant in tz, as to_char(... at time zone tz) gave them.
+type Clock = { day: string; hour: number; time: string };
+function localClock(date: Date, tz: string): Clock {
+  const at = date.getTime();
+  const offset = dayOffset(at, tz);
+  const wall = offset === null ? wallClock(at, tz) : at + offset;
+  const text = new Date(wall).toISOString();
+  return { day: text.slice(0, 10), hour: Number(text.slice(11, 13)), time: text.slice(11, 16) };
 }
 
-async function watermark(db: Db): Promise<string> {
-  const [row] = await q<{ stamp: string }>(db, sql`
-    select concat_ws('|',
-      (select count(*) from tasks),
-      (select coalesce(max(resolved_at)::text, '') from tasks),
-      (select coalesce(max(updated_at)::text, '') from tasks),
-      (select count(*) from pull_requests),
-      (select coalesce(max(merged_at)::text, '') from pull_requests),
-      (select coalesce(max(created_at)::text, '') from results),
-      (select coalesce(max(updated_at)::text, '') from docs),
-      (select coalesce(max(created_at)::text, '') from decisions)
-    ) as stamp`);
-  return row?.stamp ?? "";
+// The earliest instant that can fall on `day` in any zone (none is a whole day away from UTC). A read starts
+// there and each row is then kept by its calendar day in the zone, which is what the bounds from local
+// midnight to the next local midnight selected in SQL.
+function dayFloor(day: string): Date {
+  return new Date(Date.parse(`${day}T00:00:00Z`) - DAY_MS);
+}
+
+const stampOf = (at: Date | null | undefined): string => (at ? at.toISOString() : "");
+
+// The cache key's view of the data: counts and the newest timestamps, so any close, reopen, merge, new
+// evidence, doc or decision makes a new key.
+async function watermark(r: Reader): Promise<string> {
+  const newest = { limit: 1 };
+  const [tasks, [resolved], [updated], prs, [merged], [result], [doc], [decision]] = await Promise.all([
+    r.count("tasks"),
+    r.find("tasks", { resolvedAt: notNull() }, { ...newest, orderBy: [{ column: "resolvedAt", desc: true }] }),
+    r.find("tasks", {}, { ...newest, orderBy: [{ column: "updatedAt", desc: true }] }),
+    r.count("pullRequests"),
+    r.find("pullRequests", { mergedAt: notNull() }, { ...newest, orderBy: [{ column: "mergedAt", desc: true }] }),
+    r.find("results", {}, { ...newest, orderBy: [{ column: "createdAt", desc: true }] }),
+    r.find("docs", {}, { ...newest, orderBy: [{ column: "updatedAt", desc: true }] }),
+    r.find("decisions", {}, { ...newest, orderBy: [{ column: "createdAt", desc: true }] }),
+  ]);
+  return [
+    tasks,
+    stampOf(resolved?.resolvedAt),
+    stampOf(updated?.updatedAt),
+    prs,
+    stampOf(merged?.mergedAt),
+    stampOf(result?.createdAt),
+    stampOf(doc?.updatedAt),
+    stampOf(decision?.createdAt),
+  ].join("|");
 }
 
 async function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
@@ -433,50 +492,83 @@ function cosa(row: TaskAgg): boolean {
   return row.kind === "ticket" || row.kind === "initiative";
 }
 
-async function loadProjects(db: Db): Promise<Titles> {
-  const rows = await q<{ slug: string; title: string }>(db, sql`select slug, title from projects`);
-  return new Map(rows.map((r) => [r.slug, r.title]));
+type Place = { slug: string; title: string };
+// Projects by id. The store sorts them by slug, so the map keeps the database's slug order.
+type Places = Map<string, Place>;
+
+async function loadPlaces(r: Reader): Promise<Places> {
+  const rows = await r.find("projects", {}, { orderBy: [{ column: "slug" }] });
+  return new Map(rows.map((p) => [p.id, { slug: p.slug, title: p.title }]));
 }
 
-async function taskAggregate(db: Db, from: string, to: string, tz: string): Promise<TaskAgg[]> {
-  const rows = await q<TaskAgg>(db, sql`
-    select to_char(t.resolved_at at time zone ${tz}, 'YYYY-MM-DD') as day,
-           extract(hour from t.resolved_at at time zone ${tz})::int as hour,
-           p.slug,
-           max(p.title) as project_title,
-           t.kind,
-           coalesce(t.work_type, '') as work_type,
-           count(*)::int as n
-    from tasks t
-    join projects p on p.id = t.project_id
-    where t.status = 'Done'
-      and t.resolved_at is not null
-      and t.resolved_at >= ${tzStart(from, tz)}
-      and t.resolved_at < ${tzEnd(to, tz)}
-      and t.title not like ${PRUEBA_LIKE}
-      and t.kind in ('ticket', 'initiative')
-    group by 1, 2, 3, 5, 6`);
-  return rows.map((r) => ({ ...r, hour: Number(r.hour), n: Number(r.n) }));
+function titlesOf(places: Places): Titles {
+  return new Map([...places.values()].map((p) => [p.slug, p.title]));
 }
 
-async function prAggregate(db: Db, from: string, to: string, tz: string): Promise<PrAgg[]> {
-  const rows = await q<PrAgg>(db, sql`
-    select to_char(pr.merged_at at time zone ${tz}, 'YYYY-MM-DD') as day,
-           extract(hour from pr.merged_at at time zone ${tz})::int as hour,
-           p.slug,
-           max(p.title) as project_title,
-           count(*)::int as n
-    from pull_requests pr
-    join projects p on p.id = pr.project_id
-    left join tasks t on t.id = pr.task_id
-    where pr.state = 'merged'
-      and pr.merged_at is not null
-      and pr.merged_at >= ${tzStart(from, tz)}
-      and pr.merged_at < ${tzEnd(to, tz)}
-      and pr.title not like ${PRUEBA_LIKE}
-      and (t.id is null or (t.title not like ${PRUEBA_LIKE} and t.status <> ${WONT}))
-    group by 1, 2, 3`);
-  return rows.map((r) => ({ ...r, hour: Number(r.hour), n: Number(r.n) }));
+// A Done task with the project it belongs to and when it closed in the zone.
+type Closed = Clock & { t: Task; place: Place };
+
+// Done tasks of these kinds that closed on a calendar day from `from` to `to` in tz, [PRUEBA] titles left out
+// (the LIKE pattern had no wildcard but its ends, so it was a case-sensitive substring test). The projects
+// arrive as a promise so their read runs alongside this one.
+async function closedTasks(r: Reader, projects: Promise<Places>, kinds: string[], from: string, to: string, tz: string): Promise<Closed[]> {
+  const rows = await r.find("tasks", { status: "Done", kind: kinds, resolvedAt: gte(dayFloor(from)) });
+  const places = await projects;
+  const out: Closed[] = [];
+  for (const t of rows) {
+    const place = places.get(t.projectId);
+    if (!place || !t.resolvedAt || isPruebaTitle(t.title)) continue;
+    const clock = localClock(t.resolvedAt, tz);
+    if (clock.day < from || clock.day > to) continue;
+    out.push({ ...clock, t, place });
+  }
+  return out;
+}
+
+// A merged pull request with its project, the task it is linked to (if any) and when it merged in the zone.
+type Merged = Clock & { pr: Row<"pullRequests">; place: Place; task: Task | undefined };
+
+// Pull requests merged on a calendar day from `from` to `to` in tz, [PRUEBA] titles left out.
+async function mergedPrs(r: Reader, projects: Promise<Places>, from: string, to: string, tz: string): Promise<Merged[]> {
+  const rows = (await r.find("pullRequests", { state: "merged", mergedAt: gte(dayFloor(from)) })).filter((pr) => !isPruebaTitle(pr.title));
+  const taskIds = [...new Set(rows.flatMap((pr) => (pr.taskId ? [pr.taskId] : [])))];
+  const tasks = new Map((taskIds.length ? await r.find("tasks", { id: taskIds }) : []).map((t) => [t.id, t]));
+  const places = await projects;
+  const out: Merged[] = [];
+  for (const pr of rows) {
+    const place = places.get(pr.projectId);
+    if (!place || !pr.mergedAt) continue;
+    const clock = localClock(pr.mergedAt, tz);
+    if (clock.day < from || clock.day > to) continue;
+    out.push({ ...clock, pr, place, task: pr.taskId ? tasks.get(pr.taskId) : undefined });
+  }
+  return out;
+}
+
+// Closes per day, hour, project, kind and work type (a missing work type counts as "").
+function taskAggregate(closed: Closed[]): TaskAgg[] {
+  const groups = new Map<string, TaskAgg>();
+  for (const c of closed) {
+    const workType = c.t.workType ?? "";
+    const key = [c.day, c.hour, c.place.slug, c.t.kind, workType].join("\u0000");
+    const group = groups.get(key);
+    if (group) group.n += 1;
+    else groups.set(key, { day: c.day, hour: c.hour, slug: c.place.slug, project_title: c.place.title, kind: c.t.kind, work_type: workType, n: 1 });
+  }
+  return [...groups.values()];
+}
+
+// Merges per day, hour and project. A PR linked to a [PRUEBA] or Won't do task does not count.
+function prAggregate(merged: Merged[]): PrAgg[] {
+  const groups = new Map<string, PrAgg>();
+  for (const m of merged) {
+    if (m.task && (isPruebaTitle(m.task.title) || m.task.status === WONT)) continue;
+    const key = [m.day, m.hour, m.place.slug].join("\u0000");
+    const group = groups.get(key);
+    if (group) group.n += 1;
+    else groups.set(key, { day: m.day, hour: m.hour, slug: m.place.slug, project_title: m.place.title, n: 1 });
+  }
+  return [...groups.values()];
 }
 
 function foldTitles(tasks: TaskAgg[], prs: PrAgg[], known: Titles): Titles {
@@ -549,24 +641,23 @@ function bestDay(rows: TaskAgg[], from: string, to: string): { date: string; cou
   return best;
 }
 
-async function changesFor(db: Db, ids: string[]): Promise<Map<string, { change: string; doc: string | null }>> {
+// The first row per task of rows already sorted newest first.
+function firstPerTask<T extends { taskId: string | null }, V>(rows: T[], value: (row: T) => V): Map<string, V> {
+  const out = new Map<string, V>();
+  for (const row of rows) if (row.taskId && !out.has(row.taskId)) out.set(row.taskId, value(row));
+  return out;
+}
+
+async function changesFor(r: Reader, ids: string[]): Promise<Map<string, { change: string; doc: string | null }>> {
   const out = new Map<string, { change: string; doc: string | null }>();
   if (ids.length === 0) return out;
-  const list = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
+  // The newest decision still standing and the newest doc of each task.
   const [decisions, docs] = await Promise.all([
-    q<{ task_id: string; line: string }>(db, sql`
-      select distinct on (task_id) task_id, line
-      from decisions
-      where task_id in (${list}) and retired_at is null
-      order by task_id, created_at desc`),
-    q<{ task_id: string; markdown: string }>(db, sql`
-      select distinct on (task_id) task_id, markdown
-      from docs
-      where task_id in (${list})
-      order by task_id, updated_at desc`),
+    r.find("decisions", { taskId: ids, retiredAt: null }, { orderBy: [{ column: "createdAt", desc: true }] }),
+    r.find("docs", { taskId: ids }, { orderBy: [{ column: "updatedAt", desc: true }] }),
   ]);
-  const decision = new Map(decisions.map((d) => [d.task_id, d.line]));
-  const doc = new Map(docs.map((d) => [d.task_id, d.markdown]));
+  const decision = firstPerTask(decisions, (d) => d.line);
+  const doc = firstPerTask(docs, (d) => d.markdown);
   for (const id of ids) {
     const markdown = doc.get(id) ?? null;
     const change = plainExcerpt(decision.get(id) || markdown || "");
@@ -575,58 +666,46 @@ async function changesFor(db: Db, ids: string[]): Promise<Map<string, { change: 
   return out;
 }
 
-async function imagesFor(db: Db, ids: string[]): Promise<Map<string, ProgressImage>> {
+async function imagesFor(r: Reader, ids: string[]): Promise<Map<string, ProgressImage>> {
   const out = new Map<string, ProgressImage>();
   if (ids.length === 0) return out;
-  const list = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
-  const rows = await q<{ task_id: string; url: string | null; attachments: string[] | null }>(db, sql`
-    select task_id, url, attachments
-    from results
-    where task_id in (${list}) and kind = 'visual'
-    order by created_at`);
+  const rows = await r.find("results", { taskId: ids, kind: "visual" }, { orderBy: [{ column: "createdAt" }] });
   const links = new Map<string, string[]>();
-  for (const r of rows) {
-    const bag = links.get(r.task_id) ?? [];
-    for (const a of r.attachments ?? []) bag.push(a);
-    if (r.url) bag.push(r.url);
-    links.set(r.task_id, bag);
+  for (const row of rows) {
+    const bag = links.get(row.taskId) ?? [];
+    for (const a of row.attachments ?? []) bag.push(a);
+    if (row.url) bag.push(row.url);
+    links.set(row.taskId, bag);
   }
   for (const id of ids) out.set(id, pairImages(links.get(id) ?? []));
   return out;
 }
 
-async function prsFor(db: Db, ids: string[]): Promise<Map<string, ProgressPr[]>> {
+async function prsFor(r: Reader, ids: string[]): Promise<Map<string, ProgressPr[]>> {
   const out = new Map<string, ProgressPr[]>();
   if (ids.length === 0) return out;
-  const list = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
-  const rows = await q<{ task_id: string; number: number; url: string; title: string }>(db, sql`
-    select task_id, number, url, title
-    from pull_requests
-    where task_id in (${list}) and state = 'merged' and title not like ${PRUEBA_LIKE}
-    order by number`);
-  for (const r of rows) {
-    const bag = out.get(r.task_id) ?? [];
-    bag.push({ number: r.number, url: r.url, title: r.title });
-    out.set(r.task_id, bag);
+  const rows = await r.find("pullRequests", { taskId: ids, state: "merged" }, { orderBy: [{ column: "number" }] });
+  for (const row of rows) {
+    if (!row.taskId || isPruebaTitle(row.title)) continue;
+    const bag = out.get(row.taskId) ?? [];
+    bag.push({ number: row.number, url: row.url, title: row.title });
+    out.set(row.taskId, bag);
   }
   return out;
 }
 
-type ChildRow = { parent_id: string; id: string; key: string; title: string; summary: string; status: string };
-
-async function childrenFor(db: Db, ids: string[]): Promise<Map<string, LogChild[]>> {
+async function childrenFor(r: Reader, ids: string[]): Promise<Map<string, LogChild[]>> {
   const out = new Map<string, LogChild[]>();
   if (ids.length === 0) return out;
-  const list = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
-  const kids = await q<ChildRow>(db, sql`
-    select parent_id, id, key, title, summary, status
-    from tasks
-    where parent_id in (${list}) and kind = 'ticket' and title not like ${PRUEBA_LIKE} and status <> ${WONT}
-    order by key`);
-  const prs = await prsFor(db, kids.map((k) => k.id));
+  // The store sorts by key, so children keep the database's key order.
+  const kids = (await r.find("tasks", { parentId: ids, kind: "ticket" }, { orderBy: [{ column: "key" }] })).filter(
+    (k) => !isPruebaTitle(k.title) && k.status !== WONT,
+  );
+  const prs = await prsFor(r, kids.map((k) => k.id));
   for (const k of kids) {
+    if (!k.parentId) continue;
     const pr = prs.get(k.id)?.[0] ?? null;
-    const bag = out.get(k.parent_id) ?? [];
+    const bag = out.get(k.parentId) ?? [];
     bag.push({
       key: k.key,
       title: k.title,
@@ -635,7 +714,7 @@ async function childrenFor(db: Db, ids: string[]): Promise<Map<string, LogChild[
       pr_number: pr?.number ?? null,
       pr_url: pr?.url ?? null,
     });
-    out.set(k.parent_id, bag);
+    out.set(k.parentId, bag);
   }
   return out;
 }
@@ -644,100 +723,94 @@ function childStats(children: LogChild[]): { child_done: number; child_total: nu
   return { child_done: children.filter((c) => c.status === "Done").length, child_total: children.length };
 }
 
-type WinRow = {
-  id: string;
-  key: string;
-  kind: "ticket" | "initiative";
-  title: string;
-  summary: string;
-  work_type: string | null;
-  resolved_at: Date | string;
-  slug: string;
-  project_title: string;
-  child_done: number;
-};
+const closedAt = (c: Closed): number => c.t.resolvedAt!.getTime();
 
-// Initiatives outrank tickets. Among initiatives, the one that closed the most tickets wins.
-// The pick is one indexed read, not a score joined across every PR and result of the year.
-async function biggestWin(db: Db, from: string, to: string, tz: string): Promise<BiggestWin | null> {
-  const bounds = sql`t.title not like ${PRUEBA_LIKE}
-        and t.resolved_at >= ${tzStart(from, tz)}
-        and t.resolved_at < ${tzEnd(to, tz)}`;
-  const [initiative] = await q<WinRow>(db, sql`
-    select t.id, t.key, t.kind, t.title, t.summary, t.work_type, t.resolved_at,
-           p.slug, p.title as project_title,
-           count(ch.id) filter (where ch.status = 'Done')::int as child_done
-    from tasks t
-    join projects p on p.id = t.project_id
-    left join tasks ch on ch.parent_id = t.id and ch.kind = 'ticket' and ch.title not like ${PRUEBA_LIKE} and ch.status <> ${WONT}
-    where t.status = 'Done' and t.kind = 'initiative' and ${bounds}
-    group by t.id, p.id
-    order by count(ch.id) filter (where ch.status = 'Done') desc, t.resolved_at desc
-    limit 1`);
-  const [ticket] = initiative
-    ? []
-    : await q<WinRow>(db, sql`
-        select t.id, t.key, t.kind, t.title, t.summary, t.work_type, t.resolved_at,
-               p.slug, p.title as project_title, 0::int as child_done
-        from tasks t
-        join projects p on p.id = t.project_id
-        where t.status = 'Done' and t.kind = 'ticket' and ${bounds}
-        order by (select count(*) from results r where r.task_id = t.id and r.kind = 'visual') desc, t.resolved_at desc
-        limit 1`);
-  const row = initiative ?? ticket;
+// The first of the rows by `rank`, highest first, then the latest close. Rows tied on both keep their read
+// order (SQL left that tie to the plan).
+function topOf(rows: Closed[], rank: (c: Closed) => number): Closed | undefined {
+  let best: Closed | undefined;
+  for (const c of rows) {
+    if (!best || rank(c) > rank(best) || (rank(c) === rank(best) && closedAt(c) > closedAt(best))) best = c;
+  }
+  return best;
+}
+
+// Initiatives outrank tickets. Among initiatives, the one that closed the most tickets wins; among tickets,
+// the one with the most visual evidence. `closed` is every close of the span.
+async function biggestWin(r: Reader, closed: Closed[], tz: string): Promise<BiggestWin | null> {
+  const initiatives = closed.filter((c) => c.t.kind === "initiative");
+  const tickets = closed.filter((c) => c.t.kind === "ticket");
+  // Done tickets under each initiative ([PRUEBA] left out), or visual results of each ticket.
+  const score = new Map<string, number>();
+  const bump = (id: string | null) => {
+    if (id) score.set(id, (score.get(id) ?? 0) + 1);
+  };
+  let row: Closed | undefined;
+  if (initiatives.length) {
+    const kids = await r.find("tasks", { parentId: initiatives.map((c) => c.t.id), kind: "ticket", status: "Done" });
+    for (const k of kids) if (!isPruebaTitle(k.title)) bump(k.parentId);
+    row = topOf(initiatives, (c) => score.get(c.t.id) ?? 0);
+  } else if (tickets.length) {
+    for (const res of await r.find("results", { taskId: tickets.map((c) => c.t.id), kind: "visual" })) bump(res.taskId);
+    row = topOf(tickets, (c) => score.get(c.t.id) ?? 0);
+  }
   if (!row) return null;
+  const t = row.t;
+  const kind = t.kind as BiggestWin["kind"];
   const [changes, images, prs, children] = await Promise.all([
-    changesFor(db, row.summary.trim() ? [] : [row.id]),
-    imagesFor(db, [row.id]),
-    prsFor(db, [row.id]),
-    row.kind === "initiative" ? childrenFor(db, [row.id]) : Promise.resolve(new Map<string, LogChild[]>()),
+    changesFor(r, t.summary.trim() ? [] : [t.id]),
+    imagesFor(r, [t.id]),
+    prsFor(r, [t.id]),
+    kind === "initiative" ? childrenFor(r, [t.id]) : Promise.resolve(new Map<string, LogChild[]>()),
   ]);
-  const at = new Date(row.resolved_at).toISOString();
-  const type = typeOf(row.kind, row.work_type);
-  const kids = children.get(row.id) ?? [];
-  const ownPrs = prs.get(row.id) ?? [];
+  const type = typeOf(kind, t.workType);
+  const kids = children.get(t.id) ?? [];
+  const ownPrs = prs.get(t.id) ?? [];
   const childPrs = kids.flatMap((c) => (c.pr_number && c.pr_url ? [{ number: c.pr_number, url: c.pr_url, title: c.title }] : []));
   const seen = new Set(ownPrs.map((p) => p.number));
   const merged = [...ownPrs, ...childPrs.filter((p) => !seen.has(p.number))];
   return {
-    project: row.slug,
-    project_title: row.project_title,
-    key: row.key,
-    kind: row.kind,
+    project: row.place.slug,
+    project_title: row.place.title,
+    key: t.key,
+    kind,
     type,
     type_label: typeLabel(type),
-    title: row.title,
-    change: row.summary.trim() || changes.get(row.id)?.change || "",
-    at,
-    day: dayInTz(new Date(row.resolved_at), tz),
+    title: t.title,
+    change: t.summary.trim() || changes.get(t.id)?.change || "",
+    at: t.resolvedAt!.toISOString(),
+    day: dayInTz(t.resolvedAt!, tz),
     prs: merged,
-    tickets: row.kind === "initiative" ? (kids.length ? childStats(kids).child_done : row.child_done) : 1,
-    images: images.get(row.id) ?? pairImages([]),
+    tickets: kind === "initiative" ? (kids.length ? childStats(kids).child_done : (score.get(t.id) ?? 0)) : 1,
+    images: images.get(t.id) ?? pairImages([]),
   };
 }
 
-async function highlights(db: Db, from: string, to: string, tz: string): Promise<YearBlock["highlights"]> {
-  const rows = await q<{ id: string; slug: string; key: string; title: string; summary: string; day: string }>(db, sql`
-    select id, slug, key, title, summary, day from (
-      select t.id, p.slug, t.key, t.title, t.summary,
-             to_char(t.resolved_at at time zone ${tz}, 'YYYY-MM-DD') as day,
-             row_number() over (partition by p.slug order by (t.kind = 'initiative') desc, t.resolved_at desc) as rn
-      from tasks t
-      join projects p on p.id = t.project_id
-      where t.status = 'Done'
-        and t.kind in ('ticket', 'initiative')
-        and t.title not like ${PRUEBA_LIKE}
-        and t.resolved_at >= ${tzStart(from, tz)}
-        and t.resolved_at < ${tzEnd(to, tz)}
-    ) s where rn <= 4`);
-  const blank = rows.filter((r) => !r.summary.trim()).map((r) => r.id);
-  const changes = await changesFor(db, blank);
-  return rows.map((r) => ({
-    project: r.slug,
-    key: r.key,
-    title: r.title,
-    change: r.summary.trim() || changes.get(r.id)?.change || "",
-    day: r.day,
+// Up to four closes per project, initiatives first and then the latest. `closed` is the year's closes.
+// SQL numbered them per project and returned them in that sort, projects in the database's slug order.
+async function highlights(r: Reader, closed: Closed[], places: Places): Promise<YearBlock["highlights"]> {
+  const initiative = (c: Closed) => c.t.kind === "initiative";
+  const ranksAbove = (a: Closed, b: Closed) => (initiative(a) !== initiative(b) ? initiative(a) : closedAt(a) > closedAt(b));
+  // The best four of each project, kept in rank order as the closes go by; a tie stays behind the earlier row.
+  const top = new Map<string, Closed[]>();
+  for (const c of closed) {
+    const list = top.get(c.place.slug) ?? [];
+    let at = list.length;
+    while (at > 0 && ranksAbove(c, list[at - 1]!)) at--;
+    if (at >= 4) continue;
+    list.splice(at, 0, c);
+    if (list.length > 4) list.pop();
+    top.set(c.place.slug, list);
+  }
+  const rows = [...places.values()].flatMap((p) => top.get(p.slug) ?? []);
+  const blank = rows.filter((c) => !c.t.summary.trim()).map((c) => c.t.id);
+  const changes = await changesFor(r, blank);
+  return rows.map((c) => ({
+    project: c.place.slug,
+    key: c.t.key,
+    title: c.t.title,
+    change: c.t.summary.trim() || changes.get(c.t.id)?.change || "",
+    day: c.day,
   }));
 }
 
@@ -851,26 +924,45 @@ export async function progressSummary(db: Db, input: { range?: string; date?: st
   const today = dayInTz(new Date(), tz);
   const range = parseRange(input.range ?? "");
   const date = input.date ? assertDay(input.date, "date") : today;
-  const stamp = await watermark(db);
+  const r = readerOf(db);
+  const stamp = await watermark(r);
   return cached(`summary|${tz}|${range}|${date}|${stamp}`, async () => {
     const year = yearRange(date);
+    const span = spanOf(range, date);
     const heatFrom = addDays(weekRange(date).from, -(HEATMAP_WEEKS - 1) * 7);
     const lookback = addDays(today, -400);
-    const from = [heatFrom, lookback, year.from, previousSpan(range, spanOf(range, date).from).from].sort()[0]!;
-    const to = [spanOf(range, date).to, year.to, addDays(weekRange(date).from, 6), today].sort().at(-1)!;
-    const [tasks, prs, known, win, marks] = await Promise.all([
-      taskAggregate(db, from, to, tz),
-      prAggregate(db, from, to, tz),
-      loadProjects(db),
-      biggestWin(db, spanOf(range, date).from, spanOf(range, date).to, tz),
-      highlights(db, year.from, year.to, tz),
+    const from = [heatFrom, lookback, year.from, previousSpan(range, span.from).from].sort()[0]!;
+    const to = [span.to, year.to, addDays(weekRange(date).from, 6), today].sort().at(-1)!;
+    // One read of the closes and merges from `from` to `to`; the span and the year lie inside it.
+    const projects = loadPlaces(r);
+    const [places, closed, merged] = await Promise.all([
+      projects,
+      closedTasks(r, projects, ["ticket", "initiative"], from, to, tz),
+      mergedPrs(r, projects, from, to, tz),
     ]);
-    return buildSummary({ range, date, today, tz }, tasks, prs, foldTitles(tasks, prs, known), win, marks);
+    const within = (a: string, b: string) => (c: Closed) => c.day >= a && c.day <= b;
+    const [win, marks] = await Promise.all([
+      biggestWin(r, closed.filter(within(span.from, span.to)), tz),
+      highlights(r, closed.filter(within(year.from, year.to)), places),
+    ]);
+    const tasks = taskAggregate(closed);
+    const prs = prAggregate(merged);
+    return buildSummary({ range, date, today, tz }, tasks, prs, foldTitles(tasks, prs, titlesOf(places)), win, marks);
   });
 }
 
-function likePattern(q: string): string {
-  return `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+// ILIKE against a pattern whose wildcards were all escaped is a case-insensitive substring test. Postgres
+// lowers each character on its own (simple case mapping); toLowerCase differs only for İ, which it turns
+// into two characters, and a final Σ, which it lowers by context, so those two are mapped first. A database
+// whose LC_CTYPE is C lowers ASCII letters only; there an accented capital matched only itself.
+function foldCase(s: string): string {
+  return s.replace(/İ/g, "i").replace(/Σ/g, "σ").toLowerCase();
+}
+
+function matcher(q: string | null): ((s: string) => boolean) | null {
+  if (!q) return null;
+  const needle = foldCase(q);
+  return (s) => foldCase(s).includes(needle);
 }
 
 function parseType(raw: string | undefined): ProgressType | null {
@@ -901,27 +993,51 @@ function parseLog(input: { from?: string; to?: string; project?: string; type?: 
   };
 }
 
-function taskTypeSql(type: ProgressType | null): SQL {
-  if (!type || type === "pr") return type === "pr" ? sql`false` : sql`true`;
-  if (type === "initiative") return sql`t.kind = 'initiative'`;
-  if (type === "idea") return sql`t.kind = 'idea'`;
-  return sql`t.kind = 'ticket' and t.work_type = ${type}`;
+function typeMatches(type: ProgressType | null, t: Task): boolean {
+  if (!type) return true;
+  if (type === "pr") return false;
+  if (type === "initiative" || type === "idea") return t.kind === type;
+  return t.kind === "ticket" && t.workType === type;
 }
 
-function searchSql(q: string | null, digits: string | null): SQL {
-  if (!q) return sql`true`;
-  const like = likePattern(q);
-  const prMatch = digits
-    ? sql`or exists (select 1 from pull_requests pr where pr.task_id = t.id and pr.state = 'merged' and (pr.title ilike ${like} escape '\\' or pr.number::text = ${digits}))`
-    : sql`or exists (select 1 from pull_requests pr where pr.task_id = t.id and pr.state = 'merged' and pr.title ilike ${like} escape '\\')`;
-  return sql`(
-    t.title ilike ${like} escape '\\'
-    or t.summary ilike ${like} escape '\\'
-    or t.key ilike ${like} escape '\\'
-    or p.slug ilike ${like} escape '\\'
-    or p.title ilike ${like} escape '\\'
-    ${prMatch}
-  )`;
+// What the log reads, once: the closes (tickets, initiatives and ideas) and merges of the whole range in
+// the chosen project, and for a search, the merged PRs of each of those tasks.
+type LogData = {
+  closed: Closed[];
+  merged: Merged[];
+  hit: ((s: string) => boolean) | null;
+  // The search's digits, compared with a PR number written out (pr.number::text).
+  digits: string | null;
+  prsOf: Map<string, Row<"pullRequests">[]>;
+};
+
+async function loadLog(r: Reader, filters: LogFilters, tz: string): Promise<LogData> {
+  const projects = loadPlaces(r);
+  const inProject = (row: { place: Place }) => filters.project === null || row.place.slug === filters.project;
+  const [closed, merged] = await Promise.all([
+    closedTasks(r, projects, ["ticket", "initiative", "idea"], filters.from, filters.to, tz),
+    mergedPrs(r, projects, filters.from, filters.to, tz),
+  ]);
+  const own = closed.filter(inProject);
+  const prsOf = new Map<string, Row<"pullRequests">[]>();
+  if (filters.q && own.length) {
+    for (const pr of await r.find("pullRequests", { taskId: own.map((c) => c.t.id), state: "merged" })) {
+      if (!pr.taskId) continue;
+      const bag = prsOf.get(pr.taskId) ?? [];
+      bag.push(pr);
+      prsOf.set(pr.taskId, bag);
+    }
+  }
+  return { closed: own, merged: merged.filter(inProject), hit: matcher(filters.q), digits: filters.q?.replace(/\D/g, "") || null, prsOf };
+}
+
+// The search over a close: its title, summary or key, its project's slug or title, or a merged PR of it
+// by title or number.
+function searchHits(data: LogData, c: Closed): boolean {
+  const { hit, digits } = data;
+  if (!hit) return true;
+  if (hit(c.t.title) || hit(c.t.summary) || hit(c.t.key) || hit(c.place.slug) || hit(c.place.title)) return true;
+  return (data.prsOf.get(c.t.id) ?? []).some((pr) => hit(pr.title) || (digits !== null && String(pr.number) === digits));
 }
 
 function windowEnd(filters: LogFilters): string {
@@ -937,68 +1053,68 @@ type TaskLogRow = {
   work_type: string | null;
   title: string;
   summary: string;
-  resolved_at: Date | string;
+  resolved_at: Date;
   day: string;
   time: string;
   slug: string;
   project_title: string;
 };
 
-async function logTasks(db: Db, filters: LogFilters, end: string, tz: string): Promise<TaskLogRow[]> {
+function logTasks(data: LogData, filters: LogFilters, end: string): TaskLogRow[] {
   if (end < filters.from) return [];
-  return q<TaskLogRow>(db, sql`
-    select t.id, t.key, t.kind, t.work_type, t.title, t.summary, t.resolved_at,
-           to_char(t.resolved_at at time zone ${tz}, 'YYYY-MM-DD') as day,
-           to_char(t.resolved_at at time zone ${tz}, 'HH24:MI') as time,
-           p.slug, p.title as project_title
-    from tasks t
-    join projects p on p.id = t.project_id
-    where t.status = 'Done'
-      and t.resolved_at is not null
-      and t.resolved_at >= ${tzStart(filters.from, tz)}
-      and t.resolved_at < ${tzEnd(end, tz)}
-      and t.title not like ${PRUEBA_LIKE}
-      and t.kind in ('ticket', 'initiative', 'idea')
-      and (${filters.project}::text is null or p.slug = ${filters.project})
-      and ${taskTypeSql(filters.type)}
-      and ${searchSql(filters.q, filters.q?.replace(/\D/g, "") || null)}`);
+  return data.closed
+    .filter((c) => c.day <= end && typeMatches(filters.type, c.t) && searchHits(data, c))
+    .map((c) => ({
+      id: c.t.id,
+      key: c.t.key,
+      kind: c.t.kind as TaskLogRow["kind"],
+      work_type: c.t.workType,
+      title: c.t.title,
+      summary: c.t.summary,
+      resolved_at: c.t.resolvedAt!,
+      day: c.day,
+      time: c.time,
+      slug: c.place.slug,
+      project_title: c.place.title,
+    }));
 }
 
 type PrLogRow = {
   number: number;
   url: string;
   title: string;
-  merged_at: Date | string;
+  merged_at: Date;
   day: string;
   time: string;
   slug: string;
   project_title: string;
 };
 
-async function logPrs(db: Db, filters: LogFilters, end: string, tz: string): Promise<PrLogRow[]> {
+// Merges with no task, or whose task is not Done (a Done task lists its own PRs), not Won't do and not [PRUEBA].
+function logPrs(data: LogData, filters: LogFilters, end: string): PrLogRow[] {
   if (filters.type && filters.type !== "pr") return [];
   if (end < filters.from) return [];
-  const like = filters.q ? likePattern(filters.q) : null;
-  const digits = filters.q?.replace(/\D/g, "") || null;
-  return q<PrLogRow>(db, sql`
-    select pr.number, pr.url, pr.title, pr.merged_at,
-           to_char(pr.merged_at at time zone ${tz}, 'YYYY-MM-DD') as day,
-           to_char(pr.merged_at at time zone ${tz}, 'HH24:MI') as time,
-           p.slug, p.title as project_title
-    from pull_requests pr
-    join projects p on p.id = pr.project_id
-    left join tasks t on t.id = pr.task_id
-    where pr.state = 'merged'
-      and pr.merged_at is not null
-      and pr.merged_at >= ${tzStart(filters.from, tz)}
-      and pr.merged_at < ${tzEnd(end, tz)}
-      and pr.title not like ${PRUEBA_LIKE}
-      and (t.id is null or (t.status is distinct from 'Done' and t.status <> ${WONT} and t.title not like ${PRUEBA_LIKE}))
-      and (${filters.project}::text is null or p.slug = ${filters.project})
-      and (${like}::text is null or pr.title ilike ${like} escape '\\' or p.slug ilike ${like} escape '\\' or p.title ilike ${like} escape '\\' or (${digits}::text is not null and pr.number::text = ${digits}))`);
+  const { hit, digits } = data;
+  return data.merged
+    .filter(
+      (m) =>
+        m.day <= end &&
+        (!m.task || (m.task.status !== "Done" && m.task.status !== WONT && !isPruebaTitle(m.task.title))) &&
+        (!hit || hit(m.pr.title) || hit(m.place.slug) || hit(m.place.title) || (digits !== null && String(m.pr.number) === digits)),
+    )
+    .map((m) => ({
+      number: m.pr.number,
+      url: m.pr.url,
+      title: m.pr.title,
+      merged_at: m.pr.mergedAt!,
+      day: m.day,
+      time: m.time,
+      slug: m.place.slug,
+      project_title: m.place.title,
+    }));
 }
 
-async function countLog(db: Db, filters: LogFilters, tz: string): Promise<{ counts: Record<string, number>; projects: ProjectCount[] }> {
+function countLog(data: LogData, filters: LogFilters): { counts: Record<string, number>; projects: ProjectCount[] } {
   const counts: Record<string, number> = { all: 0 };
   for (const t of PROGRESS_TYPES) counts[t] = 0;
   const projectMap = new Map<string, { title: string; count: number }>();
@@ -1009,25 +1125,11 @@ async function countLog(db: Db, filters: LogFilters, tz: string): Promise<{ coun
     cur.count += n;
     projectMap.set(slug, cur);
   };
+  // The chips ignore the type filter and the page: every close and merge of the range that the project and
+  // search allow.
   const open: LogFilters = { ...filters, type: null, cursor: null };
-  const [tasks, prs] = await Promise.all([
-    q<{ kind: string; work_type: string | null; slug: string; project_title: string; n: number }>(db, sql`
-      select t.kind, t.work_type, p.slug, max(p.title) as project_title, count(*)::int as n
-      from tasks t
-      join projects p on p.id = t.project_id
-      where t.status = 'Done'
-        and t.resolved_at is not null
-        and t.resolved_at >= ${tzStart(filters.from, tz)}
-        and t.resolved_at < ${tzEnd(filters.to, tz)}
-        and t.title not like ${PRUEBA_LIKE}
-        and t.kind in ('ticket', 'initiative', 'idea')
-        and (${filters.project}::text is null or p.slug = ${filters.project})
-        and ${searchSql(filters.q, filters.q?.replace(/\D/g, "") || null)}
-      group by 1, 2, 3`),
-    logPrs(db, open, filters.to, tz),
-  ]);
-  for (const r of tasks) bump(typeOf(r.kind, r.work_type), r.slug, r.project_title, r.n);
-  for (const r of prs) bump("pr", r.slug, r.project_title, 1);
+  for (const c of data.closed) if (searchHits(data, c)) bump(typeOf(c.t.kind, c.t.workType), c.place.slug, c.place.title, 1);
+  for (const r of logPrs(data, open, filters.to)) bump("pr", r.slug, r.project_title, 1);
   const projects = [...projectMap.entries()]
     .map(([slug, v]) => ({ slug, title: v.title, count: v.count }))
     .sort((a, b) => projectSort(a.slug, b.slug));
@@ -1037,15 +1139,15 @@ async function countLog(db: Db, filters: LogFilters, tz: string): Promise<{ coun
 export async function progressLog(db: Db, input: { from?: string; to?: string; project?: string; type?: string; q?: string; cursor?: string }): Promise<ProgressLog> {
   const tz = progressTz();
   const filters = parseLog(input);
-  const stamp = await watermark(db);
+  const r = readerOf(db);
+  const stamp = await watermark(r);
   const key = `log|${tz}|${JSON.stringify(filters)}|${stamp}`;
   return cached(key, async () => {
     const end = windowEnd(filters);
-    const [taskRows, prRows, totals] = await Promise.all([
-      logTasks(db, filters, end, tz),
-      logPrs(db, filters, end, tz),
-      countLog(db, filters, tz),
-    ]);
+    const data = await loadLog(r, filters, tz);
+    const taskRows = logTasks(data, filters, end);
+    const prRows = logPrs(data, filters, end);
+    const totals = countLog(data, filters);
     const days = new Set<string>();
     for (const r of taskRows) days.add(r.day);
     for (const r of prRows) days.add(r.day);
@@ -1062,10 +1164,10 @@ export async function progressLog(db: Db, input: { from?: string; to?: string; p
     const initiativeIds = keptTasks.filter((r) => r.kind === "initiative").map((r) => r.id);
     const blank = keptTasks.filter((r) => !r.summary.trim()).map((r) => r.id);
     const [changes, images, prs, children] = await Promise.all([
-      changesFor(db, blank),
-      imagesFor(db, ids),
-      prsFor(db, ids),
-      childrenFor(db, initiativeIds),
+      changesFor(r, blank),
+      imagesFor(r, ids),
+      prsFor(r, ids),
+      childrenFor(r, initiativeIds),
     ]);
     const entries: LogEntry[] = [];
     for (const r of keptTasks) {
@@ -1158,46 +1260,35 @@ export async function progressLog(db: Db, input: { from?: string; to?: string; p
 
 export async function progressItem(db: Db, project: string, key: string): Promise<ProgressItem> {
   const tz = progressTz();
-  const [row] = await q<{
-    id: string;
-    key: string;
-    kind: "ticket" | "initiative" | "idea";
-    work_type: string | null;
-    title: string;
-    summary: string;
-    status: string;
-    resolved_at: Date | string | null;
-    created_at: Date | string;
-    slug: string;
-    project_title: string;
-    parent_key: string | null;
-    parent_title: string | null;
-  }>(db, sql`
-    select t.id, t.key, t.kind, t.work_type, t.title, t.summary, t.status, t.resolved_at, t.created_at,
-           p.slug, p.title as project_title, parent.key as parent_key, parent.title as parent_title
-    from tasks t
-    join projects p on p.id = t.project_id
-    left join tasks parent on parent.id = t.parent_id
-    where p.slug = ${project} and t.key = ${key}
-    limit 1`);
-  if (!row || isPruebaTitle(row.title) || row.status === WONT) {
-    if (!row) {
-      const known = await q<{ n: number }>(db, sql`select count(*)::int as n from projects where slug = ${project}`);
-      if (!known[0]?.n) throw new ToolError("PROJECT_NOT_FOUND");
-    }
-    throw new ToolError("TASK_NOT_FOUND");
-  }
+  const r = readerOf(db);
+  // By its canonical key in the project (not an alias). A missing value names nothing: the port reads an
+  // undefined filter as "any".
+  const place = project == null ? undefined : await r.get("projects", { slug: project });
+  if (!place) throw new ToolError("PROJECT_NOT_FOUND");
+  const task = key == null ? undefined : await r.get("tasks", { projectId: place.id, key });
+  if (!task || isPruebaTitle(task.title) || task.status === WONT) throw new ToolError("TASK_NOT_FOUND");
+  const parent = task.parentId ? await r.get("tasks", { id: task.parentId }) : undefined;
+  const row = {
+    id: task.id,
+    key: task.key,
+    kind: task.kind as ProgressItem["kind"],
+    work_type: task.workType,
+    title: task.title,
+    summary: task.summary,
+    status: task.status,
+    resolved_at: task.resolvedAt,
+    created_at: task.createdAt,
+    slug: place.slug,
+    project_title: place.title,
+    parent_key: parent?.key ?? null,
+    parent_title: parent?.title ?? null,
+  };
   const [changes, images, prs, children, events] = await Promise.all([
-    changesFor(db, [row.id]),
-    imagesFor(db, [row.id]),
-    prsFor(db, [row.id]),
-    row.kind === "initiative" ? childrenFor(db, [row.id]) : Promise.resolve(new Map<string, LogChild[]>()),
-    q<{ type: string; payload: Record<string, unknown>; created_at: Date | string }>(db, sql`
-      select type, payload, created_at
-      from events
-      where task_id = ${row.id}::uuid and type in ('task.created', 'task.status', 'note')
-      order by id
-      limit 16`),
+    changesFor(r, [row.id]),
+    imagesFor(r, [row.id]),
+    prsFor(r, [row.id]),
+    row.kind === "initiative" ? childrenFor(r, [row.id]) : Promise.resolve(new Map<string, LogChild[]>()),
+    r.find("events", { taskId: row.id, type: ["task.created", "task.status", "note"] }, { orderBy: [{ column: "id" }], limit: 16 }),
   ]);
   const kids = children.get(row.id) ?? [];
   const stats = childStats(kids);
@@ -1206,7 +1297,7 @@ export async function progressItem(db: Db, project: string, key: string): Promis
   const type = typeOf(row.kind, row.work_type);
   const doc = changes.get(row.id)?.doc ?? null;
   const timeline = events.map((e) => {
-    const when = new Date(e.created_at);
+    const when = new Date(e.createdAt);
     const to = typeof e.payload.to === "string" ? e.payload.to : "";
     const text = typeof e.payload.text === "string" ? e.payload.text : typeof e.payload.note === "string" ? e.payload.note : "";
     const label = e.type === "task.created" ? "Creada" : e.type === "note" ? "Nota" : STATUS_LABEL[to] ?? (to || e.type);

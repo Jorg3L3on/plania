@@ -25,9 +25,6 @@ const ALLOWED: Record<string, string> = {
   "src/jobs/backup.ts": "the server version and the machine_state upsert in SQL (the pg_dump job)",
   "src/jobs/machine/collect.ts": "a pg client that lists the machine's Postgres databases (inventory, not plania's data)",
   "src/mcp/blockers-sql.ts": "the SQL form of the blocker rules, kept until its callers move",
-  "src/mcp/ceo-signals.ts": "raw SQL: the CEO brief and queue",
-  "src/mcp/dashboard.ts": "raw SQL: the CEO screen",
-  "src/mcp/progress.ts": "raw SQL: Mi progreso totals",
   "src/web/export.ts": "query builder: the project export",
 };
 

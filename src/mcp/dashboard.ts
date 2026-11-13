@@ -1,8 +1,9 @@
 // PLA-I24: the CEO screen. One read composed from the roster, goals, the inbox, and the week
 // already cached by Mi progreso. No budgets, no new tables, no second scan of the year.
 // PLA-I27: the greeting name and this week's reported usage. Still no budgets.
-import { sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
+import { readerOf } from "../store/pg.js";
+import { gt, notNull } from "../store/types.js";
 import { inbox } from "./inbox.js";
 import { listGoals, type GoalView } from "./goals.js";
 import { addDays, isPruebaTitle, isoWeek, progressLog, progressSummary, progressTz, weekRange, dayInTz } from "./progress.js";
@@ -186,13 +187,23 @@ function flatGoals(nodes: GoalView[], initiatives: InitiativeSignal[], now: Date
   return out;
 }
 
+// owner->>'agent': the agent field as text, null when it is missing or JSON null. An object there would be
+// compact JSON where Postgres spaced it; it matches no roster agent either way.
+function agentText(owner: unknown): string | null {
+  const agent = (owner as { agent?: unknown } | null)?.agent;
+  return agent == null ? null : typeof agent === "string" ? agent : JSON.stringify(agent);
+}
+
+// Tasks whose lease has not run out, by the server's clock (SQL compared with the database's now()).
 async function liveClaims(db: Db): Promise<LiveClaim[]> {
-  const rows = await db.execute<LiveClaim>(sql`
-    select p.slug as project, t.key, t.title, t.status, t.owner->>'agent' as agent
-    from tasks t
-    join projects p on p.id = t.project_id
-    where t.owner is not null and t.lease_until > now()`);
-  return rows.rows.filter((row) => !isPruebaTitle(row.title));
+  const r = readerOf(db);
+  const [projects, tasks] = await Promise.all([r.find("projects"), r.find("tasks", { owner: notNull(), leaseUntil: gt(new Date()) })]);
+  const slugs = new Map(projects.map((p) => [p.id, p.slug]));
+  return tasks.flatMap((t) => {
+    const project = slugs.get(t.projectId);
+    if (project === undefined || isPruebaTitle(t.title)) return [];
+    return [{ project, key: t.key, title: t.title, status: t.status, agent: agentText(t.owner) }];
+  });
 }
 
 export async function ceoDashboard(db: Db): Promise<CeoDashboard> {
