@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import pg from "pg";
 import { agents, runnerSettings, threadMessages, threads } from "../src/db/schema.js";
-import { pgUrl } from "./helpers.js";
+import { pgOnly, pgUrl } from "./helpers.js";
 
 const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
@@ -41,7 +41,7 @@ test("schema.ts exposes project_id, role_template, threads and thread_messages w
   assert.equal(getTableConfig(runnerSettings).columns.some((c) => c.name === "asistente_weekly_limit"), false);
 });
 
-test("0041 applies twice on a throwaway copy; threads exist for the company and every project", async () => {
+test("0041 applies twice on a throwaway copy; threads exist for the company and every project", pgOnly("replays migration 0041 on a private database and asserts constraint names"), async () => {
   const name = "plania_mig_0041";
   const adminUrl = pgUrl("postgres");
   const url = pgUrl(name);

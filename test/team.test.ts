@@ -4,15 +4,15 @@ import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import pg from "pg";
+import { pgOnly, resetTestStore, TEST_DATABASE_URL, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
 const { ORG, seedOrg } = await import("../scripts/seed-org.js");
 
-let raw: pg.Client;
+let store: TestStore;
 let db: Awaited<ReturnType<typeof makeDb>>["db"];
 let closeDb: () => Promise<void>;
 let client: Client;
@@ -27,7 +27,7 @@ async function call(name: string, args: Record<string, unknown> = {}) {
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await createMcpServer(db).connect(serverSide);
@@ -38,22 +38,28 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
-test("0034_agents.sql applies twice", async () => {
-  const sql = readFileSync(new URL("../drizzle/migrations/0034_agents.sql", import.meta.url), "utf8");
-  await raw.query(sql);
-  await raw.query(sql);
-  const { rows } = await raw.query<{ column_name: string }>(
-    `select column_name from information_schema.columns where table_name = 'agents' order by column_name`,
-  );
-  const cols = rows.map((r) => r.column_name);
-  for (const name of ["slug", "name", "role", "title", "reports_to", "capabilities", "kind", "wake_url", "last_check_in_at", "last_wake_at", "status", "note"]) {
-    assert.ok(cols.includes(name), name);
+test("0034_agents.sql applies twice", pgOnly("replays migration 0034 and reads the catalog"), async () => {
+  const raw = new pg.Client({ connectionString: TEST_DATABASE_URL });
+  await raw.connect();
+  try {
+    const sql = readFileSync(new URL("../drizzle/migrations/0034_agents.sql", import.meta.url), "utf8");
+    await raw.query(sql);
+    await raw.query(sql);
+    const { rows } = await raw.query<{ column_name: string }>(
+      `select column_name from information_schema.columns where table_name = 'agents' order by column_name`,
+    );
+    const cols = rows.map((r) => r.column_name);
+    for (const name of ["slug", "name", "role", "title", "reports_to", "capabilities", "kind", "wake_url", "last_check_in_at", "last_wake_at", "status", "note"]) {
+      assert.ok(cols.includes(name), name);
+    }
+    const { rows: owner } = await raw.query(`select column_name from information_schema.columns where table_name = 'tasks' and column_name = 'owner_agent'`);
+    assert.equal(owner.length, 1);
+  } finally {
+    await raw.end();
   }
-  const { rows: owner } = await raw.query(`select column_name from information_schema.columns where table_name = 'tasks' and column_name = 'owner_agent'`);
-  assert.equal(owner.length, 1);
 });
 
 test("seed creates the org once, with a reports_to chain, and leaves edits in place", async () => {
@@ -64,9 +70,9 @@ test("seed creates the org once, with a reports_to chain, and leaves edits in pl
   const second = await seedOrg(db);
   assert.deepEqual(second.inserted, []);
 
-  const { rows } = await raw.query<{ slug: string; name: string; reports_to: string | null; kind: string }>(
-    `select a.slug, a.name, p.slug as reports_to, a.kind from agents a left join agents p on p.id = a.reports_to order by a.slug`,
-  );
+  const agents = await store.find("agents", {}, { orderBy: [{ column: "slug" }] });
+  const slugOf = new Map(agents.map((a) => [a.id, a.slug]));
+  const rows = agents.map((a) => ({ slug: a.slug, name: a.name, reports_to: a.reportsTo ? (slugOf.get(a.reportsTo) ?? null) : null, kind: a.kind }));
   const bySlug = Object.fromEntries(rows.map((r) => [r.slug, r]));
   assert.equal(bySlug.ceo!.name, "CEO");
   assert.equal(bySlug.ceo!.kind, "human");
@@ -82,16 +88,14 @@ test("seed creates the org once, with a reports_to chain, and leaves edits in pl
   assert.equal(rows.length, 18);
   assert.ok(!JSON.stringify(rows).includes("@"), "no emails");
 
-  await raw.query(`update agents set title = 'Pair' where slug = 'taller-micasa'`);
+  await store.fix((uow) => uow.update("agents", { slug: "taller-micasa" }, { title: "Pair" }));
   await seedOrg(db);
-  const { rows: edited } = await raw.query(`select title from agents where slug = 'taller-micasa'`);
-  assert.equal(edited[0].title, "Pair");
+  const edited = await store.find("agents", { slug: "taller-micasa" });
+  assert.equal(edited[0]!.title, "Pair");
 });
 
 test("list_agents links tokens by name and set_agent updates one row", async () => {
-  await raw.query(
-    `insert into agent_tokens (name, agent, scopes, token_hash, prefix) values ('taller-ci', 'Taller MiCasa', '{read}', 'hash-not-a-secret', 'pla_test')`,
-  );
+  await store.fix((uow) => uow.insert("agentTokens", { name: "taller-ci", agent: "Taller MiCasa", scopes: ["read"], tokenHash: "hash-not-a-secret", prefix: "pla_test" }));
   const listed = await call("list_agents");
   const taller = listed.agents.find((a: { slug: string }) => a.slug === "taller-micasa");
   assert.equal(taller.reports_to, "po-micasa");

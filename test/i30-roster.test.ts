@@ -9,7 +9,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "../src/db/schema.js";
 import { ORG, seedOrg } from "../scripts/seed-org.js";
-import { pgUrl } from "./helpers.js";
+import { pgOnly, pgUrl } from "./helpers.js";
 
 const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
@@ -47,7 +47,7 @@ const OLD_ROSTER: [slug: string, name: string, role: string, title: string, kind
   ["po-mianovia", "Bot Mianovia", "product-owner", "Product owner", "bot", "plania", "none", "{product-owner}"],
 ];
 
-test("0040 applies twice on a throwaway copy, then the seed leaves only the real roles", async () => {
+test("0040 applies twice on a throwaway copy, then the seed leaves only the real roles", pgOnly("replays migration 0040 on a private database"), async () => {
   const name = "plania_mig_0040";
   const adminUrl = pgUrl("postgres");
   const url = pgUrl(name);

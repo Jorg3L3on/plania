@@ -7,7 +7,7 @@ import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import pg from "pg";
-import { pgUrl, resetTestDb, TEST_BEARER, TEST_CI_TOKEN, useTestEnv } from "./helpers.js";
+import { onDevva, pgOnly, pgUrl, resetTestStore, TEST_BEARER, TEST_CI_TOKEN, TEST_DATABASE_URL, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -27,7 +27,7 @@ const A = { agent: "test-agent", session_id: "s1", machine: "ci" };
 const P = { project: "workia" };
 
 let client: Client;
-let raw: pg.Client;
+let store: TestStore;
 let cookie: string;
 let db: ReturnType<typeof makeDb>["db"];
 
@@ -73,7 +73,7 @@ test("the Bandeja renders the Delegada badge with the quote and the time", () =>
 
 describe("answer_delegated", () => {
   before(async () => {
-    raw = await resetTestDb();
+    store = await resetTestStore();
     cookie = `${SESSION_COOKIE}=${createSession()}`;
     const made = makeDb();
     db = made.db;
@@ -85,10 +85,10 @@ describe("answer_delegated", () => {
 
   after(async () => {
     await client?.close();
-    await raw?.end();
+    await store?.end();
   });
 
-  test("migration 0029 applies twice", async () => {
+  test("migration 0029 applies twice", pgOnly("replays migration 0029 on a private database and reads the catalog"), async () => {
     // 0029's foreign key names the approval table. 0032 drops that table, so this runs on a
     // private copy that stops before 0029.
     const name = "plania_mig_0029";
@@ -130,7 +130,7 @@ describe("answer_delegated", () => {
 
   test("missing or short evidence is refused and stores nothing", async () => {
     const g = await gate("Evidencia");
-    const before = await raw.query("select count(*)::int as n from delegated_answers");
+    const before = await store.count("delegatedAnswers");
     for (const args of [
       { question_id: g.id, option: "pursue" },
       { question_id: g.id, option: "pursue", delegated_by_jorge: { quote: QUOTE } },
@@ -144,10 +144,10 @@ describe("answer_delegated", () => {
       assert.equal(refused.__error, "DELEGATION_EVIDENCE", JSON.stringify(args));
       assert.equal(refused.__status, 400);
     }
-    const after = await raw.query("select count(*)::int as n from delegated_answers");
-    assert.equal(after.rows[0].n, before.rows[0].n);
-    const open = await raw.query("select answer from questions where id = $1", [g.id]);
-    assert.equal(open.rows[0].answer, null);
+    const after = await store.count("delegatedAnswers");
+    assert.equal(after, before);
+    const open = await store.get("questions", { id: g.id });
+    assert.equal(open!.answer, null);
   });
 
   test("another agent, a spoofed screen session, and the answer tool are refused", async () => {
@@ -173,8 +173,8 @@ describe("answer_delegated", () => {
     assert.equal(reserved.__error, "RESERVED_ACTOR");
     const viaAnswer = await call("answer", { question_id: g.id, answer: "pursue", actor: BOT });
     assert.equal(viaAnswer.__error, "HUMAN_ONLY");
-    const still = await raw.query("select answer from questions where id = $1", [g.id]);
-    assert.equal(still.rows[0].answer, null);
+    const still = await store.get("questions", { id: g.id });
+    assert.equal(still!.answer, null);
 
     const [a, b] = InMemoryTransport.createLinkedPair();
     const named = createMcpServer(db, { identity: { tokenId: "00000000-0000-4000-8000-000000000001", agent: "Cursor", machine: "screen", scopes: ["read", "write", "ops"] } });
@@ -201,16 +201,21 @@ describe("answer_delegated", () => {
     assert.equal(done.question.delegated.message_id, MESSAGE);
     assert.equal(done.question.delegated.by.agent, "plania-bot");
     assert.equal(done.question.delegated.by.model, undefined);
-    const row = (await raw.query("select answer, answered_by from questions where id = $1", [g.id])).rows[0];
+    const row = (await store.get("questions", { id: g.id }))!;
     assert.equal(row.answer, "pursue");
-    assert.deepEqual(row.answered_by, WEB_ACTOR);
-    const evidenceRow = (await raw.query("select message_id, quote, actor from delegated_answers where question_id = $1", [g.id])).rows[0];
-    assert.equal(evidenceRow.message_id, MESSAGE);
+    assert.deepEqual(row.answeredBy, WEB_ACTOR);
+    const evidenceRow = (await store.get("delegatedAnswers", { questionId: g.id }))!;
+    assert.equal(evidenceRow.messageId, MESSAGE);
     assert.equal(evidenceRow.quote, QUOTE);
     assert.equal(evidenceRow.actor.agent, "plania-bot");
     assert.equal("token" in evidenceRow.actor, false);
 
-    const events = (await raw.query("select type, actor, payload, token_id from events where task_key = $1 and type in ('question.answered', 'gate.answered') order by id", [g.key])).rows;
+    const events = (await store.find("events", { taskKey: g.key, type: ["question.answered", "gate.answered"] }, { orderBy: [{ column: "id" }] })).map((e) => ({
+      type: e.type,
+      actor: e.actor,
+      payload: e.payload as Json,
+      token_id: e.tokenId,
+    }));
     assert.deepEqual(events.map((e) => e.type), ["question.answered"], "2.17 logs no gate event");
     for (const e of events) {
       assert.deepEqual(e.actor, WEB_ACTOR);
@@ -258,8 +263,8 @@ describe("answer_delegated", () => {
     assert.equal(inbox.items.some((i: Json) => "gate" in i), false);
     const res = await req("POST", `/api/projects/workia/questions/${g.id}/answer`, { body: { answer: "drop" } });
     assert.equal(res.status, 200);
-    const n = await raw.query("select count(*)::int as n from delegated_answers where question_id = $1", [g.id]);
-    assert.equal(n.rows[0].n, 0);
+    const n = await store.count("delegatedAnswers", { questionId: g.id });
+    assert.equal(n, 0);
     const after = await auditProject(db, project);
     assert.equal(after.some((f) => f.code === "DELEGATED_ANSWER" && f.id === g.id), false);
   });
@@ -278,8 +283,8 @@ describe("answer_delegated", () => {
     const human = await call("ask", { key: ticket.key, question: "¿Sigues tú?", human_only: true });
     const free = await call("answer_delegated", { question_id: human.question.id, option: "sí", actor: BOT, ...evidence("msg-owner-0201", "responde que si ahora") });
     assert.equal(free.__error, "NOT_DELEGABLE");
-    const open = await raw.query("select answer from questions where id = $1", [human.question.id]);
-    assert.equal(open.rows[0].answer, null);
+    const open = await store.get("questions", { id: human.question.id });
+    assert.equal(open!.answer, null);
 
     const named = await call("ask", { key: ticket.key, question: "¿Tamaño?", options: ["chico", "grande"], human_only: true });
     const ok = await call("answer_delegated", { question_id: named.question.id, option: "grande", actor: BOT, ...evidence("msg-owner-0202", "el grande, por favor") });
@@ -314,9 +319,11 @@ describe("answer_delegated", () => {
       ...evidence("msg-owner-0302", "reabre ese ticket ahora"),
     });
     assert.equal(back.status, "Ready", JSON.stringify(back));
-    const ev = await raw.query("select actor, payload from events where type = 'task.delegated_move' and payload->>'message_id' = $1", ["msg-owner-0302"]);
-    assert.equal(ev.rows[0].payload.quote, "reabre ese ticket ahora");
-    assert.equal(JSON.stringify(ev.rows[0]).includes(TEST_BEARER), false);
+    const ev = (await store.find("events", { type: "task.delegated_move" }))
+      .filter((e) => e.payload.message_id === "msg-owner-0302")
+      .map((e) => ({ actor: e.actor, payload: e.payload as Json }));
+    assert.equal(ev[0]!.payload.quote, "reabre ese ticket ahora");
+    assert.equal(JSON.stringify(ev[0]).includes(TEST_BEARER), false);
   });
 
   test("the kill switch is the screen cookie, and MCP cannot flip it", async () => {
@@ -346,13 +353,13 @@ describe("answer_delegated", () => {
     const refused = await call("answer_delegated", { question_id: g.id, option: "pursue", actor: BOT, ...evidence("msg-owner-0400", "esto no debe entrar") });
     assert.equal(refused.__error, "DELEGATION_OFF");
     assert.equal(refused.__status, 403);
-    const untouched = await raw.query("select answer from questions where id = $1", [g.id]);
-    assert.equal(untouched.rows[0].answer, null);
+    const untouched = await store.get("questions", { id: g.id });
+    assert.equal(untouched!.answer, null);
     // The tool cannot turn itself back on, whatever extra field it sends.
     const sneak = await call("answer_delegated", { question_id: g.id, option: "pursue", actor: BOT, enabled: true, ...evidence("msg-owner-0401", "enciende el interruptor") });
     assert.equal(sneak.__error, "DELEGATION_OFF");
-    const flag = await raw.query("select value from machine_state where key = 'delegation'");
-    assert.equal(flag.rows[0].value.enabled, false);
+    const flag = await store.get("machineState", { key: "delegation" });
+    assert.equal(flag!.value.enabled, false);
 
     const on = await req("POST", "/api/delegation", { body: { enabled: true } });
     assert.deepEqual(await on.json(), { enabled: true });
@@ -362,35 +369,34 @@ describe("answer_delegated", () => {
   });
 
   test("ten an hour, and one row per question", async () => {
-    await raw.query("update delegated_answers set created_at = now() - interval '2 hours'");
-    const project = (await raw.query("select id from projects where slug = 'workia'")).rows[0].id;
+    await store.fix((uow) => uow.update("delegatedAnswers", {}, { createdAt: new Date(Date.now() - 2 * 3_600_000) }));
+    const project = await store.projectId("workia");
     const holder = await call("create_task", { kind: "idea", title: "Cupo" });
-    const taskId = (await raw.query("select id from tasks where key = $1", [holder.key])).rows[0].id;
-    for (let i = 0; i < 10; i++) {
-      const q = await raw.query(
-        "insert into questions (project_id, task_id, question, options, human_only, asked_by) values ($1, $2, $3, '{a,b}', true, $4::jsonb) returning id",
-        [project, taskId, `cupo ${i}`, JSON.stringify(A)],
-      );
-      await raw.query(
-        "insert into delegated_answers (project_id, question_id, message_id, quote, actor) values ($1, $2, $3, $4, $5::jsonb)",
-        [project, q.rows[0].id, `msg-hour-${i}00`, "cita de relleno ok", JSON.stringify(BOT)],
-      );
-    }
+    const taskId = (await store.get("tasks", { key: holder.key }))!.id;
+    await store.fix(async (uow) => {
+      for (let i = 0; i < 10; i++) {
+        const q = await uow.insert("questions", { projectId: project, taskId, question: `cupo ${i}`, options: ["a", "b"], humanOnly: true, askedBy: A });
+        await uow.insert("delegatedAnswers", { projectId: project, questionId: q.id, messageId: `msg-hour-${i}00`, quote: "cita de relleno ok", actor: BOT });
+      }
+    });
     const g = await gate("Cupo lleno");
     const full = await call("answer_delegated", { question_id: g.id, option: "pursue", actor: BOT, ...evidence("msg-owner-0500", "esta ya no cabe hoy") });
     assert.equal(full.__error, "DELEGATION_LIMIT");
     assert.equal(full.reason, "hour");
-    assert.equal((await raw.query("select answer from questions where id = $1", [g.id])).rows[0].answer, null);
+    assert.equal((await store.get("questions", { id: g.id }))!.answer, null);
 
-    await raw.query("update delegated_answers set created_at = now() - interval '2 hours' where message_id like 'msg-hour-%'");
+    await store.fix(async (uow) => {
+      const hour = (await uow.find("delegatedAnswers")).filter((d) => d.messageId.startsWith("msg-hour-"));
+      for (const d of hour) await uow.update("delegatedAnswers", { id: d.id }, { createdAt: new Date(Date.now() - 2 * 3_600_000) });
+    });
     const room = await call("answer_delegated", { question_id: g.id, option: "pursue", actor: BOT, ...evidence("msg-owner-0501", "ahora si cabe esta") });
     assert.equal(room.__error, undefined, JSON.stringify(room));
 
-    await raw.query("update questions set answer = null, answered_by = null, answered_at = null where id = $1", [g.id]);
+    await store.fix((uow) => uow.update("questions", { id: g.id }, { answer: null, answeredBy: null, answeredAt: null }));
     const twice = await call("answer_delegated", { question_id: g.id, option: "drop", actor: BOT, ...evidence("msg-owner-0502", "segunda vez no vale") });
     assert.equal(twice.__error, "DELEGATION_LIMIT");
     assert.equal(twice.reason, "question");
-    assert.equal((await raw.query("select answer from questions where id = $1", [g.id])).rows[0].answer, null);
+    assert.equal((await store.get("questions", { id: g.id }))!.answer, null);
   });
 
   test("the screen answer route does not accept a delegated body", async () => {
@@ -400,19 +406,28 @@ describe("answer_delegated", () => {
     });
     assert.equal(res.status, 400);
     assert.equal(((await res.json()) as Json).error, "INVALID_BODY");
-    assert.equal((await raw.query("select answer from questions where id = $1", [g.id])).rows[0].answer, null);
-    assert.equal((await raw.query("select count(*)::int as n from delegated_answers where question_id = $1", [g.id])).rows[0].n, 0);
+    assert.equal((await store.get("questions", { id: g.id }))!.answer, null);
+    assert.equal(await store.count("delegatedAnswers", { questionId: g.id }), 0);
   });
 
   test("PLA-06: migration 0031 applies twice; Visto is the screen cookie only; a seen answer leaves the Bandeja and the audit, the row stays", async () => {
-    const sql = readFileSync(path.resolve(import.meta.dirname, "../drizzle/migrations/0031_delegated_reviewed.sql"), "utf8");
-    await raw.query(sql);
-    await raw.query(sql);
+    // Replaying the migration is Postgres's part; the rest of the test runs on both stores.
+    if (!onDevva) {
+      const sql = readFileSync(path.resolve(import.meta.dirname, "../drizzle/migrations/0031_delegated_reviewed.sql"), "utf8");
+      const raw = new pg.Client({ connectionString: TEST_DATABASE_URL });
+      await raw.connect();
+      try {
+        await raw.query(sql);
+        await raw.query(sql);
+      } finally {
+        await raw.end();
+      }
+    }
 
     const g = await gate("Visto");
     const done = await call("answer_delegated", { question_id: g.id, option: "pursue", actor: BOT, ...evidence("msg-owner-0600", "sigue con esa idea ya") });
     assert.equal(done.__error, undefined, JSON.stringify(done));
-    const id = (await raw.query("select id from delegated_answers where question_id = $1", [g.id])).rows[0].id as string;
+    const id = (await store.get("delegatedAnswers", { questionId: g.id }))!.id;
     const listed = async () => ((await call("get_inbox", { project: "workia" })).delegated as Json[]).some((d) => d.id === id);
     const audited = async () => (await auditProject(db, await findProject(db, "workia"))).some((f) => f.code === "DELEGATED_ANSWER" && f.id === g.id);
     assert.equal(await listed(), true);
@@ -435,8 +450,8 @@ describe("answer_delegated", () => {
     assert.deepEqual(await again.json(), { reviewed: 0 });
     assert.equal(await listed(), false);
     assert.equal(await audited(), false);
-    const row = (await raw.query("select quote, reviewed_at from delegated_answers where id = $1", [id])).rows[0];
+    const row = (await store.get("delegatedAnswers", { id }))!;
     assert.equal(row.quote, "sigue con esa idea ya");
-    assert.ok(row.reviewed_at);
+    assert.ok(row.reviewedAt);
   });
 });

@@ -5,11 +5,10 @@ import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { eq } from "drizzle-orm";
+import pg from "pg";
 import type { Db } from "../src/db/client.js";
-import { tasks } from "../src/db/schema.js";
 import { whyChainOf } from "../src/mcp/goals.js";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { pgOnly, resetTestStore, TEST_DATABASE_URL, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -20,7 +19,7 @@ const A = { agent: "test-agent", session_id: "s-goals", machine: "ci" };
 
 let db: Db;
 let client: Client;
-let raw: import("pg").Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
 
 async function tool(name: string, args: Json = {}): Promise<Json> {
@@ -32,7 +31,7 @@ async function tool(name: string, args: Json = {}): Promise<Json> {
 const write = (name: string, args: Json) => tool(name, { actor: A, ...args });
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const opened = makeDb();
   db = opened.db;
   closeDb = opened.close;
@@ -45,34 +44,40 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("goals", () => {
-  test("migration 0035 applies twice and only an initiative can point at a goal", async () => {
-    const sql = readFileSync(path.resolve(import.meta.dirname, "../drizzle/migrations/0035_goals.sql"), "utf8");
-    await raw.query(sql);
-    await raw.query(sql);
-    const cols = await raw.query<{ column_name: string }>(
-      "select column_name from information_schema.columns where table_name = 'goals' order by 1",
-    );
-    assert.deepEqual(
-      cols.rows.map((r) => r.column_name),
-      ["created_at", "id", "parent_id", "position", "project_id", "status", "target_on", "title", "updated_at", "why"],
-    );
-    const goal = await raw.query<{ id: string }>("insert into goals (title, why) values ('Suelta', 'nadie la pide') returning id");
-    const project = await raw.query<{ id: string }>("select id from projects where slug = 'workia'");
-    await raw.query("insert into tasks (project_id, kind, key, title, status, goal_id) values ($1, 'initiative', 'WRK-GOAL-OK', 'Ok', 'Planning', $2)", [
-      project.rows[0]!.id,
-      goal.rows[0]!.id,
-    ]);
-    await assert.rejects(
-      raw.query("insert into tasks (project_id, kind, key, title, status, goal_id) values ($1, 'ticket', 'WRK-GOAL-NO', 'No', 'Backlog', $2)", [
+  test("migration 0035 applies twice and only an initiative can point at a goal", pgOnly("replays migration 0035, reads the catalog and asserts a check constraint's name"), async () => {
+    const raw = new pg.Client({ connectionString: TEST_DATABASE_URL });
+    await raw.connect();
+    try {
+      const sql = readFileSync(path.resolve(import.meta.dirname, "../drizzle/migrations/0035_goals.sql"), "utf8");
+      await raw.query(sql);
+      await raw.query(sql);
+      const cols = await raw.query<{ column_name: string }>(
+        "select column_name from information_schema.columns where table_name = 'goals' order by 1",
+      );
+      assert.deepEqual(
+        cols.rows.map((r) => r.column_name),
+        ["created_at", "id", "parent_id", "position", "project_id", "status", "target_on", "title", "updated_at", "why"],
+      );
+      const goal = await raw.query<{ id: string }>("insert into goals (title, why) values ('Suelta', 'nadie la pide') returning id");
+      const project = await raw.query<{ id: string }>("select id from projects where slug = 'workia'");
+      await raw.query("insert into tasks (project_id, kind, key, title, status, goal_id) values ($1, 'initiative', 'WRK-GOAL-OK', 'Ok', 'Planning', $2)", [
         project.rows[0]!.id,
         goal.rows[0]!.id,
-      ]),
-      /tasks_goal_initiative/,
-    );
+      ]);
+      await assert.rejects(
+        raw.query("insert into tasks (project_id, kind, key, title, status, goal_id) values ($1, 'ticket', 'WRK-GOAL-NO', 'No', 'Backlog', $2)", [
+          project.rows[0]!.id,
+          goal.rows[0]!.id,
+        ]),
+        /tasks_goal_initiative/,
+      );
+    } finally {
+      await raw.end();
+    }
   });
 
   test("progress rolls up a company goal from its project goals, and ignores an initiative with no goal", async () => {
@@ -125,7 +130,7 @@ describe("goals", () => {
     await phase("workia", loose.key, "Seis", true);
 
     const dropped = await phase("workia", initA.key, "Siete", false);
-    await raw.query("update tasks set status = 'Won''t do' where key = $1", [dropped.key]);
+    await store.fix((uow) => uow.update("tasks", { key: dropped.key }, { status: "Won't do" }));
 
     const tree = await tool("list_goals");
     const root = tree.goals.find((g: Json) => g.id === company.id);
@@ -142,11 +147,11 @@ describe("goals", () => {
     assert.deepEqual(onlyWorkia.goals.map((g: Json) => g.id), [workia.id]);
     assert.deepEqual(onlyWorkia.goals[0].progress, { done: 2, total: 4 });
 
-    const [linked] = await db.select().from(tasks).where(eq(tasks.key, initA.key));
+    const linked = await store.get("tasks", { key: initA.key });
     const chain = await whyChainOf(db, linked!);
     assert.equal(chain?.some((l) => l.level === "project_goal" && l.title === "Cobros claros"), true);
 
-    const [open] = await db.select().from(tasks).where(eq(tasks.key, loose.key));
+    const open = await store.get("tasks", { key: loose.key });
     assert.equal(await whyChainOf(db, open!), null);
 
     const cleared = await write("set_task", { project: "workia", key: initA2.key, goal_id: null, version: initA2.version });

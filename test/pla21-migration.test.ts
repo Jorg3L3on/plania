@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import pg from "pg";
 import * as schema from "../src/db/schema.js";
-import { pgUrl } from "./helpers.js";
+import { pgOnly, pgUrl } from "./helpers.js";
 
 const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
@@ -21,7 +21,7 @@ test("the journal holds 0043_remove_token_budgets and the schema has no budget l
   assert.equal(getTableConfig(schema.runnerSettings).columns.some((c) => c.name === "asistente_weekly_limit"), false);
 });
 
-test("0043 applies twice on a throwaway copy: the budgets are gone, the runner settings stay", async () => {
+test("0043 applies twice on a throwaway copy: the budgets are gone, the runner settings stay", pgOnly("replays migration 0043 on a private database and reads the catalog"), async () => {
   const name = "plania_mig_0043";
   const adminUrl = pgUrl("postgres");
   const url = pgUrl(name);

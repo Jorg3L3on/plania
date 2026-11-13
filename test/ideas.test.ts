@@ -8,7 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import pg from "pg";
 import type { Db } from "../src/db/client.js";
 import { forwardBlock, ideaWaitText, STAGE_DOCS } from "../src/mcp/ideas.js";
-import { pgUrl, resetTestDb, useTestEnv } from "./helpers.js";
+import { pgOnly, pgUrl, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -20,7 +20,7 @@ const A = { agent: "test-agent", session_id: "s1", machine: "ci" };
 const P = { project: "workia" };
 
 let client: Client;
-let raw: pg.Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
 
 async function call(name: string, args: Json = {}): Promise<Json> {
@@ -58,7 +58,7 @@ test("idea wait text names the doc and the headings in Spanish", () => {
   assert.equal(ideaWaitText("ready", [], []), "Lista para promover");
 });
 
-test("migration 0026 leaves existing rows unchanged and is not 0025", async () => {
+test("migration 0026 leaves existing rows unchanged and is not 0025", pgOnly("replays migration 0026 on a private database"), async () => {
   const files = readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort();
   assert.equal(files.includes("0025_push_subscriptions.sql"), true);
   assert.equal(files.includes("0026_ideas.sql"), true);
@@ -124,7 +124,7 @@ test("migration 0026 leaves existing rows unchanged and is not 0025", async () =
 });
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const opened = makeDb();
   db = opened.db;
   closeDb = opened.close;
@@ -137,7 +137,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("ideas", () => {
@@ -185,12 +185,12 @@ describe("ideas", () => {
     assert.equal(tickets.some((k: string) => k.includes("IDEA")), false);
 
     await call("set_project", { version: project.version, settings: { release: { from: "sandbox", into: "main", env: "prod" } } });
-    await raw.query("update tasks set status = 'Merged', pr_url = 'https://github.com/example/workia/pull/1' where key = 'WRK-01'");
+    await store.fix((uow) => uow.update("tasks", { key: "WRK-01" }, { status: "Merged", prUrl: "https://github.com/example/workia/pull/1" }));
     const release = (await call("get_project")).release;
     assert.deepEqual(release.tickets.map((t: Json) => t.key), ["WRK-01"]);
-    await raw.query("update tasks set status = 'Ready', pr_url = null where key = 'WRK-01'");
+    await store.fix((uow) => uow.update("tasks", { key: "WRK-01" }, { status: "Ready", prUrl: null }));
 
-    await raw.query("update tasks set branch = 'jl/only-idea' where key = 'WRK-IDEA1'");
+    await store.fix((uow) => uow.update("tasks", { key: "WRK-IDEA1" }, { branch: "jl/only-idea" }));
     const context = await call("get_context", { workspace: { branch: "jl/only-idea" } });
     assert.equal(context.__error, undefined);
     assert.deepEqual(context.tickets.map((t: Json) => t.key), []);
@@ -299,7 +299,7 @@ describe("ideas", () => {
     assert.equal(closeWith.status, "Done");
 
     const fresh = await call("create_task", { kind: "idea", title: "No va" });
-    await raw.query("update tasks set status = 'Won''t do' where key = $1", [fresh.key]);
+    await store.fix((uow) => uow.update("tasks", { key: fresh.key }, { status: "Won't do" }));
     const wont = await call("get_task", { key: fresh.key });
     const wontStage = await call("set_task", { key: fresh.key, stage: "research", version: wont.version });
     assert.equal(wontStage.__error, "IDEA_CLOSED");

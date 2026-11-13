@@ -5,7 +5,9 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import pg from "pg";
-import { pgUrl } from "./helpers.js";
+import { pgOnlyFile, pgUrl } from "./helpers.js";
+
+pgOnlyFile("replays migration 0038 on a private database and reads the catalog");
 
 test("0038_heartbeats_adapters.sql applies twice on a throwaway database", async () => {
   const name = "plania_mig_0038";

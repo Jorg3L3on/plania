@@ -6,8 +6,7 @@ import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import pg from "pg";
-import type pgTypes from "pg";
-import { pgUrl, resetTestDb, TEST_BEARER, useTestEnv } from "./helpers.js";
+import { pgOnly, pgUrl, resetTestStore, TEST_BEARER, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -17,7 +16,7 @@ const { reportTokens } = await import("../src/mcp/usage.js");
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
 
-let raw: pgTypes.Client;
+let store: TestStore;
 let db: Awaited<ReturnType<typeof makeDb>>["db"];
 let closeDb: () => Promise<void>;
 let client: Client;
@@ -33,7 +32,7 @@ async function call(name: string, args: Record<string, unknown> = {}) {
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await createMcpServer(db).connect(serverSide);
@@ -44,10 +43,10 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
-test("0037_token_usage.sql applies twice on a throwaway database", async () => {
+test("0037_token_usage.sql applies twice on a throwaway database", pgOnly("replays migration 0037 on a private database and reads the catalog"), async () => {
   const name = "plania_mig_0037";
   const adminUrl = pgUrl("postgres");
   const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
@@ -139,8 +138,8 @@ test("report_tokens stores a run and a repeat replaces it", async () => {
     at: "2026-03-02T18:00:00.000Z",
   });
   assert.equal(again.input, 15);
-  const rows = await raw.query("select count(*)::int as n from token_usage where run_id = 'run-a'");
-  assert.equal(rows.rows[0].n, 1);
+  const rows = await store.count("tokenUsage", { runId: "run-a" });
+  assert.equal(rows, 1);
 });
 
 test("usage_summary totals per agent, project and week", async () => {
