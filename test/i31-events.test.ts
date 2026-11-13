@@ -7,8 +7,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { after, before, beforeEach, test } from "node:test";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
+import { ne, type NewRow } from "../src/store/types.js";
 
 useTestEnv();
 process.env.PLANIA_EVENT_WAKES = "1";
@@ -25,7 +25,7 @@ const events = await import("../src/runner/events.js");
 const { setCompanyPaused, setProjectPaused } = await import("../src/runner/company.js");
 
 type Db = ReturnType<typeof makeDb>["db"];
-let raw: pg.Client;
+let store: TestStore;
 let db: Db;
 let closeDb: () => Promise<void>;
 const scratch = mkdtempSync(path.join(tmpdir(), "plania-i31-events-"));
@@ -84,58 +84,75 @@ function fakeFetch(routes: Record<string, unknown>) {
 }
 
 async function id(table: "agents" | "projects", slug: string): Promise<string> {
-  return (await raw.query(`select id from ${table} where slug = $1`, [slug])).rows[0].id as string;
+  return table === "agents" ? (await store.get("agents", { slug }))!.id : store.projectId(slug);
 }
+
+const minutesAgo = (n: number): Date => new Date(Date.now() - n * 60_000);
+const inMinutes = (n: number): Date => new Date(Date.now() + n * 60_000);
+
+// The runner's one settings row. The migration seeds it on Postgres; a fresh devva store has none until first read.
+const runnerSettings = (patch: Partial<NewRow<"runnerSettings">>) =>
+  store.fix(async (uow) => ((await uow.get("runnerSettings", { id: 1 })) ? uow.update("runnerSettings", { id: 1 }, patch) : uow.insert("runnerSettings", { id: 1, ...patch })));
+
+const setRunsPaused = (slug: string, runsPaused: boolean) => store.fix((uow) => uow.update("projects", { slug }, { runsPaused }));
 
 // Queued or running runner rows, per agent slug.
 async function wakes(): Promise<{ agent: string; task_key: string | null; status: string; summary: string }[]> {
-  return (
-    await raw.query(
-      `select a.slug as agent, r.task_key, r.status, r.summary from agent_runs r join agents a on a.id = r.agent_id
-       where r.status in ('queued', 'running') order by r.queued_at, a.slug`,
-    )
-  ).rows;
+  const slugs = new Map((await store.find("agents")).map((a) => [a.id, a.slug]));
+  return (await store.find("agentRuns", { status: ["queued", "running"] }))
+    .filter((r) => slugs.has(r.agentId))
+    .map((r) => ({ at: r.queuedAt.getTime(), agent: slugs.get(r.agentId)!, task_key: r.taskKey, status: r.status, summary: r.summary }))
+    .sort((a, b) => a.at - b.at || (a.agent < b.agent ? -1 : a.agent > b.agent ? 1 : 0))
+    .map(({ at: _, ...w }) => w);
 }
 
 async function backlog(key: string, extra: Record<string, unknown> = {}): Promise<void> {
   await writes.createTask(db, { project: "micasa", key, title: `Ticket ${key}`, scope: "Scope", checks: ["Done"], ...extra } as never, ctx);
 }
 const toReady = async (key: string) => {
-  const { version } = (await raw.query(`select version from tasks where key = $1`, [key])).rows[0];
+  const { version } = (await store.get("tasks", { key }))!;
   return writes.setTask(db, { project: "micasa", key, status: "Ready", version } as never, ctx);
 };
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
   mkdirSync(repo, { recursive: true });
-  await raw.query(`update agents set heartbeat_minutes = null, adapter = 'none', adapter_config = '{}'::jsonb`);
-  await raw.query(`update agents set adapter = 'claude_code' where slug in ('housi', 'taller', 'research', 'artist', 'asistente')`);
-  await raw.query(`update projects set settings = jsonb_build_object('local', jsonb_build_object('repo_path', $1::text), 'github', jsonb_build_object('repo', 'acme/micasa')) where slug = 'micasa'`, [repo]);
-  const actor = JSON.stringify({ agent: "test", session_id: "s" });
-  for (const title of ["Prompt: Product owner", "Prompt: Taller", "Prompt: Research", "Prompt: Artist", "Prompt: Asistente"]) {
-    await raw.query(`insert into docs (project_id, title, markdown, actor) values ($1, $2, $3, $4)`, [await id("projects", "micasa"), title, `# ${title}`, actor]);
-  }
-  await raw.query(`insert into goals (project_id, title) values ($1, 'Ship the MiCasa beta')`, [await id("projects", "micasa")]);
+  const micasa = await id("projects", "micasa");
+  await store.fix(async (uow) => {
+    await uow.update("agents", {}, { heartbeatMinutes: null, adapter: "none", adapterConfig: {} });
+    await uow.update("agents", { slug: ["housi", "taller", "research", "artist", "asistente"] }, { adapter: "claude_code" });
+    await uow.update("projects", { slug: "micasa" }, { settings: { local: { repo_path: repo }, github: { repo: "acme/micasa" } } });
+    const actor = { agent: "test", session_id: "s" };
+    for (const title of ["Prompt: Product owner", "Prompt: Taller", "Prompt: Research", "Prompt: Artist", "Prompt: Asistente"]) {
+      await uow.insert("docs", { projectId: micasa, title, markdown: `# ${title}`, actor });
+    }
+    await uow.insert("goals", { projectId: micasa, title: "Ship the MiCasa beta" });
+  });
 });
 
 beforeEach(async () => {
   await runner.waitForAllRuns();
   runner.resetRunnerForTests();
-  await raw.query(`delete from agent_runs`);
-  await raw.query(`delete from heartbeat_runs`);
-  await raw.query(`update runner_settings set company_paused = false, max_concurrent = 1, cooldown_minutes = 0, plan_guard_pct = 70, reserve_tokens = 1000`);
-  await raw.query(`update projects set runs_paused = false where slug = 'micasa'`);
-  await raw.query(`update projects set runs_paused = true where slug <> 'micasa'`);
-  await raw.query(`delete from plan_readings`);
-  await raw.query(`insert into plan_readings (at, source, status, five_hour_pct, seven_day_pct, five_hour_resets_at) values (now(), 'stream', 'allowed', 10, 19, now() + interval '3 hours')`);
+  await store.fix(async (uow) => {
+    await uow.delete("agentRuns", {});
+    await uow.delete("heartbeatRuns", {});
+  });
+  await runnerSettings({ companyPaused: false, maxConcurrent: 1, cooldownMinutes: 0, planGuardPct: 70, reserveTokens: 1000 });
+  await store.fix(async (uow) => {
+    await uow.update("projects", { slug: "micasa" }, { runsPaused: false });
+    await uow.update("projects", { slug: ne("micasa") }, { runsPaused: true });
+    await uow.delete("planReadings", {});
+    const now = new Date();
+    await uow.insert("planReadings", { at: now, source: "stream", status: "allowed", fiveHourPct: 10, sevenDayPct: 19, fiveHourResetsAt: new Date(now.getTime() + 3 * 3_600_000) });
+  });
 });
 
 after(async () => {
   await runner.waitForAllRuns();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
   rmSync(scratch, { recursive: true, force: true });
 });
 
@@ -149,11 +166,11 @@ test("I31-1 #1a: a ticket moving to Ready queues exactly one wake, for Taller, o
   assert.equal(w.length, 1);
   assert.deepEqual({ agent: w[0]!.agent, task: w[0]!.task_key, status: w[0]!.status }, { agent: "taller", task: "EV-READY", status: "queued" });
   assert.match(w[0]!.summary, /^queued: event ticket ready$/);
-  const logged = (await raw.query(`select payload from events where type = 'wake.queued' and task_key = 'EV-READY'`)).rows;
+  const logged = await store.find("events", { type: "wake.queued", taskKey: "EV-READY" });
   assert.equal(logged.length, 1);
-  assert.equal(logged[0].payload.agent, "taller");
+  assert.equal(logged[0]!.payload.agent, "taller");
   // A [PRUEBA] ticket and a ticket owned by another agent wake nobody.
-  await raw.query(`delete from agent_runs`);
+  await store.fix((uow) => uow.delete("agentRuns", {}));
   await backlog("EV-PRUEBA", { title: "[PRUEBA] nada" });
   await toReady("EV-PRUEBA");
   await backlog("EV-OWNED", { owner_agent: "research" });
@@ -164,17 +181,15 @@ test("I31-1 #1a: a ticket moving to Ready queues exactly one wake, for Taller, o
 test("I31-1 #1b: a question answered wakes whoever asked it (a runner session, or a roster slug)", async () => {
   await backlog("EV-ASK");
   // housi (PO) asked from a runner session run-<8 hex of its run id>.
-  const [run] = (
-    await raw.query(
-      `insert into agent_runs (agent_id, project_id, role, status, started_at, ended_at, queued_at)
-       values ($1, $2, 'product-owner', 'ok', now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours') returning id`,
-      [await id("agents", "housi"), await id("projects", "micasa")],
-    )
-  ).rows;
+  const [agentId, projectId] = [await id("agents", "housi"), await id("projects", "micasa")];
+  const twoHoursAgo = minutesAgo(120);
+  const run = await store.fix((uow) =>
+    uow.insert("agentRuns", { agentId, projectId, role: "product-owner", status: "ok", startedAt: twoHoursAgo, endedAt: twoHoursAgo, queuedAt: twoHoursAgo }),
+  );
   const asked = (await questions.ask(db, { project: "micasa", key: "EV-ASK", question: "¿A o B?" }, { actor: { agent: "Claude Code", session_id: `run-${String(run.id).slice(0, 8)}` } })) as { question_id: string };
   // PLA-I32-5: a PO's question goes to Asistente first.
   assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key, x.summary]), [["asistente", "EV-ASK", "queued: event question from housi"]]);
-  await raw.query(`delete from agent_runs where status = 'queued'`);
+  await store.fix((uow) => uow.delete("agentRuns", { status: "queued" }));
   await questions.answer(db, { project: "micasa", question_id: asked.question_id, answer: "A" }, webCtx);
   let w = await wakes();
   assert.equal(w.length, 1);
@@ -182,7 +197,7 @@ test("I31-1 #1b: a question answered wakes whoever asked it (a runner session, o
   assert.match(w[0]!.summary, /question answered/);
 
   // An asker named by its roster slug.
-  await raw.query(`delete from agent_runs`);
+  await store.fix((uow) => uow.delete("agentRuns", {}));
   await backlog("EV-ASK2");
   const q2 = (await questions.ask(db, { project: "micasa", key: "EV-ASK2", question: "¿Fuente?" }, { actor: { agent: "research", session_id: "r1" } })) as { question_id: string };
   await questions.answer(db, { project: "micasa", question_id: q2.question_id, answer: "La primera" }, webCtx);
@@ -191,7 +206,7 @@ test("I31-1 #1b: a question answered wakes whoever asked it (a runner session, o
   assert.equal(w[0]!.agent, "research");
 
   // An asker that is not on the roster wakes nobody.
-  await raw.query(`delete from agent_runs`);
+  await store.fix((uow) => uow.delete("agentRuns", {}));
   await backlog("EV-ASK3");
   const q3 = (await questions.ask(db, { project: "micasa", key: "EV-ASK3", question: "¿?" }, { actor: { agent: "Cursor", session_id: "c1" } })) as { question_id: string };
   await questions.answer(db, { project: "micasa", question_id: q3.question_id, answer: "Sí" }, webCtx);
@@ -213,7 +228,7 @@ const pr = (number: number, key: string, sha: string) => ({
 
 async function inReview(key: string, number: number): Promise<void> {
   await backlog(key);
-  await raw.query(`update tasks set status = 'In review', pr_url = $2 where key = $1`, [key, `https://github.com/acme/micasa/pull/${number}`]);
+  await store.fix((uow) => uow.update("tasks", { key }, { status: "In review", prUrl: `https://github.com/acme/micasa/pull/${number}` }));
 }
 
 test("I31-1 #1c: a PR review asking for changes wakes Taller once, on the PR's ticket", async () => {
@@ -226,15 +241,14 @@ test("I31-1 #1c: a PR review asking for changes wakes Taller once, on the PR's t
     ],
     "/repos/acme/micasa/commits/": { check_runs: [] },
   });
-  const p = (await raw.query(`select * from projects where slug = 'micasa'`)).rows[0];
-  const project = { ...p, settings: p.settings, keyPrefix: p.key_prefix };
+  const project = (await store.get("projects", { slug: "micasa" }))!;
   const s = await pollGithubProject(db, project as never, { fetch: fetch as never, env: { GITHUB_TOKEN: "ghp_test" } });
   assert.equal(s.reviews, 1);
   const w = await wakes();
   assert.equal(w.length, 1);
   assert.deepEqual({ agent: w[0]!.agent, task: w[0]!.task_key }, { agent: "taller", task: "EV-REV" });
   assert.match(w[0]!.summary, /pr review/);
-  assert.equal((await raw.query(`select count(*)::int as n from events where type = 'pr.reviewed' and task_key = 'EV-REV'`)).rows[0].n, 1);
+  assert.equal(await store.count("events", { type: "pr.reviewed", taskKey: "EV-REV" }), 1);
 });
 
 test("I31-1 #1c: CI red wakes Taller once, even though the ticket also moves back to Ready", async () => {
@@ -243,9 +257,9 @@ test("I31-1 #1c: CI red wakes Taller once, even though the ticket also moves bac
     "/repos/acme/micasa/pulls?": [pr(12, "EV-CI", "b".repeat(40))],
     "/repos/acme/micasa/commits/": { check_runs: [{ name: "test", status: "completed", conclusion: "failure", html_url: "https://ci/1", head_sha: "b".repeat(40) }] },
   });
-  const p = (await raw.query(`select * from projects where slug = 'micasa'`)).rows[0];
-  await pollGithubProject(db, { ...p, keyPrefix: p.key_prefix } as never, { fetch: fetch as never, env: { GITHUB_TOKEN: "ghp_test" } });
-  assert.equal((await raw.query(`select status from tasks where key = 'EV-CI'`)).rows[0].status, "Ready");
+  const p = (await store.get("projects", { slug: "micasa" }))!;
+  await pollGithubProject(db, p as never, { fetch: fetch as never, env: { GITHUB_TOKEN: "ghp_test" } });
+  assert.equal((await store.get("tasks", { key: "EV-CI" }))!.status, "Ready");
   const w = await wakes();
   assert.equal(w.length, 1);
   assert.deepEqual({ agent: w[0]!.agent, task: w[0]!.task_key }, { agent: "taller", task: "EV-CI" });
@@ -256,16 +270,16 @@ test("I31-1 #1d: an idea moving to research wakes Research; to design wakes Arti
   const made = (await writes.createTask(db, { project: "micasa", kind: "idea", title: "Una idea" } as never, ctx)) as { key: string };
   const key = made.key;
   await attachDoc(db, { project: "micasa", key, title: "Idea", markdown: "# Idea\n## Problem\nx\n## Who it is for\ny\n## Why now\nz" }, ctx);
-  let t = (await raw.query(`select version from tasks where key = $1`, [key])).rows[0];
+  let t = (await store.get("tasks", { key }))!;
   await writes.setTask(db, { project: "micasa", key, stage: "research", version: t.version } as never, ctx);
   let w = await wakes();
   assert.equal(w.length, 1);
   assert.deepEqual({ agent: w[0]!.agent, task: w[0]!.task_key }, { agent: "research", task: key });
   assert.match(w[0]!.summary, /idea stage research/);
 
-  await raw.query(`delete from agent_runs`);
+  await store.fix((uow) => uow.delete("agentRuns", {}));
   await attachDoc(db, { project: "micasa", key, title: "Research", markdown: "# R\n## What we learned\nx\n## Options\ny\n## Recommendation\nz" }, ctx);
-  t = (await raw.query(`select version from tasks where key = $1`, [key])).rows[0];
+  t = (await store.get("tasks", { key }))!;
   await writes.setTask(db, { project: "micasa", key, stage: "design", version: t.version } as never, ctx);
   w = await wakes();
   assert.equal(w.length, 1);
@@ -273,12 +287,11 @@ test("I31-1 #1d: an idea moving to research wakes Research; to design wakes Arti
 });
 
 test("I31-1 #2: 3 events inside the cooldown produce 1 run; the queue (cadence job) starts it after", async () => {
-  await raw.query(`update runner_settings set cooldown_minutes = 30`);
+  await runnerSettings({ cooldownMinutes: 30 });
   // Taller's last run ended a minute ago: the cooldown is on.
-  await raw.query(
-    `insert into agent_runs (agent_id, project_id, role, status, started_at, ended_at, queued_at, summary)
-     values ($1, $2, 'taller', 'ok', now() - interval '5 minutes', now() - interval '1 minute', now() - interval '5 minutes', 'ok: seed')`,
-    [await id("agents", "taller"), await id("projects", "micasa")],
+  const [agentId, projectId] = [await id("agents", "taller"), await id("projects", "micasa")];
+  await store.fix((uow) =>
+    uow.insert("agentRuns", { agentId, projectId, role: "taller", status: "ok", startedAt: minutesAgo(5), endedAt: minutesAgo(1), queuedAt: minutesAgo(5), summary: "ok: seed" }),
   );
   for (const key of ["EV-C1", "EV-C2", "EV-C3"]) {
     await backlog(key);
@@ -296,7 +309,7 @@ test("I31-1 #2: 3 events inside the cooldown produce 1 run; the queue (cadence j
   assert.equal((await wakes())[0]!.status, "queued");
 
   // Cooldown over: the heartbeat job's drain starts it, once.
-  await raw.query(`update agent_runs set ended_at = now() - interval '31 minutes' where summary = 'ok: seed'`);
+  await store.fix((uow) => uow.update("agentRuns", { summary: "ok: seed" }, { endedAt: minutesAgo(31) }));
   const counts = await runHeartbeat(db, new Date(), { runner: f.deps as never });
   assert.equal(counts.started_from_queue, 1);
   assert.equal(f.spawned.length, 1);
@@ -309,7 +322,7 @@ test("I31-1 #2: 3 events inside the cooldown produce 1 run; the queue (cadence j
   drained = await runner.drainQueue(db, new Date(), f.deps as never);
   assert.equal(drained.started, 0);
   assert.equal(f.spawned.length, 1);
-  const runs = (await raw.query(`select count(*)::int as n from agent_runs r join agents a on a.id = r.agent_id where a.slug = 'taller' and r.status = 'ok' and r.summary <> 'ok: seed'`)).rows[0].n;
+  const runs = await store.count("agentRuns", { agentId: await id("agents", "taller"), status: "ok", summary: ne("ok: seed") });
   assert.equal(runs, 1);
 });
 
@@ -326,10 +339,11 @@ test("I31-1 #3: with the kill switch off, events enqueue nothing (company, proje
   assert.deepEqual(await wakes(), []);
 
   // Without the heartbeat job (PLANIA_JOBS unset) the hook queues nothing either.
-  const t = (await raw.query(`select id, key from tasks where key = 'EV-K2'`)).rows[0];
-  await raw.query(`update projects set runs_paused = false where slug = 'micasa'`);
+  const row = (await store.get("tasks", { key: "EV-K2" }))!;
+  const t = { id: row.id, key: row.key };
+  await setRunsPaused("micasa", false);
   const pid = await id("projects", "micasa");
-  const out = await db.transaction((tx) => events.onWriteEvent(tx as never, { id: pid, slug: "micasa" }, "task.status", t, { from: "Backlog", to: "Ready" }, {}));
+  const out = await store.fix((uow) => events.onWriteEvent(uow.sql, { id: pid, slug: "micasa" }, "task.status", t, { from: "Backlog", to: "Ready" }, {}));
   assert.equal(out, null);
   assert.equal(events.eventWakesEnabled({}), false);
   assert.equal(events.eventWakesEnabled({ PLANIA_JOBS: "1" }), true);
@@ -337,7 +351,7 @@ test("I31-1 #3: with the kill switch off, events enqueue nothing (company, proje
 });
 
 test("I31-1: resuming a project queues its PO's first wake; a second event while queued coalesces", async () => {
-  await raw.query(`update projects set runs_paused = true where slug = 'micasa'`);
+  await setRunsPaused("micasa", true);
   await setProjectPaused(db, "micasa", false);
   let w = await wakes();
   assert.equal(w.length, 1);
@@ -358,7 +372,7 @@ test("I31-1: resuming a project queues its PO's first wake; a second event while
 const { addResult } = await import("../src/mcp/evidence.js");
 let prNumber = 500;
 const move = async (key: string, status: string) => {
-  const { version } = (await raw.query(`select version from tasks where key = $1`, [key])).rows[0];
+  const { version } = (await store.get("tasks", { key }))!;
   return writes.setTask(db, { project: "micasa", key, status, version } as never, webCtx);
 };
 // In review with its PR, then Merged the way the screen moves it (no scan pass: PLA-20).
@@ -366,12 +380,13 @@ async function land(key: string): Promise<void> {
   const number = ++prNumber;
   const head = number.toString(16).padStart(40, "0");
   const url = `https://github.com/acme/micasa/pull/${number}`;
-  const t = (await raw.query(`update tasks set status = 'In review', pr_url = $2 where key = $1 returning id`, [key, url])).rows[0];
-  await raw.query(
-    `insert into pull_requests (project_id, repo, number, url, title, task_id, state, head_sha, head_branch, base_branch)
-     values ($1, 'acme/micasa', $2, $3, $4, $5, 'open', $6, $7, 'sandbox')`,
-    [await id("projects", "micasa"), number, url, key, t.id, head, `jl/${key.toLowerCase()}`],
-  );
+  const projectId = await id("projects", "micasa");
+  await store.fix(async (uow) => {
+    const [t] = await uow.update("tasks", { key }, { status: "In review", prUrl: url });
+    await uow.insert("pullRequests", {
+      projectId, repo: "acme/micasa", number, url, title: key, taskId: t!.id, state: "open", headSha: head, headBranch: `jl/${key.toLowerCase()}`, baseBranch: "sandbox",
+    });
+  });
   await addResult(db, { project: "micasa", key, kind: "unit", verdict: "pass", cite: "test", check_ns: [1] } as never, ctx);
   await move(key, "Merged");
 }
@@ -388,18 +403,18 @@ test("PLA-15 #1: a ticket landing queues one Taller wake on the Ready ticket it 
   assert.equal(w.length, 1);
   assert.deepEqual({ agent: w[0]!.agent, task: w[0]!.task_key, status: w[0]!.status }, { agent: "taller", task: "LD-A2", status: "queued" });
   assert.equal(w[0]!.summary, "queued: event unblocked by LD-A1");
-  const logged = (await raw.query(`select payload from events where type = 'wake.queued' and task_key = 'LD-A1'`)).rows;
+  const logged = await store.find("events", { type: "wake.queued", taskKey: "LD-A1" });
   assert.equal(logged.length, 1);
   assert.deepEqual(
-    { agent: logged[0].payload.agent, reason: logged[0].payload.reason, from: logged[0].payload.from_event },
+    { agent: logged[0]!.payload.agent, reason: logged[0]!.payload.reason, from: logged[0]!.payload.from_event },
     { agent: "taller", reason: "unblocked by LD-A1", from: "task.status" },
   );
 
   // #3: Merged → Released → Done is the same landing: no second wake.
-  await raw.query(`delete from agent_runs`);
+  await store.fix((uow) => uow.delete("agentRuns", {}));
   await move("LD-A1", "Released");
   await move("LD-A1", "Done");
-  assert.equal((await raw.query(`select status from tasks where key = 'LD-A1'`)).rows[0].status, "Done");
+  assert.equal((await store.get("tasks", { key: "LD-A1" }))!.status, "Done");
   assert.deepEqual(await wakes(), []);
 });
 
@@ -408,12 +423,12 @@ test("PLA-15 #2: a landing queues nothing when the next ticket is not Taller's t
   await backlog("LD-B1");
   await backlog("LD-B2");
   await step("LD-B3", ["LD-B1", "LD-B2"]);
-  await raw.query(`update tasks set status = 'In review' where key = 'LD-B2'`);
+  await store.fix((uow) => uow.update("tasks", { key: "LD-B2" }, { status: "In review" }));
   await land("LD-B1");
   assert.deepEqual(await wakes(), [], "LD-B2 has not landed");
   await land("LD-B2");
   assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key, x.summary]), [["taller", "LD-B3", "queued: event unblocked by LD-B2"]]);
-  await raw.query(`delete from agent_runs`);
+  await store.fix((uow) => uow.delete("agentRuns", {}));
 
   // Not Ready, owned by another agent, a [PRUEBA] ticket, or a human action still open.
   await backlog("LD-C1");
@@ -435,7 +450,7 @@ test("PLA-15 #2: a landing queues nothing when the next ticket is not Taller's t
   await setProjectPaused(db, "micasa", true);
   await land("LD-E1");
   assert.deepEqual(await wakes(), []);
-  await raw.query(`update projects set runs_paused = false where slug = 'micasa'`);
+  await setRunsPaused("micasa", false);
   await backlog("LD-F1");
   await step("LD-F2", ["LD-F1"]);
   await setCompanyPaused(db, true);
@@ -452,14 +467,20 @@ test("PLA-15: several tickets freed at once: Jorge's pick first, then priority; 
   await land("LD-G1");
   assert.deepEqual((await wakes()).map((x) => x.task_key), ["LD-G3"]);
 
-  await raw.query(`delete from agent_runs`);
+  await store.fix((uow) => uow.delete("agentRuns", {}));
   await backlog("LD-H1");
   await step("LD-H2", ["LD-H1"], { priority: "P1" });
   await step("LD-H3", ["LD-H1"], { priority: "P3" });
-  await raw.query(`update projects set settings = settings || '{"next_first": "LD-H3"}'::jsonb where slug = 'micasa'`);
+  await store.fix(async (uow) => {
+    const p = (await uow.get("projects", { slug: "micasa" }))!;
+    await uow.update("projects", { slug: "micasa" }, { settings: { ...p.settings, next_first: "LD-H3" } });
+  });
   await land("LD-H1");
   assert.deepEqual((await wakes()).map((x) => x.task_key), ["LD-H3"]);
-  await raw.query(`update projects set settings = settings - 'next_first' where slug = 'micasa'`);
+  await store.fix(async (uow) => {
+    const { next_first: _, ...settings } = (await uow.get("projects", { slug: "micasa" }))!.settings;
+    await uow.update("projects", { slug: "micasa" }, { settings });
+  });
 
   // Taller already has a run queued (LD-H3): the next landing coalesces.
   await backlog("LD-I1");
@@ -476,24 +497,32 @@ const { writeTx, WEB_ACTOR } = await import("../src/mcp/tx.js");
 const MAX_TURNS = "fail: error_max_turns (41 turns, session 491bc14d)";
 
 // The ticket In progress, leased to the runner session of that run (run-<first 8 of its id>).
-async function leaseTo(key: string, runId: string, lease = "now() + interval '110 minutes'"): Promise<void> {
-  const owner = JSON.stringify({ agent: "plania-runner", session_id: `run-${runId.slice(0, 8)}`, machine: "test" });
-  await raw.query(`update tasks set status = 'In progress', owner = $2::jsonb, claimed_at = now() - interval '9 minutes', lease_until = ${lease} where key = $1`, [key, owner]);
+async function leaseTo(key: string, runId: string, lease = inMinutes(110)): Promise<void> {
+  const owner = { agent: "plania-runner", session_id: `run-${runId.slice(0, 8)}`, machine: "test" };
+  await store.fix((uow) => uow.update("tasks", { key }, { status: "In progress", owner, claimedAt: minutesAgo(9), leaseUntil: lease }));
 }
 // A Taller run on the ticket that ended (fail by default) and still holds its lease.
 async function endedRunHolding(key: string, status = "fail", summary = MAX_TURNS): Promise<string> {
+  const [agentId, projectId] = [await id("agents", "taller"), await id("projects", "micasa")];
   const run = (
-    await raw.query(
-      `insert into agent_runs (agent_id, project_id, task_key, role, status, summary, queued_at, started_at, ended_at)
-       values ($1, $2, $3, 'taller', $4, $5, now() - interval '10 minutes', now() - interval '10 minutes', now() - interval '1 minute') returning id`,
-      [await id("agents", "taller"), await id("projects", "micasa"), key, status, summary],
+    await store.fix((uow) =>
+      uow.insert("agentRuns", { agentId, projectId, taskKey: key, role: "taller", status, summary, queuedAt: minutesAgo(10), startedAt: minutesAgo(10), endedAt: minutesAgo(1) }),
     )
-  ).rows[0].id as string;
+  ).id;
   await leaseTo(key, run);
   return run;
 }
-const ticket = async (key: string) => (await raw.query(`select id, status, owner, lease_until, blocked_note from tasks where key = $1`, [key])).rows[0];
-const eventsOf = async (key: string, type: string) => (await raw.query(`select payload from events where task_key = $1 and type = $2 order by id`, [key, type])).rows.map((r) => r.payload);
+type Json = Record<string, any>;
+const ticket = async (key: string): Promise<Json> => {
+  const t = (await store.get("tasks", { key }))!;
+  return { id: t.id, status: t.status, owner: t.owner, lease_until: t.leaseUntil, blocked_note: t.blockedNote };
+};
+const eventsOf = async (key: string, type: string): Promise<any[]> => (await store.find("events", { taskKey: key, type }, { orderBy: [{ column: "id" }] })).map((r) => r.payload);
+// The queued run marked failed now, the way the runner ends it; its id.
+const failQueued = async (summary: string): Promise<string> => {
+  const now = new Date();
+  return (await store.fix((uow) => uow.update("agentRuns", { status: "queued" }, { status: "fail", summary, startedAt: now, endedAt: now })))[0]!.id;
+};
 
 test("PLA-16 #1, #2: a failed run frees its ticket and the same agent is queued on it once; the second failure in a row goes to Jorge", async () => {
   assert.equal(failureWords(MAX_TURNS), "error_max_turns (41 turns)");
@@ -516,7 +545,7 @@ test("PLA-16 #1, #2: a failed run frees its ticket and the same agent is queued 
   assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 0 });
 
   // The retry fails too, holding the ticket again: no third run. The ticket is Blocked with a step for Jorge.
-  const retryRun = (await raw.query(`update agent_runs set status = 'fail', summary = $1, started_at = now(), ended_at = now() where status = 'queued' returning id`, [MAX_TURNS])).rows[0].id as string;
+  const retryRun = await failQueued(MAX_TURNS);
   await leaseTo("FR-A1", retryRun);
   assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 1 });
   t = await ticket("FR-A1");
@@ -524,18 +553,18 @@ test("PLA-16 #1, #2: a failed run frees its ticket and the same agent is queued 
   assert.match(t.blocked_note, /^Jorge: Taller falló dos veces seguidas en este paso \(error_max_turns \(41 turns\)\)/);
   assert.deepEqual(await wakes(), []);
   assert.equal((await eventsOf("FR-A1", "claim.released"))[1].reason, "run failed twice");
-  const steps = (await raw.query(`select id, spec, satisfied_at from blockers where task_id = $1 and type = 'human_action'`, [t.id])).rows;
+  const steps = (await store.find("blockers", { taskId: t.id, type: "human_action" })).map((b) => ({ id: b.id, spec: b.spec, satisfied_at: b.satisfiedAt }));
   assert.equal(steps.length, 1, "one step in Jorge's inbox");
-  assert.equal(steps[0].satisfied_at, null);
+  assert.equal(steps[0]!.satisfied_at, null);
   assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 0 });
 
   // Jorge marks it done: Ready again, and the move wakes Taller. A third failure is the first of a new pair.
   const p = { id: await id("projects", "micasa"), slug: "micasa" };
-  await writeTx(db, p, webCtx, (tx, emit) => resolveHumanAction(tx, emit, p.id, steps[0].id, WEB_ACTOR));
+  await writeTx(db, p, webCtx, (tx, emit) => resolveHumanAction(tx, emit, p.id, steps[0]!.id, WEB_ACTOR));
   assert.equal((await ticket("FR-A1")).status, "Ready");
   w = await wakes();
   assert.deepEqual(w.map((x) => [x.agent, x.task_key, x.summary]), [["taller", "FR-A1", "queued: event ticket ready"]]);
-  const third = (await raw.query(`update agent_runs set status = 'fail', summary = $1, started_at = now(), ended_at = now() where status = 'queued' returning id`, [MAX_TURNS])).rows[0].id as string;
+  const third = await failQueued(MAX_TURNS);
   await leaseTo("FR-A1", third);
   assert.deepEqual(await sweepFailedRuns(db), { retried: 1, held: 0 });
 });
@@ -544,25 +573,23 @@ test("PLA-16: the retry waits for a busy agent and a closed switch; a stopped ru
   // Taller is busy on another ticket: FR-B1 keeps its lease until Taller is free.
   await backlog("FR-B1");
   await endedRunHolding("FR-B1");
-  await raw.query(`insert into agent_runs (agent_id, project_id, task_key, role, status, summary) values ($1, $2, 'FR-OTHER', 'taller', 'queued', 'queued: event ticket ready')`, [
-    await id("agents", "taller"),
-    await id("projects", "micasa"),
-  ]);
+  const [agentId, projectId] = [await id("agents", "taller"), await id("projects", "micasa")];
+  await store.fix((uow) => uow.insert("agentRuns", { agentId, projectId, taskKey: "FR-OTHER", role: "taller", status: "queued", summary: "queued: event ticket ready" }));
   assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 0 });
   assert.equal((await ticket("FR-B1")).status, "In progress");
-  await raw.query(`delete from agent_runs where status = 'queued'`);
+  await store.fix((uow) => uow.delete("agentRuns", { status: "queued" }));
 
   // A paused project, then a paused company.
-  await raw.query(`update projects set runs_paused = true where slug = 'micasa'`);
+  await setRunsPaused("micasa", true);
   assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 0 });
-  await raw.query(`update projects set runs_paused = false where slug = 'micasa'`);
-  await raw.query(`update runner_settings set company_paused = true`);
+  await setRunsPaused("micasa", false);
+  await runnerSettings({ companyPaused: true });
   assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 0 });
   assert.equal((await ticket("FR-B1")).status, "In progress");
-  await raw.query(`update runner_settings set company_paused = false`);
+  await runnerSettings({ companyPaused: false });
   assert.deepEqual(await sweepFailedRuns(db), { retried: 1, held: 0 });
   assert.deepEqual((await wakes()).map((x) => x.task_key), ["FR-B1"]);
-  await raw.query(`delete from agent_runs`);
+  await store.fix((uow) => uow.delete("agentRuns", {}));
 
   // Not failures, and not runner leases.
   await backlog("FR-C1");
@@ -570,7 +597,7 @@ test("PLA-16: the retry waits for a busy agent and a closed switch; a stopped ru
   await backlog("FR-C2");
   await endedRunHolding("FR-C2", "ok", "ok: success, 12 turns, session 0a1b2c3d");
   await backlog("FR-C3");
-  await raw.query(`update tasks set status = 'In progress', owner = '{"agent":"Claude Code","session_id":"cc-a-person"}'::jsonb, lease_until = now() + interval '20 minutes' where key = 'FR-C3'`);
+  await store.fix((uow) => uow.update("tasks", { key: "FR-C3" }, { status: "In progress", owner: { agent: "Claude Code", session_id: "cc-a-person" }, leaseUntil: inMinutes(20) }));
   assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 0 });
   assert.deepEqual(await Promise.all(["FR-C1", "FR-C2", "FR-C3"].map(async (k) => (await ticket(k)).status)), ["In progress", "In progress", "In progress"]);
   assert.deepEqual(await wakes(), []);
@@ -592,9 +619,9 @@ test("PLA-16: the heartbeat tick sweeps the failed run and starts its retry in t
 test("PLA-16 #3: a runner run's lease that runs out wakes Taller on the ticket; a person's expired lease wakes nobody", async () => {
   await backlog("FR-E1");
   const run = await endedRunHolding("FR-E1", "ok", "ok: success, 12 turns, session 0a1b2c3d");
-  await leaseTo("FR-E1", run, "now() - interval '1 minute'");
+  await leaseTo("FR-E1", run, minutesAgo(1));
   await backlog("FR-E2");
-  await raw.query(`update tasks set status = 'In progress', owner = '{"agent":"Claude Code","session_id":"cc-a-person"}'::jsonb, lease_until = now() - interval '1 minute' where key = 'FR-E2'`);
+  await store.fix((uow) => uow.update("tasks", { key: "FR-E2" }, { status: "In progress", owner: { agent: "Claude Code", session_id: "cc-a-person" }, leaseUntil: minutesAgo(1) }));
   // Any write in the project reaps both leases.
   await backlog("FR-E3");
   assert.deepEqual(await Promise.all(["FR-E1", "FR-E2"].map(async (k) => (await ticket(k)).status)), ["Ready", "Ready"]);
@@ -612,13 +639,15 @@ const BUDGET_STOP = "BUDGET_STOPPED project micasa";
 
 // A Taller run on the ticket that a limit stopped, still holding its lease. tokens: what it spent.
 async function stoppedRunHolding(key: string, reason: string, tokens = 0): Promise<string> {
+  const [agentId, projectId] = [await id("agents", "taller"), await id("projects", "micasa")];
   const run = (
-    await raw.query(
-      `insert into agent_runs (agent_id, project_id, task_key, role, status, summary, stop_reason, tokens_total, queued_at, started_at, ended_at)
-       values ($1, $2, $3, 'taller', 'stopped', $4, $5, $6, now() - interval '10 minutes', now() - interval '10 minutes', now() - interval '1 minute') returning id`,
-      [await id("agents", "taller"), await id("projects", "micasa"), key, `stopped: ${reason} (error_during_execution, 5 turns, session 491bc14d)`, reason, tokens],
+    await store.fix((uow) =>
+      uow.insert("agentRuns", {
+        agentId, projectId, taskKey: key, role: "taller", status: "stopped", summary: `stopped: ${reason} (error_during_execution, 5 turns, session 491bc14d)`, stopReason: reason, tokensTotal: tokens,
+        queuedAt: minutesAgo(10), startedAt: minutesAgo(10), endedAt: minutesAgo(1),
+      }),
     )
-  ).rows[0].id as string;
+  ).id;
   await leaseTo(key, run);
   return run;
 }
@@ -660,28 +689,30 @@ test("PLA-21: a run a budget stopped before PLA-21 frees its ticket with a note 
 test("PLA-18: a switch stop frees the ticket and the work is queued again on resume; Jorge's Detener is not", async () => {
   await backlog("BS-C1");
   await stoppedRunHolding("BS-C1", "project micasa paused");
-  await raw.query(`update projects set runs_paused = true where slug = 'micasa'`);
+  await setRunsPaused("micasa", true);
   assert.deepEqual(await sweepStoppedRuns(db), { freed: 1 });
   assert.match((await eventsOf("BS-C1", "note"))[0].text, /se pusieron en pausa\. Plania liberó el ticket; se retoma al reanudar\./);
   assert.deepEqual(await requeueHeld(db), { requeued: 0 });
-  await raw.query(`update projects set runs_paused = false where slug = 'micasa'`);
+  await setRunsPaused("micasa", false);
   assert.deepEqual(await requeueHeld(db), { requeued: 1 });
   assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key, x.summary]), [["taller", "BS-C1", "queued: event runs resumed"]]);
-  await raw.query(`delete from agent_runs`);
+  await store.fix((uow) => uow.delete("agentRuns", {}));
 
   // Detener: the screen already released it; nothing queues it again (Seguir is Jorge's).
   await backlog("BS-D1");
   await stoppedRunHolding("BS-D1", "detenido desde Compañía");
-  await raw.query(`update tasks set status = 'Ready', owner = null, lease_until = null where key = 'BS-D1'`);
+  await store.fix((uow) => uow.update("tasks", { key: "BS-D1" }, { status: "Ready", owner: null, leaseUntil: null }));
   assert.deepEqual(await requeueHeld(db), { requeued: 0 });
   assert.deepEqual(await wakes(), []);
 });
 
 test("PLA-21: a heavy week no longer drops a queued wake", async () => {
-  await raw.query(
-    `insert into agent_runs (agent_id, project_id, task_key, role, status, summary, tokens_total, queued_at, started_at, ended_at)
-     values ($1, $2, 'BS-OTHER', 'taller', 'ok', 'ok: seed', 900000000, now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours')`,
-    [await id("agents", "taller"), await id("projects", "micasa")],
+  const [agentId, projectId] = [await id("agents", "taller"), await id("projects", "micasa")];
+  const twoHoursAgo = minutesAgo(120);
+  await store.fix((uow) =>
+    uow.insert("agentRuns", {
+      agentId, projectId, taskKey: "BS-OTHER", role: "taller", status: "ok", summary: "ok: seed", tokensTotal: 900_000_000, queuedAt: twoHoursAgo, startedAt: twoHoursAgo, endedAt: twoHoursAgo,
+    }),
   );
   await backlog("BS-E1");
   await toReady("BS-E1");

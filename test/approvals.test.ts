@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -19,7 +18,7 @@ const P = { project: "filmia" };
 const T = { scope: "s", checks: ["tests green", "screenshot at 375px"] };
 
 let client: Client;
-let raw: pg.Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
 let cookie: string;
 
@@ -44,12 +43,11 @@ function req(method: string, path: string, body?: unknown) {
 }
 
 async function eventsOf(type: string): Promise<number> {
-  const { rows } = await raw.query("select count(*)::int as n from events where type = $1", [type]);
-  return rows[0].n;
+  return store.count("events", { type });
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   cookie = `${SESSION_COOKIE}=${createSession()}`;
   const { db, close } = makeDb();
   closeDb = close;
@@ -66,7 +64,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("check gates", () => {

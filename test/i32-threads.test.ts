@@ -4,8 +4,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 process.env.PLANIA_EVENT_WAKES = "1";
@@ -18,7 +17,7 @@ const { seedOrg } = await import("../scripts/seed-org.js");
 const writes = await import("../src/mcp/writes.js");
 
 type Db = ReturnType<typeof makeDb>["db"];
-let raw: pg.Client;
+let store: TestStore;
 let db: Db;
 let closeDb: () => Promise<void>;
 let client: Client;
@@ -39,11 +38,17 @@ type Message = { id: string; at: string; author: { agent: string; role: string }
 
 const threads = async () => ((await (await get("/api/threads")).json()) as { threads: Thread[] }).threads;
 const threadOf = async (project: string | null) => (await threads()).find((t) => t.project === project)!;
-const runsOf = async (slug: string) =>
-  (await raw.query(`select r.status, r.task_key, r.role, p.slug as project from agent_runs r join agents a on a.id = r.agent_id join projects p on p.id = r.project_id where a.slug = $1 order by r.queued_at`, [slug])).rows;
+const runsOf = async (slug: string) => {
+  const agent = await store.get("agents", { slug });
+  if (!agent) return [];
+  const projects = new Map((await store.find("projects")).map((p) => [p.id, p.slug]));
+  return (await store.find("agentRuns", { agentId: agent.id }, { orderBy: [{ column: "queuedAt" }] }))
+    .filter((r) => projects.has(r.projectId))
+    .map((r) => ({ status: r.status, task_key: r.taskKey, role: r.role, project: projects.get(r.projectId) }));
+};
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -55,7 +60,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("I32-3 #4: the thread routes are Jorge's screen only: Bearer 403 (even with the cookie), no cookie 401", async () => {
@@ -83,7 +88,7 @@ test("I32-3: the list has the company thread and one per project, nothing unread
 });
 
 test("I32-3 #1: Jorge's message in the company thread queues Asistente's wake, even with its home project paused", async () => {
-  assert.equal((await raw.query(`select runs_paused from projects where slug = 'zigzag'`)).rows[0].runs_paused, true);
+  assert.equal((await store.get("projects", { slug: "zigzag" }))!.runsPaused, true);
   const company = await threadOf(null);
   const res = await post(`/api/threads/${company.id}/messages`, { body: "Micasa: quiero el plan de lanzamiento" });
   assert.equal(res.status, 201);
@@ -93,18 +98,18 @@ test("I32-3 #1: Jorge's message in the company thread queues Asistente's wake, e
   assert.deepEqual(out.message.author, { agent: "jorge", role: "ceo" });
   assert.deepEqual(out.message.actions, []);
   assert.deepEqual(await runsOf("asistente"), [{ status: "queued", task_key: null, role: "asistente", project: "zigzag" }]);
-  const ev = (await raw.query(`select payload from events where type = 'thread.message'`)).rows.map((r) => r.payload);
+  const ev = (await store.find("events", { type: "thread.message" })).map((r) => r.payload);
   assert.equal(ev.length, 1);
-  assert.equal(ev[0].thread_kind, "company");
-  assert.equal(ev[0].author, "jorge");
-  assert.equal((await raw.query(`select count(*)::int as n from events where type = 'wake.queued' and payload->>'agent' = 'asistente'`)).rows[0].n, 1);
+  assert.equal(ev[0]!.thread_kind, "company");
+  assert.equal(ev[0]!.author, "jorge");
+  assert.equal((await store.find("events", { type: "wake.queued" })).filter((e) => e.payload.agent === "asistente").length, 1);
   // "company" works as the thread id too, and a second message coalesces into the queued run.
   assert.equal((await post(`/api/threads/company/messages`, { body: "y también el brief" })).status, 201);
   assert.equal((await runsOf("asistente")).length, 1);
 });
 
 test("I32-3 #1: Jorge's message in a project thread makes a Ready ticket for its PO, origin jorge, and queues the PO's wake", async () => {
-  await raw.query(`update projects set runs_paused = false where slug = 'micasa'`);
+  await store.fix((uow) => uow.update("projects", { slug: "micasa" }, { runsPaused: false }));
   const micasa = await threadOf("micasa");
   const res = await post(`/api/threads/${micasa.id}/messages`, { body: "Arma el borrador de precios\ncon tres planes" });
   assert.equal(res.status, 201);
@@ -112,7 +117,9 @@ test("I32-3 #1: Jorge's message in a project thread makes a Ready ticket for its
   assert.equal(out.created.kind, "ticket");
   assert.equal(out.wake, "queued");
   assert.deepEqual(out.message.links, [{ kind: "ticket", ref: out.created.key, title: "Arma el borrador de precios" }]);
-  const t = (await raw.query(`select t.status, t.origin, a.slug as owner from tasks t join agents a on a.id = t.owner_agent where t.key = $1`, [out.created.key])).rows[0];
+  const row = await store.get("tasks", { key: out.created.key });
+  const owner = row?.ownerAgent ? await store.get("agents", { id: row.ownerAgent }) : undefined;
+  const t = row && owner && { status: row.status, origin: row.origin, owner: owner.slug };
   assert.deepEqual(t, { status: "Ready", origin: "jorge", owner: "po-micasa" });
   assert.deepEqual(await runsOf("po-micasa"), [{ status: "queued", task_key: out.created.key, role: "product-owner", project: "micasa" }]);
 
@@ -163,9 +170,9 @@ test("I32-3 #2: thread_post and thread_read: a PO only in its own project's thre
 });
 
 test("I32-3 #3: a runner's finish leaves a line with links in its project thread; its add_result before did too, once", async () => {
-  const taller = (await raw.query(`select id from agents where slug = 'taller-micasa'`)).rows[0].id;
-  const micasa = (await raw.query(`select id from projects where slug = 'micasa'`)).rows[0].id;
-  const run = (await raw.query(`insert into agent_runs (agent_id, project_id, role, status, started_at) values ($1, $2, 'taller', 'running', now() - interval '1 minute') returning id`, [taller, micasa])).rows[0].id as string;
+  const taller = (await store.get("agents", { slug: "taller-micasa" }))!.id;
+  const micasa = await store.projectId("micasa");
+  const run = (await store.fix((uow) => uow.insert("agentRuns", { agentId: taller, projectId: micasa, role: "taller", status: "running", startedAt: new Date(Date.now() - 60_000) }))).id;
   const actor = { agent: "taller-micasa", session_id: `run-${run.slice(0, 8)}` };
   const created = (await writes.createTask(db, { project: "micasa", title: "Página de precios", scope: "s", checks: ["La página muestra tres planes"], status: "Ready" } as never, { actor })) as { key: string };
   await writes.claim(db, { project: "micasa", key: created.key } as never, { actor });

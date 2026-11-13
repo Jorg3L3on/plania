@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -15,7 +14,7 @@ const A = { agent: "test-agent", session_id: "s1", machine: "ci" };
 const T = { scope: "s", checks: ["c"] };
 
 let client: Client;
-let raw: pg.Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
 
 async function call(name: string, args: Json): Promise<Json> {
@@ -31,7 +30,7 @@ async function call(name: string, args: Json): Promise<Json> {
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const { db, close } = makeDb();
   closeDb = close;
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -43,7 +42,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("assigned keys", () => {
