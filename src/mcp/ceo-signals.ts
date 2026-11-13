@@ -1,10 +1,12 @@
 // PLA-I28: what the CEO screen derives from data it already has: a short brief, one queue of what needs
-// the CEO, goal health, weekly trend and whether an agent can be woken from the screen. Read-only SQL.
+// the CEO, goal health, weekly trend and whether an agent can be woken from the screen. Read-only.
 // The rules are plain functions so tests can pin them without a database.
-import { sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
+import type { Task } from "../db/schema.js";
+import { readerOf } from "../store/pg.js";
+import { gt, gte, notNull, type Reader } from "../store/types.js";
 import type { AgentView } from "./team.js";
-import { isPruebaTitle } from "./progress.js";
+import { dayInTz, isPruebaTitle, weekRange } from "./progress.js";
 
 export const STALL_DAYS = 7;
 export const RISK_REVIEWS = 3;
@@ -256,93 +258,157 @@ export function wakeInfo(agent: Pick<AgentView, "adapter" | "adapter_config" | "
   }
 }
 
-const iso = (value: unknown): string | null => (value == null ? null : new Date(value as string).toISOString());
+const iso = (value: Date | null | undefined): string | null => (value == null ? null : value.toISOString());
+const WONT = "Won't do";
+
+// Projects by id with their place in the database's slug order. SQL sorted these reads by slug and then by
+// a task key; the store sorts the tasks by key and a stable sort on this rank puts the slugs first.
+async function projectRanks(r: Reader): Promise<Map<string, { slug: string; rank: number }>> {
+  const rows = await r.find("projects", {}, { orderBy: [{ column: "slug" }] });
+  return new Map(rows.map((p, rank) => [p.id, { slug: p.slug, rank }]));
+}
+
+// Tasks by id, for the parents and owners the reads below joined.
+async function tasksById(r: Reader, ids: (string | null)[]): Promise<Map<string, Task>> {
+  const wanted = [...new Set(ids.filter((id): id is string => id !== null))];
+  return new Map((wanted.length ? await r.find("tasks", { id: wanted }) : []).map((t) => [t.id, t]));
+}
+
+async function agentsById(r: Reader, ids: (string | null)[]): Promise<Map<string, { slug: string; kind: string }>> {
+  const wanted = [...new Set(ids.filter((id): id is string => id !== null))];
+  return new Map((wanted.length ? await r.find("agents", { id: wanted }) : []).map((a) => [a.id, { slug: a.slug, kind: a.kind }]));
+}
+
+const latest = (dates: Date[]): Date | null => (dates.length ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null);
+const earliest = (dates: Date[]): Date | null => (dates.length ? new Date(Math.min(...dates.map((d) => d.getTime()))) : null);
 
 export async function loadInitiatives(db: Db): Promise<InitiativeSignal[]> {
-  const rows = await db.execute<Record<string, unknown>>(sql`
-    select p.slug as project, i.key, i.title, i.status, i.goal_id,
-      count(t.id) filter (where t.status not in ('Done', 'Won''t do'))::int as open,
-      count(t.id) filter (where t.status = 'Ready')::int as ready,
-      count(t.id) filter (where t.status = 'In review')::int as in_review,
-      count(t.id) filter (where t.status = 'In progress')::int as in_progress,
-      count(t.id) filter (where t.status = 'Done')::int as done,
-      count(t.id) filter (where t.status <> 'Won''t do')::int as total,
-      max(coalesce(t.status_changed_at, t.created_at)) as last_move
-    from tasks i
-    join projects p on p.id = i.project_id
-    left join tasks t on t.parent_id = i.id and t.kind = 'ticket'
-    where i.kind = 'initiative' and i.status not in ('Done', 'Won''t do')
-    group by p.slug, i.id
-    order by p.slug, i.key`);
-  return rows.rows
-    .filter((row) => !isPruebaTitle(String(row.title)))
-    .map((row) => ({
-      project: String(row.project),
-      key: String(row.key),
-      title: String(row.title),
-      status: String(row.status),
-      goal_id: (row.goal_id as string | null) ?? null,
-      open: Number(row.open),
-      ready: Number(row.ready),
-      in_review: Number(row.in_review),
-      in_progress: Number(row.in_progress),
-      done: Number(row.done),
-      total: Number(row.total),
-      last_move: iso(row.last_move),
-    }));
+  const r = readerOf(db);
+  const [projects, initiatives] = await Promise.all([
+    projectRanks(r),
+    r.find("tasks", { kind: "initiative" }, { orderBy: [{ column: "key" }] }),
+  ]);
+  const open = initiatives.filter((i) => i.status !== "Done" && i.status !== WONT && projects.has(i.projectId));
+  const tickets = open.length ? await r.find("tasks", { parentId: open.map((i) => i.id), kind: "ticket" }) : [];
+  const children = new Map<string, Task[]>();
+  for (const t of tickets) {
+    if (!t.parentId) continue;
+    const list = children.get(t.parentId) ?? [];
+    list.push(t);
+    children.set(t.parentId, list);
+  }
+  return open
+    .sort((a, b) => projects.get(a.projectId)!.rank - projects.get(b.projectId)!.rank)
+    .filter((i) => !isPruebaTitle(i.title))
+    .map((i) => {
+      const kids = children.get(i.id) ?? [];
+      const count = (keep: (t: Task) => boolean) => kids.filter(keep).length;
+      return {
+        project: projects.get(i.projectId)!.slug,
+        key: i.key,
+        title: i.title,
+        status: i.status,
+        goal_id: i.goalId ?? null,
+        open: count((t) => t.status !== "Done" && t.status !== WONT),
+        ready: count((t) => t.status === "Ready"),
+        in_review: count((t) => t.status === "In review"),
+        in_progress: count((t) => t.status === "In progress"),
+        done: count((t) => t.status === "Done"),
+        total: count((t) => t.status !== WONT),
+        // The newest status change of any child (its creation when it never moved); null with no children.
+        last_move: iso(latest(kids.map((t) => t.statusChangedAt ?? t.createdAt))),
+      };
+    });
 }
 
 // In review tickets, one group per initiative (or the ticket itself when standalone).
 export async function loadReviews(db: Db): Promise<ReviewGroup[]> {
-  const rows = await db.execute<Record<string, unknown>>(sql`
-    select p.slug as project, coalesce(i.key, t.key) as key, coalesce(i.title, t.title) as title,
-      count(*)::int as count, min(coalesce(t.status_changed_at, t.updated_at)) as since,
-      min(t.pr_url) as pr_url
-    from tasks t
-    join projects p on p.id = t.project_id
-    left join tasks i on i.id = t.parent_id
-    where t.kind = 'ticket' and t.status = 'In review'
-    group by p.slug, coalesce(i.key, t.key), coalesce(i.title, t.title)
-    order by p.slug, 2`);
-  return rows.rows
-    .filter((row) => !isPruebaTitle(String(row.title)))
-    .map((row) => ({
-      project: String(row.project),
-      key: String(row.key),
-      title: String(row.title),
-      count: Number(row.count),
-      since: iso(row.since)!,
-      pr_url: (row.pr_url as string | null) ?? null,
+  const r = readerOf(db);
+  // The store sorts by pr_url (nulls last), so the first URL a group meets is the one min(pr_url) chose.
+  const [projects, tickets] = await Promise.all([
+    projectRanks(r),
+    r.find("tasks", { kind: "ticket", status: "In review" }, { orderBy: [{ column: "prUrl" }] }),
+  ]);
+  const parents = await tasksById(r, tickets.map((t) => t.parentId));
+  // Each group's head (its initiative, or the ticket) in the database's key order, for the sort below.
+  const heads = new Map<string, Task>();
+  for (const t of tickets) {
+    const parent = t.parentId ? parents.get(t.parentId) : undefined;
+    heads.set(t.id, parent ?? t);
+  }
+  const headIds = [...new Set([...heads.values()].map((h) => h.id))];
+  const keyRank = new Map<string, number>();
+  for (const h of headIds.length ? await r.find("tasks", { id: headIds }, { orderBy: [{ column: "key" }] }) : []) {
+    if (!keyRank.has(h.key)) keyRank.set(h.key, keyRank.size);
+  }
+  type Group = ReviewGroup & { rank: number; moved: Date[] };
+  const groups = new Map<string, Group>();
+  for (const t of tickets) {
+    const project = projects.get(t.projectId);
+    if (!project) continue;
+    const head = heads.get(t.id)!;
+    const id = JSON.stringify([project.slug, head.key, head.title]);
+    let group = groups.get(id);
+    if (!group) {
+      group = { project: project.slug, key: head.key, title: head.title, count: 0, since: "", pr_url: null, rank: project.rank, moved: [] };
+      groups.set(id, group);
+    }
+    group.count += 1;
+    group.moved.push(t.statusChangedAt ?? t.updatedAt);
+    if (group.pr_url === null && t.prUrl !== null) group.pr_url = t.prUrl;
+  }
+  return [...groups.values()]
+    .sort((a, b) => a.rank - b.rank || (keyRank.get(a.key) ?? 0) - (keyRank.get(b.key) ?? 0))
+    .filter((group) => !isPruebaTitle(group.title))
+    .map((group) => ({
+      project: group.project,
+      key: group.key,
+      title: group.title,
+      count: group.count,
+      since: iso(earliest(group.moved))!,
+      pr_url: group.pr_url,
     }));
 }
 
+// Median of values sorted ascending, as percentile_cont(0.5): linear between the two middle ranks.
+function medianOf(sorted: number[]): number | null {
+  if (sorted.length === 0) return null;
+  const at = 0.5 * (sorted.length - 1);
+  const low = sorted[Math.floor(at)]!;
+  const high = sorted[Math.ceil(at)]!;
+  return low + (at - Math.floor(at)) * (high - low);
+}
+
 // Tickets Done per calendar week (Monday start, screen time zone), the last WEEKS weeks, oldest first.
+// Unlike the other reads, the week totals and the cycle time keep [PRUEBA] tickets, as the SQL did.
 export async function loadTrend(db: Db, input: { timeZone: string; weekStarts: string[] }): Promise<Omit<Trend, "target">> {
+  const r = readerOf(db);
   const first = input.weekStarts[0]!;
-  const [weeks, cycle, open] = await Promise.all([
-    db.execute<{ week: string; total: number }>(sql`
-      select to_char(date_trunc('week', resolved_at at time zone ${input.timeZone}), 'YYYY-MM-DD') as week, count(*)::int as total
-      from tasks
-      where kind = 'ticket' and status = 'Done' and resolved_at is not null
-        and (resolved_at at time zone ${input.timeZone})::date >= ${first}::date
-      group by 1`),
-    db.execute<{ days: number | null }>(sql`
-      select percentile_cont(0.5) within group (order by extract(epoch from (resolved_at - created_at)) / 86400) as days
-      from tasks
-      where kind = 'ticket' and status = 'Done' and resolved_at > now() - interval '28 days'`),
-    db.execute<{ in_review: number; ready_unowned: number }>(sql`
-      select count(*) filter (where status = 'In review')::int as in_review,
-        count(*) filter (where status = 'Ready' and owner_agent is null)::int as ready_unowned
-      from tasks
-      where kind = 'ticket'`),
+  // now() - interval '28 days' in SQL; read here as 28 whole days, the same unless the database's session
+  // zone changed its clock in the last four weeks.
+  const since = new Date(Date.now() - 28 * DAY_MS);
+  // A day before `first` at UTC midnight is before its local midnight in any zone; each close is then kept
+  // by its calendar day in the zone.
+  const floor = new Date(Date.parse(`${first}T00:00:00Z`) - DAY_MS);
+  const [done, recent, inReview, readyUnowned] = await Promise.all([
+    r.find("tasks", { kind: "ticket", status: "Done", resolvedAt: gte(floor) }),
+    r.find("tasks", { kind: "ticket", status: "Done", resolvedAt: gt(since) }),
+    r.count("tasks", { kind: "ticket", status: "In review" }),
+    r.count("tasks", { kind: "ticket", status: "Ready", ownerAgent: null }),
   ]);
-  const byWeek = new Map(weeks.rows.map((row) => [row.week, Number(row.total)]));
-  const days = cycle.rows[0]?.days;
+  const byWeek = new Map<string, number>();
+  for (const t of done) {
+    const day = dayInTz(t.resolvedAt!, input.timeZone);
+    if (day < first) continue;
+    const week = weekRange(day).from;
+    byWeek.set(week, (byWeek.get(week) ?? 0) + 1);
+  }
+  const days = medianOf(recent.map((t) => (t.resolvedAt!.getTime() - t.createdAt.getTime()) / DAY_MS).sort((a, b) => a - b));
   return {
     weeks: input.weekStarts.map((from) => ({ from, label: shortDay(from), total: byWeek.get(from) ?? 0 })),
-    cycle_days: days == null ? null : Math.round(Number(days) * 10) / 10,
-    in_review: Number(open.rows[0]?.in_review ?? 0),
-    ready_unowned: Number(open.rows[0]?.ready_unowned ?? 0),
+    cycle_days: days == null ? null : Math.round(days * 10) / 10,
+    in_review: inReview,
+    ready_unowned: readyUnowned,
   };
 }
 
@@ -352,55 +418,66 @@ export const READY_LIMIT = 80;
 
 // Ready tickets the screen can hand to an agent: unowned first, then by priority and key.
 export async function loadReadyTickets(db: Db): Promise<ReadyTicket[]> {
-  const rows = await db.execute<Record<string, unknown>>(sql`
-    select p.slug as project, t.key, t.title, i.key as parent_key, a.slug as owner_agent
-    from tasks t
-    join projects p on p.id = t.project_id
-    left join tasks i on i.id = t.parent_id
-    left join agents a on a.id = t.owner_agent
-    where t.kind = 'ticket' and t.status = 'Ready'
-    order by (t.owner_agent is not null), coalesce(t.priority, 'P9'), p.slug, t.key
-    limit ${READY_LIMIT}`);
-  return rows.rows
-    .filter((row) => !isPruebaTitle(String(row.title)))
-    .map((row) => ({
-      project: String(row.project),
-      key: String(row.key),
-      title: String(row.title),
-      parent_key: (row.parent_key as string | null) ?? null,
-      owner_agent: (row.owner_agent as string | null) ?? null,
+  const r = readerOf(db);
+  const [projects, tickets] = await Promise.all([
+    projectRanks(r),
+    r.find("tasks", { kind: "ticket", status: "Ready" }, { orderBy: [{ column: "key" }] }),
+  ]);
+  const [parents, agents] = await Promise.all([tasksById(r, tickets.map((t) => t.parentId)), agentsById(r, tickets.map((t) => t.ownerAgent))]);
+  // Unowned first, then priority (null as P9; P0 to P3 sort the same in any collation), then slug; the
+  // store's key order holds inside each. The limit applies before [PRUEBA] titles leave, as in SQL.
+  const priority = (t: Task) => t.priority ?? "P9";
+  return tickets
+    .filter((t) => projects.has(t.projectId))
+    .sort(
+      (a, b) =>
+        Number(a.ownerAgent !== null) - Number(b.ownerAgent !== null) ||
+        (priority(a) < priority(b) ? -1 : priority(a) > priority(b) ? 1 : 0) ||
+        projects.get(a.projectId)!.rank - projects.get(b.projectId)!.rank,
+    )
+    .slice(0, READY_LIMIT)
+    .filter((t) => !isPruebaTitle(t.title))
+    .map((t) => ({
+      project: projects.get(t.projectId)!.slug,
+      key: t.key,
+      title: t.title,
+      parent_key: (t.parentId ? parents.get(t.parentId)?.key : undefined) ?? null,
+      owner_agent: (t.ownerAgent ? agents.get(t.ownerAgent)?.slug : undefined) ?? null,
     }));
 }
 
 // PLA-I30-8: Ready tickets owned by the human seat (ceo, or any agent of kind human).
+// since is an ISO time (the SQL passed Postgres's own text through; both parse to the same instant).
 export type YoursTicket = { project: string; key: string; title: string; since: string | null };
 
 export async function loadYours(db: Db): Promise<YoursTicket[]> {
-  const rows = await db.execute<Record<string, unknown>>(sql`
-    select p.slug as project, t.key, t.title, t.status_changed_at as since
-    from tasks t
-    join projects p on p.id = t.project_id
-    join agents a on a.id = t.owner_agent
-    where t.kind = 'ticket' and t.status = 'Ready' and (a.kind = 'human' or a.slug = 'ceo')
-    order by p.slug, t.key
-    limit 20`);
-  return rows.rows
-    .filter((row) => !isPruebaTitle(String(row.title)))
-    .map((row) => ({
-      project: String(row.project),
-      key: String(row.key),
-      title: String(row.title),
-      since: row.since instanceof Date ? row.since.toISOString() : row.since ? String(row.since) : null,
-    }));
+  const r = readerOf(db);
+  const [projects, tickets] = await Promise.all([
+    projectRanks(r),
+    r.find("tasks", { kind: "ticket", status: "Ready", ownerAgent: notNull() }, { orderBy: [{ column: "key" }] }),
+  ]);
+  const agents = await agentsById(r, tickets.map((t) => t.ownerAgent));
+  const human = (t: Task) => {
+    const agent = t.ownerAgent ? agents.get(t.ownerAgent) : undefined;
+    return !!agent && (agent.kind === "human" || agent.slug === "ceo");
+  };
+  return tickets
+    .filter((t) => projects.has(t.projectId) && human(t))
+    .sort((a, b) => projects.get(a.projectId)!.rank - projects.get(b.projectId)!.rank)
+    .slice(0, 20)
+    .filter((t) => !isPruebaTitle(t.title))
+    .map((t) => ({ project: projects.get(t.projectId)!.slug, key: t.key, title: t.title, since: iso(t.statusChangedAt) }));
 }
 
 // Ready tickets each agent owns, by roster slug.
 export async function loadReadyByAgent(db: Db): Promise<Map<string, number>> {
-  const rows = await db.execute<{ slug: string; ready: number }>(sql`
-    select a.slug, count(*)::int as ready
-    from tasks t
-    join agents a on a.id = t.owner_agent
-    where t.kind = 'ticket' and t.status = 'Ready'
-    group by a.slug`);
-  return new Map(rows.rows.map((row) => [row.slug, Number(row.ready)]));
+  const r = readerOf(db);
+  const tickets = await r.find("tasks", { kind: "ticket", status: "Ready", ownerAgent: notNull() });
+  const agents = await agentsById(r, tickets.map((t) => t.ownerAgent));
+  const out = new Map<string, number>();
+  for (const t of tickets) {
+    const agent = t.ownerAgent ? agents.get(t.ownerAgent) : undefined;
+    if (agent) out.set(agent.slug, (out.get(agent.slug) ?? 0) + 1);
+  }
+  return out;
 }
