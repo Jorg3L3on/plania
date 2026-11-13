@@ -77,7 +77,6 @@ describe("state_note and derived checks", () => {
     await call("set_task", { ...P, key: "FIL-I1-1", status: "In review", pr_url: "https://github.com/jorge/filmia/pull/7", version: await version("FIL-I1-1") });
     assert.deepEqual((await call("get_task", { ...P, key: "FIL-I1" })).checks.map((c: Json) => [c.n, c.done, c.derived_from]), [[1, false, "FIL-I1-1"], [2, false, "FIL-I1-2"]]);
     await call("add_result", { ...P, key: "FIL-I1-1", kind: "ci", verdict: "pass", cite: "merge commit green", commit: "dddddddd1" });
-    await call("add_result", { ...P, key: "FIL-I1-1", kind: "scan", verdict: "pass", cite: "pnpm merge-gate example/filmia 7", commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" });
     await raw.query(
       `insert into pull_requests (project_id, repo, number, url, title, task_id, state, head_sha, merge_sha, merged_at, head_branch, base_branch)
        select p.id, 'example/filmia', 7, t.pr_url, 'phase', t.id, 'merged', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'dddddddd1', now(), 'jl/post-qa', 'main'

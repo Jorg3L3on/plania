@@ -366,7 +366,7 @@ const move = async (key: string, status: string) => {
   const { version } = (await raw.query(`select version from tasks where key = $1`, [key])).rows[0];
   return writes.setTask(db, { project: "micasa", key, status, version } as never, webCtx);
 };
-// In review with its PR and the scan pass merge-gate records, then Merged the way the screen moves it.
+// In review with its PR, then Merged the way the screen moves it (no scan pass: PLA-20).
 async function land(key: string): Promise<void> {
   const number = ++prNumber;
   const head = number.toString(16).padStart(40, "0");
@@ -377,7 +377,7 @@ async function land(key: string): Promise<void> {
      values ($1, 'acme/micasa', $2, $3, $4, $5, 'open', $6, $7, 'sandbox')`,
     [await id("projects", "micasa"), number, url, key, t.id, head, `jl/${key.toLowerCase()}`],
   );
-  await addResult(db, { project: "micasa", key, kind: "scan", verdict: "pass", cite: "pnpm merge-gate acme/micasa", commit: head, check_ns: [1] } as never, ctx);
+  await addResult(db, { project: "micasa", key, kind: "unit", verdict: "pass", cite: "test", check_ns: [1] } as never, ctx);
   await move(key, "Merged");
 }
 const step = (key: string, blockedBy: unknown[], extra: Record<string, unknown> = {}) => backlog(key, { status: "Ready", blocked_by: blockedBy, ...extra });

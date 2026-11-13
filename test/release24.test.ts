@@ -140,7 +140,6 @@ describe("write-time guards", () => {
     const refused = await call("set_task", { ...P, key: "FIL-I1-4", status: "Merged", version: v });
     assert.equal(refused.__error, "TASK_MISSING_PR_URL");
     assert.equal(refused.to, "Merged");
-    await call("add_result", { ...P, key: "FIL-I1-4", kind: "scan", verdict: "pass", cite: "pnpm merge-gate example/filmia 41", commit: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" });
     await raw.query(
       `insert into pull_requests (project_id, repo, number, url, title, task_id, state, head_sha, merge_sha, merged_at, head_branch, base_branch)
        select p.id, 'example/filmia', 41, $1, 'phase', t.id, 'merged', 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', 'ccccccc3', now(), 'jl/fil-surface', 'main'
@@ -172,7 +171,7 @@ describe("write-time guards", () => {
 describe("protocol 2.13", () => {
   test("three sections under 900 words, naming the six tools first", () => {
     const text = instructions(false);
-    assert.equal(PROTOCOL_VERSION, "2.20");
+    assert.equal(PROTOCOL_VERSION, "2.21");
     assert.ok(text.split(/\s+/).length < 900, `${text.split(/\s+/).length} words`);
     assert.match(text, /Never forward an answer/);
     for (const section of ["\nStart\n", "\nWork\n", "\nFinish\n"]) assert.ok(text.includes(section), section);

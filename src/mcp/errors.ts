@@ -76,7 +76,6 @@ export const ERRORS = {
   HANDOFF_HELD: [409, "the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note)"],
   DOC_EXISTS: [409, "attach_doc without version for a title that exists (detail: doc_id, version): pass version to replace"],
   EVIDENCE_REQUIRED: [409, "In review without evidence for the work_type from the current claim (detail: accepts, since)"],
-  SCAN_REQUIRED: [409, "Merged on a code ticket in filmia, micasa, zigzag or workia without a scan pass whose commit is the PR head (after a squash, the scanned head). A bot cannot waive it (detail: head, accepts)"],
   INVALID_TRANSITION: [409, "the status change is not allowed from the current status (detail: from, to, hint)"],
   INVALID_STAGE_MOVE: [409, "set_task stage is not one step along idea → research → design → planning → ready, or a step back without a note (detail: from, to)"],
   STAGE_REQUIREMENTS_MISSING: [409, "moving an idea forward without that stage's doc or its headings (detail: doc, missing)"],
