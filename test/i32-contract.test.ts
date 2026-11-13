@@ -30,7 +30,7 @@ const keys = (o: Json) => Object.keys(o).sort();
 const STATES = ["running", "idle", "waiting_jorge", "paused"];
 const LIGHTS = ["ok", "needs_jorge", "failed", "blocked", "late", "quiet", "paused"];
 const USAGE = ["used"];
-const MEMBER = ["agent", "last", "now", "produced", "queue", "role", "state", "template", "waiting"];
+const MEMBER = ["agent", "last", "next_start", "now", "produced", "queue", "role", "state", "template", "waiting"];
 
 before(async () => {
   raw = await resetTestDb();
