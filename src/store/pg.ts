@@ -1,11 +1,11 @@
 // The Postgres adapter of the store port: Drizzle over pg, one transaction per write under one advisory lock.
-import { and, asc, desc, eq, getTableColumns, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, sql, type SQL } from "drizzle-orm";
 import { getTableConfig, type PgColumn, type PgTable } from "drizzle-orm/pg-core";
 import type { Db } from "../db/client.js";
 import * as schema from "../db/schema.js";
 import type { Q } from "../mcp/tx.js";
 import { withDefaults } from "./defaults.js";
-import { RequestIdReused, type Change, type Committed, type FindOptions, type Idempotency, type NewRow, type Reader, type Row, type Store, type TableName, type UnitOfWork, type Where } from "./types.js";
+import { Cond, RequestIdReused, type Change, type Committed, type FindOptions, type Idempotency, type NewRow, type Reader, type Row, type Store, type TableName, type UnitOfWork, type Where } from "./types.js";
 
 const REQUEST_TTL_MS = 30 * 24 * 3_600_000;
 const WRITE_LOCK = 7_264_201; // arbitrary constant: the one advisory lock every write takes
@@ -38,7 +38,8 @@ function condition(name: TableName, where: AnyRow | undefined): SQL | undefined 
     if (value === undefined) continue;
     const col = cols[prop];
     if (!col) throw new Error(`store: ${name} has no column ${prop}`);
-    if (value === null) parts.push(isNull(col));
+    if (value instanceof Cond) parts.push(value.op === "notNull" ? isNotNull(col) : { gt, gte, lt, lte, ne }[value.op](col, value.value));
+    else if (value === null) parts.push(isNull(col));
     else if (Array.isArray(value)) parts.push(value.length ? inArray(col, value) : sql`false`);
     else parts.push(eq(col, value));
   }

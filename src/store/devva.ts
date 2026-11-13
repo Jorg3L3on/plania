@@ -15,7 +15,7 @@ import { pathToFileURL } from "node:url";
 import type { Q } from "../mcp/tx.js";
 import { withDefaults } from "./defaults.js";
 import { keyOf, metaOf, tableNames } from "./meta.js";
-import { RequestIdReused, type Change, type Committed, type FindOptions, type Idempotency, type NewRow, type Reader, type Row, type Store, type TableName, type UnitOfWork, type Where } from "./types.js";
+import { Cond, RequestIdReused, type Change, type Committed, type FindOptions, type Idempotency, type NewRow, type Reader, type Row, type Store, type TableName, type UnitOfWork, type Where } from "./types.js";
 
 type AnyRow = Record<string, unknown>;
 const REQUEST_TTL_MS = 30 * 24 * 3_600_000;
@@ -81,7 +81,13 @@ function matches(row: AnyRow, where: AnyRow | undefined): boolean {
   for (const [prop, want] of Object.entries(where)) {
     if (want === undefined) continue;
     const have = row[prop] ?? null;
-    if (want === null) {
+    if (want instanceof Cond) {
+      // As in SQL, a comparison with null is never true.
+      if (have === null) return false;
+      if (want.op === "notNull") continue;
+      const c = compare(have, want.value);
+      if (want.op === "ne" ? same(have, want.value) : !{ gt: c > 0, gte: c >= 0, lt: c < 0, lte: c <= 0 }[want.op]) return false;
+    } else if (want === null) {
       if (have !== null) return false;
     } else if (Array.isArray(want)) {
       if (!want.some((w) => same(have, w))) return false;

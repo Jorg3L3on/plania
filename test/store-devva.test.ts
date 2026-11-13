@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 import { DevvaStore } from "../src/store/devva.js";
-import { RequestIdReused, type Committed } from "../src/store/types.js";
+import { gt, lte, ne, notNull, RequestIdReused, type Committed } from "../src/store/types.js";
 
 const live = process.env.DEVVA_TEST === "1";
 const prefix = `t_${Date.now().toString(36)}`;
@@ -36,6 +36,10 @@ describe("devva store", { skip: live ? false : "set DEVVA_TEST=1 with the spike 
       assert.deepEqual((await r.find("projects", { slug: ["zigzag", "micasa"] }, { orderBy: [{ column: "slug", desc: true }] })).map((p) => p.slug), ["zigzag", "micasa"]);
       assert.equal(await r.count("projects"), 2);
       assert.equal(await r.count("projects", { slug: [] }), 0);
+      assert.equal(await r.count("projects", { slug: gt("micasa") }), 1);
+      assert.equal(await r.count("projects", { slug: lte("micasa"), createdAt: notNull() }), 1);
+      assert.equal(await r.count("projects", { slug: ne("micasa") }), 1);
+      assert.equal(await r.count("projects", { keyPrefix: notNull(), version: gt(5) }), 0);
       await assert.rejects(r.find("projects", { nope: 1 } as never), /no column nope/);
     });
   });

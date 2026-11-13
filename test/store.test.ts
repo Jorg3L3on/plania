@@ -30,6 +30,11 @@ describe("store reads", () => {
       assert.equal((await r.find("projects", {}, { orderBy: [{ column: "slug" }], limit: 1 }))[0]?.slug, "filmia");
       assert.equal(await r.count("projects"), 4);
       assert.equal(await r.count("projects", { slug: [] }), 0);
+      const { gt, lte, ne, notNull } = await import("../src/store/types.js");
+      assert.deepEqual((await r.find("projects", { slug: gt("micasa") }, { orderBy: [{ column: "slug" }] })).map((p) => p.slug), ["workia", "zigzag"]);
+      assert.equal(await r.count("projects", { slug: lte("micasa") }), 2);
+      assert.equal(await r.count("projects", { slug: ne("micasa") }), 3);
+      assert.equal(await r.count("projects", { createdAt: notNull() }), 4);
     });
   });
 });

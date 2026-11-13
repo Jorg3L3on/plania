@@ -11,8 +11,24 @@ export type TableName = { [K in keyof Schema]: Schema[K] extends PgTable ? K : n
 export type Row<T extends TableName> = Schema[T] extends { $inferSelect: infer R } ? R : never;
 export type NewRow<T extends TableName> = Schema[T] extends { $inferInsert: infer R } ? R : never;
 
-// Equality on each named column; an array means "any of"; null means the column is null.
-export type Where<T extends TableName> = { [K in keyof Row<T>]?: Row<T>[K] | Row<T>[K][] | null };
+// A comparison other than equality, made with gt, gte, lt, lte, ne or notNull below.
+export class Cond<V = unknown> {
+  constructor(
+    readonly op: "gt" | "gte" | "lt" | "lte" | "ne" | "notNull",
+    readonly value?: V,
+  ) {}
+}
+export const gt = <V>(value: V) => new Cond<V>("gt", value);
+export const gte = <V>(value: V) => new Cond<V>("gte", value);
+export const lt = <V>(value: V) => new Cond<V>("lt", value);
+export const lte = <V>(value: V) => new Cond<V>("lte", value);
+// ne(null) is not what you want: use notNull().
+export const ne = <V>(value: V) => new Cond<V>("ne", value);
+export const notNull = () => new Cond<never>("notNull");
+
+// Equality on each named column; an array means "any of"; null means the column is null; a Cond is a comparison.
+// An undefined value is skipped, so check a value you depend on before passing it.
+export type Where<T extends TableName> = { [K in keyof Row<T>]?: Row<T>[K] | Row<T>[K][] | null | Cond<NonNullable<Row<T>[K]>> };
 export type FindOptions<T extends TableName> = { orderBy?: { column: keyof Row<T>; desc?: boolean }[]; limit?: number };
 
 export interface Reader {
@@ -53,6 +69,7 @@ export type Committed = { projectId: string; changes: readonly Change[] };
 export interface Store {
   read<T>(fn: (r: Reader) => Promise<T>): Promise<T>;
   // Runs fn as one serialized, atomic write. With a request id, a retry returns the first reply and runs nothing.
+  // projectId is "" for a write that belongs to no project (the roster, machine state); such a write takes no request id.
   write<T>(projectId: string, idem: Idempotency, fn: (uow: UnitOfWork) => Promise<T>): Promise<T>;
   // Called after each commit with what it changed. Returns an unsubscribe function.
   onCommit(listener: (c: Committed) => void): () => void;
