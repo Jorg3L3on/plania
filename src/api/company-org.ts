@@ -6,7 +6,9 @@
 // Tokens only, never money. Cookie-only routes (src/api/company.ts and the /api session for /api/machine).
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agentRuns, agents, docs, events, projects, questions, tasks, threadMessages, type Actor, type Agent, type Project } from "../db/schema.js";
+import { agentRuns, agents, docs, events, projects, questions, taskBlockers, tasks, threadMessages, type Actor, type Agent, type Project, type RunnerSettings } from "../db/schema.js";
+import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
+import { capacityFacts, agentFacts, holdOf, type CapacityFacts } from "../runner/hold.js";
 import { projectSheet, type ProjectSheet, type RunBrief } from "./company-extra.js";
 import { agentOfActor, asistenteAgent } from "../runner/events.js";
 import { PROMPT_DOCS, isRunnerRole, lastReading, loadSettings, planView, roleOf, screenTz, weekBounds, weekUsage, type CardUsage, type PlanView, type WeekUsage } from "../runner/limits.js";
@@ -42,7 +44,15 @@ export type TeamMember = {
   queue: QueueItem[];
   produced: { kind: "doc" | "pr" | "idea" | "plan"; ref: string; title: string } | null;
   waiting: string | null;
+  // PLA-I40-1: why this teammate's next step has not started, and when it will if that is known.
+  next_start: NextStart | null;
 };
+
+// hold: the runner's own verdict (rest, usage, slot, paused, no_goal: src/runner/hold.ts), or what the ticket waits
+// on (waiting_owner: a step before it was delivered and waits for the owner's answer; waiting_step: any other
+// blocker), or unqueued (Ready, free, and no wake is queued), or soon (a wake is queued and nothing holds it).
+export type NextHold = "rest" | "usage" | "slot" | "paused" | "no_goal" | "waiting_owner" | "waiting_step" | "unqueued" | "soon";
+export type NextStart = { key: string | null; title: string | null; hold: NextHold; starts_at: string | null; text: string };
 
 export type QueueItem = { key: string; title: string };
 const QUEUE_MAX = 3;
@@ -160,6 +170,7 @@ async function memberView(db: Db, a: Agent, ctx: { paused: boolean; threadId: st
     queue: [],
     produced: await producedBy(db, ctx.threadId, a.slug),
     waiting,
+    next_start: null,
   };
 }
 
@@ -294,6 +305,79 @@ export function fillQueues(team: TeamMember[], queued: QueuedTicket[], agentSlug
   }
 }
 
+// PLA-I40-1: one short sentence per hold. No ticket keys, no money; the time travels in starts_at.
+export function holdText(hold: NextHold, x: { scope?: "company" | "project"; plan?: PlanView } = {}): string {
+  switch (hold) {
+    case "rest":
+      return "Descansa entre un trabajo y otro.";
+    case "usage": {
+      const p = x.plan;
+      if (!p || p.state === "unknown") return "No se sabe cuánto uso de Claude queda.";
+      if (p.status === "allowed_warning" || p.status === "rejected") return "Claude avisó que el uso está al límite.";
+      return `El uso de Claude va en ${p.five_hour_pct} % y el tope es ${p.guard_pct} %.`;
+    }
+    case "slot":
+      return "Espera un lugar: ya hay otros trabajando.";
+    case "paused":
+      return x.scope === "company" ? "La compañía está en pausa." : "El proyecto está en pausa.";
+    case "no_goal":
+      return "Falta fijar la meta del proyecto.";
+    case "waiting_owner":
+      return "Espera que aceptes la entrega anterior.";
+    case "waiting_step":
+      return "Espera un paso anterior.";
+    case "unqueued":
+      return "Nadie lo ha despertado todavía.";
+    case "soon":
+      return "Arranca en un momento.";
+  }
+}
+
+// What the ticket itself waits on: a step before it that was delivered and not accepted yet (the next step is
+// woken when that one lands), else any other blocker that does not hold.
+async function ticketHold(db: Db, projectId: string, key: string): Promise<"waiting_owner" | "waiting_step" | null> {
+  const rows = await db.execute<{ delivered: boolean; open: boolean }>(sql`
+    select exists (
+             select 1 from ${taskBlockers} tb join ${tasks} b on b.id = tb.blocker_id
+             where tb.task_id = t.id and b.status = 'In review'
+           ) as delivered,
+           ${hasUnsatisfiedBlocker(sql`t.id`)} as open
+    from ${tasks} t where t.project_id = ${projectId} and t.key = ${key} limit 1`);
+  const r = rows.rows[0];
+  if (!r) return null;
+  return r.delivered ? "waiting_owner" : r.open ? "waiting_step" : null;
+}
+
+// PLA-I40-1: for each teammate that is not working, its next step (the queued wake's ticket, else the first of
+// its queue) and why it has not started. The runner's verdict comes from hold.ts, the function preflight uses.
+export async function fillNextStarts(db: Db, p: Project, team: TeamMember[], ctx: { settings: RunnerSettings; capacity: CapacityFacts; now: Date }): Promise<void> {
+  const roster = new Map((await teamOf(db, p.id)).map((a) => [a.slug, a]));
+  for (const m of team) {
+    const agent = roster.get(m.agent);
+    if (!agent || m.state === "running") continue;
+    const [queuedRun] = await db
+      .select({ taskKey: agentRuns.taskKey })
+      .from(agentRuns)
+      .where(and(eq(agentRuns.agentId, agent.id), eq(agentRuns.status, "queued")))
+      .orderBy(asc(agentRuns.queuedAt))
+      .limit(1);
+    const first = m.queue[0] ?? null;
+    if (!queuedRun && !first) continue;
+    const key = queuedRun ? queuedRun.taskKey : first!.key;
+    const title = queuedRun ? await ticketTitle(db, p.id, queuedRun.taskKey) : first!.title;
+    const make = (hold: NextHold, startsAt: Date | null = null, x: Parameters<typeof holdText>[1] = {}): NextStart => ({ key, title, hold, starts_at: startsAt?.toISOString() ?? null, text: holdText(hold, x) });
+
+    const waits = !queuedRun && key ? await ticketHold(db, p.id, key) : null;
+    if (waits) {
+      m.next_start = make(waits);
+      continue;
+    }
+    const role = roleOf(agent);
+    const hold = holdOf(await agentFacts(db, { agent, role, project: p, settings: ctx.settings, now: ctx.now }), ctx.capacity);
+    m.next_start = hold ? make(hold.code, hold.startsAt, { scope: hold.scope, plan: ctx.capacity.plan }) : make(queuedRun ? "soon" : "unqueued");
+  }
+}
+
 const countInbox = (inbox: Map<string, InboxItem[]>) => {
   let decisiones = 0;
   let pasos = 0;
@@ -311,6 +395,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
   const ceoId = await ceoAgentId(db);
   const all = await db.select().from(projects).orderBy(asc(projects.slug));
   const inbox = await inboxByProject(db, all);
+  const capacity = await capacityFacts(db, settings, now);
   for (const p of all) {
     const lastWeek = new Date(startsAt.getTime() - 7 * 24 * HOUR);
     const usage: CardUsage = {
@@ -326,6 +411,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     const owners = [...new Set(upNext.queued.map((q) => q.owner).filter((x): x is string => !!x))];
     const slugs = owners.length ? await db.select({ id: agents.id, slug: agents.slug }).from(agents).where(inArray(agents.id, owners)) : [];
     fillQueues(team, upNext.queued, new Map(slugs.map((r) => [r.id, r.slug])));
+    await fillNextStarts(db, p, team, { settings, capacity, now });
     const light = await lightOf(db, p, { paused, threadId: thread.id, now, ceoId, team, plan, inbox: inbox.get(p.slug) ?? [] });
     cards.push({
       slug: p.slug,

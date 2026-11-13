@@ -200,7 +200,11 @@ export type OrgMember = {
   waiting: string | null;
   // PLA-I39-1: up to three Ready tickets waiting for this teammate.
   queue?: { key: string; title: string }[];
+  // PLA-I40-1: why the next step has not started, and when it will if that is known.
+  next_start?: OrgNextStart | null;
 };
+export type OrgNextHold = "rest" | "usage" | "slot" | "paused" | "no_goal" | "waiting_owner" | "waiting_step" | "unqueued" | "soon";
+export type OrgNextStart = { key: string | null; title: string | null; hold: OrgNextHold; starts_at: string | null; text: string };
 export type OrgThreadRef = { id: string; unread: number; last: { at: string; author_role: string; body: string } | null };
 export type OrgProject = {
   slug: string;

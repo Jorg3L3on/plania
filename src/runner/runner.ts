@@ -29,6 +29,9 @@ import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
 import { denySettings } from "./deny.js";
 import { EVENT_SUMMARY } from "./events.js";
+import { capacityFacts, capacityHold, agentFacts, agentHold, projectGoal } from "./hold.js";
+
+export { projectGoal };
 import { asistenteHome } from "./threads.js";
 import {
   PROMPT_DOCS,
@@ -158,16 +161,6 @@ async function taskBranchInfo(db: Db, projectId: string, key: string): Promise<{
   return rows.rows[0] ?? { branch: null, base: null };
 }
 
-export async function projectGoal(db: Db, projectId: string): Promise<{ title: string; why: string } | null> {
-  const [row] = await db
-    .select({ title: goals.title, why: goals.why })
-    .from(goals)
-    .where(and(eq(goals.projectId, projectId), eq(goals.status, "active")))
-    .orderBy(asc(goals.position), asc(goals.createdAt))
-    .limit(1);
-  return row ?? null;
-}
-
 async function loadContext(db: Db, agent: Agent, task: ReadyWork | null): Promise<WakeContext> {
   const role = roleOf(agent);
   let project: Project | null = null;
@@ -190,33 +183,17 @@ async function probeIfUnknown(db: Db, deps: RunnerDeps, now: Date): Promise<void
   if (reading) await recordReading(db, { ...reading, source: "usage_probe", at: now });
 }
 
-async function runningCount(db: Db): Promise<number> {
-  const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(agentRuns).where(eq(agentRuns.status, "running"));
-  return row?.n ?? 0;
-}
-
 async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, opts: { fromQueue?: string } = {}): Promise<Preflight> {
   const settings = await loadSettings(db);
   const { agent, role, project, task } = ctx;
   if (!project) return { ok: false, kind: "skipped", summary: "skipped: no project" };
-  if (settings.companyPaused) return { ok: false, kind: "skipped", summary: "skipped: company paused" };
+  // PLA-I40-1: the switches, the rest and the goal are one verdict (hold.ts), the same one the screen reads.
+  const own = role || settings.companyPaused ? agentHold(await agentFacts(db, { agent, role, project, settings, now })) : null;
+  if (own?.scope === "company") return { ok: false, kind: "skipped", summary: "skipped: company paused" };
   if (!role) return { ok: false, kind: "skipped", summary: "skipped: no runner role" };
-  // Asistente works for the company: only the company switch holds it, not its home project's.
-  if (project.runsPaused && role !== "asistente") return { ok: false, kind: "skipped", summary: `skipped: project ${project.slug} paused` };
-
-  if (settings.cooldownMinutes > 0) {
-    const [last] = await db
-      .select({ endedAt: agentRuns.endedAt })
-      .from(agentRuns)
-      .where(and(eq(agentRuns.agentId, agent.id), sql`${agentRuns.endedAt} is not null`, sql`${agentRuns.status} <> 'skipped'`))
-      .orderBy(desc(agentRuns.endedAt))
-      .limit(1);
-    if (last?.endedAt && now.getTime() - last.endedAt.getTime() < settings.cooldownMinutes * MINUTE) {
-      return { ok: false, kind: "skipped", summary: "skipped: cooldown" };
-    }
-  }
-
-  if (role === "product-owner" && !(await projectGoal(db, project.id))) return { ok: false, kind: "skipped", summary: "skipped: no goal" };
+  if (own?.code === "paused") return { ok: false, kind: "skipped", summary: `skipped: project ${project.slug} paused` };
+  if (own?.code === "rest") return { ok: false, kind: "skipped", summary: "skipped: cooldown" };
+  if (own?.code === "no_goal") return { ok: false, kind: "skipped", summary: "skipped: no goal" };
   if (!task && role !== "product-owner" && role !== "asistente") return { ok: false, kind: "skipped", summary: "no ready work" };
 
   if (task) {
@@ -224,15 +201,14 @@ async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, 
     if (!base.ok) return { ok: false, kind: "fail", summary: "fail: base not allowed" };
   }
 
-  let plan = planView(await lastReading(db), settings.planGuardPct, now, settings.guardOverride);
-  if (plan.state === "unknown") {
+  let capacity = await capacityFacts(db, settings, now);
+  if (capacity.plan.state === "unknown") {
     await probeIfUnknown(db, deps, now);
-    plan = planView(await lastReading(db), settings.planGuardPct, now, settings.guardOverride);
+    capacity = await capacityFacts(db, settings, now);
   }
-  if (plan.state === "unknown" || plan.state === "stopped") return { ok: false, kind: "skipped", summary: planGuardSummary(plan) };
-
-  const running = await runningCount(db);
-  if (running >= settings.maxConcurrent) return { ok: false, kind: "cap", summary: opts.fromQueue ? "queued" : "queued: cap reached" };
+  const full = capacityHold(capacity);
+  if (full?.code === "usage") return { ok: false, kind: "skipped", summary: planGuardSummary(capacity.plan) };
+  if (full?.code === "slot") return { ok: false, kind: "cap", summary: opts.fromQueue ? "queued" : "queued: cap reached" };
   return { ok: true };
 }
 
