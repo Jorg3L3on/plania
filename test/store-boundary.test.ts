@@ -12,20 +12,9 @@ import * as schema from "../src/db/schema.js";
 
 // One entry per file that still offends, with what is left. Delete the entry in the change that converts the file.
 const ALLOWED: Record<string, string> = {
-  "src/api/company-extra.ts": "raw SQL reads for the Compañía screen",
-  "src/api/company-orders.ts": "query builder: Tus órdenes",
-  "src/api/company-org.ts": "query builder and raw SQL: the Compañía pages' read contract",
-  "src/api/company-plan.ts": "query builder: a project card's plan",
-  "src/api/company-runs.ts": "query builder: the runs list and stopping a run",
-  "src/api/company.ts": "query builder: project lookups in GET /api/company",
-  "src/api/routes.ts": "query builder and raw SQL in the screen's API routes",
-  "src/api/team.ts": "query builder: the org chart",
-  "src/api/thread-actions.ts": "query builder: actions on a thread message",
   "src/jobs/audit.ts": "reads the projects table with the query builder",
   "src/jobs/backup.ts": "the server version and the machine_state upsert in SQL (the pg_dump job)",
   "src/jobs/machine/collect.ts": "a pg client that lists the machine's Postgres databases (inventory, not plania's data)",
-  "src/mcp/blockers-sql.ts": "the SQL form of the blocker rules, kept until its callers move",
-  "src/web/export.ts": "query builder: the project export",
 };
 
 const ROOT = path.resolve(import.meta.dirname, "..");

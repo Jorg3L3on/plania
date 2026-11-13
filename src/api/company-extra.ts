@@ -5,11 +5,14 @@
 //   GET /api/company/docs/:id   one role prompt doc (title "Prompt: …"), for Prompt ↗; PLA-I36-2: or a doc attached
 //                               to a ticket (the evidence a Te toca row links). Project-level docs stay out.
 // Tokens are input + output + cache counts, as everywhere on this page. No money.
-import { sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
+import { RUN_STATUSES, type AgentRun, type Task } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
+import { iso } from "../mcp/tx.js";
 import { loadReady, pickReady } from "../jobs/heartbeat.js";
 import { PROMPT_DOCS, RUNNER_ROLES, roleOf, type RunnerRole } from "../runner/limits.js";
+import { readerOf } from "../store/pg.js";
+import { ne, notNull } from "../store/types.js";
 
 export type PromptRef = { doc_id: string; title: string; version: number };
 
@@ -58,21 +61,21 @@ export type CompanyExtras = {
   project_facts: Record<string, ProjectFacts>;
 };
 
-type Row = Record<string, unknown>;
-const rows = async (db: Db, query: ReturnType<typeof sql>): Promise<Row[]> => (await db.execute(query)).rows as Row[];
-const iso = (v: unknown): string | null => (v instanceof Date ? v.toISOString() : typeof v === "string" ? new Date(v).toISOString() : null);
-
 const MISSING_ENV = /^fail: missing env ([A-Z0-9_]+)/;
 const resolvedNow = (summary: string): boolean => {
   const m = MISSING_ENV.exec(summary);
   return !!m && !!process.env[m[1]!]?.trim();
 };
 
+// A run that ended one way or another: every status but queued and running (the table's check allows no others).
+export const ENDED_STATUSES = RUN_STATUSES.filter((s) => s !== "queued" && s !== "running");
+
 // PLA-I30-8: per project, how many Ready tickets a runner bot (claude_code, with a runner role) would pick.
 export async function botWorkBy(db: Db): Promise<Map<string, number>> {
   const ready = await loadReady(db);
-  const bots = (await rows(db, sql`select id, slug, role, capabilities from agents where adapter = 'claude_code'`))
-    .map((a) => ({ id: String(a.id), slug: String(a.slug), role: String(a.role), capabilities: (a.capabilities as string[]) ?? [] }))
+  // roleOf gets slug, role and capabilities only (role_template stays out), so the older rules decide.
+  const bots = (await readerOf(db).find("agents", { adapter: "claude_code" }))
+    .map((a) => ({ id: a.id, slug: a.slug, role: a.role, capabilities: a.capabilities ?? [] }))
     .filter((a) => roleOf(a) !== null);
   const out = new Map<string, number>();
   for (const row of ready) {
@@ -81,36 +84,39 @@ export async function botWorkBy(db: Db): Promise<Map<string, number>> {
   return out;
 }
 
-const runOf = (r: Row): RunBrief => ({
-  ...(resolvedNow(String(r.summary ?? "")) ? { resolved: true } : {}),
-  id: String(r.id),
-  agent: String(r.agent),
-  role: String(r.role),
-  project: String(r.project),
-  ticket: (r.ticket as string | null) ?? null,
-  status: String(r.status),
-  summary: String(r.summary ?? ""),
-  started_at: iso(r.started_at),
-  ended_at: iso(r.ended_at),
-  tokens: Number(r.tokens ?? 0),
+// One run as the screen shows it, with its agent's and project's slugs.
+const runOf = (r: AgentRun, agent: string, project: string): RunBrief => ({
+  ...(resolvedNow(r.summary) ? { resolved: true } : {}),
+  id: r.id,
+  agent,
+  role: r.role,
+  project,
+  ticket: r.taskKey ?? null,
+  status: r.status,
+  summary: r.summary,
+  started_at: iso(r.startedAt),
+  ended_at: iso(r.endedAt),
+  tokens: r.tokensTotal,
 });
 
-const RUN_COLUMNS = sql`r.id, a.slug as agent, r.role, p.slug as project, r.task_key as ticket, r.status, r.summary, r.started_at, r.ended_at, r.tokens_total as tokens`;
+// The slugs of some runs' agents, by agent id.
+async function agentSlugs(db: Db, runs: AgentRun[]): Promise<Map<string, string>> {
+  const ids = [...new Set(runs.map((r) => r.agentId))];
+  return new Map(ids.length ? (await readerOf(db).find("agents", { id: ids })).map((a) => [a.id, a.slug]) : []);
+}
 
 const promptsProject = () => process.env.PLANIA_PROMPTS_PROJECT || "plania";
+const promptTitles = (): string[] => RUNNER_ROLES.map((role) => PROMPT_DOCS[role]);
 
 export async function promptRefs(db: Db): Promise<Record<RunnerRole, PromptRef | null>> {
-  const titles = RUNNER_ROLES.map((role) => PROMPT_DOCS[role]);
-  const found = await rows(
-    db,
-    sql`select d.id, d.title, d.version from docs d join projects p on p.id = d.project_id
-        where p.slug = ${promptsProject()} and d.task_id is null and d.title in (${sql.join(titles.map((t) => sql`${t}`), sql`, `)})`,
-  );
-  const byTitle = new Map(found.map((r) => [String(r.title), r]));
+  const r = readerOf(db);
+  const home = await r.get("projects", { slug: promptsProject() });
+  const found = home ? await r.find("docs", { projectId: home.id, taskId: null, title: promptTitles() }) : [];
+  const byTitle = new Map(found.map((d) => [d.title, d]));
   const out = {} as Record<RunnerRole, PromptRef | null>;
   for (const role of RUNNER_ROLES) {
-    const r = byTitle.get(PROMPT_DOCS[role]);
-    out[role] = r ? { doc_id: String(r.id), title: String(r.title), version: Number(r.version) } : null;
+    const d = byTitle.get(PROMPT_DOCS[role]);
+    out[role] = d ? { doc_id: d.id, title: d.title, version: d.version } : null;
   }
   return out;
 }
@@ -122,72 +128,75 @@ export function poProject(agent: { slug: string; capabilities: string[] }, proje
 }
 
 export async function companyExtras(db: Db, now = new Date()): Promise<CompanyExtras> {
-  const projectRows = await rows(db, sql`select id, slug from projects order by slug`);
-  const slugs = new Set(projectRows.map((p) => String(p.slug)));
-  const agentRows = await rows(
-    db,
-    sql`select id, slug, name, role, capabilities, heartbeat_minutes, last_heartbeat_at from agents where kind <> 'human' order by slug`,
-  );
-  const lastRuns = await rows(
-    db,
-    sql`select distinct on (r.agent_id, r.project_id) r.agent_id, ${RUN_COLUMNS}
-        from agent_runs r join agents a on a.id = r.agent_id join projects p on p.id = r.project_id
-        order by r.agent_id, r.project_id, r.queued_at desc`,
-  );
+  const r = readerOf(db);
+  const projectRows = await r.find("projects", {}, { orderBy: [{ column: "slug" }] });
+  const slugs = new Set(projectRows.map((p) => p.slug));
+  const slugById = new Map(projectRows.map((p) => [p.id, p.slug]));
+  const agentRows = await r.find("agents", { kind: ne("human") }, { orderBy: [{ column: "slug" }] });
+  const agentSlug = new Map(agentRows.map((a) => [a.id, a.slug]));
+  // The newest run (by queued_at) of each agent in each project, in agent then project id order: Postgres
+  // sorts, so ids and times compare as it stores them. Only these agents' runs are ever looked up.
+  const runRows = agentRows.length
+    ? await r.find("agentRuns", { agentId: agentRows.map((a) => a.id) }, { orderBy: [{ column: "agentId" }, { column: "projectId" }, { column: "queuedAt", desc: true }] })
+    : [];
+  const lastRuns: { run: AgentRun; agent: string; project: string }[] = [];
+  const seen = new Set<string>();
+  for (const run of runRows) {
+    const pair = `${run.agentId} ${run.projectId}`;
+    const project = slugById.get(run.projectId);
+    if (seen.has(pair) || project === undefined) continue;
+    seen.add(pair);
+    lastRuns.push({ run, agent: agentSlug.get(run.agentId)!, project });
+  }
   const latestFor = (agentId: string, project?: string) =>
     lastRuns
-      .filter((r) => r.agent_id === agentId && (!project || r.project === project))
-      .sort((a, b) => String(iso(b.started_at) ?? "").localeCompare(String(iso(a.started_at) ?? "")))[0];
+      .filter((x) => x.run.agentId === agentId && (!project || x.project === project))
+      .sort((a, b) => String(iso(b.run.startedAt) ?? "").localeCompare(String(iso(a.run.startedAt) ?? "")))[0];
+  const briefOf = (x: (typeof lastRuns)[number] | undefined) => (x ? runOf(x.run, x.agent, x.project) : null);
 
   const roster: RosterRow[] = [];
   for (const a of agentRows) {
-    const capabilities = (a.capabilities as string[]) ?? [];
-    const role = roleOf({ slug: String(a.slug), role: String(a.role), capabilities });
+    const capabilities = a.capabilities ?? [];
+    // roleOf gets slug, role and capabilities only (role_template stays out), so the older rules decide.
+    const role = roleOf({ slug: a.slug, role: a.role, capabilities });
     if (!role) continue;
-    const minutes = (a.heartbeat_minutes as number | null) ?? null;
-    const last = a.last_heartbeat_at ? new Date(String(iso(a.last_heartbeat_at))) : null;
+    const minutes = a.heartbeatMinutes ?? null;
+    const last = a.lastHeartbeatAt;
     const next = minutes == null ? null : last ? new Date(Math.max(last.getTime() + minutes * 60_000, now.getTime())) : now;
-    const project = role === "product-owner" ? poProject({ slug: String(a.slug), capabilities }, slugs) : null;
-    const run = latestFor(String(a.id));
+    const project = role === "product-owner" ? poProject({ slug: a.slug, capabilities }, slugs) : null;
     roster.push({
-      slug: String(a.slug),
-      name: String(a.name),
+      slug: a.slug,
+      name: a.name,
       role,
       project,
       heartbeat_minutes: minutes,
       next_wake_at: next?.toISOString() ?? null,
-      last_run: run ? runOf(run) : null,
+      last_run: briefOf(latestFor(a.id)),
     });
   }
 
-  const counts = await rows(
-    db,
-    sql`select p.slug,
-          count(*) filter (where t.kind = 'ticket' and t.status in ('In progress', 'In review'))::int as in_flight,
-          count(*) filter (where t.kind = 'ticket' and t.status in ('Blocked', 'Needs Jorge'))::int as blocked,
-          max(t.updated_at) as last_move_at
-        from projects p left join tasks t on t.project_id = p.id group by p.slug`,
-  );
-  const goalRows = await rows(
-    db,
-    sql`select distinct on (g.project_id) p.slug, g.title from goals g join projects p on p.id = g.project_id
-        where g.status = 'active' order by g.project_id, g.position, g.created_at`,
-  );
-  const goalBy = new Map(goalRows.map((g) => [String(g.slug), String(g.title)]));
+  // Each project's first active goal by position, then creation (company goals have no project).
+  const goalBy = new Map<string, string>();
+  for (const g of await r.find("goals", { status: "active", projectId: notNull() }, { orderBy: [{ column: "position" }, { column: "createdAt" }] })) {
+    const slug = slugById.get(g.projectId!);
+    if (slug !== undefined && !goalBy.has(slug)) goalBy.set(slug, g.title);
+  }
   const botWork = await botWorkBy(db);
+  // One entry per project, in slug order. (The grouped query had no order; its rows came in hash order.)
   const facts: Record<string, ProjectFacts> = {};
-  for (const c of counts) {
-    const slug = String(c.slug);
-    const po = roster.find((r) => r.role === "product-owner" && r.project === slug) ?? null;
+  for (const p of projectRows) {
+    const slug = p.slug;
+    const po = roster.find((x) => x.role === "product-owner" && x.project === slug) ?? null;
     const poAgent = po ? agentRows.find((a) => a.slug === po.slug) : undefined;
-    const run = poAgent ? latestFor(String(poAgent.id), slug) : undefined;
+    // The last move is the newest updated_at among all the project's tasks, of any kind.
+    const [lastMove] = await r.find("tasks", { projectId: p.id }, { orderBy: [{ column: "updatedAt", desc: true }], limit: 1 });
     facts[slug] = {
       goal: goalBy.get(slug) ?? null,
-      in_flight: Number(c.in_flight ?? 0),
-      blocked: Number(c.blocked ?? 0),
-      last_move_at: iso(c.last_move_at),
+      in_flight: await r.count("tasks", { projectId: p.id, kind: "ticket", status: ["In progress", "In review"] }),
+      blocked: await r.count("tasks", { projectId: p.id, kind: "ticket", status: ["Blocked", "Needs Jorge"] }),
+      last_move_at: iso(lastMove?.updatedAt ?? null),
       po: po ? { slug: po.slug, name: po.name } : null,
-      last_run: run ? runOf(run) : null,
+      last_run: poAgent ? briefOf(latestFor(poAgent.id, slug)) : null,
       bot_work: botWork.get(slug) ?? 0,
     };
   }
@@ -210,64 +219,61 @@ export type ProjectSheet = {
 };
 
 export async function projectSheet(db: Db, slug: string): Promise<ProjectSheet> {
-  const [project] = await rows(db, sql`select id, slug, title from projects where slug = ${slug} limit 1`);
+  const r = readerOf(db);
+  const project = await r.get("projects", { slug });
   if (!project) throw new ToolError("PROJECT_NOT_FOUND", { project: slug });
-  const id = String(project.id);
-  const [goal] = await rows(db, sql`select title from goals where project_id = ${id} and status = 'active' order by position, created_at limit 1`);
-  const ideas = await rows(
-    db,
-    sql`select stage, count(*)::int as n, (array_agg(title order by created_at desc))[1] as newest
-        from tasks where project_id = ${id} and kind = 'idea' and status = 'Open' group by stage`,
-  );
-  const ideaBy = new Map(ideas.map((r) => [String(r.stage), r]));
-  const owner = sql`coalesce((t.owner->>'agent'), (select a.name from agents a where a.id = t.owner_agent))`;
-  const inProgress = await rows(
-    db,
-    sql`select t.key, t.title, t.status, ${owner} as owner from tasks t
-        where t.project_id = ${id} and t.kind = 'ticket' and t.status in ('In progress', 'In review') order by t.updated_at desc limit 6`,
-  );
-  const blocked = await rows(
-    db,
-    sql`select t.key, t.title, t.status, coalesce(nullif(t.blocked_note, ''), case when t.status = 'Needs Jorge' then 'te espera a ti' else 'bloqueado' end) as why
-        from tasks t where t.project_id = ${id} and t.kind = 'ticket' and t.status in ('Blocked', 'Needs Jorge') order by t.updated_at desc limit 6`,
-  );
-  const next = await rows(
-    db,
-    sql`select t.key, t.title, t.priority,
-          exists (select 1 from agents a where a.id = t.owner_agent and (a.kind = 'human' or a.slug = 'ceo')) as yours
-        from tasks t
-        where t.project_id = ${id} and t.kind = 'ticket' and t.status = 'Ready'
-        order by coalesce(t.priority, 'P9'), t.created_at limit 5`,
-  );
-  const runs = await rows(
-    db,
-    sql`select ${RUN_COLUMNS} from agent_runs r join agents a on a.id = r.agent_id join projects p on p.id = r.project_id
-        where r.project_id = ${id} and r.status not in ('queued', 'running') order by r.queued_at desc limit 8`,
-  );
+  const id = project.id;
+  const [goal] = await r.find("goals", { projectId: id, status: "active" }, { orderBy: [{ column: "position" }, { column: "createdAt" }], limit: 1 });
+  // Open ideas per stage: how many, and the title of the newest.
+  const ideaBy = new Map<string, { n: number; newest: string }>();
+  for (const t of await r.find("tasks", { projectId: id, kind: "idea", status: "Open" }, { orderBy: [{ column: "createdAt", desc: true }] })) {
+    const hit = ideaBy.get(String(t.stage));
+    if (hit) hit.n += 1;
+    else ideaBy.set(String(t.stage), { n: 1, newest: t.title });
+  }
+  // Who has it: the lease holder's agent, else the name of the agent it is assigned to.
+  const ownerOf = async (t: Task): Promise<string | null> => {
+    if (t.owner?.agent != null) return String(t.owner.agent);
+    return t.ownerAgent ? ((await r.get("agents", { id: t.ownerAgent }))?.name ?? null) : null;
+  };
+  const inProgress = await r.find("tasks", { projectId: id, kind: "ticket", status: ["In progress", "In review"] }, { orderBy: [{ column: "updatedAt", desc: true }], limit: 6 });
+  const blocked = await r.find("tasks", { projectId: id, kind: "ticket", status: ["Blocked", "Needs Jorge"] }, { orderBy: [{ column: "updatedAt", desc: true }], limit: 6 });
+  // Priority first with a missing one last (it sorted as P9, after P0..P3, the only priorities a write accepts),
+  // then the oldest. Postgres sorts.
+  const next = await r.find("tasks", { projectId: id, kind: "ticket", status: "Ready" }, { orderBy: [{ column: "priority" }, { column: "createdAt" }], limit: 5 });
+  // Jorge's: assigned to a human seat or to ceo.
+  const yours = async (t: Task): Promise<boolean> => {
+    const a = t.ownerAgent ? await r.get("agents", { id: t.ownerAgent }) : undefined;
+    return !!a && (a.kind === "human" || a.slug === "ceo");
+  };
+  const runs = await r.find("agentRuns", { projectId: id, status: ENDED_STATUSES }, { orderBy: [{ column: "queuedAt", desc: true }], limit: 8 });
+  const slugOf = await agentSlugs(db, runs);
+  const inProgressRows: ProjectSheet["in_progress"] = [];
+  for (const t of inProgress) inProgressRows.push({ key: t.key, title: t.title, status: t.status, owner: await ownerOf(t) });
+  const nextRows: ProjectSheet["next"] = [];
+  for (const t of next) nextRows.push({ key: t.key, title: t.title, priority: t.priority ?? null, yours: await yours(t) });
   return {
-    slug: String(project.slug),
-    title: String(project.title),
-    goal: goal ? String(goal.title) : null,
+    slug: project.slug,
+    title: project.title,
+    goal: goal ? goal.title : null,
     pipeline: PIPELINE_STAGES.map((stage) => {
-      const r = ideaBy.get(stage);
-      return { stage, count: Number(r?.n ?? 0), newest: (r?.newest as string | null) ?? null };
+      const hit = ideaBy.get(stage);
+      return { stage, count: hit?.n ?? 0, newest: hit?.newest ?? null };
     }),
-    in_progress: inProgress.map((r) => ({ key: String(r.key), title: String(r.title), status: String(r.status), owner: (r.owner as string | null) ?? null })),
-    blocked: blocked.map((r) => ({ key: String(r.key), title: String(r.title), status: String(r.status), why: String(r.why) })),
-    next: next.map((r) => ({ key: String(r.key), title: String(r.title), priority: (r.priority as string | null) ?? null, yours: r.yours === true })),
-    runs: runs.map(runOf),
-    bot_work: (await botWorkBy(db)).get(String(project.slug)) ?? 0,
+    in_progress: inProgressRows,
+    blocked: blocked.map((t) => ({ key: t.key, title: t.title, status: t.status, why: t.blockedNote || (t.status === "Needs Jorge" ? "te espera a ti" : "bloqueado") })),
+    next: nextRows,
+    runs: runs.map((x) => runOf(x, slugOf.get(x.agentId)!, project.slug)),
+    bot_work: (await botWorkBy(db)).get(project.slug) ?? 0,
   };
 }
 
 // Only the role prompt docs, so this route never becomes a general doc reader.
 export async function promptDoc(db: Db, id: string): Promise<{ id: string; title: string; version: number; markdown: string }> {
-  const titles = RUNNER_ROLES.map((role) => PROMPT_DOCS[role]);
-  const [doc] = await rows(
-    db,
-    sql`select d.id, d.title, d.version, d.markdown from docs d join projects p on p.id = d.project_id
-        where d.id = ${id} and (d.task_id is not null or (p.slug = ${promptsProject()} and d.task_id is null and d.title in (${sql.join(titles.map((t) => sql`${t}`), sql`, `)})))`,
-  );
-  if (!doc) throw new ToolError("DOC_NOT_FOUND", { doc_id: id });
-  return { id: String(doc.id), title: String(doc.title), version: Number(doc.version), markdown: String(doc.markdown) };
+  const r = readerOf(db);
+  const doc = await r.get("docs", { id });
+  const owner = doc ? await r.get("projects", { id: doc.projectId }) : undefined;
+  // A doc on a ticket, or one of the role prompts at the prompts project's level.
+  if (!doc || !owner || !(doc.taskId !== null || (owner.slug === promptsProject() && promptTitles().includes(doc.title)))) throw new ToolError("DOC_NOT_FOUND", { doc_id: id });
+  return { id: doc.id, title: doc.title, version: doc.version, markdown: doc.markdown };
 }

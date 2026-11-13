@@ -10,10 +10,11 @@
 // done_pct how much of the plan's tickets are done. weeks_behind = max(0, round((today_pct - done_pct) * weeks));
 // 0 ok, 1 late, 2 or more bad; forecast_on = delivery + weeks_behind weeks. Without a delivery date there is no
 // bar and no pace: only the active initiative and its tickets done of total.
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agents, tasks, type Project, type Task } from "../db/schema.js";
+import type { Project, Task } from "../db/schema.js";
 import { roleOf } from "../runner/limits.js";
+import { readerOf } from "../store/pg.js";
+import { gte, notNull } from "../store/types.js";
 
 const DAY = 86_400_000;
 const CLOSED = ["Done", "Merged", "Released", "Won't do"];
@@ -73,13 +74,11 @@ export function calendarOf(input: { startOn: string; dueOn: string; today: Date;
 export const forecastOf = (dueOn: string, weeksBehind: number) => day(new Date(atNoon(dueOn) + weeksBehind * 7 * DAY));
 
 export async function planOf(db: Db, p: Project, today = new Date(), goalTarget: string | null = null): Promise<PlanLine | null> {
-  const open = (await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "initiative")))).filter((t) => OPEN_INITIATIVE.includes(t.status)).sort(byKey);
+  const r = readerOf(db);
+  const open = (await r.find("tasks", { projectId: p.id, kind: "initiative" })).filter((t) => OPEN_INITIATIVE.includes(t.status)).sort(byKey);
   const active = open.filter((t) => t.status === "Active").at(-1);
   if (!active) return null;
-  const tickets = await db
-    .select({ status: tasks.status, parentId: tasks.parentId })
-    .from(tasks)
-    .where(and(inArray(tasks.parentId, open.map((t) => t.id)), eq(tasks.kind, "ticket")));
+  const tickets = await r.find("tasks", { parentId: open.map((t) => t.id), kind: "ticket" });
   const counted = tickets.filter((c) => c.status !== "Won't do");
   const mine = counted.filter((c) => c.parentId === active.id);
   const dueOn = goalTarget ?? open.map((t) => t.dueOn).filter((d): d is string => !!d).sort().at(-1) ?? null;
@@ -100,26 +99,28 @@ export async function planOf(db: Db, p: Project, today = new Date(), goalTarget:
   };
 }
 
+// The text Postgres's ->> gives for a JSON value: a string as is, anything else as its JSON, null for none.
+const jsonText = (v: unknown): string | null => (v === undefined || v === null ? null : typeof v === "string" ? v : JSON.stringify(v));
+
 export async function thisWeekOf(db: Db, p: Project, now = new Date()): Promise<ThisWeek> {
-  const since = new Date(now.getTime() - 7 * DAY).toISOString();
-  const r = await db.execute<{ done: number; docs: number; prs: number; last_at: Date | string | null }>(sql`
-    select
-      (select count(distinct e.task_id)::int from events e join tasks t on t.id = e.task_id
-        where e.project_id = ${p.id} and e.type = 'task.status' and e.payload->>'to' in ('Done', 'Merged', 'Released')
-          and t.kind = 'ticket' and e.created_at >= ${since}::timestamptz) as done,
-      (select count(distinct e.payload->>'doc_id')::int from events e
-        where e.project_id = ${p.id} and e.type = 'doc.put' and e.task_id is not null and e.created_at >= ${since}::timestamptz) as docs,
-      (select count(*)::int from events e
-        where e.project_id = ${p.id} and e.type = 'pr.merged' and e.created_at >= ${since}::timestamptz) as prs,
-      (select max(e.created_at) from events e where e.project_id = ${p.id}) as last_at`);
-  const row = r.rows[0]!;
-  const last = row.last_at ? new Date(row.last_at) : null;
-  return { done: Number(row.done ?? 0), docs: Number(row.docs ?? 0), prs: Number(row.prs ?? 0), last_at: last ? last.toISOString() : null };
+  const r = readerOf(db);
+  const since = new Date(now.getTime() - 7 * DAY);
+  // Tickets that reached Done, Merged or Released this week, each counted once.
+  const closing = (await r.find("events", { projectId: p.id, type: "task.status", createdAt: gte(since) })).filter(
+    (e) => e.taskId !== null && DONE.includes(jsonText(e.payload.to) ?? ""),
+  );
+  const closedIds = [...new Set(closing.map((e) => e.taskId!))];
+  const done = closedIds.length ? (await r.find("tasks", { id: closedIds })).filter((t) => t.kind === "ticket").length : 0;
+  // Ticket docs written this week, each doc once.
+  const docPuts = await r.find("events", { projectId: p.id, type: "doc.put", taskId: notNull(), createdAt: gte(since) });
+  const docs = new Set(docPuts.map((e) => jsonText(e.payload.doc_id)).filter((id) => id !== null)).size;
+  const prs = await r.count("events", { projectId: p.id, type: "pr.merged", createdAt: gte(since) });
+  const [last] = await r.find("events", { projectId: p.id }, { orderBy: [{ column: "createdAt", desc: true }], limit: 1 });
+  return { done, docs, prs, last_at: last ? last.createdAt.toISOString() : null };
 }
 
 export async function ceoAgentId(db: Db): Promise<string | null> {
-  const [ceo] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, "ceo")).limit(1);
-  return ceo?.id ?? null;
+  return (await readerOf(db).get("agents", { slug: "ceo" }))?.id ?? null;
 }
 
 const PRIORITY = (p: string | null) => (p ? Number(p.slice(1)) : 9);
@@ -134,15 +135,12 @@ export async function nextOf(db: Db, p: Project, ceoId: string | null, activeKey
 }
 
 export async function readyOf(db: Db, p: Project, ceoId: string | null, activeKey: string | null): Promise<{ next: NextLine | null; ready: ReadyLine[]; queued: QueuedTicket[] }> {
-  const open = await db
-    .select()
-    .from(tasks)
-    .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket"), inArray(tasks.status, ["Ready", "Needs Jorge"])))
-    .orderBy(asc(tasks.phase), asc(tasks.createdAt));
+  const r = readerOf(db);
+  const open = await r.find("tasks", { projectId: p.id, kind: "ticket", status: ["Ready", "Needs Jorge"] }, { orderBy: [{ column: "phase" }, { column: "createdAt" }] });
   if (open.length === 0) return { next: null, ready: [], queued: [] };
   const parents = new Map<string, string>();
   const parentIds = [...new Set(open.map((t) => t.parentId).filter((x): x is string => !!x))];
-  if (parentIds.length) for (const r of await db.select({ id: tasks.id, key: tasks.key }).from(tasks).where(inArray(tasks.id, parentIds))) parents.set(r.id, r.key);
+  if (parentIds.length) for (const t of await r.find("tasks", { id: parentIds })) parents.set(t.id, t.key);
   const inActive = (t: Task) => (activeKey && t.parentId && parents.get(t.parentId) === activeKey ? 0 : 1);
   const jorge = (t: Task) => t.status === "Needs Jorge" || (!!ceoId && t.ownerAgent === ceoId);
   // PLA-I36-6: the ticket Jorge picked goes first after his own.
@@ -154,7 +152,7 @@ export async function readyOf(db: Db, p: Project, ceoId: string | null, activeKe
   const queued = theirs.map((x) => ({ key: x.key, title: x.title, owner: x.ownerAgent ?? null, work_type: x.workType ?? "code" }));
   let owner: NextOwner = jorge(t) ? "jorge" : (t.workType ?? "code") === "code" ? "taller" : "po";
   if (!jorge(t) && t.ownerAgent) {
-    const [a] = await db.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
+    const a = await r.get("agents", { id: t.ownerAgent });
     const role = a ? roleOf(a) : null;
     if (role) owner = role === "product-owner" ? "po" : role;
   }
@@ -162,16 +160,9 @@ export async function readyOf(db: Db, p: Project, ceoId: string | null, activeKe
 }
 
 export async function workOf(db: Db, p: Project): Promise<WorkLine> {
-  const rows = await db
-    .select({ status: tasks.status, n: sql<number>`count(*)::int` })
-    .from(tasks)
-    .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket")))
-    .groupBy(tasks.status);
-  let open = 0;
-  let inProgress = 0;
-  for (const r of rows) {
-    if (!CLOSED.includes(r.status)) open += Number(r.n);
-    if (r.status === "In progress") inProgress += Number(r.n);
-  }
-  return { open, in_progress: inProgress };
+  const r = readerOf(db);
+  const tickets = { projectId: p.id, kind: "ticket" };
+  // Open: every ticket less the closed ones (a status is never null).
+  const open = (await r.count("tasks", tickets)) - (await r.count("tasks", { ...tickets, status: CLOSED }));
+  return { open, in_progress: await r.count("tasks", { ...tickets, status: "In progress" }) };
 }
