@@ -1,5 +1,5 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
-import { branches, tasks, type Project, type Task } from "../db/schema.js";
+import type { branches, Project, Task } from "../db/schema.js";
+import { readerOf, uowOf } from "../store/pg.js";
 import { ToolError } from "./errors.js";
 import { iso, type Emit, type Q } from "./tx.js";
 
@@ -25,14 +25,13 @@ export function assertBranchName(p: Pick<Project, "settings">, name: string): vo
 type BranchRow = typeof branches.$inferSelect;
 
 async function findBranch(tx: Q, projectId: string, name: string): Promise<BranchRow | undefined> {
-  const [b] = await tx.select().from(branches).where(and(eq(branches.projectId, projectId), eq(branches.name, name))).limit(1);
-  return b;
+  return readerOf(tx).get("branches", { projectId, name });
 }
 
 // The live initiative that owns a branch, if any.
 async function liveOwner(tx: Q, b: BranchRow): Promise<Task | undefined> {
   if (!b.ownerTaskId) return undefined;
-  const [t] = await tx.select().from(tasks).where(eq(tasks.id, b.ownerTaskId)).limit(1);
+  const t = await readerOf(tx).get("tasks", { id: b.ownerTaskId });
   return t && t.kind === "initiative" && !CLOSED.includes(t.status) ? t : undefined;
 }
 
@@ -47,6 +46,8 @@ export async function registerIntegrationBranch(
   share: { share_branch?: boolean; share_reason?: string },
 ): Promise<void> {
   assertBranchName(p, name);
+  const uow = uowOf(tx);
+  const at = { projectId: p.id, name };
   const existing = await findBranch(tx, p.id, name);
   const owner = existing ? await liveOwner(tx, existing) : undefined;
   if (owner && owner.id !== initiative.id) {
@@ -54,17 +55,12 @@ export async function registerIntegrationBranch(
     if (!share.share_branch || !reason) {
       throw new ToolError("BRANCH_IN_USE", { branch: name, owner_key: owner.key, hint: "share_branch: true with share_reason to build on it together" });
     }
-    await tx
-      .update(branches)
-      .set({ shared: true, shareReason: reason, updatedAt: sql`now()` })
-      .where(and(eq(branches.projectId, p.id), eq(branches.name, name)));
+    await uow.update("branches", at, { shared: true, shareReason: reason, updatedAt: uow.now });
     await emit("branch.shared", initiative, { branch: name, owner_key: owner.key, reason });
     return;
   }
-  await tx
-    .insert(branches)
-    .values({ projectId: p.id, name, ownerTaskId: initiative.id })
-    .onConflictDoUpdate({ target: [branches.projectId, branches.name], set: { ownerTaskId: initiative.id, updatedAt: sql`now()` } });
+  if (existing) await uow.update("branches", at, { ownerTaskId: initiative.id, updatedAt: uow.now });
+  else await uow.insert("branches", { ...at, ownerTaskId: initiative.id });
   if (!existing || existing.ownerTaskId !== initiative.id) await emit("branch.registered", initiative, { branch: name });
 }
 
@@ -74,12 +70,13 @@ export async function assertTicketBranch(tx: Q, p: Project, t: Task, name: strin
   assertBranchName(p, name);
   const existing = await findBranch(tx, p.id, name);
   if (!existing) {
-    await tx.insert(branches).values({ projectId: p.id, name, ownerTaskId: null }).onConflictDoNothing();
+    // Read just above in the same serialized write, so nothing can have inserted it since.
+    await uowOf(tx).insert("branches", { projectId: p.id, name, ownerTaskId: null });
     return;
   }
   const owner = await liveOwner(tx, existing);
   if (!owner || owner.id === t.parentId) return;
-  const [parent] = t.parentId ? await tx.select({ branch: tasks.branch }).from(tasks).where(eq(tasks.id, t.parentId)).limit(1) : [];
+  const parent = t.parentId ? await readerOf(tx).get("tasks", { id: t.parentId }) : undefined;
   if (parent?.branch === name) return; // the initiative shares it
   throw new ToolError("BRANCH_IN_USE", { branch: name, owner_key: owner.key, hint: "work on your initiative's branch, or have it share this one" });
 }
@@ -100,13 +97,11 @@ export function branchShape(b: BranchRow, ownerKey: string | null) {
 
 // get_project.branches: every branch with its owner and what the poller knows.
 export async function projectBranches(db: Q, projectId: string) {
-  const rows = await db
-    .select({ b: branches, ownerKey: tasks.key })
-    .from(branches)
-    .leftJoin(tasks, eq(tasks.id, branches.ownerTaskId))
-    .where(and(eq(branches.projectId, projectId), isNull(branches.deletedAt)))
-    .orderBy(asc(branches.name));
-  return rows.map((r) => branchShape(r.b, r.ownerKey));
+  const r = readerOf(db);
+  const rows = await r.find("branches", { projectId, deletedAt: null }, { orderBy: [{ column: "name" }] });
+  const ownerIds = [...new Set(rows.map((b) => b.ownerTaskId).filter((id): id is string => !!id))];
+  const keys = new Map(ownerIds.length ? (await r.find("tasks", { id: ownerIds })).map((t) => [t.id, t.key]) : []);
+  return rows.map((b) => branchShape(b, b.ownerTaskId ? (keys.get(b.ownerTaskId) ?? null) : null));
 }
 
 // The head the poller last saw for a branch, or null.
@@ -115,15 +110,15 @@ export async function branchHead(db: Q, projectId: string, name: string): Promis
   return b?.headSha ?? null;
 }
 
-// The poller reports a head, a merge or a deletion.
+// The poller reports a head, a merge or a deletion. tx is a write's handle (the poller opens one per call).
 export async function touchBranch(
   tx: Q,
   projectId: string,
   name: string,
   patch: { headSha?: string; headAt?: Date; mergedAt?: Date | null; deletedAt?: Date | null; prNumber?: number },
 ): Promise<void> {
-  await tx
-    .insert(branches)
-    .values({ projectId, name, ...patch })
-    .onConflictDoUpdate({ target: [branches.projectId, branches.name], set: { ...patch, updatedAt: sql`now()` } });
+  const uow = uowOf(tx);
+  const at = { projectId, name };
+  if (await uow.get("branches", at)) await uow.update("branches", at, { ...patch, updatedAt: uow.now });
+  else await uow.insert("branches", { ...at, ...patch });
 }

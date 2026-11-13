@@ -1,9 +1,9 @@
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { auditRuns, blockers, branches, checks, decisions, delegatedAnswers, envStates, events, pullRequests, questions, results, tasks, type Project, type Task } from "../db/schema.js";
-import { hasUnsatisfiedBlocker, openHumanActions } from "./blockers.js";
+import type { Actor, Project, questions, Task } from "../db/schema.js";
+import { pgStore, readerOf } from "../store/pg.js";
+import { openHumanActions, unsatisfiedBlockers } from "./blockers.js";
 import { footprintFindings } from "./footprint-audit.js";
-import { WAITING_ON_JORGE, gatingSql, parseJorgeLines } from "./jorge-lines.js";
+import { WAITING_ON_JORGE, isGating, parseJorgeLines } from "./jorge-lines.js";
 import { prefixOf } from "./keys.js";
 import { releasePending, releasePlan } from "./release-plan.js";
 import { isScreenActor, iso, type Q } from "./tx.js";
@@ -59,20 +59,18 @@ function prCarriesPlaniaKey(title: string, branch: string | null, prefix: string
 
 export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   const out: Finding[] = [];
-  const all = await db.select().from(tasks).where(eq(tasks.projectId, p.id)).orderBy(asc(tasks.key));
+  const store = readerOf(db);
+  const all = await store.find("tasks", { projectId: p.id }, { orderBy: [{ column: "key" }] });
   const byId = new Map(all.map((t) => [t.id, t]));
   const ids = all.map((t) => t.id);
-  const prs = await db.select().from(pullRequests).where(eq(pullRequests.projectId, p.id));
+  const prs = await store.find("pullRequests", { projectId: p.id });
   const prOf = (t: Task) => prs.filter((pr) => pr.taskId === t.id).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
   const env = p.settings.release_target ?? "prod";
-  const envs = await db.select().from(envStates).where(eq(envStates.projectId, p.id));
+  const envs = await store.find("envStates", { projectId: p.id });
   const target = envs.find((e) => e.env === env);
-  const openChecks = ids.length
-    ? await db
-        .select({ taskId: checks.taskId, n: checks.n })
-        .from(checks)
-        .where(and(inArray(checks.taskId, ids), eq(checks.done, false), isNull(checks.waivedAt)))
-    : [];
+  const openChecks = ids.length ? await store.find("checks", { taskId: ids, done: false, waivedAt: null }) : [];
+  // Every typed blocker of the project's tasks, read once for the findings below that look at them.
+  const typedBlockers = ids.length ? await store.find("blockers", { taskId: ids }) : [];
   const openOf = (t: Task) => openChecks.filter((c) => c.taskId === t.id).map((c) => c.n);
 
   // Tickets in review whose PR already merged, and merged ones not released though the target has the commit.
@@ -113,13 +111,17 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
     if (/^#{1,3}\s*(estado|status)\b/im.test(i.scope)) out.push({ code: "INITIATIVE_SCOPE_HAS_STATUS", key: i.key, detail: "scope holds a status section", fix_hint: "move it to state_note; scope is the spec" });
   }
   // Decisions that cite a commit or PR the release target has moved past, or contradict a Done ticket's plan.
-  const live = await db.select().from(decisions).where(and(eq(decisions.projectId, p.id), isNull(decisions.retiredAt)));
-  const superseded = new Set((await db.execute<{ id: string }>(sql`select supersedes_id as id from decision_supersessions`).then((r) => r.rows)).map((r) => r.id));
+  const live = await store.find("decisions", { projectId: p.id, retiredAt: null });
+  const superseded = new Set((await store.find("decisionSupersessions")).map((r) => r.supersedesId));
+  // The target env's known commits, read the first time a decision needs them.
+  let targetCommits: string[] | undefined;
   for (const d of live.filter((d) => !superseded.has(d.id))) {
     const shas = [...d.line.matchAll(SHA)].map((m) => m[0]).filter((s) => /[a-f]/.test(s) && /\d/.test(s));
     if (target?.commit && shas.length && !shas.some((s) => target.commit!.startsWith(s) || s.startsWith(target.commit!))) {
-      const known = await db.execute<{ n: number }>(sql`select count(*)::int as n from env_commits where project_id = ${p.id} and env = ${env} and (${sql.join(shas.map((s) => sql`sha like ${s} || '%'`), sql` or `)})`).then((r) => r.rows[0]?.n ?? 0);
-      if (known > 0) out.push({ code: "DECISION_STALE_REF", key: d.taskId ? (byId.get(d.taskId)?.key ?? null) : null, detail: `decision ${d.id.slice(0, 8)} cites ${shas.join(", ")}; ${env} is at ${target.commit.slice(0, 7)}`, fix_hint: "retire_decision, or add_decision with supersedes", id: d.id });
+      targetCommits ??= (await store.find("envCommits", { projectId: p.id, env })).map((c) => c.sha);
+      // A cited sha is a prefix of a commit the env ran (SHA matches hex only, so a prefix test is the old LIKE).
+      const ran = targetCommits.filter((sha) => shas.some((s) => sha.startsWith(s))).length;
+      if (ran > 0) out.push({ code: "DECISION_STALE_REF", key: d.taskId ? (byId.get(d.taskId)?.key ?? null) : null, detail: `decision ${d.id.slice(0, 8)} cites ${shas.join(", ")}; ${env} is at ${target.commit.slice(0, 7)}`, fix_hint: "retire_decision, or add_decision with supersedes", id: d.id });
     }
     const prNumbers = [...d.line.matchAll(PR)].map((m) => Number(m[1] ?? m[2]));
     const mergedCited = prs.filter((pr) => prNumbers.includes(pr.number) && pr.state === "merged");
@@ -135,11 +137,12 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   }
   // 2.10: with a release step, drift is that step's to show: ENV_DRIFT points at it instead of repeating it.
   const plan = p.settings.release ? await releasePlan(db, p) : null;
+  // The branches still on origin, for ENV_DRIFT and the branch findings further down.
+  const known = await store.find("branches", { projectId: p.id, deletedAt: null });
   if (target?.commit) {
-    const heads = await db.select().from(branches).where(and(eq(branches.projectId, p.id), isNull(branches.deletedAt)));
     for (const i of all.filter((t) => t.kind === "initiative" && !CLOSED.includes(t.status) && t.branch)) {
-      const head = heads.find((b) => b.name === i.branch)?.headSha;
-      if (head && !head.startsWith(target.commit) && !target.commit.startsWith(head) && heads.find((b) => b.name === i.branch)?.mergedAt) {
+      const head = known.find((b) => b.name === i.branch)?.headSha;
+      if (head && !head.startsWith(target.commit) && !target.commit.startsWith(head) && known.find((b) => b.name === i.branch)?.mergedAt) {
         out.push(
           releasePending(plan)
             ? { code: "ENV_DRIFT", key: i.key, detail: `${i.branch} merged; it ships with the release step ${plan.from.branch} → ${plan.into.branch} in Jorge's inbox`, fix_hint: "nothing to do here: the release step (get_resume.status.release) is Jorge's" }
@@ -149,30 +152,32 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
     }
   }
   // Blocked tickets whose blockers all hold; claimable tickets that say "not before".
-  const blockedButFree = all.length
-    ? await db.select({ key: tasks.key }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.status, "Blocked"), sql`not ${hasUnsatisfiedBlocker(tasks.id)}`, sql`(exists (select 1 from ${blockers} b where b.task_id = ${tasks.id} and ${gatingSql("b")}) or exists (select 1 from task_blockers tb where tb.task_id = ${tasks.id}))`))
-    : [];
-  for (const t of blockedButFree) out.push({ code: "BLOCKED_BUT_SATISFIED", key: t.key, detail: "every blocker holds", fix_hint: "the server promotes it on the next write; or set_task Ready" });
+  // A Blocked ticket counts when it waits on a ticket or on a typed blocker that holds claims (a line parsed
+  // from free text outside blocked_note does not), and no blocker of it fails: the rule promoteUnblocked applies.
+  const blocked = all.filter((t) => t.status === "Blocked");
+  const waitsOnTicket = new Set(blocked.length ? (await store.find("taskBlockers", { taskId: blocked.map((t) => t.id) })).map((l) => l.taskId) : []);
+  for (const t of blocked) {
+    const hasBlockers = waitsOnTicket.has(t.id) || typedBlockers.some((b) => b.taskId === t.id && isGating(b.spec));
+    if (!hasBlockers || (await unsatisfiedBlockers(db, t)).length) continue;
+    out.push({ code: "BLOCKED_BUT_SATISFIED", key: t.key, detail: "every blocker holds", fix_hint: "the server promotes it on the next write; or set_task Ready" });
+  }
   for (const t of all.filter((t) => t.kind === "ticket" && ["Backlog", "Ready"].includes(t.status))) {
-    const hasBlockers = (await db.select({ id: blockers.id }).from(blockers).where(eq(blockers.taskId, t.id)).limit(1)).length > 0;
+    const hasBlockers = typedBlockers.some((b) => b.taskId === t.id);
     if (!hasBlockers && /\b(no antes|not before|después de|after)\b/i.test(t.scope) && /\b(deploy|prod|30 nights|30 noches|credentials|credenciales)\b/i.test(t.scope)) {
       out.push({ code: CLAIMABLE_BUT_WAITING, key: t.key, detail: "scope says it must wait, but it has no blocker the server can check", fix_hint: "blocked_by with a typed blocker (human_action, env_flag, time_after, metric_gte)" });
     }
   }
   // Expired claims that left commits behind, PRs missing, branches merged but not deleted, branches nobody owns.
   for (const t of all.filter((t) => t.kind === "ticket" && t.status === "Ready" && t.workspace?.branch && !t.owner)) {
-    const [r] = await db.select({ id: results.id }).from(results).where(and(eq(results.taskId, t.id), sql`${results.commit} is not null`)).orderBy(desc(results.createdAt)).limit(1);
-    const expired = await db.execute<{ n: number }>(sql`select count(*)::int as n from events where task_id = ${t.id} and type = 'claim.expired'`).then((x) => x.rows[0]?.n ?? 0);
-    if (r && expired > 0) out.push({ code: "CLAIM_EXPIRED_WITH_COMMITS", key: t.key, detail: `lease expired with work on ${t.workspace!.branch}`, fix_hint: "claim it again, or hand it off" });
+    const withCommit = (await store.find("results", { taskId: t.id })).some((r) => r.commit !== null);
+    const expired = await store.count("events", { taskId: t.id, type: "claim.expired" });
+    if (withCommit && expired > 0) out.push({ code: "CLAIM_EXPIRED_WITH_COMMITS", key: t.key, detail: `lease expired with work on ${t.workspace!.branch}`, fix_hint: "claim it again, or hand it off" });
   }
   // 2.13: a ticket closed with no_pr_reason said why it has no PR (event task.no_pr); not a finding.
-  const noPr = new Set(
-    (await db.execute<{ task_id: string }>(sql`select distinct task_id from events where project_id = ${p.id} and type = 'task.no_pr'`)).rows.map((r) => r.task_id),
-  );
+  const noPr = new Set((await store.find("events", { projectId: p.id, type: "task.no_pr" })).map((e) => e.taskId));
   for (const t of all.filter((t) => t.kind === "ticket" && ["In review", "Merged", "Released", "Done"].includes(t.status) && !t.prUrl && (t.workType ?? "code") === "code" && !noPr.has(t.id))) {
     out.push({ code: "TASK_MISSING_PR_URL", key: t.key, detail: `${t.status} without a PR`, fix_hint: "set_task pr_url, or put Plania: KEY in the PR body" });
   }
-  const known = await db.select().from(branches).where(and(eq(branches.projectId, p.id), isNull(branches.deletedAt)));
   // The release's branches are long-lived (sandbox merges into main every release): never "merged, delete it".
   // 2.11: neither is a branch an env runs or an initiative builds on, now that Orden offers the delete to copy.
   const releaseBranches = new Set([
@@ -186,16 +191,13 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
     if (!b.ownerTaskId && !used && b.headSha) out.push({ code: "BRANCH_WITHOUT_TICKET", key: null, detail: `${b.name} has no ticket or initiative`, fix_hint: "set the initiative's integration_branch, or delete the branch", id: b.name, command: `git push origin --delete ${b.name}` });
   }
   // 2.8: "waiting on Jorge" written as free text, with nothing he can act on in the inbox.
-  const openQ = new Set((await db.select({ taskId: questions.taskId }).from(questions).where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt)))).map((r) => r.taskId));
+  const openQ = new Set((await store.find("questions", { projectId: p.id, answeredAt: null })).map((r) => r.taskId));
   const humanActionOn = new Set((await openHumanActions(db, p.id)).map((r) => r.b.taskId));
   // 2.10: the parser (jorge-lines.ts) turns most of these into blockers on the next write; the detail
   // says so, or names the parsed blocker when Jorge already marked it done and the text still waits.
-  const parsedDone = ids.length
-    ? await db
-        .select({ id: blockers.id, taskId: blockers.taskId, hash: sql<string>`${blockers.spec}->>'line_hash'` })
-        .from(blockers)
-        .where(and(inArray(blockers.taskId, ids), eq(blockers.type, "human_action"), sql`${blockers.spec}->>'source' = 'parsed'`, sql`${blockers.satisfiedAt} is not null`))
-    : [];
+  const parsedDone = typedBlockers
+    .filter((b) => b.type === "human_action" && b.spec.source === "parsed" && b.satisfiedAt !== null)
+    .map((b) => ({ id: b.id, taskId: b.taskId, hash: b.spec.line_hash }));
   for (const t of all.filter((t) => !CLOSED.includes(t.status))) {
     const texts = [t.kind === "initiative" ? t.nextAction : "", t.blockedNote ?? ""].filter(Boolean);
     const hit = texts.find((x) => WAITING_ON_JORGE.test(x));
@@ -236,22 +238,16 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   }
   // PLA-I18-2: the old screen step was removed, so an answer stored by an agent is no longer a finding. Every
   // delegated answer still is, so the owner can review the quote, until he marks it seen (PLA-06).
-  const delegatedRows = await db
-    .select()
-    .from(delegatedAnswers)
-    .where(and(eq(delegatedAnswers.projectId, p.id), isNull(delegatedAnswers.reviewedAt)));
+  const delegatedRows = await store.find("delegatedAnswers", { projectId: p.id, reviewedAt: null });
   // warn: it is his instruction recorded by a bot the server cannot prove, not a silent success.
   const questionById = new Map<string, typeof questions.$inferSelect>();
   const delegatedQuestionIds = delegatedRows.map((d) => d.questionId).filter((id): id is string => !!id);
   if (delegatedQuestionIds.length) {
-    for (const q of await db.select().from(questions).where(inArray(questions.id, delegatedQuestionIds))) questionById.set(q.id, q);
+    for (const q of await store.find("questions", { id: delegatedQuestionIds })) questionById.set(q.id, q);
   }
   const approvalById = new Map<string, { action: string; state: string; taskKey: string | null }>();
   if (delegatedRows.some((d) => d.approvalId)) {
-    const archived = await db
-      .select({ taskKey: events.taskKey, payload: events.payload })
-      .from(events)
-      .where(and(eq(events.projectId, p.id), eq(events.type, "approval.archived")));
+    const archived = await store.find("events", { projectId: p.id, type: "approval.archived" });
     for (const e of archived) {
       const payload = e.payload as { approval_id?: unknown; action?: unknown; state?: unknown };
       const id = typeof payload.approval_id === "string" ? payload.approval_id : "";
@@ -282,35 +278,12 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   const wontDo = all.filter((t) => t.status === "Won't do");
   if (wontDo.length) {
     const ids = wontDo.map((t) => t.id);
-    const statusEvents = await db
-      .select({ taskId: events.taskId, actor: events.actor })
-      .from(events)
-      .where(and(inArray(events.taskId, ids), eq(events.type, "task.status"), sql`${events.payload}->>'to' = ${"Won't do"}`))
-      .orderBy(desc(events.id));
-    const latest = new Map<string, (typeof statusEvents)[number]["actor"]>();
+    // The store filters on columns; the payload conditions are checked here.
+    const statusEvents = (await store.find("events", { taskId: ids, type: "task.status" }, { orderBy: [{ column: "id", desc: true }] })).filter((e) => e.payload.to === "Won't do");
+    const latest = new Map<string, Actor>();
     for (const e of statusEvents) if (e.taskId && !latest.has(e.taskId)) latest.set(e.taskId, e.actor);
-    const coveredMoves = await db
-      .select({ taskId: events.taskId })
-      .from(events)
-      .where(
-        and(
-          inArray(events.taskId, ids),
-          eq(events.type, "task.delegated_move"),
-          sql`${events.payload}->>'message_id' is not null`,
-          sql`${events.payload}->>'to' = ${"Won't do"}`,
-        ),
-      );
-    const coveredGrants = await db
-      .select({ taskId: events.taskId })
-      .from(events)
-      .where(
-        and(
-          inArray(events.taskId, ids),
-          eq(events.type, "approval.archived"),
-          sql`${events.payload}->>'action' = ${"wont_do"}`,
-          sql`${events.payload}->>'state' = ${"granted"}`,
-        ),
-      );
+    const coveredMoves = (await store.find("events", { taskId: ids, type: "task.delegated_move" })).filter((e) => e.payload.message_id != null && e.payload.to === "Won't do");
+    const coveredGrants = (await store.find("events", { taskId: ids, type: "approval.archived" })).filter((e) => e.payload.action === "wont_do" && e.payload.state === "granted");
     const covered = new Set<string>([...coveredMoves.map((m) => m.taskId), ...coveredGrants.map((g) => g.taskId)].filter((id): id is string => !!id));
     for (const t of wontDo) {
       if (isScreenActor(latest.get(t.id))) continue;
@@ -329,16 +302,18 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   return out;
 }
 
+// Stores the run as a write of its own (never inside writeTx: every caller runs it after its write).
 export async function runAudit(db: Db, p: Project) {
   const findings = await auditProject(db, p);
-  await db
-    .insert(auditRuns)
-    .values({ projectId: p.id, findings, count: findings.length })
-    .onConflictDoUpdate({ target: [auditRuns.projectId], set: { findings, count: findings.length, at: sql`now()` } });
+  await pgStore(db).write(p.id, {}, async (uow) => {
+    const at = { projectId: p.id };
+    if (await uow.get("auditRuns", at)) await uow.update("auditRuns", at, { findings, count: findings.length, at: uow.now });
+    else await uow.insert("auditRuns", { ...at, findings, count: findings.length });
+  });
   return { project: p.slug, at: iso(new Date()), count: findings.length, findings };
 }
 
 export async function lastAudit(db: Q, projectId: string) {
-  const [row] = await db.select().from(auditRuns).where(eq(auditRuns.projectId, projectId)).limit(1);
+  const row = await readerOf(db).get("auditRuns", { projectId });
   return row ? { at: iso(row.at), count: row.count } : null;
 }
