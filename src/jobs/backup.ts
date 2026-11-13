@@ -1,15 +1,17 @@
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync } from "node:fs";
-import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { createGzip } from "node:zlib";
+import { createGzip, gzipSync } from "node:zlib";
 import { sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import type { Finding } from "../mcp/audit.js";
 import type { Q } from "../mcp/tx.js";
 import { writeVia } from "../runner/limits.js";
+import { DevvaStore } from "../store/devva.js";
+import { storeOfHandle } from "../store/handles.js";
 import { readerOf } from "../store/pg.js";
 import type { Job } from "./index.js";
 
@@ -22,7 +24,7 @@ export const KEEP = 14;
 export const STALE_MS = 48 * 3600_000;
 const AFTER_HOUR = 3;
 const STATE_KEY = "backup";
-const DAILY = /^plania-(\d{8})\.sql\.gz$/;
+const DAILY = /^plania-(\d{8})\.(sql|devva\.jsonl)\.gz$/;
 
 export type BackupState = {
   at: string | null; // last success
@@ -119,6 +121,23 @@ export async function prune(dir: string, keep = KEEP): Promise<string[]> {
   return old;
 }
 
+// On the devva store the backup is the commit log as gzipped text, and it is checked before it counts: the
+// dump is loaded into a throwaway store and compared row by row with the live one.
+async function dumpDevva(live: DevvaStore, file: string): Promise<void> {
+  const text = await live.dump();
+  const drill = await DevvaStore.open({ prefix: `drill_${process.pid}_${Date.now().toString(36)}` });
+  try {
+    await drill.restore(text);
+    const [a, b] = [await live.fingerprint(), await drill.fingerprint()];
+    const differing = [...a].filter(([k, v]) => b.get(k) !== v).length + [...b.keys()].filter((k) => !a.has(k)).length;
+    if (differing > 0) throw new Error(`restore drill: ${differing} rows differ from the live store`);
+  } finally {
+    await drill.purge();
+    drill.close();
+  }
+  await writeFile(file, gzipSync(text));
+}
+
 // One tick: dumps when today's dump is still missing and it is past 03:00 local time.
 export async function runBackup(db: Db, now: Date, deps: BackupDeps = {}): Promise<{ dumped: number; pruned: number; failed: number }> {
   const tz = deps.tz ?? (process.env.PLANIA_TZ || "America/Mexico_City");
@@ -128,12 +147,17 @@ export async function runBackup(db: Db, now: Date, deps: BackupDeps = {}): Promi
 
   const dir = deps.dir ?? backupDir();
   const url = deps.url ?? process.env.DATABASE_URL;
-  const file = path.join(dir, `plania-${day.replaceAll("-", "")}.sql.gz`);
+  const devva = storeOfHandle(db)?.store;
+  const onDevva = devva instanceof DevvaStore;
+  const file = path.join(dir, `plania-${day.replaceAll("-", "")}.${onDevva ? "devva.jsonl" : "sql"}.gz`);
   const tmp = `${file}.partial`;
   try {
-    if (!url) throw new Error("DATABASE_URL is not set");
     await mkdir(dir, { recursive: true });
-    await dumpTo(deps.pgDump ?? (await findPgDump(db)), url, tmp);
+    if (onDevva) await dumpDevva(devva, tmp);
+    else {
+      if (!url) throw new Error("DATABASE_URL is not set");
+      await dumpTo(deps.pgDump ?? (await findPgDump(db)), url, tmp);
+    }
     await rename(tmp, file);
     const { size } = await stat(file);
     const pruned = await prune(dir);

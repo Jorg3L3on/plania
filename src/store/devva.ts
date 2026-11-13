@@ -484,6 +484,42 @@ export class DevvaStore implements Store {
     return next;
   }
 
+  // The whole store as text: a header line, then one commit per line, in order. The log is the source of
+  // truth, so this is a complete backup, read back from the engine (not from memory).
+  async dump(): Promise<string> {
+    const bodies = (await this.scanAll(this.log)).map((r) => ({ seq: r.getNumber("seq") ?? 0, body: r.getString("body") ?? "" })).sort((a, b) => a.seq - b.seq);
+    bodies.forEach((b, i) => {
+      if (b.seq !== i + 1) throw new Error(`store: commit log gap, expected ${i + 1} and found ${b.seq}`);
+    });
+    return [JSON.stringify({ plania_devva_dump: 1, commits: bodies.length }), ...bodies.map((b) => b.body)].join("\n") + "\n";
+  }
+
+  // Loads a dump into this store, which must be empty, then rebuilds the projection. Refuses a dump whose
+  // header does not match its lines or whose commits are not 1..n in order.
+  async restore(text: string): Promise<number> {
+    if (this.head !== 0) throw new Error("store: restore needs an empty store");
+    const lines = text.split("\n").filter((l) => l.length > 0);
+    const header = JSON.parse(lines[0] ?? "{}") as { plania_devva_dump?: number; commits?: number };
+    if (header.plania_devva_dump !== 1 || header.commits !== lines.length - 1) throw new Error("store: not a complete plania devva dump");
+    const commits = lines.slice(1).map((l) => decode(JSON.parse(l)) as Commit);
+    commits.forEach((c, i) => {
+      if (c.seq !== i + 1) throw new Error(`store: dump out of order at line ${i + 2}`);
+    });
+    for (const c of commits) {
+      if (!(await this.commit(c))) throw new Error(`store: commit ${c.seq} is already taken in the target store`);
+      this.fold(c);
+    }
+    await this.repair();
+    return commits.length;
+  }
+
+  // Every row of every table, as text, for comparing two stores.
+  async fingerprint(): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    for (const name of tableNames()) for (const row of this.tables.get(name)?.values() ?? []) out.set(this.entPk(name, row), JSON.stringify(encode(row)));
+    return out;
+  }
+
   // How many commits the log holds.
   get commits(): number {
     return this.head;
