@@ -344,6 +344,32 @@ test("I40-6 #4: a request nobody took is a warning with Reenviar and Cerrar, and
   clean(s);
 });
 
+// ---- PLA-I40-7
+
+test("I40-7 (UI): the switch sits under Solo tú, says why a delivery was not accepted, and an automatic accept reads as one", () => {
+  const off = floor(full({ auto_accept: { on: false, hold: null } }), [], { nowActs: { onAuto: noop } });
+  assert.match(off, /<input id="auto-workia" type="checkbox"[^>]*data-control="aceptar-sola"/);
+  assert.equal(/id="auto-workia"[^>]*checked=""/.test(off), false);
+  assert.ok(text(off).includes("Aceptar sola en la copia de prueba si las pruebas pasan"));
+  assert.ok(text(off).includes("Aceptar cada entrega para que el paso siguiente arranque, y publicar."));
+
+  const on = floor(full({ auto_accept: { on: true, hold: "Faltan pruebas que pasen." } }), [], { nowActs: { onAuto: noop } });
+  assert.match(on, /id="auto-workia"[^>]*checked=""/);
+  assert.ok(text(on).includes("No se aceptó sola: Faltan pruebas que pasen."));
+  assert.ok(text(on).includes("Publicar. Las entregas con pruebas en verde se aceptan solas en la copia de prueba."));
+
+  const calls: unknown[][] = [];
+  const el = after.After({ project: full({ auto_accept: { on: false, hold: null } }), decisions: [], now: NOW, acts: { onAuto: (...a: unknown[]) => calls.push(a) } });
+  const find = (x: any): any => (!x || typeof x !== "object" ? null : Array.isArray(x) ? x.map(find).find(Boolean) : x.type === "input" ? x : find(x.props?.children));
+  find(el).props.onChange({ currentTarget: { checked: true } });
+  assert.deepEqual(calls, [["workia", true]]);
+
+  const auto = answered({ state: { action: "aceptar", at: "2026-11-13T20:24:00Z", result: { by: "auto" } }, evidence: { verdict: "pass", kind: "test", cite: "pnpm test", pass: 162, fail: 0, at: "2026-11-13T20:21:00Z" } });
+  assert.equal(lib.lastLines(full({ latest: [] }), [auto])[0].text, "Se aceptó sola «Listado de novias con búsqueda y filtros» · 162 pruebas pasan");
+  // An older server sends no auto_accept: no switch.
+  assert.equal(floor(full(), [], { nowActs: { onAuto: noop } }).includes("aceptar-sola"), false);
+});
+
 function findButton(el: any): any {
   if (!el || typeof el !== "object") return null;
   if (el.type === "button") return el;

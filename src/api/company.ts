@@ -277,7 +277,7 @@ companyRoutes.post("/projects/:slug/next", async (c) => {
 
 // PLA-I36-8/10: plan approval and the preview address.
 companyRoutes.put("/projects/:slug/options", async (c) => {
-  const input = await body(c, z.object({ plan_approval: z.boolean().optional(), preview_url: z.string().url().regex(/^https?:\/\//).max(300).nullable().optional() }).strict());
+  const input = await body(c, z.object({ plan_approval: z.boolean().optional(), auto_accept: z.boolean().optional(), preview_url: z.string().url().regex(/^https?:\/\//).max(300).nullable().optional() }).strict());
   if (input instanceof Response) return input;
   const out = await withDb((db) => setProjectOptions(db, c.req.param("slug"), input));
   if ("error" in out) {

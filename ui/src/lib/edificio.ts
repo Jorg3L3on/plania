@@ -411,6 +411,9 @@ export function sinTi(p: OrgProject): string {
   return "Nada en fila. Lo que pidas lo reparte el PO.";
 }
 export const SOLO_TU = "Aceptar cada entrega para que el paso siguiente arranque, y publicar.";
+// PLA-I40-7: with the switch on, accepting is the team's when the tests pass; publishing stays the owner's.
+export const SOLO_TU_AUTO = "Publicar. Las entregas con pruebas en verde se aceptan solas en la copia de prueba.";
+export const AUTO_LABEL = "Aceptar sola en la copia de prueba si las pruebas pasan";
 
 const DID: Record<string, string> = { aceptar: "Aceptaste", fusionar: "Aceptaste", cambios: "Pediste cambios en", elegir: "Respondiste", responder: "Respondiste", hecho: "Marcaste hecho", aplazar: "Aplazaste", empezar: "Aprobaste el plan", cambiar: "Pediste cambiar", cancelar: "Cancelaste" };
 export type LastLine = { id: string; text: string; at: string; decision: Decision | null };
@@ -418,7 +421,12 @@ export type LastLine = { id: string; text: string; at: string; decision: Decisio
 export function lastLines(p: OrgProject, decisions: Decision[], max = 3): LastLine[] {
   const answered = decisions
     .filter((d) => d.project === p.slug && d.state)
-    .map((d) => ({ id: `d-${d.id}`, text: `${DID[d.state!.action] ?? "Respondiste"} ${q(d.title, 70)}`, at: d.state!.at, decision: d }));
+    .map((d) => {
+      // PLA-I40-7: an accept the project's switch made says so, with the test counts it stood on.
+      const auto = d.state!.result?.by === "auto";
+      const counts = auto && d.evidence?.pass != null ? ` · ${d.evidence.pass} pruebas pasan` : "";
+      return { id: `d-${d.id}`, text: auto ? `Se aceptó sola ${q(d.title, 70)}${counts}` : `${DID[d.state!.action] ?? "Respondiste"} ${q(d.title, 70)}`, at: d.state!.at, decision: d };
+    });
   const seen = (p.latest ?? []).map((l, i) => ({
     id: `l-${i}-${l.at}`,
     text: l.kind === "published" ? (l.n ? `Publicaste ${l.n === 1 ? "1 cambio" : `${l.n} cambios`}` : "Publicaste los cambios") : `El equipo entregó ${q(l.title, 70)}`,

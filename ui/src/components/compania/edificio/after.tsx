@@ -3,7 +3,7 @@
 // the bubble had); a request of his that nobody took is a warning here with Reenviar and Cerrar. Presentational.
 import type { ReactNode } from "react";
 import type { Decision, OrgProject } from "@/lib/api";
-import { SOLO_TU, lastLines, sinTi, staleAge, whenWord } from "@/lib/edificio";
+import { AUTO_LABEL, SOLO_TU, SOLO_TU_AUTO, lastLines, sinTi, staleAge, whenWord } from "@/lib/edificio";
 import { DecisionBody } from "@/components/compania/v2";
 import type { NowActs } from "./now";
 import type { QuestionActs } from "./question";
@@ -28,6 +28,7 @@ export const After = ({
 }) => {
   if (p.latest === undefined) return null;
   const last = lastLines(p, decisions);
+  const auto = p.auto_accept;
   const stale = p.stale_requests ?? [];
   return (
     <div className="edi-after" data-after>
@@ -37,7 +38,18 @@ export const After = ({
       </section>
       <section className="edi-acol" data-col="solo-tu">
         <h3>Solo tú</h3>
-        <p>{SOLO_TU}</p>
+        <p>{auto?.on ? SOLO_TU_AUTO : SOLO_TU}</p>
+        {auto && acts?.onAuto && (
+          <label className="edi-now edi-auto" htmlFor={`auto-${p.slug}`}>
+            <input id={`auto-${p.slug}`} type="checkbox" checked={auto.on} disabled={acts.busy === `${p.slug}:auto`} onChange={(e) => acts.onAuto!(p.slug, e.currentTarget.checked)} data-control="aceptar-sola" />
+            {AUTO_LABEL}
+          </label>
+        )}
+        {auto?.on && auto.hold && (
+          <p className="edi-autohold" data-auto-hold>
+            No se aceptó sola: {auto.hold}
+          </p>
+        )}
         {solo}
       </section>
       <section className="edi-acol" data-col="ultimo">

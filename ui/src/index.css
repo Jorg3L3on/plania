@@ -561,6 +561,9 @@
   .edi-last span { color: var(--e-fg); min-width: 0; }
   .edi-lastd summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--e-muted); }
   .edi-lastd[open] { margin-top: 6px; padding: 10px 12px; border-radius: 12px; background: var(--card); color: var(--foreground); }
+  .edi-auto { align-items: flex-start; line-height: 1.35; color: var(--e-fg); }
+  .edi-auto input { margin-top: 2px; flex: none; }
+  .edi-acol .edi-autohold { color: var(--e-you-ink); font-size: 12.5px; }
   .edi-stale { display: grid; gap: 4px; padding-bottom: 7px; border-bottom: 1px solid var(--e-line); }
   .edi-stale p { color: var(--e-you-ink); }
   .edi-stale .edi-links { display: flex; gap: 14px; }

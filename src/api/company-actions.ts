@@ -118,7 +118,7 @@ export async function pickNext(db: Db, slug: string, key: string): Promise<{ nex
 }
 
 // PLA-I36-8/10: the project's switches that are not limits: plan approval and the preview address.
-export async function setProjectOptions(db: Db, slug: string, input: { plan_approval?: boolean; preview_url?: string | null }): Promise<{ plan_approval: boolean; preview_url: string | null } | { error: string; status: 404; hint: string }> {
+export async function setProjectOptions(db: Db, slug: string, input: { plan_approval?: boolean; preview_url?: string | null; auto_accept?: boolean }): Promise<{ plan_approval: boolean; preview_url: string | null; auto_accept: boolean } | { error: string; status: 404; hint: string }> {
   const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   const settings = { ...p.settings };
@@ -127,8 +127,9 @@ export async function setProjectOptions(db: Db, slug: string, input: { plan_appr
     if (input.preview_url) settings.preview_url = input.preview_url;
     else delete settings.preview_url;
   }
+  if (input.auto_accept !== undefined) settings.auto_accept = input.auto_accept;
   await db.update(projects).set({ settings, updatedAt: sql`now()` }).where(eq(projects.id, p.id));
-  return { plan_approval: !!settings.plan_approval, preview_url: settings.preview_url ?? null };
+  return { plan_approval: !!settings.plan_approval, preview_url: settings.preview_url ?? null, auto_accept: !!settings.auto_accept };
 }
 
 export type WakeOutcome = { woke: boolean; reason: string; ticket: string | null; summary: string };

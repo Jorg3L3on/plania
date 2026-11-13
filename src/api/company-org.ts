@@ -15,6 +15,7 @@ import { PROMPT_DOCS, isRunnerRole, lastReading, loadSettings, planView, roleOf,
 import { TEAM_TEMPLATES, TEMPLATE_ROWS, ensureMember, isTeamTemplate, teamOf, teamSlug, type TeamTemplate } from "../runner/team.js";
 import { actionsFor, companyThread, projectThread, threadSummary } from "../runner/threads.js";
 import { companyState, type CompanyState, type RunView } from "../runner/company.js";
+import { autoAcceptOf, type AutoAccept } from "./auto-accept.js";
 import { decisionsRead, inboxByProject, type Decision } from "./company-decisions.js";
 import { ordersOf, type Order } from "./company-orders.js";
 import { loadReadiness } from "../mcp/readiness.js";
@@ -75,6 +76,8 @@ export type ProjectCard = {
   thread: ThreadLine;
   // PLA-I35-1: the card as a report (src/api/company-plan.ts).
   plan: PlanLine | null;
+  // PLA-I40-7: the accept-by-itself switch, and why the oldest waiting delivery was not accepted.
+  auto_accept: AutoAccept;
   // PLA-I40-6: the last things that happened on this floor, and the owner's requests nobody took.
   latest: LatestLine[];
   stale_requests: StaleRequest[];
@@ -467,6 +470,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       thread: threadLine(thread),
       plan,
       route: await routeOf(db, p),
+      auto_accept: { on: !!p.settings.auto_accept, hold: null },
       latest: await latestOf(db, p),
       stale_requests: stale,
       this_week: await thisWeekOf(db, p, now),
@@ -497,13 +501,15 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     from agent_runs where status in ('running', 'ok', 'fail', 'stopped') and coalesce(started_at, queued_at) >= ${startsAt.toISOString()}::timestamptz`);
   const [running] = await db.select({ n: sql<number>`count(*)::int` }).from(agentRuns).where(eq(agentRuns.status, "running"));
 
+  const decisions = await decisionsRead(db, now, inbox);
+  for (const c of cards) if (c.auto_accept.on) c.auto_accept = await autoAcceptOf(db, all.find((p) => p.slug === c.slug)!, decisions);
   return {
     company: { paused: settings.companyPaused },
     week: { starts_at: startsAt.toISOString(), resets_at: resetsAt.toISOString(), timezone: tz },
     asistente: { thread_id: company.id, usage: asisUsage, last_run: lastRun, state, unread: companyUnread },
     projects: cards,
     plumbing: { spend: Number(spend.rows[0]?.used ?? 0), running: running?.n ?? 0, paused: settings.companyPaused },
-    decisions: await decisionsRead(db, now, inbox),
+    decisions,
     inbox: countInbox(inbox),
   };
 }

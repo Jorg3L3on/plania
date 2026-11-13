@@ -16,6 +16,8 @@ export type NowActs = {
   // PLA-I40-6: a request nobody took: send it to the PO again, or close it.
   onResend?: (slug: string, key: string) => void;
   onClose?: (slug: string, key: string) => void;
+  // PLA-I40-7: the project's accept-by-itself switch.
+  onAuto?: (slug: string, on: boolean) => void;
   // The countdown reached zero: read the floor again.
   onElapsed?: () => void;
   // "<slug>:<kind>" while a call is out.

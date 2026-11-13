@@ -148,7 +148,7 @@ export const api = {
     request<StartNowResult>("POST", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/start`, pastGuard ? { past_guard: true } : {}),
   askProject: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean }) => request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, input),
   pickNext: (slug: string, key: string) => request<{ next: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/next`, { key }),
-  setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null }) =>
+  setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null; auto_accept?: boolean }) =>
     request<{ plan_approval: boolean; preview_url: string | null }>("PUT", `/company/projects/${encodeURIComponent(slug)}/options`, input),
   stopRun: (id: string) => request<{ stopped: true; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/stop`),
   resumeRun: (id: string) => request<{ woke: boolean; reason: string; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/resume`),
@@ -225,6 +225,8 @@ export type OrgProject = {
   thread: OrgThreadRef;
   // PLA-I35-1: the card as a report.
   plan: OrgPlan | null;
+  // PLA-I40-7: the accept-by-itself switch, and why the oldest waiting delivery was not accepted.
+  auto_accept?: { on: boolean; hold: string | null };
   // PLA-I40-6: what just happened here, and the owner's requests nobody took.
   latest?: OrgLatest[];
   stale_requests?: OrgStaleRequest[];
