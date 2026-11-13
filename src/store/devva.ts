@@ -13,7 +13,9 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Q } from "../mcp/tx.js";
+import type { Db } from "../db/client.js";
 import { withDefaults } from "./defaults.js";
+import { registerStore, registerUnit } from "./handles.js";
 import { keyOf, metaOf, tableNames } from "./meta.js";
 import { Cond, RequestIdReused, type Change, type Committed, type FindOptions, type Idempotency, type NewRow, type Reader, type Row, type Store, type TableName, type UnitOfWork, type Where } from "./types.js";
 
@@ -181,8 +183,12 @@ class DevvaUnitOfWork extends MemoryReader implements UnitOfWork {
     return n;
   }
 
+  // Not SQL: an opaque handle that uowOf and readerOf resolve back to this unit of work, so code written to
+  // pass a transaction around runs unchanged.
+  private handle: object | null = null;
   get sql(): Q {
-    throw new Error("store: the devva adapter has no SQL handle; this code path still needs the Postgres adapter");
+    if (!this.handle) registerUnit((this.handle = {}), this);
+    return this.handle as Q;
   }
 
   private stage(table: TableName, row: AnyRow | null, k: string): void {
@@ -260,8 +266,12 @@ export class DevvaStore implements Store {
     this.ent = `${opts.prefix}_ent`;
   }
 
+  // What plania's code receives where it expects a database: makeDb() returns it when this store is in use.
+  readonly handle = {} as Db;
+
   static async open(opts: DevvaOptions): Promise<DevvaStore> {
     const store = new DevvaStore(opts);
+    registerStore(store.handle, store, () => new MemoryReader(store.tables));
     store.connect = await loadClient(opts);
     store.db = await store.connect();
     await store.declare();

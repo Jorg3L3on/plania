@@ -5,6 +5,7 @@ import type { Db } from "../db/client.js";
 import * as schema from "../db/schema.js";
 import type { Q } from "../mcp/tx.js";
 import { withDefaults } from "./defaults.js";
+import { storeOfHandle, unitOfHandle } from "./handles.js";
 import { Cond, RequestIdReused, type Change, type Committed, type FindOptions, type Idempotency, type NewRow, type Reader, type Row, type Store, type TableName, type UnitOfWork, type Where } from "./types.js";
 
 const REQUEST_TTL_MS = 30 * 24 * 3_600_000;
@@ -161,7 +162,9 @@ export class PgStore implements Store {
 
 // One store per Db, so a test that rebuilds its pool gets a fresh one.
 const stores = new WeakMap<object, PgStore>();
-export function pgStore(db: Db): PgStore {
+export function pgStore(db: Db): Store {
+  const other = storeOfHandle(db);
+  if (other) return other.store;
   let store = stores.get(db);
   if (!store) stores.set(db, (store = new PgStore(db)));
   return store;
@@ -171,10 +174,10 @@ export function pgStore(db: Db): PgStore {
 // changing its signature. Inside a write it is that write's unit of work; anywhere else it is a reader.
 const units = new WeakMap<object, PgUnitOfWork>();
 export function uowOf(q: Q): UnitOfWork {
-  const uow = units.get(q);
+  const uow = unitOfHandle(q) ?? units.get(q);
   if (!uow) throw new Error("store: not inside a write");
   return uow;
 }
 export function readerOf(q: Q): Reader {
-  return units.get(q) ?? new PgReader(q);
+  return unitOfHandle(q) ?? storeOfHandle(q)?.reader() ?? units.get(q) ?? new PgReader(q);
 }

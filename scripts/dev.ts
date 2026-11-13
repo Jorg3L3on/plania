@@ -21,6 +21,16 @@ const hostname = "127.0.0.1";
 const distDir = path.resolve(import.meta.dirname, "../dist/ui");
 const indexPath = path.join(distDir, "index.html");
 
+// PLANIA_STORE=devva: plania runs on the devva store and needs no Postgres (deploy/devva/README.md).
+// Everything that asks for the database gets the store's handle. The default is Postgres.
+if (process.env.PLANIA_STORE === "devva") {
+  const { DevvaStore } = await import("../src/store/devva.js");
+  const { useDb } = await import("../src/db/client.js");
+  const store = await DevvaStore.open({ prefix: process.env.PLANIA_DEVVA_PREFIX || "plania" });
+  useDb(store.handle);
+  console.log(`[store] devva: ${store.commits} commits replayed, ${store.recovered.repaired} projection records rewritten`);
+}
+
 const server = new Hono();
 server.route("/", app);
 
@@ -57,7 +67,7 @@ serve({ fetch: server.fetch, port, hostname }, () => console.log(`plania on http
 if (process.env.PLANIA_JOBS !== "0") startJobs();
 
 // Devva as a shadow of Postgres (deploy/devva/README.md). An unreachable engine is logged; the server runs on.
-if (process.env.PLANIA_SHADOW === "devva") {
+if (process.env.PLANIA_SHADOW === "devva" && process.env.PLANIA_STORE !== "devva") {
   const { Shadow } = await import("../src/store/shadow.js");
   const { makeDb } = await import("../src/db/client.js");
   void Shadow.start(makeDb().db, { prefix: process.env.PLANIA_DEVVA_PREFIX || "plania" })

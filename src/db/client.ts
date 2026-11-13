@@ -8,7 +8,15 @@ export type Db = NodePgDatabase<typeof schema>;
 // Created on first use, so tests can set DATABASE_URL before anything connects.
 let shared: { pool: pg.Pool; db: Db } | null = null;
 
+// A store that is not Postgres (src/store/devva.ts) puts its own handle here; every caller of makeDb and
+// withDb then runs on that store.
+let override: Db | null = null;
+export function useDb(handle: Db | null): void {
+  override = handle;
+}
+
 function sharedDb(): { pool: pg.Pool; db: Db } {
+  if (override) return { pool: undefined as unknown as pg.Pool, db: override };
   if (shared) return shared;
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set");
