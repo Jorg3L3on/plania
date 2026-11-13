@@ -35,7 +35,21 @@ export const WeekTokens = ({ plumbing }: { plumbing: MachinePlumbing }) => (
   </section>
 );
 
-export const Guard = ({ plumbing, canEdit, onMoveGuard }: { plumbing: MachinePlumbing; canEdit: boolean; onMoveGuard: () => void }) => (
+// PLA-25: "Seguir aunque el plan esté alto". On, the bots run past the guard; only a plan the provider has
+// rejected still stops them.
+export const Guard = ({
+  plumbing,
+  canEdit,
+  onMoveGuard,
+  onToggleOverride,
+}: {
+  plumbing: MachinePlumbing;
+  canEdit: boolean;
+  onMoveGuard: () => void;
+  onToggleOverride?: (on: boolean) => void;
+}) => {
+  const override = plumbing.plan.override === true;
+  return (
   <section id="guardia" aria-labelledby="pl-guard" className={cn(panel, "grid min-w-0 scroll-mt-20 content-start gap-3 p-4")} data-block="guardia">
     <h2 id="pl-guard" className={heading}>
       Guardia del plan
@@ -51,8 +65,20 @@ export const Guard = ({ plumbing, canEdit, onMoveGuard }: { plumbing: MachinePlu
         </button>
       )}
     </div>
+    <div className="grid gap-1 border-t border-foreground/10 pt-3" data-part="guardia-ignorada">
+      <label className="flex min-h-8 items-center gap-2 text-sm font-semibold">
+        <input type="checkbox" checked={override} disabled={!canEdit || !onToggleOverride} onChange={(e) => onToggleOverride?.(e.target.checked)} data-control="seguir-sin-guardia" />
+        Seguir aunque el plan esté alto
+      </label>
+      <p className="text-xs text-muted-foreground" data-state={override ? "ignorado" : "activo"}>
+        {override
+          ? "Límite ignorado: los bots arrancan aunque la ventana pase de la guardia. Solo para si el plan responde «rechazado»."
+          : "La guardia detiene las corridas nuevas al llegar al porcentaje."}
+      </p>
+    </div>
   </section>
-);
+  );
+};
 
 export const Switches = ({
   plumbing,
@@ -113,6 +139,7 @@ export const PlumbingSection = ({
   now,
   canEdit,
   onMoveGuard,
+  onToggleOverride,
   onStopCompany,
   onResumeCompany,
   onPauseProject,
@@ -122,6 +149,7 @@ export const PlumbingSection = ({
   now: number;
   canEdit: boolean;
   onMoveGuard: () => void;
+  onToggleOverride?: (on: boolean) => void;
   onStopCompany: () => void;
   onResumeCompany: () => void;
   onPauseProject: (p: CompanyProjectRow) => void;
@@ -149,7 +177,7 @@ export const PlumbingSection = ({
       <div className="grid min-w-0 items-start gap-4 lg:grid-cols-2">
         <WeekTokens plumbing={plumbing} />
         <div className="grid min-w-0 gap-4">
-          <Guard plumbing={plumbing} canEdit={canEdit} onMoveGuard={onMoveGuard} />
+          <Guard plumbing={plumbing} canEdit={canEdit} onMoveGuard={onMoveGuard} onToggleOverride={onToggleOverride} />
           <EnMarcha company={plumbed} now={now} projectTitle={projectTitle} />
         </div>
         <Switches

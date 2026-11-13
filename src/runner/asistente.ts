@@ -183,7 +183,7 @@ export async function buildBrief(db: Db, now: Date): Promise<string[]> {
   const [open] = await db.select({ n: sql<number>`count(*)::int` }).from(questions).where(isNull(questions.answeredAt));
   if ((open?.n ?? 0) > 0) lines.push(`${plural(open!.n, "pregunta te espera", "preguntas te esperan")} en Solo tú.`);
 
-  const plan = planView(await lastReading(db), settings.planGuardPct, now);
+  const plan = planView(await lastReading(db), settings.planGuardPct, now, settings.guardOverride);
   if (plan.state !== "unknown" && plan.five_hour_pct != null) lines.push(`Plan: la ventana de 5 h va al ${plan.five_hour_pct} % (guardia en ${plan.guard_pct} %).`);
   return lines;
 }

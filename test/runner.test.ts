@@ -201,7 +201,7 @@ beforeEach(async () => {
   await raw.query(`delete from agent_runs`);
   await raw.query(`delete from agent_sessions`);
   await raw.query(`delete from heartbeat_runs`);
-  await raw.query(`update runner_settings set company_paused = false, max_concurrent = 1, cooldown_minutes = 0, plan_guard_pct = 70, reserve_tokens = 1000`);
+  await raw.query(`update runner_settings set company_paused = false, max_concurrent = 1, cooldown_minutes = 0, plan_guard_pct = 70, guard_override = false, reserve_tokens = 1000`);
   await raw.query(`update projects set runs_paused = false where slug in ('micasa', 'workia')`);
   await raw.query(`delete from tasks where key like 'RUN-%'`);
   await freshReading(10);
@@ -549,6 +549,43 @@ test("I29-6 #4 and I29-8 #4: an agent token on any switch or settings write gets
   const saved = (await guard.json()) as Record<string, unknown>;
   assert.equal(saved.plan_guard_pct, 65);
   assert.equal("asistente_weekly_limit" in saved, false);
+  // PLA-25: the override switch is the same owner-session write; an agent token gets 403.
+  const asAgent = await app.request("/api/company/settings", { method: "PUT", headers: bearer, body: JSON.stringify({ guard_override: true }) });
+  assert.equal(asAgent.status, 403);
+  const on = await app.request("/api/company/settings", { method: "PUT", headers: jorge, body: JSON.stringify({ guard_override: true }) });
+  assert.equal(((await on.json()) as Record<string, unknown>).guard_override, true);
+  await raw.query(`update runner_settings set guard_override = false`);
+});
+
+// ---- PLA-25: the screen switch that goes on past the plan guard
+
+test("PLA-25 #1: with guard_override on, a wake starts at 77% over a 70% guard; off, it is skipped", async () => {
+  const f = fakes();
+  await ready("micasa", "RUN-OVR");
+  await freshReading(77);
+  const off = await wake("taller", f.deps, "RUN-OVR");
+  assert.match(off.run!.summary, /^skipped: plan guard \(five_hour 77% >= 70%/);
+  await raw.query(`update runner_settings set guard_override = true`);
+  const on = await wake("taller", f.deps, "RUN-OVR");
+  assert.equal(on.run!.status, "running");
+  assert.equal(f.spawned.length, 1);
+  f.spawned[0]!.child.exit(143);
+  await runner.waitForAllRuns();
+});
+
+test("PLA-25 #2: with guard_override on, a rejected plan still stops, and an unknown reading does not", async () => {
+  const f = fakes();
+  await ready("micasa", "RUN-OVR2");
+  await raw.query(`update runner_settings set guard_override = true`);
+  await freshReading(10, "rejected");
+  const rejected = await wake("taller", f.deps, "RUN-OVR2");
+  assert.equal(rejected.run!.status, "skipped");
+  assert.match(rejected.run!.summary, /^skipped: plan guard \(status rejected/);
+  await raw.query(`delete from plan_readings`);
+  const unknown = await wake("taller", f.deps, "RUN-OVR2");
+  assert.equal(unknown.run!.status, "running");
+  f.spawned[0]!.child.exit(143);
+  await runner.waitForAllRuns();
 });
 
 // ---- PLA-I29-7: cap, cooldown, plan guard
@@ -707,7 +744,7 @@ test("I29-8 #3: resuming the company leaves a self-paused project paused; new pr
   assert.equal(state.week.timezone, "America/Mexico_City");
   const machine = (await (await app.request("/api/machine", { headers: cookie })).json()) as { plumbing: Awaited<ReturnType<typeof companyState>> & { usage: unknown; log: unknown } };
   const plan = machine.plumbing.plan;
-  assert.deepEqual(Object.keys(plan).sort(), ["five_hour_pct", "guard_pct", "read_at", "resets_at", "seven_day_pct", "seven_day_resets_at", "source", "state", "status"]);
+  assert.deepEqual(Object.keys(plan).sort(), ["five_hour_pct", "guard_pct", "override", "read_at", "resets_at", "seven_day_pct", "seven_day_resets_at", "source", "state", "status"]);
   assert.equal(plan.guard_pct, 70);
   assert.equal("roles" in machine.plumbing, false, "no role budgets anywhere");
   // A project created now starts paused (the column default PLA-I31-3 relies on).

@@ -89,6 +89,20 @@ test("Máquina plumbing: Mover guardia only for a session that can edit; no Camb
   assert.equal(agent.includes(">Pausar<"), false);
 });
 
+test("PLA-25: the Guardia block has a switch to go on past the guard, saying so when on, editable only by Jorge", () => {
+  const off = page(plumbing(), true);
+  assert.equal(count(off, /data-control="seguir-sin-guardia"/g), 1);
+  assert.ok(off.includes("Seguir aunque el plan esté alto"));
+  assert.ok(off.includes('data-state="activo"'));
+  const box = (s: string) => s.match(/<input[^>]*seguir-sin-guardia[^>]*>/)![0];
+  assert.equal(box(off).includes("checked"), false);
+  const on = page(plumbing({ plan: { override: true, five_hour_pct: 77, state: "ok" } }), true);
+  assert.ok(on.includes("Límite ignorado"));
+  assert.ok(on.includes('data-state="ignorado"'));
+  assert.ok(box(on).includes("checked"));
+  assert.ok(box(page(plumbing({ plan: { override: true } }), false)).includes("disabled"));
+});
+
 test("5b/5c a block that failed says so and offers Reintentar; unknown plan usage reads as high", () => {
   const err = html(h(parts.BlockError!, { what: "la compañía", onRetry: noop }));
   assert.ok(err.includes("No se pudo cargar la compañía."));

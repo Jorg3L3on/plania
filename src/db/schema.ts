@@ -992,6 +992,7 @@ export const runnerSettings = pgTable(
     maxConcurrent: integer("max_concurrent").notNull().default(1),
     cooldownMinutes: integer("cooldown_minutes").notNull().default(30),
     planGuardPct: integer("plan_guard_pct").notNull().default(70),
+    guardOverride: boolean("guard_override").notNull().default(false),
     reserveTokens: integer("reserve_tokens").notNull().default(60000),
     maxTurns: integer("max_turns").notNull().default(40),
     timeoutMinutes: integer("timeout_minutes").notNull().default(45),

@@ -224,10 +224,10 @@ async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, 
     if (!base.ok) return { ok: false, kind: "fail", summary: "fail: base not allowed" };
   }
 
-  let plan = planView(await lastReading(db), settings.planGuardPct, now);
+  let plan = planView(await lastReading(db), settings.planGuardPct, now, settings.guardOverride);
   if (plan.state === "unknown") {
     await probeIfUnknown(db, deps, now);
-    plan = planView(await lastReading(db), settings.planGuardPct, now);
+    plan = planView(await lastReading(db), settings.planGuardPct, now, settings.guardOverride);
   }
   if (plan.state === "unknown" || plan.state === "stopped") return { ok: false, kind: "skipped", summary: planGuardSummary(plan) };
 

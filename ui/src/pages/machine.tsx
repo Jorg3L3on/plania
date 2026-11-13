@@ -355,6 +355,14 @@ function Plumbing({ plumbing, nowMs }: { plumbing: MachinePlumbing; nowMs: numbe
     },
     onError: () => toast.error("No se pudo guardar"),
   });
+  const saveOverride = useMutation({
+    mutationFn: async (on: boolean) => api.setRunnerSettings({ guard_override: on }),
+    onSuccess: (_r, on) => {
+      toast(on ? "Límite del plan ignorado" : "Guardia del plan activa");
+      refresh();
+    },
+    onError: () => toast.error("No se pudo guardar"),
+  });
   return (
     <>
       <OwnerCodeRow
@@ -369,6 +377,7 @@ function Plumbing({ plumbing, nowMs }: { plumbing: MachinePlumbing; nowMs: numbe
         now={nowMs}
         canEdit={canEdit}
         onMoveGuard={() => setLimit({ kind: "guard", current: plumbing.plan.guard_pct })}
+        onToggleOverride={(on) => saveOverride.mutate(on)}
         onStopCompany={() => setStop({ kind: "company" })}
         onResumeCompany={() => companySwitch.mutate(false)}
         onPauseProject={(p) => setStop({ kind: "project", slug: p.slug, title: p.title })}

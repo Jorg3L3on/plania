@@ -44,6 +44,7 @@ export type CompanyPlan = {
   state: PlanState;
   read_at: string | null;
   source: string | null;
+  override?: boolean;
 };
 
 export type CompanyProjectRow = { slug: string; title: string; paused: boolean; paused_at: string | null; usage: Usage };
@@ -70,7 +71,7 @@ export type RosterRow = {
 
 export type Company = {
   company: { paused: boolean; paused_at: string | null };
-  settings: { max_concurrent: number; cooldown_minutes: number; plan_guard_pct: number; reserve_tokens: number; max_turns: number; timeout_minutes: number };
+  settings: { max_concurrent: number; cooldown_minutes: number; plan_guard_pct: number; guard_override?: boolean; reserve_tokens: number; max_turns: number; timeout_minutes: number };
   week: { starts_at: string; resets_at: string; timezone: string };
   projects: CompanyProjectRow[];
   runs: { live: CompanyRun[]; queued: CompanyRun[] };

@@ -455,7 +455,7 @@ export async function plumbing(db: Db, now = new Date()): Promise<Plumbing> {
     company: state.company,
     settings: state.settings,
     week: state.week,
-    plan: planView(await lastReading(db), settings.planGuardPct, now),
+    plan: planView(await lastReading(db), settings.planGuardPct, now, settings.guardOverride),
     usage: { asistente: await weekUsage(db, { kind: "asistente" }, startsAt), projects: state.projects },
     runs: state.runs,
     log: log.rows.map((r) => ({
