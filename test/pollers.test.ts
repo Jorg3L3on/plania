@@ -120,8 +120,6 @@ describe("github", () => {
       await raw.query("update branches set head_sha = 'bbbbbbb222222222222222222222222222222222' where name = 'jl/catalog-split'");
       await claim(db, { project: "filmia", key: "FIL-I1-1" }, ctx);
       await addResult(db, { project: "filmia", key: "FIL-I1-1", kind: "ci", verdict: "pass", cite: "green", commit: "bbbbbbb222222222222222222222222222222222", branch: "jl/catalog-split" }, ctx);
-      await addResult(db, { project: "filmia", key: "FIL-I1-1", kind: "scan", verdict: "pass", cite: "pnpm merge-gate example/filmia 130", commit: "bbbbbbb222222222222222222222222222222222" }, ctx);
-      await addResult(db, { project: "filmia", key: "FIL-I1-2", kind: "scan", verdict: "pass", cite: "pnpm merge-gate example/filmia 130", commit: "bbbbbbb222222222222222222222222222222222" }, ctx);
       const t = (await findTask(db, p.id, "FIL-I1-1"))!;
       await setTask(db, { project: "filmia", key: "FIL-I1-1", status: "In review", version: t.version }, ctx);
       const { fetch } = fakeFetch({
@@ -172,7 +170,6 @@ describe("merged gate (PLA-02)", () => {
         return true;
       });
       await addResult(db, { project: "filmia", key: "FIL-I1-3", kind: "ci", verdict: "pass", cite: "main green after merge", commit: "1234567890" }, ctx);
-      await addResult(db, { project: "filmia", key: "FIL-I1-3", kind: "scan", verdict: "pass", cite: "pnpm merge-gate example/filmia 131", commit: "abcabca000000000000000000000000000000000" }, ctx);
       t = (await findTask(db, p.id, "FIL-I1-3"))!;
       await setTask(db, { project: "filmia", key: "FIL-I1-3", status: "Merged", version: t.version }, ctx);
       assert.equal(await status("FIL-I1-3"), "Merged");
@@ -267,7 +264,6 @@ describe("late review (PLA-07)", () => {
       const late = await createTask(db, { project: "workia", title: "Late", scope: "s", checks: ["c"], status: "Ready" }, ctx);
       await claim(db, { project: "workia", key: late.key }, ctx);
       await addResult(db, { project: "workia", key: late.key, kind: "unit", verdict: "pass", cite: "ok", check_ns: [1] }, ctx);
-      await addResult(db, { project: "workia", key: late.key, kind: "scan", verdict: "pass", cite: "pnpm merge-gate example/workia 77", commit: "aaaaaaa111111111111111111111111111111111" }, ctx);
       const t = (await findTask(db, p.id, late.key))!;
       await setTask(db, { project: "workia", key: late.key, status: "In review", pr_url: url, version: t.version }, ctx);
 

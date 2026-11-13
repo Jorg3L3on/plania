@@ -7,7 +7,7 @@ import { branches, pollState, projects, pullRequests, tasks, type Project, type 
 import { DRIFT_STATUSES } from "../mcp/audit.js";
 import { touchBranch } from "../mcp/branches.js";
 import { addResult } from "../mcp/evidence.js";
-import { ToolError, findTask, prRowOf } from "../mcp/queries.js";
+import { findTask, prRowOf } from "../mcp/queries.js";
 import { compareKey, releaseCompareOf, releasePlan, type ReleaseCompare } from "../mcp/release-plan.js";
 import { recordRelease } from "../mcp/releases.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
@@ -356,13 +356,12 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
           const sharing = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.prUrl, pr.html_url), eq(tasks.status, "In review"))).orderBy(tasks.key);
           const moving = [...(task.status === "In review" ? [task] : []), ...sharing.filter((t) => t.id !== task!.id)];
           for (const t of moving) {
-            const moved = await markMerged(
+            await setTask(
               db,
               { project: p.slug, key: t.key, status: "Merged", note: `PR #${pr.number} merged into ${pr.base.ref} (${mergeSha?.slice(0, 7)})` },
               systemCtx(`gh:${cfg.repo}#${pr.number}:merged:${mergeSha}${t.id === task.id ? "" : `:${t.key}`}`, "jobs.github"),
             );
-            if (moved) summary.merged!++;
-            else summary.scan_blocked = (summary.scan_blocked ?? 0) + 1;
+            summary.merged!++;
           }
         }
         // PLA-I31-1: a new review asking for changes (or commenting) on an open linked PR is said once
@@ -512,26 +511,15 @@ export async function mergeLateReviews(db: Db, p: Project, repo: string): Promis
   for (const { t, pr } of rows) {
     if (seen.has(t.id)) continue;
     seen.add(t.id);
-    const moved = await markMerged(
+    await setTask(
       db,
       { project: p.slug, key: t.key, status: "Merged", note: `PR #${pr.number} merged into ${pr.baseBranch ?? "?"} (${pr.mergeSha?.slice(0, 7) ?? "?"})` },
       systemCtx(`gh:${repo}#${pr.number}:merged-late:${t.key}:${t.version}`, "jobs.github"),
     );
-    if (!moved) seen.delete(t.id);
   }
   return seen.size;
 }
 
-// A missing scan pass leaves the ticket In review and the rest of the poll continues.
-async function markMerged(db: Db, input: { project: string; key: string; status: "Merged"; note: string }, ctx: Ctx): Promise<boolean> {
-  try {
-    await setTask(db, input, ctx);
-    return true;
-  } catch (error) {
-    if (error instanceof ToolError && error.code === "SCAN_REQUIRED") return false;
-    throw error;
-  }
-}
 
 // PLA-03: one pr.status_drift event per (PR, ticket) when a merged PR's ticket (linked, or the same
 // pr_url) is still before In review. The request id makes a later tick replay instead of writing again.
