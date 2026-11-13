@@ -1,8 +1,10 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { LEGACY_ASK_FIELD } from "../db/legacy-names.js";
-import { decisions, delegatedAnswers, questions, tasks, type Actor, type Task } from "../db/schema.js";
+import type { decisions, delegatedAnswers, questions, Actor, Task } from "../db/schema.js";
+import { readerOf, uowOf } from "../store/pg.js";
+import type { Reader, UnitOfWork } from "../store/types.js";
 import { decisionShape } from "./decisions.js";
+import { isUuidText } from "./docs.js";
 import { ToolError } from "./errors.js";
 import { TERMINAL, assertTransition } from "./lifecycle.js";
 import { findProject, liveOwner, requireTask, writeReply } from "./queries.js";
@@ -52,23 +54,40 @@ export const LEGACY_ASK_HINT =
   "ignored an obsolete field from an older client; ideas move stage by stage with only the stage doc checked";
 
 export async function taskQuestions(db: Q, t: Pick<Task, "id" | "key">) {
-  const rows = await db.select().from(questions).where(eq(questions.taskId, t.id)).orderBy(asc(questions.askedAt));
+  const r = readerOf(db);
+  const rows = await r.find("questions", { taskId: t.id }, { orderBy: [{ column: "askedAt" }] });
   const ids = rows.map((q) => q.id);
-  const stamps = ids.length
-    ? await db.select().from(delegatedAnswers).where(inArray(delegatedAnswers.questionId, ids))
-    : [];
+  const stamps = ids.length ? await r.find("delegatedAnswers", { questionId: ids }) : [];
   const byQuestion = new Map(stamps.filter((s) => s.questionId).map((s) => [s.questionId, delegatedView(s)]));
   return rows.map((q) => questionShape(q, t.key, byQuestion.get(q.id)));
 }
 
+// The key of each task, by id.
+async function taskKeys(r: Reader, ids: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids)];
+  return new Map((unique.length ? await r.find("tasks", { id: unique }) : []).map((t) => [t.id, t.key]));
+}
+
 export async function openQuestions(db: Q, projectId: string) {
-  const rows = await db
-    .select({ q: questions, key: tasks.key })
-    .from(questions)
-    .innerJoin(tasks, eq(tasks.id, questions.taskId))
-    .where(and(eq(questions.projectId, projectId), isNull(questions.answeredAt)))
-    .orderBy(asc(questions.askedAt));
-  return rows.map((r) => questionShape(r.q, r.key));
+  const r = readerOf(db);
+  const rows = await r.find("questions", { projectId, answeredAt: null }, { orderBy: [{ column: "askedAt" }] });
+  const keys = await taskKeys(r, rows.map((q) => q.taskId));
+  // Only questions whose task is there, as the join with tasks had it.
+  return rows.filter((q) => keys.has(q.taskId)).map((q) => questionShape(q, keys.get(q.taskId)!));
+}
+
+// A status move made by a question: the version goes up by one from the row as it is now, and the
+// timestamps come from the write's clock. A task that is gone is left alone, as the UPDATE did.
+async function moveStatus(uow: UnitOfWork, taskId: string, status: string): Promise<void> {
+  const cur = await uow.get("tasks", { id: taskId });
+  if (!cur) return;
+  const [moved] = await uow.update(
+    "tasks",
+    { id: taskId, version: cur.version },
+    { status, statusChangedAt: uow.now, version: cur.version + 1, updatedAt: uow.now },
+  );
+  // Writes are serialized, so the version cannot move between the read and here.
+  if (!moved) throw new ToolError("STALE_VERSION", { current_version: cur.version });
 }
 
 export async function ask(
@@ -83,6 +102,7 @@ export async function ask(
   const ignoredLegacy = legacy !== undefined && legacy !== null;
   const p = await findProject(db, input.project);
   return writeTx(db, p, ctx, async (tx, emit) => {
+    const uow = uowOf(tx);
     const t = await requireTask(tx, p.id, input.key);
     // blocks: other keys this answer holds up; each must exist (canonical keys are stored).
     const blocks: string[] = [];
@@ -97,36 +117,30 @@ export async function ask(
     const moves = t.kind === "ticket" && t.status !== "Needs Jorge";
     if (moves) assertTransition(t.kind, t.status, "Needs Jorge", { via: "ask" });
     const humanOnly = input.human_only ?? false;
-    const [q] = await tx
-      .insert(questions)
-      .values({
-        projectId: p.id,
-        taskId: t.id,
-        question: input.question,
-        options,
-        blocks,
-        urgency: input.urgency ?? null,
-        humanOnly,
-        statusBefore: moves ? t.status : null,
-        askedBy: ctx.actor,
-      })
-      .returning();
+    const q = await uow.insert("questions", {
+      projectId: p.id,
+      taskId: t.id,
+      question: input.question,
+      options,
+      blocks,
+      urgency: input.urgency ?? null,
+      humanOnly,
+      statusBefore: moves ? t.status : null,
+      askedBy: ctx.actor,
+    });
     if (moves) {
       // The lease stays: the asker keeps the ticket while Jorge thinks (heartbeat to keep it).
-      await tx
-        .update(tasks)
-        .set({ status: "Needs Jorge", statusChangedAt: sql`now()`, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
-        .where(eq(tasks.id, t.id));
+      await moveStatus(uow, t.id, "Needs Jorge");
       await emit("task.status", t, { from: t.status, to: "Needs Jorge" });
     }
-    await emit("question.asked", t, { question_id: q!.id, question: q!.question, options: q!.options, blocks: q!.blocks, urgency: q!.urgency, human_only: q!.humanOnly });
+    await emit("question.asked", t, { question_id: q.id, question: q.question, options: q.options, blocks: q.blocks, urgency: q.urgency, human_only: q.humanOnly });
     const u = await requireTask(tx, p.id, t.key);
     // 2.13: the reply says where the wait now lives, so nobody also writes it into next_action or a note.
     const waits = u.status === "Needs Jorge" ? "the ticket waits in Needs Jorge until he answers" : "the question waits in Jorge's inbox until he answers";
     return writeReply(tx, u, ctx, moves ? ["questions", "status"] : ["questions"], {
-      question_id: q!.id,
+      question_id: q.id,
       waits,
-      question: questionShape(q!, t.key),
+      question: questionShape(q, t.key),
       ...(ignoredLegacy ? { hint: LEGACY_ASK_HINT } : {}),
     });
   });
@@ -152,14 +166,10 @@ export async function answerInTx(
   ctx: Ctx,
   delegation?: AnswerDelegation,
 ) {
-  const [row] = await tx
-    .select({ q: questions, t: tasks })
-    .from(questions)
-    .innerJoin(tasks, eq(tasks.id, questions.taskId))
-    .where(and(eq(questions.projectId, p.id), sql`${questions.id}::text = ${input.question_id}`))
-    .limit(1);
-  if (!row) throw new ToolError("QUESTION_NOT_FOUND", { question_id: input.question_id });
-  const { q, t } = row;
+  const uow = uowOf(tx);
+  const q = isUuidText(input.question_id) ? await uow.get("questions", { projectId: p.id, id: input.question_id }) : undefined;
+  const t = q ? await uow.get("tasks", { id: q.taskId }) : undefined;
+  if (!q || !t) throw new ToolError("QUESTION_NOT_FOUND", { question_id: input.question_id });
   if (q.answeredAt) throw new ToolError("ALREADY_ANSWERED", { answer: q.answer, answered_by: q.answeredBy });
   // A human_only question is answered on the screen as free text.
   // human is set only by the screen session. The actor must be the screen actor too, so a caller
@@ -175,7 +185,8 @@ export async function answerInTx(
     const named = q.options.length > 0 && q.humanOnly;
     if (!named) throw new ToolError("NOT_DELEGABLE", { question_id: q.id, hint: "a named human_only option, or the screen" });
     if (!q.options.includes(input.answer)) throw new ToolError("INVALID_QUESTION", { field: "option" });
-    const [prior] = await tx.select({ id: delegatedAnswers.id }).from(delegatedAnswers).where(eq(delegatedAnswers.questionId, q.id)).limit(1);
+    // One delegated answer per question. This lookup is what enforces it; the unique index backs it up.
+    const prior = await uow.get("delegatedAnswers", { questionId: q.id });
     if (prior) throw new ToolError("DELEGATION_LIMIT", { reason: "question", question_id: q.id });
   }
 
@@ -186,56 +197,40 @@ export async function answerInTx(
   const by = delegation || q.humanOnly ? WEB_ACTOR : ctx.actor;
   let stamp: DelegatedView | undefined;
   if (delegation) {
-    const [stored] = await tx
-      .insert(delegatedAnswers)
-      .values({
-        projectId: p.id,
-        questionId: q.id,
-        messageId: delegation.messageId,
-        quote: delegation.quote,
-        actor: delegation.actor,
-      })
-      .returning();
-    stamp = delegatedView(stored!);
+    const stored = await uow.insert("delegatedAnswers", {
+      projectId: p.id,
+      questionId: q.id,
+      messageId: delegation.messageId,
+      quote: delegation.quote,
+      actor: delegation.actor,
+    });
+    stamp = delegatedView(stored);
   }
   let d: typeof decisions.$inferSelect | undefined;
   if (input.decision_text?.trim()) {
     if (/^\s*\d{4}-\d{2}-\d{2}\b/.test(input.decision_text)) throw new ToolError("TEXT_HAS_DATE");
-    [d] = await tx
-      .insert(decisions)
-      .values({ projectId: p.id, line: input.decision_text.trim().slice(0, 2_000), taskId: t.id, tags: ["answer"], actor: by })
-      .returning();
+    d = await uow.insert("decisions", { projectId: p.id, line: input.decision_text.trim().slice(0, 2_000), taskId: t.id, tags: ["answer"], actor: by });
   }
-  const [answered] = await tx
-    .update(questions)
-    .set({ answer: input.answer, answeredBy: by, answeredAt: sql`now()`, decisionId: d?.id ?? null })
-    .where(eq(questions.id, q.id))
-    .returning();
+  const [answered] = await uow.update(
+    "questions",
+    { id: q.id },
+    { answer: input.answer, answeredBy: by, answeredAt: uow.now, decisionId: d?.id ?? null },
+  );
   const evidence = stamp ? { delegated: stamp } : {};
   await emit("question.answered", t, { question_id: q.id, answer: input.answer, decision_id: d?.id ?? null, ...evidence }, by);
   if (d) await emit("decision.added", t, { decision_id: d.id, text: d.line, tags: ["answer"] }, by);
 
   // Back to where it was once nothing is left open. In progress without a live lease is Ready.
-  const [first] = await tx
-    .select({ statusBefore: questions.statusBefore })
-    .from(questions)
-    .where(and(eq(questions.taskId, t.id), sql`${questions.statusBefore} is not null`))
-    .orderBy(sql`${questions.askedAt} desc`)
-    .limit(1);
-  const [stillOpen] = await tx
-    .select({ id: questions.id })
-    .from(questions)
-    .where(and(eq(questions.taskId, t.id), isNull(questions.answeredAt)))
-    .limit(1);
+  // The status to go back to is the one saved by the newest question that moved the ticket.
+  const asked = await uow.find("questions", { taskId: t.id }, { orderBy: [{ column: "askedAt", desc: true }] });
+  const first = asked.find((x) => x.statusBefore !== null);
+  const stillOpen = asked.some((x) => x.answeredAt === null);
   const changed = ["questions"];
   if (t.status === "Needs Jorge" && !stillOpen) {
     let to = first?.statusBefore ?? "Ready";
     if (to === "In progress" && !liveOwner(t)) to = "Ready";
     assertTransition(t.kind, t.status, to, { via: "answer" });
-    await tx
-      .update(tasks)
-      .set({ status: to, statusChangedAt: sql`now()`, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
-      .where(eq(tasks.id, t.id));
+    await moveStatus(uow, t.id, to);
     await emit("task.status", t, { from: t.status, to });
     changed.push("status");
   }
