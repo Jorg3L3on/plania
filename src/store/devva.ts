@@ -380,6 +380,7 @@ export class DevvaStore implements Store {
       const pk = this.entPk(ch.table, ch.key);
       if (ch.op === "delete") await db.execute(`DELETE "${this.ent}" WHERE pk = $pk`, { pk });
       else await db.execute(`PUT {pk: $pk, scope: $scope, tbl: $tbl, data: $data} IN "${this.ent}" ON CONFLICT UPDATE`, { pk, scope: this.scopeOf(ch.table, ch.row!), tbl: ch.table, data: JSON.stringify(encode(ch.row)) });
+      if (process.env.PLANIA_DEVVA_CRASH === "mid-apply") process.exit(137);
     }
   }
 
@@ -447,6 +448,8 @@ export class DevvaStore implements Store {
           await this.catchUp();
           continue;
         }
+        // For the kill tests only: die at the two points where a crash leaves the projection behind the log.
+        if (process.env.PLANIA_DEVVA_CRASH === "after-commit") process.exit(137);
         this.fold(c);
         this.stats.commits += 1;
         await this.apply(c.changes);
