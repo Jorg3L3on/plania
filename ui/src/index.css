@@ -555,39 +555,6 @@
     .edi-fab { bottom: calc(4.5rem + 14px + env(safe-area-inset-bottom, 0px)); right: 16px; min-height: 50px; padding: 0 16px 0 10px; }
   }
 
-  /* PLA-I39-8: the clock, docked at the bottom; the past disables what acts */
-  .edi-clock { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); width: min(780px, calc(100% - 440px)); z-index: 25; background: var(--card); color: var(--foreground); border: 1px solid var(--border); border-radius: 22px; box-shadow: 0 18px 50px rgb(20 24 34 / 0.18); padding: 8px 16px 6px 10px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center; }
-  .edi-play { height: 40px; padding: 0 15px 0 12px; border-radius: 999px; border: 1px solid var(--border); background: transparent; display: flex; gap: 8px; align-items: center; font-weight: 600; font-size: 13.5px; white-space: nowrap; cursor: pointer; color: inherit; }
-  .edi-play:disabled { opacity: 0.6; cursor: default; }
-  .edi-ruler { position: relative; height: 60px; min-width: 0; }
-  .edi-rbar { position: absolute; left: 0; right: 0; top: 26px; height: 12px; border-radius: 6px; background: var(--muted); }
-  .edi-mark { position: absolute; top: 15px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--muted-foreground); }
-  .edi-mark[data-mark="asked"], .edi-mark[data-mark="answered"] { top: 28px; border-radius: 1px; transform: rotate(45deg); background: var(--status-jorge); z-index: 1; }
-  .edi-mark[data-mark="delivered"] { background: var(--status-done); }
-  .edi-tick { position: absolute; top: 43px; transform: translateX(-50%); font: 11px var(--font-mono); color: var(--muted-foreground); white-space: nowrap; }
-  .edi-tick:first-of-type { transform: none; }
-  .edi-tick-now { transform: translateX(-100%); color: var(--foreground); font-weight: 600; }
-  .edi-scrub { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; background: none; -webkit-appearance: none; appearance: none; cursor: ew-resize; z-index: 3; }
-  .edi-scrub::-webkit-slider-runnable-track { background: none; height: 100%; }
-  .edi-scrub::-moz-range-track { background: none; height: 100%; }
-  .edi-scrub::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 30px; margin-top: 17px; border-radius: 7px; background: var(--foreground); border: 3px solid var(--card); box-shadow: 0 2px 8px rgb(0 0 0 / 0.35); }
-  .edi-scrub::-moz-range-thumb { width: 8px; height: 24px; border-radius: 7px; background: var(--foreground); border: 3px solid var(--card); }
-  .edi-scrub:focus-visible { outline: 2px solid var(--status-jorge); outline-offset: 2px; border-radius: 8px; }
-  .edi-back { position: absolute; right: 8px; top: -46px; box-shadow: 0 10px 30px rgb(0 0 0 / 0.25); background: var(--foreground); color: var(--background); border-color: var(--foreground); }
-  .edi-pastline { position: relative; z-index: 1; margin: 0 0 14px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 13.5px; color: var(--e-you-ink); }
-  .edi[data-mode="past"] .edi-ask, .edi[data-mode="past"] .edi-lobby, .edi[data-mode="past"] .edi-add, .edi[data-mode="past"] .edi-bubble, .edi[data-mode="past"] .edi-chip, .edi[data-mode="past"] .edi-links { opacity: 0.4; pointer-events: none; }
-  @media (width < 64rem) {
-    .edi-clock { left: max(10px, env(safe-area-inset-left, 0px)); right: max(10px, env(safe-area-inset-right, 0px)); transform: none; width: auto; gap: 10px; padding-right: 14px; }
-    .edi-play { width: 40px; padding: 0; justify-content: center; }
-    .edi-play-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-    .edi-back { right: auto; left: 0; }
-    .edi-fab { bottom: calc(18px + 88px + env(safe-area-inset-bottom, 0px)); }
-  }
-  @media (width < 40rem) {
-    .edi-clock { bottom: calc(4.5rem + 8px + env(safe-area-inset-bottom, 0px)); }
-    .edi-fab { bottom: calc(4.5rem + 8px + 88px + env(safe-area-inset-bottom, 0px)); }
-  }
-
   /* PLA-I39-5: the question someone holds out of their window. The app's .dark tokens apply inside. */
   .edi-slot { order: calc(var(--i) * 2); min-width: 0; display: grid; }
   .edi-bubble { order: var(--o-wide); grid-column: 1 / -1; position: relative; margin-top: 8px; background: var(--card); color: var(--foreground); border: 1.5px solid var(--e-you); border-radius: 18px; padding: 15px 18px 16px; display: grid; gap: 10px; box-shadow: 0 0 0 4px rgb(255 159 67 / 0.13); min-width: 0; scroll-margin-top: 90px; }
