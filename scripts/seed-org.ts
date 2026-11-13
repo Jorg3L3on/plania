@@ -9,10 +9,12 @@
 // is repaired. Adapter fields are filled while they are still the default (adapter none, empty config,
 // no cadence) or a dead http row (no wake_url, no config). Safe to run again. Config values are env var names.
 import { pathToFileURL } from "node:url";
-import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { withDb, type Db } from "../src/db/client.js";
-import { agentRuns, agentSessions, agents, heartbeatRuns, projects, tasks, type AdapterConfig, type AdapterName, type Agent } from "../src/db/schema.js";
+import type { AdapterConfig, AdapterName, Agent } from "../src/db/schema.js";
+import { COMPANY } from "../src/runner/limits.js";
 import { RUNNER_CONFIG, ensureTeam, teamSlug, untouchedAdapter, type TeamTemplate } from "../src/runner/team.js";
+import { pgStore, readerOf } from "../src/store/pg.js";
+import type { NewRow, UnitOfWork } from "../src/store/types.js";
 
 export type OrgRow = {
   slug: string;
@@ -66,10 +68,10 @@ export const RETIRED: { slug: string; role?: string; into?: string }[] = [
   { slug: "plania", role: "coo" },
 ];
 
-async function bySlug(db: Db, slug: string): Promise<Agent | undefined> {
-  const [row] = await db.select().from(agents).where(eq(agents.slug, slug)).limit(1);
-  return row;
-}
+const bySlug = (db: Db, slug: string): Promise<Agent | undefined> => readerOf(db).get("agents", { slug });
+
+// The roster belongs to no project: its writes go to the store under the company's empty id.
+const rosterWrite = <T>(db: Db, fn: (uow: UnitOfWork) => Promise<T>): Promise<T> => pgStore(db).write(COMPANY, {}, fn);
 
 export async function retireOrg(db: Db): Promise<{ removed: string[] }> {
   const removed: string[] = [];
@@ -77,18 +79,29 @@ export async function retireOrg(db: Db): Promise<{ removed: string[] }> {
     const row = await bySlug(db, r.slug);
     if (!row || (r.role && row.role !== r.role)) continue;
     const heir = r.into ? await bySlug(db, r.into) : undefined;
-    await db.transaction(async (tx) => {
+    // One store write: the hand-over and the removal commit together, serialized with every other write.
+    await rosterWrite(db, async (uow) => {
       if (heir) {
-        await tx.update(tasks).set({ ownerAgent: heir.id }).where(eq(tasks.ownerAgent, row.id));
-        await tx.update(heartbeatRuns).set({ agentId: heir.id }).where(eq(heartbeatRuns.agentId, row.id));
-        await tx.update(agentRuns).set({ agentId: heir.id }).where(eq(agentRuns.agentId, row.id));
+        await uow.update("tasks", { ownerAgent: row.id }, { ownerAgent: heir.id });
+        await uow.update("heartbeatRuns", { agentId: row.id }, { agentId: heir.id });
+        await uow.update("agentRuns", { agentId: row.id }, { agentId: heir.id });
         // A session is per agent and project: the heir keeps its own where both have one.
-        const mine = await tx.select({ projectId: agentSessions.projectId }).from(agentSessions).where(eq(agentSessions.agentId, heir.id));
-        const taken = mine.map((m) => m.projectId);
-        if (taken.length) await tx.delete(agentSessions).where(and(eq(agentSessions.agentId, row.id), inArray(agentSessions.projectId, taken)));
-        await tx.update(agentSessions).set({ agentId: heir.id }).where(eq(agentSessions.agentId, row.id));
+        const taken = (await uow.find("agentSessions", { agentId: heir.id })).map((m) => m.projectId);
+        if (taken.length) await uow.delete("agentSessions", { agentId: row.id, projectId: taken });
+        // The agent is part of a session's key, and a store may not change a key in place: each session moves
+        // to the heir as a delete and an insert of the same row.
+        for (const session of await uow.delete("agentSessions", { agentId: row.id })) {
+          await uow.insert("agentSessions", { ...session, agentId: heir.id });
+        }
       }
-      await tx.delete(agents).where(eq(agents.id, row.id));
+      // What the foreign keys did when the row went (Postgres would do it on its own, out of the write set):
+      // tickets lose their owner, reports lose their manager, the row's own runs and sessions go with it.
+      await uow.update("tasks", { ownerAgent: row.id }, { ownerAgent: null });
+      await uow.update("agents", { reportsTo: row.id }, { reportsTo: null });
+      await uow.delete("heartbeatRuns", { agentId: row.id });
+      await uow.delete("agentRuns", { agentId: row.id });
+      await uow.delete("agentSessions", { agentId: row.id });
+      await uow.delete("agents", { id: row.id });
     });
     removed.push(r.slug);
   }
@@ -105,10 +118,9 @@ async function renamePos(db: Db): Promise<string[]> {
     if (!old || (await bySlug(db, to))) continue;
     const note = old.note.includes(`alias: ${from}`) ? old.note : [old.note, `alias: ${from}`].filter(Boolean).join(" · ");
     const runner = untouchedAdapter(old) ? { adapter: RUNNER_CONFIG.adapter, adapterConfig: RUNNER_CONFIG.adapterConfig } : {};
-    await db
-      .update(agents)
-      .set({ slug: to, note: note.slice(0, 2000), roleTemplate: old.roleTemplate ?? "product-owner", ...runner, updatedAt: sql`now()` })
-      .where(eq(agents.id, old.id));
+    await rosterWrite(db, (uow) =>
+      uow.update("agents", { id: old.id }, { slug: to, note: note.slice(0, 2000), roleTemplate: old.roleTemplate ?? "product-owner", ...runner, updatedAt: uow.now }),
+    );
     renamed.push(`${from}→${to}`);
   }
   return renamed;
@@ -121,19 +133,17 @@ async function retireShared(db: Db): Promise<string[]> {
   for (const slug of SHARED_RETIRED) {
     const row = await bySlug(db, slug);
     if (!row || row.projectId || row.status === "retired") continue;
-    const open = await db
-      .select({ id: tasks.id, project: projects.slug })
-      .from(tasks)
-      .innerJoin(projects, eq(projects.id, tasks.projectId))
-      .where(and(eq(tasks.ownerAgent, row.id), notInArray(tasks.status, TERMINAL)));
-    for (const t of open) {
-      const heir = await bySlug(db, teamSlug(slug as TeamTemplate, t.project));
-      await db.update(tasks).set({ ownerAgent: heir?.id ?? null }).where(eq(tasks.id, t.id));
+    const r = readerOf(db);
+    const owned = (await r.find("tasks", { ownerAgent: row.id })).filter((t) => !TERMINAL.includes(t.status));
+    // Each ticket's project slug names the heir (every task has a project, so the join dropped none).
+    const slugOf = new Map((await r.find("projects", { id: [...new Set(owned.map((t) => t.projectId))] })).map((p) => [p.id, p.slug]));
+    for (const t of owned) {
+      const heir = await bySlug(db, teamSlug(slug as TeamTemplate, slugOf.get(t.projectId)!));
+      await rosterWrite(db, (uow) => uow.update("tasks", { id: t.id }, { ownerAgent: heir?.id ?? null }));
     }
-    await db
-      .update(agents)
-      .set({ status: "retired", adapter: "none", heartbeatMinutes: null, reportsTo: null, updatedAt: sql`now()` })
-      .where(eq(agents.id, row.id));
+    await rosterWrite(db, (uow) =>
+      uow.update("agents", { id: row.id }, { status: "retired", adapter: "none", heartbeatMinutes: null, reportsTo: null, updatedAt: uow.now }),
+    );
     retired.push(slug);
   }
   return retired;
@@ -143,24 +153,22 @@ export async function seedOrg(db: Db): Promise<{ inserted: string[]; removed: st
   const inserted: string[] = [];
   const { removed } = await retireOrg(db);
   for (const row of ORG) {
-    const [created] = await db
-      .insert(agents)
-      .values({
-        slug: row.slug,
-        name: row.name,
-        role: row.role,
-        title: row.title,
-        kind: row.kind,
-        capabilities: row.capabilities,
-        note: row.note ?? "",
-        status: "idle",
-        adapter: row.adapter,
-        adapterConfig: row.adapterConfig,
-        heartbeatMinutes: row.heartbeatMinutes,
-        roleTemplate: row.slug === "asistente" ? "asistente" : null,
-      })
-      .onConflictDoNothing({ target: agents.slug })
-      .returning({ slug: agents.slug });
+    const values: NewRow<"agents"> = {
+      slug: row.slug,
+      name: row.name,
+      role: row.role,
+      title: row.title,
+      kind: row.kind,
+      capabilities: row.capabilities,
+      note: row.note ?? "",
+      status: "idle",
+      adapter: row.adapter,
+      adapterConfig: row.adapterConfig,
+      heartbeatMinutes: row.heartbeatMinutes,
+      roleTemplate: row.slug === "asistente" ? "asistente" : null,
+    };
+    // Inserted only when the slug is free; a row that exists is left as it is here.
+    const created = await rosterWrite(db, async (uow) => ((await uow.get("agents", { slug: row.slug })) ? undefined : uow.insert("agents", values)));
     if (created) {
       inserted.push(created.slug);
       continue;
@@ -168,35 +176,34 @@ export async function seedOrg(db: Db): Promise<{ inserted: string[]; removed: st
     const existing = await bySlug(db, row.slug);
     if (!existing) continue;
     if (row.slug === "asistente" && !existing.roleTemplate) {
-      await db.update(agents).set({ roleTemplate: "asistente", projectId: null, updatedAt: sql`now()` }).where(eq(agents.id, existing.id));
+      await rosterWrite(db, (uow) => uow.update("agents", { id: existing.id }, { roleTemplate: "asistente", projectId: null, updatedAt: uow.now }));
     }
     const config = existing.adapterConfig ?? {};
     const empty = existing.heartbeatMinutes == null && Object.keys(config).length === 0;
     const untouched = empty && (existing.adapter === "none" || (existing.adapter === "http" && !existing.wakeUrl));
     if (!untouched) continue;
     if (row.adapter === "none" && row.heartbeatMinutes == null) continue;
-    await db
-      .update(agents)
-      .set({ adapter: row.adapter, adapterConfig: row.adapterConfig, heartbeatMinutes: row.heartbeatMinutes, updatedAt: sql`now()` })
-      .where(eq(agents.id, existing.id));
+    await rosterWrite(db, (uow) =>
+      uow.update("agents", { id: existing.id }, { adapter: row.adapter, adapterConfig: row.adapterConfig, heartbeatMinutes: row.heartbeatMinutes, updatedAt: uow.now }),
+    );
   }
   for (const row of ORG) {
     if (!row.reportsTo) continue;
     const self = await bySlug(db, row.slug);
     const parent = await bySlug(db, row.reportsTo);
     if (!self || !parent || self.reportsTo) continue;
-    await db.update(agents).set({ reportsTo: parent.id, updatedAt: sql`now()` }).where(eq(agents.id, self.id));
+    await rosterWrite(db, (uow) => uow.update("agents", { id: self.id }, { reportsTo: parent.id, updatedAt: uow.now }));
   }
 
   const renamed = await renamePos(db);
   // Every product owner joins the runner while its adapter is still the default, with or without a project row.
-  for (const a of await db.select().from(agents).where(eq(agents.role, "product-owner"))) {
+  for (const a of await readerOf(db).find("agents", { role: "product-owner" })) {
     if (!untouchedAdapter(a)) continue;
-    await db.update(agents).set({ adapter: RUNNER_CONFIG.adapter, adapterConfig: RUNNER_CONFIG.adapterConfig, updatedAt: sql`now()` }).where(eq(agents.id, a.id));
+    await rosterWrite(db, (uow) => uow.update("agents", { id: a.id }, { adapter: RUNNER_CONFIG.adapter, adapterConfig: RUNNER_CONFIG.adapterConfig, updatedAt: uow.now }));
   }
   // Every project gets its four; a PO that existed already (po-mianovia, the renamed ones) is reused.
-  for (const p of await db.select({ id: projects.id, slug: projects.slug, title: projects.title }).from(projects).orderBy(asc(projects.slug))) {
-    const { created } = await ensureTeam(db, p);
+  for (const p of await readerOf(db).find("projects", {}, { orderBy: [{ column: "slug" }] })) {
+    const { created } = await ensureTeam(db, { id: p.id, slug: p.slug, title: p.title });
     inserted.push(...created);
   }
   const retired = await retireShared(db);
