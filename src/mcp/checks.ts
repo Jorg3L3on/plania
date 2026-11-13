@@ -1,6 +1,6 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { checks, tasks, type Actor, type Project, type Task } from "../db/schema.js";
+import type { Actor, Project, Task } from "../db/schema.js";
+import { readerOf, uowOf } from "../store/pg.js";
 import { LEGACY_APPROVAL_HINT } from "./delegate.js";
 import { ToolError, findProject, liveOwner, requireTask, writeReply } from "./queries.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
@@ -11,7 +11,7 @@ import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 export type CheckInput = { n?: number; text: string; derived_from?: string | null };
 
 export async function taskChecks(db: Q, taskId: string) {
-  const rows = await db.select().from(checks).where(eq(checks.taskId, taskId)).orderBy(asc(checks.position));
+  const rows = await readerOf(db).find("checks", { taskId }, { orderBy: [{ column: "position" }] });
   return rows.map((c) => ({
     n: c.n,
     text: c.text,
@@ -27,25 +27,25 @@ export async function taskChecks(db: Q, taskId: string) {
 // R-14: an initiative check derived from a child ticks itself when that child reaches Done.
 export async function tickDerived(tx: Q, emit: Emit, child: Task, by: Actor): Promise<void> {
   if (!child.parentId) return;
-  const rows = await tx
-    .select()
-    .from(checks)
-    .where(and(eq(checks.taskId, child.parentId), eq(checks.done, false), sql`${checks.derivedFrom} = ${child.key} or ${checks.derivedFrom} in (select alias from task_aliases where task_id = ${child.id})`));
+  const uow = uowOf(tx);
+  const aliases = (await uow.find("taskAliases", { taskId: child.id })).map((a) => a.alias);
+  // The SQL this replaced read "parent's open check derived from the key OR derived from a former key"
+  // without brackets, so AND bound first: a check derived from a former key matched in any task, done
+  // or not. Kept as it was; the port is not the place to change what it ticks.
+  const byKey = await uow.find("checks", { taskId: child.parentId, done: false, derivedFrom: child.key });
+  const byAlias = aliases.length ? await uow.find("checks", { derivedFrom: aliases }) : [];
+  const rows = [...new Map([...byKey, ...byAlias].map((c) => [c.id, c])).values()];
   if (!rows.length) return;
-  const [parent] = await tx.select().from(tasks).where(eq(tasks.id, child.parentId)).limit(1);
+  const parent = await uow.get("tasks", { id: child.parentId });
   for (const c of rows) {
-    await tx.update(checks).set({ done: true, doneAt: sql`now()`, doneBy: by }).where(eq(checks.id, c.id));
+    await uow.update("checks", { id: c.id }, { done: true, doneAt: uow.now, doneBy: by });
     await emit("check.set", { id: parent!.id, key: parent!.key }, { n: c.n, text: c.text, done: true, derived_from: child.key }, by);
   }
 }
 
 // Entering In review, Merged, Released or Done needs every check done or waived (R-13).
 export async function assertChecksClosed(tx: Q, t: Pick<Task, "id">): Promise<void> {
-  const open = await tx
-    .select({ n: checks.n, text: checks.text })
-    .from(checks)
-    .where(and(eq(checks.taskId, t.id), eq(checks.done, false), isNull(checks.waivedAt)))
-    .orderBy(asc(checks.n));
+  const open = (await readerOf(tx).find("checks", { taskId: t.id, done: false, waivedAt: null }, { orderBy: [{ column: "n" }] })).map((c) => ({ n: c.n, text: c.text }));
   // 2.13: each open check with its text, so the caller knows what is left without another read.
   if (open.length) throw new ToolError("CHECKS_OPEN", { open: open.map((c) => c.n), checks: open, hint: "set_check done (or add_result check_ns), or waive_check with a reason" });
 }
@@ -57,11 +57,16 @@ function checkOwner(t: Task, ctx: Ctx): void {
   }
 }
 
-const touch = async (tx: Q, t: Task) => (await tx.update(tasks).set({ updatedAt: sql`now()` }).where(eq(tasks.id, t.id)).returning())[0] as Task;
+// Appends leave the version alone but still date the task.
+const touch = async (tx: Q, t: Task) => {
+  const uow = uowOf(tx);
+  return (await uow.update("tasks", { id: t.id }, { updatedAt: uow.now }))[0] as Task;
+};
 
 // Replaces the list. Returns [old texts, new texts] for the task.updated event, or null if unchanged.
 export async function replaceChecks(tx: Q, taskId: string, items: CheckInput[]): Promise<[string[], string[]] | null> {
-  const existing = await tx.select().from(checks).where(eq(checks.taskId, taskId)).orderBy(asc(checks.position));
+  const uow = uowOf(tx);
+  const existing = await uow.find("checks", { taskId }, { orderBy: [{ column: "position" }] });
   const byN = new Map(existing.map((c) => [c.n, c]));
   const kept = new Set<number>();
   for (const item of items) {
@@ -71,13 +76,13 @@ export async function replaceChecks(tx: Q, taskId: string, items: CheckInput[]):
   }
   let next = Math.max(0, ...existing.map((c) => c.n)) + 1;
   const removed = existing.filter((c) => !kept.has(c.n)).map((c) => c.id);
-  for (const id of removed) await tx.delete(checks).where(eq(checks.id, id));
+  for (const id of removed) await uow.delete("checks", { id });
   for (const [position, item] of items.entries()) {
     const derived = item.derived_from === undefined ? {} : { derivedFrom: item.derived_from?.trim() || null };
     if (item.n !== undefined) {
-      await tx.update(checks).set({ text: item.text, position, ...derived }).where(and(eq(checks.taskId, taskId), eq(checks.n, item.n)));
+      await uow.update("checks", { taskId, n: item.n }, { text: item.text, position, ...derived });
     } else {
-      await tx.insert(checks).values({ taskId, n: next++, position, text: item.text, ...derived });
+      await uow.insert("checks", { taskId, n: next++, position, text: item.text, ...derived });
     }
   }
   const before = existing.map((c) => c.text);
@@ -110,21 +115,21 @@ export async function setCheckInTx(
   const t = await requireTask(tx, p.id, input.key);
   checkOwner(t, ctx);
   const evidence = input.evidence_id && validateEvidence ? await validateEvidence(tx, t, input.evidence_id) : undefined;
-  const [before] = await tx.select().from(checks).where(and(eq(checks.taskId, t.id), eq(checks.n, input.n))).limit(1);
+  const uow = uowOf(tx);
+  // A missing n names no check (the port would read a missing value as "any").
+  const before = input.n == null ? undefined : await uow.get("checks", { taskId: t.id, n: input.n });
   if (!before) throw new ToolError("CHECK_NOT_FOUND", { n: input.n });
   const amended = input.text !== undefined && input.text.trim() && input.text !== before.text ? input.text : undefined;
-  const [c] = await tx
-    .update(checks)
-    .set({
-      ...(input.done !== undefined
-        ? { done: input.done, doneAt: input.done ? sql`now()` : null, doneBy: input.done ? ctx.actor : null }
-        : {}),
+  const [c] = await uow.update(
+    "checks",
+    { id: before.id },
+    {
+      ...(input.done !== undefined ? { done: input.done, doneAt: input.done ? uow.now : null, doneBy: input.done ? ctx.actor : null } : {}),
       ...(input.evidence_id !== undefined ? { evidenceId: input.evidence_id } : {}),
       ...(amended !== undefined ? { text: amended } : {}),
       ...(input.waived === false ? { waivedAt: null, waivedBy: null, waiveReason: null, approvalId: null } : {}),
-    })
-    .where(eq(checks.id, before.id))
-    .returning();
+    },
+  );
   const u = await touch(tx, t);
   if (input.done !== undefined) await emit("check.set", u, { n: c!.n, text: c!.text, done: c!.done, evidence_id: c!.evidenceId, ...(evidence ? { source: evidence.source } : {}) });
   if (amended !== undefined) await emit("check.amended", u, { n: c!.n, from: before.text, to: amended });
@@ -139,13 +144,10 @@ export async function waiveCheckInTx(tx: Q, emit: Emit, p: Project, input: Waive
   if (!input.reason.trim()) throw new ToolError("INVALID_APPROVAL", { field: "reason", hint: "say why the check is waived" });
   const t = await requireTask(tx, p.id, input.key);
   checkOwner(t, ctx);
-  const [before] = await tx.select().from(checks).where(and(eq(checks.taskId, t.id), eq(checks.n, input.n))).limit(1);
+  const uow = uowOf(tx);
+  const before = input.n == null ? undefined : await uow.get("checks", { taskId: t.id, n: input.n });
   if (!before) throw new ToolError("CHECK_NOT_FOUND", { n: input.n });
-  const [c] = await tx
-    .update(checks)
-    .set({ waivedAt: sql`now()`, waivedBy: ctx.actor, waiveReason: input.reason.trim(), approvalId: null })
-    .where(eq(checks.id, before.id))
-    .returning();
+  const [c] = await uow.update("checks", { id: before.id }, { waivedAt: uow.now, waivedBy: ctx.actor, waiveReason: input.reason.trim(), approvalId: null });
   const u = await touch(tx, t);
   await emit("check.waived", u, { n: c!.n, text: c!.text, reason: c!.waiveReason });
   const hint = typeof input.approval_id === "string" && input.approval_id.trim() ? LEGACY_APPROVAL_HINT : undefined;

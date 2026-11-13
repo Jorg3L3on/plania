@@ -1,8 +1,13 @@
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
-import { blockers, envCommits, envStates, projectMetrics, taskAliases, taskBlockers, tasks, type Actor, type Task } from "../db/schema.js";
+import { isDeepStrictEqual } from "node:util";
+import type { Actor, Task } from "../db/schema.js";
+import { readerOf, uowOf } from "../store/pg.js";
+import type { Reader, Row } from "../store/types.js";
 import { ToolError } from "./errors.js";
-import { gatingSql, isGating } from "./jorge-lines.js";
+import { isGating } from "./jorge-lines.js";
 import { SYSTEM_ACTOR, iso, type Emit, type Q } from "./tx.js";
+
+// Callers outside the tasks aggregate still filter with the SQL form of the blocker rule.
+export { hasUnsatisfiedBlocker } from "./blockers-sql.js";
 
 // blocked_by: a ticket (a key, or {task}) that must reach In review or later, or a typed blocker
 // the server evaluates (R-15):
@@ -99,68 +104,120 @@ export function parseBlockers(inputs: BlockerInput[]): { keys: string[]; typed: 
 export async function resolveTaskBlockers(db: Q, projectId: string, keys: string[], selfKey: string): Promise<string[]> {
   if (keys.length === 0) return [];
   if (keys.includes(selfKey)) throw new ToolError("BLOCKER_NOT_FOUND", { key: selfKey });
-  const rows = await db
-    .select({ id: tasks.id, key: tasks.key, alias: taskAliases.alias })
-    .from(tasks)
-    .leftJoin(taskAliases, and(eq(taskAliases.taskId, tasks.id), inArray(taskAliases.alias, keys)))
-    .where(and(eq(tasks.projectId, projectId), or(inArray(tasks.key, keys), inArray(taskAliases.alias, keys))));
-  const found = new Set(rows.flatMap((r) => [r.key, r.alias].filter((k): k is string => !!k)));
+  const r = readerOf(db);
+  const byKey = await r.find("tasks", { projectId, key: keys });
+  const aliases = await r.find("taskAliases", { projectId, alias: keys });
+  const viaAlias = aliases.length ? (await r.find("tasks", { id: [...new Set(aliases.map((a) => a.taskId))] })).filter((t) => t.projectId === projectId) : [];
+  const aliased = new Set(viaAlias.map((t) => t.id));
+  const matched = [...byKey, ...viaAlias];
+  const found = new Set([...matched.map((t) => t.key), ...aliases.filter((a) => aliased.has(a.taskId)).map((a) => a.alias)]);
   const missing = keys.filter((k) => !found.has(k));
   if (missing.length) throw new ToolError("BLOCKER_NOT_FOUND", { keys: missing });
-  if (rows.some((r) => r.key === selfKey)) throw new ToolError("BLOCKER_NOT_FOUND", { key: selfKey });
-  return [...new Set(rows.map((r) => r.id))];
+  if (matched.some((t) => t.key === selfKey)) throw new ToolError("BLOCKER_NOT_FOUND", { key: selfKey });
+  return [...new Set(matched.map((t) => t.id))];
 }
 
 export async function replaceBlockers(tx: Q, taskId: string, blockerIds: string[], typed: TypedBlocker[]): Promise<void> {
-  await tx.delete(taskBlockers).where(eq(taskBlockers.taskId, taskId));
+  const uow = uowOf(tx);
+  await uow.delete("taskBlockers", { taskId });
   // A human action already cleared stays cleared when the same list is written again.
   // 2.10: blockers parsed from a "Jorge:" line belong to their text, not to blocked_by: they stay, and
   // a human action in the list with the same text as one of them is not written twice.
-  const existing = await tx.select().from(blockers).where(eq(blockers.taskId, taskId));
+  const existing = await uow.find("blockers", { taskId });
   const parsedTexts = new Set(existing.filter((e) => e.spec.source === "parsed").map((e) => String(e.spec.text)));
-  await tx.delete(blockers).where(and(eq(blockers.taskId, taskId), sql`coalesce(${blockers.spec}->>'source', '') <> 'parsed'`));
-  if (blockerIds.length) await tx.insert(taskBlockers).values(blockerIds.map((blockerId) => ({ taskId, blockerId })));
+  const dropped = existing.filter((e) => e.spec.source !== "parsed").map((e) => e.id);
+  if (dropped.length) await uow.delete("blockers", { id: dropped });
+  for (const blockerId of blockerIds) await uow.insert("taskBlockers", { taskId, blockerId });
   typed = typed.filter((b) => !(b.type === "human_action" && parsedTexts.has(String(b.spec.text))));
-  if (typed.length) {
-    await tx.insert(blockers).values(
-      typed.map((b) => {
-        const same = existing.find((e) => e.type === b.type && JSON.stringify(e.spec) === JSON.stringify(b.spec));
-        return { taskId, type: b.type, spec: b.spec, satisfiedAt: same?.satisfiedAt ?? null, satisfiedBy: same?.satisfiedBy ?? null };
-      }),
-    );
+  for (const b of typed) {
+    const same = existing.find((e) => e.type === b.type && JSON.stringify(e.spec) === JSON.stringify(b.spec));
+    await uow.insert("blockers", { taskId, type: b.type, spec: b.spec, satisfiedAt: same?.satisfiedAt ?? null, satisfiedBy: same?.satisfiedBy ?? null });
   }
 }
 
-// SQL: true when the task (by id expression) has a blocker that does not hold yet.
-export function hasUnsatisfiedBlocker(taskId: unknown) {
-  return sql`(
-    exists (
-      select 1 from ${taskBlockers} tb join ${tasks} b on b.id = tb.blocker_id
-      where tb.task_id = ${taskId} and b.status not in ('In review', 'Merged', 'Released', 'Done')
-    )
-    or exists (
-      select 1 from ${blockers} bl
-      join ${tasks} bt on bt.id = bl.task_id
-      left join ${envStates} es on es.project_id = bt.project_id and es.env = bl.spec->>'env'
-      where bl.task_id = ${taskId} and ${gatingSql("bl")} and not coalesce(case bl.type
-        when 'env' then case bl.spec->>'condition'
-          when 'migration_gte' then es.migrations_applied >= (bl.spec->>'value')::int
-          when 'deployed_after' then es.deployed_at > (bl.spec->>'value')::timestamptz
-          when 'contains_commit' then exists (
-            select 1 from ${envCommits} ec
-            where ec.project_id = bt.project_id and ec.env = bl.spec->>'env' and ec.sha like (bl.spec->>'value') || '%'
-          )
-        end
-        when 'human_action' then bl.satisfied_at is not null
-        when 'env_flag' then es.flags -> (bl.spec->>'flag') = bl.spec -> 'equals'
-        when 'time_after' then now() >= (bl.spec->>'at')::timestamptz
-        when 'metric_gte' then exists (
-          select 1 from ${projectMetrics} pm
-          where pm.project_id = bt.project_id and pm.name = bl.spec->>'name' and pm.value >= (bl.spec->>'value')::numeric
-        )
-      end, false)
-    )
-  )`;
+// The blocker rows of some tasks: ticket links and typed blockers.
+type BlockerRows = { links: Row<"taskBlockers">[]; typed: Row<"blockers">[] };
+
+async function blockerRowsOf(r: Reader, taskIds: string[]): Promise<BlockerRows> {
+  if (!taskIds.length) return { links: [], typed: [] };
+  return { links: await r.find("taskBlockers", { taskId: taskIds }), typed: await r.find("blockers", { taskId: taskIds }) };
+}
+
+// Whether one typed blocker holds at `now`, against the project's environments, commits and metrics
+// (read once, on first need). A condition that cannot be evaluated does not hold.
+function typedHolds(r: Reader, projectId: string, now: Date) {
+  let envs: Promise<Map<string, Row<"envStates">>> | undefined;
+  let metrics: Promise<Map<string, number>> | undefined;
+  const commits = new Map<string, Promise<string[]>>();
+  const envOf = async (env: unknown) => {
+    envs ??= r.find("envStates", { projectId }).then((rows) => new Map(rows.map((e) => [e.env, e])));
+    return env == null ? undefined : (await envs).get(String(env));
+  };
+  const commitsOf = (env: string) => {
+    let hit = commits.get(env);
+    if (!hit) commits.set(env, (hit = r.find("envCommits", { projectId, env }).then((rows) => rows.map((c) => c.sha))));
+    return hit;
+  };
+  const metricOf = async (name: unknown) => {
+    metrics ??= r.find("projectMetrics", { projectId }).then((rows) => new Map(rows.map((m) => [m.name, m.value])));
+    return name == null ? undefined : (await metrics).get(String(name));
+  };
+  return async (b: Row<"blockers">): Promise<boolean> => {
+    const spec = b.spec;
+    switch (b.type) {
+      case "env": {
+        const es = await envOf(spec.env);
+        if (spec.condition === "migration_gte") return es?.migrationsApplied != null && es.migrationsApplied >= Number(spec.value);
+        if (spec.condition === "deployed_after") return !!es?.deployedAt && spec.value != null && es.deployedAt > new Date(String(spec.value));
+        if (spec.condition === "contains_commit") {
+          if (spec.env == null || spec.value == null) return false;
+          const prefix = String(spec.value);
+          return (await commitsOf(String(spec.env))).some((sha) => sha.startsWith(prefix));
+        }
+        return false;
+      }
+      case "human_action":
+        return b.satisfiedAt !== null;
+      case "env_flag": {
+        // jsonb equality between the flag's value and the expected one.
+        const flags = (await envOf(spec.env))?.flags;
+        if (!flags || spec.flag == null || !Object.hasOwn(flags, String(spec.flag)) || spec.equals === undefined) return false;
+        return isDeepStrictEqual(flags[String(spec.flag)], spec.equals);
+      }
+      case "time_after":
+        return spec.at != null && now >= new Date(String(spec.at));
+      case "metric_gte": {
+        const value = await metricOf(spec.name);
+        return value !== undefined && value >= Number(spec.value);
+      }
+      default:
+        return false;
+    }
+  };
+}
+
+async function unsatisfiedAmong(r: Reader, projectId: string, rows: BlockerRows, now: Date): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (rows.links.length) {
+    const status = new Map((await r.find("tasks", { id: [...new Set(rows.links.map((l) => l.blockerId))] })).map((t) => [t.id, t.status]));
+    for (const l of rows.links) {
+      const s = status.get(l.blockerId);
+      if (s !== undefined && !(SETTLED_STATUSES as readonly string[]).includes(s)) out.add(l.taskId);
+    }
+  }
+  const holds = typedHolds(r, projectId, now);
+  for (const b of rows.typed) {
+    if (out.has(b.taskId) || !isGating(b.spec)) continue;
+    if (!(await holds(b))) out.add(b.taskId);
+  }
+  return out;
+}
+
+// The tasks among taskIds (all of one project) with a blocker that does not hold at `now`: a blocking
+// ticket not yet In review or later, or a gating typed blocker whose condition is false. The rule is
+// hasUnsatisfiedBlocker's, evaluated over store rows.
+export async function blockedTaskIds(r: Reader, projectId: string, taskIds: string[], now: Date): Promise<Set<string>> {
+  return unsatisfiedAmong(r, projectId, await blockerRowsOf(r, taskIds), now);
 }
 
 export type BlockerView =
@@ -173,20 +230,18 @@ export type BlockerView =
 
 // Every blocker of a task with whether it holds now.
 export async function blockerList(db: Q, t: Pick<Task, "id" | "projectId">): Promise<BlockerView[]> {
-  const taskRows = await db
-    .select({ task: tasks.key, status: tasks.status })
-    .from(taskBlockers)
-    .innerJoin(tasks, eq(tasks.id, taskBlockers.blockerId))
-    .where(eq(taskBlockers.taskId, t.id))
-    .orderBy(asc(tasks.key));
-  const out: BlockerView[] = taskRows.map((r) => ({ type: "task", ...r, satisfied: (SETTLED_STATUSES as readonly string[]).includes(r.status) }));
-  const rows = await db.select().from(blockers).where(eq(blockers.taskId, t.id)).orderBy(asc(blockers.type), asc(blockers.createdAt));
-  const envOf = async (env: string) =>
-    (await db.select().from(envStates).where(and(eq(envStates.projectId, t.projectId), eq(envStates.env, env))).limit(1))[0];
+  const r = readerOf(db);
+  const links = await r.find("taskBlockers", { taskId: t.id });
+  // The blocking tickets in key order, sorted by the store so text order stays the database's.
+  const taskRows = links.length ? await r.find("tasks", { id: links.map((l) => l.blockerId) }, { orderBy: [{ column: "key" }] }) : [];
+  const out: BlockerView[] = taskRows.map((b) => ({ type: "task", task: b.key, status: b.status, satisfied: (SETTLED_STATUSES as readonly string[]).includes(b.status) }));
+  const rows = await r.find("blockers", { taskId: t.id }, { orderBy: [{ column: "type" }, { column: "createdAt" }] });
+  // A spec without an env matches no environment (the port would read a missing value as "any").
+  const envOf = async (env: string | undefined) => (env === undefined ? undefined : await r.get("envStates", { projectId: t.projectId, env }));
   for (const b of rows) {
     const spec = b.spec as Record<string, string>;
     if (b.type === "env") {
-      const s = await envOf(spec.env!);
+      const s = await envOf(spec.env);
       let current: unknown = null;
       let satisfied = false;
       if (spec.condition === "migration_gte") {
@@ -197,29 +252,22 @@ export async function blockerList(db: Q, t: Pick<Task, "id" | "projectId">): Pro
         satisfied = !!s?.deployedAt && s.deployedAt > new Date(spec.value!);
       } else {
         current = s?.commit ?? null;
-        const [hit] = await db
-          .select({ sha: envCommits.sha })
-          .from(envCommits)
-          .where(and(eq(envCommits.projectId, t.projectId), eq(envCommits.env, spec.env!), sql`${envCommits.sha} like ${spec.value} || '%'`))
-          .limit(1);
-        satisfied = !!hit;
+        // A commit the environment is known to contain, named by any prefix of its sha.
+        const known = spec.env === undefined || spec.value == null ? [] : await r.find("envCommits", { projectId: t.projectId, env: spec.env });
+        satisfied = known.some((c) => c.sha.startsWith(spec.value!));
       }
       out.push({ type: "env", env: spec.env!, condition: spec.condition!, value: spec.value!, current, satisfied });
     } else if (b.type === "human_action") {
       const parsed = spec.source === "parsed" ? { source: "parsed" as const, field: spec.field!, gating: isGating(b.spec) } : {};
       out.push({ type: "human_action", id: b.id, assignee: spec.assignee!, text: spec.text!, satisfied: !!b.satisfiedAt, satisfied_at: iso(b.satisfiedAt), ...parsed });
     } else if (b.type === "env_flag") {
-      const s = await envOf(spec.env!);
+      const s = await envOf(spec.env);
       const current = s?.flags?.[spec.flag!] ?? null;
       out.push({ type: "env_flag", env: spec.env!, flag: spec.flag!, equals: b.spec.equals, current, satisfied: current !== null && current === b.spec.equals });
     } else if (b.type === "time_after") {
       out.push({ type: "time_after", at: spec.at!, satisfied: new Date(spec.at!) <= new Date() });
     } else {
-      const [m] = await db
-        .select({ value: projectMetrics.value })
-        .from(projectMetrics)
-        .where(and(eq(projectMetrics.projectId, t.projectId), eq(projectMetrics.name, spec.name!)))
-        .limit(1);
+      const m = spec.name === undefined ? undefined : await r.get("projectMetrics", { projectId: t.projectId, name: spec.name });
       const current = m?.value ?? null;
       out.push({ type: "metric_gte", name: spec.name!, value: Number(b.spec.value), current, satisfied: current !== null && current >= Number(b.spec.value) });
     }
@@ -236,24 +284,23 @@ export async function unsatisfiedBlockers(db: Q, t: Pick<Task, "id" | "projectId
 // Runs at the end of writes that may have satisfied one (set_env, set_metric, a status change,
 // a human action resolved) and from the blockers job for time_after.
 export async function promoteUnblocked(tx: Q, emit: Emit, projectId: string): Promise<string[]> {
-  const rows = await tx
-    .select({ id: tasks.id, key: tasks.key })
-    .from(tasks)
-    .where(
-      and(
-        eq(tasks.projectId, projectId),
-        eq(tasks.status, "Blocked"),
-        sql`(exists (select 1 from ${taskBlockers} tb where tb.task_id = ${tasks.id}) or exists (select 1 from ${blockers} bl where bl.task_id = ${tasks.id} and ${gatingSql("bl")}))`,
-        sql`not ${hasUnsatisfiedBlocker(tasks.id)}`,
-      ),
-    );
+  const uow = uowOf(tx);
+  const blocked = await uow.find("tasks", { projectId, status: "Blocked" });
+  const rows = await blockerRowsOf(uow, blocked.map((t) => t.id));
+  // Only a ticket held by something (a ticket, or a typed blocker that holds claims) is let go.
+  const held = new Set([...rows.links.map((l) => l.taskId), ...rows.typed.filter((b) => isGating(b.spec)).map((b) => b.taskId)]);
+  const unsatisfied = await unsatisfiedAmong(uow, projectId, rows, uow.now);
   const promoted: string[] = [];
-  for (const r of rows) {
-    const [u] = await tx
-      .update(tasks)
-      .set({ status: "Ready", blockedNote: null, statusChangedAt: sql`now()`, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
-      .where(and(eq(tasks.id, r.id), eq(tasks.status, "Blocked")))
-      .returning({ id: tasks.id, key: tasks.key });
+  for (const r of blocked) {
+    if (!held.has(r.id) || unsatisfied.has(r.id)) continue;
+    // Read again: an earlier promotion in this loop may have moved it.
+    const cur = await uow.get("tasks", { id: r.id });
+    if (!cur || cur.status !== "Blocked") continue;
+    const [u] = await uow.update(
+      "tasks",
+      { id: r.id, status: "Blocked", version: cur.version },
+      { status: "Ready", blockedNote: null, statusChangedAt: uow.now, version: cur.version + 1, updatedAt: uow.now },
+    );
     if (!u) continue;
     const satisfied = await blockerList(tx, { id: r.id, projectId });
     await emit("blocker.satisfied", u, { blockers: satisfied }, SYSTEM_ACTOR);
@@ -263,17 +310,19 @@ export async function promoteUnblocked(tx: Q, emit: Emit, projectId: string): Pr
   return promoted;
 }
 
+// A row id as Postgres prints it. Ids were matched as text, so only this canonical lowercase form names
+// a row, and anything else is "not found" rather than a uuid parse error.
+export const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 // Jorge resolves a human action (the inbox); the ticket may move to Ready right away.
 export async function resolveHumanAction(tx: Q, emit: Emit, projectId: string, blockerId: string, by: Actor, note?: string) {
-  const [b] = await tx
-    .select({ b: blockers, taskKey: tasks.key, taskId: tasks.id })
-    .from(blockers)
-    .innerJoin(tasks, eq(tasks.id, blockers.taskId))
-    .where(and(sql`${blockers.id}::text = ${blockerId}`, eq(tasks.projectId, projectId), eq(blockers.type, "human_action")))
-    .limit(1);
-  if (!b) throw new ToolError("BLOCKER_NOT_FOUND", { blocker_id: blockerId });
+  const uow = uowOf(tx);
+  const row = typeof blockerId === "string" && UUID_TEXT.test(blockerId) ? await uow.get("blockers", { id: blockerId, type: "human_action" }) : undefined;
+  const task = row ? await uow.get("tasks", { id: row.taskId }) : undefined;
+  if (!row || !task || task.projectId !== projectId) throw new ToolError("BLOCKER_NOT_FOUND", { blocker_id: blockerId });
+  const b = { b: row, taskKey: task.key, taskId: task.id };
   if (!b.b.satisfiedAt) {
-    await tx.update(blockers).set({ satisfiedAt: sql`now()`, satisfiedBy: by }).where(eq(blockers.id, b.b.id));
+    await uow.update("blockers", { id: b.b.id }, { satisfiedAt: uow.now, satisfiedBy: by });
     await emit("blocker.resolved", { id: b.taskId, key: b.taskKey }, { blocker_id: b.b.id, text: (b.b.spec as { text: string }).text });
   }
   // 2.10: what Jorge says about it lands in the ticket's log as his note.
@@ -284,27 +333,25 @@ export async function resolveHumanAction(tx: Q, emit: Emit, projectId: string, b
 
 // Human actions waiting on Jorge, for the inbox.
 export async function openHumanActions(db: Q, projectId: string) {
-  return db
-    .select({ b: blockers, t: tasks })
-    .from(blockers)
-    .innerJoin(tasks, eq(tasks.id, blockers.taskId))
-    .where(and(eq(tasks.projectId, projectId), eq(blockers.type, "human_action"), isNull(blockers.satisfiedAt), sql`${tasks.status} not in ('Done', 'Won''t do')`))
-    .orderBy(asc(blockers.createdAt));
+  const r = readerOf(db);
+  const open = new Map((await r.find("tasks", { projectId })).filter((t) => t.status !== "Done" && t.status !== "Won't do").map((t) => [t.id, t]));
+  if (!open.size) return [];
+  const rows = await r.find("blockers", { taskId: [...open.keys()], type: "human_action", satisfiedAt: null }, { orderBy: [{ column: "createdAt" }] });
+  return rows.map((b) => ({ b, t: open.get(b.taskId)! }));
 }
 
 export async function setMetricInTx(tx: Q, emit: Emit, projectId: string, name: string, value: number, by: Actor) {
   if (!METRIC_NAME.test(name)) throw new ToolError("INVALID_METRIC", { field: "name" });
   if (!Number.isInteger(value)) throw new ToolError("INVALID_METRIC", { field: "value" });
-  await tx
-    .insert(projectMetrics)
-    .values({ projectId, name, value, by })
-    .onConflictDoUpdate({ target: [projectMetrics.projectId, projectMetrics.name], set: { value, by, updatedAt: sql`now()` } });
+  const uow = uowOf(tx);
+  if (await uow.get("projectMetrics", { projectId, name })) await uow.update("projectMetrics", { projectId, name }, { value, by, updatedAt: uow.now });
+  else await uow.insert("projectMetrics", { projectId, name, value, by });
   await emit("metric.set", null, { name, value });
   await promoteUnblocked(tx, emit, projectId);
   return { name, value };
 }
 
 export async function projectMetricsOf(db: Q, projectId: string) {
-  const rows = await db.select().from(projectMetrics).where(eq(projectMetrics.projectId, projectId)).orderBy(asc(projectMetrics.name));
+  const rows = await readerOf(db).find("projectMetrics", { projectId }, { orderBy: [{ column: "name" }] });
   return Object.fromEntries(rows.map((m) => [m.name, { value: m.value, by: m.by, updated_at: iso(m.updatedAt) }]));
 }

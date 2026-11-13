@@ -1,18 +1,8 @@
-import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import {
-  IDEA_STATUSES,
-  INITIATIVE_STATUSES,
-  PRIORITIES,
-  TICKET_STATUSES,
-  envCommits,
-  envStates,
-  results,
-  tasks,
-  type Task,
-  type Workspace,
-} from "../db/schema.js";
+import { IDEA_STATUSES, INITIATIVE_STATUSES, PRIORITIES, TICKET_STATUSES, type Task, type Workspace } from "../db/schema.js";
 import type { Project } from "../db/schema.js";
+import { readerOf, uowOf } from "../store/pg.js";
+import type { NewRow } from "../store/types.js";
 import {
   ToolError,
   claimShape,
@@ -48,11 +38,6 @@ import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 // Children created while the parent is in flight were found along the way.
 const IN_FLIGHT_PARENT = ["Active", "Shipping"];
 
-function isUniqueViolation(e: unknown): boolean {
-  const code = (x: unknown) => (x as { code?: string } | undefined)?.code;
-  return code(e) === "23505" || code((e as { cause?: unknown } | undefined)?.cause) === "23505";
-}
-
 function statusesFor(kind: string): readonly string[] {
   if (kind === "initiative") return INITIATIVE_STATUSES;
   if (kind === "idea") return IDEA_STATUSES;
@@ -86,29 +71,29 @@ function checkVersion(current: number, expected: number | undefined, required: b
   if (expected !== current) throw new ToolError("STALE_VERSION", { current_version: current });
 }
 
-type TaskInsert = typeof tasks.$inferInsert;
-type TaskPatch = { [K in keyof TaskInsert]?: TaskInsert[K] | SQL };
+type TaskInsert = NewRow<"tasks">;
+type TaskPatch = Partial<TaskInsert>;
 
-// Conditional UPDATE: zero rows means the version moved since it was read.
+// Conditional update on the version read: no row back means the version moved since it was read.
 async function updateTask(tx: Q, t: Task, patch: TaskPatch, bump: boolean): Promise<Task> {
+  const uow = uowOf(tx);
   const moved = patch.status !== undefined && patch.status !== t.status;
-  const [u] = await tx
-    .update(tasks)
-    .set({
+  const [u] = await uow.update(
+    "tasks",
+    { id: t.id, version: t.version },
+    {
       ...patch,
-      ...(moved ? { statusChangedAt: sql`now()` } : {}),
-      ...(bump ? { version: sql`${tasks.version} + 1` } : {}),
-      updatedAt: sql`now()`,
-    })
-    .where(and(eq(tasks.id, t.id), eq(tasks.version, t.version)))
-    .returning();
+      ...(moved ? { statusChangedAt: uow.now } : {}),
+      ...(bump ? { version: t.version + 1 } : {}),
+      updatedAt: uow.now,
+    },
+  );
   if (!u) throw new ToolError("STALE_VERSION", { current_version: (await findTaskById(tx, t.id)).version });
   return u;
 }
 
 async function findTaskById(tx: Q, id: string): Promise<Task> {
-  const [row] = await tx.select().from(tasks).where(eq(tasks.id, id)).limit(1);
-  return row!;
+  return (await readerOf(tx).get("tasks", { id }))!;
 }
 
 // Fields that end a lease. Clearing them is part of any move out of In progress.
@@ -277,6 +262,7 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
     ownerAgent: input.owner_agent ? await requireAgentId(tx, input.owner_agent) : null,
   };
   const goalId = kind === "initiative" && input.goal_id !== undefined ? await resolveInitiativeGoal(tx, p.id, input.goal_id) : null;
+  const uow = uowOf(tx);
   const values: TaskInsert =
     kind === "initiative"
       ? {
@@ -285,7 +271,7 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
           nextAction: input.next_action ?? "",
           branch: integrationBranch ?? null,
           stateNote: input.state_note ?? "",
-          stateNoteAt: input.state_note ? new Date() : null,
+          stateNoteAt: input.state_note ? uow.now : null,
           goalId,
         }
       : kind === "idea"
@@ -303,13 +289,9 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
           regression: input.regression ?? null,
           costNote: input.cost_note ?? null,
         };
-  let t: Task;
-  try {
-    [t] = (await tx.insert(tasks).values(values).returning()) as [Task];
-  } catch (e) {
-    if (isUniqueViolation(e)) throw new ToolError("KEY_EXISTS");
-    throw e;
-  }
+  // A key is unique within its project.
+  if (await uow.get("tasks", { projectId: p.id, key: assigned.key })) throw new ToolError("KEY_EXISTS");
+  const t = await uow.insert("tasks", values);
   await replaceBlockers(tx, t.id, blockerIds, blockedBy.typed);
   warnings.push(...(await syncJorgeLines(tx, emit, t, parsedTexts(t))));
   await replaceChecks(tx, t.id, (input.checks ?? []).map((text) => ({ text })));
@@ -367,11 +349,9 @@ const FIELD_NAMES: Partial<Record<keyof Task, string>> = {
 // other than the PR's head (which is the branch, not the merge) is the merge commit's proof.
 async function assertMergeEvidence(tx: Q, p: Project, t: Task, to: string): Promise<void> {
   const pr = await prRowOf(tx, t);
-  const passes = await tx
-    .select({ commit: results.commit })
-    .from(results)
-    .where(and(eq(results.taskId, t.id), eq(results.kind, "ci"), eq(results.verdict, "pass"), sql`${results.commit} is not null`));
-  const commits = passes.map((r) => r.commit!);
+  const r = readerOf(tx);
+  const passes = await r.find("results", { taskId: t.id, kind: "ci", verdict: "pass" });
+  const commits = passes.flatMap((x) => (x.commit !== null ? [x.commit] : []));
   const mergeSha = pr?.mergedAt ? (pr.mergeSha ?? null) : null;
   const same = (a: string, b: string) => a.startsWith(b) || b.startsWith(a);
   const cited = mergeSha ? commits.find((c) => same(mergeSha, c)) : commits.find((c) => !pr?.headSha || !same(pr.headSha, c));
@@ -386,12 +366,11 @@ async function assertMergeEvidence(tx: Q, p: Project, t: Task, to: string): Prom
   }
   if (to === "Released") {
     const env = p.settings.release_target ?? "prod";
-    const [state] = await tx.select().from(envStates).where(and(eq(envStates.projectId, p.id), eq(envStates.env, env))).limit(1);
-    const [known] = await tx
-      .select({ sha: envCommits.sha })
-      .from(envCommits)
-      .where(and(eq(envCommits.projectId, p.id), eq(envCommits.env, env), sql`${envCommits.sha} like ${cited} || '%' or ${cited} like ${envCommits.sha} || '%'`))
-      .limit(1);
+    const state = await r.get("envStates", { projectId: p.id, env });
+    // A commit the environment is known to contain, when either sha is a prefix of the other. The SQL this
+    // replaced had "... and sha like cited% or cited like sha%" without brackets, so AND bound first and
+    // the second test matched a commit of any project and environment. Kept as it was.
+    const known = (await r.find("envCommits")).some((c) => (c.projectId === p.id && c.env === env && c.sha.startsWith(cited)) || cited.startsWith(c.sha));
     const deployed = state?.commit && (state.commit.startsWith(cited) || cited.startsWith(state.commit));
     if (!known && !deployed) throw new ToolError("EVIDENCE_REQUIRED", { hint: `${env} does not contain ${cited.slice(0, 7)} yet (set_env commits, or the deploy poller)`, env });
   }
@@ -464,11 +443,8 @@ async function promotedTarget(tx: Q, projectId: string, idea: Task, key: string)
 
 // An initiative closes only once every ticket of it is Done or Won't do (Jorge included).
 async function assertChildrenClosed(tx: Q, t: Task): Promise<void> {
-  const open = await tx
-    .select({ key: tasks.key })
-    .from(tasks)
-    .where(and(eq(tasks.parentId, t.id), sql`${tasks.status} not in ('Done', 'Won''t do')`))
-    .orderBy(tasks.key);
+  const children = await readerOf(tx).find("tasks", { parentId: t.id }, { orderBy: [{ column: "key" }] });
+  const open = children.filter((c) => c.status !== "Done" && c.status !== "Won't do");
   if (open.length) throw new ToolError("INITIATIVE_CHILDREN_OPEN", { open: open.map((c) => c.key) });
 }
 
@@ -536,7 +512,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
       patch.blockedNote = null;
     }
     // Re-marking Done keeps the first timestamp.
-    patch.resolvedAt = input.status === "Done" ? (t.resolvedAt ?? new Date()) : null;
+    patch.resolvedAt = input.status === "Done" ? (t.resolvedAt ?? uowOf(tx).now) : null;
     patch.status = input.status;
     if (t.owner && input.status !== t.status) Object.assign(patch, NO_LEASE);
   }
@@ -600,7 +576,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   let parentKeys: [string | null, string | null] | undefined;
   let rekey: [string, string] | undefined;
   if (input.parent_key !== undefined) {
-    const [old] = t.parentId ? await tx.select({ key: tasks.key }).from(tasks).where(eq(tasks.id, t.parentId)) : [];
+    const old = t.parentId ? await readerOf(tx).get("tasks", { id: t.parentId }) : undefined;
     const newParent = input.parent_key === null ? undefined : await resolveParent(tx, p.id, input.parent_key);
     const newParentId = newParent?.id ?? null;
     if (newParentId !== t.parentId) {
@@ -624,7 +600,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   if (input.in_progress_note !== undefined) patch.inProgressNote = input.in_progress_note;
   if (input.state_note !== undefined) {
     patch.stateNote = input.state_note;
-    patch.stateNoteAt = input.state_note.trim() ? new Date() : null;
+    patch.stateNoteAt = input.state_note.trim() ? uowOf(tx).now : null;
   }
   const warnings: WriteWarning[] = [];
   if (input.scope && STATUS_HEADING.test(input.scope)) warnings.push("scope has a status section: keep scope as the spec and put where things stand in state_note");
@@ -718,10 +694,11 @@ export async function handoff(
     const t = await requireTask(tx, p.id, input.key);
     const owner = liveOwner(t);
     if (owner && owner.session_id !== ctx.actor.session_id && !ctx.human) throw new ToolError("NOT_OWNER", { owner, lease_until: iso(t.leaseUntil) });
-    const until = new Date(Date.now() + HANDOFF_HOLD_MIN * 60_000);
+    const now = uowOf(tx).now;
+    const until = new Date(now.getTime() + HANDOFF_HOLD_MIN * 60_000);
     // What the ticket still has running, so whoever takes it over knows before starting a second server.
     const footprint = await liveTaskFootprint(tx, t.id);
-    const record = { to: input.to.trim() || "open", note: input.note.trim(), ...(input.head_sha ? { head_sha: input.head_sha } : {}), from: ctx.actor, at: new Date().toISOString(), until: until.toISOString(), footprint };
+    const record = { to: input.to.trim() || "open", note: input.note.trim(), ...(input.head_sha ? { head_sha: input.head_sha } : {}), from: ctx.actor, at: now.toISOString(), until: until.toISOString(), footprint };
     const to = t.status === "In progress" ? "Ready" : t.status;
     const u = await updateTask(tx, t, { ...NO_LEASE, status: to, handoff: record }, true);
     await emit("claim.handoff", u, { ...record, from_status: t.status });
@@ -778,7 +755,8 @@ function ttlMinutes(ttl: number | undefined): number {
   return m;
 }
 
-const leaseEnd = (minutes: number) => sql`now() + make_interval(mins => ${minutes})`;
+// A lease runs `minutes` from the write's clock.
+const leaseEnd = (now: Date, minutes: number) => new Date(now.getTime() + minutes * 60_000);
 
 export type ClaimInput = {
   project: string;
@@ -814,13 +792,14 @@ export async function claimInTx(tx: Q, emit: Emit, p: Project, input: ClaimInput
 
   if (owner && !mine) throw held();
 
+  const uow = uowOf(tx);
   if (mine) {
     // Heartbeat, or a repeated claim: extend the lease without bumping the version.
-    const [u] = await tx
-      .update(tasks)
-      .set({ leaseUntil: leaseEnd(minutes), lastSeenAt: sql`now()`, expiringWarnedAt: null, ...(workspace ? { workspace } : {}) })
-      .where(eq(tasks.id, t.id))
-      .returning();
+    const [u] = await uow.update(
+      "tasks",
+      { id: t.id },
+      { leaseUntil: leaseEnd(uow.now, minutes), lastSeenAt: uow.now, expiringWarnedAt: null, ...(workspace ? { workspace } : {}) },
+    );
     if (workspace) await emit("claim.workspace", u!, { workspace });
     return reply(u!, workspace ? ["claim", "workspace"] : ["claim"]);
   }
@@ -836,16 +815,13 @@ export async function claimInTx(tx: Q, emit: Emit, p: Project, input: ClaimInput
   const blockers = await unsatisfiedBlockers(tx, t);
   if (blockers.length) throw new ToolError("NOT_CLAIMABLE", { blocked_by: blockers });
   // A phase works on its initiative's integration branch unless told otherwise (R-09).
-  const parent = t.parentId ? (await tx.select().from(tasks).where(eq(tasks.id, t.parentId)).limit(1))[0] : undefined;
+  const parent = t.parentId ? await uow.get("tasks", { id: t.parentId }) : undefined;
   if (workspace && !workspace.branch && parent?.branch) workspace = { ...workspace, branch: parent.branch };
   if (!workspace && parent?.branch) workspace = { machine: ctx.actor.machine, branch: parent.branch };
   if (workspace?.branch) await assertTicketBranch(tx, p, t, workspace.branch);
   // Other live claims on overlapping code areas are a warning, never a block (R-11).
   if (t.areas.length) {
-    const live = await tx
-      .select({ key: tasks.key, areas: tasks.areas, owner: tasks.owner })
-      .from(tasks)
-      .where(and(eq(tasks.projectId, p.id), sql`${tasks.leaseUntil} > now()`, sql`${tasks.id} <> ${t.id}`));
+    const live = (await uow.find("tasks", { projectId: p.id })).filter((o) => o.leaseUntil !== null && o.leaseUntil > uow.now && o.id !== t.id);
     for (const other of live) {
       const overlap = other.areas.filter((a) => t.areas.some((b) => areasOverlap(a, b)));
       if (overlap.length) warnings.push(`${other.key} (${other.owner?.agent ?? "?"}) also works on ${overlap.join(", ")}`);
@@ -857,9 +833,9 @@ export async function claimInTx(tx: Q, emit: Emit, p: Project, input: ClaimInput
     t,
     {
       owner: ctx.actor,
-      claimedAt: sql`now()`,
-      leaseUntil: leaseEnd(minutes),
-      lastSeenAt: sql`now()`,
+      claimedAt: uow.now,
+      leaseUntil: leaseEnd(uow.now, minutes),
+      lastSeenAt: uow.now,
       status: "In progress",
       blockedNote: null,
       expiringWarnedAt: null,
@@ -878,11 +854,9 @@ export async function heartbeatAll(db: Db, input: ClaimInput, ctx: Ctx) {
   const p = await findProject(db, input.project);
   const minutes = ttlMinutes(input.ttl_minutes);
   return writeTx(db, p, ctx, async (tx) => {
-    const rows = await tx
-      .update(tasks)
-      .set({ leaseUntil: leaseEnd(minutes), lastSeenAt: sql`now()`, expiringWarnedAt: null })
-      .where(and(eq(tasks.projectId, p.id), sql`${tasks.leaseUntil} > now()`, sql`${tasks.owner}->>'session_id' = ${ctx.actor.session_id}`))
-      .returning({ key: tasks.key, leaseUntil: tasks.leaseUntil });
+    const uow = uowOf(tx);
+    const mine = (await uow.find("tasks", { projectId: p.id })).filter((t) => t.leaseUntil !== null && t.leaseUntil > uow.now && t.owner?.session_id === ctx.actor.session_id);
+    const rows = mine.length ? await uow.update("tasks", { id: mine.map((t) => t.id) }, { leaseUntil: leaseEnd(uow.now, minutes), lastSeenAt: uow.now, expiringWarnedAt: null }) : [];
     return { extended: rows.map((r) => r.key).sort(), lease_until: rows[0] ? iso(rows[0].leaseUntil) : null, changed: rows.length ? ["claim"] : [] };
   });
 }

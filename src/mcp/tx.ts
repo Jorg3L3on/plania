@@ -1,4 +1,3 @@
-import { and, eq, sql } from "drizzle-orm";
 import type { NodePgQueryResultHKT } from "drizzle-orm/node-postgres";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import type { Db } from "../db/client.js";
@@ -92,27 +91,35 @@ export async function writeTx<T>(
 // when nobody writes. The workspace stays, so whoever claims next knows where the code is.
 // PLA-16: with the project's slug, claim.expired goes through the event hook like an emitted event, so a
 // runner run's ticket that falls back to Ready wakes its role again.
+// It runs inside the serialized write, so the rows it reads cannot change before it updates them.
 export async function reapExpiredLeases(tx: Q, projectId: string, slug?: string): Promise<string[]> {
-  const expired = await tx.execute<{ id: string; key: string; owner: Actor; from: string; to: string; lease_until: Date }>(sql`
-    with expired as (
-      select id, owner, status, lease_until from tasks
-      where project_id = ${projectId} and lease_until < now()
-      for update
-    )
-    update tasks t set
-      owner = null, claimed_at = null, lease_until = null,
-      status = case when t.status = 'In progress' then 'Ready' else t.status end,
-      status_changed_at = case when t.status = 'In progress' then now() else t.status_changed_at end,
-      expiring_warned_at = null,
-      version = t.version + 1, updated_at = now()
-    from expired e where t.id = e.id
-    returning t.id, t.key, e.owner, e.status as "from", t.status as "to", e.lease_until`);
-  for (const r of expired.rows) {
-    const payload = { owner: r.owner, from: r.from, to: r.to, lease_until: iso(new Date(r.lease_until)) };
-    await uowOf(tx).insert("events", { projectId, taskId: r.id, taskKey: r.key, type: "claim.expired", actor: SYSTEM_ACTOR, payload });
+  const uow = uowOf(tx);
+  const leased = (await uow.find("tasks", { projectId })).filter((t) => t.leaseUntil !== null && t.leaseUntil < uow.now);
+  const expired: { id: string; key: string; owner: Actor | null; from: string; to: string; lease_until: Date }[] = [];
+  for (const e of leased) {
+    const working = e.status === "In progress";
+    const [t] = await uow.update(
+      "tasks",
+      { id: e.id, version: e.version },
+      {
+        owner: null,
+        claimedAt: null,
+        leaseUntil: null,
+        status: working ? "Ready" : e.status,
+        ...(working ? { statusChangedAt: uow.now } : {}),
+        expiringWarnedAt: null,
+        version: e.version + 1,
+        updatedAt: uow.now,
+      },
+    );
+    if (t) expired.push({ id: t.id, key: t.key, owner: e.owner, from: e.status, to: t.status, lease_until: e.leaseUntil! });
+  }
+  for (const r of expired) {
+    const payload = { owner: r.owner, from: r.from, to: r.to, lease_until: iso(r.lease_until) };
+    await uow.insert("events", { projectId, taskId: r.id, taskKey: r.key, type: "claim.expired", actor: SYSTEM_ACTOR, payload });
     if (slug) await onWriteEvent(tx, { id: projectId, slug }, "claim.expired", { id: r.id, key: r.key }, payload);
   }
-  return expired.rows.map((r) => r.key);
+  return expired.map((r) => r.key);
 }
 
 // Every timestamp leaves the server as ISO-8601 UTC.

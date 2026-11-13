@@ -1,5 +1,5 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
-import { blockers, branches, envStates, pullRequests, questions, tasks, type Project, type Task } from "../db/schema.js";
+import type { Project, Task } from "../db/schema.js";
+import { readerOf } from "../store/pg.js";
 import { lastAudit } from "./audit.js";
 import { envShape } from "./env.js";
 import { nextTask } from "./queries.js";
@@ -14,22 +14,15 @@ import { iso, type Q } from "./tx.js";
 const CLOSED = ["Done", "Won't do"];
 
 export async function statusBlock(db: Q, p: Project) {
-  const all = await db.select().from(tasks).where(eq(tasks.projectId, p.id)).orderBy(asc(tasks.key));
+  const r = readerOf(db);
+  const all = await r.find("tasks", { projectId: p.id }, { orderBy: [{ column: "key" }] });
   const openInitiatives = all.filter((t) => t.kind === "initiative" && !CLOSED.includes(t.status));
-  const envs = await db.select().from(envStates).where(eq(envStates.projectId, p.id)).orderBy(asc(envStates.env));
-  const heads = await db.select().from(branches).where(and(eq(branches.projectId, p.id), isNull(branches.deletedAt)));
-  const prs = await db.select().from(pullRequests).where(eq(pullRequests.projectId, p.id));
+  const envs = await r.find("envStates", { projectId: p.id }, { orderBy: [{ column: "env" }] });
+  const heads = await r.find("branches", { projectId: p.id, deletedAt: null });
+  const prs = await r.find("pullRequests", { projectId: p.id });
   const prOf = (t: Task) => prs.filter((pr) => pr.taskId === t.id).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
-  const openQ = await db
-    .select({ taskId: questions.taskId })
-    .from(questions)
-    .where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt)));
-  const humanActions = all.length
-    ? await db
-        .select({ taskId: blockers.taskId })
-        .from(blockers)
-        .where(and(inArray(blockers.taskId, all.map((t) => t.id)), eq(blockers.type, "human_action"), isNull(blockers.satisfiedAt)))
-    : [];
+  const openQ = await r.find("questions", { projectId: p.id, answeredAt: null });
+  const humanActions = all.length ? await r.find("blockers", { taskId: all.map((t) => t.id), type: "human_action", satisfiedAt: null }) : [];
 
   const waitingOn = (t: Task): string[] => {
     const why: string[] = [];
