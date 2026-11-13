@@ -15,6 +15,7 @@ import {
   agentSessions,
   agents,
   docs,
+  events,
   goals,
   heartbeatRuns,
   projects,
@@ -25,7 +26,7 @@ import {
   type Project,
 } from "../db/schema.js";
 import { registerFootprint, releaseFootprint } from "../mcp/footprint.js";
-import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
+import { SYSTEM_ACTOR, WEB_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
 import { denySettings } from "./deny.js";
 import { EVENT_SUMMARY } from "./events.js";
@@ -183,12 +184,15 @@ async function probeIfUnknown(db: Db, deps: RunnerDeps, now: Date): Promise<void
   if (reading) await recordReading(db, { ...reading, source: "usage_probe", at: now });
 }
 
-async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, opts: { fromQueue?: string } = {}): Promise<Preflight> {
+// PLA-I40-2: skipRest and pastGuard are the owner's "start now" from the screen, for one run: the rest between
+// runs is not counted, and the plan guard reads as with the override on. Every other check stands.
+async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, opts: { fromQueue?: string; skipRest?: boolean; pastGuard?: boolean } = {}): Promise<Preflight> {
   const settings = await loadSettings(db);
   const { agent, role, project, task } = ctx;
   if (!project) return { ok: false, kind: "skipped", summary: "skipped: no project" };
   // PLA-I40-1: the switches, the rest and the goal are one verdict (hold.ts), the same one the screen reads.
-  const own = role || settings.companyPaused ? agentHold(await agentFacts(db, { agent, role, project, settings, now })) : null;
+  const facts = role || settings.companyPaused ? await agentFacts(db, { agent, role, project, settings, now }) : null;
+  const own = facts ? agentHold(opts.skipRest ? { ...facts, cooldownMinutes: 0 } : facts) : null;
   if (own?.scope === "company") return { ok: false, kind: "skipped", summary: "skipped: company paused" };
   if (!role) return { ok: false, kind: "skipped", summary: "skipped: no runner role" };
   if (own?.code === "paused") return { ok: false, kind: "skipped", summary: `skipped: project ${project.slug} paused` };
@@ -201,10 +205,11 @@ async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, 
     if (!base.ok) return { ok: false, kind: "fail", summary: "fail: base not allowed" };
   }
 
-  let capacity = await capacityFacts(db, settings, now);
+  const guard = opts.pastGuard ? { ...settings, guardOverride: true } : settings;
+  let capacity = await capacityFacts(db, guard, now);
   if (capacity.plan.state === "unknown") {
     await probeIfUnknown(db, deps, now);
-    capacity = await capacityFacts(db, settings, now);
+    capacity = await capacityFacts(db, guard, now);
   }
   const full = capacityHold(capacity);
   if (full?.code === "usage") return { ok: false, kind: "skipped", summary: planGuardSummary(capacity.plan) };
@@ -248,6 +253,65 @@ export async function wakeClaude(
       .returning();
     if (!pre.ok) return { kind: "queued", runId: row!.id, summary: "queued: cap reached", taskKey };
     return start(db, row!, ctx, deps);
+  });
+}
+
+// PLA-I40-2: the owner's "Que empiece ya". Starts this agent's queued run now, or, with none queued, one run on
+// the Ready work given. The rest between runs is skipped for this run only (nothing is stored, so the next run
+// waits its full rest); pastGuard also lets it past the plan guard. The switches, the goal, the base branch and
+// the cap all stand: with every slot taken the run stays queued and takes the next one.
+export type ForcedStart =
+  | { kind: "started" | "queued"; runId: string; taskKey: string | null; summary: string }
+  | { kind: "busy" | "idle" }
+  | { kind: "held" | "fail"; summary: string };
+
+export async function startNow(
+  db: Db,
+  input: { agent: Agent; task: ReadyWork | null; pastGuard?: boolean; now: Date },
+  deps: RunnerDeps = {},
+): Promise<ForcedStart> {
+  return serial(async () => {
+    const mine = await db
+      .select()
+      .from(agentRuns)
+      .where(and(eq(agentRuns.agentId, input.agent.id), inArray(agentRuns.status, ["queued", "running"])))
+      .orderBy(asc(agentRuns.queuedAt));
+    if (mine.some((r) => r.status === "running")) return { kind: "busy" };
+    const queued = mine[0] ?? null;
+    if (!queued && !input.task) return { kind: "idle" };
+    const task = queued ? (queued.taskKey ? await readyWorkOf(db, queued.projectId, queued.taskKey) : null) : input.task;
+    const ctx = await loadContext(db, input.agent, task);
+    if (!ctx.project && queued) ctx.project = (await db.select().from(projects).where(eq(projects.id, queued.projectId)).limit(1))[0] ?? null;
+    const pre = await preflight(db, ctx, input.now, deps, { skipRest: true, pastGuard: input.pastGuard });
+    if (!pre.ok && pre.kind !== "cap") return { kind: "held", summary: pre.summary };
+    const run =
+      queued ??
+      (
+        await db
+          .insert(agentRuns)
+          .values({
+            agentId: input.agent.id,
+            projectId: ctx.project!.id,
+            taskKey: task?.key ?? null,
+            role: ctx.role!,
+            status: "queued",
+            summary: pre.ok ? "starting" : "queued: cap reached",
+            queuedAt: input.now,
+            reserveTokens: (await loadSettings(db)).reserveTokens,
+          })
+          .returning()
+      )[0]!;
+    if (!pre.ok) return { kind: "queued", runId: run.id, taskKey: run.taskKey, summary: "queued: cap reached" };
+    const out = await start(db, run, ctx, deps);
+    if (out.kind !== "started") return { kind: "fail", summary: out.summary };
+    await db.insert(events).values({
+      projectId: ctx.project!.id,
+      taskKey: run.taskKey,
+      type: "wake.forced",
+      actor: WEB_ACTOR,
+      payload: { agent: input.agent.slug, role: ctx.role, run_id: run.id, past_guard: !!input.pastGuard },
+    });
+    return { kind: "started", runId: run.id, taskKey: run.taskKey, summary: out.summary };
   });
 }
 

@@ -16,6 +16,8 @@ import { WEB_ACTOR } from "../mcp/tx.js";
 import { createTask } from "../mcp/writes.js";
 import { eventWakesEnabled } from "../runner/events.js";
 import { loadSettings, roleOf } from "../runner/limits.js";
+import { startNow } from "../runner/runner.js";
+import { teamOf } from "../runner/team.js";
 
 export type ActionRefusal = { error: "PROJECT_NOT_FOUND" | "PROJECT_PAUSED" | "COMPANY_PAUSED" | "NO_PO"; status: 404 | 409; hint: string };
 
@@ -138,4 +140,23 @@ export async function wakePo(db: Db, slug: string, deps?: HeartbeatDeps): Promis
   if (!work) return { woke: false, reason: "idle", ticket: null, summary: "Sin trabajo para el PO: pídele algo." };
   const out = await wakeAgent(db, { agent: g.po.slug, taskKey: work.key }, deps);
   return { woke: out.woke, reason: out.reason, ticket: out.run?.task_key ?? work.key, summary: out.run?.summary ?? "" };
+}
+
+// PLA-I40-2: Que empiece ya. One teammate's next run starts now: its queued run, else one on its Ready work.
+// The rest between runs is skipped once; past_guard also lets it past the plan guard this once. A paused
+// company or project refuses, as do the goal, the base branch and the cap (a full cap leaves it queued).
+export type StartNowResult = { started: boolean; reason: "started" | "queued" | "busy" | "idle" | "held" | "fail"; ticket: string | null; run_id: string | null; summary: string };
+export type StartRefusal = { error: "PROJECT_NOT_FOUND" | "PROJECT_PAUSED" | "COMPANY_PAUSED" | "AGENT_NOT_FOUND"; status: 404 | 409; hint: string };
+
+export async function startTeammateNow(db: Db, slug: string, agentSlug: string, opts: { past_guard?: boolean; now?: Date } = {}, deps?: HeartbeatDeps): Promise<StartNowResult | StartRefusal> {
+  const [project] = await db.select({ id: projects.id, slug: projects.slug, paused: projects.runsPaused }).from(projects).where(eq(projects.slug, slug)).limit(1);
+  if (!project) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
+  if ((await loadSettings(db)).companyPaused) return { error: "COMPANY_PAUSED", status: 409, hint: "La compañía está detenida." };
+  if (project.paused) return { error: "PROJECT_PAUSED", status: 409, hint: "El proyecto está en pausa: reanúdalo primero." };
+  const agent = (await teamOf(db, project.id)).find((a) => a.slug === agentSlug);
+  if (!agent) return { error: "AGENT_NOT_FOUND", status: 404, hint: "Ese compañero no está en el equipo de este proyecto." };
+  const work = pickReady({ ...agent, projectSlug: project.slug }, (await loadReady(db)).filter((r) => r.project === project.slug));
+  const out = await startNow(db, { agent, task: work, pastGuard: opts.past_guard, now: opts.now ?? new Date() }, deps?.runner);
+  const base = { started: out.kind === "started", reason: out.kind, summary: "summary" in out ? out.summary : "" };
+  return "runId" in out ? { ...base, ticket: out.taskKey, run_id: out.runId } : { ...base, ticket: null, run_id: null };
 }

@@ -27,7 +27,7 @@ import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { createProjectFromTemplate } from "../runner/new-project.js";
-import { askPo, pickNext, setProjectOptions, wakePo } from "./company-actions.js";
+import { askPo, pickNext, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
 import { cancelOrder } from "./company-orders.js";
 import { promptDoc } from "./company-extra.js";
@@ -210,6 +210,30 @@ companyRoutes.post("/projects/:slug/ask", async (c) => {
 companyRoutes.post("/projects/:slug/wake", async (c) => {
   try {
     const out = await withDb((db) => wakePo(db, c.req.param("slug")));
+    if ("error" in out) {
+      const { status, ...rest } = out;
+      return c.json(rest, status);
+    }
+    return c.json(out);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I40-2: Que empiece ya for one teammate. The body is optional: {past_guard} also passes the plan guard once.
+const StartNow = z.object({ past_guard: z.boolean().optional() }).strict();
+companyRoutes.post("/projects/:slug/team/:agent/start", async (c) => {
+  const raw = await c.req.text();
+  let json: unknown = {};
+  try {
+    if (raw.trim()) json = JSON.parse(raw);
+  } catch {
+    return c.json({ error: "INVALID_BODY" }, 400);
+  }
+  const input = StartNow.safeParse(json);
+  if (!input.success) return c.json({ error: "INVALID_BODY" }, 400);
+  try {
+    const out = await withDb((db) => startTeammateNow(db, c.req.param("slug"), c.req.param("agent"), input.data));
     if ("error" in out) {
       const { status, ...rest } = out;
       return c.json(rest, status);
