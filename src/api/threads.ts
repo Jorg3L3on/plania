@@ -9,16 +9,15 @@
 //   POST /api/threads/:id/actions {message_id, action, text?}  PLA-I32-4 (src/api/thread-actions.ts) → {ok, action_state}
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
-import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb, type Db } from "../db/client.js";
-import { agentRuns } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
 import { webCtx } from "../mcp/tx.js";
 import { asistenteAgent, eventWakesEnabled } from "../runner/events.js";
 import { loadSettings } from "../runner/limits.js";
 import { JORGE, listThreads, markRead, messageView, postMessage, readThread, resolveThread, type ThreadRef } from "../runner/threads.js";
+import { readerOf } from "../store/pg.js";
 import { createPoTicket, projectPo } from "./company-actions.js";
 import { threadAction } from "./thread-actions.js";
 
@@ -68,7 +67,7 @@ async function asistenteWake(db: Db): Promise<WakeWord> {
   if ((await loadSettings(db)).companyPaused) return "paused";
   const a = await asistenteAgent(db);
   if (!a) return "no_agent";
-  const [run] = await db.select({ id: agentRuns.id }).from(agentRuns).where(and(eq(agentRuns.agentId, a.id), inArray(agentRuns.status, ["queued", "running"]))).limit(1);
+  const run = await readerOf(db).get("agentRuns", { agentId: a.id, status: ["queued", "running"] });
   return run ? "queued" : "off";
 }
 

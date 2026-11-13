@@ -18,9 +18,8 @@
 // Acted rows stay 24 hours with their state so the screen can show the result in place. Acting twice is 409
 // ALREADY_ACTED: a message's action_state is claimed before anything is posted, a ticket must still be Ready,
 // a question still open.
-import { and, desc, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agents, checks, projects, pullRequests, questions, results, tasks, threadMessages, threads, type ActionState, type Actor, type Agent, type Project, type ProposalData, type Task, type ThreadLink } from "../db/schema.js";
+import type { ActionState, Actor, Agent, Project, ProposalData, Task, ThreadLink, ThreadMessage } from "../db/schema.js";
 import { costText, makeSteps } from "../mcp/proposals.js";
 import { inboxFor, type InboxItem } from "../mcp/inbox.js";
 import { resolveHumanAction } from "../mcp/blockers.js";
@@ -32,9 +31,10 @@ import { headFor, resultShape } from "../mcp/evidence.js";
 import { answer } from "../mcp/questions.js";
 import { webCtx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
-import { loadSettings, roleOf } from "../runner/limits.js";
+import { COMPANY, loadSettings, roleOf } from "../runner/limits.js";
 import { agentOfActor } from "../runner/events.js";
-import { JORGE, actionsFor, postMessage, resolveThread, type MessageAction } from "../runner/threads.js";
+import { JORGE, actionsFor, postMessage, resolveThread, type MessageAction, type ThreadRef } from "../runner/threads.js";
+import { pgStore, readerOf } from "../store/pg.js";
 import { ceoAgentId } from "./company-plan.js";
 import { threadAction } from "./thread-actions.js";
 import { jorgePosts } from "./threads.js";
@@ -164,29 +164,27 @@ const linksOf = (links: ThreadLink[]): DecisionLink[] =>
   links.filter((l): l is ThreadLink & { kind: DecisionLink["kind"] } => l.kind !== "question").map((l) => ({ kind: l.kind, ref: l.ref, title: l.title }));
 const CI = new Set(["pending", "success", "failure", "none"]);
 
+// The newest PR: by url, else the newest one on the ticket.
+async function newestPr(db: Db, t: Task | null, url: string | null) {
+  const [pr] = await readerOf(db).find("pullRequests", url ? { url } : { taskId: t!.id }, { orderBy: [{ column: "updatedAt", desc: true }], limit: 1 });
+  return pr;
+}
+
 // A ticket's open checks and its PR's CI (the PR by url, else the newest PR on the ticket).
 async function evidenceOf(db: Db, t: Task | null, prUrl: string | null): Promise<DecisionChecks | null> {
   if (!t && !prUrl) return null;
   let open = 0;
-  if (t) {
-    const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(checks).where(and(eq(checks.taskId, t.id), eq(checks.done, false), isNull(checks.waivedAt)));
-    open = Number(row?.n ?? 0);
-  }
+  if (t) open = await readerOf(db).count("checks", { taskId: t.id, done: false, waivedAt: null });
   const url = prUrl ?? t?.prUrl ?? null;
-  const prs = await db
-    .select({ ci: pullRequests.ciState })
-    .from(pullRequests)
-    .where(url ? eq(pullRequests.url, url) : eq(pullRequests.taskId, t!.id))
-    .orderBy(desc(pullRequests.updatedAt))
-    .limit(1);
-  const ci = prs[0]?.ci && CI.has(prs[0].ci) ? (prs[0].ci as DecisionChecks["ci"]) : null;
+  const pr = await newestPr(db, t, url);
+  const ci = pr?.ciState && CI.has(pr.ciState) ? (pr.ciState as DecisionChecks["ci"]) : null;
   return { open, ci };
 }
 
 // PLA-14: with no CI on the repo, Aceptar needs the ticket's own pass on the PR's current head (not stale_for_head).
 async function passOnHead(db: Db, t: Task | null, head: string | null, branch: string | null): Promise<boolean> {
   if (!t) return false;
-  const passes = await db.select().from(results).where(and(eq(results.taskId, t.id), eq(results.verdict, "pass"))).orderBy(desc(results.createdAt));
+  const passes = await readerOf(db).find("results", { taskId: t.id, verdict: "pass" }, { orderBy: [{ column: "createdAt", desc: true }] });
   for (const r of passes) {
     const at = head ?? (await headFor(db, t, r.branch ?? branch ?? t.branch ?? null));
     if (resultShape(r, at).stale_for_head !== true) return true;
@@ -200,11 +198,12 @@ async function workEvidence(db: Db, p: Project | null, t: Task | null, prUrl: st
   const checks = await evidenceOf(db, t, prUrl);
   let evidence: DecisionEvidence | null = null;
   if (t) {
-    const [r] = await db.select().from(results).where(eq(results.taskId, t.id)).orderBy(desc(results.createdAt)).limit(1);
+    const [r] = await readerOf(db).find("results", { taskId: t.id }, { orderBy: [{ column: "createdAt", desc: true }], limit: 1 });
     if (r) evidence = { verdict: r.verdict, kind: r.kind, cite: cut(clean(r.cite), 200), pass: r.counts?.pass ?? null, fail: r.counts?.fail ?? null, at: r.createdAt.toISOString() };
   }
   const url = prUrl ?? t?.prUrl ?? null;
-  const [pr] = url || t ? await db.select({ files: pullRequests.changedFiles, head: pullRequests.headSha, branch: pullRequests.headBranch }).from(pullRequests).where(url ? eq(pullRequests.url, url) : eq(pullRequests.taskId, t!.id)).orderBy(desc(pullRequests.updatedAt)).limit(1) : [];
+  const newest = url || t ? await newestPr(db, t, url) : undefined;
+  const pr = newest ? { files: newest.changedFiles, head: newest.headSha, branch: newest.headBranch } : undefined;
   const hold =
     checks?.ci === "failure"
       ? "Las pruebas fallan."
@@ -222,8 +221,7 @@ async function workEvidence(db: Db, p: Project | null, t: Task | null, prUrl: st
 
 async function ticketByKey(db: Db, projectId: string | null | undefined, key: string | null | undefined): Promise<Task | null> {
   if (!projectId || !key) return null;
-  const [t] = await db.select().from(tasks).where(and(eq(tasks.projectId, projectId), eq(tasks.key, key))).limit(1);
-  return t ?? null;
+  return (await readerOf(db).get("tasks", { projectId, key })) ?? null;
 }
 
 const asAsker = (a: Agent | null): DecisionAsker | null => (a ? { agent: a.slug, role: roleOf(a) ?? a.role } : null);
@@ -232,13 +230,11 @@ const onTeam = (a: Agent | null | undefined, p: Project | null | undefined): Dec
   a && p && a.projectId === p.id && a.status !== "retired" ? { agent: a.slug, role: roleOf(a) ?? a.role } : null;
 async function agentBySlug(db: Db, slug: string | null | undefined): Promise<Agent | null> {
   if (!slug) return null;
-  const [a] = await db.select().from(agents).where(eq(agents.slug, slug)).limit(1);
-  return a ?? null;
+  return (await readerOf(db).get("agents", { slug })) ?? null;
 }
 async function agentById(db: Db, id: string | null | undefined): Promise<Agent | null> {
   if (!id) return null;
-  const [a] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
-  return a ?? null;
+  return (await readerOf(db).get("agents", { id })) ?? null;
 }
 // A proposal's asker is the author of its message: the roster's role when the slug is known, else the message's.
 async function authorOf(db: Db, m: { authorAgent: string; authorRole: string }): Promise<DecisionAsker> {
@@ -258,11 +254,12 @@ const optionsOf = (p: ProposalData): DecisionOption[] =>
 // latest message with numbered options and nothing from Jorge after it (PLA-I35).
 async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>): Promise<Decision[]> {
   const out: Decision[] = [];
-  const rows = await db.select().from(threads).where(and(eq(threads.kind, "project"), isNotNull(threads.projectId)));
+  const r = readerOf(db);
+  const rows = (await r.find("threads", { kind: "project" })).filter((th) => th.projectId !== null);
   for (const th of rows) {
     const p = slugById.get(th.projectId!);
     if (!p) continue;
-    const msgs = await db.select().from(threadMessages).where(eq(threadMessages.threadId, th.id)).orderBy(desc(threadMessages.at), desc(threadMessages.id)).limit(40);
+    const msgs = await r.find("threadMessages", { threadId: th.id }, { orderBy: [{ column: "at", desc: true }, { column: "id", desc: true }], limit: 40 });
     for (const m of msgs) {
       const data = m.proposal;
       if (!data || m.authorRole === "jorge") continue;
@@ -323,20 +320,18 @@ async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>)
 
 async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, skip: Set<string>): Promise<Decision[]> {
   const out: Decision[] = [];
-  const rows = await db
-    .select({ m: threadMessages, projectId: threads.projectId })
-    .from(threadMessages)
-    .innerJoin(threads, eq(threads.id, threadMessages.threadId))
-    .where(
-      and(
-        ne(threadMessages.authorAgent, JORGE.agent),
-        isNull(threadMessages.questionId),
-        sql`(${threadMessages.links} @> '[{"kind":"ticket"}]'::jsonb or ${threadMessages.links} @> '[{"kind":"idea"}]'::jsonb)`,
-        or(isNull(threadMessages.actionState), sql`(${threadMessages.actionState}->>'at')::timestamptz >= ${since.toISOString()}::timestamptz`),
-      ),
-    )
-    .orderBy(desc(threadMessages.at))
-    .limit(200);
+  // The newest 200 messages, in any thread, not Jorge's and without a question, that link a ticket or an idea and
+  // nobody acted on (or acted on within the window). Postgres orders them all; the filter runs here.
+  const r = readerOf(db);
+  const threadProject = new Map((await r.find("threads")).map((th) => [th.id, th.projectId]));
+  const rows: { m: ThreadMessage; projectId: string | null }[] = [];
+  for (const m of await r.find("threadMessages", { questionId: null }, { orderBy: [{ column: "at", desc: true }] })) {
+    if (rows.length === 200) break;
+    if (m.authorAgent === JORGE.agent || !threadProject.has(m.threadId)) continue;
+    if (!m.links.some((l) => l.kind === "ticket" || l.kind === "idea")) continue;
+    if (m.actionState && !(Date.parse(m.actionState.at) >= since.getTime())) continue;
+    rows.push({ m, projectId: threadProject.get(m.threadId)! });
+  }
   for (const { m, projectId } of rows) {
     if (skip.has(m.id)) continue;
     const p = projectId ? slugById.get(projectId) : undefined;
@@ -371,16 +366,10 @@ async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, 
 async function ticketRows(db: Db, since: Date, slugById: Map<string, Project>): Promise<Decision[]> {
   const ceo = await ceoAgentId(db);
   if (!ceo) return [];
-  const rows = await db
-    .select()
-    .from(tasks)
-    .where(
-      and(
-        eq(tasks.ownerAgent, ceo),
-        eq(tasks.kind, "ticket"),
-        or(eq(tasks.status, "Ready"), and(inArray(tasks.status, ["Done", "Backlog"]), gt(tasks.statusChangedAt, since))),
-      ),
-    );
+  // Ready, or moved to Done or Backlog within the window.
+  const rows = (await readerOf(db).find("tasks", { ownerAgent: ceo, kind: "ticket", status: ["Ready", "Done", "Backlog"] })).filter(
+    (t) => t.status === "Ready" || (t.statusChangedAt !== null && t.statusChangedAt.getTime() > since.getTime()),
+  );
   const out: Decision[] = [];
   for (const t of rows) {
     const p = slugById.get(t.projectId);
@@ -406,11 +395,11 @@ async function ticketRows(db: Db, since: Date, slugById: Map<string, Project>): 
 }
 
 async function questionRows(db: Db, since: Date, slugById: Map<string, Project>, companyPaused: boolean): Promise<Decision[]> {
-  const rows = await db
-    .select({ q: questions, key: tasks.key })
-    .from(questions)
-    .innerJoin(tasks, eq(tasks.id, questions.taskId))
-    .where(or(isNull(questions.answeredAt), gt(questions.answeredAt, since)));
+  // Open questions, and those answered within the window, with their ticket's key (a question without one is left out).
+  const r = readerOf(db);
+  const open = (await r.find("questions")).filter((q) => q.answeredAt === null || q.answeredAt.getTime() > since.getTime());
+  const keyOf = new Map((await r.find("tasks", { id: [...new Set(open.map((q) => q.taskId))] })).map((t) => [t.id, t.key]));
+  const rows = open.filter((q) => keyOf.has(q.taskId)).map((q) => ({ q, key: keyOf.get(q.taskId)! }));
   const out: Decision[] = [];
   for (const { q, key } of rows) {
     const p = slugById.get(q.projectId);
@@ -502,7 +491,7 @@ export async function inboxByProject(db: Db, all: Project[]): Promise<Map<string
 
 export async function decisionsRead(db: Db, now = new Date(), inboxed?: Map<string, InboxItem[]>): Promise<Decision[]> {
   const since = new Date(now.getTime() - KEEP_ACTED);
-  const all = await db.select().from(projects);
+  const all = await readerOf(db).find("projects");
   const byId = new Map(all.map((p) => [p.id, p]));
   const settings = await loadSettings(db);
   const inbox = inboxed ?? (await inboxByProject(db, all));
@@ -543,8 +532,16 @@ async function after(db: Db, id: string, state: DecisionState, extra: Partial<De
   return { ok: true, state, decision, ...extra };
 }
 
+// A message's action_state, written in a serialized store write of its own (under the thread's project).
+// With claim, only while nobody acted on it yet: false means another click got there first.
+async function setActionState(db: Db, ref: ThreadRef, msgId: string, patch: Partial<Pick<ThreadMessage, "actionState" | "proposal">>, claim = false): Promise<boolean> {
+  const where = claim ? { id: msgId, actionState: null } : { id: msgId };
+  const changed = await pgStore(db).write(ref.project?.id ?? COMPANY, {}, (uow) => uow.update("threadMessages", where, patch));
+  return changed.length > 0;
+}
+
 async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
-  const [m] = await db.select().from(threadMessages).where(eq(threadMessages.id, msgId)).limit(1);
+  const m = await readerOf(db).get("threadMessages", { id: msgId });
   if (!m) return refuse("DECISION_NOT_FOUND", "Esa decisión ya no está.", 404);
   if (m.actionState) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.", 409, { state: stateOf(m.actionState) });
   const ref = await resolveThread(db, m.threadId);
@@ -571,20 +568,16 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
     }
     // Claim the message first: a second click finds action_state set and is refused.
     const at = new Date().toISOString();
-    const claimed = await db
-      .update(threadMessages)
-      .set({ actionState: { action: input.action, at, result } as unknown as ActionState })
-      .where(and(eq(threadMessages.id, m.id), isNull(threadMessages.actionState)))
-      .returning({ id: threadMessages.id });
-    if (claimed.length === 0) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.");
+    const claimed = await setActionState(db, ref, m.id, { actionState: { action: input.action, at, result } as unknown as ActionState }, true);
+    if (!claimed) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.");
     try {
       const posted = await jorgePosts(db, ref, body);
       const full = { ...result, message_id: posted.message.id, ticket: posted.created?.key ?? null, wake: posted.wake };
       const state = { action: input.action, at, result: full };
-      await db.update(threadMessages).set({ actionState: state as unknown as ActionState }).where(eq(threadMessages.id, m.id));
+      await setActionState(db, ref, m.id, { actionState: state as unknown as ActionState });
       return after(db, id, state, { created: posted.created, wake: posted.wake });
     } catch (e) {
-      await db.update(threadMessages).set({ actionState: null }).where(eq(threadMessages.id, m.id));
+      await setActionState(db, ref, m.id, { actionState: null });
       throw e;
     }
   }
@@ -597,25 +590,21 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
 
 // PLA-I36-8: Sí, empiecen makes one Ready ticket per step; Cambiar algo closes the order and hands its text back to
 // the box; Cancelar closes the order. Each claims the message's action_state first, like Elegir.
-async function actOnPlan(db: Db, id: string, m: typeof threadMessages.$inferSelect, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
+async function actOnPlan(db: Db, id: string, m: ThreadMessage, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
   if (!["empezar", "cambiar", "cancelar"].includes(input.action)) return refuse("INVALID_ACTION", "Aquí: Sí, empiecen · Cambiar algo · Cancelar.", 400);
   const data = m.proposal!;
   const ref = await resolveThread(db, m.threadId);
   const p = ref.project!;
-  const [order] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, data.order!))).limit(1);
+  const order = await readerOf(db).get("tasks", { projectId: p.id, key: data.order! });
   const at = new Date().toISOString();
-  const claimed = await db
-    .update(threadMessages)
-    .set({ actionState: { action: input.action, at, result: {} } as unknown as ActionState })
-    .where(and(eq(threadMessages.id, m.id), isNull(threadMessages.actionState)))
-    .returning({ id: threadMessages.id });
-  if (claimed.length === 0) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.");
+  const claimed = await setActionState(db, ref, m.id, { actionState: { action: input.action, at, result: {} } as unknown as ActionState }, true);
+  if (!claimed) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.");
   const ctx = { ...webCtx, tool: `screen.plan_${input.action}` };
   let result: Record<string, unknown>;
   try {
     if (input.action === "empezar") {
       const created = await makeSteps(db, p.slug, data, ctx);
-      await db.update(threadMessages).set({ proposal: { ...data, created } }).where(eq(threadMessages.id, m.id));
+      await setActionState(db, ref, m.id, { proposal: { ...data, created } });
       if (order) await setTask(db, { project: p.slug, key: order.key, note: `Jorge aprobó el plan: ${created.join(", ")}.` } as never, ctx);
       await postMessage(db, ref, { author: JORGE, body: "Sí, empiecen." }, ctx);
       result = { created, order: data.order };
@@ -628,12 +617,12 @@ async function actOnPlan(db: Db, id: string, m: typeof threadMessages.$inferSele
       result = { order: data.order, text };
     }
   } catch (e) {
-    await db.update(threadMessages).set({ actionState: null }).where(eq(threadMessages.id, m.id));
+    await setActionState(db, ref, m.id, { actionState: null });
     if (e instanceof ToolError) return refuse(e.code, "Plania no dejó hacerlo.", 409, e.detail);
     throw e;
   }
   const state = { action: input.action, at, result };
-  await db.update(threadMessages).set({ actionState: state as unknown as ActionState }).where(eq(threadMessages.id, m.id));
+  await setActionState(db, ref, m.id, { actionState: state as unknown as ActionState });
   return after(db, id, state);
 }
 
@@ -641,20 +630,21 @@ async function actOnPlan(db: Db, id: string, m: typeof threadMessages.$inferSele
 export const orderText = (t: Pick<Task, "scope" | "title">) => /^Pedido de Jorge[^:]*: "([\s\S]*?)"\s*$/m.exec(t.scope ?? "")?.[1] ?? t.title;
 
 async function actOnTicket(db: Db, id: string, taskId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
-  const [t] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
+  const r = readerOf(db);
+  const t = await r.get("tasks", { id: taskId });
   if (!t) return refuse("DECISION_NOT_FOUND", "Esa decisión ya no está.", 404);
   if (input.action !== "hecho" && input.action !== "aplazar") return refuse("INVALID_ACTION", "Aquí: Hecho o Aplazar.", 400);
   if (t.status !== "Ready") return refuse("ALREADY_ACTED", `${t.key} ya está en ${t.status}.`, 409, { ticket_status: t.status });
-  const [p] = await db.select().from(projects).where(eq(projects.id, t.projectId)).limit(1);
+  const p = await r.get("projects", { id: t.projectId });
   const status = input.action === "hecho" ? "Done" : "Backlog";
   const ctx = { ...webCtx, tool: `screen.decision_${input.action}` };
   try {
     // Hecho is Jorge's word that it is done: his own ticket's open checks are ticked with it.
     if (input.action === "hecho") {
-      const open = await db.select({ n: checks.n }).from(checks).where(and(eq(checks.taskId, t.id), eq(checks.done, false), isNull(checks.waivedAt)));
+      const open = await r.find("checks", { taskId: t.id, done: false, waivedAt: null });
       for (const c of open) await setCheck(db, { project: p!.slug, key: t.key, n: c.n, done: true } as never, ctx);
     }
-    const [fresh] = await db.select({ version: tasks.version }).from(tasks).where(eq(tasks.id, t.id)).limit(1);
+    const fresh = await r.get("tasks", { id: t.id });
     await setTask(db, { project: p!.slug, key: t.key, status, version: fresh!.version, ...(input.action === "aplazar" ? { note: "Jorge lo aplazó desde Te toca." } : {}) } as never, ctx);
   } catch (e) {
     if (e instanceof ToolError) return refuse(e.code, "Plania no dejó moverlo.", 409, e.detail);
@@ -664,7 +654,7 @@ async function actOnTicket(db: Db, id: string, taskId: string, input: DecisionIn
 }
 
 async function actOnQuestion(db: Db, id: string, qid: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
-  const [q] = await db.select().from(questions).where(eq(questions.id, qid)).limit(1);
+  const q = await readerOf(db).get("questions", { id: qid });
   if (!q) return refuse("DECISION_NOT_FOUND", "Esa decisión ya no está.", 404);
   if (q.answeredAt) return refuse("ALREADY_ACTED", "La pregunta ya tiene respuesta.", 409, { answer: q.answer });
   let text: string;
@@ -680,7 +670,7 @@ async function actOnQuestion(db: Db, id: string, qid: string, input: DecisionInp
     text = input.text?.trim() ?? "";
     if (!text) return refuse("TEXT_REQUIRED", "Escribe tu respuesta.");
   } else return refuse("INVALID_ACTION", "Aquí: Elegir o Responder.", 400);
-  const [p] = await db.select().from(projects).where(eq(projects.id, q.projectId)).limit(1);
+  const p = await readerOf(db).get("projects", { id: q.projectId });
   try {
     await answer(db, { project: p!.slug, question_id: q.id, answer: text }, { ...webCtx, tool: "screen.decision_answer" });
   } catch (e) {
@@ -693,10 +683,12 @@ async function actOnQuestion(db: Db, id: string, qid: string, input: DecisionInp
 // PLA-I36-2: a manual step, marked done as Bandeja does (the ticket may go back to Ready at once).
 async function actOnStep(db: Db, id: string, blockerId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
   if (input.action !== "hecho") return refuse("INVALID_ACTION", "Aquí: Hecho.", 400);
-  const [row] = await db.execute<{ project_id: string; satisfied_at: Date | null }>(sql`select t.project_id, b.satisfied_at from blockers b join tasks t on t.id = b.task_id where b.id = ${blockerId} and b.type = 'human_action'`).then((r) => r.rows);
-  if (!row) return refuse("DECISION_NOT_FOUND", "Ese paso ya no está.", 404);
-  if (row.satisfied_at) return refuse("ALREADY_ACTED", "Ese paso ya está hecho.");
-  const [p] = await db.select().from(projects).where(eq(projects.id, row.project_id)).limit(1);
+  const r = readerOf(db);
+  const b = await r.get("blockers", { id: blockerId, type: "human_action" });
+  const t = b ? await r.get("tasks", { id: b.taskId }) : undefined;
+  if (!b || !t) return refuse("DECISION_NOT_FOUND", "Ese paso ya no está.", 404);
+  if (b.satisfiedAt) return refuse("ALREADY_ACTED", "Ese paso ya está hecho.");
+  const p = await r.get("projects", { id: t.projectId });
   const ctx = { ...webCtx, tool: "screen.decision_step" };
   try {
     await writeTx(db, p!, ctx, (tx, emit) => resolveHumanAction(tx, emit, p!.id, blockerId, webCtx.actor, input.text?.trim() || undefined));

@@ -1,10 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { tokenUsage } from "../db/schema.js";
+import { readerOf, uowOf } from "../store/pg.js";
 import { ToolError } from "./errors.js";
 import { findProject, requireTask } from "./queries.js";
 import { iso, writeTx, type Ctx } from "./tx.js";
@@ -79,6 +78,18 @@ function screenTz(): string {
   return process.env.PLANIA_TZ || "America/Mexico_City";
 }
 
+// The ISO week (YYYY-Www) of an instant's date in a time zone, as Postgres' to_char(at at time zone tz, 'IYYY-"W"IW').
+function isoWeekOf(at: Date, tz: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(at);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  const day = new Date(Date.UTC(get("year"), get("month") - 1, get("day")));
+  // The Thursday of the date's Monday-to-Sunday week decides the ISO year.
+  day.setUTCDate(day.getUTCDate() + 3 - ((day.getUTCDay() + 6) % 7));
+  const year = day.getUTCFullYear();
+  const week = Math.floor((day.getTime() - Date.UTC(year, 0, 1)) / 86_400_000 / 7) + 1;
+  return `${year}-W${String(week).padStart(2, "0")}`;
+}
+
 // Same project, agent, task and run replaces the previous counts. A new run_id adds a row.
 export async function reportTokens(db: Db, input: ReportTokensInput, ctx: Ctx): Promise<ReportTokensResult> {
   const project = await findProject(db, input.project);
@@ -94,25 +105,10 @@ export async function reportTokens(db: Db, input: ReportTokensInput, ctx: Ctx): 
 
   return writeTx(db, project, ctx, async (tx, emit) => {
     const task = await requireTask(tx, project.id, taskKey);
-    const [row] = await tx
-      .insert(tokenUsage)
-      .values({
-        projectId: project.id,
-        agent,
-        taskKey,
-        runId,
-        model,
-        input: inputCount,
-        output: outputCount,
-        cacheRead,
-        cacheCreate,
-        at,
-      })
-      .onConflictDoUpdate({
-        target: [tokenUsage.projectId, tokenUsage.agent, tokenUsage.taskKey, tokenUsage.runId],
-        set: { model, input: inputCount, output: outputCount, cacheRead, cacheCreate, at },
-      })
-      .returning();
+    const uow = uowOf(tx);
+    const run = { projectId: project.id, agent, taskKey, runId };
+    const counts = { model, input: inputCount, output: outputCount, cacheRead, cacheCreate, at };
+    const [row] = (await uow.get("tokenUsage", run)) ? await uow.update("tokenUsage", run, counts) : [await uow.insert("tokenUsage", { ...run, ...counts })];
     await emit("usage.reported", task, { agent, run_id: runId, model, input: inputCount, output: outputCount });
     return {
       label: USAGE_LABEL,
@@ -135,31 +131,29 @@ export async function usageSummary(db: Db, input: { project?: string; agent?: st
   if (agent !== undefined && agent.length > 60) throw new ToolError("INVALID_FILTER", { field: "agent" });
   const project = input.project?.trim() ? await findProject(db, input.project.trim()) : undefined;
   const tz = screenTz();
-  const filters = [sql`true`];
-  if (project) filters.push(sql`u.project_id = ${project.id}`);
-  if (agent) filters.push(sql`u.agent = ${agent}`);
-  if (week) filters.push(sql`to_char(u.at at time zone ${tz}, 'IYYY-"W"IW') = ${week}`);
-  const result = await db.execute<{ agent: string; project: string; week: string; input: number; output: number }>(sql`
-    select u.agent as agent,
-           p.slug as project,
-           to_char(u.at at time zone ${tz}, 'IYYY-"W"IW') as week,
-           sum(u.input)::int as input,
-           sum(u.output)::int as output
-    from token_usage u
-    join projects p on p.id = u.project_id
-    where ${sql.join(filters, sql` and `)}
-    group by u.agent, p.slug, 3
-    order by 3 desc, p.slug asc, u.agent asc`);
-  return {
-    label: USAGE_LABEL,
-    totals: result.rows.map((row) => ({
-      agent: row.agent,
-      project: row.project,
-      week: row.week,
-      input: Number(row.input),
-      output: Number(row.output),
-    })),
-  };
+  const r = readerOf(db);
+  // Rows come sorted by agent and projects by slug, so the order of names below is Postgres' collation.
+  const projects = await r.find("projects", {}, { orderBy: [{ column: "slug" }] });
+  const projectRank = new Map(projects.map((p, i) => [p.id, i]));
+  const slugOf = new Map(projects.map((p) => [p.id, p.slug]));
+  const rows = await r.find("tokenUsage", { ...(project ? { projectId: project.id } : {}), ...(agent ? { agent } : {}) }, { orderBy: [{ column: "agent" }] });
+  const agentRank = new Map<string, number>();
+  const groups = new Map<string, UsageTotal & { rank: [number, number] }>();
+  for (const u of rows) {
+    if (!agentRank.has(u.agent)) agentRank.set(u.agent, agentRank.size);
+    const slug = slugOf.get(u.projectId);
+    if (slug === undefined) continue;
+    const w = isoWeekOf(u.at, tz);
+    if (week && w !== week) continue;
+    const id = JSON.stringify([u.agent, slug, w]);
+    const g = groups.get(id) ?? { agent: u.agent, project: slug, week: w, input: 0, output: 0, rank: [projectRank.get(u.projectId)!, agentRank.get(u.agent)!] };
+    g.input += u.input;
+    g.output += u.output;
+    groups.set(id, g);
+  }
+  // Newest week first, then project slug, then agent.
+  const totals = [...groups.values()].sort((a, b) => (a.week === b.week ? 0 : a.week < b.week ? 1 : -1) || a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1]);
+  return { label: USAGE_LABEL, totals: totals.map(({ agent, project, week, input, output }) => ({ agent, project, week, input, output })) };
 }
 
 type WriteCtx = (

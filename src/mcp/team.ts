@@ -1,10 +1,11 @@
-import { asc, eq, isNull, sql } from "drizzle-orm";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { ADAPTERS, AGENT_KINDS, AGENT_STATUSES, agentTokens, agents, projects, tasks, type AdapterConfig, type Agent, type ProjectSettings, type Task } from "../db/schema.js";
+import { ADAPTERS, AGENT_KINDS, AGENT_STATUSES, type AdapterConfig, type Agent, type ProjectSettings, type Task } from "../db/schema.js";
+import { COMPANY } from "../runner/limits.js";
+import { pgStore, readerOf, uowOf } from "../store/pg.js";
 import { ToolError } from "./errors.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 export { workingOnBySlug, type WorkingOn } from "./working-on.js";
@@ -41,15 +42,18 @@ export function presenceOf(lastCheckIn: Date | null, claims: ClaimPresence[], no
 
 type LiveClaim = { agent: string; idleMinutes: number; seenAt: Date | null };
 
+// Every task, in every project, whose owner's lease has not run out.
 export async function liveClaims(db: Q, now: Date): Promise<LiveClaim[]> {
-  const rows = await db.execute<{ agent: string | null; settings: ProjectSettings; seen_at: string | Date | null }>(sql`
-    select t.owner->>'agent' as agent, p.settings, coalesce(t.last_seen_at, t.claimed_at) as seen_at
-    from tasks t
-    join projects p on p.id = t.project_id
-    where t.owner is not null and t.lease_until > ${now.toISOString()}::timestamptz`);
-  return rows.rows
-    .filter((r) => !!r.agent)
-    .map((r) => ({ agent: r.agent!, idleMinutes: idleMinutesOf(r.settings), seenAt: r.seen_at ? new Date(r.seen_at) : null }));
+  const r = readerOf(db);
+  const settings = new Map((await r.find("projects")).map((p) => [p.id, p.settings]));
+  const out: LiveClaim[] = [];
+  for (const t of await r.find("tasks")) {
+    if (!t.owner || !t.leaseUntil || t.leaseUntil.getTime() <= now.getTime() || !settings.has(t.projectId)) continue;
+    const agent = t.owner.agent == null ? "" : String(t.owner.agent);
+    if (!agent) continue;
+    out.push({ agent, idleMinutes: idleMinutesOf(settings.get(t.projectId)), seenAt: t.lastSeenAt ?? t.claimedAt ?? null });
+  }
+  return out;
 }
 
 export function claimsFor(agent: { slug: string; name: string }, claims: LiveClaim[]): ClaimPresence[] {
@@ -169,34 +173,21 @@ function checkCapabilities(values: string[] | undefined): string[] | undefined {
 
 export async function agentRefOf(db: Q, id: string | null, now = new Date()): Promise<AgentRef | null> {
   if (!id) return null;
-  const [row] = await db
-    .select({
-      id: agents.id,
-      slug: agents.slug,
-      name: agents.name,
-      role: agents.role,
-      title: agents.title,
-      lastCheckInAt: agents.lastCheckInAt,
-    })
-    .from(agents)
-    .where(eq(agents.id, id))
-    .limit(1);
+  const row = await readerOf(db).get("agents", { id });
   if (!row) return null;
   const status = (await statusByAgentId(db, [row], now)).get(row.id) ?? "idle";
   return { slug: row.slug, name: row.name, role: row.role, title: row.title, status };
 }
 
 export async function requireAgentId(db: Q, slug: string): Promise<string> {
-  const [row] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, checkSlug(slug))).limit(1);
+  const row = await readerOf(db).get("agents", { slug: checkSlug(slug) });
   if (!row) throw new ToolError("AGENT_NOT_FOUND", { slug: checkSlug(slug) });
   return row.id;
 }
 
 async function loadTokens(db: Q): Promise<TokenRow[]> {
-  return db
-    .select({ name: agentTokens.name, agent: agentTokens.agent, prefix: agentTokens.prefix, machine: agentTokens.machine })
-    .from(agentTokens)
-    .where(isNull(agentTokens.revokedAt));
+  const rows = await readerOf(db).find("agentTokens", { revokedAt: null });
+  return rows.map((t) => ({ name: t.name, agent: t.agent, prefix: t.prefix, machine: t.machine }));
 }
 
 function tokensFor(row: Agent, tokens: TokenRow[]): AgentView["tokens"] {
@@ -240,7 +231,7 @@ async function shapeRows(db: Q, rows: Agent[], now = new Date()): Promise<AgentV
 }
 
 export async function listAgents(db: Q, now = new Date()): Promise<{ agents: AgentView[] }> {
-  const rows = await db.select().from(agents).orderBy(asc(agents.slug));
+  const rows = await readerOf(db).find("agents", {}, { orderBy: [{ column: "slug" }] });
   return { agents: await shapeRows(db, rows, now) };
 }
 
@@ -250,7 +241,7 @@ async function wouldCycle(db: Q, selfId: string, parentId: string): Promise<bool
   while (current) {
     if (current === selfId || seen.has(current)) return true;
     seen.add(current);
-    const [row] = await db.select({ reportsTo: agents.reportsTo }).from(agents).where(eq(agents.id, current)).limit(1);
+    const row: Agent | undefined = await readerOf(db).get("agents", { id: current });
     current = row?.reportsTo ?? null;
   }
   return false;
@@ -286,8 +277,10 @@ export async function setAgent(db: Db, input: SetAgentInput): Promise<AgentView>
   if (input.name !== undefined && !name) throw new ToolError("INVALID_FILTER", { field: "name" });
   if (input.role !== undefined && !role) throw new ToolError("INVALID_FILTER", { field: "role" });
 
-  return db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(agents).where(eq(agents.slug, slug)).limit(1);
+  // One serialized store write, like every other write, so a roster change never interleaves with one.
+  return pgStore(db).write(COMPANY, {}, async (uow) => {
+    const tx = uow.sql;
+    const existing = await uow.get("agents", { slug });
     let reportsTo: string | null | undefined;
     if (input.reports_to !== undefined) {
       if (input.reports_to === null || input.reports_to.trim() === "") reportsTo = null;
@@ -302,29 +295,26 @@ export async function setAgent(db: Db, input: SetAgentInput): Promise<AgentView>
     let row: Agent;
     if (!existing) {
       if (!name || !role || !kind) throw new ToolError("INVALID_FILTER", { field: !name ? "name" : !role ? "role" : "kind", hint: "required when the slug is new" });
-      const [inserted] = await tx
-        .insert(agents)
-        .values({
-          slug,
-          name,
-          role,
-          title: input.title?.trim() ?? "",
-          reportsTo: reportsTo ?? null,
-          capabilities: capabilities ?? [],
-          kind,
-          wakeUrl: wakeUrl ?? null,
-          adapter: adapter ?? "none",
-          adapterConfig: adapterConfig ?? {},
-          heartbeatMinutes: heartbeatMinutes ?? null,
-          status: status ?? "idle",
-          note: input.note ?? "",
-        })
-        .returning();
-      row = inserted!;
+      row = await uow.insert("agents", {
+        slug,
+        name,
+        role,
+        title: input.title?.trim() ?? "",
+        reportsTo: reportsTo ?? null,
+        capabilities: capabilities ?? [],
+        kind,
+        wakeUrl: wakeUrl ?? null,
+        adapter: adapter ?? "none",
+        adapterConfig: adapterConfig ?? {},
+        heartbeatMinutes: heartbeatMinutes ?? null,
+        status: status ?? "idle",
+        note: input.note ?? "",
+      });
     } else {
-      const [updated] = await tx
-        .update(agents)
-        .set({
+      const [updated] = await uow.update(
+        "agents",
+        { id: existing.id },
+        {
           ...(name !== undefined ? { name } : {}),
           ...(role !== undefined ? { role } : {}),
           ...(input.title !== undefined ? { title: input.title.trim() } : {}),
@@ -337,13 +327,12 @@ export async function setAgent(db: Db, input: SetAgentInput): Promise<AgentView>
           ...(heartbeatMinutes !== undefined ? { heartbeatMinutes } : {}),
           ...(status !== undefined ? { status } : {}),
           ...(input.note !== undefined ? { note: input.note } : {}),
-          updatedAt: sql`now()`,
-        })
-        .where(eq(agents.id, existing.id))
-        .returning();
+          updatedAt: uow.now,
+        },
+      );
       row = updated!;
     }
-    const rows = await tx.select().from(agents);
+    const rows = await uow.find("agents");
     return (await shapeRows(tx, rows)).find((a) => a.slug === row.slug)!;
   });
 }
@@ -354,40 +343,35 @@ export type CheckInInput = { agent: string; working_on?: string; note?: string }
 // and leaves the lease alone. note replaces the roster note.
 export async function checkIn(db: Db, input: CheckInInput, ctx: Ctx): Promise<AgentView & { working_on: string | null }> {
   const slug = checkSlug(input.agent);
-  const [agent] = await db.select().from(agents).where(eq(agents.slug, slug)).limit(1);
+  const r = readerOf(db);
+  const agent = await r.get("agents", { slug });
   if (!agent) throw new ToolError("AGENT_NOT_FOUND", { slug });
 
   let working: { projectId: string; slug: string; task: Task } | null = null;
   if (input.working_on !== undefined && input.working_on.trim() !== "") {
     const key = input.working_on.trim();
-    const found = await db
-      .select({ task: tasks, projectId: projects.id, slug: projects.slug })
-      .from(tasks)
-      .innerJoin(projects, eq(projects.id, tasks.projectId))
-      .where(eq(tasks.key, key));
+    const found: { task: Task; projectId: string; slug: string }[] = [];
+    for (const task of await r.find("tasks", { key })) {
+      const project = await r.get("projects", { id: task.projectId });
+      if (project) found.push({ task, projectId: project.id, slug: project.slug });
+    }
     if (found.length === 0) throw new ToolError("TASK_NOT_FOUND", { key });
     if (found.length > 1) throw new ToolError("INVALID_FILTER", { field: "working_on", hint: "key is in more than one project" });
     working = { projectId: found[0]!.projectId, slug: found[0]!.slug, task: found[0]!.task };
   }
 
-  await db
-    .update(agents)
-    .set({
-      lastCheckInAt: sql`now()`,
-      status: "alive",
-      ...(input.note !== undefined ? { note: input.note } : {}),
-      updatedAt: sql`now()`,
-    })
-    .where(eq(agents.id, agent.id));
+  await pgStore(db).write(COMPANY, {}, (uow) =>
+    uow.update("agents", { id: agent.id }, { lastCheckInAt: uow.now, status: "alive", ...(input.note !== undefined ? { note: input.note } : {}), updatedAt: uow.now }),
+  );
 
   if (working && working.task.ownerAgent !== agent.id) {
     const before = await agentRefOf(db, working.task.ownerAgent);
     await writeTx(db, { id: working.projectId, slug: working.slug }, { ...ctx, tool: "check_in" }, async (tx, emit) => {
-      const [updated] = await tx
-        .update(tasks)
-        .set({ ownerAgent: agent.id, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
-        .where(eq(tasks.id, working!.task.id))
-        .returning();
+      const uow = uowOf(tx);
+      const current = await uow.get("tasks", { id: working!.task.id });
+      const [updated] = current
+        ? await uow.update("tasks", { id: current.id, version: current.version }, { ownerAgent: agent.id, version: current.version + 1, updatedAt: uow.now })
+        : [];
       await emit("task.updated", updated!, { changes: { owner_agent: [before?.slug ?? null, agent.slug] } });
     });
   }

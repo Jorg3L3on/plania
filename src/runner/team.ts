@@ -3,9 +3,11 @@
 // The four core roles come with every project; the specialists are added on screen ("Añadir al equipo").
 // Agents of a team carry project_id and role_template; the slug is po-<project> for the product owner and
 // <template>-<project> for the rest (research-mianovia, taller-mianovia).
-import { and, eq, sql } from "drizzle-orm";
-import { agents, type AdapterConfig, type Agent } from "../db/schema.js";
+import type { AdapterConfig, Agent } from "../db/schema.js";
 import type { Q } from "../mcp/tx.js";
+import { readerOf } from "../store/pg.js";
+import type { NewRow } from "../store/types.js";
+import { writeVia } from "./limits.js";
 
 export const CORE_TEMPLATES = ["product-owner", "research", "artist", "taller"] as const;
 export const SPECIALIST_TEMPLATES = ["qa", "copy", "marketing", "data"] as const;
@@ -43,10 +45,9 @@ export function untouchedAdapter(a: Agent): boolean {
   return a.status !== "retired" && a.kind !== "human" && blank && (a.adapter === "none" || (a.adapter === "http" && !a.wakeUrl));
 }
 
-const bySlug = async (tx: Q, slug: string): Promise<Agent | undefined> => (await tx.select().from(agents).where(eq(agents.slug, slug)).limit(1))[0];
-
 // One team member: inserted when missing, otherwise given its project and template while those are
 // still empty (name, title, note and capabilities stay as Jorge left them). reports_to fills while empty.
+// tx may be the plain Db: the member is then one write of its own.
 export async function ensureMember(
   tx: Q,
   project: { id: string; slug: string; title: string },
@@ -55,41 +56,41 @@ export async function ensureMember(
 ): Promise<{ agent: Agent; created: boolean }> {
   const slug = teamSlug(template, project.slug);
   const row = TEMPLATE_ROWS[template];
-  const parent = opts.reportsTo ? await bySlug(tx, opts.reportsTo) : undefined;
-  const [made] = await tx
-    .insert(agents)
-    .values({
-      slug,
-      name: row.name(project.title || project.slug).slice(0, 60),
-      role: row.role,
-      title: row.title,
-      kind: "bot",
-      capabilities: row.capabilities(project.slug),
-      note: opts.note ?? "",
-      status: "idle",
-      adapter: RUNNER_CONFIG.adapter,
-      adapterConfig: RUNNER_CONFIG.adapterConfig,
-      heartbeatMinutes: null,
-      projectId: project.id,
-      roleTemplate: template,
-      reportsTo: parent?.id ?? null,
-    })
-    .onConflictDoNothing({ target: agents.slug })
-    .returning();
-  if (made) return { agent: made, created: true };
-  const existing = (await bySlug(tx, slug))!;
-  const set: Record<string, unknown> = {};
-  if (!existing.projectId) set.projectId = project.id;
-  if (!existing.roleTemplate) set.roleTemplate = template;
-  if (!existing.reportsTo && parent && parent.id !== existing.id) set.reportsTo = parent.id;
-  if (untouchedAdapter(existing)) Object.assign(set, { adapter: RUNNER_CONFIG.adapter, adapterConfig: RUNNER_CONFIG.adapterConfig });
-  if (Object.keys(set).length === 0) return { agent: existing, created: false };
-  const [updated] = await tx
-    .update(agents)
-    .set({ ...set, updatedAt: sql`now()` })
-    .where(eq(agents.id, existing.id))
-    .returning();
-  return { agent: updated!, created: false };
+  const parent = opts.reportsTo ? await readerOf(tx).get("agents", { slug: opts.reportsTo }) : undefined;
+  return writeVia(
+    tx,
+    async (uow) => {
+      const existing = await uow.get("agents", { slug });
+      if (!existing) {
+        const made = await uow.insert("agents", {
+          slug,
+          name: row.name(project.title || project.slug).slice(0, 60),
+          role: row.role,
+          title: row.title,
+          kind: "bot",
+          capabilities: row.capabilities(project.slug),
+          note: opts.note ?? "",
+          status: "idle",
+          adapter: RUNNER_CONFIG.adapter,
+          adapterConfig: RUNNER_CONFIG.adapterConfig,
+          heartbeatMinutes: null,
+          projectId: project.id,
+          roleTemplate: template,
+          reportsTo: parent?.id ?? null,
+        });
+        return { agent: made, created: true };
+      }
+      const set: Partial<NewRow<"agents">> = {};
+      if (!existing.projectId) set.projectId = project.id;
+      if (!existing.roleTemplate) set.roleTemplate = template;
+      if (!existing.reportsTo && parent && parent.id !== existing.id) set.reportsTo = parent.id;
+      if (untouchedAdapter(existing)) Object.assign(set, { adapter: RUNNER_CONFIG.adapter, adapterConfig: RUNNER_CONFIG.adapterConfig });
+      if (Object.keys(set).length === 0) return { agent: existing, created: false };
+      const [updated] = await uow.update("agents", { id: existing.id }, { ...set, updatedAt: uow.now });
+      return { agent: updated!, created: false };
+    },
+    project.id,
+  );
 }
 
 // The four core roles of a project. The PO reports to the CEO seat; the others report to their PO.
@@ -106,9 +107,5 @@ export async function ensureTeam(tx: Q, project: { id: string; slug: string; tit
 
 // The live members of one project's team (retired rows left out), by slug.
 export async function teamOf(tx: Q, projectId: string): Promise<Agent[]> {
-  return tx
-    .select()
-    .from(agents)
-    .where(and(eq(agents.projectId, projectId), sql`${agents.status} <> 'retired'`))
-    .orderBy(agents.slug);
+  return (await readerOf(tx).find("agents", { projectId }, { orderBy: [{ column: "slug" }] })).filter((a) => a.status !== "retired");
 }
