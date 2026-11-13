@@ -6,14 +6,14 @@
 //   POST /api/company/runs/:id/resume          Seguir: the same agent is woken again on the same ticket.
 //   POST /api/company/projects/:slug/tasks/:key/note {text}   Decirle algo: a note the agent reads at its next step.
 //                  It starts "De Compañía:", never "Jorge:" (that prefix turns a note into a step for Jorge).
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agentRuns, agents, events, projects, tasks } from "../db/schema.js";
 import { wakeAgent, type HeartbeatDeps } from "../jobs/heartbeat.js";
 import { ToolError } from "../mcp/errors.js";
 import { webCtx } from "../mcp/tx.js";
 import { claim, setTask } from "../mcp/writes.js";
 import { stopRun } from "../runner/runner.js";
+import { readerOf } from "../store/pg.js";
+import { gte, notNull } from "../store/types.js";
 
 export type RunLine = { id: string; role: string; agent: string; step: string; ticket: string; since: string; last: string | null; status: "running" | "stopped" };
 
@@ -37,38 +37,36 @@ const said = (type: string, payload: Record<string, unknown>) => {
 
 export async function runView(db: Db, projectId: string, keys: string[]): Promise<RunLine | null> {
   if (keys.length === 0) return null;
-  const [run] = await db
-    .select({ id: agentRuns.id, status: agentRuns.status, role: agentRuns.role, taskKey: agentRuns.taskKey, startedAt: agentRuns.startedAt, queuedAt: agentRuns.queuedAt, agent: agents.slug })
-    .from(agentRuns)
-    .innerJoin(agents, eq(agents.id, agentRuns.agentId))
-    .where(and(eq(agentRuns.projectId, projectId), inArray(agentRuns.taskKey, keys), inArray(agentRuns.status, ["running", "stopped", "ok", "fail", "queued"])))
-    .orderBy(desc(sql`coalesce(${agentRuns.startedAt}, ${agentRuns.queuedAt})`))
-    .limit(1);
+  const r = readerOf(db);
+  const where = { projectId, taskKey: keys, status: ["running", "stopped", "ok", "fail", "queued"] };
+  // The newest by coalesce(started_at, queued_at): the newest run that started and the newest that did not,
+  // each sorted by Postgres, then the later of the two.
+  const [started] = await r.find("agentRuns", { ...where, startedAt: notNull() }, { orderBy: [{ column: "startedAt", desc: true }], limit: 1 });
+  const [waiting] = await r.find("agentRuns", { ...where, startedAt: null }, { orderBy: [{ column: "queuedAt", desc: true }], limit: 1 });
+  const run = started && (!waiting || started.startedAt!.getTime() >= waiting.queuedAt.getTime()) ? started : waiting;
   if (!run || (run.status !== "running" && run.status !== "stopped")) return null;
+  // Every run has its agent (the foreign key).
+  const agent = (await r.get("agents", { id: run.agentId }))!;
   const since = run.startedAt ?? run.queuedAt;
-  const [t] = await db.select({ title: tasks.title }).from(tasks).where(and(eq(tasks.projectId, projectId), eq(tasks.key, run.taskKey!))).limit(1);
-  const recent = await db
-    .select({ type: events.type, payload: events.payload })
-    .from(events)
-    .where(and(eq(events.projectId, projectId), gte(events.createdAt, since), sql`${events.actor}->>'session_id' = ${`run-${run.id.slice(0, 8)}`}`))
-    .orderBy(desc(events.id))
-    .limit(10);
+  const t = await r.get("tasks", { projectId, key: run.taskKey! });
+  // Its newest events in Plania since it started, the ones its own session (run-<first 8 of its id>) wrote.
+  const session = `run-${run.id.slice(0, 8)}`;
+  const recent = (await r.find("events", { projectId, createdAt: gte(since) }, { orderBy: [{ column: "id", desc: true }] })).filter((e) => e.actor.session_id === session).slice(0, 10);
   const last = recent.map((e) => said(e.type, e.payload as Record<string, unknown>)).find(Boolean) ?? null;
-  return { id: run.id, role: run.role, agent: run.agent, step: t?.title ?? run.taskKey!, ticket: run.taskKey!, since: since.toISOString(), last, status: run.status };
+  return { id: run.id, role: run.role, agent: agent.slug, step: t?.title ?? run.taskKey!, ticket: run.taskKey!, since: since.toISOString(), last, status: run.status };
 }
 
 type Refusal = { error: string; status: 404 | 409; hint: string };
 
+// A run with its agent's and project's slugs; null for an id that names none.
 async function runRow(db: Db, id: string) {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
-  const [r] = await db
-    .select({ id: agentRuns.id, status: agentRuns.status, taskKey: agentRuns.taskKey, agent: agents.slug, project: projects.slug })
-    .from(agentRuns)
-    .innerJoin(agents, eq(agents.id, agentRuns.agentId))
-    .innerJoin(projects, eq(projects.id, agentRuns.projectId))
-    .where(eq(agentRuns.id, id))
-    .limit(1);
-  return r ?? null;
+  const r = readerOf(db);
+  const run = await r.get("agentRuns", { id });
+  const agent = run ? await r.get("agents", { id: run.agentId }) : undefined;
+  const project = run ? await r.get("projects", { id: run.projectId }) : undefined;
+  if (!run || !agent || !project) return null;
+  return { id: run.id, status: run.status, taskKey: run.taskKey, agent: agent.slug, project: project.slug };
 }
 
 export async function stopOneRun(db: Db, id: string): Promise<{ stopped: true; ticket: string | null } | Refusal> {
@@ -95,12 +93,9 @@ export async function resumeRun(db: Db, id: string, deps?: HeartbeatDeps): Promi
   // PLA-18: a run a switch (or, before PLA-21, a budget) stopped still holds its ticket until the next tick frees it, and the
   // wake needs the ticket Ready. Only that run's own lease is released here.
   if (r.taskKey) {
-    const [t] = await db
-      .select({ status: tasks.status, owner: tasks.owner })
-      .from(tasks)
-      .innerJoin(projects, eq(projects.id, tasks.projectId))
-      .where(and(eq(projects.slug, r.project), eq(tasks.key, r.taskKey)))
-      .limit(1);
+    const store = readerOf(db);
+    const p = await store.get("projects", { slug: r.project });
+    const t = p ? await store.get("tasks", { projectId: p.id, key: r.taskKey }) : undefined;
     if (t?.status === "In progress" && t.owner?.session_id === `run-${r.id.slice(0, 8)}`) {
       await claim(db, { project: r.project, key: r.taskKey, action: "release" } as never, { ...webCtx, tool: "screen.run_resume" });
     }
@@ -110,9 +105,10 @@ export async function resumeRun(db: Db, id: string, deps?: HeartbeatDeps): Promi
 }
 
 export async function noteForAgent(db: Db, slug: string, key: string, text: string): Promise<{ noted: true } | Refusal> {
-  const [p] = await db.select({ id: projects.id }).from(projects).where(eq(projects.slug, slug)).limit(1);
+  const r = readerOf(db);
+  const p = await r.get("projects", { slug });
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
-  const [t] = await db.select({ id: tasks.id }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
+  const t = await r.get("tasks", { projectId: p.id, key });
   if (!t) return { error: "TASK_NOT_FOUND", status: 404, hint: "Ese ticket no está." };
   await setTask(db, { project: slug, key, note: `De Compañía: ${text.trim()}` } as never, { ...webCtx, tool: "screen.run_note" });
   return { noted: true };

@@ -2,14 +2,11 @@ import { Hono, type Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
 import { streamSSE } from "hono/streaming";
-import { asc, desc, eq, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { verifyPassword } from "../auth/password.js";
 import { SESSION_COOKIE, createSession, sessionCookieOptions, verifySession } from "../auth/session.js";
 import { issueToken, listTokens, revokeToken, TOKEN_SCOPES } from "../auth/tokens.js";
 import { withDb, type Db } from "../db/client.js";
-import { projects, tasks, type Actor } from "../db/schema.js";
 import { bus } from "../events.js";
 import { backupFindings, backupStatus } from "../jobs/backup.js";
 import { machineInventory, machineTotals, thisMachine } from "../jobs/machine/index.js";
@@ -21,16 +18,18 @@ import { footprintFindings } from "../mcp/footprint-audit.js";
 import { ideaWaits } from "../mcp/ideas.js";
 import { inbox } from "../mcp/inbox.js";
 import { auditCounts, fixFinding, projectAudit } from "../mcp/orden.js";
-import { gatingSql } from "../mcp/jorge-lines.js";
+import { isGating } from "../mcp/jorge-lines.js";
 import { setProject } from "../mcp/project.js";
 import { shipRelease } from "../mcp/release-ship.js";
 import { ToolError, findProject, findTask, taskFull } from "../mcp/queries.js";
 import { answer } from "../mcp/questions.js";
 import { nextStepLine, resumeDigest, resumeLine } from "../mcp/resume.js";
-import { WEB_ACTOR, webCtx, writeTx } from "../mcp/tx.js";
+import { WEB_ACTOR, iso, webCtx, writeTx } from "../mcp/tx.js";
 import { claim, createTask, setTask } from "../mcp/writes.js";
 import { getDigest, rememberCursor } from "../mcp/watch.js";
 import { subscribe, unsubscribe, vapidConfig } from "../push.js";
+import { readerOf } from "../store/pg.js";
+import { gt, type Row } from "../store/types.js";
 import { teamRoutes } from "./team.js";
 import { goalsApi } from "./goals.js";
 import { progressRoutes } from "./progress.js";
@@ -58,23 +57,19 @@ const DECISIONS_LIMIT = 30;
 const ACTIVITY_DAYS = 7;
 
 // Events per project per day in the screen's time zone, the last ACTIVITY_DAYS days, oldest first.
-// One query for every project; the index draws one small bar per day.
+// One read for every project; the index draws one small bar per day.
 async function activityByProject(db: Db): Promise<Map<string, number[]>> {
   const tz = process.env.PLANIA_TZ || "America/Mexico_City";
-  const rows = (
-    await db.execute<{ project_id: string; d: string; n: number }>(sql`
-      select project_id, to_char(created_at at time zone ${tz}, 'YYYY-MM-DD') as d, count(*)::int as n
-      from events
-      where created_at > now() - make_interval(days => ${ACTIVITY_DAYS})
-      group by 1, 2`)
-  ).rows;
   const day = new Intl.DateTimeFormat("en-CA", { timeZone: tz });
+  // The window is ACTIVITY_DAYS × 24 h back from now. (Postgres subtracted days in its session zone, the
+  // server's America/Mexico_City, which keeps no daylight time, so its days were 24 h too.)
+  const rows = await readerOf(db).find("events", { createdAt: gt(new Date(Date.now() - ACTIVITY_DAYS * 86_400_000)) });
   const days = Array.from({ length: ACTIVITY_DAYS }, (_, i) => day.format(new Date(Date.now() - (ACTIVITY_DAYS - 1 - i) * 86_400_000)));
   const out = new Map<string, number[]>();
-  for (const r of rows) {
-    const list = out.get(r.project_id) ?? out.set(r.project_id, days.map(() => 0)).get(r.project_id)!;
-    const i = days.indexOf(r.d);
-    if (i >= 0) list[i] = r.n;
+  for (const e of rows) {
+    const list = out.get(e.projectId) ?? out.set(e.projectId, days.map(() => 0)).get(e.projectId)!;
+    const i = days.indexOf(day.format(e.createdAt));
+    if (i >= 0) list[i]! += 1;
   }
   return out;
 }
@@ -161,7 +156,7 @@ api.get("/session", (c) => c.body(null, 204));
 // Every project with its generated line, open question count, and all its tasks without scope.
 api.get("/projects", async (c) => {
   const rows = await withDb(async (db) => {
-    const all = await db.select().from(projects).orderBy(asc(projects.slug));
+    const all = await readerOf(db).find("projects", {}, { orderBy: [{ column: "slug" }] });
     const allTasks = await screenTasks(db);
     const activity = await activityByProject(db);
     const audits = await auditCounts(db);
@@ -234,52 +229,68 @@ export function datesOf(rows: { key: string; title: string; status: string; due_
 // version goes back with every change; claimed_by is the live lease, if any.
 // One project, or every project when projectId is omitted.
 async function screenTasks(db: Db, projectId?: string) {
-  const parent = alias(tasks, "parent");
-  return db
-    .select({
-      project_id: tasks.projectId,
-      key: tasks.key,
-      kind: tasks.kind,
-      title: tasks.title,
-      summary: tasks.summary,
-      status: tasks.status,
-      stage: tasks.stage,
-      promoted_to: tasks.promotedTo,
-      priority: tasks.priority,
-      work_type: tasks.workType,
-      parent_key: parent.key,
-      blocked_note: tasks.blockedNote,
-      pr_url: tasks.prUrl,
-      branch: tasks.branch,
-      base_branch: tasks.baseBranch,
-      version: tasks.version,
-      claimed_by: sql<Actor | null>`case when ${tasks.leaseUntil} > now() then ${tasks.owner} end`,
-      lease_until: sql<string | null>`case when ${tasks.leaseUntil} > now()
-        then to_char(${tasks.leaseUntil} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') end`,
+  const r = readerOf(db);
+  const now = new Date();
+  // Postgres sorts (an ascending sort puts nulls last), so priority keeps the database's text order.
+  const rows = await r.find("tasks", projectId ? { projectId } : {}, { orderBy: [{ column: "priority" }, { column: "updatedAt", desc: true }] });
+  const ids = rows.map((t) => t.id);
+  // Parents are read with the rows; one outside them (another project's) is read by id.
+  const keyById = new Map(rows.map((t) => [t.id, t.key]));
+  const strays = [...new Set(rows.map((t) => t.parentId).filter((id): id is string => !!id && !keyById.has(id)))];
+  if (strays.length) for (const t of await r.find("tasks", { id: strays })) keyById.set(t.id, t.key);
+  const links = ids.length ? await r.find("taskBlockers", { taskId: ids }) : [];
+  const linked = new Map<string, Set<string>>();
+  for (const l of links) linked.set(l.taskId, (linked.get(l.taskId) ?? new Set()).add(l.blockerId));
+  // The blocking tasks in key order, sorted by the store so text order stays the database's.
+  const blockerIds = [...new Set(links.map((l) => l.blockerId))];
+  const settled = new Set<string>(SETTLED_STATUSES);
+  const waiting = blockerIds.length ? (await r.find("tasks", { id: blockerIds }, { orderBy: [{ column: "key" }] })).filter((b) => !settled.has(b.status)) : [];
+  const typed = new Map<string, Row<"blockers">[]>();
+  for (const b of ids.length ? await r.find("blockers", { taskId: ids }) : []) typed.get(b.taskId)?.push(b) ?? typed.set(b.taskId, [b]);
+  return rows.map((t) => {
+    const live = t.leaseUntil !== null && t.leaseUntil > now;
+    const mine = typed.get(t.id) ?? [];
+    const on = linked.get(t.id);
+    // The earliest time_after still ahead. A spec without a time has none.
+    const ahead = mine
+      .filter((b) => b.type === "time_after" && b.spec.at != null)
+      .map((b) => new Date(String(b.spec.at)))
+      .filter((at) => at > now)
+      .sort((a, b) => a.getTime() - b.getTime());
+    return {
+      project_id: t.projectId,
+      key: t.key,
+      kind: t.kind,
+      title: t.title,
+      summary: t.summary,
+      status: t.status,
+      stage: t.stage,
+      promoted_to: t.promotedTo,
+      priority: t.priority,
+      work_type: t.workType,
+      parent_key: t.parentId ? (keyById.get(t.parentId) ?? null) : null,
+      blocked_note: t.blockedNote,
+      pr_url: t.prUrl,
+      branch: t.branch,
+      base_branch: t.baseBranch,
+      version: t.version,
+      claimed_by: live ? t.owner : null,
+      lease_until: live ? iso(t.leaseUntil) : null,
       // When the live lease started and when its holder last wrote, for "desde hace" and "visto hace".
-      claimed_at: sql<string | null>`case when ${tasks.leaseUntil} > now()
-        then to_char(${tasks.claimedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') end`,
-      last_seen_at: sql<string | null>`case when ${tasks.leaseUntil} > now()
-        then to_char(${tasks.lastSeenAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') end`,
-      updated_at: sql<string>`to_char(${tasks.updatedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+      claimed_at: live ? iso(t.claimedAt) : null,
+      last_seen_at: live ? iso(t.lastSeenAt) : null,
+      updated_at: iso(t.updatedAt),
       // When the task was created. Ahora uses it to pick the oldest idea that is still waiting.
-      created_at: sql<string>`to_char(${tasks.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+      created_at: iso(t.createdAt),
       // Tasks this one still waits on (not yet settled), so the screen can queue it behind them.
-      waits_on: sql<string[]>`coalesce((select array_agg(bt.key order by bt.key) from task_blockers tb
-        join tasks bt on bt.id = tb.blocker_id
-        where tb.task_id = ${tasks.id} and bt.status not in (${sql.join(SETTLED_STATUSES.map((s) => sql`${s}`), sql`, `)})), '{}')`,
+      waits_on: on ? waiting.filter((b) => on.has(b.id)).map((b) => b.key) : [],
       // Any typed blocker (env, flag, metric, time, an open human action) holds it outside the initiative.
       // 2.10: dates on screen. due_on (YYYY-MM-DD) and the earliest time_after still ahead.
-      due_on: tasks.dueOn,
-      time_after: sql<string | null>`(select to_char(min((bt.spec->>'at')::timestamptz) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
-        from blockers bt where bt.task_id = ${tasks.id} and bt.type = 'time_after' and (bt.spec->>'at')::timestamptz > now())`,
-      held: sql<boolean>`exists (select 1 from blockers bx where bx.task_id = ${tasks.id}
-        and not (bx.type = 'human_action' and bx.satisfied_at is not null) and ${gatingSql("bx")})`,
-    })
-    .from(tasks)
-    .leftJoin(parent, eq(parent.id, tasks.parentId))
-    .where(projectId ? eq(tasks.projectId, projectId) : undefined)
-    .orderBy(sql`${tasks.priority} asc nulls last`, desc(tasks.updatedAt));
+      due_on: t.dueOn,
+      time_after: ahead.length ? ahead[0]!.toISOString() : null,
+      held: mine.some((b) => !(b.type === "human_action" && b.satisfiedAt !== null) && isGating(b.spec)),
+    };
+  });
 }
 
 api.get("/projects/:slug", async (c) => {
