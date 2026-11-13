@@ -1,5 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
-import { docs, questions, tasks } from "../db/schema.js";
+import { readerOf } from "../store/pg.js";
 import { ToolError } from "./errors.js";
 import type { Q } from "./tx.js";
 
@@ -90,19 +89,13 @@ export function ideaWaitText(stage: string | null, docRows: StageDocRow[], qs: S
 
 // What each idea on the project page is waiting on, keyed by task key.
 export async function ideaWaits(db: Q, projectId: string): Promise<Map<string, string>> {
-  const rows = await db
-    .select({ id: tasks.id, key: tasks.key, stage: tasks.stage })
-    .from(tasks)
-    .where(and(eq(tasks.projectId, projectId), eq(tasks.kind, "idea")));
+  const r = readerOf(db);
+  const rows = await r.find("tasks", { projectId, kind: "idea" });
   const map = new Map<string, string>();
   if (!rows.length) return map;
-  const ids = rows.map((r) => r.id);
-  const docRows = await db.select({ taskId: docs.taskId, title: docs.title, markdown: docs.markdown }).from(docs).where(inArray(docs.taskId, ids));
-  const qRows = await db
-    .select({ taskId: questions.taskId, question: questions.question, answeredAt: questions.answeredAt })
-    .from(questions)
-    .where(inArray(questions.taskId, ids))
-    .orderBy(asc(questions.askedAt));
+  const ids = rows.map((t) => t.id);
+  const docRows = await r.find("docs", { taskId: ids });
+  const qRows = await r.find("questions", { taskId: ids }, { orderBy: [{ column: "askedAt" }] });
   for (const t of rows) {
     const mine = docRows.filter((d) => d.taskId === t.id);
     const qs = qRows.filter((q) => q.taskId === t.id).map((q) => ({ question: q.question, answered: !!q.answeredAt }));
@@ -114,7 +107,7 @@ export async function ideaWaits(db: Q, projectId: string): Promise<Map<string, s
 // The doc the forward move needs, if any. Used by set_task.
 export async function assertForwardStage(db: Q, taskId: string, from: string, to: string): Promise<void> {
   const req = STAGE_DOCS[from as Exclude<Stage, "ready">];
-  const docRows = req ? await db.select({ title: docs.title, markdown: docs.markdown }).from(docs).where(eq(docs.taskId, taskId)) : [];
+  const docRows = req ? await readerOf(db).find("docs", { taskId }) : [];
   const block = forwardBlock(from, req ? docRows.find((d) => d.title === req.doc) : undefined);
   if (block) throw new ToolError("STAGE_REQUIREMENTS_MISSING", { from, to, doc: block.doc, missing: block.missing });
 }
