@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
-import { blockers, events, type Task } from "../db/schema.js";
+import type { Task } from "../db/schema.js";
+import { uowOf } from "../store/pg.js";
+import { UUID_TEXT } from "./blockers.js";
 import { ToolError } from "./errors.js";
 import type { WriteWarning } from "./queries.js";
 import type { Ctx, Emit, Q } from "./tx.js";
@@ -66,9 +67,6 @@ type ParsedSpec = { assignee: string; text: string; source: "parsed"; field: Par
 /** A parsed blocker holds claims and keeps a ticket Blocked only when it came from blocked_note. */
 export const isGating = (spec: Record<string, unknown>) => spec.source !== "parsed" || spec.field === "blocked_note";
 
-// SQL: the blocker row (alias) holds. Parsed lines from other fields only reach the inbox.
-export const gatingSql = (alias: string) => sql.raw(`not (coalesce(${alias}.spec->>'source', '') = 'parsed' and coalesce(${alias}.spec->>'field', '') <> 'blocked_note')`);
-
 /**
  * Resync the parsed blockers of one task after a write. texts maps each field the write set to its
  * new text (null for a cleared one). Per field: lines gone from the text drop their unsatisfied
@@ -78,10 +76,8 @@ export const gatingSql = (alias: string) => sql.raw(`not (coalesce(${alias}.spec
 export async function syncJorgeLines(tx: Q, emit: Emit, t: Pick<Task, "id" | "key">, texts: Partial<Record<ParsedField, string | null>>): Promise<WriteWarning[]> {
   const entries = Object.entries(texts) as [ParsedField, string | null][];
   if (!entries.length) return [];
-  const existing = await tx
-    .select()
-    .from(blockers)
-    .where(and(eq(blockers.taskId, t.id), eq(blockers.type, "human_action"), sql`${blockers.spec}->>'source' = 'parsed'`));
+  const uow = uowOf(tx);
+  const existing = (await uow.find("blockers", { taskId: t.id, type: "human_action" })).filter((b) => b.spec.source === "parsed");
   const warnings: WriteWarning[] = [];
   const known = new Set(existing.map((b) => (b.spec as ParsedSpec).line_hash));
   for (const [field, text] of entries) {
@@ -89,7 +85,7 @@ export async function syncJorgeLines(tx: Q, emit: Emit, t: Pick<Task, "id" | "ke
     const hashes = new Set(lines.map((l) => l.hash));
     if (field !== "note") {
       for (const b of existing.filter((b) => (b.spec as ParsedSpec).field === field && !b.satisfiedAt && !hashes.has((b.spec as ParsedSpec).line_hash))) {
-        await tx.delete(blockers).where(eq(blockers.id, b.id));
+        await uow.delete("blockers", { id: b.id });
         known.delete((b.spec as ParsedSpec).line_hash);
         await emit("blocker.unparsed", t, { blocker_id: b.id, field, text: (b.spec as ParsedSpec).text });
       }
@@ -97,10 +93,10 @@ export async function syncJorgeLines(tx: Q, emit: Emit, t: Pick<Task, "id" | "ke
     for (const l of lines) {
       if (known.has(l.hash)) continue;
       const spec: ParsedSpec = { assignee: "jorge", text: l.text, source: "parsed", field, line_hash: l.hash };
-      const [row] = await tx.insert(blockers).values({ taskId: t.id, type: "human_action", spec }).returning({ id: blockers.id });
+      const row = await uow.insert("blockers", { taskId: t.id, type: "human_action", spec });
       known.add(l.hash);
-      await emit("blocker.parsed", t, { blocker_id: row!.id, field, text: l.text });
-      warnings.push({ code: "JORGE_LINE_PARSED", blocker_id: row!.id, field, text: l.text, fix_hint: "use blocked_by human_action next time" });
+      await emit("blocker.parsed", t, { blocker_id: row.id, field, text: l.text });
+      warnings.push({ code: "JORGE_LINE_PARSED", blocker_id: row.id, field, text: l.text, fix_hint: "use blocked_by human_action next time" });
     }
   }
   return warnings;
@@ -112,25 +108,20 @@ export async function syncJorgeLines(tx: Q, emit: Emit, t: Pick<Task, "id" | "ke
  * or Jorge. Lines from the other fields drop by editing the field, so they are refused here.
  */
 export async function withdrawParsedBlocker(tx: Q, emit: Emit, t: Pick<Task, "id" | "key">, blockerId: string, ctx: Ctx): Promise<void> {
-  const [b] = await tx
-    .select()
-    .from(blockers)
-    .where(and(eq(blockers.taskId, t.id), sql`${blockers.id}::text = ${blockerId}`))
-    .limit(1);
+  const uow = uowOf(tx);
+  // Ids were matched as text: only a uuid's canonical text names a row, anything else is not found.
+  const b = typeof blockerId === "string" && UUID_TEXT.test(blockerId) ? await uow.get("blockers", { taskId: t.id, id: blockerId }) : undefined;
   const spec = b?.spec as Partial<ParsedSpec> | undefined;
   if (!b || b.type !== "human_action" || spec?.source !== "parsed") throw new ToolError("BLOCKER_NOT_WITHDRAWABLE", { blocker_id: blockerId, reason: "no parsed human action with that id on this task" });
   if (b.satisfiedAt) throw new ToolError("BLOCKER_NOT_WITHDRAWABLE", { blocker_id: blockerId, reason: "already done: it stays as history" });
   if (spec.field !== "note") throw new ToolError("BLOCKER_NOT_WITHDRAWABLE", { blocker_id: blockerId, reason: `parsed from ${spec.field}: edit that field and the line drops` });
   if (!ctx.human) {
-    const [made] = await tx
-      .select({ actor: events.actor, tokenId: events.tokenId })
-      .from(events)
-      .where(and(eq(events.taskId, t.id), eq(events.type, "blocker.parsed"), sql`${events.payload}->>'blocker_id' = ${blockerId}`))
-      .limit(1);
+    // The blocker exists, so blockerId is a uuid's text, which only a string payload value can equal.
+    const made = (await uow.find("events", { taskId: t.id, type: "blocker.parsed" })).find((e) => e.payload.blocker_id === blockerId);
     const mine = !!made && (made.actor.session_id === ctx.actor.session_id || (!!made.tokenId && made.tokenId === ctx.tokenId));
     if (!mine) throw new ToolError("BLOCKER_NOT_WITHDRAWABLE", { blocker_id: blockerId, reason: "only the session or token that wrote the note (or Jorge) may withdraw it", written_by: made?.actor ?? null });
   }
-  await tx.delete(blockers).where(eq(blockers.id, b.id));
+  await uow.delete("blockers", { id: b.id });
   await emit("blocker.withdrawn", t, { blocker_id: b.id, field: spec.field, text: spec.text });
 }
 

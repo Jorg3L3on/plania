@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
 import { blockers, envCommits, envStates, projectMetrics, taskBlockers, tasks } from "../db/schema.js";
-import { gatingSql } from "./jorge-lines.js";
+
+// SQL: the blocker row (alias) holds, isGating's rule (jorge-lines.ts). Parsed lines from other fields only reach the inbox.
+export const gatingSql = (alias: string) => sql.raw(`not (coalesce(${alias}.spec->>'source', '') = 'parsed' and coalesce(${alias}.spec->>'field', '') <> 'blocked_note')`);
 
 // Legacy SQL for callers not yet on the store port (runner/events.ts, runner/failed.ts, audit.ts,
 // readiness.ts). blockers.ts evaluates the same rule over store rows (blockedTaskIds); this file goes

@@ -1,6 +1,6 @@
 import type { Db } from "../db/client.js";
-import { tasks, type Workspace } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import type { Workspace } from "../db/schema.js";
+import { readerOf } from "../store/pg.js";
 import { getContext } from "./context.js";
 import { addResultInTx, type AddResultInput } from "./evidence.js";
 import { ToolError, findProject, requireTask } from "./queries.js";
@@ -66,7 +66,7 @@ export async function finish(db: Db, input: FinishInput, ctx: Ctx) {
     }
     let initiative: { key: string; version: number; next_action: string } | undefined;
     if (input.note?.trim() && t.parentId) {
-      const [parent] = await tx.select().from(tasks).where(eq(tasks.id, t.parentId)).limit(1);
+      const parent = await readerOf(tx).get("tasks", { id: t.parentId });
       const r = await setTaskInTx(tx, emit, p, { project: p.slug, key: parent!.key, next_action: input.note.trim(), version: parent!.version }, ctx);
       initiative = { key: r.key, version: r.version, next_action: input.note.trim() };
     }

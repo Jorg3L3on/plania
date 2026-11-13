@@ -10,13 +10,13 @@
 // Only the project's PO (or Asistente) may propose; the author is the agent behind the actor.
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { projects, tasks, type ProposalCost, type ProposalData, type ThreadLink } from "../db/schema.js";
+import type { ProposalCost, ProposalData, ThreadLink } from "../db/schema.js";
 import { agentOfActor } from "../runner/events.js";
 import { assertThreadAccess, checkLinks, messageView, postMessage, projectThread } from "../runner/threads.js";
+import { readerOf } from "../store/pg.js";
 import { ToolError } from "./errors.js";
 import type { Ctx } from "./tx.js";
 import { createTask } from "./writes.js";
@@ -119,14 +119,14 @@ export async function makeSteps(db: Db, slug: string, p: ProposalData, ctx: Ctx)
 }
 
 export async function propose(db: Db, input: ProposeInput, ctx: Ctx) {
-  const [p] = await db.select().from(projects).where(eq(projects.slug, input.project)).limit(1);
+  const p = await readerOf(db).get("projects", { slug: input.project });
   if (!p) throw new ToolError("PROJECT_NOT_FOUND", { project: input.project });
   const ref = { thread: await projectThread(db, p.id), project: p };
   const { agent, role } = await assertThreadAccess(db, await agentOfActor(db, ctx.actor), ref);
   if (role !== "product-owner" && role !== "asistente") throw new ToolError("THREAD_FORBIDDEN", { hint: "only the project's PO proposes" });
   const data = checkProposal(input, !!p.settings.plan_approval, checkLinks(input.links));
   if (data.kind === "plan") {
-    const [order] = await db.select({ id: tasks.id, origin: tasks.origin }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, data.order!))).limit(1);
+    const order = await readerOf(db).get("tasks", { projectId: p.id, key: data.order! });
     if (!order) throw new ToolError("TASK_NOT_FOUND", { key: data.order, hint: "order is the key of Jorge's order in this project" });
     if (!data.needs_approval) data.created = await makeSteps(db, p.slug, data, ctx);
     if (!data.links.some((l) => l.kind === "ticket" && l.ref === data.order)) data.links.unshift({ kind: "ticket", ref: data.order!, title: data.title.slice(0, 200) });

@@ -1,6 +1,6 @@
-import { and, asc, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { auditRuns, tasks, type Project } from "../db/schema.js";
+import type { Project, Task } from "../db/schema.js";
+import { readerOf } from "../store/pg.js";
 import { CLAIMABLE_BUT_WAITING, auditProject, canonicalAuditCode, runAudit, type Finding } from "./audit.js";
 import { retireDecision } from "./decisions.js";
 import { setEnv } from "./env.js";
@@ -55,10 +55,11 @@ export const ordenShape = (f: Finding): OrdenFinding => {
 
 /** GET /api/projects/:slug/audit: the latest stored run (one is made if the project has none yet). */
 export async function projectAudit(db: Db, p: Project) {
-  let [row] = await db.select().from(auditRuns).where(eq(auditRuns.projectId, p.id)).limit(1);
+  const r = readerOf(db);
+  let row = await r.get("auditRuns", { projectId: p.id });
   if (!row) {
     await runAudit(db, p);
-    [row] = await db.select().from(auditRuns).where(eq(auditRuns.projectId, p.id)).limit(1);
+    row = await r.get("auditRuns", { projectId: p.id });
   }
   const findings = (row?.findings ?? []).map(ordenShape);
   return { project: p.slug, at: iso(row?.at ?? null), count: findings.length, findings };
@@ -66,7 +67,8 @@ export async function projectAudit(db: Db, p: Project) {
 
 /** The stored count per project, for the home tiles. */
 export async function auditCounts(db: Q): Promise<Map<string, number>> {
-  const rows = await db.select({ projectId: auditRuns.projectId, count: auditRuns.count }).from(auditRuns);
+  // One row per project: every project's tile needs its count.
+  const rows = await readerOf(db).find("auditRuns");
   return new Map(rows.map((r) => [r.projectId, r.count]));
 }
 
@@ -97,28 +99,29 @@ export async function fixFinding(db: Db, p: Project, input: FixInput) {
  * project is in order.
  */
 export async function choreFor(db: Q, p: Project): Promise<Finding | null> {
-  const [row] = await db.select().from(auditRuns).where(eq(auditRuns.projectId, p.id)).limit(1);
+  const r = readerOf(db);
+  const row = await r.get("auditRuns", { projectId: p.id });
   const fromAudit = (row?.findings ?? []).find((f) => AGENT_CHORES.has(canonicalAuditCode(f.code)));
   if (fromAudit) return fromAudit;
-  const stale = await db
-    .select({ key: tasks.key, at: tasks.stateNoteAt })
-    .from(tasks)
-    .where(
-      and(
-        eq(tasks.projectId, p.id),
-        eq(tasks.kind, "initiative"),
-        sql`${tasks.status} not in ('Done', 'Won''t do')`,
-        sql`${tasks.stateNote} <> ''`,
-        sql`${tasks.stateNoteAt} < (select max(c.status_changed_at) from tasks c where c.parent_id = ${tasks.id} or c.id = ${tasks.id})`,
-      ),
-    )
-    .orderBy(asc(tasks.key))
-    .limit(1);
-  if (stale[0]) {
+  // Open initiatives with a state_note, in key order (sorted by the store, so text order stays the database's).
+  const open = (await r.find("tasks", { projectId: p.id, kind: "initiative" }, { orderBy: [{ column: "key" }] })).filter(
+    (t) => t.status !== "Done" && t.status !== "Won't do" && t.stateNote !== "" && t.stateNoteAt !== null,
+  );
+  // The last move of one: its own status change or a child's (wherever the child lives), null when none has one.
+  const children = open.length ? await r.find("tasks", { parentId: open.map((t) => t.id) }) : [];
+  const lastMove = (t: Task): number | null => {
+    const times = [t, ...children.filter((c) => c.parentId === t.id)].flatMap((c) => (c.statusChangedAt ? [c.statusChangedAt.getTime()] : []));
+    return times.length ? Math.max(...times) : null;
+  };
+  const stale = open.find((t) => {
+    const last = lastMove(t);
+    return last !== null && t.stateNoteAt!.getTime() < last;
+  });
+  if (stale) {
     return {
       code: "STATE_NOTE_STALE",
-      key: stale[0].key,
-      detail: `state_note from ${iso(stale[0].at)} predates the last move; the derived state (get_task state) already says where it stands`,
+      key: stale.key,
+      detail: `state_note from ${iso(stale.stateNoteAt)} predates the last move; the derived state (get_task state) already says where it stands`,
       fix_hint: "set_task state_note with what the data cannot say, or an empty string to drop it",
     };
   }
@@ -127,7 +130,7 @@ export async function choreFor(db: Q, p: Project): Promise<Finding | null> {
 
 /** get_context: the stored count, and the findings on the caller's tickets. */
 export async function auditForKeys(db: Q, p: Project, keys: Set<string>) {
-  const [row] = await db.select().from(auditRuns).where(eq(auditRuns.projectId, p.id)).limit(1);
+  const row = await readerOf(db).get("auditRuns", { projectId: p.id });
   const findings = row?.findings ?? [];
   return { count: findings.length, at: iso(row?.at ?? null), on_my_tickets: findings.filter((f) => f.key && keys.has(f.key)) };
 }

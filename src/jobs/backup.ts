@@ -5,11 +5,12 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
-import { eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { machineState } from "../db/schema.js";
 import type { Finding } from "../mcp/audit.js";
 import type { Q } from "../mcp/tx.js";
+import { writeVia } from "../runner/limits.js";
+import { readerOf } from "../store/pg.js";
 import type { Job } from "./index.js";
 
 // The nightly backup (2.9 fix b): once per local day after 03:00 (PLANIA_TZ), `pg_dump --no-owner`
@@ -20,6 +21,7 @@ import type { Job } from "./index.js";
 export const KEEP = 14;
 export const STALE_MS = 48 * 3600_000;
 const AFTER_HOUR = 3;
+const STATE_KEY = "backup";
 const DAILY = /^plania-(\d{8})\.sql\.gz$/;
 
 export type BackupState = {
@@ -53,15 +55,22 @@ function localParts(now: Date, tz: string): { day: string; hour: number } {
   return { day: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) };
 }
 
+// The Postgres server's major version (16 for 16.4), 0 when it cannot be read. Postgres-specific on purpose and
+// the one SQL query left in this file: the backup is a pg_dump of Postgres, not a read of plania's data, so it
+// stays off the store port and goes away with the Postgres adapter.
+async function postgresMajorVersion(db: Q): Promise<number> {
+  return db
+    .execute<{ v: string }>(sql`select current_setting('server_version_num') as v`)
+    .then((r) => Math.floor(Number(r.rows[0]?.v ?? 0) / 10000))
+    .catch(() => 0);
+}
+
 // PLANIA_PG_BIN (a directory or the binary itself), else Homebrew's pg_dump for the server's major
 // version (a newer pg_dump writes SET lines an older server rejects on restore), else Homebrew's default.
 async function findPgDump(db: Q): Promise<string> {
   const env = process.env.PLANIA_PG_BIN;
   if (env) return env.endsWith("pg_dump") ? env : path.join(env, "pg_dump");
-  const major = await db
-    .execute<{ v: string }>(sql`select current_setting('server_version_num') as v`)
-    .then((r) => Math.floor(Number(r.rows[0]?.v ?? 0) / 10000))
-    .catch(() => 0);
+  const major = await postgresMajorVersion(db);
   const candidates = [
     ...(major ? [`/opt/homebrew/opt/postgresql@${major}/bin/pg_dump`, `/usr/local/opt/postgresql@${major}/bin/pg_dump`] : []),
     "/opt/homebrew/bin/pg_dump",
@@ -71,15 +80,16 @@ async function findPgDump(db: Q): Promise<string> {
 }
 
 export async function backupState(db: Q): Promise<BackupState> {
-  const [row] = await db.select().from(machineState).where(eq(machineState.key, "backup")).limit(1);
+  const row = await readerOf(db).get("machineState", { key: STATE_KEY });
   return { ...EMPTY, ...(row?.value as Partial<BackupState> | undefined) };
 }
 
+// The machine_state row written whole; machine state belongs to no project.
 async function saveState(db: Q, value: BackupState): Promise<void> {
-  await db
-    .insert(machineState)
-    .values({ key: "backup", value })
-    .onConflictDoUpdate({ target: machineState.key, set: { value, updatedAt: sql`now()` } });
+  await writeVia(db, async (uow) => {
+    if (await uow.get("machineState", { key: STATE_KEY })) await uow.update("machineState", { key: STATE_KEY }, { value, updatedAt: uow.now });
+    else await uow.insert("machineState", { key: STATE_KEY, value });
+  });
 }
 
 // pg_dump's stdout through gzip into `file`. Rejects with pg_dump's stderr when it fails.
