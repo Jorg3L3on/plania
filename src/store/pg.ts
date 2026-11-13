@@ -4,6 +4,7 @@ import { getTableConfig, type PgColumn, type PgTable } from "drizzle-orm/pg-core
 import type { Db } from "../db/client.js";
 import * as schema from "../db/schema.js";
 import type { Q } from "../mcp/tx.js";
+import { withDefaults } from "./defaults.js";
 import { RequestIdReused, type Change, type Committed, type FindOptions, type Idempotency, type NewRow, type Reader, type Row, type Store, type TableName, type UnitOfWork, type Where } from "./types.js";
 
 const REQUEST_TTL = "30 days";
@@ -71,11 +72,12 @@ class PgReader implements Reader {
 
 class PgUnitOfWork extends PgReader implements UnitOfWork {
   readonly changes: Change[] = [];
+  readonly now = new Date();
 
   async insert<T extends TableName>(table: T, row: NewRow<T>): Promise<Row<T>> {
     const [made] = (await this.sql
       .insert(tableOf(table))
-      .values(row as AnyRow)
+      .values(withDefaults(table, row as AnyRow, this.now))
       .returning()) as AnyRow[];
     if (!made) throw new Error(`store: insert into ${table} returned nothing`);
     this.changes.push({ table, op: "put", key: keyOf(table, made), row: made });

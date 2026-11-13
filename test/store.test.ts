@@ -34,6 +34,41 @@ describe("store reads", () => {
   });
 });
 
+describe("application defaults", () => {
+  test("every defaulted column in the schema has an application default", async () => {
+    const schema = await import("../src/db/schema.js");
+    const { getTableConfig, PgTable } = await import("drizzle-orm/pg-core");
+    const { is } = await import("drizzle-orm");
+    const { defaultOf } = await import("../src/store/defaults.js");
+    let tables = 0;
+    const numberedByStore: string[] = [];
+    for (const [name, t] of Object.entries(schema)) {
+      if (!is(t, PgTable)) continue;
+      tables += 1;
+      // defaultOf throws on a SQL default it has no meaning for.
+      for (const c of getTableConfig(t).columns) if (defaultOf(c) === "store") numberedByStore.push(`${name}.${c.name}`);
+    }
+    assert.equal(tables, 44);
+    assert.deepEqual(numberedByStore, ["events.id"]);
+  });
+
+  test("an insert stores the id, timestamps and empty lists plania chose", async () => {
+    let now: Date | undefined;
+    const row = await store().write(projectId, {}, async (uow) => {
+      now = uow.now;
+      return uow.insert("goals", { title: "store defaults" });
+    });
+    assert.match(row.id, /^[0-9a-f-]{36}$/);
+    assert.equal(row.status, "active");
+    assert.equal(row.createdAt.getTime(), now!.getTime());
+    const { withDefaults } = await import("../src/store/defaults.js");
+    const filled = withDefaults("agents", { slug: "x", name: "X" }, new Date(0));
+    assert.deepEqual([filled.capabilities, filled.status, (filled.createdAt as Date).getTime()], [[], "idle", 0]);
+    assert.notEqual(withDefaults("agents", { slug: "y" }, new Date(0)).capabilities, filled.capabilities, "each row gets its own list");
+    await raw.query("delete from goals where title = 'store defaults'");
+  });
+});
+
 describe("store writes", () => {
   test("a unit of work commits together and reports its write set", async () => {
     const seen: Committed[] = [];

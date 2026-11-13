@@ -25,10 +25,13 @@ export interface Reader {
 export type Change = { table: TableName; op: "put" | "delete"; key: Record<string, unknown>; row?: Record<string, unknown> };
 
 export interface UnitOfWork extends Reader {
+  // Columns with a default that the row leaves out are filled by plania (ids, timestamps, empty lists), not by the store.
   insert<T extends TableName>(table: T, row: NewRow<T>): Promise<Row<T>>;
   // Changes the rows matching `where` and returns them as they are afterwards.
   update<T extends TableName>(table: T, where: Where<T>, patch: Partial<NewRow<T>>): Promise<Row<T>[]>;
   delete<T extends TableName>(table: T, where: Where<T>): Promise<Row<T>[]>;
+  // The write's one clock reading. Every timestamp a write stores comes from it.
+  readonly now: Date;
   // The changes made through this unit of work so far, in order.
   readonly changes: readonly Change[];
   // The adapter's own handle, for code not yet moved onto the port. Changes made through it are not in
