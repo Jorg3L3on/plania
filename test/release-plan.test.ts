@@ -2,8 +2,7 @@
 // branch heads, the GitHub compare (cached by the pair of heads) and the merged tickets.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -18,7 +17,7 @@ const { resumeDigest } = await import("../src/mcp/resume.js");
 const { auditProject } = await import("../src/mcp/audit.js");
 
 type Json = Record<string, any>;
-let raw: pg.Client;
+let store: TestStore;
 let db: ReturnType<typeof makeDb>["db"];
 let closeDb: () => Promise<void>;
 const ctx = { actor: { agent: "t", session_id: "s1", machine: "ci" } };
@@ -52,15 +51,28 @@ const project = () => findProject(db, "zigzag");
 async function merged(key: string, number: number, base: string) {
   const p = await project();
   const t = (await findTask(db, p.id, key))!;
-  await raw.query("update tasks set status = 'Merged', status_changed_at = now() - interval '1 day', pr_url = $2 where id = $1", [t.id, `https://github.com/${REPO}/pull/${number}`]);
-  await raw.query(
-    "insert into pull_requests (project_id, repo, number, url, title, task_id, state, head_sha, head_branch, base_branch, merged_at, merge_sha) values ($1, $2, $3, $4, $5, $6, 'merged', $7, $8, $9, now(), $7)",
-    [p.id, REPO, number, `https://github.com/${REPO}/pull/${number}`, key, t.id, `${number}`.padEnd(40, "e"), `jl/${key.toLowerCase()}`, base],
+  await store.fix((uow) => uow.update("tasks", { id: t.id }, { status: "Merged", statusChangedAt: new Date(uow.now.getTime() - 24 * 3_600_000), prUrl: `https://github.com/${REPO}/pull/${number}` }));
+  const sha = `${number}`.padEnd(40, "e");
+  await store.fix((uow) =>
+    uow.insert("pullRequests", {
+      projectId: p.id,
+      repo: REPO,
+      number,
+      url: `https://github.com/${REPO}/pull/${number}`,
+      title: key,
+      taskId: t.id,
+      state: "merged",
+      headSha: sha,
+      headBranch: `jl/${key.toLowerCase()}`,
+      baseBranch: base,
+      mergedAt: uow.now,
+      mergeSha: sha,
+    }),
   );
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const made = makeDb();
   db = made.db;
   closeDb = made.close;
@@ -78,15 +90,18 @@ before(async () => {
   await merged("ZIG-I1-1", 600, "sandbox");
   await merged("ZIG-I1-2", 601, "sandbox");
   await merged("ZIG-01", 602, "main"); // straight into main: not part of the release
-  await raw.query("update checks set done = true where task_id = (select id from tasks where key = 'ZIG-I1-2')");
+  const phase2 = (await store.get("tasks", { key: "ZIG-I1-2" }))!;
+  await store.fix((uow) => uow.update("checks", { taskId: phase2.id }, { done: true }));
   await reserveSequence(db, { project: "zigzag", name: "migration", task_key: "ZIG-I1-1", value: 35 }, ctx);
   await reserveSequence(db, { project: "zigzag", name: "migration", task_key: "ZIG-I1-2", value: 34 }, ctx);
-  await raw.query("insert into env_states (project_id, env, commit, branch, migrations, migrations_applied, by) values ($1, 'prod', $2, 'main', '{0033_x,0034_push_subscriptions}', 34, $3)", [p.id, MAIN, JSON.stringify(ctx.actor)]);
+  await store.fix((uow) =>
+    uow.insert("envStates", { projectId: p.id, env: "prod", commit: MAIN, branch: "main", migrations: ["0033_x", "0034_push_subscriptions"], migrationsApplied: 34, by: ctx.actor }),
+  );
 });
 
 after(async () => {
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("settings.release", () => {
@@ -141,7 +156,7 @@ describe("the release step", () => {
     const d = await resumeDigest(db, p);
     assert.equal(d.status.release?.tickets.length, 2);
     // The initiative's branch merged into sandbox; prod lags: ENV_DRIFT names the release step.
-    await raw.query("update branches set merged_at = now(), head_sha = 'abcdef1234567' where name = 'jl/android'");
+    await store.fix((uow) => uow.update("branches", { name: "jl/android" }, { mergedAt: uow.now, headSha: "abcdef1234567" }));
     const drift = (await auditProject(db, p)).find((f) => f.code === "ENV_DRIFT");
     assert.match(drift!.detail, /release step sandbox → main/);
     assert.ok(!(await auditProject(db, p)).some((f) => f.code === "BRANCH_MERGED_NOT_DELETED" && f.detail.startsWith("sandbox")));
@@ -181,7 +196,8 @@ describe("no GitHub data (PLA-03)", () => {
   test("no token or a failed compare leaves ahead null and says 'sin datos de GitHub', never nothing to ship", async () => {
     // New heads the poller has not compared yet, and a poll with no token: nothing to compare with.
     heads = { sandbox: "5ddddddd44444444444444444444444444444444", main: SANDBOX };
-    await raw.query("update branches set head_sha = $1 where name = 'sandbox' and project_id = (select id from projects where slug = 'zigzag')", [heads.sandbox]);
+    const zigzagId = await store.projectId("zigzag");
+    await store.fix((uow) => uow.update("branches", { name: "sandbox", projectId: zigzagId }, { headSha: heads.sandbox }));
     await pollGithubProject(db, await project(), { fetch: fakeFetch().fetch, env: { PLANIA_GITHUB_TOKEN_FILE: "/nonexistent/plania-test-no-token" } });
     let p = await project();
     let plan = (await releasePlan(db, p))!;

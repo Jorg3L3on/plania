@@ -10,8 +10,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { after, before, beforeEach, describe, test } from "node:test";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -29,7 +28,7 @@ const ctx = { actor: { agent: "test-agent", session_id: "s1" } };
 const T = { scope: "s", checks: ["c"] };
 const KEYS = generateVapidKeys();
 
-let raw: pg.Client;
+let store: TestStore;
 const cookie = `${SESSION_COOKIE}=${createSession()}`;
 
 function req(method: string, path: string, body?: unknown, opts: { cookie?: string | null; headers?: Record<string, string> } = {}) {
@@ -68,6 +67,12 @@ async function withDb<T>(fn: (db: ReturnType<typeof makeDb>["db"]) => Promise<T>
   }
 }
 
+// Subscriptions as a browser leaves them: an endpoint each, with placeholder keys.
+const addSubscriptions = (...endpoints: string[]) =>
+  store.fix(async (uow) => {
+    for (const endpoint of endpoints) await uow.insert("pushSubscriptions", { endpoint, keys: { p256dh: "x", auth: "y" } });
+  });
+
 // Records what the push job would send, answering with a status per endpoint (default 201).
 function fakeSender(statusFor: (endpoint: string) => number = () => 201) {
   const sent: { endpoint: string; body: Json }[] = [];
@@ -81,7 +86,7 @@ function fakeSender(statusFor: (endpoint: string) => number = () => 201) {
 
 before(async () => {
   process.env.PLANIA_PASSWORD_HASH = await hashPassword("test-password-123");
-  raw = await resetTestDb();
+  store = await resetTestStore();
   await withDb(async (db) => {
     await writes.createTask(db, { project: "micasa", kind: "initiative", title: "Init", scope: "PRD" }, ctx); // MIC-I1
     await writes.createTask(db, { project: "micasa", title: "Fase", ...T, parent_key: "MIC-I1", phase: 1 }, ctx); // MIC-I1-1
@@ -91,7 +96,7 @@ before(async () => {
 
 after(async () => {
   setVapid(false);
-  await raw?.end();
+  await store?.end();
 });
 
 describe("GET /api/digest and Visto", () => {
@@ -104,7 +109,7 @@ describe("GET /api/digest and Visto", () => {
     const micasa = d.projects.find((p: Json) => p.slug === "micasa");
     assert.ok(micasa, "micasa changed in the last 24 h");
     assert.ok(Array.isArray(micasa.highlights.done));
-    assert.equal((await raw.query("select count(*)::int as n from digest_reads where reader = 'screen'")).rows[0].n, 0, "reading does not remember");
+    assert.equal(await store.count("digestReads", { reader: "screen" }), 0, "reading does not remember");
 
     const seen = await req("POST", "/api/digest/seen", { cursor: d.cursor });
     assert.equal(seen.status, 200);
@@ -141,40 +146,40 @@ describe("push subscriptions", () => {
     assert.equal(a.status, 201);
     const b = await req("POST", "/api/push/subscribe", { ...sub, keys: browserKeys() });
     assert.equal(b.status, 201);
-    const { rows } = await raw.query("select endpoint, keys, user_agent from push_subscriptions");
+    const rows = (await store.find("pushSubscriptions")).map((r) => ({ endpoint: r.endpoint, keys: r.keys, user_agent: r.userAgent }));
     assert.equal(rows.length, 1, "the same device again is the same row");
-    assert.notEqual(rows[0].keys.p256dh, keys.p256dh);
+    assert.notEqual(rows[0]!.keys.p256dh, keys.p256dh);
     assert.equal((await req("POST", "/api/push/subscribe", { endpoint: "http://push.example/x", keys })).status, 400);
     assert.equal((await req("POST", "/api/push/subscribe", { endpoint: "https://push.example/x" })).status, 400);
     assert.equal((await req("POST", "/api/push/subscribe", sub, { cookie: null })).status, 401);
     const del = await req("DELETE", "/api/push/subscribe", { endpoint: sub.endpoint });
     assert.deepEqual(await del.json(), { removed: true });
-    assert.equal((await raw.query("select count(*)::int as n from push_subscriptions")).rows[0].n, 0);
+    assert.equal(await store.count("pushSubscriptions"), 0);
   });
 });
 
 describe("the push job", () => {
   beforeEach(async () => {
     setVapid(true);
-    await raw.query("delete from push_subscriptions");
-    await raw.query("delete from machine_state where key = 'push'");
+    await store.fix((uow) => uow.delete("pushSubscriptions", {}));
+    await store.fix((uow) => uow.delete("machineState", { key: "push" }));
   });
 
   test("runs every minute; the first run takes the bookmark and sends nothing", async () => {
     const job = JOBS.find((j) => j.name === "push");
     assert.equal(job?.intervalMs, 60_000);
     await withDb((db) => ask(db, { project: "micasa", key: "MIC-I1-1", question: "¿Antes?" }, ctx));
-    await raw.query("insert into push_subscriptions (endpoint, keys) values ('https://push.example/1', '{\"p256dh\":\"x\",\"auth\":\"y\"}')");
+    await addSubscriptions("https://push.example/1");
     const fake = fakeSender();
     const first = await withDb((db) => runPush(db, new Date(), fake.send));
     assert.equal(first.new, 0);
     assert.equal(fake.sent.length, 0, "turning push on never replays the backlog");
-    const { rows } = await raw.query("select value from machine_state where key = 'push'");
-    assert.ok(rows[0].value.seen.some((id: string) => id.startsWith("question:")));
+    const rows = await store.find("machineState", { key: "push" });
+    assert.ok((rows[0]!.value.seen as string[]).some((id: string) => id.startsWith("question:")));
   });
 
   test("a question asked by an agent becomes one message opening Decisiones; a burst is one message", async () => {
-    await raw.query("insert into push_subscriptions (endpoint, keys) values ('https://push.example/1', '{\"p256dh\":\"x\",\"auth\":\"y\"}'), ('https://push.example/2', '{\"p256dh\":\"x\",\"auth\":\"y\"}')");
+    await addSubscriptions("https://push.example/1", "https://push.example/2");
     const fake = fakeSender();
     await withDb((db) => runPush(db, new Date(), fake.send)); // bookmark
 
@@ -203,21 +208,21 @@ describe("the push job", () => {
   });
 
   test("a step alone opens Pasos; 410 removes the subscription, other failures stamp failed_at", async () => {
-    await raw.query("insert into push_subscriptions (endpoint, keys) values ('https://push.example/gone', '{\"p256dh\":\"x\",\"auth\":\"y\"}'), ('https://push.example/flaky', '{\"p256dh\":\"x\",\"auth\":\"y\"}'), ('https://push.example/ok', '{\"p256dh\":\"x\",\"auth\":\"y\"}')");
+    await addSubscriptions("https://push.example/gone", "https://push.example/flaky", "https://push.example/ok");
     const fake = fakeSender((e) => (e.endsWith("/gone") ? 410 : e.endsWith("/flaky") ? 500 : 201));
     await withDb((db) => runPush(db, new Date(), fake.send));
     await withDb((db) => writes.createTask(db, { project: "micasa", title: "Paso", ...T, blocked_by: [{ human_action: { text: "Firmar el contrato" } }] }, ctx));
     const out = await withDb((db) => runPush(db, new Date(), fake.send));
     assert.deepEqual(out, { new: 1, sent: 1, failed: 1, removed: 1 });
     assert.equal(fake.sent[0]!.body.url, "/inbox?tab=pasos");
-    const { rows } = await raw.query("select endpoint, failed_at, last_ok_at from push_subscriptions order by endpoint");
+    const rows = (await store.find("pushSubscriptions", {}, { orderBy: [{ column: "endpoint" }] })).map((r) => ({ endpoint: r.endpoint, failed_at: r.failedAt, last_ok_at: r.lastOkAt }));
     assert.deepEqual(rows.map((r) => r.endpoint), ["https://push.example/flaky", "https://push.example/ok"]);
-    assert.ok(rows[0].failed_at);
-    assert.ok(rows[1].last_ok_at);
+    assert.ok(rows[0]!.failed_at);
+    assert.ok(rows[1]!.last_ok_at);
   });
 
   test("without VAPID keys nothing is sent but the bookmark moves", async () => {
-    await raw.query("insert into push_subscriptions (endpoint, keys) values ('https://push.example/1', '{\"p256dh\":\"x\",\"auth\":\"y\"}')");
+    await addSubscriptions("https://push.example/1");
     const fake = fakeSender();
     await withDb((db) => runPush(db, new Date(), fake.send));
     setVapid(false);
@@ -249,7 +254,7 @@ describe("the push job", () => {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const endpoint = `https://127.0.0.1:${(server.address() as AddressInfo).port}/push/abc`;
     try {
-      await raw.query("insert into push_subscriptions (endpoint, keys) values ($1, $2)", [endpoint, JSON.stringify(browserKeys())]);
+      await store.fix((uow) => uow.insert("pushSubscriptions", { endpoint, keys: browserKeys() }));
       await withDb((db) => runPush(db, new Date(), webPushSender));
       await withDb((db) => ask(db, { project: "micasa", key: "MIC-I1-1", question: "¿Real?" }, ctx));
       const ok = await withDb((db) => runPush(db, new Date(), webPushSender));
@@ -265,7 +270,7 @@ describe("the push job", () => {
       await withDb((db) => ask(db, { project: "micasa", key: "MIC-I1-1", question: "¿Sigue?" }, ctx));
       const gone = await withDb((db) => runPush(db, new Date(), webPushSender));
       assert.equal(gone.removed, 1);
-      assert.equal((await raw.query("select count(*)::int as n from push_subscriptions")).rows[0].n, 0);
+      assert.equal(await store.count("pushSubscriptions"), 0);
     } finally {
       server.close();
       if (reject === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;

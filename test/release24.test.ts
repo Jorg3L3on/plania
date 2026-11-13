@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -19,7 +18,7 @@ const BRANCH = "jl/fil-surface";
 const PR = "https://github.com/jorge/filmia/pull/41";
 
 let client: Client;
-let raw: pg.Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
 
 async function call(name: string, args: Json): Promise<Json> {
@@ -31,7 +30,7 @@ const task = (key: string) => call("get_task", { ...P, key });
 const pass = (commit?: string) => ({ kind: "unit", verdict: "pass", cite: "pnpm test: 12 pass", ...(commit ? { commit } : {}) });
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const { db, close } = makeDb();
   closeDb = close;
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -47,7 +46,7 @@ before(async () => {
 after(async () => {
   await client.close();
   await closeDb();
-  await raw.end();
+  await store.end();
 });
 
 describe("start", () => {
@@ -91,7 +90,7 @@ describe("finish", () => {
   });
 
   test("a pass at an old commit is EVIDENCE_STALE, saying where the head is", async () => {
-    await raw.query("update branches set head_sha = 'bbbbbbb2222' where name = $1", [BRANCH]);
+    await store.fix((uow) => uow.update("branches", { name: BRANCH }, { headSha: "bbbbbbb2222" }));
     const r = await call("finish", { ...P, key: "FIL-I1-1", result: { ...pass("aaaaaaa1111"), check_ns: [1, 2] }, pr_url: PR, branch: BRANCH });
     assert.equal(r.__error, "EVIDENCE_STALE");
     assert.equal(r.head, "bbbbbbb2222");
@@ -140,16 +139,28 @@ describe("write-time guards", () => {
     const refused = await call("set_task", { ...P, key: "FIL-I1-4", status: "Merged", version: v });
     assert.equal(refused.__error, "TASK_MISSING_PR_URL");
     assert.equal(refused.to, "Merged");
-    await raw.query(
-      `insert into pull_requests (project_id, repo, number, url, title, task_id, state, head_sha, merge_sha, merged_at, head_branch, base_branch)
-       select p.id, 'example/filmia', 41, $1, 'phase', t.id, 'merged', 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', 'ccccccc3', now(), 'jl/fil-surface', 'main'
-       from projects p join tasks t on t.project_id = p.id where p.slug = 'filmia' and t.key = 'FIL-I1-4'`,
-      [PR],
-    );
+    const filmia = await store.projectId("filmia");
+    await store.fix(async (uow) => {
+      const t = (await uow.get("tasks", { projectId: filmia, key: "FIL-I1-4" }))!;
+      await uow.insert("pullRequests", {
+        projectId: filmia,
+        repo: "example/filmia",
+        number: 41,
+        url: PR,
+        title: "phase",
+        taskId: t.id,
+        state: "merged",
+        headSha: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        mergeSha: "ccccccc3",
+        mergedAt: uow.now,
+        headBranch: "jl/fil-surface",
+        baseBranch: "main",
+      });
+    });
     const merged = await call("set_task", { ...P, key: "FIL-I1-4", status: "Merged", pr_url: PR, version: v });
     assert.equal(merged.status, "Merged");
     // A ticket closed without a PR, said why: allowed, logged.
-    await raw.query("update tasks set pr_url = null where key = 'FIL-I1-4'");
+    await store.fix((uow) => uow.update("tasks", { key: "FIL-I1-4" }, { prUrl: null }));
     const v2 = (await task("FIL-I1-4")).version;
     assert.equal((await call("set_task", { ...P, key: "FIL-I1-4", status: "Done", version: v2 })).__error, "TASK_MISSING_PR_URL");
     const done = await call("set_task", { ...P, key: "FIL-I1-4", status: "Done", no_pr_reason: "merged by hand from a patch", version: v2 });

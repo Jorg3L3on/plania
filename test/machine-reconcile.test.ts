@@ -5,8 +5,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -271,22 +270,23 @@ const tickAt = (db: ReturnType<typeof makeDb>["db"], fx: ReturnType<typeof fixtu
     ...over,
   });
 
-const stateOf = async (raw: pg.Client, locator: string) => (await raw.query("select * from footprints where locator = $1 and released_at is null", [locator])).rows[0];
+type Json = Record<string, any>;
+const stateOf = async (store: TestStore, locator: string): Promise<Json> => (await store.get("footprints", { locator, releasedAt: null })) as Json;
 
 // ---- primary things, on a whole tick
 
 describe("primary things on a whole tick", () => {
-  let raw: pg.Client;
+  let store: TestStore;
   let close: () => Promise<void>;
   let db: ReturnType<typeof makeDb>["db"];
   const fx = fixture("primary");
   before(async () => {
-    raw = await resetTestDb();
+    store = await resetTestStore();
     ({ db, close } = makeDb());
   });
   after(async () => {
     await close?.();
-    await raw?.end();
+    await store?.end();
   });
 
   const PG_PS = "/opt/homebrew/opt/postgresql@17/bin/postgres -D /opt/homebrew/var/postgresql@17";
@@ -307,11 +307,21 @@ describe("primary things on a whole tick", () => {
     writeFileSync(path.join(fx.agents, "com.google.keystone.agent.plist"), "");
     // rows from before this change: teardowns the old job suggested for primary things, and a declared one
     for (const [kind, locator, teardown] of [["database", "plania@127.0.0.1:5432", "dropdb -h 127.0.0.1 -p 5432 plania"], ["server", "port:3737", "kill 777"]] as const) {
-      await raw.query(`insert into footprints (machine, kind, locator, source, teardown, state, first_seen_at, last_seen_at) values ('test-mac', $1, $2, 'observed', $3, 'orphan', now(), now())`, [kind, locator, teardown]);
+      await store.fix((uow) => uow.insert("footprints", { machine: "test-mac", kind, locator, source: "observed", teardown, state: "orphan", firstSeenAt: uow.now, lastSeenAt: uow.now }));
     }
-    await raw.query(
-      `insert into footprints (machine, kind, locator, source, purpose, teardown, project_id, state, declared_at)
-       values ('test-mac', 'database', 'micasa@127.0.0.1:5432', 'declared', 'migration rehearsal', 'dropdb -h 127.0.0.1 -p 5432 micasa_rehearsal', (select id from projects where slug = 'micasa'), 'live', now())`,
+    const micasaId = await store.projectId("micasa");
+    await store.fix((uow) =>
+      uow.insert("footprints", {
+        machine: "test-mac",
+        kind: "database",
+        locator: "micasa@127.0.0.1:5432",
+        source: "declared",
+        purpose: "migration rehearsal",
+        teardown: "dropdb -h 127.0.0.1 -p 5432 micasa_rehearsal",
+        projectId: micasaId,
+        state: "live",
+        declaredAt: uow.now,
+      }),
     );
 
     await tickAt(db, fx, world(), new Date());
@@ -400,7 +410,7 @@ describe("primary things on a whole tick", () => {
     assert.match(found[0]!.fix_hint, /register_footprint/);
     assert.ok(!/\b(stop|kill|pg_ctl)\b/.test(found[0]!.fix_hint));
     // declared: no longer a finding
-    await raw.query("update footprints set source = 'both', purpose = 'scratch pg' where locator = 'postgres:5433'");
+    await store.fix((uow) => uow.update("footprints", { locator: "postgres:5433" }, { source: "both", purpose: "scratch pg" }));
     assert.deepEqual((await footprintFindings(db, { projectless: true })).filter((f) => f.code === "SECONDARY_DB_SERVER"), []);
   });
 });
@@ -408,7 +418,7 @@ describe("primary things on a whole tick", () => {
 // ---- stale on a whole tick, the audit, the resume line and the inbox
 
 describe("stale rows on a whole tick", () => {
-  let raw: pg.Client;
+  let store: TestStore;
   let close: () => Promise<void>;
   let db: ReturnType<typeof makeDb>["db"];
   const fx = fixture("stale");
@@ -417,7 +427,7 @@ describe("stale rows on a whole tick", () => {
   const at = (ms: number) => new Date(t0.getTime() + ms);
 
   before(async () => {
-    raw = await resetTestDb();
+    store = await resetTestStore();
     ({ db, close } = makeDb());
     mkdirSync(wt, { recursive: true });
     await createTask(db, { project: "zigzag", kind: "initiative", title: "Sandbox", scope: "PRD", integration_branch: "jl/sandbox" }, ctx); // ZIG-I1
@@ -427,7 +437,7 @@ describe("stale rows on a whole tick", () => {
   });
   after(async () => {
     await close?.();
-    await raw?.end();
+    await store?.end();
   });
 
   const world = (over: Partial<World["worktrees"][number]> = {}): World => ({
@@ -446,23 +456,25 @@ describe("stale rows on a whole tick", () => {
 
   test("while the claim is live everything is live; without a claim the server goes stale after 2h and the database after 24h", async () => {
     await tickAt(db, fx, withDb(world()), t0);
-    for (const l of [wt, "port:3069", "zigzag_zig_i1_1_copy@127.0.0.1:5432"]) assert.equal((await stateOf(raw, l)).state, "live", l);
+    for (const l of [wt, "port:3069", "zigzag_zig_i1_1_copy@127.0.0.1:5432"]) assert.equal((await stateOf(store, l)).state, "live", l);
 
     await claim(db, { project: "zigzag", key: "ZIG-I1-1", action: "release" }, ctx);
     await tickAt(db, fx, withDb(world()), at(1.9 * H));
-    assert.equal((await stateOf(raw, "port:3069")).state, "live", "unclaimed for under 2h");
+    assert.equal((await stateOf(store, "port:3069")).state, "live", "unclaimed for under 2h");
     await tickAt(db, fx, withDb(world()), at(2.2 * H));
-    const server = await stateOf(raw, "port:3069");
+    const server = await stateOf(store, "port:3069");
     assert.deepEqual([server.state, server.details.stale_reason], ["stale", "sin claim"]);
     assert.ok(Math.abs(new Date(server.details.stale_since).getTime() - t0.getTime()) < 60_000, "since the claim lapsed");
-    assert.equal((await stateOf(raw, "zigzag_zig_i1_1_copy@127.0.0.1:5432")).state, "live", "a database waits 24h");
+    assert.equal((await stateOf(store, "zigzag_zig_i1_1_copy@127.0.0.1:5432")).state, "live", "a database waits 24h");
     await tickAt(db, fx, withDb(world()), at(24.5 * H));
-    assert.equal((await stateOf(raw, "zigzag_zig_i1_1_copy@127.0.0.1:5432")).state, "stale");
-    assert.equal((await stateOf(raw, wt)).state, "live", "an unmerged worktree has no clock");
+    assert.equal((await stateOf(store, "zigzag_zig_i1_1_copy@127.0.0.1:5432")).state, "stale");
+    assert.equal((await stateOf(store, wt)).state, "live", "an unmerged worktree has no clock");
   });
 
   test("a stale row records why, and the reason is stable between ticks (the row is not rewritten for a plain refresh)", async () => {
-    const stale = () => raw.query("select locator, state, details, updated_at from footprints where locator in ('port:3069', 'zigzag_zig_i1_1_copy@127.0.0.1:5432') order by locator");
+    const stale = async () => ({
+      rows: (await store.find("footprints", { locator: ["port:3069", "zigzag_zig_i1_1_copy@127.0.0.1:5432"] }, { orderBy: [{ column: "locator" }] })).map((r) => ({ locator: r.locator, state: r.state, details: r.details, updated_at: r.updatedAt })),
+    });
     const before = (await stale()).rows;
     await tickAt(db, fx, withDb(world()), at(24.6 * H));
     assert.deepEqual((await stale()).rows, before);
@@ -470,30 +482,34 @@ describe("stale rows on a whole tick", () => {
 
   test("the ticket closing makes the reason the ticket's", async () => {
     // the claim was released a day ago, so the owner is the ticket that started it, not the initiative the branch points at
-    assert.equal((await raw.query("select t.key from footprints f join tasks t on t.id = f.task_id where f.locator = 'port:3069'")).rows[0].key, "ZIG-I1-1");
-    await raw.query("update tasks set status = 'Done', status_changed_at = $1 where key = 'ZIG-I1-1'", [at(25 * H)]);
+    const [owned] = (await store.find("footprints", { locator: "port:3069" })).filter((f) => f.taskId !== null);
+    assert.equal((await store.get("tasks", { id: owned!.taskId! }))!.key, "ZIG-I1-1");
+    await store.fix((uow) => uow.update("tasks", { key: "ZIG-I1-1" }, { status: "Done", statusChangedAt: at(25 * H) }));
     await tickAt(db, fx, withDb(world()), at(28 * H));
-    const server = await stateOf(raw, "port:3069");
+    const server = await stateOf(store, "port:3069");
     assert.deepEqual([server.state, server.details.stale_reason, new Date(server.details.stale_since).toISOString()], ["stale", "ticket ZIG-I1-1 Done", at(25 * H).toISOString()]);
     // closed 3 hours ago is under a database's 24h, but its claim lapsed over a day ago
-    assert.equal((await stateOf(raw, "zigzag_zig_i1_1_copy@127.0.0.1:5432")).details.stale_reason, "sin claim");
-    await raw.query("update tasks set status = 'In progress', status_changed_at = now() where key = 'ZIG-I1-1'");
+    assert.equal((await stateOf(store, "zigzag_zig_i1_1_copy@127.0.0.1:5432")).details.stale_reason, "sin claim");
+    await store.fix((uow) => uow.update("tasks", { key: "ZIG-I1-1" }, { status: "In progress", statusChangedAt: uow.now }));
   });
 
   test("worktrees: merged work and clean is stale; with uncommitted changes it is not; the squash merge counts through branches.merged_at", async () => {
     await tickAt(db, fx, withDb(world({ merged: true, commits: 3 })), at(29 * H));
-    const w = await stateOf(raw, wt);
+    const w = await stateOf(store, wt);
     assert.deepEqual([w.state, w.details.stale_reason, w.details.merged, w.details.own_commits, w.details.dirty], ["stale", "rama fusionada", true, 3, false]);
     await tickAt(db, fx, withDb(world({ merged: true, commits: 3, dirty: true })), at(30 * H));
-    assert.equal((await stateOf(raw, wt)).state, "live");
+    assert.equal((await stateOf(store, wt)).state, "live");
     // a new worktree on an already-merged commit: git says merged, but nothing was done in it
     await tickAt(db, fx, withDb(world({ merged: true, commits: 0 })), at(31 * H));
-    assert.equal((await stateOf(raw, wt)).state, "live");
+    assert.equal((await stateOf(store, wt)).state, "live");
     // squash: not an ancestor, GitHub says merged
     const zig = await findProject(db, "zigzag");
-    await raw.query("insert into branches (project_id, name, owner_task_id, merged_at) values ($1, 'jl/sandbox', (select id from tasks where key = 'ZIG-I1'), $2) on conflict (project_id, name) do update set merged_at = $2", [zig.id, at(2 * H)]);
+    await store.fix(async (uow) => {
+      const updated = await uow.update("branches", { projectId: zig.id, name: "jl/sandbox" }, { mergedAt: at(2 * H) });
+      if (updated.length === 0) await uow.insert("branches", { projectId: zig.id, name: "jl/sandbox", ownerTaskId: (await uow.get("tasks", { key: "ZIG-I1" }))!.id, mergedAt: at(2 * H) });
+    });
     await tickAt(db, fx, withDb(world({ merged: false, commits: 3 })), at(32 * H));
-    const sq = await stateOf(raw, wt);
+    const sq = await stateOf(store, wt);
     assert.deepEqual([sq.state, sq.details.stale_reason, new Date(sq.details.stale_since).toISOString()], ["stale", "rama fusionada", at(2 * H).toISOString()]);
   });
 
@@ -524,8 +540,14 @@ describe("stale rows on a whole tick", () => {
     const zig = await findProject(db, "zigzag");
     // everything above went stale within the last real minute: nothing is a day old yet
     assert.deepEqual((await inbox(db, zig)).items.filter((i) => i.kind === "footprint"), []);
-    await raw.query("update footprints set details = jsonb_set(details, '{stale_since}', to_jsonb((now() - interval '30 hours')::text)) where locator = 'port:3069'");
-    await raw.query("update footprints set details = jsonb_set(details, '{stale_since}', to_jsonb((now() - interval '3 hours')::text)) where kind = 'database'");
+    const staleSince = (where: { locator?: string; kind?: string }, ms: number) =>
+      store.fix(async (uow) => {
+        for (const f of await uow.find("footprints", where)) {
+          await uow.update("footprints", { id: f.id }, { details: { ...f.details, stale_since: new Date(Date.now() - ms).toISOString() } });
+        }
+      });
+    await staleSince({ locator: "port:3069" }, 30 * H);
+    await staleSince({ kind: "database" }, 3 * H);
     const items = (await inbox(db, zig)).items.filter((i) => i.kind === "footprint");
     assert.equal(items.length, 1);
     const [it] = items;
@@ -534,8 +556,8 @@ describe("stale rows on a whole tick", () => {
     assert.ok(it!.wait_s >= 29 * 3600);
 
     // an orphan nobody owns goes under the machine in "all", once it is a day old
-    await raw.query(`insert into footprints (machine, kind, locator, source, teardown, state, first_seen_at, last_seen_at) values ('test-mac', 'database', 'xize@127.0.0.1:5432', 'observed', 'dropdb xize', 'orphan', now() - interval '2 hours', now())`);
-    await raw.query(`insert into footprints (machine, kind, locator, source, teardown, state, first_seen_at, last_seen_at) values ('test-mac', 'database', 'old@127.0.0.1:5432', 'observed', 'dropdb old', 'orphan', now() - interval '26 hours', now())`);
+    await store.fix((uow) => uow.insert("footprints", { machine: "test-mac", kind: "database", locator: "xize@127.0.0.1:5432", source: "observed", teardown: "dropdb xize", state: "orphan", firstSeenAt: new Date(Date.now() - 2 * H), lastSeenAt: new Date() }));
+    await store.fix((uow) => uow.insert("footprints", { machine: "test-mac", kind: "database", locator: "old@127.0.0.1:5432", source: "observed", teardown: "dropdb old", state: "orphan", firstSeenAt: new Date(Date.now() - 26 * H), lastSeenAt: new Date() }));
     const all = (await inbox(db, "all")).items.filter((i) => i.kind === "footprint");
     assert.deepEqual(all.map((i) => `${i.project}:${i.title}`).sort(), ["machine:database old@127.0.0.1:5432", "zigzag:server port:3069"]);
     assert.equal(all.find((i) => i.project === "machine")!.why.startsWith("sin dueño"), true);
@@ -545,7 +567,7 @@ describe("stale rows on a whole tick", () => {
 // ---- ghosts
 
 describe("ghost rows", () => {
-  let raw: pg.Client;
+  let store: TestStore;
   let close: () => Promise<void>;
   let db: ReturnType<typeof makeDb>["db"];
   let zig: { id: string };
@@ -553,57 +575,69 @@ describe("ghost rows", () => {
   const base = Date.UTC(2026, 9, 9, 12, 0, 0);
   const at = (min: number) => new Date(base + min * 60_000);
   before(async () => {
-    raw = await resetTestDb();
+    store = await resetTestStore();
     ({ db, close } = makeDb());
     zig = await findProject(db, "zigzag");
   });
   after(async () => {
     await close?.();
-    await raw?.end();
+    await store?.end();
   });
   const tick = (min: number, ran: string[], items: Observed[] = []) =>
     reconcile(db, { machine: "test-mac", now: at(min), dir: dir(), inferred: items.map((item) => ({ item, owner: { projectId: null, taskId: null, sessionId: null, repo: null, via: "none" as const }, repoPath: null })), ran: new Set(ran) });
-  const declare = (kind: string, locator: string, source: string, extra = "") =>
-    raw.query(
-      `insert into footprints (machine, kind, locator, source, purpose, teardown, project_id, state, declared_at, first_seen_at, last_seen_at, misses)
-       values ('test-mac', $1, $2, $3, 'p', 't', (select id from projects where slug = 'zigzag'), 'live', $4, ${extra || "null, null, 0"})`,
-      [kind, locator, source, at(0)],
+  // seen: the row was observed when it was declared (first and last seen then).
+  const declare = (kind: string, locator: string, source: string, seen = false) =>
+    store.fix(async (uow) =>
+      uow.insert("footprints", {
+        machine: "test-mac",
+        kind,
+        locator,
+        source,
+        purpose: "p",
+        teardown: "t",
+        projectId: (await uow.get("projects", { slug: "zigzag" }))!.id,
+        state: "live",
+        declaredAt: at(0),
+        firstSeenAt: seen ? at(0) : null,
+        lastSeenAt: seen ? at(0) : null,
+        misses: 0,
+      }),
     );
 
   test("declared and never seen: live for 5 minutes, then a ghost when its collector ran; seeing it brings it back", async () => {
     await declare("server", "port:4100", "declared");
     await tick(4, ["ports"]);
-    assert.equal((await stateOf(raw, "port:4100")).state, "live");
+    assert.equal((await stateOf(store, "port:4100")).state, "live");
     const r = await tick(6, ["ports"]);
     assert.equal(r.ghosted, 1);
-    const g = await stateOf(raw, "port:4100");
+    const g = await stateOf(store, "port:4100");
     assert.deepEqual([g.state, g.details.ghost_since, g.source], ["ghost", at(6).toISOString(), "declared"]);
     await tick(7, ["ports"], [{ kind: "server", locator: "port:4100", details: { port: 4100 } }]);
-    const back = await stateOf(raw, "port:4100");
+    const back = await stateOf(store, "port:4100");
     assert.deepEqual([back.state, back.source, back.details.ghost_since], ["live", "both", undefined]);
   });
 
   test("declared and observed before: two ticks of its collector without it make a ghost", async () => {
-    await declare("server", "port:4101", "both", "$4, $4, 0");
+    await declare("server", "port:4101", "both", true);
     await tick(10, ["ports"]);
-    assert.equal((await stateOf(raw, "port:4101")).state, "live");
+    assert.equal((await stateOf(store, "port:4101")).state, "live");
     await tick(11, ["ports"]);
-    assert.equal((await stateOf(raw, "port:4101")).state, "ghost");
+    assert.equal((await stateOf(store, "port:4101")).state, "ghost");
   });
 
   test("a ghost is released an hour later with footprint.released and reason ghost; the Mac is not touched", async () => {
-    const before = (await raw.query("select count(*)::int as n from events where type = 'footprint.released'")).rows[0].n;
+    const before = await store.count("events", { type: "footprint.released" });
     await tick(6 + 59, ["ports"]);
-    assert.equal((await stateOf(raw, "port:4101"))?.state, "ghost", "a ghost row is not released before its hour");
+    assert.equal((await stateOf(store, "port:4101"))?.state, "ghost", "a ghost row is not released before its hour");
     const r = await tick(11 + 61, ["ports"]);
     assert.ok(r.released >= 1);
-    assert.equal(await stateOf(raw, "port:4101"), undefined);
-    const ev = await raw.query("select payload, task_key from events where type = 'footprint.released' order by id desc");
+    assert.equal(await stateOf(store, "port:4101"), undefined);
+    const ev = { rows: (await store.find("events", { type: "footprint.released" }, { orderBy: [{ column: "id", desc: true }] })).map((e) => ({ payload: e.payload, task_key: e.taskKey })) };
     assert.ok(ev.rows.length > before);
     assert.ok(ev.rows.every((e) => e.payload.reason === "ghost"));
     assert.ok(ev.rows.some((e) => e.payload.locator === "port:4101"));
-    const row = (await raw.query("select state, released_at from footprints where locator = 'port:4101'")).rows[0];
-    assert.deepEqual([row.state, row.released_at !== null], ["released", true]);
+    const row = (await store.get("footprints", { locator: "port:4101" }))!;
+    assert.deepEqual([row.state, row.releasedAt !== null], ["released", true]);
   });
 
   test("a collector that did not run, or a kind without one, never makes a ghost", async () => {
@@ -611,28 +645,28 @@ describe("ghost rows", () => {
     await declare("cache", "fixtures/seed", "declared");
     await declare("container", "docker:pg", "declared");
     await tick(500, ["procs"]); // ports did not run, docker is missing
-    for (const l of ["port:4102", "fixtures/seed", "docker:pg"]) assert.equal((await stateOf(raw, l)).state, "live", l);
+    for (const l of ["port:4102", "fixtures/seed", "docker:pg"]) assert.equal((await stateOf(store, l)).state, "live", l);
     await tick(501, ["ports", "procs", "docker"]);
-    assert.equal((await stateOf(raw, "port:4102")).state, "ghost");
-    assert.equal((await stateOf(raw, "docker:pg")).state, "ghost");
-    assert.equal((await stateOf(raw, "fixtures/seed")).state, "live", "a cache has no collector");
+    assert.equal((await stateOf(store, "port:4102")).state, "ghost");
+    assert.equal((await stateOf(store, "docker:pg")).state, "ghost");
+    assert.equal((await stateOf(store, "fixtures/seed")).state, "live", "a cache has no collector");
   });
 });
 
 // ---- services that start at login
 
 describe("SERVICE_STARTS_AT_LOGIN", () => {
-  let raw: pg.Client;
+  let store: TestStore;
   let close: () => Promise<void>;
   let db: ReturnType<typeof makeDb>["db"];
   const fx = fixture("services");
   before(async () => {
-    raw = await resetTestDb();
+    store = await resetTestStore();
     ({ db, close } = makeDb());
   });
   after(async () => {
     await close?.();
-    await raw?.end();
+    await store?.end();
   });
   const w = (brew: World["brew"]): World => ({ listeners: [], dbs: {}, brew, worktrees: [], sizeKb: 1 });
 
@@ -654,7 +688,8 @@ describe("SERVICE_STARTS_AT_LOGIN", () => {
   });
 
   test("a service an agent declared is not reported; neither is one that is attributed to a repo", async () => {
-    await raw.query(`update footprints set source = 'both', purpose = 'redis for tests', project_id = (select id from projects where slug = 'zigzag') where locator = 'brew:redis'`);
+    const zigzagId = await store.projectId("zigzag");
+    await store.fix((uow) => uow.update("footprints", { locator: "brew:redis" }, { source: "both", purpose: "redis for tests", projectId: zigzagId }));
     const found = (await footprintFindings(db, { projectless: true })).filter((f) => f.code === "SERVICE_STARTS_AT_LOGIN");
     assert.deepEqual(found.map((f) => f.detail.split(": ")[0]), ["service launchagent:com.example.tunnel"]);
   });

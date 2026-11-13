@@ -4,8 +4,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -22,7 +21,7 @@ const P = { project: "filmia" };
 const T = { scope: "s", checks: ["c"] };
 
 let client: Client;
-let raw: pg.Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
 
 async function call(name: string, args: Json): Promise<Json> {
@@ -39,7 +38,7 @@ async function call(name: string, args: Json): Promise<Json> {
 const version = async (key: string) => (await call("get_task", { ...P, key, view: "summary" })).version;
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const { db, close } = makeDb();
   closeDb = close;
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -54,7 +53,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("state_note and derived checks", () => {
@@ -77,11 +76,24 @@ describe("state_note and derived checks", () => {
     await call("set_task", { ...P, key: "FIL-I1-1", status: "In review", pr_url: "https://github.com/jorge/filmia/pull/7", version: await version("FIL-I1-1") });
     assert.deepEqual((await call("get_task", { ...P, key: "FIL-I1" })).checks.map((c: Json) => [c.n, c.done, c.derived_from]), [[1, false, "FIL-I1-1"], [2, false, "FIL-I1-2"]]);
     await call("add_result", { ...P, key: "FIL-I1-1", kind: "ci", verdict: "pass", cite: "merge commit green", commit: "dddddddd1" });
-    await raw.query(
-      `insert into pull_requests (project_id, repo, number, url, title, task_id, state, head_sha, merge_sha, merged_at, head_branch, base_branch)
-       select p.id, 'example/filmia', 7, t.pr_url, 'phase', t.id, 'merged', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'dddddddd1', now(), 'jl/post-qa', 'main'
-       from projects p join tasks t on t.project_id = p.id where p.slug = 'filmia' and t.key = 'FIL-I1-1'`,
-    );
+    const filmia = await store.projectId("filmia");
+    await store.fix(async (uow) => {
+      const t = (await uow.get("tasks", { projectId: filmia, key: "FIL-I1-1" }))!;
+      await uow.insert("pullRequests", {
+        projectId: filmia,
+        repo: "example/filmia",
+        number: 7,
+        url: t.prUrl!,
+        title: "phase",
+        taskId: t.id,
+        state: "merged",
+        headSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        mergeSha: "dddddddd1",
+        mergedAt: uow.now,
+        headBranch: "jl/post-qa",
+        baseBranch: "main",
+      });
+    });
     await call("set_task", { ...P, key: "FIL-I1-1", status: "Merged", version: await version("FIL-I1-1") });
     assert.equal((await call("set_task", { ...P, key: "FIL-I1-1", status: "Done", version: await version("FIL-I1-1") })).status, "Done", "the agent closes it");
     const checks = (await call("get_task", { ...P, key: "FIL-I1" })).checks;
@@ -133,9 +145,9 @@ describe("handoff and context", () => {
 describe("audit and releases", () => {
   test("the audit reports what the data says is wrong, and the job stores the count for the status block", async () => {
     await call("set_env", { ...P, env: "prod", commit: "1234567" }); // no deployed_at
-    await raw.query("update branches set merged_at = now(), head_sha = 'fedcba9' where name = 'jl/post-qa'");
+    await store.fix((uow) => uow.update("branches", { name: "jl/post-qa" }, { mergedAt: uow.now, headSha: "fedcba9" }));
     // A Done code ticket without a PR from before 2.13's write-time guard.
-    await raw.query("update tasks set pr_url = null where key = 'FIL-I1-1'");
+    await store.fix((uow) => uow.update("tasks", { key: "FIL-I1-1" }, { prUrl: null }));
     const r = await call("audit", P);
     const codes = r.findings.map((f: Json) => f.code).sort();
     for (const code of ["ENV_DEPLOYED_AT_MISSING", "BRANCH_MERGED_NOT_DELETED", "INITIATIVE_SCOPE_HAS_STATUS", "TASK_MISSING_PR_URL"]) {

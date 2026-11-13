@@ -4,8 +4,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -25,7 +24,7 @@ const P = { project: "zigzag" };
 const T = { scope: "s", checks: ["c"] };
 
 let client: Client;
-let raw: pg.Client;
+let store: TestStore;
 let db: ReturnType<typeof makeDb>["db"];
 let closeDb: () => Promise<void>;
 
@@ -39,7 +38,12 @@ async function call(name: string, args: Json): Promise<Json> {
   }
   return r.isError ? { __error: data.error, __status: data.status, ...data } : data;
 }
-const rows = async (locator: string) => (await raw.query("select * from footprints where locator = $1 order by created_at", [locator])).rows;
+const rows = async (locator: string) => (await store.find("footprints", { locator }, { orderBy: [{ column: "createdAt" }] })) as Json[];
+// Events of one type, newest first, whose payload names the locator.
+const eventsAbout = async (type: string, locator?: string) =>
+  (await store.find("events", { type }, { orderBy: [{ column: "id", desc: true }] }))
+    .map((e) => ({ type: e.type, task_key: e.taskKey, payload: e.payload as Json }))
+    .filter((e) => locator === undefined || e.payload.locator === locator);
 
 // The job's side, by hand: what a tick would pass to reconcile for one machine.
 const emptyDir = (): Directory => ({ projects: [], repos: [], worktrees: new Map(), tasksById: new Map(), tasksByKey: new Map(), branchOwner: new Map(), claimed: [] });
@@ -56,7 +60,7 @@ async function observe(items: Observed[], min: number, machine = "test-mac") {
 const server = (port: number, extra: Record<string, unknown> = {}): Observed => ({ kind: "server", locator: `port:${port}`, details: { port, pid: 1000 + port, ...extra } });
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const made = makeDb();
   db = made.db;
   closeDb = made.close;
@@ -73,7 +77,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("locators", () => {
@@ -117,11 +121,11 @@ describe("register_footprint", () => {
     assert.deepEqual([r.footprint.source, r.footprint.state, r.footprint.task_key, r.merged], ["declared", "live", "ZIG-I1-1", false]);
     assert.ok(heard.includes("footprint:"));
     const [row] = await rows("docker:pg-test");
-    assert.deepEqual([row.machine, row.session_id, row.holder.agent, row.details.image, row.details.declared.image], ["test-mac", "s1", "claude", "postgres:17", "postgres:17"]);
-    assert.ok(row.declared_at);
-    const ev = await raw.query("select type, task_key, payload from events where type = 'footprint.declared'");
-    assert.equal(ev.rows.length, 1);
-    assert.deepEqual([ev.rows[0].task_key, ev.rows[0].payload.locator, ev.rows[0].payload.teardown], ["ZIG-I1-1", "docker:pg-test", "docker rm -f pg-test"]);
+    assert.deepEqual([row!.machine, row!.sessionId, row!.holder.agent, row!.details.image, row!.details.declared.image], ["test-mac", "s1", "claude", "postgres:17", "postgres:17"]);
+    assert.ok(row!.declaredAt);
+    const ev = await eventsAbout("footprint.declared");
+    assert.equal(ev.length, 1);
+    assert.deepEqual([ev[0]!.task_key, ev[0]!.payload.locator, ev[0]!.payload.teardown], ["ZIG-I1-1", "docker:pg-test", "docker rm -f pg-test"]);
   });
 
   test("with zero or several claims the task stays empty; task_key names it; an unknown key is TASK_NOT_FOUND", async () => {
@@ -139,34 +143,34 @@ describe("register_footprint", () => {
   test("something the job already sees merges into its row (source both) and survives the next tick", async () => {
     await observe([server(3069, { command: "next dev" })], 0);
     const [seen] = await rows("port:3069");
-    assert.deepEqual([seen.source, seen.state, seen.holder, seen.task_id], ["observed", "orphan", null, null]);
+    assert.deepEqual([seen!.source, seen!.state, seen!.holder, seen!.taskId], ["observed", "orphan", null, null]);
 
     const r = await call("register_footprint", { ...P, kind: "server", locator: ":3069", purpose: "zigzag dev server", teardown: "kill 1069", details: { flavor: "next" } });
     assert.deepEqual([r.merged, r.footprint.source, r.footprint.state, r.footprint.task_key], [true, "both", "live", "ZIG-I1-1"]);
     assert.equal((await rows("port:3069")).length, 1, "one row, not two");
-    const merged = (await rows("port:3069"))[0];
-    assert.equal(merged.id, seen.id);
-    assert.deepEqual([merged.purpose, merged.teardown, merged.session_id, merged.details.pid, merged.details.declared.flavor], ["zigzag dev server", "kill 1069", "s1", 4069, "next"]);
+    const merged = (await rows("port:3069"))[0]!;
+    assert.equal(merged.id, seen!.id);
+    assert.deepEqual([merged.purpose, merged.teardown, merged.sessionId, merged.details.pid, merged.details.declared.flavor], ["zigzag dev server", "kill 1069", "s1", 4069, "next"]);
 
     // The job keeps seeing it: its details refresh, the declaration is not overwritten.
     await observe([server(3069, { command: "next dev --turbopack" })], 1);
-    const after = (await rows("port:3069"))[0];
-    assert.deepEqual([after.source, after.state, after.purpose, after.teardown, after.task_id === merged.task_id, after.details.command, after.details.declared.flavor], ["both", "live", "zigzag dev server", "kill 1069", true, "next dev --turbopack", "next"]);
+    const after = (await rows("port:3069"))[0]!;
+    assert.deepEqual([after.source, after.state, after.purpose, after.teardown, after.taskId === merged.taskId, after.details.command, after.details.declared.flavor], ["both", "live", "zigzag dev server", "kill 1069", true, "next dev --turbopack", "next"]);
     // Declared rows are never `gone`: one tick that does not see it leaves it as it was, the second makes it a ghost
     // (the agent said it was there and the job's port scan says it is not); seeing it again brings it back.
     await observe([], 2);
-    assert.equal((await rows("port:3069"))[0].state, "live");
+    assert.equal((await rows("port:3069"))[0]!.state, "live");
     await observe([], 3);
-    assert.equal((await rows("port:3069"))[0].state, "ghost");
+    assert.equal((await rows("port:3069"))[0]!.state, "ghost");
     await observe([server(3069, { command: "next dev --turbopack" })], 3);
-    assert.deepEqual([(await rows("port:3069"))[0].state, (await rows("port:3069"))[0].details.ghost_since], ["live", undefined]);
+    assert.deepEqual([(await rows("port:3069"))[0]!.state, (await rows("port:3069"))[0]!.details.ghost_since], ["live", undefined]);
   });
 
   test("a declared-only row is confirmed as both once the job sees it", async () => {
     await call("register_footprint", { ...P, kind: "server", locator: "3070", purpose: "second dev server", teardown: "kill 1070" });
-    assert.equal((await rows("port:3070"))[0].source, "declared");
+    assert.equal((await rows("port:3070"))[0]!.source, "declared");
     await observe([server(3070)], 4);
-    const row = (await rows("port:3070"))[0];
+    const row = (await rows("port:3070"))[0]!;
     assert.deepEqual([row.source, row.state, row.purpose], ["both", "live", "second dev server"]);
   });
 
@@ -182,8 +186,8 @@ describe("register_footprint", () => {
     await call("register_footprint", { ...P, kind: "tunnel", locator: "9100", purpose: "old", teardown: "kill 9100", actor: B }); // s2 holds no claim
     const taken = await call("register_footprint", { ...P, kind: "tunnel", locator: "9100", purpose: "new owner", teardown: "kill 9100" });
     assert.equal(taken.footprint.purpose, "new owner");
-    const ev = await raw.query("select payload from events where type = 'footprint.declared' and payload->>'locator' = 'pid:9100' order by id desc limit 1");
-    assert.equal(ev.rows[0].payload.took_over_from.session_id, "s2");
+    const ev = (await eventsAbout("footprint.declared", "pid:9100")).slice(0, 1);
+    assert.equal(ev[0]!.payload.took_over_from.session_id, "s2");
   });
 
   test("the caller's machine spelled differently lands on the job's row", async () => {
@@ -191,7 +195,7 @@ describe("register_footprint", () => {
     const r = await call("register_footprint", { ...P, kind: "server", locator: "3071", purpose: "p", teardown: "t", actor: { ...A, machine: "test-mac-2" } });
     assert.equal(r.merged, true);
     assert.equal((await rows("port:3071")).length, 1);
-    assert.equal((await rows("port:3071"))[0].machine, "Test-Mac-2.local");
+    assert.equal((await rows("port:3071"))[0]!.machine, "Test-Mac-2.local");
   });
 });
 
@@ -200,15 +204,15 @@ describe("release_footprint", () => {
     await call("register_footprint", { ...P, kind: "container", locator: "redis-test", purpose: "cache", teardown: "docker rm -f redis-test" });
     const held = await call("release_footprint", { ...P, locator: "docker:redis-test", actor: B });
     assert.deepEqual([held.__error, held.holder.session_id], ["FOOTPRINT_HELD", "s1"]);
-    assert.equal((await rows("docker:redis-test"))[0].released_at, null);
+    assert.equal((await rows("docker:redis-test"))[0]!.releasedAt, null);
 
     const human = await releaseFootprint(db, { project: "zigzag", locator: "redis-test", machine: "test-mac" }, { ...webCtx });
     assert.deepEqual([human.released, human.kind], [true, "container"]);
-    const row = (await rows("docker:redis-test"))[0];
-    assert.deepEqual([row.state, row.released_at !== null], ["released", true]);
-    const ev = await raw.query("select task_key, payload from events where type = 'footprint.released' and payload->>'locator' = 'docker:redis-test'");
-    assert.equal(ev.rows.length, 1);
-    assert.equal(ev.rows[0].payload.reason, "released by Jorge");
+    const row = (await rows("docker:redis-test"))[0]!;
+    assert.deepEqual([row.state, row.releasedAt !== null], ["released", true]);
+    const ev = await eventsAbout("footprint.released", "docker:redis-test");
+    assert.equal(ev.length, 1);
+    assert.equal(ev[0]!.payload.reason, "released by Jorge");
 
     const mine = await call("release_footprint", { ...P, locator: "docker:pg-test", kind: "container" });
     assert.deepEqual([mine.released, mine.footprint.state], [true, "released"]);
@@ -238,8 +242,8 @@ describe("release_footprint", () => {
     assert.equal(tick.seen, 1);
     const all = await rows("port:3080");
     assert.equal(all.length, 2);
-    assert.deepEqual([all[0].released_at !== null, all[0].source], [true, "both"]);
-    assert.deepEqual([all[1].released_at, all[1].source, all[1].holder, all[1].state], [null, "observed", null, "orphan"]);
+    assert.deepEqual([all[0]!.releasedAt !== null, all[0]!.source], [true, "both"]);
+    assert.deepEqual([all[1]!.releasedAt, all[1]!.source, all[1]!.holder, all[1]!.state], [null, "observed", null, "orphan"]);
     assert.equal((await machineInventory(db, "test-mac")).filter((r) => r.locator === "port:3080").length, 1);
   });
 

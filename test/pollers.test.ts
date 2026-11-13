@@ -3,8 +3,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, describe, test } from "node:test";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -17,7 +16,7 @@ const { mergeLateReviews, pollGithubProject } = await import("../src/jobs/github
 const { pollVercelProject } = await import("../src/jobs/vercel.js");
 
 type Json = Record<string, any>;
-let raw: pg.Client;
+let store: TestStore;
 const ctx = { actor: { agent: "t", session_id: "s1", machine: "ci" } };
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
 
@@ -37,12 +36,11 @@ function fakeFetch(routes: Record<string, unknown>) {
 }
 
 async function status(key: string): Promise<string> {
-  const { rows } = await raw.query("select status from tasks where key = $1", [key]);
-  return rows[0].status;
+  return (await store.get("tasks", { key }))!.status;
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const { db, close } = makeDb();
   try {
     const p = await findProject(db, "filmia");
@@ -59,7 +57,7 @@ before(async () => {
 });
 
 after(async () => {
-  await raw?.end();
+  await store?.end();
 });
 
 describe("github", () => {
@@ -88,19 +86,20 @@ describe("github", () => {
       const again = await pollGithubProject(db, p, { fetch, env: { GITHUB_TOKEN: "ghp_test" } });
       assert.equal(again.pr_events ?? 0, 0, "a second tick announces nothing");
       assert.equal((await listEvents(db, p.id, { types: ["pr"] })).events.filter((e) => e.type === "pr.opened").length, 1);
-      const { rows } = await raw.query("select verdict, commit, url from results where kind = 'ci'");
+      const rows = (await store.find("results", { kind: "ci" })).map((r) => ({ verdict: r.verdict, commit: r.commit, url: r.url }));
       assert.deepEqual(rows, [{ verdict: "fail", commit: "aaaaaaa111111111111111111111111111111111", url: "https://github.com/Jorg3L3on/filmia/actions/runs/1" }]);
-      const { rows: prs } = await raw.query("select number, state, ci_state, task_id is not null as linked from pull_requests order by number");
+      const prRows = await store.find("pullRequests", {}, { orderBy: [{ column: "number" }] });
+      const prs = prRows.map((r) => ({ number: r.number, state: r.state, ci_state: r.ciState, linked: r.taskId !== null }));
       assert.deepEqual(prs, [{ number: 129, state: "merged", ci_state: null, linked: false }, { number: 130, state: "open", ci_state: "failure", linked: true }]);
       // 2.11 (PLA-02): the open PR's merge_commit_sha is GitHub's test merge; it is not kept.
-      const { rows: shas } = await raw.query("select number, merge_sha from pull_requests order by number");
+      const shas = (await store.find("pullRequests", {}, { orderBy: [{ column: "number" }] })).map((r) => ({ number: r.number, merge_sha: r.mergeSha }));
       assert.deepEqual(shas, [{ number: 129, merge_sha: "ddddddd444444444444444444444444444444444" }, { number: 130, merge_sha: null }]);
       assert.ok(calls.some((c) => c.includes("/pulls?")));
 
       // The same tick again: nothing new.
-      const before = (await raw.query("select count(*)::int as n from events")).rows[0].n;
+      const before = await store.count("events");
       await pollGithubProject(db, p, { fetch, env: { GITHUB_TOKEN: "ghp_test" } });
-      assert.equal((await raw.query("select count(*)::int as n from events")).rows[0].n, before);
+      assert.equal(await store.count("events"), before);
     } finally {
       await close();
     }
@@ -117,7 +116,7 @@ describe("github", () => {
       const sib = (await findTask(db, p.id, "FIL-I1-2"))!;
       await setTask(db, { project: "filmia", key: "FIL-I1-2", status: "In review", pr_url: "https://github.com/Jorg3L3on/filmia/pull/130", version: sib.version }, ctx);
       // The branch moved on (the poller saw the new head); back to review with a fresh pass at it.
-      await raw.query("update branches set head_sha = 'bbbbbbb222222222222222222222222222222222' where name = 'jl/catalog-split'");
+      await store.fix((uow) => uow.update("branches", { name: "jl/catalog-split" }, { headSha: "bbbbbbb222222222222222222222222222222222" }));
       await claim(db, { project: "filmia", key: "FIL-I1-1" }, ctx);
       await addResult(db, { project: "filmia", key: "FIL-I1-1", kind: "ci", verdict: "pass", cite: "green", commit: "bbbbbbb222222222222222222222222222222222", branch: "jl/catalog-split" }, ctx);
       const t = (await findTask(db, p.id, "FIL-I1-1"))!;
@@ -135,8 +134,8 @@ describe("github", () => {
       const ev = (await listEvents(db, p.id, { key: "FIL-I1-1", types: ["task.status"] })).events.at(-1)!;
       assert.equal(ev.actor.agent, "plania");
       assert.deepEqual([ev.payload.from, ev.payload.to], ["In review", "Merged"]);
-      assert.equal((await raw.query("select merge_sha from pull_requests where number = 130")).rows[0].merge_sha, "ccccccc333333333333333333333333333333333");
-      const { rows } = await raw.query("select head_sha, merged_at is not null as merged, deleted_at is not null as deleted from branches where name = 'jl/catalog-split'");
+      assert.equal((await store.get("pullRequests", { number: 130 }))!.mergeSha, "ccccccc333333333333333333333333333333333");
+      const rows = (await store.find("branches", { name: "jl/catalog-split" })).map((r) => ({ head_sha: r.headSha, merged: r.mergedAt !== null, deleted: r.deletedAt !== null }));
       assert.deepEqual(rows, [{ head_sha: "bbbbbbb222222222222222222222222222222222", merged: true, deleted: true }]);
       // jl/docs went when its PR (#129) merged in the first tick; jl/catalog-split now.
       assert.deepEqual((await listEvents(db, p.id, { types: ["branch.deleted"] })).events.map((e) => e.payload.branch), ["jl/docs", "jl/catalog-split"]);
@@ -158,9 +157,8 @@ describe("merged gate (PLA-02)", () => {
       let t = (await findTask(db, p.id, "FIL-I1-3"))!;
       await setTask(db, { project: "filmia", key: "FIL-I1-3", status: "In review", pr_url: "https://github.com/Jorg3L3on/filmia/pull/131", version: t.version }, ctx);
       // A row written before 2.11: open, with GitHub's test-merge sha stored.
-      await raw.query(
-        "insert into pull_requests (project_id, repo, number, url, title, state, head_sha, head_branch, base_branch, merge_sha) values ($1, 'Jorg3L3on/filmia', 131, 'https://github.com/Jorg3L3on/filmia/pull/131', 'Ratings', 'open', 'abcabca000000000000000000000000000000000', 'jl/ratings', 'main', 'f8a4e19000')",
-        [p.id],
+      await store.fix((uow) =>
+        uow.insert("pullRequests", { projectId: p.id, repo: "Jorg3L3on/filmia", number: 131, url: "https://github.com/Jorg3L3on/filmia/pull/131", title: "Ratings", state: "open", headSha: "abcabca000000000000000000000000000000000", headBranch: "jl/ratings", baseBranch: "main", mergeSha: "f8a4e19000" }),
       );
       await addResult(db, { project: "filmia", key: "FIL-I1-3", kind: "ci", verdict: "pass", cite: "PR head green", commit: "abcabca000" }, ctx);
       t = (await findTask(db, p.id, "FIL-I1-3"))!;
@@ -191,8 +189,9 @@ describe("github token", () => {
         return { ok: false as const, reason: "missing" as const, stdout: "", stderr: "" };
       };
       await pollGithubProject(db, p, { fetch, env: {}, ghRun, tokenFile: () => ({ token: null, modeNote: null }) });
-      let { rows } = await raw.query("select error from poll_state where source = 'github'");
-      assert.equal(rows[0].error, "no token: GITHUB_TOKEN unset, ~/.config/plania/github-token missing or empty");
+      const errors = async () => (await store.find("pollState", { source: "github" })).map((r) => ({ error: r.error }));
+      let rows = await errors();
+      assert.equal(rows[0]!.error, "no token: GITHUB_TOKEN unset, ~/.config/plania/github-token missing or empty");
       assert.equal(calls.length, 0, "nothing asked of GitHub without a token");
       assert.equal(ghRuns, 0, "gh is not spawned without a token");
       const s = await pollGithubProject(db, p, { fetch, env: {}, ghRun, tokenFile: () => ({ token: "  ghp_test  \n", modeNote: null }) });
@@ -200,8 +199,8 @@ describe("github token", () => {
       assert.ok(calls.some((c) => c.startsWith("/repos/Jorg3L3on/filmia/pulls")), "polled with the file token");
       assert.equal(auths[0], "Bearer ghp_test");
       assert.equal(ghRuns, 0, "a token file does not spawn gh");
-      ({ rows } = await raw.query("select error from poll_state where source = 'github'"));
-      assert.equal(rows[0].error, null);
+      rows = await errors();
+      assert.equal(rows[0]!.error, null);
       assert.doesNotMatch(JSON.stringify(rows), /ghp_/);
     } finally {
       await close();
@@ -221,14 +220,15 @@ describe("vercel", () => {
       assert.equal(await status("FIL-I1-1"), "Released");
       assert.equal(await status("FIL-I1-2"), "Released", "the sibling finds its PR by pr_url");
       assert.equal(await status("FIL-I1-3"), "Merged", "#131 is not merged, so it has no merge commit to ship");
-      const { rows } = await raw.query("select env, commit, deploy_source->>'deployment_id' as dpl, deployed_at is not null as deployed from env_states order by env");
+      const envs = await store.find("envStates", {}, { orderBy: [{ column: "env" }] });
+      const rows = envs.map((r) => ({ env: r.env, commit: r.commit, dpl: r.deploySource?.deployment_id ?? null, deployed: r.deployedAt !== null }));
       assert.deepEqual(rows, [
         { env: "preview", commit: "aaaaaaa111111111111111111111111111111111", dpl: "dpl_P", deployed: true },
         { env: "prod", commit: "fffffff777777777777777777777777777777777", dpl: "dpl_B", deployed: true },
       ]);
       const again = await pollVercelProject(db, p, { fetch, env: { VERCEL_TOKEN: "vc_test" } });
       assert.equal(again.deployments, 0, "the cursor skips what was seen");
-      const { rows: poll } = await raw.query("select source, error from poll_state order by source");
+      const poll = (await store.find("pollState", {}, { orderBy: [{ column: "source" }] })).map((r) => ({ source: r.source, error: r.error }));
       assert.deepEqual(poll, [{ source: "github", error: null }, { source: "vercel", error: null }]);
     } finally {
       await close();
@@ -241,8 +241,8 @@ describe("vercel", () => {
       const p = await findProject(db, "filmia");
       const { fetch } = fakeFetch({});
       await pollVercelProject(db, p, { fetch, env: {} });
-      const { rows } = await raw.query("select error from poll_state where source = 'vercel'");
-      assert.match(rows[0].error, /VERCEL_TOKEN/);
+      const rows = await store.find("pollState", { source: "vercel" });
+      assert.match(rows[0]!.error!, /VERCEL_TOKEN/);
     } finally {
       await close();
     }
@@ -256,10 +256,21 @@ describe("late review (PLA-07)", () => {
       const p = await findProject(db, "workia");
       const url = "https://github.com/Jorg3L3on/workia/pull/77";
       // What an earlier tick stored: #77 merged while the ticket was not in review yet.
-      await raw.query(
-        `insert into pull_requests (project_id, repo, number, url, title, state, head_sha, head_branch, base_branch, merged_at, merge_sha, gh_updated_at)
-         values ($1, 'Jorg3L3on/workia', 77, $2, 'Late', 'merged', 'aaaaaaa111111111111111111111111111111111', 'jl/late', 'sandbox', now(), 'ddddddd444444444444444444444444444444444', now())`,
-        [p.id, url],
+      await store.fix((uow) =>
+        uow.insert("pullRequests", {
+          projectId: p.id,
+          repo: "Jorg3L3on/workia",
+          number: 77,
+          url,
+          title: "Late",
+          state: "merged",
+          headSha: "aaaaaaa111111111111111111111111111111111",
+          headBranch: "jl/late",
+          baseBranch: "sandbox",
+          mergedAt: uow.now,
+          mergeSha: "ddddddd444444444444444444444444444444444",
+          ghUpdatedAt: uow.now,
+        }),
       );
       const late = await createTask(db, { project: "workia", title: "Late", scope: "s", checks: ["c"], status: "Ready" }, ctx);
       await claim(db, { project: "workia", key: late.key }, ctx);
@@ -290,10 +301,21 @@ describe("status drift (PLA-03)", () => {
       p = await findProject(db, "micasa");
       const ready = await createTask(db, { project: "micasa", title: "Drift", scope: "s", checks: ["c"], status: "Ready" }, ctx);
       const taskId = (await findTask(db, p.id, ready.key))!.id;
-      await raw.query(
-        `insert into pull_requests (project_id, repo, number, url, title, task_id, state, head_branch, base_branch, merged_at, merge_sha, gh_updated_at)
-         values ($1, 'Jorg3L3on/micasa', 88, 'https://github.com/Jorg3L3on/micasa/pull/88', 'Drift', $2, 'merged', 'jl/drift', 'sandbox', now(), 'eeeeeee555555555555555555555555555555555', now())`,
-        [p.id, taskId],
+      await store.fix((uow) =>
+        uow.insert("pullRequests", {
+          projectId: p.id,
+          repo: "Jorg3L3on/micasa",
+          number: 88,
+          url: "https://github.com/Jorg3L3on/micasa/pull/88",
+          title: "Drift",
+          taskId,
+          state: "merged",
+          headBranch: "jl/drift",
+          baseBranch: "sandbox",
+          mergedAt: uow.now,
+          mergeSha: "eeeeeee555555555555555555555555555555555",
+          ghUpdatedAt: uow.now,
+        }),
       );
       const SECRET = "ghp_drift_test_token_value_0123456789";
       const deps = () => ({
@@ -313,9 +335,9 @@ describe("status drift (PLA-03)", () => {
       assert.equal(findings[0]!.key, ready.key);
       assert.match(findings[0]!.detail, /PR #88 merged .* but the ticket is Ready/);
       const dump = JSON.stringify([
-        (await raw.query("select payload from events where project_id = $1", [p.id])).rows,
-        (await raw.query("select cursor, error from poll_state where project_id = $1", [p.id])).rows,
-        (await raw.query("select response from write_requests where project_id = $1", [p.id])).rows,
+        (await store.find("events", { projectId: p.id })).map((r) => ({ payload: r.payload })),
+        (await store.find("pollState", { projectId: p.id })).map((r) => ({ cursor: r.cursor, error: r.error })),
+        (await store.find("writeRequests", { projectId: p.id })).map((r) => ({ response: r.response })),
       ]);
       assert.equal(dump.includes(SECRET), false, "the token never lands in the database");
     } finally {
@@ -337,7 +359,7 @@ describe("no CI (PLA-14)", () => {
       const made: string[] = [];
       for (const title of ["Sin CI", "Con checks", "Con status"]) {
         const t = await createTask(db, { project: "zigzag", title, scope: "s", checks: ["c"], status: "Ready" }, ctx);
-        await raw.query(`update tasks set status = 'In review' where key = $1`, [t.key]);
+        await store.fix((uow) => uow.update("tasks", { key: t.key }, { status: "In review" }));
         made.push(t.key);
       }
       // What an earlier poll stored: every PR open, linked, pending, and unchanged on GitHub since.
@@ -347,11 +369,24 @@ describe("no CI (PLA-14)", () => {
         { n: 5, sha: STATUS, key: made[2] },
       ];
       for (const pr of prs) {
-        await raw.query(
-          `insert into pull_requests (project_id, repo, number, url, title, task_id, state, ci_state, head_sha, head_branch, base_branch, gh_updated_at)
-           select $1, 'Jorg3L3on/zigzag', $2, $3, 'pr', id, 'open', 'pending', $4, $5, 'sandbox', '2026-11-10T10:00:00Z' from tasks where key = $6`,
-          [p.id, pr.n, `https://github.com/Jorg3L3on/zigzag/pull/${pr.n}`, pr.sha, `jl/pr-${pr.n}`, pr.key],
-        );
+        await store.fix(async (uow) => {
+          for (const t of await uow.find("tasks", { key: pr.key })) {
+            await uow.insert("pullRequests", {
+              projectId: p.id,
+              repo: "Jorg3L3on/zigzag",
+              number: pr.n,
+              url: `https://github.com/Jorg3L3on/zigzag/pull/${pr.n}`,
+              title: "pr",
+              taskId: t.id,
+              state: "open",
+              ciState: "pending",
+              headSha: pr.sha,
+              headBranch: `jl/pr-${pr.n}`,
+              baseBranch: "sandbox",
+              ghUpdatedAt: new Date("2026-11-10T10:00:00Z"),
+            });
+          }
+        });
       }
       const list = prs.map((pr) => ({
         number: pr.n,
@@ -380,8 +415,12 @@ describe("no CI (PLA-14)", () => {
       };
       const { fetch } = fakeFetch(routes);
       const deps = { fetch, env: { GITHUB_TOKEN: "ghp_test" } };
-      const ci = async () => Object.fromEntries((await raw.query(`select number, ci_state from pull_requests where repo = 'Jorg3L3on/zigzag' order by number`)).rows.map((r) => [r.number, r.ci_state]));
-      const ciResults = async () => (await raw.query(`select t.key, r.verdict from results r join tasks t on t.id = r.task_id where r.kind = 'ci' and t.key = any($1) order by r.created_at`, [made])).rows;
+      const ci = async () => Object.fromEntries((await store.find("pullRequests", { repo: "Jorg3L3on/zigzag" }, { orderBy: [{ column: "number" }] })).map((r) => [r.number, r.ciState]));
+      const ciResults = async () => {
+        const keyOf = new Map((await store.find("tasks", { key: made })).map((t) => [t.id, t.key]));
+        const results = await store.find("results", { kind: "ci", taskId: [...keyOf.keys()] }, { orderBy: [{ column: "createdAt" }] });
+        return results.map((r) => ({ key: keyOf.get(r.taskId), verdict: r.verdict }));
+      };
 
       await pollGithubProject(db, p, deps);
       assert.deepEqual(await ci(), { 3: "none", 4: "pending", 5: "pending" }, "the stuck no-CI PR is corrected; real CI keeps pending");
