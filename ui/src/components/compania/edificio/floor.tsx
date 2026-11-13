@@ -16,6 +16,7 @@ export const Floor = ({
   onOpen,
   onFijar,
   onPlan,
+  onPublish,
   decisions,
   acts,
   ask,
@@ -29,6 +30,8 @@ export const Floor = ({
   onOpen?: (m: OrgMember, el: HTMLElement) => void;
   onFijar?: (p: OrgProject) => void;
   onPlan?: (p: OrgProject, el: HTMLElement) => void;
+  // PLA-23: the plate's "Publicar".
+  onPublish?: (p: OrgProject) => void;
   // PLA-I39-5: the decisions hang under their asker's window.
   decisions?: Decision[];
   acts?: QuestionActs;
@@ -41,7 +44,7 @@ export const Floor = ({
   let first = true;
   return (
     <article id={`piso-${p.slug}`} className="edi-floor" data-floor={p.slug} data-light={p.light} style={{ "--c": floorHue(p.slug) } as CSSProperties} aria-label={p.title}>
-      <div className="edi-plate">{plate ?? <Plate project={p} onFijar={onFijar} onPlan={onPlan}>{ask}</Plate>}</div>
+      <div className="edi-plate">{plate ?? <Plate project={p} onFijar={onFijar} onPlan={onPlan} onPublish={onPublish}>{ask}</Plate>}</div>
       <div className="edi-wins">
         {team.map((m, i) => {
           const hanging = decisions && acts ? hangingFor(decisions, p.slug, m.agent) : null;

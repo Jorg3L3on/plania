@@ -108,10 +108,10 @@ test("I31-3 #1: a created project is paused, has its goal, a PO with the templat
   assert.deepEqual(await runs(), []);
 
   // The Compañía read shows it paused, with this week's tokens and no limit.
-  const state = (await (await app.request("/api/company", { headers: jorge() })).json()) as { projects: { slug: string; paused: boolean; usage: { used: number } }[] };
+  const state = (await (await app.request("/api/company", { headers: jorge() })).json()) as { projects: { slug: string; paused: boolean; usage: { used: number; last_week: number } }[] };
   const card = state.projects.find((p) => p.slug === "cafe-lindo")!;
   assert.equal(card.paused, true);
-  assert.deepEqual(card.usage, { used: 0 });
+  assert.deepEqual(card.usage, { used: 0, last_week: 0 });
 
   // Jorge resumes it: its PO's first wake is queued (and nothing else).
   const resumed = await app.request("/api/company/projects/cafe-lindo/switch", { method: "POST", headers: jorge(), body: JSON.stringify({ paused: false }) });

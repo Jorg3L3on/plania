@@ -85,8 +85,9 @@ export function caption(m: OrgMember, now: number, opts: { companyPaused?: boole
   if (queue[0])
     return {
       ...base,
-      doing: `Sigue: ${clip(queue[0].title)}`,
-      sub: rest || "en fila",
+      // PLA-23: next, not now: it has not started (a live run is "work" above).
+      doing: `Siguiente: ${clip(queue[0].title)}`,
+      sub: rest ? `aún no empieza · ${rest}` : "aún no empieza",
     };
   if (m.produced)
     return {

@@ -156,6 +156,18 @@ test("I36-2 #1: a pending release shows commits ahead, the tickets it ships and 
   assert.equal(((await res.json()) as Json).error, "OWNER_CODE");
 });
 
+test("PLA-23: a release lights the floor with a Publicar action and says how many, in the right number", async () => {
+  const { lightOf } = await import("../src/api/company-org.js");
+  await raw.query(`insert into projects (slug, title, key_prefix) values ('pubfloor', 'Pub Floor', 'PUB') on conflict do nothing`);
+  const p = (await raw.query(`select * from projects where slug = 'pubfloor'`)).rows[0];
+  const proj = { ...p, runsPaused: false, settings: p.settings ?? {} } as never;
+  const item = (n: number) => ({ kind: "release", group: "pasos", project: "pubfloor", target: { tickets: Array.from({ length: n }, (_, i) => ({ key: `PUB-${i}` })) } }) as never;
+  const ctx = (n: number) => ({ paused: false, threadId: "00000000-0000-4000-8000-000000000000", now: new Date(), ceoId: null, team: [], plan: null, inbox: [item(n)] });
+  const two = await lightOf(db, proj, ctx(2));
+  assert.deepEqual(two, { light: "needs_jorge", reason: { text: "2 cambios listos esperan que los publiques.", action: { label: "Publicar", href: "#publicar" } } });
+  assert.equal((await lightOf(db, proj, ctx(1))).reason!.text, "1 cambio listo espera que lo publiques.");
+});
+
 test("I36-2 #3: the payload counts Bandeja's decisiones and pasos, also those Te toca leaves out", async () => {
   await raw.query(`update projects set runs_paused = true where slug = 'filmia'`);
   const t = (await writes.createTask(db, { project: "filmia", title: "Tráiler", scope: "s", checks: ["c"] } as never, PO("filmia"))) as Json;

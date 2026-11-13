@@ -68,7 +68,7 @@ const row = (patch: Record<string, unknown>) => ({
 
 test("I36-1 #1: Te necesita shows its reason and points to the question on the floor", () => {
   const out = card(project({ light: "needs_jorge", light_reason: { text: "Lo siguiente es tuyo: «Kickoff con la boutique».", action: { label: "Ver en Te toca", href: "#te-toca" } } }));
-  assert.ok(out.includes("Lo siguiente es tuyo: «Kickoff con la boutique».") && out.includes('href="#pregunta-workia"') && out.includes("Ver la pregunta"));
+  assert.ok(out.includes("Lo siguiente es tuyo: «Kickoff con la boutique».") && out.includes('data-control="ver-pregunta"') && out.includes("Ver la pregunta"));
   clean(out);
 });
 
@@ -175,8 +175,8 @@ test("I36-2 #5: a PR row shows its link and open checks before Fusionar", () => 
   assert.ok(out.includes('href="https://github.com/x/w/pull/9"'));
   assert.ok(out.indexOf("data-checks") < out.indexOf('data-action="fusionar"'), "checks before Fusionar");
   assert.deepEqual(lib.checksText({ checks: { open: 0, ci: "success" } }), { text: "pruebas en verde", tone: "ok", open: false });
-  // PLA-14: a repo with no CI is not "pruebas corriendo".
-  assert.deepEqual(lib.checksText({ checks: { open: 0, ci: "none" } }), { text: "repo sin CI", tone: "ok", open: false });
+  // PLA-14: a repo with no CI is not "pruebas corriendo". PLA-23: nor good news: neutral.
+  assert.deepEqual(lib.checksText({ checks: { open: 0, ci: "none" } }), { text: "repo sin CI", tone: "idle", open: false });
 });
 
 // ---- PLA-I36-3

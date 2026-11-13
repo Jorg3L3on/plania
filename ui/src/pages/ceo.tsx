@@ -20,6 +20,7 @@ import type { DecisionBusy } from "@/components/compania/v2";
 import { AskBox } from "@/components/compania/edificio/ask";
 import { AsistenteFab } from "@/components/compania/edificio/asistente";
 import { Building, BuildingBlock } from "@/components/compania/edificio/building";
+import { PublishBody, publishError } from "@/components/compania/edificio/publish";
 import { AddPage, MemberHead, MemberSide, PlanPage, SidePage, memberTitle } from "@/components/compania/edificio/side";
 import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
 import { useThread } from "@/components/compania/use-thread";
@@ -246,6 +247,33 @@ const Compania = () => {
     },
   });
   const [resuming, setResuming] = useState<string | null>(null);
+  // PLA-23: Publicar from a floor's plate or its roof chip: the release of that project, the owner's code, the ship route.
+  // publishing keeps the project while the sheet slides closed, so it never flashes an empty name.
+  const [publishing, setPublishing] = useState<string | null>(null);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishCode, setPublishCode] = useState("");
+  const publishRelease = publishing ? (decisions.find((d) => d.kind === "release" && d.project === publishing && !d.state) ?? null) : null;
+  const publishTitle = publishing ? (company?.projects.find((p) => p.slug === publishing)?.title ?? publishing) : "";
+  const openPublish = (slug: string | null | undefined) => {
+    if (!slug) return;
+    publish.reset();
+    setPublishCode("");
+    setPublishing(slug);
+    setPublishOpen(true);
+  };
+  const publish = useMutation({
+    mutationFn: (v: { slug: string; code: string }) => api.shipRelease(v.slug, v.code),
+    onSuccess: (_r, v) => {
+      toast(`${publishTitle || v.slug}: publicado. Ya está en la versión principal.`);
+      setPublishOpen(false);
+      setPublishCode("");
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ["company"] });
+      void client.invalidateQueries({ queryKey: ["inbox"] });
+    },
+  });
+
   const resume = useMutation({
     mutationFn: (slug: string) => api.setProjectPaused(slug, false),
     onMutate: (slug) => setResuming(slug),
@@ -306,7 +334,8 @@ const Compania = () => {
             onFijar={setFijar}
             onResume={(slug) => resume.mutate(slug)}
             resuming={resuming}
-            acts={{ now, busy, errors, opened: openDecision, onAct: (d, input, key) => act.mutate({ d, input, key }) }}
+            acts={{ now, busy, errors, opened: openDecision, onAct: (d, input, key) => act.mutate({ d, input, key }), onPublish: (d) => openPublish(d.project) }}
+            onPublish={(p) => openPublish(p.slug)}
             roofOpen={roofOpen}
             onChip={(d) => setRoofOpen((x) => (x === d.id ? null : d.id))}
             onOpen={(slug, m, el) => {
@@ -442,6 +471,34 @@ const Compania = () => {
         onOpenChange={(open) => !open && setFijar(null)}
         onSaved={() => void client.invalidateQueries({ queryKey: ["company"] })}
       />
+
+      {/* PLA-23: Publicar, from a floor's plate or its roof chip. */}
+      <Sheet open={publishOpen} onOpenChange={(open) => !open && !publish.isPending && setPublishOpen(false)}>
+        <SheetContent side="bottom" className="mx-auto max-h-[85svh] w-full max-w-xl overflow-y-auto rounded-t-[22px] bg-background">
+          <SheetHeader className="pr-10">
+            <SheetTitle className="font-display text-2xl font-extrabold tracking-tight">Publicar {publishTitle}</SheetTitle>
+            <SheetDescription>Lo que ya aceptaste en la copia de prueba pasa a la versión principal.</SheetDescription>
+          </SheetHeader>
+          <div className="px-4 pb-8">
+            {publishing && publishRelease?.release ? (
+              <PublishBody
+                title={publishTitle}
+                release={publishRelease.release}
+                code={publishCode}
+                busy={publish.isPending}
+                error={publish.isError ? (publish.error instanceof ApiError ? publishError(publish.error.code, publish.error.detail) : "No se pudo. Si la Mac está dormida, intenta al despertar.") : null}
+                onCode={setPublishCode}
+                onPublish={() => publish.mutate({ slug: publishing, code: publishCode })}
+                onCancel={() => setPublishOpen(false)}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground" data-publish-empty>
+                Ya no hay nada por publicar en {publishTitle}.
+              </p>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* PLA-I36-6: Pausar from the card, with the confirmation the project page uses. */}
       <Sheet open={pausing !== null} onOpenChange={(open) => !open && setPausing(null)}>

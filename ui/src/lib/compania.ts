@@ -3,7 +3,7 @@
 // Pure and relative imports only, so test/compania.test.ts loads it with node:test. Tokens, never money.
 
 // PLA-21: no weekly budgets. This week's tokens are shown, never checked.
-export type Usage = { used: number };
+export type Usage = { used: number; last_week?: number };
 export type RunnerRole = "product-owner" | "taller" | "research" | "artist" | "asistente";
 export type CompanyRun = {
   id: string;
