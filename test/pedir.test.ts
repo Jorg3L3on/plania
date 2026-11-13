@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -18,7 +17,7 @@ const A = { agent: "test-agent", session_id: "s1", machine: "ci" };
 const P = { project: "workia" };
 const T = { scope: "s", checks: ["c"] };
 
-let raw: pg.Client;
+let store: TestStore;
 let client: Client;
 let closeDb: () => Promise<void>;
 const cookie = () => `${SESSION_COOKIE}=${createSession()}`;
@@ -40,7 +39,7 @@ async function call(name: string, args: Json): Promise<Json> {
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const made = makeDb();
   closeDb = made.close;
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -52,7 +51,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("POST /api/projects/:slug/tasks", () => {
@@ -65,9 +64,9 @@ describe("POST /api/projects/:slug/tasks", () => {
     assert.equal(t.priority, "P2");
     assert.equal(t.origin, "jorge");
     assert.equal(t.kind, "ticket");
-    const { rows } = await raw.query("select type, actor from events where task_key = $1 order by id", ["WRK-01"]);
-    assert.equal(rows[0].type, "task.created");
-    assert.equal(rows[0].actor.agent, "jorge");
+    const rows = await store.find("events", { taskKey: "WRK-01" }, { orderBy: [{ column: "id" }] });
+    assert.equal(rows[0]!.type, "task.created");
+    assert.equal(rows[0]!.actor.agent, "jorge");
   });
 
   test("summary, priority and an initiative; a bad body, a ticket as parent and no cookie are refused", async () => {
@@ -90,8 +89,7 @@ describe("POST /api/projects/:slug/tasks", () => {
     assert.ok(r.__error, "origin jorge is not in the agent schema");
     const b = await call("batch", { ...P, actor: A, ops: [{ op: "create_task", title: "Fake", ...T, origin: "jorge" }] });
     assert.ok(b.__error, "nor in batch");
-    const { rows } = await raw.query("select count(*)::int as n from tasks where title = 'Fake'");
-    assert.equal(rows[0].n, 0);
+    assert.equal(await store.count("tasks", { title: "Fake" }), 0);
   });
 });
 
@@ -129,7 +127,7 @@ describe("agents read requests first", () => {
     const ctx = await call("get_context", { project: "zigzag", workspace: { branch: "jl/zig" }, session_id: "s1" });
     assert.deepEqual(ctx.requests.map((r: Json) => r.key), ["ZIG-04", "ZIG-02"]);
 
-    await raw.query("update tasks set status = 'Done' where key = 'ZIG-04'");
+    await store.fix((uow) => uow.update("tasks", { key: "ZIG-04" }, { status: "Done" }));
     const after = await call("get_resume", { project: "zigzag" });
     assert.deepEqual(after.requests.map((r: Json) => r.key), ["ZIG-02"]);
   });

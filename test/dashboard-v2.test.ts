@@ -2,8 +2,7 @@
 // read and the two screen actions through the app. Titles here are fixtures; no real data.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 process.env.PLANIA_TZ = "America/Mexico_City";
@@ -19,7 +18,7 @@ const writes = await import("../src/mcp/writes.js");
 const signals = await import("../src/mcp/ceo-signals.js");
 
 type Json = Record<string, any>;
-let raw: pg.Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
 const cookie = `${SESSION_COOKIE}=${createSession()}`;
 const ctx = { actor: { agent: "test-agent", session_id: "s-dash2" } };
@@ -107,7 +106,7 @@ test("wake info names the missing variable and never reads its value", () => {
 let readyKey = "";
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const opened = makeDb();
   closeDb = opened.close;
   await seedOrg(opened.db);
@@ -124,15 +123,16 @@ before(async () => {
     ctx,
   );
   readyKey = ready.key;
-  await raw.query(`update tasks set status_changed_at = now() - interval '10 days', created_at = now() - interval '10 days' where key = $1`, [ready.key]);
+  const tenDaysAgo = new Date(Date.now() - 10 * 86_400_000);
+  await store.fix((uow) => uow.update("tasks", { key: ready.key }, { statusChangedAt: tenDaysAgo, createdAt: tenDaysAgo }));
   const review = await writes.createTask(opened.db, { project: "micasa", title: "En revisión de prueba", scope: "alcance", checks: ["hecho"] }, ctx);
-  await raw.query(`update tasks set status = 'In review', status_changed_at = now() - interval '2 days' where key = $1`, [review.key]);
+  await store.fix((uow) => uow.update("tasks", { key: review.key }, { status: "In review", statusChangedAt: new Date(Date.now() - 2 * 86_400_000) }));
   clearProgressCache();
 });
 
 after(async () => {
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
@@ -171,12 +171,12 @@ test("the read carries the brief, the queue, goal health, the trend and wake inf
 test("wake: cookie only, unknown agent 404, no adapter answers why and records no run", async () => {
   assert.equal((await call("POST", "/api/dashboard/wake", { agent: "taller" }, { Authorization: `Bearer ${TEST_BEARER}` })).status, 401);
   assert.equal((await call("POST", "/api/dashboard/wake", { agent: "nadie" })).status, 404);
-  const before = Number((await raw.query("select count(*) from heartbeat_runs")).rows[0].count);
+  const before = await store.count("heartbeatRuns");
   const res = await call("POST", "/api/dashboard/wake", { agent: "artist" });
   assert.equal(res.status, 200);
   assert.equal(res.body.woke, false);
   assert.equal(res.body.reason, "no_adapter");
-  const afterCount = Number((await raw.query("select count(*) from heartbeat_runs")).rows[0].count);
+  const afterCount = await store.count("heartbeatRuns");
   assert.equal(afterCount, before);
 });
 

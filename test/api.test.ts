@@ -1,8 +1,7 @@
 // JSON API for the screen and the live event stream, on the v2 contract.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -15,7 +14,7 @@ const { addDecision } = await import("../src/mcp/decisions.js");
 const ctx = { actor: { agent: "test-agent", session_id: "s1" } };
 const T = { scope: "s", checks: ["c"] };
 
-let raw: pg.Client;
+let store: TestStore;
 let cookie: string;
 type Json = Record<string, any>;
 
@@ -29,17 +28,20 @@ function req(method: string, path: string, opts: { body?: unknown; cookie?: stri
 
 // In review and Done need every check closed; the screen tests tick them first.
 async function tickAll(key: string) {
-  await raw.query("update checks set done = true where task_id = (select id from tasks where key = $1)", [key]);
+  await store.fix(async (uow) => {
+    const task = await uow.get("tasks", { key });
+    if (task) await uow.update("checks", { taskId: task.id }, { done: true });
+  });
 }
 
-async function row(key: string) {
-  const { rows } = await raw.query("select status, priority, blocked_note, resolved_at, version from tasks where key = $1", [key]);
-  return rows[0];
+async function row(key: string): Promise<Json> {
+  const t = await store.get("tasks", { key });
+  return (t && { status: t.status, priority: t.priority, blocked_note: t.blockedNote, resolved_at: t.resolvedAt, version: t.version }) as Json;
 }
 
 before(async () => {
   process.env.PLANIA_PASSWORD_HASH = await hashPassword("test-password-123");
-  raw = await resetTestDb();
+  store = await resetTestStore();
   cookie = `${SESSION_COOKIE}=${createSession()}`;
   const { db, close } = makeDb();
   try {
@@ -56,7 +58,7 @@ before(async () => {
 });
 
 after(async () => {
-  await raw?.end();
+  await store?.end();
 });
 
 describe("session", () => {
@@ -184,7 +186,7 @@ describe("reads", () => {
       await writes.createTask(db, { project: "workia", key: "WRK-W2", title: "second", ...T }, ctx);
       await writes.createTask(db, { project: "workia", key: "WRK-W3", title: "queued", ...T, blocked_by: ["WRK-W2", "WRK-W1"] }, ctx);
       await writes.createTask(db, { project: "workia", key: "WRK-W4", title: "held", ...T, blocked_by: ["WRK-W1", { human_action: { text: "Crear la llave" } }] }, ctx);
-      await raw.query("update tasks set status = 'In review' where key = 'WRK-W2'");
+      await store.fix((uow) => uow.update("tasks", { key: "WRK-W2" }, { status: "In review" }));
     } finally {
       await close();
     }
@@ -354,15 +356,20 @@ describe("GET /api/machine", () => {
   });
 
   test("returns the machine, the header totals and every unreleased row with its ticket, initiative and lease", async () => {
-    await raw.query(`insert into footprints (machine, kind, locator, project_id, task_id, session_id, source, state, details, first_seen_at, last_seen_at, teardown)
-      select 'test-mac', 'server', 'port:3069', t.project_id, t.id, 's1', 'observed', 'live', '{"port":3069,"pid":10319}', now(), now(), 'kill 10319' from tasks t where t.key = 'MIC-01-F1'`);
-    await raw.query(`insert into footprints (machine, kind, locator, source, state, details, first_seen_at, last_seen_at) values
-      ('test-mac', 'worktree', '/w/a', 'observed', 'stale', '{"size_kb": 2048, "repo": "plania"}', now(), now()),
-      ('test-mac', 'database', 'x@127.0.0.1:5432', 'observed', 'orphan', '{}', now(), now()),
-      ('test-mac', 'server', 'port:4000', 'observed', 'gone', '{}', now(), now() - interval '1 hour')`);
-    await raw.query(`insert into footprints (machine, kind, locator, source, state, released_at) values ('test-mac', 'server', 'port:4100', 'observed', 'released', now())`);
-    await raw.query(`insert into resources (project_id, name, holder, purpose, lease_until)
-      select id, 'port:3069@test-mac', '{"agent":"claude","session_id":"s1"}', 'micasa dev', now() + interval '10 minutes' from projects where slug = 'micasa'`);
+    const micasa = await store.projectId("micasa");
+    await store.fix(async (uow) => {
+      const now = new Date();
+      const t = (await uow.get("tasks", { key: "MIC-01-F1" }))!;
+      await uow.insert("footprints", {
+        machine: "test-mac", kind: "server", locator: "port:3069", projectId: t.projectId, taskId: t.id, sessionId: "s1", source: "observed", state: "live",
+        details: { port: 3069, pid: 10319 }, firstSeenAt: now, lastSeenAt: now, teardown: "kill 10319",
+      });
+      await uow.insert("footprints", { machine: "test-mac", kind: "worktree", locator: "/w/a", source: "observed", state: "stale", details: { size_kb: 2048, repo: "plania" }, firstSeenAt: now, lastSeenAt: now });
+      await uow.insert("footprints", { machine: "test-mac", kind: "database", locator: "x@127.0.0.1:5432", source: "observed", state: "orphan", details: {}, firstSeenAt: now, lastSeenAt: now });
+      await uow.insert("footprints", { machine: "test-mac", kind: "server", locator: "port:4000", source: "observed", state: "gone", details: {}, firstSeenAt: now, lastSeenAt: new Date(now.getTime() - 3_600_000) });
+      await uow.insert("footprints", { machine: "test-mac", kind: "server", locator: "port:4100", source: "observed", state: "released", releasedAt: now });
+      await uow.insert("resources", { projectId: micasa, name: "port:3069@test-mac", holder: { agent: "claude", session_id: "s1" }, purpose: "micasa dev", leaseUntil: new Date(now.getTime() + 10 * 60_000) });
+    });
 
     const res = await req("GET", "/api/machine");
     assert.equal(res.status, 200);

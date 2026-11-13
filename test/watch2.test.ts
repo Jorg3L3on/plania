@@ -5,8 +5,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { TEST_READ_TOKEN, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_READ_TOKEN, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -21,7 +20,7 @@ const { collapseChanges } = await import("../src/mcp/watch.js");
 const { markStaleClaims } = await import("../src/jobs/machine/index.js");
 
 type Json = Record<string, any>;
-let raw: pg.Client;
+let store: TestStore;
 let client: Client; // full scopes: these tests write through the tools too
 let closeDb: () => Promise<void>;
 const A = { agent: "claude-code", session_id: "s1", machine: "mac" };
@@ -44,14 +43,13 @@ async function call(name: string, args: Json = {}): Promise<Json> {
 }
 
 async function version(key: string): Promise<number> {
-  const { rows } = await raw.query("select version from tasks where key = $1", [key]);
-  return rows[0].version;
+  return (await store.get("tasks", { key }))!.version;
 }
 
 const yesterday = () => new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const { db, close } = makeDb();
   closeDb = close;
   await createTask(db, { project: "filmia", kind: "initiative", title: "IMDb ratings", scope: "PRD", next_action: "Falta que el diseño lo apruebe Jorge" }, ctx); // FIL-I1
@@ -68,7 +66,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("P2.1 structured PR and done_at", () => {
@@ -77,10 +75,18 @@ describe("P2.1 structured PR and done_at", () => {
     try {
       const p = await findProject(db, "filmia");
       const t1 = (await findTask(db, p.id, "FIL-I1-1"))!;
-      await raw.query(
-        `insert into pull_requests (project_id, repo, number, url, title, task_id, state, ci_state, merged_at)
-         values ($1, 'Jorg3L3on/filmia', 150, 'https://github.com/Jorg3L3on/filmia/pull/150', 'Ratings', $2, 'merged', 'success', '2026-10-12T10:00:00Z')`,
-        [p.id, t1.id],
+      await store.fix((uow) =>
+        uow.insert("pullRequests", {
+          projectId: p.id,
+          repo: "Jorg3L3on/filmia",
+          number: 150,
+          url: "https://github.com/Jorg3L3on/filmia/pull/150",
+          title: "Ratings",
+          taskId: t1.id,
+          state: "merged",
+          ciState: "success",
+          mergedAt: new Date("2026-10-12T10:00:00Z"),
+        }),
       );
       await setTask(db, { project: "filmia", key: "FIL-I1-2", pr_url: "https://github.com/Jorg3L3on/filmia/pull/151", version: await version("FIL-I1-2") }, ctx);
     } finally {
@@ -104,7 +110,8 @@ describe("P2.1 structured PR and done_at", () => {
     const z = makeDb();
     try {
       await claim(z.db, { project: "zigzag", key: "ZIG-01" }, ctx);
-      await raw.query("update checks set done = true where task_id = (select id from tasks where key = 'ZIG-01')");
+      const zig = (await store.get("tasks", { key: "ZIG-01" }))!;
+      await store.fix((uow) => uow.update("checks", { taskId: zig.id }, { done: true }));
       await addResult(z.db, { project: "zigzag", key: "ZIG-01", kind: "live", verdict: "pass", cite: "ok" }, ctx);
       await setTask(z.db, { project: "zigzag", key: "ZIG-01", work_type: "ops", version: await version("ZIG-01") }, ctx);
       await setTask(z.db, { project: "zigzag", key: "ZIG-01", status: "In review", version: await version("ZIG-01") }, ctx);
@@ -177,13 +184,14 @@ describe("P2.3 session heartbeat and digest collapse", () => {
     } finally {
       await close();
     }
-    const before = await raw.query("select key, lease_until from tasks where key in ('FIL-I1-1','FIL-I1-3') order by key");
-    const events = (await raw.query("select count(*)::int as n from events")).rows[0].n;
+    const leases = () => store.find("tasks", { key: ["FIL-I1-1", "FIL-I1-3"] }, { orderBy: [{ column: "key" }] });
+    const before = await leases();
+    const events = await store.count("events");
     const r = await call("claim", { project: "filmia", key: "*", action: "heartbeat", ttl_minutes: 60, actor: A });
     assert.deepEqual(r.extended, ["FIL-I1-1", "FIL-I1-3"]);
-    const after_ = await raw.query("select key, lease_until from tasks where key in ('FIL-I1-1','FIL-I1-3') order by key");
-    for (let i = 0; i < 2; i++) assert.ok(new Date(after_.rows[i].lease_until) > new Date(before.rows[i].lease_until), "lease moved");
-    assert.equal((await raw.query("select count(*)::int as n from events")).rows[0].n, events, "no event");
+    const after_ = await leases();
+    for (let i = 0; i < 2; i++) assert.ok(new Date(after_[i]!.leaseUntil!) > new Date(before[i]!.leaseUntil!), "lease moved");
+    assert.equal(await store.count("events"), events, "no event");
     const other = await call("claim", { project: "filmia", key: "*", action: "heartbeat", actor: { ...A, session_id: "nobody" } });
     assert.deepEqual(other.extended, []);
     const wrong = await call("claim", { project: "filmia", key: "*", actor: A });
@@ -245,7 +253,7 @@ describe("P3.1 GET /bot/v1/stream", () => {
   }
 
   test("replays from Last-Event-ID across projects, then streams new writes", async () => {
-    const last = (await raw.query("select max(id)::int as id from events")).rows[0].id as number;
+    const last = (await store.find("events", {}, { orderBy: [{ column: "id", desc: true }], limit: 1 }))[0]!.id;
     const res = await app.request("/bot/v1/stream?types=task.status,claim", { headers: { Authorization: `Bearer ${TEST_READ_TOKEN}`, "Last-Event-ID": String(last - 1) } });
     assert.equal(res.status, 200);
     assert.match(res.headers.get("content-type") ?? "", /text\/event-stream/);

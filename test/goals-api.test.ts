@@ -1,8 +1,7 @@
 // PLA-I22-3: the goals screen API. The cookie, the tree, a project filter, and an edit.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -14,7 +13,7 @@ const { hashPassword } = await import("../src/auth/password.js");
 const ctx = { actor: { agent: "test-agent", session_id: "s-goals-api" } };
 type Json = Record<string, any>;
 
-let raw: pg.Client;
+let store: TestStore;
 let cookie: string;
 
 function req(method: string, path: string, opts: { body?: unknown; cookie?: string | null } = {}) {
@@ -27,12 +26,12 @@ function req(method: string, path: string, opts: { body?: unknown; cookie?: stri
 
 before(async () => {
   process.env.PLANIA_PASSWORD_HASH = await hashPassword("test-password-123");
-  raw = await resetTestDb();
+  store = await resetTestStore();
   cookie = `${SESSION_COOKIE}=${createSession()}`;
 });
 
 after(async () => {
-  await raw?.end();
+  await store?.end();
 });
 
 describe("goals API", () => {

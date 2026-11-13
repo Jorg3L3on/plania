@@ -1,8 +1,7 @@
 // PLA-I23-3: the screen reads comments and routine runs. A Bearer does not open them.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -12,7 +11,7 @@ const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const { comment, recordRoutineRun } = await import("../src/mcp/delegation.js");
 const writes = await import("../src/mcp/writes.js");
 
-let raw: pg.Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
 const cookie = () => `${SESSION_COOKIE}=${createSession()}`;
 const ctx = { actor: { agent: "test-agent", session_id: "s-i23-3" } };
@@ -22,7 +21,7 @@ function req(path: string, headers: Record<string, string> = {}) {
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const opened = makeDb();
   closeDb = opened.close;
   await seedOrg(opened.db);
@@ -51,7 +50,7 @@ before(async () => {
 
 after(async () => {
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("comments and routines need the session cookie", async () => {

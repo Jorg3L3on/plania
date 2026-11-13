@@ -4,9 +4,8 @@ import { chmodSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } f
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, beforeEach, describe, test } from "node:test";
-import type pg from "pg";
 import type { GroupRun } from "../src/jobs/gh-process.js";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -275,12 +274,13 @@ describe("githubToken order", () => {
 });
 
 describe("poller", () => {
-  let raw: pg.Client;
+  let store: TestStore;
   let db: ReturnType<typeof makeDb>["db"];
   let closeDb: () => Promise<void>;
+  const githubErrors = async () => (await store.find("pollState", { source: "github" })).map((r) => ({ error: r.error }));
 
   before(async () => {
-    raw = await resetTestDb();
+    store = await resetTestStore();
     const made = makeDb();
     db = made.db;
     closeDb = made.close;
@@ -290,7 +290,7 @@ describe("poller", () => {
 
   after(async () => {
     await closeDb?.();
-    await raw?.end();
+    await store?.end();
   });
 
   test("without a file the job fetches nothing, spawns nothing, and names the file", async () => {
@@ -312,10 +312,10 @@ describe("poller", () => {
       });
       assert.equal(fetches, 0);
       assert.equal(ghRuns, 0);
-      const { rows } = await raw.query("select error from poll_state where source = 'github'");
-      assert.equal(rows[0].error, GAP);
-      assert.match(rows[0].error, /~\/\.config\/plania\/github-token/);
-      assert.doesNotMatch(rows[0].error, /ghp_/);
+      const rows = await githubErrors();
+      assert.equal(rows[0]!.error, GAP);
+      assert.match(rows[0]!.error!, /~\/\.config\/plania\/github-token/);
+      assert.doesNotMatch(rows[0]!.error!, /ghp_/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -340,8 +340,8 @@ describe("poller", () => {
       await pollGithubProject(db, p, { fetch, env: { PLANIA_GITHUB_TOKEN_FILE: file }, ghRun });
       assert.equal(auths[0], "Bearer ghp_test");
       assert.equal(ghRuns, 0);
-      const { rows } = await raw.query("select error from poll_state where source = 'github'");
-      assert.equal(rows[0].error, null);
+      const rows = await githubErrors();
+      assert.equal(rows[0]!.error, null);
 
       auths.length = 0;
       const other = path.join(dir, "other");

@@ -1,8 +1,7 @@
 // Per-agent tokens (2.1, R-04): issued on screen, scoped, identifying the agent, revocable.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -11,7 +10,7 @@ const { makeDb } = await import("../src/db/client.js");
 const { createTask } = await import("../src/mcp/writes.js");
 
 type Json = Record<string, any>;
-let raw: pg.Client;
+let store: TestStore;
 let cookie: string;
 let secrets: Record<string, string> = {};
 let ids: Record<string, string> = {};
@@ -33,8 +32,8 @@ const api = (method: string, path: string, body?: unknown) =>
   app.request(path, { method, headers: { Cookie: cookie, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
 
 before(async () => {
-  raw = await resetTestDb();
-  cookie = `${SESSION_COOKIE}=${createSession()}`;
+  store = await resetTestStore();
+  cookie =`${SESSION_COOKIE}=${createSession()}`;
   const { db, close } = makeDb();
   try {
     await createTask(db, { project: "filmia", key: "FIL-01", title: "x", scope: "s", checks: ["c"] }, { actor: { agent: "t", session_id: "s0" } });
@@ -44,7 +43,7 @@ before(async () => {
 });
 
 after(async () => {
-  await raw?.end();
+  await store?.end();
 });
 
 describe("issuing", () => {
@@ -88,9 +87,9 @@ describe("using", () => {
   test("the token fills the actor, refuses a different one, and lands on every event", async () => {
     const filled = await callTool(secrets["mac-claude"]!, "set_task", { project: "filmia", key: "FIL-01", note: "hi", actor: { session_id: "s1" } });
     assert.equal(filled.key, "FIL-01");
-    const { rows } = await raw.query("select actor, token_id from events where type = 'note' order by id desc limit 1");
-    assert.deepEqual(rows[0].actor, { session_id: "s1", agent: "Claude Code", machine: "MacBook-Air" });
-    assert.equal(rows[0].token_id, ids["mac-claude"]);
+    const rows = await store.find("events", { type: "note" }, { orderBy: [{ column: "id", desc: true }], limit: 1 });
+    assert.deepEqual(rows[0]!.actor, { session_id: "s1", agent: "Claude Code", machine: "MacBook-Air" });
+    assert.equal(rows[0]!.tokenId, ids["mac-claude"]);
 
     const mismatch = await callTool(secrets["mac-claude"]!, "set_task", { project: "filmia", key: "FIL-01", note: "x", actor: { agent: "Codex", session_id: "s1" } });
     assert.equal(mismatch.__error, "ACTOR_MISMATCH");
@@ -107,8 +106,8 @@ describe("using", () => {
     assert.equal(required.__error, "ACTOR_REQUIRED");
     const legacy = await callTool(TEST_BEARER, "set_task", { project: "filmia", key: "FIL-01", note: "x", actor: { agent: "t", session_id: "s3" } });
     assert.equal(legacy.key, "FIL-01");
-    const { rows: last } = await raw.query("select token_id from events order by id desc limit 1");
-    assert.equal(last[0].token_id, null);
+    const last = await store.find("events", {}, { orderBy: [{ column: "id", desc: true }], limit: 1 });
+    assert.equal(last[0]!.tokenId, null);
   });
 
   test("a revoked token stops at its next call", async () => {

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -13,7 +13,7 @@ type Json = Record<string, any>;
 const A = { agent: "test-agent", session_id: "s-why", machine: "ci" };
 
 let client: Client;
-let raw: import("pg").Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
 
 async function tool(name: string, args: Json = {}): Promise<Json> {
@@ -25,7 +25,7 @@ async function tool(name: string, args: Json = {}): Promise<Json> {
 const write = (name: string, args: Json) => tool(name, { actor: A, ...args });
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const opened = makeDb();
   closeDb = opened.close;
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -37,7 +37,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("why chain", () => {

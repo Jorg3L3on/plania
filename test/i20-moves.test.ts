@@ -5,8 +5,8 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { randomUUID } from "node:crypto";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -23,7 +23,7 @@ const T = { scope: "s", checks: ["c"] };
 const QUOTE = "ciérralo, ya no hace falta";
 
 let client: Client;
-let raw: pg.Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
 
 async function call(name: string, args: Json): Promise<Json> {
@@ -35,7 +35,7 @@ async function call(name: string, args: Json): Promise<Json> {
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const { db, close } = makeDb();
   closeDb = close;
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -47,7 +47,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("tools/list has no request_approval", async () => {
@@ -68,10 +68,10 @@ test("the screen logs a reason and does not land in the delegated list", async (
   } finally {
     await close();
   }
-  const { rows } = await raw.query("select payload from events where type = 'task.delegated_move' and task_key = $1", [created.key]);
+  const rows = await store.find("events", { type: "task.delegated_move", taskKey: created.key });
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].payload.message_id, undefined);
-  assert.equal(rows[0].payload.reason, "en pantalla");
+  assert.equal(rows[0]!.payload.message_id, undefined);
+  assert.equal(rows[0]!.payload.reason, "en pantalla");
   const inbox = await call("get_inbox", { project: "zigzag" });
   assert.equal(inbox.items.some((i: Json) => i.kind === "approval"), false);
   assert.equal(inbox.delegated.some((d: Json) => d.key === created.key), false);
@@ -103,17 +103,17 @@ test("an agent without evidence is HUMAN_ONLY, and with evidence the move is lis
 test("a raw Won't do is flagged, and a granted historical row is not", async () => {
   const bare = await call("create_task", { ...P, title: "Sin registro", ...T });
   const old = await call("create_task", { ...P, title: "Decisión vieja", ...T });
-  await raw.query("update tasks set status = 'Won''t do' where key = $1 or key = $2", [bare.key, old.key]);
-  const { rows } = await raw.query(
-    `select t.id, t.project_id from tasks t join projects p on p.id = t.project_id where p.slug = 'zigzag' and t.key = $1`,
-    [old.key],
-  );
-  await raw.query(
-    `insert into events (project_id, task_id, task_key, type, actor, payload)
-     values ($1, $2, $3, 'approval.archived',
-       '{"agent":"jorge","session_id":"web","machine":"screen"}',
-       jsonb_build_object('approval_id', gen_random_uuid()::text, 'action', 'wont_do', 'state', 'granted', 'reason', 'ya se decidió'))`,
-    [rows[0].project_id, rows[0].id, old.key],
+  await store.fix((uow) => uow.update("tasks", { key: [bare.key, old.key] }, { status: "Won't do" }));
+  const row = (await store.get("tasks", { projectId: await store.projectId("zigzag"), key: old.key }))!;
+  await store.fix((uow) =>
+    uow.insert("events", {
+      projectId: row.projectId,
+      taskId: row.id,
+      taskKey: old.key,
+      type: "approval.archived",
+      actor: { agent: "jorge", session_id: "web", machine: "screen" },
+      payload: { approval_id: randomUUID(), action: "wont_do", state: "granted", reason: "ya se decidió" },
+    }),
   );
   const audit = await call("audit", P);
   const flagged = audit.findings.filter((f: Json) => f.code === WONT_DO_WITHOUT_EVIDENCE).map((f: Json) => f.key);

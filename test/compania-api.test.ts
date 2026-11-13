@@ -2,8 +2,7 @@
 // prompt doc are new cookie-only reads. Existing fields keep their meaning. Fake data on the throwaway test DB.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -11,7 +10,7 @@ const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js")
 const { makeDb } = await import("../src/db/client.js");
 const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 
-let raw: pg.Client;
+let store: TestStore;
 const cookie = () => ({ Cookie: `${SESSION_COOKIE}=${createSession()}` });
 type Json = Record<string, any>;
 const get = async (path: string, headers: Record<string, string> = cookie()) => {
@@ -20,34 +19,38 @@ const get = async (path: string, headers: Record<string, string> = cookie()) => 
 };
 
 before(async () => {
-  raw = await resetTestDb();
-  await raw.query(`insert into projects (slug, title, key_prefix) values ('plania', 'Plania', 'PLA'), ('mianovia', 'Mianovia', 'MIA')`);
+  store = await resetTestStore();
+  await store.fix(async (uow) => {
+    await uow.insert("projects", { slug: "plania", title: "Plania", keyPrefix: "PLA" });
+    await uow.insert("projects", { slug: "mianovia", title: "Mianovia", keyPrefix: "MIA" });
+  });
   await seedOrg(makeDb().db);
-  const pla = (await raw.query(`select id from projects where slug = 'plania'`)).rows[0].id;
-  const mia = (await raw.query(`select id from projects where slug = 'mianovia'`)).rows[0].id;
-  const actor = JSON.stringify({ agent: "test", session_id: "s" });
-  for (const title of ["Prompt: Product owner", "Prompt: Taller", "Prompt: Research", "Prompt: Artist", "Prompt: Asistente"]) {
-    await raw.query(`insert into docs (project_id, title, markdown, actor) values ($1, $2, $3, $4::jsonb)`, [pla, title, `# ${title}\n\nTexto de prueba.`, actor]);
-  }
-  await raw.query(`insert into docs (project_id, title, markdown, actor) values ($1, 'Secreto', 'no', $2::jsonb)`, [pla, actor]);
-  await raw.query(`insert into goals (project_id, title) values ($1, 'Que una novia arme su lista en cinco minutos.')`, [mia]);
-  const t = (key: string, status: string, extra = "") =>
-    raw.query(`insert into tasks (project_id, key, title, kind, status${extra ? ", blocked_note" : ""}) values ($1, $2, $3, 'ticket', $4${extra ? ", $5" : ""})`, [
-      mia, key, `Ticket ${key}`, status, ...(extra ? [extra] : []),
-    ]);
-  await t("MIA-1", "In progress");
-  await t("MIA-2", "Blocked", "espera la API de pagos");
-  await t("MIA-3", "Ready");
-  await raw.query(`insert into tasks (project_id, key, title, kind, status, stage) values ($1, 'MIA-IDEA1', 'Filtros por precio', 'idea', 'Open', 'design')`, [mia]);
-  const po = (await raw.query(`select id from agents where slug = 'po-mianovia'`)).rows[0].id;
-  await raw.query(
-    `insert into agent_runs (agent_id, project_id, role, status, task_key, started_at, ended_at, tokens_total, summary) values ($1, $2, 'product-owner', 'ok', 'MIA-IDEA1', now() - interval '1 hour', now() - interval '50 minutes', 42000, 'escribió 2 ideas')`,
-    [po, mia],
-  );
+  const pla = await store.projectId("plania");
+  const mia = await store.projectId("mianovia");
+  const actor = { agent: "test", session_id: "s" };
+  const po = (await store.get("agents", { slug: "po-mianovia" }))!.id;
+  await store.fix(async (uow) => {
+    for (const title of ["Prompt: Product owner", "Prompt: Taller", "Prompt: Research", "Prompt: Artist", "Prompt: Asistente"]) {
+      await uow.insert("docs", { projectId: pla, title, markdown: `# ${title}\n\nTexto de prueba.`, actor });
+    }
+    await uow.insert("docs", { projectId: pla, title: "Secreto", markdown: "no", actor });
+    await uow.insert("goals", { projectId: mia, title: "Que una novia arme su lista en cinco minutos." });
+    const t = (key: string, status: string, extra = "") =>
+      uow.insert("tasks", { projectId: mia, key, title: `Ticket ${key}`, kind: "ticket", status, ...(extra ? { blockedNote: extra } : {}) });
+    await t("MIA-1", "In progress");
+    await t("MIA-2", "Blocked", "espera la API de pagos");
+    await t("MIA-3", "Ready");
+    await uow.insert("tasks", { projectId: mia, key: "MIA-IDEA1", title: "Filtros por precio", kind: "idea", status: "Open", stage: "design" });
+    const now = Date.now();
+    await uow.insert("agentRuns", {
+      agentId: po, projectId: mia, role: "product-owner", status: "ok", taskKey: "MIA-IDEA1",
+      startedAt: new Date(now - 3_600_000), endedAt: new Date(now - 50 * 60_000), tokensTotal: 42000, summary: "escribió 2 ideas",
+    });
+  });
 });
 
 after(async () => {
-  await raw?.end();
+  await store?.end();
 });
 
 // PLA-I32-6: GET /api/company is now the Plan's read contract (test/i32-contract.test.ts); these facts are
@@ -59,7 +62,7 @@ test("companyExtras computes viewer, prompts, roster and project_facts", async (
   const body = JSON.parse(JSON.stringify(await companyExtras(db))) as Json;
   await close();
   assert.deepEqual(body.viewer, { can_edit_limits: true });
-  const docs = (await raw.query(`select id, title from docs where title like 'Prompt: %'`)).rows;
+  const docs = (await store.find("docs")).filter((d) => d.title.startsWith("Prompt: "));
   const byTitle = Object.fromEntries(docs.map((d) => [d.title, d.id]));
   assert.equal(body.prompts.taller.doc_id, byTitle["Prompt: Taller"]);
   assert.equal(body.prompts["product-owner"].doc_id, byTitle["Prompt: Product owner"]);
@@ -91,12 +94,12 @@ test("the project sheet carries goal, pipeline, en curso, bloqueado, siguiente a
 });
 
 test("the prompt doc route reads role prompts only, and every new read is cookie-only", async () => {
-  const id = (await raw.query(`select id from docs where title = 'Prompt: Taller'`)).rows[0].id;
+  const id = (await store.get("docs", { title: "Prompt: Taller" }))!.id;
   const doc = await get(`/api/company/docs/${id}`);
   assert.equal(doc.status, 200);
   assert.equal(doc.body.title, "Prompt: Taller");
   assert.match(doc.body.markdown, /Texto de prueba/);
-  const other = (await raw.query(`select id from docs where title = 'Secreto'`)).rows[0].id;
+  const other = (await store.get("docs", { title: "Secreto" }))!.id;
   assert.equal((await get(`/api/company/docs/${other}`)).status, 404);
   for (const path of ["/api/company", "/api/company/projects/mianovia", `/api/company/docs/${id}`]) {
     assert.equal((await get(path, {})).status, 401, path);
