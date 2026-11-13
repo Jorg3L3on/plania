@@ -6,6 +6,7 @@ import path from "node:path";
 import { after } from "node:test";
 import pg from "pg";
 import { resetPool } from "../src/db/client.js";
+import type { Reader, UnitOfWork } from "../src/store/types.js";
 
 // Where the test databases live. PLANIA_TEST_PG names the server and role, without a database:
 // postgres://postgres@127.0.0.1:5432. The default is Homebrew's: the OS user on localhost, no password.
@@ -27,9 +28,29 @@ export const TEST_BEARER = "test-token";
 export const TEST_READ_TOKEN = "test-read-token";
 export const TEST_CI_TOKEN = "test-ci-token";
 
+// Which store the tests run on. PLANIA_TEST_STORE=devva runs them on the devva store with no Postgres; it needs
+// the engine of spike/devva-commit-log (see its README). The default is Postgres.
+export const onDevva = process.env.PLANIA_TEST_STORE === "devva";
+
+// For a test (or describe) that only makes sense on Postgres: `test("…", pgOnly("replays a migration"), …)`.
+export const pgOnly = (why: string): { skip: string | false } => ({ skip: onDevva ? `needs Postgres: ${why}` : false });
+
+// For a test that should pass on devva and does not yet, because of plania's code or the devva adapter, not
+// because of the test. It still runs on Postgres. Say what fails; these are a to-do list, not exemptions.
+export const devvaGap = (what: string): { skip: string | false } => ({ skip: onDevva ? `fails on devva: ${what}` : false });
+
+// For a whole file that only makes sense on Postgres. Call it first, before importing anything from src/.
+export function pgOnlyFile(why: string): void {
+  if (!onDevva) return;
+  console.log(`# skipped on devva, needs Postgres: ${why}`);
+  process.exit(0);
+}
+
 // Must run before the app reads its env, so call it at module top level before importing src/.
 export function useTestEnv(): void {
   process.env.DATABASE_URL = TEST_DATABASE_URL;
+  // On devva nothing may reach for Postgres: without a URL, anything that does fails loudly.
+  if (onDevva) delete process.env.DATABASE_URL;
   process.env.MCP_BEARER_TOKEN = TEST_BEARER;
   process.env.MCP_READ_TOKEN = TEST_READ_TOKEN;
   process.env.PLANIA_CI_TOKEN = TEST_CI_TOKEN;
@@ -37,9 +58,74 @@ export function useTestEnv(): void {
   process.env.PLANIA_JOBS = "0";
 }
 
+// A fresh, seeded store for a test file, whichever store the tests run on, and the way a test looks at it:
+// reads (get, find, count) for assertions, and fix() for arranging rows no tool would write (a backdated
+// lease, a row in a past state). Both go through the store port, so the same test runs on Postgres and devva.
+export type TestStore = Reader & {
+  fix<T>(fn: (uow: UnitOfWork) => Promise<T>): Promise<T>;
+  // The id of one of the four seeded projects (micasa, workia, filmia, zigzag), or of any project by slug.
+  projectId(slug: string): Promise<string>;
+  end(): Promise<void>;
+};
+
+const SEED = [
+  ["micasa", "MiCasa", "MIC"],
+  ["workia", "Workia", "WRK"],
+  ["filmia", "Filmia", "FIL"],
+  ["zigzag", "Zigzag", "ZIG"],
+] as const;
+
+type DevvaT = Awaited<ReturnType<typeof import("../src/store/devva.js").DevvaStore.open>>;
+let devva: DevvaT | null = null;
+async function endDevva(): Promise<void> {
+  const old = devva;
+  devva = null;
+  if (!old) return;
+  const { useDb } = await import("../src/db/client.js");
+  useDb(null);
+  await old.purge();
+  old.close();
+}
+if (onDevva) after(endDevva);
+
+export async function resetTestStore(): Promise<TestStore> {
+  const { pgStore } = await import("../src/store/pg.js");
+  const { makeDb, useDb } = await import("../src/db/client.js");
+  let end: () => Promise<void>;
+  if (onDevva) {
+    await endDevva();
+    const { DevvaStore } = await import("../src/store/devva.js");
+    devva = await DevvaStore.open({ prefix: `t_${process.pid}_${Date.now().toString(36)}` });
+    useDb(devva.handle);
+    await devva.write("", {}, async (uow) => {
+      for (const [slug, title, keyPrefix] of SEED) await uow.insert("projects", { slug, title, keyPrefix });
+    });
+    end = endDevva;
+  } else {
+    const raw = await resetTestDb();
+    end = () => raw.end();
+  }
+  // Resolved on every call: the handle changes when the store is rebuilt.
+  const store = () => pgStore(makeDb().db);
+  return {
+    get: (table, key) => store().read((r) => r.get(table, key)),
+    find: (table, where, options) => store().read((r) => r.find(table, where, options)),
+    count: (table, where) => store().read((r) => r.count(table, where)),
+    fix: (fn) => store().write("", {}, fn),
+    projectId: async (slug) => {
+      const p = await store().read((r) => r.get("projects", { slug }));
+      if (!p) throw new Error(`no project ${slug}`);
+      return p.id;
+    },
+    end,
+  };
+}
+
 // Drops and recreates this checkout's test database, applies every migration, inserts the four projects.
-// Returns a raw client for assertions; the caller ends it.
+// Returns a raw client for assertions; the caller ends it. Postgres only: a test that should also run on
+// devva uses resetTestStore.
 export async function resetTestDb(): Promise<pg.Client> {
+  if (onDevva) throw new Error("resetTestDb needs Postgres: use resetTestStore, or mark the test pgOnly");
   await parityReport();
   // The shared pool holds connections to the database about to be dropped; the next query opens a fresh one.
   await resetPool();

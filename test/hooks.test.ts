@@ -1,15 +1,14 @@
 // Inbound hooks (CI results, deploys) and the three token scopes.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import type pg from "pg";
-import { TEST_BEARER, TEST_CI_TOKEN, TEST_READ_TOKEN, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, TEST_CI_TOKEN, TEST_READ_TOKEN, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
 const { makeDb } = await import("../src/db/client.js");
 const { createTask, claim } = await import("../src/mcp/writes.js");
 
-let raw: pg.Client;
+let store: TestStore;
 type Json = Record<string, any>;
 
 const post = (path: string, token: string | undefined, body: unknown) =>
@@ -24,7 +23,7 @@ const post = (path: string, token: string | undefined, body: unknown) =>
   });
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const { db, close } = makeDb();
   try {
     const ctx = { actor: { agent: "t", session_id: "s1" } };
@@ -36,7 +35,7 @@ before(async () => {
 });
 
 after(async () => {
-  await raw?.end();
+  await store?.end();
 });
 
 describe("token scopes", () => {
@@ -89,8 +88,7 @@ describe("POST /hooks/result", () => {
   test("a redelivery with the same request_id is a no-op", async () => {
     const res = await post("/hooks/result", TEST_CI_TOKEN, body);
     assert.equal(res.status, 200);
-    const { rows } = await raw.query("select count(*)::int as n from results");
-    assert.equal(rows[0].n, 1);
+    assert.equal(await store.count("results"), 1);
   });
 
   test("errors carry real HTTP status codes", async () => {
