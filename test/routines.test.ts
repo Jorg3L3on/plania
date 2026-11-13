@@ -3,15 +3,14 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
 const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 
-let raw: pg.Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
 let client: Client;
 
@@ -25,7 +24,7 @@ async function call(name: string, args: Record<string, unknown> = {}) {
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const opened = makeDb();
   closeDb = opened.close;
   await seedOrg(opened.db);
@@ -38,7 +37,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("list_routine_runs returns newest first and filters by agent and date", async () => {

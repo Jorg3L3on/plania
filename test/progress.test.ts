@@ -2,8 +2,7 @@
 // a reopen counted once, bearer rejected, year summary under 500ms.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 process.env.PLANIA_TZ = "America/Mexico_City";
@@ -27,9 +26,9 @@ const {
 } = await import("../src/mcp/progress.js");
 
 type Json = Record<string, any>;
-let raw: pg.Client;
+let store: TestStore;
 const cookie = `${SESSION_COOKIE}=${createSession()}`;
-const actor = JSON.stringify({ agent: "t", session_id: "s" });
+const actor = { agent: "t", session_id: "s" };
 
 const get = async (path: string, headers: Record<string, string> = {}) => {
   const res = await app.request(path, { headers: { Cookie: cookie, ...headers } });
@@ -38,11 +37,12 @@ const get = async (path: string, headers: Record<string, string> = {}) => {
 };
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   clearProgressCache();
-  const id = async (slug: string) => (await raw.query("select id from projects where slug = $1", [slug])).rows[0].id as string;
+  const id = (slug: string) => store.projectId(slug);
   const filmia = await id("filmia");
   const micasa = await id("micasa");
+  const taskOf = async (key: string) => (await store.get("tasks", { key }))!;
 
   const task = async (row: {
     project: string;
@@ -56,22 +56,20 @@ before(async () => {
     parent?: string | null;
     stage?: string | null;
   }) => {
-    const parent = row.parent ? (await raw.query("select id from tasks where key = $1", [row.parent])).rows[0].id : null;
-    await raw.query(
-      `insert into tasks (project_id, kind, key, title, summary, status, work_type, resolved_at, parent_id, stage)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [
-        row.project === "micasa" ? micasa : filmia,
-        row.kind ?? "ticket",
-        row.key,
-        row.title,
-        row.summary ?? "",
-        row.status ?? "Done",
-        row.work === undefined ? "code" : row.work,
-        row.at ?? null,
-        parent,
-        row.stage ?? null,
-      ],
+    const parent = row.parent ? (await taskOf(row.parent)).id : null;
+    await store.fix((uow) =>
+      uow.insert("tasks", {
+        projectId: row.project === "micasa" ? micasa : filmia,
+        kind: row.kind ?? "ticket",
+        key: row.key,
+        title: row.title,
+        summary: row.summary ?? "",
+        status: row.status ?? "Done",
+        workType: row.work === undefined ? "code" : row.work,
+        resolvedAt: row.at ? new Date(row.at) : null,
+        parentId: parent,
+        stage: row.stage ?? null,
+      }),
     );
   };
 
@@ -89,47 +87,38 @@ before(async () => {
   await task({ project: "filmia", key: "FIL-I1-4", title: "[PRUEBA] hijo", parent: "FIL-I1", at: "2026-03-10T12:00:00Z" });
   await task({ project: "filmia", key: "FIL-IDEA", title: "Una idea suelta", kind: "idea", work: null, stage: "idea", at: "2026-03-10T11:00:00Z" });
 
-  const rid = (await raw.query("select id, project_id from tasks where key = 'FIL-R'")).rows[0];
-  await raw.query(
-    `insert into events (project_id, task_id, task_key, type, actor, payload, created_at) values
-     ($1, $2, 'FIL-R', 'task.status', $3, '{"from":"In progress","to":"Done"}', '2026-03-09T18:00:00Z'),
-     ($1, $2, 'FIL-R', 'task.status', $3, '{"from":"In progress","to":"Done"}', '2026-03-10T18:00:00Z')`,
-    [rid.project_id, rid.id, actor],
-  );
+  const rid = await taskOf("FIL-R");
+  await store.fix(async (uow) => {
+    for (const at of ["2026-03-09T18:00:00Z", "2026-03-10T18:00:00Z"]) {
+      await uow.insert("events", { projectId: rid.projectId, taskId: rid.id, taskKey: "FIL-R", type: "task.status", actor, payload: { from: "In progress", to: "Done" }, createdAt: new Date(at) });
+    }
+  });
 
-  const bid = (await raw.query("select id from tasks where key = 'FIL-B'")).rows[0].id;
-  const wid = (await raw.query("select id from tasks where key = 'FIL-W'")).rows[0].id;
-  await raw.query(
-    `insert into pull_requests (project_id, repo, number, url, title, task_id, state, merged_at) values
-     ($1, 'example/filmia', 20, 'https://example.com/pull/20', 'Arreglo del login', $2, 'merged', '2026-03-11T05:59:59Z'),
-     ($1, 'example/filmia', 21, 'https://example.com/pull/21', 'Día siguiente', null, 'merged', '2026-03-11T06:00:00Z'),
-     ($1, 'example/filmia', 22, 'https://example.com/pull/22', '[PRUEBA] no cuenta', null, 'merged', '2026-03-10T18:00:00Z'),
-     ($1, 'example/filmia', 23, 'https://example.com/pull/23', 'De un descarte', $3, 'merged', '2026-03-10T18:00:00Z')`,
-    [filmia, bid, wid],
-  );
+  const bid = (await taskOf("FIL-B")).id;
+  const wid = (await taskOf("FIL-W")).id;
+  await store.fix(async (uow) => {
+    const pr = (number: number, title: string, taskId: string | null, mergedAt: string) =>
+      uow.insert("pullRequests", { projectId: filmia, repo: "example/filmia", number, url: `https://example.com/pull/${number}`, title, taskId, state: "merged", mergedAt: new Date(mergedAt) });
+    await pr(20, "Arreglo del login", bid, "2026-03-11T05:59:59Z");
+    await pr(21, "Día siguiente", null, "2026-03-11T06:00:00Z");
+    await pr(22, "[PRUEBA] no cuenta", null, "2026-03-10T18:00:00Z");
+    await pr(23, "De un descarte", wid, "2026-03-10T18:00:00Z");
+  });
 
   await task({ project: "filmia", key: "FIL-EMPTY", title: "Sin resumen", summary: "", work: "bug", at: "2026-09-15T18:00:00Z" });
   await task({ project: "filmia", key: "FIL-B2", title: "Login roto en safari", work: "bug", summary: "La sesión aguanta.", at: "2026-09-15T17:00:00Z" });
   await task({ project: "filmia", key: "FIL-C2", title: "Login de la ficha", work: "code", summary: "Entra con el póster.", at: "2026-09-15T16:00:00Z" });
   await task({ project: "filmia", key: "FIL-X", title: "Otra cosa", work: "bug", summary: "Sin la palabra.", at: "2026-09-15T15:00:00Z" });
   await task({ project: "micasa", key: "MIC-B2", title: "Login del panel", work: "bug", summary: "El panel abre.", at: "2026-09-15T14:00:00Z" });
-  const empty = (await raw.query("select id, project_id from tasks where key = 'FIL-EMPTY'")).rows[0];
-  await raw.query("insert into decisions (project_id, task_id, line, actor) values ($1, $2, $3, $4)", [
-    empty.project_id,
-    empty.id,
-    "Se acepta cualquier cliente registrado",
-    actor,
-  ]);
-  await raw.query(
-    `insert into results (task_id, kind, verdict, cite, url, attachments, actor) values
-     ($1, 'visual', 'pass', 'antes y después', 'https://example.com/after.png', array['https://example.com/before.png'], $2),
-     ($1, 'grep', 'pass', 'no es imagen', 'https://example.com/not-visual.png', '{}', $2)`,
-    [empty.id, actor],
-  );
-  await raw.query(
-    "insert into pull_requests (project_id, repo, number, url, title, task_id, state, merged_at) values ($1, 'example/filmia', 293, 'https://example.com/pull/293', 'Permitir redirect', $2, 'merged', '2026-09-15T18:00:00Z')",
-    [filmia, empty.id],
-  );
+  const empty = await taskOf("FIL-EMPTY");
+  await store.fix(async (uow) => {
+    await uow.insert("decisions", { projectId: empty.projectId, taskId: empty.id, line: "Se acepta cualquier cliente registrado", actor });
+    await uow.insert("results", { taskId: empty.id, kind: "visual", verdict: "pass", cite: "antes y después", url: "https://example.com/after.png", attachments: ["https://example.com/before.png"], actor });
+    await uow.insert("results", { taskId: empty.id, kind: "grep", verdict: "pass", cite: "no es imagen", url: "https://example.com/not-visual.png", attachments: [], actor });
+    await uow.insert("pullRequests", {
+      projectId: filmia, repo: "example/filmia", number: 293, url: "https://example.com/pull/293", title: "Permitir redirect", taskId: empty.id, state: "merged", mergedAt: new Date("2026-09-15T18:00:00Z"),
+    });
+  });
 
   const today = dayInTz(new Date());
   const streakDays = [...[0, 1, 2, 3, 4].map((n) => addDays(today, -n)), ...[6, 7, 8, 9, 10, 11, 12].map((n) => addDays(today, -n))];
@@ -140,7 +129,7 @@ before(async () => {
 });
 
 after(async () => {
-  await raw?.end();
+  await store?.end();
 });
 
 describe("pure day math", () => {
@@ -279,28 +268,41 @@ describe("progress API", () => {
   });
 
   test("year summary stays under 500ms", async () => {
-    await raw.query(`
-      insert into tasks (project_id, kind, key, title, summary, status, work_type, resolved_at)
-      select (select id from projects where slug = 'workia'),
-             'ticket',
-             'PERF-' || g,
-             case when g % 40 = 0 then '[PRUEBA] lote ' || g else 'Cierre de lote ' || g end,
-             'resumen de lote',
-             'Done',
-             case when g % 5 = 0 then 'bug' else 'code' end,
-             ((date '2026-01-01' + (g % 300))::timestamp at time zone 'America/Mexico_City')
-               + ((g % 18) || ' hours')::interval
-      from generate_series(1, 4000) g`);
-    await raw.query(`
-      insert into pull_requests (project_id, repo, number, url, title, state, merged_at)
-      select (select id from projects where slug = 'workia'),
-             'example/workia',
-             10000 + g,
-             'https://example.com/pull/' || g,
-             case when g % 50 = 0 then '[PRUEBA] lote ' || g else 'lote ' || g end,
-             'merged',
-             (date '2026-01-01' + (g % 300))::timestamp at time zone 'America/Mexico_City'
-      from generate_series(1, 1500) g`);
+    const workia = await store.projectId("workia");
+    // Midnight of 2026-01-01 + n days in Mexico City, which has kept UTC-6 all year since 2022.
+    const mxDay = (n: number) => Date.UTC(2026, 0, 1 + n, 6);
+    // In chunks of 500, so no one write carries thousands of rows.
+    for (let from = 1; from <= 4000; from += 500) {
+      await store.fix(async (uow) => {
+        for (let g = from; g < from + 500; g++) {
+          await uow.insert("tasks", {
+            projectId: workia,
+            kind: "ticket",
+            key: `PERF-${g}`,
+            title: g % 40 === 0 ? `[PRUEBA] lote ${g}` : `Cierre de lote ${g}`,
+            summary: "resumen de lote",
+            status: "Done",
+            workType: g % 5 === 0 ? "bug" : "code",
+            resolvedAt: new Date(mxDay(g % 300) + (g % 18) * 3_600_000),
+          });
+        }
+      });
+    }
+    for (let from = 1; from <= 1500; from += 500) {
+      await store.fix(async (uow) => {
+        for (let g = from; g < from + 500; g++) {
+          await uow.insert("pullRequests", {
+            projectId: workia,
+            repo: "example/workia",
+            number: 10000 + g,
+            url: `https://example.com/pull/${g}`,
+            title: g % 50 === 0 ? `[PRUEBA] lote ${g}` : `lote ${g}`,
+            state: "merged",
+            mergedAt: new Date(mxDay(g % 300)),
+          });
+        }
+      });
+    }
     clearProgressCache();
     const { db, close } = makeDb();
     try {

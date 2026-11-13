@@ -4,8 +4,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { TEST_BEARER, TEST_CI_TOKEN, TEST_READ_TOKEN, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, TEST_CI_TOKEN, TEST_READ_TOKEN, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -19,7 +18,7 @@ const { reapExpired } = await import("../src/jobs/leases.js");
 const { registerProject } = await import("../scripts/register-project.js");
 
 type Json = Record<string, any>;
-let raw: pg.Client;
+let store: TestStore;
 let client: Client; // read-only, as the assistant's token would be
 let closeDb: () => Promise<void>;
 const ctx = { actor: { agent: "claude-code", session_id: "s1", machine: "mac" } };
@@ -32,8 +31,7 @@ async function call(name: string, args: Json = {}): Promise<Json> {
 }
 
 async function version(key: string): Promise<number> {
-  const { rows } = await raw.query("select version from tasks where key = $1", [key]);
-  return rows[0].version;
+  return (await store.get("tasks", { key }))!.version;
 }
 
 function get(path: string, token: string | null = TEST_READ_TOKEN) {
@@ -41,7 +39,7 @@ function get(path: string, token: string | null = TEST_READ_TOKEN) {
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const { db, close } = makeDb();
   closeDb = close;
   // Two projects with work, two quiet ones.
@@ -60,7 +58,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("list_events project all", () => {
@@ -114,10 +112,15 @@ describe("list_projects", () => {
       "Último movimiento hace 8 días: MC-12 nota (agente): siguió el corte",
     );
     assert.equal(lastMovementLine(null, now), "");
-    await raw.query(
-      `insert into events (project_id, type, actor, payload, created_at)
-       select id, 'note', '{"agent":"agente","session_id":"s9"}'::jsonb, '{"text":"siguió el corte"}'::jsonb, now() - interval '8 days'
-       from projects where slug = 'workia'`,
+    const workiaId = await store.projectId("workia");
+    await store.fix((uow) =>
+      uow.insert("events", {
+        projectId: workiaId,
+        type: "note",
+        actor: { agent: "agente", session_id: "s9" },
+        payload: { text: "siguió el corte" },
+        createdAt: new Date(Date.now() - 8 * 24 * 3_600_000),
+      }),
     );
     try {
       const workia = (await call("list_projects")).projects.find((p: Json) => p.slug === "workia");
@@ -128,9 +131,7 @@ describe("list_projects", () => {
     } finally {
       // A backdated row still gets a new id. get_digest's 24 h window starts after the newest
       // event older than that, so this row would hide earlier events. Remove it after the read.
-      await raw.query(
-        `delete from events where type = 'note' and project_id = (select id from projects where slug = 'workia')`,
-      );
+      await store.fix((uow) => uow.delete("events", { type: "note", projectId: workiaId }));
     }
   });
 });
@@ -142,10 +143,15 @@ describe("get_running", () => {
     assert.equal(live.running[0].owner.session_id, "s1");
     assert.ok(typeof live.running[0].last_activity_at === "string");
     // No heartbeat and no event from s2 for 25 min: quiet. Lease over: stale.
-    await raw.query("update tasks set last_seen_at = now() - interval '25 min', claimed_at = now() - interval '25 min' where key = 'ZIG-01'");
-    await raw.query("update events set created_at = created_at - interval '25 min' where task_key = 'ZIG-01'");
+    const ago = (ms: number) => new Date(Date.now() - ms);
+    await store.fix((uow) => uow.update("tasks", { key: "ZIG-01" }, { lastSeenAt: ago(25 * 60_000), claimedAt: ago(25 * 60_000) }));
+    await store.fix(async (uow) => {
+      for (const e of await uow.find("events", { taskKey: "ZIG-01" })) {
+        await uow.update("events", { id: e.id }, { createdAt: new Date(e.createdAt.getTime() - 25 * 60_000) });
+      }
+    });
     assert.equal((await call("get_running")).running[1].liveness, "quiet");
-    await raw.query("update tasks set lease_until = now() - interval '1 min' where key = 'ZIG-01'");
+    await store.fix((uow) => uow.update("tasks", { key: "ZIG-01" }, { leaseUntil: ago(60_000) }));
     assert.equal((await call("get_running")).running[1].liveness, "stale");
   });
 });
@@ -159,7 +165,7 @@ describe("leases job", () => {
     } finally {
       await close();
     }
-    const { rows } = await raw.query("select status, owner from tasks where key = 'ZIG-01'");
+    const rows = (await store.find("tasks", { key: "ZIG-01" })).map((t) => ({ status: t.status, owner: t.owner }));
     assert.deepEqual(rows, [{ status: "Ready", owner: null }]);
     const expired = (await call("list_events", { project: "zigzag", types: ["claim.expired"] })).events;
     assert.equal(expired.length, 1);
@@ -199,7 +205,8 @@ describe("get_digest", () => {
   test("a status move and a question each appear once; the server remembers the cursor for this reader", async () => {
     const { db, close } = makeDb();
     try {
-      await raw.query("update checks set done = true where task_id = (select id from tasks where key = 'FIL-I1-1')");
+      const task = (await store.get("tasks", { key: "FIL-I1-1" }))!;
+      await store.fix((uow) => uow.update("checks", { taskId: task.id }, { done: true }));
       await addResult(db, { project: "filmia", key: "FIL-I1-1", kind: "unit", verdict: "pass", cite: "ok" }, ctx);
       await setTask(db, { project: "filmia", key: "FIL-I1-1", status: "In review", version: await version("FIL-I1-1") }, ctx);
       await ask(db, { project: "filmia", key: "FIL-I1-2", question: "¿Mostramos ratings sin login?", options: ["sí", "no"] }, ctx);

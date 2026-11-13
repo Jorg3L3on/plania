@@ -1,8 +1,7 @@
 // PLA-I30-6/7/8: the project sheet's actions (Pedirle al PO, Despertar ahora) and its honest status. Throwaway DB.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 process.env.PLANIA_EVENT_WAKES = "1";
@@ -14,7 +13,7 @@ const writes = await import("../src/mcp/writes.js");
 const { buildBrief, buildQueue } = await import("../src/mcp/ceo-signals.js");
 
 type Db = ReturnType<typeof makeDb>["db"];
-let raw: pg.Client;
+let store: TestStore;
 let db: Db;
 let closeDb: () => Promise<void>;
 const A = { actor: { agent: "test-agent", session_id: "s-i30-sheet" } };
@@ -22,19 +21,31 @@ const jorge = () => ({ Cookie: `${SESSION_COOKIE}=${createSession()}`, "Content-
 const ask = (slug: string, body: unknown, headers: Record<string, string> = jorge()) =>
   app.request(`/api/company/projects/${slug}/ask`, { method: "POST", headers, body: JSON.stringify(body) });
 const wake = (slug: string, headers: Record<string, string> = jorge()) => app.request(`/api/company/projects/${slug}/wake`, { method: "POST", headers });
-const runsOf = async (slug: string) =>
-  (await raw.query(`select r.status, r.task_key from agent_runs r join agents a on a.id = r.agent_id where a.slug = $1 order by r.queued_at`, [slug])).rows;
+const runsOf = async (slug: string) => {
+  const agent = await store.get("agents", { slug });
+  if (!agent) return [];
+  return (await store.find("agentRuns", { agentId: agent.id }, { orderBy: [{ column: "queuedAt" }] })).map((r) => ({ status: r.status, task_key: r.taskKey }));
+};
+// The one runner_settings row. The migration seeds it on Postgres; on a store with none yet it is made here,
+// with the same defaults.
+const setRunner = (patch: { companyPaused?: boolean; maxConcurrent?: number }) =>
+  store.fix(async (uow) => {
+    if (!(await uow.get("runnerSettings", { id: 1 }))) await uow.insert("runnerSettings", { id: 1 });
+    await uow.update("runnerSettings", { id: 1 }, patch);
+  });
+const unpause = (slug: string) => store.fix((uow) => uow.update("projects", { slug }, { runsPaused: false }));
+const deleteRuns = () => store.fix((uow) => uow.delete("agentRuns", {}));
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
-  await raw.query(`update runner_settings set company_paused = false`);
+  await setRunner({ companyPaused: false });
 });
 
 after(async () => {
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("I30-6: ask and wake are Jorge's screen only: Bearer 403, no cookie 401, short text 400", async () => {
@@ -49,31 +60,31 @@ test("I30-6 #1: a paused project refuses with 409 PROJECT_PAUSED; a project with
   const paused = await ask("micasa", { text: "Arma el plan de lanzamiento" });
   assert.equal(paused.status, 409);
   assert.equal(((await paused.json()) as { error: string }).error, "PROJECT_PAUSED");
-  await raw.query(`update projects set runs_paused = false where slug = 'workia'`);
-  await raw.query(`update agents set adapter = 'none' where slug = 'po-workia'`);
+  await unpause("workia");
+  await store.fix((uow) => uow.update("agents", { slug: "po-workia" }, { adapter: "none" }));
   const noPo = await ask("workia", { text: "Arma el plan de lanzamiento" });
   assert.equal(noPo.status, 409);
   assert.equal(((await noPo.json()) as { error: string }).error, "NO_PO");
   assert.equal((await wake("workia")).status, 409);
-  assert.equal((await raw.query(`select count(*)::int as n from tasks t join projects p on p.id = t.project_id where p.slug in ('micasa', 'workia')`)).rows[0].n, 0);
+  assert.equal(await store.count("tasks", { projectId: [await store.projectId("micasa"), await store.projectId("workia")] }), 0);
 });
 
 test("I30-6 #1 #2: a request becomes a Ready ticket the PO owns, origin jorge, and queues that PO's wake", async () => {
-  await raw.query(`update projects set runs_paused = false where slug = 'micasa'`);
+  await unpause("micasa");
   const res = await ask("micasa", { text: "Arma el borrador de Campos y flujos con la propuesta" });
   assert.equal(res.status, 201);
   const body = (await res.json()) as { key: string; po: string; wake: string };
   assert.equal(body.po, "po-micasa");
   assert.equal(body.wake, "queued");
-  const t = (
-    await raw.query(`select t.status, t.origin, t.work_type, a.slug as owner, t.title from tasks t join agents a on a.id = t.owner_agent where t.key = $1`, [body.key])
-  ).rows[0];
+  const task = await store.get("tasks", { key: body.key });
+  const owner = task?.ownerAgent ? await store.get("agents", { id: task.ownerAgent }) : undefined;
+  const t = task && owner && { status: task.status, origin: task.origin, work_type: task.workType, owner: owner.slug, title: task.title };
   assert.deepEqual(t, { status: "Ready", origin: "jorge", work_type: "ops", owner: "po-micasa", title: "Arma el borrador de Campos y flujos con la propuesta" });
   assert.deepEqual(await runsOf("po-micasa"), [{ status: "queued", task_key: body.key }]);
 });
 
 test("I30-6 #2: a PO-owned ticket moved to Ready wakes that PO; an unowned ops ticket created Ready wakes nobody", async () => {
-  await raw.query(`delete from agent_runs`);
+  await deleteRuns();
   const created = (await writes.createTask(
     db,
     { project: "micasa", title: "Plan de la semana", scope: "s", checks: ["c"], owner_agent: "po-micasa", work_type: "ops" },
@@ -83,28 +94,28 @@ test("I30-6 #2: a PO-owned ticket moved to Ready wakes that PO; an unowned ops t
   await writes.setTask(db, { project: "micasa", key: created.key, status: "Ready", version: created.version }, A);
   assert.deepEqual(await runsOf("po-micasa"), [{ status: "queued", task_key: created.key }]);
 
-  await raw.query(`delete from agent_runs`);
+  await deleteRuns();
   await writes.createTask(db, { project: "micasa", title: "Suelto", scope: "s", checks: ["c"], status: "Ready", work_type: "ops" }, A);
-  assert.equal((await raw.query(`select count(*)::int as n from agent_runs`)).rows[0].n, 0, "Taller still wakes on a move only");
+  assert.equal(await store.count("agentRuns"), 0, "Taller still wakes on a move only");
 });
 
 test("I30-7 #1: Despertar ahora with no PO work answers idle and records no run; with PO work it goes through the runner", async () => {
-  await raw.query(`delete from agent_runs`);
-  await raw.query(`update projects set runs_paused = false where slug = 'zigzag'`);
+  await deleteRuns();
+  await unpause("zigzag");
   const idle = await wake("zigzag");
   assert.equal(idle.status, 200);
   assert.deepEqual(await idle.json(), { woke: false, reason: "idle", ticket: null, summary: "Sin trabajo para el PO: pídele algo." });
-  assert.equal((await raw.query(`select count(*)::int as n from agent_runs`)).rows[0].n, 0);
-  assert.equal((await raw.query(`select count(*)::int as n from heartbeat_runs hr join agents a on a.id = hr.agent_id where a.slug = 'po-zigzag'`)).rows[0].n, 0);
+  assert.equal(await store.count("agentRuns"), 0);
+  assert.equal(await store.count("heartbeatRuns", { agentId: (await store.get("agents", { slug: "po-zigzag" }))!.id }), 0);
 
   // micasa has Ready work owned by po-micasa. Cap 0: the runner queues it instead of spawning.
-  await raw.query(`update runner_settings set max_concurrent = 0`);
+  await setRunner({ maxConcurrent: 0 });
   const busy = await wake("micasa");
   assert.equal(busy.status, 200);
   const out = (await busy.json()) as { reason: string; ticket: string | null };
   assert.notEqual(out.reason, "idle");
   assert.ok(out.ticket, "names the ticket it woke on");
-  await raw.query(`update runner_settings set max_concurrent = 1`);
+  await setRunner({ maxConcurrent: 1 });
 });
 
 test("I30-8 #1: the sheet counts bot work, marks Jorge's own Ready tickets, and resolves config failures once the env is set", async () => {
@@ -113,15 +124,14 @@ test("I30-8 #1: the sheet counts bot work, marks Jorge's own Ready tickets, and 
     { project: "zigzag", title: "Kickoff con el cliente", scope: "s", checks: ["c"], status: "Ready", owner_agent: "ceo", work_type: "ops" },
     A,
   )) as { key: string };
-  const project = (await raw.query(`select id from projects where slug = 'zigzag'`)).rows[0].id;
-  const agent = (await raw.query(`select id from agents where slug = 'po-zigzag'`)).rows[0].id;
+  const project = await store.projectId("zigzag");
+  const agent = (await store.get("agents", { slug: "po-zigzag" }))!.id;
   process.env.PLANIA_TEST_SET_ENV = "yes";
-  await raw.query(
-    `insert into agent_runs (agent_id, project_id, role, status, summary, ended_at) values
-       ($1, $2, 'product-owner', 'fail', 'fail: missing env PLANIA_TEST_SET_ENV', now()),
-       ($1, $2, 'product-owner', 'fail', 'fail: missing env PLANIA_TEST_NOT_SET', now())`,
-    [agent, project],
-  );
+  await store.fix(async (uow) => {
+    const now = new Date();
+    await uow.insert("agentRuns", { agentId: agent, projectId: project, role: "product-owner", status: "fail", summary: "fail: missing env PLANIA_TEST_SET_ENV", endedAt: now });
+    await uow.insert("agentRuns", { agentId: agent, projectId: project, role: "product-owner", status: "fail", summary: "fail: missing env PLANIA_TEST_NOT_SET", endedAt: now });
+  });
   const res = await app.request("/api/company/projects/zigzag", { headers: jorge() });
   assert.equal(res.status, 200);
   const sheet = (await res.json()) as { bot_work: number; next: { key: string; yours: boolean }[]; runs: { summary: string; resolved?: boolean }[] };

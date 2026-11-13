@@ -1,8 +1,7 @@
 // PLA-I21-3: /api/team is the session screen. A Bearer does not open it. Owned tasks are the open ones.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -11,7 +10,7 @@ const { makeDb } = await import("../src/db/client.js");
 const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const writes = await import("../src/mcp/writes.js");
 
-let raw: pg.Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
 const cookie = () => `${SESSION_COOKIE}=${createSession()}`;
 const ctx = { actor: { agent: "test-agent", session_id: "s1" } };
@@ -21,18 +20,18 @@ function req(path: string, headers: Record<string, string> = {}) {
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const opened = makeDb();
   closeDb = opened.close;
   await seedOrg(opened.db);
   await writes.createTask(opened.db, { project: "micasa", key: "MIC-EQ-1", title: "Tarea abierta", scope: "pantalla", checks: ["c"], owner_agent: "housi" }, ctx);
   await writes.createTask(opened.db, { project: "micasa", key: "MIC-EQ-2", title: "Tarea cerrada", scope: "pantalla", checks: ["c"], owner_agent: "housi" }, ctx);
-  await raw.query(`update tasks set status = 'Done' where key = 'MIC-EQ-2'`);
+  await store.fix((uow) => uow.update("tasks", { key: "MIC-EQ-2" }, { status: "Done" }));
 });
 
 after(async () => {
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("GET /api/team needs the session cookie", async () => {

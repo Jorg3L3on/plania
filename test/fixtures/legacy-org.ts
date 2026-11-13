@@ -2,9 +2,9 @@
 // PO per project, named after its bot), with no project teams. Tests whose subject is not the roster
 // (dashboards, delegation, the presence sweep, routines...) use it as their fixture, so PLA-I32-2's
 // per-project teams (scripts/seed-org.ts, test/i32-roster.test.ts) do not rewrite them. Fake values only.
-import { eq, sql } from "drizzle-orm";
+// It writes through the store port, so it seeds the roster on Postgres and on devva alike.
 import type { Db } from "../../src/db/client.js";
-import { agents } from "../../src/db/schema.js";
+import { pgStore } from "../../src/store/pg.js";
 
 type Row = { slug: string; name: string; role: string; title: string; kind: "bot" | "human"; reportsTo: string | null; capabilities: string[]; note?: string };
 
@@ -34,14 +34,14 @@ export const LEGACY_ORG: Row[] = [
 ];
 
 // Same contract as seedOrg's first form: inserts what is missing, leaves edits in place, fills reports_to
-// while empty. Returns the slugs it inserted.
+// while empty. Returns the slugs it inserted. One roster write (project ""), as seedOrg's are.
 export async function seedLegacyOrg(db: Db): Promise<{ inserted: string[]; removed: string[] }> {
-  const inserted: string[] = [];
-  for (const row of LEGACY_ORG) {
-    const human = row.kind === "human";
-    const [made] = await db
-      .insert(agents)
-      .values({
+  return pgStore(db).write("", {}, async (uow) => {
+    const inserted: string[] = [];
+    for (const row of LEGACY_ORG) {
+      if (await uow.get("agents", { slug: row.slug })) continue;
+      const human = row.kind === "human";
+      const made = await uow.insert("agents", {
         slug: row.slug,
         name: row.name,
         role: row.role,
@@ -53,17 +53,16 @@ export async function seedLegacyOrg(db: Db): Promise<{ inserted: string[]; remov
         adapter: human ? "none" : "claude_code",
         adapterConfig: human ? {} : { command_env: "CLAUDE_CODE_BIN", args_env: "CLAUDE_CODE_ARGS" },
         heartbeatMinutes: null,
-      })
-      .onConflictDoNothing({ target: agents.slug })
-      .returning({ slug: agents.slug });
-    if (made) inserted.push(made.slug);
-  }
-  for (const row of LEGACY_ORG) {
-    if (!row.reportsTo) continue;
-    const [self] = await db.select().from(agents).where(eq(agents.slug, row.slug)).limit(1);
-    const [parent] = await db.select().from(agents).where(eq(agents.slug, row.reportsTo)).limit(1);
-    if (!self || !parent || self.reportsTo) continue;
-    await db.update(agents).set({ reportsTo: parent.id, updatedAt: sql`now()` }).where(eq(agents.id, self.id));
-  }
-  return { inserted, removed: [] };
+      });
+      inserted.push(made.slug);
+    }
+    for (const row of LEGACY_ORG) {
+      if (!row.reportsTo) continue;
+      const self = await uow.get("agents", { slug: row.slug });
+      const parent = await uow.get("agents", { slug: row.reportsTo });
+      if (!self || !parent || self.reportsTo) continue;
+      await uow.update("agents", { id: self.id }, { reportsTo: parent.id, updatedAt: uow.now });
+    }
+    return { inserted, removed: [] };
+  });
 }

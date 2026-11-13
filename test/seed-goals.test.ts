@@ -1,8 +1,7 @@
 // PLA-I27-2: one goal per product. The second run adds zero rows.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 
@@ -10,26 +9,24 @@ const { makeDb } = await import("../src/db/client.js");
 const { listGoals } = await import("../src/mcp/goals.js");
 const { COMPANY_TITLE, GOAL_SLUGS, projectGoalTitle, seedGoals } = await import("../scripts/seed-goals.js");
 
-let raw: pg.Client;
+let store: TestStore;
 let db: Awaited<ReturnType<typeof makeDb>>["db"];
 let closeDb: () => Promise<void>;
 
-const countGoals = async () => {
-  const { rows } = await raw.query<{ n: number }>("select count(*)::int as n from goals");
-  return rows[0]!.n;
-};
+const countGoals = () => store.count("goals");
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
-  await raw.query(
-    "insert into projects (slug, title, key_prefix) values ('plania','Plania','PLA'), ('mianovia','Mianovia','MIA')",
-  );
+  await store.fix(async (uow) => {
+    await uow.insert("projects", { slug: "plania", title: "Plania", keyPrefix: "PLA" });
+    await uow.insert("projects", { slug: "mianovia", title: "Mianovia", keyPrefix: "MIA" });
+  });
 });
 
 after(async () => {
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("list_goals is non-empty for each product and a second seed adds zero rows", async () => {

@@ -4,8 +4,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -15,7 +14,7 @@ const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
 
-let raw: pg.Client;
+let store: TestStore;
 let db: Awaited<ReturnType<typeof makeDb>>["db"];
 let closeDb: () => Promise<void>;
 let client: Client;
@@ -31,20 +30,23 @@ async function call(name: string, args: Record<string, unknown> = {}) {
 }
 
 async function counts() {
-  const projects = await raw.query("select count(*)::int as n from projects");
-  const agents = await raw.query("select count(*)::int as n from agents");
-  const docs = await raw.query("select count(*)::int as n from docs");
-  const events = await raw.query("select count(*)::int as n from events");
   return {
-    projects: projects.rows[0].n as number,
-    agents: agents.rows[0].n as number,
-    docs: docs.rows[0].n as number,
-    events: events.rows[0].n as number,
+    projects: await store.count("projects"),
+    agents: await store.count("agents"),
+    docs: await store.count("docs"),
+    events: await store.count("events"),
   };
 }
 
+// A project's docs titled Playbook, by slug; projectLevelOnly keeps those on no task.
+async function playbooks(slug: string, projectLevelOnly: boolean) {
+  const project = await store.get("projects", { slug });
+  if (!project) return [];
+  return store.find("docs", { projectId: project.id, title: "Playbook", ...(projectLevelOnly ? { taskId: null } : {}) });
+}
+
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -56,7 +58,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("create_company_project adds a project, a product owner and a Playbook", async () => {
@@ -74,21 +76,17 @@ test("create_company_project adds a project, a product owner and a Playbook", as
   assert.deepEqual(created.owner, { slug: "po-northwind", name: "Owner Bot", role: "product-owner" });
   assert.deepEqual(created.playbook, { title: "Playbook", version: 1 });
 
-  const owner = await raw.query(
-    `select a.note, a.kind, a.capabilities, p.slug as reports_to
-     from agents a left join agents p on p.id = a.reports_to where a.slug = 'po-northwind'`,
-  );
-  assert.equal(owner.rows[0].note, skills);
-  assert.equal(owner.rows[0].kind, "bot");
-  assert.deepEqual(owner.rows[0].capabilities, ["product-owner"]);
+  const po = (await store.get("agents", { slug: "po-northwind" }))!;
+  const boss = po.reportsTo ? await store.get("agents", { id: po.reportsTo }) : undefined;
+  const owner = { note: po.note, kind: po.kind, capabilities: po.capabilities, reports_to: boss?.slug ?? null };
+  assert.equal(owner.note, skills);
+  assert.equal(owner.kind, "bot");
+  assert.deepEqual(owner.capabilities, ["product-owner"]);
   // PLA-I30-1 removed the COO «plania»; the new-project template (PLA-I31-3) points the PO at ceo.
-  assert.ok(owner.rows[0].reports_to === null || owner.rows[0].reports_to === "ceo");
+  assert.ok(owner.reports_to === null || owner.reports_to === "ceo");
 
-  const doc = await raw.query(
-    `select d.markdown from docs d join projects p on p.id = d.project_id
-     where p.slug = 'northwind' and d.title = 'Playbook' and d.task_id is null`,
-  );
-  assert.equal(doc.rows[0].markdown, playbook);
+  const [doc] = await playbooks("northwind", true);
+  assert.equal(doc?.markdown, playbook);
 
   const project = await call("get_project", { project: "northwind" });
   assert.equal(project.body, "Company project. The plan lives in Plania.");
@@ -98,7 +96,7 @@ test("create_company_project adds a project, a product owner and a Playbook", as
 
 test("a second call with the same slug is a no-op", async () => {
   const before = await counts();
-  const stamp = await raw.query("select version, updated_at::text as updated_at from projects where slug = 'northwind'");
+  const stamp = (await store.get("projects", { slug: "northwind" }))!;
   const again = await call("create_company_project", {
     actor: A,
     slug: "northwind",
@@ -109,13 +107,13 @@ test("a second call with the same slug is a no-op", async () => {
   assert.equal(again.name, "Northwind");
   assert.equal(again.owner.name, "Owner Bot");
   assert.deepEqual(await counts(), before);
-  const after = await raw.query("select version, title, updated_at::text as updated_at from projects where slug = 'northwind'");
-  assert.equal(after.rows[0].version, stamp.rows[0].version);
-  assert.equal(after.rows[0].title, "Northwind");
-  assert.equal(after.rows[0].updated_at, stamp.rows[0].updated_at);
-  assert.equal((await raw.query("select count(*)::int as n from agents where slug = 'po-northwind'")).rows[0].n, 1);
+  const after = (await store.get("projects", { slug: "northwind" }))!;
+  assert.equal(after.version, stamp.version);
+  assert.equal(after.title, "Northwind");
+  assert.equal(after.updatedAt.toISOString(), stamp.updatedAt.toISOString());
+  assert.equal(await store.count("agents", { slug: "po-northwind" }), 1);
   assert.equal(
-    (await raw.query("select count(*)::int as n from docs d join projects p on p.id = d.project_id where p.slug = 'northwind' and d.title = 'Playbook'")).rows[0].n,
+    (await playbooks("northwind", false)).length,
     1,
   );
 });
@@ -127,7 +125,7 @@ test("an existing project slug is left untouched", async () => {
   assert.equal(again.project, "micasa");
   assert.equal(again.owner, null);
   assert.deepEqual(await counts(), before);
-  assert.equal((await raw.query("select count(*)::int as n from agents where slug = 'po-micasa'")).rows[0].n, 0);
+  assert.equal(await store.count("agents", { slug: "po-micasa" }), 0);
 });
 
 test("the screen route creates once and refuses a bearer", async () => {
@@ -157,7 +155,7 @@ test("the screen route creates once and refuses a bearer", async () => {
   const second = (await again.json()) as { created: boolean; name: string };
   assert.equal(second.created, false);
   assert.equal(second.name, "Southwind");
-  assert.equal((await raw.query("select count(*)::int as n from projects where slug = 'southwind'")).rows[0].n, 1);
+  assert.equal(await store.count("projects", { slug: "southwind" }), 1);
 
   const bad = await call("create_company_project", { actor: A, slug: "bad_slug", name: "Nope", owner_bot_name: "Owner Bot" });
   assert.equal(bad.__error, "INVALID_FILTER");

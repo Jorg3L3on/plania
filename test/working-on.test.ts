@@ -2,8 +2,7 @@
 // A live lease wins. Otherwise In progress, then Ready, for that owner.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -12,7 +11,7 @@ const { makeDb } = await import("../src/db/client.js");
 const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const writes = await import("../src/mcp/writes.js");
 
-let raw: pg.Client;
+let store: TestStore;
 let db: Awaited<ReturnType<typeof makeDb>>["db"];
 let closeDb: () => Promise<void>;
 const cookie = `${SESSION_COOKIE}=${createSession()}`;
@@ -31,7 +30,7 @@ const keyOn = (dashboard: Record<string, any>, team: Record<string, any>, slug: 
 };
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
   await writes.createTask(
@@ -44,12 +43,12 @@ before(async () => {
     { project: "micasa", key: "MIC-NOW", title: "En curso", scope: "pantalla", checks: ["c"], status: "Ready", owner_agent: "taller" },
     ctx,
   );
-  await raw.query(`update tasks set status = 'In progress' where key = 'MIC-NOW'`);
+  await store.fix((uow) => uow.update("tasks", { key: "MIC-NOW" }, { status: "In progress" }));
 });
 
 after(async () => {
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("dashboard stays cookie-only and both screens share the owner key", async () => {
@@ -73,9 +72,14 @@ test("a live lease replaces the owned ticket on both screens", async () => {
     { project: "workia", key: "WRK-LEASE", title: "Turno", scope: "pantalla", checks: ["c"], owner_agent: "taller" },
     ctx,
   );
-  await raw.query(
-    `update tasks set owner = $1::jsonb, claimed_at = now(), lease_until = now() + interval '1 hour', status = 'In progress' where key = 'WRK-LEASE'`,
-    [JSON.stringify({ agent: "Taller", session_id: "s-taller" })],
+  const now = Date.now();
+  await store.fix((uow) =>
+    uow.update("tasks", { key: "WRK-LEASE" }, {
+      owner: { agent: "Taller", session_id: "s-taller" },
+      claimedAt: new Date(now),
+      leaseUntil: new Date(now + 3_600_000),
+      status: "In progress",
+    }),
   );
   const dash = await get("/api/dashboard", { Cookie: cookie });
   const team = await get("/api/team", { Cookie: cookie });

@@ -3,8 +3,7 @@
 // fake values only.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type pg from "pg";
-import { resetTestDb, useOwnerCode, useTestEnv } from "./helpers.js";
+import { resetTestStore, useOwnerCode, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 await useOwnerCode();
@@ -20,7 +19,7 @@ const { propose } = await import("../src/mcp/proposals.js");
 const { decisionsRead } = await import("../src/api/company-decisions.js");
 
 type Json = Record<string, any>;
-let raw: pg.Client;
+let store: TestStore;
 let db: ReturnType<typeof makeDb>["db"];
 let closeDb: () => Promise<void>;
 const jorge = () => ({ Cookie: `${SESSION_COOKIE}=${createSession()}`, "Content-Type": "application/json" });
@@ -31,20 +30,21 @@ const company = async (): Promise<Json> => {
 };
 const card = async (slug: string) => (await company()).projects.find((p: Json) => p.slug === slug) as Json;
 const as = (agent: string) => ({ actor: { agent, session_id: `s-${agent}` } });
-const id = async (table: string, slug: string) => (await raw.query(`select id from ${table} where slug = $1`, [slug])).rows[0].id as string;
+const id = async (table: "agents" | "projects", slug: string) =>
+  (table === "agents" ? (await store.get("agents", { slug }))!.id : await store.projectId(slug));
 const ticket = (project: string, title: string, patch: Json = {}) =>
   writes.createTask(db, { project, title, scope: "s", checks: ["c"], status: "Ready", ...patch } as never, as(`po-${project}`)) as Promise<{ key: string }>;
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
-  await raw.query(`update projects set runs_paused = false`);
+  await store.fix((uow) => uow.update("projects", {}, { runsPaused: false }));
 });
 
 after(async () => {
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("I39-1 #1: a proposal carries the PO as asker, a question the agent that asked it, a release null", async () => {
@@ -103,8 +103,9 @@ test("I39-1 #3: now and last carry the ticket's title, and null when the run has
   const taller = await id("agents", "taller-micasa");
   const po = await id("agents", "po-micasa");
   const project = await id("projects", "micasa");
-  await raw.query(`insert into agent_runs (agent_id, project_id, role, status, task_key, started_at) values ($1, $2, 'taller', 'running', $3, now() - interval '5 minutes')`, [taller, project, t.key]);
-  await raw.query(`insert into agent_runs (agent_id, project_id, role, status, summary, started_at, ended_at) values ($1, $2, 'product-owner', 'ok', 'listo', now() - interval '20 minutes', now() - interval '10 minutes')`, [po, project]);
+  const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000);
+  await store.fix((uow) => uow.insert("agentRuns", { agentId: taller, projectId: project, role: "taller", status: "running", taskKey: t.key, startedAt: minutesAgo(5) }));
+  await store.fix((uow) => uow.insert("agentRuns", { agentId: po, projectId: project, role: "product-owner", status: "ok", summary: "listo", startedAt: minutesAgo(20), endedAt: minutesAgo(10) }));
 
   const team = (await card("micasa")).team as Json[];
   const builder = team.find((m) => m.role === "taller")!;
@@ -121,8 +122,12 @@ test("I39-1 #3: now and last carry the ticket's title, and null when the run has
 test("I39-1 #4: asistente.unread counts the company thread's unread messages", async () => {
   const before = (await company()).asistente;
   assert.equal(before.unread, 0);
-  await raw.query(`insert into thread_messages (thread_id, author_agent, author_role, body, links) values ($1, 'asistente', 'asistente', 'Uno', '[]'), ($1, 'asistente', 'asistente', 'Dos', '[]'), ($1, 'jorge', 'jorge', 'Mío', '[]')`, [before.thread_id]);
+  await store.fix(async (uow) => {
+    for (const [author, body] of [["asistente", "Uno"], ["asistente", "Dos"], ["jorge", "Mío"]] as const) {
+      await uow.insert("threadMessages", { threadId: before.thread_id, authorAgent: author, authorRole: author, body, links: [] });
+    }
+  });
   assert.equal((await company()).asistente.unread, 2);
-  await raw.query(`update threads set read_at = now() + interval '1 second' where id = $1`, [before.thread_id]);
+  await store.fix((uow) => uow.update("threads", { id: before.thread_id }, { readAt: new Date(Date.now() + 1000) }));
   assert.equal((await company()).asistente.unread, 0);
 });

@@ -4,15 +4,14 @@ import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
 const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 
-let raw: pg.Client;
+let store: TestStore;
 let db: Awaited<ReturnType<typeof makeDb>>["db"];
 let closeDb: () => Promise<void>;
 let client: Client;
@@ -25,7 +24,7 @@ async function call(name: string, args: Record<string, unknown> = {}) {
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -37,7 +36,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("the bot protocol names the loop and the CEO adapter is none", async () => {
@@ -48,9 +47,7 @@ test("the bot protocol names the loop and the CEO adapter is none", async () => 
   const idle = doc.lastIndexOf("check_in");
   assert.ok(checkIn >= 0 && claim > checkIn && report > claim && idle > report);
 
-  const { rows } = await raw.query<{ slug: string; adapter: string; adapter_config: Record<string, string>; heartbeat_minutes: number | null }>(
-    `select slug, adapter, adapter_config, heartbeat_minutes from agents`,
-  );
+  const rows = (await store.find("agents")).map((a) => ({ slug: a.slug, adapter: a.adapter, adapter_config: a.adapterConfig, heartbeat_minutes: a.heartbeatMinutes }));
   const bySlug = Object.fromEntries(rows.map((row) => [row.slug, row]));
   assert.equal(bySlug.ceo!.adapter, "none");
   assert.equal(bySlug.ceo!.heartbeat_minutes, null);
@@ -66,12 +63,12 @@ test("the bot protocol names the loop and the CEO adapter is none", async () => 
   assert.equal(text.includes("http://"), false);
   assert.equal(text.includes("@"), false);
 
-  await raw.query(`update agents set adapter = 'http', heartbeat_minutes = 5 where slug = 'taller'`);
+  await store.fix((uow) => uow.update("agents", { slug: "taller" }, { adapter: "http", heartbeatMinutes: 5 }));
   await seedOrg(db);
-  const kept = await raw.query(`select adapter, heartbeat_minutes from agents where slug = 'taller'`);
-  assert.equal(kept.rows[0].adapter, "http");
-  assert.equal(kept.rows[0].heartbeat_minutes, 5);
-  await raw.query(`update agents set adapter = 'claude_code', heartbeat_minutes = 15 where slug = 'taller'`);
+  const kept = (await store.get("agents", { slug: "taller" }))!;
+  assert.equal(kept.adapter, "http");
+  assert.equal(kept.heartbeatMinutes, 5);
+  await store.fix((uow) => uow.update("agents", { slug: "taller" }, { adapter: "claude_code", heartbeatMinutes: 15 }));
 });
 
 test("list_agents returns adapter fields and the wake tools describe the loop", async () => {

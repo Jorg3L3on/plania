@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -22,7 +21,7 @@ const P = { project: "zigzag" };
 const T = { scope: "s", checks: ["c"] };
 
 let client: Client;
-let raw: pg.Client;
+let store: TestStore;
 let db: ReturnType<typeof makeDb>["db"];
 let closeDb: () => Promise<void>;
 
@@ -35,7 +34,7 @@ const get = (key: string) => call("get_task", { ...P, key });
 const humanActions = async (key: string) => (await get(key)).blocked_by.filter((b: Json) => b.type === "human_action");
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const made = makeDb();
   db = made.db;
   closeDb = made.close;
@@ -48,7 +47,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("parseJorgeLines", () => {
@@ -177,8 +176,8 @@ describe("parsed blockers", () => {
     const p = await call("get_project", P);
     const h = await call("set_project", { ...P, headline: "Jorge: ship the release", version: p.version });
     assert.ok(h.warnings.some((w: Json) => w.code === "JORGE_LINE_PARSED" && w.field === "headline"));
-    const { rows } = await raw.query("select count(*)::int as n from blockers where spec->>'text' = 'ship the release'");
-    assert.equal(rows[0].n, 0);
+    const n = (await store.find("blockers")).filter((b) => b.spec.text === "ship the release").length;
+    assert.equal(n, 0);
   });
 
   test("PLA-01: a note only parses the 'Jorge:' form; its writer may withdraw what it made, nobody else", async () => {
@@ -190,8 +189,11 @@ describe("parsed blockers", () => {
     const other = await client.callTool({ name: "set_task", arguments: { ...P, actor: { ...A, session_id: "s2" }, key: "ZIG-I1", withdraw_blocker: w.blocker_id } });
     assert.equal(JSON.parse((other as { content: { text: string }[] }).content[0]!.text).error, "BLOCKER_NOT_WITHDRAWABLE", "another session may not");
     await call("set_task", { ...P, key: "ZIG-I1", next_action: "Jorge: publish the listing", version: (await get("ZIG-I1")).version });
-    const { rows: fromField } = await raw.query("select b.id::text as id, b.spec->>'field' as field from blockers b join tasks t on t.id = b.task_id where t.key = 'ZIG-I1' and b.spec->>'field' = 'next_action' and b.satisfied_at is null");
-    const refused = await call("set_task", { ...P, key: "ZIG-I1", withdraw_blocker: fromField[0].id });
+    const zigI1 = (await store.get("tasks", { key: "ZIG-I1" }))!;
+    const fromField = (await store.find("blockers", { taskId: zigI1.id, satisfiedAt: null }))
+      .filter((b) => b.spec.field === "next_action")
+      .map((b) => ({ id: b.id, field: b.spec.field }));
+    const refused = await call("set_task", { ...P, key: "ZIG-I1", withdraw_blocker: fromField[0]!.id });
     assert.equal(refused.__error, "BLOCKER_NOT_WITHDRAWABLE");
     assert.match(refused.reason, /next_action/);
     const before = (await get("ZIG-I1")).version;
@@ -210,9 +212,17 @@ describe("inbox tones", () => {
   test("decisiones, pasos, limpieza; count is decisiones + pasos, chores the rest", async () => {
     await call("ask", { ...P, key: "ZIG-I1-1", question: "Which phone?" });
     const p = await findProject(db, "zigzag");
-    await raw.query(
-      "insert into footprints (project_id, machine, kind, locator, state, first_seen_at, declared_at, details) values ($1, 'MacBook-Air', 'server', 'localhost:9999', 'orphan', now() - interval '2 days', null, '{}')",
-      [p.id],
+    await store.fix((uow) =>
+      uow.insert("footprints", {
+        projectId: p.id,
+        machine: "MacBook-Air",
+        kind: "server",
+        locator: "localhost:9999",
+        state: "orphan",
+        firstSeenAt: new Date(Date.now() - 2 * 86_400_000),
+        declaredAt: null,
+        details: {},
+      }),
     );
     const box = await inbox(db, p);
     const groups = Object.fromEntries(["decisiones", "pasos", "limpieza"].map((g) => [g, box.items.filter((i) => i.group === g).map((i) => i.kind)]));
@@ -227,7 +237,7 @@ describe("inbox tones", () => {
   test("the audit stays quiet once a write parsed the line, and says so before", async () => {
     await call("create_task", { ...P, kind: "initiative", title: "Later", scope: "s" }); // ZIG-I2
     // As if written before 2.10: straight into the row, no parse.
-    await raw.query("update tasks set next_action = 'When Jorge says so, move it to Active.' where key = 'ZIG-I2'");
+    await store.fix((uow) => uow.update("tasks", { key: "ZIG-I2" }, { nextAction: "When Jorge says so, move it to Active." }));
     const p = await findProject(db, "zigzag");
     let f = (await auditProject(db, p)).filter((x) => x.code === "WAITING_ON_JORGE_FREE_TEXT" && x.key === "ZIG-I2");
     assert.equal(f.length, 1);

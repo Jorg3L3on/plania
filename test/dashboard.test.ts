@@ -2,8 +2,7 @@
 // An agent token is 401. Titles here are fixtures. The human row is the CEO role, never a person.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 process.env.PLANIA_TZ = "America/Mexico_City";
@@ -20,10 +19,19 @@ const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const writes = await import("../src/mcp/writes.js");
 
 type Json = Record<string, any>;
-let raw: pg.Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
 const cookie = `${SESSION_COOKIE}=${createSession()}`;
 const ctx = { actor: { agent: "test-agent", session_id: "s-dash" } };
+
+// The ISO week of a calendar date as Postgres's to_char(date, 'IYYY-"W"IW') writes it: the week of its Thursday.
+function isoWeekOf(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  const thursday = new Date(d.getTime() + (3 - ((d.getUTCDay() + 6) % 7)) * 86_400_000);
+  const year = thursday.getUTCFullYear();
+  const week = 1 + Math.floor((thursday.getTime() - Date.UTC(year, 0, 1)) / (7 * 86_400_000));
+  return `${year}-W${String(week).padStart(2, "0")}`;
+}
 
 const get = async (path: string, headers: Record<string, string> = {}) => {
   const res = await app.request(path, { headers: { Cookie: cookie, ...headers } });
@@ -32,7 +40,7 @@ const get = async (path: string, headers: Record<string, string> = {}) => {
 };
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const opened = makeDb();
   closeDb = opened.close;
   await seedOrg(opened.db);
@@ -76,39 +84,36 @@ before(async () => {
 
   const today = dayInTz(new Date());
   const week = weekRange(today);
-  const filmia = (await raw.query("select id from projects where slug = 'filmia'")).rows[0].id as string;
+  const filmia = await store.projectId("filmia");
   const at = `${week.from}T18:00:00Z`;
-  await raw.query(
-    `insert into tasks (project_id, kind, key, title, summary, status, work_type, resolved_at) values
-     ($1, 'ticket', 'FIL-SHIP', 'Ficha de ejemplo', 'Quedó una sola ficha.', 'Done', 'code', $2),
-     ($1, 'ticket', 'FIL-NOISE', '[PRUEBA] no sale', '', 'Done', 'code', $2),
-     ($1, 'ticket', 'FIL-SKIP', 'Descartado de ejemplo', '', 'Won''t do', 'code', $2)`,
-    [filmia, at],
-  );
-  await raw.query(
-    `insert into pull_requests (project_id, repo, number, url, title, state, merged_at)
-     values ($1, 'example/filmia', 44, 'https://example.com/pull/44', 'Ficha de ejemplo', 'merged', $2)`,
-    [filmia, at],
-  );
   const older = `${addDays(week.from, -7)}T18:00:00Z`;
-  await raw.query(
-    `insert into token_usage (project_id, agent, task_key, run_id, model, input, output, at) values
-     ($1, 'taller', 'FIL-SHIP', 'dash-week', 'fake-model', 120, 30, $2),
-     ($1, 'taller', 'FIL-SHIP', 'dash-old', 'fake-model', 9, 1, $3)`,
-    [filmia, at, older],
-  );
+  await store.fix(async (uow) => {
+    const ticket = (key: string, title: string, summary: string, status: string) =>
+      uow.insert("tasks", { projectId: filmia, kind: "ticket", key, title, summary, status, workType: "code", resolvedAt: new Date(at) });
+    await ticket("FIL-SHIP", "Ficha de ejemplo", "Quedó una sola ficha.", "Done");
+    await ticket("FIL-NOISE", "[PRUEBA] no sale", "", "Done");
+    await ticket("FIL-SKIP", "Descartado de ejemplo", "", "Won't do");
+    await uow.insert("pullRequests", { projectId: filmia, repo: "example/filmia", number: 44, url: "https://example.com/pull/44", title: "Ficha de ejemplo", state: "merged", mergedAt: new Date(at) });
+    await uow.insert("tokenUsage", { projectId: filmia, agent: "taller", taskKey: "FIL-SHIP", runId: "dash-week", model: "fake-model", input: 120, output: 30, at: new Date(at) });
+    await uow.insert("tokenUsage", { projectId: filmia, agent: "taller", taskKey: "FIL-SHIP", runId: "dash-old", model: "fake-model", input: 9, output: 1, at: new Date(older) });
+  });
 
   const held = await writes.createTask(
     opened.db,
     { project: "micasa", key: "MIC-HOLD", title: "Turno quieto", scope: "pantalla", checks: ["listo"], owner_agent: "taller" },
     ctx,
   );
-  await raw.query(
-    `update tasks set owner = $1::jsonb, claimed_at = now() - interval '3 hours', lease_until = now() + interval '1 hour', status = 'In progress' where key = $2`,
-    [JSON.stringify({ agent: "Taller", session_id: "s-taller" }), held.key],
-  );
-  await raw.query(`update agents set last_check_in_at = now() - interval '3 hours' where slug = 'taller'`);
-  await raw.query(`update agents set last_check_in_at = now() where slug = 'housi'`);
+  await store.fix(async (uow) => {
+    const now = Date.now();
+    await uow.update("tasks", { key: held.key }, {
+      owner: { agent: "Taller", session_id: "s-taller" },
+      claimedAt: new Date(now - 3 * 3_600_000),
+      leaseUntil: new Date(now + 3_600_000),
+      status: "In progress",
+    });
+    await uow.update("agents", { slug: "taller" }, { lastCheckInAt: new Date(now - 3 * 3_600_000) });
+    await uow.update("agents", { slug: "housi" }, { lastCheckInAt: new Date(now) });
+  });
 
   const question = await writes.createTask(
     opened.db,
@@ -121,7 +126,7 @@ before(async () => {
 
 after(async () => {
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("an agent token is 401 with or without the screen cookie", async () => {
@@ -142,8 +147,7 @@ test("the cookie read is the week, the roster, goals, stuck work and what waits 
   assert.equal(body.role, "CEO");
   assert.equal(body.name, "Jorge");
   const weekId = isoWeekKey(body.today);
-  const sqlWeek = await raw.query<{ week: string }>(`select to_char($1::date, 'IYYY-"W"IW') as week`, [body.today]);
-  assert.equal(weekId, sqlWeek.rows[0]!.week);
+  assert.equal(weekId, isoWeekOf(body.today));
   assert.equal(body.usage.label, "reportado");
   assert.equal(body.usage.week, weekId);
   assert.equal(body.usage.input, 120);
