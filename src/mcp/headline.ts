@@ -1,5 +1,5 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
-import { releases, tasks, type Project } from "../db/schema.js";
+import type { Project } from "../db/schema.js";
+import { readerOf } from "../store/pg.js";
 import { inboxFor } from "./inbox.js";
 import { PR_NUMBER } from "./queries.js";
 import { releasePending } from "./release-plan.js";
@@ -45,17 +45,14 @@ export async function generatedHeadline(db: Q, p: Project, d: HeadlineInput): Pr
   const envName = p.settings.release?.env ?? p.settings.release_target ?? "prod";
   const env = d.status.envs.find((e) => e.env === envName && e.commit);
   if (env?.commit) {
-    const rows = await db
-      .select({ taskKeys: releases.taskKeys })
-      .from(releases)
-      .where(and(eq(releases.projectId, p.id), eq(releases.env, envName), eq(releases.commit, env.commit)))
-      .orderBy(desc(releases.createdAt));
+    const r = readerOf(db);
+    const rows = await r.find("releases", { projectId: p.id, env: envName, commit: env.commit }, { orderBy: [{ column: "createdAt", desc: true }] });
     const keys = [...new Set(rows.flatMap((r) => r.taskKeys))];
     let shipped: string[] = [];
     if (keys.length) {
-      const ts = await db.select({ key: tasks.key, parentId: tasks.parentId }).from(tasks).where(and(eq(tasks.projectId, p.id), inArray(tasks.key, keys)));
+      const ts = await r.find("tasks", { projectId: p.id, key: keys });
       const parentIds = [...new Set(ts.map((t) => t.parentId).filter((x): x is string => !!x))];
-      const parents = parentIds.length ? await db.select({ id: tasks.id, key: tasks.key }).from(tasks).where(inArray(tasks.id, parentIds)) : [];
+      const parents = parentIds.length ? await r.find("tasks", { id: parentIds }) : [];
       shipped = [...new Set(ts.map((t) => parents.find((x) => x.id === t.parentId)?.key ?? t.key))].sort();
     }
     clauses.push(`${envName} = ${env.branch ?? "?"} ${env.commit.slice(0, 7)}${shipped.length ? ` (${some(shipped)})` : ""}.`);

@@ -1,21 +1,10 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import {
-  blockers,
-  branches,
-  envStates,
-  events,
-  footprints,
-  pollState,
-  pullRequests,
-  questions,
-  tasks,
-  type Project,
-  type Task,
-} from "../db/schema.js";
-import { blockerList, hasUnsatisfiedBlocker } from "./blockers.js";
+import type { Project, Task } from "../db/schema.js";
+import { readerOf } from "../store/pg.js";
+import type { Reader } from "../store/types.js";
+import { blockedTaskIds, blockerList } from "./blockers.js";
 import { liveOwner, nextTask } from "./queries.js";
 import type { Q } from "./tx.js";
-import { QUIET_MIN } from "./watch.js";
+import { lastSessionEvent, QUIET_MIN } from "./watch.js";
 import { areasOverlap } from "./writes.js";
 
 // PLA-I17-1: whether it is safe to resume a project (Retomar), from rows the digest already reads.
@@ -344,12 +333,9 @@ export function envDriftOf(
   return { behind, unknown };
 }
 
-async function projectEnvDrift(db: Q, p: Project, all: Task[]): Promise<EnvDrift> {
+async function projectEnvDrift(r: Reader, p: Project, all: Task[]): Promise<EnvDrift> {
   const open = all.filter((t) => t.kind === "initiative" && !CLOSED.includes(t.status));
-  const [envs, heads] = await Promise.all([
-    db.select().from(envStates).where(eq(envStates.projectId, p.id)),
-    db.select().from(branches).where(and(eq(branches.projectId, p.id), isNull(branches.deletedAt))),
-  ]);
+  const [envs, heads] = await Promise.all([r.find("envStates", { projectId: p.id }), r.find("branches", { projectId: p.id, deletedAt: null })]);
   return envDriftOf(
     envs.map((env) => ({ commit: env.commit })),
     open.map((initiative) => ({ branch: initiative.branch })),
@@ -358,6 +344,7 @@ async function projectEnvDrift(db: Q, p: Project, all: Task[]): Promise<EnvDrift
 }
 
 export type ReadinessCache = {
+  /** Every task of the project, as the digest read them. */
   tasks?: Task[];
   lastEventAt?: Date | null;
   nextClaimableKey?: string | null;
@@ -371,51 +358,40 @@ export type ReadinessCache = {
 // except blockerList on tickets that already have an unsatisfied blocker.
 export async function loadReadiness(db: Q, p: Project, cache: ReadinessCache = {}): Promise<Readiness> {
   const now = new Date();
-  const all = cache.tasks ?? (await db.select().from(tasks).where(eq(tasks.projectId, p.id)).orderBy(tasks.key));
+  const r = readerOf(db);
+  // Sorted by key by the store, so text order stays the database's.
+  const all = cache.tasks ?? (await r.find("tasks", { projectId: p.id }, { orderBy: [{ column: "key" }] }));
   const byId = new Map(all.map((t) => [t.id, t]));
   // liveOwner is the unexpired half. An expired owner stays on the row until the reaper, and still counts.
   const owned = all.filter((t) => t.kind === "ticket" && t.leaseUntil && (liveOwner(t, now) !== null || t.owner !== null));
   const ownedIds = owned.map((t) => t.id);
+  // The blocker reads are scoped by the ids in `all`: a decision or a blocker flag on any other task would
+  // find no row in `all` below and be dropped anyway.
+  const ticketIds = all.filter((t) => t.kind === "ticket").map((t) => t.id);
 
-  const [prs, openQ, humanRows, polls, footRows, activity, heldRows, lastEvent, nextKey, behind] = await Promise.all([
-    db.select().from(pullRequests).where(eq(pullRequests.projectId, p.id)),
-    db.select({ taskId: questions.taskId }).from(questions).where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt))),
-    db
-      .select({ taskId: blockers.taskId })
-      .from(blockers)
-      .innerJoin(tasks, eq(tasks.id, blockers.taskId))
-      .where(and(eq(tasks.projectId, p.id), eq(blockers.type, "human_action"), isNull(blockers.satisfiedAt))),
-    db.select({ source: pollState.source, error: pollState.error }).from(pollState).where(eq(pollState.projectId, p.id)),
-    ownedIds.length
-      ? db.select().from(footprints).where(and(inArray(footprints.taskId, ownedIds), isNull(footprints.releasedAt)))
-      : Promise.resolve([]),
-    lastSessionActivity(db, owned.map((t) => ({ id: t.id, sessionId: t.owner!.session_id }))),
-    db
-      .select({ id: tasks.id })
-      .from(tasks)
-      .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket"), sql`${hasUnsatisfiedBlocker(tasks.id)}`)),
+  const [prs, openQ, humanRows, polls, footRows, activity, held, lastEvent, nextKey, behind] = await Promise.all([
+    r.find("pullRequests", { projectId: p.id }),
+    r.find("questions", { projectId: p.id, answeredAt: null }),
+    all.length ? r.find("blockers", { taskId: all.map((t) => t.id), type: "human_action", satisfiedAt: null }) : Promise.resolve([]),
+    r.find("pollState", { projectId: p.id }),
+    ownedIds.length ? r.find("footprints", { taskId: ownedIds, releasedAt: null }) : Promise.resolve([]),
+    lastSessionEvent(r, owned.map((t) => ({ id: t.id, sessionId: t.owner!.session_id }))),
+    blockedTaskIds(r, p.id, ticketIds, now),
     "lastEventAt" in cache
       ? Promise.resolve(cache.lastEventAt ?? null)
-      : db
-          .select({ at: sql<Date | null>`max(${events.createdAt})` })
-          .from(events)
-          .where(eq(events.projectId, p.id))
-          .then((rows) => {
-            const at = rows[0]?.at;
-            return at ? (at instanceof Date ? at : new Date(at)) : null;
-          }),
+      : r.find("events", { projectId: p.id }, { orderBy: [{ column: "createdAt", desc: true }], limit: 1 }).then(([e]) => e?.createdAt ?? null),
     "nextClaimableKey" in cache ? Promise.resolve(cache.nextClaimableKey ?? null) : nextTask(db, p.id).then((r) => r.task?.key ?? null),
     cache.envBehind !== undefined && cache.envUnknown !== undefined
       ? Promise.resolve({ behind: cache.envBehind, unknown: cache.envUnknown })
-      : projectEnvDrift(db, p, all),
+      : projectEnvDrift(r, p, all),
   ]);
 
   const flags = new Map<string, { other: boolean }>();
   await Promise.all(
-    heldRows.map(async (row) => {
-      const list = await blockerList(db, { id: row.id, projectId: p.id });
+    [...held].map(async (id) => {
+      const list = await blockerList(db, { id, projectId: p.id });
       const open = list.filter((b) => !b.satisfied && !(b.type === "human_action" && b.gating === false));
-      flags.set(row.id, { other: open.some((b) => b.type !== "human_action") });
+      flags.set(id, { other: open.some((b) => b.type !== "human_action") });
     }),
   );
 
@@ -496,29 +472,4 @@ function stateNoteIsStale(i: Task, all: Task[]): boolean {
   if (!times.length) return false;
   const last = new Date(Math.max(...times.map((d) => d.getTime())));
   return last > i.stateNoteAt;
-}
-
-async function lastSessionActivity(db: Q, rows: { id: string; sessionId: string }[]): Promise<Map<string, Date>> {
-  const out = new Map<string, Date>();
-  if (!rows.length) return out;
-  const found = await db
-    .select({
-      taskId: events.taskId,
-      session: sql<string>`${events.actor}->>'session_id'`,
-      at: sql<Date>`max(${events.createdAt})`,
-    })
-    .from(events)
-    .where(
-      and(
-        inArray(events.taskId, rows.map((r) => r.id)),
-        sql`${events.actor}->>'session_id' in (${sql.join(rows.map((r) => sql`${r.sessionId}`), sql`, `)})`,
-      ),
-    )
-    .groupBy(events.taskId, sql`${events.actor}->>'session_id'`);
-  for (const f of found) {
-    const row = rows.find((r) => r.id === f.taskId && r.sessionId === f.session);
-    if (!row || !f.taskId) continue;
-    out.set(f.taskId, f.at instanceof Date ? f.at : new Date(f.at));
-  }
-  return out;
 }

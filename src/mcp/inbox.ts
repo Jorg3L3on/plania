@@ -1,6 +1,7 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { checks, footprints, projects, questions, results, tasks, type Project } from "../db/schema.js";
+import type { Project } from "../db/schema.js";
 import { describeStale } from "../jobs/machine/infer.js";
+import { readerOf } from "../store/pg.js";
+import { gt } from "../store/types.js";
 import { delegatedForInbox, type DelegatedReviewItem } from "./delegate.js";
 import { openHumanActions } from "./blockers.js";
 import { releasePending, releasePlan, releaseUnknown } from "./release-plan.js";
@@ -60,34 +61,30 @@ const waitSeconds = (since: Date) => Math.max(0, Math.round((Date.now() - since.
 
 async function evidenceOf(db: Q, taskId: string | null) {
   if (!taskId) return null;
-  const [last] = await db
-    .select({ kind: results.kind, cite: results.cite, at: results.createdAt })
-    .from(results)
-    .where(and(eq(results.taskId, taskId), eq(results.verdict, "pass")))
-    .orderBy(sql`${results.createdAt} desc`)
-    .limit(1);
-  const [open] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(checks)
-    .where(and(eq(checks.taskId, taskId), eq(checks.done, false), isNull(checks.waivedAt)));
-  return { last_pass: last ? { kind: last.kind, cite: last.cite, at: iso(last.at) } : null, open_checks: open?.n ?? 0 };
+  const r = readerOf(db);
+  const [last] = await r.find("results", { taskId, verdict: "pass" }, { orderBy: [{ column: "createdAt", desc: true }], limit: 1 });
+  const open = await r.count("checks", { taskId, done: false, waivedAt: null });
+  return { last_pass: last ? { kind: last.kind, cite: last.cite, at: iso(last.createdAt) } : null, open_checks: open };
 }
 
 async function parentKeyOf(db: Q, parentId: string | null): Promise<string | null> {
   if (!parentId) return null;
-  const [p] = await db.select({ key: tasks.key }).from(tasks).where(eq(tasks.id, parentId)).limit(1);
+  const p = await readerOf(db).get("tasks", { id: parentId });
   return p?.key ?? null;
 }
 
 // Orphan and stale rows older than a day, for one project or (null) for those without one.
 async function footprintItems(db: Q, projectId: string | null, project: string, now = new Date()): Promise<InboxItem[]> {
-  const rows = await db
-    .select({ f: footprints, key: tasks.key, kind: tasks.kind, title: tasks.title })
-    .from(footprints)
-    .leftJoin(tasks, eq(tasks.id, footprints.taskId))
-    .where(and(isNull(footprints.releasedAt), inArray(footprints.state, ["orphan", "stale"]), projectId ? eq(footprints.projectId, projectId) : isNull(footprints.projectId)));
+  const r = readerOf(db);
+  const rows = await r.find("footprints", { releasedAt: null, state: ["orphan", "stale"], projectId: projectId || null });
+  // The ticket behind each row, when it has one that is still there.
+  const taskIds = [...new Set(rows.flatMap((f) => (f.taskId ? [f.taskId] : [])))];
+  const taskOf = new Map(taskIds.length ? (await r.find("tasks", { id: taskIds })).map((t) => [t.id, t]) : []);
   const items: InboxItem[] = [];
-  for (const { f, key, kind } of rows) {
+  for (const f of rows) {
+    const t = f.taskId ? taskOf.get(f.taskId) : undefined;
+    const key = t?.key ?? null;
+    const kind = t?.kind ?? null;
     // An orphan waits from the first sighting; a stale row from the moment its reason started to hold.
     const stale = typeof f.details.stale_since === "string" ? new Date(f.details.stale_since) : null;
     const since = f.state === "stale" && stale && !Number.isNaN(stale.getTime()) ? stale : (f.firstSeenAt ?? f.declaredAt ?? f.createdAt);
@@ -115,14 +112,13 @@ async function footprintItems(db: Q, projectId: string | null, project: string, 
 
 export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
   const items: InboxItem[] = [];
-  const open = await db
-    .select({ q: questions, t: tasks })
-    .from(questions)
-    .innerJoin(tasks, eq(tasks.id, questions.taskId))
-    // Open questions are unanswered. Migration 0030 already closed the pre-2.17 letter rows.
-    .where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt)))
-    .orderBy(asc(questions.askedAt));
-  for (const { q, t } of open) {
+  const r = readerOf(db);
+  // Open questions are unanswered. Migration 0030 already closed the pre-2.17 letter rows.
+  const asked = await r.find("questions", { projectId: p.id, answeredAt: null }, { orderBy: [{ column: "askedAt" }] });
+  const askedOn = new Map(asked.length ? (await r.find("tasks", { id: [...new Set(asked.map((q) => q.taskId))] })).map((t) => [t.id, t]) : []);
+  for (const q of asked) {
+    const t = askedOn.get(q.taskId);
+    if (!t) continue;
     items.push({
       id: q.id,
       kind: "question",
@@ -197,36 +193,41 @@ export async function inboxFor(db: Q, p: Project): Promise<InboxItem[]> {
 }
 
 async function leaseItems(db: Q, projectId: string, project: string, now = new Date()): Promise<InboxItem[]> {
-  const since = new Date(now.getTime() - LEASE_LIMPIEZA_MS).toISOString();
-  const rows = await db.execute<{ id: string; task_key: string; created_at: Date; title: string; kind: string; parent_id: string | null; pr_url: string | null }>(sql`
-    select distinct on (e.task_id) e.id::text as id, e.task_key, e.created_at, t.title, t.kind, t.parent_id, t.pr_url
-    from events e
-    join tasks t on t.id = e.task_id
-    where e.project_id = ${projectId}
-      and e.type = 'claim.limpieza'
-      and e.created_at > ${since}::timestamptz
-      and not exists (
-        select 1 from events n
-        where n.task_id = e.task_id and n.type = 'claim.acquired' and n.id > e.id
-      )
-    order by e.task_id, e.id desc`);
+  const r = readerOf(db);
+  const since = new Date(now.getTime() - LEASE_LIMPIEZA_MS);
+  // Tasks in id order and each task's newest lapse first, sorted by the store: the order the one row per
+  // task is taken from.
+  const lapsed = (
+    await r.find("events", { projectId, type: "claim.limpieza", createdAt: gt(since) }, { orderBy: [{ column: "taskId" }, { column: "id", desc: true }] })
+  ).filter((e) => e.taskId !== null);
+  const taskIds = [...new Set(lapsed.map((e) => e.taskId!))];
+  const taskOf = new Map(taskIds.length ? (await r.find("tasks", { id: taskIds })).map((t) => [t.id, t]) : []);
+  // A lapse stops counting once someone claims the ticket again after it.
+  const lastClaim = new Map<string, number>();
+  for (const e of taskIds.length ? await r.find("events", { taskId: taskIds, type: "claim.acquired" }) : []) {
+    if (e.id > (lastClaim.get(e.taskId!) ?? -Infinity)) lastClaim.set(e.taskId!, e.id);
+  }
   const items: InboxItem[] = [];
-  for (const row of rows.rows) {
-    const at = new Date(row.created_at);
+  const seen = new Set<string>();
+  for (const e of lapsed) {
+    const t = taskOf.get(e.taskId!);
+    if (!t || (lastClaim.get(t.id) ?? -Infinity) > e.id || seen.has(t.id)) continue;
+    seen.add(t.id);
+    const at = e.createdAt;
     items.push({
-      id: row.id,
+      id: String(e.id),
       kind: "lease",
       group: "limpieza",
       project,
-      key: row.task_key,
-      task_kind: row.kind,
-      parent_key: await parentKeyOf(db, row.parent_id),
-      title: row.title,
+      key: e.taskKey,
+      task_kind: t.kind,
+      parent_key: await parentKeyOf(db, t.parentId),
+      title: t.title,
       why: "el turno venció y nadie lo renovó",
       waiting_since: iso(at),
       wait_s: waitSeconds(at),
       evidence: null,
-      pr_url: row.pr_url,
+      pr_url: t.prUrl,
       action_hint: "reclamar de nuevo o soltar el trabajo",
     });
   }
@@ -235,16 +236,13 @@ async function leaseItems(db: Q, projectId: string, project: string, now = new D
 
 // The release waits since its oldest ticket reached Merged.
 async function releaseWaitingSince(db: Q, projectId: string, keys: string[]): Promise<Date> {
-  const [row] = await db
-    .select({ at: sql<Date | null>`min(${tasks.statusChangedAt})` })
-    .from(tasks)
-    .where(and(eq(tasks.projectId, projectId), inArray(tasks.key, keys)));
-  return row?.at ? new Date(row.at) : new Date();
+  const moved = (await readerOf(db).find("tasks", { projectId, key: keys })).flatMap((t) => (t.statusChangedAt ? [t.statusChangedAt.getTime()] : []));
+  return moved.length ? new Date(Math.min(...moved)) : new Date();
 }
 
 // project: a slug, or "all" for every project.
 export async function inbox(db: Q, which: Project | "all") {
-  const list = which === "all" ? await db.select().from(projects).orderBy(asc(projects.slug)) : [which];
+  const list = which === "all" ? await readerOf(db).find("projects", undefined, { orderBy: [{ column: "slug" }] }) : [which];
   const items = (await Promise.all(list.map((p) => inboxFor(db, p)))).flat();
   if (which === "all") items.push(...(await footprintItems(db, null, MACHINE_INBOX_PROJECT)));
   const counts: Record<string, number> = {};
@@ -266,5 +264,5 @@ export async function inbox(db: Q, which: Project | "all") {
 export type { DelegatedReviewItem };
 
 export async function projectsBySlugs(db: Q, slugs: string[]) {
-  return db.select().from(projects).where(inArray(projects.slug, slugs));
+  return readerOf(db).find("projects", { slug: slugs });
 }

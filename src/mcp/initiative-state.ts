@@ -1,5 +1,5 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
-import { questions, tasks, type Task } from "../db/schema.js";
+import type { Task } from "../db/schema.js";
+import { readerOf } from "../store/pg.js";
 import { blockerList, type BlockerView } from "./blockers.js";
 import { liveOwner, prOf, type PrShape } from "./queries.js";
 import type { Q } from "./tx.js";
@@ -60,10 +60,12 @@ export function stateLine(s: Omit<InitiativeState, "line">): string {
 }
 
 export async function initiativeState(db: Q, i: Pick<Task, "id" | "key" | "projectId">, children?: Task[]): Promise<InitiativeState> {
-  const kids = (children ?? (await db.select().from(tasks).where(eq(tasks.parentId, i.id)).orderBy(asc(tasks.key)))).filter((c) => c.status !== "Won't do");
+  const r = readerOf(db);
+  // Children in key order, sorted by the store so text order stays the database's.
+  const kids = (children ?? (await r.find("tasks", { parentId: i.id }, { orderBy: [{ column: "key" }] }))).filter((c) => c.status !== "Won't do");
   const open = kids.filter((c) => OPEN(c.status));
   const ids = open.map((c) => c.id);
-  const asked = ids.length ? await db.select({ taskId: questions.taskId }).from(questions).where(and(inArray(questions.taskId, ids), isNull(questions.answeredAt))) : [];
+  const asked = ids.length ? await r.find("questions", { taskId: ids, answeredAt: null }) : [];
   const waiting_on: InitiativeState["waiting_on"] = [];
   for (const b of await blockerList(db, i)) if (!b.satisfied) waiting_on.push({ key: i.key, on: waitText(b) });
   for (const c of open) {
