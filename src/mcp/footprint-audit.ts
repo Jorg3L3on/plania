@@ -1,6 +1,5 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
-import { footprints, tasks } from "../db/schema.js";
 import { describeStale, primaryPgPort, spanAgo } from "../jobs/machine/infer.js";
+import { readerOf } from "../store/pg.js";
 import type { Finding } from "./audit.js";
 import type { Q } from "./tx.js";
 
@@ -18,21 +17,31 @@ export const WATCHING_GRACE_MS = 15 * 60_000;
 type Scope = { projectId: string } | { projectless: true };
 
 export async function footprintFindings(db: Q, scope: Scope, now = new Date()): Promise<Finding[]> {
-  const rows = await db
-    .select({ f: footprints, key: tasks.key })
-    .from(footprints)
-    .leftJoin(tasks, eq(tasks.id, footprints.taskId))
-    .where(and(isNull(footprints.releasedAt), "projectId" in scope ? eq(footprints.projectId, scope.projectId) : isNull(footprints.projectId)))
-    .orderBy(footprints.kind, footprints.locator);
-  if (!rows.length) return [];
+  const r = readerOf(db);
+  const found = await r.find(
+    "footprints",
+    { releasedAt: null, projectId: "projectId" in scope ? scope.projectId : null },
+    { orderBy: [{ column: "kind" }, { column: "locator" }] },
+  );
+  if (!found.length) return [];
+  // The ticket key of each row, when its ticket still exists.
+  const taskIds = [...new Set(found.map((f) => f.taskId).filter((id): id is string => !!id))];
+  const keys = new Map(taskIds.length ? (await r.find("tasks", { id: taskIds })).map((t) => [t.id, t.key]) : []);
+  const rows = found.map((f) => ({ f, key: (f.taskId && keys.get(f.taskId)) ?? null }));
 
   const out: Finding[] = [];
   const hint = (teardown: string, otherwise: string) => teardown || otherwise;
+  // When each machine was first watched: its earliest first sighting over every row, released ones too.
   let baseline: Map<string, number> | undefined;
   const watchStart = async (machine: string) => {
-    baseline ??= new Map(
-      (await db.execute<{ machine: string; at: Date | string }>(sql`select machine, min(first_seen_at) as at from footprints where first_seen_at is not null group by machine`)).rows.map((r) => [r.machine, new Date(r.at).getTime()]),
-    );
+    if (!baseline) {
+      baseline = new Map();
+      for (const f of await r.find("footprints")) {
+        if (!f.firstSeenAt) continue;
+        const at = f.firstSeenAt.getTime();
+        if (at < (baseline.get(f.machine) ?? Infinity)) baseline.set(f.machine, at);
+      }
+    }
     return baseline.get(machine) ?? null;
   };
 

@@ -1,8 +1,7 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { projects, tasks } from "../db/schema.js";
 import { liveTaskFootprint } from "../mcp/footprint-read.js";
 import { SYSTEM_ACTOR, iso, writeTx } from "../mcp/tx.js";
+import { readerOf, uowOf } from "../store/pg.js";
 import type { Job } from "./index.js";
 
 // R-07 (part): claim.expiring, logged once per lease five minutes before it runs out, so a session
@@ -11,13 +10,17 @@ import type { Job } from "./index.js";
 
 export const EXPIRING_WINDOW_MIN = 5;
 
+// Project slugs by id: a task's project, for writeTx.
+async function slugsOf(db: Db): Promise<Map<string, string>> {
+  return new Map((await readerOf(db).find("projects")).map((p) => [p.id, p.slug]));
+}
+
 export async function warnExpiringLeases(db: Db, now = new Date()): Promise<number> {
   const soon = new Date(now.getTime() + EXPIRING_WINDOW_MIN * 60_000);
-  const rows = await db
-    .select({ t: tasks, slug: projects.slug })
-    .from(tasks)
-    .innerJoin(projects, eq(projects.id, tasks.projectId))
-    .where(and(sql`${tasks.leaseUntil} > ${now.toISOString()}::timestamptz`, sql`${tasks.leaseUntil} <= ${soon.toISOString()}::timestamptz`, isNull(tasks.expiringWarnedAt)));
+  const slugs = await slugsOf(db);
+  const rows = (await readerOf(db).find("tasks", { expiringWarnedAt: null }))
+    .filter((t) => t.leaseUntil && t.leaseUntil > now && t.leaseUntil <= soon && slugs.has(t.projectId))
+    .map((t) => ({ t, slug: slugs.get(t.projectId)! }));
   let warned = 0;
   for (const { t, slug } of rows) {
     const leaseUntil = iso(t.leaseUntil!);
@@ -26,11 +29,9 @@ export async function warnExpiringLeases(db: Db, now = new Date()): Promise<numb
       { id: t.projectId, slug },
       { actor: SYSTEM_ACTOR, requestId: `claim-expiring:${t.key}:${leaseUntil}`, tool: "jobs.leases" },
       async (tx, emit) => {
-        const [u] = await tx
-          .update(tasks)
-          .set({ expiringWarnedAt: sql`now()` })
-          .where(and(eq(tasks.id, t.id), isNull(tasks.expiringWarnedAt)))
-          .returning({ id: tasks.id });
+        const uow = uowOf(tx);
+        // Only while the mark is still clear: a row back means this write set it.
+        const [u] = await uow.update("tasks", { id: t.id, expiringWarnedAt: null }, { expiringWarnedAt: uow.now });
         if (!u) return false;
         // What the ticket has running on the Mac, so a session listening to the feed can tear it down or extend the claim.
         const footprint = (await liveTaskFootprint(tx, t.id)).map((f) => ({ kind: f.kind, locator: f.locator, teardown: f.teardown }));
@@ -48,11 +49,9 @@ export async function warnExpiringLeases(db: Db, now = new Date()): Promise<numb
 // project with an expired lease: the usual reaper fires (owner cleared, In progress → Ready,
 // claim.expired) within a minute. Returns how many projects were reaped.
 export async function reapExpired(db: Db, now = new Date()): Promise<number> {
-  const rows = await db
-    .selectDistinct({ id: projects.id, slug: projects.slug })
-    .from(tasks)
-    .innerJoin(projects, eq(projects.id, tasks.projectId))
-    .where(sql`${tasks.leaseUntil} < ${now.toISOString()}::timestamptz`);
+  const slugs = await slugsOf(db);
+  const expired = new Set((await readerOf(db).find("tasks")).filter((t) => t.leaseUntil && t.leaseUntil < now && slugs.has(t.projectId)).map((t) => t.projectId));
+  const rows = [...expired].map((id) => ({ id, slug: slugs.get(id)! }));
   for (const p of rows) await writeTx(db, p, { actor: SYSTEM_ACTOR, tool: "jobs.leases" }, async () => undefined);
   return rows.length;
 }

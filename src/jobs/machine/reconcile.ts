@@ -1,9 +1,10 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../../db/client.js";
-import { footprints } from "../../db/schema.js";
+import type { footprints } from "../../db/schema.js";
 import { bus } from "../../events.js";
 import { releaseRow } from "../../mcp/footprint.js";
 import { SYSTEM_ACTOR, writeTx, type Emit, type Q } from "../../mcp/tx.js";
+import { pgStore, readerOf, uowOf } from "../../store/pg.js";
+import type { UnitOfWork } from "../../store/types.js";
 import { groupOf } from "./collect.js";
 import { GHOST_RELEASE_MS, computeVerdict, ownerFacts, suggestTeardown, type Directory, type Observed, type Owner, type StateInput, type Verdict } from "./infer.js";
 
@@ -26,10 +27,28 @@ const GONE_KEEP_MS = 24 * 60 * 60 * 1000; // a gone row is released (kept for hi
 const STICKY = ["size_kb", "size_at", "version", "declared"];
 
 type Row = typeof footprints.$inferSelect;
+type NewRow = typeof footprints.$inferInsert;
 export type Inferred = { item: Observed; owner: Owner; repoPath: string | null; primary?: boolean };
 export type ReconcileResult = { seen: number; gone: number; revived: number; updated: number; released: number; ghosted: number };
 
 const keyOf = (kind: string, locator: string) => `${kind}\0${locator}`;
+
+// A store write belongs to a project; the writes for rows no project owns, and the tick's plain
+// refreshes, belong to none.
+const NO_PROJECT = "";
+
+// One unreleased row per machine, kind and locator (footprints_live_locator_idx), checked here so it
+// holds on a store without unique indexes. An agent can declare the same thing between this tick's read
+// and its write: the tick then fails as the index made it fail, and the next tick merges into that row.
+async function insertLive(uow: UnitOfWork, row: NewRow): Promise<void> {
+  if (await uow.get("footprints", { machine: row.machine, kind: row.kind, locator: row.locator, releasedAt: null })) {
+    throw Object.assign(new Error('duplicate key value violates unique constraint "footprints_live_locator_idx"'), {
+      code: "23505",
+      constraint: "footprints_live_locator_idx",
+    });
+  }
+  await uow.insert("footprints", row);
+}
 
 // Primary things (the live database, Plania itself, database servers) never get a suggested teardown.
 const teardownOf = (i: Inferred) => (i.primary || i.item.self ? "" : suggestTeardown(i.item, i.repoPath));
@@ -104,7 +123,7 @@ export async function reconcile(
   a: { machine: string; now: Date; dir: Directory; inferred: Inferred[]; ran: Set<string> },
 ): Promise<ReconcileResult> {
   const { machine, now, dir } = a;
-  const rows = await db.select().from(footprints).where(and(eq(footprints.machine, machine), isNull(footprints.releasedAt)));
+  const rows = await readerOf(db).find("footprints", { machine, releasedAt: null });
   const existing = new Map(rows.map((r) => [keyOf(r.kind, r.locator), r]));
   const result: ReconcileResult = { seen: 0, gone: 0, revived: 0, updated: 0, released: 0, ghosted: 0 };
 
@@ -119,9 +138,9 @@ export async function reconcile(
     }
   }
 
-  const inserts: (typeof footprints.$inferInsert)[] = [];
+  const inserts: NewRow[] = [];
   const touch: string[] = [];
-  const changed: { id: string; set: Partial<typeof footprints.$inferInsert> }[] = [];
+  const changed: { id: string; set: Partial<NewRow> }[] = [];
   const seenKeys = new Set<string>();
 
   for (const i of a.inferred) {
@@ -243,19 +262,20 @@ export async function reconcile(
 
   const slugs = new Map(dir.projects.map((p) => [p.id, p.slug]));
   const apply = async (q: Q, emit: Emit | null, g: Bucket) => {
-    if (g.ins.length) await q.insert(footprints).values(g.ins);
+    const uow = uowOf(q);
+    for (const r of g.ins) await insertLive(uow, r);
     for (const r of g.ins) {
       result.seen++;
       await emit?.("footprint.seen", taskRef(dir, r.taskId), payloadOf(r.id!, r.kind, r.locator, r.state!, r.details!, machine));
     }
     for (const r of g.gone) {
-      await q.update(footprints).set({ state: "gone", misses: r.misses + 1, updatedAt: now }).where(eq(footprints.id, r.id));
+      await uow.update("footprints", { id: r.id }, { state: "gone", misses: r.misses + 1, updatedAt: now });
       result.gone++;
       await emit?.("footprint.gone", taskRef(dir, r.taskId), payloadOf(r.id, r.kind, r.locator, "gone", r.details, machine, r.lastSeenAt));
     }
     for (const r of g.ghosts) {
       if (emit) await releaseRow(q, emit, r, "ghost");
-      else await q.update(footprints).set({ releasedAt: now, state: "released", updatedAt: now }).where(eq(footprints.id, r.id));
+      else await uow.update("footprints", { id: r.id }, { releasedAt: now, state: "released", updatedAt: now });
       result.released++;
     }
   };
@@ -267,20 +287,27 @@ export async function reconcile(
         return true;
       });
     } else {
-      await db.transaction((tx) => apply(tx, null, g));
+      // No event without a project, but the write is still serialized with every other one.
+      await pgStore(db).write(projectId ?? NO_PROJECT, {}, (uow) => apply(uow.sql, null, g));
     }
   }
 
-  if (touch.length) await db.update(footprints).set({ lastSeenAt: now, misses: 0 }).where(inArray(footprints.id, touch));
-  for (const c of changed) await db.update(footprints).set(c.set).where(eq(footprints.id, c.id));
-  if (missed.length) await db.update(footprints).set({ misses: sql`${footprints.misses} + 1` }).where(inArray(footprints.id, missed));
-  for (const r of ghostNew) {
-    await db.update(footprints).set({ state: "ghost", misses: r.misses + 1, details: { ...r.details, ghost_since: now.toISOString() }, updatedAt: now }).where(eq(footprints.id, r.id));
-    result.ghosted++;
-  }
-  if (release.length) {
-    await db.update(footprints).set({ releasedAt: now, updatedAt: now }).where(inArray(footprints.id, release));
-    result.released = release.length;
+  // The refreshes that carry no event, in one write.
+  if (touch.length || changed.length || missed.length || ghostNew.length || release.length) {
+    await pgStore(db).write(NO_PROJECT, {}, async (uow) => {
+      if (touch.length) await uow.update("footprints", { id: touch }, { lastSeenAt: now, misses: 0 });
+      for (const c of changed) await uow.update("footprints", { id: c.id }, c.set);
+      // One more miss on the count as it is now, read inside the write.
+      if (missed.length) for (const r of await uow.find("footprints", { id: missed })) await uow.update("footprints", { id: r.id }, { misses: r.misses + 1 });
+      for (const r of ghostNew) {
+        await uow.update("footprints", { id: r.id }, { state: "ghost", misses: r.misses + 1, details: { ...r.details, ghost_since: now.toISOString() }, updatedAt: now });
+        result.ghosted++;
+      }
+      if (release.length) {
+        await uow.update("footprints", { id: release }, { releasedAt: now, updatedAt: now });
+        result.released = release.length;
+      }
+    });
   }
 
   // The inventory is global (all projects and none), so one project-less notice per tick that changed it.

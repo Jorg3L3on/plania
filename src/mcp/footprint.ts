@@ -1,9 +1,9 @@
 import path from "node:path";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { footprints, tasks, type Task } from "../db/schema.js";
+import type { footprints, Task } from "../db/schema.js";
 import { bus } from "../events.js";
 import { FOOTPRINT_KINDS, type FootprintKind } from "../jobs/machine/infer.js";
+import { readerOf, uowOf } from "../store/pg.js";
 import { ToolError } from "./errors.js";
 import { footprintShape, sameMachine } from "./footprint-read.js";
 import { findProject, findTask } from "./queries.js";
@@ -99,41 +99,32 @@ function kindOf(kind: string): FootprintKind {
 // The machine string as the job stored it (os.hostname()), when the caller spells it differently
 // ("MacBook-Air-de-Jorge" for "MacBook-Air-de-Jorge.local"): one machine must be one set of rows.
 async function canonicalMachine(tx: Q, name: string): Promise<string> {
-  const known = await tx.selectDistinct({ machine: footprints.machine }).from(footprints);
-  return known.find((k) => sameMachine(k.machine, name))?.machine ?? name;
+  const known = new Set((await readerOf(tx).find("footprints")).map((f) => f.machine));
+  return [...known].find((m) => sameMachine(m, name)) ?? name;
 }
+
+// Whether a ticket is claimed by this session with a lease that has not run out at the write's clock.
+const claimedBy = (t: Task, sessionId: string, now: Date) => t.owner?.session_id === sessionId && !!t.leaseUntil && t.leaseUntil > now;
 
 // A session is live while it holds a ticket whose lease has not run out (any project).
 async function sessionIsLive(tx: Q, sessionId: string): Promise<boolean> {
-  const [t] = await tx
-    .select({ id: tasks.id })
-    .from(tasks)
-    .where(and(sql`${tasks.owner}->>'session_id' = ${sessionId}`, sql`${tasks.leaseUntil} > now()`))
-    .limit(1);
-  return !!t;
+  const uow = uowOf(tx);
+  return (await uow.find("tasks")).some((t) => claimedBy(t, sessionId, uow.now));
 }
 
 // The ticket a declaration defaults to: the session's one live claim in the project. None or
 // several: no guess (a null task is allowed; the agent can pass task_key).
 async function soleClaim(tx: Q, projectId: string, sessionId: string): Promise<Task | null> {
-  const mine = await tx
-    .select()
-    .from(tasks)
-    .where(and(eq(tasks.projectId, projectId), sql`${tasks.owner}->>'session_id' = ${sessionId}`, sql`${tasks.leaseUntil} > now()`))
-    .limit(2);
+  const uow = uowOf(tx);
+  const mine = (await uow.find("tasks", { projectId })).filter((t) => claimedBy(t, sessionId, uow.now));
   return mine.length === 1 ? mine[0]! : null;
 }
 
 async function taskRef(tx: Q, id: string | null): Promise<{ id: string; key: string } | null> {
   if (!id) return null;
-  const [t] = await tx.select({ id: tasks.id, key: tasks.key }).from(tasks).where(eq(tasks.id, id)).limit(1);
-  return t ?? null;
+  const t = await readerOf(tx).get("tasks", { id });
+  return t ? { id: t.id, key: t.key } : null;
 }
-
-const isUniqueViolation = (e: unknown) => {
-  const c = e as { code?: string; cause?: { code?: string } };
-  return c?.code === "23505" || c?.cause?.code === "23505";
-};
 
 function replyShape(r: Row, taskKey: string | null) {
   return { id: r.id, ...footprintShape(r), task_key: taskKey, session_id: r.sessionId, holder: r.holder, declared_at: iso(r.declaredAt) };
@@ -163,88 +154,75 @@ export async function registerFootprint(db: Db, input: RegisterInput, ctx: Ctx) 
   const userDetails = input.details && typeof input.details === "object" && !Array.isArray(input.details) ? input.details : undefined;
   const p = await findProject(db, input.project);
 
-  const once = () =>
-    writeTx(db, p, ctx, async (tx, emit) => {
-      const machine = await canonicalMachine(tx, machineName);
-      const sid = ctx.actor.session_id;
-      const now = new Date();
-      let task: Task | null = null;
-      if (input.task_key) {
-        task = (await findTask(tx, p.id, input.task_key)) ?? null;
-        if (!task) throw new ToolError("TASK_NOT_FOUND");
-      } else task = await soleClaim(tx, p.id, sid);
+  // The write is serialized with every other one, the machine job's included, so the live row read here
+  // is still the live row when it is updated, and no other write can insert one before this insert.
+  const result = await writeTx(db, p, ctx, async (tx, emit) => {
+    const uow = uowOf(tx);
+    const machine = await canonicalMachine(tx, machineName);
+    const sid = ctx.actor.session_id;
+    const now = uow.now;
+    let task: Task | null = null;
+    if (input.task_key) {
+      task = (await findTask(tx, p.id, input.task_key)) ?? null;
+      if (!task) throw new ToolError("TASK_NOT_FOUND");
+    } else task = await soleClaim(tx, p.id, sid);
 
-      const [row] = await tx
-        .select()
-        .from(footprints)
-        .where(and(eq(footprints.machine, machine), eq(footprints.kind, kind), eq(footprints.locator, locator), isNull(footprints.releasedAt)))
-        .for("update");
+    // At most one: a locator is unique per machine and kind while its row is not released.
+    const row = await uow.get("footprints", { machine, kind, locator, releasedAt: null });
 
-      if (row && row.source !== "observed") {
-        const holderSession = row.holder?.session_id ?? row.sessionId;
-        if (holderSession && holderSession !== sid && (await sessionIsLive(tx, holderSession))) {
-          throw new ToolError("FOOTPRINT_HELD", { locator, kind, holder: row.holder, purpose: row.purpose });
-        }
+    if (row && row.source !== "observed") {
+      const holderSession = row.holder?.session_id ?? row.sessionId;
+      if (holderSession && holderSession !== sid && (await sessionIsLive(tx, holderSession))) {
+        throw new ToolError("FOOTPRINT_HELD", { locator, kind, holder: row.holder, purpose: row.purpose });
       }
+    }
 
-      let saved: Row | undefined;
-      if (row) {
-        const merged = row.source === "observed";
-        const details = userDetails ? { ...row.details, declared: userDetails } : row.details;
-        [saved] = await tx
-          .update(footprints)
-          .set({
-            projectId: p.id,
-            taskId: task?.id ?? row.taskId, // an inferred owner stays when the agent names none
-            sessionId: sid,
-            holder: ctx.actor,
-            source: row.source === "declared" ? "declared" : "both",
-            purpose,
-            teardown,
-            details,
-            // gone and self rows keep the job's word; a declaration makes anything else live
-            state: row.state === "gone" || row.state === "self" ? row.state : "live",
-            declaredAt: now,
-            updatedAt: now,
-          })
-          .where(eq(footprints.id, row.id))
-          .returning();
-        await emit("footprint.declared", await taskRef(tx, saved!.taskId), {
-          footprint_id: saved!.id, machine, kind, locator, purpose, teardown, merged, took_over_from: row.holder && row.holder.session_id !== sid ? row.holder : undefined,
-        });
-      } else {
-        [saved] = await tx
-          .insert(footprints)
-          .values({
-            machine,
-            kind,
-            locator,
-            projectId: p.id,
-            taskId: task?.id ?? null,
-            sessionId: sid,
-            holder: ctx.actor,
-            source: "declared",
-            purpose,
-            teardown,
-            details: userDetails ? { ...userDetails, declared: userDetails } : {},
-            state: "live",
-            declaredAt: now,
-          })
-          .returning();
-        await emit("footprint.declared", await taskRef(tx, saved!.taskId), { footprint_id: saved!.id, machine, kind, locator, purpose, teardown, merged: false });
-      }
-      const ref = await taskRef(tx, saved!.taskId);
-      return { footprint: replyShape(saved!, ref?.key ?? null), merged: !!row && row.source === "observed" };
-    });
-
-  // The job inserts rows too: if it won a race for the same (machine, kind, locator), merge into its row.
-  let result: Awaited<ReturnType<typeof once>>;
-  try {
-    result = await once();
-  } catch (e) {
-    if (!isUniqueViolation(e)) throw e;
-    result = await once();
-  }
+    let saved: Row | undefined;
+    if (row) {
+      const merged = row.source === "observed";
+      const details = userDetails ? { ...row.details, declared: userDetails } : row.details;
+      [saved] = await uow.update(
+        "footprints",
+        { id: row.id },
+        {
+          projectId: p.id,
+          taskId: task?.id ?? row.taskId, // an inferred owner stays when the agent names none
+          sessionId: sid,
+          holder: ctx.actor,
+          source: row.source === "declared" ? "declared" : "both",
+          purpose,
+          teardown,
+          details,
+          // gone and self rows keep the job's word; a declaration makes anything else live
+          state: row.state === "gone" || row.state === "self" ? row.state : "live",
+          declaredAt: now,
+          updatedAt: now,
+        },
+      );
+      await emit("footprint.declared", await taskRef(tx, saved!.taskId), {
+        footprint_id: saved!.id, machine, kind, locator, purpose, teardown, merged, took_over_from: row.holder && row.holder.session_id !== sid ? row.holder : undefined,
+      });
+    } else {
+      saved = await uow.insert("footprints", {
+        machine,
+        kind,
+        locator,
+        projectId: p.id,
+        taskId: task?.id ?? null,
+        sessionId: sid,
+        holder: ctx.actor,
+        source: "declared",
+        purpose,
+        teardown,
+        details: userDetails ? { ...userDetails, declared: userDetails } : {},
+        state: "live",
+        declaredAt: now,
+      });
+      await emit("footprint.declared", await taskRef(tx, saved.taskId), { footprint_id: saved.id, machine, kind, locator, purpose, teardown, merged: false });
+    }
+    const ref = await taskRef(tx, saved!.taskId);
+    return { footprint: replyShape(saved!, ref?.key ?? null), merged: !!row && row.source === "observed" };
+  });
   bus.publish({ type: "footprint", project: "" });
   return result;
 }
@@ -254,8 +232,8 @@ export async function registerFootprint(db: Db, input: RegisterInput, ctx: Ctx) 
 // Marks the row released (it leaves the inventory) and logs footprint.released. The caller has already
 // checked who may. Shared with whoever releases rows later (a screen action, ghost cleanup).
 export async function releaseRow(tx: Q, emit: Emit, row: Row, reason: string): Promise<Row> {
-  const now = new Date();
-  const [saved] = await tx.update(footprints).set({ releasedAt: now, state: "released", updatedAt: now }).where(eq(footprints.id, row.id)).returning();
+  const uow = uowOf(tx);
+  const [saved] = await uow.update("footprints", { id: row.id }, { releasedAt: uow.now, state: "released", updatedAt: uow.now });
   await emit("footprint.released", await taskRef(tx, row.taskId), { footprint_id: row.id, machine: row.machine, kind: row.kind, locator: row.locator, holder: row.holder, reason });
   return saved!;
 }
@@ -283,13 +261,8 @@ export async function releaseFootprint(db: Db, input: ReleaseInput, ctx: Ctx) {
   const result = await writeTx(db, p, ctx, async (tx, emit) => {
     const machine = await canonicalMachine(tx, machineName);
     const locators = [...new Set([...wanted.keys()].map((k) => k.split("\0")[1]!))];
-    const found = (
-      await tx
-        .select()
-        .from(footprints)
-        .where(and(eq(footprints.machine, machine), inArray(footprints.locator, locators), isNull(footprints.releasedAt)))
-        .for("update")
-    ).filter((r) => wanted.has(`${r.kind}\0${r.locator}`));
+    // Read inside the serialized write: the rows cannot change before releaseRow updates them.
+    const found = (await uowOf(tx).find("footprints", { machine, locator: locators, releasedAt: null })).filter((r) => wanted.has(`${r.kind}\0${r.locator}`));
     if (found.length > 1) throw bad("kind", "the locator matches several kinds: pass kind", { kinds: found.map((r) => r.kind) });
     const row = found[0];
     if (!row) return { locator: input.locator, released: false };
