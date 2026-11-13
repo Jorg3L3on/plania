@@ -4,6 +4,7 @@ import { Fragment, type CSSProperties, type ReactNode } from "react";
 import type { Decision, OrgMember, OrgProject } from "@/lib/api";
 import { RECIBIRIA, floorHue, hangingFor, nowLine, ownerCaption } from "@/lib/edificio";
 import { byRole } from "@/lib/org";
+import { After } from "./after";
 import { Figure } from "./figure";
 import { Now, type NowActs } from "./now";
 import { Plate } from "./plate";
@@ -26,6 +27,7 @@ export const Floor = ({
   typing,
   timeZone,
   nowActs,
+  solo,
   children,
 }: {
   project: OrgProject;
@@ -46,6 +48,8 @@ export const Floor = ({
   // PLA-I40-4: the band's clock zone and its calls.
   timeZone?: string;
   nowActs?: NowActs;
+  // PLA-I40-7: what goes under Solo tú (the project's switch).
+  solo?: ReactNode;
   children?: ReactNode;
 }) => {
   const team = [...p.team].sort(byRole);
@@ -102,6 +106,7 @@ export const Floor = ({
           </div>
         )}
         <Route project={p} now={now} timeZone={timeZone} onPlan={nowActs?.onPlan} busy={nowActs?.busy === `${p.slug}:plan`} />
+        <After project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={nowActs} qacts={acts} solo={solo} />
       </div>
     </article>
   );

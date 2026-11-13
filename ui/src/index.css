@@ -550,6 +550,20 @@
   .edi-stext span { font-size: 12.5px; color: var(--e-muted); line-height: 1.35; overflow-wrap: anywhere; }
   .edi-steps li[data-mark="now"] .edi-stext span { color: var(--c); }
   .edi-steps li[data-mark="later"] .edi-stext b { color: var(--e-muted); font-weight: 500; }
+  /* PLA-I40-6: under the route: what runs alone, what is the owner's, and the last things that happened. */
+  .edi-after { order: 995; grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; min-width: 0; }
+  .edi-acol { display: grid; gap: 7px; align-content: start; padding: 12px 14px; border-radius: 14px; background: rgb(255 255 255 / 0.045); min-width: 0; }
+  .edi-acol h3 { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--e-muted); margin: 0; }
+  .edi-acol p { font-size: 13px; line-height: 1.4; color: var(--e-muted); overflow-wrap: anywhere; }
+  .edi-acol[data-col="sin-ti"] > p, .edi-acol[data-col="solo-tu"] > p { color: var(--e-fg); }
+  .edi-last p { display: flex; flex-wrap: wrap; gap: 0 8px; }
+  .edi-last time { font-family: var(--font-mono); font-size: 11.5px; color: var(--e-muted); white-space: nowrap; }
+  .edi-last span { color: var(--e-fg); min-width: 0; }
+  .edi-lastd summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--e-muted); }
+  .edi-lastd[open] { margin-top: 6px; padding: 10px 12px; border-radius: 12px; background: var(--card); color: var(--foreground); }
+  .edi-stale { display: grid; gap: 4px; padding-bottom: 7px; border-bottom: 1px solid var(--e-line); }
+  .edi-stale p { color: var(--e-you-ink); }
+  .edi-stale .edi-links { display: flex; gap: 14px; }
   .edi-slot { position: relative; }
   .edi-mark { position: absolute; left: 50%; top: 118px; z-index: 2; width: 14px; height: 14px; margin-left: -7px; border-radius: 4px; transform: rotate(45deg); background: var(--c); box-shadow: 0 0 0 3px var(--e-wall), 0 0 16px var(--c); }
   .edi-slot[data-owner] .edi-mark { background: var(--e-you); box-shadow: 0 0 0 3px var(--e-wall), 0 0 16px var(--e-you); }

@@ -282,3 +282,18 @@ export async function queueWake(
   }
   return out;
 }
+
+// PLA-I40-6: a request made Ready for a product owner that already had a run queued or live is coalesced, and
+// nothing wakes that PO for it again. So when a PO's run ends well, one wake is queued for its oldest Ready
+// ticket that nothing holds. Never the ticket the run was on: an unfinished one would wake it in a loop.
+export async function wakePoIfWaiting(tx: Q, agent: Agent, project: ProjectRef, justRan: string | null, env: NodeJS.ProcessEnv = process.env): Promise<EventWake | null> {
+  if (!eventWakesEnabled(env) || roleOf(agent) !== "product-owner") return null;
+  const rows = await tx
+    .select({ id: tasks.id, key: tasks.key, title: tasks.title })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, project.id), eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), eq(tasks.ownerAgent, agent.id), sql`not ${hasUnsatisfiedBlocker(tasks.id)}`))
+    .orderBy(asc(tasks.createdAt));
+  const next = rows.find((t) => t.key !== justRan && !t.title.includes("[PRUEBA]"));
+  if (!next) return null;
+  return queueWake(tx, project, { id: next.id, key: next.key }, { agent, taskKey: next.key, reason: "request waiting" }, "run.ended");
+}

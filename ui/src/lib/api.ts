@@ -153,6 +153,7 @@ export const api = {
   stopRun: (id: string) => request<{ stopped: true; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/stop`),
   resumeRun: (id: string) => request<{ woke: boolean; reason: string; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/resume`),
   noteTask: (slug: string, key: string, text: string) => request<{ noted: true }>("POST", `/company/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/note`, { text }),
+  resendRequest: (slug: string, key: string) => request<{ key: string; wake: "queued" | "busy" | "off" }>("POST", `/company/projects/${encodeURIComponent(slug)}/requests/${encodeURIComponent(key)}/resend`),
   cancelOrder: (slug: string, key: string) => request<{ cancelled: string[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/orders/${encodeURIComponent(key)}/cancel`),
   ownerCode: () => request<{ enrolled: boolean }>("GET", "/company/owner-code"),
   enrolOwnerCode: (input: { password: string; code?: string }) => request<{ secret_base32: string; otpauth_uri: string }>("POST", "/company/owner-code/enroll", input),
@@ -224,6 +225,9 @@ export type OrgProject = {
   thread: OrgThreadRef;
   // PLA-I35-1: the card as a report.
   plan: OrgPlan | null;
+  // PLA-I40-6: what just happened here, and the owner's requests nobody took.
+  latest?: OrgLatest[];
+  stale_requests?: OrgStaleRequest[];
   // PLA-I40-3: the delivery as legs; the one marked here carries its named steps.
   route?: OrgRoute | null;
   this_week: { done: number; docs: number; prs: number; last_at: string | null };
@@ -235,6 +239,8 @@ export type OrgProject = {
   plan_approval?: boolean;
   preview_url?: string | null;
 };
+export type OrgLatest = { kind: "published" | "delivered"; title: string | null; n: number | null; at: string };
+export type OrgStaleRequest = { key: string; title: string; since: string };
 export type OrgStepState = "done" | "published" | "delivered" | "working" | "next" | "later";
 export type OrgRouteStep = { key: string; title: string; state: OrgStepState; who: string | null; at: string | null };
 export type OrgRouteLeg = { key: string; title: string; done: number; total: number; state: "done" | "here" | "planned" | "unplanned"; note: string | null; steps?: OrgRouteStep[]; more_steps?: number };

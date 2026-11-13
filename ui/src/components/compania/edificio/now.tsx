@@ -13,6 +13,9 @@ export type NowActs = {
   onStart?: (slug: string, agent: string, pastGuard: boolean) => void;
   // Que PO lo planee: an order to the project's PO.
   onPlan?: (slug: string, text: string) => void;
+  // PLA-I40-6: a request nobody took: send it to the PO again, or close it.
+  onResend?: (slug: string, key: string) => void;
+  onClose?: (slug: string, key: string) => void;
   // The countdown reached zero: read the floor again.
   onElapsed?: () => void;
   // "<slug>:<kind>" while a call is out.

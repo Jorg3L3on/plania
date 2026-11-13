@@ -251,6 +251,28 @@ const Compania = () => {
   const nowActs = {
     busy: nowBusy,
     onElapsed: refresh,
+    onResend: (slug: string, key: string) => {
+      setNowBusy(`${slug}:request`);
+      void api
+        .resendRequest(slug, key)
+        .then((r) => toast(r.wake === "queued" ? "Se lo mandaste al PO otra vez." : r.wake === "busy" ? "El PO está ocupado; lo toma al terminar." : "Los avisos están apagados; lo ve en su próximo turno."))
+        .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+        .finally(() => {
+          setNowBusy(null);
+          refresh();
+        });
+    },
+    onClose: (slug: string, key: string) => {
+      setNowBusy(`${slug}:request`);
+      void api
+        .cancelOrder(slug, key)
+        .then(() => toast("Pedido cerrado."))
+        .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+        .finally(() => {
+          setNowBusy(null);
+          refresh();
+        });
+    },
     onStart: (slug: string, agent: string, pastGuard: boolean) => {
       setNowBusy(`${slug}:start`);
       void api

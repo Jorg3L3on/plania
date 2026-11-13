@@ -165,11 +165,11 @@ export const hourIn = (iso: string | number, timeZone?: string) =>
 // The decision under a teammate's window: the asker must be on that floor's team. The oldest shows; the rest count.
 export type Hanging = { decision: Decision; more: Decision[] };
 export function hangingFor(decisions: Decision[], project: string, agent: string): Hanging | null {
-  const mine = decisions.filter((d) => d.project === project && d.asker?.agent === agent && (pending(d) || !!d.state)).sort((a, b) => a.at.localeCompare(b.at));
-  const open = mine.filter((d) => !d.state);
-  const shown = open[0] ?? mine.at(-1);
+  // PLA-I40-6: only what still waits hangs under a window; an answered one is a line under Lo último (lastLines).
+  const open = decisions.filter((d) => d.project === project && d.asker?.agent === agent && pending(d)).sort((a, b) => a.at.localeCompare(b.at));
+  const shown = open[0];
   if (!shown) return null;
-  return { decision: shown, more: open.filter((d) => d.id !== shown.id) };
+  return { decision: shown, more: open.slice(1) };
 }
 // What goes on the roof as a chip: every pending decision; those with no asker on its floor's team open their row.
 export function roofChips(decisions: Decision[], projects: OrgProject[]): { decision: Decision; onTeam: boolean }[] {
@@ -392,3 +392,43 @@ export function stepLine(s: OrgRouteStep, team: OrgMember[], now: number, timeZo
   }
   return "Después · espera el paso anterior";
 }
+
+// ---- under the route (PLA-I40-6): what runs without the owner, what only he does, and the last things that happened
+
+const TO_DO: Record<string, string> = { taller: "construye", research: "investiga", artist: "diseña", qa: "prueba", copy: "escribe", "product-owner": "prepara" };
+export function sinTi(p: OrgProject): string {
+  if (isPaused(p)) return "Nada: el proyecto está en pausa.";
+  const steps = p.route?.legs.find((l) => l.state === "here")?.steps ?? [];
+  const at = steps.find((s) => s.state === "working") ?? steps.find((s) => s.state === "next");
+  if (at) {
+    const who = at.who ? roleName(at.who) : "El equipo";
+    const then = steps[steps.indexOf(at) + 1];
+    return `${who} ${at.state === "working" ? "termina" : (TO_DO[at.who ?? ""] ?? "hace")} ${q(at.title)} y te lo entrega.${then ? ` Después sigue ${q(then.title)}.` : ""}`;
+  }
+  if (steps.some((s) => s.state === "delivered")) return "En cuanto aceptes la entrega, el equipo toma el paso siguiente.";
+  const queued = [...p.team].sort(byRole).find((m) => m.state === "running" || m.next_start || (m.queue ?? []).length > 0);
+  if (queued) return `${roleName(queued.role)} sigue con lo que tiene en fila.`;
+  return "Nada en fila. Lo que pidas lo reparte el PO.";
+}
+export const SOLO_TU = "Aceptar cada entrega para que el paso siguiente arranque, y publicar.";
+
+const DID: Record<string, string> = { aceptar: "Aceptaste", fusionar: "Aceptaste", cambios: "Pediste cambios en", elegir: "Respondiste", responder: "Respondiste", hecho: "Marcaste hecho", aplazar: "Aplazaste", empezar: "Aprobaste el plan", cambiar: "Pediste cambiar", cancelar: "Cancelaste" };
+export type LastLine = { id: string; text: string; at: string; decision: Decision | null };
+// The newest three: the owner's answers (a decision's state) and what the server saw (a publish, a delivery).
+export function lastLines(p: OrgProject, decisions: Decision[], max = 3): LastLine[] {
+  const answered = decisions
+    .filter((d) => d.project === p.slug && d.state)
+    .map((d) => ({ id: `d-${d.id}`, text: `${DID[d.state!.action] ?? "Respondiste"} ${q(d.title, 70)}`, at: d.state!.at, decision: d }));
+  const seen = (p.latest ?? []).map((l, i) => ({
+    id: `l-${i}-${l.at}`,
+    text: l.kind === "published" ? (l.n ? `Publicaste ${l.n === 1 ? "1 cambio" : `${l.n} cambios`}` : "Publicaste los cambios") : `El equipo entregó ${q(l.title, 70)}`,
+    at: l.at,
+    decision: null,
+  }));
+  return [...answered, ...seen].sort((a, b) => b.at.localeCompare(a.at)).slice(0, max);
+}
+// "lleva 16 h" / "lleva 3 días".
+export const staleAge = (sinceIso: string, now: number) => {
+  const h = Math.max(1, Math.round((now - Date.parse(sinceIso)) / HOUR));
+  return h < 48 ? `${h} h` : `${Math.round(h / 24)} días`;
+};

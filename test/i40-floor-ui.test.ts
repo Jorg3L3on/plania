@@ -282,6 +282,68 @@ test("I40-5 #3: the legs wrap instead of scrolling sideways, and long text break
   assert.match(css, /\.edi-route \{[^}]*grid-column: 1 \/ -1[^}]*min-width: 0/);
 });
 
+// ---- PLA-I40-6
+
+const after = await load("components/compania/edificio/after.tsx");
+const answered = (patch: Json = {}) => delivery({ actions: [], state: { action: "aceptar", at: "2026-11-13T20:24:00Z", result: {} }, ...patch });
+const full = (patch: Json = {}): Json => ({ ...resting(), route: mianovia, latest: [{ kind: "published", title: null, n: 6, at: "2026-11-13T20:35:00Z" }], stale_requests: [], ...patch });
+
+test("I40-6 #1: an answered decision is a line under Lo último, not a bubble; a pending one still hangs", () => {
+  const s = floor(full(), [answered()]);
+  assert.equal(s.includes("data-bubble="), false);
+  assert.equal(s.includes("Ya respondiste"), false);
+  assert.deepEqual([...s.matchAll(/data-last="([a-z]+)"/g)].map((m) => m[1]), ["seen", "answered"], "newest first");
+  const t = text(s).replace(/\s+/g, " ");
+  assert.ok(t.includes("hoy 2:35 pm Publicaste 6 cambios"));
+  assert.ok(t.includes("hoy 2:24 pm Aceptaste «Listado de novias con búsqueda y filtros»"));
+  assert.match(s, /<details class="dark edi-lastd"><summary>Ver<\/summary>/);
+  assert.equal(lib.hangingFor([answered()], "workia", "taller-workia"), null);
+
+  const open = floor(full(), [delivery(), answered({ id: "pr-0", title: "Acceso privado del equipo" })]);
+  assert.equal((open.match(/data-bubble="/g) ?? []).length, 1);
+  assert.match(open, /data-bubble="pr-1"/);
+  assert.ok(open.includes("Taller te entrega") && open.includes('data-last="answered"'));
+  // Three lines at most, newest first.
+  const many = lib.lastLines(full({ latest: [{ kind: "published", title: null, n: 1, at: "2026-11-13T20:35:00Z" }, { kind: "delivered", title: "Listado", n: null, at: "2026-11-13T20:21:00Z" }, { kind: "delivered", title: "Acceso", n: null, at: "2026-11-13T18:50:00Z" }] }), [answered()]);
+  assert.deepEqual(many.map((l: Json) => l.text), ["Publicaste 1 cambio", "Aceptaste «Listado de novias con búsqueda y filtros»", "El equipo entregó «Listado»"]);
+  clean(s);
+});
+
+test("I40-6: Pasa sin ti says what the team does next, Solo tú what is the owner's", () => {
+  const s = text(floor(full())).replace(/\s+/g, " ");
+  assert.ok(s.includes("Pasa sin ti Taller construye «Ficha de la novia y notas internas» y te lo entrega. Después sigue «Revisión del panel y lista de supuestos»."));
+  assert.ok(s.includes("Solo tú Aceptar cada entrega para que el paso siguiente arranque, y publicar."));
+  const working = { ...mianovia, legs: mianovia.legs.map((l: Json) => (l.steps ? { ...l, steps: l.steps.map((x: Json) => (x.state === "next" ? { ...x, state: "working" } : x)) } : l)) };
+  assert.match(lib.sinTi(full({ route: working })), /^Taller termina «Ficha de la novia y notas internas» y te lo entrega\./);
+  assert.equal(lib.sinTi(project({ route: null, latest: [] })), "Nada en fila. Lo que pidas lo reparte el PO.");
+  assert.equal(lib.sinTi(project({ paused: true, light: "paused" })), "Nada: el proyecto está en pausa.");
+  // An older server sends no latest: the floor draws none of this.
+  assert.equal(floor(resting()).includes("data-after"), false);
+});
+
+test("I40-6 #4: a request nobody took is a warning with Reenviar and Cerrar, and each calls its route", () => {
+  const p = full({ stale_requests: [{ key: "WRK-12", title: "Tell Taller to continue", since: "2026-11-13T04:06:00Z" }] });
+  const calls: unknown[][] = [];
+  const acts = { onResend: (...a: unknown[]) => calls.push(["resend", ...a]), onClose: (...a: unknown[]) => calls.push(["close", ...a]) };
+  const s = floor(p, [], { nowActs: acts });
+  assert.ok(text(s).replace(/\s+/g, " ").includes("Tu pedido «Tell Taller to continue» lleva 17 h sin que nadie lo tome."));
+  assert.ok(s.includes('data-control="reenviar"') && s.includes('data-control="cerrar-pedido"'));
+  const el = after.After({ project: p, decisions: [], now: NOW, timeZone: TZ, acts });
+  const buttons: any[] = [];
+  const walk = (x: any) => {
+    if (!x || typeof x !== "object") return;
+    if (Array.isArray(x)) return x.forEach(walk);
+    if (x.type === "button") buttons.push(x);
+    walk(x.props?.children);
+  };
+  walk(el);
+  for (const b of buttons) b.props.onClick();
+  assert.deepEqual(calls, [["resend", "workia", "WRK-12"], ["close", "workia", "WRK-12"]]);
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(/\.resendRequest\(slug, key\)/.test(page) && /\.cancelOrder\(slug, key\)/.test(page));
+  clean(s);
+});
+
 function findButton(el: any): any {
   if (!el || typeof el !== "object") return null;
   if (el.type === "button") return el;

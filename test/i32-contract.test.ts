@@ -80,7 +80,7 @@ test("I32-6 #1: GET /api/company has exactly the contract keys, a team of four p
   assert.deepEqual([c.plumbing.running, c.plumbing.paused, c.plumbing.spend], [1, false, 1200]);
   assert.deepEqual(c.projects.map((p: Json) => p.slug), ["filmia", "mianovia", "micasa", "workia", "zigzag"]);
   for (const p of c.projects) {
-    assert.deepEqual(keys(p), ["goal", "light", "light_reason", "next", "orders", "paused", "plan", "plan_approval", "preview_url", "ready", "route", "rumbo", "slug", "team", "this_week", "thread", "title", "usage", "work"], p.slug);
+    assert.deepEqual(keys(p), ["goal", "latest", "light", "light_reason", "next", "orders", "paused", "plan", "plan_approval", "preview_url", "ready", "route", "rumbo", "slug", "stale_requests", "team", "this_week", "thread", "title", "usage", "work"], p.slug);
     assert.deepEqual(keys(p.usage), ["last_week", "used"]);
     assert.ok(LIGHTS.includes(p.light), p.light);
     assert.deepEqual(keys(p.thread), ["id", "last", "unread"]);

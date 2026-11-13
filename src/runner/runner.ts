@@ -29,7 +29,7 @@ import { registerFootprint, releaseFootprint } from "../mcp/footprint.js";
 import { SYSTEM_ACTOR, WEB_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
 import { denySettings } from "./deny.js";
-import { EVENT_SUMMARY } from "./events.js";
+import { EVENT_SUMMARY, wakePoIfWaiting } from "./events.js";
 import { capacityFacts, capacityHold, agentFacts, agentHold, projectGoal } from "./hold.js";
 
 export { projectGoal };
@@ -737,6 +737,8 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
     summary: summary.slice(0, 500),
     taskKey: run.taskKey,
   });
+  // PLA-I40-6: a PO that ends well with another request waiting gets one wake for it.
+  if (status === "ok") await wakePoIfWaiting(db, agent, { id: project.id, slug: project.slug }, run.taskKey, deps.env ?? process.env).catch(() => null);
 }
 
 // ---- Stop live runs (kill switches)
