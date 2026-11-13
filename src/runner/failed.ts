@@ -9,14 +9,25 @@
 // A stopped run is not a failure (Jorge or a switch stopped it). A run that ended ok without closing its
 // ticket is left to the lease: the reaper wakes the role when it runs out (src/runner/events.ts).
 // The retry waits while the agent is busy or a switch is off: the ticket is freed only once its wake is queued.
+//
+// PLA-18: a run that a limit stopped (a budget at 100 %, a switch turned off) held its ticket the same way,
+// and nothing restarted the work when the limit opened. Two more sweeps on each tick:
+//   sweepStoppedRuns   a stopped run that still holds its ticket: the ticket goes back to Ready with a note
+//                      that says why. No wake: the limit is still closed.
+//   requeueHeld        a Ready ticket whose newest run was stopped or dropped by a limit (budget, switch,
+//                      plan guard, a server restart that dropped the queue) is queued again for the same
+//                      agent once the runner's own checks say it would start. Once: the queued run is then
+//                      the newest. Jorge's Detener is not a limit; Seguir is his.
 import { hostname } from "node:os";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { agentRuns, agents, projects, tasks, type Agent, type Project, type Task } from "../db/schema.js";
+import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
 import { ToolError } from "../mcp/errors.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx, type Emit, type Q } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
 import { queueWake } from "./events.js";
+import { canStart, type RunnerDeps } from "./runner.js";
 
 // Plania itself, as a plain writer: the system flag is for the pollers, whose moves stop at Merged and
 // Released (SYSTEM_MOVES in src/mcp/lifecycle.ts), and Ready → Blocked is an ordinary ticket move.
@@ -120,4 +131,81 @@ export async function sweepFailedRuns(db: Db): Promise<{ retried: number; held: 
     else out.held += Number(await hold(db, p, agent, row));
   }
   return out;
+}
+
+// ---- PLA-18: runs a limit stopped, and work a limit held
+
+// The limit that stopped a run or dropped a wake, when it is one that opens again (by itself or by Jorge).
+export type Limit = "budget" | "switch" | "plan" | "restart";
+export function limitOf(status: string, summary: string, stopReason: string | null): Limit | null {
+  const text = status === "stopped" ? (stopReason ?? "") : status === "skipped" ? summary.replace(/^skipped:\s*/i, "") : "";
+  if (text.startsWith("BUDGET_STOPPED")) return "budget";
+  if (text === "company paused" || /^project \S+ paused$/.test(text)) return "switch";
+  if (status === "skipped" && text.startsWith("plan guard")) return "plan";
+  if (status === "skipped" && text === "server restarted") return "restart";
+  return null;
+}
+
+const STOPPED_WORDS: Record<string, [string, string]> = {
+  budget: ["se acabó el presupuesto semanal", "se retoma cuando haya presupuesto"],
+  switch: ["el proyecto o la compañía se pusieron en pausa", "se retoma al reanudar"],
+};
+const REQUEUE_REASON: Record<Limit, string> = { budget: "budget open again", switch: "runs resumed", plan: "plan has room again", restart: "server restarted" };
+
+type Stopped = Held & { stop_reason: string | null };
+
+export async function sweepStoppedRuns(db: Db): Promise<{ freed: number }> {
+  const found = await db.execute<Stopped>(sql`
+    select t.id as task_id, t.key, t.project_id, r.id as run_id, r.agent_id, r.summary, r.stop_reason
+    from tasks t
+    join agent_runs r on r.project_id = t.project_id and r.task_key = t.key and 'run-' || left(r.id::text, 8) = t.owner->>'session_id'
+    where t.kind = 'ticket' and t.status = 'In progress' and r.status = 'stopped'
+    order by r.ended_at, r.id`);
+  let freed = 0;
+  for (const row of found.rows) {
+    const [p] = await db.select().from(projects).where(eq(projects.id, row.project_id)).limit(1);
+    const [agent] = await db.select().from(agents).where(eq(agents.id, row.agent_id)).limit(1);
+    if (!p || !agent) continue;
+    const limit = limitOf("stopped", row.summary, row.stop_reason);
+    const [why, then] = (limit && STOPPED_WORDS[limit]) ?? [row.stop_reason?.trim() || "sin detalle", "queda listo para retomarse"];
+    freed += Number(
+      await writeTx(db, p, ctx(), async (tx, emit) => {
+        const u = await free(tx, emit, row, "run stopped");
+        if (!u) return false;
+        await emit("note", u, { text: `La corrida de ${agent.name} se detuvo: ${why}. Plania liberó el ticket; ${then}.` });
+        return true;
+      }),
+    );
+  }
+  return { freed };
+}
+
+type HeldWork = { task_id: string; key: string; project_id: string; agent_id: string; status: string; summary: string; stop_reason: string | null } & Record<string, unknown>;
+
+export async function requeueHeld(db: Db, now = new Date(), deps: RunnerDeps = {}): Promise<{ requeued: number }> {
+  // Each Ready, free, unblocked ticket with its newest run of any status; a queued or running one is not held.
+  const found = await db.execute<HeldWork>(sql`
+    select * from (
+      select distinct on (${tasks.id}) ${tasks.id} as task_id, ${tasks.key} as key, ${tasks.projectId} as project_id,
+             r.agent_id, r.status, r.summary, r.stop_reason, coalesce(r.ended_at, r.queued_at) as at
+      from ${tasks}
+      join agent_runs r on r.project_id = ${tasks.projectId} and r.task_key = ${tasks.key}
+      where ${tasks.kind} = 'ticket' and ${tasks.status} = 'Ready' and ${tasks.owner} is null and not ${hasUnsatisfiedBlocker(tasks.id)}
+      order by ${tasks.id}, coalesce(r.ended_at, r.queued_at) desc, r.queued_at desc
+    ) newest
+    where newest.status in ('stopped', 'skipped') and newest.at > now() - interval '8 days'
+    order by newest.at`);
+  let requeued = 0;
+  for (const row of found.rows) {
+    const limit = limitOf(row.status, row.summary, row.stop_reason);
+    if (!limit) continue;
+    const [p] = await db.select().from(projects).where(eq(projects.id, row.project_id)).limit(1);
+    const [agent] = await db.select().from(agents).where(eq(agents.id, row.agent_id)).limit(1);
+    // Only the ticket's own team (or a company-level agent) takes it up again.
+    if (!p || !agent || agent.status === "retired" || (agent.projectId && agent.projectId !== p.id)) continue;
+    if (!(await canStart(db, agent, p.id, row.key, now, deps)).ok) continue;
+    const out = await writeTx(db, p, ctx(), (tx) => queueWake(tx, p, { id: row.task_id, key: row.key }, { agent, taskKey: row.key, reason: REQUEUE_REASON[limit] }, "run.held"));
+    requeued += Number(out.kind === "queued");
+  }
+  return { requeued };
 }
