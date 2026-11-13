@@ -2,7 +2,7 @@ import { and, desc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { ADAPTERS, agents, heartbeatRuns, projects, tasks, type AdapterConfig, type AdapterName } from "../db/schema.js";
 import { spawn, type SpawnDeps, type SpawnTask } from "../adapters/index.js";
-import { sweepFailedRuns } from "../runner/failed.js";
+import { requeueHeld, sweepFailedRuns, sweepStoppedRuns } from "../runner/failed.js";
 import { cleanupWorktrees, drainQueue, enforceLive, wakeClaude, type RunnerDeps } from "../runner/runner.js";
 import { ToolError } from "../mcp/errors.js";
 import { iso } from "../mcp/tx.js";
@@ -289,6 +289,10 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
   // PLA-16: a run that failed holding its ticket is retried once (queued here, started by the drain below),
   // or its ticket is handed to Jorge after a second failure in a row.
   const failed = await sweepFailedRuns(db);
+  // PLA-18: a run a limit stopped lets go of its ticket, and work a limit held is queued again once the
+  // runner's checks say it would start.
+  const freed = await sweepStoppedRuns(db);
+  const held = await requeueHeld(db, now, deps?.runner);
   const drained = await drainQueue(db, now, deps?.runner);
   const cleaned = await cleanupWorktrees(db, deps?.runner);
   const roster = await db.select({ slug: agents.slug, minutes: agents.heartbeatMinutes }).from(agents);
@@ -304,6 +308,8 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
     worktrees_removed: cleaned,
     retried_after_fail: failed.retried,
     handed_to_jorge: failed.held,
+    freed_after_stop: freed.freed,
+    requeued_held: held.requeued,
   };
   for (const row of roster) {
     if (row.minutes == null) continue;

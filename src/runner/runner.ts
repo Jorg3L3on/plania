@@ -293,6 +293,16 @@ export async function wakeClaude(
   });
 }
 
+// PLA-18: would a wake of this agent on this ticket start now? The same checks the queue runs. A full cap
+// and an agent inside its cooldown count as yes: a queued event wake waits for those instead of being dropped.
+export async function canStart(db: Db, agent: Agent, projectId: string, taskKey: string, now: Date, deps: RunnerDeps = {}): Promise<{ ok: boolean; summary: string }> {
+  const task = await readyWorkOf(db, projectId, taskKey);
+  if (!task) return { ok: false, summary: "skipped: no such ticket" };
+  const pre = await preflight(db, await loadContext(db, agent, task), now, deps);
+  if (pre.ok) return { ok: true, summary: "" };
+  return { ok: pre.kind === "cap" || pre.summary === "skipped: cooldown", summary: pre.summary };
+}
+
 // Queued runs, oldest first, while there is a free slot. A run whose checks now say no is dropped
 // (skipped, with the reason); the cadence queues it again later.
 export async function drainQueue(db: Db, now: Date, deps: RunnerDeps = {}): Promise<{ started: number; dropped: number }> {
