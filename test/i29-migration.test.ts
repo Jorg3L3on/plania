@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import pg from "pg";
-import { pgUrl } from "./helpers.js";
+import { pgOnly, pgUrl } from "./helpers.js";
 
 const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
@@ -16,7 +16,7 @@ test("the journal names 0039_company_runner and the file exists", () => {
   assert.equal(readdirSync(dir).filter((f) => f.startsWith("0039")).join(","), "0039_company_runner.sql");
 });
 
-test("0039_company_runner.sql applies twice on a throwaway database", async () => {
+test("0039_company_runner.sql applies twice on a throwaway database", pgOnly("replays migration 0039 on a private database"), async () => {
   const name = "plania_mig_0039";
   const adminUrl = pgUrl("postgres");
   const sql0039 = readFileSync(path.join(dir, "0039_company_runner.sql"), "utf8");

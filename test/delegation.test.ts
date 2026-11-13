@@ -7,16 +7,16 @@ import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import pg from "pg";
-import type pgTypes from "pg";
-import { pgUrl, resetTestDb, useTestEnv } from "./helpers.js";
+import { pgOnly, pgUrl, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
 const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const { listComments } = await import("../src/mcp/delegation.js");
+const { notNull } = await import("../src/store/types.js");
 
-let raw: pgTypes.Client;
+let store: TestStore;
 let db: Awaited<ReturnType<typeof makeDb>>["db"];
 let closeDb: () => Promise<void>;
 let client: Client;
@@ -43,7 +43,7 @@ async function ticket(title: string) {
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -55,10 +55,10 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
-test("0036_delegation.sql applies twice on a throwaway database", async () => {
+test("0036_delegation.sql applies twice on a throwaway database", pgOnly("replays migration 0036 on a private database and reads the catalog"), async () => {
   const name = "plania_mig_0036";
   const adminUrl = pgUrl("postgres");
   const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
@@ -152,12 +152,12 @@ test("assign counts hops, refuses the fourth with HOP_CAP, and posts one limpiez
   const again = await call("assign", { actor: A, project: "micasa", key, to_agent: "housi", request_id: "hop-once" });
   assert.equal(again.__error, "HOP_CAP");
 
-  const { rows } = await raw.query(`select owner_agent, assign_hops from tasks t join agents a on a.id = t.owner_agent where t.key = $1`, [key]);
-  assert.equal(rows[0].assign_hops, 3);
-  const owner = await raw.query(`select slug from agents where id = $1`, [rows[0].owner_agent]);
-  assert.equal(owner.rows[0].slug, "artist");
-  const events = await raw.query(`select count(*)::int as n from events where type = 'assign.limpieza' and task_key = $1`, [key]);
-  assert.equal(events.rows[0].n, 1);
+  const row = (await store.get("tasks", { key, ownerAgent: notNull() }))!;
+  assert.equal(row.assignHops, 3);
+  const owner = await store.get("agents", { id: row.ownerAgent! });
+  assert.equal(owner!.slug, "artist");
+  const events = await store.count("events", { type: "assign.limpieza", taskKey: key });
+  assert.equal(events, 1);
 
   const box = await call("get_inbox", { project: "micasa" });
   const item = box.items.find((i: { key: string; kind: string }) => i.key === key && i.kind === "assign");
@@ -182,8 +182,8 @@ test("assigning a pair back the way it went is PING_PONG and does not count a ho
   assert.equal(sideways.__error, undefined);
   assert.equal(sideways.owner_agent, "artist");
   assert.equal(sideways.assign_hops, 3);
-  const hops = await raw.query(`select assign_hops from tasks where key = $1`, [key]);
-  assert.equal(hops.rows[0].assign_hops, 3);
-  const limpieza = await raw.query(`select count(*)::int as n from events where type = 'assign.limpieza' and task_key = $1`, [key]);
-  assert.equal(limpieza.rows[0].n, 0);
+  const hops = await store.get("tasks", { key });
+  assert.equal(hops!.assignHops, 3);
+  const limpieza = await store.count("events", { type: "assign.limpieza", taskKey: key });
+  assert.equal(limpieza, 0);
 });

@@ -1,18 +1,15 @@
 // PLA-I32-2: one team per project. The roster as it stands before the deploy (11 rows, fake values, the
-// same shape) is rebuilt on a private throwaway database with six projects, every migration runs, then
-// seedOrg runs the way Jorge's deploy runs it, twice. Never a real database.
+// same shape) is rebuilt on a fresh test store with six projects, then seedOrg runs the way Jorge's deploy
+// runs it, twice. Never a real database.
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
-import path from "node:path";
 import { test } from "node:test";
-import { drizzle } from "drizzle-orm/node-postgres";
-import pg from "pg";
-import * as schema from "../src/db/schema.js";
-import { seedOrg } from "../scripts/seed-org.js";
-import { roleOf } from "../src/runner/limits.js";
-import { pgUrl } from "./helpers.js";
+import { resetTestStore, useTestEnv } from "./helpers.js";
 
-const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
+useTestEnv();
+const { makeDb } = await import("../src/db/client.js");
+const { seedOrg } = await import("../scripts/seed-org.js");
+const { roleOf } = await import("../src/runner/limits.js");
+const { notNull } = await import("../src/store/types.js");
 
 const PROJECTS: [slug: string, title: string, prefix: string][] = [
   ["filmia", "Filmia", "FIL"],
@@ -39,51 +36,60 @@ const ROSTER: [slug: string, name: string, role: string, title: string, kind: st
 ];
 
 test("I32-2: today's 11-row roster becomes asistente, ceo and six teams of four; the shared three retire with their history", async () => {
-  const name = "plania_mig_i32_roster";
-  const adminUrl = pgUrl("postgres");
-  const url = pgUrl(name);
-  const admin = new pg.Client({ connectionString: adminUrl });
-  await admin.connect();
-  await admin.query(`drop database if exists ${name} with (force)`);
-  await admin.query(`create database ${name}`);
-  await admin.end();
-
-  const raw = new pg.Client({ connectionString: url });
-  await raw.connect();
-  const pool = new pg.Pool({ connectionString: url, max: 2 });
+  // The test store starts with four of the six projects; the roster starts empty.
+  const store = await resetTestStore();
   try {
-    for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) await raw.query(readFileSync(path.join(dir, f), "utf8"));
-    for (const [slug, title, prefix] of PROJECTS) await raw.query(`insert into projects (slug, title, key_prefix) values ($1, $2, $3)`, [slug, title, prefix]);
-    for (const [slug, nm, role, title, kind, caps] of ROSTER) {
-      await raw.query(`insert into agents (slug, name, role, title, kind, adapter, adapter_config, capabilities) values ($1, $2, $3, $4, $5, $6, '{"command_env":"CLAUDE_CODE_BIN"}'::jsonb, $7::text[])`, [
-        slug, nm, role, title, kind, kind === "human" ? "none" : "claude_code", caps,
-      ]);
-    }
-    for (const [slug, , , , , , parent] of ROSTER) {
-      if (parent) await raw.query(`update agents set reports_to = (select id from agents where slug = $2) where slug = $1`, [slug, parent]);
-    }
-    const id = async (slug: string) => (await raw.query(`select id from agents where slug = $1`, [slug])).rows[0]?.id as string;
-    const pid = async (slug: string) => (await raw.query(`select id from projects where slug = $1`, [slug])).rows[0].id as string;
+    // A Postgres array literal ("{a,b}") as a list.
+    const list = (literal: string) => literal.slice(1, -1).split(",").filter(Boolean);
+    await store.fix(async (uow) => {
+      for (const [slug, title, prefix] of PROJECTS) if (!(await uow.get("projects", { slug }))) await uow.insert("projects", { slug, title, keyPrefix: prefix });
+      for (const [slug, nm, role, title, kind, caps] of ROSTER) {
+        await uow.insert("agents", { slug, name: nm, role, title, kind, adapter: kind === "human" ? "none" : "claude_code", adapterConfig: { command_env: "CLAUDE_CODE_BIN" }, capabilities: list(caps) });
+      }
+      for (const [slug, , , , , , parent] of ROSTER) {
+        if (parent) await uow.update("agents", { slug }, { reportsTo: (await uow.get("agents", { slug: parent }))!.id });
+      }
+    });
+    const id = async (slug: string) => {
+      const agent = await store.get("agents", { slug });
+      assert.ok(agent, slug);
+      return agent.id;
+    };
+    const pid = (slug: string) => store.projectId(slug);
     // History on the rows that change: runs of a PO about to be renamed and of the shared taller,
     // an open ticket of the shared taller in micasa and a closed one in filmia.
-    await raw.query(`insert into agent_runs (agent_id, project_id, role, status) values ($1, $2, 'product-owner', 'ok'), ($1, $2, 'product-owner', 'fail')`, [await id("housi"), await pid("micasa")]);
-    await raw.query(`insert into agent_runs (agent_id, project_id, role, status) values ($1, $2, 'taller', 'ok')`, [await id("taller"), await pid("micasa")]);
-    await raw.query(`insert into heartbeat_runs (agent_id, started_at, status, adapter) values ($1, now(), 'ok', 'claude_code')`, [await id("owner-plania")]);
-    await raw.query(`insert into tasks (project_id, key, title, kind, status, owner_agent) values ($1, 'MIC-1', 'Fake open ticket', 'ticket', 'Ready', $2)`, [await pid("micasa"), await id("taller")]);
-    await raw.query(`insert into tasks (project_id, key, title, kind, status, owner_agent) values ($1, 'FIL-1', 'Fake closed ticket', 'ticket', 'Done', $2)`, [await pid("filmia"), await id("taller")]);
+    const [housi, taller, ownerPlania, micasa, filmia] = [await id("housi"), await id("taller"), await id("owner-plania"), await pid("micasa"), await pid("filmia")];
+    await store.fix(async (uow) => {
+      await uow.insert("agentRuns", { agentId: housi, projectId: micasa, role: "product-owner", status: "ok" });
+      await uow.insert("agentRuns", { agentId: housi, projectId: micasa, role: "product-owner", status: "fail" });
+      await uow.insert("agentRuns", { agentId: taller, projectId: micasa, role: "taller", status: "ok" });
+      await uow.insert("heartbeatRuns", { agentId: ownerPlania, startedAt: uow.now, status: "ok", adapter: "claude_code" });
+      await uow.insert("tasks", { projectId: micasa, key: "MIC-1", title: "Fake open ticket", kind: "ticket", status: "Ready", ownerAgent: taller });
+      await uow.insert("tasks", { projectId: filmia, key: "FIL-1", title: "Fake closed ticket", kind: "ticket", status: "Done", ownerAgent: taller });
+    });
     const housiId = await id("housi");
 
-    const db = drizzle(pool, { schema });
+    const { db } = makeDb();
     const first = await seedOrg(db);
     assert.deepEqual(first.renamed.sort(), ["filmia→po-filmia", "housi→po-micasa", "owner-plania→po-plania", "workia→po-workia", "zigzag→po-zigzag"]);
     assert.deepEqual(first.retired.sort(), ["artist", "research", "taller"]);
     const second = await seedOrg(db);
     assert.deepEqual([second.inserted, second.removed, second.renamed, second.retired], [[], [], [], []], "a second run changes nothing");
 
-    const { rows } = await raw.query<{ slug: string; status: string; adapter: string; project: string | null; role_template: string | null; boss: string | null; note: string; role: string; capabilities: string[] }>(
-      `select a.slug, a.status, a.adapter, p.slug as project, a.role_template, b.slug as boss, a.note, a.role, a.capabilities
-       from agents a left join projects p on p.id = a.project_id left join agents b on b.id = a.reports_to order by a.slug`,
-    );
+    const agents = await store.find("agents", {}, { orderBy: [{ column: "slug" }] });
+    const projectSlug = new Map((await store.find("projects")).map((p) => [p.id, p.slug]));
+    const agentSlug = new Map(agents.map((a) => [a.id, a.slug]));
+    const rows = agents.map((a) => ({
+      slug: a.slug,
+      status: a.status,
+      adapter: a.adapter,
+      project: a.projectId ? (projectSlug.get(a.projectId) ?? null) : null,
+      role_template: a.roleTemplate,
+      boss: a.reportsTo ? (agentSlug.get(a.reportsTo) ?? null) : null,
+      note: a.note,
+      role: a.role,
+      capabilities: a.capabilities,
+    }));
     const live = rows.filter((r) => r.status !== "retired");
     const company = live.filter((r) => !r.project).map((r) => r.slug);
     assert.deepEqual(company, ["asistente", "ceo"]);
@@ -111,24 +117,20 @@ test("I32-2: today's 11-row roster becomes asistente, ceo and six teams of four;
     assert.deepEqual(retired.map((r) => [r.slug, r.adapter, r.project]), [["artist", "none", null], ["research", "none", null], ["taller", "none", null]]);
 
     // Renamed POs keep their id, name and runs; the old slug is in the note.
-    const micasaPo = (await raw.query(`select id, name, note from agents where slug = 'po-micasa'`)).rows[0];
+    const micasaPo = (await store.get("agents", { slug: "po-micasa" }))!;
     assert.equal(micasaPo.id, housiId);
     assert.equal(micasaPo.name, "Housi");
     assert.match(micasaPo.note, /alias: housi/);
-    assert.equal((await raw.query(`select count(*)::int as n from agent_runs where agent_id = $1`, [housiId])).rows[0].n, 2);
-    assert.equal((await raw.query(`select count(*)::int as n from heartbeat_runs h join agents a on a.id = h.agent_id where a.slug = 'po-plania'`)).rows[0].n, 1);
-    assert.equal((await raw.query(`select name from agents where slug = 'po-mianovia'`)).rows[0].name, "Bot Mianovia", "an existing name is kept");
+    assert.equal(await store.count("agentRuns", { agentId: housiId }), 2);
+    assert.equal(await store.count("heartbeatRuns", { agentId: await id("po-plania") }), 1);
+    assert.equal((await store.get("agents", { slug: "po-mianovia" }))!.name, "Bot Mianovia", "an existing name is kept");
 
     // The shared taller keeps its run; its open ticket moved to the project's Taller, the closed one stayed.
-    assert.equal((await raw.query(`select count(*)::int as n from agent_runs where agent_id = $1`, [await id("taller")])).rows[0].n, 1);
-    const owners = (await raw.query(`select t.key, a.slug from tasks t join agents a on a.id = t.owner_agent order by t.key`)).rows;
+    assert.equal(await store.count("agentRuns", { agentId: await id("taller") }), 1);
+    const slugOf = new Map((await store.find("agents")).map((a) => [a.id, a.slug]));
+    const owners = (await store.find("tasks", { ownerAgent: notNull() }, { orderBy: [{ column: "key" }] })).map((t) => ({ key: t.key, slug: slugOf.get(t.ownerAgent!) }));
     assert.deepEqual(owners, [{ key: "FIL-1", slug: "taller" }, { key: "MIC-1", slug: "taller-micasa" }]);
   } finally {
-    await pool.end();
-    await raw.end();
-    const drop = new pg.Client({ connectionString: adminUrl });
-    await drop.connect();
-    await drop.query(`drop database if exists ${name} with (force)`);
-    await drop.end();
+    await store.end();
   }
 });

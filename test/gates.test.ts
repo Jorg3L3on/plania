@@ -7,7 +7,7 @@ import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import pg from "pg";
-import { pgUrl, resetTestDb, TEST_BEARER, useTestEnv } from "./helpers.js";
+import { pgOnly, pgUrl, resetTestStore, TEST_BEARER, TEST_DATABASE_URL, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -58,7 +58,7 @@ const P = { project: "workia" };
 const SCREEN = { agent: "jorge", session_id: "web", machine: "screen" };
 
 let client: Client;
-let raw: pg.Client;
+let store: TestStore;
 let cookie: string;
 
 const migrationsDir = path.resolve(import.meta.dirname, "../drizzle/migrations");
@@ -118,7 +118,7 @@ async function answerScreen(questionId: string, option: string, extra: { body?: 
 
 describe("screen gates", () => {
   before(async () => {
-    raw = await resetTestDb();
+    store = await resetTestStore();
     cookie = `${SESSION_COOKIE}=${createSession()}`;
     const db = makeDb().db;
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -129,10 +129,10 @@ describe("screen gates", () => {
 
   after(async () => {
     await client?.close();
-    await raw?.end();
+    await store?.end();
   });
 
-  test("migration 0027 applies twice, adds gate_challenges, and flags open gates", async () => {
+  test("migration 0027 applies twice, adds gate_challenges, and flags open gates", pgOnly("replays migration 0027 on a private database and reads the catalog"), async () => {
     await withPartialDb("plania_mig_0027", "0027", async (db) => {
       const project = await db.query("insert into projects (slug, title, key_prefix) values ('old', 'Old', 'OLD') returning id");
       const projectId = project.rows[0].id as string;
@@ -173,40 +173,46 @@ describe("screen gates", () => {
     });
   });
 
-  test("migration 0028 applies twice and drops the challenge table", async () => {
-    await raw.query(`
-      create table if not exists gate_challenges (
-        id uuid primary key default gen_random_uuid(),
-        question_id uuid,
-        option text,
-        nonce text,
-        totp_step bigint
-      )
-    `);
-    await raw.query(`
-      create unique index if not exists gate_challenges_totp_step_unique
-      on gate_challenges (totp_step) where totp_step is not null
-    `);
-    await raw.query(
-      `insert into machine_state (key, value) values ('gate.totp', '{"steps":[1]}'::jsonb)
-       on conflict (key) do update set value = excluded.value`,
-    );
-    const sql = readFileSync(path.resolve(import.meta.dirname, "../drizzle/migrations/0028_gate_click.sql"), "utf8");
-    await raw.query(sql);
-    await raw.query(sql);
-    const tables = await raw.query("select to_regclass('public.gate_challenges') as name");
-    assert.equal(tables.rows[0].name, null);
-    const index = await raw.query("select 1 from pg_indexes where indexname = 'gate_challenges_totp_step_unique'");
-    assert.equal(index.rows.length, 0);
-    const column = await raw.query(
-      "select 1 from information_schema.columns where table_name = 'gate_challenges' and column_name = 'totp_step'",
-    );
-    assert.equal(column.rows.length, 0);
-    const state = await raw.query("select key from machine_state where key = 'gate.totp'");
-    assert.equal(state.rows.length, 0);
+  test("migration 0028 applies twice and drops the challenge table", pgOnly("replays migration 0028 and reads the catalog"), async () => {
+    const raw = new pg.Client({ connectionString: TEST_DATABASE_URL });
+    await raw.connect();
+    try {
+      await raw.query(`
+        create table if not exists gate_challenges (
+          id uuid primary key default gen_random_uuid(),
+          question_id uuid,
+          option text,
+          nonce text,
+          totp_step bigint
+        )
+      `);
+      await raw.query(`
+        create unique index if not exists gate_challenges_totp_step_unique
+        on gate_challenges (totp_step) where totp_step is not null
+      `);
+      await raw.query(
+        `insert into machine_state (key, value) values ('gate.totp', '{"steps":[1]}'::jsonb)
+         on conflict (key) do update set value = excluded.value`,
+      );
+      const sql = readFileSync(path.resolve(import.meta.dirname, "../drizzle/migrations/0028_gate_click.sql"), "utf8");
+      await raw.query(sql);
+      await raw.query(sql);
+      const tables = await raw.query("select to_regclass('public.gate_challenges') as name");
+      assert.equal(tables.rows[0].name, null);
+      const index = await raw.query("select 1 from pg_indexes where indexname = 'gate_challenges_totp_step_unique'");
+      assert.equal(index.rows.length, 0);
+      const column = await raw.query(
+        "select 1 from information_schema.columns where table_name = 'gate_challenges' and column_name = 'totp_step'",
+      );
+      assert.equal(column.rows.length, 0);
+      const state = await raw.query("select key from machine_state where key = 'gate.totp'");
+      assert.equal(state.rows.length, 0);
+    } finally {
+      await raw.end();
+    }
   });
 
-  test("migration 0030 closes only open gate rows, is idempotent, and drops nothing", async () => {
+  test("migration 0030 closes only open gate rows, is idempotent, and drops nothing", pgOnly("replays migration 0030 on a private database and reads the catalog"), async () => {
     await withPartialDb("plania_mig_0030", "0030", async (db) => {
       const project = await db.query("insert into projects (slug, title, key_prefix) values ('old', 'Old', 'OLD') returning id");
       const projectId = project.rows[0].id as string;
@@ -263,9 +269,9 @@ describe("screen gates", () => {
     assert.equal("gate" in asked.question, false);
     const answered = await call("answer", { question_id: asked.question.id, answer: "azul" });
     assert.equal(answered.__error, undefined);
-    const row = (await raw.query("select answer, answered_by from questions where id = $1", [asked.question.id])).rows[0];
+    const row = (await store.get("questions", { id: asked.question.id }))!;
     assert.equal(row.answer, "azul");
-    assert.equal(row.answered_by.agent, "test-agent");
+    assert.equal(row.answeredBy!.agent, "test-agent");
   });
 
   test("ask ignores the removed field, stores the question, and returns a hint", async () => {
@@ -276,7 +282,7 @@ describe("screen gates", () => {
       assert.equal(stored.__error, undefined, `${key} ${mark} ${JSON.stringify(stored)}`);
       assert.match(String(stored.hint), /obsolete field/);
       assert.equal("gate" in stored.question, false);
-      const row = (await raw.query("select id, question from questions where id = $1", [stored.question.id])).rows[0];
+      const row = (await store.get("questions", { id: stored.question.id }))!;
       assert.equal(row.question, `¿La seguimos? ${mark}`);
     }
     assert.equal((await call("get_task", { key: ticket.key })).status, "Needs Jorge");
@@ -301,7 +307,7 @@ describe("screen gates", () => {
     assert.equal(spoofed.__error, "HUMAN_ONLY");
     const reserved = await call("answer", { question_id: asked.question.id, answer: "sí", actor: SCREEN });
     assert.equal(reserved.__error, "RESERVED_ACTOR");
-    const still = (await raw.query("select answer from questions where id = $1", [asked.question.id])).rows[0];
+    const still = (await store.get("questions", { id: asked.question.id }))!;
     assert.equal(still.answer, null);
   });
 
@@ -332,7 +338,7 @@ describe("screen gates", () => {
     const noCookie = await answerScreen(id, "sí", { cookie: null });
     assert.equal(noCookie.status, 401);
 
-    const open = (await raw.query("select answer from questions where id = $1", [id])).rows[0];
+    const open = (await store.get("questions", { id }))!;
     assert.equal(open.answer, null);
 
     const accepted = await answerScreen(id, "sí");
@@ -364,8 +370,8 @@ describe("screen gates", () => {
     const legacyInit = await call("create_task", { kind: "initiative", title: "Vieja", scope: "PRD" });
     const idea = await call("create_task", { kind: "idea", title: "Promovida" });
     const legacyIdea = await call("create_task", { kind: "idea", title: "Fila vieja" });
-    await raw.query("update tasks set stage = 'ready', promoted_to = $1 where key = $2", [initiative.key, idea.key]);
-    await raw.query("update tasks set stage = 'planning', promoted_to = $1 where key = $2", [legacyInit.key, legacyIdea.key]);
+    await store.fix((uow) => uow.update("tasks", { key: idea.key }, { stage: "ready", promotedTo: initiative.key }));
+    await store.fix((uow) => uow.update("tasks", { key: legacyIdea.key }, { stage: "planning", promotedTo: legacyInit.key }));
 
     const active = await setStatus(initiative.key, "Active");
     assert.equal(active.__error, undefined, JSON.stringify(active));
@@ -375,20 +381,32 @@ describe("screen gates", () => {
     assert.equal((await setStatus(initiative.key, "Active")).status, "Active", "On hold → Active needs nothing either");
 
     // Rows written before 2.17: an agent answer and an open gate C, both on the idea.
-    const ids = (await raw.query(
-      "select t.id as task_id, t.project_id from tasks t join projects p on p.id = t.project_id where p.slug = 'workia' and t.key = $1",
-      [legacyIdea.key],
-    )).rows[0];
-    await raw.query(
-      `insert into questions (project_id, task_id, question, options, human_only, asked_by, answer, answered_by, answered_at)
-       values ($1, $2, 'Respuesta de agente', $3, false, $4::jsonb, 'rework', $4::jsonb, now())`,
-      [ids.project_id, ids.task_id, ["ready", "rework", "drop"], JSON.stringify(A)],
-    );
-    const inserted = await raw.query(
-      `insert into questions (project_id, task_id, question, options, human_only, asked_by)
-       values ($1, $2, 'Fila anterior', $3, true, $4::jsonb) returning id`,
-      [ids.project_id, ids.task_id, ["ready", "rework", "drop"], JSON.stringify(A)],
-    );
+    const legacy = (await store.get("tasks", { projectId: await store.projectId("workia"), key: legacyIdea.key }))!;
+    const ids = { project_id: legacy.projectId, task_id: legacy.id };
+    const inserted = await store.fix(async (uow) => {
+      // Two rows written one after the other: the first is a moment older, as two statements would leave them.
+      const earlier = new Date(uow.now.getTime() - 1);
+      await uow.insert("questions", {
+        projectId: ids.project_id,
+        taskId: ids.task_id,
+        question: "Respuesta de agente",
+        options: ["ready", "rework", "drop"],
+        humanOnly: false,
+        askedBy: A,
+        askedAt: earlier,
+        answer: "rework",
+        answeredBy: A,
+        answeredAt: earlier,
+      });
+      return uow.insert("questions", {
+        projectId: ids.project_id,
+        taskId: ids.task_id,
+        question: "Fila anterior",
+        options: ["ready", "rework", "drop"],
+        humanOnly: true,
+        askedBy: A,
+      });
+    });
     const legacyActive = await setStatus(legacyInit.key, "Active");
     assert.equal(legacyActive.__error, undefined, JSON.stringify(legacyActive));
     assert.equal(legacyActive.status, "Active");
@@ -398,11 +416,11 @@ describe("screen gates", () => {
     assert.equal(history.every((q) => !("gate" in q)), true);
 
     // The open human_only row is still the owner's to close on the screen; it moves nothing and logs no old event.
-    const legacyId = inserted.rows[0].id as string;
+    const legacyId = inserted.id;
     assert.equal((await call("answer", { question_id: legacyId, answer: "ready" })).__error, "HUMAN_ONLY");
     const onScreen = await answerScreen(legacyId, "cerrada");
     assert.equal(onScreen.status, 200, JSON.stringify(onScreen.body));
-    const gateEvents = (await raw.query("select 1 from events where task_key = $1 and type = 'gate.answered'", [legacyIdea.key])).rows;
+    const gateEvents = await store.find("events", { taskKey: legacyIdea.key, type: "gate.answered" });
     assert.equal(gateEvents.length, 0);
     assert.equal((await call("get_task", { key: legacyIdea.key })).stage, "planning");
   });

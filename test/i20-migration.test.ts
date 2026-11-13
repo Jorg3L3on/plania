@@ -5,7 +5,9 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import pg from "pg";
-import { pgUrl } from "./helpers.js";
+import { pgOnlyFile, pgUrl } from "./helpers.js";
+
+pgOnlyFile("replays migration 0032 on a private database and reads the catalog");
 
 const migrationsDir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 const sql0032 = readFileSync(path.join(migrationsDir, "0032_drop_gates_approvals.sql"), "utf8");

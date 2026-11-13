@@ -7,7 +7,7 @@ import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import { after, before, describe, test } from "node:test";
 import pg from "pg";
-import { TEST_DATABASE_URL, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_DATABASE_URL, pgOnly, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -15,7 +15,7 @@ const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js")
 const { makeDb } = await import("../src/db/client.js");
 const { runBackup, prune, backupState, backupFindings, KEEP } = await import("../src/jobs/backup.js");
 
-let raw: pg.Client;
+let store: TestStore;
 let db: ReturnType<typeof makeDb>["db"];
 const TZ = "America/Mexico_City";
 // 2026-10-15 in Mexico City (UTC-6): 02:30 and 04:00 local, then the next day at 05:00.
@@ -24,12 +24,12 @@ const MORNING = new Date("2026-10-15T10:00:00Z");
 const NEXT = new Date("2026-10-16T11:00:00Z");
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db } = makeDb());
 });
 
 after(async () => {
-  await raw?.end();
+  await store?.end();
 });
 
 describe("runBackup", () => {
@@ -40,7 +40,7 @@ describe("runBackup", () => {
     assert.deepEqual(readdirSync(dir), []);
   });
 
-  test("dumps once that day into plania-<YYYYMMDD>.sql.gz and records it", async () => {
+  test("dumps once that day into plania-<YYYYMMDD>.sql.gz and records it", pgOnly("exercises pg_dump"), async () => {
     assert.equal((await runBackup(db, MORNING, { dir, tz: TZ })).dumped, 1);
     const file = path.join(dir, "plania-20261015.sql.gz");
     assert.ok(existsSync(file));
@@ -56,7 +56,7 @@ describe("runBackup", () => {
     assert.deepEqual(await runBackup(db, new Date(MORNING.getTime() + 3600_000), { dir, tz: TZ }), { dumped: 0, pruned: 0, failed: 0 });
   });
 
-  test("the dump restores into an empty database", async () => {
+  test("the dump restores into an empty database", pgOnly("restores a pg_dump into a database of its own with psql"), async () => {
     const name = `${new URL(TEST_DATABASE_URL).pathname.slice(1)}_restore`;
     const admin = new pg.Client({ connectionString: TEST_DATABASE_URL });
     await admin.connect();
@@ -78,7 +78,7 @@ describe("runBackup", () => {
     }
   });
 
-  test("a failed run keeps the last good dump and records the error; the next hour retries", async () => {
+  test("a failed run keeps the last good dump and records the error; the next hour retries", pgOnly("exercises pg_dump"), async () => {
     const r = await runBackup(db, NEXT, { dir, tz: TZ, pgDump: "/nonexistent/pg_dump" });
     assert.equal(r.failed, 1);
     const s = await backupState(db);
@@ -89,7 +89,7 @@ describe("runBackup", () => {
     assert.equal((await backupState(db)).error, null);
   });
 
-  test("GET /api/machine carries the backup", async () => {
+  test("GET /api/machine carries the backup", pgOnly("reads the backup the pg_dump runs above recorded"), async () => {
     const res = await app.request("/api/machine", { headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } });
     const body = (await res.json()) as Record<string, any>;
     assert.equal(body.backup.path, path.join(dir, "plania-20261016.sql.gz"));

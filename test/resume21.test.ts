@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import pg from "pg";
+import { onDevva, resetTestStore, TEST_DATABASE_URL, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -19,7 +19,7 @@ const P = { project: "zigzag" };
 const T = { scope: "s", checks: ["c"] };
 
 let client: Client;
-let raw: pg.Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
 
 async function call(name: string, args: Json): Promise<Json> {
@@ -35,7 +35,7 @@ async function call(name: string, args: Json): Promise<Json> {
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const { db, close } = makeDb();
   closeDb = close;
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -47,7 +47,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 describe("headline", () => {
@@ -74,8 +74,8 @@ describe("headline", () => {
     assert.equal((await call("get_resume", P)).headline.note.stale, false, "creating does not");
     await call("set_task", { ...P, key: "ZIG-I1", status: "Active", version: 1 });
     assert.equal((await call("get_resume", P)).headline.note.stale, true, "an initiative moving does");
-    const { rows } = await raw.query("select headline_note_stale from projects where slug = 'zigzag'");
-    assert.equal(rows[0].headline_note_stale, true);
+    const row = await store.get("projects", { slug: "zigzag" });
+    assert.equal(row!.headlineNoteStale, true);
   });
 });
 
@@ -86,10 +86,19 @@ describe("v1 leftovers (gone in 2.9, migration 0022)", () => {
     assert.equal("legacy_card" in r, false);
     assert.equal("legacy_card_present" in r, false);
     assert.ok(!(await client.listTools()).tools.some((t) => t.name === "archive_legacy_card"));
-    const { rows } = await raw.query(`select table_name, column_name from information_schema.columns
-      where (table_name = 'tasks' and column_name = 'body') or (table_name = 'projects' and column_name like 'resume_%')
-         or (table_name = 'decisions' and column_name = 'supersedes_id') or table_name in ('design_pages', 'env_blockers')`);
-    assert.deepEqual(rows, []);
+    // The columns and tables are looked for in Postgres's catalog; devva has no catalog to look in.
+    if (!onDevva) {
+      const raw = new pg.Client({ connectionString: TEST_DATABASE_URL });
+      await raw.connect();
+      try {
+        const { rows } = await raw.query(`select table_name, column_name from information_schema.columns
+          where (table_name = 'tasks' and column_name = 'body') or (table_name = 'projects' and column_name like 'resume_%')
+             or (table_name = 'decisions' and column_name = 'supersedes_id') or table_name in ('design_pages', 'env_blockers')`);
+        assert.deepEqual(rows, []);
+      } finally {
+        await raw.end();
+      }
+    }
   });
 });
 
