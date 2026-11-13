@@ -8,29 +8,18 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import path from "node:path";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import {
-  agentRuns,
-  agentSessions,
-  agents,
-  docs,
-  goals,
-  heartbeatRuns,
-  projects,
-  tasks,
-  type Agent,
-  type AgentRun,
-  type AdapterConfig,
-  type Project,
-} from "../db/schema.js";
+import type { Agent, AgentRun, AdapterConfig, Project } from "../db/schema.js";
 import { registerFootprint, releaseFootprint } from "../mcp/footprint.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
+import { pgStore, readerOf } from "../store/pg.js";
+import type { UnitOfWork } from "../store/types.js";
 import { denySettings } from "./deny.js";
 import { EVENT_SUMMARY } from "./events.js";
 import { asistenteHome } from "./threads.js";
 import {
+  COMPANY,
   PROMPT_DOCS,
   lastReading,
   loadSettings,
@@ -129,6 +118,9 @@ function claudeCommand(config: AdapterConfig | null, env: NodeJS.ProcessEnv): st
 
 const sysCtx = (tool: string): Ctx => ({ actor: { ...SYSTEM_ACTOR, machine: hostname() }, system: true, tool });
 
+// A run's rows change in a serialized store write of their own, under the run's project.
+const runWrite = <T>(db: Db, run: Pick<AgentRun, "projectId">, fn: (uow: UnitOfWork) => Promise<T>): Promise<T> => pgStore(db).write(run.projectId, {}, fn);
+
 // ---- Context the checks read
 
 type WakeContext = {
@@ -142,36 +134,33 @@ type WakeContext = {
 // PLA-I32-5: an agent's project is its team's (project_id); Asistente's is its home project (where its runs
 // are recorded). Rows from before 0041: a capability that names a project, else po-<project>.
 async function projectOfAgent(db: Db, agent: Agent): Promise<Project | null> {
-  if (agent.projectId) return (await db.select().from(projects).where(eq(projects.id, agent.projectId)).limit(1))[0] ?? null;
+  const r = readerOf(db);
+  if (agent.projectId) return (await r.get("projects", { id: agent.projectId })) ?? null;
   if (roleOf(agent) === "asistente") return asistenteHome(db, process.env);
   const names = [...agent.capabilities, ...(agent.slug.startsWith("po-") ? [agent.slug.slice(3)] : [])];
   if (names.length === 0) return null;
-  const [row] = await db.select().from(projects).where(inArray(projects.slug, names)).orderBy(asc(projects.slug)).limit(1);
+  const [row] = await r.find("projects", { slug: names }, { orderBy: [{ column: "slug" }], limit: 1 });
   return row ?? null;
 }
 
+// The ticket's branch, and its base: its own, else its initiative's.
 async function taskBranchInfo(db: Db, projectId: string, key: string): Promise<{ branch: string | null; base: string | null }> {
-  const rows = await db.execute<{ branch: string | null; base: string | null }>(sql`
-    select t.branch as branch, coalesce(t.base_branch, p.base_branch) as base
-    from tasks t left join tasks p on p.id = t.parent_id
-    where t.project_id = ${projectId} and t.key = ${key} limit 1`);
-  return rows.rows[0] ?? { branch: null, base: null };
+  const r = readerOf(db);
+  const t = await r.get("tasks", { projectId, key });
+  if (!t) return { branch: null, base: null };
+  const parent = t.parentId ? await r.get("tasks", { id: t.parentId }) : undefined;
+  return { branch: t.branch, base: t.baseBranch ?? parent?.baseBranch ?? null };
 }
 
 export async function projectGoal(db: Db, projectId: string): Promise<{ title: string; why: string } | null> {
-  const [row] = await db
-    .select({ title: goals.title, why: goals.why })
-    .from(goals)
-    .where(and(eq(goals.projectId, projectId), eq(goals.status, "active")))
-    .orderBy(asc(goals.position), asc(goals.createdAt))
-    .limit(1);
-  return row ?? null;
+  const [row] = await readerOf(db).find("goals", { projectId, status: "active" }, { orderBy: [{ column: "position" }, { column: "createdAt" }], limit: 1 });
+  return row ? { title: row.title, why: row.why } : null;
 }
 
 async function loadContext(db: Db, agent: Agent, task: ReadyWork | null): Promise<WakeContext> {
   const role = roleOf(agent);
   let project: Project | null = null;
-  if (task) project = (await db.select().from(projects).where(eq(projects.slug, task.project)).limit(1))[0] ?? null;
+  if (task) project = (await readerOf(db).get("projects", { slug: task.project })) ?? null;
   else project = await projectOfAgent(db, agent);
   const taskRow = task && project ? await taskBranchInfo(db, project.id, task.key) : null;
   return { agent, role, project: project ?? null, task, taskRow };
@@ -191,8 +180,7 @@ async function probeIfUnknown(db: Db, deps: RunnerDeps, now: Date): Promise<void
 }
 
 async function runningCount(db: Db): Promise<number> {
-  const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(agentRuns).where(eq(agentRuns.status, "running"));
-  return row?.n ?? 0;
+  return readerOf(db).count("agentRuns", { status: "running" });
 }
 
 async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, opts: { fromQueue?: string } = {}): Promise<Preflight> {
@@ -205,12 +193,9 @@ async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, 
   if (project.runsPaused && role !== "asistente") return { ok: false, kind: "skipped", summary: `skipped: project ${project.slug} paused` };
 
   if (settings.cooldownMinutes > 0) {
-    const [last] = await db
-      .select({ endedAt: agentRuns.endedAt })
-      .from(agentRuns)
-      .where(and(eq(agentRuns.agentId, agent.id), sql`${agentRuns.endedAt} is not null`, sql`${agentRuns.status} <> 'skipped'`))
-      .orderBy(desc(agentRuns.endedAt))
-      .limit(1);
+    // The agent's latest ended run that was not skipped.
+    const runs = await readerOf(db).find("agentRuns", { agentId: agent.id }, { orderBy: [{ column: "endedAt", desc: true }] });
+    const last = runs.find((r) => r.endedAt !== null && r.status !== "skipped");
     if (last?.endedAt && now.getTime() - last.endedAt.getTime() < settings.cooldownMinutes * MINUTE) {
       return { ok: false, kind: "skipped", summary: "skipped: cooldown" };
     }
@@ -247,19 +232,14 @@ export async function wakeClaude(
     const ctx = await loadContext(db, input.agent, input.task);
     const taskKey = input.task?.key ?? null;
     // Coalescing: a wake while this agent has a live or queued run writes nothing.
-    const [busy] = await db
-      .select({ id: agentRuns.id })
-      .from(agentRuns)
-      .where(and(eq(agentRuns.agentId, input.agent.id), inArray(agentRuns.status, ["queued", "running"])))
-      .limit(1);
+    const busy = await readerOf(db).get("agentRuns", { agentId: input.agent.id, status: ["queued", "running"] });
     if (busy) return { kind: "coalesced", summary: "coalesced" };
 
     const pre = await preflight(db, ctx, input.now, deps);
     if (!pre.ok && pre.kind !== "cap") return { kind: pre.kind, summary: pre.summary, taskKey };
     const settings = await loadSettings(db);
-    const [row] = await db
-      .insert(agentRuns)
-      .values({
+    const row = await runWrite(db, { projectId: ctx.project!.id }, (uow) =>
+      uow.insert("agentRuns", {
         agentId: input.agent.id,
         projectId: ctx.project!.id,
         taskKey,
@@ -268,10 +248,10 @@ export async function wakeClaude(
         summary: pre.ok ? "starting" : "queued: cap reached",
         queuedAt: input.now,
         reserveTokens: settings.reserveTokens,
-      })
-      .returning();
-    if (!pre.ok) return { kind: "queued", runId: row!.id, summary: "queued: cap reached", taskKey };
-    return start(db, row!, ctx, deps);
+      }),
+    );
+    if (!pre.ok) return { kind: "queued", runId: row.id, summary: "queued: cap reached", taskKey };
+    return start(db, row, ctx, deps);
   });
 }
 
@@ -290,13 +270,14 @@ export async function canStart(db: Db, agent: Agent, projectId: string, taskKey:
 export async function drainQueue(db: Db, now: Date, deps: RunnerDeps = {}): Promise<{ started: number; dropped: number }> {
   return serial(async () => {
     const out = { started: 0, dropped: 0 };
-    const queued = await db.select().from(agentRuns).where(eq(agentRuns.status, "queued")).orderBy(asc(agentRuns.queuedAt));
+    const r = readerOf(db);
+    const queued = await r.find("agentRuns", { status: "queued" }, { orderBy: [{ column: "queuedAt" }] });
     for (const run of queued) {
-      const [agent] = await db.select().from(agents).where(eq(agents.id, run.agentId)).limit(1);
+      const agent = await r.get("agents", { id: run.agentId });
       if (!agent) continue;
       const task = run.taskKey ? await readyWorkOf(db, run.projectId, run.taskKey) : null;
       const ctx = await loadContext(db, agent, task);
-      if (!ctx.project) ctx.project = (await db.select().from(projects).where(eq(projects.id, run.projectId)).limit(1))[0] ?? null;
+      if (!ctx.project) ctx.project = (await r.get("projects", { id: run.projectId })) ?? null;
       const pre = await preflight(db, ctx, now, deps, { fromQueue: run.id });
       if (!pre.ok && pre.kind === "cap") break;
       // PLA-I31-1: an event wake inside the agent's cooldown waits for it to end instead of being
@@ -315,25 +296,25 @@ export async function drainQueue(db: Db, now: Date, deps: RunnerDeps = {}): Prom
 }
 
 async function readyWorkOf(db: Db, projectId: string, key: string): Promise<ReadyWork | null> {
-  const [row] = await db
-    .select({ project: projects.slug, key: tasks.key, title: tasks.title, priority: tasks.priority, workType: tasks.workType, ownerAgent: tasks.ownerAgent })
-    .from(tasks)
-    .innerJoin(projects, eq(projects.id, tasks.projectId))
-    .where(and(eq(tasks.projectId, projectId), eq(tasks.key, key)))
-    .limit(1);
-  return row ?? null;
+  const r = readerOf(db);
+  const t = await r.get("tasks", { projectId, key });
+  const p = t ? await r.get("projects", { id: t.projectId }) : undefined;
+  if (!t || !p) return null;
+  return { project: p.slug, key: t.key, title: t.title, priority: t.priority, workType: t.workType, ownerAgent: t.ownerAgent };
 }
 
 async function endWithoutProcess(db: Db, run: AgentRun, status: "skipped" | "fail", summary: string, now: Date): Promise<void> {
-  await db.update(agentRuns).set({ status, summary: summary.slice(0, 500), endedAt: now }).where(eq(agentRuns.id, run.id));
-  await db.insert(heartbeatRuns).values({
-    agentId: run.agentId,
-    startedAt: run.queuedAt,
-    endedAt: now,
-    status,
-    adapter: RUNNER_ADAPTER,
-    summary: summary.slice(0, 500),
-    taskKey: run.taskKey,
+  await runWrite(db, run, async (uow) => {
+    await uow.update("agentRuns", { id: run.id }, { status, summary: summary.slice(0, 500), endedAt: now });
+    await uow.insert("heartbeatRuns", {
+      agentId: run.agentId,
+      startedAt: run.queuedAt,
+      endedAt: now,
+      status,
+      adapter: RUNNER_ADAPTER,
+      summary: summary.slice(0, 500),
+      taskKey: run.taskKey,
+    });
   });
 }
 
@@ -377,13 +358,10 @@ export function userPrompt(input: {
 
 async function promptDoc(db: Db, role: RunnerRole, env: NodeJS.ProcessEnv): Promise<string | null> {
   const slug = env.PLANIA_PROMPTS_PROJECT || "plania";
-  const rows = await db
-    .select({ markdown: docs.markdown })
-    .from(docs)
-    .innerJoin(projects, eq(projects.id, docs.projectId))
-    .where(and(eq(projects.slug, slug), isNull(docs.taskId), eq(docs.title, PROMPT_DOCS[role])))
-    .limit(1);
-  return rows[0]?.markdown ?? null;
+  const r = readerOf(db);
+  const p = await r.get("projects", { slug });
+  const doc = p ? await r.get("docs", { projectId: p.id, taskId: null, title: PROMPT_DOCS[role] }) : undefined;
+  return doc?.markdown ?? null;
 }
 
 export type ClaudeArgsInput = {
@@ -478,11 +456,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   }
 
   // Resume this agent's session in this project, only in the folder it ran in.
-  const [session] = await db
-    .select()
-    .from(agentSessions)
-    .where(and(eq(agentSessions.agentId, ctx.agent.id), eq(agentSessions.projectId, project.id)))
-    .limit(1);
+  const session = await readerOf(db).get("agentSessions", { agentId: ctx.agent.id, projectId: project.id });
   const resume = session && session.cwd === cwd ? session.claudeSessionId : null;
 
   const tmp = path.join(tmpDirOf(deps), run.id);
@@ -542,29 +516,35 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
       if (Date.now() - lastFlush < flushEvery) return;
       lastFlush = Date.now();
       const t = reader.liveTokens;
-      void db
-        .update(agentRuns)
-        .set({ turns: reader.liveTurns, inputTokens: t.input, outputTokens: t.output, cacheReadTokens: t.cacheRead, cacheCreateTokens: t.cacheCreate, tokensTotal: totalOf(t) })
-        .where(and(eq(agentRuns.id, run.id), eq(agentRuns.status, "running")))
-        .catch(() => undefined);
+      // Only while the row still says running: a run that already ended keeps its final counts.
+      void runWrite(db, run, (uow) =>
+        uow.update(
+          "agentRuns",
+          { id: run.id, status: "running" },
+          { turns: reader.liveTurns, inputTokens: t.input, outputTokens: t.output, cacheReadTokens: t.cacheRead, cacheCreateTokens: t.cacheCreate, tokensTotal: totalOf(t) },
+        ),
+      ).catch(() => undefined);
     },
   });
 
-  await db
-    .update(agentRuns)
-    .set({
-      status: "running",
-      summary: "running",
-      pid: proc.pid,
-      resumed: !!resume,
-      claudeSessionId: resume,
-      cwd,
-      worktreePath: worktree,
-      branch,
-      logPath,
-      startedAt,
-    })
-    .where(eq(agentRuns.id, run.id));
+  await runWrite(db, run, (uow) =>
+    uow.update(
+      "agentRuns",
+      { id: run.id },
+      {
+        status: "running",
+        summary: "running",
+        pid: proc.pid,
+        resumed: !!resume,
+        claudeSessionId: resume,
+        cwd,
+        worktreePath: worktree,
+        branch,
+        logPath,
+        startedAt,
+      },
+    ),
+  );
 
   const entry: LiveRun = { runId: run.id, agentId: ctx.agent.id, projectId: project.id, role, proc, finished: Promise.resolve(), stopReason: null };
   entry.finished = proc.done
@@ -659,43 +639,44 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
   if (exit.timedOut && status !== "ok") summary = `${summary} after timeout`.slice(0, 500);
 
   const sessionId = result?.sessionId ?? reader.sessionId;
-  if (sessionId) {
-    await db
-      .insert(agentSessions)
-      .values({ agentId: agent.id, projectId: project.id, claudeSessionId: sessionId, cwd: input.cwd, runs: 1 })
-      .onConflictDoUpdate({
-        target: [agentSessions.agentId, agentSessions.projectId],
-        set: { claudeSessionId: sessionId, cwd: input.cwd, runs: sql`${agentSessions.runs} + 1`, updatedAt: sql`now()` },
-      });
-  }
+  // The session, the run's end and its heartbeat row are stored together.
+  await runWrite(db, run, async (uow) => {
+    if (sessionId) {
+      const key = { agentId: agent.id, projectId: project.id };
+      const session = await uow.get("agentSessions", key);
+      if (session) await uow.update("agentSessions", key, { claudeSessionId: sessionId, cwd: input.cwd, runs: session.runs + 1, updatedAt: uow.now });
+      else await uow.insert("agentSessions", { ...key, claudeSessionId: sessionId, cwd: input.cwd, runs: 1 });
+    }
 
-  await db
-    .update(agentRuns)
-    .set({
-      status,
-      summary: summary.slice(0, 500),
+    await uow.update(
+      "agentRuns",
+      { id: run.id },
+      {
+        status,
+        summary: summary.slice(0, 500),
+        endedAt,
+        turns,
+        claudeSessionId: sessionId,
+        inputTokens: tokens.input,
+        outputTokens: tokens.output,
+        cacheReadTokens: tokens.cacheRead,
+        cacheCreateTokens: tokens.cacheCreate,
+        tokensTotal: totalOf(tokens),
+        usageKnown,
+        exitCode: exit.code,
+        stopReason: input.stopReason,
+      },
+    );
+
+    await uow.insert("heartbeatRuns", {
+      agentId: agent.id,
+      startedAt: run.startedAt ?? run.queuedAt,
       endedAt,
-      turns,
-      claudeSessionId: sessionId,
-      inputTokens: tokens.input,
-      outputTokens: tokens.output,
-      cacheReadTokens: tokens.cacheRead,
-      cacheCreateTokens: tokens.cacheCreate,
-      tokensTotal: totalOf(tokens),
-      usageKnown,
-      exitCode: exit.code,
-      stopReason: input.stopReason,
-    })
-    .where(eq(agentRuns.id, run.id));
-
-  await db.insert(heartbeatRuns).values({
-    agentId: agent.id,
-    startedAt: run.startedAt ?? run.queuedAt,
-    endedAt,
-    status: status === "stopped" ? "skipped" : status,
-    adapter: RUNNER_ADAPTER,
-    summary: summary.slice(0, 500),
-    taskKey: run.taskKey,
+      status: status === "stopped" ? "skipped" : status,
+      adapter: RUNNER_ADAPTER,
+      summary: summary.slice(0, 500),
+      taskKey: run.taskKey,
+    });
   });
 }
 
@@ -729,8 +710,8 @@ export async function enforceLive(db: Db, _now: Date): Promise<number> {
   if (settings.companyPaused) return stopLive(() => true, "company paused");
   let n = 0;
   const projectIds = [...new Set([...live.values()].map((run) => run.projectId))];
-  const rows = await db.select({ id: projects.id, slug: projects.slug, paused: projects.runsPaused }).from(projects).where(inArray(projects.id, projectIds));
-  for (const p of rows) if (p.paused) n += stopLive((run) => run.projectId === p.id && run.role !== "asistente", `project ${p.slug} paused`);
+  const rows = await readerOf(db).find("projects", { id: projectIds });
+  for (const p of rows) if (p.runsPaused) n += stopLive((run) => run.projectId === p.id && run.role !== "asistente", `project ${p.slug} paused`);
 
   return n;
 }
@@ -742,7 +723,7 @@ export async function enforceLive(db: Db, _now: Date): Promise<number> {
 // the log's result event when it has one; otherwise the usage is unknown (shown, never blocking).
 // until Jorge acknowledges it on screen (or the week resets).
 export async function sweepOrphans(db: Db, deps: RunnerDeps = {}): Promise<number> {
-  const rows = await db.select().from(agentRuns).where(eq(agentRuns.status, "running"));
+  const rows = await readerOf(db).find("agentRuns", { status: "running" });
   const kill = deps.kill ?? defaultKill;
   const probe = deps.probePid ?? defaultProbePid;
   let n = 0;
@@ -772,37 +753,37 @@ export async function sweepOrphans(db: Db, deps: RunnerDeps = {}): Promise<numbe
       : (parsed?.liveTokens ?? { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 });
     const known = !!result?.hasModelUsage;
     const summary = known ? "fail: orphaned (result kept)" : "fail: orphaned (usage unknown)";
-    await db
-      .update(agentRuns)
-      .set({
+    await runWrite(db, run, async (uow) => {
+      await uow.update(
+        "agentRuns",
+        { id: run.id },
+        {
+          status: "fail",
+          summary,
+          endedAt: uow.now,
+          usageKnown: known,
+          inputTokens: tokens.input,
+          outputTokens: tokens.output,
+          cacheReadTokens: tokens.cacheRead,
+          cacheCreateTokens: tokens.cacheCreate,
+          tokensTotal: totalOf(tokens),
+          stopReason: "orphaned",
+        },
+      );
+      await uow.insert("heartbeatRuns", {
+        agentId: run.agentId,
+        startedAt: run.startedAt ?? run.queuedAt,
+        endedAt: uow.now,
         status: "fail",
+        adapter: RUNNER_ADAPTER,
         summary,
-        endedAt: new Date(),
-        usageKnown: known,
-        inputTokens: tokens.input,
-        outputTokens: tokens.output,
-        cacheReadTokens: tokens.cacheRead,
-        cacheCreateTokens: tokens.cacheCreate,
-        tokensTotal: totalOf(tokens),
-        stopReason: "orphaned",
-      })
-      .where(eq(agentRuns.id, run.id));
-    await db.insert(heartbeatRuns).values({
-      agentId: run.agentId,
-      startedAt: run.startedAt ?? run.queuedAt,
-      endedAt: new Date(),
-      status: "fail",
-      adapter: RUNNER_ADAPTER,
-      summary,
-      taskKey: run.taskKey,
+        taskKey: run.taskKey,
+      });
     });
     n += 1;
   }
   // Queued rows from an earlier server are dropped too: the cadence queues them again.
-  await db
-    .update(agentRuns)
-    .set({ status: "skipped", summary: "skipped: server restarted", endedAt: new Date() })
-    .where(eq(agentRuns.status, "queued"));
+  await pgStore(db).write(COMPANY, {}, (uow) => uow.update("agentRuns", { status: "queued" }, { status: "skipped", summary: "skipped: server restarted", endedAt: uow.now }));
   return n;
 }
 
@@ -812,16 +793,25 @@ export async function sweepOrphans(db: Db, deps: RunnerDeps = {}): Promise<numbe
 // is removed and its footprint released.
 export async function cleanupWorktrees(db: Db, deps: RunnerDeps = {}): Promise<number> {
   const env = deps.env ?? process.env;
-  const rows = await db.execute<{ path: string; slug: string; settings: Project["settings"]; key: string }>(sql`
-    select distinct r.worktree_path as path, p.slug as slug, p.settings as settings, r.task_key as key
-    from agent_runs r
-    join projects p on p.id = r.project_id
-    join tasks t on t.project_id = r.project_id and t.key = r.task_key
-    where r.worktree_path is not null
-      and t.status in (${sql.join(DONE_STATUSES.map((s) => sql`${s}`), sql`, `)})
-      and not exists (select 1 from agent_runs x where x.worktree_path = r.worktree_path and x.status in ('queued', 'running'))`);
+  // Each worktree of a run whose ticket is closed, once per (worktree, project, ticket), unless a queued or
+  // running run uses it.
+  const r = readerOf(db);
+  const runs = await r.find("agentRuns");
+  const busy = new Set(runs.filter((x) => x.worktreePath !== null && (x.status === "queued" || x.status === "running")).map((x) => x.worktreePath));
+  const seen = new Set<string>();
+  const rows: { path: string; slug: string; settings: Project["settings"]; key: string }[] = [];
+  for (const run of runs) {
+    if (run.worktreePath === null || run.taskKey === null || busy.has(run.worktreePath)) continue;
+    const p = await r.get("projects", { id: run.projectId });
+    const t = p ? await r.get("tasks", { projectId: run.projectId, key: run.taskKey }) : undefined;
+    if (!p || !t || !DONE_STATUSES.includes(t.status)) continue;
+    const id = JSON.stringify([run.worktreePath, p.slug, run.taskKey]);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    rows.push({ path: run.worktreePath, slug: p.slug, settings: p.settings, key: run.taskKey });
+  }
   let n = 0;
-  for (const row of rows.rows) {
+  for (const row of rows) {
     if (!existsSync(row.path)) continue;
     const repo = repoPathOf(row.slug, row.settings, env);
     if (!(await removeWorktree({ repo, path: row.path }, deps.git ?? defaultGit))) continue;

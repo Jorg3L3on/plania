@@ -8,21 +8,21 @@
 //   Ready work, which the new ticket is). The ticket's scope asks the PO for a plan through `propose`.
 //   POST /api/company/projects/:slug/next {key}       Cambiar lo siguiente: that Ready ticket goes first.
 //   PUT  /api/company/projects/:slug/options {plan_approval?, preview_url?}
-import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agentRuns, agents, projects, tasks, type Agent } from "../db/schema.js";
+import type { Agent, ProjectSettings } from "../db/schema.js";
 import { loadReady, pickReady, wakeAgent, type HeartbeatDeps } from "../jobs/heartbeat.js";
 import { WEB_ACTOR } from "../mcp/tx.js";
 import { createTask } from "../mcp/writes.js";
 import { eventWakesEnabled } from "../runner/events.js";
 import { loadSettings, roleOf } from "../runner/limits.js";
+import { pgStore, readerOf } from "../store/pg.js";
 
 export type ActionRefusal = { error: "PROJECT_NOT_FOUND" | "PROJECT_PAUSED" | "COMPANY_PAUSED" | "NO_PO"; status: 404 | 409; hint: string };
 
 // PLA-I32-2: the PO of a project is the runner agent on its team (project_id) made from the product-owner
 // template; a row from before 0041 is still found by po-<slug> or a capability naming the project.
 export async function projectPo(db: Db, project: { id: string; slug: string }): Promise<Agent | null> {
-  const rows = await db.select().from(agents).where(and(eq(agents.adapter, "claude_code"), sql`${agents.status} <> 'retired'`));
+  const rows = (await readerOf(db).find("agents", { adapter: "claude_code" })).filter((a) => a.status !== "retired");
   const pos = rows.filter((a) => roleOf(a) === "product-owner");
   return (
     pos.find((a) => a.projectId === project.id) ??
@@ -34,10 +34,10 @@ export async function projectPo(db: Db, project: { id: string; slug: string }): 
 type Guard = { project: { id: string; slug: string }; po: Agent };
 
 async function guard(db: Db, slug: string): Promise<Guard | ActionRefusal> {
-  const [project] = await db.select({ id: projects.id, slug: projects.slug, paused: projects.runsPaused }).from(projects).where(eq(projects.slug, slug)).limit(1);
+  const project = await readerOf(db).get("projects", { slug });
   if (!project) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   if ((await loadSettings(db)).companyPaused) return { error: "COMPANY_PAUSED", status: 409, hint: "La compañía está detenida." };
-  if (project.paused) return { error: "PROJECT_PAUSED", status: 409, hint: "El proyecto está en pausa: reanúdalo primero." };
+  if (project.runsPaused) return { error: "PROJECT_PAUSED", status: 409, hint: "El proyecto está en pausa: reanúdalo primero." };
   const po = await projectPo(db, project);
   if (!po) return { error: "NO_PO", status: 409, hint: "Este proyecto no tiene un PO que corra en Claude Code." };
   return { project: { id: project.id, slug: project.slug }, po };
@@ -63,7 +63,7 @@ export async function createPoTicket(
   kind: OrderKind | null = null,
 ): Promise<{ key: string; title: string; wake: "queued" | "busy" | "off" }> {
   const sentence = text.trim();
-  const [proj] = await db.select({ settings: projects.settings }).from(projects).where(eq(projects.slug, project.slug)).limit(1);
+  const proj = await readerOf(db).get("projects", { slug: project.slug });
   const approval = !!proj?.settings.plan_approval;
   const out = (await createTask(
     db,
@@ -87,11 +87,7 @@ export async function createPoTicket(
     },
     { actor: WEB_ACTOR, human: true, tool: "company.ask" },
   )) as { key: string };
-  const [run] = await db
-    .select({ id: agentRuns.id, taskKey: agentRuns.taskKey })
-    .from(agentRuns)
-    .where(and(eq(agentRuns.agentId, po.id), inArray(agentRuns.status, ["queued", "running"])))
-    .limit(1);
+  const run = await readerOf(db).get("agentRuns", { agentId: po.id, status: ["queued", "running"] });
   const wake = !eventWakesEnabled() ? "off" : run?.taskKey === out.key ? "queued" : run ? "busy" : "off";
   return { key: out.key, title: firstLine(sentence), wake };
 }
@@ -105,19 +101,24 @@ export async function askPo(db: Db, slug: string, text: string, opts: { kind?: O
 }
 
 // PLA-I36-6: Cambiar lo siguiente. The ticket must be Ready in this project.
+// The project's settings replaced whole, in a write of its own (no event, as before).
+const saveSettings = (db: Db, projectId: string, settings: ProjectSettings) =>
+  pgStore(db).write(projectId, {}, (uow) => uow.update("projects", { id: projectId }, { settings, updatedAt: uow.now }));
+
 export async function pickNext(db: Db, slug: string, key: string): Promise<{ next: string } | { error: string; status: 404 | 409; hint: string }> {
-  const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
+  const r = readerOf(db);
+  const p = await r.get("projects", { slug });
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
-  const [t] = await db.select({ status: tasks.status, kind: tasks.kind }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
+  const t = await r.get("tasks", { projectId: p.id, key });
   if (!t || t.kind !== "ticket") return { error: "TASK_NOT_FOUND", status: 404, hint: "Ese ticket no está en el proyecto." };
   if (t.status !== "Ready") return { error: "NOT_READY", status: 409, hint: "Solo un ticket listo puede ir primero." };
-  await db.update(projects).set({ settings: { ...p.settings, next_first: key }, updatedAt: sql`now()` }).where(eq(projects.id, p.id));
+  await saveSettings(db, p.id, { ...p.settings, next_first: key });
   return { next: key };
 }
 
 // PLA-I36-8/10: the project's switches that are not limits: plan approval and the preview address.
 export async function setProjectOptions(db: Db, slug: string, input: { plan_approval?: boolean; preview_url?: string | null }): Promise<{ plan_approval: boolean; preview_url: string | null } | { error: string; status: 404; hint: string }> {
-  const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
+  const p = await readerOf(db).get("projects", { slug });
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   const settings = { ...p.settings };
   if (input.plan_approval !== undefined) settings.plan_approval = input.plan_approval;
@@ -125,7 +126,7 @@ export async function setProjectOptions(db: Db, slug: string, input: { plan_appr
     if (input.preview_url) settings.preview_url = input.preview_url;
     else delete settings.preview_url;
   }
-  await db.update(projects).set({ settings, updatedAt: sql`now()` }).where(eq(projects.id, p.id));
+  await saveSettings(db, p.id, settings);
   return { plan_approval: !!settings.plan_approval, preview_url: settings.preview_url ?? null };
 }
 

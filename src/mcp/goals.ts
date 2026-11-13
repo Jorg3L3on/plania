@@ -1,10 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.js";
-import { GOAL_STATUSES, goals, projects, tasks, type Goal, type Task } from "../db/schema.js";
+import { GOAL_STATUSES, type Goal, type Task } from "../db/schema.js";
 import { bus } from "../events.js";
+import { COMPANY } from "../runner/limits.js";
+import { pgStore, readerOf, uowOf } from "../store/pg.js";
 import { ToolError } from "./errors.js";
 import { writeTx, type Ctx, type Q } from "./tx.js";
 
@@ -12,8 +13,6 @@ import { writeTx, type Ctx, type Q } from "./tx.js";
 // with tasks.goal_id; a ticket shows that chain through its parent. Progress is how many of the
 // linked initiatives' tickets are Done, rolled up from a project goal to its company goal.
 // Nothing here scores an OKR or enforces target_on.
-
-const WRITE_LOCK = 7_264_201; // same advisory lock as writeTx, so a goal write queues with every other write
 
 export type GoalProgress = { done: number; total: number };
 
@@ -80,23 +79,19 @@ function checkPosition(v: number | undefined): number | undefined {
 // The goal an initiative may point at: a company goal, or a goal of this project. Anything else is missing.
 export async function resolveInitiativeGoal(db: Q, projectId: string, goalId: string | null): Promise<string | null> {
   if (goalId === null) return null;
-  const [g] = await db.select().from(goals).where(eq(goals.id, goalId)).limit(1);
+  const g = await readerOf(db).get("goals", { id: goalId });
   if (!g || (g.projectId !== null && g.projectId !== projectId)) throw new ToolError("GOAL_NOT_FOUND", { field: "goal_id" });
   return g.id;
 }
 
 // task → initiative → project goal → company goal. Null when the initiative (or the ticket's parent) has no goal.
 export async function whyChainOf(db: Q, task: Task): Promise<WhyLink[] | null> {
-  const initiative =
-    task.kind === "initiative"
-      ? task
-      : task.kind === "ticket" && task.parentId
-        ? ((await db.select().from(tasks).where(eq(tasks.id, task.parentId)).limit(1))[0] ?? null)
-        : null;
+  const r = readerOf(db);
+  const initiative = task.kind === "initiative" ? task : task.kind === "ticket" && task.parentId ? ((await r.get("tasks", { id: task.parentId })) ?? null) : null;
   if (!initiative?.goalId) return null;
-  const [goal] = await db.select().from(goals).where(eq(goals.id, initiative.goalId)).limit(1);
+  const goal = await r.get("goals", { id: initiative.goalId });
   if (!goal) return null;
-  const parent = goal.parentId ? ((await db.select().from(goals).where(eq(goals.id, goal.parentId)).limit(1))[0] ?? null) : null;
+  const parent = goal.parentId ? ((await r.get("goals", { id: goal.parentId })) ?? null) : null;
   const chain: WhyLink[] = [];
   if (task.kind === "ticket") chain.push({ level: "task", key: task.key, title: task.title, why: null });
   chain.push({ level: "initiative", key: initiative.key, title: initiative.title, why: null });
@@ -111,23 +106,20 @@ export async function whyChainOf(db: Q, task: Task): Promise<WhyLink[] | null> {
 }
 
 async function loadBoard(db: Q): Promise<GoalView[]> {
-  const rows = await db.select().from(goals);
-  const slugRows = await db.select({ id: projects.id, slug: projects.slug }).from(projects);
-  const slugs = new Map(slugRows.map((p) => [p.id, p.slug]));
-  const counts = await db.execute<{ goal_id: string; done: number; total: number }>(sql`
-    select i.goal_id as goal_id,
-           count(*)::int as total,
-           count(*) filter (where c.status = 'Done')::int as done
-    from tasks c
-    join tasks i on i.id = c.parent_id
-    where c.kind = 'ticket' and i.kind = 'initiative' and i.goal_id is not null
-    group by i.goal_id`);
+  const r = readerOf(db);
+  const rows = await r.find("goals");
+  const slugs = new Map((await r.find("projects")).map((p) => [p.id, p.slug]));
+  const inits = (await r.find("tasks", { kind: "initiative" })).filter((i) => i.goalId !== null);
+  // Progress: the tickets under each linked initiative, Done over all, per goal.
+  const goalOfInitiative = new Map(inits.map((i) => [i.id, i.goalId!]));
   const progress = new Map<string, GoalProgress>();
-  for (const row of counts.rows) progress.set(row.goal_id, { done: row.done, total: row.total });
-  const inits = await db
-    .select({ key: tasks.key, title: tasks.title, status: tasks.status, goalId: tasks.goalId })
-    .from(tasks)
-    .where(sql`${tasks.kind} = 'initiative' and ${tasks.goalId} is not null`);
+  for (const c of await r.find("tasks", { kind: "ticket", parentId: [...goalOfInitiative.keys()] })) {
+    const goalId = goalOfInitiative.get(c.parentId!)!;
+    const p = progress.get(goalId) ?? { done: 0, total: 0 };
+    p.total += 1;
+    if (c.status === "Done") p.done += 1;
+    progress.set(goalId, p);
+  }
   const byGoal = new Map<string, GoalInitiative[]>();
   for (const init of inits) {
     if (!init.goalId) continue;
@@ -189,7 +181,7 @@ function findGoal(nodes: GoalView[], id: string): GoalView | undefined {
 export async function listGoals(db: Q, project?: string): Promise<{ goals: GoalView[] }> {
   const tree = await loadBoard(db);
   if (!project) return { goals: tree };
-  const [p] = await db.select({ id: projects.id }).from(projects).where(eq(projects.slug, project)).limit(1);
+  const p = await readerOf(db).get("projects", { slug: project });
   if (!p) throw new ToolError("PROJECT_NOT_FOUND");
   const flat: GoalView[] = [];
   const walk = (nodes: GoalView[]) => {
@@ -211,7 +203,7 @@ async function goalView(db: Q, id: string): Promise<GoalView> {
 async function resolveParent(db: Q, parentId: string | null, selfId?: string): Promise<string | null> {
   if (parentId === null) return null;
   if (selfId && parentId === selfId) throw new ToolError("INVALID_GOAL", { field: "parent_id" });
-  const [parent] = await db.select().from(goals).where(eq(goals.id, parentId)).limit(1);
+  const parent = await readerOf(db).get("goals", { id: parentId });
   if (!parent) throw new ToolError("GOAL_NOT_FOUND", { field: "parent_id" });
   if (parent.projectId !== null) throw new ToolError("INVALID_GOAL", { field: "parent_id", hint: "the parent is a company goal" });
   return parent.id;
@@ -219,28 +211,25 @@ async function resolveParent(db: Q, parentId: string | null, selfId?: string): P
 
 async function resolveProject(db: Q, slug: string | null): Promise<{ id: string; slug: string } | null> {
   if (slug === null) return null;
-  const [p] = await db.select({ id: projects.id, slug: projects.slug }).from(projects).where(eq(projects.slug, slug)).limit(1);
+  const p = await readerOf(db).get("projects", { slug });
   if (!p) throw new ToolError("PROJECT_NOT_FOUND");
-  return p;
+  return { id: p.id, slug: p.slug };
 }
 
+// One past the last position among the goal's siblings (same project and parent, null matching null).
 async function nextPosition(db: Q, projectId: string | null, parentId: string | null): Promise<number> {
-  const [row] = (
-    await db.execute<{ n: number }>(sql`
-      select coalesce(max(position), -1)::int + 1 as n
-      from goals
-      where project_id is not distinct from ${projectId}::uuid
-        and parent_id is not distinct from ${parentId}::uuid`)
-  ).rows;
-  return row?.n ?? 0;
+  const siblings = await readerOf(db).find("goals", { projectId, parentId });
+  return siblings.reduce((max, g) => Math.max(max, g.position), -1) + 1;
 }
 
 async function assertNoLinkedMove(db: Q, goalId: string): Promise<void> {
-  const [linked] = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.goalId, goalId)).limit(1);
+  const linked = await readerOf(db).get("tasks", { goalId });
   if (linked) throw new ToolError("INVALID_GOAL", { field: "project", hint: "unlink the initiatives first" });
 }
 
+// Runs inside a store write (db is that write's handle).
 async function writeGoal(db: Q, input: SetGoalInput): Promise<string> {
+  const uow = uowOf(db);
   const targetOn = checkTarget(input.target_on);
   const position = checkPosition(input.position);
   if (!input.id) {
@@ -250,22 +239,19 @@ async function writeGoal(db: Q, input: SetGoalInput): Promise<string> {
     const project = await resolveProject(db, input.project ?? null);
     const parentId = await resolveParent(db, input.parent_id ?? null);
     if (!project && parentId) throw new ToolError("INVALID_GOAL", { field: "parent_id", hint: "a company goal has no parent" });
-    const [row] = await db
-      .insert(goals)
-      .values({
-        projectId: project?.id ?? null,
-        parentId,
-        title,
-        why: input.why?.trim() ?? "",
-        status,
-        targetOn: targetOn ?? null,
-        position: position ?? (await nextPosition(db, project?.id ?? null, parentId)),
-      })
-      .returning({ id: goals.id });
-    return row!.id;
+    const row = await uow.insert("goals", {
+      projectId: project?.id ?? null,
+      parentId,
+      title,
+      why: input.why?.trim() ?? "",
+      status,
+      targetOn: targetOn ?? null,
+      position: position ?? (await nextPosition(db, project?.id ?? null, parentId)),
+    });
+    return row.id;
   }
 
-  const [existing] = await db.select().from(goals).where(eq(goals.id, input.id)).limit(1);
+  const existing = await uow.get("goals", { id: input.id });
   if (!existing) throw new ToolError("GOAL_NOT_FOUND", { field: "id" });
   const title = input.title === undefined ? existing.title : input.title.trim();
   if (!title) throw new ToolError("INVALID_GOAL", { field: "title" });
@@ -275,14 +261,15 @@ async function writeGoal(db: Q, input: SetGoalInput): Promise<string> {
   const parentId = input.parent_id === undefined ? existing.parentId : await resolveParent(db, input.parent_id, existing.id);
   if (!projectId && parentId) throw new ToolError("INVALID_GOAL", { field: "parent_id", hint: "a company goal has no parent" });
   if (projectId !== existing.projectId) {
-    const [child] = await db.select({ id: goals.id }).from(goals).where(eq(goals.parentId, existing.id)).limit(1);
+    const child = await uow.get("goals", { parentId: existing.id });
     if (child) throw new ToolError("INVALID_GOAL", { field: "project", hint: "a goal with project goals under it stays a company goal" });
     await assertNoLinkedMove(db, existing.id);
   }
   if (parentId && parentId === existing.id) throw new ToolError("INVALID_GOAL", { field: "parent_id" });
-  await db
-    .update(goals)
-    .set({
+  await uow.update(
+    "goals",
+    { id: existing.id },
+    {
       title,
       why: input.why === undefined ? existing.why : input.why.trim(),
       status,
@@ -290,22 +277,19 @@ async function writeGoal(db: Q, input: SetGoalInput): Promise<string> {
       position: position === undefined ? existing.position : position,
       projectId,
       parentId,
-      updatedAt: sql`now()`,
-    })
-    .where(eq(goals.id, existing.id));
+      updatedAt: uow.now,
+    },
+  );
   return existing.id;
 }
 
 async function projectOf(db: Q, input: SetGoalInput): Promise<{ id: string; slug: string } | null> {
   if (input.project) return resolveProject(db, input.project);
   if (!input.id || input.project === null) return null;
-  const [row] = await db
-    .select({ id: projects.id, slug: projects.slug })
-    .from(goals)
-    .innerJoin(projects, eq(projects.id, goals.projectId))
-    .where(eq(goals.id, input.id))
-    .limit(1);
-  return row ?? null;
+  const r = readerOf(db);
+  const goal = await r.get("goals", { id: input.id });
+  const project = goal?.projectId ? await r.get("projects", { id: goal.projectId }) : undefined;
+  return project ? { id: project.id, slug: project.slug } : null;
 }
 
 export async function setGoal(db: Db, input: SetGoalInput, ctx: Ctx): Promise<GoalView> {
@@ -321,10 +305,8 @@ export async function setGoal(db: Db, input: SetGoalInput, ctx: Ctx): Promise<Go
       return view;
     });
   }
-  const view = await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(${WRITE_LOCK})`);
-    return run(tx);
-  });
+  // A company goal has no project's writeTx; it is still one serialized store write.
+  const view = await pgStore(db).write(COMPANY, {}, (uow) => run(uow.sql));
   bus.publish({ type: "project", project: "" });
   return view;
 }

@@ -5,12 +5,12 @@
 // to what it delivered (ticket, PR, doc), once per ticket per run for add_result.
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { LINK_KINDS, agentRuns, docs, projects, tasks, type ThreadLink } from "../db/schema.js";
-import { agentOfActor } from "../runner/events.js";
+import { LINK_KINDS, type ThreadLink } from "../db/schema.js";
+import { agentOfActor, runOfSession } from "../runner/events.js";
+import { readerOf } from "../store/pg.js";
 import { roleOf } from "../runner/limits.js";
 import { assertThreadAccess, checkLinks, lastLineFor, messageView, postMessage, projectThread, readThread, resolveThread } from "../runner/threads.js";
 import type { Ctx } from "./tx.js";
@@ -44,18 +44,14 @@ const RUN_SESSION = /^run-([0-9a-f]{8})$/;
 export type Closing = { project: string; key: string; via: "finish" | "add_result"; verdict?: string; cite?: string; prUrl?: string | null };
 
 export async function closingLine(db: Db, ctx: Ctx, c: Closing): Promise<string | null> {
-  const m = RUN_SESSION.exec(ctx.actor.session_id ?? "");
-  if (!m) return null;
-  const [run] = await db
-    .select({ id: agentRuns.id, startedAt: agentRuns.startedAt, queuedAt: agentRuns.queuedAt })
-    .from(agentRuns)
-    .where(sql`${agentRuns.id}::text like ${`${m[1]}%`}`)
-    .limit(1);
+  if (!RUN_SESSION.test(ctx.actor.session_id ?? "")) return null;
+  const r = readerOf(db);
+  const run = await runOfSession(db, ctx.actor.session_id);
   const agent = await agentOfActor(db, ctx.actor);
   if (!run || !agent) return null;
-  const [project] = await db.select().from(projects).where(eq(projects.slug, c.project)).limit(1);
+  const project = await r.get("projects", { slug: c.project });
   if (!project) return null;
-  const [t] = await db.select().from(tasks).where(and(eq(tasks.projectId, project.id), eq(tasks.key, c.key))).limit(1);
+  const t = await r.get("tasks", { projectId: project.id, key: c.key });
   if (!t) return null;
   const thread = await projectThread(db, project.id);
   if (c.via === "add_result" && (await lastLineFor(db, thread.id, agent.slug, t.key, run.startedAt ?? run.queuedAt))) return null;
@@ -63,7 +59,7 @@ export async function closingLine(db: Db, ctx: Ctx, c: Closing): Promise<string 
   const links: ThreadLink[] = [{ kind: t.kind === "idea" ? "idea" : "ticket", ref: t.key, title: t.title.slice(0, 200) }];
   const pr = c.prUrl?.trim() || t.prUrl;
   if (pr) links.push({ kind: "pr", ref: pr, title: `PR de ${t.key}` });
-  const [doc] = await db.select({ id: docs.id, title: docs.title }).from(docs).where(eq(docs.taskId, t.id)).orderBy(desc(docs.updatedAt)).limit(1);
+  const [doc] = await r.find("docs", { taskId: t.id }, { orderBy: [{ column: "updatedAt", desc: true }], limit: 1 });
   if (doc) links.push({ kind: "doc", ref: doc.id, title: doc.title.slice(0, 200) });
 
   const cite = (c.cite ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
@@ -76,10 +72,11 @@ export async function closingLine(db: Db, ctx: Ctx, c: Closing): Promise<string 
 // A runner's ask, posted in its project thread with the question attached (Responder answers it there).
 export async function questionLine(db: Db, ctx: Ctx, q: { project: string; key: string; question: string; questionId: string }): Promise<string | null> {
   if (!RUN_SESSION.test(ctx.actor.session_id ?? "")) return null;
+  const r = readerOf(db);
   const agent = await agentOfActor(db, ctx.actor);
-  const [project] = await db.select().from(projects).where(eq(projects.slug, q.project)).limit(1);
+  const project = await r.get("projects", { slug: q.project });
   if (!agent || !project) return null;
-  const [t] = await db.select({ key: tasks.key, title: tasks.title, kind: tasks.kind }).from(tasks).where(and(eq(tasks.projectId, project.id), eq(tasks.key, q.key))).limit(1);
+  const t = await r.get("tasks", { projectId: project.id, key: q.key });
   const links: ThreadLink[] = t ? [{ kind: t.kind === "idea" ? "idea" : "ticket", ref: t.key, title: t.title.slice(0, 200) }] : [];
   links.push({ kind: "question", ref: q.questionId, title: q.question.slice(0, 200) });
   const thread = await projectThread(db, project.id);

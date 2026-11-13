@@ -4,14 +4,16 @@
 // `Prompt: Product owner` doc. No token limit (PLA-21). PLA-I32-2: the PO comes
 // with its team, Research, Artist and Taller (research-<slug>, ...), all with project_id and role_template. Nothing is queued:
 // the PO's first wake comes when Jorge resumes the project (project.runs_resumed, src/runner/events.ts).
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agents, docs, projects } from "../db/schema.js";
+import { projects } from "../db/schema.js";
 import { setGoal } from "../mcp/goals.js";
 import { setProject } from "../mcp/project.js";
 import { setAgent } from "../mcp/team.js";
 import { webCtx, writeTx } from "../mcp/tx.js";
-import { PROMPT_DOCS } from "./limits.js";
+import { pgStore, readerOf } from "../store/pg.js";
+import { COMPANY, PROMPT_DOCS } from "./limits.js";
 import { CORE_TEMPLATES, ensureTeam, teamSlug } from "./team.js";
 
 // Where the role prompt docs live; the runner reads them from the same project.
@@ -54,29 +56,26 @@ export async function createProjectFromTemplate(db: Db, input: { name: string; g
   if (!slug) return { error: "INVALID_BODY", status: 400, field: "name" };
   const po = `po-${slug}`;
 
-  const [existing] = await db.select({ id: projects.id }).from(projects).where(eq(projects.slug, slug)).limit(1);
+  const r = readerOf(db);
+  const existing = await r.get("projects", { slug });
   if (existing) return { error: "PROJECT_EXISTS", status: 409, slug };
   const team = CORE_TEMPLATES.map((t) => teamSlug(t, slug));
-  const [teamTaken] = await db.select({ id: agents.id }).from(agents).where(inArray(agents.slug, team)).limit(1);
+  const teamTaken = await r.get("agents", { slug: team });
   if (teamTaken) return { error: "PROJECT_EXISTS", status: 409, slug };
 
-  const [prompt] = await db
-    .select({ id: docs.id })
-    .from(docs)
-    .innerJoin(projects, eq(projects.id, docs.projectId))
-    .where(and(eq(projects.slug, promptsProject()), isNull(docs.taskId), eq(docs.title, PROMPT_DOCS["product-owner"])))
-    .limit(1);
+  const prompts = await r.get("projects", { slug: promptsProject() });
+  const prompt = prompts ? await r.get("docs", { projectId: prompts.id, taskId: null, title: PROMPT_DOCS["product-owner"] }) : undefined;
   if (!prompt) return { error: "PROMPT_DOC_MISSING", status: 409 };
 
-  const taken = new Set((await db.select({ p: projects.keyPrefix }).from(projects)).map((r) => r.p));
+  const taken = new Set((await r.find("projects")).map((p) => p.keyPrefix));
   const keyPrefix = prefixCandidates(slug).find((c) => !taken.has(c)) ?? `${slug.slice(0, 1).toUpperCase()}${Date.now() % 100}`;
 
-  const [ceo] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, "ceo")).limit(1);
-  const [created] = await db
-    .insert(projects)
-    .values({ slug, title: name, keyPrefix, runsPaused: true, runsPausedAt: new Date(), settings: { plan_approval: true } })
-    .returning();
-  const project = created!;
+  const ceo = await r.get("agents", { slug: "ceo" });
+  // The new project's id is chosen here, so its first write is already its own.
+  const id = randomUUID();
+  const project = await pgStore(db).write(id, {}, (uow) =>
+    uow.insert("projects", { id, slug, title: name, keyPrefix, runsPaused: true, runsPausedAt: uow.now, settings: { plan_approval: true } }),
+  );
   try {
     const ctx = { ...webCtx, tool: "screen.new_project" };
     await writeTx(db, project, ctx, async (_tx, emit) => {
@@ -99,7 +98,9 @@ export async function createProjectFromTemplate(db: Db, input: { name: string; g
     });
     await ensureTeam(db, { id: project.id, slug, title: name });
   } catch (err) {
-    await db.delete(agents).where(inArray(agents.slug, team));
+    await pgStore(db).write(COMPANY, {}, (uow) => uow.delete("agents", { slug: team }));
+    // Left on Drizzle on purpose: deleting a project relies on the foreign keys' cascades (its tasks, events,
+    // goals, threads...), which the store port does not do.
     await db.delete(projects).where(eq(projects.id, project.id));
     throw err;
   }

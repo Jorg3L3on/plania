@@ -16,11 +16,11 @@
 //   prompt gives to Asistente's own runs, which ask through MCP; the server does not guess them.
 // Every line is plain Spanish for the Compañía page. No money anywhere: tokens and percents only.
 import { hostname } from "node:os";
-import { and, asc, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agentRuns, agents, events, projects, questions, tasks, threadMessages, type Actor, type Project } from "../db/schema.js";
+import type { Actor, Project } from "../db/schema.js";
 import { ask } from "../mcp/questions.js";
-import { writeTx } from "../mcp/tx.js";
+import { writeTx, type Q } from "../mcp/tx.js";
+import { pgStore, readerOf, uowOf } from "../store/pg.js";
 import { lastReading, loadSettings, planView, roleOf, screenTz } from "./limits.js";
 import { asistenteAgent, enqueueWake, eventWakesEnabled } from "./events.js";
 import { projectGoal } from "./runner.js";
@@ -73,23 +73,33 @@ export const failureSignature = (summary: string): string =>
     .replace(/\s+/g, " ")
     .trim();
 
+// The newest event of a type, anywhere.
+async function latestEvent(db: Q, type: string) {
+  const [row] = await readerOf(db).find("events", { type }, { orderBy: [{ column: "id", desc: true }], limit: 1 });
+  return row;
+}
+
 // Quiet and stuck look only at projects the company runs (switch on): a paused project is quiet on purpose.
 async function quietAndStuck(db: Db, now: Date): Promise<{ quiet: string[]; stuck: string[] }> {
-  const running = await db.select().from(projects).where(eq(projects.runsPaused, false)).orderBy(asc(projects.slug));
+  const r = readerOf(db);
+  const running = await r.find("projects", { runsPaused: false }, { orderBy: [{ column: "slug" }] });
   const quiet: string[] = [];
   const stuck: string[] = [];
   for (const p of running) {
-    const [last] = await db.select({ at: events.createdAt }).from(events).where(eq(events.projectId, p.id)).orderBy(desc(events.id)).limit(1);
-    const since = last ? now.getTime() - last.at.getTime() : Infinity;
+    const [last] = await r.find("events", { projectId: p.id }, { orderBy: [{ column: "id", desc: true }], limit: 1 });
+    const since = last ? now.getTime() - last.createdAt.getTime() : Infinity;
     if (since > QUIET_HOURS * HOUR) {
       quiet.push(last ? `${nameOf(p)} lleva ${Math.floor(since / (24 * HOUR))} días sin movimiento.` : `${nameOf(p)} no tiene movimiento todavía.`);
     }
-    const rows = await db.execute<{ key: string; last_at: Date | null }>(sql`
-      select t.key, (select max(e.created_at) from events e where e.task_id = t.id) as last_at
-      from tasks t
-      where t.project_id = ${p.id} and t.kind = 'ticket' and t.status = 'In progress'
-      order by t.key`);
-    const old = rows.rows.filter((r) => !r.last_at || now.getTime() - new Date(r.last_at).getTime() > STUCK_HOURS * HOUR);
+    // Each ticket In progress, by key, with its newest event.
+    const tickets = await r.find("tasks", { projectId: p.id, kind: "ticket", status: "In progress" }, { orderBy: [{ column: "key" }] });
+    const lastAt = new Map<string, Date>();
+    for (const e of await r.find("events", { taskId: tickets.map((t) => t.id) })) {
+      const seen = lastAt.get(e.taskId!);
+      if (!seen || e.createdAt > seen) lastAt.set(e.taskId!, e.createdAt);
+    }
+    const rows = tickets.map((t) => ({ key: t.key, last_at: lastAt.get(t.id) ?? null }));
+    const old = rows.filter((r) => !r.last_at || now.getTime() - new Date(r.last_at).getTime() > STUCK_HOURS * HOUR);
     if (old.length > 0) {
       const first = old[0]!;
       const hours = first.last_at ? Math.floor((now.getTime() - new Date(first.last_at).getTime()) / HOUR) : null;
@@ -102,24 +112,18 @@ async function quietAndStuck(db: Db, now: Date): Promise<{ quiet: string[]; stuc
 
 // The last two ended runs of one agent on one ticket both failed the same way.
 async function repeatedFailures(db: Db, now: Date): Promise<{ line: string; ask: RepeatedFailure | null }[]> {
-  const rows = await db
-    .select({
-      id: agentRuns.id,
-      agentId: agentRuns.agentId,
-      agent: agents.slug,
-      projectId: agentRuns.projectId,
-      project: projects.slug,
-      projectTitle: projects.title,
-      taskKey: agentRuns.taskKey,
-      status: agentRuns.status,
-      summary: agentRuns.summary,
-      endedAt: agentRuns.endedAt,
-    })
-    .from(agentRuns)
-    .innerJoin(agents, eq(agents.id, agentRuns.agentId))
-    .innerJoin(projects, eq(projects.id, agentRuns.projectId))
-    .where(and(inArray(agentRuns.status, ["ok", "fail", "stopped"]), gte(agentRuns.endedAt, new Date(now.getTime() - 7 * 24 * HOUR))))
-    .orderBy(desc(agentRuns.endedAt));
+  // The week's ended runs, newest first, with their agent's slug and project (a run missing either is left out).
+  const r = readerOf(db);
+  const agentSlugs = new Map((await r.find("agents")).map((a) => [a.id, a.slug]));
+  const projectsById = new Map((await r.find("projects")).map((p) => [p.id, p]));
+  const since = now.getTime() - 7 * 24 * HOUR;
+  const rows = [];
+  for (const run of await r.find("agentRuns", { status: ["ok", "fail", "stopped"] }, { orderBy: [{ column: "endedAt", desc: true }] })) {
+    const agent = agentSlugs.get(run.agentId);
+    const p = projectsById.get(run.projectId);
+    if (!run.endedAt || run.endedAt.getTime() < since || agent === undefined || !p) continue;
+    rows.push({ id: run.id, agentId: run.agentId, agent, projectId: run.projectId, project: p.slug, projectTitle: p.title, taskKey: run.taskKey, status: run.status, summary: run.summary, endedAt: run.endedAt });
+  }
   const groups = new Map<string, typeof rows>();
   for (const r of rows) {
     const key = `${r.agentId}|${r.projectId}|${r.taskKey ?? ""}`;
@@ -152,36 +156,31 @@ export const findingLines = (f: Findings): string[] => [...f.repeated.map((r) =>
 
 export async function buildBrief(db: Db, now: Date): Promise<string[]> {
   const settings = await loadSettings(db);
-  const all = await db.select().from(projects).orderBy(asc(projects.slug));
+  const r = readerOf(db);
+  const all = await r.find("projects", {}, { orderBy: [{ column: "slug" }] });
   const lines: string[] = [];
   const on = all.filter((p) => !p.runsPaused);
   if (settings.companyPaused) lines.push("La compañía está en pausa: no arranca ninguna corrida.");
   else if (on.length === 0) lines.push("Todos los proyectos están en pausa: no arranca ninguna corrida.");
   else lines.push(`Corren ${plural(on.length, "proyecto", "proyectos")}: ${on.map(nameOf).join(", ")}.`);
 
-  const runs = await db.execute<{ total: number; ok: number; fail: number; tokens: string | null }>(sql`
-    select count(*)::int as total,
-           count(*) filter (where status = 'ok')::int as ok,
-           count(*) filter (where status = 'fail')::int as fail,
-           coalesce(sum(tokens_total), 0)::bigint as tokens
-    from agent_runs
-    where status in ('ok', 'fail', 'stopped') and ended_at >= ${new Date(now.getTime() - 24 * HOUR).toISOString()}::timestamptz`);
-  const r = runs.rows[0];
-  if (r && r.total > 0) {
-    lines.push(`Últimas 24 h: ${plural(r.total, "corrida", "corridas")} (${r.ok} bien, ${r.fail} con fallo), ${n(Number(r.tokens ?? 0))} tokens.`);
+  // The last 24 hours of ended runs.
+  const day = now.getTime() - 24 * HOUR;
+  const ended = (await r.find("agentRuns", { status: ["ok", "fail", "stopped"] })).filter((run) => run.endedAt && run.endedAt.getTime() >= day);
+  if (ended.length > 0) {
+    const ok = ended.filter((run) => run.status === "ok").length;
+    const fail = ended.filter((run) => run.status === "fail").length;
+    const tokens = ended.reduce((sum, run) => sum + Number(run.tokensTotal), 0);
+    lines.push(`Últimas 24 h: ${plural(ended.length, "corrida", "corridas")} (${ok} bien, ${fail} con fallo), ${n(tokens)} tokens.`);
   }
 
   lines.push(...findingLines(await findings(db, now)));
 
-  const accepted = await db
-    .select({ key: events.taskKey })
-    .from(events)
-    .where(and(eq(events.type, "asistente.accepted"), gte(events.createdAt, new Date(now.getTime() - 24 * HOUR))))
-    .orderBy(asc(events.id));
+  const accepted = (await r.find("events", { type: "asistente.accepted" }, { orderBy: [{ column: "id" }] })).filter((e) => e.createdAt.getTime() >= day).map((e) => ({ key: e.taskKey }));
   if (accepted.length > 0) lines.push(`Acepté ${plural(accepted.length, "entregable de rutina", "entregables de rutina")}: ${accepted.map((a) => a.key).join(", ")}.`);
 
-  const [open] = await db.select({ n: sql<number>`count(*)::int` }).from(questions).where(isNull(questions.answeredAt));
-  if ((open?.n ?? 0) > 0) lines.push(`${plural(open!.n, "pregunta te espera", "preguntas te esperan")} en Solo tú.`);
+  const open = await r.count("questions", { answeredAt: null });
+  if (open > 0) lines.push(`${plural(open, "pregunta te espera", "preguntas te esperan")} en Solo tú.`);
 
   const plan = planView(await lastReading(db), settings.planGuardPct, now, settings.guardOverride);
   if (plan.state !== "unknown" && plan.five_hour_pct != null) lines.push(`Plan: la ventana de 5 h va al ${plan.five_hour_pct} % (guardia en ${plan.guard_pct} %).`);
@@ -189,14 +188,14 @@ export async function buildBrief(db: Db, now: Date): Promise<string[]> {
 }
 
 export async function latestBrief(db: Db): Promise<Brief | null> {
-  const [row] = await db.select({ payload: events.payload }).from(events).where(eq(events.type, "asistente.brief")).orderBy(desc(events.id)).limit(1);
+  const row = await latestEvent(db, "asistente.brief");
   const p = row?.payload as { lines?: unknown; generated_at?: unknown } | undefined;
   if (!p || !Array.isArray(p.lines) || typeof p.generated_at !== "string") return null;
   return { lines: p.lines.filter((l): l is string => typeof l === "string"), generated_at: p.generated_at };
 }
 
 async function briefDate(db: Db): Promise<string | null> {
-  const [row] = await db.select({ payload: events.payload }).from(events).where(eq(events.type, "asistente.brief")).orderBy(desc(events.id)).limit(1);
+  const row = await latestEvent(db, "asistente.brief");
   const date = (row?.payload as { date?: unknown } | undefined)?.date;
   return typeof date === "string" ? date : null;
 }
@@ -211,16 +210,13 @@ export function resetAsistenteForTests(): void {
 export type AsistenteDeps = { tz?: string; env?: NodeJS.ProcessEnv };
 
 async function askOnce(db: Db, f: RepeatedFailure): Promise<boolean> {
-  const [project] = await db.select().from(projects).where(eq(projects.slug, f.project)).limit(1);
+  const r = readerOf(db);
+  const project = await r.get("projects", { slug: f.project });
   if (!project) return false;
-  const [task] = await db.select({ id: tasks.id, status: tasks.status }).from(tasks).where(and(eq(tasks.projectId, project.id), eq(tasks.key, f.taskKey))).limit(1);
+  const task = await r.get("tasks", { projectId: project.id, key: f.taskKey });
   if (!task) return false;
   // One open question from Asistente on the ticket is enough; it already sits in Solo tú.
-  const [open] = await db
-    .select({ id: questions.id })
-    .from(questions)
-    .where(and(eq(questions.taskId, task.id), isNull(questions.answeredAt), sql`${questions.askedBy}->>'agent' = ${ASISTENTE_ACTOR.agent}`))
-    .limit(1);
+  const open = (await r.find("questions", { taskId: task.id, answeredAt: null })).some((q) => q.askedBy?.agent === ASISTENTE_ACTOR.agent);
   if (open) return false;
   try {
     await ask(
@@ -269,13 +265,10 @@ export async function queueAsistente(db: Db, home: Project, reason: string, env:
       return out.runId;
     }
     if (out.reason !== "coalesced") return null;
-    const [queued] = await tx
-      .select({ id: agentRuns.id, summary: agentRuns.summary })
-      .from(agentRuns)
-      .where(and(eq(agentRuns.agentId, agent.id), eq(agentRuns.status, "queued")))
-      .limit(1);
+    const uow = uowOf(tx);
+    const queued = await uow.get("agentRuns", { agentId: agent.id, status: "queued" });
     if (!queued) return null;
-    await tx.update(agentRuns).set({ summary: `${queued.summary}; ${reason}`.slice(0, 500) }).where(eq(agentRuns.id, queued.id));
+    await uow.update("agentRuns", { id: queued.id }, { summary: `${queued.summary}; ${reason}`.slice(0, 500) });
     return queued.id;
   });
 }
@@ -292,10 +285,7 @@ async function serverBrief(db: Db, home: Project, date: string, now: Date, why: 
 }
 
 async function briefEvents(db: Db, date: string): Promise<{ done: boolean; runId: string | null }> {
-  const rows = await db
-    .select({ type: events.type, payload: events.payload })
-    .from(events)
-    .where(and(inArray(events.type, ["asistente.brief", "asistente.brief_run"]), sql`${events.payload}->>'date' = ${date}`));
+  const rows = (await readerOf(db).find("events", { type: ["asistente.brief", "asistente.brief_run"] })).filter((e) => e.payload.date === date);
   const run = rows.find((r) => r.type === "asistente.brief_run");
   return { done: rows.some((r) => r.type === "asistente.brief"), runId: (run?.payload as { run_id?: string } | undefined)?.run_id ?? null };
 }
@@ -316,7 +306,7 @@ async function brief(db: Db, home: Project, date: string, now: Date, env: NodeJS
     out.brief = 1;
     return;
   }
-  const [run] = await db.select({ status: agentRuns.status, queuedAt: agentRuns.queuedAt }).from(agentRuns).where(eq(agentRuns.id, state.runId)).limit(1);
+  const run = await readerOf(db).get("agentRuns", { id: state.runId });
   if (run?.status === "ok") {
     await writeTx(db, home, { ...actorCtx("jobs.asistente"), requestId: `asistente:brief:${date}` }, async (_tx, emit) => {
       await emit("asistente.brief", null, { date, lines: [], generated_at: now.toISOString(), source: "run", run_id: state.runId });
@@ -334,28 +324,36 @@ async function brief(db: Db, home: Project, date: string, now: Date, env: NodeJS
 // A PO's ticket that Jorge asked for (origin jorge), ops or research, In review with every check done or
 // waived: Asistente accepts it (Done), says so in the project thread and lists it in the next brief.
 export async function routineAccept(db: Db, now: Date): Promise<number> {
-  const rows = await db.execute<{ id: string; key: string; title: string; version: number; project: string; project_id: string; owner: string }>(sql`
-    select t.id, t.key, t.title, t.version, p.slug as project, p.id as project_id, t.owner_agent as owner
-    from tasks t join projects p on p.id = t.project_id
-    where t.kind = 'ticket' and t.status = 'In review' and t.origin = 'jorge' and t.work_type in ('ops', 'research') and t.owner_agent is not null
-      and not exists (select 1 from checks c where c.task_id = t.id and not c.done and c.waived_at is null)
-    order by t.key`);
+  // Every candidate first, by key, then the moves (as the one SQL read did).
+  const reader = readerOf(db);
+  const rows: { id: string; key: string; title: string; version: number; project: string; project_id: string; owner: string }[] = [];
+  for (const t of await reader.find("tasks", { kind: "ticket", status: "In review", origin: "jorge", workType: ["ops", "research"] }, { orderBy: [{ column: "key" }] })) {
+    if (!t.ownerAgent) continue;
+    const p = await reader.get("projects", { id: t.projectId });
+    if (!p) continue;
+    // Every check done or waived.
+    if ((await reader.find("checks", { taskId: t.id })).some((c) => !c.done && c.waivedAt === null)) continue;
+    rows.push({ id: t.id, key: t.key, title: t.title, version: t.version, project: p.slug, project_id: p.id, owner: t.ownerAgent });
+  }
   let n = 0;
-  for (const r of rows.rows) {
-    const [owner] = await db.select().from(agents).where(eq(agents.id, r.owner)).limit(1);
+  for (const r of rows) {
+    const owner = await reader.get("agents", { id: r.owner });
     if (!owner || roleOf(owner) !== "product-owner") continue;
     try {
       await setTask(db, { project: r.project, key: r.key, status: "Done", version: r.version, note: "Aceptado por Asistente: lo pidió Jorge y sus checks están hechos." } as never, actorCtx("jobs.asistente.accept"));
     } catch {
       continue;
     }
-    const [project] = await db.select().from(projects).where(eq(projects.id, r.project_id)).limit(1);
+    const project = await reader.get("projects", { id: r.project_id });
     const thread = await projectThread(db, r.project_id);
     const at = now.toISOString();
-    await db
-      .update(threadMessages)
-      .set({ actionState: { action: "aceptar", at, result: { ticket: r.key, status: "Done", by: "asistente" } } })
-      .where(and(eq(threadMessages.threadId, thread.id), sql`${threadMessages.actionState} is null`, sql`${threadMessages.links} @> ${JSON.stringify([{ kind: "ticket", ref: r.key }])}::jsonb`));
+    // The thread's messages that link this ticket and nobody acted on yet get Asistente's acceptance.
+    await pgStore(db).write(r.project_id, {}, async (uow) => {
+      for (const m of await uow.find("threadMessages", { threadId: thread.id, actionState: null })) {
+        if (!m.links.some((l) => l.kind === "ticket" && l.ref === r.key)) continue;
+        await uow.update("threadMessages", { id: m.id, actionState: null }, { actionState: { action: "aceptar", at, result: { ticket: r.key, status: "Done", by: "asistente" } } });
+      }
+    });
     await postMessage(
       db,
       { thread, project: project! },
@@ -376,23 +374,16 @@ const OPEN_FOR_PO = ["Ready", "In progress", "Needs Jorge"];
 // is woken once a week at most to put 2-3 ideas in its project thread and ask Jorge which one.
 export async function idleProposals(db: Db, env: NodeJS.ProcessEnv, now: Date): Promise<number> {
   if (!eventWakesEnabled(env)) return 0;
+  const r = readerOf(db);
   let n = 0;
-  for (const p of await db.select().from(projects).where(eq(projects.runsPaused, false)).orderBy(asc(projects.slug))) {
+  for (const p of await r.find("projects", { runsPaused: false }, { orderBy: [{ column: "slug" }] })) {
     if (!(await projectGoal(db, p.id))) continue;
-    const pos = (await db.select().from(agents).where(and(eq(agents.adapter, "claude_code"), sql`${agents.status} <> 'retired'`))).filter((a) => roleOf(a) === "product-owner");
+    const pos = (await r.find("agents", { adapter: "claude_code" })).filter((a) => a.status !== "retired" && roleOf(a) === "product-owner");
     const po = pos.find((a) => a.projectId === p.id) ?? pos.find((a) => !a.projectId && (a.slug === `po-${p.slug}` || a.capabilities.includes(p.slug)));
     if (!po) continue;
-    const [work] = await db
-      .select({ id: tasks.id })
-      .from(tasks)
-      .where(and(eq(tasks.projectId, p.id), eq(tasks.ownerAgent, po.id), eq(tasks.kind, "ticket"), inArray(tasks.status, OPEN_FOR_PO)))
-      .limit(1);
+    const work = await r.get("tasks", { projectId: p.id, ownerAgent: po.id, kind: "ticket", status: OPEN_FOR_PO });
     if (work) continue;
-    const [recent] = await db
-      .select({ id: events.id })
-      .from(events)
-      .where(and(eq(events.projectId, p.id), eq(events.type, "po.propose_queued"), gte(events.createdAt, new Date(now.getTime() - WEEK_MS))))
-      .limit(1);
+    const recent = (await r.find("events", { projectId: p.id, type: "po.propose_queued" })).some((e) => e.createdAt.getTime() >= now.getTime() - WEEK_MS);
     if (recent) continue;
     const queued = await writeTx(db, p, actorCtx("jobs.asistente.propose"), async (tx, emit) => {
       const out = await enqueueWake(tx, { agent: po, project: p, taskKey: null, reason: "idle with a goal: propose 2-3 ideas in the project thread and ask Jorge to pick one", now });
@@ -427,7 +418,7 @@ export async function runAsistente(db: Db, now = new Date(), deps: AsistenteDeps
     for (const r of f.repeated) if (r.ask && (await askOnce(db, r.ask))) out.asks += 1;
     const lines = findingLines(f);
     if (home && lines.length > 0) {
-      const [prev] = await db.select({ payload: events.payload }).from(events).where(eq(events.type, "asistente.check")).orderBy(desc(events.id)).limit(1);
+      const prev = await latestEvent(db, "asistente.check");
       const prevLines = (prev?.payload as { lines?: unknown } | undefined)?.lines;
       if (JSON.stringify(prevLines) !== JSON.stringify(lines)) {
         await writeTx(db, home, { ...actorCtx("jobs.asistente"), requestId: `asistente:check:${slot}` }, async (_tx, emit) => {

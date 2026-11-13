@@ -16,11 +16,11 @@
 // check (switches, cooldown, goal, base branch, plan guard, cap). Coalescing: an agent with a
 // queued or running run gets nothing new. A company or project switch that is off enqueues nothing.
 // Off unless the heartbeat job runs (PLANIA_JOBS=1), so nothing waits in a queue nobody drains.
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { agentRuns, agents, events, projects, taskBlockers, tasks, type Actor, type Agent } from "../db/schema.js";
-import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
+import type { Actor, Agent, AgentRun } from "../db/schema.js";
+import { unsatisfiedBlockers } from "../mcp/blockers.js";
 import type { Q } from "../mcp/tx.js";
-import { loadSettings, roleOf, type RunnerRole } from "./limits.js";
+import { readerOf, uowOf } from "../store/pg.js";
+import { loadSettings, roleOf, writeVia, type RunnerRole } from "./limits.js";
 
 export const EVENT_SUMMARY = "queued: event";
 const RUNNER_ADAPTER = "claude_code";
@@ -41,11 +41,23 @@ export type EventWake =
 type ProjectRef = { id: string; slug: string };
 type TaskRef = { id: string; key: string } | null;
 
+// The runner's agents that are not retired, by slug.
+async function runnerAgents(tx: Q): Promise<Agent[]> {
+  return (await readerOf(tx).find("agents", { adapter: RUNNER_ADAPTER }, { orderBy: [{ column: "slug" }] })).filter((a) => a.status !== "retired");
+}
+
+// The run behind a runner session, run-<first 8 of its agent_runs id>; null for any other session.
+export async function runOfSession(tx: Q, sessionId: string | null | undefined): Promise<AgentRun | null> {
+  const m = /^run-([0-9a-f]{8})$/.exec(sessionId ?? "");
+  if (!m) return null;
+  return (await readerOf(tx).find("agentRuns")).find((r) => r.id.startsWith(m[1]!)) ?? null;
+}
+
 // PLA-I32-5: the runner agent for a role in a project is that project's team member (project_id). Only when
 // the project has no such member does a company-level row (no project, before 0041) take it: the one named
 // after the role first, else the first by slug. A member of another project's team never does.
 export async function serviceAgent(tx: Q, role: RunnerRole, project: ProjectRef): Promise<Agent | null> {
-  const rows = await tx.select().from(agents).where(and(eq(agents.adapter, RUNNER_ADAPTER), sql`${agents.status} <> 'retired'`)).orderBy(asc(agents.slug));
+  const rows = await runnerAgents(tx);
   const matching = rows.filter((a) => roleOf(a) === role);
   const team = matching.filter((a) => a.projectId === project.id);
   if (team.length) return team[0]!;
@@ -57,33 +69,26 @@ export async function serviceAgent(tx: Q, role: RunnerRole, project: ProjectRef)
 // actor's agent may be a roster slug.
 export async function agentOfActor(tx: Q, actor: Actor | null | undefined): Promise<Agent | null> {
   if (!actor) return null;
-  const m = /^run-([0-9a-f]{8})$/.exec(actor.session_id ?? "");
-  if (m) {
-    const [run] = await tx
-      .select({ agentId: agentRuns.agentId })
-      .from(agentRuns)
-      .where(sql`${agentRuns.id}::text like ${`${m[1]}%`}`)
-      .limit(1);
-    if (run) {
-      const [row] = await tx.select().from(agents).where(eq(agents.id, run.agentId)).limit(1);
-      if (row) return row;
-    }
+  const r = readerOf(tx);
+  const run = await runOfSession(tx, actor.session_id);
+  if (run) {
+    const row = await r.get("agents", { id: run.agentId });
+    if (row) return row;
   }
   const slug = (actor.agent ?? "").trim().toLowerCase();
   if (!slug) return null;
-  const [row] = await tx.select().from(agents).where(eq(agents.slug, slug)).limit(1);
-  return row ?? null;
+  return (await r.get("agents", { slug })) ?? null;
 }
 
 // PLA-I32-3: the chief of staff on the runner (role_template asistente, else the old rules).
 export async function asistenteAgent(tx: Q): Promise<Agent | null> {
-  const rows = await tx.select().from(agents).where(and(eq(agents.adapter, RUNNER_ADAPTER), sql`${agents.status} <> 'retired'`)).orderBy(asc(agents.slug));
+  const rows = await runnerAgents(tx);
   const matching = rows.filter((a) => roleOf(a) === "asistente");
   return matching.find((a) => a.slug === "asistente") ?? matching[0] ?? null;
 }
 
 async function poOf(tx: Q, project: ProjectRef): Promise<Agent | null> {
-  const rows = await tx.select().from(agents).where(and(eq(agents.adapter, RUNNER_ADAPTER), sql`${agents.status} <> 'retired'`)).orderBy(asc(agents.slug));
+  const rows = await runnerAgents(tx);
   const pos = rows.filter((a) => roleOf(a) === "product-owner");
   return (
     pos.find((a) => a.projectId === project.id) ??
@@ -99,23 +104,18 @@ async function poOf(tx: Q, project: ProjectRef): Promise<Agent | null> {
 // other blocker holding. Several freed at once: the project's next_first, then priority, phase, key.
 export async function freedBy(tx: Q, project: ProjectRef, landedId: string, taller: Agent | null): Promise<string | null> {
   if (!taller) return null;
-  const rows = await tx
-    .select({ key: tasks.key, title: tasks.title, priority: tasks.priority, phase: tasks.phase, workType: tasks.workType, ownerAgent: tasks.ownerAgent })
-    .from(tasks)
-    .innerJoin(taskBlockers, and(eq(taskBlockers.taskId, tasks.id), eq(taskBlockers.blockerId, landedId)))
-    .where(
-      and(
-        eq(tasks.projectId, project.id),
-        eq(tasks.kind, "ticket"),
-        eq(tasks.status, "Ready"),
-        sql`not ${hasUnsatisfiedBlocker(tasks.id)}`,
-        sql`not exists (
-          select 1 from ${taskBlockers} tb join ${tasks} b on b.id = tb.blocker_id
-          where tb.task_id = ${tasks.id} and tb.blocker_id <> ${landedId}::uuid and b.status not in ('Merged', 'Released', 'Done')
-        )`,
-      ),
-    );
-  const [p] = await tx.select({ settings: projects.settings }).from(projects).where(eq(projects.id, project.id)).limit(1);
+  const r = readerOf(tx);
+  const waiting = (await r.find("taskBlockers", { blockerId: landedId })).map((b) => b.taskId);
+  const rows = [];
+  for (const t of await r.find("tasks", { id: waiting, projectId: project.id, kind: "ticket", status: "Ready" })) {
+    if ((await unsatisfiedBlockers(tx, t)).length > 0) continue;
+    // Every other ticket it waits on has landed too.
+    const others = (await r.find("taskBlockers", { taskId: t.id })).map((b) => b.blockerId).filter((id) => id !== landedId);
+    const pending = await r.find("tasks", { id: others });
+    if (pending.some((b) => !LANDED.has(b.status))) continue;
+    rows.push(t);
+  }
+  const p = await r.get("projects", { id: project.id });
   const first = p?.settings.next_first;
   const rank = (priority: string | null) => (PRIORITY.includes(priority ?? "") ? PRIORITY.indexOf(priority!) : PRIORITY.length);
   const mine = rows
@@ -143,28 +143,28 @@ export async function enqueueWake(
   const settings = await loadSettings(tx);
   if (settings.companyPaused) return { kind: "none", reason: "company paused" };
   // Asistente works for the company: its home project's switch does not hold it (the company switch does).
-  const [p] = await tx.select({ paused: projects.runsPaused }).from(projects).where(eq(projects.id, project.id)).limit(1);
-  if (!p || (p.paused && role !== "asistente")) return { kind: "none", reason: `project ${project.slug} paused` };
-  const [busy] = await tx
-    .select({ id: agentRuns.id })
-    .from(agentRuns)
-    .where(and(eq(agentRuns.agentId, agent.id), inArray(agentRuns.status, ["queued", "running"])))
-    .limit(1);
+  const r = readerOf(tx);
+  const p = await r.get("projects", { id: project.id });
+  if (!p || (p.runsPaused && role !== "asistente")) return { kind: "none", reason: `project ${project.slug} paused` };
+  const busy = await r.get("agentRuns", { agentId: agent.id, status: ["queued", "running"] });
   if (busy) return { kind: "none", reason: "coalesced" };
-  const [row] = await tx
-    .insert(agentRuns)
-    .values({
-      agentId: agent.id,
-      projectId: project.id,
-      taskKey: input.taskKey,
-      role,
-      status: "queued",
-      summary: `${EVENT_SUMMARY} ${input.reason}`.slice(0, 500),
-      queuedAt: input.now ?? new Date(),
-      reserveTokens: settings.reserveTokens,
-    })
-    .returning({ id: agentRuns.id });
-  return { kind: "queued", runId: row!.id, agent: agent.slug, role, taskKey: input.taskKey, reason: input.reason };
+  // Inside the caller's write; a caller outside any write (a screen action) gets a write of its own.
+  const row = await writeVia(
+    tx,
+    (uow) =>
+      uow.insert("agentRuns", {
+        agentId: agent.id,
+        projectId: project.id,
+        taskKey: input.taskKey,
+        role,
+        status: "queued",
+        summary: `${EVENT_SUMMARY} ${input.reason}`.slice(0, 500),
+        queuedAt: input.now ?? uow.now,
+        reserveTokens: settings.reserveTokens,
+      }),
+    project.id,
+  );
+  return { kind: "queued", runId: row.id, agent: agent.slug, role, taskKey: input.taskKey, reason: input.reason };
 }
 
 // What an emitted event should wake, if anything. Read-only; enqueueWake decides the rest.
@@ -192,15 +192,12 @@ async function targetOf(
     (type === "task.status" && payload.to === "Ready" && payload.from !== "Ready") ||
     (type === "task.created" && payload.kind === "ticket" && payload.status === "Ready") ||
     runnerLeaseExpired;
+  const r = readerOf(tx);
   if (readyNow) {
-    const [t] = await tx
-      .select({ kind: tasks.kind, title: tasks.title, workType: tasks.workType, ownerAgent: tasks.ownerAgent })
-      .from(tasks)
-      .where(eq(tasks.id, task.id))
-      .limit(1);
+    const t = await r.get("tasks", { id: task.id });
     if (!t || t.kind !== "ticket" || t.title.includes("[PRUEBA]")) return null;
     if (t.ownerAgent) {
-      const [owner] = await tx.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
+      const owner = await r.get("agents", { id: t.ownerAgent });
       if (owner && roleOf(owner) === "product-owner") return { agent: owner, taskKey: task.key, reason: "ticket ready" };
     }
     if (type === "task.created") return null;
@@ -222,16 +219,16 @@ async function targetOf(
   if (type === "question.asked") {
     const id = typeof payload.question_id === "string" ? payload.question_id : null;
     if (!id || payload.human_only === true) return null;
-    const [q] = await tx.execute<{ asked_by: Actor }>(sql`select asked_by from questions where id = ${id}::uuid limit 1`).then((r) => r.rows);
-    const asker = await agentOfActor(tx, q?.asked_by);
+    const q = await r.get("questions", { id });
+    const asker = await agentOfActor(tx, q?.askedBy);
     if (!asker || roleOf(asker) !== "product-owner") return null;
     return { agent: await asistenteAgent(tx), taskKey: task.key, reason: `question from ${asker.slug}` };
   }
   if (type === "question.answered") {
     const id = typeof payload.question_id === "string" ? payload.question_id : null;
     if (!id) return null;
-    const [q] = await tx.execute<{ asked_by: Actor }>(sql`select asked_by from questions where id = ${id}::uuid limit 1`).then((r) => r.rows);
-    return { agent: await agentOfActor(tx, q?.asked_by), taskKey: task.key, reason: "question answered" };
+    const q = await r.get("questions", { id });
+    return { agent: await agentOfActor(tx, q?.askedBy), taskKey: task.key, reason: "question answered" };
   }
   if (type === "task.updated") {
     const stage = (payload.changes as Record<string, unknown> | undefined)?.stage;
@@ -271,7 +268,7 @@ export async function queueWake(
 ): Promise<EventWake> {
   const out = await enqueueWake(tx, { ...target, project });
   if (out.kind === "queued") {
-    await tx.insert(events).values({
+    await uowOf(tx).insert("events", {
       projectId: project.id,
       taskId: task?.id ?? null,
       taskKey: task?.key ?? null,

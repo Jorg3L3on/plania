@@ -1,12 +1,12 @@
 // PLA-I29: what the Compañía page reads (one call), and the writes only Jorge's screen makes:
 // the company and project switches and the runner's knobs. No token budgets (PLA-21).
 // No MCP tool reaches any of these writes.
-import { asc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agentRuns, agents, projects, runnerSettings } from "../db/schema.js";
+import type { RunnerSettings } from "../db/schema.js";
 import { findProject } from "../mcp/queries.js";
 import { webCtx, writeTx } from "../mcp/tx.js";
-import { lastReading, loadSettings, planView, screenTz, weekBounds, weekUsage, type PlanView, type WeekUsage } from "./limits.js";
+import { pgStore, readerOf, uowOf } from "../store/pg.js";
+import { COMPANY, lastReading, loadSettings, planView, screenTz, weekBounds, weekUsage, type PlanView, type WeekUsage } from "./limits.js";
 import { latestBrief, type Brief } from "./asistente.js";
 import { stopLive } from "./runner.js";
 
@@ -38,7 +38,8 @@ export async function companyState(db: Db, now = new Date()): Promise<CompanySta
   const settings = await loadSettings(db);
   const tz = screenTz();
   const { startsAt, resetsAt } = await weekBounds(db, now, tz);
-  const projectRows = await db.select().from(projects).orderBy(asc(projects.slug));
+  const r = readerOf(db);
+  const projectRows = await r.find("projects", {}, { orderBy: [{ column: "slug" }] });
   const projectsOut = [];
   for (const p of projectRows) {
     projectsOut.push({
@@ -50,24 +51,26 @@ export async function companyState(db: Db, now = new Date()): Promise<CompanySta
     });
   }
 
-  const runRows = await db
-    .select({
-      id: agentRuns.id,
-      agent: agents.slug,
-      role: agentRuns.role,
-      project: projects.slug,
-      ticket: agentRuns.taskKey,
-      status: agentRuns.status,
-      queuedAt: agentRuns.queuedAt,
-      startedAt: agentRuns.startedAt,
-      turns: agentRuns.turns,
-      tokens: agentRuns.tokensTotal,
-    })
-    .from(agentRuns)
-    .innerJoin(agents, eq(agents.id, agentRuns.agentId))
-    .innerJoin(projects, eq(projects.id, agentRuns.projectId))
-    .where(inArray(agentRuns.status, ["running", "queued"]))
-    .orderBy(asc(agentRuns.queuedAt));
+  // Live and queued runs, oldest first, with their agent's and project's slugs (a run missing either is left out).
+  const slugOfProject = new Map(projectRows.map((p) => [p.id, p.slug]));
+  const runRows: { id: string; agent: string; role: string; project: string; ticket: string | null; status: string; queuedAt: Date; startedAt: Date | null; turns: number; tokens: number }[] = [];
+  for (const run of await r.find("agentRuns", { status: ["running", "queued"] }, { orderBy: [{ column: "queuedAt" }] })) {
+    const agent = await r.get("agents", { id: run.agentId });
+    const project = slugOfProject.get(run.projectId);
+    if (!agent || project === undefined) continue;
+    runRows.push({
+      id: run.id,
+      agent: agent.slug,
+      role: run.role,
+      project,
+      ticket: run.taskKey,
+      status: run.status,
+      queuedAt: run.queuedAt,
+      startedAt: run.startedAt,
+      turns: run.turns,
+      tokens: run.tokensTotal,
+    });
+  }
   const view = (r: (typeof runRows)[number]): RunView => ({
     id: r.id,
     agent: r.agent,
@@ -104,10 +107,9 @@ export async function companyState(db: Db, now = new Date()): Promise<CompanySta
 // so a project Jorge paused on its own stays paused.
 export async function setCompanyPaused(db: Db, paused: boolean): Promise<{ paused: boolean; stopped: number }> {
   await loadSettings(db);
-  await db
-    .update(runnerSettings)
-    .set({ companyPaused: paused, companyPausedAt: paused ? new Date() : null, updatedAt: sql`now()` })
-    .where(eq(runnerSettings.id, 1));
+  await pgStore(db).write(COMPANY, {}, (uow) =>
+    uow.update("runnerSettings", { id: 1 }, { companyPaused: paused, companyPausedAt: paused ? uow.now : null, updatedAt: uow.now }),
+  );
   const stopped = paused ? stopLive(() => true, "company paused") : 0;
   return { paused, stopped };
 }
@@ -115,10 +117,8 @@ export async function setCompanyPaused(db: Db, paused: boolean): Promise<{ pause
 export async function setProjectPaused(db: Db, slug: string, paused: boolean): Promise<{ project: string; paused: boolean; stopped: number }> {
   const project = await findProject(db, slug);
   await writeTx(db, project, { ...webCtx, tool: "screen.runs_paused" }, async (tx, emit) => {
-    await tx
-      .update(projects)
-      .set({ runsPaused: paused, runsPausedAt: paused ? new Date() : null, updatedAt: sql`now()` })
-      .where(eq(projects.id, project.id));
+    const uow = uowOf(tx);
+    await uow.update("projects", { id: project.id }, { runsPaused: paused, runsPausedAt: paused ? uow.now : null, updatedAt: uow.now });
     await emit(paused ? "project.runs_paused" : "project.runs_resumed", null, {});
   });
   const stopped = paused ? stopLive((run) => run.projectId === project.id && run.role !== "asistente", `project ${project.slug} paused`) : 0;
@@ -138,7 +138,7 @@ export type SettingsPatch = Partial<{
 
 export async function setRunnerSettings(db: Db, patch: SettingsPatch): Promise<CompanyState["settings"]> {
   await loadSettings(db);
-  const set: Record<string, unknown> = { updatedAt: sql`now()` };
+  const set: Partial<RunnerSettings> = {};
   if (patch.max_concurrent !== undefined) set.maxConcurrent = patch.max_concurrent;
   if (patch.cooldown_minutes !== undefined) set.cooldownMinutes = patch.cooldown_minutes;
   if (patch.plan_guard_pct !== undefined) set.planGuardPct = patch.plan_guard_pct;
@@ -146,7 +146,7 @@ export async function setRunnerSettings(db: Db, patch: SettingsPatch): Promise<C
   if (patch.reserve_tokens !== undefined) set.reserveTokens = patch.reserve_tokens;
   if (patch.max_turns !== undefined) set.maxTurns = patch.max_turns;
   if (patch.timeout_minutes !== undefined) set.timeoutMinutes = patch.timeout_minutes;
-  await db.update(runnerSettings).set(set).where(eq(runnerSettings.id, 1));
+  await pgStore(db).write(COMPANY, {}, (uow) => uow.update("runnerSettings", { id: 1 }, { ...set, updatedAt: uow.now }));
   const s = await loadSettings(db);
   return {
     max_concurrent: s.maxConcurrent,
