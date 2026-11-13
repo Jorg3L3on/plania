@@ -220,6 +220,8 @@ export type OrgProject = {
   thread: OrgThreadRef;
   // PLA-I35-1: the card as a report.
   plan: OrgPlan | null;
+  // PLA-I40-3: the delivery as legs; the one marked here carries its named steps.
+  route?: OrgRoute | null;
   this_week: { done: number; docs: number; prs: number; last_at: string | null };
   next: { title: string; key: string; owner: string; due: string | null } | null;
   work: { open: number; in_progress: number };
@@ -229,6 +231,10 @@ export type OrgProject = {
   plan_approval?: boolean;
   preview_url?: string | null;
 };
+export type OrgStepState = "done" | "published" | "delivered" | "working" | "next" | "later";
+export type OrgRouteStep = { key: string; title: string; state: OrgStepState; who: string | null; at: string | null };
+export type OrgRouteLeg = { key: string; title: string; done: number; total: number; state: "done" | "here" | "planned" | "unplanned"; note: string | null; steps?: OrgRouteStep[]; more_steps?: number };
+export type OrgRoute = { legs: OrgRouteLeg[]; more_legs: number };
 // PLA-I36-5: position by calendar. weeks, today_pct, done_pct are null without a delivery date (no bar).
 export type OrgPlan = {
   initiative: { key: string; title: string };

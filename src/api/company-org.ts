@@ -19,7 +19,7 @@ import { decisionsRead, inboxByProject, type Decision } from "./company-decision
 import { ordersOf, type Order } from "./company-orders.js";
 import { loadReadiness } from "../mcp/readiness.js";
 import type { InboxItem } from "../mcp/inbox.js";
-import { ceoAgentId, planOf, readyOf, type QueuedTicket, type ReadyLine, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
+import { ceoAgentId, planOf, readyOf, routeOf, type Route, type QueuedTicket, type ReadyLine, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
 
 const HOUR = 3_600_000;
 const QUIET_HOURS = 48;
@@ -75,6 +75,8 @@ export type ProjectCard = {
   thread: ThreadLine;
   // PLA-I35-1: the card as a report (src/api/company-plan.ts).
   plan: PlanLine | null;
+  // PLA-I40-3: the delivery as legs, the current one with its named steps (src/api/company-plan.ts).
+  route: Route | null;
   this_week: ThisWeek;
   next: NextLine | null;
   // PLA-I36-6: the next Ready tickets, for Cambiar lo siguiente.
@@ -425,6 +427,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       team,
       thread: threadLine(thread),
       plan,
+      route: await routeOf(db, p),
       this_week: await thisWeekOf(db, p, now),
       next: upNext.next,
       ready: upNext.ready,

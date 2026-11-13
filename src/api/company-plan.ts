@@ -10,9 +10,10 @@
 // done_pct how much of the plan's tickets are done. weeks_behind = max(0, round((today_pct - done_pct) * weeks));
 // 0 ok, 1 late, 2 or more bad; forecast_on = delivery + weeks_behind weeks. Without a delivery date there is no
 // bar and no pace: only the active initiative and its tickets done of total.
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agents, tasks, type Project, type Task } from "../db/schema.js";
+import { agents, events, taskBlockers, tasks, type Project, type Task } from "../db/schema.js";
+import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
 import { roleOf } from "../runner/limits.js";
 
 const DAY = 86_400_000;
@@ -98,6 +99,83 @@ export async function planOf(db: Db, p: Project, today = new Date(), goalTarget:
     weeks_behind: cal?.weeks_behind ?? null,
     forecast_on: cal?.forecast_on ?? null,
   };
+}
+
+// PLA-I40-3: the route. The project's open initiatives in the plan's order are its legs; the one the plan stands
+// on (planOf's active initiative, so both counts agree) is "here" and carries its tickets as named steps.
+//   leg   done (every ticket landed), here, planned (has tickets), unplanned (none yet); note says a step that
+//         was put off when only Backlog tickets are left.
+//   step  done (accepted), published (in a release that shipped, or Released), delivered (In review, waits for
+//         the owner), working (In progress), next (the first Ready step nothing holds), later (the rest).
+// At most 8 legs and 12 steps; more_legs and more_steps count what was left out.
+export type StepState = "done" | "published" | "delivered" | "working" | "next" | "later";
+export type RouteStep = { key: string; title: string; state: StepState; who: string | null; at: string | null };
+export type LegState = "done" | "here" | "planned" | "unplanned";
+export type RouteLeg = { key: string; title: string; done: number; total: number; state: LegState; note: string | null; steps?: RouteStep[]; more_steps?: number };
+export type Route = { legs: RouteLeg[]; more_legs: number };
+const MAX_LEGS = 8;
+const MAX_STEPS = 12;
+
+export async function routeOf(db: Db, p: Project): Promise<Route | null> {
+  const open = (await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "initiative")))).filter((t) => OPEN_INITIATIVE.includes(t.status)).sort(byKey);
+  if (open.length === 0) return null;
+  const here = open.filter((t) => t.status === "Active").at(-1) ?? null;
+  const tickets = (await db.select().from(tasks).where(and(inArray(tasks.parentId, open.map((t) => t.id)), eq(tasks.kind, "ticket")))).filter((t) => t.status !== "Won't do");
+
+  const legs: RouteLeg[] = open.map((i) => {
+    const mine = tickets.filter((t) => t.parentId === i.id);
+    const done = mine.filter((t) => DONE.includes(t.status)).length;
+    const left = mine.filter((t) => !DONE.includes(t.status));
+    const off = left.length > 0 && left.every((t) => t.status === "Backlog");
+    const state: LegState = i.id === here?.id ? "here" : mine.length === 0 ? "unplanned" : done === mine.length ? "done" : "planned";
+    return { key: i.key, title: i.title, done, total: mine.length, state, note: off ? (left.length === 1 ? `Pospuesto: ${left[0]!.title}` : `${left.length} pasos pospuestos`) : null };
+  });
+
+  if (here) {
+    const mine = tickets.filter((t) => t.parentId === here.id).sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || byKey(a, b));
+    const shipped = new Set<string>();
+    for (const e of await db.select({ payload: events.payload }).from(events).where(and(eq(events.projectId, p.id), eq(events.type, "release.shipped"))).orderBy(desc(events.id)).limit(50)) {
+      for (const k of (e.payload.tickets as unknown[] | undefined) ?? []) if (typeof k === "string") shipped.add(k);
+    }
+    // A Ready step is free when nothing holds it and every step before it has landed (the rule that wakes Taller).
+    const ready = mine.filter((t) => t.status === "Ready");
+    const held = new Set<string>();
+    if (ready.length) {
+      const rows = await db.execute<{ id: string }>(sql`
+        select t.id from ${tasks} t where t.id in (${sql.join(ready.map((t) => sql`${t.id}::uuid`), sql`, `)})
+          and (${hasUnsatisfiedBlocker(sql`t.id`)} or exists (
+            select 1 from ${taskBlockers} tb join ${tasks} b on b.id = tb.blocker_id
+            where tb.task_id = t.id and b.status not in ('Merged', 'Released', 'Done')))`);
+      for (const r of rows.rows) held.add(String(r.id));
+    }
+    const next = ready.find((t) => !held.has(t.id))?.id ?? null;
+    const owners = [...new Set(mine.map((t) => t.ownerAgent).filter((x): x is string => !!x))];
+    const roles = new Map<string, string>();
+    if (owners.length) for (const a of await db.select().from(agents).where(inArray(agents.id, owners))) roles.set(a.id, roleOf(a) ?? a.role);
+    const steps: RouteStep[] = mine.map((t) => {
+      const state: StepState =
+        t.status === "Released" || (DONE.includes(t.status) && shipped.has(t.key))
+          ? "published"
+          : DONE.includes(t.status)
+            ? "done"
+            : t.status === "In review"
+              ? "delivered"
+              : t.status === "In progress"
+                ? "working"
+                : t.id === next
+                  ? "next"
+                  : "later";
+      const who = (t.ownerAgent && roles.get(t.ownerAgent)) || ((t.workType ?? "code") === "code" ? "taller" : "product-owner");
+      return { key: t.key, title: t.title, state, who, at: t.statusChangedAt?.toISOString() ?? null };
+    });
+    const leg = legs.find((l) => l.key === here.key)!;
+    leg.steps = steps.slice(0, MAX_STEPS);
+    if (steps.length > MAX_STEPS) leg.more_steps = steps.length - MAX_STEPS;
+  }
+  // Keep the leg we stand on in view when there are more than fit.
+  const at = Math.max(0, legs.findIndex((l) => l.state === "here"));
+  const from = Math.min(Math.max(0, at - (MAX_LEGS - 2)), Math.max(0, legs.length - MAX_LEGS));
+  return { legs: legs.slice(from, from + MAX_LEGS), more_legs: Math.max(0, legs.length - MAX_LEGS) };
 }
 
 export async function thisWeekOf(db: Db, p: Project, now = new Date()): Promise<ThisWeek> {
