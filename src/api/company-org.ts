@@ -2,14 +2,14 @@
 //   GET  /api/company                   companyRead: the company, Asistente, each project with its team and thread, the plumbing line
 //   GET  /api/company/projects/:slug    projectRead: today's project sheet plus team, thread_id and the templates to add
 //   POST /api/company/projects/:slug/team {template}   addTeamMember: one more agent on the team, from a role template
-//   GET  /api/machine                   plumbing (merged into the machine inventory): budgets, plan guard, switches, runs, log
+//   GET  /api/machine                   plumbing (merged into the machine inventory): week usage, plan guard, switches, runs, log
 // Tokens only, never money. Cookie-only routes (src/api/company.ts and the /api session for /api/machine).
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { agentRuns, agents, docs, events, projects, questions, tasks, threadMessages, type Actor, type Agent, type Project } from "../db/schema.js";
 import { projectSheet, type ProjectSheet, type RunBrief } from "./company-extra.js";
 import { agentOfActor, asistenteAgent } from "../runner/events.js";
-import { PROMPT_DOCS, budgetView, isRunnerRole, lastReading, loadSettings, planView, roleOf, screenTz, weekBounds, type BudgetView, type PlanView } from "../runner/limits.js";
+import { PROMPT_DOCS, isRunnerRole, lastReading, loadSettings, planView, roleOf, screenTz, weekBounds, weekUsage, type PlanView, type WeekUsage } from "../runner/limits.js";
 import { TEAM_TEMPLATES, TEMPLATE_ROWS, ensureMember, isTeamTemplate, teamOf, teamSlug, type TeamTemplate } from "../runner/team.js";
 import { actionsFor, companyThread, projectThread, threadSummary } from "../runner/threads.js";
 import { companyState, type CompanyState, type RunView } from "../runner/company.js";
@@ -23,10 +23,10 @@ const HOUR = 3_600_000;
 const QUIET_HOURS = 48;
 const promptsProject = () => process.env.PLANIA_PROMPTS_PROJECT || "plania";
 
-export type MemberState = "running" | "idle" | "waiting_jorge" | "paused" | "no_budget";
+export type MemberState = "running" | "idle" | "waiting_jorge" | "paused";
 // PLA-I36-1: the worst of, in order: something is Jorge's, a run failed, the work is blocked, the plan is
-// late, nothing moved in 48 h; else ok. Paused and no budget come first, as before.
-export type Light = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused" | "no_budget";
+// late, nothing moved in 48 h; else ok. Paused comes first. PLA-21: no budgets, so no "no_budget".
+export type Light = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused";
 export type LightReason = { text: string; action: { label: string; href: string } | null };
 
 export type TeamMember = {
@@ -59,7 +59,8 @@ export type ProjectCard = {
   goal: string | null;
   // PLA-I36-4: the destination: the goal sentence, its delivery date and the forecast; missing says Fijar.
   rumbo: Rumbo;
-  budget: BudgetView;
+  // PLA-21: this week's tokens, shown only.
+  usage: WeekUsage;
   team: TeamMember[];
   thread: ThreadLine;
   // PLA-I35-1: the card as a report (src/api/company-plan.ts).
@@ -80,9 +81,9 @@ export type CompanyRead = {
   company: { paused: boolean };
   week: { starts_at: string; resets_at: string; timezone: string };
   // PLA-I39-1: unread, the company thread's unread messages (counted as a project thread's are).
-  asistente: { thread_id: string; budget: BudgetView; last_run: { status: string; at: string; summary: string } | null; state: MemberState; unread: number };
+  asistente: { thread_id: string; usage: WeekUsage; last_run: { status: string; at: string; summary: string } | null; state: MemberState; unread: number };
   projects: ProjectCard[];
-  plumbing: { spend: number; limit: number | null; running: number; paused: boolean };
+  plumbing: { spend: number; running: number; paused: boolean };
   // PLA-I35-1: Te toca (src/api/company-decisions.ts).
   decisions: Decision[];
   // PLA-I36-2: what Bandeja counts, so Te toca never says "Nada te espera" while it holds something.
@@ -145,10 +146,10 @@ async function ticketTitle(db: Db, projectId: string | null, key: string | null)
   return t?.title ?? null;
 }
 
-async function memberView(db: Db, a: Agent, ctx: { paused: boolean; noBudget: boolean; threadId: string; waiting: Map<string, string> }): Promise<TeamMember> {
+async function memberView(db: Db, a: Agent, ctx: { paused: boolean; threadId: string; waiting: Map<string, string> }): Promise<TeamMember> {
   const { running, ended } = await lastRunOf(db, a.id);
   const waiting = ctx.waiting.get(a.id) ?? null;
-  const state: MemberState = running ? "running" : ctx.paused ? "paused" : waiting ? "waiting_jorge" : ctx.noBudget ? "no_budget" : "idle";
+  const state: MemberState = running ? "running" : ctx.paused ? "paused" : waiting ? "waiting_jorge" : "idle";
   return {
     agent: a.slug,
     role: roleOf(a) ?? a.role,
@@ -189,19 +190,18 @@ export function rumboOf(goal: GoalRow | null, plan: PlanLine | null): Rumbo {
   };
 }
 
-// PLA-I36-1. paused, then no budget, then the worst of: Jorge's (an open question, a Needs Jorge ticket, a
+// PLA-I36-1. paused, then the worst of: Jorge's (an open question, a Needs Jorge ticket, a
 // ceo-owned Ready ticket, a manual step, a release, a message with buttons), a run that failed (a member's
 // last ended run), blocked (readiness blocked), late (the plan's pace), quiet (no event in 48 h); else ok.
 const quote = (s: string, n = 80) => `«${s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s}»`;
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const TE_TOCA = { label: "Ver en Te toca", href: "#te-toca" };
 
-type LightCtx = { paused: boolean; budget: BudgetView; threadId: string; now: Date; ceoId: string | null; team: TeamMember[]; plan: PlanLine | null; inbox: InboxItem[] };
+type LightCtx = { paused: boolean; threadId: string; now: Date; ceoId: string | null; team: TeamMember[]; plan: PlanLine | null; inbox: InboxItem[] };
 
 async function lightOf(db: Db, p: Project, c: LightCtx): Promise<{ light: Light; reason: LightReason | null }> {
   const open = `/p/${encodeURIComponent(p.slug)}`;
   if (c.paused) return { light: "paused", reason: null };
-  if (c.budget.state === "stopped") return { light: "no_budget", reason: { text: "Gastó su límite de la semana: nada arranca hasta que lo subas.", action: { label: "Subir límite", href: "/machine" } } };
 
   const jorge = (text: string): { light: Light; reason: LightReason } => ({ light: "needs_jorge", reason: { text, action: TE_TOCA } });
   const [q] = await db.select({ id: questions.id }).from(questions).where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt))).limit(1);
@@ -272,7 +272,7 @@ async function lightOf(db: Db, p: Project, c: LightCtx): Promise<{ light: Light;
 const ROLE_WORD: Record<string, string> = { "product-owner": "del PO", research: "de Research", artist: "de Artist", taller: "de Taller" };
 const roleWord = (role: string) => ROLE_WORD[role] ?? `de ${role}`;
 
-async function teamView(db: Db, p: Project, ctx: { paused: boolean; noBudget: boolean; threadId: string }): Promise<TeamMember[]> {
+async function teamView(db: Db, p: Project, ctx: { paused: boolean; threadId: string }): Promise<TeamMember[]> {
   const waiting = await openQuestionsByAgent(db, p.id);
   const out: TeamMember[] = [];
   for (const a of (await teamOf(db, p.id)).sort(byTemplate)) out.push(await memberView(db, a, { ...ctx, waiting }));
@@ -304,27 +304,21 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
   const tz = screenTz();
   const { startsAt, resetsAt } = await weekBounds(db, now, tz);
   const cards: ProjectCard[] = [];
-  let limitSum = 0;
-  let anyLimit = false;
   const ceoId = await ceoAgentId(db);
   const all = await db.select().from(projects).orderBy(asc(projects.slug));
   const inbox = await inboxByProject(db, all);
   for (const p of all) {
-    const budget = await budgetView(db, { kind: "project", projectId: p.id }, startsAt);
-    if (budget.limit != null) {
-      limitSum += budget.limit;
-      anyLimit = true;
-    }
+    const usage = await weekUsage(db, { kind: "project", projectId: p.id }, startsAt);
     const thread = await threadSummary(db, await projectThread(db, p.id), p);
     const paused = settings.companyPaused || p.runsPaused;
     const goal = await goalOf(db, p.id);
     const plan = await planOf(db, p, now, goal?.target_on ?? null);
-    const team = await teamView(db, p, { paused, noBudget: budget.state === "stopped", threadId: thread.id });
+    const team = await teamView(db, p, { paused, threadId: thread.id });
     const upNext = await readyOf(db, p, ceoId, plan?.initiative.key ?? null);
     const owners = [...new Set(upNext.queued.map((q) => q.owner).filter((x): x is string => !!x))];
     const slugs = owners.length ? await db.select({ id: agents.id, slug: agents.slug }).from(agents).where(inArray(agents.id, owners)) : [];
     fillQueues(team, upNext.queued, new Map(slugs.map((r) => [r.id, r.slug])));
-    const light = await lightOf(db, p, { paused, budget, threadId: thread.id, now, ceoId, team, plan, inbox: inbox.get(p.slug) ?? [] });
+    const light = await lightOf(db, p, { paused, threadId: thread.id, now, ceoId, team, plan, inbox: inbox.get(p.slug) ?? [] });
     cards.push({
       slug: p.slug,
       title: p.title,
@@ -333,7 +327,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       light_reason: light.reason,
       goal: goal?.title ?? null,
       rumbo: rumboOf(goal, plan),
-      budget,
+      usage,
       team,
       thread: threadLine(thread),
       plan,
@@ -347,16 +341,12 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     });
   }
 
-  const asisBudget = await budgetView(db, { kind: "asistente" }, startsAt);
-  if (asisBudget.limit != null) {
-    limitSum += asisBudget.limit;
-    anyLimit = true;
-  }
+  const asisUsage = await weekUsage(db, { kind: "asistente" }, startsAt);
   const company = await companyThread(db);
   const companyUnread = (await threadSummary(db, company, null)).unread;
   const asis = await asistenteAgent(db);
   let lastRun: CompanyRead["asistente"]["last_run"] = null;
-  let state: MemberState = settings.companyPaused ? "paused" : asisBudget.state === "stopped" ? "no_budget" : "idle";
+  let state: MemberState = settings.companyPaused ? "paused" : "idle";
   if (asis) {
     const { running, ended } = await lastRunOf(db, asis.id);
     if (ended) lastRun = { status: ended.status, at: ended.endedAt!.toISOString(), summary: ended.summary };
@@ -365,16 +355,16 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
   }
 
   const spend = await db.execute<{ used: string }>(sql`
-    select coalesce(sum(case when status = 'running' then greatest(tokens_total, reserve_tokens) else tokens_total end), 0)::bigint as used
+    select coalesce(sum(tokens_total), 0)::bigint as used
     from agent_runs where status in ('running', 'ok', 'fail', 'stopped') and coalesce(started_at, queued_at) >= ${startsAt.toISOString()}::timestamptz`);
   const [running] = await db.select({ n: sql<number>`count(*)::int` }).from(agentRuns).where(eq(agentRuns.status, "running"));
 
   return {
     company: { paused: settings.companyPaused },
     week: { starts_at: startsAt.toISOString(), resets_at: resetsAt.toISOString(), timezone: tz },
-    asistente: { thread_id: company.id, budget: asisBudget, last_run: lastRun, state, unread: companyUnread },
+    asistente: { thread_id: company.id, usage: asisUsage, last_run: lastRun, state, unread: companyUnread },
     projects: cards,
-    plumbing: { spend: Number(spend.rows[0]?.used ?? 0), limit: anyLimit ? limitSum : null, running: running?.n ?? 0, paused: settings.companyPaused },
+    plumbing: { spend: Number(spend.rows[0]?.used ?? 0), running: running?.n ?? 0, paused: settings.companyPaused },
     decisions: await decisionsRead(db, now, inbox),
     inbox: countInbox(inbox),
   };
@@ -402,10 +392,8 @@ export async function projectRead(db: Db, slug: string, now = new Date()): Promi
   const sheet = await projectSheet(db, slug);
   const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
   const settings = await loadSettings(db);
-  const { startsAt } = await weekBounds(db, now);
-  const budget = await budgetView(db, { kind: "project", projectId: p!.id }, startsAt);
   const thread = await projectThread(db, p!.id);
-  const team = await teamView(db, p!, { paused: settings.companyPaused || p!.runsPaused, noBudget: budget.state === "stopped", threadId: thread.id });
+  const team = await teamView(db, p!, { paused: settings.companyPaused || p!.runsPaused, threadId: thread.id });
   return { ...sheet, team, thread_id: thread.id, templates: await templatesFor(db, team) };
 }
 
@@ -436,10 +424,11 @@ export async function addTeamMember(db: Db, slug: string, template: string): Pro
 
 export type Plumbing = {
   company: CompanyState["company"];
-  settings: CompanyState["settings"] & { asistente_weekly_limit: number | null };
+  settings: CompanyState["settings"];
   week: CompanyState["week"];
   plan: PlanView;
-  budgets: { asistente: BudgetView; projects: { slug: string; title: string; paused: boolean; paused_at: string | null; budget: BudgetView }[] };
+  // PLA-21: this week's tokens, shown only (no budgets).
+  usage: { asistente: WeekUsage; projects: CompanyState["projects"] };
   runs: { live: RunView[]; queued: RunView[] };
   log: RunBrief[];
   viewer: { can_edit_limits: boolean };
@@ -456,10 +445,10 @@ export async function plumbing(db: Db, now = new Date()): Promise<Plumbing> {
   const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : v ? new Date(String(v)).toISOString() : null);
   return {
     company: state.company,
-    settings: { ...state.settings, asistente_weekly_limit: settings.asistenteWeeklyLimit == null ? null : Number(settings.asistenteWeeklyLimit) },
+    settings: state.settings,
     week: state.week,
     plan: planView(await lastReading(db), settings.planGuardPct, now),
-    budgets: { asistente: await budgetView(db, { kind: "asistente" }, startsAt), projects: state.projects },
+    usage: { asistente: await weekUsage(db, { kind: "asistente" }, startsAt), projects: state.projects },
     runs: state.runs,
     log: log.rows.map((r) => ({
       id: String(r.id),

@@ -152,16 +152,6 @@ async function freshReading(five = 10, status = "allowed"): Promise<void> {
     [status, five],
   );
 }
-async function budget(scope: "role" | "project", key: string, limit: number): Promise<void> {
-  if (scope === "role") {
-    await raw.query(`delete from token_budgets where scope = 'role' and role = $1`, [key]);
-    await raw.query(`insert into token_budgets (scope, role, weekly_limit) values ('role', $1, $2)`, [key, limit]);
-  } else {
-    const id = await projectId(key);
-    await raw.query(`delete from token_budgets where scope = 'project' and project_id = $1`, [id]);
-    await raw.query(`insert into token_budgets (scope, project_id, weekly_limit) values ('project', $1, $2)`, [id, limit]);
-  }
-}
 // A finished run this week that used `tokens` in the project (role product-owner unless given).
 async function usedTokens(project: string, tokens: number, role = "research"): Promise<void> {
   await raw.query(
@@ -211,13 +201,9 @@ beforeEach(async () => {
   await raw.query(`delete from agent_runs`);
   await raw.query(`delete from agent_sessions`);
   await raw.query(`delete from heartbeat_runs`);
-  await raw.query(`delete from token_budgets`);
-  await raw.query(`delete from events where type = 'budget.warning'`);
   await raw.query(`update runner_settings set company_paused = false, max_concurrent = 1, cooldown_minutes = 0, plan_guard_pct = 70, reserve_tokens = 1000`);
   await raw.query(`update projects set runs_paused = false where slug in ('micasa', 'workia')`);
   await raw.query(`delete from tasks where key like 'RUN-%'`);
-  for (const role of ["product-owner", "taller", "research", "artist", "asistente"]) await budget("role", role, 10_000_000);
-  for (const p of ["micasa", "workia", "zigzag"]) await budget("project", p, 10_000_000);
   await freshReading(10);
 });
 
@@ -504,52 +490,26 @@ test("I29-5 #2: a ticket on branch main is 'fail: base not allowed' and nothing 
   assert.deepEqual(checkBase("jl/x", null), { ok: true });
 });
 
-// ---- PLA-I29-6: budgets
+// ---- PLA-21: no token budgets (Jorge, 2026-11-12). The week's tokens are shown, never checked.
 
-test("I29-6 #1: at 79% a run starts with no warning; at 80% it starts and writes a warning event", async () => {
+test("PLA-21 #1: however many tokens a project used this week, a new run starts and no warning is written", async () => {
   const f = fakes();
-  await budget("project", "micasa", 100_000);
-  await usedTokens("micasa", 79_000);
-  await ready("micasa", "RUN-B79");
-  const a = await wake("taller", f.deps, "RUN-B79");
+  await usedTokens("micasa", 50_000_000);
+  await ready("micasa", "RUN-NOLIMIT");
+  const a = await wake("taller", f.deps, "RUN-NOLIMIT");
   assert.equal(a.run!.status, "running");
+  assert.doesNotMatch(a.run!.summary, /BUDGET/);
   assert.equal(Number((await raw.query(`select count(*) from events where type = 'budget.warning'`)).rows[0].count), 0);
   f.spawned[0]!.child.write([resultEvent({ m: { inputTokens: 1000, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } })]);
   f.spawned[0]!.child.exit(0);
   await runner.waitForAllRuns();
-  // 79k + 1k = 80%.
-  const b = await wake("taller", f.deps, "RUN-B79");
-  assert.equal(b.run!.status, "running");
-  const ev = (await raw.query(`select payload from events where type = 'budget.warning'`)).rows;
-  assert.equal(ev.length, 1);
-  assert.equal(ev[0].payload.scope, "project micasa");
-  assert.equal(ev[0].payload.pct, 80);
-  f.spawned[1]!.child.write([resultEvent({ m: { inputTokens: 1, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } })]);
-  f.spawned[1]!.child.exit(0);
-  await runner.waitForAllRuns();
-});
-
-test("I29-6 #2: at 100% a new run is refused with BUDGET_STOPPED while another project still starts", async () => {
-  const f = fakes();
-  await budget("project", "micasa", 50_000);
-  await usedTokens("micasa", 50_000);
-  await ready("micasa", "RUN-B100");
-  const stopped = await wake("taller", f.deps, "RUN-B100");
-  assert.equal(stopped.run!.status, "skipped");
-  assert.match(stopped.run!.summary, /^skipped: BUDGET_STOPPED project micasa at 100%/);
-  assert.equal(f.spawned.length, 0);
-  const other = await wake("workia", f.deps);
-  assert.equal(other.run!.status, "running");
-  assert.equal(f.spawned.length, 1);
-  f.spawned[0]!.child.write([resultEvent({ m: { inputTokens: 1, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } })]);
-  f.spawned[0]!.child.exit(0);
-  await runner.waitForAllRuns();
   const state = await companyState(db);
   const micasa = state.projects.find((p) => p.slug === "micasa")!;
-  assert.deepEqual([micasa.budget.state, micasa.budget.pct, micasa.budget.limit], ["stopped", 100, 50_000]);
+  assert.deepEqual(micasa.usage, { used: 50_001_000 });
+  assert.equal("budget" in micasa, false);
 });
 
-test("I29-6 #3: a run whose usage is unknown blocks the next run until Jorge acknowledges it", async () => {
+test("PLA-21 #2: a live run is never stopped for tokens; a run whose usage is unknown blocks nothing", async () => {
   const f = fakes();
   await raw.query(
     `insert into agent_runs (agent_id, project_id, role, status, started_at, ended_at, usage_known) values ($1, $2, 'taller', 'fail', now(), now(), false)`,
@@ -557,26 +517,17 @@ test("I29-6 #3: a run whose usage is unknown blocks the next run until Jorge ack
   );
   await ready("micasa", "RUN-UNK");
   const res = await wake("taller", f.deps, "RUN-UNK");
-  assert.equal(res.run!.status, "skipped");
-  assert.match(res.run!.summary, /BUDGET_STOPPED project micasa \(usage unknown\)/);
-  assert.equal(f.spawned.length, 0);
-  const id = (await raw.query(`select id from agent_runs where usage_known = false`)).rows[0].id;
-  const ack = await app.request(`/api/company/runs/${id}/ack-usage`, { method: "POST", headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } });
-  assert.equal(ack.status, 200);
-  const again = await wake("taller", f.deps, "RUN-UNK");
-  assert.equal(again.run!.status, "running");
+  assert.equal(res.run!.status, "running");
+  await usedTokens("micasa", 900_000_000);
+  assert.equal(await runner.enforceLive(db, new Date()), 0);
+  assert.equal(f.signals.length, 0);
   f.spawned[0]!.child.exit(143);
   await runner.waitForAllRuns();
-  // No limit set is unknown too: it stops.
-  await raw.query(`delete from token_budgets where scope = 'project'`);
-  const unset = await wake("taller", f.deps, "RUN-UNK");
-  assert.match(unset.run!.summary, /BUDGET_STOPPED project micasa \(no limit set\)/);
 });
 
-test("I29-6 #4 and I29-8 #4: an agent token on any limit or switch write gets 403; the cookie works", async () => {
+test("I29-6 #4 and I29-8 #4: an agent token on any switch or settings write gets 403; the cookie works; no budget route", async () => {
   const bearer = { Authorization: `Bearer ${TEST_BEARER}`, "Content-Type": "application/json", Cookie: `${SESSION_COOKIE}=${createSession()}` };
   const writesToTry: [string, string, unknown][] = [
-    ["PUT", "/api/company/budgets", { scope: "project", project: "micasa", weekly_limit: 999_999_999 }],
     ["PUT", "/api/company/settings", { plan_guard_pct: 100, max_concurrent: 8 }],
     ["POST", "/api/company/switch", { paused: false }],
     ["POST", "/api/company/projects/micasa/switch", { paused: false }],
@@ -589,17 +540,15 @@ test("I29-6 #4 and I29-8 #4: an agent token on any limit or switch write gets 40
   const none = await app.request("/api/company/switch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paused: true }) });
   assert.equal(none.status, 401);
   const jorge = { "Content-Type": "application/json", Cookie: `${SESSION_COOKIE}=${createSession()}` };
-  // PLA-I32-6: role budgets are retired; Asistente has its own.
-  const role = await app.request("/api/company/budgets", { method: "PUT", headers: jorge, body: JSON.stringify({ scope: "role", role: "taller", weekly_limit: 123_456 }) });
-  assert.equal(role.status, 400);
-  // PLA-I36-11: raising a limit carries the owner's code.
-  const set = await app.request("/api/company/budgets", { method: "PUT", headers: jorge, body: JSON.stringify({ scope: "asistente", weekly_limit: 123_456, code: await ownerCode() }) });
-  assert.equal(set.status, 200);
-  assert.equal(Number((await raw.query(`select asistente_weekly_limit from runner_settings`)).rows[0].asistente_weekly_limit), 123_456);
-  const viaSettings = await app.request("/api/company/settings", { method: "PUT", headers: jorge, body: JSON.stringify({ asistente_weekly_limit: 654_321, code: await ownerCode() }) });
-  assert.equal(((await viaSettings.json()) as { asistente_weekly_limit: number }).asistente_weekly_limit, 654_321);
+  // PLA-21: the budget route and Asistente's limit are gone.
+  const gone = await app.request("/api/company/budgets", { method: "PUT", headers: jorge, body: JSON.stringify({ scope: "project", project: "micasa", weekly_limit: 123_456 }) });
+  assert.equal(gone.status, 404);
+  const asis = await app.request("/api/company/settings", { method: "PUT", headers: jorge, body: JSON.stringify({ asistente_weekly_limit: 654_321 }) });
+  assert.equal(asis.status, 400);
   const guard = await app.request("/api/company/settings", { method: "PUT", headers: jorge, body: JSON.stringify({ plan_guard_pct: 65 }) });
-  assert.equal(((await guard.json()) as { plan_guard_pct: number }).plan_guard_pct, 65);
+  const saved = (await guard.json()) as Record<string, unknown>;
+  assert.equal(saved.plan_guard_pct, 65);
+  assert.equal("asistente_weekly_limit" in saved, false);
 });
 
 // ---- PLA-I29-7: cap, cooldown, plan guard
@@ -748,15 +697,15 @@ test("I29-8 #3: resuming the company leaves a self-paused project paused; new pr
   const state = (await (await app.request("/api/company", { headers: cookie })).json()) as {
     company: { paused: boolean };
     week: { timezone: string };
-    projects: { slug: string; paused: boolean; budget: Record<string, unknown> }[];
+    projects: { slug: string; paused: boolean; usage: Record<string, unknown> }[];
   };
   assert.equal(state.company.paused, false);
   assert.equal(state.projects.find((p) => p.slug === "micasa")!.paused, true);
   assert.equal(state.projects.find((p) => p.slug === "workia")!.paused, false);
   assert.deepEqual(Object.keys(state).sort(), ["asistente", "company", "decisions", "inbox", "plumbing", "projects", "week"]);
-  assert.deepEqual(Object.keys(state.projects[0]!.budget).sort(), ["limit", "pct", "reason", "state", "used"]);
+  assert.deepEqual(Object.keys(state.projects[0]!.usage).sort(), ["used"]);
   assert.equal(state.week.timezone, "America/Mexico_City");
-  const machine = (await (await app.request("/api/machine", { headers: cookie })).json()) as { plumbing: Awaited<ReturnType<typeof companyState>> & { budgets: unknown; log: unknown } };
+  const machine = (await (await app.request("/api/machine", { headers: cookie })).json()) as { plumbing: Awaited<ReturnType<typeof companyState>> & { usage: unknown; log: unknown } };
   const plan = machine.plumbing.plan;
   assert.deepEqual(Object.keys(plan).sort(), ["five_hour_pct", "guard_pct", "read_at", "resets_at", "seven_day_pct", "seven_day_resets_at", "source", "state", "status"]);
   assert.equal(plan.guard_pct, 70);

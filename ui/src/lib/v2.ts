@@ -201,7 +201,6 @@ export function nowLines(p: OrgProject): { role: string; text: string; tone: Ton
 }
 export function nobodyWhy(p: OrgProject, decisions: Decision[], companyPaused: boolean): string {
   if (companyPaused) return "la compañía está detenida";
-  if (p.light === "no_budget") return "sin presupuesto esta semana";
   if (p.light === "failed") return "la última corrida falló";
   if (p.light === "blocked") return "el trabajo está bloqueado";
   const d = decisions.find((x) => x.project === p.slug && pending(x));

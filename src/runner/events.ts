@@ -13,7 +13,7 @@
 // A run that ended in fail holding its ticket is not an event: src/runner/failed.ts sweeps it each tick.
 // The hook runs inside writeTx, in the same transaction as the write, and only queues: it inserts an
 // agent_runs row with status queued. The heartbeat job's drainQueue starts it through every runner
-// check (switches, cooldown, goal, base branch, budgets, plan guard, cap). Coalescing: an agent with a
+// check (switches, cooldown, goal, base branch, plan guard, cap). Coalescing: an agent with a
 // queued or running run gets nothing new. A company or project switch that is off enqueues nothing.
 // Off unless the heartbeat job runs (PLANIA_JOBS=1), so nothing waits in a queue nobody drains.
 import { and, asc, eq, inArray, sql } from "drizzle-orm";

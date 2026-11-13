@@ -39,7 +39,7 @@ const project = (patch: Json = {}): Json => ({
   light_reason: null,
   goal: null,
   rumbo: { goal_id: null, goal: null, why: "", target_on: null, forecast_on: null, weeks_behind: null, missing: true },
-  budget: { used: 100_000, limit: 5_000_000, pct: 2, state: "ok", reason: null },
+  usage: { used: 100_000 },
   team: ["product-owner", "research", "artist", "taller"].map((r) => member(r)),
   thread: { id: "t-workia", unread: 0, last: null },
   plan: null,
@@ -74,9 +74,9 @@ const decision = (patch: Json = {}): Json => ({
 const company = (patch: Json = {}): Json => ({
   company: { paused: false },
   week: { starts_at: "2026-11-09T06:00:00Z", resets_at: "2026-11-16T06:00:00Z", timezone: TZ },
-  asistente: { thread_id: "t-co", budget: { used: 0, limit: null, pct: null, state: "ok", reason: null }, last_run: { status: "ok", at: "2026-11-10T17:00:00Z", summary: "Resumen: Workia avanza." }, state: "idle", unread: 0 },
+  asistente: { thread_id: "t-co", usage: { used: 0 }, last_run: { status: "ok", at: "2026-11-10T17:00:00Z", summary: "Resumen: Workia avanza." }, state: "idle", unread: 0 },
   projects: [project()],
-  plumbing: { spend: 1_250_000, limit: 6_000_000, running: 1, paused: false },
+  plumbing: { spend: 1_250_000, running: 1, paused: false },
   decisions: [],
   inbox: { decisiones: 0, pasos: 0 },
   ...patch,
@@ -87,7 +87,7 @@ const one = (m: Json, extra: Json = {}) => html(h(win.Window, { member: m, proje
 
 // ---- PLA-I39-3
 
-test("I39-3 #1: a window is lit with a laptop only while running; orange with a hand when it asks; blinds when paused; dim when out of budget", () => {
+test("I39-3 #1: a window is lit with a laptop only while running; orange with a hand when it asks; blinds when paused; PLA-21: no out-of-budget window", () => {
   const work = one(member("taller", { state: "running", now: { ticket: "WRK-3", title: "Pantalla del carrito", since: "2026-11-10T17:20:00Z" } }));
   assert.match(work, /data-state="work"/);
   assert.ok(work.includes("edi-lap"));
@@ -97,13 +97,10 @@ test("I39-3 #1: a window is lit with a laptop only while running; orange with a 
   const off = one(member("research", { state: "paused" }));
   assert.match(off, /data-state="off"/);
   assert.ok(off.includes("En pausa"));
-  const hold = one(member("artist", { state: "no_budget" }));
-  assert.match(hold, /data-state="hold"/);
-  assert.ok(/sin presupuesto/i.test(hold));
   const idle = one(member("artist"));
   assert.match(idle, /data-state="idle"/);
-  // Only running lights a window: idle, paused and out of budget are never "work".
-  for (const s of [ask, off, hold, idle]) assert.equal(/data-state="work"/.test(s), false);
+  // Only running lights a window: idle and paused are never "work".
+  for (const s of [ask, off, idle]) assert.equal(/data-state="work"/.test(s), false);
   // The company switch puts every blind down.
   assert.match(one(member("research"), { companyPaused: true }), /data-state="off"/);
   // The laptop and the hand are CSS-gated by state.
@@ -134,14 +131,14 @@ test("I39-3 #2: the caption is role and verb, then what it is on with since when
 
 test("I39-3 #3: the roof shows Te toca with the number, one chip per decision, deliveries and tokens this week", () => {
   const ds = [decision(), decision({ id: "m-2", kind: "proposal", title: "Dos caminos", asker: { agent: "product-owner-workia", role: "product-owner" } })];
-  const out = html(h(roof.Roof, { decisions: ds, projects: [project()], plumbing: { spend: 1_250_000, limit: 6_000_000, running: 1, paused: false } }));
+  const out = html(h(roof.Roof, { decisions: ds, projects: [project()], plumbing: { spend: 1_250_000, running: 1, paused: false } }));
   assert.match(out, /data-te-toca="2"/);
   assert.ok(text(out).includes("Te toca") && out.includes(">2<"));
   assert.equal((out.match(/data-chip=/g) ?? []).length, 2);
   assert.ok(out.includes("Workia: ¿Qué tienda abrimos primero?") && out.includes('href="#piso-workia"'));
   assert.ok(out.includes("2 entregas esta semana") && out.includes("1.25M tokens esta semana"));
   clean(out);
-  const calm = html(h(roof.Roof, { decisions: [], projects: [project()], plumbing: { spend: 0, limit: null, running: 0, paused: false } }));
+  const calm = html(h(roof.Roof, { decisions: [], projects: [project()], plumbing: { spend: 0, running: 0, paused: false } }));
   assert.ok(calm.includes("Nada te espera.") && /data-te-toca="0"/.test(calm));
 });
 
@@ -751,7 +748,7 @@ test("I39-9 #3: caption, plate and question text on the night panel reach 4.5:1"
   const floors = lib.HUES.map((h: string) => over(h, wall, 0.11));
   const pairs: [string, string, string][] = [];
   for (const bg of [wall, ...floors]) {
-    pairs.push(["plate and caption text", fg, bg], ["muted caption and plate lines", muted, bg], ["asking and out-of-budget captions", youInk, bg], ["working caption", workInk, bg]);
+    pairs.push(["plate and caption text", fg, bg], ["muted caption and plate lines", muted, bg], ["asking captions", youInk, bg], ["working caption", workInk, bg]);
   }
   pairs.push(["question text", darkFg, darkCard], ["question muted text", darkMuted, darkCard], ["question eyebrow", youInk, darkCard]);
   const low = pairs.map(([what, a, b]) => ({ what, a, b, ratio: Math.round(contrast(a, b) * 100) / 100 })).filter((p) => p.ratio < 4.5);

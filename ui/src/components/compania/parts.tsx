@@ -3,13 +3,10 @@
 // and actions come in as props, so tests render each one with fake data. Spend is tokens, never money.
 import { cn } from "@/lib/utils";
 import {
-  budgetBannerText,
   capLine,
   clock,
   elapsed,
-  fill,
   idleLine,
-  meterTone,
   pausedBannerText,
   pct,
   planBannerText,
@@ -17,11 +14,8 @@ import {
   roleInitials,
   roleWord,
   tokens,
-  usedOfLimit,
   type Banner,
-  type Budget,
   type CompanyPlan,
-  type CompanyProjectRow,
   type CompanyRun,
   type Plumbed,
   type Tone,
@@ -48,32 +42,6 @@ export const Dot = ({ tone, live }: { tone: Tone; live?: boolean }) => (
     {live && <span className={cn("absolute inset-0 animate-ping rounded-full opacity-60", TONE_DOT[tone])} />}
   </span>
 );
-
-// A token meter: used against the weekly limit, with the 80% tick.
-export const Meter = ({ budget, label, tick = 80, big }: { budget: Budget; label?: string; tick?: number | null; big?: boolean }) => {
-  const tone = meterTone(budget);
-  return (
-    <div className="grid gap-1">
-      {label && (
-        <div className="flex items-baseline justify-between gap-2 text-xs">
-          <span className="truncate text-muted-foreground">{label}</span>
-          <span className={cn("shrink-0 font-mono tabular-nums", tone === "ok" ? "text-foreground" : TONE_INK[tone])}>{usedOfLimit(budget)}</span>
-        </div>
-      )}
-      <div
-        className={cn("relative overflow-hidden rounded-full bg-muted", big ? "h-2.5" : "h-1.5")}
-        role="meter"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(fill(budget))}
-        aria-label={`${label ?? "Tokens"}: ${usedOfLimit(budget)}`}
-      >
-        <div className={cn("h-full rounded-full", TONE_BAR[tone])} style={{ width: `${fill(budget)}%` }} />
-        {tick != null && budget.limit != null && <span aria-hidden className="absolute inset-y-0 w-px bg-foreground/40" style={{ left: `${tick}%` }} />}
-      </div>
-    </div>
-  );
-};
 
 // The 5-hour plan window: a big meter with the guard as a tick.
 export const PlanMeter = ({ plan, timeZone }: { plan: CompanyPlan; timeZone?: string }) => {
@@ -114,34 +82,27 @@ export const BlockError = ({ what, onRetry }: { what: string; onRetry: () => voi
   </div>
 );
 
-// ---- Banners (5e grey, 5g red, 5h amber)
+// ---- Banners (5e grey, 5h amber). PLA-21: no budget banner.
 
 export const Banners = ({
   banners,
   canEdit,
   timeZone,
   onResume,
-  onRaise,
   onMoveGuard,
   onSeeSpend,
-  dismissed,
-  onDismiss,
 }: {
   banners: Banner[];
   canEdit: boolean;
   timeZone?: string;
   onResume: () => void;
-  onRaise: (project: CompanyProjectRow) => void;
   onMoveGuard: () => void;
   onSeeSpend: () => void;
-  dismissed: Set<string>;
-  onDismiss: (key: string) => void;
 }) => {
-  const shown = banners.filter((b) => !(b.kind === "budget" && dismissed.has(b.project.slug)));
-  if (shown.length === 0) return null;
+  if (banners.length === 0) return null;
   return (
     <div className="grid gap-2.5">
-      {shown.map((b) => {
+      {banners.map((b) => {
         if (b.kind === "paused") {
           return (
             <section key="paused" role="status" data-banner="paused" className="flex flex-wrap items-center gap-3 rounded-[20px] bg-surface-sunken p-4 ring-1 ring-foreground/15">
@@ -150,24 +111,6 @@ export const Banners = ({
               <button type="button" className={pillPrimary} onClick={onResume}>
                 Reanudar
               </button>
-            </section>
-          );
-        }
-        if (b.kind === "budget") {
-          return (
-            <section key={`budget-${b.project.slug}`} role="alert" data-banner="budget" className="flex flex-wrap items-center gap-3 rounded-[20px] bg-status-blocked/10 p-4 ring-1 ring-status-blocked/50">
-              <span className="font-display text-3xl font-extrabold tracking-tight text-ink-blocked tabular-nums">{pct(b.project.budget.pct)}</span>
-              <p className="min-w-0 flex-[1_1_260px] text-sm">{budgetBannerText(b.project).replace(/^[^·]+· /, "")}</p>
-              <div className="flex flex-wrap gap-2">
-                {canEdit && (
-                  <button type="button" className={pillPrimary} onClick={() => onRaise(b.project)}>
-                    Subir límite
-                  </button>
-                )}
-                <button type="button" className={pillGhost} onClick={() => onDismiss(b.project.slug)}>
-                  Dejarlo así
-                </button>
-              </div>
             </section>
           );
         }

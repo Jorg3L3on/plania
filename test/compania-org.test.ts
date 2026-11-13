@@ -22,11 +22,6 @@ const TZ = "America/Mexico_City";
 const count = (s: string, re: RegExp) => (s.match(re) ?? []).length;
 const noMoney = (s: string) => assert.equal(/\$|USD|usd|total_cost/.test(s), false, "no money on screen");
 
-export const budget = (used: number, limit: number | null) => {
-  if (limit == null) return { used, limit: null, pct: null, state: "stopped", reason: "unset" };
-  const pct = Math.floor((used / limit) * 1000) / 10;
-  return { used, limit, pct, state: pct >= 100 ? "stopped" : pct >= 80 ? "warn" : "ok", reason: null };
-};
 
 const member = (role: string, slug: string, patch: Record<string, unknown> = {}) => ({
   agent: role === "product-owner" ? `po-${slug}` : `${role}-${slug}`,
@@ -48,7 +43,7 @@ const orgProject = (slug: string, title: string, patch: Record<string, unknown> 
   paused: false,
   light: "ok",
   goal: `Meta de prueba de ${title}.`,
-  budget: budget(912_000, 6_000_000),
+  usage: { used: 912_000 },
   team: team(slug),
   thread: { id: `t-${slug}`, unread: 0, last: null },
   plan: null,
@@ -70,7 +65,7 @@ const SIX = [
   orgProject("micasa", "MiCasa", { light: "paused", paused: true }),
   orgProject("filmia", "Filmia", { light: "quiet" }),
   orgProject("plania", "Plania"),
-  orgProject("workia", "Workia", { light: "no_budget", budget: budget(2_000_000, 2_000_000) }),
+  orgProject("workia", "Workia", { light: "blocked", usage: { used: 900_000_000 } }),
   orgProject("zigzag", "ZigZag", { light: "paused", paused: true }),
 ];
 
@@ -174,10 +169,9 @@ test("I33-1 the retired blocks are gone from the page: Solo tú, En marcha, Gast
 });
 
 test("I33-1 the company plumbing line reads tokens and what runs, amber at 80 % and red at 100 %", async () => {
-  assert.deepEqual(lib.plumbingLine({ spend: 912_000, limit: 6_000_000, running: 1, paused: false }), { text: "912k / 6M · 1 en marcha", tone: "ok" });
-  assert.equal(lib.plumbingLine({ spend: 4_900_000, limit: 6_000_000, running: 0, paused: false }).tone, "warn");
-  assert.equal(lib.plumbingLine({ spend: 6_000_000, limit: 6_000_000, running: 0, paused: false }).tone, "stop");
-  assert.deepEqual(lib.plumbingLine({ spend: 0, limit: null, running: 0, paused: true }), { text: "0 · sin límite · detenida", tone: "idle" });
+  assert.deepEqual(lib.plumbingLine({ spend: 912_000, running: 1, paused: false }), { text: "912k · 1 en marcha", tone: "ok" });
+  assert.equal(lib.plumbingLine({ spend: 900_000_000, running: 0, paused: false }).tone, "ok", "PLA-21: no limit, never red for tokens");
+  assert.deepEqual(lib.plumbingLine({ spend: 0, running: 0, paused: true }), { text: "0 · detenida", tone: "idle" });
   // PLA-I39: the line sits in the building's sky, linking to Máquina.
   const { readFileSync } = await import("node:fs");
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
@@ -214,7 +208,7 @@ const TEMPLATES = [
 test("I33-2 project page: header with light, goal and Editar, plumbing line, Pausar; the team; the PO thread; Añadir al equipo", () => {
   const p = SIX[0]!;
   const bar = html(h(org.ProjectOrgBar, { project: p, companyPaused: false, canEdit: true, onEditGoal: noop, onPause: noop, onResume: noop }));
-  for (const t of ["Te necesita", "Meta", "Editar", "Meta de prueba de Mianovia.", "912k / 6M · en marcha", "→ Máquina", "Pausar"]) assert.ok(bar.includes(t), t);
+  for (const t of ["Te necesita", "Meta", "Editar", "Meta de prueba de Mianovia.", "912k esta semana · en marcha", "→ Máquina", "Pausar"]) assert.ok(bar.includes(t), t);
   assert.ok(bar.includes('href="/machine"'));
   const runs = [{ id: "r", agent: "taller-mianovia", role: "taller", project: "mianovia", ticket: "MIA-I3-3", status: "ok", summary: "", started_at: null, ended_at: "2026-11-08T13:40:00Z", tokens: 120_000 }];
   const teamOut = html(h(org.ProjectTeam, { project: "mianovia", team: p.team, runs, templates: TEMPLATES, now: NOW, add: { kind: "idle" }, onAdd: noop, canEdit: true }));
@@ -301,14 +295,15 @@ test("I33-4 state proyecto en pausa: a row in the En pausa list with Reanudar, r
 });
 
 test("I33-4 state compañía detenida: the plumbing line reads detenida, the project page says so", () => {
-  assert.deepEqual(lib.plumbingLine({ spend: 912_000, limit: 6_000_000, running: 0, paused: true }), { text: "912k / 6M · detenida", tone: "idle" });
+  assert.deepEqual(lib.plumbingLine({ spend: 912_000, running: 0, paused: true }), { text: "912k · detenida", tone: "idle" });
   const bar = html(h(org.ProjectOrgBar, { project: SIX[3], companyPaused: true, canEdit: true, onEditGoal: noop, onPause: noop, onResume: noop }));
   assert.ok(bar.includes("La compañía está detenida"));
 });
 
-test("I33-4 state presupuesto al 80 % y al 100 %: the plumbing line turns amber, then red", () => {
-  assert.equal(lib.plumbingLine({ spend: 4_800_000, limit: 6_000_000, running: 1, paused: false }).tone, "warn");
-  assert.equal(lib.plumbingLine({ spend: 6_000_000, limit: 6_000_000, running: 1, paused: false }).tone, "stop");
+test("PLA-21: no budget state: however many tokens, the plumbing and project lines never turn red or say sin presupuesto", () => {
+  assert.equal(lib.plumbingLine({ spend: 900_000_000, running: 1, paused: false }).tone, "ok");
+  assert.deepEqual(lib.usageLine({ used: 900_000_000 }, { paused: false }), { text: "900M esta semana · en marcha", tone: "ok" });
+  assert.equal("no_budget" in lib.MEMBER_STATE, false);
 });
 
 test("I33-4 state esperando a Jorge: Te necesita on the card, the message with buttons ringed in the thread", () => {

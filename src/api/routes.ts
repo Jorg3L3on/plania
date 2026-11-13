@@ -590,7 +590,7 @@ api.get("/machine", async (c) => {
     return {
       items: await machineInventory(db),
       backup,
-      // PLA-I32-6: the runner's plumbing (budgets per project and Asistente, plan guard, switches, runs, log).
+      // PLA-I32-6: the runner's plumbing (plan guard, switches, runs, log).
       runner: await plumbing(db),
       // What no project audit can hold: rows without a project (Plania's own repo, shared servers, nobody's),
       // and the nightly backup.

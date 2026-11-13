@@ -1,6 +1,6 @@
 // PLA-I31-2: Asistente, the chief of staff. PLA-I32-5: Asistente is a runner role now.
 // - At 07:00 the job queues an Asistente run that writes the brief in the company thread. Only when it cannot
-//   run (wakes off, no runner agent, company paused, its budget stopped) or its run ends without success is
+//   run (wakes off, no runner agent, company paused) or its run ends without success is
 //   the server summary below written instead, marked as such, in the thread and as asistente.brief.
 // - Every 2 hours: routine acceptance (a PO's ticket In review that Jorge asked for, ops or research, with
 //   every check done → Done, with a line in the project thread), the weekly proposal wake of an idle PO with
@@ -11,8 +11,7 @@
 //   writes it. Stored as an asistente.brief event in the home project; GET /api/company reads the latest.
 //   A server that was asleep at 07:00 writes it on its first tick after (once per local day).
 // - The check, every 2 hours (one per local 2-hour slot): stuck or quiet projects (quiet = no event in
-//   more than 48 h), budgets at 80% or more (a line, never an ask, never a proposal to raise a limit),
-//   and the same failure twice in a row on a ticket, which yields exactly one ask into Solo tú.
+//   more than 48 h), and the same failure twice in a row on a ticket, which yields exactly one ask into Solo tú.
 //   The other escalations (money, production, main, unclear direction) are judgement calls the role
 //   prompt gives to Asistente's own runs, which ask through MCP; the server does not guess them.
 // Every line is plain Spanish for the Compañía page. No money anywhere: tokens and percents only.
@@ -22,7 +21,7 @@ import type { Db } from "../db/client.js";
 import { agentRuns, agents, events, projects, questions, tasks, threadMessages, type Actor, type Project } from "../db/schema.js";
 import { ask } from "../mcp/questions.js";
 import { writeTx } from "../mcp/tx.js";
-import { budgetView, lastReading, loadSettings, planView, roleOf, screenTz, weekBounds } from "./limits.js";
+import { lastReading, loadSettings, planView, roleOf, screenTz } from "./limits.js";
 import { asistenteAgent, enqueueWake, eventWakesEnabled } from "./events.js";
 import { projectGoal } from "./runner.js";
 import { asistenteHome, companyThread, postMessage, projectThread } from "./threads.js";
@@ -59,7 +58,6 @@ const nameOf = (p: { slug: string; title: string }) => p.title || p.slug;
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 export type Findings = {
-  budgets: string[];
   quiet: string[];
   stuck: string[];
   repeated: { line: string; ask: RepeatedFailure | null }[];
@@ -74,25 +72,6 @@ export const failureSignature = (summary: string): string =>
     .replace(/\d+ turns?/g, "N turns")
     .replace(/\s+/g, " ")
     .trim();
-
-async function budgetLines(db: Db, now: Date): Promise<string[]> {
-  const { startsAt } = await weekBounds(db, now);
-  const out: string[] = [];
-  const rows = await db.select().from(projects).orderBy(asc(projects.slug));
-  for (const p of rows) {
-    const view = await budgetView(db, { kind: "project", projectId: p.id }, startsAt);
-    if (view.limit == null || view.reason) continue;
-    if (view.state === "stopped") out.push(`${nameOf(p)} llegó al 100 % de su presupuesto semanal: no arranca corridas nuevas hasta el lunes.`);
-    else if (view.state === "warn") out.push(`${nameOf(p)} va al ${view.pct} % de su presupuesto semanal.`);
-  }
-  // PLA-I32-5: role budgets are retired; Asistente has its own.
-  const own = await budgetView(db, { kind: "asistente" }, startsAt);
-  if (own.limit != null && !own.reason) {
-    if (own.state === "stopped") out.push("Asistente llegó al 100 % de su presupuesto semanal: escribo con el resumen del servidor hasta el lunes.");
-    else if (own.state === "warn") out.push(`Asistente va al ${own.pct} % de su presupuesto semanal.`);
-  }
-  return out;
-}
 
 // Quiet and stuck look only at projects the company runs (switch on): a paused project is quiet on purpose.
 async function quietAndStuck(db: Db, now: Date): Promise<{ quiet: string[]; stuck: string[] }> {
@@ -164,10 +143,10 @@ async function repeatedFailures(db: Db, now: Date): Promise<{ line: string; ask:
 
 export async function findings(db: Db, now: Date): Promise<Findings> {
   const { quiet, stuck } = await quietAndStuck(db, now);
-  return { budgets: await budgetLines(db, now), quiet, stuck, repeated: await repeatedFailures(db, now) };
+  return { quiet, stuck, repeated: await repeatedFailures(db, now) };
 }
 
-export const findingLines = (f: Findings): string[] => [...f.repeated.map((r) => r.line), ...f.stuck, ...f.quiet, ...f.budgets];
+export const findingLines = (f: Findings): string[] => [...f.repeated.map((r) => r.line), ...f.stuck, ...f.quiet];
 
 // ---- Brief
 
@@ -278,13 +257,11 @@ const BRIEF_WAIT_MS = 3 * HOUR;
 const WEEK_MS = 7 * 24 * HOUR;
 
 // One Asistente run, queued in its home project, or null when it cannot run now: wakes off, no runner
-// agent, company paused, its budget stopped, or a run already going. A queued run takes the new reason too.
+// agent, company paused, or a run already going. A queued run takes the new reason too.
 export async function queueAsistente(db: Db, home: Project, reason: string, env: NodeJS.ProcessEnv, now: Date): Promise<string | null> {
   if (!eventWakesEnabled(env)) return null;
   const agent = await asistenteAgent(db);
   if (!agent) return null;
-  const { startsAt } = await weekBounds(db, now);
-  if ((await budgetView(db, { kind: "asistente" }, startsAt)).state === "stopped") return null;
   return writeTx(db, home, { actor: { ...ASISTENTE_ACTOR, machine: hostname() }, tool: "jobs.asistente.queue" }, async (tx, emit) => {
     const out = await enqueueWake(tx, { agent, project: home, taskKey: null, reason, now });
     if (out.kind === "queued") {

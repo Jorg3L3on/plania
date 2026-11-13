@@ -30,7 +30,7 @@ const project = (patch: Record<string, unknown> = {}) => ({
   light: "ok",
   light_reason: null,
   goal: null,
-  budget: { used: 100_000, limit: 5_000_000, pct: 2, state: "ok", reason: null },
+  usage: { used: 100_000 },
   team: ["product-owner", "research", "artist", "taller"].map((r) => member(r)),
   thread: { id: "t-workia", unread: 0, last: null },
   plan: null,

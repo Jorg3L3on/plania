@@ -2,7 +2,7 @@ import type { TaskComment, RoutineRun } from "@/components/delegation/types";
 import type { TeamRoster } from "@/components/team/types";
 import type { Dashboard, WakeResult } from "@/components/dashboard/types";
 import type { Goal, GoalWrite } from "@/components/goals/model";
-import type { Budget, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
+import type { Usage, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
 
 export class ApiError extends Error {
@@ -142,9 +142,7 @@ export const api = {
   setCompanyPaused: (paused: boolean) => request<{ paused: boolean; stopped: number }>("POST", "/company/switch", { paused }),
   setProjectPaused: (slug: string, paused: boolean) =>
     request<{ project: string; paused: boolean; stopped: number }>("POST", `/company/projects/${encodeURIComponent(slug)}/switch`, { paused }),
-  setBudget: (input: ({ scope: "role"; role: string; weekly_limit: number | null } | { scope: "project"; project: string; weekly_limit: number | null }) & { code?: string }) =>
-    request<{ scope: string; key: string; weekly_limit: number | null }>("PUT", "/company/budgets", input),
-  setRunnerSettings: (input: { plan_guard_pct?: number; asistente_weekly_limit?: number | null; code?: string }) => request<Company["settings"]>("PUT", "/company/settings", input),
+  setRunnerSettings: (input: { plan_guard_pct?: number }) => request<Company["settings"]>("PUT", "/company/settings", input),
   // PLA-I36: steer a project from its card.
   askProject: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean }) => request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, input),
   pickNext: (slug: string, key: string) => request<{ next: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/next`, { key }),
@@ -163,11 +161,11 @@ export const api = {
 };
 
 // ---- PLA-I33: the organization (Plan doc 61ad843a, "Contrato de API"). Fields the contract leaves
-// untyped (week, budget, last_run) reuse the PLA-I30 shapes.
+// untyped (week, usage, last_run) reuse the PLA-I30 shapes.
 
 export type OrderKind = "cambio" | "direccion" | "idea";
 export type AskResult = { key: string; title: string; po: string; wake: "queued" | "busy" | "off"; woke: { woke: boolean; reason: string; ticket: string | null; summary: string } | null };
-export type OrgLight = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused" | "no_budget";
+export type OrgLight = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused";
 export type OrgLightReason = { text: string; action: { label: string; href: string } | null };
 // PLA-I36-3: Tus órdenes.
 export type OrderState = "enviada" | "entendida" | "en_curso" | "entregada" | "sin_tomar" | "cancelada";
@@ -189,7 +187,7 @@ export type OrgOrder = {
   plan?: { needs_approval: boolean; approved: boolean; steps: number; done: number; decision: string } | null;
   run?: OrgRun | null;
 };
-export type OrgMemberState = "running" | "idle" | "waiting_jorge" | "paused" | "no_budget";
+export type OrgMemberState = "running" | "idle" | "waiting_jorge" | "paused";
 export type OrgProduced = { kind: "doc" | "pr" | "idea" | "plan"; ref: string; title: string };
 export type OrgMember = {
   agent: string;
@@ -213,7 +211,8 @@ export type OrgProject = {
   light_reason?: OrgLightReason | null;
   goal: string | null;
   rumbo?: OrgRumbo;
-  budget: Budget;
+  // PLA-21: this week's tokens, shown only.
+  usage: Usage;
   team: OrgMember[];
   thread: OrgThreadRef;
   // PLA-I35-1: the card as a report.
@@ -282,11 +281,11 @@ export type Decision = {
 export type DecisionAsker = { agent: string; role: string };
 export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string };
 export type DecisionResult = { ok: boolean; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
-export type OrgPlumbing = { spend: number; limit: number | null; running: number; paused: boolean };
+export type OrgPlumbing = { spend: number; running: number; paused: boolean };
 export type OrgCompany = {
   company: { paused: boolean };
   week: Company["week"];
-  asistente: { thread_id: string; budget: Budget; last_run: { status: string; at: string | null; summary?: string } | null; state: OrgMemberState; unread?: number };
+  asistente: { thread_id: string; usage: Usage; last_run: { status: string; at: string | null; summary?: string } | null; state: OrgMemberState; unread?: number };
   projects: OrgProject[];
   plumbing: OrgPlumbing;
   decisions: Decision[];
@@ -317,13 +316,13 @@ export type Thread = { id: string; kind: "company" | "project"; project: string 
 export type ThreadPostResult = { message: ThreadMessage; created: { kind: string; key: string } | null; wake: string };
 export type ThreadActionResult = { ok: boolean; action_state: ThreadActionState };
 
-// GET /api/machine plus the plumbing blocks that left Compañía (budgets, plan guard, switches, runs, log).
+// GET /api/machine plus the plumbing blocks that left Compañía (week tokens, plan guard, switches, runs, log).
 export type MachinePlumbing = {
   company: { paused: boolean; paused_at: string | null };
   settings: Company["settings"];
   week: Company["week"];
   plan: CompanyPlan;
-  budgets: { asistente: Budget; projects: CompanyProjectRow[] };
+  usage: { asistente: Usage; projects: CompanyProjectRow[] };
   runs: { live: CompanyRun[]; queued: CompanyRun[] };
   log: RunBrief[];
   viewer?: { can_edit_limits: boolean };

@@ -136,6 +136,7 @@ export async function sweepFailedRuns(db: Db): Promise<{ retried: number; held: 
 // ---- PLA-18: runs a limit stopped, and work a limit held
 
 // The limit that stopped a run or dropped a wake, when it is one that opens again (by itself or by Jorge).
+// "budget" is only read from runs made before PLA-21 removed the budgets: those requeue on the next tick.
 export type Limit = "budget" | "switch" | "plan" | "restart";
 export function limitOf(status: string, summary: string, stopReason: string | null): Limit | null {
   const text = status === "stopped" ? (stopReason ?? "") : status === "skipped" ? summary.replace(/^skipped:\s*/i, "") : "";
@@ -147,7 +148,7 @@ export function limitOf(status: string, summary: string, stopReason: string | nu
 }
 
 const STOPPED_WORDS: Record<string, [string, string]> = {
-  budget: ["se acabó el presupuesto semanal", "se retoma cuando haya presupuesto"],
+  budget: ["se acabó el presupuesto semanal", "se retoma enseguida: ya no hay límite semanal"],
   switch: ["el proyecto o la compañía se pusieron en pausa", "se retoma al reanudar"],
 };
 const REQUEUE_REASON: Record<Limit, string> = { budget: "budget open again", switch: "runs resumed", plan: "plan has room again", restart: "server restarted" };
