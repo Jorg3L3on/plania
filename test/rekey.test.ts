@@ -1,8 +1,7 @@
 // scripts/rekey-v3.ts: filmia's keys move to the 2.1 scheme once, with aliases and events.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -10,12 +9,12 @@ const { createTask } = await import("../src/mcp/writes.js");
 const { findProject, findTask, listEvents } = await import("../src/mcp/queries.js");
 const { rekeyProject } = await import("../scripts/rekey-v3.js");
 
-let raw: pg.Client;
+let store: TestStore;
 const ctx = { actor: { agent: "t", session_id: "s1" } };
 const T = { scope: "s", checks: ["c"] };
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   const { db, close } = makeDb();
   try {
     // filmia on 2026-10-07: one shared FIL-NN sequence for initiatives and tickets, created in number order
@@ -32,7 +31,7 @@ before(async () => {
 });
 
 after(async () => {
-  await raw?.end();
+  await store?.end();
 });
 
 describe("rekey", () => {

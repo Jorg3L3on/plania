@@ -4,8 +4,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -16,8 +15,25 @@ const { webCtx } = await import("../src/mcp/tx.js");
 const { setTask } = await import("../src/mcp/writes.js");
 
 let client: Client;
-let raw: pg.Client;
+let store: TestStore;
 let closeDb: () => Promise<void>;
+
+const minutesAgo = (n: number): Date => new Date(Date.now() - n * 60_000);
+
+// The task a project's slug and key name (key only, not an alias), or undefined.
+// An undefined filter value matches anything in the store, so a missing slug or key matches nothing here.
+async function taskOf(project: string | undefined, key: string | undefined) {
+  if (project === undefined || key === undefined) return undefined;
+  const p = await store.get("projects", { slug: project });
+  if (!p) return undefined;
+  return store.get("tasks", { projectId: p.id, key });
+}
+
+// Ticks every open check of a task (not the waived ones), as the tests do before a move that needs them closed.
+async function tickChecks(project: string, key: string): Promise<void> {
+  const t = await taskOf(project, key);
+  if (t) await store.fix((uow) => uow.update("checks", { taskId: t.id, done: false, waivedAt: null }, { done: true }));
+}
 
 type Json = Record<string, any>;
 
@@ -28,12 +44,13 @@ const READ_TOOLS = new Set(["get_resume", "get_project", "list_tasks", "get_task
 // set_task needs the version the caller read. Tests that are not about versions get the current one
 // filled in; version: "none" sends the call without one.
 async function currentVersion(project: string, key: string): Promise<number | undefined> {
-  const { rows } = await raw.query(
-    `select t.version from tasks t join projects p on p.id = t.project_id
-     where p.slug = $1 and (t.key = $2 or t.id = (select a.task_id from task_aliases a where a.project_id = p.id and a.alias = $2))`,
-    [project, key],
-  );
-  return rows[0]?.version;
+  if (project === undefined || key === undefined) return undefined;
+  const p = await store.get("projects", { slug: project });
+  if (!p) return undefined;
+  const byKey = await store.get("tasks", { projectId: p.id, key });
+  if (byKey) return byKey.version;
+  const alias = await store.get("taskAliases", { projectId: p.id, alias: key });
+  return alias ? (await store.get("tasks", { projectId: p.id, id: alias.taskId }))?.version : undefined;
 }
 
 // Tickets must follow the template (scope, and checks for code/ops). Tests that are not about it get a
@@ -67,11 +84,7 @@ async function call(name: string, args: Json): Promise<Json> {
   // In review and Done need every check closed (2.1). Tests that are not about that get them ticked;
   // open_checks: true leaves them as they are.
   if (name === "set_task" && (args.status === "In review" || args.status === "Done") && args.open_checks !== true) {
-    await raw.query(
-      `update checks set done = true where done = false and waived_at is null and task_id = (
-         select t.id from tasks t join projects p on p.id = t.project_id where p.slug = $1 and t.key = $2)`,
-      [args.project, args.key],
-    );
+    await tickChecks(args.project, args.key);
   }
   if (args.open_checks !== undefined) {
     const { open_checks: _, ...rest } = args;
@@ -99,8 +112,7 @@ async function expectError(name: string, args: Json, code: string, status: numbe
 }
 
 async function eventCount(): Promise<number> {
-  const { rows } = await raw.query("select count(*)::int as n from events");
-  return rows[0].n;
+  return store.count("events");
 }
 
 const lastLog = async (project: string, key: string): Promise<Json> => (await logOf(project, key)).at(-1)!;
@@ -110,11 +122,7 @@ const MOVE = { reason: "él lo pidió", delegated_by_jorge: { message_id: "msg-o
 // A move from the screen, as Jorge: any status. Checks still apply to Done, so they get ticked.
 // Won't do and reopening need a reason; the screen session is the evidence.
 async function asJorge(project: string, key: string, status: string): Promise<void> {
-  await raw.query(
-    `update checks set done = true where done = false and waived_at is null and task_id = (
-       select t.id from tasks t join projects p on p.id = t.project_id where p.slug = $1 and t.key = $2)`,
-    [project, key],
-  );
+  await tickChecks(project, key);
   const { db, close } = makeDb();
   try {
     const reason = status === "Won't do" || status === "Done" ? "en pantalla" : undefined;
@@ -125,12 +133,12 @@ async function asJorge(project: string, key: string, status: string): Promise<vo
 }
 
 async function resolvedAt(key: string): Promise<Date | null> {
-  const { rows } = await raw.query("select resolved_at from tasks where key = $1", [key]);
-  return rows[0].resolved_at;
+  const t = await store.get("tasks", { key });
+  return t!.resolvedAt;
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
 
   const { db, close } = makeDb();
   closeDb = close;
@@ -143,7 +151,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 // The full tool surface. Update with the contract.
@@ -491,12 +499,12 @@ describe("v2 A2: versions", () => {
     const r = await call("set_task", { project: "zigzag", key: "ZIG-B-01", summary: "second", version });
     assert.equal(r.__error, "STALE_VERSION");
     assert.equal(r.__status, 409);
-    const { rows } = await raw.query("select summary, version from tasks where key = 'ZIG-B-01'");
-    assert.equal(rows[0].summary, "first");
+    const row = (await store.get("tasks", { key: "ZIG-B-01" }))!;
+    assert.equal(row.summary, "first");
     const text = ((await client.callTool({
       name: "set_task", arguments: { project: "zigzag", key: "ZIG-B-01", summary: "second", version, actor: A },
     })) as { content: { text: string }[] }).content[0]!.text;
-    assert.equal(JSON.parse(text).current_version, rows[0].version);
+    assert.equal(JSON.parse(text).current_version, row.version);
   });
 });
 
@@ -556,7 +564,7 @@ describe("v2 A3: leases", () => {
   });
 
   test("an expired lease is free: get_next offers it and the next write logs claim.expired", async () => {
-    await raw.query("update tasks set lease_until = now() - interval '1 minute' where key = 'WRK-L-01'");
+    await store.fix((uow) => uow.update("tasks", { key: "WRK-L-01" }, { leaseUntil: minutesAgo(1) }));
     const stale = await call("get_task", { ...P, key: "WRK-L-01" });
     assert.equal(stale.claim.live, false);
     const next = await call("get_next", P);
@@ -573,7 +581,7 @@ describe("v2 A3: leases", () => {
   });
 
   test("heartbeat after expiry is LEASE_EXPIRED", async () => {
-    await raw.query("update tasks set lease_until = now() - interval '1 minute' where key = 'WRK-L-01'");
+    await store.fix((uow) => uow.update("tasks", { key: "WRK-L-01" }, { leaseUntil: minutesAgo(1) }));
     await expectError("claim", { ...P, key: "WRK-L-01", action: "heartbeat", actor: B }, "LEASE_EXPIRED", 409);
   });
 
@@ -598,10 +606,7 @@ describe("v2 A3: leases", () => {
       ]) as Json[];
       const outcomes = results.map((r) => (r.isError ? JSON.parse(r.content[0].text).error : "ok")).sort();
       assert.deepEqual(outcomes, ["CLAIM_HELD", "ok"]);
-      const { rows } = await raw.query(
-        "select count(*)::int as n from events where task_key = 'WRK-L-02' and type = 'claim.acquired'",
-      );
-      assert.equal(rows[0].n, 1);
+      assert.equal(await store.count("events", { taskKey: "WRK-L-02", type: "claim.acquired" }), 1);
     } finally {
       await other.close();
     }
@@ -671,10 +676,10 @@ describe("v2 A5: sequences", () => {
   test("a specific value held by a live ticket is SEQUENCE_TAKEN; a Won't do holder gives it up", async () => {
     const r = await call("reserve_sequence", { ...P, name: "migration", task_key: "WRK-S-02", value: 9 });
     assert.equal(r.__error, "SEQUENCE_TAKEN");
-    await raw.query("update tasks set status = 'Won''t do' where key = 'WRK-S-01'");
+    await store.fix((uow) => uow.update("tasks", { key: "WRK-S-01" }, { status: "Won't do" }));
     const taken = await call("reserve_sequence", { ...P, name: "migration", task_key: "WRK-S-02", value: 9 });
     assert.equal(taken.value, "0009");
-    await raw.query("update tasks set status = 'Backlog' where key = 'WRK-S-01'");
+    await store.fix((uow) => uow.update("tasks", { key: "WRK-S-01" }, { status: "Backlog" }));
     await expectError("reserve_sequence", { ...P, name: "Bad Name", task_key: "WRK-S-02" }, "INVALID_SEQUENCE", 400);
     await expectError("reserve_sequence", { ...P, name: "migration", task_key: "NOPE" }, "TASK_NOT_FOUND", 404);
   });
@@ -874,8 +879,9 @@ describe("v2 B3: evidence", () => {
 
   test("evidence from an earlier claim does not count after rework", async () => {
     await call("claim", { ...P, key: "WRK-E-01" });
-    await raw.query("update results set created_at = now() - interval '1 hour' where task_id = (select id from tasks where key = 'WRK-E-01')");
-    await raw.query("update tasks set claimed_at = now() - interval '1 minute' where key = 'WRK-E-01'");
+    const task = (await store.get("tasks", { key: "WRK-E-01" }))!;
+    await store.fix((uow) => uow.update("results", { taskId: task.id }, { createdAt: minutesAgo(60) }));
+    await store.fix((uow) => uow.update("tasks", { key: "WRK-E-01" }, { claimedAt: minutesAgo(1) }));
     await expectError("set_task", { ...P, key: "WRK-E-01", status: "In review", open_checks: true }, "EVIDENCE_REQUIRED", 409);
   });
 
@@ -999,8 +1005,7 @@ describe("v2 B6: environments", () => {
     let t = await call("get_task", { ...P, key: "WRK-V-01" });
     assert.deepEqual(t.blocked_by, [{ type: "env", env: "prod", condition: "migration_gte", value: "9", current: null, satisfied: false }]);
     await expectError("claim", { ...P, key: "WRK-V-01" }, "NOT_CLAIMABLE", 409);
-    const { rows } = await raw.query("select status from tasks where key = 'WRK-V-01'");
-    assert.equal(rows[0].status, "Backlog");
+    assert.equal((await store.get("tasks", { key: "WRK-V-01" }))!.status, "Backlog");
 
     const { env } = await call("set_env", { ...P, env: "prod", commit: "abc1234", branch: "main", migrations_applied: 9, deployed: { provider: "manual", deployment_id: "d-0" } });
     assert.equal(env.migrations_applied, 9);
@@ -1083,7 +1088,7 @@ describe("v2 C1: questions", () => {
 
   test("In progress whose lease ran out comes back as Ready", async () => {
     const { question } = await call("ask", { ...P, key: "MIC-Q-01", question: "Name the importer?" });
-    await raw.query("update tasks set lease_until = now() - interval '1 minute' where key = 'MIC-Q-01'");
+    await store.fix((uow) => uow.update("tasks", { key: "MIC-Q-01" }, { leaseUntil: minutesAgo(1) }));
     const r = await call("answer", { ...P, question_id: question.id, answer: "Importador" });
     assert.equal(r.task.status, "Ready");
     assert.equal(r.task.claim, null);

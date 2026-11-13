@@ -3,8 +3,7 @@
 // plumbing, plus POST /api/company/projects/:slug/team. Throwaway DB, fake values only.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 process.env.PLANIA_HOME_PROJECT = "zigzag";
@@ -17,7 +16,7 @@ const writes = await import("../src/mcp/writes.js");
 const questions = await import("../src/mcp/questions.js");
 
 type Json = Record<string, any>;
-let raw: pg.Client;
+let store: TestStore;
 let db: ReturnType<typeof makeDb>["db"];
 let closeDb: () => Promise<void>;
 const jorge = () => ({ Cookie: `${SESSION_COOKIE}=${createSession()}`, "Content-Type": "application/json" });
@@ -33,39 +32,50 @@ const USAGE = ["used"];
 const MEMBER = ["agent", "last", "now", "produced", "queue", "role", "state", "template", "waiting"];
 
 before(async () => {
-  raw = await resetTestDb();
-  await raw.query(`insert into projects (slug, title, key_prefix) values ('mianovia', 'Mianovia', 'MIA')`);
+  store = await resetTestStore();
+  await store.fix((uow) => uow.insert("projects", { slug: "mianovia", title: "Mianovia", keyPrefix: "MIA" }));
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
-  const pid = async (slug: string) => (await raw.query(`select id from projects where slug = $1`, [slug])).rows[0].id as string;
-  const actor = JSON.stringify({ agent: "test", session_id: "s" });
-  for (const title of ["Prompt: Product owner", "Prompt: Taller", "Prompt: Research", "Prompt: Artist", "Prompt: Asistente", "Prompt: QA"]) {
-    await raw.query(`insert into docs (project_id, title, markdown, actor) values ($1, $2, $3, $4)`, [await pid("micasa"), title, `# ${title}`, actor]);
-  }
-  await raw.query(`update projects set runs_paused = false where slug in ('micasa', 'mianovia')`);
-  await raw.query(`insert into goals (project_id, title) values ($1, 'Primera boda')`, [await pid("mianovia")]);
+  const pid = (slug: string) => store.projectId(slug);
+  const actor = { agent: "test", session_id: "s" };
+  const [micasa, mianovia] = [await pid("micasa"), await pid("mianovia")];
+  await store.fix(async (uow) => {
+    for (const title of ["Prompt: Product owner", "Prompt: Taller", "Prompt: Research", "Prompt: Artist", "Prompt: Asistente", "Prompt: QA"]) {
+      await uow.insert("docs", { projectId: micasa, title, markdown: `# ${title}`, actor });
+    }
+  });
+  await store.fix((uow) => uow.update("projects", { slug: ["micasa", "mianovia"] }, { runsPaused: false }));
+  await store.fix((uow) => uow.insert("goals", { projectId: mianovia, title: "Primera boda" }));
   // Mianovia: Taller is running on a ticket; Research delivered a doc; the PO waits on Jorge.
   const A = { actor: { agent: "po-mianovia", session_id: "s-po" } };
   const t = (await writes.createTask(db, { project: "mianovia", key: "MIA-1", title: "Invitaciones", scope: "s", checks: ["c"] } as never, A)) as { key: string };
-  await raw.query(
-    `insert into agent_runs (agent_id, project_id, task_key, role, status, started_at) select id, $1, 'MIA-1', 'taller', 'running', now() from agents where slug = 'taller-mianovia'`,
-    [await pid("mianovia")],
-  );
-  await raw.query(
-    `insert into agent_runs (agent_id, project_id, task_key, role, status, started_at, ended_at, tokens_total) select id, $1, 'MIA-1', 'research', 'ok', now() - interval '1 hour', now() - interval '50 minutes', 1200 from agents where slug = 'research-mianovia'`,
-    [await pid("mianovia")],
-  );
+  await store.fix(async (uow) => {
+    for (const a of await uow.find("agents", { slug: "taller-mianovia" })) {
+      await uow.insert("agentRuns", { agentId: a.id, projectId: mianovia, taskKey: "MIA-1", role: "taller", status: "running", startedAt: uow.now });
+    }
+  });
+  await store.fix(async (uow) => {
+    for (const a of await uow.find("agents", { slug: "research-mianovia" })) {
+      const at = uow.now.getTime();
+      await uow.insert("agentRuns", { agentId: a.id, projectId: mianovia, taskKey: "MIA-1", role: "research", status: "ok", startedAt: new Date(at - 3_600_000), endedAt: new Date(at - 50 * 60_000), tokensTotal: 1200 });
+    }
+  });
   const thread = (await (await app.request("/api/threads/mianovia", { headers: jorge() })).json()) as { id: string };
-  await raw.query(
-    `insert into thread_messages (thread_id, author_agent, author_role, body, links) values ($1, 'research-mianovia', 'research', 'Investigación lista', $2::jsonb)`,
-    [thread.id, JSON.stringify([{ kind: "ticket", ref: t.key, title: "Invitaciones" }, { kind: "doc", ref: "00000000-0000-4000-8000-000000000001", title: "Research" }])],
+  await store.fix((uow) =>
+    uow.insert("threadMessages", {
+      threadId: thread.id,
+      authorAgent: "research-mianovia",
+      authorRole: "research",
+      body: "Investigación lista",
+      links: [{ kind: "ticket", ref: t.key, title: "Invitaciones" }, { kind: "doc", ref: "00000000-0000-4000-8000-000000000001", title: "Research" }],
+    }),
   );
   await questions.ask(db, { project: "mianovia", key: t.key, question: "¿Papel o digital?" }, A);
 });
 
 after(async () => {
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("I32-6 #1: GET /api/company has exactly the contract keys, a team of four per project and the plumbing line", async () => {
@@ -139,7 +149,10 @@ test("I32-6 #2: POST team creates the agent with project_id and role_template an
   assert.deepEqual(keys(out), ["agent", "team"]);
   assert.deepEqual([out.agent.agent, out.agent.template, out.agent.role, out.agent.state], ["qa-mianovia", "qa", "qa", "idle"]);
   assert.deepEqual(out.team.map((m: Json) => m.agent), ["po-mianovia", "research-mianovia", "artist-mianovia", "taller-mianovia", "qa-mianovia"]);
-  const row = (await raw.query(`select a.role_template, a.adapter, p.slug as project, b.slug as boss from agents a join projects p on p.id = a.project_id join agents b on b.id = a.reports_to where a.slug = 'qa-mianovia'`)).rows[0];
+  const a = await store.get("agents", { slug: "qa-mianovia" });
+  const project = a?.projectId ? await store.get("projects", { id: a.projectId }) : undefined;
+  const boss = a?.reportsTo ? await store.get("agents", { id: a.reportsTo }) : undefined;
+  const row = a && project && boss && { role_template: a.roleTemplate, adapter: a.adapter, project: project.slug, boss: boss.slug };
   assert.deepEqual(row, { role_template: "qa", adapter: "claude_code", project: "mianovia", boss: "po-mianovia" });
   assert.deepEqual((await get("/api/company/projects/mianovia")).templates, []);
   const again = await post("mianovia", { template: "qa" });

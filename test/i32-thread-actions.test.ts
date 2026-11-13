@@ -4,8 +4,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 process.env.PLANIA_EVENT_WAKES = "1";
@@ -19,7 +18,7 @@ const { releaseGh } = await import("../src/mcp/release-ship.js");
 const writes = await import("../src/mcp/writes.js");
 
 type Db = ReturnType<typeof makeDb>["db"];
-let raw: pg.Client;
+let store: TestStore;
 let db: Db;
 let closeDb: () => Promise<void>;
 let client: Client;
@@ -43,18 +42,18 @@ const PO = { agent: "po-micasa", session_id: "s-po" };
 // A ticket of micasa put In review directly (the review path itself is tested elsewhere), and a PO message on it.
 async function reviewTicket(title: string, workType: string, opts: { pr?: string; owner?: string } = {}): Promise<{ key: string; message: string }> {
   const t = (await writes.createTask(db, { project: "micasa", title, scope: "s", checks: ["c"], work_type: workType, ...(opts.owner ? { owner_agent: opts.owner } : {}) } as never, { actor: PO })) as { key: string };
-  await raw.query(`update tasks set status = 'In review', pr_url = $2 where key = $1`, [t.key, opts.pr ?? null]);
-  await raw.query(`update checks set done = true, done_at = now() where task_id = (select id from tasks where key = $1)`, [t.key]);
+  const [row] = await store.fix((uow) => uow.update("tasks", { key: t.key }, { status: "In review", prUrl: opts.pr ?? null }));
+  await store.fix((uow) => uow.update("checks", { taskId: row!.id }, { done: true, doneAt: uow.now }));
   const links = [{ kind: "ticket", ref: t.key, title }, ...(opts.pr ? [{ kind: "pr", ref: opts.pr, title: "PR" }] : [])];
   const out = await call("thread_post", { actor: PO, thread: "micasa", body: `${t.key} listo para revisar`, links });
   return { key: t.key, message: out.message.id };
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
-  await raw.query(`update projects set runs_paused = false where slug = 'micasa'`);
+  await store.fix((uow) => uow.update("projects", { slug: "micasa" }, { runsPaused: false }));
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await createMcpServer(db).connect(serverSide);
   client = new Client({ name: "i32-actions", version: "0" });
@@ -66,7 +65,7 @@ after(async () => {
   releaseGh.run = realGh;
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("I32-4 #3: the action route is Jorge's screen only: Bearer 403 (even with the cookie), no cookie 401, bad body 400", async () => {
@@ -82,11 +81,12 @@ test("I32-4 #3: the action route is Jorge's screen only: Bearer 403 (even with t
 
 test("I32-4: aceptar with an open check is refused with the reason and changes nothing", async () => {
   const { key, message } = await reviewTicket("Doc con check abierto", "ops");
-  await raw.query(`update checks set done = false, done_at = null where task_id = (select id from tasks where key = $1)`, [key]);
+  const { id: taskId } = (await store.get("tasks", { key }))!;
+  await store.fix((uow) => uow.update("checks", { taskId }, { done: false, doneAt: null }));
   const res = await act({ message_id: message, action: "aceptar" });
   assert.equal(res.status, 409);
   assert.equal(((await res.json()) as { error: string }).error, "CHECKS_OPEN");
-  assert.equal((await raw.query(`select status from tasks where key = $1`, [key])).rows[0].status, "In review");
+  assert.equal((await store.get("tasks", { key }))!.status, "In review");
   assert.equal((await messages()).find((m) => m.id === message)!.action_state, null);
 });
 
@@ -98,7 +98,7 @@ test("I32-4 #1: aceptar on a doc's ticket moves it to Done; the message keeps th
   const out = (await res.json()) as { ok: boolean; action_state: { action: string; result: Record<string, unknown> } };
   assert.equal(out.ok, true);
   assert.deepEqual([out.action_state.action, out.action_state.result], ["aceptar", { ticket: key, status: "Done" }]);
-  assert.equal((await raw.query(`select status from tasks where key = $1`, [key])).rows[0].status, "Done");
+  assert.equal((await store.get("tasks", { key }))!.status, "Done");
   const m = (await messages()).find((x) => x.id === message)!;
   assert.deepEqual(m.actions, []);
   assert.equal(m.action_state!.action, "aceptar");
@@ -128,7 +128,7 @@ test("I32-4 #1: aceptar on a PR merges it into sandbox with gh pr merge --merge 
   assert.deepEqual(out.action_state.result, { merged: true, pr: "https://github.com/example/micasa/pull/9", base: "sandbox", sha: "a".repeat(40), ticket: good.key });
   const merge = calls.find((a) => a[1] === "merge")!;
   assert.deepEqual(merge, ["pr", "merge", "9", "--repo", "example/micasa", "--merge", "--match-head-commit", "f".repeat(40)]);
-  const ev = (await raw.query(`select payload from events where type = 'pr.merged' and task_key = $1`, [good.key])).rows[0].payload;
+  const ev = (await store.get("events", { type: "pr.merged", taskKey: good.key }))!.payload;
   assert.deepEqual([ev.number, ev.base, ev.merge_sha, ev.by], [9, "sandbox", "a".repeat(40), "screen"]);
 
   calls.length = 0;
@@ -148,24 +148,25 @@ test("I32-4 #1: aceptar on a PR merges it into sandbox with gh pr merge --merge 
 });
 
 test("I32-4 #2: cambios sends the ticket back to Ready with the text as a note and queues its owner's wake", async () => {
-  await raw.query(`delete from agent_runs`);
+  await store.fix((uow) => uow.delete("agentRuns", {}));
   const { key, message } = await reviewTicket("Plan de lanzamiento", "ops", { owner: "po-micasa" });
   const empty = await act({ message_id: message, action: "cambios" });
   assert.equal(empty.status, 409);
   assert.equal(((await empty.json()) as { error: string }).error, "TEXT_REQUIRED");
   const res = await act({ message_id: message, action: "cambios", text: "Agrega una fecha por fase" });
   assert.equal(res.status, 200);
-  assert.equal((await raw.query(`select status from tasks where key = $1`, [key])).rows[0].status, "Ready");
-  const note = (await raw.query(`select payload from events where task_key = $1 and type = 'note' order by id desc limit 1`, [key])).rows[0];
+  assert.equal((await store.get("tasks", { key }))!.status, "Ready");
+  const [note] = await store.find("events", { taskKey: key, type: "note" }, { orderBy: [{ column: "id", desc: true }], limit: 1 });
   assert.match(JSON.stringify(note?.payload ?? {}), /Agrega una fecha por fase/);
-  const runs = (await raw.query(`select a.slug, r.status, r.task_key from agent_runs r join agents a on a.id = r.agent_id`)).rows;
+  const slugs = new Map((await store.find("agents")).map((a) => [a.id, a.slug]));
+  const runs = (await store.find("agentRuns")).filter((r) => slugs.has(r.agentId)).map((r) => ({ slug: slugs.get(r.agentId), status: r.status, task_key: r.taskKey }));
   assert.deepEqual(runs, [{ slug: "po-micasa", status: "queued", task_key: key }]);
 });
 
 test("I32-4 #2: a runner's question lands in the thread with Responder; responder answers it", async () => {
-  const po = (await raw.query(`select id from agents where slug = 'po-micasa'`)).rows[0].id;
-  const micasa = (await raw.query(`select id from projects where slug = 'micasa'`)).rows[0].id;
-  const run = (await raw.query(`insert into agent_runs (agent_id, project_id, role, status, started_at) values ($1, $2, 'product-owner', 'ok', now()) returning id`, [po, micasa])).rows[0].id as string;
+  const po = (await store.get("agents", { slug: "po-micasa" }))!.id;
+  const micasa = await store.projectId("micasa");
+  const run = (await store.fix((uow) => uow.insert("agentRuns", { agentId: po, projectId: micasa, role: "product-owner", status: "ok", startedAt: uow.now }))).id;
   const t = (await writes.createTask(db, { project: "micasa", title: "Nombre del plan", scope: "s", checks: ["c"], work_type: "ops" } as never, { actor: PO })) as { key: string };
   const asked = await call("ask", { actor: { agent: "po-micasa", session_id: `run-${run.slice(0, 8)}` }, project: "micasa", key: t.key, question: "¿Plan Básico o Plan Inicial?" });
   assert.ok(asked.question_id, JSON.stringify(asked));
@@ -175,8 +176,8 @@ test("I32-4 #2: a runner's question lands in the thread with Responder; responde
 
   const res = await act({ message_id: m.id, action: "responder", text: "Plan Inicial" });
   assert.equal(res.status, 200);
-  const q = (await raw.query(`select answer, answered_at from questions where id = $1`, [asked.question_id])).rows[0];
+  const q = (await store.get("questions", { id: asked.question_id }))!;
   assert.equal(q.answer, "Plan Inicial");
-  assert.ok(q.answered_at);
+  assert.ok(q.answeredAt);
   assert.deepEqual((await messages()).find((x) => x.id === m.id)!.actions, []);
 });
