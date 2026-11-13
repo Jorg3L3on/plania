@@ -3,10 +3,10 @@ import type { NodePgQueryResultHKT } from "drizzle-orm/node-postgres";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import type { Db } from "../db/client.js";
 import type * as schema from "../db/schema.js";
-import { events, type Actor, type Project } from "../db/schema.js";
+import type { Actor, Project } from "../db/schema.js";
 import { bus, type PlaniaEvent } from "../events.js";
 import { onWriteEvent } from "../runner/events.js";
-import { pgStore } from "../store/pg.js";
+import { pgStore, uowOf } from "../store/pg.js";
 import { RequestIdReused } from "../store/types.js";
 import { ToolError } from "./errors.js";
 
@@ -64,7 +64,7 @@ export async function writeTx<T>(
       for (const key of await reapExpiredLeases(tx, project.id, project.slug)) touched("claim.expired", key);
       const emit: Emit = async (type, task, payload = {}, actor = ctx.actor) => {
         touched(type, task?.key ?? null);
-        await tx.insert(events).values({
+        await uow.insert("events", {
           projectId: project.id,
           taskId: task?.id ?? null,
           taskKey: task?.key ?? null,
@@ -109,7 +109,7 @@ export async function reapExpiredLeases(tx: Q, projectId: string, slug?: string)
     returning t.id, t.key, e.owner, e.status as "from", t.status as "to", e.lease_until`);
   for (const r of expired.rows) {
     const payload = { owner: r.owner, from: r.from, to: r.to, lease_until: iso(new Date(r.lease_until)) };
-    await tx.insert(events).values({ projectId, taskId: r.id, taskKey: r.key, type: "claim.expired", actor: SYSTEM_ACTOR, payload });
+    await uowOf(tx).insert("events", { projectId, taskId: r.id, taskKey: r.key, type: "claim.expired", actor: SYSTEM_ACTOR, payload });
     if (slug) await onWriteEvent(tx, { id: projectId, slug }, "claim.expired", { id: r.id, key: r.key }, payload);
   }
   return expired.rows.map((r) => r.key);

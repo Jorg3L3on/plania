@@ -1,6 +1,6 @@
-import { and, asc, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { quotaUsage, resources, type Project } from "../db/schema.js";
+import type { resources, Project } from "../db/schema.js";
+import { readerOf, uowOf } from "../store/pg.js";
 import { LEGACY_APPROVAL_HINT } from "./delegate.js";
 import { ToolError } from "./errors.js";
 import { findProject } from "./queries.js";
@@ -37,11 +37,12 @@ function fullName(name: string, ctx: Ctx): string {
 }
 
 export async function reapExpiredResources(tx: Q, emit: Emit, projectId: string): Promise<void> {
-  const expired = await tx
-    .delete(resources)
-    .where(and(eq(resources.projectId, projectId), sql`${resources.leaseUntil} < now()`))
-    .returning();
-  for (const r of expired) await emit("resource.expired", null, { name: r.name, holder: r.holder });
+  const uow = uowOf(tx);
+  for (const r of await uow.find("resources", { projectId })) {
+    if (r.leaseUntil >= uow.now) continue;
+    await uow.delete("resources", { projectId, name: r.name });
+    await emit("resource.expired", null, { name: r.name, holder: r.holder });
+  }
 }
 
 export async function leaseResource(
@@ -57,18 +58,15 @@ export async function leaseResource(
   if (policy?.ttl_max && minutes > policy.ttl_max) throw new ToolError("INVALID_RESOURCE", { field: "ttl_minutes", max: policy.ttl_max });
   return writeTx(db, p, ctx, async (tx, emit) => {
     await reapExpiredResources(tx, emit, p.id);
-    const [held] = await tx.select().from(resources).where(and(eq(resources.projectId, p.id), eq(resources.name, name))).limit(1);
+    const uow = uowOf(tx);
+    const held = await uow.get("resources", { projectId: p.id, name });
     if (held && held.holder.session_id !== ctx.actor.session_id) {
       throw new ToolError("RESOURCE_HELD", { name, holder: held.holder, lease_until: iso(held.leaseUntil), purpose: held.purpose });
     }
-    const [r] = await tx
-      .insert(resources)
-      .values({ projectId: p.id, name, holder: ctx.actor, purpose: input.purpose?.trim() ?? "", leaseUntil: sql`now() + make_interval(mins => ${minutes})`, approvalId: null })
-      .onConflictDoUpdate({
-        target: [resources.projectId, resources.name],
-        set: { leaseUntil: sql`now() + make_interval(mins => ${minutes})`, purpose: input.purpose?.trim() ?? held?.purpose ?? "", holder: ctx.actor },
-      })
-      .returning();
+    const leaseUntil = new Date(uow.now.getTime() + minutes * 60_000);
+    const r = held
+      ? (await uow.update("resources", { projectId: p.id, name }, { leaseUntil, purpose: input.purpose?.trim() ?? held.purpose, holder: ctx.actor }))[0]
+      : await uow.insert("resources", { projectId: p.id, name, holder: ctx.actor, purpose: input.purpose?.trim() ?? "", leaseUntil, approvalId: null });
     await emit(held ? "resource.extended" : "resource.leased", null, { name, purpose: r!.purpose, lease_until: iso(r!.leaseUntil), minutes });
     const hint = typeof input.approval_id === "string" && input.approval_id.trim() ? LEGACY_APPROVAL_HINT : undefined;
     return { resource: resourceShape(r!), extended: !!held, ...(hint ? { hint } : {}) };
@@ -79,12 +77,13 @@ export async function releaseResource(db: Db, input: { project: string; name: st
   const p = await findProject(db, input.project);
   const name = fullName(input.name, ctx);
   return writeTx(db, p, ctx, async (tx, emit) => {
-    const [held] = await tx.select().from(resources).where(and(eq(resources.projectId, p.id), eq(resources.name, name))).limit(1);
+    const uow = uowOf(tx);
+    const held = await uow.get("resources", { projectId: p.id, name });
     if (!held) return { name, released: false };
     if (held.holder.session_id !== ctx.actor.session_id && !ctx.human) {
       throw new ToolError("RESOURCE_HELD", { name, holder: held.holder, lease_until: iso(held.leaseUntil), purpose: held.purpose });
     }
-    await tx.delete(resources).where(and(eq(resources.projectId, p.id), eq(resources.name, name)));
+    await uow.delete("resources", { projectId: p.id, name });
     await emit("resource.released", null, { name, holder: held.holder });
     return { name, released: true };
   });
@@ -99,17 +98,13 @@ export async function consume(db: Db, input: { project: string; name: string; n?
   const quota = p.settings.quotas?.[name];
   if (!quota) throw new ToolError("INVALID_RESOURCE", { field: "name", hint: "no such quota in settings.quotas", known: Object.keys(p.settings.quotas ?? {}) });
   return writeTx(db, p, ctx, async (tx, emit) => {
-    const day = new Date().toISOString().slice(0, 10);
-    const [row] = await tx
-      .select({ used: quotaUsage.used })
-      .from(quotaUsage)
-      .where(and(eq(quotaUsage.projectId, p.id), eq(quotaUsage.name, name), eq(quotaUsage.day, day)));
+    const uow = uowOf(tx);
+    const day = uow.now.toISOString().slice(0, 10);
+    const row = await uow.get("quotaUsage", { projectId: p.id, name, day });
     const used = row?.used ?? 0;
     if (used + n > quota.daily) throw new ToolError("QUOTA_EXCEEDED", { name, limit: quota.daily, used, remaining: Math.max(0, quota.daily - used), day });
-    await tx
-      .insert(quotaUsage)
-      .values({ projectId: p.id, name, day, used: n })
-      .onConflictDoUpdate({ target: [quotaUsage.projectId, quotaUsage.name, quotaUsage.day], set: { used: sql`${quotaUsage.used} + ${n}` } });
+    if (row) await uow.update("quotaUsage", { projectId: p.id, name, day }, { used: used + n });
+    else await uow.insert("quotaUsage", { projectId: p.id, name, day, used: n });
     await emit("quota.consumed", null, { name, n, used: used + n, limit: quota.daily, day });
     return { name, used: used + n, limit: quota.daily, remaining: quota.daily - used - n, day };
   });
@@ -117,13 +112,11 @@ export async function consume(db: Db, input: { project: string; name: string; n?
 
 // get_project.resources: live leases and today's quota usage.
 export async function projectResources(db: Q, p: Project) {
-  const leases = await db
-    .select()
-    .from(resources)
-    .where(and(eq(resources.projectId, p.id), sql`${resources.leaseUntil} > now()`))
-    .orderBy(asc(resources.name));
-  const day = new Date().toISOString().slice(0, 10);
-  const usage = await db.select().from(quotaUsage).where(and(eq(quotaUsage.projectId, p.id), eq(quotaUsage.day, day)));
+  const r = readerOf(db);
+  const now = new Date();
+  const leases = (await r.find("resources", { projectId: p.id }, { orderBy: [{ column: "name" }] })).filter((l) => l.leaseUntil > now);
+  const day = now.toISOString().slice(0, 10);
+  const usage = await r.find("quotaUsage", { projectId: p.id, day });
   const quotas = Object.fromEntries(
     Object.entries(p.settings.quotas ?? {}).map(([name, q]) => {
       const used = usage.find((u) => u.name === name)?.used ?? 0;

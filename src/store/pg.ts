@@ -74,6 +74,11 @@ class PgUnitOfWork extends PgReader implements UnitOfWork {
   readonly changes: Change[] = [];
   readonly now = new Date();
 
+  constructor(q: Q) {
+    super(q);
+    units.set(q, this);
+  }
+
   async insert<T extends TableName>(table: T, row: NewRow<T>): Promise<Row<T>> {
     const [made] = (await this.sql
       .insert(tableOf(table))
@@ -156,4 +161,16 @@ export function pgStore(db: Db): PgStore {
   let store = stores.get(db);
   if (!store) stores.set(db, (store = new PgStore(db)));
   return store;
+}
+
+// The port behind a Drizzle handle, so a function that still receives one can move onto the port without
+// changing its signature. Inside a write it is that write's unit of work; anywhere else it is a reader.
+const units = new WeakMap<object, PgUnitOfWork>();
+export function uowOf(q: Q): UnitOfWork {
+  const uow = units.get(q);
+  if (!uow) throw new Error("store: not inside a write");
+  return uow;
+}
+export function readerOf(q: Q): Reader {
+  return units.get(q) ?? new PgReader(q);
 }
