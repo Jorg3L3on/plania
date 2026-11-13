@@ -317,9 +317,10 @@ test("I39-5 #1: a proposal hangs under the PO's window and a question under the 
   assert.match(floor, new RegExp(`data-bubble="${proposal.id}"[^>]*data-asker="product-owner-workia"`));
   assert.match(floor, /data-bubble="q-00000000-0000-4000-8000-000000000001"[^>]*data-asker="research-workia"/);
   assert.ok(floor.includes("PO te pregunta") && floor.includes("Research te pregunta"));
-  // The bubble follows its asker's row: PO is window 0, Research window 1 (five per row on a Mac, two on a phone).
-  assert.match(floor, /data-bubble="m-[^"]+"[^>]*style="--o-wide:7;--o-phone:3;--nx-wide:10%;--nx-phone:25%"/);
-  assert.match(floor, /data-asker="research-workia"[^>]*style="--o-wide:7;--o-phone:3;--nx-wide:30%;--nx-phone:75%"/);
+  // The bubble follows its asker's row: PO is window 0, Research window 1. PLA-I40-4: six per row on a Mac (the
+  // team, the owner and the "+"), two on a phone.
+  assert.match(floor, /data-bubble="m-[^"]+"[^>]*style="--o-wide:9;--o-phone:3;--nx-wide:8\.33[0-9]*%;--nx-phone:25%"/);
+  assert.match(floor, /data-asker="research-workia"[^>]*style="--o-wide:9;--o-phone:3;--nx-wide:25%;--nx-phone:75%"/);
   // The plate's pointer goes to the question on this floor, and Te toca's block is gone from the page.
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
   assert.equal(page.includes("<TeToca"), false);

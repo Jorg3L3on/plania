@@ -9,7 +9,8 @@ import type { Hanging } from "@/lib/edificio";
 import { roleName } from "@/lib/org";
 import { DecisionBody, type DecisionBusy } from "@/components/compania/v2";
 
-export const WIDE_COLS = 5;
+// PLA-I40-4: six across, so a team of four, the owner and the "+" share one row.
+export const WIDE_COLS = 6;
 export const PHONE_COLS = 2;
 // Where the bubble goes in the windows' grid (after the asker's row) and where its notch points, per layout.
 export function bubblePlace(index: number, count: number) {

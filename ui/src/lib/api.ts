@@ -143,6 +143,9 @@ export const api = {
     request<{ project: string; paused: boolean; stopped: number }>("POST", `/company/projects/${encodeURIComponent(slug)}/switch`, { paused }),
   setRunnerSettings: (input: { plan_guard_pct?: number; guard_override?: boolean }) => request<Company["settings"]>("PUT", "/company/settings", input),
   // PLA-I36: steer a project from its card.
+  // PLA-I40-2: Que empiece ya for one teammate.
+  startTeammate: (slug: string, agent: string, pastGuard = false) =>
+    request<StartNowResult>("POST", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/start`, pastGuard ? { past_guard: true } : {}),
   askProject: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean }) => request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, input),
   pickNext: (slug: string, key: string) => request<{ next: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/next`, { key }),
   setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null }) =>
@@ -163,6 +166,7 @@ export const api = {
 // untyped (week, usage, last_run) reuse the PLA-I30 shapes.
 
 export type OrderKind = "cambio" | "direccion" | "idea";
+export type StartNowResult = { started: boolean; reason: "started" | "queued" | "busy" | "idle" | "held" | "fail"; ticket: string | null; run_id: string | null; summary: string };
 export type AskResult = { key: string; title: string; po: string; wake: "queued" | "busy" | "off"; woke: { woke: boolean; reason: string; ticket: string | null; summary: string } | null };
 export type OrgLight = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused";
 export type OrgLightReason = { text: string; action: { label: string; href: string } | null };
