@@ -284,7 +284,7 @@ export const listHeartbeatRuns = async (db: Db, filter: { agent?: string; limit?
 };
 
 export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDeps): Promise<Record<string, number>> => {
-  // PLA-I29: switches and budgets stop live runs first, then queued runs take free slots.
+  // PLA-I29: switches stop live runs first, then queued runs take free slots.
   const stopped = await enforceLive(db, now);
   // PLA-16: a run that failed holding its ticket is retried once (queued here, started by the drain below),
   // or its ticket is handed to Jorge after a second failure in a row.

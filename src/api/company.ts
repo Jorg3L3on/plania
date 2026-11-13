@@ -3,23 +3,21 @@
 // POST /api/company/decisions/:id {action, option?, text?} acts on one row (src/api/company-decisions.ts).
 // PLA-I32-6: GET /api/company and GET /api/company/projects/:slug serve the Plan's read contract
 // (src/api/company-org.ts); POST /api/company/projects/:slug/team {template} adds a team member; the runner's
-// plumbing (switches, budgets, guard, runs, log) is read from GET /api/machine. The writes below stay.
+// plumbing (switches, guard, runs, log) is read from GET /api/machine. The writes below stay.
 // PLA-I29: the runner's screen routes. Jorge's session cookie only, like the delegation switch:
 // a Bearer (any agent token) is 403 even with a cookie, no cookie is 401. No MCP tool writes these.
-//   GET  /api/company                      the Compañía read (switches, budgets, runs, plan reading)
+//   GET  /api/company                      the Compañía read (switches, runs, plan reading)
 //   POST /api/company/switch               {paused}            company kill switch
 //   POST /api/company/projects/:slug/switch {paused}           project kill switch
-//   PUT  /api/company/budgets              {scope, role|project, weekly_limit|null}
 //   PUT  /api/company/settings             {max_concurrent?, cooldown_minutes?, plan_guard_pct?, reserve_tokens?, max_turns?, timeout_minutes?}
-//   POST /api/company/runs/:id/ack-usage   a run whose usage is unknown stops blocking
 //   POST /api/company/projects             {name, goal}  PLA-I31-3: a new project, paused, with its PO
 //        → 201 {slug, key_prefix, paused: true, po, prompt_doc_id}; 409 PROJECT_EXISTS | PROMPT_DOC_MISSING
 // PLA-I30 (src/api/company-extra.ts): the read gains viewer, prompts, roster and project_facts, plus
 //   GET  /api/company/projects/:slug       the project sheet
 //   GET  /api/company/docs/:id             one role prompt doc (Prompt ↗)
 // PLA-I30-6/7: POST /api/company/projects/:slug/ask {text}  and  POST /api/company/projects/:slug/wake
-// PLA-I36-11: raising a limit (a higher weekly_limit, or a limit where there was none) and deleting a project
-//   need the owner's code ({code}); lowering a limit does not. src/auth/owner-code.ts.
+// PLA-I36-11: deleting a project needs the owner's code ({code}). src/auth/owner-code.ts.
+// PLA-21: no token budgets, so no limit to raise.
 //   GET  /api/company/owner-code          {enrolled}
 //   POST /api/company/owner-code/enroll   {password, code?} → {secret_base32, otpauth_uri} once
 //   DELETE /api/company/projects/:slug    {code}  the project and everything in it
@@ -37,9 +35,8 @@ import { promptDoc } from "./company-extra.js";
 import { addTeamMember, companyRead, projectRead } from "./company-org.js";
 import { companyHistory, parseHours } from "./company-history.js";
 import { actOnDecision } from "./company-decisions.js";
-import { ackUnknownUsage, setBudget, setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner/company.js";
+import { setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner/company.js";
 import { checkOwnerCode, enrolOwnerCode, ownerCodeEnrolled } from "../auth/owner-code.js";
-import { budgetLimit } from "../runner/limits.js";
 import { findProject } from "../mcp/queries.js";
 import { projects } from "../db/schema.js";
 import { eq } from "drizzle-orm";
@@ -48,7 +45,7 @@ export const companyRoutes = new Hono();
 
 companyRoutes.use("*", async (c, next) => {
   if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) {
-    return c.json({ error: "FORBIDDEN", hint: "limits and kill switches are Jorge's screen only" }, 403);
+    return c.json({ error: "FORBIDDEN", hint: "the runner's settings and kill switches are Jorge's screen only" }, 403);
   }
   if (!verifySession(getCookie(c, SESSION_COOKIE))) return c.json({ error: "UNAUTHORIZED" }, 401);
   await next();
@@ -149,39 +146,6 @@ companyRoutes.post("/projects/:slug/switch", async (c) => {
   }
 });
 
-const Budget = z
-  .object({
-    scope: z.enum(["role", "project", "asistente"]),
-    role: z.string().min(1).max(40).optional(),
-    project: z.string().min(1).max(80).optional(),
-    weekly_limit: z.number().int().min(1).max(10_000_000_000).nullable(),
-    code: z.string().max(12).optional(),
-  })
-  .strict();
-
-// A limit goes up when the new one is higher, or when there was none (no limit means nothing runs).
-const raises = (before: number | null, after: number | null | undefined) => after != null && (before == null || after > before);
-
-companyRoutes.put("/budgets", async (c) => {
-  const parsed = await body(c, Budget);
-  if (parsed instanceof Response) return parsed;
-  const { code, ...input } = parsed;
-  try {
-    const refused = await withDb(async (db) => {
-      if (input.scope === "role") return null;
-      const before = input.scope === "asistente" ? await budgetLimit(db, { kind: "asistente" }) : await budgetLimit(db, { kind: "project", projectId: (await findProject(db, input.project?.trim() ?? "")).id });
-      return raises(before, input.weekly_limit) ? checkOwnerCode(db, code) : null;
-    });
-    if (refused) {
-      const { status, ...rest } = refused;
-      return c.json(rest, status);
-    }
-    return c.json(await withDb((db) => setBudget(db, input)));
-  } catch (e) {
-    return fail(c, e);
-  }
-});
-
 const Settings = z
   .object({
     max_concurrent: z.number().int().min(0).max(8).optional(),
@@ -190,22 +154,12 @@ const Settings = z
     reserve_tokens: z.number().int().min(0).max(5_000_000).optional(),
     max_turns: z.number().int().min(1).max(500).optional(),
     timeout_minutes: z.number().int().min(1).max(600).optional(),
-    asistente_weekly_limit: z.number().int().min(1).max(10_000_000_000).nullable().optional(),
-    code: z.string().max(12).optional(),
   })
   .strict();
 
 companyRoutes.put("/settings", async (c) => {
-  const parsed = await body(c, Settings);
-  if (parsed instanceof Response) return parsed;
-  const { code, ...input } = parsed;
-  const refused = await withDb(async (db) =>
-    input.asistente_weekly_limit !== undefined && raises(await budgetLimit(db, { kind: "asistente" }), input.asistente_weekly_limit) ? checkOwnerCode(db, code) : null,
-  );
-  if (refused) {
-    const { status, ...rest } = refused;
-    return c.json(rest, status);
-  }
+  const input = await body(c, Settings);
+  if (input instanceof Response) return input;
   return c.json(await withDb((db) => setRunnerSettings(db, input)));
 });
 
@@ -241,12 +195,6 @@ companyRoutes.delete("/projects/:slug", async (c) => {
   } catch (e) {
     return fail(c, e);
   }
-});
-
-companyRoutes.post("/runs/:id/ack-usage", async (c) => {
-  const id = c.req.param("id");
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return c.json({ error: "INVALID_BODY" }, 400);
-  return c.json(await withDb((db) => ackUnknownUsage(db, id)));
 });
 
 // PLA-I30-6/7 (src/api/company-actions.ts): Pedirle al PO and Despertar ahora on the project sheet.

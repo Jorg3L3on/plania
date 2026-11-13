@@ -92,7 +92,7 @@ export async function resumeRun(db: Db, id: string, deps?: HeartbeatDeps): Promi
   const r = await runRow(db, id);
   if (!r) return { error: "RUN_NOT_FOUND", status: 404, hint: "Esa corrida no existe." };
   if (r.status !== "stopped") return { error: "RUN_NOT_STOPPED", status: 409, hint: "Solo una corrida detenida se retoma." };
-  // PLA-18: a run a budget or a switch stopped still holds its ticket until the next tick frees it, and the
+  // PLA-18: a run a switch (or, before PLA-21, a budget) stopped still holds its ticket until the next tick frees it, and the
   // wake needs the ticket Ready. Only that run's own lease is released here.
   if (r.taskKey) {
     const [t] = await db

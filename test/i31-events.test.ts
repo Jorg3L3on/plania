@@ -125,14 +125,9 @@ beforeEach(async () => {
   runner.resetRunnerForTests();
   await raw.query(`delete from agent_runs`);
   await raw.query(`delete from heartbeat_runs`);
-  await raw.query(`delete from token_budgets`);
   await raw.query(`update runner_settings set company_paused = false, max_concurrent = 1, cooldown_minutes = 0, plan_guard_pct = 70, reserve_tokens = 1000`);
   await raw.query(`update projects set runs_paused = false where slug = 'micasa'`);
   await raw.query(`update projects set runs_paused = true where slug <> 'micasa'`);
-  for (const role of ["product-owner", "taller", "research", "artist", "asistente"]) {
-    await raw.query(`insert into token_budgets (scope, role, weekly_limit) values ('role', $1, 10000000)`, [role]);
-  }
-  await raw.query(`insert into token_budgets (scope, project_id, weekly_limit) values ('project', $1, 10000000)`, [await id("projects", "micasa")]);
   await raw.query(`delete from plan_readings`);
   await raw.query(`insert into plan_readings (at, source, status, five_hour_pct, seven_day_pct, five_hour_resets_at) values (now(), 'stream', 'allowed', 10, 19, now() + interval '3 hours')`);
 });
@@ -627,7 +622,6 @@ async function stoppedRunHolding(key: string, reason: string, tokens = 0): Promi
   await leaseTo(key, run);
   return run;
 }
-const micasaLimit = async (limit: number) => raw.query(`update token_budgets set weekly_limit = $2 where scope = 'project' and project_id = $1`, [await id("projects", "micasa"), limit]);
 
 test("PLA-18: which stops and drops are limits that open again", () => {
   assert.equal(limitOf("stopped", "", BUDGET_STOP), "budget");
@@ -645,40 +639,22 @@ test("PLA-18: which stops and drops are limits that open again", () => {
   assert.equal(limitOf("ok", "ok: success", null), null);
 });
 
-test("PLA-18 #1, #2: a budget stop frees the ticket with a note; raising the budget queues the agent on it once", async () => {
+test("PLA-21: a run a budget stopped before PLA-21 frees its ticket with a note and is queued again on the next tick", async () => {
   await backlog("BS-A1");
-  // The stopped run spent more than the week's limit (10M in this file).
   await stoppedRunHolding("BS-A1", BUDGET_STOP, 12_000_000);
 
   assert.deepEqual(await sweepStoppedRuns(db), { freed: 1 });
   const t = await ticket("BS-A1");
   assert.deepEqual([t.status, t.owner, t.lease_until], ["Ready", null, null]);
   assert.equal((await eventsOf("BS-A1", "claim.released"))[0].reason, "run stopped");
-  assert.match((await eventsOf("BS-A1", "note"))[0].text, /se detuvo: se acabó el presupuesto semanal\. Plania liberó el ticket; se retoma cuando haya presupuesto\./);
-  // Freed is not woken: the budget is still spent.
-  assert.deepEqual(await wakes(), []);
-  assert.deepEqual(await requeueHeld(db), { requeued: 0 });
-  assert.deepEqual(await sweepStoppedRuns(db), { freed: 0 });
-
-  // Jorge raises the limit: the next tick queues Taller on the same ticket, once.
-  await micasaLimit(100_000_000);
+  assert.match((await eventsOf("BS-A1", "note"))[0].text, /se detuvo: se acabó el presupuesto semanal\. Plania liberó el ticket; se retoma enseguida: ya no hay límite semanal\./);
+  // No budget is left to open: the same tick's requeue queues Taller on the ticket, once.
   assert.deepEqual(await requeueHeld(db), { requeued: 1 });
   const w = await wakes();
   assert.deepEqual(w.map((x) => [x.agent, x.task_key, x.status, x.summary]), [["taller", "BS-A1", "queued", "queued: event budget open again"]]);
   assert.equal((await eventsOf("BS-A1", "wake.queued"))[0].from_event, "run.held");
   assert.deepEqual(await requeueHeld(db), { requeued: 0 }, "the queued run is now the newest");
-  await micasaLimit(10_000_000);
-});
-
-test("PLA-18 #2: the week resetting opens the budget the same way", async () => {
-  await backlog("BS-B1");
-  const run = await stoppedRunHolding("BS-B1", BUDGET_STOP, 12_000_000);
-  await sweepStoppedRuns(db);
-  assert.deepEqual(await requeueHeld(db), { requeued: 0 });
-  // The spend now belongs to last week.
-  await raw.query(`update agent_runs set started_at = now() - interval '8 days', queued_at = now() - interval '8 days' where id = $1`, [run]);
-  assert.deepEqual(await requeueHeld(db), { requeued: 1 });
-  assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key, x.summary]), [["taller", "BS-B1", "queued: event budget open again"]]);
+  assert.deepEqual(await sweepStoppedRuns(db), { freed: 0 });
 });
 
 test("PLA-18: a switch stop frees the ticket and the work is queued again on resume; Jorge's Detener is not", async () => {
@@ -701,33 +677,26 @@ test("PLA-18: a switch stop frees the ticket and the work is queued again on res
   assert.deepEqual(await wakes(), []);
 });
 
-test("PLA-18: a wake the queue dropped for a closed limit is queued again when it opens", async () => {
-  // A heavy earlier run this week spent the budget.
-  const heavy = (
-    await raw.query(
-      `insert into agent_runs (agent_id, project_id, task_key, role, status, summary, tokens_total, queued_at, started_at, ended_at)
-       values ($1, $2, 'BS-OTHER', 'taller', 'ok', 'ok: seed', 12000000, now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours') returning id`,
-      [await id("agents", "taller"), await id("projects", "micasa")],
-    )
-  ).rows[0].id as string;
+test("PLA-21: a heavy week no longer drops a queued wake", async () => {
+  await raw.query(
+    `insert into agent_runs (agent_id, project_id, task_key, role, status, summary, tokens_total, queued_at, started_at, ended_at)
+     values ($1, $2, 'BS-OTHER', 'taller', 'ok', 'ok: seed', 900000000, now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours')`,
+    [await id("agents", "taller"), await id("projects", "micasa")],
+  );
   await backlog("BS-E1");
   await toReady("BS-E1");
   assert.deepEqual((await wakes()).map((x) => x.task_key), ["BS-E1"], "the move to Ready queues the event wake");
   const f = fakes();
   const drained = await runner.drainQueue(db, new Date(), f.deps as never);
-  assert.deepEqual(drained, { started: 0, dropped: 1 });
-  assert.equal(f.spawned.length, 0);
-  assert.deepEqual(await wakes(), []);
-  assert.deepEqual(await requeueHeld(db), { requeued: 0 });
-  await raw.query(`update agent_runs set started_at = now() - interval '8 days', queued_at = now() - interval '8 days', ended_at = now() - interval '8 days' where id = $1`, [heavy]);
-  assert.deepEqual(await requeueHeld(db), { requeued: 1 });
-  assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key]), [["taller", "BS-E1"]]);
+  assert.deepEqual(drained, { started: 1, dropped: 0 });
+  assert.equal(f.spawned.length, 1);
+  f.spawned[0]!.finish();
+  await runner.waitForAllRuns();
 });
 
 test("PLA-18 #3: Seguir on a run a budget stopped releases its lease and wakes the agent", async () => {
   await backlog("BS-F1");
   const run = await stoppedRunHolding("BS-F1", BUDGET_STOP, 12_000_000);
-  await micasaLimit(100_000_000);
   const f = fakes();
   const out = await resumeRun(db, run, { runner: f.deps as never });
   assert.deepEqual(out, { woke: true, reason: "ok", ticket: "BS-F1" });
@@ -736,5 +705,4 @@ test("PLA-18 #3: Seguir on a run a budget stopped releases its lease and wakes t
   assert.equal((await eventsOf("BS-F1", "claim.released"))[0].owner.session_id, `run-${run.slice(0, 8)}`);
   f.spawned[0]!.finish();
   await runner.waitForAllRuns();
-  await micasaLimit(10_000_000);
 });

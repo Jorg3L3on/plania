@@ -13,7 +13,7 @@ const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js")
 const { seedOrg } = await import("../scripts/seed-org.js");
 const writes = await import("../src/mcp/writes.js");
 const { roleOf } = await import("../src/runner/limits.js");
-const { DEFAULT_PROJECT_WEEKLY_LIMIT, prefixCandidates, slugOf } = await import("../src/runner/new-project.js");
+const { prefixCandidates, slugOf } = await import("../src/runner/new-project.js");
 
 type Db = ReturnType<typeof makeDb>["db"];
 let raw: pg.Client;
@@ -54,7 +54,7 @@ test("I31-3: only Jorge's screen creates a project: Bearer 403, no cookie 401, b
   assert.equal((await raw.query(`select count(*)::int as n from projects where slug = 'x'`)).rows[0].n, 0);
 });
 
-test("I31-3 #1: a created project is paused, has its goal, a PO with the template prompt, a default limit, and no wake until resumed", async () => {
+test("I31-3 #1: a created project is paused, has its goal, a PO with the template prompt, no weekly limit, and no wake until resumed", async () => {
   const res = await post({ name: "Café Lindo", goal: "Vender café en línea a 100 clientes." });
   assert.equal(res.status, 201);
   const body = (await res.json()) as Record<string, unknown>;
@@ -97,8 +97,8 @@ test("I31-3 #1: a created project is paused, has its goal, a PO with the templat
   ]);
   for (const m of team) assert.equal(roleOf({ slug: m.slug, role: "x", capabilities: [], roleTemplate: m.role_template }), m.role_template);
 
-  const limit = (await raw.query(`select weekly_limit from token_budgets where scope = 'project' and project_id = $1`, [project.id])).rows[0];
-  assert.equal(Number(limit.weekly_limit), DEFAULT_PROJECT_WEEKLY_LIMIT);
+  // PLA-21: no weekly limit is made for it.
+  assert.equal((await raw.query(`select to_regclass('token_budgets') as t`)).rows[0].t, null);
 
   // Nothing is queued while paused, not even when a ticket in it moves to Ready.
   await writes.createTask(db, { project: "cafe-lindo", title: "Primera", scope: "s", checks: ["c"] } as never, { actor: { agent: "t", session_id: "s" } });
@@ -107,11 +107,11 @@ test("I31-3 #1: a created project is paused, has its goal, a PO with the templat
   const runs = async () => (await raw.query(`select a.slug, r.status, r.task_key from agent_runs r join agents a on a.id = r.agent_id where r.project_id = $1`, [project.id])).rows;
   assert.deepEqual(await runs(), []);
 
-  // The Compañía read shows it paused with its limit.
-  const state = (await (await app.request("/api/company", { headers: jorge() })).json()) as { projects: { slug: string; paused: boolean; budget: { limit: number } }[] };
+  // The Compañía read shows it paused, with this week's tokens and no limit.
+  const state = (await (await app.request("/api/company", { headers: jorge() })).json()) as { projects: { slug: string; paused: boolean; usage: { used: number } }[] };
   const card = state.projects.find((p) => p.slug === "cafe-lindo")!;
   assert.equal(card.paused, true);
-  assert.equal(card.budget.limit, DEFAULT_PROJECT_WEEKLY_LIMIT);
+  assert.deepEqual(card.usage, { used: 0 });
 
   // Jorge resumes it: its PO's first wake is queued (and nothing else).
   const resumed = await app.request("/api/company/projects/cafe-lindo/switch", { method: "POST", headers: jorge(), body: JSON.stringify({ paused: false }) });

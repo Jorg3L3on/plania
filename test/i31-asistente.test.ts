@@ -38,7 +38,6 @@ beforeEach(async () => {
   asistente.resetAsistenteForTests();
   await raw.query(`delete from events where type in ('asistente.brief', 'asistente.check')`);
   await raw.query(`delete from agent_runs`);
-  await raw.query(`delete from token_budgets`);
   await raw.query(`delete from questions`);
   await raw.query(`update projects set runs_paused = true`);
   await raw.query(`update runner_settings set company_paused = false`);
@@ -76,10 +75,9 @@ test("I31-2: a server asleep at 07:00 writes the brief on its first tick after, 
   assert.equal((await asistente.runAsistente(db, new Date("2026-11-12T12:00:00Z"), deps)).brief, 0);
 });
 
-test("I31-2 #2: a project at 85% yields a brief line and no ask, and no line proposes raising the limit", async () => {
+test("I31-2 #2 (PLA-21): a heavy week yields no budget line and no ask; the brief is stored and posted", async () => {
   const micasa = await id("projects", "micasa");
   await raw.query(`update projects set runs_paused = false where slug = 'micasa'`);
-  await raw.query(`insert into token_budgets (scope, project_id, weekly_limit) values ('project', $1, 1000000)`, [micasa]);
   await raw.query(
     `insert into agent_runs (agent_id, project_id, role, status, started_at, ended_at, queued_at, tokens_total, summary)
      values ($1, $2, 'taller', 'ok', now() - interval '1 hour', now() - interval '1 hour', now() - interval '1 hour', 850000, 'ok: success, 9 turns')`,
@@ -87,8 +85,7 @@ test("I31-2 #2: a project at 85% yields a brief line and no ask, and no line pro
   );
   const now = new Date();
   const lines = await asistente.buildBrief(db, now);
-  assert.equal(lines.includes("MiCasa va al 85 % de su presupuesto semanal."), true, lines.join("\n"));
-  for (const line of lines) assert.doesNotMatch(line, /sub(e|ir)|aument|ampl|raise|increase|más presupuesto|límite nuevo/i);
+  for (const line of lines) assert.doesNotMatch(line, /presupuesto|límite|limit|budget/i);
 
   // A zone where it is already past 07:00, so this tick also writes the brief.
   const tz = now.getUTCHours() >= 7 ? "UTC" : "Pacific/Kiritimati";
@@ -98,20 +95,20 @@ test("I31-2 #2: a project at 85% yields a brief line and no ask, and no line pro
   assert.equal(out.asks, 0);
   assert.equal((await raw.query(`select count(*)::int as n from questions`)).rows[0].n, 0);
   const check = (await raw.query(`select payload from events where type = 'asistente.check' order by id desc limit 1`)).rows[0];
-  assert.equal(check.payload.lines.includes("MiCasa va al 85 % de su presupuesto semanal."), true);
+  for (const line of (check?.payload.lines ?? []) as string[]) assert.doesNotMatch(line, /presupuesto/i);
 
   // The brief is stored as {lines, generated_at} and, PLA-I32-5, posted in the company thread (server summary:
   // event wakes are off here, so no Asistente run could write it).
   const brief = await asistente.latestBrief(db);
   assert.ok(brief);
   assert.deepEqual(Object.keys(brief).sort(), ["generated_at", "lines"]);
-  assert.equal(brief.lines.includes("MiCasa va al 85 % de su presupuesto semanal."), true);
+  assert.ok(brief.lines.length > 0);
   assert.equal(brief.generated_at, now.toISOString());
   const res = await app.request("/api/threads/company", { headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } });
   const thread = (await res.json()) as { messages: { author: { agent: string }; body: string }[] };
   const posted = thread.messages.filter((m) => m.body.startsWith("Resumen del servidor")).at(-1)!;
   assert.equal(posted.author.agent, "asistente");
-  assert.match(posted.body, /MiCasa va al 85 % de su presupuesto semanal\./);
+  assert.doesNotMatch(posted.body, /presupuesto/i);
 });
 
 test("I31-2: there is no brief before the first one", async () => {

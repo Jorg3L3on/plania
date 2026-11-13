@@ -7,7 +7,7 @@ import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { clock, tokens, type RunBrief, type Tone } from "@/lib/compania";
 import type { OrgMember, OrgProject, Thread, ThreadAction, ThreadMessage } from "@/lib/api";
-import { ACTION_LABEL, MESSAGE_MAX, THREAD_PAGE, actionStateText, budgetLine, byRole, isBareLink, lightOf, linkHref, linkLabel, memberLine, needsText, roleName, threadItems, visibleMessages, waitsOnJorge } from "@/lib/org";
+import { ACTION_LABEL, MESSAGE_MAX, THREAD_PAGE, actionStateText, byRole, isBareLink, lightOf, linkHref, linkLabel, memberLine, needsText, roleName, usageLine, threadItems, visibleMessages, waitsOnJorge } from "@/lib/org";
 import { BlockError, Dot, TONE_INK, eyebrow, heading, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
 
 // ---- the one-line plumbing link to Máquina
@@ -410,7 +410,7 @@ export const ProjectOrgBar = ({
 }) => {
   const light = lightOf(project.light);
   const paused = project.paused || project.light === "paused";
-  const plumbing = budgetLine(project.budget, { paused });
+  const plumbing = usageLine(project.usage, { paused });
   return (
     <section aria-label="Proyecto" data-testid="project-org-bar" className={cn(panel, "grid min-w-0 gap-3 p-4", paused && "bg-surface-sunken")}>
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -494,7 +494,7 @@ export const AddToTeam = ({ templates, team, state, onAdd }: { templates: { slug
       )}
       {state.kind === "done" && <p className="text-xs">Listo: {state.agent} lee su prompt y las notas del proyecto.</p>}
       {state.kind === "error" && <p className="text-xs text-ink-blocked">{state.message}</p>}
-      {state.kind === "idle" && free.length > 0 && <p className="text-xs text-muted-foreground">Una plantilla de rol; el agente nuevo comparte el presupuesto del proyecto.</p>}
+      {state.kind === "idle" && free.length > 0 && <p className="text-xs text-muted-foreground">Una plantilla de rol; el agente nuevo trabaja en este proyecto.</p>}
     </form>
   );
 };

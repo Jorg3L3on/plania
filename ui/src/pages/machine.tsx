@@ -310,13 +310,12 @@ function useMachine() {
 
 type StopScope = { kind: "company" } | { kind: "project"; slug: string; title: string };
 
-// PLA-I33-3: budgets, plan guard, switches, En marcha and the run log, with their Jorge-only writes
+// PLA-I33-3: week tokens, plan guard, switches, En marcha and the run log, with their Jorge-only writes
 // (the PLA-I30 routes under /api/company, cookie session only).
 function Plumbing({ plumbing, nowMs }: { plumbing: MachinePlumbing; nowMs: number }) {
   const client = useQueryClient();
   const [stop, setStop] = useState<StopScope | null>(null);
   const [limit, setLimit] = useState<LimitTarget | null>(null);
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const canEdit = plumbing.viewer?.can_edit_limits ?? true;
   // PLA-I36-11: the owner's code.
   const owner = useQuery({ queryKey: ["owner-code"], queryFn: api.ownerCode, staleTime: 60_000 });
@@ -328,7 +327,7 @@ function Plumbing({ plumbing, nowMs }: { plumbing: MachinePlumbing; nowMs: numbe
     void client.invalidateQueries({ queryKey: ["machine"] });
     void client.invalidateQueries({ queryKey: ["company"] });
   };
-  const titles = new Map(plumbing.budgets.projects.map((p) => [p.slug, p.title]));
+  const titles = new Map(plumbing.usage.projects.map((p) => [p.slug, p.title]));
   const companySwitch = useMutation({
     mutationFn: (paused: boolean) => api.setCompanyPaused(paused),
     onSuccess: (r) => {
@@ -348,18 +347,13 @@ function Plumbing({ plumbing, nowMs }: { plumbing: MachinePlumbing; nowMs: numbe
     onError: () => toast.error("No se pudo cambiar el interruptor del proyecto"),
   });
   const saveLimit = useMutation({
-    mutationFn: async ({ target, value, code }: { target: LimitTarget; value: number | null; code?: string }) => {
-      if (target.kind === "guard") return api.setRunnerSettings({ plan_guard_pct: value ?? target.current });
-      if (target.kind === "asistente") return api.setRunnerSettings({ asistente_weekly_limit: value, code });
-      if (target.kind === "project") return api.setBudget({ scope: "project", project: target.slug, weekly_limit: value, code });
-      throw new Error("per-role limits are retired");
-    },
+    mutationFn: async ({ value }: { value: number }) => api.setRunnerSettings({ plan_guard_pct: value }),
     onSuccess: () => {
       toast("Guardado");
       setLimit(null);
       refresh();
     },
-    onError: (e) => toast.error(e instanceof ApiError && OWNER_CODE_WORDS[e.code] ? OWNER_CODE_WORDS[e.code]! : "No se pudo guardar"),
+    onError: () => toast.error("No se pudo guardar"),
   });
   return (
     <>
@@ -374,10 +368,6 @@ function Plumbing({ plumbing, nowMs }: { plumbing: MachinePlumbing; nowMs: numbe
         plumbing={plumbing}
         now={nowMs}
         canEdit={canEdit}
-        dismissed={dismissed}
-        onDismiss={(slug) => setDismissed(new Set([...dismissed, slug]))}
-        onEditProject={(p) => setLimit({ kind: "project", slug: p.slug, title: p.title, current: p.budget.limit })}
-        onEditAsistente={() => setLimit({ kind: "asistente", current: plumbing.budgets.asistente.limit })}
         onMoveGuard={() => setLimit({ kind: "guard", current: plumbing.plan.guard_pct })}
         onStopCompany={() => setStop({ kind: "company" })}
         onResumeCompany={() => companySwitch.mutate(false)}
@@ -411,9 +401,9 @@ function Plumbing({ plumbing, nowMs }: { plumbing: MachinePlumbing; nowMs: numbe
         <DialogContent className="bg-background sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="font-display text-xl font-extrabold tracking-tight">{limit ? limitTitle(limit) : ""}</DialogTitle>
-            <DialogDescription>Solo tú cambias límites. Los agentes no pueden.</DialogDescription>
+            <DialogDescription>Solo tú mueves la guardia. Los agentes no pueden.</DialogDescription>
           </DialogHeader>
-          {limit && <LimitForm target={limit} busy={saveLimit.isPending} onCancel={() => setLimit(null)} onSave={(value, code) => saveLimit.mutate({ target: limit, value, code })} />}
+          {limit && <LimitForm target={limit} busy={saveLimit.isPending} onCancel={() => setLimit(null)} onSave={(value) => saveLimit.mutate({ value })} />}
         </DialogContent>
       </Dialog>
     </>

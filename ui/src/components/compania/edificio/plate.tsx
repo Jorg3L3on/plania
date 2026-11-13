@@ -104,8 +104,8 @@ export const Plate = ({
             ))}
         </p>
       )}
-      <p className="edi-count" data-budget>
-        {tokens(p.budget.used)} tokens esta semana
+      <p className="edi-count" data-usage>
+        {tokens(p.usage.used)} tokens esta semana
       </p>
       {children}
     </>

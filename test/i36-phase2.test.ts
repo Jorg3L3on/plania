@@ -128,7 +128,7 @@ const project = (patch: Record<string, unknown> = {}) => ({
   light_reason: null,
   goal: null,
   rumbo: { goal_id: "g1", goal: null, why: "", target_on: null, forecast_on: null, weeks_behind: null, missing: true },
-  budget: { used: 100_000, limit: 5_000_000, pct: 2, state: "ok", reason: null },
+  usage: { used: 100_000 },
   team: [],
   thread: { id: "t", unread: 0, last: null },
   plan: null,

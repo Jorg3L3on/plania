@@ -1,6 +1,6 @@
 // PLA-I39: the building (/ceo). Pure functions, so test/edificio-*.test.ts loads them with node:test.
 //   windowState  a teammate's window from what the server reported: running is work, waiting_jorge is ask, idle is
-//                idle, no_budget is hold, paused is off. Nothing else lights a window.
+//                idle, paused is off. Nothing else lights a window. PLA-21: no budgets, so no "hold".
 //   caption      under a window: the role with its verb, then what it is on (with since when), else the first of
 //                its queue, else its last delivery. Never a ticket key, null or money.
 //   floorOrder   the floors: those that need the owner first, then by light; paused ones go to the basement.
@@ -10,12 +10,11 @@ import type { AskResult, Decision, OrgHistory, OrgHistoryEvent, OrgMember, OrgMe
 import { byLight, roleName } from "./org";
 import { pending } from "./v2";
 
-export type WindowState = "work" | "ask" | "idle" | "hold" | "off";
+export type WindowState = "work" | "ask" | "idle" | "off";
 const STATE: Record<OrgMemberState, WindowState> = {
   running: "work",
   waiting_jorge: "ask",
   idle: "idle",
-  no_budget: "hold",
   paused: "off",
 };
 // The company switch puts every blind down: nothing starts and live runs are stopped.
@@ -84,12 +83,6 @@ export function caption(m: OrgMember, now: number, opts: { companyPaused?: boole
       sub: m.waiting ? clip(m.waiting, 80) : "te espera",
     };
   if (state === "off") return { ...base, doing: "En pausa", sub: "" };
-  if (state === "hold")
-    return {
-      ...base,
-      doing: "Sin presupuesto",
-      sub: queue[0] ? `espera: ${clip(queue[0].title, 60)}` : "",
-    };
   if (queue[0])
     return {
       ...base,
@@ -116,7 +109,6 @@ const STATE_WORD: Record<WindowState, string> = {
   work: "trabajando",
   ask: "te espera",
   idle: "libre",
-  hold: "sin presupuesto",
   off: "en pausa",
 };
 export const windowLabel = (m: OrgMember, project: string, now: number, companyPaused = false) => {

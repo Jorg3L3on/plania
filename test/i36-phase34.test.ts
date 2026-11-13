@@ -55,10 +55,6 @@ before(async () => {
   const p = (await raw.query(`select id, slug, title from projects where slug = 'workia'`)).rows[0] as { id: string; slug: string; title: string };
   await ensureMember(db, p, "product-owner", { reportsTo: "ceo", note: "test" });
   po = (await raw.query(`select slug from agents where project_id = $1 and role_template = 'product-owner'`, [p.id])).rows[0].slug;
-  for (const slug of ["workia", "filmia"]) {
-    const b = await post("/api/company/budgets", { scope: "project", project: slug, weekly_limit: 5_000_000, code: await ownerCode() }, "PUT");
-    assert.equal(b.status, 200, await b.clone().text());
-  }
 });
 
 after(async () => {
@@ -391,29 +387,24 @@ test("I36-11 #2: publishing to main without a valid code is refused by the serve
   await useOwnerCode(true);
 });
 
-test("I36-11 #3: raising a limit and deleting a project without a valid code are refused; lowering needs none", async () => {
-  const up = await post("/api/company/budgets", { scope: "project", project: "workia", weekly_limit: 9_000_000 }, "PUT");
-  assert.equal(up.status, 403);
-  const down = await post("/api/company/budgets", { scope: "project", project: "workia", weekly_limit: 4_000_000 }, "PUT");
-  assert.equal(down.status, 200);
-  const asis = await post("/api/company/settings", { asistente_weekly_limit: 1_000_000 }, "PUT");
-  assert.equal(asis.status, 403, "from none to a limit is raising");
-  const code = await ownerCode();
-  assert.equal((await post("/api/company/budgets", { scope: "project", project: "workia", weekly_limit: 9_000_000, code }, "PUT")).status, 200);
-  assert.equal((await post("/api/company/budgets", { scope: "project", project: "workia", weekly_limit: 9_500_000, code }, "PUT")).status, 403, "a code is spent once");
+test("I36-11 #3: deleting a project without a valid code is refused, and a code is spent once; PLA-21: no limit to raise", async () => {
+  assert.equal((await post("/api/company/budgets", { scope: "project", project: "workia", weekly_limit: 9_000_000 }, "PUT")).status, 404);
   const del = await post("/api/company/projects/filmia", {}, "DELETE");
   assert.equal(del.status, 403);
   assert.equal((await raw.query(`select count(*)::int as n from projects where slug = 'filmia'`)).rows[0].n, 1);
-  const ok = await post("/api/company/projects/filmia", { code: await ownerCode() }, "DELETE");
+  const code = await ownerCode();
+  const ok = await post("/api/company/projects/filmia", { code }, "DELETE");
   assert.equal(ok.status, 200);
   assert.equal((await raw.query(`select count(*)::int as n from projects where slug = 'filmia'`)).rows[0].n, 0);
+  await raw.query(`insert into projects (slug, title, key_prefix) values ('filmiados', 'Filmia dos', 'FMD')`);
+  assert.equal((await post("/api/company/projects/filmiados", { code }, "DELETE")).status, 403, "a code is spent once");
 });
 
 test("I36-11 #4: asking, approving a plan, stopping a run and accepting into the test copy need no code", async () => {
   const { readFileSync } = await import("node:fs");
   const company = readFileSync(new URL("../src/api/company.ts", import.meta.url), "utf8");
   const gated = [...company.matchAll(/checkOwnerCode\(/g)].length;
-  assert.equal(gated, 3, "budgets, settings (Asistente's limit) and delete project");
+  assert.equal(gated, 1, "only delete project (PLA-21 removed the limits)");
   // Exercised above without a code: ask (I36-6), Sí, empiecen (I36-8), stop (I36-9), Pedir cambios (I36-10).
   const r = await post("/api/company/projects/workia/ask", { text: "Otra cosa pequeña" });
   assert.equal(r.status, 201);

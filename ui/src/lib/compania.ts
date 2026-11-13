@@ -1,9 +1,9 @@
-// PLA-I30 Compañía's model, kept for the plumbing (budgets, plan, runs) that moved to Máquina in PLA-I33
+// PLA-I30 Compañía's model, kept for the plumbing (week tokens, plan, runs) that moved to Máquina in PLA-I33
 // and for the shared words and numbers. The organization's shapes (PLA-I33) are in api.ts and org.ts.
 // Pure and relative imports only, so test/compania.test.ts loads it with node:test. Tokens, never money.
 
-export type BudgetState = "ok" | "warn" | "stopped";
-export type Budget = { used: number; limit: number | null; pct: number | null; state: BudgetState; reason: "unset" | "usage_unknown" | null };
+// PLA-21: no weekly budgets. This week's tokens are shown, never checked.
+export type Usage = { used: number };
 export type RunnerRole = "product-owner" | "taller" | "research" | "artist" | "asistente";
 export type CompanyRun = {
   id: string;
@@ -46,7 +46,7 @@ export type CompanyPlan = {
   source: string | null;
 };
 
-export type CompanyProjectRow = { slug: string; title: string; paused: boolean; paused_at: string | null; budget: Budget };
+export type CompanyProjectRow = { slug: string; title: string; paused: boolean; paused_at: string | null; usage: Usage };
 export type ProjectFacts = {
   goal: string | null;
   in_flight: number;
@@ -73,7 +73,6 @@ export type Company = {
   settings: { max_concurrent: number; cooldown_minutes: number; plan_guard_pct: number; reserve_tokens: number; max_turns: number; timeout_minutes: number };
   week: { starts_at: string; resets_at: string; timezone: string };
   projects: CompanyProjectRow[];
-  roles: { role: string; budget: Budget }[];
   runs: { live: CompanyRun[]; queued: CompanyRun[] };
   plan: CompanyPlan;
   // PLA-I30 extras. Optional, so an older server still renders.
@@ -124,20 +123,7 @@ const trim = (x: number) => String(Math.round(x * 100) / 100);
 
 export const pct = (n: number | null) => (n == null ? "—" : `${Math.round(n)}%`);
 
-export function usedOfLimit(b: Budget): string {
-  return b.limit == null ? `${tokens(b.used)} · sin límite` : `${tokens(b.used)} / ${tokens(b.limit)}`;
-}
-
-// The fill of a meter, clamped to 0–100.
-export const fill = (b: Budget) => (b.limit == null || b.limit <= 0 ? 0 : Math.min(100, Math.max(0, (b.used / b.limit) * 100)));
-
 export type Tone = "ok" | "warn" | "stop" | "idle";
-export function meterTone(b: Budget): Tone {
-  if (b.reason === "unset") return "idle";
-  if (b.state === "stopped") return "stop";
-  if (b.state === "warn") return "warn";
-  return "ok";
-}
 
 export function clock(iso: string | null, timeZone?: string): string {
   if (!iso) return "—";
@@ -169,24 +155,16 @@ export function ago(iso: string | null, now: number): string {
 
 export type Banner =
   | { kind: "paused"; since: string | null }
-  | { kind: "budget"; project: CompanyProjectRow }
   | { kind: "plan"; plan: CompanyPlan; waiting: number };
 
 export function bannersOf(c: Plumbed): Banner[] {
   const out: Banner[] = [];
   if (c.company.paused) out.push({ kind: "paused", since: c.company.paused_at });
-  for (const p of c.projects) {
-    if (!p.paused && p.budget.state === "stopped" && p.budget.reason === null) out.push({ kind: "budget", project: p });
-  }
   if (!c.company.paused && c.plan.state === "stopped") out.push({ kind: "plan", plan: c.plan, waiting: c.runs.queued.length });
   return out;
 }
 
 // Copy for the banners, kept here so the tests pin the words and that there is no money in them.
-export function budgetBannerText(p: CompanyProjectRow): string {
-  return `${pct(p.budget.pct)} · ${p.title} llegó a su límite semanal · ${usedOfLimit(p.budget)} · nada nuevo arranca ahí hasta el lunes 00:00 · los demás siguen`;
-}
-
 export function planBannerText(plan: CompanyPlan, timeZone?: string): string {
   const head = plan.five_hour_pct == null ? "El plan" : `${pct(plan.five_hour_pct)}`;
   const until = plan.resets_at ? `hasta ${clock(plan.resets_at, timeZone)}` : "hasta que baje";

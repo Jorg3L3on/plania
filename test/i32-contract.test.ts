@@ -27,9 +27,9 @@ const get = async (path: string): Promise<Json> => {
   return (await res.json()) as Json;
 };
 const keys = (o: Json) => Object.keys(o).sort();
-const STATES = ["running", "idle", "waiting_jorge", "paused", "no_budget"];
-const LIGHTS = ["ok", "needs_jorge", "failed", "blocked", "late", "quiet", "paused", "no_budget"];
-const BUDGET = ["limit", "pct", "reason", "state", "used"];
+const STATES = ["running", "idle", "waiting_jorge", "paused"];
+const LIGHTS = ["ok", "needs_jorge", "failed", "blocked", "late", "quiet", "paused"];
+const USAGE = ["used"];
 const MEMBER = ["agent", "last", "now", "produced", "queue", "role", "state", "template", "waiting"];
 
 before(async () => {
@@ -43,7 +43,6 @@ before(async () => {
     await raw.query(`insert into docs (project_id, title, markdown, actor) values ($1, $2, $3, $4)`, [await pid("micasa"), title, `# ${title}`, actor]);
   }
   await raw.query(`update projects set runs_paused = false where slug in ('micasa', 'mianovia')`);
-  await raw.query(`insert into token_budgets (scope, project_id, weekly_limit) values ('project', $1, 1000000), ('project', $2, 500000)`, [await pid("micasa"), await pid("mianovia")]);
   await raw.query(`insert into goals (project_id, title) values ($1, 'Primera boda')`, [await pid("mianovia")]);
   // Mianovia: Taller is running on a ticket; Research delivered a doc; the PO waits on Jorge.
   const A = { actor: { agent: "po-mianovia", session_id: "s-po" } };
@@ -74,16 +73,15 @@ test("I32-6 #1: GET /api/company has exactly the contract keys, a team of four p
   assert.deepEqual(keys(c), ["asistente", "company", "decisions", "inbox", "plumbing", "projects", "week"], "PLA-I35-1 added decisions, PLA-I36-2 inbox");
   assert.deepEqual(keys(c.company), ["paused"]);
   assert.deepEqual(keys(c.week), ["resets_at", "starts_at", "timezone"]);
-  assert.deepEqual(keys(c.asistente), ["budget", "last_run", "state", "thread_id", "unread"]);
-  assert.deepEqual(keys(c.asistente.budget), BUDGET);
-  assert.equal(c.asistente.budget.limit, 500000);
+  assert.deepEqual(keys(c.asistente), ["last_run", "state", "thread_id", "unread", "usage"]);
+  assert.deepEqual(keys(c.asistente.usage), USAGE);
   assert.ok(STATES.includes(c.asistente.state));
-  assert.deepEqual(keys(c.plumbing), ["limit", "paused", "running", "spend"]);
-  assert.deepEqual([c.plumbing.running, c.plumbing.paused, c.plumbing.spend, c.plumbing.limit], [1, false, 1200, 1000000 + 500000 + 500000]);
+  assert.deepEqual(keys(c.plumbing), ["paused", "running", "spend"]);
+  assert.deepEqual([c.plumbing.running, c.plumbing.paused, c.plumbing.spend], [1, false, 1200]);
   assert.deepEqual(c.projects.map((p: Json) => p.slug), ["filmia", "mianovia", "micasa", "workia", "zigzag"]);
   for (const p of c.projects) {
-    assert.deepEqual(keys(p), ["budget", "goal", "light", "light_reason", "next", "orders", "paused", "plan", "plan_approval", "preview_url", "ready", "rumbo", "slug", "team", "this_week", "thread", "title", "work"], p.slug);
-    assert.deepEqual(keys(p.budget), BUDGET);
+    assert.deepEqual(keys(p), ["goal", "light", "light_reason", "next", "orders", "paused", "plan", "plan_approval", "preview_url", "ready", "rumbo", "slug", "team", "this_week", "thread", "title", "usage", "work"], p.slug);
+    assert.deepEqual(keys(p.usage), USAGE);
     assert.ok(LIGHTS.includes(p.light), p.light);
     assert.deepEqual(keys(p.thread), ["id", "last", "unread"]);
     assert.deepEqual(p.team.map((m: Json) => m.template), ["product-owner", "research", "artist", "taller"], p.slug);
@@ -149,16 +147,16 @@ test("I32-6 #2: POST team creates the agent with project_id and role_template an
   assert.equal(((await again.json()) as Json).error, "AGENT_EXISTS");
 });
 
-test("I32-6 #1: GET /api/machine keeps the inventory and adds the plumbing: budgets per project and Asistente, guard, switches, runs, log", async () => {
+test("I32-6 #1: GET /api/machine keeps the inventory and adds the plumbing: week tokens per project and Asistente, guard, switches, runs, log", async () => {
   const m = await get("/api/machine");
   for (const k of ["machine", "totals", "backup", "findings", "items", "plumbing"]) assert.ok(k in m, k);
-  assert.deepEqual(keys(m.plumbing), ["budgets", "company", "log", "plan", "runs", "settings", "viewer", "week"]);
-  assert.deepEqual(keys(m.plumbing.budgets), ["asistente", "projects"]);
-  assert.deepEqual(keys(m.plumbing.budgets.asistente), BUDGET);
-  assert.deepEqual(keys(m.plumbing.budgets.projects[0]), ["budget", "paused", "paused_at", "slug", "title"]);
+  assert.deepEqual(keys(m.plumbing), ["company", "log", "plan", "runs", "settings", "usage", "viewer", "week"]);
+  assert.deepEqual(keys(m.plumbing.usage), ["asistente", "projects"]);
+  assert.deepEqual(keys(m.plumbing.usage.asistente), USAGE);
+  assert.deepEqual(keys(m.plumbing.usage.projects[0]), ["paused", "paused_at", "slug", "title", "usage"]);
   assert.deepEqual(keys(m.plumbing.runs), ["live", "queued"]);
   assert.equal(m.plumbing.runs.live[0].agent, "taller-mianovia");
   assert.equal(m.plumbing.log[0].agent, "research-mianovia");
-  assert.equal(m.plumbing.settings.asistente_weekly_limit, 500000);
+  assert.equal("asistente_weekly_limit" in m.plumbing.settings, false, "no Asistente limit");
   assert.equal("roles" in m.plumbing, false, "no role caps");
 });

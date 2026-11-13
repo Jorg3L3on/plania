@@ -1,5 +1,5 @@
 // PLA-I29: the autonomous runner. A wake of a claude_code agent passes the checks (switches,
-// coalescing, cooldown, goal, base branch, budgets, plan guard, cap), then starts one supervised
+// coalescing, cooldown, goal, base branch, plan guard, cap), then starts one supervised
 // `claude -p` in a worktree outside every repo. When it exits, its result is read: modelUsage goes
 // to report_tokens per model, the turns/session/subtype to heartbeat_runs, the session to agent_sessions.
 // Summaries never carry paths, env values, tokens or money.
@@ -32,19 +32,12 @@ import { EVENT_SUMMARY } from "./events.js";
 import { asistenteHome } from "./threads.js";
 import {
   PROMPT_DOCS,
-  budgetGate,
-  budgetLimit,
-  budgetState,
-  budgetUsage,
-  budgetView,
   lastReading,
   loadSettings,
   planGuardSummary,
   planView,
   recordReading,
   roleOf,
-  scopeWhere,
-  weekBounds,
   type RunnerRole,
 } from "./limits.js";
 import { childEnv, defaultKill, defaultProbePid, defaultSpawn, supervise, type ExitInfo, type KillFn, type ProbePid, type SpawnFn, type Supervised } from "./process.js";
@@ -186,7 +179,7 @@ async function loadContext(db: Db, agent: Agent, task: ReadyWork | null): Promis
 
 // ---- Checks
 
-type Preflight = { ok: true; warn: { scope: string; pct: number }[]; reserve: number } | { ok: false; kind: "skipped" | "fail" | "cap"; summary: string };
+type Preflight = { ok: true } | { ok: false; kind: "skipped" | "fail" | "cap"; summary: string };
 
 async function probeIfUnknown(db: Db, deps: RunnerDeps, now: Date): Promise<void> {
   if (Date.now() - lastProbeAt < PROBE_EVERY_MS) return;
@@ -231,17 +224,6 @@ async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, 
     if (!base.ok) return { ok: false, kind: "fail", summary: "fail: base not allowed" };
   }
 
-  const { startsAt } = await weekBounds(db, now);
-  const reserve = settings.reserveTokens;
-  // PLA-I32-5: one budget per run: Asistente's own, or the project's (its team shares it). Role caps are retired.
-  const budget = budgetGate(
-    role === "asistente"
-      ? [{ label: "asistente", view: await budgetView(db, { kind: "asistente" }, startsAt) }]
-      : [{ label: `project ${project.slug}`, view: await budgetView(db, { kind: "project", projectId: project.id }, startsAt) }],
-    reserve,
-  );
-  if (!budget.ok) return { ok: false, kind: "skipped", summary: budget.summary };
-
   let plan = planView(await lastReading(db), settings.planGuardPct, now);
   if (plan.state === "unknown") {
     await probeIfUnknown(db, deps, now);
@@ -251,7 +233,7 @@ async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, 
 
   const running = await runningCount(db);
   if (running >= settings.maxConcurrent) return { ok: false, kind: "cap", summary: opts.fromQueue ? "queued" : "queued: cap reached" };
-  return { ok: true, warn: budget.warn, reserve };
+  return { ok: true };
 }
 
 // ---- Wake
@@ -289,7 +271,7 @@ export async function wakeClaude(
       })
       .returning();
     if (!pre.ok) return { kind: "queued", runId: row!.id, summary: "queued: cap reached", taskKey };
-    return start(db, row!, ctx, pre.warn, deps);
+    return start(db, row!, ctx, deps);
   });
 }
 
@@ -325,7 +307,7 @@ export async function drainQueue(db: Db, now: Date, deps: RunnerDeps = {}): Prom
         out.dropped += 1;
         continue;
       }
-      await start(db, run, ctx, pre.warn, deps);
+      await start(db, run, ctx, deps);
       out.started += 1;
     }
     return out;
@@ -443,7 +425,7 @@ export const mcpConfig = (url: string) => ({
   mcpServers: { plania: { type: "http", url, headers: { Authorization: "Bearer ${PLANIA_RUNNER_TOKEN}" } } },
 });
 
-async function start(db: Db, run: AgentRun, ctx: WakeContext, warn: { scope: string; pct: number }[], deps: RunnerDeps): Promise<WakeOutcome> {
+async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps): Promise<WakeOutcome> {
   const env = deps.env ?? process.env;
   const project = ctx.project!;
   const role = ctx.role!;
@@ -537,12 +519,6 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, warn: { scope: str
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const logPath = path.join(logDirOf(deps, env), `${stamp}-${ctx.agent.slug}-${run.id.slice(0, 8)}.jsonl`);
   const startedAt = new Date();
-
-  for (const w of warn) {
-    await writeTx(db, project, sysCtx("runner.budget"), (_tx, emit) =>
-      emit("budget.warning", null, { scope: w.scope, pct: w.pct, agent: ctx.agent.slug, run_id: run.id }),
-    );
-  }
 
   let lastFlush = 0;
   const flushEvery = deps.liveFlushMs ?? 5_000;
@@ -675,7 +651,7 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
     }
   } else {
     // No result event (exit 143 after SIGTERM, a crash): 0 tokens reported, not an error.
-    // The budget still counts what the stream showed so far.
+    // The week's usage still counts what the stream showed so far.
     tokens = reader.liveTokens;
     status = stopped ? "stopped" : "fail";
     summary = stopped ? `stopped: ${stopped} (no result)` : "fail: no result";
@@ -723,7 +699,7 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
   });
 }
 
-// ---- Stop live runs (kill switches, budgets)
+// ---- Stop live runs (kill switches)
 
 // SIGINT now (the run saves its branch), SIGTERM and SIGKILL follow if it does not exit.
 export function stopLive(filter: (run: { agentId: string; projectId: string; role: string }) => boolean, reason: string): number {
@@ -746,9 +722,8 @@ export function stopRun(runId: string, reason = "detenido desde Compañía"): bo
   return true;
 }
 
-// Each tick: switches off and budgets at 100% stop the live runs in their scope.
-// Budgets here count real tokens only (a run's own reserve never stops it).
-export async function enforceLive(db: Db, now: Date): Promise<number> {
+// Each tick: switches off stop the live runs in their scope. No token budgets (PLA-21).
+export async function enforceLive(db: Db, _now: Date): Promise<number> {
   if (live.size === 0) return 0;
   const settings = await loadSettings(db);
   if (settings.companyPaused) return stopLive(() => true, "company paused");
@@ -757,24 +732,6 @@ export async function enforceLive(db: Db, now: Date): Promise<number> {
   const rows = await db.select({ id: projects.id, slug: projects.slug, paused: projects.runsPaused }).from(projects).where(inArray(projects.id, projectIds));
   for (const p of rows) if (p.paused) n += stopLive((run) => run.projectId === p.id && run.role !== "asistente", `project ${p.slug} paused`);
 
-  const { startsAt } = await weekBounds(db, now);
-  const realUsage = async (scope: { kind: "project"; projectId: string } | { kind: "asistente" }) => {
-    const limit = await budgetLimit(db, scope);
-    const r = await db.execute<{ used: string }>(sql`
-      select coalesce(sum(r.tokens_total), 0)::bigint as used from agent_runs r
-      where ${scopeWhere(scope)} and r.status in ('running', 'ok', 'fail', 'stopped')
-        and coalesce(r.started_at, r.queued_at) >= ${startsAt.toISOString()}::timestamptz`);
-    return budgetState(Number(r.rows[0]?.used ?? 0), limit, 0);
-  };
-  // PLA-I32-5: no role caps. A project's budget stops its team's live runs; Asistente's stops Asistente's.
-  if ([...live.values()].some((run) => run.role === "asistente")) {
-    const view = await realUsage({ kind: "asistente" });
-    if (view.limit != null && view.used >= view.limit) n += stopLive((run) => run.role === "asistente", "BUDGET_STOPPED asistente");
-  }
-  for (const p of rows) {
-    const view = await realUsage({ kind: "project", projectId: p.id });
-    if (view.limit != null && view.used >= view.limit) n += stopLive((run) => run.projectId === p.id && run.role !== "asistente", `BUDGET_STOPPED project ${p.slug}`);
-  }
   return n;
 }
 
@@ -782,7 +739,7 @@ export async function enforceLive(db: Db, now: Date): Promise<number> {
 
 // Runs marked running that this process does not supervise were left by an earlier server.
 // Their process group gets SIGINT, then SIGKILL; the row ends as fail: orphaned. Tokens come from
-// the log's result event when it has one; otherwise the usage is unknown, which blocks the scope
+// the log's result event when it has one; otherwise the usage is unknown (shown, never blocking).
 // until Jorge acknowledges it on screen (or the week resets).
 export async function sweepOrphans(db: Db, deps: RunnerDeps = {}): Promise<number> {
   const rows = await db.select().from(agentRuns).where(eq(agentRuns.status, "running"));

@@ -46,10 +46,8 @@ before(async () => {
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
   await raw.query(`update projects set runs_paused = false where slug in ('mianovia', 'micasa', 'workia', 'filmia')`);
-  // Something moved in every running project today, so none of them is quiet; each has a weekly limit.
+  // Something moved in every running project today, so none of them is quiet. PLA-21: no weekly limits.
   for (const slug of ["mianovia", "micasa", "workia", "filmia"]) {
-    const b = await app.request("/api/company/budgets", { method: "PUT", headers: jorge(), body: JSON.stringify({ scope: "project", project: slug, weekly_limit: 5_000_000, code: await ownerCode() }) });
-    assert.equal(b.status, 200, await b.clone().text());
     await writes.createTask(db, { project: slug, title: `Base de ${slug}`, scope: "s", checks: ["c"] } as never, PO(slug));
   }
 });

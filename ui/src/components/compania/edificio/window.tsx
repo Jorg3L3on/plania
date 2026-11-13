@@ -1,6 +1,6 @@
 // PLA-I39-3: one teammate is one window. Its light is the server's state (windowState): lit with a laptop while
-// its run is live, orange with a raised hand when it waits on the owner, blinds down when paused, dim when out of
-// budget, dark when idle. Under it: the role with its verb, what it is on, else its queue, else its last delivery.
+// its run is live, orange with a raised hand when it waits on the owner, blinds down when paused, dark when
+// idle. Under it: the role with its verb, what it is on, else its queue, else its last delivery.
 // PLA-I39-6: a window opens its teammate in the side page (onOpen). PLA-I39-7: hint replaces the caption while the
 // owner types in the floor's box ("Recibiría tu pedido").
 import type { OrgMember } from "@/lib/api";

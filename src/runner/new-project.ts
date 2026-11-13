@@ -1,12 +1,12 @@
 // PLA-I31-3: a new project from the company template. Jorge's screen only (POST /api/company/projects).
 // A name and a one-sentence goal make: the project (switch off, so it starts paused), its active goal,
 // a product owner on the runner (adapter claude_code, reports to ceo, no cadence) whose prompt is the
-// `Prompt: Product owner` doc, and a default weekly token limit for the project. PLA-I32-2: the PO comes
+// `Prompt: Product owner` doc. No token limit (PLA-21). PLA-I32-2: the PO comes
 // with its team, Research, Artist and Taller (research-<slug>, ...), all with project_id and role_template. Nothing is queued:
 // the PO's first wake comes when Jorge resumes the project (project.runs_resumed, src/runner/events.ts).
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agents, docs, projects, tokenBudgets } from "../db/schema.js";
+import { agents, docs, projects } from "../db/schema.js";
 import { setGoal } from "../mcp/goals.js";
 import { setProject } from "../mcp/project.js";
 import { setAgent } from "../mcp/team.js";
@@ -14,8 +14,6 @@ import { webCtx, writeTx } from "../mcp/tx.js";
 import { PROMPT_DOCS } from "./limits.js";
 import { CORE_TEMPLATES, ensureTeam, teamSlug } from "./team.js";
 
-// Tokens per week (input + output + cache). About 15 runs at the 60k reserve; Jorge changes it on screen.
-export const DEFAULT_PROJECT_WEEKLY_LIMIT = 1_000_000;
 // Where the role prompt docs live; the runner reads them from the same project.
 const promptsProject = () => process.env.PLANIA_PROMPTS_PROJECT || "plania";
 const PROJECT_BODY = "Company project. The plan lives in Plania.";
@@ -100,7 +98,6 @@ export async function createProjectFromTemplate(db: Db, input: { name: string; g
       note: `Prompt: doc «${PROMPT_DOCS["product-owner"]}» (${prompt.id}).`,
     });
     await ensureTeam(db, { id: project.id, slug, title: name });
-    await db.insert(tokenBudgets).values({ scope: "project", projectId: project.id, weeklyLimit: DEFAULT_PROJECT_WEEKLY_LIMIT });
   } catch (err) {
     await db.delete(agents).where(inArray(agents.slug, team));
     await db.delete(projects).where(eq(projects.id, project.id));
