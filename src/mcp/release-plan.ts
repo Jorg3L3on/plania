@@ -1,5 +1,6 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { blockers, branches, checks, envStates, events, pollState, pullRequests, sequenceReservations, tasks, type Project, type ReleaseSettings } from "../db/schema.js";
+import type { Project, ReleaseSettings } from "../db/schema.js";
+import { readerOf } from "../store/pg.js";
+import { openHumanActions } from "./blockers.js";
 import { ToolError } from "./errors.js";
 import { type Q } from "./tx.js";
 
@@ -66,7 +67,7 @@ function beforeRelease(spec: Record<string, unknown>, r: ReleaseSettings): boole
 }
 
 export async function releaseCompareOf(db: Q, projectId: string): Promise<ReleaseCompare | null> {
-  const [row] = await db.select({ cursor: pollState.cursor }).from(pollState).where(and(eq(pollState.projectId, projectId), eq(pollState.source, "github"))).limit(1);
+  const row = await readerOf(db).get("pollState", { projectId, source: "github" });
   return (row?.cursor.release as ReleaseCompare | undefined) ?? null;
 }
 
@@ -74,7 +75,8 @@ export async function releaseCompareOf(db: Q, projectId: string): Promise<Releas
 export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null> {
   const r = p.settings.release;
   if (!r) return null;
-  const heads = await db.select().from(branches).where(and(eq(branches.projectId, p.id), inArray(branches.name, [r.from, r.into]), isNull(branches.deletedAt)));
+  const store = readerOf(db);
+  const heads = await store.find("branches", { projectId: p.id, name: [r.from, r.into], deletedAt: null });
   const fromHead = heads.find((b) => b.name === r.from)?.headSha ?? null;
   const intoHead = heads.find((b) => b.name === r.into)?.headSha ?? null;
   const cached = await releaseCompareOf(db, p.id);
@@ -84,8 +86,8 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
   const shipped = same || !!fresh?.contains;
 
   // Merged (and In review with a merged PR) not yet Released; a PR merged straight into `into` is not part of it.
-  const all = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket"), inArray(tasks.status, ["Merged", "In review"]))).orderBy(asc(tasks.key));
-  const prs = all.length ? await db.select().from(pullRequests).where(inArray(pullRequests.taskId, all.map((t) => t.id))) : [];
+  const all = await store.find("tasks", { projectId: p.id, kind: "ticket", status: ["Merged", "In review"] }, { orderBy: [{ column: "key" }] });
+  const prs = all.length ? await store.find("pullRequests", { taskId: all.map((t) => t.id) }) : [];
   const prOf = (id: string) => prs.filter((pr) => pr.taskId === id).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
   const shipping = all.filter((t) => {
     const pr = prOf(t.id);
@@ -94,38 +96,25 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
   });
   const ids = shipping.map((t) => t.id);
 
-  const [env] = await db.select().from(envStates).where(and(eq(envStates.projectId, p.id), eq(envStates.env, r.env))).limit(1);
+  const env = await store.get("envStates", { projectId: p.id, env: r.env });
   const applied = env?.migrations ?? [];
-  const reserved = ids.length
-    ? await db
-        .select({ value: sequenceReservations.value })
-        .from(sequenceReservations)
-        .where(and(eq(sequenceReservations.projectId, p.id), eq(sequenceReservations.name, "migration"), inArray(sequenceReservations.taskId, ids)))
-        .orderBy(asc(sequenceReservations.value))
-    : [];
-  const width = await db.execute<{ width: number }>(sql`select width from sequences where project_id = ${p.id} and name = 'migration'`).then((x) => x.rows[0]?.width ?? 4);
+  const reserved = ids.length ? await store.find("sequenceReservations", { projectId: p.id, name: "migration", taskId: ids }, { orderBy: [{ column: "value" }] }) : [];
+  const width = (await store.get("sequences", { projectId: p.id, name: "migration" }))?.width ?? 4;
   const migrations = reserved
     .map((m) => String(m.value).padStart(width, "0"))
     .filter((tag) => (applied.length ? !applied.some((a) => a === tag || a.startsWith(`${tag}_`)) : !(env?.migrationsApplied != null && Number(tag) <= env.migrationsApplied)));
 
   // Before-steps: open human actions on the shipping tickets, and elsewhere in the project those tagged before_release.
-  const open = await db
-    .select({ b: blockers, key: tasks.key, taskId: tasks.id })
-    .from(blockers)
-    .innerJoin(tasks, eq(tasks.id, blockers.taskId))
-    .where(and(eq(tasks.projectId, p.id), eq(blockers.type, "human_action"), isNull(blockers.satisfiedAt), sql`${tasks.status} not in ('Done', 'Won''t do')`))
-    .orderBy(asc(blockers.createdAt));
+  // The same open human actions the inbox lists, oldest first.
+  const open = await openHumanActions(db, p.id);
   const before = open
-    .filter((o) => ids.includes(o.taskId) || beforeRelease(o.b.spec, r))
-    .map((o) => ({ blocker_id: o.b.id, key: o.key, text: String(o.b.spec.text ?? "") }));
+    .filter((o) => ids.includes(o.t.id) || beforeRelease(o.b.spec, r))
+    .map((o) => ({ blocker_id: o.b.id, key: o.t.key, text: String(o.b.spec.text ?? "") }));
 
-  const [checksOpen] = ids.length
-    ? await db.select({ n: sql<number>`count(*)::int` }).from(checks).where(and(inArray(checks.taskId, ids), eq(checks.done, false), isNull(checks.waivedAt)))
-    : [{ n: 0 }];
+  const open_checks = ids.length ? await store.count("checks", { taskId: ids, done: false, waivedAt: null }) : 0;
 
   const mode = r.mode ?? "command";
   const merged = fromHead ? await mergedFromScreen(db, p.id, fromHead) : null;
-  const open_checks = checksOpen?.n ?? 0;
   const pending = !shipped && (ahead ?? 0) > 0 && shipping.length > 0;
   const reason: ShipBlock | null =
     mode !== "merge" ? "mode_command"
@@ -159,15 +148,12 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
 // The release.merged event Jorge's Lanzar wrote for this from head, if any: between the merge and the
 // poller's next compare the step still shows, as merged, and Lanzar stays off.
 async function mergedFromScreen(db: Q, projectId: string, fromHead: string): Promise<ReleasePlan["merged"]> {
-  const [e] = await db
-    .select({ payload: events.payload, at: events.createdAt })
-    .from(events)
-    .where(and(eq(events.projectId, projectId), eq(events.type, "release.merged"), sql`${events.payload}->'from'->>'head_sha' = ${fromHead}`))
-    .orderBy(sql`${events.id} desc`)
-    .limit(1);
+  // Newest first; the payload's from.head_sha is matched here, the store filters on columns only.
+  const merges = await readerOf(db).find("events", { projectId, type: "release.merged" }, { orderBy: [{ column: "id", desc: true }] });
+  const e = merges.find((m) => (m.payload.from as { head_sha?: unknown } | null | undefined)?.head_sha === fromHead);
   if (!e) return null;
   const pl = e.payload as { merge_sha: string; pr: { url: string } };
-  return { sha: pl.merge_sha, pr_url: pl.pr.url, at: e.at.toISOString() };
+  return { sha: pl.merge_sha, pr_url: pl.pr.url, at: e.createdAt.toISOString() };
 }
 
 /** PLA-03: tickets are waiting but the poller has no compare for these heads, so whether `from` is

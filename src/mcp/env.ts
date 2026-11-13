@@ -1,6 +1,6 @@
-import { asc, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { envCommits, envStates, type DeploySource } from "../db/schema.js";
+import type { DeploySource, envStates } from "../db/schema.js";
+import { readerOf, uowOf } from "../store/pg.js";
 import { ENV_NAME, promoteUnblocked } from "./blockers.js";
 import { ToolError } from "./errors.js";
 import { markHeadlineStale } from "./project.js";
@@ -29,7 +29,7 @@ export function envShape(e: EnvRow) {
 }
 
 export async function projectEnv(db: Q, projectId: string) {
-  const rows = await db.select().from(envStates).where(eq(envStates.projectId, projectId)).orderBy(asc(envStates.env));
+  const rows = await readerOf(db).find("envStates", { projectId }, { orderBy: [{ column: "env" }] });
   return Object.fromEntries(rows.map((e) => [e.env, envShape(e)]));
 }
 
@@ -90,7 +90,9 @@ export async function setEnv(db: Db, input: SetEnvInput, ctx: Ctx) {
   }
   const p = await findProject(db, input.project);
   return writeTx(db, p, ctx, async (tx, emit) => {
-    const [before] = await tx.select().from(envStates).where(sql`${envStates.projectId} = ${p.id} and ${envStates.env} = ${input.env}`);
+    const uow = uowOf(tx);
+    const at = { projectId: p.id, env: input.env };
+    const before = await uow.get("envStates", at);
     const flags = { ...(before?.flags ?? {}) };
     const flagsChanged: Record<string, FlagValue> = {};
     for (const [flag, value] of Object.entries(input.flags ?? {})) {
@@ -110,22 +112,13 @@ export async function setEnv(db: Db, input: SetEnvInput, ctx: Ctx) {
       ...(m !== undefined ? { migrationsApplied: m } : {}),
       ...(tags ? { migrations: tags } : {}),
       ...(input.flags ? { flags } : {}),
-      ...(source ? { deployedAt: sql`now()`, deploySource: source } : {}),
+      ...(source ? { deployedAt: uow.now, deploySource: source } : {}),
     };
-    const [row] = await tx
-      .insert(envStates)
-      .values({ projectId: p.id, env: input.env, by: ctx.actor, ...changes })
-      .onConflictDoUpdate({
-        target: [envStates.projectId, envStates.env],
-        set: { ...changes, by: ctx.actor, updatedAt: sql`now()` },
-      })
-      .returning();
-    if (shas.length) {
-      await tx
-        .insert(envCommits)
-        .values(shas.map((sha) => ({ projectId: p.id, env: input.env, sha })))
-        .onConflictDoNothing();
-    }
+    const row = before
+      ? (await uow.update("envStates", at, { ...changes, by: ctx.actor, updatedAt: uow.now }))[0]
+      : await uow.insert("envStates", { ...at, by: ctx.actor, ...changes });
+    // A commit the env already lists keeps the time it was first seen.
+    for (const sha of shas) if (!(await uow.get("envCommits", { ...at, sha }))) await uow.insert("envCommits", { ...at, sha });
     await markHeadlineStale(tx, p.id);
     await emit("env.set", null, {
       env: input.env,

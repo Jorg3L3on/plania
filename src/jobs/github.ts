@@ -1,9 +1,10 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { runInGroup, type GroupRun } from "./gh-process.js";
 import { oneLine, readTokenFile } from "./gh-token.js";
 import { commandPath } from "./machine/run.js";
-import { branches, pollState, projects, pullRequests, tasks, type Project, type Task } from "../db/schema.js";
+import type { Project, Task } from "../db/schema.js";
+import { pgStore, readerOf } from "../store/pg.js";
+import type { UnitOfWork, Where } from "../store/types.js";
 import { DRIFT_STATUSES } from "../mcp/audit.js";
 import { touchBranch } from "../mcp/branches.js";
 import { addResult } from "../mcp/evidence.js";
@@ -146,25 +147,33 @@ async function gh(deps: GithubDeps, token: string, path: string, etag?: string) 
   return { status: 200 as const, data: await res.json(), etag: res.headers.get("etag") ?? undefined };
 }
 
+// The poller's own rows (poll_state, pull_requests, branches) change outside writeTx: each change is a
+// store write of its own, with no request id and no event.
+const write = (db: Db, projectId: string, fn: (uow: UnitOfWork) => Promise<unknown>) => pgStore(db).write(projectId, {}, fn);
+const branchSeen = (db: Db, projectId: string, name: string, patch: Parameters<typeof touchBranch>[3]) =>
+  write(db, projectId, (uow) => touchBranch(uow.sql, projectId, name, patch));
+
 async function cursorOf(db: Db, projectId: string): Promise<Record<string, unknown>> {
-  const [row] = await db.select().from(pollState).where(and(eq(pollState.projectId, projectId), eq(pollState.source, "github")));
+  const row = await readerOf(db).get("pollState", { projectId, source: "github" });
   return row?.cursor ?? {};
 }
 
 async function saveCursor(db: Db, projectId: string, cursor: Record<string, unknown>, error: string | null) {
-  await db
-    .insert(pollState)
-    .values({ projectId, source: "github", cursor, polledAt: sql`now()`, error })
-    .onConflictDoUpdate({ target: [pollState.projectId, pollState.source], set: { cursor, polledAt: sql`now()`, error } });
+  await write(db, projectId, async (uow) => {
+    const at = { projectId, source: "github" };
+    if (await uow.get("pollState", at)) await uow.update("pollState", at, { cursor, polledAt: uow.now, error });
+    else await uow.insert("pollState", { ...at, cursor, polledAt: uow.now, error });
+  });
 }
 
 // Which ticket a PR belongs to: the row's link, a ticket with that pr_url, or a Plania: KEY line.
 async function linkPr(db: Db, p: Project, pr: Pr, current: { taskId: string | null } | undefined): Promise<Task | undefined> {
+  const store = readerOf(db);
   if (current?.taskId) {
-    const [t] = await db.select().from(tasks).where(eq(tasks.id, current.taskId)).limit(1);
+    const t = await store.get("tasks", { id: current.taskId });
     if (t) return t;
   }
-  const [byUrl] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.prUrl, pr.html_url))).limit(1);
+  const byUrl = await store.get("tasks", { projectId: p.id, prUrl: pr.html_url });
   if (byUrl) return byUrl;
   const m = KEY_LINE.exec(pr.body ?? "");
   if (m) return findTask(db, p.id, m[1]!);
@@ -220,10 +229,10 @@ async function pollCi(
   const list = (runs.data as CheckRuns).check_runs ?? [];
   const statuses = combined.status === 200 && Array.isArray((combined.data as CombinedStatus).statuses) ? (combined.data as CombinedStatus).statuses! : [];
   const { state: ciState, failed, url, count } = ciStateOf(list, statuses);
-  const where = and(eq(pullRequests.projectId, p.id), eq(pullRequests.repo, repo), eq(pullRequests.number, pr.number));
-  const [row] = await db.select({ ciState: pullRequests.ciState }).from(pullRequests).where(where);
+  const where = { projectId: p.id, repo, number: pr.number };
+  const row = await readerOf(db).get("pullRequests", where);
   if (row?.ciState === ciState && !first) return;
-  await db.update(pullRequests).set({ ciState, ciUrl: url }).where(where);
+  await write(db, p.id, (uow) => uow.update("pullRequests", where, { ciState, ciUrl: url }));
   if (ciState !== "success" && ciState !== "failure") return;
   await addResult(
     db,
@@ -269,11 +278,8 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
     if (pulls.status === 200) {
       cursor.pulls_etag = pulls.etag;
       for (const pr of pulls.data as Pr[]) {
-        const [current] = await db
-          .select()
-          .from(pullRequests)
-          .where(and(eq(pullRequests.projectId, p.id), eq(pullRequests.repo, cfg.repo), eq(pullRequests.number, pr.number)))
-          .limit(1);
+        const prKey = { projectId: p.id, repo: cfg.repo, number: pr.number };
+        const current = await readerOf(db).get("pullRequests", prKey);
         if (current && current.ghUpdatedAt && current.ghUpdatedAt.getTime() >= new Date(pr.updated_at).getTime() && current.taskId) continue;
         let task = await linkPr(db, p, pr, current);
         if (!task && pr.state === "open" && !current) {
@@ -283,46 +289,28 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
         const state = pr.merged_at ? "merged" : pr.state === "open" ? "open" : "closed";
         // 2.11 (PLA-02): an open PR's merge_commit_sha is GitHub's throwaway test merge; kept only once merged.
         const mergeSha = pr.merged_at ? pr.merge_commit_sha : null;
-        await db
-          .insert(pullRequests)
-          .values({
-            projectId: p.id,
-            repo: cfg.repo,
-            number: pr.number,
-            url: pr.html_url,
-            title: pr.title,
-            taskId: task?.id ?? null,
-            state,
-            headSha: pr.head.sha,
-            headBranch: pr.head.ref,
-            baseBranch: pr.base.ref,
-            mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
-            mergeSha,
-            ghUpdatedAt: new Date(pr.updated_at),
-          })
-          .onConflictDoUpdate({
-            target: [pullRequests.projectId, pullRequests.repo, pullRequests.number],
-            set: {
-              title: pr.title,
-              taskId: task?.id ?? null,
-              state,
-              headSha: pr.head.sha,
-              headBranch: pr.head.ref,
-              baseBranch: pr.base.ref,
-              mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
-              mergeSha,
-              ghUpdatedAt: new Date(pr.updated_at),
-              updatedAt: sql`now()`,
-            },
-          });
+        const fields = {
+          title: pr.title,
+          taskId: task?.id ?? null,
+          state,
+          headSha: pr.head.sha,
+          headBranch: pr.head.ref,
+          baseBranch: pr.base.ref,
+          mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
+          mergeSha,
+          ghUpdatedAt: new Date(pr.updated_at),
+        };
+        await write(db, p.id, async (uow) => {
+          if (await uow.get("pullRequests", prKey)) await uow.update("pullRequests", prKey, { ...fields, updatedAt: uow.now });
+          else await uow.insert("pullRequests", { ...prKey, url: pr.html_url, ...fields });
+        });
         summary.prs!++;
         // PLA-I36-10: how many files an open PR changes (the list does not say; the PR does). Only on a change.
         if (state === "open" && task) {
           try {
             const one = await gh(deps, token, `/repos/${cfg.repo}/pulls/${pr.number}`);
             const files = one.status === 200 ? (one.data as { changed_files?: unknown }).changed_files : undefined;
-            if (typeof files === "number")
-              await db.update(pullRequests).set({ changedFiles: files }).where(and(eq(pullRequests.projectId, p.id), eq(pullRequests.repo, cfg.repo), eq(pullRequests.number, pr.number)));
+            if (typeof files === "number") await write(db, p.id, (uow) => uow.update("pullRequests", prKey, { changedFiles: files }));
           } catch {
             // The count is a nicety; the poll goes on without it.
           }
@@ -345,7 +333,7 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
           });
           summary.pr_events = (summary.pr_events ?? 0) + 1;
         }
-        await touchBranch(db, p.id, pr.head.ref, { headSha: pr.head.sha, headAt: new Date(pr.updated_at), prNumber: pr.number, ...(pr.merged_at ? { mergedAt: new Date(pr.merged_at) } : {}) });
+        await branchSeen(db, p.id, pr.head.ref, { headSha: pr.head.sha, headAt: new Date(pr.updated_at), prNumber: pr.number, ...(pr.merged_at ? { mergedAt: new Date(pr.merged_at) } : {}) });
         if (!task) continue;
         if (!task.prUrl || task.branch !== pr.head.ref) {
           await setTaskLinks(db, { project: p.slug, key: task.key, pr_url: pr.html_url, ...(task.kind === "ticket" ? { branch: pr.head.ref } : {}) }, systemCtx(`gh:${cfg.repo}#${pr.number}:links:${pr.updated_at}`, "jobs.github"));
@@ -353,7 +341,7 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
         }
         // A merged PR moves every In review ticket it carries: the linked one and the phases sharing its url.
         if (state === "merged") {
-          const sharing = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.prUrl, pr.html_url), eq(tasks.status, "In review"))).orderBy(tasks.key);
+          const sharing = await readerOf(db).find("tasks", { projectId: p.id, prUrl: pr.html_url, status: "In review" }, { orderBy: [{ column: "key" }] });
           const moving = [...(task.status === "In review" ? [task] : []), ...sharing.filter((t) => t.id !== task!.id)];
           for (const t of moving) {
             await setTask(
@@ -390,13 +378,12 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
 
     // PLA-14: a GitHub check finishing does not touch the PR's updated_at, and the list may answer 304, so an open
     // linked PR still stored as pending (or never checked) is asked again here. A head with no CI at all becomes none.
-    const waiting = await db
-      .select()
-      .from(pullRequests)
-      .where(and(eq(pullRequests.projectId, p.id), eq(pullRequests.repo, cfg.repo), eq(pullRequests.state, "open"), sql`${pullRequests.taskId} is not null`, sql`(${pullRequests.ciState} is null or ${pullRequests.ciState} = 'pending')`));
+    const waiting = (await readerOf(db).find("pullRequests", { projectId: p.id, repo: cfg.repo, state: "open" })).filter(
+      (pr) => pr.taskId !== null && (pr.ciState === null || pr.ciState === "pending"),
+    );
     for (const row of waiting) {
       if (seen.has(row.number) || !row.headSha || !row.headBranch) continue;
-      const [task] = await db.select().from(tasks).where(eq(tasks.id, row.taskId!)).limit(1);
+      const task = await readerOf(db).get("tasks", { id: row.taskId! });
       if (!task) continue;
       await pollCi(db, p, deps, token, { number: row.number, url: row.url, sha: row.headSha, ref: row.headBranch }, task, false, summary);
     }
@@ -404,10 +391,10 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
     // 3. Branch heads and deletions for the branches the project knows (the release's two included).
     const release = p.settings.release;
     if (release) {
-      const have = new Set((await db.select({ name: branches.name }).from(branches).where(eq(branches.projectId, p.id))).map((b) => b.name));
-      for (const name of [release.from, release.into]) if (!have.has(name)) await touchBranch(db, p.id, name, {});
+      const have = new Set((await readerOf(db).find("branches", { projectId: p.id })).map((b) => b.name));
+      for (const name of [release.from, release.into]) if (!have.has(name)) await branchSeen(db, p.id, name, {});
     }
-    const known = await db.select().from(branches).where(eq(branches.projectId, p.id));
+    const known = await readerOf(db).find("branches", { projectId: p.id });
     if (known.length) {
       const list = await gh(deps, token, `/repos/${cfg.repo}/branches?per_page=100`, cursor.branches_etag as string | undefined);
       if (list.status === 200) {
@@ -416,10 +403,10 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
         for (const b of known) {
           const sha = remote.get(b.name);
           if (sha && sha !== b.headSha) {
-            await touchBranch(db, p.id, b.name, { headSha: sha, headAt: deps.now ?? new Date(), deletedAt: null });
+            await branchSeen(db, p.id, b.name, { headSha: sha, headAt: deps.now ?? new Date(), deletedAt: null });
             summary.branches!++;
           } else if (!sha && !b.deletedAt && (b.headSha || b.prNumber)) {
-            await touchBranch(db, p.id, b.name, { deletedAt: deps.now ?? new Date() });
+            await branchSeen(db, p.id, b.name, { deletedAt: deps.now ?? new Date() });
             await writeTx(db, p, systemCtx(`gh:${cfg.repo}:branch_deleted:${b.name}`, "jobs.github"), async (_tx, emit) => {
               await emit("branch.deleted", null, { branch: b.name });
             });
@@ -458,7 +445,7 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
 
 async function pollRelease(db: Db, p: Project, deps: GithubDeps, token: string, repo: string, cursor: Record<string, unknown>): Promise<number> {
   const r = p.settings.release!;
-  const heads = await db.select().from(branches).where(and(eq(branches.projectId, p.id), inArray(branches.name, [r.from, r.into])));
+  const heads = await readerOf(db).find("branches", { projectId: p.id, name: [r.from, r.into] });
   const fromHead = heads.find((b) => b.name === r.from)?.headSha;
   const intoHead = heads.find((b) => b.name === r.into)?.headSha;
   if (!fromHead || !intoHead) return 0;
@@ -495,18 +482,19 @@ async function pollRelease(db: Db, p: Project, deps: GithubDeps, token: string, 
   return shipped ? 1 : 0;
 }
 
+// The project's tickets matching `where`, each with every merged PR of the repo that carries it (linked to the
+// ticket, or the same pr_url), in key order.
+async function withMergedPr(db: Db, p: Project, repo: string, where: Where<"tasks">) {
+  const store = readerOf(db);
+  const merged = await store.find("pullRequests", { projectId: p.id, repo, state: "merged" });
+  const tickets = await store.find("tasks", { ...where, projectId: p.id }, { orderBy: [{ column: "key" }] });
+  return tickets.flatMap((t) => merged.filter((pr) => pr.taskId === t.id || (t.prUrl !== null && pr.url === t.prUrl)).map((pr) => ({ t, pr })));
+}
+
 // In review tickets whose PR is already stored as merged (linked to the ticket, or the same pr_url)
 // move to Merged as the system, with the note the live path writes. No GitHub call.
 export async function mergeLateReviews(db: Db, p: Project, repo: string): Promise<number> {
-  const rows = await db
-    .select({ t: tasks, pr: pullRequests })
-    .from(tasks)
-    .innerJoin(
-      pullRequests,
-      and(eq(pullRequests.projectId, tasks.projectId), eq(pullRequests.repo, repo), sql`(${pullRequests.taskId} = ${tasks.id} or ${pullRequests.url} = ${tasks.prUrl})`),
-    )
-    .where(and(eq(tasks.projectId, p.id), eq(tasks.status, "In review"), eq(pullRequests.state, "merged")))
-    .orderBy(tasks.key);
+  const rows = await withMergedPr(db, p, repo, { status: "In review" });
   const seen = new Set<string>();
   for (const { t, pr } of rows) {
     if (seen.has(t.id)) continue;
@@ -525,15 +513,7 @@ export async function mergeLateReviews(db: Db, p: Project, repo: string): Promis
 // pr_url) is still before In review. The request id makes a later tick replay instead of writing again.
 // Returns how many tickets are drifting now (the audit says the same as PR_MERGED_TICKET_OPEN).
 export async function flagStatusDrift(db: Db, p: Project, repo: string): Promise<number> {
-  const rows = await db
-    .select({ t: tasks, pr: pullRequests })
-    .from(tasks)
-    .innerJoin(
-      pullRequests,
-      and(eq(pullRequests.projectId, tasks.projectId), eq(pullRequests.repo, repo), sql`(${pullRequests.taskId} = ${tasks.id} or ${pullRequests.url} = ${tasks.prUrl})`),
-    )
-    .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket"), inArray(tasks.status, DRIFT_STATUSES), eq(pullRequests.state, "merged")))
-    .orderBy(tasks.key);
+  const rows = await withMergedPr(db, p, repo, { kind: "ticket", status: DRIFT_STATUSES });
   const seen = new Set<string>();
   for (const { t, pr } of rows) {
     if (seen.has(t.id)) continue;
@@ -549,29 +529,30 @@ export async function flagStatusDrift(db: Db, p: Project, repo: string): Promise
 // the env's commit is the merge commit, env_commits lists it, or contains() says so (GitHub compare).
 export async function releaseMerged(db: Db, p: Project, contains?: (mergeSha: string, envSha: string) => Promise<boolean>): Promise<number> {
   const env = p.settings.release_target ?? "prod";
-  const [state] = await db.execute<{ commit: string | null }>(sql`select commit from env_states where project_id = ${p.id} and env = ${env}`).then((r) => r.rows);
+  const store = readerOf(db);
+  const state = await store.get("envStates", { projectId: p.id, env });
   if (!state?.commit) return 0;
-  const merged = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.status, "Merged")));
+  const envCommit = state.commit;
+  const merged = await store.find("tasks", { projectId: p.id, status: "Merged" });
   let released = 0;
   for (const t of merged) {
     const pr = await prRowOf(db, t);
     const merge = pr?.mergedAt ? pr.mergeSha : null;
     if (!merge) continue;
-    const [known] = await db
-      .execute<{ sha: string }>(sql`select sha from env_commits where project_id = ${p.id} and env = ${env} and (sha like ${merge} || '%' or ${merge} like sha || '%') limit 1`)
-      .then((r) => r.rows);
-    let ok = !!known || state.commit.startsWith(merge) || merge.startsWith(state.commit);
-    if (!ok && contains) ok = await contains(merge, state.commit);
+    // One sha a prefix of the other, either way (both are hex, so this is the old pair of LIKEs).
+    const known = (await store.find("envCommits", { projectId: p.id, env })).some((c) => c.sha.startsWith(merge) || merge.startsWith(c.sha));
+    let ok = known || envCommit.startsWith(merge) || merge.startsWith(envCommit);
+    if (!ok && contains) ok = await contains(merge, envCommit);
     if (!ok) continue;
-    const sys = { actor: { ...SYSTEM_ACTOR, machine: "poller" }, system: true, requestId: `release:${t.key}:${env}:${state.commit}`, tool: "jobs.release" };
+    const sys = { actor: { ...SYSTEM_ACTOR, machine: "poller" }, system: true, requestId: `release:${t.key}:${env}:${envCommit}`, tool: "jobs.release" };
     await setTask(
       db,
-      { project: p.slug, key: t.key, status: "Released", note: `${env} runs ${state.commit.slice(0, 7)}, which contains the merge commit ${merge.slice(0, 7)}` },
+      { project: p.slug, key: t.key, status: "Released", note: `${env} runs ${envCommit.slice(0, 7)}, which contains the merge commit ${merge.slice(0, 7)}` },
       sys,
     );
     await writeTx(db, p, { ...sys, requestId: `${sys.requestId}:record` }, async (tx, emit) => {
       await recordRelease(tx, p, env, t.key);
-      await emit("release.recorded", { id: t.id, key: t.key }, { env, commit: state.commit });
+      await emit("release.recorded", { id: t.id, key: t.key }, { env, commit: envCommit });
     });
     released++;
   }
@@ -580,7 +561,7 @@ export async function releaseMerged(db: Db, p: Project, contains?: (mergeSha: st
 
 export async function pollGithub(db: Db, deps: GithubDeps): Promise<Record<string, number>> {
   const total: Record<string, number> = {};
-  for (const p of await db.select().from(projects)) {
+  for (const p of await readerOf(db).find("projects")) {
     if (!p.settings.github?.repo) continue;
     try {
       for (const [k, v] of Object.entries(await pollGithubProject(db, p, deps))) total[k] = (total[k] ?? 0) + v;

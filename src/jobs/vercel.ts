@@ -1,7 +1,7 @@
-import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { pollState, projects, type Project } from "../db/schema.js";
+import type { Project } from "../db/schema.js";
 import { setEnv } from "../mcp/env.js";
+import { pgStore, readerOf } from "../store/pg.js";
 import { SYSTEM_ACTOR } from "../mcp/tx.js";
 import { releaseMerged, type Fetch } from "./github.js";
 import type { Job } from "./index.js";
@@ -28,13 +28,15 @@ export async function pollVercelProject(db: Db, p: Project, deps: VercelDeps): P
   if (!cfg?.project_id) return {};
   const token = (deps.env ?? process.env)[cfg.token_env ?? "VERCEL_TOKEN"];
   const summary: Record<string, number> = { deployments: 0, released: 0 };
-  const [row] = await db.select().from(pollState).where(and(eq(pollState.projectId, p.id), eq(pollState.source, "vercel")));
+  const at = { projectId: p.id, source: "vercel" };
+  const row = await readerOf(db).get("pollState", at);
   const cursor = row?.cursor ?? {};
+  // The poller's cursor is a store write of its own, outside writeTx: no request id, no event.
   const save = (error: string | null) =>
-    db
-      .insert(pollState)
-      .values({ projectId: p.id, source: "vercel", cursor, polledAt: sql`now()`, error })
-      .onConflictDoUpdate({ target: [pollState.projectId, pollState.source], set: { cursor, polledAt: sql`now()`, error } });
+    pgStore(db).write(p.id, {}, async (uow) => {
+      if (await uow.get("pollState", at)) await uow.update("pollState", at, { cursor, polledAt: uow.now, error });
+      else await uow.insert("pollState", { ...at, cursor, polledAt: uow.now, error });
+    });
   if (!token) {
     await save(`no token in ${cfg.token_env ?? "VERCEL_TOKEN"}`);
     return summary;
@@ -79,7 +81,7 @@ export async function pollVercelProject(db: Db, p: Project, deps: VercelDeps): P
 
 export async function pollVercel(db: Db, deps: VercelDeps): Promise<Record<string, number>> {
   const total: Record<string, number> = {};
-  for (const p of await db.select().from(projects)) {
+  for (const p of await readerOf(db).find("projects")) {
     if (!p.settings.vercel?.project_id) continue;
     try {
       for (const [k, v] of Object.entries(await pollVercelProject(db, p, deps))) total[k] = (total[k] ?? 0) + v;
