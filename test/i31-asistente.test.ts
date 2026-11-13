@@ -1,8 +1,7 @@
-// PLA-I31-2: Asistente's 07:00 brief and 2-hourly check, on a fake clock. Throwaway DB; no claude.
+// PLA-I31-2: Asistente's 07:00 brief and 2-hourly check, on a fake clock. Throwaway store; no claude.
 import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 process.env.PLANIA_HOME_PROJECT = "micasa";
@@ -15,7 +14,7 @@ const asistente = await import("../src/runner/asistente.js");
 const { jobsToStart } = await import("../src/jobs/index.js");
 
 type Db = ReturnType<typeof makeDb>["db"];
-let raw: pg.Client;
+let store: TestStore;
 let db: Db;
 let closeDb: () => Promise<void>;
 const TZ = "America/Mexico_City";
@@ -23,29 +22,43 @@ const deps = { tz: TZ, env: { PLANIA_HOME_PROJECT: "micasa" } as NodeJS.ProcessE
 const ctx = { actor: { agent: "test-agent", session_id: "s-i31-2" } };
 
 async function id(table: "agents" | "projects", slug: string): Promise<string> {
-  return (await raw.query(`select id from ${table} where slug = $1`, [slug])).rows[0].id as string;
+  const row = table === "agents" ? await store.get("agents", { slug }) : await store.get("projects", { slug });
+  if (!row) throw new Error(`no ${table} row ${slug}`);
+  return row.id;
 }
-const questionsOn = async (key: string) =>
-  (await raw.query(`select q.question, q.asked_by from questions q join tasks t on t.id = q.task_id where t.key = $1`, [key])).rows as { question: string; asked_by: { agent: string } }[];
+const questionsOn = async (key: string) => {
+  const tasks = await store.find("tasks", { key });
+  return (await store.find("questions", { taskId: tasks.map((t) => t.id) })).map((q) => ({ question: q.question, asked_by: q.askedBy }));
+};
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
 });
 
 beforeEach(async () => {
   asistente.resetAsistenteForTests();
-  await raw.query(`delete from events where type in ('asistente.brief', 'asistente.check')`);
-  await raw.query(`delete from agent_runs`);
-  await raw.query(`delete from questions`);
-  await raw.query(`update projects set runs_paused = true`);
-  await raw.query(`update runner_settings set company_paused = false`);
+  await store.fix(async (uow) => {
+    await uow.delete("events", { type: ["asistente.brief", "asistente.check"] });
+    await uow.delete("agentRuns", {});
+    // `delete from questions` took their delegated answers with it and cleared the messages pointing at them.
+    const questions = (await uow.find("questions")).map((q) => q.id);
+    if (questions.length) {
+      await uow.delete("delegatedAnswers", { questionId: questions });
+      await uow.update("threadMessages", { questionId: questions }, { questionId: null });
+    }
+    await uow.delete("questions", {});
+    await uow.update("projects", {}, { runsPaused: true });
+    // The one runner_settings row: the migration seeds it on Postgres; on devva this makes it.
+    if (!(await uow.get("runnerSettings", { id: 1 }))) await uow.insert("runnerSettings", { id: 1 });
+    await uow.update("runnerSettings", { id: 1 }, { companyPaused: false });
+  });
 });
 
 after(async () => {
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("I31-2 #1: on a fake clock the brief fires once, at 07:00 local, and the check 12 times in 24 h", async () => {
@@ -77,12 +90,12 @@ test("I31-2: a server asleep at 07:00 writes the brief on its first tick after, 
 
 test("I31-2 #2 (PLA-21): a heavy week yields no budget line and no ask; the brief is stored and posted", async () => {
   const micasa = await id("projects", "micasa");
-  await raw.query(`update projects set runs_paused = false where slug = 'micasa'`);
-  await raw.query(
-    `insert into agent_runs (agent_id, project_id, role, status, started_at, ended_at, queued_at, tokens_total, summary)
-     values ($1, $2, 'taller', 'ok', now() - interval '1 hour', now() - interval '1 hour', now() - interval '1 hour', 850000, 'ok: success, 9 turns')`,
-    [await id("agents", "taller"), micasa],
-  );
+  const taller = await id("agents", "taller");
+  const hourAgo = new Date(Date.now() - 3_600_000);
+  await store.fix(async (uow) => {
+    await uow.update("projects", { slug: "micasa" }, { runsPaused: false });
+    await uow.insert("agentRuns", { agentId: taller, projectId: micasa, role: "taller", status: "ok", startedAt: hourAgo, endedAt: hourAgo, queuedAt: hourAgo, tokensTotal: 850000, summary: "ok: success, 9 turns" });
+  });
   const now = new Date();
   const lines = await asistente.buildBrief(db, now);
   for (const line of lines) assert.doesNotMatch(line, /presupuesto|límite|limit|budget/i);
@@ -93,8 +106,8 @@ test("I31-2 #2 (PLA-21): a heavy week yields no budget line and no ask; the brie
   assert.equal(out.brief, 1);
   assert.equal(out.check, 1);
   assert.equal(out.asks, 0);
-  assert.equal((await raw.query(`select count(*)::int as n from questions`)).rows[0].n, 0);
-  const check = (await raw.query(`select payload from events where type = 'asistente.check' order by id desc limit 1`)).rows[0];
+  assert.equal(await store.count("questions"), 0);
+  const [check] = await store.find("events", { type: "asistente.check" }, { orderBy: [{ column: "id", desc: true }], limit: 1 });
   for (const line of (check?.payload.lines ?? []) as string[]) assert.doesNotMatch(line, /presupuesto/i);
 
   // The brief is stored as {lines, generated_at} and, PLA-I32-5, posted in the company thread (server summary:
@@ -120,12 +133,10 @@ test("I31-2 #3: the same failure twice yields exactly one ask; a different failu
   const taller = await id("agents", "taller");
   await writes.createTask(db, { project: "micasa", key: "AS-FAIL", title: "Falla", scope: "s", checks: ["c"], status: "Ready" } as never, ctx);
   await writes.createTask(db, { project: "micasa", key: "AS-ONCE", title: "Otra", scope: "s", checks: ["c"], status: "Ready" } as never, ctx);
-  const run = (key: string, summary: string, minutesAgo: number) =>
-    raw.query(
-      `insert into agent_runs (agent_id, project_id, task_key, role, status, started_at, ended_at, queued_at, summary)
-       values ($1, $2, $3, 'taller', 'fail', now() - make_interval(mins => $5), now() - make_interval(mins => $5), now() - make_interval(mins => $5), $4)`,
-      [taller, micasa, key, summary, minutesAgo],
-    );
+  const run = (key: string, summary: string, minutesAgo: number) => {
+    const at = new Date(Date.now() - minutesAgo * 60_000);
+    return store.fix((uow) => uow.insert("agentRuns", { agentId: taller, projectId: micasa, taskKey: key, role: "taller", status: "fail", startedAt: at, endedAt: at, queuedAt: at, summary }));
+  };
   await run("AS-FAIL", "fail: error_max_turns (40 turns, session aaaa1111)", 120);
   await run("AS-FAIL", "fail: error_max_turns (40 turns, session bbbb2222)", 10);
   await run("AS-ONCE", "fail: no result", 120);
@@ -138,7 +149,7 @@ test("I31-2 #3: the same failure twice yields exactly one ask; a different failu
   assert.equal(qs.length, 1);
   assert.equal(qs[0]!.asked_by.agent, "asistente");
   assert.match(qs[0]!.question, /taller falló dos veces seguidas igual en AS-FAIL: fail: error_max_turns \(N turns\)/);
-  assert.equal((await raw.query(`select status from tasks where key = 'AS-FAIL'`)).rows[0].status, "Needs Jorge");
+  assert.equal((await store.get("tasks", { key: "AS-FAIL" }))!.status, "Needs Jorge");
   assert.equal((await questionsOn("AS-ONCE")).length, 0);
 
   // The next check (another slot) and a third identical failure ask nothing more.
@@ -147,18 +158,18 @@ test("I31-2 #3: the same failure twice yields exactly one ask; a different failu
   assert.equal(later.check, 1);
   assert.equal(later.asks, 0);
   assert.equal((await questionsOn("AS-FAIL")).length, 1);
-  assert.equal((await raw.query(`select count(*)::int as n from questions`)).rows[0].n, 1);
+  assert.equal(await store.count("questions"), 1);
 });
 
 test("I31-2: stuck and quiet look only at running projects", async () => {
   const micasa = await id("projects", "micasa");
   await writes.createTask(db, { project: "micasa", key: "AS-STUCK", title: "Atascada", scope: "s", checks: ["c"], status: "Ready" } as never, ctx);
-  await raw.query(`update tasks set status = 'In progress' where key = 'AS-STUCK'`);
+  await store.fix((uow) => uow.update("tasks", { key: "AS-STUCK" }, { status: "In progress" }));
   const future = new Date(Date.now() + 3 * 24 * 3_600_000);
   // Paused: nothing.
   let f = await asistente.findings(db, future);
   assert.deepEqual([...f.quiet, ...f.stuck], []);
-  await raw.query(`update projects set runs_paused = false where id = $1`, [micasa]);
+  await store.fix((uow) => uow.update("projects", { id: micasa }, { runsPaused: false }));
   f = await asistente.findings(db, future);
   assert.equal(f.quiet.length, 1);
   assert.match(f.quiet[0]!, /^MiCasa lleva 3 días sin movimiento\.$/);

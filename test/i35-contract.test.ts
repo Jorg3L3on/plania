@@ -1,15 +1,15 @@
 // PLA-I35-1: the card as a report and Te toca. GET /api/company gains plan, this_week, next and work per project
-// and decisions[]; POST /api/company/decisions/:id acts on one row. Throwaway DB, fake values only.
+// and decisions[]; POST /api/company/decisions/:id acts on one row. Throwaway store, fake values only.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type pg from "pg";
-import { TEST_BEARER, resetTestDb, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 process.env.PLANIA_EVENT_WAKES = "1";
 process.env.PLANIA_HOME_PROJECT = "zigzag";
 process.env.PLANIA_PROMPTS_PROJECT = "micasa";
 const { makeDb } = await import("../src/db/client.js");
+const { screenTz } = await import("../src/runner/limits.js");
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
 const { seedOrg } = await import("../scripts/seed-org.js");
@@ -19,7 +19,7 @@ const { parseProposal } = await import("../src/api/company-decisions.js");
 const { calendarOf } = await import("../src/api/company-plan.js");
 
 type Json = Record<string, any>;
-let raw: pg.Client;
+let store: TestStore;
 let db: ReturnType<typeof makeDb>["db"];
 let closeDb: () => Promise<void>;
 const jorge = () => ({ Cookie: `${SESSION_COOKIE}=${createSession()}`, "Content-Type": "application/json" });
@@ -31,8 +31,10 @@ const company = async (): Promise<Json> => {
 const act = (id: string, body: unknown, headers: Record<string, string> = jorge()) =>
   app.request(`/api/company/decisions/${encodeURIComponent(id)}`, { method: "POST", headers, body: JSON.stringify(body) });
 const keys = (o: Json) => Object.keys(o).sort();
-const pid = async (slug: string) => (await raw.query(`select id from projects where slug = $1`, [slug])).rows[0].id as string;
+const pid = async (slug: string) => store.projectId(slug);
 const PO = { actor: { agent: "po-mianovia", session_id: "s-po" } };
+// current_date + n: the date n days from now on the Mac's calendar (Postgres's time zone, the screen's).
+const dateIn = (days: number) => new Intl.DateTimeFormat("en-CA", { timeZone: screenTz() }).format(new Date(Date.now() + days * 86_400_000));
 
 const PROPOSAL = [
   "Leí el proyecto: Arranque 3/5, el borrador aceptado, lo siguiente es el kickoff.",
@@ -44,35 +46,36 @@ const PROPOSAL = [
 ].join("\n");
 
 before(async () => {
-  raw = await resetTestDb();
-  await raw.query(`insert into projects (slug, title, key_prefix) values ('mianovia', 'Mianovia', 'MIA')`);
+  store = await resetTestStore();
+  await store.fix((uow) => uow.insert("projects", { slug: "mianovia", title: "Mianovia", keyPrefix: "MIA" }));
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
-  await raw.query(`update projects set runs_paused = false where slug in ('mianovia', 'micasa')`);
+  await store.fix((uow) => uow.update("projects", { slug: ["mianovia", "micasa"] }, { runsPaused: false }));
   // Mianovia: five initiatives, one a week; the first Active with five tickets, three done; the kickoff is Jorge's.
   const titles = ["Arranque y configuración", "Formulario de bienvenida", "Panel administrativo", "Contacto, exportación y avisos", "Ajustes finales y entrega"];
   for (const [i, title] of titles.entries()) {
     await writes.createTask(db, { project: "mianovia", kind: "initiative", key: `MIA-I${i + 1}`, title, scope: "s" } as never, PO);
   }
-  await raw.query(`update tasks set status = 'Active' where key = 'MIA-I1'`);
+  await store.fix((uow) => uow.update("tasks", { key: "MIA-I1" }, { status: "Active" }));
   await writes.createTask(db, { project: "mianovia", key: "MIA-I1-1", parent_key: "MIA-I1", phase: 1, title: "Kickoff con la boutique", summary: "Llevar el borrador Campos y flujos", status: "Ready", owner_agent: "ceo", scope: "s", checks: ["c"] } as never, PO);
   for (const n of [2, 3, 4]) await writes.createTask(db, { project: "mianovia", key: `MIA-I1-${n}`, parent_key: "MIA-I1", phase: 1, title: `Base ${n}`, scope: "s", checks: ["c"] } as never, PO);
   await writes.createTask(db, { project: "mianovia", key: "MIA-I1-5", parent_key: "MIA-I1", phase: 2, title: "Hosting", status: "Ready", scope: "s", checks: ["c"] } as never, PO);
-  await raw.query(`update tasks set status = 'Done' where key in ('MIA-I1-2', 'MIA-I1-3', 'MIA-I1-4')`);
-  const actor = JSON.stringify({ agent: "po-mianovia", session_id: "s-po" });
-  await raw.query(
-    `insert into events (project_id, task_id, task_key, type, actor, payload) select project_id, id, key, 'task.status', $1::jsonb, '{"from":"In progress","to":"Done"}'::jsonb from tasks where key in ('MIA-I1-2', 'MIA-I1-3', 'MIA-I1-4')`,
-    [actor],
-  );
-  await raw.query(`insert into events (project_id, task_id, task_key, type, actor, payload) select project_id, id, key, 'doc.put', $1::jsonb, '{"doc_id":"d1"}'::jsonb from tasks where key = 'MIA-I1-2'`, [actor]);
+  const actor = { agent: "po-mianovia", session_id: "s-po" };
+  await store.fix(async (uow) => {
+    const done = await uow.update("tasks", { key: ["MIA-I1-2", "MIA-I1-3", "MIA-I1-4"] }, { status: "Done" });
+    for (const t of done) await uow.insert("events", { projectId: t.projectId, taskId: t.id, taskKey: t.key, type: "task.status", actor, payload: { from: "In progress", to: "Done" } });
+    for (const t of done.filter((x) => x.key === "MIA-I1-2")) await uow.insert("events", { projectId: t.projectId, taskId: t.id, taskKey: t.key, type: "doc.put", actor, payload: { doc_id: "d1" } });
+  });
   // The PO's proposal, the last message in the Mianovia thread.
   const thread = (await (await app.request("/api/threads/mianovia", { headers: jorge() })).json()) as { id: string };
-  await raw.query(`insert into thread_messages (thread_id, author_agent, author_role, body, at) values ($1, 'po-mianovia', 'product-owner', $2, now() - interval '52 minutes')`, [thread.id, PROPOSAL]);
+  await store.fix((uow) =>
+    uow.insert("threadMessages", { threadId: thread.id, authorAgent: "po-mianovia", authorRole: "product-owner", body: PROPOSAL, at: new Date(Date.now() - 52 * 60_000) }),
+  );
 });
 
 after(async () => {
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("I35-1 #1: parseProposal reads numbered options, the recommended one and the note", () => {
@@ -139,14 +142,18 @@ test("I35-1 #3 (PLA-I36-5): pace is null without a delivery date, late or bad by
   assert.deepEqual(calendarOf({ startOn: "2026-11-02", dueOn: "2026-12-07", today, done: 1, total: 5 }).pace, "ok");
   assert.deepEqual(calendarOf({ startOn: "2026-10-12", dueOn: "2026-11-30", today, done: 0, total: 5 }).pace, "bad");
 
-  await raw.query(`update tasks set due_on = current_date + 34 where key = 'MIA-I5'`);
+  await store.fix((uow) => uow.update("tasks", { key: "MIA-I5" }, { dueOn: dateIn(34) }));
   let mia = (await company()).projects.find((p: Json) => p.slug === "mianovia");
   assert.deepEqual([mia.plan.pace, mia.plan.weeks_behind], ["ok", 0], "the delivery five weeks out, the plan just started");
-  await raw.query(`update tasks set created_at = now() - interval '60 days' where key like 'MIA-I_' and kind = 'initiative'`);
-  await raw.query(`update tasks set due_on = current_date + 1 where key = 'MIA-I5'`);
+  await store.fix(async (uow) => {
+    // key like 'MIA-I_': MIA-I and one more character.
+    const initiatives = (await uow.find("tasks", { kind: "initiative" })).filter((t) => /^MIA-I.$/u.test(t.key));
+    await uow.update("tasks", { id: initiatives.map((t) => t.id) }, { createdAt: new Date(Date.now() - 60 * 86_400_000) });
+    await uow.update("tasks", { key: "MIA-I5" }, { dueOn: dateIn(1) });
+  });
   mia = (await company()).projects.find((p: Json) => p.slug === "mianovia");
   assert.equal(mia.plan.pace, "bad", "almost all the time gone, a fraction of the work done");
-  await raw.query(`update tasks set due_on = null where key in ('MIA-I1', 'MIA-I5')`);
+  await store.fix((uow) => uow.update("tasks", { key: ["MIA-I1", "MIA-I5"] }, { dueOn: null }));
 });
 
 test("I35-1 #2: Elegir posts 'Elijo n' in the project thread, makes the PO's Ready ticket and queues its wake; twice is 409", async () => {
@@ -164,9 +171,11 @@ test("I35-1 #2: Elegir posts 'Elijo n' in the project thread, makes the PO's Rea
   const mine = msgs.messages.at(-1)!;
   assert.equal(mine.author.agent, "jorge");
   assert.equal(mine.body, "Elijo 1: Planear el formulario con las respuestas por defecto del borrador, provisional");
-  const ticket = (await raw.query(`select t.status, t.origin, a.slug from tasks t join agents a on a.id = t.owner_agent where t.key = $1`, [out.created.key])).rows[0];
+  const created = await store.get("tasks", { key: out.created.key as string });
+  const owner = created?.ownerAgent ? await store.get("agents", { id: created.ownerAgent }) : undefined;
+  const ticket = created && owner ? { status: created.status, origin: created.origin, slug: owner.slug } : undefined;
   assert.deepEqual(ticket, { status: "Ready", origin: "jorge", slug: "po-mianovia" });
-  assert.equal((await raw.query(`select count(*)::int as n from events where type = 'wake.queued' and payload->>'agent' = 'po-mianovia'`)).rows[0].n >= 1, true);
+  assert.equal((await store.find("events", { type: "wake.queued" })).filter((e) => e.payload.agent === "po-mianovia").length >= 1, true);
 
   const again = await act(id, { action: "elegir", option: 2 });
   assert.equal(again.status, 409);
@@ -181,7 +190,7 @@ test("I35-1 #2: Hecho closes the ceo-owned ticket; a question is answered by its
   assert.equal((await act(kickoff.id, { action: "elegir", option: 1 })).status, 400);
   const done = await act(kickoff.id, { action: "hecho" });
   assert.equal(done.status, 200, JSON.stringify(await done.clone().json()));
-  assert.equal((await raw.query(`select status from tasks where key = 'MIA-I1-1'`)).rows[0].status, "Done");
+  assert.equal((await store.get("tasks", { key: "MIA-I1-1" }))!.status, "Done");
   const twice = await act(kickoff.id, { action: "hecho" });
   assert.equal(twice.status, 409, JSON.stringify(await twice.clone().json()) + kickoff.id);
   const after1 = (await company()).decisions.find((d: Json) => d.id === kickoff.id);
@@ -191,7 +200,7 @@ test("I35-1 #2: Hecho closes the ceo-owned ticket; a question is answered by its
   const q = (await company()).decisions.find((d: Json) => d.kind === "question");
   assert.deepEqual(q.options.map((o: Json) => o.label), ["Sigue local", "Ya decidiremos"]);
   assert.equal((await act(q.id, { action: "elegir", option: 1 })).status, 200);
-  assert.equal((await raw.query(`select answer from questions where id = $1`, [q.id.slice(2)])).rows[0].answer, "Sigue local");
+  assert.equal((await store.get("questions", { id: q.id.slice(2) }))!.answer, "Sigue local");
   assert.equal((await act(q.id, { action: "responder", text: "otra" })).status, 409);
   assert.equal((await act("m-00000000-0000-4000-8000-000000000000", { action: "elegir", option: 1 })).status, 404);
 });

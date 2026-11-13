@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -13,7 +12,7 @@ const { jobsToStart } = await import("../src/jobs/index.js");
 const { runHeartbeat, wakeAgent } = await import("../src/jobs/heartbeat.js");
 const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 
-let raw: pg.Client;
+let store: TestStore;
 let db: Awaited<ReturnType<typeof makeDb>>["db"];
 let closeDb: () => Promise<void>;
 let client: Client;
@@ -29,20 +28,19 @@ async function call(name: string, args: Record<string, unknown> = {}) {
 }
 
 async function runsFor(slug: string): Promise<number> {
-  const { rows } = await raw.query(
-    `select count(*)::int as n from heartbeat_runs hr join agents a on a.id = hr.agent_id where a.slug = $1`,
-    [slug],
-  );
-  return rows[0].n as number;
+  const agents = await store.find("agents", { slug });
+  return store.count("heartbeatRuns", { agentId: agents.map((a) => a.id) });
 }
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
-  await raw.query(`update agents set heartbeat_minutes = null, last_heartbeat_at = null, adapter = 'none', adapter_config = '{}'::jsonb`);
-  // PLA-I29-10: a paused project offers no Ready work, and projects start paused.
-  await raw.query(`update projects set runs_paused = false`);
+  await store.fix(async (uow) => {
+    await uow.update("agents", {}, { heartbeatMinutes: null, lastHeartbeatAt: null, adapter: "none", adapterConfig: {} });
+    // PLA-I29-10: a paused project offers no Ready work, and projects start paused.
+    await uow.update("projects", {}, { runsPaused: false });
+  });
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await createMcpServer(db).connect(serverSide);
   client = new Client({ name: "heartbeat-test", version: "0" });
@@ -53,11 +51,11 @@ after(async () => {
   process.env.PLANIA_JOBS = "0";
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("manual wake writes one run and a second wake inside the cadence is a no-op", async () => {
-  await raw.query(`update agents set heartbeat_minutes = 30, adapter = 'none' where slug = 'taller'`);
+  await store.fix((uow) => uow.update("agents", { slug: "taller" }, { heartbeatMinutes: 30, adapter: "none" }));
   const created = await call("create_task", {
     actor: A,
     project: "micasa",
@@ -123,10 +121,7 @@ test("the tick does not double-fire and runs when PLANIA_JOBS=1", async () => {
 
 test("http wake records the run without the url, and Ready work follows owner then priority", async () => {
   let posts = 0;
-  await raw.query(
-    `update agents set adapter = 'http', wake_url = $1, heartbeat_minutes = 15, last_heartbeat_at = null where slug = 'research'`,
-    [WAKE],
-  );
+  await store.fix((uow) => uow.update("agents", { slug: "research" }, { adapter: "http", wakeUrl: WAKE, heartbeatMinutes: 15, lastHeartbeatAt: null }));
   const owned = await call("create_task", {
     actor: A,
     project: "workia",
@@ -165,8 +160,10 @@ test("http wake records the run without the url, and Ready work follows owner th
   const picked = await wakeAgent(db, { agent: "workia", now: new Date() });
   assert.equal(picked.run?.task_key, "WRK-OWN");
 
-  await raw.query(`update tasks set owner_agent = null where key = 'WRK-OWN'`);
-  await raw.query(`update agents set last_heartbeat_at = null where slug = 'workia'`);
+  await store.fix(async (uow) => {
+    await uow.update("tasks", { key: "WRK-OWN" }, { ownerAgent: null });
+    await uow.update("agents", { slug: "workia" }, { lastHeartbeatAt: null });
+  });
   const ranked = await wakeAgent(db, { agent: "workia", now: new Date(Date.now() + 60_000) });
   assert.equal(ranked.run?.task_key, "WRK-HIGH");
 

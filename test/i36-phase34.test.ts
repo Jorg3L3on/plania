@@ -1,14 +1,14 @@
 // PLA-I36 phases 3-4: the wheel on the card and anyone at the Mac can drive. Levers (PLA-I36-6), proposals as data
 // (PLA-I36-7), one box with plan approval (PLA-I36-8), see it working (PLA-I36-9; stopping a live process is in
 // test/runner.test.ts), evidence before accepting (PLA-I36-10), plain words and the owner's code (PLA-I36-11).
-// Throwaway DB for the payload and the routes, server-rendered UI with fake data. Fake names and numbers only.
+// Throwaway store for the payload and the routes, server-rendered UI with fake data. Fake names and numbers only.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
-import type pg from "pg";
-import { TEST_BEARER, ownerCode, resetTestDb, useOwnerCode, useTestEnv } from "./helpers.js";
+import type { Actor } from "../src/db/schema.js";
+import { TEST_BEARER, ownerCode, resetTestStore, useOwnerCode, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 await useOwnerCode();
@@ -34,7 +34,7 @@ const ask = await load("components/compania/edificio/ask.tsx");
 const lib = await load("lib/v2.ts");
 
 type Json = Record<string, any>;
-let raw: pg.Client;
+let store: TestStore;
 let db: ReturnType<typeof makeDb>["db"];
 let closeDb: () => Promise<void>;
 let po = "";
@@ -44,22 +44,36 @@ const card = async (slug = "workia") => (await company()).projects.find((p: Json
 const post = (url: string, body: unknown = {}, method = "POST") => app.request(url, { method, headers: jorge(), body: JSON.stringify(body) });
 const act = (id: string, body: unknown) => post(`/api/company/decisions/${encodeURIComponent(id)}`, body);
 const PO = () => ({ actor: { agent: po, session_id: "s-po-workia" } });
-const steps = async () => (await raw.query(`select key, status from tasks where scope like 'Paso del pedido%' order by key`)).rows as { key: string; status: string }[];
+const steps = async () =>
+  (await store.find("tasks", {}, { orderBy: [{ column: "key" }] })).filter((t) => t.scope.startsWith("Paso del pedido")).map((t) => ({ key: t.key, status: t.status }));
+// The ticket with that key, for a fix that touches it or a row that points at it.
+const taskOf = async (key: string) => {
+  const task = await store.get("tasks", { key });
+  if (!task) throw new Error(`no task ${key}`);
+  return task;
+};
+// The workia project's thread.
+const workiaThread = async () => (await store.get("threads", { kind: "project", projectId: await store.projectId("workia") }))!.id;
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
-  await raw.query(`update projects set runs_paused = false where slug in ('workia', 'filmia')`);
-  await raw.query(`update runner_settings set max_concurrent = 0`); // a wake queues; nothing is spawned
-  const p = (await raw.query(`select id, slug, title from projects where slug = 'workia'`)).rows[0] as { id: string; slug: string; title: string };
+  await store.fix(async (uow) => {
+    await uow.update("projects", { slug: ["workia", "filmia"] }, { runsPaused: false });
+    // The one runner_settings row: the migration seeds it on Postgres; on devva this makes it.
+    if (!(await uow.get("runnerSettings", { id: 1 }))) await uow.insert("runnerSettings", { id: 1 });
+    await uow.update("runnerSettings", { id: 1 }, { maxConcurrent: 0 }); // a wake queues; nothing is spawned
+  });
+  const row = (await store.get("projects", { slug: "workia" }))!;
+  const p = { id: row.id, slug: row.slug, title: row.title };
   await ensureMember(db, p, "product-owner", { reportsTo: "ceo", note: "test" });
-  po = (await raw.query(`select slug from agents where project_id = $1 and role_template = 'product-owner'`, [p.id])).rows[0].slug;
+  po = (await store.get("agents", { projectId: p.id, roleTemplate: "product-owner" }))!.slug;
 });
 
 after(async () => {
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 // ---- PLA-I36-6
@@ -71,7 +85,7 @@ test("I36-6 #1: a message from the card creates the PO's ticket and shows its wa
   assert.equal(out.wake, "queued");
   assert.equal(out.woke, null);
   assert.equal(lib.askText(out), "Enviado · el PO lo toma en su turno");
-  const scope = (await raw.query(`select scope, origin, status from tasks where key = $1`, [out.key])).rows[0];
+  const scope = await taskOf(out.key);
   assert.deepEqual([scope.origin, scope.status], ["jorge", "Ready"]);
   assert.match(scope.scope, /\(un cambio\): "Agrega un botón de WhatsApp"/);
   const o = (await card()).orders.find((x: Json) => x.key === out.key);
@@ -138,8 +152,10 @@ test("I36-7 #1, #2: a structured proposal shows each option's effect and cost, a
   assert.deepEqual(row.options[0], { n: 1, label: "Catálogo primero", recommended: true, effect: "se ve la tienda sin pagos", cost: "3 tickets · 4 días · ~900k tokens" });
   assert.equal(row.options[1].cost, "5 tickets · 7 días · retrasa el catálogo");
   assert.equal(row.recommended_reason, "deja probar algo esta semana");
-  const thread = (await raw.query(`select id from threads where kind = 'project' and project_id = (select id from projects where slug = 'workia')`)).rows[0].id;
-  await raw.query(`insert into thread_messages (thread_id, author_agent, author_role, body, at) values ($1, $2, 'product-owner', 'Sigo con lo demás mientras decides.', now() + interval '1 minute')`, [thread, po]);
+  const thread = await workiaThread();
+  await store.fix((uow) =>
+    uow.insert("threadMessages", { threadId: thread, authorAgent: po, authorRole: "product-owner", body: "Sigo con lo demás mientras decides.", at: new Date(Date.now() + 60_000) }),
+  );
   assert.ok((await company()).decisions.some((d: Json) => d.id === `m-${out.message.id}` && d.state === null), "still waits in Te toca");
   const html = renderTeToca([row]);
   assert.ok(html.includes("se ve la tienda sin pagos · 3 tickets · 4 días · ~900k tokens"));
@@ -212,9 +228,9 @@ test("I36-8 #1, #2: with plan approval on, the PO's plan shows in Te toca and no
   const after1 = (await card()).orders.find((x: Json) => x.key === order);
   assert.deepEqual([after1.stage, after1.plan.approved, after1.plan.steps], ["trabajando", true, 2]);
   assert.equal((await act(row.id, { action: "empezar" })).status, 409, "twice is refused");
-  await raw.query(`update tasks set status = 'In review' where key = any($1)`, [made.map((s) => s.key)]);
+  await store.fix((uow) => uow.update("tasks", { key: made.map((s) => s.key) }, { status: "In review" }));
   assert.equal((await card()).orders.find((x: Json) => x.key === order).stage, "pruebalo");
-  await raw.query(`update tasks set status = 'Done' where key = any($1)`, [made.map((s) => s.key)]);
+  await store.fix((uow) => uow.update("tasks", { key: made.map((s) => s.key) }, { status: "Done" }));
   assert.equal((await card()).orders.find((x: Json) => x.key === order).stage, "listo");
 });
 
@@ -224,7 +240,7 @@ test("I36-8: Cambiar algo closes the order and hands its words back to the box",
   const res = await act(`m-${out.message.id}`, { action: "cambiar" });
   assert.equal(res.status, 200);
   assert.equal(((await res.json()) as Json).state.result.text, "Agrega un mapa de la tienda");
-  assert.equal((await raw.query(`select status from tasks where key = $1`, [order])).rows[0].status, "Won't do");
+  assert.equal((await taskOf(order)).status, "Won't do");
 });
 
 test("I36-8 #3: with the switch off, the plan's tickets start at once and the plan is information", async () => {
@@ -246,7 +262,7 @@ test("I36-8 #4: Cancelar closes the order and its tickets", async () => {
   assert.equal(made.length, 2);
   const res = await post(`/api/company/projects/workia/orders/${order}/cancel`);
   assert.equal(res.status, 200, await res.clone().text());
-  const statuses = (await raw.query(`select key, status from tasks where key = any($1)`, [[order, ...made]])).rows.map((r) => r.status);
+  const statuses = (await store.find("tasks", { key: [order, ...made] })).map((r) => r.status);
   assert.deepEqual(statuses, ["Won't do", "Won't do", "Won't do"]);
   assert.equal((await card()).orders.find((x: Json) => x.key === order).stage, "cancelada");
 });
@@ -254,15 +270,16 @@ test("I36-8 #4: Cancelar closes the order and its tickets", async () => {
 // ---- PLA-I36-9
 
 test("I36-9 #1, #4: a live run shows bot, step, since and last action; a note reaches the ticket", async () => {
-  const [step] = (await raw.query(`select key from tasks where scope like 'Paso del pedido%' and status = 'Ready' order by key limit 1`)).rows as { key: string }[];
+  const [step] = (await store.find("tasks", { status: "Ready" }, { orderBy: [{ column: "key" }] })).filter((t) => t.scope.startsWith("Paso del pedido")).slice(0, 1);
   const order = (await card()).orders.find((o: Json) => o.plan?.approved && o.stage === "trabajando");
-  const agentId = (await raw.query(`select id from agents where slug = 'taller'`)).rows[0]?.id ?? (await raw.query(`select id from agents where role_template = 'taller' limit 1`)).rows[0]?.id;
-  const ins = await raw.query(
-    `insert into agent_runs (agent_id, project_id, role, status, task_key, started_at, queued_at) select $1, id, 'taller', 'running', $2, now() - interval '12 minutes', now() - interval '12 minutes' from projects where slug = 'workia' returning id`,
-    [agentId, step!.key],
+  const agentId = (await store.get("agents", { slug: "taller" }))?.id ?? (await store.get("agents", { roleTemplate: "taller" }))?.id;
+  const workia = await store.projectId("workia");
+  const twelveMinutesAgo = new Date(Date.now() - 12 * 60_000);
+  const ins = await store.fix((uow) =>
+    uow.insert("agentRuns", { agentId: agentId!, projectId: workia, role: "taller", status: "running", taskKey: step!.key, startedAt: twelveMinutesAgo, queuedAt: twelveMinutesAgo }),
   );
-  const runId = ins.rows[0].id as string;
-  await raw.query(`insert into events (project_id, task_key, type, actor, payload) select id, $2, 'result.added', jsonb_build_object('agent', 'taller', 'session_id', $1::text), '{}'::jsonb from projects where slug = 'workia'`, [`run-${runId.slice(0, 8)}`, step!.key]);
+  const runId = ins.id;
+  await store.fix((uow) => uow.insert("events", { projectId: workia, taskKey: step!.key, type: "result.added", actor: { agent: "taller", session_id: `run-${runId.slice(0, 8)}` }, payload: {} }));
   const o = (await card()).orders.find((x: Json) => x.key === order.key);
   assert.ok(o.run, "the request shows its run");
   assert.deepEqual([o.run.role, o.run.status, o.run.ticket, o.run.last], ["taller", "running", step!.key, "registró pruebas"]);
@@ -270,12 +287,13 @@ test("I36-9 #1, #4: a live run shows bot, step, since and last action; a note re
   // PLA-I39: the run shows as its teammate's lit window and Detener lives in that teammate's side page.
   const note = await post(`/api/company/projects/workia/tasks/${step!.key}/note`, { text: "usa el verde de la marca" });
   assert.equal(note.status, 200);
-  const ev = (await raw.query(`select payload->>'text' as text from events where task_key = $1 and type = 'note' order by id desc limit 1`, [step!.key])).rows[0];
+  const [noteEvent] = await store.find("events", { taskKey: step!.key, type: "note" }, { orderBy: [{ column: "id", desc: true }], limit: 1 });
+  const ev = { text: noteEvent!.payload.text };
   assert.equal(ev.text, "De Compañía: usa el verde de la marca");
   // Not live in this process: Detener says so, the project keeps running.
   const stop = await post(`/api/company/runs/${runId}/stop`);
   assert.equal(stop.status, 409);
-  await raw.query(`update agent_runs set status = 'stopped', ended_at = now() where id = $1`, [runId]);
+  await store.fix((uow) => uow.update("agentRuns", { id: runId }, { status: "stopped", endedAt: uow.now }));
   const stopped = (await card()).orders.find((x: Json) => x.key === order.key);
   assert.equal(stopped.run.status, "stopped");
 });
@@ -285,17 +303,26 @@ test("I36-9 #1, #4: a live run shows bot, step, since and last action; a note re
 test("I36-10 #1-#4: a delivery shows pass and fail counts, files and the preview; Aceptar holds while red; Pedir cambios sends it back", async () => {
   const t = (await writes.createTask(db, { project: "workia", title: "Galería de fotos", scope: "s", checks: ["c1"], owner_agent: po } as never, PO())) as Json;
   const url = "https://github.com/x/workia/pull/31";
-  await raw.query(`update tasks set status = 'In review', pr_url = $2 where key = $1`, [t.key, url]);
-  await raw.query(`insert into results (task_id, kind, verdict, cite, counts, actor) select id, 'test', 'fail', 'pnpm test', '{"pass": 40, "fail": 2}'::jsonb, '{"agent":"taller"}'::jsonb from tasks where key = $1`, [t.key]);
-  await raw.query(`insert into pull_requests (project_id, repo, number, url, title, task_id, state, ci_state, changed_files) select project_id, 'x/workia', 31, $2, 'pr', id, 'open', 'success', 8 from tasks where key = $1`, [t.key, url]);
-  const thread = (await raw.query(`select id from threads where kind = 'project' and project_id = (select id from projects where slug = 'workia')`)).rows[0].id;
-  await raw.query(`insert into thread_messages (thread_id, author_agent, author_role, body, links, at) values ($1, 'taller', 'taller', 'Listo para revisar.', $2::jsonb, now() + interval '5 minutes')`, [
-    thread,
-    JSON.stringify([
-      { kind: "ticket", ref: t.key, title: "Galería de fotos" },
-      { kind: "pr", ref: url, title: "PR" },
-    ]),
-  ]);
+  await store.fix(async (uow) => {
+    for (const task of await uow.update("tasks", { key: t.key }, { status: "In review", prUrl: url })) {
+      await uow.insert("results", { taskId: task.id, kind: "test", verdict: "fail", cite: "pnpm test", counts: { pass: 40, fail: 2 }, actor: { agent: "taller" } as Actor });
+      await uow.insert("pullRequests", { projectId: task.projectId, repo: "x/workia", number: 31, url, title: "pr", taskId: task.id, state: "open", ciState: "success", changedFiles: 8 });
+    }
+  });
+  const thread = await workiaThread();
+  await store.fix((uow) =>
+    uow.insert("threadMessages", {
+      threadId: thread,
+      authorAgent: "taller",
+      authorRole: "taller",
+      body: "Listo para revisar.",
+      links: [
+        { kind: "ticket", ref: t.key, title: "Galería de fotos" },
+        { kind: "pr", ref: url, title: "PR" },
+      ],
+      at: new Date(Date.now() + 5 * 60_000),
+    }),
+  );
   const find = async () => (await company()).decisions.find((d: Json) => d.ref === t.key && (d.kind === "pr" || d.kind === "deliverable"));
   let d = await find();
   assert.deepEqual([d.evidence.pass, d.evidence.fail, d.files], [40, 2, 8]);
@@ -306,8 +333,11 @@ test("I36-10 #1-#4: a delivery shows pass and fail counts, files and the preview
   const fusionar = (h: string) => /<button[^>]*data-action="fusionar"[^>]*>/.exec(h)![0];
   assert.ok(fusionar(html).includes(' disabled=""'), "Aceptar disabled");
   assert.ok(html.includes("Sin vista previa"));
-  await raw.query(`update checks set done = true where task_id = (select id from tasks where key = $1)`, [t.key]);
-  await raw.query(`insert into results (task_id, kind, verdict, cite, counts, actor) select id, 'test', 'pass', 'pnpm test', '{"pass": 42, "fail": 0}'::jsonb, '{"agent":"taller"}'::jsonb from tasks where key = $1`, [t.key]);
+  const galeria = await taskOf(t.key);
+  await store.fix(async (uow) => {
+    await uow.update("checks", { taskId: galeria.id }, { done: true });
+    await uow.insert("results", { taskId: galeria.id, kind: "test", verdict: "pass", cite: "pnpm test", counts: { pass: 42, fail: 0 }, actor: { agent: "taller" } as Actor });
+  });
   await post("/api/company/projects/workia/options", { preview_url: "https://workia-preview.test" }, "PUT");
   d = await find();
   assert.equal(d.hold, null);
@@ -317,9 +347,10 @@ test("I36-10 #1-#4: a delivery shows pass and fail counts, files and the preview
   assert.equal((await post("/api/company/projects/workia/options", { preview_url: "javascript:alert(1)" }, "PUT")).status, 400);
   const back = await act(d.id, { action: "cambios", text: "la galería se corta en el teléfono" });
   assert.equal(back.status, 200, await back.clone().text());
-  const row = (await raw.query(`select status from tasks where key = $1`, [t.key])).rows[0];
+  const row = await taskOf(t.key);
   assert.equal(row.status, "Ready");
-  const note = (await raw.query(`select payload->>'text' as text from events where task_key = $1 and type = 'note' order by id desc limit 1`, [t.key])).rows[0];
+  const [noteEvent] = await store.find("events", { taskKey: t.key, type: "note" }, { orderBy: [{ column: "id", desc: true }], limit: 1 });
+  const note = { text: noteEvent!.payload.text as string };
   assert.match(note.text, /la galería se corta en el teléfono/);
 });
 
@@ -330,23 +361,43 @@ test("PLA-14 #2, #3: a repo with no CI says so and Aceptar opens with a pass on 
   const url = "https://github.com/x/workia/pull/32";
   const OLD = "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const HEAD = "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-  await raw.query(`update tasks set status = 'In review', pr_url = $2 where key = $1`, [t.key, url]);
-  await raw.query(`update checks set done = true where task_id = (select id from tasks where key = $1)`, [t.key]);
-  await raw.query(
-    `insert into pull_requests (project_id, repo, number, url, title, task_id, state, ci_state, head_sha, head_branch, changed_files) select project_id, 'x/workia', 32, $2, 'pr', id, 'open', 'none', $3, 'jl/sin-ci', 3 from tasks where key = $1`,
-    [t.key, url, HEAD],
-  );
+  const sinCi = await taskOf(t.key);
+  await store.fix(async (uow) => {
+    await uow.update("tasks", { key: t.key }, { status: "In review", prUrl: url });
+    await uow.update("checks", { taskId: sinCi.id }, { done: true });
+    await uow.insert("pullRequests", {
+      projectId: sinCi.projectId,
+      repo: "x/workia",
+      number: 32,
+      url,
+      title: "pr",
+      taskId: sinCi.id,
+      state: "open",
+      ciState: "none",
+      headSha: HEAD,
+      headBranch: "jl/sin-ci",
+      changedFiles: 3,
+    });
+  });
   const pass = (commit: string) =>
-    raw.query(`insert into results (task_id, kind, verdict, cite, counts, commit, branch, actor) select id, 'test', 'pass', 'pnpm test', '{"pass": 56, "fail": 0}'::jsonb, $2, 'jl/sin-ci', '{"agent":"taller"}'::jsonb from tasks where key = $1`, [t.key, commit]);
+    store.fix((uow) =>
+      uow.insert("results", { taskId: sinCi.id, kind: "test", verdict: "pass", cite: "pnpm test", counts: { pass: 56, fail: 0 }, commit, branch: "jl/sin-ci", actor: { agent: "taller" } as Actor }),
+    );
   await pass(OLD);
-  const thread = (await raw.query(`select id from threads where kind = 'project' and project_id = (select id from projects where slug = 'workia')`)).rows[0].id;
-  await raw.query(`insert into thread_messages (thread_id, author_agent, author_role, body, links, at) values ($1, 'taller', 'taller', 'Listo para revisar.', $2::jsonb, now() + interval '10 minutes')`, [
-    thread,
-    JSON.stringify([
-      { kind: "ticket", ref: t.key, title: "Sin CI" },
-      { kind: "pr", ref: url, title: "PR" },
-    ]),
-  ]);
+  const thread = await workiaThread();
+  await store.fix((uow) =>
+    uow.insert("threadMessages", {
+      threadId: thread,
+      authorAgent: "taller",
+      authorRole: "taller",
+      body: "Listo para revisar.",
+      links: [
+        { kind: "ticket", ref: t.key, title: "Sin CI" },
+        { kind: "pr", ref: url, title: "PR" },
+      ],
+      at: new Date(Date.now() + 10 * 60_000),
+    }),
+  );
   const find = async () => (await company()).decisions.find((d: Json) => d.ref === t.key && (d.kind === "pr" || d.kind === "deliverable"));
   const button = (h: string) => /<button[^>]*data-action="(?:fusionar|aceptar)"[^>]*>/.exec(h)![0];
   // A pass on an older commit is stale for the head: still held, and the reason names the missing CI.
@@ -363,11 +414,11 @@ test("PLA-14 #2, #3: a repo with no CI says so and Aceptar opens with a pass on 
   html = renderTeToca([d]);
   assert.equal(button(html).includes(' disabled=""'), false, "Aceptar enabled with a fresh pass and no CI");
   // Real CI keeps today's behaviour, even with that fresh pass.
-  await raw.query(`update pull_requests set ci_state = 'pending' where url = $1`, [url]);
+  await store.fix((uow) => uow.update("pullRequests", { url }, { ciState: "pending" }));
   d = await find();
   assert.equal(d.hold, "Las pruebas siguen corriendo.");
   assert.ok(button(renderTeToca([d])).includes(' disabled=""'));
-  await raw.query(`update pull_requests set ci_state = 'failure' where url = $1`, [url]);
+  await store.fix((uow) => uow.update("pullRequests", { url }, { ciState: "failure" }));
   d = await find();
   assert.equal(d.hold, "Las pruebas fallan.");
   assert.ok(button(renderTeToca([d])).includes(' disabled=""'));
@@ -392,12 +443,12 @@ test("I36-11 #3: deleting a project without a valid code is refused, and a code 
   assert.equal((await post("/api/company/budgets", { scope: "project", project: "workia", weekly_limit: 9_000_000 }, "PUT")).status, 404);
   const del = await post("/api/company/projects/filmia", {}, "DELETE");
   assert.equal(del.status, 403);
-  assert.equal((await raw.query(`select count(*)::int as n from projects where slug = 'filmia'`)).rows[0].n, 1);
+  assert.equal(await store.count("projects", { slug: "filmia" }), 1);
   const code = await ownerCode();
   const ok = await post("/api/company/projects/filmia", { code }, "DELETE");
   assert.equal(ok.status, 200);
-  assert.equal((await raw.query(`select count(*)::int as n from projects where slug = 'filmia'`)).rows[0].n, 0);
-  await raw.query(`insert into projects (slug, title, key_prefix) values ('filmiados', 'Filmia dos', 'FMD')`);
+  assert.equal(await store.count("projects", { slug: "filmia" }), 0);
+  await store.fix((uow) => uow.insert("projects", { slug: "filmiados", title: "Filmia dos", keyPrefix: "FMD" }));
   assert.equal((await post("/api/company/projects/filmiados", { code }, "DELETE")).status, 403, "a code is spent once");
 });
 
@@ -463,7 +514,7 @@ test("I36-12 #1-#3: a plan whose tickets the PO moved under an initiative still 
   const moveAll = async (keys: string[]) => {
     const now: string[] = [];
     for (const k of keys) {
-      const [t] = (await raw.query(`select version from tasks where key = $1`, [k])).rows;
+      const t = await taskOf(k);
       const out = (await writes.setTask(db, { project: "workia", key: k, version: t.version, parent_key: "WRK-I9" } as never, PO())) as Json;
       now.push(out.key as string);
     }
@@ -473,24 +524,25 @@ test("I36-12 #1-#3: a plan whose tickets the PO moved under an initiative still 
   const out = (await propose(db, plan(order, { title: "Carrito" }), PO() as never)) as Json;
   const moved = await moveAll(out.proposal.created as string[]);
   assert.ok(moved.every((k) => k.startsWith("WRK-I9-")), moved.join(","));
-  await raw.query(`update tasks set status = 'Done' where key = $1`, [moved[0]]);
+  await store.fix((uow) => uow.update("tasks", { key: moved[0]! }, { status: "Done" }));
   let o = (await card()).orders.find((x: Json) => x.key === order);
   assert.deepEqual([o.plan.steps, o.plan.done, o.stage], [2, 1, "trabajando"]);
   // A run on a moved step shows on the request.
-  const agentId = (await raw.query(`select id from agents where slug = $1`, [po])).rows[0].id;
-  const run = await raw.query(`insert into agent_runs (agent_id, project_id, role, status, task_key, started_at, queued_at) select $1, id, 'taller', 'running', $2, now(), now() from projects where slug = 'workia' returning id`, [agentId, moved[1]]);
+  const agentId = (await store.get("agents", { slug: po }))!.id;
+  const workia = await store.projectId("workia");
+  const run = await store.fix((uow) => uow.insert("agentRuns", { agentId, projectId: workia, role: "taller", status: "running", taskKey: moved[1]!, startedAt: uow.now, queuedAt: uow.now }));
   o = (await card()).orders.find((x: Json) => x.key === order);
   assert.equal(o.run?.ticket, moved[1]);
-  await raw.query(`delete from agent_runs where id = $1`, [run.rows[0].id]);
-  await raw.query(`update tasks set status = 'In review' where key = $1`, [moved[1]]);
+  await store.fix((uow) => uow.delete("agentRuns", { id: run.id }));
+  await store.fix((uow) => uow.update("tasks", { key: moved[1]! }, { status: "In review" }));
   assert.equal((await card()).orders.find((x: Json) => x.key === order).stage, "pruebalo");
-  await raw.query(`update tasks set status = 'Done' where key = $1`, [moved[1]]);
+  await store.fix((uow) => uow.update("tasks", { key: moved[1]! }, { status: "Done" }));
   assert.equal((await card()).orders.find((x: Json) => x.key === order).stage, "listo");
 
   const other = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega cupones" })).json()) as Json).key as string;
   const second = (await propose(db, plan(other, { title: "Cupones" }), PO() as never)) as Json;
   const moved2 = await moveAll(second.proposal.created as string[]);
   assert.equal((await post(`/api/company/projects/workia/orders/${other}/cancel`)).status, 200);
-  const statuses = (await raw.query(`select status from tasks where key = any($1)`, [moved2])).rows.map((r) => r.status);
+  const statuses = (await store.find("tasks", { key: moved2 })).map((r) => r.status);
   assert.deepEqual(statuses, ["Won't do", "Won't do"]);
 });

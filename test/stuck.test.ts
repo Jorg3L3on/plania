@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -14,7 +13,7 @@ const { findProject } = await import("../src/mcp/queries.js");
 const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const { sweepStuck } = await import("../src/jobs/stuck.js");
 
-let raw: pg.Client;
+let store: TestStore;
 let db: Awaited<ReturnType<typeof makeDb>>["db"];
 let closeDb: () => Promise<void>;
 let client: Client;
@@ -29,12 +28,12 @@ async function call(name: string, args: Record<string, unknown> = {}) {
 }
 
 async function version(slug: string): Promise<number> {
-  const { rows } = await raw.query(`select version from projects where slug = $1`, [slug]);
-  return rows[0].version;
+  return (await store.get("projects", { slug }))!.version;
 }
+const hours = (n: number) => new Date(Date.now() + n * 3_600_000);
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -46,7 +45,7 @@ before(async () => {
 after(async () => {
   await client?.close();
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 test("idle threshold: a claim past it is stuck, a wider project setting stays alive, no claim is idle", async () => {
@@ -59,11 +58,10 @@ test("idle threshold: a claim past it is stuck, a wider project setting stays al
     owner_agent: "taller",
     verbose: true,
   });
-  await raw.query(
-    `update tasks set owner = $1::jsonb, claimed_at = now() - interval '3 hours', lease_until = now() + interval '1 hour', status = 'In progress' where key = $2`,
-    [JSON.stringify({ agent: "Taller", session_id: "s-taller" }), created.key],
-  );
-  await raw.query(`update agents set last_check_in_at = now() - interval '3 hours' where slug = 'taller'`);
+  await store.fix(async (uow) => {
+    await uow.update("tasks", { key: created.key }, { owner: { agent: "Taller", session_id: "s-taller" }, claimedAt: hours(-3), leaseUntil: hours(1), status: "In progress" });
+    await uow.update("agents", { slug: "taller" }, { lastCheckInAt: hours(-3) });
+  });
 
   const stuck = await sweepStuck(db, new Date());
   assert.ok(stuck.stuck >= 1);
@@ -83,22 +81,19 @@ test("idle threshold: a claim past it is stuck, a wider project setting stays al
   const alive = (await call("get_resume", { project: "micasa" })).claims.find((c: { key: string }) => c.key === created.key);
   assert.equal(alive.owner_agent.status, "alive");
 
-  await raw.query(`update tasks set owner = null, claimed_at = null, lease_until = null, status = 'Ready' where key = $1`, [created.key]);
+  await store.fix((uow) => uow.update("tasks", { key: created.key }, { owner: null, claimedAt: null, leaseUntil: null, status: "Ready" }));
   await sweepStuck(db, new Date());
   const listed = await call("list_agents");
   assert.equal(listed.agents.find((a: { slug: string }) => a.slug === "taller").status, "idle");
 
-  await raw.query(
-    `update tasks set owner = $1::jsonb, claimed_at = now(), lease_until = now() + interval '1 hour', status = 'In progress' where key = $2`,
-    [JSON.stringify({ agent: "Taller", session_id: "s-taller" }), created.key],
-  );
+  await store.fix((uow) => uow.update("tasks", { key: created.key }, { owner: { agent: "Taller", session_id: "s-taller" }, claimedAt: hours(0), leaseUntil: hours(1), status: "In progress" }));
   const beat = await call("check_in", { actor: A, agent: "taller", working_on: created.key, note: "en ello" });
   assert.equal(beat.status, "alive");
   assert.equal(beat.working_on, created.key);
   assert.equal(beat.note, "en ello");
-  const { rows } = await raw.query(`select owner->>'session_id' as session, owner_agent is not null as owned from tasks where key = $1`, [created.key]);
-  assert.equal(rows[0].session, "s-taller", "check-in does not take the lease");
-  assert.equal(rows[0].owned, true);
+  const rows = (await store.find("tasks", { key: created.key })).map((t) => ({ session: t.owner?.session_id ?? null, owned: t.ownerAgent !== null }));
+  assert.equal(rows[0]!.session, "s-taller", "check-in does not take the lease");
+  assert.equal(rows[0]!.owned, true);
   const task = await call("get_task", { project: "micasa", key: created.key });
   assert.equal(task.owner_agent.slug, "taller");
   assert.equal(task.owner_agent.status, "alive");
@@ -123,12 +118,11 @@ test("a stuck agent is woken at most once per hour", async () => {
     checks: ["Done"],
     verbose: true,
   });
-  await raw.query(
-    `update tasks set owner = $1::jsonb, claimed_at = now() - interval '3 hours', lease_until = now() + interval '3 hours', status = 'In progress' where key = $2`,
-    [JSON.stringify({ agent: "Research", session_id: "s-claude" }), created.key],
-  );
-  await raw.query(`update agents set last_check_in_at = now() - interval '3 hours', wake_url = 'http://127.0.0.1/wake/claude' where slug = 'research'`);
-  await raw.query(`update agents set last_check_in_at = now() - interval '5 hours', wake_url = 'http://127.0.0.1/wake/artist' where slug = 'artist'`);
+  await store.fix(async (uow) => {
+    await uow.update("tasks", { key: created.key }, { owner: { agent: "Research", session_id: "s-claude" }, claimedAt: hours(-3), leaseUntil: hours(3), status: "In progress" });
+    await uow.update("agents", { slug: "research" }, { lastCheckInAt: hours(-3), wakeUrl: "http://127.0.0.1/wake/claude" });
+    await uow.update("agents", { slug: "artist" }, { lastCheckInAt: hours(-5), wakeUrl: "http://127.0.0.1/wake/artist" });
+  });
 
   const calls: string[] = [];
   const wake: typeof fetch = async (url) => {
@@ -153,14 +147,12 @@ test("a claim past its lease becomes one limpieza item", async () => {
     checks: ["Done"],
     verbose: true,
   });
-  await raw.query(
-    `update tasks set owner = $1::jsonb, claimed_at = now() - interval '2 hours', lease_until = now() - interval '1 minute', status = 'In progress' where key = $2`,
-    [JSON.stringify({ agent: "Taller", session_id: "s-old" }), created.key],
+  await store.fix((uow) =>
+    uow.update("tasks", { key: created.key }, { owner: { agent: "Taller", session_id: "s-old" }, claimedAt: hours(-2), leaseUntil: new Date(Date.now() - 60_000), status: "In progress" }),
   );
   await sweepStuck(db, new Date());
   await sweepStuck(db, new Date());
-  const { rows } = await raw.query(`select count(*)::int as n from events where type = 'claim.limpieza' and task_key = $1`, [created.key]);
-  assert.equal(rows[0].n, 1);
+  assert.equal(await store.count("events", { type: "claim.limpieza", taskKey: created.key }), 1);
   const box = await inbox(db, await findProject(db, "filmia"));
   const item = box.items.find((i) => i.kind === "lease" && i.key === created.key);
   assert.ok(item);

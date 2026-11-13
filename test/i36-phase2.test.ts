@@ -1,18 +1,18 @@
 // PLA-I36 phase 2: Compañía gives each project a destination. Rumbo (PLA-I36-4): the goal sentence, its delivery
 // date and the forecast, or "Sin meta ni fecha · Fijar". Position by calendar (PLA-I36-5): one bar with today and
-// the work done; no week bar without a date. Throwaway DB for the payload, server-rendered UI with fake data.
+// the work done; no week bar without a date. Throwaway store for the payload, server-rendered UI with fake data.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
-import type pg from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 process.env.PLANIA_HOME_PROJECT = "zigzag";
 process.env.PLANIA_PROMPTS_PROJECT = "micasa";
 const { makeDb } = await import("../src/db/client.js");
+const { screenTz } = await import("../src/runner/limits.js");
 const { app } = await import("../src/app.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
 const { seedOrg } = await import("../scripts/seed-org.js");
@@ -26,7 +26,7 @@ const v2 = await load("components/compania/v2.tsx");
 const lib = await load("lib/v2.ts");
 
 type Json = Record<string, any>;
-let raw: pg.Client;
+let store: TestStore;
 let db: ReturnType<typeof makeDb>["db"];
 let closeDb: () => Promise<void>;
 const jorge = () => ({ Cookie: `${SESSION_COOKIE}=${createSession()}`, "Content-Type": "application/json" });
@@ -40,20 +40,21 @@ const html = (el: React.ReactElement) => renderToStaticMarkup(h(MemoryRouter, nu
 const NOW = new Date("2026-11-10T18:00:00Z").getTime();
 
 before(async () => {
-  raw = await resetTestDb();
+  store = await resetTestStore();
   ({ db, close: closeDb } = makeDb());
   await seedOrg(db);
 });
 
 after(async () => {
   await closeDb?.();
-  await raw?.end();
+  await store?.end();
 });
 
 // ---- PLA-I36-4 (server)
 
 test("I36-4 #2: the seeded placeholder goal is Sin meta ni fecha (missing)", async () => {
-  await raw.query(`insert into goals (project_id, title, why) select id, 'Avance del producto (workia)', 'El producto avanza con un rumbo claro.' from projects where slug = 'workia'`);
+  const workia = await store.projectId("workia");
+  await store.fix((uow) => uow.insert("goals", { projectId: workia, title: "Avance del producto (workia)", why: "El producto avanza con un rumbo claro." }));
   const w = await card("workia");
   assert.equal(w.rumbo.missing, true);
   assert.equal(w.rumbo.goal, null, "the placeholder is not shown as a goal");
@@ -78,11 +79,13 @@ test("I36-4 #1, #3: Fijar saves a sentence and a date; the card shows both and t
 
 test("I36-5 #2, #3: forty initiatives and no dates never read as week 40: the active one and its tickets, no bar", async () => {
   for (let i = 1; i <= 40; i++) await writes.createTask(db, { project: "micasa", kind: "initiative", key: `MIC-I${i}`, title: `Iniciativa ${i}`, scope: "s" } as never, PO("micasa"));
-  await raw.query(`update tasks set status = 'Done' where kind = 'initiative' and key in (${Array.from({ length: 39 }, (_, i) => `'MIC-I${i + 1}'`).join(",")})`);
-  await raw.query(`update tasks set status = 'Active' where key = 'MIC-I40'`);
+  await store.fix(async (uow) => {
+    await uow.update("tasks", { kind: "initiative", key: Array.from({ length: 39 }, (_, i) => `MIC-I${i + 1}`) }, { status: "Done" });
+    await uow.update("tasks", { key: "MIC-I40" }, { status: "Active" });
+  });
   await writes.createTask(db, { project: "micasa", key: "MIC-I40-1", parent_key: "MIC-I40", title: "Uno", scope: "s", checks: ["c"] } as never, PO("micasa"));
   await writes.createTask(db, { project: "micasa", key: "MIC-I40-2", parent_key: "MIC-I40", title: "Dos", scope: "s", checks: ["c"] } as never, PO("micasa"));
-  await raw.query(`update tasks set status = 'Done' where key = 'MIC-I40-1'`);
+  await store.fix((uow) => uow.update("tasks", { key: "MIC-I40-1" }, { status: "Done" }));
   const m = await card("micasa");
   assert.deepEqual([m.plan.initiative.key, m.plan.done, m.plan.total], ["MIC-I40", 1, 2]);
   assert.deepEqual([m.plan.weeks, m.plan.today_pct, m.plan.pace], [null, null, null]);
@@ -91,14 +94,19 @@ test("I36-5 #2, #3: forty initiatives and no dates never read as week 40: the ac
 });
 
 test("I36-5 #1: a dated plan behind: today's mark ahead of the fill, weeks behind, and the forecast in Rumbo", async () => {
-  await raw.query(`update tasks set created_at = now() - interval '28 days' where key = 'MIC-I40'`);
-  await raw.query(`insert into goals (project_id, title, target_on) select id, 'Pagos en línea', current_date + 28 from projects where slug = 'micasa'`);
+  // current_date + 28: the date 28 days from now on the Mac's calendar (Postgres's time zone, the screen's).
+  const inFourWeeks = new Intl.DateTimeFormat("en-CA", { timeZone: screenTz() }).format(new Date(Date.now() + 28 * 86_400_000));
+  const micasa = await store.projectId("micasa");
+  await store.fix(async (uow) => {
+    await uow.update("tasks", { key: "MIC-I40" }, { createdAt: new Date(Date.now() - 28 * 86_400_000) });
+    await uow.insert("goals", { projectId: micasa, title: "Pagos en línea", targetOn: inFourWeeks });
+  });
   const m = await card("micasa");
   assert.equal(m.plan.weeks, 8);
   assert.equal(m.plan.today_pct, 50);
   assert.equal(m.plan.done_pct, 50);
   assert.equal(m.plan.pace, "ok");
-  await raw.query(`update tasks set status = 'Ready' where key = 'MIC-I40-1'`);
+  await store.fix((uow) => uow.update("tasks", { key: "MIC-I40-1" }, { status: "Ready" }));
   const late = await card("micasa");
   assert.ok(late.plan.today_pct > late.plan.done_pct, "today ahead of the fill");
   assert.equal(late.plan.weeks_behind, 4);
