@@ -1,5 +1,5 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
-import { branches, questions, tasks, type Project, type Task, type Workspace } from "../db/schema.js";
+import type { Project, Task, Workspace } from "../db/schema.js";
+import { readerOf } from "../store/pg.js";
 import { listDecisions } from "./decisions.js";
 import { auditForKeys } from "./orden.js";
 import { ToolError } from "./errors.js";
@@ -19,7 +19,9 @@ export async function getContext(
   p: Project,
   input: { workspace: Workspace; session_id?: string; since_cursor?: number },
 ) {
-  const all = await db.select().from(tasks).where(eq(tasks.projectId, p.id)).orderBy(asc(tasks.key));
+  const r = readerOf(db);
+  // Sorted by key by the store, so text order stays the database's.
+  const all = await r.find("tasks", { projectId: p.id }, { orderBy: [{ column: "key" }] });
   const branch = input.workspace.branch?.trim();
   const mine = all.filter((t) => {
     const owner = liveOwner(t);
@@ -34,7 +36,7 @@ export async function getContext(
     (onBranch[0]?.parentId ? all.find((t) => t.id === onBranch[0]!.parentId) : undefined) ??
     (mine[0]?.parentId ? all.find((t) => t.id === mine[0]!.parentId) : undefined);
   if (branch && !onBranch.length && !mine.length) {
-    const known = (await db.select({ name: branches.name }).from(branches).where(and(eq(branches.projectId, p.id), isNull(branches.deletedAt)))).map((b) => b.name);
+    const known = (await r.find("branches", { projectId: p.id, deletedAt: null })).map((b) => b.name);
     throw new ToolError("UNKNOWN_BRANCH", { branch, known });
   }
   const tickets = [...new Map([...mine, ...onBranch.filter((t) => t.kind === "ticket")].map((t) => [t.id, t])).values()];
@@ -43,12 +45,10 @@ export async function getContext(
   const decisions = initiative
     ? await listDecisions(db, p.id, { initiativeKey: initiative.key, pinned: true, limit: 50 })
     : (await Promise.all(tickets.map((t) => listDecisions(db, p.id, { taskKey: t.key, pinned: true, limit: 20 })))).flat();
+  // Unanswered questions on these tickets, each with its ticket's key.
+  const ticketKey = new Map(tickets.map((t) => [t.id, t.key]));
   const open = ticketIds.size
-    ? await db
-        .select({ q: questions, key: tasks.key })
-        .from(questions)
-        .innerJoin(tasks, eq(tasks.id, questions.taskId))
-        .where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt), sql`${questions.taskId} in ${[...ticketIds]}`))
+    ? (await r.find("questions", { projectId: p.id, answeredAt: null, taskId: [...ticketIds] })).map((q) => ({ q, key: ticketKey.get(q.taskId)! }))
     : [];
   const events = input.since_cursor !== undefined ? await listEvents(db, p.id, { since: input.since_cursor, limit: 500 }) : null;
   // What is running on the Mac for these tickets (each row says which), and what this session registered.

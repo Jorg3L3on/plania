@@ -6,9 +6,6 @@ import { ToolError } from "./errors.js";
 import { isGating } from "./jorge-lines.js";
 import { SYSTEM_ACTOR, iso, type Emit, type Q } from "./tx.js";
 
-// Callers outside the tasks aggregate still filter with the SQL form of the blocker rule.
-export { hasUnsatisfiedBlocker } from "./blockers-sql.js";
-
 // blocked_by: a ticket (a key, or {task}) that must reach In review or later, or a typed blocker
 // the server evaluates (R-15):
 //   {env, condition, value}            contains_commit <sha> | migration_gte <n> | deployed_after [ISO]
@@ -214,8 +211,7 @@ async function unsatisfiedAmong(r: Reader, projectId: string, rows: BlockerRows,
 }
 
 // The tasks among taskIds (all of one project) with a blocker that does not hold at `now`: a blocking
-// ticket not yet In review or later, or a gating typed blocker whose condition is false. The rule is
-// hasUnsatisfiedBlocker's, evaluated over store rows.
+// ticket not yet In review or later, or a gating typed blocker whose condition is false.
 export async function blockedTaskIds(r: Reader, projectId: string, taskIds: string[], now: Date): Promise<Set<string>> {
   return unsatisfiedAmong(r, projectId, await blockerRowsOf(r, taskIds), now);
 }

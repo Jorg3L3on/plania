@@ -1,5 +1,5 @@
-import { desc, eq, inArray } from "drizzle-orm";
-import { agents, events, tasks, type Project, type Task } from "../db/schema.js";
+import type { Project, Task } from "../db/schema.js";
+import { readerOf } from "../store/pg.js";
 import { statusByAgentId, type AgentRef } from "./team.js";
 import { listDecisions } from "./decisions.js";
 import { machineLine } from "./footprint-read.js";
@@ -41,19 +41,16 @@ function statusCounts(children: Task[]) {
 }
 
 export async function resumeDigest(db: Q, p: Project) {
-  const all = await db.select().from(tasks).where(eq(tasks.projectId, p.id)).orderBy(tasks.key);
+  const r = readerOf(db);
+  // Sorted by key by the store, so text order stays the database's.
+  const all = await r.find("tasks", { projectId: p.id }, { orderBy: [{ column: "key" }] });
   const byId = new Map(all.map((t) => [t.id, t]));
   const openInitiatives = all.filter((t) => t.kind === "initiative" && !CLOSED.includes(t.status));
   const openIds = new Set(openInitiatives.map((i) => i.id));
   const tickets = all.filter((t) => t.kind === "ticket");
   const claimed = tickets.filter((t) => liveOwner(t));
   const ownerIds = [...new Set(all.map((t) => t.ownerAgent).filter((id): id is string => !!id))];
-  const ownerRows = ownerIds.length
-    ? await db
-        .select({ id: agents.id, slug: agents.slug, name: agents.name, role: agents.role, title: agents.title, lastCheckInAt: agents.lastCheckInAt })
-        .from(agents)
-        .where(inArray(agents.id, ownerIds))
-    : [];
+  const ownerRows = ownerIds.length ? await r.find("agents", { id: ownerIds }) : [];
   const derived = await statusByAgentId(db, ownerRows);
   const owners = new Map(ownerRows.map((r) => [r.id, { slug: r.slug, name: r.name, role: r.role, title: r.title, status: derived.get(r.id) ?? "idle" } satisfies AgentRef]));
   const line = (t: Task) => claimLine(t, owners);
@@ -92,12 +89,7 @@ export async function resumeDigest(db: Q, p: Project) {
   }
 
   const standalone = tickets.filter((t) => !t.parentId || !openIds.has(t.parentId));
-  const recent = await db
-    .select()
-    .from(events)
-    .where(eq(events.projectId, p.id))
-    .orderBy(desc(events.id))
-    .limit(RECENT_EVENTS);
+  const recent = await r.find("events", { projectId: p.id }, { orderBy: [{ column: "id", desc: true }], limit: RECENT_EVENTS });
 
   const status = await statusBlock(db, p);
   const next_claimable = (await nextTask(db, p.id)).task;

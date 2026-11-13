@@ -1,5 +1,6 @@
-import { sql } from "drizzle-orm";
-import { agents } from "../db/schema.js";
+import { readerOf } from "../store/pg.js";
+import { gt, notNull } from "../store/types.js";
+import { payloadText } from "./delegate.js";
 import type { Q } from "./tx.js";
 
 // PLA-I26: the one "working on" key for CEO and Equipo.
@@ -27,7 +28,8 @@ const byStatusThenKey = (a: Candidate, b: Candidate) => {
 };
 
 export const workingOnBySlug = async (db: Q, now = new Date()): Promise<Map<string, WorkingOn>> => {
-  const roster = await db.select({ id: agents.id, slug: agents.slug, name: agents.name }).from(agents);
+  const r = readerOf(db);
+  const roster = await r.find("agents");
   const slugById = new Map(roster.map((row) => [row.id, row.slug]));
   const slugByLabel = new Map<string, string>();
   for (const row of roster) {
@@ -35,21 +37,23 @@ export const workingOnBySlug = async (db: Q, now = new Date()): Promise<Map<stri
     slugByLabel.set(row.name.trim().toLowerCase(), row.slug);
   }
 
-  const found = await db.execute<Row>(sql`
-    select p.slug as project, t.key, t.title, t.status, t.owner_agent::text as owner_agent,
-           t.owner->>'agent' as lease_agent, t.lease_until
-    from tasks t
-    join projects p on p.id = t.project_id
-    where t.kind = 'ticket'
-      and position('[PRUEBA]' in t.title) = 0
-      and (
-        (t.owner is not null and t.lease_until > ${now.toISOString()}::timestamptz)
-        or (t.owner_agent is not null and t.status in ('Ready', 'In progress'))
-      )`);
+  // Tickets with a live lease, and tickets an agent owns that are Ready or In progress; test tickets
+  // ([PRUEBA] in the title) never count.
+  const leased = await r.find("tasks", { kind: "ticket", owner: notNull(), leaseUntil: gt(now) });
+  const assigned = await r.find("tasks", { kind: "ticket", ownerAgent: notNull(), status: ["Ready", "In progress"] });
+  const tickets = [...new Map([...leased, ...assigned].map((t) => [t.id, t])).values()].filter((t) => !t.title.includes("[PRUEBA]"));
+  const slugOf = new Map(tickets.length ? (await r.find("projects", { id: [...new Set(tickets.map((t) => t.projectId))] })).map((p) => [p.id, p.slug]) : []);
+  const found: Row[] = tickets.flatMap((t) => {
+    const project = slugOf.get(t.projectId);
+    if (project === undefined) return [];
+    // owner->>'agent': the lease holder's agent as text.
+    const lease_agent = t.owner ? payloadText(t.owner, "agent") : null;
+    return [{ project, key: t.key, title: t.title, status: t.status, owner_agent: t.ownerAgent, lease_agent, lease_until: t.leaseUntil }];
+  });
 
   const leases = new Map<string, WorkingOn[]>();
   const owned = new Map<string, Candidate[]>();
-  for (const row of found.rows) {
+  for (const row of found) {
     const item = { project: row.project, key: row.key, title: row.title };
     const leaseLive = !!row.lease_agent && !!row.lease_until && new Date(row.lease_until).getTime() > now.getTime();
     if (leaseLive) {

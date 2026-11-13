@@ -1,6 +1,9 @@
-import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
-import { digestReads, events, projects, tasks, type Actor, type Task } from "../db/schema.js";
+import type { Actor, Task } from "../db/schema.js";
+import { writeVia } from "../runner/limits.js";
+// This file exports a readerOf of its own (the digest reader's key), so the port's is renamed here.
+import { readerOf as storeReaderOf } from "../store/pg.js";
+import { lt, lte, notNull, type Reader } from "../store/types.js";
+import { payloadText } from "./delegate.js";
 import { footprintsOf } from "./footprint-read.js";
 import { inbox, type InboxItem } from "./inbox.js";
 import { listEvents } from "./queries.js";
@@ -20,37 +23,51 @@ export const DIGEST_PER_PROJECT_DEFAULT = 15;
 
 // ---- list_projects
 
-async function lastEventByProject(db: Q) {
-  const rows = await db
-    .select({ projectId: events.projectId, id: sql<number>`max(${events.id})::bigint`, at: sql<Date>`max(${events.createdAt})` })
-    .from(events)
-    .groupBy(events.projectId);
-  return new Map(rows.map((r) => [r.projectId, { id: Number(r.id), at: r.at instanceof Date ? r.at : new Date(r.at) }]));
-}
-
-async function ticketCountsByProject(db: Q) {
-  const rows = await db
-    .select({
-      projectId: tasks.projectId,
-      open: sql<number>`count(*) filter (where ${tasks.status} not in ('Done', 'Won''t do', 'Released'))::int`,
-      in_progress: sql<number>`count(*) filter (where ${tasks.status} = 'In progress')::int`,
-      in_review: sql<number>`count(*) filter (where ${tasks.status} = 'In review')::int`,
-      needs_jorge: sql<number>`count(*) filter (where ${tasks.status} = 'Needs Jorge')::int`,
-      blocked: sql<number>`count(*) filter (where ${tasks.status} = 'Blocked')::int`,
-      done: sql<number>`count(*) filter (where ${tasks.status} = 'Done')::int`,
-      overdue: sql<number>`count(*) filter (where ${tasks.dueOn} < (now() at time zone 'UTC')::date and ${tasks.status} not in ('Done', 'Won''t do', 'Merged', 'Released'))::int`,
-    })
-    .from(tasks)
-    .where(eq(tasks.kind, "ticket"))
-    .groupBy(tasks.projectId);
-  return new Map(rows.map((r) => [r.projectId, { open: r.open, in_progress: r.in_progress, in_review: r.in_review, needs_jorge: r.needs_jorge, blocked: r.blocked, done: r.done, overdue: r.overdue }]));
+// The newest event id and the newest event time of each project. They are read apart, as two maxima: a
+// write's clock reading does not have to grow with its event ids.
+async function lastEventByProject(r: Reader, projectIds: string[]) {
+  const out = new Map<string, { id: number; at: Date }>();
+  await Promise.all(
+    projectIds.map(async (projectId) => {
+      const [byId] = await r.find("events", { projectId }, { orderBy: [{ column: "id", desc: true }], limit: 1 });
+      const [byAt] = await r.find("events", { projectId }, { orderBy: [{ column: "createdAt", desc: true }], limit: 1 });
+      if (byId && byAt) out.set(projectId, { id: byId.id, at: byAt.createdAt });
+    }),
+  );
+  return out;
 }
 
 const ZERO_COUNTS = { open: 0, in_progress: 0, in_review: 0, needs_jorge: 0, blocked: 0, done: 0, overdue: 0 };
 
+// Statuses an open ticket and an overdue one are not in.
+const NOT_OPEN = ["Done", "Won't do", "Released"];
+const NOT_OVERDUE = ["Done", "Won't do", "Merged", "Released"];
+
+async function ticketCountsByProject(r: Reader) {
+  // Today's date in UTC, as "YYYY-MM-DD" like due_on.
+  const today = new Date().toISOString().slice(0, 10);
+  const out = new Map<string, typeof ZERO_COUNTS>();
+  for (const t of await r.find("tasks", { kind: "ticket" })) {
+    let c = out.get(t.projectId);
+    if (!c) out.set(t.projectId, (c = { ...ZERO_COUNTS }));
+    if (!NOT_OPEN.includes(t.status)) c.open += 1;
+    if (t.status === "In progress") c.in_progress += 1;
+    if (t.status === "In review") c.in_review += 1;
+    if (t.status === "Needs Jorge") c.needs_jorge += 1;
+    if (t.status === "Blocked") c.blocked += 1;
+    if (t.status === "Done") c.done += 1;
+    if (t.dueOn !== null && t.dueOn < today && !NOT_OVERDUE.includes(t.status)) c.overdue += 1;
+  }
+  return out;
+}
+
+// Every project, sorted by slug by the store so text order stays the database's.
+const projectsBySlug = (r: Reader) => r.find("projects", undefined, { orderBy: [{ column: "slug" }] });
+
 export async function listProjects(db: Q) {
-  const all = await db.select().from(projects).orderBy(asc(projects.slug));
-  const [last, counts] = await Promise.all([lastEventByProject(db), ticketCountsByProject(db)]);
+  const r = storeReaderOf(db);
+  const all = await projectsBySlug(r);
+  const [last, counts] = await Promise.all([lastEventByProject(r, all.map((p) => p.id)), ticketCountsByProject(r)]);
   const out = await Promise.all(
     all.map(async (p) => {
       const d = await resumeDigest(db, p);
@@ -86,45 +103,50 @@ export function liveness(t: Pick<Task, "leaseUntil">, lastActivity: Date | null,
 
 // 2.8: claim.stale events (the machine job saw the claim's worktree gone), by task → lease_until values
 // they were logged for, so a later lease on the same ticket starts clean.
-async function staleClaims(db: Q, ids: string[]) {
-  const out = new Map<string, Set<string>>();
+async function staleClaims(r: Reader, ids: string[]) {
+  const out = new Map<string, Set<string | null>>();
   if (!ids.length) return out;
-  const rows = await db
-    .select({ taskId: events.taskId, until: sql<string>`${events.payload}->>'lease_until'` })
-    .from(events)
-    .where(and(inArray(events.taskId, ids), eq(events.type, "claim.stale")));
-  for (const r of rows) if (r.taskId) (out.get(r.taskId) ?? out.set(r.taskId, new Set()).get(r.taskId)!).add(r.until);
+  for (const e of await r.find("events", { taskId: ids, type: "claim.stale" })) {
+    if (e.taskId) (out.get(e.taskId) ?? out.set(e.taskId, new Set()).get(e.taskId)!).add(payloadText(e.payload, "lease_until"));
+  }
   return out;
 }
 
 // Newest event per task written by the session that holds it (heartbeats update last_seen_at, not events).
-async function lastSessionEvent(db: Q, rows: { id: string; owner: Actor }[]) {
-  if (!rows.length) return new Map<string, Date>();
-  const ids = rows.map((r) => r.id);
-  const found = await db
-    .select({ taskId: events.taskId, session: sql<string>`${events.actor}->>'session_id'`, at: sql<Date>`max(${events.createdAt})` })
-    .from(events)
-    .where(and(inArray(events.taskId, ids), sql`${events.actor}->>'session_id' in (${sql.join(rows.map((r) => sql`${r.owner.session_id}`), sql`, `)})`))
-    .groupBy(events.taskId, sql`${events.actor}->>'session_id'`);
+// The session is compared as text, as actor->>'session_id' was: only a string session id can match.
+export async function lastSessionEvent(r: Reader, rows: { id: string; sessionId: unknown }[]) {
   const out = new Map<string, Date>();
-  for (const f of found) {
-    const row = rows.find((r) => r.id === f.taskId && r.owner.session_id === f.session);
-    if (row && f.taskId) out.set(f.taskId, f.at instanceof Date ? f.at : new Date(f.at));
+  if (!rows.length) return out;
+  const sessionOf = new Map<string, unknown>();
+  for (const row of rows) if (!sessionOf.has(row.id)) sessionOf.set(row.id, row.sessionId);
+  for (const e of await r.find("events", { taskId: rows.map((row) => row.id) })) {
+    const want = e.taskId ? sessionOf.get(e.taskId) : undefined;
+    if (typeof want !== "string" || payloadText(e.actor, "session_id") !== want) continue;
+    const prev = out.get(e.taskId!);
+    if (!prev || e.createdAt > prev) out.set(e.taskId!, e.createdAt);
   }
   return out;
 }
 
 export async function getRunning(db: Q, now = new Date()) {
-  const parent = alias(tasks, "parent");
-  const rows = await db
-    .select({ t: tasks, slug: projects.slug, parentKey: parent.key })
-    .from(tasks)
-    .innerJoin(projects, eq(projects.id, tasks.projectId))
-    .leftJoin(parent, eq(parent.id, tasks.parentId))
-    .where(isNotNull(tasks.owner))
-    .orderBy(asc(projects.slug), asc(tasks.key));
-  const owned = rows.map((r) => ({ id: r.t.id, owner: r.t.owner! }));
-  const [sessionEvents, foot, stale] = await Promise.all([lastSessionEvent(db, owned), footprintsOf(db, owned.map((o) => o.id)), staleClaims(db, owned.map((o) => o.id))]);
+  const r = storeReaderOf(db);
+  // Held tickets by project slug, then by key. The store sorts each text column; the stable sort by the
+  // project's place keeps the key order inside a project.
+  const projects = await projectsBySlug(r);
+  const place = new Map(projects.map((p, i) => [p.id, i]));
+  const slugOf = new Map(projects.map((p) => [p.id, p.slug]));
+  const held = (await r.find("tasks", { owner: notNull() }, { orderBy: [{ column: "key" }] }))
+    .filter((t) => place.has(t.projectId))
+    .sort((a, b) => place.get(a.projectId)! - place.get(b.projectId)!);
+  const parentIds = [...new Set(held.flatMap((t) => (t.parentId ? [t.parentId] : [])))];
+  const parentKeys = new Map(parentIds.length ? (await r.find("tasks", { id: parentIds })).map((t) => [t.id, t.key]) : []);
+  const rows = held.map((t) => ({ t, slug: slugOf.get(t.projectId)!, parentKey: t.parentId ? (parentKeys.get(t.parentId) ?? null) : null }));
+  const owned = rows.map((row) => ({ id: row.t.id, owner: row.t.owner! }));
+  const [sessionEvents, foot, stale] = await Promise.all([
+    lastSessionEvent(r, owned.map((o) => ({ id: o.id, sessionId: o.owner.session_id }))),
+    footprintsOf(db, owned.map((o) => o.id)),
+    staleClaims(r, owned.map((o) => o.id)),
+  ]);
   const running = rows.map(({ t, slug, parentKey }) => {
     const candidates = [t.lastSeenAt, t.claimedAt, sessionEvents.get(t.id) ?? null].filter((d): d is Date => d instanceof Date);
     const last = candidates.length ? new Date(Math.max(...candidates.map((d) => d.getTime()))) : null;
@@ -152,15 +174,17 @@ export async function getRunning(db: Q, now = new Date()) {
 
 // Where this reader left off. reader: the agent token id, or static:<scope> for env tokens.
 export async function readerCursor(db: Q, reader: string): Promise<number | null> {
-  const [row] = await db.select().from(digestReads).where(eq(digestReads.reader, reader)).limit(1);
+  // A missing reader names no bookmark (the port would read a missing value as "any").
+  const row = reader == null ? undefined : await storeReaderOf(db).get("digestReads", { reader });
   return row ? Number(row.cursor) : null;
 }
 
+// The bookmark belongs to no project: its write is a store write of its own, or part of the one db is in.
 export async function rememberCursor(db: Q, reader: string, cursor: number) {
-  await db
-    .insert(digestReads)
-    .values({ reader, cursor })
-    .onConflictDoUpdate({ target: digestReads.reader, set: { cursor, at: sql`now()` } });
+  await writeVia(db, async (uow) => {
+    if (await uow.get("digestReads", { reader })) await uow.update("digestReads", { reader }, { cursor, at: uow.now });
+    else await uow.insert("digestReads", { reader, cursor });
+  });
 }
 
 // Events that say nothing to a human reading a summary once every quarter hour.
@@ -194,26 +218,29 @@ export function collapseChanges(evs: { id: number; at: string; type: string; tas
 // Open tasks whose due date passed (a calendar date compared to today's UTC date).
 export async function overdueTasks(db: Q, projectId?: string) {
   const today = new Date().toISOString().slice(0, 10);
-  const rows = await db
-    .select({ key: tasks.key, title: tasks.title, status: tasks.status, due_on: tasks.dueOn, slug: projects.slug })
-    .from(tasks)
-    .innerJoin(projects, eq(projects.id, tasks.projectId))
-    .where(and(isNotNull(tasks.dueOn), sql`${tasks.dueOn} < ${today}::date`, sql`${tasks.status} not in ('Done', 'Won''t do', 'Merged', 'Released')`, ...(projectId ? [eq(tasks.projectId, projectId)] : [])))
-    .orderBy(asc(tasks.dueOn), asc(projects.slug), asc(tasks.key));
-  return rows.map((r) => ({ project: r.slug, key: r.key, title: r.title, status: r.status, due_on: r.due_on, days_late: Math.round((Date.parse(today) - Date.parse(r.due_on!)) / 86_400_000) }));
+  const r = storeReaderOf(db);
+  // By due date, then project slug, then key. The store sorts the text columns (slug and key); the stable
+  // sort by due date and the project's place keeps the key order within one.
+  const projects = await projectsBySlug(r);
+  const place = new Map(projects.map((p, i) => [p.id, i]));
+  const slugOf = new Map(projects.map((p) => [p.id, p.slug]));
+  // A missing or empty project id means every project, as before.
+  const due = await r.find("tasks", { projectId: projectId || undefined, dueOn: lt(today) }, { orderBy: [{ column: "dueOn" }, { column: "key" }] });
+  const rows = due
+    .filter((t) => t.dueOn !== null && !NOT_OVERDUE.includes(t.status) && place.has(t.projectId))
+    .sort((a, b) => (a.dueOn! < b.dueOn! ? -1 : a.dueOn! > b.dueOn! ? 1 : 0) || place.get(a.projectId)! - place.get(b.projectId)!);
+  return rows.map((t) => ({ project: slugOf.get(t.projectId)!, key: t.key, title: t.title, status: t.status, due_on: t.dueOn, days_late: Math.round((Date.parse(today) - Date.parse(t.dueOn!)) / 86_400_000) }));
 }
 
-async function cursorHoursAgo(db: Q, hours: number): Promise<number> {
-  const [row] = await db
-    .select({ id: sql<number>`coalesce(max(${events.id}), 0)::bigint` })
-    .from(events)
-    .where(sql`${events.createdAt} <= now() - make_interval(hours => ${hours})`);
-  return Number(row?.id ?? 0);
+// The newest event id, among those at least `hours` old; 0 when there is none.
+async function cursorHoursAgo(r: Reader, hours: number): Promise<number> {
+  const [row] = await r.find("events", { createdAt: lte(new Date(Date.now() - hours * 3_600_000)) }, { orderBy: [{ column: "id", desc: true }], limit: 1 });
+  return row?.id ?? 0;
 }
 
-async function latestCursor(db: Q): Promise<number> {
-  const [row] = await db.select({ id: sql<number>`coalesce(max(${events.id}), 0)::bigint` }).from(events);
-  return Number(row?.id ?? 0);
+async function latestCursor(r: Reader): Promise<number> {
+  const [row] = await r.find("events", undefined, { orderBy: [{ column: "id", desc: true }], limit: 1 });
+  return row?.id ?? 0;
 }
 
 // remember: false reads from the reader's bookmark without moving it (the screen moves it on "Visto").
@@ -249,18 +276,19 @@ export async function getDigest(db: Q, input: DigestInput = {}) {
       from = "memory";
     }
   }
+  const r = storeReaderOf(db);
   if (since === undefined) {
-    since = await cursorHoursAgo(db, DIGEST_DEFAULT_HOURS);
+    since = await cursorHoursAgo(r, DIGEST_DEFAULT_HOURS);
     from = "default";
   }
   const only = input.project && input.project !== "all" ? input.project : null;
-  const all = await db.select().from(projects).orderBy(asc(projects.slug));
+  const all = await projectsBySlug(r);
   const scoped = only ? all.filter((p) => p.slug === only) : all;
   const perProject = Math.max(1, Math.min(input.max_events_per_project ?? DIGEST_PER_PROJECT_DEFAULT, 200));
 
   // One pass over the feed; the cursor moves to the newest id read (or the latest if nothing new).
   const feed = await listEvents(db, only ? (scoped[0]?.id ?? null) : null, { since, limit: DIGEST_EVENTS_MAX });
-  const cursor = feed.events.length ? feed.next_cursor : Math.max(since, await latestCursor(db));
+  const cursor = feed.events.length ? feed.next_cursor : Math.max(since, await latestCursor(r));
   const byProject = new Map<string, typeof feed.events>();
   for (const e of feed.events) {
     const slug = (e as { project?: string }).project ?? "";
