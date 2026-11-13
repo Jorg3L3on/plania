@@ -1,5 +1,5 @@
 import type { Db } from "../db/client.js";
-import { projects } from "../db/schema.js";
+import { readerOf } from "../store/pg.js";
 import { runAudit } from "../mcp/audit.js";
 import type { Job } from "./index.js";
 
@@ -8,7 +8,7 @@ import type { Job } from "./index.js";
 
 export async function auditAll(db: Db): Promise<number> {
   let findings = 0;
-  for (const p of await db.select().from(projects)) findings += (await runAudit(db, p)).count;
+  for (const p of await readerOf(db).find("projects")) findings += (await runAudit(db, p)).count;
   return findings;
 }
 

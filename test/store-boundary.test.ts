@@ -12,7 +12,6 @@ import * as schema from "../src/db/schema.js";
 
 // One entry per file that still offends, with what is left. Delete the entry in the change that converts the file.
 const ALLOWED: Record<string, string> = {
-  "src/jobs/audit.ts": "reads the projects table with the query builder",
   "src/jobs/backup.ts": "the server version and the machine_state upsert in SQL (the pg_dump job)",
   "src/jobs/machine/collect.ts": "a pg client that lists the machine's Postgres databases (inventory, not plania's data)",
 };
