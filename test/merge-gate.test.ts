@@ -10,7 +10,7 @@ import { webCtx } from "../src/mcp/tx.js";
 import { recordAllowlistException } from "../src/mcp/scan-allow.js";
 import { parseMergeArgs } from "../src/lib/scan/merge-cli.js";
 import { projectForTicket } from "../src/lib/scan/merge-record.js";
-import { mergeGateExit, renderMergeJson, runMergeGate, type FetchLike } from "../src/lib/scan/merge-gate.js";
+import { gitAuthHeader, mergeGateExit, redact, renderMergeJson, runMergeGate, type FetchLike } from "../src/lib/scan/merge-gate.js";
 import type { ScanReport } from "../src/lib/scan/report.js";
 
 const EMAIL = "fixture@scan-demo.co";
@@ -77,6 +77,31 @@ after(() => {
   else process.env.PLANIA_SCAN_HASHES = previousHashes;
   if (previousInline === undefined) delete process.env.PLANIA_SCAN_HASHES_JSON;
   else process.env.PLANIA_SCAN_HASHES_JSON = previousInline;
+});
+
+// PLA-19: GitHub's git endpoint refuses a bearer header for a gh OAuth token; basic works.
+test("the git fetch header is basic x-access-token, and absent without a token", () => {
+  const token = ["synthetic", "token", "value"].join("-");
+  const header = gitAuthHeader(token);
+  assert.ok(header);
+  const [name, scheme, encoded] = header.split(" ");
+  assert.equal(name, "AUTHORIZATION:");
+  assert.equal(scheme, "basic");
+  assert.equal(Buffer.from(encoded!, "base64").toString("utf8"), `x-access-token:${token}`);
+  assert.equal(header.includes(token), false);
+  assert.equal(gitAuthHeader(null), null);
+  assert.equal(gitAuthHeader(""), null);
+});
+
+test("redact removes basic and bearer values and token prefixes", () => {
+  const encoded = Buffer.from("x-access-token:synthetic").toString("base64");
+  const prefixed = `${["g", "h", "o"].join("")}_${"A".repeat(12)}`;
+  const out = redact(`remote said basic ${encoded} then bearer ${prefixed} and ${prefixed} again`);
+  assert.equal(out.includes(encoded), false);
+  assert.equal(out.includes(prefixed), false);
+  assert.match(out, /basic \[redacted\]/);
+  assert.match(out, /bearer \[redacted\]/);
+  assert.equal(redact(`fatal: unable to access\nAUTHORIZATION: basic ${encoded}`).includes(encoded), false);
 });
 
 test("usage exits 2 and names the command", () => {

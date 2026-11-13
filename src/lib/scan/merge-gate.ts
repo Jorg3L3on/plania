@@ -54,6 +54,7 @@ export function mergeGateToken(env: Record<string, string | undefined> = process
 export function redact(text: string): string {
   const cleaned = text
     .replace(/bearer\s+\S+/gi, "bearer [redacted]")
+    .replace(/basic\s+\S+/gi, "basic [redacted]")
     .replace(/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]+\b/g, "[redacted]")
     .replace(/\bgithub_pat_\S+/g, "[redacted]")
     .split(/\r?\n/)
@@ -91,14 +92,25 @@ export function fetchBare(input: { dir: string; origin: string; baseRef: string;
   };
 }
 
+/**
+ * PLA-19: the header git sends on the fetch. GitHub's git endpoint refuses a bearer header for
+ * a gh OAuth token or a personal token; basic with the user x-access-token works for every kind.
+ * The REST calls below keep Bearer.
+ */
+export function gitAuthHeader(token: string | null): string | null {
+  if (!token) return null;
+  return `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
+}
+
 function authEnv(token: string | null): () => void {
   const keys = ["GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GIT_TERMINAL_PROMPT"] as const;
   const previous = new Map(keys.map((key) => [key, process.env[key]]));
   process.env.GIT_TERMINAL_PROMPT = "0";
-  if (token) {
+  const header = gitAuthHeader(token);
+  if (header) {
     process.env.GIT_CONFIG_COUNT = "1";
     process.env.GIT_CONFIG_KEY_0 = "http.extraheader";
-    process.env.GIT_CONFIG_VALUE_0 = `AUTHORIZATION: bearer ${token}`;
+    process.env.GIT_CONFIG_VALUE_0 = header;
   } else {
     delete process.env.GIT_CONFIG_COUNT;
     delete process.env.GIT_CONFIG_KEY_0;
