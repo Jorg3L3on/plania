@@ -14,7 +14,7 @@ import { agentRuns, agents, projects, tasks, type Agent } from "../db/schema.js"
 import { loadReady, pickReady, wakeAgent, type HeartbeatDeps } from "../jobs/heartbeat.js";
 import { WEB_ACTOR } from "../mcp/tx.js";
 import { createTask } from "../mcp/writes.js";
-import { eventWakesEnabled } from "../runner/events.js";
+import { eventWakesEnabled, queueWake } from "../runner/events.js";
 import { loadSettings, roleOf } from "../runner/limits.js";
 import { startNow } from "../runner/runner.js";
 import { teamOf } from "../runner/team.js";
@@ -118,7 +118,7 @@ export async function pickNext(db: Db, slug: string, key: string): Promise<{ nex
 }
 
 // PLA-I36-8/10: the project's switches that are not limits: plan approval and the preview address.
-export async function setProjectOptions(db: Db, slug: string, input: { plan_approval?: boolean; preview_url?: string | null }): Promise<{ plan_approval: boolean; preview_url: string | null } | { error: string; status: 404; hint: string }> {
+export async function setProjectOptions(db: Db, slug: string, input: { plan_approval?: boolean; preview_url?: string | null; auto_accept?: boolean }): Promise<{ plan_approval: boolean; preview_url: string | null; auto_accept: boolean } | { error: string; status: 404; hint: string }> {
   const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   const settings = { ...p.settings };
@@ -127,8 +127,9 @@ export async function setProjectOptions(db: Db, slug: string, input: { plan_appr
     if (input.preview_url) settings.preview_url = input.preview_url;
     else delete settings.preview_url;
   }
+  if (input.auto_accept !== undefined) settings.auto_accept = input.auto_accept;
   await db.update(projects).set({ settings, updatedAt: sql`now()` }).where(eq(projects.id, p.id));
-  return { plan_approval: !!settings.plan_approval, preview_url: settings.preview_url ?? null };
+  return { plan_approval: !!settings.plan_approval, preview_url: settings.preview_url ?? null, auto_accept: !!settings.auto_accept };
 }
 
 export type WakeOutcome = { woke: boolean; reason: string; ticket: string | null; summary: string };
@@ -159,4 +160,16 @@ export async function startTeammateNow(db: Db, slug: string, agentSlug: string, 
   const out = await startNow(db, { agent, task: work, pastGuard: opts.past_guard, now: opts.now ?? new Date() }, deps?.runner);
   const base = { started: out.kind === "started", reason: out.kind, summary: "summary" in out ? out.summary : "" };
   return "runId" in out ? { ...base, ticket: out.taskKey, run_id: out.runId } : { ...base, ticket: null, run_id: null };
+}
+
+// PLA-I40-6: Reenviar. A request of the owner's that nobody took gets its PO's wake queued again.
+export async function resendRequest(db: Db, slug: string, key: string): Promise<{ key: string; wake: "queued" | "busy" | "off" } | { error: string; status: 404 | 409; hint: string }> {
+  const g = await guard(db, slug);
+  if ("error" in g) return g;
+  const [t] = await db.select().from(tasks).where(and(eq(tasks.projectId, g.project.id), eq(tasks.key, key))).limit(1);
+  if (!t || t.origin !== "jorge") return { error: "ORDER_NOT_FOUND", status: 404, hint: "Ese pedido no está." };
+  if (t.status !== "Ready") return { error: "NOT_READY", status: 409, hint: "Ese pedido ya no espera a nadie." };
+  if (!eventWakesEnabled()) return { key, wake: "off" };
+  const out = await queueWake(db, g.project, { id: t.id, key: t.key }, { agent: g.po, taskKey: t.key, reason: "request resent" }, "screen.resend");
+  return { key, wake: out.kind === "queued" ? "queued" : "busy" };
 }

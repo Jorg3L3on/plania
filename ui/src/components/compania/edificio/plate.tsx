@@ -22,6 +22,7 @@ export const Plate = ({
   onPlan,
   onPublish,
   onReveal = (x) => revealQuestion(x.slug),
+  noSteps,
   children,
 }: {
   project: OrgProject;
@@ -29,6 +30,8 @@ export const Plate = ({
   onPlan?: (p: OrgProject, el: HTMLElement) => void;
   onPublish?: (p: OrgProject) => void;
   onReveal?: (p: OrgProject) => void;
+  // PLA-I40-5: the floor's route says the steps, so the plate leaves its strip and count out.
+  noSteps?: boolean;
   children?: ReactNode;
 }) => {
   const deliverable = deliverableOf(p);
@@ -61,7 +64,7 @@ export const Plate = ({
       <p className="edi-deliv" data-deliverable title={deliverable ?? undefined}>
         {deliverable ?? "Sin entregable todavía"}
       </p>
-      {total > 0 ? (
+      {noSteps ? null : total > 0 ? (
         <>
           <div className="edi-segs" role="img" aria-label={`${done} de ${total} pasos hechos`} data-segs={segs}>
             {Array.from({ length: segs }, (_, i) => (

@@ -773,6 +773,8 @@ export type ProjectSettings = {
   plan_approval?: boolean;
   // PLA-I36-10: where the project's running preview lives (Ver la vista previa).
   preview_url?: string;
+  // PLA-I40-7: a delivery whose tests pass is accepted into the test copy without the owner. Off unless set.
+  auto_accept?: boolean;
 };
 
 // 2.13: mode "command" (default) shows the command Jorge runs; "merge" lets him ship from the screen

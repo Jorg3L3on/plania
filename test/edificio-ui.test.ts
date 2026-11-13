@@ -317,9 +317,10 @@ test("I39-5 #1: a proposal hangs under the PO's window and a question under the 
   assert.match(floor, new RegExp(`data-bubble="${proposal.id}"[^>]*data-asker="product-owner-workia"`));
   assert.match(floor, /data-bubble="q-00000000-0000-4000-8000-000000000001"[^>]*data-asker="research-workia"/);
   assert.ok(floor.includes("PO te pregunta") && floor.includes("Research te pregunta"));
-  // The bubble follows its asker's row: PO is window 0, Research window 1 (five per row on a Mac, two on a phone).
-  assert.match(floor, /data-bubble="m-[^"]+"[^>]*style="--o-wide:7;--o-phone:3;--nx-wide:10%;--nx-phone:25%"/);
-  assert.match(floor, /data-asker="research-workia"[^>]*style="--o-wide:7;--o-phone:3;--nx-wide:30%;--nx-phone:75%"/);
+  // The bubble follows its asker's row: PO is window 0, Research window 1. PLA-I40-4: six per row on a Mac (the
+  // team, the owner and the "+"), two on a phone.
+  assert.match(floor, /data-bubble="m-[^"]+"[^>]*style="--o-wide:9;--o-phone:3;--nx-wide:8\.33[0-9]*%;--nx-phone:25%"/);
+  assert.match(floor, /data-asker="research-workia"[^>]*style="--o-wide:9;--o-phone:3;--nx-wide:25%;--nx-phone:75%"/);
   // The plate's pointer goes to the question on this floor, and Te toca's block is gone from the page.
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
   assert.equal(page.includes("<TeToca"), false);
@@ -363,9 +364,11 @@ test("I39-5 #3: choosing an option acts once with that option; the result line a
   assert.ok(findAll(busy, (el) => el.props?.["data-action"] === "elegir").every((b) => b.props.disabled === true));
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
   assert.ok(page.includes("api.actDecision(v.d.id, v.input)") && page.includes("onAct: (d, input, key) => act.mutate({ d, input, key })"));
-  // Acted: the floor keeps the result line.
-  const done = render(company({ decisions: [{ ...proposal, actions: [], state: { action: "elegir", at: "2026-11-10T17:55:00Z", result: { option: 1, label: "Con el borrador" } } }] }), { acts: acts() });
-  assert.ok(/data-bubble="m-[^"]+"[^>]*data-acted="1"/.test(done) && done.includes("✓") && done.includes("Ya respondiste a PO"));
+  // Acted. PLA-I40-6: it no longer hangs as a bubble; the floor keeps it as one line under Lo último, with the
+  // result behind Ver.
+  const done = render(company({ projects: [project({ latest: [], stale_requests: [] })], decisions: [{ ...proposal, actions: [], state: { action: "elegir", at: "2026-11-10T17:55:00Z", result: { option: 1, label: "Con el borrador" } } }] }), { acts: acts() });
+  assert.equal(done.includes("data-bubble="), false);
+  assert.ok(done.includes('data-last="answered"') && done.includes("Respondiste «¿Con qué arrancamos el formulario?»") && done.includes("✓"));
   // Refused: its sentence in place.
   const refused = render(company({ decisions: [proposal] }), { acts: acts({ errors: { [proposal.id]: "Ya actuaste sobre esto." } }) });
   const bubble = refused.slice(refused.indexOf(`data-bubble="${proposal.id}"`));

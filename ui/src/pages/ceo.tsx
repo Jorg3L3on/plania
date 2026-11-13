@@ -239,6 +239,76 @@ const Compania = () => {
     prefill,
     busy: steerBusy,
   };
+  // PLA-I40-4: the Ahora band's calls. The floor reads again right after, so the band changes without a reload.
+  const [nowBusy, setNowBusy] = useState<string | null>(null);
+  const START_WORDS: Record<string, string> = {
+    queued: "Quedó en fila: arranca en cuanto haya lugar.",
+    busy: "Ya está trabajando.",
+    idle: "No tiene nada listo para empezar.",
+    held: "No pudo arrancar: el uso de Claude está al límite.",
+    fail: "No pudo arrancar. Míralo en Máquina.",
+  };
+  const nowActs = {
+    busy: nowBusy,
+    onElapsed: refresh,
+    onAuto: (slug: string, on: boolean) => {
+      setNowBusy(`${slug}:auto`);
+      void api
+        .setProjectOptions(slug, { auto_accept: on })
+        .then(() => toast(on ? "Las entregas con pruebas en verde se aceptan solas." : "Vuelves a aceptar cada entrega."))
+        .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+        .finally(() => {
+          setNowBusy(null);
+          refresh();
+        });
+    },
+    onResend: (slug: string, key: string) => {
+      setNowBusy(`${slug}:request`);
+      void api
+        .resendRequest(slug, key)
+        .then((r) => toast(r.wake === "queued" ? "Se lo mandaste al PO otra vez." : r.wake === "busy" ? "El PO está ocupado; lo toma al terminar." : "Los avisos están apagados; lo ve en su próximo turno."))
+        .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+        .finally(() => {
+          setNowBusy(null);
+          refresh();
+        });
+    },
+    onClose: (slug: string, key: string) => {
+      setNowBusy(`${slug}:request`);
+      void api
+        .cancelOrder(slug, key)
+        .then(() => toast("Pedido cerrado."))
+        .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+        .finally(() => {
+          setNowBusy(null);
+          refresh();
+        });
+    },
+    onStart: (slug: string, agent: string, pastGuard: boolean) => {
+      setNowBusy(`${slug}:start`);
+      void api
+        .startTeammate(slug, agent, pastGuard)
+        .then((r) => {
+          if (!r.started) toast(START_WORDS[r.reason] ?? "No arrancó.");
+        })
+        .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+        .finally(() => {
+          setNowBusy(null);
+          refresh();
+        });
+    },
+    onPlan: (slug: string, text: string) => {
+      setNowBusy(`${slug}:plan`);
+      void api
+        .askProject(slug, { text, now: true })
+        .then(() => toast("Se lo pediste al PO."))
+        .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+        .finally(() => {
+          setNowBusy(null);
+          refresh();
+        });
+    },
+  };
   const pause = useMutation({
     mutationFn: (slug: string) => api.setProjectPaused(slug, true),
     onSettled: () => {
@@ -354,6 +424,7 @@ const Compania = () => {
               />
             )}
             typing={typing}
+            nowActs={nowActs}
             onAdd={(slug, el) => {
               opener.current = el;
               setAdded(null);

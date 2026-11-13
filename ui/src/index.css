@@ -505,7 +505,75 @@
   .edi-empty p { font-size: 14px; color: var(--e-muted); max-width: 52ch; }
 
   /* windows: the team */
-  .edi-wins { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px 16px; align-content: start; min-width: 0; }
+  .edi-wins { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px 16px; align-content: start; min-width: 0; }
+  /* PLA-I40-4: Ahora, the band over the windows; the mark under who holds the work; the owner's own figure. */
+  .edi-nowb { --st: var(--e-muted); order: -1; grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 24px; align-items: center; padding-bottom: 16px; margin-bottom: 4px; border-bottom: 1px solid var(--e-line); min-width: 0; }
+  .edi-nowb[data-now="work"] { --st: #ffc46b; }
+  .edi-nowb[data-now="rest"] { --st: #b9a6ff; }
+  .edi-nowb[data-now="you"] { --st: var(--e-you); }
+  .edi-nowb[data-now="stuck"] { --st: #ff8a80; }
+  .edi-nowb[data-now="done"] { --st: #8fe0a4; }
+  .edi-ntext { display: grid; gap: 6px; min-width: 0; }
+  .edi-nword { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--st); }
+  .edi-nword::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--st); flex: none; }
+  .edi-nsay { font-family: var(--font-display); font-weight: 700; font-size: clamp(19px, 2vw, 26px); line-height: 1.18; text-wrap: balance; overflow-wrap: anywhere; }
+  .edi-nwhy { font-size: 13.5px; color: var(--e-muted); line-height: 1.4; max-width: 62ch; overflow-wrap: anywhere; }
+  .edi-nacts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  .edi-nact { min-height: 40px; padding: 0 18px; border-radius: 999px; border: 0; background: var(--st); color: #141822; font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
+  .edi-nact:hover { filter: brightness(1.08); }
+  .edi-nact:disabled { opacity: 0.5; cursor: default; }
+  .edi-nact:focus-visible { outline: 2px solid var(--e-fg); outline-offset: 2px; }
+  .edi-ntick { display: grid; justify-items: end; gap: 0; text-align: right; }
+  .edi-ntick b { font-family: var(--font-mono); font-weight: 500; font-size: clamp(24px, 2.6vw, 34px); line-height: 1; font-variant-numeric: tabular-nums; color: var(--st); }
+  .edi-ntick span { font-size: 11.5px; color: var(--e-muted); }
+  /* PLA-I40-5: the route under the team. */
+  .edi-route { order: 990; grid-column: 1 / -1; display: grid; gap: 10px; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--e-line); min-width: 0; }
+  .edi-rhead { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; font-size: 13px; }
+  .edi-rhead b { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--e-muted); }
+  .edi-rhead span { color: var(--e-muted); }
+  .edi-legs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 10px 8px; }
+  .edi-leg { display: grid; gap: 4px; align-content: start; min-width: 0; }
+  .edi-legbar { display: block; height: 7px; border-radius: 4px; background: rgb(255 255 255 / 0.13); overflow: hidden; }
+  .edi-legbar i { display: block; height: 100%; border-radius: 4px; background: color-mix(in srgb, var(--c) 55%, transparent); }
+  .edi-leg b { font-size: 12.5px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+  .edi-leg span:last-child { font-size: 11.5px; color: var(--e-muted); line-height: 1.3; overflow-wrap: anywhere; }
+  .edi-leg[data-leg="here"] .edi-legbar i { background: var(--c); }
+  .edi-leg[data-leg="here"] b { color: var(--c); }
+  .edi-leg[data-leg="unplanned"] b { color: var(--e-muted); font-weight: 500; }
+  .edi-steps { list-style: none; margin: 2px 0 0; padding: 12px 14px; display: grid; gap: 9px; border-radius: 14px; background: rgb(255 255 255 / 0.045); }
+  .edi-steps li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; align-items: start; }
+  .edi-smark { width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; border: 2px solid var(--e-rail); display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #141822; }
+  .edi-steps li[data-mark="done"] .edi-smark { background: #8fe0a4; border-color: #8fe0a4; }
+  .edi-steps li[data-mark="now"] .edi-smark { border-color: var(--c); box-shadow: inset 0 0 0 3px var(--e-wall), inset 0 0 0 9px var(--c); }
+  .edi-stext { display: grid; gap: 1px; min-width: 0; }
+  .edi-stext b { font-size: 13.5px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+  .edi-stext span { font-size: 12.5px; color: var(--e-muted); line-height: 1.35; overflow-wrap: anywhere; }
+  .edi-steps li[data-mark="now"] .edi-stext span { color: var(--c); }
+  .edi-steps li[data-mark="later"] .edi-stext b { color: var(--e-muted); font-weight: 500; }
+  /* PLA-I40-6: under the route: what runs alone, what is the owner's, and the last things that happened. */
+  .edi-after { order: 995; grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; min-width: 0; }
+  .edi-acol { display: grid; gap: 7px; align-content: start; padding: 12px 14px; border-radius: 14px; background: rgb(255 255 255 / 0.045); min-width: 0; }
+  .edi-acol h3 { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--e-muted); margin: 0; }
+  .edi-acol p { font-size: 13px; line-height: 1.4; color: var(--e-muted); overflow-wrap: anywhere; }
+  .edi-acol[data-col="sin-ti"] > p, .edi-acol[data-col="solo-tu"] > p { color: var(--e-fg); }
+  .edi-last p { display: flex; flex-wrap: wrap; gap: 0 8px; }
+  .edi-last time { font-family: var(--font-mono); font-size: 11.5px; color: var(--e-muted); white-space: nowrap; }
+  .edi-last span { color: var(--e-fg); min-width: 0; }
+  .edi-lastd summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--e-muted); }
+  .edi-lastd[open] { margin-top: 6px; padding: 10px 12px; border-radius: 12px; background: var(--card); color: var(--foreground); }
+  .edi-auto { align-items: flex-start; line-height: 1.35; color: var(--e-fg); }
+  .edi-auto input { margin-top: 2px; flex: none; }
+  .edi-acol .edi-autohold { color: var(--e-you-ink); font-size: 12.5px; }
+  .edi-stale { display: grid; gap: 4px; padding-bottom: 7px; border-bottom: 1px solid var(--e-line); }
+  .edi-stale p { color: var(--e-you-ink); }
+  .edi-stale .edi-links { display: flex; gap: 14px; }
+  .edi-slot { position: relative; }
+  .edi-mark { position: absolute; left: 50%; top: 118px; z-index: 2; width: 14px; height: 14px; margin-left: -7px; border-radius: 4px; transform: rotate(45deg); background: var(--c); box-shadow: 0 0 0 3px var(--e-wall), 0 0 16px var(--c); }
+  .edi-slot[data-owner] .edi-mark { background: var(--e-you); box-shadow: 0 0 0 3px var(--e-wall), 0 0 16px var(--e-you); }
+  .edi-win[data-state="you"] { --fig: #4a2305; }
+  .edi-win[data-state="you"] .edi-glass { background: radial-gradient(95% 85% at 50% 100%, #ffd9a6, #ff9f43 64%, #ef7c17); box-shadow: inset 0 0 0 1px rgb(255 220 170 / 0.6), 0 6px 0 -2px rgb(255 255 255 / 0.16), 0 0 0 4px rgb(255 159 67 / 0.22); }
+  .edi-win[data-state="you"] .edi-do { color: var(--e-you-ink); }
+  .edi-you .edi-who b { color: var(--e-you-ink); }
   .edi-win { --fig: rgb(255 255 255 / 0.12); --cut: #1c2138; --lap: rgb(255 255 255 / 0.16); display: grid; gap: 6px; align-content: start; background: none; border: 0; padding: 0; text-align: left; color: inherit; min-width: 0; font: inherit; }
   button.edi-win { cursor: pointer; }
   .edi-glass { position: relative; display: block; height: 124px; overflow: hidden; border-radius: 50% 50% 10px 10px / 60% 60% 10px 10px; background: linear-gradient(155deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.03) 58%); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.13), 0 6px 0 -2px rgb(255 255 255 / 0.12); transition: transform 0.2s; }
@@ -599,6 +667,9 @@
     .edi-floor { grid-template-columns: minmax(0, 1fr); padding: 18px 14px 20px; }
     .edi-wins { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; margin-top: 8px; }
     .edi-bubble { order: var(--o-phone); padding: 13px 14px 14px; }
+    .edi-nowb { grid-template-columns: minmax(0, 1fr); }
+    .edi-mark { top: 102px; }
+    .edi-ntick { justify-items: start; text-align: left; grid-auto-flow: column; justify-content: start; align-items: baseline; gap: 8px; }
     .edi-bubble::before { left: calc(var(--nx-phone, 50%) - 7px); }
     .edi-glass { height: 108px; }
     .edi-lobby { padding: 12px 14px 0; }

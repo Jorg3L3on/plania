@@ -184,7 +184,7 @@ async function evidenceOf(db: Db, t: Task | null, prUrl: string | null): Promise
 }
 
 // PLA-14: with no CI on the repo, Aceptar needs the ticket's own pass on the PR's current head (not stale_for_head).
-async function passOnHead(db: Db, t: Task | null, head: string | null, branch: string | null): Promise<boolean> {
+export async function passOnHead(db: Db, t: Task | null, head: string | null, branch: string | null): Promise<boolean> {
   if (!t) return false;
   const passes = await db.select().from(results).where(and(eq(results.taskId, t.id), eq(results.verdict, "pass"))).orderBy(desc(results.createdAt));
   for (const r of passes) {

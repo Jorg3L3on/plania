@@ -21,6 +21,7 @@ export const Window = ({
   now,
   companyPaused,
   hint,
+  timeZone,
   onOpen,
 }: {
   member: OrgMember;
@@ -28,10 +29,11 @@ export const Window = ({
   now: number;
   companyPaused?: boolean;
   hint?: string | null;
+  timeZone?: string;
   onOpen?: (m: OrgMember, el: HTMLElement) => void;
 }) => {
   const state = hint ? "ghost" : windowState(m, companyPaused);
-  const c = caption(m, now, { companyPaused });
+  const c = caption(m, now, { companyPaused, timeZone });
   const doing = hint ?? c.doing;
   const sub = hint ? "" : c.sub;
   const label = windowLabel(m, project, now, companyPaused);

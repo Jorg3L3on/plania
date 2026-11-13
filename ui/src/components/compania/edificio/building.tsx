@@ -15,6 +15,7 @@ import { companyLine } from "@/lib/v2";
 import { BlockError } from "@/components/compania/parts";
 import { Floor } from "./floor";
 import { Plate } from "./plate";
+import type { NowActs } from "./now";
 import type { QuestionActs } from "./question";
 import { Roof } from "./roof";
 import { EdificioSkeleton, Scene } from "./scene";
@@ -49,9 +50,11 @@ export type BuildingProps = {
   typing?: Record<string, boolean>;
   // PLA-23: publishing a floor's finished changes, from its plate or its roof chip.
   onPublish?: (p: OrgProject) => void;
+  // PLA-I40-4: the calls of each floor's Ahora band.
+  nowActs?: NowActs;
 };
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish }: BuildingProps) => {
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
   // Only what Asistente wrote in a run that finished: a skipped or failed run's summary is the runner's own words.
@@ -101,6 +104,8 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
                 acts={acts}
                 ask={askFor?.(p)}
                 typing={!!typing?.[p.slug]}
+                timeZone={timeZone}
+                nowActs={nowActs}
               >
                 {onAdd && p.team.length < 8 ? (
                   <button type="button" className="edi-win edi-add" onClick={(e) => onAdd(p.slug, e.currentTarget)} data-control="sumar" aria-label={`Sumar a alguien al equipo de ${p.title}`}>
@@ -133,9 +138,10 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
               project={p}
               now={now}
               companyPaused={paused}
+              timeZone={timeZone}
               onOpen={onOpen ? (m, el) => onOpen(p.slug, m, el) : undefined}
               plate={
-                <Plate project={p} onPlan={onPlan}>
+                <Plate project={p} onPlan={onPlan} noSteps={p.route !== undefined}>
                   {onResume && (
                     <div className="edi-links">
                       <button type="button" className="edi-btn" disabled={resuming === p.slug} onClick={() => onResume(p.slug)} data-control="reanudar">

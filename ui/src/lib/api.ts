@@ -143,13 +143,17 @@ export const api = {
     request<{ project: string; paused: boolean; stopped: number }>("POST", `/company/projects/${encodeURIComponent(slug)}/switch`, { paused }),
   setRunnerSettings: (input: { plan_guard_pct?: number; guard_override?: boolean }) => request<Company["settings"]>("PUT", "/company/settings", input),
   // PLA-I36: steer a project from its card.
+  // PLA-I40-2: Que empiece ya for one teammate.
+  startTeammate: (slug: string, agent: string, pastGuard = false) =>
+    request<StartNowResult>("POST", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/start`, pastGuard ? { past_guard: true } : {}),
   askProject: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean }) => request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, input),
   pickNext: (slug: string, key: string) => request<{ next: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/next`, { key }),
-  setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null }) =>
+  setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null; auto_accept?: boolean }) =>
     request<{ plan_approval: boolean; preview_url: string | null }>("PUT", `/company/projects/${encodeURIComponent(slug)}/options`, input),
   stopRun: (id: string) => request<{ stopped: true; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/stop`),
   resumeRun: (id: string) => request<{ woke: boolean; reason: string; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/resume`),
   noteTask: (slug: string, key: string, text: string) => request<{ noted: true }>("POST", `/company/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/note`, { text }),
+  resendRequest: (slug: string, key: string) => request<{ key: string; wake: "queued" | "busy" | "off" }>("POST", `/company/projects/${encodeURIComponent(slug)}/requests/${encodeURIComponent(key)}/resend`),
   cancelOrder: (slug: string, key: string) => request<{ cancelled: string[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/orders/${encodeURIComponent(key)}/cancel`),
   ownerCode: () => request<{ enrolled: boolean }>("GET", "/company/owner-code"),
   enrolOwnerCode: (input: { password: string; code?: string }) => request<{ secret_base32: string; otpauth_uri: string }>("POST", "/company/owner-code/enroll", input),
@@ -163,6 +167,7 @@ export const api = {
 // untyped (week, usage, last_run) reuse the PLA-I30 shapes.
 
 export type OrderKind = "cambio" | "direccion" | "idea";
+export type StartNowResult = { started: boolean; reason: "started" | "queued" | "busy" | "idle" | "held" | "fail"; ticket: string | null; run_id: string | null; summary: string };
 export type AskResult = { key: string; title: string; po: string; wake: "queued" | "busy" | "off"; woke: { woke: boolean; reason: string; ticket: string | null; summary: string } | null };
 export type OrgLight = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused";
 export type OrgLightReason = { text: string; action: { label: string; href: string } | null };
@@ -220,6 +225,13 @@ export type OrgProject = {
   thread: OrgThreadRef;
   // PLA-I35-1: the card as a report.
   plan: OrgPlan | null;
+  // PLA-I40-7: the accept-by-itself switch, and why the oldest waiting delivery was not accepted.
+  auto_accept?: { on: boolean; hold: string | null };
+  // PLA-I40-6: what just happened here, and the owner's requests nobody took.
+  latest?: OrgLatest[];
+  stale_requests?: OrgStaleRequest[];
+  // PLA-I40-3: the delivery as legs; the one marked here carries its named steps.
+  route?: OrgRoute | null;
   this_week: { done: number; docs: number; prs: number; last_at: string | null };
   next: { title: string; key: string; owner: string; due: string | null } | null;
   work: { open: number; in_progress: number };
@@ -229,6 +241,12 @@ export type OrgProject = {
   plan_approval?: boolean;
   preview_url?: string | null;
 };
+export type OrgLatest = { kind: "published" | "delivered"; title: string | null; n: number | null; at: string };
+export type OrgStaleRequest = { key: string; title: string; since: string };
+export type OrgStepState = "done" | "published" | "delivered" | "working" | "next" | "later";
+export type OrgRouteStep = { key: string; title: string; state: OrgStepState; who: string | null; at: string | null };
+export type OrgRouteLeg = { key: string; title: string; done: number; total: number; state: "done" | "here" | "planned" | "unplanned"; note: string | null; steps?: OrgRouteStep[]; more_steps?: number };
+export type OrgRoute = { legs: OrgRouteLeg[]; more_legs: number };
 // PLA-I36-5: position by calendar. weeks, today_pct, done_pct are null without a delivery date (no bar).
 export type OrgPlan = {
   initiative: { key: string; title: string };

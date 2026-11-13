@@ -8,13 +8,13 @@
 //   responder answers the message's question (the screen's answer, as on Solo tú).
 // Each writes action_state {action, at, result} on the message, so the buttons go away. A refusal is 409 with
 // a reason and changes nothing; a message already acted on is 409 ALREADY_ACTED.
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agentRuns, agents, projects, questions, tasks, threadMessages, type ActionState, type Task, type ThreadMessage } from "../db/schema.js";
+import { agentRuns, agents, projects, questions, results, tasks, threadMessages, type ActionState, type Task, type ThreadMessage } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
 import { answer } from "../mcp/questions.js";
 import { releaseGh } from "../mcp/release-ship.js";
-import { webCtx, writeTx } from "../mcp/tx.js";
+import { SYSTEM_ACTOR, webCtx, writeTx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
 import { enqueueWake } from "../runner/events.js";
 import type { ThreadRef } from "../runner/threads.js";
@@ -48,7 +48,10 @@ async function record(db: Db, msg: ThreadMessage, state: ActionState): Promise<A
 
 const prOf = (msg: ThreadMessage, t: Task): string | null => msg.links.find((l) => l.kind === "pr" && PR.test(l.ref))?.ref ?? (t.prUrl && PR.test(t.prUrl) ? t.prUrl : null);
 
-async function merge(db: Db, msg: ThreadMessage, t: Task, url: string): Promise<ActionDone | ActionRefusal> {
+// PLA-I40-7: who accepts. "screen" is the owner's click; "auto" is the project's switch (src/api/auto-accept.ts).
+export type AcceptBy = "screen" | "auto";
+
+async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: AcceptBy = "screen"): Promise<ActionDone | ActionRefusal> {
   const [, repo, number] = PR.exec(url)!;
   const gh = async (step: string, args: string[]) => {
     const r = await releaseGh.run(args);
@@ -70,22 +73,28 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string): Promise<
     const sha = after.mergeCommit?.oid;
     if (!sha) return refuse("MERGE_FAILED", "GitHub no muestra el commit de fusión.", { step: "view" });
     const project = await projectOf(db, t);
-    await writeTx(db, project, { ...webCtx, tool: "screen.thread_merge" }, async (_tx, emit) => {
-      await emit("pr.merged", { id: t.id, key: t.key }, { number: Number(number), url: after.url || view.url, base: MERGE_BASE, merge_sha: sha, by: "screen", message_id: msg.id });
+    // An automatic accept is the server's write and names the evidence it stood on.
+    const auto = by === "auto";
+    const [pass] = auto ? await db.select({ id: results.id }).from(results).where(and(eq(results.taskId, t.id), eq(results.verdict, "pass"))).orderBy(desc(results.createdAt)).limit(1) : [];
+    const ctx = auto ? { actor: SYSTEM_ACTOR, system: true, tool: "auto.accept" } : { ...webCtx, tool: "screen.thread_merge" };
+    await writeTx(db, project, ctx, async (_tx, emit) => {
+      await emit("pr.merged", { id: t.id, key: t.key }, { number: Number(number), url: after.url || view.url, base: MERGE_BASE, merge_sha: sha, by, message_id: msg.id, ...(auto ? { evidence_id: pass?.id ?? null } : {}) });
     });
-    return record(db, msg, { action: "aceptar", at: new Date().toISOString(), result: { merged: true, pr: url, base: MERGE_BASE, sha, ticket: t.key } });
+    return record(db, msg, { action: "aceptar", at: new Date().toISOString(), result: { merged: true, pr: url, base: MERGE_BASE, sha, ticket: t.key, ...(auto ? { by: "auto" } : {}) } });
   } catch (e) {
     if (e instanceof ToolError && e.code === "RELEASE_MERGE_FAILED") return refuse("MERGE_FAILED", "No se pudo fusionar el PR.", e.detail);
     throw e;
   }
 }
 
-async function accept(db: Db, msg: ThreadMessage, ref: ThreadRef): Promise<ActionDone | ActionRefusal> {
+async function accept(db: Db, msg: ThreadMessage, ref: ThreadRef, by: AcceptBy = "screen"): Promise<ActionDone | ActionRefusal> {
   const t = await linkedTicket(db, msg, ref);
   if (!t) return refuse("NO_TICKET", "El mensaje no enlaza un ticket de este hilo.");
   if (t.status !== "In review") return refuse("NOT_IN_REVIEW", `${t.key} está en ${t.status}, no En revisión.`, { key: t.key, status: t.status });
   const pr = prOf(msg, t);
-  if (pr && CODE.has(t.workType ?? "code")) return merge(db, msg, t, pr);
+  if (pr && CODE.has(t.workType ?? "code")) return merge(db, msg, t, pr, by);
+  // Only a PR is accepted automatically: a doc or a plan is the owner's to read.
+  if (by === "auto") return refuse("NOT_A_PR", "Solo una entrega con PR se acepta sola.");
   const project = await projectOf(db, t);
   await setTask(db, { project: project.slug, key: t.key, status: "Done", version: t.version } as never, { ...webCtx, tool: "screen.thread_accept" });
   return record(db, msg, { action: "aceptar", at: new Date().toISOString(), result: { ticket: t.key, status: "Done" } });
@@ -123,7 +132,7 @@ async function reply(db: Db, msg: ThreadMessage, text: string): Promise<ActionDo
   return record(db, msg, { action: "responder", at: new Date().toISOString(), result: { question_id: q.id, answer: text } });
 }
 
-export async function threadAction(db: Db, ref: ThreadRef, input: ActionInput): Promise<ActionDone | ActionRefusal> {
+export async function threadAction(db: Db, ref: ThreadRef, input: ActionInput, by: AcceptBy = "screen"): Promise<ActionDone | ActionRefusal> {
   const [msg] = await db
     .select()
     .from(threadMessages)
@@ -132,7 +141,7 @@ export async function threadAction(db: Db, ref: ThreadRef, input: ActionInput): 
   if (!msg) return refuse("MESSAGE_NOT_FOUND", "No hay ese mensaje en este hilo.", {}, 404);
   if (msg.actionState) return refuse("ALREADY_ACTED", "Ya actuaste sobre este mensaje.", { action_state: msg.actionState });
   const text = input.text?.trim() ?? "";
-  if (input.action === "aceptar" || input.action === "fusionar") return accept(db, msg, ref);
+  if (input.action === "aceptar" || input.action === "fusionar") return accept(db, msg, ref, by);
   if (!text) return refuse("TEXT_REQUIRED", input.action === "cambios" ? "Escribe qué cambiar." : "Escribe tu respuesta.");
   if (input.action === "cambios") return changes(db, msg, ref, text);
   return reply(db, msg, text);

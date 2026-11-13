@@ -27,7 +27,7 @@ import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { createProjectFromTemplate } from "../runner/new-project.js";
-import { askPo, pickNext, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
+import { askPo, pickNext, resendRequest, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
 import { cancelOrder } from "./company-orders.js";
 import { promptDoc } from "./company-extra.js";
@@ -259,6 +259,8 @@ companyRoutes.post("/projects/:slug/tasks/:key/note", async (c) => {
   if (input instanceof Response) return input;
   return send(c, await withDb((db) => noteForAgent(db, c.req.param("slug"), c.req.param("key"), input.text)));
 });
+// PLA-I40-6: Reenviar a request nobody took (Cerrar is the cancel below).
+companyRoutes.post("/projects/:slug/requests/:key/resend", async (c) => send(c, await withDb((db) => resendRequest(db, c.req.param("slug"), c.req.param("key")))));
 companyRoutes.post("/projects/:slug/orders/:key/cancel", async (c) => send(c, await withDb((db) => cancelOrder(db, c.req.param("slug"), c.req.param("key")))));
 
 // PLA-I36-6: Cambiar lo siguiente.
@@ -275,7 +277,7 @@ companyRoutes.post("/projects/:slug/next", async (c) => {
 
 // PLA-I36-8/10: plan approval and the preview address.
 companyRoutes.put("/projects/:slug/options", async (c) => {
-  const input = await body(c, z.object({ plan_approval: z.boolean().optional(), preview_url: z.string().url().regex(/^https?:\/\//).max(300).nullable().optional() }).strict());
+  const input = await body(c, z.object({ plan_approval: z.boolean().optional(), auto_accept: z.boolean().optional(), preview_url: z.string().url().regex(/^https?:\/\//).max(300).nullable().optional() }).strict());
   if (input instanceof Response) return input;
   const out = await withDb((db) => setProjectOptions(db, c.req.param("slug"), input));
   if ("error" in out) {

@@ -15,11 +15,12 @@ import { PROMPT_DOCS, isRunnerRole, lastReading, loadSettings, planView, roleOf,
 import { TEAM_TEMPLATES, TEMPLATE_ROWS, ensureMember, isTeamTemplate, teamOf, teamSlug, type TeamTemplate } from "../runner/team.js";
 import { actionsFor, companyThread, projectThread, threadSummary } from "../runner/threads.js";
 import { companyState, type CompanyState, type RunView } from "../runner/company.js";
+import { autoAcceptOf, type AutoAccept } from "./auto-accept.js";
 import { decisionsRead, inboxByProject, type Decision } from "./company-decisions.js";
 import { ordersOf, type Order } from "./company-orders.js";
 import { loadReadiness } from "../mcp/readiness.js";
 import type { InboxItem } from "../mcp/inbox.js";
-import { ceoAgentId, planOf, readyOf, type QueuedTicket, type ReadyLine, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
+import { ceoAgentId, planOf, readyOf, routeOf, type Route, type QueuedTicket, type ReadyLine, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
 
 const HOUR = 3_600_000;
 const QUIET_HOURS = 48;
@@ -75,6 +76,13 @@ export type ProjectCard = {
   thread: ThreadLine;
   // PLA-I35-1: the card as a report (src/api/company-plan.ts).
   plan: PlanLine | null;
+  // PLA-I40-7: the accept-by-itself switch, and why the oldest waiting delivery was not accepted.
+  auto_accept: AutoAccept;
+  // PLA-I40-6: the last things that happened on this floor, and the owner's requests nobody took.
+  latest: LatestLine[];
+  stale_requests: StaleRequest[];
+  // PLA-I40-3: the delivery as legs, the current one with its named steps (src/api/company-plan.ts).
+  route: Route | null;
   this_week: ThisWeek;
   next: NextLine | null;
   // PLA-I36-6: the next Ready tickets, for Cambiar lo siguiente.
@@ -378,6 +386,39 @@ export async function fillNextStarts(db: Db, p: Project, team: TeamMember[], ctx
   }
 }
 
+// PLA-I40-6: what just happened here, newest first, three at most: a release the owner published (with how many
+// changes) and a step a teammate delivered. The owner's own answers are the decisions' states; the screen adds them.
+export type LatestLine = { kind: "published" | "delivered"; title: string | null; n: number | null; at: string };
+export async function latestOf(db: Db, p: Project): Promise<LatestLine[]> {
+  const rows = await db.execute<{ type: string; payload: Record<string, unknown>; at: Date | string; title: string | null }>(sql`
+    select e.type, e.payload, e.created_at as at, t.title
+    from ${events} e left join ${tasks} t on t.id = e.task_id
+    where e.project_id = ${p.id}
+      and (e.type = 'release.merged' or (e.type = 'task.status' and e.payload->>'to' = 'In review' and t.kind = 'ticket'))
+    order by e.id desc limit 3`);
+  return rows.rows.map((r) =>
+    r.type === "release.merged"
+      ? { kind: "published" as const, title: null, n: Array.isArray(r.payload.tickets) ? r.payload.tickets.length : null, at: new Date(r.at).toISOString() }
+      : { kind: "delivered" as const, title: r.title, n: null, at: new Date(r.at).toISOString() },
+  );
+}
+
+// A request the owner made on screen (origin jorge) that has been Ready for over an hour with no run queued or
+// live on it: nobody is going to take it unless it is sent again.
+export const STALE_REQUEST_MIN = 60;
+export type StaleRequest = { key: string; title: string; since: string };
+export async function staleRequestsOf(db: Db, p: Project, now: Date): Promise<StaleRequest[]> {
+  const before = new Date(now.getTime() - STALE_REQUEST_MIN * 60_000);
+  const rows = await db.execute<{ key: string; title: string; since: Date | string }>(sql`
+    select t.key, t.title, coalesce(t.status_changed_at, t.created_at) as since
+    from ${tasks} t
+    where t.project_id = ${p.id} and t.kind = 'ticket' and t.origin = 'jorge' and t.status = 'Ready'
+      and coalesce(t.status_changed_at, t.created_at) < ${before.toISOString()}::timestamptz
+      and not exists (select 1 from ${agentRuns} r where r.project_id = t.project_id and r.task_key = t.key and r.status in ('queued', 'running'))
+    order by since limit 5`);
+  return rows.rows.map((r) => ({ key: r.key, title: r.title, since: new Date(r.since).toISOString() }));
+}
+
 const countInbox = (inbox: Map<string, InboxItem[]>) => {
   let decisiones = 0;
   let pasos = 0;
@@ -410,7 +451,10 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     const upNext = await readyOf(db, p, ceoId, plan?.initiative.key ?? null);
     const owners = [...new Set(upNext.queued.map((q) => q.owner).filter((x): x is string => !!x))];
     const slugs = owners.length ? await db.select({ id: agents.id, slug: agents.slug }).from(agents).where(inArray(agents.id, owners)) : [];
-    fillQueues(team, upNext.queued, new Map(slugs.map((r) => [r.id, r.slug])));
+    // PLA-I40-6: a request nobody took leaves the queue; the floor shows it as a warning instead.
+    const stale = await staleRequestsOf(db, p, now);
+    const staleKeys = new Set(stale.map((x) => x.key));
+    fillQueues(team, upNext.queued.filter((q) => !staleKeys.has(q.key)), new Map(slugs.map((r) => [r.id, r.slug])));
     await fillNextStarts(db, p, team, { settings, capacity, now });
     const light = await lightOf(db, p, { paused, threadId: thread.id, now, ceoId, team, plan, inbox: inbox.get(p.slug) ?? [] });
     cards.push({
@@ -425,6 +469,10 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       team,
       thread: threadLine(thread),
       plan,
+      route: await routeOf(db, p),
+      auto_accept: { on: !!p.settings.auto_accept, hold: null },
+      latest: await latestOf(db, p),
+      stale_requests: stale,
       this_week: await thisWeekOf(db, p, now),
       next: upNext.next,
       ready: upNext.ready,
@@ -453,13 +501,15 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     from agent_runs where status in ('running', 'ok', 'fail', 'stopped') and coalesce(started_at, queued_at) >= ${startsAt.toISOString()}::timestamptz`);
   const [running] = await db.select({ n: sql<number>`count(*)::int` }).from(agentRuns).where(eq(agentRuns.status, "running"));
 
+  const decisions = await decisionsRead(db, now, inbox);
+  for (const c of cards) if (c.auto_accept.on) c.auto_accept = await autoAcceptOf(db, all.find((p) => p.slug === c.slug)!, decisions);
   return {
     company: { paused: settings.companyPaused },
     week: { starts_at: startsAt.toISOString(), resets_at: resetsAt.toISOString(), timezone: tz },
     asistente: { thread_id: company.id, usage: asisUsage, last_run: lastRun, state, unread: companyUnread },
     projects: cards,
     plumbing: { spend: Number(spend.rows[0]?.used ?? 0), running: running?.n ?? 0, paused: settings.companyPaused },
-    decisions: await decisionsRead(db, now, inbox),
+    decisions,
     inbox: countInbox(inbox),
   };
 }
