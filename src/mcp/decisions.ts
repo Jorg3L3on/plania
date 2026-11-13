@@ -1,7 +1,8 @@
-import { and, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { decisionSupersessions, decisions, tasks, type Project } from "../db/schema.js";
-import { putDoc } from "./docs.js";
+import type { decisions, Project } from "../db/schema.js";
+import { readerOf, uowOf } from "../store/pg.js";
+import type { Where } from "../store/types.js";
+import { isUuidText, putDoc } from "./docs.js";
 import { ToolError, findProject, findTask, requireTask } from "./queries.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 
@@ -43,35 +44,47 @@ export type DecisionFilters = {
   limit?: number;
 };
 
-const supersededBySql = sql<string | null>`(select ds.decision_id from ${decisionSupersessions} ds where ds.supersedes_id = ${decisions.id} limit 1)`;
-const supersedesSql = sql<string[]>`array(select ds.supersedes_id from ${decisionSupersessions} ds where ds.decision_id = ${decisions.id})`;
-
 // Newest first. superseded_by is filled from the decision that reversed this one.
 export async function listDecisions(db: Q, projectId: string, f: DecisionFilters = {}) {
-  const where: SQL[] = [eq(decisions.projectId, projectId)];
+  const r = readerOf(db);
+  // The tasks a decision may be about: the one asked for, the initiative and its children, or both at once.
+  let taskIds: string[] | undefined;
   if (f.taskKey !== undefined) {
     const t = await findTask(db, projectId, f.taskKey);
     if (!t) throw new ToolError("TASK_NOT_FOUND");
-    where.push(eq(decisions.taskId, t.id));
+    taskIds = [t.id];
   }
   if (f.initiativeKey !== undefined) {
     const i = await findTask(db, projectId, f.initiativeKey);
     if (!i || i.kind !== "initiative") throw new ToolError("INITIATIVE_NOT_FOUND");
-    const children = db.select({ id: tasks.id }).from(tasks).where(eq(tasks.parentId, i.id));
-    where.push(or(eq(decisions.taskId, i.id), inArray(decisions.taskId, children))!);
+    const under = [i.id, ...(await r.find("tasks", { parentId: i.id })).map((c) => c.id)];
+    taskIds = taskIds ? taskIds.filter((id) => under.includes(id)) : under;
   }
-  if (f.tag !== undefined) where.push(sql`${f.tag.trim().toLowerCase()} = any(${decisions.tags})`);
-  if (f.pinned !== undefined) where.push(eq(decisions.pinned, f.pinned));
-  if (f.includeSuperseded !== true) where.push(sql`${supersededBySql} is null`);
-  if (f.includeRetired !== true) where.push(isNull(decisions.retiredAt));
-  const rows = await db
-    .select({ d: decisions, taskKey: tasks.key, supersededBy: supersededBySql, supersedes: supersedesSql })
-    .from(decisions)
-    .leftJoin(tasks, eq(tasks.id, decisions.taskId))
-    .where(and(...where))
-    .orderBy(desc(decisions.createdAt), desc(decisions.id))
-    .limit(Math.min(f.limit ?? DEFAULT_LIMIT, MAX_LIMIT));
-  return rows.map((r) => decisionShape(r.d, r.taskKey, r.supersedes, r.supersededBy));
+  const where: Where<"decisions"> = { projectId };
+  if (taskIds) where.taskId = taskIds;
+  if (f.pinned !== undefined) where.pinned = f.pinned;
+  if (f.includeRetired !== true) where.retiredAt = null;
+  const rows = await r.find("decisions", where, { orderBy: [{ column: "createdAt", desc: true }, { column: "id", desc: true }] });
+  // Each decision is reversed at most once (decision_supersessions_old_unique).
+  const reversals = rows.length ? await r.find("decisionSupersessions", { supersedesId: rows.map((d) => d.id) }) : [];
+  const supersededBy = new Map(reversals.map((s) => [s.supersedesId, s.decisionId]));
+  // The tag and the reversal are checked here, so the limit is taken only after them.
+  const tag = f.tag?.trim().toLowerCase();
+  const kept = rows
+    .filter((d) => tag === undefined || d.tags.includes(tag))
+    .filter((d) => f.includeSuperseded === true || !supersededBy.has(d.id))
+    .slice(0, Math.min(f.limit ?? DEFAULT_LIMIT, MAX_LIMIT));
+  const reverses = kept.length ? await r.find("decisionSupersessions", { decisionId: kept.map((d) => d.id) }) : [];
+  const about = [...new Set(kept.map((d) => d.taskId).filter((id): id is string => !!id))];
+  const keyOf = new Map((about.length ? await r.find("tasks", { id: about }) : []).map((t) => [t.id, t.key]));
+  return kept.map((d) =>
+    decisionShape(
+      d,
+      d.taskId ? (keyOf.get(d.taskId) ?? null) : null,
+      reverses.filter((s) => s.decisionId === d.id).map((s) => s.supersedesId),
+      supersededBy.get(d.id) ?? null,
+    ),
+  );
 }
 
 const normalizeTags = (tags: string[] | undefined) =>
@@ -95,29 +108,23 @@ export type AddDecisionInput = {
 };
 
 async function findDecision(tx: Q, projectId: string, id: string): Promise<DecisionRow> {
-  const [d] = await tx
-    .select()
-    .from(decisions)
-    .where(and(eq(decisions.projectId, projectId), sql`${decisions.id}::text = ${id}`))
-    .limit(1);
+  const d = isUuidText(id) ? await readerOf(tx).get("decisions", { projectId, id }) : undefined;
   if (!d) throw new ToolError("DECISION_NOT_FOUND", { decision_id: id });
   return d;
 }
 
 export async function addDecisionInTx(tx: Q, emit: Emit, p: Project, input: AddDecisionInput, ctx: Ctx) {
   rejectLeadingDate(input.text);
+  const uow = uowOf(tx);
   {
     const ids = [...new Set(typeof input.supersedes === "string" ? [input.supersedes] : (input.supersedes ?? []))].filter(Boolean);
     const olds: DecisionRow[] = [];
     for (const id of ids) {
       const old = await findDecision(tx, p.id, id);
       if (old.retiredAt) throw new ToolError("DECISION_RETIRED", { decision_id: old.id });
-      const [taken] = await tx
-        .select({ id: decisionSupersessions.decisionId })
-        .from(decisionSupersessions)
-        .where(eq(decisionSupersessions.supersedesId, old.id))
-        .limit(1);
-      if (taken) throw new ToolError("ALREADY_SUPERSEDED", { decision_id: old.id, superseded_by: taken.id });
+      // A decision is reversed at most once. This lookup is what enforces it; the unique index backs it up.
+      const taken = await uow.get("decisionSupersessions", { supersedesId: old.id });
+      if (taken) throw new ToolError("ALREADY_SUPERSEDED", { decision_id: old.id, superseded_by: taken.decisionId });
       olds.push(old);
     }
     const old = olds[0];
@@ -125,28 +132,25 @@ export async function addDecisionInTx(tx: Q, emit: Emit, p: Project, input: AddD
     const task = input.task_key
       ? await requireTask(tx, p.id, input.task_key)
       : old?.taskId
-        ? (await tx.select().from(tasks).where(eq(tasks.id, old.taskId)))[0]
+        ? await uow.get("tasks", { id: old.taskId })
         : undefined;
-    const [d] = await tx
-      .insert(decisions)
-      .values({
-        projectId: p.id,
-        line: input.text,
-        adrUrl: input.adr_url ?? null,
-        taskId: task?.id ?? null,
-        pinned: input.pin ?? old?.pinned ?? false,
-        tags: normalizeTags(input.tags),
-        actor: ctx.actor,
-      })
-      .returning();
-    if (olds.length) await tx.insert(decisionSupersessions).values(olds.map((o) => ({ decisionId: d!.id, supersedesId: o.id })));
-    let decision = d!;
+    const d = await uow.insert("decisions", {
+      projectId: p.id,
+      line: input.text,
+      adrUrl: input.adr_url ?? null,
+      taskId: task?.id ?? null,
+      pinned: input.pin ?? old?.pinned ?? false,
+      tags: normalizeTags(input.tags),
+      actor: ctx.actor,
+    });
+    for (const o of olds) await uow.insert("decisionSupersessions", { decisionId: d.id, supersedesId: o.id });
+    let decision = d;
     if (input.adr_body) {
       const doc = await putDoc(tx, emit, ctx, p.id, undefined, {
         title: `ADR ${decision.id.slice(0, 8)}: ${input.text.slice(0, 80)}`,
         markdown: input.adr_body,
       });
-      [decision] = (await tx.update(decisions).set({ docId: doc.id }).where(eq(decisions.id, decision.id)).returning()) as [DecisionRow];
+      [decision] = (await uow.update("decisions", { id: decision.id }, { docId: doc.id })) as [DecisionRow];
     }
     await emit("decision.added", task ?? null, {
       decision_id: decision.id,
@@ -164,14 +168,16 @@ export async function addDecisionInTx(tx: Q, emit: Emit, p: Project, input: AddD
 export async function retireDecision(db: Db, input: { project: string; decision_id: string; reason: string }, ctx: Ctx) {
   const p = await findProject(db, input.project);
   return writeTx(db, p, ctx, async (tx, emit) => {
+    const uow = uowOf(tx);
     const d = await findDecision(tx, p.id, input.decision_id);
     if (d.retiredAt) throw new ToolError("DECISION_RETIRED", { decision_id: d.id, retired_at: iso(d.retiredAt) });
-    const [u] = (await tx
-      .update(decisions)
-      .set({ retiredAt: sql`now()`, retiredBy: ctx.actor, retiredReason: input.reason.trim() || null })
-      .where(eq(decisions.id, d.id))
-      .returning()) as [DecisionRow];
-    const task = d.taskId ? (await tx.select({ id: tasks.id, key: tasks.key }).from(tasks).where(eq(tasks.id, d.taskId)))[0] : undefined;
+    const [u] = (await uow.update(
+      "decisions",
+      { id: d.id },
+      { retiredAt: uow.now, retiredBy: ctx.actor, retiredReason: input.reason.trim() || null },
+    )) as [DecisionRow];
+    const t = d.taskId ? await uow.get("tasks", { id: d.taskId }) : undefined;
+    const task = t ? { id: t.id, key: t.key } : undefined;
     await emit("decision.retired", task ?? null, { decision_id: d.id, text: d.line, reason: u.retiredReason });
     return { decision: decisionShape(u, task?.key ?? null) };
   });

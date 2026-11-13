@@ -1,6 +1,7 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { delegatedAnswers, events, machineState, questions, tasks, type Actor } from "../db/schema.js";
+import type { Actor } from "../db/schema.js";
+import { pgStore, readerOf, uowOf } from "../store/pg.js";
+import type { Reader, UnitOfWork } from "../store/types.js";
 import { ToolError } from "./errors.js";
 import { findProject } from "./queries.js";
 import { answerInTx, type AnswerDelegation } from "./questions.js";
@@ -12,6 +13,18 @@ export const LEGACY_APPROVAL_HINT =
 
 // Event ids Jorge has already reviewed. delegated_answers use reviewed_at; these moves do not have that column.
 export const MOVE_SEEN_KEY = "delegated_move_seen";
+
+// A write of machine-wide rows (machine_state, routine_runs, reviews across projects). The port's write
+// names a project; it is used only to replay a request id, which these writes never carry.
+export const NO_PROJECT = "";
+
+// One field of an event payload as text, the way payload->>'field' read it: null when it is missing or
+// JSON null, the string itself, or the JSON of anything else (enough for the ids and slugs compared here).
+export function payloadText(payload: Record<string, unknown>, field: string): string | null {
+  const v = payload[field];
+  if (v === undefined || v === null) return null;
+  return typeof v === "string" ? v : JSON.stringify(v);
+}
 
 export type DelegatedReviewItem = {
   id: string;
@@ -29,64 +42,49 @@ export type DelegatedReviewItem = {
 // after the question has closed and left the open list.
 export async function delegatedForInbox(db: Q, projects: { id: string; slug: string }[]): Promise<DelegatedReviewItem[]> {
   if (!projects.length) return [];
+  const r = readerOf(db);
+  const projectIds = projects.map((p) => p.id);
   const slugOf = new Map(projects.map((p) => [p.id, p.slug]));
-  const rows = await db
-    .select({
-      d: delegatedAnswers,
-      answer: questions.answer,
-      qkey: tasks.key,
-    })
-    .from(delegatedAnswers)
-    .leftJoin(questions, eq(questions.id, delegatedAnswers.questionId))
-    .leftJoin(tasks, eq(tasks.id, questions.taskId))
-    .where(and(inArray(delegatedAnswers.projectId, projects.map((p) => p.id)), isNull(delegatedAnswers.reviewedAt)))
-    .orderBy(desc(delegatedAnswers.createdAt));
-  const approvalIds = rows.map((r) => r.d.approvalId).filter((id): id is string => !!id);
+  const rows = await r.find("delegatedAnswers", { projectId: projectIds, reviewedAt: null }, { orderBy: [{ column: "createdAt", desc: true }] });
+  // The question each answer closed and that question's task key, as the two left joins had them.
+  const questionIds = [...new Set(rows.map((d) => d.questionId).filter((id): id is string => !!id))];
+  const questionOf = new Map((questionIds.length ? await r.find("questions", { id: questionIds }) : []).map((q) => [q.id, q]));
+  const taskIds = [...new Set([...questionOf.values()].map((q) => q.taskId))];
+  const keyOf = new Map((taskIds.length ? await r.find("tasks", { id: taskIds }) : []).map((t) => [t.id, t.key]));
+  const approvalIds = rows.map((d) => d.approvalId).filter((id): id is string => !!id);
   const archived = new Map<string, { action: string | null; key: string | null }>();
   if (approvalIds.length) {
-    const evs = await db
-      .select({ key: events.taskKey, payload: events.payload })
-      .from(events)
-      .where(
-        and(
-          inArray(events.projectId, projects.map((p) => p.id)),
-          eq(events.type, "approval.archived"),
-          sql`${events.payload}->>'approval_id' in (${sql.join(approvalIds.map((id) => sql`${id}`), sql`, `)})`,
-        ),
-      );
+    const wanted = new Set(approvalIds);
+    const evs = (await r.find("events", { projectId: projectIds, type: "approval.archived" })).filter((e) => {
+      const id = payloadText(e.payload, "approval_id");
+      return id !== null && wanted.has(id);
+    });
     for (const e of evs) {
       const payload = e.payload as { approval_id?: unknown; action?: unknown };
       const id = typeof payload.approval_id === "string" ? payload.approval_id : "";
       if (!id || archived.has(id)) continue;
-      archived.set(id, { action: typeof payload.action === "string" ? payload.action : null, key: e.key });
+      archived.set(id, { action: typeof payload.action === "string" ? payload.action : null, key: e.taskKey });
     }
   }
-  const out: DelegatedReviewItem[] = rows.map((r) => {
-    const old = r.d.approvalId ? archived.get(r.d.approvalId) : undefined;
+  const out: DelegatedReviewItem[] = rows.map((d) => {
+    const old = d.approvalId ? archived.get(d.approvalId) : undefined;
+    const q = d.questionId ? questionOf.get(d.questionId) : undefined;
     return {
-      id: r.d.id,
-      project: slugOf.get(r.d.projectId) ?? "",
-      key: r.qkey ?? old?.key ?? null,
-      kind: r.d.questionId ? "question" : "approval",
+      id: d.id,
+      project: slugOf.get(d.projectId) ?? "",
+      key: (q ? keyOf.get(q.taskId) : undefined) ?? old?.key ?? null,
+      kind: d.questionId ? "question" : "approval",
       action: old?.action ?? null,
-      answer: r.answer,
-      quote: r.d.quote,
-      message_id: r.d.messageId,
-      at: iso(r.d.createdAt),
+      answer: q?.answer ?? null,
+      quote: d.quote,
+      message_id: d.messageId,
+      at: iso(d.createdAt),
     };
   });
-  const seen = new Set(await seenMoveIds(db));
-  const moves = await db
-    .select({ id: events.id, projectId: events.projectId, key: events.taskKey, payload: events.payload, at: events.createdAt })
-    .from(events)
-    .where(
-      and(
-        inArray(events.projectId, projects.map((p) => p.id)),
-        eq(events.type, "task.delegated_move"),
-        sql`${events.payload}->>'message_id' is not null`,
-      ),
-    )
-    .orderBy(desc(events.id));
+  const seen = new Set(await seenMoveIds(r));
+  const moves = (await r.find("events", { projectId: projectIds, type: "task.delegated_move" }, { orderBy: [{ column: "id", desc: true }] })).filter(
+    (m) => payloadText(m.payload, "message_id") !== null,
+  );
   for (const m of moves) {
     if (seen.has(m.id)) continue;
     const payload = m.payload as { action?: unknown; quote?: unknown; message_id?: unknown };
@@ -96,52 +94,54 @@ export async function delegatedForInbox(db: Q, projects: { id: string; slug: str
     out.push({
       id: String(m.id),
       project: slugOf.get(m.projectId) ?? "",
-      key: m.key,
+      key: m.taskKey,
       kind: "move",
       action: typeof payload.action === "string" ? payload.action : null,
       answer: null,
       quote,
       message_id: messageId,
-      at: iso(m.at),
+      at: iso(m.createdAt),
     });
   }
   return out.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
 }
 
-async function seenMoveIds(db: Q): Promise<number[]> {
-  const [row] = await db.select().from(machineState).where(eq(machineState.key, MOVE_SEEN_KEY)).limit(1);
+async function seenMoveIds(r: Reader): Promise<number[]> {
+  const row = await r.get("machineState", { key: MOVE_SEEN_KEY });
   const ids = (row?.value as { ids?: unknown } | undefined)?.ids;
   return Array.isArray(ids) ? ids.filter((n): n is number => typeof n === "number") : [];
 }
 
+// One machine_state row written whole, stamped with the write's clock.
+async function putMachineState(uow: UnitOfWork, key: string, value: Record<string, unknown>): Promise<void> {
+  if (await uow.get("machineState", { key })) await uow.update("machineState", { key }, { value, updatedAt: uow.now });
+  else await uow.insert("machineState", { key, value });
+}
+
 // PLA-06: Jorge saw these on the Bandeja. Screen only: no MCP tool calls this. The rows stay as
 // the record; reviewed_at takes an answer off the list, and a numeric id takes a logged move off it.
-export async function markDelegatedReviewed(db: Q, ids: string[]): Promise<number> {
+export async function markDelegatedReviewed(db: Db, ids: string[]): Promise<number> {
   if (!ids.length) return 0;
   const answers = ids.filter((id) => id.includes("-"));
   const moves = [...new Set(ids.filter((id) => /^\d+$/.test(id)).map((id) => Number(id)))];
-  let n = 0;
-  if (answers.length) {
-    const rows = await db
-      .update(delegatedAnswers)
-      .set({ reviewedAt: sql`now()` })
-      .where(and(isNull(delegatedAnswers.reviewedAt), inArray(delegatedAnswers.id, answers)))
-      .returning({ id: delegatedAnswers.id });
-    n += rows.length;
-  }
-  if (moves.length) {
-    const seen = new Set(await seenMoveIds(db));
-    const fresh = moves.filter((id) => !seen.has(id));
-    if (fresh.length) {
-      const idsNext = [...seen, ...fresh];
-      await db
-        .insert(machineState)
-        .values({ key: MOVE_SEEN_KEY, value: { ids: idsNext } })
-        .onConflictDoUpdate({ target: machineState.key, set: { value: { ids: idsNext }, updatedAt: sql`now()` } });
-      n += fresh.length;
+  if (!answers.length && !moves.length) return 0;
+  // The answers may span projects and machine_state belongs to none.
+  return pgStore(db).write(NO_PROJECT, {}, async (uow) => {
+    let n = 0;
+    if (answers.length) {
+      const rows = await uow.update("delegatedAnswers", { reviewedAt: null, id: answers }, { reviewedAt: uow.now });
+      n += rows.length;
     }
-  }
-  return n;
+    if (moves.length) {
+      const seen = new Set(await seenMoveIds(uow));
+      const fresh = moves.filter((id) => !seen.has(id));
+      if (fresh.length) {
+        await putMachineState(uow, MOVE_SEEN_KEY, { ids: [...seen, ...fresh] });
+        n += fresh.length;
+      }
+    }
+    return n;
+  });
 }
 
 // PLA-I15-2. The owner stays the one who answers a human-only question, by a click on his screen.
@@ -191,16 +191,13 @@ export function parseDelegationEvidence(raw: DelegationInput["delegated_by_jorge
 }
 
 export async function delegationEnabled(db: Q): Promise<boolean> {
-  const [row] = await db.select().from(machineState).where(sql`${machineState.key} = ${DELEGATION_STATE_KEY}`).limit(1);
+  const row = await readerOf(db).get("machineState", { key: DELEGATION_STATE_KEY });
   if (!row) return true;
   return (row.value as { enabled?: unknown }).enabled !== false;
 }
 
 export async function setDelegationEnabled(db: Db, enabled: boolean): Promise<boolean> {
-  await db
-    .insert(machineState)
-    .values({ key: DELEGATION_STATE_KEY, value: { enabled } })
-    .onConflictDoUpdate({ target: machineState.key, set: { value: { enabled }, updatedAt: sql`now()` } });
+  await pgStore(db).write(NO_PROJECT, {}, (uow) => putMachineState(uow, DELEGATION_STATE_KEY, { enabled }));
   return enabled;
 }
 
@@ -215,17 +212,15 @@ function assertBot(ctx: Ctx): void {
   }
 }
 
-// Answers and agent Won't do / reopen moves share one hourly budget.
+// Answers and agent Won't do / reopen moves share one hourly budget, across every project.
 export async function assertDelegationHourlyCap(tx: Q): Promise<void> {
-  const [answers] = await tx
-    .select({ n: sql<number>`count(*)::int` })
-    .from(delegatedAnswers)
-    .where(sql`${delegatedAnswers.createdAt} > now() - interval '1 hour'`);
-  const [moves] = await tx
-    .select({ n: sql<number>`count(*)::int` })
-    .from(events)
-    .where(sql`${events.type} = 'task.delegated_move' and ${events.payload}->>'message_id' is not null and ${events.createdAt} > now() - interval '1 hour'`);
-  if ((answers?.n ?? 0) + (moves?.n ?? 0) >= DELEGATION_HOUR_MAX) {
+  const uow = uowOf(tx);
+  const since = uow.now.getTime() - 3_600_000;
+  const answers = (await uow.find("delegatedAnswers")).filter((d) => d.createdAt.getTime() > since).length;
+  const moves = (await uow.find("events", { type: "task.delegated_move" })).filter(
+    (e) => payloadText(e.payload, "message_id") !== null && e.createdAt.getTime() > since,
+  ).length;
+  if (answers + moves >= DELEGATION_HOUR_MAX) {
     throw new ToolError("DELEGATION_LIMIT", { reason: "hour", max: DELEGATION_HOUR_MAX });
   }
 }

@@ -1,10 +1,12 @@
-import { and, asc, desc, eq, gte, lt, sql } from "drizzle-orm";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { ROUTINE_STATUSES, agents, routineRuns, taskComments, tasks, type RoutineRun, type TaskComment } from "../db/schema.js";
+import { ROUTINE_STATUSES, type RoutineRun, type TaskComment } from "../db/schema.js";
+import { pgStore, readerOf, uowOf } from "../store/pg.js";
+import type { FindOptions } from "../store/types.js";
+import { NO_PROJECT, payloadText } from "./delegate.js";
 import { ToolError } from "./errors.js";
 import type { InboxItem } from "./inbox.js";
 import { findProject, findTask } from "./queries.js";
@@ -94,31 +96,20 @@ function commentBody(raw: string): string {
 
 async function ownerSlug(db: Q, id: string | null): Promise<string | null> {
   if (!id) return null;
-  const [row] = await db.select({ slug: agents.slug }).from(agents).where(eq(agents.id, id)).limit(1);
-  return row?.slug ?? null;
+  return (await readerOf(db).get("agents", { id }))?.slug ?? null;
 }
 
 // True when an earlier assign already moved this pair in the opposite direction.
 async function pairReversed(db: Q, taskId: string, from: string, to: string): Promise<boolean> {
-  const rows = await db.execute<{ n: number }>(sql`
-    select 1 as n from events
-    where task_id = ${taskId}
-      and type = 'task.assigned'
-      and payload->>'from_agent' = ${to}
-      and payload->>'to_agent' = ${from}
-    limit 1`);
-  return rows.rows.length > 0;
+  const assigned = await readerOf(db).find("events", { taskId, type: "task.assigned" });
+  return assigned.some((e) => payloadText(e.payload, "from_agent") === to && payloadText(e.payload, "to_agent") === from);
 }
 
 export async function listComments(db: Q, project: string, key: string): Promise<CommentView[]> {
   const p = await findProject(db, project);
   const task = await findTask(db, p.id, key);
   if (!task) throw new ToolError("TASK_NOT_FOUND");
-  const rows = await db
-    .select()
-    .from(taskComments)
-    .where(eq(taskComments.taskId, task.id))
-    .orderBy(asc(taskComments.createdAt), asc(taskComments.id));
+  const rows = await readerOf(db).find("taskComments", { taskId: task.id }, { orderBy: [{ column: "createdAt" }, { column: "id" }] });
   return rows.map(commentView);
 }
 
@@ -134,12 +125,9 @@ export async function comment(
   return writeTx(db, project, ctx, async (tx, emit) => {
     const task = await findTask(tx, project.id, input.key);
     if (!task) throw new ToolError("TASK_NOT_FOUND");
-    const [row] = await tx
-      .insert(taskComments)
-      .values({ taskId: task.id, authorAgent: author, body })
-      .returning();
-    await emit("task.commented", task, { comment_id: row!.id, author_agent: author });
-    return commentView(row!);
+    const row = await uowOf(tx).insert("taskComments", { taskId: task.id, authorAgent: author, body });
+    await emit("task.commented", task, { comment_id: row.id, author_agent: author });
+    return commentView(row);
   });
 }
 
@@ -155,9 +143,10 @@ export async function assign(
   if (!author) throw new ToolError("ACTOR_REQUIRED");
   const project = await findProject(db, input.project);
   const outcome = await writeTx(db, project, ctx, async (tx, emit) => {
+    const uow = uowOf(tx);
     const task = await findTask(tx, project.id, input.key);
     if (!task) throw new ToolError("TASK_NOT_FOUND");
-    const [target] = await tx.select({ id: agents.id, slug: agents.slug }).from(agents).where(eq(agents.slug, to)).limit(1);
+    const target = await uow.get("agents", { slug: to });
     if (!target) throw new ToolError("AGENT_NOT_FOUND", { slug: to });
     const from = await ownerSlug(tx, task.ownerAgent);
     if (from === target.slug) {
@@ -174,15 +163,17 @@ export async function assign(
       return { ok: false as const, hops: task.assignHops, cap: HOP_CAP };
     }
     const hops = task.assignHops + 1;
-    const [updated] = await tx
-      .update(tasks)
-      .set({ ownerAgent: target.id, assignHops: hops, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
-      .where(eq(tasks.id, task.id))
-      .returning();
+    const [updated] = await uow.update(
+      "tasks",
+      { id: task.id, version: task.version },
+      { ownerAgent: target.id, assignHops: hops, version: task.version + 1, updatedAt: uow.now },
+    );
+    // Writes are serialized and nothing above changed the task, so its version is the one just read.
+    if (!updated) throw new ToolError("STALE_VERSION", { current_version: task.version });
     let saved: CommentView | null = null;
     if (note) {
-      const [row] = await tx.insert(taskComments).values({ taskId: task.id, authorAgent: author, body: note }).returning();
-      saved = commentView(row!);
+      const row = await uow.insert("taskComments", { taskId: task.id, authorAgent: author, body: note });
+      saved = commentView(row);
     }
     await emit("task.assigned", task, {
       from_agent: from,
@@ -192,7 +183,7 @@ export async function assign(
     });
     return {
       ok: true as const,
-      value: { key: updated!.key, owner_agent: target.slug, assign_hops: hops, from_agent: from, comment: saved },
+      value: { key: updated.key, owner_agent: target.slug, assign_hops: hops, from_agent: from, comment: saved },
     };
   });
   if (!outcome.ok) throw new ToolError("HOP_CAP", { hops: outcome.hops, cap: outcome.cap });
@@ -235,7 +226,7 @@ function routineView(row: RoutineRun): RoutineRunView {
 
 async function requireRosterSlug(db: Q, raw: string, field: string): Promise<string> {
   const slug = rosterSlug(raw, field);
-  const [row] = await db.select({ slug: agents.slug }).from(agents).where(eq(agents.slug, slug)).limit(1);
+  const row = await readerOf(db).get("agents", { slug });
   if (!row) throw new ToolError("AGENT_NOT_FOUND", { slug });
   return row.slug;
 }
@@ -253,11 +244,11 @@ export async function recordRoutineRun(db: Db, input: RecordRoutineInput): Promi
   if (taskKey && (taskKey.length > 40 || !/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(taskKey))) {
     throw new ToolError("INVALID_FILTER", { field: "task_key" });
   }
-  const [row] = await db
-    .insert(routineRuns)
-    .values({ agent, routine, startedAt, endedAt, status, summary, taskKey })
-    .returning();
-  return routineView(row!);
+  // A run belongs to an agent, not to a project.
+  const row = await pgStore(db).write(NO_PROJECT, {}, (uow) =>
+    uow.insert("routineRuns", { agent, routine, startedAt, endedAt, status, summary, taskKey }),
+  );
+  return routineView(row);
 }
 
 export async function listRoutineRuns(
@@ -268,61 +259,52 @@ export async function listRoutineRuns(
   const day = filter.date ? utcDay(filter.date) : undefined;
   const limit = filter.limit ?? 100;
   if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new ToolError("INVALID_FILTER", { field: "limit", max: 500 });
-  const rows = await db
-    .select()
-    .from(routineRuns)
-    .where(
-      and(
-        agent ? eq(routineRuns.agent, agent) : undefined,
-        day ? gte(routineRuns.startedAt, day.start) : undefined,
-        day ? lt(routineRuns.startedAt, day.end) : undefined,
-      ),
-    )
-    .orderBy(desc(routineRuns.startedAt), desc(routineRuns.id))
-    .limit(limit);
+  const r = readerOf(db);
+  const where = agent ? { agent } : {};
+  const orderBy: FindOptions<"routineRuns">["orderBy"] = [{ column: "startedAt", desc: true }, { column: "id", desc: true }];
+  // The port has no ranges: with a day the runs are filtered here, and only then cut to the limit.
+  const rows = day
+    ? (await r.find("routineRuns", where, { orderBy })).filter((run) => run.startedAt >= day.start && run.startedAt < day.end).slice(0, limit)
+    : await r.find("routineRuns", where, { orderBy, limit });
   return { runs: rows.map(routineView) };
 }
 
 // Hop-cap refusals stay in limpieza for a day. One row per task, the latest refusal.
 export async function delegationChores(db: Q, projectId: string, project: string, now = new Date()): Promise<InboxItem[]> {
-  const since = new Date(now.getTime() - LIMPIEZA_MS).toISOString();
-  const rows = await db.execute<{
-    id: string;
-    task_key: string;
-    created_at: Date;
-    title: string;
-    kind: string;
-    parent_key: string | null;
-    pr_url: string | null;
-  }>(sql`
-    select distinct on (e.task_id)
-      e.id::text as id, e.task_key, e.created_at, t.title, t.kind, parent.key as parent_key, t.pr_url
-    from events e
-    join tasks t on t.id = e.task_id
-    left join tasks parent on parent.id = t.parent_id
-    where e.project_id = ${projectId}
-      and e.type = 'assign.limpieza'
-      and e.created_at > ${since}::timestamptz
-    order by e.task_id, e.id desc`);
-  return rows.rows.map((row) => {
-    const at = new Date(row.created_at);
-    return {
-      id: row.id,
+  const r = readerOf(db);
+  const since = now.getTime() - LIMPIEZA_MS;
+  // By task, newest first: the first refusal of each task inside the day is its latest one.
+  const refusals = await r.find("events", { projectId, type: "assign.limpieza" }, { orderBy: [{ column: "taskId" }, { column: "id", desc: true }] });
+  const latest = new Map<string, (typeof refusals)[number]>();
+  for (const e of refusals) if (e.taskId && e.createdAt.getTime() > since && !latest.has(e.taskId)) latest.set(e.taskId, e);
+  const taskIds = [...latest.keys()];
+  const taskOf = new Map((taskIds.length ? await r.find("tasks", { id: taskIds }) : []).map((t) => [t.id, t]));
+  const parentIds = [...new Set([...taskOf.values()].map((t) => t.parentId).filter((id): id is string => !!id))];
+  const parentKey = new Map((parentIds.length ? await r.find("tasks", { id: parentIds }) : []).map((t) => [t.id, t.key]));
+  const items: InboxItem[] = [];
+  for (const [taskId, e] of latest) {
+    // A refusal whose task is gone is left out, as the join with tasks had it.
+    const t = taskOf.get(taskId);
+    if (!t) continue;
+    const at = e.createdAt;
+    items.push({
+      id: String(e.id),
       kind: "assign",
       group: "limpieza",
       project,
-      key: row.task_key,
-      task_kind: row.kind,
-      parent_key: row.parent_key,
-      title: row.title,
+      key: e.taskKey,
+      task_kind: t.kind,
+      parent_key: t.parentId ? (parentKey.get(t.parentId) ?? null) : null,
+      title: t.title,
       why: `la tarea rebotó más de ${HOP_CAP} veces entre agentes`,
       waiting_since: iso(at),
       wait_s: Math.max(0, Math.round((now.getTime() - at.getTime()) / 1000)),
       evidence: null,
-      pr_url: row.pr_url,
+      pr_url: t.prUrl,
       action_hint: "elige un dueño y deja de reasignar",
-    };
-  });
+    });
+  }
+  return items;
 }
 
 // One registration point. register.ts calls this; comment, assign and (later) routines stay here.
