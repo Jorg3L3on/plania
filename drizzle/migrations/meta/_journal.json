@@ -288,6 +288,13 @@
       "when": 1794124800000,
       "tag": "0043_remove_token_budgets",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794211200000,
+      "tag": "0044_guard_override",
+      "breakpoints": true
     }
   ]
 }

@@ -8,7 +8,7 @@
 //   GET  /api/company                      the Compañía read (switches, runs, plan reading)
 //   POST /api/company/switch               {paused}            company kill switch
 //   POST /api/company/projects/:slug/switch {paused}           project kill switch
-//   PUT  /api/company/settings             {max_concurrent?, cooldown_minutes?, plan_guard_pct?, reserve_tokens?, max_turns?, timeout_minutes?}
+//   PUT  /api/company/settings             {max_concurrent?, cooldown_minutes?, plan_guard_pct?, guard_override?, reserve_tokens?, max_turns?, timeout_minutes?}
 //   POST /api/company/projects             {name, goal}  PLA-I31-3: a new project, paused, with its PO
 //        → 201 {slug, key_prefix, paused: true, po, prompt_doc_id}; 409 PROJECT_EXISTS | PROMPT_DOC_MISSING
 // PLA-I30 (src/api/company-extra.ts): the read gains viewer, prompts, roster and project_facts, plus
@@ -142,6 +142,7 @@ const Settings = z
     max_concurrent: z.number().int().min(0).max(8).optional(),
     cooldown_minutes: z.number().int().min(0).max(1440).optional(),
     plan_guard_pct: z.number().int().min(0).max(100).optional(),
+    guard_override: z.boolean().optional(),
     reserve_tokens: z.number().int().min(0).max(5_000_000).optional(),
     max_turns: z.number().int().min(1).max(500).optional(),
     timeout_minutes: z.number().int().min(1).max(600).optional(),

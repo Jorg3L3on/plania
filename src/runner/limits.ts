@@ -1,5 +1,6 @@
 // PLA-I29-6/7/8: the limits a run must pass before it starts.
 // - No token budgets (PLA-21): the week's usage is shown, never checked.
+// - PLA-25: guard_override (a screen switch) lets runs go on past the guard; only status "rejected" still stops.
 // - The plan guard: no new run when the last reading is allowed_warning/rejected, or the 5-hour
 //   window is at or over the guard (default 70%). No reading, or a stale one, is unknown = stop.
 // - Company and project switches (runs_paused). Only Jorge's screen session writes any of these.
@@ -103,6 +104,8 @@ export type PlanView = {
   state: PlanState;
   read_at: string | null;
   source: string | null;
+  // PLA-25: Jorge's screen switch. While on, the percentage, a warning and an unknown reading do not stop a wake.
+  override: boolean;
 };
 
 export async function lastReading(db: Q): Promise<PlanReading | null> {
@@ -110,7 +113,7 @@ export async function lastReading(db: Q): Promise<PlanReading | null> {
   return row ?? null;
 }
 
-export function planView(reading: PlanReading | null, guardPct: number, now: Date): PlanView {
+export function planView(reading: PlanReading | null, guardPct: number, now: Date, override = false): PlanView {
   const base = {
     five_hour_pct: reading?.fiveHourPct ?? null,
     seven_day_pct: reading?.sevenDayPct ?? null,
@@ -120,7 +123,10 @@ export function planView(reading: PlanReading | null, guardPct: number, now: Dat
     status: reading?.status ?? null,
     read_at: reading?.at.toISOString() ?? null,
     source: reading?.source ?? null,
+    override,
   };
+  // PLA-25: with the switch on only a real "rejected" stops (the run would fail anyway).
+  if (override) return { ...base, state: reading?.status === "rejected" ? "stopped" : "ok" };
   if (!reading) return { ...base, state: "unknown" };
   const stale =
     now.getTime() - reading.at.getTime() > READING_TTL_MS ||

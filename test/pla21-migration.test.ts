@@ -12,9 +12,10 @@ import * as schema from "../src/db/schema.js";
 
 const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
-test("the journal ends with 0043_remove_token_budgets and the schema has no budget left", () => {
+test("the journal holds 0043_remove_token_budgets and the schema has no budget left", () => {
   const journal = JSON.parse(readFileSync(path.join(dir, "meta/_journal.json"), "utf8")) as { entries: { idx: number; tag: string }[] };
-  assert.equal(journal.entries.at(-1)!.tag, "0043_remove_token_budgets");
+  // PLA-25 added 0044 after it; the journal must stay in order with no gaps.
+  assert.ok(journal.entries.some((e) => e.tag === "0043_remove_token_budgets"));
   assert.equal(journal.entries.at(-1)!.idx, journal.entries.length - 1);
   assert.equal("tokenBudgets" in schema, false);
   assert.equal(getTableConfig(schema.runnerSettings).columns.some((c) => c.name === "asistente_weekly_limit"), false);

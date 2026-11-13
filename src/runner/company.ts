@@ -25,7 +25,7 @@ export type RunView = {
 
 export type CompanyState = {
   company: { paused: boolean; paused_at: string | null };
-  settings: { max_concurrent: number; cooldown_minutes: number; plan_guard_pct: number; reserve_tokens: number; max_turns: number; timeout_minutes: number };
+  settings: { max_concurrent: number; cooldown_minutes: number; plan_guard_pct: number; guard_override: boolean; reserve_tokens: number; max_turns: number; timeout_minutes: number };
   week: { starts_at: string; resets_at: string; timezone: string };
   projects: { slug: string; title: string; paused: boolean; paused_at: string | null; usage: WeekUsage }[];
   runs: { live: RunView[]; queued: RunView[] };
@@ -87,6 +87,7 @@ export async function companyState(db: Db, now = new Date()): Promise<CompanySta
       max_concurrent: settings.maxConcurrent,
       cooldown_minutes: settings.cooldownMinutes,
       plan_guard_pct: settings.planGuardPct,
+      guard_override: settings.guardOverride,
       reserve_tokens: settings.reserveTokens,
       max_turns: settings.maxTurns,
       timeout_minutes: settings.timeoutMinutes,
@@ -94,7 +95,7 @@ export async function companyState(db: Db, now = new Date()): Promise<CompanySta
     week: { starts_at: startsAt.toISOString(), resets_at: resetsAt.toISOString(), timezone: tz },
     projects: projectsOut,
     runs: { live: runRows.filter((r) => r.status === "running").map(view), queued: runRows.filter((r) => r.status === "queued").map(view) },
-    plan: planView(await lastReading(db), settings.planGuardPct, now),
+    plan: planView(await lastReading(db), settings.planGuardPct, now, settings.guardOverride),
     brief: await latestBrief(db),
   };
 }
@@ -129,6 +130,7 @@ export type SettingsPatch = Partial<{
   max_concurrent: number;
   cooldown_minutes: number;
   plan_guard_pct: number;
+  guard_override: boolean;
   reserve_tokens: number;
   max_turns: number;
   timeout_minutes: number;
@@ -140,6 +142,7 @@ export async function setRunnerSettings(db: Db, patch: SettingsPatch): Promise<C
   if (patch.max_concurrent !== undefined) set.maxConcurrent = patch.max_concurrent;
   if (patch.cooldown_minutes !== undefined) set.cooldownMinutes = patch.cooldown_minutes;
   if (patch.plan_guard_pct !== undefined) set.planGuardPct = patch.plan_guard_pct;
+  if (patch.guard_override !== undefined) set.guardOverride = patch.guard_override;
   if (patch.reserve_tokens !== undefined) set.reserveTokens = patch.reserve_tokens;
   if (patch.max_turns !== undefined) set.maxTurns = patch.max_turns;
   if (patch.timeout_minutes !== undefined) set.timeoutMinutes = patch.timeout_minutes;
@@ -149,6 +152,7 @@ export async function setRunnerSettings(db: Db, patch: SettingsPatch): Promise<C
     max_concurrent: s.maxConcurrent,
     cooldown_minutes: s.cooldownMinutes,
     plan_guard_pct: s.planGuardPct,
+    guard_override: s.guardOverride,
     reserve_tokens: s.reserveTokens,
     max_turns: s.maxTurns,
     timeout_minutes: s.timeoutMinutes,
