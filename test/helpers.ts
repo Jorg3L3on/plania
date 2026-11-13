@@ -6,7 +6,12 @@ import path from "node:path";
 import pg from "pg";
 import { resetPool } from "../src/db/client.js";
 
-const ADMIN_URL = `postgres://${userInfo().username}@localhost:5432/postgres`;
+// Where the test databases live. PLANIA_TEST_PG names the server and role, without a database:
+// postgres://postgres@127.0.0.1:5432. The default is Homebrew's: the OS user on localhost, no password.
+const PG_BASE = (process.env.PLANIA_TEST_PG || `postgres://${encodeURIComponent(userInfo().username)}@localhost:5432`).replace(/\/+$/, "");
+export const pgUrl = (database: string): string => `${PG_BASE}/${database}`;
+
+const ADMIN_URL = pgUrl("postgres");
 
 // One database per checkout: the suffix is a stable hash of this repo's absolute root,
 // so worktrees running `pnpm test` at the same time never drop each other's database.
@@ -16,7 +21,7 @@ const TEST_DB = `plania_test_${createHash("sha256").update(REPO_ROOT).digest("he
 // Guard: resetTestDb drops TEST_DB, so it must never be anything but a plania_test database.
 if (!/^plania_test_[0-9a-f]{6}$/.test(TEST_DB)) throw new Error(`refusing to use test database ${TEST_DB}`);
 
-export const TEST_DATABASE_URL = `postgres://${userInfo().username}@localhost:5432/${TEST_DB}`;
+export const TEST_DATABASE_URL = pgUrl(TEST_DB);
 export const TEST_BEARER = "test-token";
 export const TEST_READ_TOKEN = "test-read-token";
 export const TEST_CI_TOKEN = "test-ci-token";

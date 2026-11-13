@@ -3,13 +3,13 @@
 // the old roster is rebuilt with fake rows, then 0040 and seedOrg run the way Jorge's deploy runs them.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { userInfo } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "../src/db/schema.js";
 import { ORG, seedOrg } from "../scripts/seed-org.js";
+import { pgUrl } from "./helpers.js";
 
 const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
@@ -49,8 +49,8 @@ const OLD_ROSTER: [slug: string, name: string, role: string, title: string, kind
 
 test("0040 applies twice on a throwaway copy, then the seed leaves only the real roles", async () => {
   const name = "plania_mig_0040";
-  const adminUrl = `postgres://${userInfo().username}@localhost:5432/postgres`;
-  const url = `postgres://${userInfo().username}@localhost:5432/${name}`;
+  const adminUrl = pgUrl("postgres");
+  const url = pgUrl(name);
   const sql0040 = readFileSync(path.join(dir, "0040_roster_no_cursor.sql"), "utf8");
   const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();

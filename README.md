@@ -183,6 +183,10 @@ pnpm test    # MCP, API, live-event, hooks, seed and backup tests; rebuilds this
 Port 3737 avoids the 3000 that product repos use. The server only listens on 127.0.0.1.
 In dev, Vite proxies `/api` and `/mcp` to the dev API on 3738, so the service on 3737 keeps running.
 
+Tests connect to Postgres on `localhost:5432` as the OS user with no password, which is Homebrew's default.
+For any other server or role, set `PLANIA_TEST_PG` to its URL without a database, for example
+`PLANIA_TEST_PG=postgres://postgres@127.0.0.1:5432`. The role must be allowed to create and drop databases.
+
 Each checkout and worktree gets its own test database, `plania_test_` plus a six-character hash of the repo's absolute path,
 so test runs in different worktrees can run at the same time. Tests only ever drop databases named `plania_test_*`, never `plania`.
 Databases from deleted worktrees stay behind. To list and remove them:

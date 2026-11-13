@@ -2,13 +2,12 @@
 // without one, and old gate rows stay readable. Human-only questions are still a screen click.
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { userInfo } from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import pg from "pg";
-import { resetTestDb, TEST_BEARER, useTestEnv } from "./helpers.js";
+import { pgUrl, resetTestDb, TEST_BEARER, useTestEnv } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -67,13 +66,13 @@ const migrationsDir = path.resolve(import.meta.dirname, "../drizzle/migrations")
 // Historical SQL still names the letter column. Apply it on a private database that stops
 // before that file, never on the shared test database (0032 has already dropped the column).
 async function withPartialDb(name: string, beforeFile: string, run: (db: pg.Client) => Promise<void>) {
-  const adminUrl = `postgres://${userInfo().username}@localhost:5432/postgres`;
+  const adminUrl = pgUrl("postgres");
   const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();
   await admin.query(`drop database if exists ${name} with (force)`);
   await admin.query(`create database ${name}`);
   await admin.end();
-  const db = new pg.Client({ connectionString: `postgres://${userInfo().username}@localhost:5432/${name}` });
+  const db = new pg.Client({ connectionString: pgUrl(name) });
   await db.connect();
   try {
     const files = readdirSync(migrationsDir).filter((f) => f.endsWith(".sql") && f < beforeFile).sort();

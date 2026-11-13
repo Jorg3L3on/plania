@@ -3,12 +3,12 @@
 // 0041 runs, a fake roster and two projects go in, then 0041 runs twice.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { userInfo } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import pg from "pg";
 import { agents, runnerSettings, threadMessages, threads } from "../src/db/schema.js";
+import { pgUrl } from "./helpers.js";
 
 const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
@@ -43,8 +43,8 @@ test("schema.ts exposes project_id, role_template, threads and thread_messages w
 
 test("0041 applies twice on a throwaway copy; threads exist for the company and every project", async () => {
   const name = "plania_mig_0041";
-  const adminUrl = `postgres://${userInfo().username}@localhost:5432/postgres`;
-  const url = `postgres://${userInfo().username}@localhost:5432/${name}`;
+  const adminUrl = pgUrl("postgres");
+  const url = pgUrl(name);
   const sql0041 = readFileSync(path.join(dir, "0041_company_org.sql"), "utf8");
   const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();

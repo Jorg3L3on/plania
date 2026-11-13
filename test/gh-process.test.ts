@@ -43,6 +43,9 @@ async function waitGone(pid: number) {
 
 afterEach(() => resetTokenFileCache());
 
+// These tests put a shell script named gh on PATH. Windows cannot run one as a program.
+const shGh = { skip: process.platform === "win32" ? "the fake gh is a POSIX shell script" : false };
+
 describe("runInGroup", () => {
   test("timeout kills the process group, including a sleeping grandchild", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "plania-grp-"));
@@ -123,7 +126,7 @@ describe("release-ship gh", () => {
     }
   });
 
-  test("GH_TOKEN from the file reaches gh as match or no-match, release file first", async () => {
+  test("GH_TOKEN from the file reaches gh as match or no-match, release file first", shGh, async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "plania-gh-"));
     const bin = path.join(dir, "gh");
     writeFileSync(
@@ -173,7 +176,7 @@ fi
     }
   });
 
-  test("a 403 from gh names the missing write access and not the token", async () => {
+  test("a 403 from gh names the missing write access and not the token", shGh, async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "plania-403-"));
     const bin = path.join(dir, "gh");
     writeFileSync(bin, "#!/bin/sh\necho 'HTTP 403' >&2\nexit 1\n", { mode: 0o755 });
@@ -197,7 +200,7 @@ fi
     }
   });
 
-  test("a hanging gh is killed with its grandchild", async () => {
+  test("a hanging gh is killed with its grandchild", shGh, async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "plania-hang-"));
     const bin = path.join(dir, "gh");
     writeFileSync(
@@ -238,7 +241,7 @@ wait
     }
   });
 
-  test("fallback on spawns gh without a file token", async () => {
+  test("fallback on spawns gh without a file token", shGh, async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "plania-fb-"));
     const bin = path.join(dir, "gh");
     writeFileSync(bin, "#!/bin/sh\nif [ -n \"$GH_TOKEN\" ]; then echo has-token; else echo spawned; fi\n", { mode: 0o755 });
