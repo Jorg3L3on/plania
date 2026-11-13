@@ -4,12 +4,12 @@
 //   pnpm rekey --project filmia --apply    # writes it, in one transaction
 // Counters are reseeded from the new keys and the aliases, so no number is handed out twice.
 import { parseArgs } from "node:util";
-import { asc, eq, sql } from "drizzle-orm";
 import { withDb, type Db } from "../src/db/client.js";
-import { keyCounters, tasks, type Task } from "../src/db/schema.js";
+import type { Task } from "../src/db/schema.js";
 import { addAlias, prefixOf } from "../src/mcp/keys.js";
 import { findProject } from "../src/mcp/queries.js";
 import { writeTx, type Ctx } from "../src/mcp/tx.js";
+import { readerOf, uowOf } from "../src/store/pg.js";
 
 export const REKEY_ACTOR = { agent: "plania", session_id: "rekey" };
 
@@ -47,24 +47,24 @@ export function planRekey(prefix: string, all: Task[]): Rename[] {
 
 export async function rekeyProject(db: Db, slug: string, apply: boolean): Promise<Rename[]> {
   const p = await findProject(db, slug);
-  const all = await db.select().from(tasks).where(eq(tasks.projectId, p.id)).orderBy(asc(tasks.key));
+  // Postgres sorts the keys (text order), as before.
+  const all = await readerOf(db).find("tasks", { projectId: p.id }, { orderBy: [{ column: "key" }] });
   const renames = planRekey(prefixOf(p), all);
   if (!apply || !renames.length) return renames;
   const ctx: Ctx = { actor: REKEY_ACTOR, tool: "rekey", requestId: `rekey-v3:${slug}` };
   await writeTx(db, p, ctx, async (tx, emit) => {
+    const uow = uowOf(tx);
     const byKey = new Map(all.map((t) => [t.key, t]));
     for (const r of renames) {
       const t = byKey.get(r.from)!;
-      const [u] = (await tx
-        .update(tasks)
-        .set({ key: r.to, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
-        .where(eq(tasks.id, t.id))
-        .returning()) as [Task];
+      // The version moves by one from what the row holds inside this write, whatever the plan read before it.
+      const current = await uow.get("tasks", { id: t.id });
+      const [u] = current ? await uow.update("tasks", { id: t.id }, { key: r.to, version: current.version + 1, updatedAt: uow.now }) : [];
       await addAlias(tx, p.id, t.id, r.from);
-      await emit("task.rekeyed", u, { from: r.from, to: r.to, reason: "migration" });
+      await emit("task.rekeyed", u as Task, { from: r.from, to: r.to, reason: "migration" });
     }
     // Counters reseed lazily from the keys and aliases now in place.
-    await tx.delete(keyCounters).where(eq(keyCounters.projectId, p.id));
+    await uow.delete("keyCounters", { projectId: p.id });
     return renames;
   });
   return renames;

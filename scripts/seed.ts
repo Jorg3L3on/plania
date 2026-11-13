@@ -6,11 +6,12 @@
 // - v2 has no hand-written resume card. The handoff's must_keep_decision becomes a pinned project
 //   decision, added once (a rerun finds it by text and leaves it alone).
 // - rules_text and design docs are not in the handoff seed and are left untouched.
+import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { and, eq, sql } from "drizzle-orm";
 import { withDb, type Db } from "../src/db/client.js";
-import { decisions, projects, type Actor } from "../src/db/schema.js";
+import type { Actor } from "../src/db/schema.js";
 import { writeTx } from "../src/mcp/tx.js";
+import { pgStore, readerOf, uowOf } from "../src/store/pg.js";
 
 type Seed = { slug: string; title: string; prefix: string; body: string; must_keep: string };
 
@@ -51,17 +52,23 @@ export const SEED: Seed[] = [
 export async function seedProjects(db: Db): Promise<{ slug: string; pinned: boolean }[]> {
   const out: { slug: string; pinned: boolean }[] = [];
   for (const s of SEED) {
-    const [p] = await db
-      .insert(projects)
-      .values({ slug: s.slug, title: s.title, body: s.body, keyPrefix: s.prefix })
+    // A new project's id is chosen here, so the write that inserts it is already that project's.
+    const id = (await readerOf(db).get("projects", { slug: s.slug }))?.id ?? randomUUID();
+    // p is the row this run inserted or rewrote; undefined when the project's text is no longer the seed's.
+    const p = await pgStore(db).write(id, {}, async (uow) => {
+      const row = await uow.get("projects", { slug: s.slug });
+      if (!row) return uow.insert("projects", { id, slug: s.slug, title: s.title, body: s.body, keyPrefix: s.prefix });
       // Once set_project edited the project (version > 1), its text belongs to the project, not the seed.
-      .onConflictDoUpdate({
-        target: projects.slug,
-        set: { title: s.title, body: s.body, keyPrefix: s.prefix, updatedAt: sql`now()` },
-        setWhere: sql`${projects.version} = 1`,
-      })
-      .returning();
-    const project = p ?? (await db.select().from(projects).where(eq(projects.slug, s.slug)))[0]!;
+      // The version stays in the condition so the rewrite only lands on a row still at version 1.
+      if (row.version !== 1) return undefined;
+      const [rewritten] = await uow.update(
+        "projects",
+        { id: row.id, version: 1 },
+        { title: s.title, body: s.body, keyPrefix: s.prefix, updatedAt: uow.now },
+      );
+      return rewritten;
+    });
+    const project = p ?? (await readerOf(db).get("projects", { slug: s.slug }))!;
     // 2.7: a row this run inserted (version 1, created just now) tells the feed the project exists.
     if (p && p.version === 1 && Date.now() - p.createdAt.getTime() < 60_000) {
       await writeTx(db, project, { actor: SEED_ACTOR, requestId: `project-created:${project.slug}`, tool: "seed" }, async (_tx, emit) => {
@@ -69,17 +76,11 @@ export async function seedProjects(db: Db): Promise<{ slug: string; pinned: bool
       });
     }
     const pinned = await writeTx(db, project, { actor: SEED_ACTOR }, async (tx, emit) => {
-      const [existing] = await tx
-        .select({ id: decisions.id })
-        .from(decisions)
-        .where(and(eq(decisions.projectId, project.id), eq(decisions.line, s.must_keep)))
-        .limit(1);
+      const uow = uowOf(tx);
+      const existing = await uow.get("decisions", { projectId: project.id, line: s.must_keep });
       if (existing || !s.must_keep) return false;
-      const [d] = await tx
-        .insert(decisions)
-        .values({ projectId: project.id, line: s.must_keep, pinned: true, actor: SEED_ACTOR })
-        .returning();
-      await emit("decision.added", null, { decision_id: d!.id, text: d!.line, pinned: true });
+      const d = await uow.insert("decisions", { projectId: project.id, line: s.must_keep, pinned: true, actor: SEED_ACTOR });
+      await emit("decision.added", null, { decision_id: d.id, text: d.line, pinned: true });
       return true;
     });
     out.push({ slug: s.slug, pinned });

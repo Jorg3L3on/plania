@@ -1,12 +1,13 @@
 // Usage: pnpm project:add <slug> --title <Title> --prefix <PFX> [--repo owner/name] [--path /abs/repo]
 // Registers a project (2.7). Project creation stays Jorge's: no MCP tool does this. Safe to rerun:
 // an existing slug only gets its settings filled where empty. Emits project.created once.
+import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
-import { eq } from "drizzle-orm";
 import { withDb, type Db } from "../src/db/client.js";
-import { projects, type ProjectSettings } from "../src/db/schema.js";
+import type { ProjectSettings } from "../src/db/schema.js";
 import { writeTx, type Ctx } from "../src/mcp/tx.js";
+import { pgStore, readerOf } from "../src/store/pg.js";
 
 const ACTOR = { agent: "jorge-cli", session_id: "register-project" };
 
@@ -19,18 +20,20 @@ export async function registerProject(db: Db, input: RegisterInput): Promise<{ c
     ...(input.repo ? { github: { repo: input.repo } } : {}),
     ...(input.path ? { local: { repo_path: input.path } } : {}),
   };
-  const [existing] = await db.select().from(projects).where(eq(projects.slug, input.slug)).limit(1);
+  const existing = await readerOf(db).get("projects", { slug: input.slug });
   if (existing) {
     const merged: ProjectSettings = { ...settings, ...existing.settings };
-    await db.update(projects).set({ settings: merged }).where(eq(projects.id, existing.id));
+    await pgStore(db).write(existing.id, {}, (uow) => uow.update("projects", { id: existing.id }, { settings: merged }));
     return { created: false, slug: existing.slug };
   }
-  const [p] = await db.insert(projects).values({ slug: input.slug, title: input.title, keyPrefix: input.prefix, settings }).returning();
-  const ctx: Ctx = { actor: ACTOR, requestId: `project-created:${p!.slug}`, tool: "register-project" };
-  await writeTx(db, p!, ctx, async (_tx, emit) => {
-    await emit("project.created", null, { slug: p!.slug, title: p!.title, key_prefix: p!.keyPrefix });
+  // The new project's id is chosen here, so the write that inserts it is already that project's.
+  const id = randomUUID();
+  const p = await pgStore(db).write(id, {}, (uow) => uow.insert("projects", { id, slug: input.slug, title: input.title, keyPrefix: input.prefix, settings }));
+  const ctx: Ctx = { actor: ACTOR, requestId: `project-created:${p.slug}`, tool: "register-project" };
+  await writeTx(db, p, ctx, async (_tx, emit) => {
+    await emit("project.created", null, { slug: p.slug, title: p.title, key_prefix: p.keyPrefix });
   });
-  return { created: true, slug: p!.slug };
+  return { created: true, slug: p.slug };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
