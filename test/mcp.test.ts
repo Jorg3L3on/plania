@@ -1199,6 +1199,9 @@ describe("v2 D1: reading in fewer calls", () => {
     assert.deepEqual(await keys({ search: "100%_" }), []);
     const now = new Date().toISOString();
     assert.deepEqual(await keys({ updated_since: now }), []);
+    // updated_since is exclusive and times are kept to the millisecond: on a store fast enough to answer
+    // within the same millisecond (devva reads from memory), the write below would carry exactly `now`.
+    await new Promise((r) => setTimeout(r, 2));
     await call("set_task", { ...P, key: "FIL-09-F1", note: "touched", version: "none" });
     assert.deepEqual(await keys({ updated_since: now }), ["FIL-09-F1"]);
     assert.deepEqual(await keys({ work_type: "ops", parent_key: "FIL-09" }), []);
