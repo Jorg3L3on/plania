@@ -56,6 +56,15 @@ serve({ fetch: server.fetch, port, hostname }, () => console.log(`plania on http
 // Background jobs (lease warnings, legacy card archiving, later the pollers). PLANIA_JOBS=0 turns them off.
 if (process.env.PLANIA_JOBS !== "0") startJobs();
 
+// Devva as a shadow of Postgres (deploy/devva/README.md). An unreachable engine is logged; the server runs on.
+if (process.env.PLANIA_SHADOW === "devva") {
+  const { Shadow } = await import("../src/store/shadow.js");
+  const { makeDb } = await import("../src/db/client.js");
+  void Shadow.start(makeDb().db, { prefix: process.env.PLANIA_DEVVA_PREFIX || "plania" })
+    .then((s) => console.log(`[shadow] devva on, ${s.devva.commits} commits in its log`))
+    .catch((e) => console.log(`[shadow] off: ${e instanceof Error ? e.message : String(e)}`));
+}
+
 // PLA-I29-2: runs left "running" by an earlier server are stopped and closed (fail: orphaned).
 if (process.env.PLANIA_JOBS !== "0") {
   void withDb((db) => sweepOrphans(db))
