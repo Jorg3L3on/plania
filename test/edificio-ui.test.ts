@@ -594,110 +594,21 @@ test("I39-7 #4: no 360 px column and no folded Asistente remain on the page", ()
   assert.equal(page.includes("360px") || page.includes("AsistenteFolded") || page.includes("lg:grid-cols"), false);
 });
 
-// ---- PLA-I39-8
+// ---- PLA-22: the clock is gone (Jorge: "Remove this"). The building always shows now.
 
-const clock = await load("components/compania/edificio/clock.tsx");
-const H = (patch: Json = {}): Json => ({
-  from: "2026-11-09T22:00:00.000Z",
-  to: "2026-11-10T18:00:00.000Z",
-  projects: [
-    {
-      slug: "workia",
-      runs: [
-        { agent: "taller-workia", role: "taller", ticket: "WRK-3", title: "Pantalla del carrito", from: "2026-11-10T10:00:00.000Z", to: "2026-11-10T12:00:00.000Z", status: "ok" },
-        { agent: "product-owner-workia", role: "product-owner", ticket: null, title: null, from: "2026-11-10T17:30:00.000Z", to: null, status: "running" },
-      ],
-      events: [
-        { at: "2026-11-10T02:00:00.000Z", kind: "ordered", role: "jorge", title: "Una tienda de prueba" },
-        { at: "2026-11-10T12:00:00.000Z", kind: "delivered", role: "taller", title: "Pantalla del carrito" },
-        { at: "2026-11-10T15:00:00.000Z", kind: "asked", role: "research", title: "¿Qué tienda?" },
-      ],
-    },
-  ],
-  ...patch,
-});
-const T = (iso: string) => Date.parse(iso);
-
-test("I39-8 #1: at a past time a window is lit exactly when a run of that teammate covers it, first and last minute included", () => {
-  const hist = H();
-  assert.equal(lib.litAt(hist, "workia", "taller-workia", T("2026-11-10T09:59:59Z")), false);
-  assert.equal(lib.litAt(hist, "workia", "taller-workia", T("2026-11-10T10:00:00Z")), true);
-  assert.equal(lib.litAt(hist, "workia", "taller-workia", T("2026-11-10T10:00:59Z")), true);
-  assert.equal(lib.litAt(hist, "workia", "taller-workia", T("2026-11-10T11:59:00Z")), true);
-  assert.equal(lib.litAt(hist, "workia", "taller-workia", T("2026-11-10T12:00:00Z")), true);
-  assert.equal(lib.litAt(hist, "workia", "taller-workia", T("2026-11-10T12:00:01Z")), false);
-  // A live run reaches now.
-  assert.equal(lib.litAt(hist, "workia", "product-owner-workia", T("2026-11-10T17:59:00Z")), true);
-  assert.equal(lib.litAt(hist, "workia", "research-workia", T("2026-11-10T11:00:00Z")), false);
-  assert.equal(lib.litAt(hist, "otro", "taller-workia", T("2026-11-10T11:00:00Z")), false);
-  // On the building: at 11:00 only Taller is lit, with what it was on; the rest are dark.
-  const out = render(company({ projects: [project({ team: [member("product-owner", { state: "running" }), member("taller")] })] }), { past: { at: T("2026-11-10T11:00:00Z"), history: hist } });
-  assert.match(out, /data-state="work" data-agent="taller-workia"/);
-  assert.match(out, /data-state="idle" data-agent="product-owner-workia"/);
-  assert.ok(out.includes("Pantalla del carrito") && out.includes('data-mode="past"'));
-  clean(out);
-});
-
-test("I39-8 #2: marks sit at their event times, and the arrow keys move to the previous and next event", () => {
-  const hist = H();
-  const marks = lib.marksOf(hist);
-  assert.deepEqual(marks.map((m: Json) => [m.kind, Math.round(m.pct * 10) / 10]), [["ordered", 20], ["delivered", 70], ["asked", 85]]);
-  assert.equal(lib.stepEvent(marks, T("2026-11-10T11:00:00Z"), 1), T("2026-11-10T12:00:00Z"));
-  assert.equal(lib.stepEvent(marks, T("2026-11-10T12:00:00Z"), -1), T("2026-11-10T02:00:00Z"));
-  assert.equal(lib.stepEvent(marks, T("2026-11-10T16:00:00Z"), 1), null);
-  const out = html(h(clock.ClockBar, { history: hist, at: null, onAt: noop, onPlay: noop, onNow: noop }));
-  assert.ok(out.includes('style="left:20%"') && out.includes('style="left:70%"') && out.includes('style="left:85%"'));
-  const moved: number[] = [];
-  let nowed = 0;
-  const bar = (at: number | null) => expand(h(clock.ClockBar, { history: hist, at, onAt: (t: number) => moved.push(t), onPlay: noop, onNow: () => nowed++ }));
-  const key = (at: number | null, k: string) => findAll(bar(at), (el) => el.props?.["data-control"] === "reloj")[0]!.props.onKeyDown({ key: k, preventDefault: noop });
-  key(T("2026-11-10T11:00:00Z"), "ArrowRight");
-  key(T("2026-11-10T11:00:00Z"), "ArrowLeft");
-  key(null, "ArrowLeft");
-  key(T("2026-11-10T16:00:00Z"), "ArrowRight");
-  assert.deepEqual(moved, [T("2026-11-10T12:00:00Z"), T("2026-11-10T02:00:00Z"), T("2026-11-10T15:00:00Z")]);
-  assert.equal(nowed, 1, "past the last event the arrow goes back to now");
-});
-
-test("I39-8 #3: in the past every action is disabled, and Volver a ahora restores the live view", () => {
-  const hist = H();
-  const ds = [decision()];
-  const askFor = (p: Json) => h_ask(p, true);
-  const out = render(company({ decisions: ds }), { acts: acts(), past: { at: T("2026-11-10T11:00:00Z"), history: hist }, onNow: noop, askFor });
-  assert.ok(/data-bubble="q-[^"]+"[^>]*inert=""/.test(out), "the question is inert");
-  assert.ok(out.includes("Estás viendo las") && out.includes('data-control="volver"'));
-  assert.ok(/<input[^>]*type="text"[^>]*disabled=""/.test(out) && /data-control="pedir"[^>]*disabled=""|disabled=""[^>]*data-control="pedir"/.test(out));
-  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  assert.ok(css.includes('.edi[data-mode="past"] .edi-ask') && css.includes("pointer-events: none"));
-  const live = render(company({ decisions: ds }), { acts: acts() });
-  assert.equal(/inert=""/.test(live) || live.includes("Estás viendo las"), false);
-  let back = 0;
-  const [btn] = control(expand(h(clock.ClockBar, { history: hist, at: T("2026-11-10T11:00:00Z"), onAt: noop, onPlay: noop, onNow: () => back++ })), "volver-a-ahora");
-  btn!.props.onClick();
-  control(tree(company(), { past: { at: T("2026-11-10T11:00:00Z"), history: hist }, onNow: () => back++ }), "volver")[0]!.props.onClick();
-  assert.equal(back, 2);
-  assert.equal(html(h(clock.ClockBar, { history: hist, at: null, onAt: noop, onPlay: noop, onNow: noop })).includes("volver-a-ahora"), false);
+test("PLA-22: no clock bar, no past mode, no history route", async () => {
+  const { existsSync } = await import("node:fs");
+  assert.equal(existsSync(new URL("../ui/src/components/compania/edificio/clock.tsx", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../src/api/company-history.ts", import.meta.url)), false);
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("disabled={company.company.paused || past != null}") && page.includes("setViewAt(null)"));
-});
-const h_ask = (p: Json, disabled: boolean) => h(ask.AskView, { project: p, text: "", setText: noop, now: false, setNow: noop, onSubmit: noop, disabled });
-
-test("I39-8 #4: the bar cannot be dragged past now", () => {
-  const hist = H();
-  const to = T(hist.to);
-  assert.equal(lib.timeAt(lib.RANGE + 500, hist), to);
-  assert.equal(lib.timeAt(lib.RANGE, hist), to);
-  assert.equal(lib.clampTime(to + 3_600_000, hist), to);
-  assert.equal(lib.clampTime(T(hist.from) - 1, hist), T(hist.from));
-  assert.equal(lib.valueAt(to + 3_600_000, hist), lib.RANGE);
-  const seen: (number | string)[] = [];
-  const range = (at: number | null) => findAll(expand(h(clock.ClockBar, { history: hist, at, onAt: (t: number) => seen.push(t), onPlay: noop, onNow: () => seen.push("now") })), (el) => el.props?.["data-control"] === "reloj")[0]!;
-  const r = range(null);
-  assert.equal(r.props.max, lib.RANGE);
-  r.props.onChange({ target: { value: String(lib.RANGE) } });
-  r.props.onChange({ target: { value: "500" } });
-  assert.deepEqual(seen, ["now", T(hist.from) + (to - T(hist.from)) / 2]);
-  assert.ok(seen.every((x) => x === "now" || (x as number) <= to));
+  assert.equal(/ClockBar|companyHistory|setViewAt|Ver qué pasó/.test(page), false);
+  const out = render(company(), { acts: acts(), onOpen: noop });
+  assert.equal(/data-clock|data-mode="past"|Volver a ahora|Mirando atrás|data-past/.test(out), false);
+  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
+  assert.equal(/\.edi-clock|\.edi-scrub|data-mode="past"/.test(css), false);
+  const routes = readFileSync(new URL("../src/api/company.ts", import.meta.url), "utf8");
+  assert.equal(routes.includes('"/history"'), false);
+  for (const k of ["litAt", "marksOf", "stepEvent", "timeAt", "valueAt", "clampTime", "runAt"]) assert.equal(k in lib, false, k);
 });
 
 // ---- PLA-I39-9
@@ -757,11 +668,11 @@ test("I39-9 #3: caption, plate and question text on the night panel reach 4.5:1"
   console.log(`edificio contrast: worst ${worst.toFixed(2)}:1 over ${pairs.length} pairs`);
 });
 
-test("I39-9 live: the sky quotes Asistente only from a run that finished ok; the button keeps clear of the clock on a phone", () => {
+test("I39-9 live: the sky quotes Asistente only from a run that finished ok; the button sits above the tab bar on a phone", () => {
   const skipped = render(company({ asistente: { ...company().asistente, last_run: { status: "skipped", at: "2026-11-10T17:00:00Z", summary: "skipped: BUDGET/STOPPED asistente at 177%" } } }));
   assert.equal(skipped.includes("BUDGET") || skipped.includes("data-asistente-line"), false);
   assert.ok(render(company()).includes("Resumen: Workia avanza."));
   const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  // The clock is 76 px tall on a phone; the button sits 88 px above its bottom edge, so 12 px apart.
-  assert.ok(css.includes(".edi-fab { bottom: calc(4.5rem + 8px + 88px + env(safe-area-inset-bottom, 0px)); }"));
+  // PLA-22: no clock under it any more; on a phone the button sits just above the tab bar.
+  assert.ok(css.includes(".edi-fab { bottom: calc(4.5rem + 14px + env(safe-area-inset-bottom, 0px));"));
 });

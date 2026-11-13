@@ -5,8 +5,7 @@
 //                its queue, else its last delivery. Never a ticket key, null or money.
 //   floorOrder   the floors: those that need the owner first, then by light; paused ones go to the basement.
 //   skyAt        the sky's colours for an hour; floorHue one of six fixed hues from the slug.
-//   The clock (PLA-I39-8): litAt, marksOf, stepEvent.
-import type { AskResult, Decision, OrgHistory, OrgHistoryEvent, OrgMember, OrgMemberState, OrgProject } from "./api";
+import type { AskResult, Decision, OrgMember, OrgMemberState, OrgProject } from "./api";
 import { byLight, roleName } from "./org";
 import { pending } from "./v2";
 
@@ -179,58 +178,7 @@ export function roofChips(decisions: Decision[], projects: OrgProject[]): { deci
   }));
 }
 
-// ---- the clock (PLA-I39-8)
-
 export const HOUR = 3_600_000;
-// Lit at t when a run of that teammate covers t, the first and last minute included. A live run reaches now.
-export function litAt(history: OrgHistory, project: string, agent: string, t: number, now: number = Date.parse(history.to)): boolean {
-  const p = history.projects.find((x) => x.slug === project);
-  if (!p) return false;
-  return p.runs.some((r) => r.agent === agent && Date.parse(r.from) <= t && t <= (r.to ? Date.parse(r.to) : now));
-}
-export type Mark = {
-  at: number;
-  pct: number;
-  kind: OrgHistoryEvent["kind"];
-  project: string;
-  title: string;
-  role: string;
-};
-export function marksOf(history: OrgHistory): Mark[] {
-  const from = Date.parse(history.from);
-  const span = Math.max(1, Date.parse(history.to) - from);
-  return history.projects
-    .flatMap((p) =>
-      p.events.map((e) => ({
-        at: Date.parse(e.at),
-        kind: e.kind,
-        project: p.slug,
-        title: e.title,
-        role: e.role,
-      })),
-    )
-    .sort((a, b) => a.at - b.at)
-    .map((m) => ({
-      ...m,
-      pct: Math.min(100, Math.max(0, ((m.at - from) / span) * 100)),
-    }));
-}
-// The next (dir 1) or previous (dir -1) event time from t, or null at the ends.
-export function stepEvent(marks: Mark[], t: number, dir: 1 | -1): number | null {
-  if (dir === 1) return marks.find((m) => m.at > t)?.at ?? null;
-  return [...marks].reverse().find((m) => m.at < t)?.at ?? null;
-}
-// The bar never goes past now, nor before the window.
-export const clampTime = (t: number, history: OrgHistory) => Math.min(Date.parse(history.to), Math.max(Date.parse(history.from), t));
-export const lastBefore = (marks: Mark[], t: number): Mark | null => [...marks].reverse().find((m) => m.at <= t) ?? null;
-const EVENT_WORD: Record<OrgHistoryEvent["kind"], string> = {
-  delivered: "entregó",
-  asked: "preguntó",
-  answered: "respondiste",
-  ordered: "pediste",
-};
-export const eventText = (m: Mark) =>
-  m.kind === "answered" || m.kind === "ordered" ? `${EVENT_WORD[m.kind]}: ${m.title}` : `${roleName(m.role)} ${EVENT_WORD[m.kind]}: ${m.title}`;
 
 // ---- the side page (PLA-I39-6)
 
@@ -253,13 +201,3 @@ export function askedLine(r: AskResult, project?: string): string {
   return r.wake === "busy" ? `Le llegó a ${who}; lo toma al terminar lo que corre.` : r.wake === "queued" ? `Le llegó a ${who}; lo toma en su turno.` : `Le llegó a ${who}; lo ve en su próximo turno.`;
 }
 export const RECIBIRIA = "Recibiría tu pedido";
-
-// The run of a teammate that covers t, if any (what it was on at that hour).
-export function runAt(history: OrgHistory, project: string, agent: string, t: number) {
-  const now = Date.parse(history.to);
-  return history.projects.find((x) => x.slug === project)?.runs.find((r) => r.agent === agent && Date.parse(r.from) <= t && t <= (r.to ? Date.parse(r.to) : now)) ?? null;
-}
-// The time a position on the bar (0..1000) stands for, and back. The bar ends at now.
-export const RANGE = 1000;
-export const timeAt = (v: number, history: OrgHistory) => clampTime(Date.parse(history.from) + (Math.min(RANGE, Math.max(0, v)) / RANGE) * (Date.parse(history.to) - Date.parse(history.from)), history);
-export const valueAt = (t: number, history: OrgHistory) => Math.round(((clampTime(t, history) - Date.parse(history.from)) / Math.max(1, Date.parse(history.to) - Date.parse(history.from))) * RANGE);
