@@ -1,8 +1,10 @@
 // PLA-I42-2: the /brief page (spec "Spec: Morning brief" §8, layout items 1–3 and 5, Behavior): header, summary with
 // filters, Needs you and Up next, footer, empty states, and the cached brief with "Couldn't refresh" when the API
-// fails. Today's ideas (item 4) and the send bar (item 6) come in PLA-I42-3; the settings sheet in PLA-I42-4.
+// fails. PLA-I42-3 adds Today's ideas (item 4) and the floating send bar (item 6); the settings sheet comes in PLA-I42-4.
 // Labels follow the brief's language (D5).
 import { useState } from "react";
+import { BriefIdeas } from "@/components/brief/brief-ideas";
+import { BriefSendBar } from "@/components/brief/brief-send-bar";
 import { BriefFooter } from "@/components/brief/brief-footer";
 import { BriefHeader } from "@/components/brief/brief-header";
 import { BriefSection, EmptyRow, NeedsRow, NextRow } from "@/components/brief/brief-items";
@@ -14,6 +16,8 @@ import {
   type BriefView,
   NEEDS,
   UP_NEXT,
+  ideaGroups,
+  replyText,
   sectionItems,
   useBriefByDate,
   useBriefCheck,
@@ -34,6 +38,7 @@ export function BriefPage() {
   const [date, setDate] = useState<string | null>(null);
   const [view, setView] = useState<BriefView>("open");
   const [app, setApp] = useState<string | null>(null);
+  const [picked, setPicked] = useState<{ brief: string | null; ids: Set<string> }>({ brief: null, ids: new Set() });
   const past = useBriefByDate(date);
 
   const shown = date ? past.data : latest.data;
@@ -56,7 +61,18 @@ export function BriefPage() {
   const refreshFailed = !date && latest.isError && !!latest.data;
 
   const appOf = (id: string) => data?.apps.find((a) => a.id === id);
+  // Selection belongs to the brief on screen; a checked (hidden) idea leaves it.
+  const selected = new Set(picked.brief === (stored?.id ?? null) ? [...picked.ids].filter((id) => !checks.includes(id) && data?.ideas.some((i) => i.id === id)) : []);
+  const briefId = stored?.id ?? null;
+  const onSelect = (id: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev.brief === briefId ? prev.ids : []);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return { brief: briefId, ids: next };
+    });
   const onCheck = (id: string, checked: boolean) => check.mutate({ id, checked });
+  const groups = data ? ideaGroups(data, { app: appFilter, view, checks }) : [];
   const needs = data ? sectionItems(data.items, NEEDS, { app: appFilter, view, checks }) : [];
   const next = data ? sectionItems(data.items, UP_NEXT, { app: appFilter, view, checks }) : [];
   const isChecked = new Set(checks);
@@ -121,7 +137,11 @@ export function BriefPage() {
             </BriefSection>
           </div>
 
+          <BriefIdeas groups={groups} checks={checks} selected={selected} readOnly={readOnly} onCheck={onCheck} onSelect={onSelect} language={language} />
+
           <BriefFooter data={data} stamp={stamp} language={language} />
+
+          <BriefSendBar count={selected.size} reply={replyText(data, selected)} onClear={() => setPicked({ brief: briefId, ids: new Set() })} language={language} />
         </>
       )}
     </div>

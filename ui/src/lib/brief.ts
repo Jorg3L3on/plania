@@ -258,7 +258,7 @@ export function openPerApp(data: BriefData, checks: string[]): { app: BriefApp; 
 /** Only http(s) links are rendered (the server already drops others; this is the second fence). */
 export const safeUrl = (url: string | undefined): string | null => (url && /^https?:\/\//i.test(url) ? url : null);
 
-// Collapse state per device (spec §8): {"needs": true} means collapsed. PLA-I42-3 adds "ideas:<app>" keys.
+// Collapse state per device (spec §8): {"needs": true} means collapsed; idea groups use "ideas:<app>" keys.
 export const COLLAPSED_KEY = "plania.brief.collapsed";
 
 export function readCollapsed(): Record<string, boolean> {
@@ -280,3 +280,43 @@ export function writeCollapsed(v: Record<string, boolean>) {
 
 /** Minutes a run has been going, at least 1, for "Generating… 3 min". */
 export const runMinutes = (startedAt: string, now: number): number => Math.max(1, Math.round((now - new Date(startedAt).getTime()) / 60_000));
+
+// ---- PLA-I42-3: Today's ideas and the send bar (spec §8 items 4 and 6; pure, for tests)
+
+/**
+ * Send to Plania (PLA-I43) is not shipped yet: the bar's Send button and its progress stay hidden until it is.
+ * PLA-I43 flips this to true when POST /api/brief/plan exists.
+ */
+export const BRIEF_SEND_ENABLED = false;
+
+export type IdeaGroup = { app: BriefApp; ideas: Idea[] };
+
+/** Ideas grouped per app in the brief's app order (apps without ideas left out), the app filter applied, checked ideas hidden in "open". */
+export function ideaGroups(data: BriefData, o: { app: string | null; view: BriefView; checks: string[] }): IdeaGroup[] {
+  const checked = new Set(o.checks);
+  const known = new Set(data.apps.map((a) => a.id));
+  const appOf = (id: string) => (known.has(id) ? id : CROSS);
+  const groups = data.apps.map((app) => ({
+    app,
+    ideas: data.ideas.filter((i) => appOf(i.app) === app.id && (o.view === "all" || !checked.has(i.id))),
+  }));
+  return groups.filter((g) => g.ideas.length > 0 && (!o.app || g.app.id === o.app));
+}
+
+/** The reply for the selected ideas in the brief's order, e.g. "yes W1 Z3". */
+export function replyText(data: BriefData, selected: ReadonlySet<string>): string {
+  const codes = data.ideas.filter((i) => selected.has(i.id)).map((i) => i.code);
+  return [data.reply.prefix || "yes", ...codes].join(" ");
+}
+
+/** One idea flag as a caption key and its argument: "overlap:FIL-IDEA12" → ["overlap", "FIL-IDEA12"]. Unknown flags are dropped. */
+export type FlagKey = "cost" | "outside_service" | "legal" | "repo_change" | "big" | "overlap";
+export function parseFlag(flag: string): { key: FlagKey; ref?: string } | null {
+  const m = /^overlap:([A-Z0-9-]+)$/.exec(flag);
+  if (m) return { key: "overlap", ref: m[1] };
+  return (["cost", "outside_service", "legal", "repo_change", "big"] as const).includes(flag as never) ? { key: flag as FlagKey } : null;
+}
+
+/** "from {source}" shows only when the source is not the app's own name. */
+export const showSource = (idea: Idea, app: BriefApp | undefined): boolean =>
+  !!idea.source && idea.source.trim().toLowerCase() !== (app?.name ?? "").trim().toLowerCase();

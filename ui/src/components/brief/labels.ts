@@ -40,6 +40,22 @@ export type BriefLabels = {
   check: (title: string) => string;
   generated: (stamp: string) => string;
   missing: string;
+  ideasTitle: string;
+  ideasHint: string;
+  ideasCount: Plural;
+  from: (source: string) => string;
+  flags: { cost: string; outside_service: string; legal: string; repo_change: string; big: string; overlap: (ref: string) => string };
+  hideIdea: (title: string) => string;
+  selectIdea: (title: string) => string;
+  noIdeas: string;
+  sendBar: string;
+  toPlania: Plural;
+  reply: string;
+  clear: string;
+  copyReply: string;
+  copied: string;
+  copyFailed: string;
+  sendToPlania: string;
 };
 
 const en: BriefLabels = {
@@ -79,6 +95,22 @@ const en: BriefLabels = {
   check: (t) => `Done: ${t}`,
   generated: (s) => `Generated ${s}`,
   missing: "Some parts are missing. See Needs you.",
+  ideasTitle: "Today's ideas",
+  ideasHint: "Select ideas to send to Plania, or reply with their codes.",
+  ideasCount: (n) => (n === 1 ? "1 idea" : `${n} ideas`),
+  from: (s) => `from ${s}`,
+  flags: { cost: "costs money", outside_service: "new outside service", legal: "legal review", repo_change: "repo change", big: "big", overlap: (r) => `overlaps ${r}` },
+  hideIdea: (t) => `Hide: ${t}`,
+  selectIdea: (t) => `Select: ${t}`,
+  noIdeas: "No ideas here.",
+  sendBar: "Selected ideas",
+  toPlania: (n) => (n === 1 ? "1 idea → Plania" : `${n} ideas → Plania`),
+  reply: "Reply",
+  clear: "Clear",
+  copyReply: "Copy reply",
+  copied: "Copied",
+  copyFailed: "Couldn't copy",
+  sendToPlania: "Send to Plania",
 };
 
 const es: BriefLabels = {
@@ -118,6 +150,22 @@ const es: BriefLabels = {
   check: (t) => `Hecho: ${t}`,
   generated: (s) => `Generado ${s}`,
   missing: "Faltan algunas partes. Mira Te necesita.",
+  ideasTitle: "Ideas de hoy",
+  ideasHint: "Elige ideas para mandarlas a Plania, o responde con sus códigos.",
+  ideasCount: (n) => (n === 1 ? "1 idea" : `${n} ideas`),
+  from: (s) => `de ${s}`,
+  flags: { cost: "cuesta dinero", outside_service: "servicio externo nuevo", legal: "revisión legal", repo_change: "cambio de repo", big: "grande", overlap: (r) => `se cruza con ${r}` },
+  hideIdea: (t) => `Ocultar: ${t}`,
+  selectIdea: (t) => `Elegir: ${t}`,
+  noIdeas: "Aquí no hay ideas.",
+  sendBar: "Ideas elegidas",
+  toPlania: (n) => (n === 1 ? "1 idea → Plania" : `${n} ideas → Plania`),
+  reply: "Respuesta",
+  clear: "Limpiar",
+  copyReply: "Copiar respuesta",
+  copied: "Copiada",
+  copyFailed: "No se pudo copiar",
+  sendToPlania: "Mandar a Plania",
 };
 
 export const BRIEF_LABELS: Record<BriefLanguage, BriefLabels> = { en, es };
