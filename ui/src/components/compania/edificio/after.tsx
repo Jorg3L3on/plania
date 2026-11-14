@@ -1,9 +1,9 @@
-// PLA-I40-6: under the route. Three blocks: what runs without the owner, what only he does, and the last three
-// things that happened, one line each. An answer he already gave is one of those lines (Ver opens the same body
+// PLA-I40-6: under the team, Solo tú (what only he does); Lo último (the last three things that happened, one line
+// each) sits on the plate under Pedir. Pasa sin ti is no longer drawn. An answer he already gave is one of those lines (Ver opens the same body
 // the bubble had); a request of his that nobody took is a warning here with Reenviar and Cerrar. Presentational.
 import type { ReactNode } from "react";
 import type { Decision, OrgProject } from "@/lib/api";
-import { AUTO_LABEL, SOLO_TU, SOLO_TU_AUTO, lastLines, sinTi, staleAge, whenWord } from "@/lib/edificio";
+import { AUTO_LABEL, SOLO_TU, SOLO_TU_AUTO, lastLines, staleAge, whenWord } from "@/lib/edificio";
 import { DecisionBody } from "@/components/compania/v2";
 import type { NowActs } from "./now";
 import type { QuestionActs } from "./question";
@@ -27,15 +27,9 @@ export const After = ({
   solo?: ReactNode;
 }) => {
   if (p.latest === undefined) return null;
-  const last = lastLines(p, decisions);
   const auto = p.auto_accept;
-  const stale = p.stale_requests ?? [];
   return (
     <div className="edi-after" data-after>
-      <section className="edi-acol" data-col="sin-ti">
-        <h3>Pasa sin ti</h3>
-        <p>{sinTi(p)}</p>
-      </section>
       <section className="edi-acol" data-col="solo-tu">
         <h3>Solo tú</h3>
         <p>{auto?.on ? SOLO_TU_AUTO : SOLO_TU}</p>
@@ -52,7 +46,31 @@ export const After = ({
         )}
         {solo}
       </section>
-      <section className="edi-acol" data-col="ultimo">
+    </div>
+  );
+};
+
+// Lo último, on the plate under Pedir.
+export const Last = ({
+  project: p,
+  decisions,
+  now,
+  timeZone,
+  acts,
+  qacts,
+}: {
+  project: OrgProject;
+  decisions: Decision[];
+  now: number;
+  timeZone?: string;
+  acts?: NowActs;
+  qacts?: QuestionActs;
+}) => {
+  if (p.latest === undefined) return null;
+  const last = lastLines(p, decisions);
+  const stale = p.stale_requests ?? [];
+  return (
+    <section className="edi-acol edi-plate-last" data-col="ultimo">
         <h3>Lo último</h3>
         {stale.map((r) => (
           <div key={r.key} className="edi-stale" data-stale={r.key} role="status">
@@ -88,7 +106,6 @@ export const After = ({
             )}
           </div>
         ))}
-      </section>
-    </div>
+    </section>
   );
 };

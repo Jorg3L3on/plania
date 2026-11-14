@@ -312,9 +312,11 @@ test("I40-6 #1: an answered decision is a line under Lo último, not a bubble; a
   clean(s);
 });
 
-test("I40-6: Pasa sin ti says what the team does next, Solo tú what is the owner's", () => {
-  const s = text(floor(full())).replace(/\s+/g, " ");
-  assert.ok(s.includes("Pasa sin ti Taller construye «Ficha de la novia y notas internas» y te lo entrega. Después sigue «Revisión del panel y lista de supuestos»."));
+test("I40-6: Solo tú says what is the owner's; Pasa sin ti is not drawn; Lo último sits on the plate", () => {
+  const html = floor(full());
+  const s = text(html).replace(/\s+/g, " ");
+  assert.equal(s.includes("Pasa sin ti"), false);
+  assert.ok(html.indexOf('data-col="ultimo"') < html.indexOf('class="edi-wins"'), "Lo último is on the plate, left of the team");
   assert.ok(s.includes("Solo tú Aceptar cada entrega para que el paso siguiente arranque, y publicar."));
   const working = { ...mianovia, legs: mianovia.legs.map((l: Json) => (l.steps ? { ...l, steps: l.steps.map((x: Json) => (x.state === "next" ? { ...x, state: "working" } : x)) } : l)) };
   assert.match(lib.sinTi(full({ route: working })), /^Taller termina «Ficha de la novia y notas internas» y te lo entrega\./);
@@ -322,6 +324,7 @@ test("I40-6: Pasa sin ti says what the team does next, Solo tú what is the owne
   assert.equal(lib.sinTi(project({ paused: true, light: "paused" })), "Nada: el proyecto está en pausa.");
   // An older server sends no latest: the floor draws none of this.
   assert.equal(floor(resting()).includes("data-after"), false);
+  assert.equal(floor(resting()).includes('data-col="ultimo"'), false);
 });
 
 test("I40-6 #4: a request nobody took is a warning with Reenviar and Cerrar, and each calls its route", () => {
@@ -331,7 +334,7 @@ test("I40-6 #4: a request nobody took is a warning with Reenviar and Cerrar, and
   const s = floor(p, [], { nowActs: acts });
   assert.ok(text(s).replace(/\s+/g, " ").includes("Tu pedido «Tell Taller to continue» lleva 17 h sin que nadie lo tome."));
   assert.ok(s.includes('data-control="reenviar"') && s.includes('data-control="cerrar-pedido"'));
-  const el = after.After({ project: p, decisions: [], now: NOW, timeZone: TZ, acts });
+  const el = after.Last({ project: p, decisions: [], now: NOW, timeZone: TZ, acts });
   const buttons: any[] = [];
   const walk = (x: any) => {
     if (!x || typeof x !== "object") return;
