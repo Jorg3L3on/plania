@@ -21,6 +21,9 @@ services:
       - devva-token
     volumes:
       - engine-data:/data
+      # The engine writes its own exports (DUMP TO) here. An absolute host path makes them reachable from the host,
+      # which the nightly backup needs to keep only the last ones (PLANIA_DEVVA_DUMP_DIR in .env, same path).
+      - ${PLANIA_DEVVA_DUMP_DIR:-engine-dumps}:/data/devva/meta/dumps
     ports:
       - "127.0.0.1:2511:2505"
     restart: "no"
@@ -31,3 +34,4 @@ secrets:
 
 volumes:
   engine-data: {}
+  engine-dumps: {}

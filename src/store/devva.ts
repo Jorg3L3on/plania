@@ -6,9 +6,9 @@
 //            writer racing for the same id is refused
 //   apply    the changes are written to <prefix>_ent, one record per row, bucketed by project
 //
-// The log is the source of truth. Devva loses recent updates of an existing record across a restart
-// (inserts survive), so nothing is kept only in an updated record: <prefix>_ent is a projection, compared
-// with the log and rewritten on boot.
+// The log is the source of truth, and it is insert-only. <prefix>_ent is a projection of it: each commit's
+// changes are applied to it, then a watermark record says how far it has got. Boot replays the log into
+// memory and applies only the commits past the watermark; verify() compares the whole projection.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -30,7 +30,7 @@ type DevvaQuery = { limit(n: number): DevvaQuery; cursor(token: string): DevvaQu
 export type DevvaClient = {
   readonly isAlive: boolean;
   close(): void;
-  execute(statement: string, params?: unknown): Promise<unknown>;
+  execute(statement: string, params?: unknown, timeoutMs?: number): Promise<unknown>;
   find(lobe: string, where: Record<string, unknown>): DevvaQuery;
   scan(lobe: string, where?: Record<string, unknown>): DevvaQuery;
   listLobes(): Promise<{ name: string }[]>;
@@ -47,10 +47,26 @@ export type DevvaOptions = {
   // File holding the engine token, and the built client's entry module.
   tokenFile?: string;
   clientModule?: string;
+  // How long one statement may take. Default 15 s; a LOAD of a large export needs more.
+  timeoutMs?: number;
 };
 
 const codeOf = (e: unknown) => (e as { code?: string })?.code ?? "";
 const isTransport = (e: unknown) => codeOf(e) === "CONNECTION_ERROR" || codeOf(e) === "TIMEOUT";
+// The engine answers THROTTLED when it does not admit a write in time: nothing was written, so it is retried.
+export async function admitted<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (codeOf(e) !== "THROTTLED" || attempt >= 8) throw e;
+      await new Promise((r) => setTimeout(r, Math.min(250 * 2 ** attempt, 5_000)));
+    }
+  }
+}
+// The projection's watermark: one record of <prefix>_ent, outside every project's bucket.
+const MARK_PK = "~mark";
+const MARK_SCOPE = "~meta";
 const cid = (seq: number) => `c${String(seq).padStart(12, "0")}`;
 
 // Rows hold Dates and, in a few tables, bigints. JSON has neither, so both are tagged on the way in.
@@ -340,14 +356,63 @@ export class DevvaStore implements Store {
     return out;
   }
 
-  // Boot: replay the whole log into memory, then make the projection equal to it.
+  // Boot: replay the whole log into memory, and apply to the projection the commits it has not seen.
+  // With no watermark (a new store, or one written before there was one), with a watermark past the log,
+  // or with PLANIA_DEVVA_VERIFY=1, the whole projection is compared instead.
   private async recover(): Promise<void> {
     const commits = (await this.scanAll(this.log)).map((r) => decode(JSON.parse(r.getString("body") ?? "null")) as Commit).sort((a, b) => a.seq - b.seq);
-    commits.forEach((c, i) => {
+    const mark = await this.readMark();
+    const trusted = mark !== null && mark <= commits.length && process.env.PLANIA_DEVVA_VERIFY !== "1";
+    let repaired = 0;
+    for (const [i, c] of commits.entries()) {
       if (c.seq !== i + 1) throw new Error(`store: commit log gap, expected ${i + 1} and found ${c.seq}`);
-      this.fold(c);
-    });
-    this.recovered = { replayed: commits.length, repaired: await this.repair() };
+      if (trusted && c.seq > mark) {
+        const moved = this.movedBy(c.changes);
+        this.fold(c);
+        await this.apply(c.changes, moved);
+        repaired += c.changes.length;
+      } else this.fold(c);
+    }
+    if (!trusted) repaired = await this.repair();
+    if (mark !== this.head) await this.writeMark();
+    this.recovered = { replayed: commits.length, repaired };
+  }
+
+  private async readMark(): Promise<number | null> {
+    const row = await (await this.live()).find(this.ent, { pk: MARK_PK }).one();
+    const n = Number(row?.getString("data"));
+    return row && Number.isInteger(n) ? n : null;
+  }
+
+  // Written only after the changes up to head are in the projection, so it never runs ahead of it.
+  private async writeMark(): Promise<void> {
+    const db = await this.live();
+    await admitted(() => db.execute(`PUT {pk: $pk, scope: $scope, tbl: $tbl, data: $data} IN "${this.ent}" ON CONFLICT UPDATE`, { pk: MARK_PK, scope: MARK_SCOPE, tbl: "", data: String(this.head) }));
+  }
+
+  // The rows a write set moves to another bucket (a row whose project changed), by projection key. Read
+  // before the changes are folded into memory.
+  private movedBy(changes: readonly Change[]): Set<string> {
+    const moved = new Set<string>();
+    for (const ch of changes) {
+      if (ch.op !== "put") continue;
+      const before = this.tables.get(ch.table)?.get(JSON.stringify(metaOf(ch.table).key.map((p) => encode(ch.key[p]))));
+      if (before && this.scopeOf(ch.table, before) !== this.scopeOf(ch.table, ch.row!)) moved.add(this.entPk(ch.table, ch.key));
+    }
+    return moved;
+  }
+
+  // Compares the whole projection with memory and rewrites what differs. Returns how many records it wrote
+  // or removed; 0 means the projection was level.
+  verify(): Promise<number> {
+    const run = async () => {
+      const n = await this.repair();
+      await this.writeMark();
+      return n;
+    };
+    const next = this.chain.then(run, run);
+    this.chain = next.catch(() => undefined);
+    return next;
   }
 
   private entPk = (table: TableName, key: AnyRow) => `${table}:${JSON.stringify(metaOf(table).key.map((p) => encode(key[p])))}`;
@@ -358,29 +423,36 @@ export class DevvaStore implements Store {
   };
 
   private async repair(): Promise<number> {
-    const got = new Map((await this.scanAll(this.ent)).map((r) => [r.getString("pk") ?? "", r.getString("data") ?? ""]));
+    const got = new Map((await this.scanAll(this.ent)).map((r) => [r.getString("pk") ?? "", { data: r.getString("data") ?? "", scope: r.getString("scope") ?? "" }]));
+    got.delete(MARK_PK);
     const fix: Change[] = [];
+    const moved = new Set<string>();
     const want = new Set<string>();
     for (const name of tableNames()) {
       for (const row of this.tables.get(name)?.values() ?? []) {
         const pk = this.entPk(name, row);
         want.add(pk);
-        if (got.get(pk) !== JSON.stringify(encode(row))) fix.push({ table: name, op: "put", key: keyOf(name, row), row });
+        const have = got.get(pk);
+        if (have?.data !== JSON.stringify(encode(row)) || have.scope !== this.scopeOf(name, row)) {
+          fix.push({ table: name, op: "put", key: keyOf(name, row), row });
+          if (have && have.scope !== this.scopeOf(name, row)) moved.add(pk);
+        }
       }
     }
     const db = await this.live();
-    for (const pk of got.keys()) if (!want.has(pk)) await db.execute(`DELETE "${this.ent}" WHERE pk = $pk`, { pk });
-    await this.apply(fix);
+    for (const pk of got.keys()) if (!want.has(pk)) await admitted(() => db.execute(`DELETE "${this.ent}" WHERE pk = $pk`, { pk }));
+    await this.apply(fix, moved);
     return fix.length + [...got.keys()].filter((pk) => !want.has(pk)).length;
   }
 
-  // Every statement here can be repeated.
-  private async apply(changes: readonly Change[]): Promise<void> {
+  // Every statement here can be repeated. An upsert updates a record in place and leaves it in its bucket,
+  // so a row that moved to another project is removed first and written again.
+  private async apply(changes: readonly Change[], moved: ReadonlySet<string> = new Set()): Promise<void> {
     const db = await this.live();
     for (const ch of changes) {
       const pk = this.entPk(ch.table, ch.key);
-      if (ch.op === "delete") await db.execute(`DELETE "${this.ent}" WHERE pk = $pk`, { pk });
-      else await db.execute(`PUT {pk: $pk, scope: $scope, tbl: $tbl, data: $data} IN "${this.ent}" ON CONFLICT UPDATE`, { pk, scope: this.scopeOf(ch.table, ch.row!), tbl: ch.table, data: JSON.stringify(encode(ch.row)) });
+      if (ch.op === "delete" || moved.has(pk)) await admitted(() => db.execute(`DELETE "${this.ent}" WHERE pk = $pk`, { pk }));
+      if (ch.op === "put") await admitted(() => db.execute(`PUT {pk: $pk, scope: $scope, tbl: $tbl, data: $data} IN "${this.ent}" ON CONFLICT UPDATE`, { pk, scope: this.scopeOf(ch.table, ch.row!), tbl: ch.table, data: JSON.stringify(encode(ch.row)) }));
       if (process.env.PLANIA_DEVVA_CRASH === "mid-apply") process.exit(137);
     }
   }
@@ -402,7 +474,8 @@ export class DevvaStore implements Store {
     const params = { cid: cid(c.seq), seq: c.seq, nonce: c.nonce, body: JSON.stringify(encode(c)) };
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        await (await this.live()).execute(`PUT {cid: $cid, seq: $seq, nonce: $nonce, body: $body} IN "${this.log}"`, params);
+        const db = await this.live();
+        await admitted(() => db.execute(`PUT {cid: $cid, seq: $seq, nonce: $nonce, body: $body} IN "${this.log}"`, params));
         return true;
       } catch (e) {
         if (codeOf(e) === "DUPLICATE_ANCHOR") return (await this.readBack(c.seq)) === c.nonce;
@@ -451,9 +524,11 @@ export class DevvaStore implements Store {
         }
         // For the kill tests only: die at the two points where a crash leaves the projection behind the log.
         if (process.env.PLANIA_DEVVA_CRASH === "after-commit") process.exit(137);
+        const moved = this.movedBy(c.changes);
         this.fold(c);
         this.stats.commits += 1;
-        await this.apply(c.changes);
+        await this.apply(c.changes, moved);
+        await this.writeMark();
         for (const listener of this.listeners) listener({ projectId, changes: c.changes });
         return value;
       }
@@ -471,9 +546,11 @@ export class DevvaStore implements Store {
       for (;;) {
         const commit: Commit = { seq: this.head + 1, nonce: crypto.randomUUID(), at: new Date().toISOString(), projectId: c.projectId, changes: clone([...c.changes]) };
         if (await this.commit(commit)) {
+          const moved = this.movedBy(commit.changes);
           this.fold(commit);
           this.stats.commits += 1;
-          await this.apply(commit.changes);
+          await this.apply(commit.changes, moved);
+          await this.writeMark();
           return;
         }
         this.stats.conflicts += 1;
@@ -511,6 +588,7 @@ export class DevvaStore implements Store {
       this.fold(c);
     }
     await this.repair();
+    await this.writeMark();
     return commits.length;
   }
 
@@ -519,6 +597,17 @@ export class DevvaStore implements Store {
     const out = new Map<string, string>();
     for (const name of tableNames()) for (const row of this.tables.get(name)?.values() ?? []) out.set(this.entPk(name, row), JSON.stringify(encode(row)));
     return out;
+  }
+
+  // The engine's own export of everything it holds (every lobe on it, with its declarations), written by
+  // the engine under its data directory as meta/dumps/<name>.jsonl. Returns the engine's report lines.
+  // The engine refuses a name it has already used.
+  async engineDump(name: string): Promise<string[]> {
+    if (!/^[A-Za-z0-9_.]+$/.test(name)) throw new Error("store: a dump name is letters, digits, _ and .");
+    const db = await this.live();
+    // An export is proportional to the data: it gets ten minutes, not the usual statement timeout.
+    const res = (await db.execute(`DUMP TO "${name}"`, undefined, 600_000)) as { info?: unknown };
+    return Array.isArray(res?.info) ? res.info.map(String) : [];
   }
 
   // How many commits the log holds.
@@ -554,16 +643,16 @@ export class DevvaStore implements Store {
   }
 }
 
-// The devva client is not a dependency yet: it is loaded from a built copy named by DEVVA_CLIENT (or the option),
-// by default the one the spike's setup script copies.
+// The devva client is not on npm: it is loaded from a built copy, by default vendor/devva-client, or the one
+// DEVVA_CLIENT (or the option) names.
 export async function loadClient(opts: DevvaOptions): Promise<() => Promise<DevvaClient>> {
   const root = path.resolve(import.meta.dirname, "..", "..");
   const entry = opts.clientModule ?? process.env.DEVVA_CLIENT ?? path.join(root, "vendor", "devva-client", "lib", "index.js");
   const tokenFile = opts.tokenFile ?? process.env.DEVVA_TOKEN_FILE ?? path.join(homedir(), ".config", "plania", "devva-token");
   const token = readFileSync(tokenFile, "utf8").trim();
-  process.env.DEVVA_TOKEN = process.env.XYZDB_TOKEN = token;
+  process.env.DEVVA_TOKEN = token;
   const mod = (await import(pathToFileURL(entry).href)) as { connect(host: string, port: number, timeoutMs: number): Promise<DevvaClient> };
   const host = opts.host ?? process.env.DEVVA_HOST ?? "127.0.0.1";
   const port = opts.port ?? Number(process.env.DEVVA_PORT ?? 2505);
-  return () => mod.connect(host, port, 15_000);
+  return () => mod.connect(host, port, opts.timeoutMs ?? 15_000);
 }

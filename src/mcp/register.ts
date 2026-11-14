@@ -503,7 +503,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "search",
     {
       description:
-        "The tickets, docs and decisions of one project closest in meaning to a question, nearest first. It finds by meaning, not by words (list_tasks search matches words). kinds narrows to task, doc or decision; limit defaults to 8 (max 50). Each result names what to open: a ticket key, a doc_id (with its task_key), or a decision_id. SEARCH_UNAVAILABLE when the server has no search index.",
+        "The tickets, docs and decisions of one project closest in meaning to a question, nearest first. It finds by meaning, not by words (list_tasks search matches words). kinds narrows to task, doc or decision; limit defaults to 8 (max 50). Each result names what to open: a ticket key, a doc_id (with its task_key), or a decision_id, and carries score, its cosine similarity to the question (1 is closest). SEARCH_UNAVAILABLE when the server has no search index.",
       inputSchema: { project, query: z.string().min(1).max(2000), limit: z.number().int().min(1).max(50).optional(), kinds: z.array(z.enum(["task", "doc", "decision"])).max(3).optional() },
       annotations: readOnly,
     },

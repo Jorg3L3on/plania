@@ -159,4 +159,3 @@ export declare class AggregateResult {
     /** Warn once if a grouped result is read as though it were flat. */
     private warnIfGrouped;
 }
-//# sourceMappingURL=types.d.ts.map

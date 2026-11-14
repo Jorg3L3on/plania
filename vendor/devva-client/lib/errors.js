@@ -90,4 +90,3 @@ export class TimeoutError extends ConnectionError {
         this.name = "TimeoutError";
     }
 }
-//# sourceMappingURL=errors.js.map

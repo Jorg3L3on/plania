@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
-import { DevvaStore } from "../src/store/devva.js";
+import { DevvaStore, loadClient } from "../src/store/devva.js";
 import { gt, lte, ne, notNull, RequestIdReused, type Committed } from "../src/store/types.js";
 
 const prefix = `t_${Date.now().toString(36)}`;
@@ -140,5 +140,42 @@ describe("devva store", () => {
     } finally {
       other.close();
     }
+  });
+
+  test("a row whose project changes moves to the other project's bucket", async () => {
+    const actor = { agent: "test", session_id: "s" };
+    const id = await store.write(P1, {}, async (uow) => (await uow.insert("events", { projectId: P1, type: "moves", actor, payload: {} })).id);
+    await store.write(P1, {}, (uow) => uow.update("events", { id }, { projectId: P2 }));
+    const inBucket = async (scope: string) => (await store.bucket(scope)).some((b) => b.table === "events" && b.row.id === id);
+    assert.equal(await inBucket(P2), true);
+    assert.equal(await inBucket(P1), false);
+  });
+
+  test("verify finds a projection record that went missing and writes it back; a level projection needs nothing", async () => {
+    await store.verify(); // two stores wrote the same row in the race above, so the projection may hold the older one
+    assert.equal(await store.verify(), 0);
+    const db = await (await loadClient({ prefix }))();
+    try {
+      await db.execute(`DELETE "${store.ent}" WHERE tbl = $tbl`, { tbl: "projects" });
+    } finally {
+      db.close();
+    }
+    assert.equal(await store.verify(), 2);
+    assert.equal((await store.bucket(P1)).filter((b) => b.table === "projects").length, 1);
+    // A store opened now trusts the watermark: it replays the log and writes nothing to the projection.
+    const again = await DevvaStore.open({ prefix });
+    try {
+      assert.equal(again.recovered.repaired, 0);
+    } finally {
+      again.close();
+    }
+  });
+
+  test("the engine writes a dump of its own, once per name", async () => {
+    const name = `t_${Date.now().toString(36)}`;
+    const report = await store.engineDump(name);
+    assert.ok(report.some((line) => line.includes(`${name}.jsonl`)), report.join(" | "));
+    await assert.rejects(store.engineDump(name), /already exists/);
+    await assert.rejects(store.engineDump("../x"), /dump name/);
   });
 });

@@ -34,7 +34,7 @@ describe("runBackup", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "plania-backup-"));
 
   test("waits until 03:00 local time", async () => {
-    assert.deepEqual(await runBackup(db, NIGHT, { dir, tz: TZ }), { dumped: 0, pruned: 0, failed: 0 });
+    assert.deepEqual(await runBackup(db, NIGHT, { dir, tz: TZ, engineDumpDir: "" }), { dumped: 0, pruned: 0, failed: 0 });
     assert.deepEqual(readdirSync(dir), []);
   });
 
@@ -45,14 +45,14 @@ describe("runBackup", () => {
     // A folder holds the next day's file name, so the finished dump cannot be moved into place.
     const taken = path.join(dir, "plania-20261016.devva.jsonl.gz");
     mkdirSync(taken);
-    const r = await runBackup(db, NEXT, { dir, tz: TZ });
+    const r = await runBackup(db, NEXT, { dir, tz: TZ, engineDumpDir: "" });
     assert.equal(r.failed, 1);
     const s = await backupState(db);
     assert.equal(s.day, "2026-10-15", "the good dump stays the last one");
     assert.match(s.error!, /EISDIR|EPERM|ENOTEMPTY|EEXIST/);
     assert.ok(!readdirSync(dir).some((f) => f.endsWith(".partial")));
     rmSync(taken, { recursive: true });
-    assert.equal((await runBackup(db, new Date(NEXT.getTime() + 3600_000), { dir, tz: TZ })).dumped, 1);
+    assert.equal((await runBackup(db, new Date(NEXT.getTime() + 3600_000), { dir, tz: TZ, engineDumpDir: "" })).dumped, 1);
     assert.equal((await backupState(db)).error, null);
   });
 

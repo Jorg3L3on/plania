@@ -65,13 +65,49 @@ describe("devva backup", () => {
 
   test("the nightly job writes a checked dump once a day and records it", async () => {
     const noon = new Date("2026-11-13T18:00:00Z"); // 12:00 in Mexico City
-    assert.deepEqual(await runBackup(makeDb().db, noon, { dir }), { dumped: 1, pruned: 0, failed: 0 });
+    assert.deepEqual(await runBackup(makeDb().db, noon, { dir, engineDumpDir: "" }), { dumped: 1, pruned: 0, failed: 0 });
     assert.deepEqual(readdirSync(dir), ["plania-20261113.devva.jsonl.gz"]);
     const text = gunzipSync(readFileSync(path.join(dir, "plania-20261113.devva.jsonl.gz"))).toString("utf8");
     assert.equal(JSON.parse(text.split("\n")[0]!).plania_devva_dump, 1);
     const state = await backupState(makeDb().db);
     assert.equal(state.day, "2026-11-13");
     assert.equal(state.error, null);
-    assert.deepEqual(await runBackup(makeDb().db, noon, { dir }), { dumped: 0, pruned: 0, failed: 0 }, "once per day");
+    assert.deepEqual(await runBackup(makeDb().db, noon, { dir, engineDumpDir: "" }), { dumped: 0, pruned: 0, failed: 0 }, "once per day");
+    assert.equal(state.projection_repaired, 0, "the nightly comparison found the projection level");
+    assert.equal(state.engine_dump, null, "no engine export without its folder");
+  });
+
+  // The engine writes its export under its own data directory. PLANIA_DEVVA_DUMP_DIR is the host folder that
+  // directory's meta/dumps is mounted on; without the mount the file cannot be seen from here.
+  const engineDir = process.env.PLANIA_DEVVA_DUMP_DIR;
+  test("with the engine's dump folder mounted, the run also keeps the engine's own export", { skip: engineDir ? false : "set PLANIA_DEVVA_DUMP_DIR to the mounted folder" }, async () => {
+    const next = new Date("2026-11-14T18:00:00Z");
+    const name = path.join(engineDir!, "plania_20261114.jsonl");
+    rmSync(name, { force: true });
+    try {
+      assert.deepEqual(await runBackup(makeDb().db, next, { dir }), { dumped: 1, pruned: 0, failed: 0 });
+      const state = await backupState(makeDb().db);
+      assert.equal(state.engine_dump, name);
+      const lines = readFileSync(name, "utf8").trimEnd().split("\n");
+      assert.equal(JSON.parse(lines.at(-1)!).t, "end", "the export is sealed");
+      assert.ok(lines.some((l) => l.includes(`"name":"bk_${stamp}_log"`)), "it declares this store's log lobe");
+    } finally {
+      rmSync(name, { force: true });
+    }
+  });
+
+  test("a mounted folder the engine does not write to is reported, and the dump still counts", async () => {
+    const wrong = mkdtempSync(path.join(tmpdir(), "plania-not-the-engine-"));
+    const later = new Date("2026-11-15T18:00:00Z");
+    try {
+      assert.deepEqual(await runBackup(makeDb().db, later, { dir, engineDumpDir: wrong }), { dumped: 1, pruned: 0, failed: 1 });
+      const state = await backupState(makeDb().db);
+      assert.equal(state.day, "2026-11-15");
+      assert.match(state.error ?? "", /after the dump/);
+      assert.equal(state.engine_dump, null);
+    } finally {
+      rmSync(wrong, { recursive: true, force: true });
+      if (engineDir) rmSync(path.join(engineDir, "plania_20261115.jsonl"), { force: true });
+    }
   });
 });

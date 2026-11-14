@@ -29,4 +29,3 @@ export type { AnchorInfo, EmbedderIdentity, LinkTo, LobeInfo, NearestQuery, PutO
 export { AggregateResult, Record, RecordSet } from "./types.js";
 export type { BudgetStop, Fields } from "./types.js";
 export { CLIENT_ERROR_CODES, ConnectionError, SERVER_ERROR_CODES, TimeoutError, DevvaError, } from "./errors.js";
-//# sourceMappingURL=index.d.ts.map

@@ -110,4 +110,3 @@ export declare class Connection {
     private fail;
 }
 export {};
-//# sourceMappingURL=protocol.d.ts.map

@@ -25,7 +25,7 @@ const indexPath = path.join(distDir, "index.html");
 // and brings its projection level, so the server never answers from a store that is behind.
 const { openStore } = await import("../src/store/open.js");
 const store = await openStore();
-console.log(`[store] devva: ${store.commits} commits replayed, ${store.recovered.repaired} projection records rewritten`);
+console.log(`[store] devva: ${store.commits} commits replayed, ${store.recovered.repaired} projection records written to catch up`);
 
 const server = new Hono();
 server.route("/", app);

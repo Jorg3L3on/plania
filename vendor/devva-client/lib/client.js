@@ -504,6 +504,9 @@ export class QueryBuilder {
      * @throws {DevvaError} (rejects) If the statement has no selection.
      */
     async delete() {
+        // A refused argument outranks the selection check: it is the real cause.
+        if (this.invalid)
+            throw this.invalid;
         if (!this.selective && this.steps.length === 0) {
             throw new DevvaError("DELETE requires a selection — add a where filter, or use client.purge() to empty a whole lobe", "INVALID_USAGE");
         }
@@ -632,10 +635,16 @@ function metricExpr(value) {
  * A raw predicate that sits inside a statement the client builds.
  *
  * Its grammar is the engine's to check, but it must not end the statement or
- * the pipeline step it sits in: `;`, `|` and `--` are refused outside a text
- * literal, and so is a literal left open.
+ * the pipeline step it sits in. `;` and line breaks are refused anywhere —
+ * an engine that splits on every `;` and strips `--` line by line does both
+ * inside literals too. `|` and `--` are refused outside a literal, and so is a
+ * literal left open.
  */
 function predicate(value, what) {
+    if (/[;\r\n]/.test(value)) {
+        throw new DevvaError(`${what} ${show(value)} contains ';' or a line break, which some engines split on ` +
+            `even inside a text literal`, "INVALID_IDENTIFIER");
+    }
     let inText = false;
     for (let i = 0; i < value.length; i++) {
         const c = value[i];
@@ -648,9 +657,9 @@ function predicate(value, what) {
         else if (c === '"') {
             inText = true;
         }
-        else if (c === ";" || c === "|" || (c === "-" && value[i + 1] === "-")) {
+        else if (c === "|" || (c === "-" && value[i + 1] === "-")) {
             throw new DevvaError(`${what} ${show(value)} contains '${c === "-" ? "--" : c}' outside a text literal, ` +
-                `which would end the statement it is part of`, "INVALID_IDENTIFIER");
+                `which would end its step`, "INVALID_IDENTIFIER");
         }
     }
     if (inText) {
@@ -693,6 +702,25 @@ function finite(value) {
         throw new DevvaError(`${show(value)} is not a finite number; the language has no NaN or Infinity`, "INVALID_USAGE");
     }
     return String(value);
+}
+/**
+ * A finite number in Float literal form: `0` becomes `0.0`.
+ *
+ * The engine types a literal by its syntax, and packs a list as a vector only
+ * when every component is a Float — one whole component written as `0` leaves
+ * the record invisible to NEAREST.
+ */
+function float(value) {
+    const text = finite(value);
+    return /^-?\d+$/.test(text) ? `${text}.0` : text;
+}
+/** The engine packs a float list this long as a vector. */
+const VECTOR_MIN_LEN = 64;
+/** A `number[]` that reads as an embedding: long enough, all numbers, not all whole. */
+function isEmbedding(value) {
+    return (value.length >= VECTOR_MIN_LEN &&
+        value.every((x) => typeof x === "number") &&
+        value.some((x) => !Number.isInteger(x)));
 }
 /** A typed array of numbers (`Float32Array` and the like), not a `DataView` or a `BigInt64Array`. */
 function isNumberView(value) {
@@ -737,7 +765,7 @@ function formatNearestQuery(query) {
     if (!Array.isArray(query) && !isNumberView(query)) {
         throw new DevvaError("a NEAREST query is a vector (number[] or a typed array) or a REF id (string)", "INVALID_USAGE");
     }
-    return `[${Array.from(query, (x) => finite(x)).join(", ")}]`;
+    return `[${Array.from(query, (x) => float(x)).join(", ")}]`;
 }
 /**
  * Render a `WHERE` predicate body (without the leading `WHERE`), or `null` when
@@ -831,7 +859,17 @@ function formatValue(value, depth = 0, path = []) {
     }
     const inner = [...path, value];
     if (Array.isArray(value)) {
+        if (isEmbedding(value))
+            return `[${value.map((x) => float(x)).join(", ")}]`;
         return `[${value.map((v) => formatValue(v, depth + 1, inner)).join(", ")}]`;
+    }
+    if (value instanceof Uint8Array) {
+        // A Buffer is one. Bytes has no literal, and a byte string written as a
+        // list of numbers would be stored as something else without an error.
+        throw new DevvaError("bytes (a Buffer or Uint8Array) have no xyTalk literal; encode them as text first", "INVALID_USAGE");
+    }
+    if (value instanceof Float32Array || value instanceof Float64Array) {
+        return `[${Array.from(value, (x) => float(x)).join(", ")}]`;
     }
     if (isNumberView(value))
         return `[${Array.from(value, (x) => finite(x)).join(", ")}]`;
@@ -856,4 +894,3 @@ function formatValue(value, depth = 0, path = []) {
     }
     return `"${escapeText(json)}"`;
 }
-//# sourceMappingURL=client.js.map

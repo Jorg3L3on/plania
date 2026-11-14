@@ -297,4 +297,3 @@ export class AggregateResult {
             `empty for a grouped pipeline and always will be. Read .groups instead.`);
     }
 }
-//# sourceMappingURL=types.js.map

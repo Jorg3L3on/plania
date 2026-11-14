@@ -26,19 +26,45 @@ Plania keeps all of its data in devva. This folder runs the engine. The server d
 | Lobe | Holds |
 |---|---|
 | `<prefix>_log` | One record per committed write: the changes it made. This is the source of truth. |
-| `<prefix>_ent` | One record per row, bucketed by project. A projection of the log, compared with it and rewritten at boot. |
+| `<prefix>_ent` | One record per row, bucketed by project. A projection of the log: each commit is applied to it, and one record (`~mark`) says how far it has got. |
 
 `PLANIA_DEVVA_PREFIX` sets the prefix (default `plania`). Give every store its own: the service, a dev
 server and a test run must not share lobes.
 
-The server keeps every row in memory, rebuilt from the log at start, and answers reads from there. A write
-is one record added to the log; it either lands whole or not at all.
+The server keeps every row in memory, rebuilt from the log at start, and answers reads from there: the engine
+has no read snapshot, so only the log gives several rows as of one commit. A write is one record added to the
+log; it either lands whole or not at all, and a second writer racing for the same commit id is refused.
+
+At start plania applies to `<prefix>_ent` only the commits past its watermark. `PLANIA_DEVVA_VERIFY=1`
+compares the whole projection instead; the nightly backup does the same comparison once a day.
+
+Use an engine build that has the fix for updates lost across a restart (`69c72d8`; the image built from
+`jl/dev01-integration-2` at `9924766` has it). On an older build the projection can fall behind after an
+engine restart until the next comparison; the log is not affected.
 
 ## Backup
 
-The nightly `backup` job writes the log as `~/plania-backups/plania-<YYYYMMDD>.devva.jsonl.gz`, after loading
-it into a throwaway store and comparing it with the live one. Keep that folder: the engine's volume is the only
-other copy.
+Two copies, written by the nightly `backup` job:
+
+- Plania's log as `~/plania-backups/plania-<YYYYMMDD>.devva.jsonl.gz`, written only after it has been loaded
+  into a throwaway store and compared with the live one. It restores plania's data into any engine.
+- The engine's own export, `plania_<YYYYMMDD>.jsonl`: every lobe on the engine with its declarations (the
+  search index included). The engine writes it under its data directory, in `meta/dumps`. To have it, start
+  the engine with `PLANIA_DEVVA_DUMP_DIR=<absolute host folder>` (the compose file mounts it there) and put the
+  same line in plania's `.env`. Without it plania asks for no export, because it could not remove old ones.
+
+To rebuild an engine from an export: start an empty engine (a new volume) with the same folder mounted, then
+
+```bash
+pnpm devva:load plania_20261113
+```
+
+The engine checks the whole file first and applies all of it or nothing; it refuses an engine that holds any
+lobe. Then start plania. This was run once by hand on 13 November 2026: the loaded copy had the same rows and
+plania's projection needed nothing rewritten.
+
+There is also the engine's hot snapshot (`devva-cli admin snapshot`), a copy of its files. The engine image
+does not ship `devva-cli`, so plania does not use it.
 
 ## Search
 
@@ -55,10 +81,13 @@ meaning to a question.
 
 ## Limits to know
 
-- The engine loses recent updates of an existing record across a restart; inserts survive. That is why the
-  log is insert-only and `<prefix>_ent` is rebuilt from it. Do not read `<prefix>_ent` with other tools and
-  trust it after an engine restart until plania has booted.
+- No transactions across lobes and no compare-and-set. That is why one insert-only log record is the commit,
+  and why `<prefix>_ent` is a projection that can be rebuilt.
 - One token can read, write and purge everything on the engine. Keep the port on loopback.
-- The client has no reconnect: if the engine restarts, restart plania.
-- The devva TypeScript client is not on npm. A built copy is in `vendor/devva-client`; `DEVVA_CLIENT` names
-  another build's `index.js`.
+- The client does not reconnect by itself. Plania opens a new connection when it finds the old one dead, and
+  reads a commit back before deciding whether an interrupted write landed.
+- A write the engine does not admit in time is answered `THROTTLED`; plania retries it.
+- The engine cannot drop a lobe. A prefix that was used once leaves its (empty) lobes behind.
+- `NEAREST` returns no score. The score in a search result is the cosine plania computes from the returned vectors.
+- The devva TypeScript client is not on npm. A built copy is in `vendor/devva-client` (see its README for the
+  commit); `DEVVA_CLIENT` names another build's `index.js`.

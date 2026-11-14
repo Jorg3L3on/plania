@@ -377,4 +377,3 @@ export class Connection {
         }
     }
 }
-//# sourceMappingURL=protocol.js.map

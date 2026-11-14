@@ -95,6 +95,9 @@ describe("search", () => {
     assert.equal(hits[0].key, "ZIG-01");
     assert.deepEqual([hits[0].rank, hits[0].kind, hits[0].title], [1, "task", "Migrate the database to devva"]);
     assert.ok(hits.every((h) => h.key !== "MIC-01"), "another project's ticket never appears");
+    const scores = hits.map((h) => h.score as number);
+    assert.ok(scores.every((s) => typeof s === "number" && s <= 1 && s >= -1), `every hit has a cosine score: ${scores}`);
+    assert.deepEqual(scores, [...scores].sort((a, b) => b - a), "the nearest hit has the highest score");
     assert.equal((await found("micasa", "database migration"))[0].key, "MIC-01");
 
     const docs = await found("zigzag", "nightly dump restore drill", { kinds: ["doc"] });

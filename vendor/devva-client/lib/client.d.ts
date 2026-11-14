@@ -377,4 +377,3 @@ export declare class QueryBuilder {
  * filter (`func() [AS <alias>] [WHERE <predicate>]`, v1). `AS` precedes `WHERE`.
  */
 export declare function metric(func: string, alias?: string, where?: WhereInput): string;
-//# sourceMappingURL=client.d.ts.map

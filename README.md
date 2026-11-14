@@ -27,6 +27,8 @@ Fill `.env`:
 | `DEVVA_TOKEN_FILE` | File holding the devva engine's token. Default `~/.config/plania/devva-token`. |
 | `DEVVA_HOST`, `DEVVA_PORT` | Optional. Where the engine listens. Default `127.0.0.1:2505`. |
 | `PLANIA_DEVVA_PREFIX` | Optional. Prefix of the lobes this server uses. Default `plania`; a second server on the same engine needs its own. |
+| `PLANIA_DEVVA_DUMP_DIR` | Optional. Host folder the engine's `meta/dumps` is mounted on; set, the nightly backup also keeps the engine's own export. |
+| `PLANIA_DEVVA_VERIFY` | Optional. `1` compares the whole projection with the log at start, instead of trusting its watermark. |
 | `MCP_BEARER_TOKEN` | Random token, e.g. `openssl rand -hex 32`. Clients use it as `PLANIA_MCP_TOKEN`. |
 | `SESSION_SECRET` | At least 32 bytes, e.g. `openssl rand -base64 48` |
 | `PLANIA_PASSWORD_HASH` | Output of `pnpm hash-password`. Quote it in `.env`. Never a plain password. |
@@ -95,8 +97,9 @@ Port 3737 avoids the 3000 that product repos use. The server only listens on 127
 In dev, Vite proxies `/api` and `/mcp` to the dev API on 3738, so the service on 3737 keeps running.
 
 Tests use the engine that `DEVVA_HOST`, `DEVVA_PORT` and `DEVVA_TOKEN_FILE` name (the same defaults as the server).
-Each test file writes to lobes of its own, named `t_<pid>_<time>`, and empties them when it ends, so test runs in
-different worktrees can run at the same time and never touch the `plania` lobes. With `SEXTANT_URL` set, one search
+Each test file writes to lobes of its own, named `t_` plus a hash of the checkout's path and the file, and empties
+them before and after, so test runs in different worktrees can run at the same time and never touch the `plania`
+lobes. The engine cannot drop a lobe, so use a throwaway engine for tests if empty lobes in the real one bother you. With `SEXTANT_URL` set, one search
 test uses real embeddings. One crash test restarts the engine and runs only when `DEVVA_TEST_CONTAINER` names its
 container.
 
@@ -139,9 +142,15 @@ Backups: the `backup` job dumps the store's commit log once a day after 03:00 (`
 is written only after it has been loaded into a throwaway store and compared row by row with the live one. The
 Máquina page shows the last copy, and `BACKUP_STALE` appears there when the last one is older than 48 h.
 
-To restore, load a dump into an empty store with `DevvaStore.restore` (`src/store/devva.ts`): open a store on a
-new `PLANIA_DEVVA_PREFIX`, pass it the gunzipped text, then start the server with that prefix. It refuses a store
-that already has commits and a dump that is incomplete or out of order.
+The same run compares the projection in devva with the log and puts it right, and, when `PLANIA_DEVVA_DUMP_DIR`
+names the host folder the engine's `meta/dumps` is mounted on, has the engine write its own export there
+(`plania_<YYYYMMDD>.jsonl`, the last 14 kept). That file holds every lobe with its declarations.
+
+To restore plania's data alone, load a dump into an empty store with `DevvaStore.restore` (`src/store/devva.ts`):
+open a store on a new `PLANIA_DEVVA_PREFIX`, pass it the gunzipped text, then start the server with that prefix. It
+refuses a store that already has commits and a dump that is incomplete or out of order. To rebuild a whole engine,
+start an empty one with the export in its `meta/dumps` and run `pnpm devva:load plania_<YYYYMMDD>`
+([deploy/devva/README.md](deploy/devva/README.md)).
 
 Change the screen password with `pnpm hash-password`, paste the result into `.env` as
 `PLANIA_PASSWORD_HASH='...'`, then restart. Rotating `MCP_BEARER_TOKEN` means updating all three client configs.

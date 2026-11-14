@@ -19,13 +19,13 @@ export async function search(db: Db, input: { project: string; query: string; li
   const r = readerOf(db);
   const results = [];
   for (const h of hits) {
-    if (h.kind === "task") results.push({ rank: h.rank, kind: h.kind, key: h.ref, title: h.title, snippet: h.snippet });
+    if (h.kind === "task") results.push({ rank: h.rank, score: h.score, kind: h.kind, key: h.ref, title: h.title, snippet: h.snippet });
     else if (h.kind === "doc") {
       // A doc hangs from a task or from the project; say which, so the caller can open it with get_doc.
       const doc = await r.get("docs", { id: h.ref });
       const task = doc?.taskId ? await r.get("tasks", { id: doc.taskId }) : undefined;
-      results.push({ rank: h.rank, kind: h.kind, doc_id: h.ref, task_key: task?.key ?? null, title: h.title, snippet: h.snippet });
-    } else results.push({ rank: h.rank, kind: h.kind, decision_id: h.ref, title: h.title, snippet: h.snippet });
+      results.push({ rank: h.rank, score: h.score, kind: h.kind, doc_id: h.ref, task_key: task?.key ?? null, title: h.title, snippet: h.snippet });
+    } else results.push({ rank: h.rank, score: h.score, kind: h.kind, decision_id: h.ref, title: h.title, snippet: h.snippet });
   }
   return { project: p.slug, query, results };
 }

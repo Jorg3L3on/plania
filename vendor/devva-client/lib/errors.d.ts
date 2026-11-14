@@ -61,4 +61,3 @@ export declare class TimeoutError extends ConnectionError {
     /** @param message - Description of the deadline that expired. */
     constructor(message: string);
 }
-//# sourceMappingURL=errors.d.ts.map

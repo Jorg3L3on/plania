@@ -1,6 +1,6 @@
 // Shared setup: a throwaway devva store per test file, seeded with the four projects.
 // The tests need a running devva engine (deploy/devva/README.md). DEVVA_HOST, DEVVA_PORT and DEVVA_TOKEN_FILE
-// say which; every test file writes to lobes of its own and empties them when it ends.
+// say which; every test file writes to lobes of its own (named after the checkout and the file) and empties them.
 import { after } from "node:test";
 import type { Reader, UnitOfWork } from "../src/store/types.js";
 
@@ -56,7 +56,16 @@ export async function resetTestStore(): Promise<TestStore> {
   const { makeDb, useDb } = await import("../src/db/client.js");
   const { DevvaStore } = await import("../src/store/devva.js");
   await endStore();
-  open = await DevvaStore.open({ prefix: `t_${process.pid}_${Date.now().toString(36)}` });
+  // The engine cannot drop a lobe, so a test file always uses the same ones: named after the checkout and the
+  // file, emptied before use (a run that died leaves rows behind) and again when the file ends.
+  const { createHash } = await import("node:crypto");
+  const prefix = `t_${createHash("sha1").update(`${import.meta.dirname}|${process.argv[1] ?? ""}`).digest("hex").slice(0, 10)}`;
+  open = await DevvaStore.open({ prefix });
+  if (open.commits > 0) {
+    await open.purge();
+    open.close();
+    open = await DevvaStore.open({ prefix });
+  }
   useDb(open.handle);
   await open.write("", {}, async (uow) => {
     for (const [slug, title, keyPrefix] of SEED) await uow.insert("projects", { slug, title, keyPrefix });

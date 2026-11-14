@@ -16,12 +16,19 @@ import type { Job } from "./index.js";
 // throwaway store and compared row by row with the live one. Keeps the last KEEP daily dumps; anything
 // else in the folder is never touched. The last run lives in machine_state (key "backup"), so
 // GET /api/machine and the audit can tell when it failed or went stale.
+//
+// Two more things ride on the same run. The projection is compared with the log and put right (it should
+// never need it). And, when PLANIA_DEVVA_DUMP_DIR names the host folder the engine's meta/dumps is mounted
+// on, the engine writes its own export there (plania_<YYYYMMDD>.jsonl: every lobe with its declarations,
+// the file `LOAD FROM` reads into an empty engine); the last KEEP of those are kept too. Without that
+// folder plania could not remove old exports, so it asks for none.
 
 export const KEEP = 14;
 export const STALE_MS = 48 * 3600_000;
 const AFTER_HOUR = 3;
 const STATE_KEY = "backup";
 const DAILY = /^plania-(\d{8})\.devva\.jsonl\.gz$/;
+const ENGINE_DAILY = /^plania_(\d{8})\.jsonl$/;
 
 export type BackupState = {
   at: string | null; // last success
@@ -30,12 +37,16 @@ export type BackupState = {
   day: string | null; // local YYYY-MM-DD of the last success
   error: string | null; // last attempt's error, null once one succeeds
   attempted_at: string | null;
+  engine_dump: string | null; // the engine's own export of that day, when one was asked for
+  projection_repaired: number | null; // projection records the nightly comparison had to rewrite
 };
-const EMPTY: BackupState = { at: null, path: null, bytes: null, day: null, error: null, attempted_at: null };
+const EMPTY: BackupState = { at: null, path: null, bytes: null, day: null, error: null, attempted_at: null, engine_dump: null, projection_repaired: null };
 
 export type BackupDeps = {
   dir?: string;
   tz?: string;
+  // The host folder the engine's meta/dumps is mounted on. Default PLANIA_DEVVA_DUMP_DIR; unset, no engine export.
+  engineDumpDir?: string;
 };
 
 export function backupDir(): string {
@@ -66,8 +77,8 @@ async function saveState(db: Q, value: BackupState): Promise<void> {
 }
 
 // Deletes daily dumps beyond the newest KEEP; anything else in the folder stays.
-export async function prune(dir: string, keep = KEEP): Promise<string[]> {
-  const daily = (await readdir(dir)).filter((f) => DAILY.test(f)).sort();
+export async function prune(dir: string, keep = KEEP, pattern: RegExp = DAILY): Promise<string[]> {
+  const daily = (await readdir(dir)).filter((f) => pattern.test(f)).sort();
   const old = daily.slice(0, Math.max(0, daily.length - keep));
   for (const f of old) await rm(path.join(dir, f), { force: true });
   return old;
@@ -107,8 +118,27 @@ export async function runBackup(db: Db, now: Date, deps: BackupDeps = {}): Promi
     await rename(tmp, file);
     const { size } = await stat(file);
     const pruned = await prune(dir);
-    await saveState(db, { at: now.toISOString(), path: file, bytes: size, day, error: null, attempted_at: now.toISOString() });
-    return { dumped: 1, pruned: pruned.length, failed: 0 };
+    // The dump above is good from here on; what follows is recorded beside it and never undoes it.
+    let error: string | null = null;
+    let engineDump: string | null = null;
+    let repaired: number | null = null;
+    try {
+      repaired = await live.verify();
+      const engineDir = deps.engineDumpDir ?? process.env.PLANIA_DEVVA_DUMP_DIR;
+      if (engineDir) {
+        const name = `plania_${day.replaceAll("-", "")}`;
+        await live.engineDump(name).catch((e) => {
+          if (!/already exists/.test(e instanceof Error ? e.message : "")) throw e;
+        });
+        engineDump = path.join(engineDir, `${name}.jsonl`);
+        await stat(engineDump); // the folder is the engine's only if the file shows up in it
+        await prune(engineDir, KEEP, ENGINE_DAILY);
+      }
+    } catch (e) {
+      error = `after the dump: ${e instanceof Error ? e.message : String(e)}`;
+    }
+    await saveState(db, { at: now.toISOString(), path: file, bytes: size, day, error, attempted_at: now.toISOString(), engine_dump: error ? null : engineDump, projection_repaired: repaired });
+    return { dumped: 1, pruned: pruned.length, failed: error ? 1 : 0 };
   } catch (e) {
     await rm(tmp, { force: true });
     await saveState(db, { ...state, error: e instanceof Error ? e.message : String(e), attempted_at: now.toISOString() });
@@ -119,7 +149,7 @@ export async function runBackup(db: Db, now: Date, deps: BackupDeps = {}): Promi
 // What GET /api/machine shows: the last good dump, and the last error when the latest attempt failed.
 export async function backupStatus(db: Q) {
   const s = await backupState(db);
-  return { at: s.at, path: s.path, bytes: s.bytes, error: s.error, attempted_at: s.attempted_at };
+  return { at: s.at, path: s.path, bytes: s.bytes, error: s.error, attempted_at: s.attempted_at, engine_dump: s.engine_dump };
 }
 
 // The audit's word on it (project null, served with the machine's findings): no dump in 48 h.

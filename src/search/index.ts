@@ -2,10 +2,11 @@
 //
 // One lobe, <prefix>_vec, bucketed by project (gravity = scope): NEAREST scores exactly inside one bucket, so
 // a search never leaves its project. The index is derived: it is rebuilt from the store at start and
-// kept current from each commit's write set. Entries are replaced by delete then insert, never updated,
-// because devva loses recent updates of an existing record across a restart.
+// kept current from each commit's write set. Entries are replaced by delete then insert, so one whose
+// project changed lands in its new bucket. The engine ranks but returns no score; the score in a hit is
+// the cosine computed here from the vectors it returns.
 import { createHash } from "node:crypto";
-import { loadClient, type DevvaClient, type DevvaOptions } from "../store/devva.js";
+import { admitted, loadClient, type DevvaClient, type DevvaOptions } from "../store/devva.js";
 import type { Change, Committed, Reader, Row } from "../store/types.js";
 import type { Embedder } from "./embedder.js";
 
@@ -13,7 +14,25 @@ export type SearchKind = "task" | "doc" | "decision";
 export const SEARCH_KINDS: readonly SearchKind[] = ["task", "doc", "decision"];
 // What one indexed thing is: where it lives, how to name it in a result, and the text that is embedded.
 type Entry = { pk: string; scope: string; kind: SearchKind; ref: string; title: string; text: string };
-export type Hit = { kind: SearchKind; ref: string; title: string; snippet: string; rank: number };
+// score is the cosine similarity to the query (1 is the same direction), or null when the engine returned no vector.
+export type Hit = { kind: SearchKind; ref: string; title: string; snippet: string; rank: number; score: number | null };
+
+function cosine(a: ArrayLike<number>, b: unknown): number | null {
+  if (b === null || typeof b !== "object" || typeof (b as ArrayLike<number>).length !== "number") return null;
+  const v = b as ArrayLike<number>;
+  if (v.length !== a.length || a.length === 0) return null;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    const [x, y] = [Number(a[i]), Number(v[i])];
+    dot += x * y;
+    na += x * x;
+    nb += y * y;
+  }
+  const s = dot / Math.sqrt(na * nb);
+  return Number.isFinite(s) ? Math.round(s * 10_000) / 10_000 : null;
+}
 
 const MAX_TEXT = 6_000; // characters embedded per entry; a long doc is found by its start
 const SNIPPET = 240;
@@ -89,23 +108,15 @@ export class SearchIndex {
     const vecs = await this.embedder.embed(entries.map((e) => clip(e.text, MAX_TEXT)));
     const db = await this.live();
     for (const [i, e] of entries.entries()) {
-      await db.execute(`DELETE "${this.lobe}" WHERE pk = $pk`, { pk: e.pk });
-      await db.execute(`PUT {pk: $pk, scope: $scope, kind: $kind, ref: $ref, title: $title, snippet: $snippet, hash: $hash, emb: $emb} IN "${this.lobe}"`, {
-        pk: e.pk,
-        scope: e.scope,
-        kind: e.kind,
-        ref: e.ref,
-        title: e.title,
-        snippet: clip(oneLine(e.text), SNIPPET),
-        hash: this.hash(e),
-        emb: vecs[i],
-      });
+      await admitted(() => db.execute(`DELETE "${this.lobe}" WHERE pk = $pk`, { pk: e.pk }));
+      const record = { pk: e.pk, scope: e.scope, kind: e.kind, ref: e.ref, title: e.title, snippet: clip(oneLine(e.text), SNIPPET), hash: this.hash(e), emb: vecs[i] };
+      await admitted(() => db.execute(`PUT {pk: $pk, scope: $scope, kind: $kind, ref: $ref, title: $title, snippet: $snippet, hash: $hash, emb: $emb} IN "${this.lobe}"`, record));
     }
   }
 
   private async drop(pks: string[]): Promise<void> {
     const db = await this.live();
-    for (const pk of pks) await db.execute(`DELETE "${this.lobe}" WHERE pk = $pk`, { pk });
+    for (const pk of pks) await admitted(() => db.execute(`DELETE "${this.lobe}" WHERE pk = $pk`, { pk }));
   }
 
   // Makes the index equal to the store: embeds what is missing or changed, removes what is gone.
@@ -171,7 +182,7 @@ export class SearchIndex {
         where += ` AND (${kinds.map((_, i) => `kind = $k${i}`).join(" OR ")})`;
       }
       const res = (await (await this.live()).execute(`SCAN "${this.lobe}" WHERE ${where} LIMIT 10000 | NEAREST ${k} BY emb TO $q USING cosine`, params)) as { records?: Record<string, unknown>[] };
-      return (res.records ?? []).map((r, i) => ({ kind: r.kind as SearchKind, ref: String(r.ref), title: String(r.title ?? ""), snippet: String(r.snippet ?? ""), rank: i + 1 }));
+      return (res.records ?? []).map((r, i) => ({ kind: r.kind as SearchKind, ref: String(r.ref), title: String(r.title ?? ""), snippet: String(r.snippet ?? ""), rank: i + 1, score: cosine(q!, r.emb) }));
     });
   }
 
