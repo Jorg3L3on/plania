@@ -296,6 +296,17 @@ export async function sembrar(db: Db, slug: string): Promise<SeedResult> {
   return afterSeed(db, slug, steps);
 }
 
+// Aplicar (a pending migration): the project's migrate command only.
+export async function migrar(db: Db, slug: string): Promise<SeedResult> {
+  const p = await projectOf(db, slug);
+  await guard(db, appEnvOf(p).address);
+  const { dir, migrate } = commandsOf(p);
+  if (!dir || !migrate) throw new MaquinaError("NOT_CONFIGURED", "no encuentro el comando de migrar");
+  const r = await runIn(migrate, dir, secretValues(appEnvOf(p).env.values));
+  const t = await tablas(db, slug).catch(() => null);
+  return { ok: r.ok, steps: [{ command: migrate, ...r }], tables: t };
+}
+
 // Vaciar y sembrar de nuevo: needs the total row count the screen showed; a different count now is refused (someone
 // changed the base since). Truncates the base's public tables (not the migrations table) in a writing session, then
 // runs the seed command.

@@ -151,7 +151,7 @@ describe("Pruebas", () => {
     assert.equal(reading.running.step, "test");
     // Let both commands finish.
     const release = async () => {
-      while (pruebas.pruebasDone && gate) {
+      while (gate) {
         const g = gate;
         gate = null;
         g();

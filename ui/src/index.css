@@ -1227,6 +1227,246 @@
   .edi-fi-tab small, .edi-fi-li em, .edi-fi-tube li, .edi-fsec h3 small, .edi-fempty, .edi-fi-empty { color: #959cb8; }
   .edi-fi-tube li[data-here] { color: var(--e-fg); }
 
+  /* PLA-I48: Cuarto de máquinas. Each floor has two levels joined by a vertical slide: Trabajo (the v6 floor) and
+     Máquinas (the window, the machines with their levers, the drawers, the shelf). People upstairs, machines below.
+     Only v6 colours (wall, card, ficha, pit, rail, go, work, bad); the lit window is the app's own light page. */
+  .edi-levels { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; min-width: 0; overflow: hidden; border-radius: 16px; }
+  .edi-level { grid-area: 1 / 1; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; min-width: 0; transition: transform 0.55s cubic-bezier(0.66, 0, 0.2, 1), visibility 0.55s; }
+  .edi-levels[data-nivel="maquinas"] > [data-level="trabajo"] { transform: translateY(-104%); visibility: hidden; }
+  .edi-levels[data-nivel="trabajo"] > [data-level="maquinas"] { transform: translateY(104%); visibility: hidden; }
+  /* The slab between the levels, hatched like a cut in a section drawing. */
+  .edi-level[data-level="maquinas"] { border-top: 6px solid transparent; border-image: repeating-linear-gradient(135deg, rgb(255 255 255 / 0.16) 0 2px, transparent 2px 7px) 6; }
+
+  /* the level switch, in the Encabezado */
+  .edi-maq-lift { display: inline-flex; flex: none; padding: 2px; border-radius: 99px; border: 1px solid var(--e-line); background: rgb(7 9 20 / 0.5); }
+  .edi-maq-lift button { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 11px; border-radius: 99px; border: 0; background: none; color: var(--e-muted); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .edi-maq-lift button[aria-selected="true"] { background: var(--e-fg); color: #12152a; }
+  .edi-maq-lamps { display: inline-flex; gap: 4px; }
+  .edi-maq-lamp { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid #8990ad; }
+  .edi-maq-lamp[data-s="on"] { background: #8fe0a4; border-color: #8fe0a4; box-shadow: 0 0 9px #8fe0a4; }
+  .edi-maq-lamp[data-s="starting"] { background: #ffc46b; border-color: #ffc46b; box-shadow: 0 0 9px #ffc46b; }
+  .edi-maq-lamp[data-s="error"] { background: #ff6b8a; border-color: #ff6b8a; box-shadow: 0 0 9px #ff6b8a; }
+  .edi-maq-lamp[data-s="none"] { border-style: dashed; }
+  .edi-maq-lift button[aria-selected="true"] .edi-maq-lamp[data-s="on"] { background: #1fae5e; border-color: #1fae5e; box-shadow: none; }
+  .edi-maq-lift button[aria-selected="true"] .edi-maq-lamp:not([data-s="on"]) { border-color: #5b6283; }
+
+  /* the room */
+  .edi-maq { height: 100%; min-height: 0; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) clamp(272px, 31%, 360px); grid-template-rows: minmax(0, 1fr) auto; gap: 10px 26px; padding-top: 8px; background-image: linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px), linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px); background-size: 32px 32px; background-position: -1px -1px; }
+  .edi-maq[data-maq="loading"], .edi-maq[data-maq="error"] { display: block; }
+  .edi-maq-ask { grid-column: 1 / -1; }
+  .edi-maq-ask [data-control="pedir-abrir"]::after { content: "Un cambio a la estructura: una tabla, un campo, más datos de muestra"; }
+
+  /* the window */
+  .edi-maq-viewer { position: relative; display: flex; min-height: 0; min-width: 0; }
+  .edi-maq-win { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 30px 30px 14px 14px; border: 1px solid rgb(255 255 255 / 0.22); background: #0e1124; box-shadow: 0 0 0 5px rgb(255 255 255 / 0.045); }
+  .edi-maq-win[data-lit] { box-shadow: 0 0 0 5px rgb(255 255 255 / 0.06), 0 0 70px rgb(255 214 160 / 0.16); }
+  .edi-maq-transom { flex: none; display: flex; align-items: center; gap: 8px; padding: 9px 16px 7px 22px; min-width: 0; }
+  .edi-maq-tabs { display: flex; gap: 2px; flex: 1; min-width: 0; overflow: hidden; }
+  .edi-maq-tabs button { min-width: 0; padding: 5px 10px; border-radius: 99px; border: 0; background: none; color: var(--e-muted); font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .edi-maq-tabs button[aria-pressed="true"] { flex: none; background: rgb(255 255 255 / 0.13); color: var(--e-fg); }
+  .edi-maq-tabs[data-off] { opacity: 0.5; }
+  .edi-maq-seg { flex: none; display: flex; border: 1px solid var(--e-rail); border-radius: 9px; overflow: hidden; }
+  .edi-maq-seg button { height: 26px; padding: 0 9px; border: 0; background: none; color: var(--e-muted); font-size: 11.5px; font-weight: 600; cursor: pointer; }
+  .edi-maq-seg button[aria-pressed="true"] { background: rgb(255 255 255 / 0.14); color: var(--e-fg); }
+  .edi-btn.edi-maq-sm { min-height: 28px; padding: 0 11px; font-size: 12px; display: inline-flex; align-items: center; text-decoration: none; }
+  .edi-btn:disabled { opacity: 0.45; cursor: default; }
+  .edi-maq-url { flex: none; display: flex; align-items: center; gap: 9px; min-width: 0; padding: 5px 10px 5px 14px; background: #191d38; border-block: 1px solid rgb(255 255 255 / 0.07); font-size: 12px; }
+  .edi-maq-live { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: #8fe0a4; white-space: nowrap; }
+  .edi-maq-live:not([data-s="on"]) { color: var(--e-muted); }
+  .edi-maq-url code { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--e-muted); font-size: 11.5px; }
+  .edi-maq-glass { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #f6f3ee; }
+  .edi-maq-glass[data-window]:not([data-window="live"]) { background: #10132a; }
+  .edi-maq-glass[data-dev="phone"] { background: #0e1124; display: grid; justify-items: center; }
+  .edi-maq-shot { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; }
+  .edi-maq-glass[data-dev="phone"] .edi-maq-shot, .edi-maq-glass[data-dev="phone"] .edi-maq-frame { width: auto; max-width: min(260px, 90%); height: calc(100% - 20px); margin-top: 10px; aspect-ratio: 390 / 844; border-radius: 22px; box-shadow: 0 0 0 4px #2b3052; }
+  .edi-maq-frame { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
+  .edi-maq-noshot { margin: 0; height: 100%; display: grid; place-content: center; padding: 18px; text-align: center; color: #4a4f66; font-size: 13px; }
+  .edi-maq-noshot .edi-vlink { color: #2b3052; }
+  .edi-maq-blinds { position: absolute; inset: 0; z-index: 4; display: grid; place-content: center; justify-items: center; gap: 8px; padding: 18px; text-align: center; overflow: auto; background: repeating-linear-gradient(180deg, rgb(255 255 255 / 0.07) 0 2px, transparent 2px 12px), #10132a; }
+  .edi-maq-blinds h3 { margin: 0; font: 700 21px/1.15 var(--font-display); text-wrap: balance; }
+  .edi-maq-blinds p { margin: 0; max-width: 46ch; color: var(--e-muted); font-size: 13px; overflow-wrap: anywhere; }
+  .edi-maq-blinds [data-reason] { color: #ffc0cc; }
+  .edi-maq-brow { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 6px; }
+  .edi-maq-steps { margin: 0; padding: 0 0 0 18px; text-align: left; color: var(--e-muted); font-size: 13px; display: grid; gap: 2px; }
+  .edi-maq-found { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; min-width: 0; max-width: 100%; text-align: left; }
+  .edi-maq-found li { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 8px; font-size: 12.5px; color: var(--e-muted); }
+  .edi-maq-found code { color: var(--e-fg); overflow-wrap: anywhere; }
+  .edi-maq-warn { position: absolute; left: 0; right: 0; top: 0; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 7px 12px; background: #3a1522; color: #ffd6dd; font-size: 12.5px; font-weight: 500; border-bottom: 1px solid rgb(255 107 138 / 0.5); }
+
+  /* a drawer's rows and the map, laid over the window */
+  .edi-maq-sheet { position: absolute; inset: 0; z-index: 6; display: flex; flex-direction: column; overflow: hidden; border-radius: 16px; background: #141833; border: 1px solid var(--c); box-shadow: 0 20px 60px rgb(0 0 0 / 0.55); }
+  .edi-maq-shead { flex: none; display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 10px 8px 16px; border-bottom: 1px solid rgb(255 255 255 / 0.07); }
+  .edi-maq-shead h3 { margin: 0; min-width: 0; font: 700 16px var(--font-display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-maq-shead h3 code { font-size: 14.5px; font-weight: 500; }
+  .edi-maq-shead small { color: var(--e-muted); white-space: nowrap; }
+  .edi-maq-shead .edi-fi-x { margin-left: auto; }
+  .edi-maq-tag { flex: none; padding: 2px 8px; border-radius: 99px; background: rgb(255 196 107 / 0.14); color: #ffc46b; font-size: 11px; font-weight: 600; }
+  .edi-maq-sbody { flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; }
+  .edi-maq-sbody > .edi-fi-state, .edi-maq-sbody > .edi-fi-empty { padding: 14px 16px; }
+  .edi-maq-sfoot { flex: none; display: flex; align-items: center; gap: 14px; padding: 6px 16px; border-top: 1px solid rgb(255 255 255 / 0.07); font-size: 11.5px; color: var(--e-muted); }
+  .edi-maq-sfoot span { margin-right: auto; }
+  .edi-maq-rows { border-collapse: collapse; font: 12px/1.4 var(--font-mono, ui-monospace, monospace); min-width: 100%; }
+  .edi-maq-rows th { position: sticky; top: 0; z-index: 1; background: #1b2042; color: var(--e-muted); font-weight: 600; text-align: left; }
+  .edi-maq-rows th, .edi-maq-rows td { max-width: 240px; padding: 5px 12px; border-bottom: 1px solid rgb(255 255 255 / 0.06); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-maq-rows td[data-hidden] { color: var(--e-muted); font-style: italic; }
+  .edi-maq-null { color: rgb(255 255 255 / 0.35); }
+  .edi-maq-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; align-content: start; padding: 14px; }
+  .edi-maq-box { display: grid; gap: 4px; align-content: start; min-width: 0; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--e-line); background: #20243f; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+  .edi-maq-box:hover { border-color: var(--c); }
+  .edi-maq-box b { font: 600 13px var(--font-mono, ui-monospace, monospace); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-maq-box small { color: var(--e-muted); font-size: 11.5px; }
+  .edi-maq-box ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 1px; }
+  .edi-maq-box li { display: flex; gap: 6px; min-width: 0; font: 11.5px var(--font-mono, ui-monospace, monospace); color: var(--e-muted); }
+  .edi-maq-box li span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-maq-box li em { flex: none; font-style: normal; color: #ffc46b; }
+  .edi-maq-box li[data-ref] em { color: var(--c); }
+
+  /* the machines */
+  .edi-maq-room { display: flex; flex-direction: column; gap: 9px; min-height: 0; min-width: 0; overflow: auto; scrollbar-width: thin; padding: 0 2px 2px; }
+  .edi-maq-eye { flex: none; display: flex; justify-content: space-between; gap: 8px; margin: 0; padding: 2px 2px 0; }
+  .edi-maq-eye small { font-size: 11.5px; font-weight: 400; letter-spacing: 0; text-transform: none; white-space: nowrap; }
+  .edi-maq-mach { position: relative; flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 10px 11px 10px 14px; border-radius: 16px; background: linear-gradient(180deg, #282d4d, #20243f); border: 1px solid var(--e-line); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07), 0 3px 0 rgb(0 0 0 / 0.3); }
+  .edi-maq-mach[data-mach="base"] { flex: 1 1 auto; min-height: 0; grid-template-rows: auto minmax(0, 1fr); }
+  .edi-maq-main { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1px 10px; align-content: start; min-width: 0; padding: 0; border: 0; border-radius: 10px; background: none; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+  .edi-maq-main > .edi-maq-lamp { grid-row: 1 / 3; margin-top: 5px; }
+  .edi-maq-name { font-size: 10.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--e-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-maq-name span { margin-left: 6px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+  .edi-maq-state { font: 700 19px/1.2 var(--font-display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-maq-main:hover .edi-maq-state { text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px; }
+  .edi-maq-sub { grid-column: 2; font-size: 12px; color: var(--e-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-maq-log { grid-column: 1 / -1; margin-top: 5px; padding: 4px 8px; border-radius: 7px; background: rgb(0 0 0 / 0.25); font: 11px var(--font-mono, ui-monospace, monospace); color: var(--e-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-maq-log[data-bad] { color: #ffc0cc; }
+  .edi-maq-lever { position: relative; flex: none; width: 60px; height: 58px; padding: 0; border-radius: 12px; background: #0c0f20; border: 1px solid var(--e-rail); box-shadow: inset 0 2px 6px rgb(0 0 0 / 0.6); cursor: pointer; }
+  .edi-maq-lever::after { content: attr(data-next); position: absolute; left: 0; right: 0; bottom: 6px; text-align: center; font-size: 9.5px; font-weight: 600; color: var(--e-muted); }
+  .edi-maq-lever[aria-checked="false"]::after { bottom: auto; top: 6px; }
+  .edi-maq-lever i { position: absolute; z-index: 1; left: 4px; right: 4px; top: 4px; height: 26px; border-radius: 8px; background: linear-gradient(#c0f7cf, #6fd08c); box-shadow: 0 0 18px rgb(143 224 164 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.7); transition: transform 0.25s cubic-bezier(0.3, 1.4, 0.5, 1), background 0.25s; }
+  .edi-maq-lever[aria-checked="false"] i { transform: translateY(22px); background: linear-gradient(#69709a, #434a72); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25); }
+  .edi-maq-lever[data-s="starting"] i { background: linear-gradient(#ffe2a8, #f0a046); }
+  .edi-maq-lever[data-s="error"] i { background: linear-gradient(#ffb1c0, #ff6b8a); }
+  .edi-maq-lever:disabled { opacity: 0.45; cursor: default; }
+  .edi-maq-lever:focus-visible, .edi-maq-drawer:focus-visible, .edi-maq-main:focus-visible { outline: 2px solid var(--e-fg); outline-offset: 2px; }
+  .edi-maq-pipe { position: absolute; overflow: hidden; background: #0c0f20; border: 1px solid var(--e-line); }
+  .edi-maq-pipe::after { content: ""; position: absolute; inset: 0; opacity: 0.28; }
+  .edi-maq-pipe-h { left: -28px; width: 28px; top: 30px; height: 9px; border-inline: 0; }
+  .edi-maq-pipe-h::after { background: repeating-linear-gradient(90deg, var(--e-muted) 0 5px, transparent 5px 13px); }
+  .edi-maq-pipe-v { top: -11px; left: 36px; width: 9px; height: 11px; border-block: 0; }
+  .edi-maq-pipe-v::after { background: repeating-linear-gradient(180deg, var(--e-muted) 0 5px, transparent 5px 13px); }
+  .edi-maq-pipe[data-s="lit"]::after { opacity: 1; }
+  .edi-maq-pipe-h[data-s="lit"]::after { background: repeating-linear-gradient(90deg, #8fe0a4 0 5px, transparent 5px 13px); }
+  .edi-maq-pipe-v[data-s="lit"]::after { background: repeating-linear-gradient(180deg, #8fe0a4 0 5px, transparent 5px 13px); }
+  .edi-maq-pipe[data-s="red"]::after { opacity: 1; background: repeating-linear-gradient(180deg, #ff6b8a 0 3px, transparent 3px 8px); }
+  .edi-maq-drawers { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: minmax(32px, auto); gap: 7px; align-content: start; min-height: 0; overflow: auto; scrollbar-width: thin; }
+  .edi-maq-drawer { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; padding: 3px 11px 8px; border-radius: 9px; background: linear-gradient(180deg, #30365b, #272c4c); border: 1px solid var(--e-line); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 2px 0 rgb(0 0 0 / 0.35); color: inherit; font: inherit; text-align: left; cursor: pointer; transition: transform 0.18s; }
+  .edi-maq-drawer::after { content: ""; position: absolute; left: 50%; bottom: 5px; width: 24px; height: 3px; margin-left: -12px; border-radius: 2px; background: rgb(255 255 255 / 0.28); }
+  .edi-maq-drawer code { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-maq-drawer span { font: 500 12px var(--font-mono, ui-monospace, monospace); color: var(--e-muted); font-variant-numeric: tabular-nums; }
+  .edi-maq-drawer:hover { transform: translateY(2px); }
+  .edi-maq-drawer[aria-pressed="true"] { border-color: var(--c); transform: translateY(3px); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 0 0 1px var(--c); }
+  .edi-maq-ghost { border-style: dashed; background: none; box-shadow: none; }
+  .edi-maq-ghost::after { display: none; }
+  .edi-maq-dnote { grid-column: 1 / -1; margin: 0; padding: 8px 2px; color: var(--e-muted); font-size: 12.5px; }
+  .edi-maq-note { margin: 0; color: var(--e-muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+  .edi-maq-note[data-bad] { color: #ffc0cc; }
+  .edi-maq-room > .edi-maq-note { flex: none; padding: 0 4px; }
+  .edi-maq-shelf { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .edi-maq-inst { display: grid; gap: 3px; align-content: center; min-width: 0; padding: 7px 11px; border-radius: 13px; border: 1px solid var(--e-line); background: rgb(255 255 255 / 0.035); color: inherit; text-align: left; font: inherit; cursor: pointer; }
+  .edi-maq-inst:hover { border-color: var(--e-rail); }
+  .edi-maq-inst b { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-maq-inst b small { margin-left: 6px; font-weight: 400; color: var(--e-muted); }
+  .edi-maq-inst > small { font-size: 11.5px; color: var(--e-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-maq-inst [data-keys-missing], .edi-maq-inst [data-tests="fail"] { color: #ffc0cc; }
+  .edi-maq-inst [data-tests="pass"] { color: #8fe0a4; }
+
+  /* La ficha's Máquinas kinds */
+  .edi-maq-kv { display: grid; gap: 6px; margin: 0; }
+  .edi-maq-kv > div { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 8px; font-size: 12.5px; }
+  .edi-maq-kv dt { color: var(--e-muted); }
+  .edi-maq-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .edi-maq-kv code, .edi-maq-list code { font-size: 12px; }
+  .edi-maq-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .edi-maq-list li { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 12.5px; }
+  .edi-maq-list li > code, .edi-maq-list li > .edi-vlink { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .edi-maq-list li > small { margin-left: auto; flex: none; color: var(--e-muted); }
+  .edi-maq-list li > em { flex: none; font-style: normal; font-size: 11px; color: #8fe0a4; }
+  .edi-maq-list li[data-applied="false"] small { color: #ffc46b; }
+  .edi-maq-log-full { max-height: 260px; }
+  /* A long column name keeps its line; the type moves to its own line under it. */
+  .edi-maq-cols { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .edi-maq-cols li { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; padding: 5px 0; border-bottom: 1px solid rgb(255 255 255 / 0.06); min-width: 0; }
+  .edi-maq-cname { font-size: 12.5px; color: var(--e-fg); overflow-wrap: anywhere; }
+  .edi-maq-ctype { font: 11.5px var(--font-mono, ui-monospace, monospace); color: var(--e-muted); overflow-wrap: anywhere; }
+  .edi-maq-ctags { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 11px; }
+  .edi-maq-ctags em { font-style: normal; color: #ffc46b; }
+  .edi-maq-keys { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .edi-maq-keys li { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 12.5px; }
+  .edi-maq-keys code { overflow-wrap: anywhere; }
+  .edi-maq-key { width: 12px; height: 12px; border-radius: 50% 50% 2px 50%; border: 2px solid #8fe0a4; }
+  .edi-maq-keys li[data-set="false"] .edi-maq-key { border-color: #ff6b8a; border-style: dashed; }
+  .edi-maq-keys li[data-set="false"] small { color: #ffc0cc; }
+  .edi-maq-keys small { color: var(--e-muted); }
+  .edi-maq-confirm { display: grid; gap: 8px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgb(255 107 138 / 0.5); background: rgb(255 107 138 / 0.08); }
+  .edi-maq-confirm p { margin: 0; font-size: 12.5px; }
+  .edi-btn.edi-maq-danger { background: #ff6b8a; border-color: #ff6b8a; color: #12152a; }
+  .edi-maq-step { display: grid; gap: 4px; margin-top: 6px; font-size: 12.5px; }
+  .edi-maq-step[data-ok="false"] b { color: #ffc0cc; }
+  .edi-maq-walk { margin: 0; padding: 0; list-style: none; counter-reset: paso; display: grid; gap: 6px; }
+  .edi-maq-walk li { counter-increment: paso; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: start; padding: 7px 8px; border-radius: 10px; border: 1px solid var(--e-line); font-size: 12.5px; }
+  .edi-maq-walk li[data-here] { border-color: var(--c); }
+  .edi-maq-walk li[data-done] span { color: var(--e-muted); text-decoration: line-through; }
+  .edi-maq-walk label { display: flex; gap: 8px; align-items: flex-start; min-width: 0; cursor: pointer; }
+  .edi-maq-walk label span { overflow-wrap: anywhere; }
+  .edi-maq-walk label::before { content: counter(paso); flex: none; width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; background: rgb(255 255 255 / 0.08); font-size: 11px; font-weight: 700; }
+  .edi-maq-walk input { margin-top: 2px; }
+  .edi-maq-wacts { display: flex; gap: 10px; }
+
+  /* the building's tablero, beside Plomería */
+  .edi-maq-tlink { display: inline; }
+  .edi-maq-tablero { position: absolute; z-index: 45; right: 0; top: 24px; width: min(440px, calc(100vw - 32px)); max-height: min(70vh, 560px); overflow: auto; display: grid; gap: 8px; padding: 0 14px 14px; border-radius: 18px; background: #161a35; border: 1px solid var(--e-rail); box-shadow: 0 24px 70px rgb(0 0 0 / 0.6); color: var(--e-fg); text-align: left; }
+  .edi-maq-tablero .edi-maq-shead { padding: 12px 0 8px; }
+  .edi-maq-trows { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .edi-maq-trows li { display: grid; grid-template-columns: minmax(0, 1fr) auto 52px 58px; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 12px; border: 1px solid var(--e-line); background: linear-gradient(90deg, color-mix(in srgb, var(--c) 10%, transparent), transparent 50%); font-size: 13px; }
+  .edi-maq-tname { display: inline-flex; align-items: center; gap: 8px; min-width: 0; padding: 0; border: 0; background: none; color: var(--e-fg); font: inherit; font-weight: 600; text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-maq-tstate { color: var(--e-muted); font-size: 12px; white-space: nowrap; }
+  .edi-maq-tport { color: var(--e-muted); font-size: 12px; }
+  .edi-maq-tnote { font-size: 11px; color: var(--e-muted); }
+  .edi-maq-switch { position: relative; width: 44px; height: 24px; padding: 0; border-radius: 99px; border: 1px solid var(--e-rail); background: #0c0f20; cursor: pointer; justify-self: end; }
+  .edi-maq-switch i { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #69709a; transition: transform 0.2s; }
+  .edi-maq-switch[aria-checked="true"] { background: rgb(143 224 164 / 0.25); border-color: #8fe0a4; }
+  .edi-maq-switch[aria-checked="true"] i { transform: translateX(20px); background: #8fe0a4; }
+  .edi-maq-switch:disabled { opacity: 0.45; cursor: default; }
+  .edi-tile-app { position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: #8fe0a4; box-shadow: 0 0 8px #8fe0a4; }
+
+  @media (max-height: 690px) and (min-width: 48rem) {
+    .edi-maq { gap: 8px 22px; padding-top: 4px; }
+    .edi-maq-mach { padding: 8px 10px 8px 12px; }
+    .edi-maq-state { font-size: 17px; }
+    .edi-maq-lever { height: 52px; }
+  }
+  @media (width < 64rem) {
+    .edi-maq { grid-template-columns: minmax(0, 1fr) clamp(240px, 36%, 300px); gap: 10px 18px; }
+    .edi-maq-pipe-h { left: -18px; width: 18px; }
+    .edi-maq-seg button { padding: 0 7px; }
+  }
+  /* Under 48rem the levels stack as one column and the page scrolls; only the shown level is drawn. */
+  @media (width < 48rem) {
+    .edi-levels { overflow: visible; }
+    .edi-level { transition: none; }
+    .edi-level[inert] { display: none; }
+    .edi-levels > .edi-level { transform: none !important; visibility: visible !important; }
+    .edi-maq { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; gap: 12px; background-image: none; }
+    .edi-maq-viewer { height: min(70vh, 460px); }
+    .edi-maq-room { overflow: visible; }
+    .edi-maq-mach[data-mach="base"] { flex: none; }
+    .edi-maq-pipe-h { display: none; }
+    .edi-maq-transom { flex-wrap: wrap; padding: 10px 14px 6px; }
+    .edi-maq-tabs { flex-basis: 100%; }
+    .edi-maq-url { flex-wrap: wrap; }
+    .edi-maq-url code { flex-basis: 100%; order: 5; }
+    .edi-maq-ask [data-control="pedir-abrir"]::after { display: none; }
+    .edi-maq-tablero { position: fixed; left: 12px; right: 12px; top: 72px; width: auto; }
+    .edi-fmeta { flex-wrap: wrap; }
+  }
+
   /* PLA-I47-7: a part that failed to draw says so in its place. */
   .edi-fail { display: grid; gap: 10px; justify-items: start; padding: 18px; border-radius: 18px; border: 1px solid rgb(255 107 138 / 0.45); background: rgb(255 107 138 / 0.08); color: var(--e-fg, #eef0f6); font-size: 13.5px; }
   .edi-fail p { margin: 0; }

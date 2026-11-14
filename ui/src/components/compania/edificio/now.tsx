@@ -31,6 +31,8 @@ export type NowActs = {
   busy?: string | null;
   // PLA-I47-7: an in-page link («#te-toca») from the floor's light: nothing on the page has those anchors any more.
   onLink?: (slug: string, href: string) => void;
+  // PLA-I48-6: an idle floor offers to try the app (Cómo probarla) or to go down to Máquinas.
+  onMaquinas?: (slug: string, what: "probar" | "bajar") => void;
 };
 
 const Tick = ({ until, now, label, onElapsed }: { until: string; now: number; label: string; onElapsed?: () => void }) => {
@@ -128,6 +130,7 @@ export const Now = ({
   // PLA-I46-10: a delivery to accept carries its evidence card (evidence.tsx).
   const dv = decisions ? deliveryOf(line.move, decisions) : null;
   const held = !!dv && a?.kind === "reveal";
+  const idle = line.state === "idle" && !a && !!acts?.onMaquinas;
   // PLA-I46-3: only a card with a move breathes (data-breathe); the CSS stops it under reduce-motion.
   return (
     <div id={dv ? anchor : undefined} className="edi-nowb" data-now={line.state} data-holder={line.holder ?? undefined} data-breathe={line.move ? "1" : undefined} data-side={side ? "1" : undefined} aria-live="polite">
@@ -143,8 +146,18 @@ export const Now = ({
             {line.why}
           </p>
         )}
-        {(a || plan || dv || line.note) && (
+        {(a || plan || dv || line.note || idle) && (
           <div className="edi-nacts">
+            {idle && (
+              <>
+                <button type="button" className="edi-nact edi-go" onClick={() => acts!.onMaquinas!(p.slug, "probar")} data-control="ahora-probar">
+                  Probar la app
+                </button>
+                <button type="button" className="edi-btn" onClick={() => acts!.onMaquinas!(p.slug, "bajar")} data-control="ahora-bajar">
+                  Bajar a máquinas ↓
+                </button>
+              </>
+            )}
             {a && !held && <ActButton project={p} action={a} move={!!line.move} where="ahora" ctx={ctx} />}
             {dv && <EvidenceActs p={p} d={dv} qacts={qacts} held={held} />}
             {plan && <PlanActs d={plan.d} waiting={plan.waiting} qacts={qacts} />}

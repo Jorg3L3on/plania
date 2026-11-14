@@ -7,6 +7,7 @@
 //   POST /:slug/maquinas/base/encender|apagar   the brew service of the floor's local base (F1)
 //   GET  /:slug/maquinas/tablas                 tables, counts, columns, relations, migrations (F2)
 //   GET  /:slug/maquinas/tablas/:name/filas     50 rows a page with the total (F2)
+//   POST /:slug/maquinas/migrar                 Aplicar: the migrate command only (F5)
 //   POST /:slug/maquinas/sembrar                migrate and seed (F2)
 //   POST /:slug/maquinas/vaciar-y-sembrar       {rows}: truncate and seed again, the only writing path (F2)
 //   GET  /:slug/maquinas/llaves                 variable names, set or missing, never a value (F3)
@@ -23,7 +24,7 @@ import { ToolError } from "../mcp/errors.js";
 import { pruebaOf, pruebaRead, reiniciar, pruebaLog } from "../captures/prueba.js";
 import { MaquinaError } from "../maquinas/errors.js";
 import { appEnvOf, baseLever, configurar, maquinasRead, projectOf } from "../maquinas/machines.js";
-import { filas, sembrar, tablas, vaciarYSembrar } from "../maquinas/reader.js";
+import { filas, migrar, sembrar, tablas, vaciarYSembrar } from "../maquinas/reader.js";
 import { llaves } from "../maquinas/llaves.js";
 import { correrPruebas, pruebasRead } from "../maquinas/pruebas.js";
 import { nuevaContrasena, recorrido } from "../maquinas/recorrido.js";
@@ -56,6 +57,7 @@ maquinasRoutes.post("/:slug/maquinas/base/apagar", (c) => answer(c, async (db) =
 
 maquinasRoutes.get("/:slug/maquinas/tablas", (c) => answer(c, (db) => tablas(db, c.req.param("slug"))));
 maquinasRoutes.get("/:slug/maquinas/tablas/:name/filas", (c) => answer(c, (db) => filas(db, c.req.param("slug"), c.req.param("name"), Number(c.req.query("offset") ?? 0))));
+maquinasRoutes.post("/:slug/maquinas/migrar", (c) => answer(c, (db) => migrar(db, c.req.param("slug"))));
 maquinasRoutes.post("/:slug/maquinas/sembrar", (c) => answer(c, (db) => sembrar(db, c.req.param("slug"))));
 maquinasRoutes.post("/:slug/maquinas/vaciar-y-sembrar", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { rows?: unknown };

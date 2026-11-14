@@ -21,12 +21,14 @@ import { findScripts, type Found } from "./detect.js";
 
 export type MaquinasDeps = {
   exec?: Exec;
+  frame?: (url: string) => Promise<boolean>;
   portBusy?: (port: number) => Promise<boolean>;
   env?: NodeJS.ProcessEnv;
 };
 let deps: MaquinasDeps = {};
 export function setMaquinasDeps(d: MaquinasDeps): void {
   deps = d;
+  frames.clear();
 }
 export const mdeps = () => deps;
 export const menv = () => deps.env ?? process.env;
@@ -43,6 +45,32 @@ const knock = (host: string, port: number) =>
     s.once("connect", () => done(true));
     s.once("error", () => done(false));
   });
+// Decision 4 of the Plan: the window frames the live app only when the app allows it (no X-Frame-Options, no
+// frame-ancestors that leaves Plania out); otherwise it shows the captures.
+export function frameAllowed(headers: Headers): boolean {
+  if (headers.get("x-frame-options")) return false;
+  const fa = /frame-ancestors\s+([^;]+)/i.exec(headers.get("content-security-policy") ?? "")?.[1]?.trim();
+  if (!fa) return true;
+  return fa.split(/\s+/).some((s) => s === "*" || /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+|:\*)?$/.test(s));
+}
+const defaultFrame = async (url: string) => {
+  try {
+    const r = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(1500) });
+    return r.status < 400 && frameAllowed(r.headers);
+  } catch {
+    return false;
+  }
+};
+const frames = new Map<string, { at: number; ok: boolean }>();
+async function frameable(url: string | null): Promise<boolean> {
+  if (!url) return false;
+  const had = frames.get(url);
+  if (had && Date.now() - had.at < 60_000) return had.ok;
+  const ok = await (deps.frame ?? defaultFrame)(url);
+  frames.set(url, { at: Date.now(), ok });
+  return ok;
+}
+
 const portBusy = (port: number) => (deps.portBusy ?? ((p: number) => knock("127.0.0.1", p)))(port);
 
 export type ProjectRow = typeof projects.$inferSelect;
@@ -128,7 +156,7 @@ export async function baseRead(db: Db, p: ProjectRow, address: BaseAddress | nul
 export type MaquinasRead = {
   project: string;
   configured: boolean;
-  server: PruebaRead & { command: string | null; commit: string | null; branch: string | null; worktree: string | null; started_by: string | null };
+  server: PruebaRead & { command: string | null; commit: string | null; branch: string | null; worktree: string | null; started_by: string | null; frameable: boolean };
   base: BaseRead;
   found: Found | null;
   pages: CaptureSettings["pages"];
@@ -151,6 +179,7 @@ export async function maquinasRead(db: Db, slug: string): Promise<MaquinasRead> 
       branch: info?.branch ?? (s ? "sandbox" : null),
       worktree: info?.worktree ?? null,
       started_by: info?.started_by ?? (prueba.phase === "running" ? "fuera de Plania" : null),
+      frameable: prueba.phase === "live" || prueba.phase === "running" ? await frameable(prueba.url) : false,
     },
     base: await baseRead(db, p, address, env.file),
     found: s ? null : findScripts(dirs.prueba ?? dirs.repo),

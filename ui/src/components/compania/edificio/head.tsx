@@ -18,6 +18,7 @@ export const Head = ({
   onFijar,
   onPlan,
   extra,
+  lift,
 }: {
   project: OrgProject;
   line: NowLine;
@@ -25,6 +26,8 @@ export const Head = ({
   onPlan?: (p: OrgProject, el: HTMLElement) => void;
   // A paused floor's Reanudar.
   extra?: ReactNode;
+  // PLA-I48-4: the level switch (Trabajo | Máquinas, with the server's and the base's lights).
+  lift?: ReactNode;
 }) => {
   const rumbo = rumboText(p);
   const status = plateStatus(p);
@@ -63,6 +66,7 @@ export const Head = ({
         </p>
       )}
       <div className="edi-fmeta">
+        {lift}
         <span className="edi-pill" data-tone={TONE[line.state]} data-pill={line.state}>
           <i aria-hidden />
           {line.word}
