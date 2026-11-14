@@ -57,7 +57,7 @@ class FakeChild extends EventEmitter {
   }
 }
 
-/** Other runs live in the DB when each fake run is spawned (its own row turns running right after). */
+/** Other runs live in the DB when each fake run is spawned (its own row, matched by pid, is left out). */
 const runningAtSpawn: number[] = [];
 const spawnedPos: string[] = [];
 const fakeErrors: string[] = [];
@@ -113,7 +113,8 @@ const deps = () => ({
     const prompt = args[args.indexOf("-p") + 1]!;
     setImmediate(async () => {
       try {
-        runningAtSpawn.push(Number((await raw.query(`select count(*)::int n from agent_runs where status = 'running'`)).rows[0].n));
+        // Only OTHER runs: start() marks this run running (with its pid) right after spawn, and under load that update can land first.
+        runningAtSpawn.push(Number((await raw.query(`select count(*)::int n from agent_runs where status = 'running' and pid is distinct from $1`, [child.pid])).rows[0].n));
         await poRun(prompt);
         child.finish();
       } catch (err) {
