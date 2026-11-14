@@ -89,6 +89,9 @@ test("check 6: one line per check, ✓ or ✗, and no secret values", async () =
   const dry = f.calls.find((c) => c.args[0] === "-p")!;
   assert.equal(dry.args[1], "reply ok");
   assert.ok(dry.args.includes("--json-schema"));
+  // PLA-I44-2: the dry run sends pass A's own schema (without $schema), so a schema the CLI refuses shows up here.
+  const { readSchemaText } = await import("../src/brief/prompts.js");
+  assert.equal(dry.args[dry.args.indexOf("--json-schema") + 1], readSchemaText("brief"));
   assert.equal(dry.args[dry.args.indexOf("--max-turns") + 1], "2");
   assert.equal(dry.args[dry.args.indexOf("--tools") + 1], "Read,Grep,Glob,Bash");
   for (const k of ["ANTHROPIC_API_KEY", "PLANIA_RUNNER_TOKEN", "GITHUB_TOKEN", "MCP_READ_TOKEN"]) assert.equal(dry.env[k], undefined, `${k} is not passed to claude`);

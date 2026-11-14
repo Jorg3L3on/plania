@@ -414,3 +414,14 @@ test("override docs are appended when present and ignored when absent", async ()
   await raw.query("update docs set markdown = '  ' where title = 'Prompt: Morning brief'");
   assert.equal(await P.loadSystemOverride(db, env), null);
 });
+
+// PLA-I44-2: claude 2.1.302 refuses a --json-schema whose "$schema" is draft 2020-12 (the pass ends with exit 1, no
+// turn). The text sent to claude leaves the key out; the file and readSchema keep it, and nothing else changes.
+test("the --json-schema text has no $schema key, everything else as in the file", () => {
+  for (const pass of ["brief", "ideas"] as const) {
+    const text = P.readSchemaText(pass);
+    assert.doesNotMatch(text, /\$schema|json-schema\.org/, pass);
+    const { $schema: _draft, ...rest } = P.readSchema(pass);
+    assert.deepEqual(JSON.parse(text), rest, pass);
+  }
+});

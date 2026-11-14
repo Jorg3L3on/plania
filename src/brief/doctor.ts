@@ -14,7 +14,7 @@ import { readTokenFile } from "../jobs/gh-token.js";
 import { repoPathOf } from "../runner/worktree.js";
 import { StreamReader } from "../runner/stream.js";
 import { briefArgs, briefChildEnv, briefSettings, commandOf } from "./claude.js";
-import { PROMPTS_DIR, PROMPT_FILES } from "./prompts.js";
+import { PROMPTS_DIR, PROMPT_FILES, readSchemaText } from "./prompts.js";
 import { loadBriefProjects, loadBriefSettings, validTimezone } from "./settings.js";
 
 export type DoctorLine = { ok: boolean; text: string };
@@ -31,7 +31,6 @@ export type DoctorDeps = {
 };
 
 export const BRIEF_TABLES = ["morning_briefs", "brief_runs", "brief_plan_requests", "brief_checks", "brief_settings"] as const;
-const DRY_SCHEMA = JSON.stringify({ type: "object", properties: { reply: { type: "string" } }, required: ["reply"], additionalProperties: false });
 
 export const defaultExec: ExecFn = (cmd, args, opts) =>
   new Promise((resolve) => {
@@ -43,17 +42,20 @@ export const defaultExec: ExecFn = (cmd, args, opts) =>
 
 const line = (ok: boolean, text: string): DoctorLine => ({ ok, text });
 
-/** The dry run: pass A's flags, no MCP server, 2 turns (the StructuredOutput tool call takes one). */
+/**
+ * The dry run: pass A's flags and pass A's own schema (PLA-I44-2: so a schema the CLI refuses fails here, not at
+ * 07:00), no MCP server, 2 turns (the StructuredOutput tool call takes one).
+ */
 async function claudeDryRun(cmd: string, env: NodeJS.ProcessEnv, exec: ExecFn): Promise<DoctorLine> {
   const dir = mkdtempSync(path.join(tmpdir(), "plania-brief-doctor-"));
   try {
     const systemPromptPath = path.join(dir, "system.md");
-    writeFileSync(systemPromptPath, "This is a setup check. Answer with reply set to ok.", { mode: 0o600 });
+    writeFileSync(systemPromptPath, "This is a setup check. Answer with items set to an empty list.", { mode: 0o600 });
     const settingsPath = path.join(dir, "settings.json");
     writeFileSync(settingsPath, JSON.stringify(briefSettings()), { mode: 0o600 });
     const mcpConfigPath = path.join(dir, "mcp.json");
     writeFileSync(mcpConfigPath, JSON.stringify({ mcpServers: {} }), { mode: 0o600 });
-    const args = briefArgs({ pass: "brief", prompt: "reply ok", systemPromptPath, jsonSchema: DRY_SCHEMA, mcpConfigPath, settingsPath, maxTurns: 2 });
+    const args = briefArgs({ pass: "brief", prompt: "reply ok", systemPromptPath, jsonSchema: readSchemaText("brief"), mcpConfigPath, settingsPath, maxTurns: 2 });
     const res = await exec(cmd, args, { env: briefChildEnv(env, ""), cwd: dir, timeoutMs: 120_000 });
     const reader = new StreamReader();
     reader.feed(res.stdout);
