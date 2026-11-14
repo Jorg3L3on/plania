@@ -2,9 +2,12 @@
 // ya" (now: true wakes the PO; it does not reorder). No kind picker: the ask route takes kind as optional. While the
 // box has text the PO's window says "Recibiría tu pedido" (onTyping). After sending, the plate says where it landed.
 // AskView is pure (tests call its handlers); AskBox holds the text and the result.
-import { useEffect, useState, type FormEvent } from "react";
+// The floor shows only a Pedir button; the box opens in the side page, the way Asistente opens. A send closes it and
+// the plate keeps the line that says where it landed.
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { AskResult, OrgProject } from "@/lib/api";
 import { askedLine } from "@/lib/edificio";
+import { SidePage } from "./side";
 
 export type AskInput = { text: string; now: boolean };
 
@@ -19,6 +22,7 @@ export const AskView = ({
   error,
   onSubmit,
   disabled,
+  autoFocus,
 }: {
   project: OrgProject;
   text: string;
@@ -30,6 +34,7 @@ export const AskView = ({
   error?: string | null;
   onSubmit: (input: AskInput) => void;
   disabled?: boolean;
+  autoFocus?: boolean;
 }) => {
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
@@ -50,6 +55,7 @@ export const AskView = ({
           value={text}
           maxLength={500}
           disabled={disabled}
+          autoFocus={autoFocus}
           onChange={(e) => setText(e.target.value)}
         />
         <button type="submit" className="edi-btn edi-btn-primary" disabled={disabled || sending || text.trim().length < 3} data-control="pedir">
@@ -76,13 +82,17 @@ export const AskBox = ({
   onAsk,
   onTyping,
   disabled,
+  wide = true,
 }: {
   project: OrgProject;
   prefill?: string;
   onAsk: (slug: string, input: AskInput) => Promise<AskResult>;
   onTyping?: (slug: string, typing: boolean) => void;
   disabled?: boolean;
+  wide?: boolean;
 }) => {
+  const [open, setOpen] = useState(false);
+  const opener = useRef<HTMLButtonElement>(null);
   const [text, setTextState] = useState(prefill ?? "");
   const [now, setNow] = useState(false);
   const [sending, setSending] = useState(false);
@@ -94,7 +104,10 @@ export const AskBox = ({
   };
   // The words handed back by Cambiar algo still prefill the box.
   useEffect(() => {
-    if (prefill) setText(prefill);
+    if (prefill) {
+      setText(prefill);
+      setOpen(true);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefill]);
   const onSubmit = async (input: AskInput) => {
@@ -105,11 +118,44 @@ export const AskBox = ({
       setSent(askedLine(r, project.title));
       setText("");
       setNow(false);
+      setOpen(false);
     } catch {
       setError("No se pudo enviar. Si la Mac está dormida, intenta al despertar.");
     } finally {
       setSending(false);
     }
   };
-  return <AskView project={project} text={text} setText={setText} now={now} setNow={setNow} sending={sending} sent={sent} error={error} onSubmit={(i) => void onSubmit(i)} disabled={disabled} />;
+  return (
+    <div className="edi-ask-open" data-ask-open={project.slug}>
+      <button
+        ref={opener}
+        type="button"
+        className="edi-btn edi-btn-primary"
+        disabled={disabled}
+        aria-haspopup="dialog"
+        onClick={() => {
+          setSent(null);
+          setOpen(true);
+        }}
+        data-control="pedir-abrir"
+      >
+        Pedir{text.trim() ? " · borrador" : ""}
+      </button>
+      {sent && (
+        <p className="edi-sent" role="status" data-sent>
+          ✓ {sent}
+        </p>
+      )}
+      <SidePage
+        open={open}
+        wide={wide}
+        title={`Pedir para ${project.title}`}
+        description="Lo recibe el PO y lo vuelve trabajo."
+        onClose={() => setOpen(false)}
+        returnTo={() => opener.current}
+      >
+        <AskView project={project} text={text} setText={setText} now={now} setNow={setNow} sending={sending} error={error} onSubmit={(i) => void onSubmit(i)} disabled={disabled} autoFocus />
+      </SidePage>
+    </div>
+  );
 };

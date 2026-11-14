@@ -420,6 +420,7 @@ const Compania = () => {
                 project={p}
                 prefill={prefill[p.slug]}
                 disabled={company.company.paused}
+                wide={wide}
                 onAsk={(slug, input) => steer.onAsk(slug, { text: input.text, now: input.now })}
                 onTyping={(slug, on) => setTyping((t) => (!!t[slug] === on ? t : { ...t, [slug]: on }))}
               />

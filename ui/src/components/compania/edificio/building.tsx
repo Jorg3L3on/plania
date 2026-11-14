@@ -4,8 +4,8 @@
 //   roof       Tu oficina (roof.tsx)
 //   tower      one floor per running project, those that need the owner first
 //   empty      no projects: an empty lot with the door "Abrir el primer piso"
-// PLA-I39-4: each floor's plate (plate.tsx); the street with the door "Abrir un piso nuevo" (the new-project dialog);
-//   below the street, paused projects with their blinds down and Reanudar (the project switch).
+// PLA-I39-4: each floor's plate (plate.tsx); the street; below it, paused projects with their blinds down and Reanudar
+//   (the project switch); last, at the end of the page, the door "Abrir un piso nuevo" (the new-project dialog).
 // PLA-I39-5: each decision hangs under its asker's window (question.tsx); one nobody on a team asked opens from its
 //   roof chip, in place.
 import type { ReactNode } from "react";
@@ -119,12 +119,6 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
                 ) : null}
               </Floor>
             ))}
-            <div className="edi-lobby">
-              <button type="button" className="edi-door" onClick={onNew} data-control="piso-nuevo">
-                ＋ Abrir un piso nuevo
-              </button>
-              <span className="edi-muted">Un proyecto nuevo llega con su equipo: PO, Research, Artist y Taller.</span>
-            </div>
           </>
         )}
       </div>
@@ -153,6 +147,14 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
               }
             />
           ))}
+        </div>
+      )}
+      {!empty && (
+        <div className="edi-lobby edi-lobby-end">
+          <button type="button" className="edi-door" onClick={onNew} data-control="piso-nuevo">
+            ＋ Abrir un piso nuevo
+          </button>
+          <span className="edi-muted">Un proyecto nuevo llega con su equipo: PO, Research, Artist y Taller.</span>
         </div>
       )}
     </Scene>
