@@ -133,8 +133,11 @@ export const api = {
   company: () => request<OrgCompany>("GET", "/company"),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
-  addToTeam: (slug: string, template: string) =>
-    request<{ agent: string; role: string; template: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, { template }),
+  // PLA-I46-13: packs are set in the same call; the server refuses an unknown pack before hiring.
+  addToTeam: (slug: string, template: string, packs?: string[]) =>
+    request<{ agent: OrgMember; team: OrgMember[]; packs?: PackRef[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, packs?.length ? { template, packs } : { template }),
+  // PLA-I46-12: the skill packs (Plania docs `Pack: <name>`).
+  packs: () => request<{ packs: PackRef[] }>("GET", "/company/packs"),
   actDecision: (id: string, input: DecisionInput) => request<DecisionResult>("POST", `/company/decisions/${encodeURIComponent(id)}`, input),
   thread: (id: string, after?: string) =>
     request<Thread>("GET", `/threads/${encodeURIComponent(id)}${after ? `?after=${encodeURIComponent(after)}` : ""}`),
@@ -214,6 +217,8 @@ export type OrgMember = {
   queue?: { key: string; title: string }[];
   // PLA-I40-1: why the next step has not started, and when it will if that is known.
   next_start?: OrgNextStart | null;
+  // PLA-I46-12: the skill pack slugs this role carries.
+  packs?: string[];
 };
 export type OrgNextHold = "rest" | "usage" | "slot" | "paused" | "no_goal" | "waiting_owner" | "waiting_step" | "unqueued" | "soon";
 export type OrgNextStart = { key: string | null; title: string | null; hold: OrgNextHold; starts_at: string | null; text: string };
@@ -364,7 +369,10 @@ export type OrgCompany = {
   inbox?: { decisiones: number; pasos: number };
 };
 export type OrgTemplate = { slug: string; title: string };
-export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[] };
+// PLA-I46-13: every role template and whether it can be added (free), is on the team (taken) or lacks its prompt doc.
+export type HireRole = OrgTemplate & { state: "free" | "taken" | "no_doc" };
+export type PackRef = { slug: string; name: string; when: string; doc_id: string };
+export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[]; hire?: HireRole[] };
 
 export type ThreadAction = "aceptar" | "cambios" | "responder" | "fusionar";
 export type ThreadLink = { kind: "ticket" | "doc" | "pr" | "idea" | "question"; ref: string; title: string };

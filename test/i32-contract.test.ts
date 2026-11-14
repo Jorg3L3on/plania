@@ -31,7 +31,7 @@ const STATES = ["running", "idle", "waiting_jorge", "paused"];
 const LIGHTS = ["ok", "needs_jorge", "failed", "blocked", "late", "quiet", "paused"];
 // PLA-I46-5: used is input + output; the four parts travel with it.
 const USAGE = ["cache_create", "cache_read", "input", "output", "used"];
-const MEMBER = ["agent", "last", "next_start", "now", "produced", "queue", "role", "state", "template", "waiting"];
+const MEMBER = ["agent", "last", "next_start", "now", "packs", "produced", "queue", "role", "state", "template", "waiting"];
 
 before(async () => {
   raw = await resetTestDb();
@@ -113,7 +113,9 @@ test("I32-6 #1: GET /api/company has exactly the contract keys, a team of four p
 
 test("I32-6 #1: GET /api/company/projects/:slug is the project sheet plus team, thread_id and templates", async () => {
   const p = await get("/api/company/projects/mianovia");
-  assert.deepEqual(keys(p), ["blocked", "bot_work", "goal", "in_progress", "next", "pipeline", "runs", "slug", "team", "templates", "thread_id", "title"]);
+  assert.deepEqual(keys(p), ["blocked", "bot_work", "goal", "hire", "in_progress", "next", "pipeline", "runs", "slug", "team", "templates", "thread_id", "title"]);
+  // PLA-I46-13: hire is every template with free | taken | no_doc; templates stays the free ones.
+  assert.deepEqual(p.hire.filter((h: Json) => h.state === "free").map((h: Json) => h.slug), ["qa"]);
   assert.equal(p.team.length, 4);
   assert.deepEqual(p.templates, [{ slug: "qa", title: "QA" }], "only templates with a prompt doc, not already on the team");
   const thread = await get(`/api/threads/${p.thread_id}`);

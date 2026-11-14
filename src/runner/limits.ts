@@ -12,8 +12,8 @@ import type { Q } from "../mcp/tx.js";
 // A reading older than this, or past its 5-hour reset, says nothing about now.
 export const READING_TTL_MS = 30 * 60_000;
 
-// PLA-I32-2: the specialists (qa, copy, marketing, data) are runner roles too, once a team has one.
-export const RUNNER_ROLES = ["product-owner", "taller", "research", "artist", "asistente", "qa", "copy", "marketing", "data"] as const;
+// PLA-I32-2: the specialists (qa, copy, seguridad, marketing, data) are runner roles too, once a team has one.
+export const RUNNER_ROLES = ["product-owner", "taller", "research", "artist", "asistente", "qa", "copy", "seguridad", "marketing", "data"] as const;
 export type RunnerRole = (typeof RUNNER_ROLES)[number];
 
 export const PROMPT_DOCS: Record<RunnerRole, string> = {
@@ -24,6 +24,7 @@ export const PROMPT_DOCS: Record<RunnerRole, string> = {
   asistente: "Prompt: Asistente",
   qa: "Prompt: QA",
   copy: "Prompt: Copy",
+  seguridad: "Prompt: Seguridad",
   marketing: "Prompt: Marketing",
   data: "Prompt: Data",
 };

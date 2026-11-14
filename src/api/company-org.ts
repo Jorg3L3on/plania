@@ -1,6 +1,7 @@
 // PLA-I32-6: the read contract of the Compañía pages (Plan doc of PLA-IDEA7, "Contrato de API").
 //   GET  /api/company                   companyRead: the company, Asistente, each project with its team and thread, the plumbing line
-//   GET  /api/company/projects/:slug    projectRead: today's project sheet plus team, thread_id and the templates to add
+//   GET  /api/company/projects/:slug    projectRead: today's project sheet plus team, thread_id, the templates to add and
+//                                       hire (every template with free | taken | no_doc, for the Sumar sheet)
 //   POST /api/company/projects/:slug/team {template}   addTeamMember: one more agent on the team, from a role template
 //   GET  /api/machine                   plumbing (merged into the machine inventory): week usage, plan guard, switches, runs, log
 // Tokens only, never money. Cookie-only routes (src/api/company.ts and the /api session for /api/machine).
@@ -48,6 +49,8 @@ export type TeamMember = {
   waiting: string | null;
   // PLA-I40-1: why this teammate's next step has not started, and when it will if that is known.
   next_start: NextStart | null;
+  // PLA-I46-12: the skill pack slugs this role carries (GET/PUT /api/company/projects/:slug/team/:agent/packs).
+  packs: string[];
 };
 
 // hold: the runner's own verdict (rest, usage, slot, paused, no_goal: src/runner/hold.ts), or what the ticket waits
@@ -205,6 +208,7 @@ async function memberView(db: Db, a: Agent, ctx: { paused: boolean; threadId: st
     produced: await producedBy(db, ctx.threadId, a.slug, a.projectId),
     waiting,
     next_start: null,
+    packs: a.skillPacks ?? [],
   };
 }
 
@@ -547,10 +551,12 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
 // ---- One project
 
 export type TemplateRef = { slug: TeamTemplate; title: string };
-export type ProjectRead = ProjectSheet & { team: TeamMember[]; thread_id: string; templates: TemplateRef[] };
+// PLA-I46-13: every role template with why it can or cannot be added: free, already on the team, or its
+// `Prompt: <role>` doc is not in Plania yet. The hire sheet shows all of them; templates stays the free ones.
+export type HireRef = TemplateRef & { state: "free" | "taken" | "no_doc" };
+export type ProjectRead = ProjectSheet & { team: TeamMember[]; thread_id: string; templates: TemplateRef[]; hire: HireRef[] };
 
-// The templates that have their prompt doc in Plania (`Prompt: <role>`) and are not on this team yet.
-async function templatesFor(db: Db, team: TeamMember[]): Promise<TemplateRef[]> {
+export async function hireFor(db: Db, team: TeamMember[]): Promise<HireRef[]> {
   const titles = TEAM_TEMPLATES.filter((t) => isRunnerRole(t)).map((t) => PROMPT_DOCS[t as keyof typeof PROMPT_DOCS]);
   const found = await db
     .select({ title: docs.title })
@@ -559,7 +565,11 @@ async function templatesFor(db: Db, team: TeamMember[]): Promise<TemplateRef[]> 
     .where(and(eq(projects.slug, promptsProject()), isNull(docs.taskId), inArray(docs.title, titles)));
   const have = new Set(found.map((d) => d.title));
   const taken = new Set(team.map((m) => m.template));
-  return TEAM_TEMPLATES.filter((t) => have.has(PROMPT_DOCS[t as keyof typeof PROMPT_DOCS]) && !taken.has(t)).map((t) => ({ slug: t, title: TEMPLATE_ROWS[t].title }));
+  return TEAM_TEMPLATES.map((t) => ({
+    slug: t,
+    title: TEMPLATE_ROWS[t].title,
+    state: taken.has(t) ? ("taken" as const) : have.has(PROMPT_DOCS[t as keyof typeof PROMPT_DOCS]) ? ("free" as const) : ("no_doc" as const),
+  }));
 }
 
 export async function projectRead(db: Db, slug: string, now = new Date()): Promise<ProjectRead> {
@@ -568,7 +578,8 @@ export async function projectRead(db: Db, slug: string, now = new Date()): Promi
   const settings = await loadSettings(db);
   const thread = await projectThread(db, p!.id);
   const team = await teamView(db, p!, { paused: settings.companyPaused || p!.runsPaused, threadId: thread.id });
-  return { ...sheet, team, thread_id: thread.id, templates: await templatesFor(db, team) };
+  const hire = await hireFor(db, team);
+  return { ...sheet, team, thread_id: thread.id, templates: hire.filter((h) => h.state === "free").map(({ slug, title }) => ({ slug, title })), hire };
 }
 
 export type AddMemberError = { error: "PROJECT_NOT_FOUND" | "INVALID_TEMPLATE" | "PROMPT_DOC_MISSING" | "AGENT_EXISTS"; status: 400 | 404 | 409; hint: string; agent?: string };

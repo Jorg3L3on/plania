@@ -20,6 +20,12 @@
 //   GET  /api/company/owner-code          {enrolled}
 //   POST /api/company/owner-code/enroll   {password, code?} → {secret_base32, otpauth_uri} once
 //   DELETE /api/company/projects/:slug    {code}  the project and everything in it
+// PLA-I46-12: skill packs (src/runner/packs.ts). A pack is a `Pack: <name>` doc; a role carries a list of slugs.
+//   GET  /api/company/packs                               → {packs: [{slug, name, when, doc_id}]}
+//   GET  /api/company/projects/:slug/team/:agent/packs    → {project, agent, packs: [{slug, name, when, doc_id}]}
+//   PUT  /api/company/projects/:slug/team/:agent/packs    {packs: [slug]} replaces the list → same shape
+//        404 PROJECT_NOT_FOUND | AGENT_NOT_FOUND; 400 UNKNOWN_PACK {packs} | TOO_MANY_PACKS
+//   POST /api/company/projects/:slug/team                 {template, packs?} sets the new member's packs too
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { z } from "zod";
@@ -38,6 +44,7 @@ import { checkOwnerCode, enrolOwnerCode, ownerCodeEnrolled } from "../auth/owner
 import { findProject } from "../mcp/queries.js";
 import { projects } from "../db/schema.js";
 import { eq } from "drizzle-orm";
+import { MAX_PACKS, listPacks, packRef, rolePacks, setRolePacks } from "../runner/packs.js";
 
 export const companyRoutes = new Hono();
 
@@ -104,17 +111,57 @@ companyRoutes.post("/decisions/:id", async (c) => {
   }
 });
 
-const TeamBody = z.object({ template: z.string().min(1).max(40) }).strict();
+const PackSlugs = z.array(z.string().trim().min(1).max(40)).max(MAX_PACKS);
+const TeamBody = z.object({ template: z.string().min(1).max(40), packs: PackSlugs.optional() }).strict();
 
 companyRoutes.post("/projects/:slug/team", async (c) => {
   const input = await body(c, TeamBody);
   if (input instanceof Response) return input;
-  const out = await withDb((db) => addTeamMember(db, c.req.param("slug"), input.template.trim()));
+  const slug = c.req.param("slug");
+  const out = await withDb(async (db) => {
+    // Unknown packs are refused before anyone is hired.
+    if (input.packs?.length) {
+      const known = new Set((await listPacks(db)).map((p) => p.slug));
+      const unknown = input.packs.filter((s) => !known.has(s));
+      if (unknown.length) return { error: "UNKNOWN_PACK" as const, status: 400 as const, hint: `no pack doc for ${unknown.join(", ")}`, packs: unknown };
+    }
+    const made = await addTeamMember(db, slug, input.template.trim());
+    if ("error" in made || !input.packs?.length) return made;
+    const set = await setRolePacks(db, slug, made.agent.agent, input.packs);
+    if ("error" in set) return set;
+    const slugs = set.packs.map((x) => x.slug);
+    const withPacks = <T extends { agent: string }>(m: T): T => (m.agent === made.agent.agent ? { ...m, packs: slugs } : m);
+    return { agent: withPacks(made.agent), team: made.team.map(withPacks), packs: set.packs };
+  });
   if ("error" in out) {
     const { status, ...rest } = out;
     return c.json(rest, status);
   }
   return c.json(out, 201);
+});
+
+companyRoutes.get("/packs", async (c) => c.json({ packs: (await withDb((db) => listPacks(db))).map(packRef) }));
+
+companyRoutes.get("/projects/:slug/team/:agent/packs", async (c) => {
+  const out = await withDb((db) => rolePacks(db, c.req.param("slug"), c.req.param("agent")));
+  if ("error" in out) {
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  return c.json(out);
+});
+
+const PacksBody = z.object({ packs: PackSlugs }).strict();
+
+companyRoutes.put("/projects/:slug/team/:agent/packs", async (c) => {
+  const input = await body(c, PacksBody);
+  if (input instanceof Response) return input;
+  const out = await withDb((db) => setRolePacks(db, c.req.param("slug"), c.req.param("agent"), input.packs));
+  if ("error" in out) {
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  return c.json(out);
 });
 
 companyRoutes.get("/docs/:id", async (c) => {

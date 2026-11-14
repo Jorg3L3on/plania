@@ -299,19 +299,26 @@
     {
       "idx": 42,
       "version": "7",
+      "when": 1794297600000,
+      "tag": "0046_skill_packs",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
       "when": 1794470400000,
       "tag": "0047_capture_stills",
       "breakpoints": true
     },
     {
-      "idx": 43,
+      "idx": 44,
       "version": "7",
       "when": 1794556800000,
       "tag": "0048_po_checklist",
       "breakpoints": true
     },
     {
-      "idx": 44,
+      "idx": 45,
       "version": "7",
       "when": 1794643200000,
       "tag": "0049_qa_lane",

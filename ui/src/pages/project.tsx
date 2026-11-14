@@ -92,7 +92,7 @@ function ProjectOrg({ slug }: { slug: string }) {
     mutationFn: (template: string) => api.addToTeam(slug, template),
     onMutate: () => setAdd({ kind: "busy" }),
     onSuccess: (r) => {
-      setAdd({ kind: "done", agent: r.agent });
+      setAdd({ kind: "done", agent: r.agent.agent });
       refresh();
     },
     onError: (e) => setAdd({ kind: "error", message: e instanceof ApiError ? `No se pudo añadir (${e.code}).` : "No se pudo añadir." }),
