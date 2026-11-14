@@ -29,8 +29,9 @@ const get = async (path: string): Promise<Json> => {
 const keys = (o: Json) => Object.keys(o).sort();
 const STATES = ["running", "idle", "waiting_jorge", "paused"];
 const LIGHTS = ["ok", "needs_jorge", "failed", "blocked", "late", "quiet", "paused"];
-const USAGE = ["used"];
-const MEMBER = ["agent", "last", "next_start", "now", "produced", "queue", "role", "state", "template", "waiting"];
+// PLA-I46-5: used is input + output; the four parts travel with it.
+const USAGE = ["cache_create", "cache_read", "input", "output", "used"];
+const MEMBER = ["agent", "last", "next_start", "now", "packs", "produced", "queue", "role", "state", "template", "waiting"];
 
 before(async () => {
   raw = await resetTestDb();
@@ -52,7 +53,7 @@ before(async () => {
     [await pid("mianovia")],
   );
   await raw.query(
-    `insert into agent_runs (agent_id, project_id, task_key, role, status, started_at, ended_at, tokens_total) select id, $1, 'MIA-1', 'research', 'ok', now() - interval '1 hour', now() - interval '50 minutes', 1200 from agents where slug = 'research-mianovia'`,
+    `insert into agent_runs (agent_id, project_id, task_key, role, status, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_create_tokens, tokens_total) select id, $1, 'MIA-1', 'research', 'ok', now() - interval '1 hour', now() - interval '50 minutes', 300, 100, 700, 100, 1200 from agents where slug = 'research-mianovia'`,
     [await pid("mianovia")],
   );
   const thread = (await (await app.request("/api/threads/mianovia", { headers: jorge() })).json()) as { id: string };
@@ -77,10 +78,10 @@ test("I32-6 #1: GET /api/company has exactly the contract keys, a team of four p
   assert.deepEqual(keys(c.asistente.usage), USAGE);
   assert.ok(STATES.includes(c.asistente.state));
   assert.deepEqual(keys(c.plumbing), ["paused", "running", "spend"]);
-  assert.deepEqual([c.plumbing.running, c.plumbing.paused, c.plumbing.spend], [1, false, 1200]);
+  assert.deepEqual([c.plumbing.running, c.plumbing.paused, c.plumbing.spend], [1, false, 400], "PLA-I46-5: input + output, cache apart");
   assert.deepEqual(c.projects.map((p: Json) => p.slug), ["filmia", "mianovia", "micasa", "workia", "zigzag"]);
   for (const p of c.projects) {
-    assert.deepEqual(keys(p), ["auto_accept", "goal", "latest", "light", "light_reason", "next", "orders", "paused", "plan", "plan_approval", "preview_url", "ready", "route", "rumbo", "slug", "stale_requests", "team", "this_week", "thread", "title", "usage", "work"], p.slug);
+    assert.deepEqual(keys(p), ["auto_accept", "goal", "latest", "light", "light_reason", "next", "next_move", "orders", "paused", "plan", "plan_approval", "preview_url", "ready", "route", "rumbo", "slug", "stale_requests", "team", "this_week", "thread", "title", "usage", "work"], p.slug);
     assert.deepEqual(keys(p.usage), ["last_week", "used"]);
     assert.ok(LIGHTS.includes(p.light), p.light);
     assert.deepEqual(keys(p.thread), ["id", "last", "unread"]);
@@ -112,7 +113,9 @@ test("I32-6 #1: GET /api/company has exactly the contract keys, a team of four p
 
 test("I32-6 #1: GET /api/company/projects/:slug is the project sheet plus team, thread_id and templates", async () => {
   const p = await get("/api/company/projects/mianovia");
-  assert.deepEqual(keys(p), ["blocked", "bot_work", "goal", "in_progress", "next", "pipeline", "runs", "slug", "team", "templates", "thread_id", "title"]);
+  assert.deepEqual(keys(p), ["blocked", "bot_work", "goal", "hire", "in_progress", "next", "pipeline", "runs", "slug", "team", "templates", "thread_id", "title"]);
+  // PLA-I46-13: hire is every template with free | taken | no_doc; templates stays the free ones.
+  assert.deepEqual(p.hire.filter((h: Json) => h.state === "free").map((h: Json) => h.slug), ["qa"]);
   assert.equal(p.team.length, 4);
   assert.deepEqual(p.templates, [{ slug: "qa", title: "QA" }], "only templates with a prompt doc, not already on the team");
   const thread = await get(`/api/threads/${p.thread_id}`);
@@ -151,7 +154,8 @@ test("I32-6 #1: GET /api/machine keeps the inventory and adds the plumbing: week
   const m = await get("/api/machine");
   for (const k of ["machine", "totals", "backup", "findings", "items", "plumbing"]) assert.ok(k in m, k);
   assert.deepEqual(keys(m.plumbing), ["company", "log", "plan", "runs", "settings", "usage", "viewer", "week"]);
-  assert.deepEqual(keys(m.plumbing.usage), ["asistente", "projects"]);
+  assert.deepEqual(keys(m.plumbing.usage), ["asistente", "projects", "week"]);
+  assert.deepEqual(keys(m.plumbing.usage.week), USAGE);
   assert.deepEqual(keys(m.plumbing.usage.asistente), USAGE);
   assert.deepEqual(keys(m.plumbing.usage.projects[0]), ["paused", "paused_at", "slug", "title", "usage"]);
   assert.deepEqual(keys(m.plumbing.runs), ["live", "queued"]);

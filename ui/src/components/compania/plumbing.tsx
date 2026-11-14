@@ -10,7 +10,7 @@ import { plumbedOf } from "@/lib/org";
 import { Banners, Dot, EnMarcha, KillSwitch, PlanMeter, eyebrow, heading, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
 import { RunList } from "@/components/compania/sheets";
 
-// PLA-21: no weekly budgets. The week's tokens per team and for Asistente, shown only.
+// PLA-21: no weekly budgets. The week's tokens per team and for Asistente, shown only (PLA-I46-5: input + output).
 const UsageRow = ({ label, used, paused }: { label: string; used: number; paused?: boolean }) => (
   <li className={cn("flex min-w-0 items-baseline justify-between gap-3 text-sm", paused && "opacity-60")} data-usage={label}>
     <span className="truncate text-muted-foreground">{paused ? `${label} · en pausa` : label}</span>
@@ -18,22 +18,51 @@ const UsageRow = ({ label, used, paused }: { label: string; used: number; paused
   </li>
 );
 
-export const WeekTokens = ({ plumbing }: { plumbing: MachinePlumbing }) => (
-  <section id="tokens" aria-labelledby="pl-tokens" className={cn(panel, "grid min-w-0 scroll-mt-20 content-start gap-3 p-4")} data-block="tokens">
-    <div className="grid gap-0.5">
-      <h2 id="pl-tokens" className={heading}>
-        Tokens esta semana
-      </h2>
-      <p className="text-xs text-muted-foreground">Uno por equipo y uno para Asistente · sin límite</p>
-    </div>
-    <ul className="grid gap-2">
-      <UsageRow label="Asistente" used={plumbing.usage.asistente.used} />
-      {plumbing.usage.projects.map((p) => (
-        <UsageRow key={p.slug} label={p.title} used={p.usage.used} paused={p.paused} />
-      ))}
-    </ul>
-  </section>
-);
+// PLA-I46-5: the week's main number is input + output, the work the models did. Cache reads and cache writes are
+// lines of their own: a resumed session re-reads its context each turn and can be 99% of the raw total.
+export const weekParts = (plumbing: MachinePlumbing) => {
+  const w = plumbing.usage.week;
+  const rows = [plumbing.usage.asistente, ...plumbing.usage.projects.map((p) => p.usage)];
+  const sum = (k: "input" | "output" | "cache_read" | "cache_create") => (w ? (w[k] ?? 0) : rows.reduce((n, u) => n + (u[k] ?? 0), 0));
+  return { main: w ? w.used : rows.reduce((n, u) => n + u.used, 0), input: sum("input"), output: sum("output"), cache_read: sum("cache_read"), cache_create: sum("cache_create") };
+};
+
+export const WeekTokens = ({ plumbing }: { plumbing: MachinePlumbing }) => {
+  const w = weekParts(plumbing);
+  return (
+    <section id="tokens" aria-labelledby="pl-tokens" className={cn(panel, "grid min-w-0 scroll-mt-20 content-start gap-3 p-4")} data-block="tokens">
+      <div className="grid gap-0.5">
+        <h2 id="pl-tokens" className={heading}>
+          Tokens esta semana
+        </h2>
+        <p className="text-xs text-muted-foreground">Entrada + salida · la caché va aparte · sin límite</p>
+      </div>
+      <div className="grid gap-1" data-week-main={w.main}>
+        <p className="flex min-w-0 items-baseline justify-between gap-3">
+          <span className="text-sm font-medium">Entrada + salida</span>
+          <span className="shrink-0 font-mono text-xl tabular-nums" data-week="main">
+            {tokens(w.main)}
+          </span>
+        </p>
+        <p className="flex min-w-0 items-baseline justify-between gap-3 text-sm" data-week="cache-read">
+          <span className="text-muted-foreground">Lecturas de caché</span>
+          <span className="shrink-0 font-mono tabular-nums">{tokens(w.cache_read)}</span>
+        </p>
+        <p className="flex min-w-0 items-baseline justify-between gap-3 text-sm" data-week="cache-write">
+          <span className="text-muted-foreground">Escrituras de caché</span>
+          <span className="shrink-0 font-mono tabular-nums">{tokens(w.cache_create)}</span>
+        </p>
+      </div>
+      <p className="text-xs text-muted-foreground">Por equipo, entrada + salida</p>
+      <ul className="grid gap-2">
+        <UsageRow label="Asistente" used={plumbing.usage.asistente.used} />
+        {plumbing.usage.projects.map((p) => (
+          <UsageRow key={p.slug} label={p.title} used={p.usage.used} paused={p.paused} />
+        ))}
+      </ul>
+    </section>
+  );
+};
 
 // PLA-25: "Seguir aunque el plan esté alto". On, the bots run past the guard; only a plan the provider has
 // rejected still stops them.

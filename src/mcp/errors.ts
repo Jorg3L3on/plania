@@ -85,6 +85,7 @@ export const ERRORS = {
   BATCH_FAILED: [409, "an atomic batch rolled back because one op failed (detail: index, op, failed: {error, status, ...})"],
   LEASE_EXPIRED: [409, "heartbeat after your lease ran out: claim again"],
   NOT_CLAIMABLE: [409, "the ticket cannot be claimed (detail: status, or unsatisfied blocked_by)"],
+  LEG_POSTPONED: [409, "propose: a plan for a leg that is On hold, postponed on purpose; planning is not permission to start it (detail: key, status)"],
   REQUEST_ID_REUSED: [409, "request_id was already used by a different tool in this project"],
   RELEASE_NOT_READY: [409, "release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | no_github_data | nothing_to_ship | before_steps | open_checks | merged)"],
   RELEASE_MERGE_FAILED: [409, "release/ship: a gh call failed (detail: step token | list | edit | create | merge | view, output); nothing was recorded"],

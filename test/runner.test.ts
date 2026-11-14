@@ -155,8 +155,8 @@ async function freshReading(five = 10, status = "allowed"): Promise<void> {
 // A finished run this week that used `tokens` in the project (role product-owner unless given).
 async function usedTokens(project: string, tokens: number, role = "research"): Promise<void> {
   await raw.query(
-    `insert into agent_runs (agent_id, project_id, role, status, started_at, ended_at, tokens_total, queued_at)
-     values ($1, $2, $3, 'ok', now() - interval '1 minute', now() - interval '1 minute', $4, now() - interval '1 minute')`,
+    `insert into agent_runs (agent_id, project_id, role, status, started_at, ended_at, input_tokens, tokens_total, queued_at)
+     values ($1, $2, $3, 'ok', now() - interval '1 minute', now() - interval '1 minute', $4, $4, now() - interval '1 minute')`,
     [await agentId("research"), await projectId(project), role, tokens],
   );
 }
@@ -505,7 +505,8 @@ test("PLA-21 #1: however many tokens a project used this week, a new run starts 
   await runner.waitForAllRuns();
   const state = await companyState(db);
   const micasa = state.projects.find((p) => p.slug === "micasa")!;
-  assert.deepEqual(micasa.usage, { used: 50_001_000 });
+  // PLA-I46-5: used is input + output; the parts travel with it.
+  assert.deepEqual(micasa.usage, { used: 50_001_000, input: 50_001_000, output: 0, cache_read: 0, cache_create: 0 });
   assert.equal("budget" in micasa, false);
 });
 

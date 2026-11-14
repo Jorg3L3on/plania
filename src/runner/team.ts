@@ -8,7 +8,7 @@ import { agents, type AdapterConfig, type Agent } from "../db/schema.js";
 import type { Q } from "../mcp/tx.js";
 
 export const CORE_TEMPLATES = ["product-owner", "research", "artist", "taller"] as const;
-export const SPECIALIST_TEMPLATES = ["qa", "copy", "marketing", "data"] as const;
+export const SPECIALIST_TEMPLATES = ["qa", "copy", "seguridad", "marketing", "data"] as const;
 export const TEAM_TEMPLATES = [...CORE_TEMPLATES, ...SPECIALIST_TEMPLATES] as const;
 export type TeamTemplate = (typeof TEAM_TEMPLATES)[number];
 
@@ -22,6 +22,8 @@ export const TEMPLATE_ROWS: Record<TeamTemplate, TemplateRow> = {
   taller: { title: "Builder", role: "taller", capabilities: () => ["engineering"], name: (t) => `Taller ${t}` },
   qa: { title: "QA", role: "qa", capabilities: () => ["qa"], name: (t) => `QA ${t}` },
   copy: { title: "Copy", role: "copy", capabilities: () => ["copy"], name: (t) => `Copy ${t}` },
+  // PLA-I46-13: one of the roles the hire sheet offers (prompt doc `Prompt: Seguridad`).
+  seguridad: { title: "Seguridad", role: "seguridad", capabilities: () => ["security"], name: (t) => `Seguridad ${t}` },
   marketing: { title: "Marketing", role: "marketing", capabilities: () => ["marketing"], name: (t) => `Marketing ${t}` },
   data: { title: "Data", role: "data", capabilities: () => ["data"], name: (t) => `Data ${t}` },
 };

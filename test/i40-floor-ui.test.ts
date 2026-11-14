@@ -6,6 +6,7 @@ import { test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
+import { nextMove } from "../src/api/company-move.js";
 
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
@@ -97,9 +98,11 @@ const resting = (patch: Json = {}) =>
   });
 const delivery = (patch: Json = {}) =>
   decision({ id: "pr-1", kind: "pr", title: "Listado de novias con búsqueda y filtros", options: null, actions: ["aceptar", "cambios"], asker: { agent: "taller-workia", role: "taller" }, ...patch });
-const line = (p: Json, ds: Json[] = [], opts: Json = {}) => lib.nowLine(p, ds, NOW, { timeZone: TZ, ...opts });
+// PLA-I46-3: the floor's move comes from the server (src/api/company-move.ts); the helpers attach it as companyRead does.
+const moved = (p: Json, ds: Json[] = [], opts: Json = {}): Json => ("next_move" in p ? p : { ...p, next_move: nextMove(p as never, ds as never, opts) });
+const line = (p: Json, ds: Json[] = [], opts: Json = {}) => lib.nowLine(moved(p, ds, opts), ds, NOW, { timeZone: TZ, ...opts });
 const floor = (p: Json, ds: Json[] = [], extra: Json = {}) =>
-  html(h(floorc.Floor, { project: p, now: NOW, timeZone: TZ, decisions: ds, acts: { now: NOW, busy: null, onAct: noop }, nowActs: { onStart: noop, onPlan: noop }, ...extra }));
+  html(h(floorc.Floor, { project: moved(p, ds), now: NOW, timeZone: TZ, decisions: ds, acts: { now: NOW, busy: null, onAct: noop }, nowActs: { onStart: noop, onPlan: noop }, ...extra }));
 
 test("I40-4 #1: the sentence for a teammate resting says who starts what and at what time", () => {
   const l = line(resting());
@@ -123,26 +126,28 @@ test("I40-4 #1: one sentence per state: working, soon, stuck, your turn, plan fi
   assert.equal(usage.why, "El uso de Claude va en 77 % y el tope es 70 %. Vuelve a intentarlo solo a las 5:10 pm.");
   assert.deepEqual(usage.action, { kind: "start", agent: "taller-workia", pastGuard: true, label: "Seguir de todos modos" });
 
+  // PLA-I46-3: a hold that needs the owner is the floor's move: Te toca, with the move's texto.
   const nobody = line(resting({ hold: "unqueued", starts_at: null, text: "Nadie lo ha despertado todavía." }));
-  assert.deepEqual([nobody.state, nobody.action.kind, nobody.action.label], ["stuck", "start", "Que empiece ya"]);
+  assert.deepEqual([nobody.state, nobody.say, nobody.action.kind, nobody.action.label], ["you", `Arrancar «${ficha}»`, "start", "Que empiece ya"]);
   const goal = line(resting({ hold: "no_goal", starts_at: null, text: "Falta fijar la meta del proyecto." }));
-  assert.deepEqual([goal.state, goal.holder, goal.action.kind], ["stuck", "owner", "fijar"]);
+  assert.deepEqual([goal.state, goal.holder, goal.action.kind, goal.say], ["you", "owner", "fijar", "Fijar la meta del proyecto"]);
   assert.equal(line(resting({ hold: "slot", starts_at: null, text: "Espera un lugar: ya hay otros trabajando." })).action, null);
   assert.equal(line(resting({ hold: "waiting_owner", starts_at: null, text: "Espera que aceptes la entrega anterior." })).holder, "owner");
 
   const mine = line(resting(), [delivery()]);
   assert.deepEqual([mine.state, mine.word, mine.holder], ["you", "Te toca", "owner"], "a delivery comes before the next start");
-  assert.equal(mine.say, "Taller te entrega «Listado de novias con búsqueda y filtros».");
+  assert.equal(mine.say, "Aceptar «Listado de novias con búsqueda y filtros»");
   assert.deepEqual(mine.action, { kind: "decision", id: "pr-1", action: "aceptar", label: "Aceptar" });
   assert.equal(line(project(), [delivery({ hold: "Las pruebas siguen corriendo." })]).action.kind, "reveal", "a held delivery is not one click");
   const asked = line(project(), [decision()]);
-  assert.deepEqual([asked.say, asked.action.kind], ["Research te pregunta: ¿Qué tienda abrimos primero?", "reveal"]);
+  assert.deepEqual([asked.say, asked.action.kind], ["Responder a Research: «¿Qué tienda abrimos primero?»", "reveal"]);
   const release = line(project(), [decision({ id: "release:workia", kind: "release", actions: [], asker: null, release: { tickets: [{}, {}] } })]);
-  assert.deepEqual([release.say, release.action.kind], ["2 cambios listos esperan que los publiques.", "publish"]);
+  assert.deepEqual([release.say, release.action.kind], ["Publicar 2 cambios", "publish"]);
 
   const route = { legs: [{ key: "WRK-I1", title: "Panel administrativo", done: 4, total: 4, state: "here", note: null, steps: [] }, { key: "WRK-I2", title: "Contacto y avisos", done: 0, total: 0, state: "unplanned", note: null }], more_legs: 0 };
   const done = line(project({ route }));
-  assert.deepEqual([done.state, done.say, done.action.kind, done.action.label], ["done", "«Panel administrativo» está completo. Sigue planear «Contacto y avisos».", "plan", "Que PO lo planee"]);
+  assert.deepEqual([done.state, done.say, done.action.kind, done.action.label], ["you", "Planear «Contacto y avisos»", "plan", "Que PO lo planee"]);
+  assert.equal(done.why, "«Panel administrativo» está completo. El PO arma los pasos y tú los aceptas.");
 
   assert.deepEqual([line(project({ paused: true, light: "paused" })).state, line(project(), [], { companyPaused: true }).say], ["off", "La compañía está en pausa."]);
   assert.deepEqual([line(project()).state, line(project()).action], ["idle", null]);
@@ -173,7 +178,8 @@ test("I40-4 #3: Que empiece ya calls the start of that teammate; once it runs th
   assert.ok(text(s).includes("descansa · arranca 2:52 pm"), "the window's caption says why, not just not yet");
   assert.equal(text(s).includes("aún no empieza"), false);
   assert.match(s, /class="edi-win edi-you" data-state="idle"/);
-  assert.ok(text(s).includes("Nada pendiente"));
+  assert.ok(text(s).includes("Nada por ahora"));
+  assert.equal(/edi-go[" ]|data-move=/.test(s), false, "a resting teammate is not the owner's turn: no green button");
 
   const calls: unknown[][] = [];
   const el = nowc.Now({ project: resting(), line: line(resting()), now: NOW, acts: { onStart: (...a: unknown[]) => calls.push(a) } });
@@ -277,9 +283,10 @@ test("I40-5 #1: no plan says so with Que PO lo planee; one leg; a 120-character 
   assert.ok(text(one).includes("+3 pasos más") && text(one).includes("+2 más"));
 });
 
-test("I40-5 #3: the legs wrap instead of scrolling sideways, and long text breaks", () => {
+test("I40-5 #3: the legs never scroll sideways, and long text breaks", () => {
   const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  assert.ok(css.includes(".edi-legs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));"));
+  // PLA-I46-14: one row of legs on every width (Jorge, 13 Nov 2026), each column allowed to shrink.
+  assert.ok(css.includes(".edi-legs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--n, 5), minmax(0, 1fr));"));
   assert.match(css, /\.edi-leg b \{[^}]*overflow-wrap: anywhere/);
   assert.match(css, /\.edi-stext b \{[^}]*overflow-wrap: anywhere/);
   assert.match(css, /\.edi-route \{[^}]*grid-column: 1 \/ -1[^}]*min-width: 0/);
@@ -295,17 +302,20 @@ test("I40-6 #1: an answered decision is a line under Lo último, not a bubble; a
   const s = floor(full(), [answered()]);
   assert.equal(s.includes("data-bubble="), false);
   assert.equal(s.includes("Ya respondiste"), false);
-  assert.deepEqual([...s.matchAll(/data-last="([a-z]+)"/g)].map((m) => m[1]), ["seen", "answered"], "newest first");
+  // PLA-I46-4: one line on the plate, then «Ver todo» with every line, newest first.
+  assert.deepEqual([...s.matchAll(/data-last="([a-z]+)"/g)].map((m) => m[1]), ["seen", "seen", "answered"], "the newest, then all of them");
+  assert.match(s, /<details class="edi-lastall" data-last-all="true"><summary>Ver todo<\/summary>/);
   const t = text(s).replace(/\s+/g, " ");
   assert.ok(t.includes("hoy 2:35 pm Publicaste 6 cambios"));
   assert.ok(t.includes("hoy 2:24 pm Aceptaste «Listado de novias con búsqueda y filtros»"));
   assert.match(s, /<details class="dark edi-lastd"><summary>Ver<\/summary>/);
   assert.equal(lib.hangingFor([answered()], "workia", "taller-workia"), null);
 
+  // PLA-I46-10: a pending PR delivery is the move: Ahora carries it (the evidence card), no bubble hangs for it.
   const open = floor(full(), [delivery(), answered({ id: "pr-0", title: "Acceso privado del equipo" })]);
-  assert.equal((open.match(/data-bubble="/g) ?? []).length, 1);
-  assert.match(open, /data-bubble="pr-1"/);
-  assert.ok(open.includes("Taller te entrega") && open.includes('data-last="answered"'));
+  assert.equal((open.match(/data-bubble="/g) ?? []).length, 0);
+  assert.match(open, /data-evidence="pr-1"/);
+  assert.ok(open.includes('data-last="answered"'));
   // Three lines at most, newest first.
   const many = lib.lastLines(full({ latest: [{ kind: "published", title: null, n: 1, at: "2026-11-13T20:35:00Z" }, { kind: "delivered", title: "Listado", n: null, at: "2026-11-13T20:21:00Z" }, { kind: "delivered", title: "Acceso", n: null, at: "2026-11-13T18:50:00Z" }] }), [answered()]);
   assert.deepEqual(many.map((l: Json) => l.text), ["Publicaste 1 cambio", "Aceptaste «Listado de novias con búsqueda y filtros»", "El equipo entregó «Listado»"]);
@@ -379,6 +389,8 @@ test("I40-7 (UI): the switch sits under Solo tú, says why a delivery was not ac
 function findButton(el: any): any {
   if (!el || typeof el !== "object") return null;
   if (el.type === "button") return el;
+  // PLA-I46-3: the band's button is drawn by ActButton (no hooks): render it to reach the button.
+  if (typeof el.type === "function") return findButton(el.type(el.props));
   const kids = el.props?.children;
   for (const k of Array.isArray(kids) ? kids.flat() : [kids]) {
     const found = findButton(k);

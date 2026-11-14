@@ -24,6 +24,7 @@
     "vapid": "tsx scripts/vapid.ts",
     "scan:diff": "tsx scripts/scan-diff.ts",
     "scan:hashes": "tsx scripts/scan-hashes.ts",
+    "capture": "tsx --env-file=.env scripts/capture.ts",
     "brief:run": "tsx --env-file=.env scripts/brief-run.ts",
     "brief:doctor": "tsx --env-file=.env scripts/brief-doctor.ts"
   },

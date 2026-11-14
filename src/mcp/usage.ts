@@ -8,6 +8,7 @@ import { tokenUsage } from "../db/schema.js";
 import { ToolError } from "./errors.js";
 import { findProject, requireTask } from "./queries.js";
 import { iso, writeTx, type Ctx } from "./tx.js";
+import { weekBounds, weekUsage } from "../runner/limits.js";
 
 // PLA-I25: agents report how many tokens a task run used. Plania sums them per agent,
 // project and week and shows the word «reportado». The numbers are not a cap.
@@ -23,11 +24,18 @@ export type UsageTotal = {
   week: string;
   input: number;
   output: number;
+  // PLA-I46-5: cache tokens on their own, never inside input or output.
+  cache_read: number;
+  cache_create: number;
 };
+
+// PLA-I46-5: the week as Máquina shows it, from the runner's own runs: used is input + output; cache apart.
+export type UsageWeek = { week: string; starts_at: string; used: number; input: number; output: number; cache_read: number; cache_create: number };
 
 export type UsageSummary = {
   label: typeof USAGE_LABEL;
   totals: UsageTotal[];
+  screen: UsageWeek;
 };
 
 export type ReportTokensInput = {
@@ -139,17 +147,26 @@ export async function usageSummary(db: Db, input: { project?: string; agent?: st
   if (project) filters.push(sql`u.project_id = ${project.id}`);
   if (agent) filters.push(sql`u.agent = ${agent}`);
   if (week) filters.push(sql`to_char(u.at at time zone ${tz}, 'IYYY-"W"IW') = ${week}`);
-  const result = await db.execute<{ agent: string; project: string; week: string; input: number; output: number }>(sql`
+  const result = await db.execute<{ agent: string; project: string; week: string; input: number; output: number; cache_read: number; cache_create: number }>(sql`
     select u.agent as agent,
            p.slug as project,
            to_char(u.at at time zone ${tz}, 'IYYY-"W"IW') as week,
-           sum(u.input)::int as input,
-           sum(u.output)::int as output
+           sum(u.input)::bigint as input,
+           sum(u.output)::bigint as output,
+           sum(u.cache_read)::bigint as cache_read,
+           sum(u.cache_create)::bigint as cache_create
     from token_usage u
     join projects p on p.id = u.project_id
     where ${sql.join(filters, sql` and `)}
     group by u.agent, p.slug, 3
     order by 3 desc, p.slug asc, u.agent asc`);
+  // The same numbers Máquina shows for that week (this week when none is given), for the project or everything.
+  const startsAt = week
+    ? new Date((await db.execute<{ s: string }>(sql`select (to_date(${week}, 'IYYY-"W"IW')::timestamp at time zone ${tz}) as s`)).rows[0]!.s)
+    : (await weekBounds(db, new Date(), tz)).startsAt;
+  const endsAt = new Date(startsAt.getTime() + 7 * 86_400_000);
+  const w = await weekUsage(db, project ? { kind: "project", projectId: project.id } : { kind: "all" }, startsAt, endsAt);
+  const label = await db.execute<{ w: string }>(sql`select to_char(${startsAt.toISOString()}::timestamptz at time zone ${tz}, 'IYYY-"W"IW') as w`);
   return {
     label: USAGE_LABEL,
     totals: result.rows.map((row) => ({
@@ -158,7 +175,10 @@ export async function usageSummary(db: Db, input: { project?: string; agent?: st
       week: row.week,
       input: Number(row.input),
       output: Number(row.output),
+      cache_read: Number(row.cache_read),
+      cache_create: Number(row.cache_create),
     })),
+    screen: { week: label.rows[0]!.w, starts_at: startsAt.toISOString(), ...w },
   };
 }
 
@@ -222,7 +242,8 @@ export function registerUsageTools(
     "usage_summary",
     {
       description: [
-        "Totals of reported tokens per agent, project and week. label is reportado.",
+        "Totals of reported tokens per agent, project and week (input, output, cache_read, cache_create). label is reportado.",
+        "screen is that week as Máquina shows it, from the runner's runs: used is input + output, cache reads and writes apart.",
         "Filter by project slug, agent, or week (YYYY-Www). The numbers are informational.",
       ].join(" "),
       inputSchema: {

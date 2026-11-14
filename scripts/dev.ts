@@ -15,6 +15,7 @@ import { startJobs } from "../src/jobs/index.js";
 import { withDb } from "../src/db/client.js";
 import { sweepOrphans } from "../src/runner/runner.js";
 import { gitState, readUiBuild, staleReason } from "../src/ui-build.js";
+import { reapOrphans } from "../src/captures/prueba.js";
 
 const { values } = parseArgs({ options: { port: { type: "string", default: "3737" } }, strict: false });
 const port = Number(values.port);
@@ -90,3 +91,8 @@ if (process.env.PLANIA_JOBS !== "0") {
     .then((n) => n > 0 && console.log(`[runner] swept ${n} orphaned run(s)`))
     .catch((e) => console.log(`[runner] orphan sweep failed: ${e instanceof Error ? e.message : String(e)}`));
 }
+
+// PLA-I46-8: a test copy an earlier server left on (Encenderla) is stopped and its footprint released.
+void withDb((db) => reapOrphans(db))
+  .then((n) => n > 0 && console.log(`[prueba] stopped ${n} test cop${n === 1 ? "y" : "ies"} left by an earlier server`))
+  .catch((e) => console.log(`[prueba] orphan reap failed: ${e instanceof Error ? e.message : String(e)}`));
