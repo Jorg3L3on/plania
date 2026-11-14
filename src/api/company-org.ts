@@ -47,6 +47,8 @@ export type TeamMember = {
   waiting: string | null;
   // PLA-I40-1: why this teammate's next step has not started, and when it will if that is known.
   next_start: NextStart | null;
+  // PLA-I46-12: the skill pack slugs this role carries (GET/PUT /api/company/projects/:slug/team/:agent/packs).
+  packs: string[];
 };
 
 // hold: the runner's own verdict (rest, usage, slot, paused, no_goal: src/runner/hold.ts), or what the ticket waits
@@ -179,6 +181,7 @@ async function memberView(db: Db, a: Agent, ctx: { paused: boolean; threadId: st
     produced: await producedBy(db, ctx.threadId, a.slug),
     waiting,
     next_start: null,
+    packs: a.skillPacks ?? [],
   };
 }
 

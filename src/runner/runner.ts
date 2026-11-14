@@ -46,6 +46,7 @@ import {
 } from "./limits.js";
 import { childEnv, defaultKill, defaultProbePid, defaultSpawn, supervise, type ExitInfo, type KillFn, type ProbePid, type SpawnFn, type Supervised } from "./process.js";
 import { StreamReader, parseStream, parseUsageText, totalOf, type PlanWindowReading } from "./stream.js";
+import { clearPacks, packLines, packsInDiff, packsOf, writePacks } from "./packs.js";
 import { branchFor, checkBase, defaultGit, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreeRoot, type GitFn } from "./worktree.js";
 
 export type ReadyWork = {
@@ -388,6 +389,8 @@ export function userPrompt(input: {
   workspace: { path: string; branch: string | null } | null;
   sessionId: string;
   reason?: string | null;
+  // PLA-I46-12: the skill packs this role carries, their one line and where the body was written.
+  packs?: { name: string; when: string; file: string }[];
 }): string {
   const company = input.role === "asistente";
   const lines = [
@@ -408,6 +411,7 @@ export function userPrompt(input: {
   if (input.workspace) {
     lines.push(`Workspace: ${input.workspace.path}${input.workspace.branch ? ` on branch ${input.workspace.branch}` : ""}, base sandbox.`);
   }
+  lines.push(...packLines(input.packs ?? []));
   lines.push(
     `Plania first: open the ticket with start (actor session_id ${input.sessionId}, that workspace) before you touch code.`,
     "Never main: commit on your branch, open PRs into sandbox only, never merge. Stop when the ticket is In review or when only Jorge can decide (ask).",
@@ -542,6 +546,9 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const mcpConfigPath = path.join(tmp, "mcp.json");
   writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp")), { mode: 0o600 });
 
+  // PLA-I46-12: only this role's packs, written fresh (whatever an earlier run left is cleared first).
+  const packs = writePacks(cwd, await packsOf(db, ctx.agent, env));
+
   const goal = await projectGoal(db, project.id);
   const planiaSession = `run-${run.id.slice(0, 8)}`;
   const prompt = userPrompt({
@@ -553,6 +560,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     workspace: { path: cwd, branch },
     sessionId: planiaSession,
     reason: run.summary.startsWith(EVENT_SUMMARY) ? run.summary.slice(EVENT_SUMMARY.length).trim() || null : null,
+    packs,
   });
   const args = claudeArgs({ prompt, settingsPath, mcpConfigPath, systemPromptPath, maxTurns: settings.maxTurns, resume });
   const command = claudeCommand(ctx.agent.adapterConfig, env);
@@ -617,6 +625,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     .finally(() => {
       live.delete(run.id);
       rmSync(tmp, { recursive: true, force: true });
+      clearPacks(cwd);
     });
   live.set(run.id, entry);
   return { kind: "started", runId: run.id, summary: `started${resume ? " (resumed)" : ""}`, taskKey };
@@ -697,6 +706,13 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
     summary = stopped ? `stopped: ${stopped} (no result)` : "fail: no result";
   }
   if (exit.timedOut && status !== "ok") summary = `${summary} after timeout`.slice(0, 500);
+
+  // PLA-I46-12: a skill pack never reaches the app repo. One in the branch diff (or staged) fails the run.
+  const leaked = await packsInDiff(input.cwd, deps.git ?? defaultGit).catch(() => [] as string[]);
+  if (leaked.length > 0) {
+    status = "fail";
+    summary = `fail: pack file in the diff (${leaked.slice(0, 3).join(", ")}${leaked.length > 3 ? ", …" : ""})`;
+  }
 
   const sessionId = result?.sessionId ?? reader.sessionId;
   if (sessionId) {
@@ -814,6 +830,8 @@ export async function sweepOrphans(db: Db, deps: RunnerDeps = {}): Promise<numbe
       : (parsed?.liveTokens ?? { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 });
     const known = !!result?.hasModelUsage;
     const summary = known ? "fail: orphaned (result kept)" : "fail: orphaned (usage unknown)";
+    // PLA-I46-12: the dead run's packs leave its folder too.
+    if (run.cwd && existsSync(run.cwd)) clearPacks(run.cwd);
     await db
       .update(agentRuns)
       .set({
@@ -866,6 +884,7 @@ export async function cleanupWorktrees(db: Db, deps: RunnerDeps = {}): Promise<n
   for (const row of rows.rows) {
     if (!existsSync(row.path)) continue;
     const repo = repoPathOf(row.slug, row.settings, env);
+    clearPacks(row.path);
     if (!(await removeWorktree({ repo, path: row.path }, deps.git ?? defaultGit))) continue;
     if (deps.footprints !== false) {
       await releaseFootprint(db, { project: row.slug, kind: "worktree", locator: row.path }, { ...sysCtx("runner.worktree"), actor: { ...sysCtx("runner.worktree").actor, session_id: `runner-cleanup` } }).catch(

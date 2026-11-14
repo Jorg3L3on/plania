@@ -824,10 +824,13 @@ export const agents = pgTable(
     // and the role template it was made from (product-owner, research, artist, taller, ...). Migration 0041.
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     roleTemplate: text("role_template"),
+    // PLA-I46-12: the skill packs this role carries, by slug (a `Pack: <name>` doc in Plania). Migration 0046.
+    skillPacks: text("skill_packs").array().notNull().default(sql`'{}'::text[]`),
     ...timestamps,
   },
   (t) => [
     index("agents_project_idx").on(t.projectId),
+    check("agents_skill_packs_check", sql`cardinality(${t.skillPacks}) <= 10`),
     check("agents_kind_check", sql`${t.kind} in ('bot', 'coder', 'human')`),
     check("agents_status_check", sql`${t.status} in ('alive', 'idle', 'stuck', 'retired')`),
     check("agents_role_template_check", sql`${t.roleTemplate} is null or ${t.roleTemplate} ~ '^[a-z][a-z0-9-]{0,39}$'`),

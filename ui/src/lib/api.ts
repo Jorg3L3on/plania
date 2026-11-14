@@ -207,6 +207,8 @@ export type OrgMember = {
   queue?: { key: string; title: string }[];
   // PLA-I40-1: why the next step has not started, and when it will if that is known.
   next_start?: OrgNextStart | null;
+  // PLA-I46-12: the skill pack slugs this role carries.
+  packs?: string[];
 };
 export type OrgNextHold = "rest" | "usage" | "slot" | "paused" | "no_goal" | "waiting_owner" | "waiting_step" | "unqueued" | "soon";
 export type OrgNextStart = { key: string | null; title: string | null; hold: OrgNextHold; starts_at: string | null; text: string };
