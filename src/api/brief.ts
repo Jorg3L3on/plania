@@ -18,6 +18,7 @@ import { attachDoc } from "../mcp/docs.js";
 import { ToolError } from "../mcp/errors.js";
 import { webCtx } from "../mcp/tx.js";
 import { liveRuns } from "../runner/runner.js";
+import { homeSlug } from "../runner/threads.js";
 
 export const briefApi = new Hono();
 
@@ -58,7 +59,14 @@ briefApi.get("/latest", (c) =>
   withDb(async (db) => {
     const [b] = await db.select().from(morningBriefs).orderBy(desc(morningBriefs.generatedAt)).limit(1);
     // plan_id: this brief's Send to Plania request, so the page shows its progress after a reload (PLA-I43).
-    return c.json({ brief: b ? briefOut(b) : null, checks: await checksFor(db, b ?? null), run: await runState(db), plan_id: b ? await planOfBrief(db, b.id) : null });
+    // home_project: where cross-app (X) ideas are planned, for the page's "This wakes N project bots" line.
+    return c.json({
+      brief: b ? briefOut(b) : null,
+      checks: await checksFor(db, b ?? null),
+      run: await runState(db),
+      plan_id: b ? await planOfBrief(db, b.id) : null,
+      home_project: homeSlug(planEnv),
+    });
   }),
 );
 

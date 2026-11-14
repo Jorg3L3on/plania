@@ -2,7 +2,7 @@
 // brief's language; the nav tab stays "Brief"; the rest of Plania stays Spanish). Components never hard-code a label:
 // they read BRIEF_LABELS[language]. Weekdays and months come from Intl.DateTimeFormat(language); counts use the
 // plural functions below.
-import type { BriefLanguage } from "@/lib/brief";
+import type { BriefLanguage, PlanLine } from "@/lib/brief";
 
 type Plural = (n: number) => string;
 export type BriefLabels = {
@@ -58,6 +58,17 @@ export type BriefLabels = {
   copied: string;
   copyFailed: string;
   sendToPlania: string;
+  // PLA-I43: the cost line before sending, sending, and the progress per idea.
+  sendCost: (bots: number, low: number, high: number) => string;
+  sending: string;
+  sendFailed: string;
+  alreadySent: (codes: string) => string;
+  progress: string;
+  planLine: (l: PlanLine) => string;
+  planOpen: string;
+  planDone: string;
+  planPartial: string;
+  dismiss: string;
   s: SettingsLabels;
 };
 
@@ -171,6 +182,35 @@ const en: BriefLabels = {
   copied: "Copied",
   copyFailed: "Couldn't copy",
   sendToPlania: "Send to Plania",
+  sendCost: (bots, low, high) => `This wakes ${bots === 1 ? "1 project bot" : `${bots} project bots, one after another,`} about ${low}–${high} min`,
+  sending: "Sending…",
+  sendFailed: "Couldn't send. Try again.",
+  alreadySent: (codes) => `Already sent: ${codes}`,
+  progress: "Send to Plania progress",
+  planLine: (l) => {
+    switch (l.kind) {
+      case "queued":
+        return "Queued";
+      case "planning":
+        return `Planning in ${l.project}`;
+      case "planned":
+        return `Planned as ${l.key}, ${l.tickets === 1 ? "1 ticket" : `${l.tickets} tickets`}, Backlog`;
+      case "duplicate":
+        return `Duplicate of ${l.key}`;
+      case "proposed":
+        return "Proposed in Te toca instead of planned";
+      case "failed":
+        return l.note ? `Failed: ${l.note}` : "Failed";
+      case "waiting":
+        return `Waiting: ${l.project} runs are paused`;
+      case "waitingCompany":
+        return "Waiting: company runs are paused";
+    }
+  },
+  planOpen: "The project bots plan these one after another.",
+  planDone: "Every idea is planned. Nothing starts until you move a ticket to Ready.",
+  planPartial: "Done, with some failed. Select them and send again.",
+  dismiss: "Close",
   s: {
     title: "Brief settings",
     description: "The morning brief for every project. Changes apply to the next brief.",
@@ -281,6 +321,35 @@ const es: BriefLabels = {
   copied: "Copiada",
   copyFailed: "No se pudo copiar",
   sendToPlania: "Mandar a Plania",
+  sendCost: (bots, low, high) => `Esto despierta ${bots === 1 ? "a 1 bot de proyecto" : `a ${bots} bots de proyecto, uno tras otro,`} unos ${low}–${high} min`,
+  sending: "Mandando…",
+  sendFailed: "No se pudo mandar. Inténtalo de nuevo.",
+  alreadySent: (codes) => `Ya mandadas: ${codes}`,
+  progress: "Avance de Mandar a Plania",
+  planLine: (l) => {
+    switch (l.kind) {
+      case "queued":
+        return "En cola";
+      case "planning":
+        return `Planeando en ${l.project}`;
+      case "planned":
+        return `Planeada como ${l.key}, ${l.tickets === 1 ? "1 ticket" : `${l.tickets} tickets`}, Backlog`;
+      case "duplicate":
+        return `Duplicada de ${l.key}`;
+      case "proposed":
+        return "Propuesta en Te toca en vez de planeada";
+      case "failed":
+        return l.note ? `Falló: ${l.note}` : "Falló";
+      case "waiting":
+        return `En espera: las corridas de ${l.project} están en pausa`;
+      case "waitingCompany":
+        return "En espera: las corridas de la compañía están en pausa";
+    }
+  },
+  planOpen: "Los bots de cada proyecto las planean una tras otra.",
+  planDone: "Todas las ideas quedaron planeadas. Nada empieza hasta que pases un ticket a Ready.",
+  planPartial: "Listo, con algunas fallidas. Elígelas y mándalas otra vez.",
+  dismiss: "Cerrar",
   s: {
     title: "Ajustes del brief",
     description: "El brief de la mañana para todos los proyectos. Los cambios valen para el siguiente brief.",

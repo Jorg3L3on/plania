@@ -87,7 +87,7 @@ test("every route needs the session cookie", async () => {
 test("GET /latest before any brief: no brief, no checks, no run", async () => {
   const res = await get("/latest");
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { brief: null, checks: [], run: null, plan_id: null });
+  assert.deepEqual(await res.json(), { brief: null, checks: [], run: null, plan_id: null, home_project: "workia" });
 });
 
 test("POST /run: 202 {run_id}; a second press while it runs is 409 BRIEF_RUNNING with the run id; latest shows the run", async () => {

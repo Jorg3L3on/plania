@@ -100,10 +100,11 @@ test("ideas section: heading, hint, collapsible groups with aria-expanded, minma
   assert.match(text(es), /Ideas de hoy .*Aquí no hay ideas\./);
 });
 
-test("check 3: Send to Plania stays hidden until PLA-I43 ships", () => {
-  assert.equal(lib.BRIEF_SEND_ENABLED, false);
-  const off = html(h(bar.BriefSendBar, { count: 2, reply: "yes W1 Z1", onClear: noop, language: "en" }));
-  assert.doesNotMatch(off, /Send to Plania|data-brief="send"/);
-  const on = html(h(bar.BriefSendBar, { count: 2, reply: "yes W1 Z1", onClear: noop, language: "en", canSend: true }));
+test("check 3 (PLA-I43-4): Send to Plania shows by default and hides on a read-only day", () => {
+  assert.equal(lib.BRIEF_SEND_ENABLED, undefined, "the PLA-I42-3 flag is gone");
+  const on = html(h(bar.BriefSendBar, { count: 2, reply: "yes W1 Z1", onClear: noop, language: "en" }));
   assert.match(on, /data-brief="send"/);
+  assert.match(on, /Send to Plania/);
+  const off = html(h(bar.BriefSendBar, { count: 2, reply: "yes W1 Z1", onClear: noop, language: "en", canSend: false }));
+  assert.doesNotMatch(off, /data-brief="send"/);
 });

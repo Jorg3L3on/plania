@@ -60,7 +60,7 @@ export type BriefSettingsPatch = Partial<BriefSettings>;
 /** One stored brief: the row's fields plus the page data. */
 export type StoredBrief = { id: string; local_date: string; generated_at: string; trigger: string; mode: BriefMode; data: BriefData };
 export type BriefRun = { id: string; status: "waiting" | "running"; started_at: string; waiting_for_build: boolean };
-export type BriefLatest = { brief: StoredBrief | null; checks: string[]; run: BriefRun | null };
+export type BriefLatest = { brief: StoredBrief | null; checks: string[]; run: BriefRun | null; plan_id?: string | null; home_project?: string };
 export type BriefByDate = { brief: StoredBrief; checks: string[] };
 export type BriefHistoryRow = { id: string; local_date: string; generated_at: string; mode: BriefMode; needs: number; next: number; ideas: number };
 /** PLA-I42-4: one project as the settings sheet lists it (brief order, resolved letter and include flags). */
@@ -75,6 +75,32 @@ export type BriefPersona = { project: string; doc_id: string | null; markdown: s
 export type DoctorLine = { ok: boolean; text: string };
 export type BriefPass = "brief" | "ideas";
 export type BriefCheckReply = { item_id: string; checked: boolean };
+
+// PLA-I43: Send to Plania (§7.3 POST /plan and GET /plan/:id).
+export type PlanState = "waiting_paused" | "queued" | "running" | "done" | "failed";
+export type PlanResult = {
+  code: string;
+  status: "created" | "duplicate" | "proposed" | "failed";
+  idea_key?: string;
+  initiative_key?: string;
+  ticket_keys?: string[];
+  note?: string;
+};
+export type PlanIdeaProgress = { code: string; slug: string; project: string; title: string; state: PlanState; note: string | null; result: PlanResult | null };
+export type PlanProgress = {
+  id: string;
+  brief_id: string;
+  status: "open" | "done" | "partial" | "failed";
+  codes: string[];
+  ideas: PlanIdeaProgress[];
+};
+export type PlanSendReply = {
+  request_id: string;
+  targets: { slug: string; po_agent: string; codes: string[]; state: PlanState; note: string | null }[];
+  runs: number;
+  estimate_min: [number, number];
+  already_sent: string[];
+};
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api/brief${path}`, {
@@ -102,6 +128,8 @@ export const briefApi = {
   persona: (slug: string) => call<BriefPersona>("GET", `/personas/${encodeURIComponent(slug)}`),
   savePersona: (slug: string, body: { markdown: string; version?: number }) => call<BriefPersona>("PUT", `/personas/${encodeURIComponent(slug)}`, body),
   doctor: () => call<{ lines: DoctorLine[] }>("GET", "/doctor"),
+  sendPlan: (briefId: string, codes: string[]) => call<PlanSendReply>("POST", "/plan", { brief_id: briefId, codes }),
+  plan: (id: string) => call<PlanProgress>("GET", `/plan/${encodeURIComponent(id)}`),
 };
 
 export const briefKeys = {
@@ -111,6 +139,7 @@ export const briefKeys = {
   settings: ["brief", "settings"] as const,
   persona: (slug: string) => ["brief", "persona", slug] as const,
   doctor: ["brief", "doctor"] as const,
+  plan: (id: string) => ["brief", "plan", id] as const,
 };
 
 export const BRIEF_POLL_MS = 5_000;
@@ -316,12 +345,6 @@ export const runMinutes = (startedAt: string, now: number): number => Math.max(1
 
 // ---- PLA-I42-3: Today's ideas and the send bar (spec §8 items 4 and 6; pure, for tests)
 
-/**
- * Send to Plania (PLA-I43) is not shipped yet: the bar's Send button and its progress stay hidden until it is.
- * PLA-I43 flips this to true when POST /api/brief/plan exists.
- */
-export const BRIEF_SEND_ENABLED = false;
-
 export type IdeaGroup = { app: BriefApp; ideas: Idea[] };
 
 /** Ideas grouped per app in the brief's app order (apps without ideas left out), the app filter applied, checked ideas hidden in "open". */
@@ -353,3 +376,81 @@ export function parseFlag(flag: string): { key: FlagKey; ref?: string } | null {
 /** "from {source}" shows only when the source is not the app's own name. */
 export const showSource = (idea: Idea, app: BriefApp | undefined): boolean =>
   !!idea.source && idea.source.trim().toLowerCase() !== (app?.name ?? "").trim().toLowerCase();
+
+// ---- PLA-I43: Send to Plania (spec §8 item 6; pure helpers first, for tests)
+
+/** One PO planning run, in minutes (spec §15), as the server's estimate_min uses it. */
+export const PLAN_RUN_MINUTES = [10, 25] as const;
+/** Ideas per PO run (spec §6.4). */
+export const PLAN_BATCH = 3;
+
+/**
+ * What sending the selected ideas costs, before sending: N project bots (one per target project; X ideas go to the
+ * home project), runs of at most 3 ideas each, about X–Y minutes one after another.
+ */
+export function planCost(data: BriefData, selected: ReadonlySet<string>, home: string | null): { bots: number; runs: number; low: number; high: number } {
+  const per = new Map<string, number>();
+  for (const i of data.ideas.filter((x) => selected.has(x.id))) {
+    const slug = i.app === CROSS ? (home ?? CROSS) : i.app;
+    per.set(slug, (per.get(slug) ?? 0) + 1);
+  }
+  const runs = [...per.values()].reduce((n, c) => n + Math.ceil(c / PLAN_BATCH), 0);
+  return { bots: per.size, runs, low: runs * PLAN_RUN_MINUTES[0], high: runs * PLAN_RUN_MINUTES[1] };
+}
+
+/** The selected codes in the brief's order. */
+export const selectedCodes = (data: BriefData, selected: ReadonlySet<string>): string[] => data.ideas.filter((i) => selected.has(i.id)).map((i) => i.code);
+
+/** One idea's progress as a label key and its arguments; the label tables turn it into words. */
+export type PlanLine =
+  | { kind: "queued" }
+  | { kind: "planning"; project: string }
+  | { kind: "planned"; key: string; tickets: number }
+  | { kind: "duplicate"; key: string }
+  | { kind: "proposed" }
+  | { kind: "failed"; note: string }
+  | { kind: "waiting"; project: string }
+  | { kind: "waitingCompany" };
+
+export function planLine(p: PlanIdeaProgress): PlanLine {
+  const r = p.result;
+  if (r?.status === "created" && r.initiative_key) return { kind: "planned", key: r.initiative_key, tickets: r.ticket_keys?.length ?? 0 };
+  if (r?.status === "duplicate") return { kind: "duplicate", key: r.initiative_key ?? r.idea_key ?? "" };
+  if (r?.status === "proposed") return { kind: "proposed" };
+  if (r?.status === "failed" || p.state === "failed") return { kind: "failed", note: r?.note ?? p.note ?? "" };
+  if (p.state === "waiting_paused") return /company/.test(p.note ?? "") ? { kind: "waitingCompany" } : { kind: "waiting", project: p.project };
+  if (p.state === "running") return { kind: "planning", project: p.project };
+  return { kind: "queued" };
+}
+
+/** The key an idea's progress links to, and where (Plania opens a ticket or initiative in its project). */
+export function planLink(p: PlanIdeaProgress): { key: string; href: string } | null {
+  const l = planLine(p);
+  if (l.kind !== "planned" && l.kind !== "duplicate") return null;
+  if (!l.key) return null;
+  return { key: l.key, href: `/p/${encodeURIComponent(p.slug)}?task=${encodeURIComponent(l.key)}` };
+}
+
+/** Progress polls every 5 s until every target is done or failed. */
+export const planPollInterval = (p: PlanProgress | undefined): number | false => (!p || p.status === "open" ? BRIEF_POLL_MS : false);
+
+export function usePlanProgress(id: string | null) {
+  return useQuery({
+    queryKey: briefKeys.plan(id ?? ""),
+    queryFn: () => briefApi.plan(id!),
+    enabled: !!id,
+    staleTime: 0,
+    refetchInterval: (q) => planPollInterval(q.state.data),
+  });
+}
+
+export function useSendPlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ briefId, codes }: { briefId: string; codes: string[] }) => briefApi.sendPlan(briefId, codes),
+    onSuccess: (res) => {
+      void qc.invalidateQueries({ queryKey: briefKeys.plan(res.request_id) });
+      void qc.invalidateQueries({ queryKey: briefKeys.latest });
+    },
+  });
+}

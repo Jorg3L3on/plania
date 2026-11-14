@@ -1,6 +1,8 @@
 // PLA-I42-2: the /brief page (spec "Spec: Morning brief" §8, layout items 1–3 and 5, Behavior): header, summary with
 // filters, Needs you and Up next, footer, empty states, and the cached brief with "Couldn't refresh" when the API
 // fails. PLA-I42-3 adds Today's ideas (item 4) and the floating send bar (item 6); PLA-I42-4 the settings sheet.
+// PLA-I43-4: Send to Plania from the bar (cost line first, then progress until every target is done; a reload finds
+// today's request through latest.plan_id).
 // Labels follow the brief's language (D5).
 import { useState } from "react";
 import { BriefIdeas } from "@/components/brief/brief-ideas";
@@ -18,14 +20,19 @@ import {
   NEEDS,
   UP_NEXT,
   ideaGroups,
+  planCost,
   replyText,
+  selectedCodes,
   sectionItems,
   useBriefByDate,
   useBriefCheck,
   useBriefHistory,
   useBriefLatest,
   useBriefSettings,
+  usePlanProgress,
   useRunBrief,
+  useSendPlan,
+  type PlanIdeaProgress,
 } from "@/lib/brief";
 
 export { briefStamp };
@@ -42,6 +49,9 @@ export function BriefPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [picked, setPicked] = useState<{ brief: string | null; ids: Set<string> }>({ brief: null, ids: new Set() });
   const past = useBriefByDate(date);
+  const send = useSendPlan();
+  const [sent, setSent] = useState<{ id: string; already: string[] } | null>(null);
+  const [dismissed, setDismissed] = useState<string | null>(null);
 
   const shown = date ? past.data : latest.data;
   const stored = shown?.brief ?? null;
@@ -78,6 +88,30 @@ export function BriefPage() {
   const needs = data ? sectionItems(data.items, NEEDS, { app: appFilter, view, checks }) : [];
   const next = data ? sectionItems(data.items, UP_NEXT, { app: appFilter, view, checks }) : [];
   const isChecked = new Set(checks);
+
+  // Send to Plania: the request sent from this page, else today's brief's request (after a reload). Past days never send.
+  const planId = readOnly ? null : (sent?.id ?? (latest.data?.brief?.id === briefId ? (latest.data?.plan_id ?? null) : null));
+  const progress = usePlanProgress(planId);
+  const plan = progress.data && progress.data.brief_id === briefId && dismissed !== progress.data.id ? progress.data : null;
+  // A finished request from an earlier visit stays out of the way; one sent now shows until closed.
+  const planShown = plan && (plan.status === "open" || sent?.id === plan.id) ? plan : null;
+  const plans = new Map<string, PlanIdeaProgress>((plan?.ideas ?? []).map((p) => [p.code, p]));
+  const cost = data ? planCost(data, selected, latest.data?.home_project ?? null) : null;
+  const onSend = () => {
+    if (!data || !briefId) return;
+    const codes = selectedCodes(data, selected);
+    if (!codes.length) return;
+    send.mutate(
+      { briefId, codes },
+      {
+        onSuccess: (res) => {
+          setSent({ id: res.request_id, already: res.already_sent });
+          setDismissed(null);
+          setPicked({ brief: briefId, ids: new Set() });
+        },
+      },
+    );
+  };
 
   return (
     <div className="grid gap-6 sm:gap-8" lang={language} data-brief="page">
@@ -141,11 +175,27 @@ export function BriefPage() {
             </BriefSection>
           </div>
 
-          <BriefIdeas groups={groups} checks={checks} selected={selected} readOnly={readOnly} onCheck={onCheck} onSelect={onSelect} language={language} />
+          <BriefIdeas groups={groups} checks={checks} selected={selected} readOnly={readOnly} onCheck={onCheck} onSelect={onSelect} language={language} plans={plans} />
 
           <BriefFooter data={data} stamp={stamp} language={language} />
 
-          <BriefSendBar count={selected.size} reply={replyText(data, selected)} onClear={() => setPicked({ brief: briefId, ids: new Set() })} language={language} />
+          <BriefSendBar
+            count={selected.size}
+            reply={replyText(data, selected)}
+            onClear={() => setPicked({ brief: briefId, ids: new Set() })}
+            language={language}
+            canSend={!readOnly}
+            onSend={onSend}
+            cost={cost}
+            sending={send.isPending}
+            sendError={send.isError}
+            alreadySent={sent && sent.id === planShown?.id ? sent.already : []}
+            plan={planShown}
+            onDismiss={() => {
+              if (plan) setDismissed(plan.id);
+              setSent(null);
+            }}
+          />
         </>
       )}
     </div>

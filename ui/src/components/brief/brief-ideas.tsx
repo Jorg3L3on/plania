@@ -2,11 +2,13 @@
 // chevron; collapse state per device under "ideas:<app>"), cards in a minmax(240px, 1fr) grid. A card has a check box
 // that hides it (the same server checks as items), the code badge, "from {source}" when the source isn't the app,
 // flags as muted captions, a select circle, the title and the why. Clicking the card toggles selection.
+// PLA-I43-4: once sent, a card also shows where its idea stands in Send to Plania (the same line as the send bar),
+// e.g. "Waiting: Zigzag runs are paused" (D7) or "Planned as WRK-I18, 4 tickets, Backlog".
 // Plain text only (React escapes; no HTML from the brief).
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
 import type { MouseEvent } from "react";
 import { cn } from "@/lib/utils";
-import { type BriefApp, type BriefLanguage, type Idea, type IdeaGroup, parseFlag, showSource } from "@/lib/brief";
+import { type BriefApp, type BriefLanguage, type Idea, type IdeaGroup, type PlanIdeaProgress, parseFlag, planLine, showSource } from "@/lib/brief";
 import { SLOT_BG } from "./app-badge";
 import { useCollapsed } from "./brief-items";
 import { BRIEF_LABELS, type BriefLabels } from "@/lib/brief-i18n";
@@ -20,6 +22,7 @@ type CardProps = {
   onCheck: (id: string, checked: boolean) => void;
   onSelect: (id: string) => void;
   language: BriefLanguage;
+  plan?: PlanIdeaProgress | null;
 };
 
 /** The flag captions in the brief's language; unknown flags are left out. */
@@ -33,9 +36,10 @@ export function flagCaptions(flags: string[] | undefined, t: BriefLabels): strin
 
 const stop = (e: MouseEvent) => e.stopPropagation();
 
-export function IdeaCard({ idea, app, checked, selected, readOnly, onCheck, onSelect, language }: CardProps) {
+export function IdeaCard({ idea, app, checked, selected, readOnly, onCheck, onSelect, language, plan = null }: CardProps) {
   const t = BRIEF_LABELS[language];
   const captions = flagCaptions(idea.flags, t);
+  const line = plan ? planLine(plan) : null;
   return (
     <li
       onClick={() => onSelect(idea.id)}
@@ -97,6 +101,15 @@ export function IdeaCard({ idea, app, checked, selected, readOnly, onCheck, onSe
       )}
       <p className="font-semibold break-words">{idea.title}</p>
       <p className="text-sm break-words text-muted-foreground">{idea.why}</p>
+      {line && (
+        <p
+          className={cn("text-xs font-medium", line.kind === "failed" ? "text-destructive" : "text-muted-foreground")}
+          data-brief="plan-caption"
+          data-state={plan!.state}
+        >
+          {t.planLine(line)}
+        </p>
+      )}
     </li>
   );
 }
@@ -109,6 +122,7 @@ export function IdeaGroupView({
   onCheck,
   onSelect,
   language,
+  plans,
 }: {
   group: IdeaGroup;
   checks: ReadonlySet<string>;
@@ -117,6 +131,7 @@ export function IdeaGroupView({
   onCheck: (id: string, checked: boolean) => void;
   onSelect: (id: string) => void;
   language: BriefLanguage;
+  plans?: ReadonlyMap<string, PlanIdeaProgress>;
 }) {
   const [collapsed, toggle] = useCollapsed(`ideas:${group.app.id}`);
   const bodyId = `brief-ideas-${group.app.id}`;
@@ -148,6 +163,7 @@ export function IdeaGroupView({
             onCheck={onCheck}
             onSelect={onSelect}
             language={language}
+            plan={plans?.get(idea.code) ?? null}
           />
         ))}
       </ul>
@@ -163,6 +179,7 @@ export function BriefIdeas({
   onCheck,
   onSelect,
   language,
+  plans,
 }: {
   groups: IdeaGroup[];
   checks: string[];
@@ -171,6 +188,8 @@ export function BriefIdeas({
   onCheck: (id: string, checked: boolean) => void;
   onSelect: (id: string) => void;
   language: BriefLanguage;
+  /** Send to Plania progress by idea code (PLA-I43-4). */
+  plans?: ReadonlyMap<string, PlanIdeaProgress>;
 }) {
   const t = BRIEF_LABELS[language];
   const checked = new Set(checks);
@@ -184,7 +203,7 @@ export function BriefIdeas({
       </div>
       {groups.length ? (
         groups.map((g) => (
-          <IdeaGroupView key={g.app.id} group={g} checks={checked} selected={selected} readOnly={readOnly} onCheck={onCheck} onSelect={onSelect} language={language} />
+          <IdeaGroupView key={g.app.id} group={g} checks={checked} selected={selected} readOnly={readOnly} onCheck={onCheck} onSelect={onSelect} language={language} plans={plans} />
         ))
       ) : (
         <p className="text-sm text-muted-foreground">{t.noIdeas}</p>
