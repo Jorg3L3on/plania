@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { BUILD_STAMP, gitState } from "./src/ui-build.js";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
@@ -33,6 +34,10 @@ function serviceWorker(): Plugin {
         .replace('"__VERSION__"', JSON.stringify(version))
         .replace("__PRECACHE__", JSON.stringify(precache));
       this.emitFile({ type: "asset", fileName: "sw.js", source });
+      // PLA-I46-1: the commit this bundle came from, so the server can tell a stale dist/ui at start.
+      const git = gitState(import.meta.dirname);
+      const stamp = { commit: git?.commit ?? null, dirty: git?.dirty ?? false, built_at: new Date().toISOString() };
+      this.emitFile({ type: "asset", fileName: BUILD_STAMP, source: JSON.stringify(stamp) + "\n" });
     },
   };
 }
