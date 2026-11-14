@@ -214,7 +214,9 @@ test("check 5: the Brief de hoy projection is an asistente.brief event (up to 5 
   assert.equal(http.status, 200);
   const body = (await http.json()) as Record<string, unknown>;
   assert.ok(body.company && Array.isArray(body.projects), "the Compañía read keeps its shape");
-  // GET /api/company has no brief field today (Compañía v2); companyState().brief, via latestBrief(), reads the event.
+  // PLA-I42-5: GET /api/company carries Brief de hoy (the event's lines, up to 5) and the link to /brief.
+  assert.deepEqual(body.brief, { lines: ev.payload.lines, generated_at: ev.payload.generated_at, link: "/brief" });
+  // companyState().brief, via latestBrief(), reads the same event.
   const { latestBrief } = await import("../src/runner/asistente.js");
   const { companyState } = await import("../src/runner/company.js");
   assert.deepEqual(await latestBrief(db), { lines: ev.payload.lines, generated_at: ev.payload.generated_at });

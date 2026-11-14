@@ -63,7 +63,8 @@ export const Kpis = ({ data }: { data: Dashboard }) => {
 // ---- Brief
 
 // PLA-I30: Compañía titles it "Brief de hoy" and signs it as Asistente; the default stays for older callers.
-export const Brief = ({ lines, title = "Hoy te toca", sign }: { lines: string[]; title?: string; sign?: string }) => (
+// PLA-I42-5: an optional link under the lines ("Ver el brief completo" → /brief).
+export const Brief = ({ lines, title = "Hoy te toca", sign, link }: { lines: string[]; title?: string; sign?: string; link?: { to: string; label: string } }) => (
   <section aria-labelledby="ceo-brief" className="grid gap-2.5 rounded-[22px] bg-gradient-to-b from-muted to-card p-4 ring-1 ring-foreground/10 sm:p-5">
     <div className="flex items-baseline justify-between gap-3">
       <h2 id="ceo-brief" className="text-[11px] font-bold tracking-[0.14em] text-muted-foreground uppercase">
@@ -81,6 +82,15 @@ export const Brief = ({ lines, title = "Hoy te toca", sign }: { lines: string[];
           </li>
         ))}
       </ol>
+    )}
+    {link && (
+      <Link
+        to={link.to}
+        className="inline-flex min-h-11 w-fit items-center gap-1 text-sm font-semibold underline-offset-4 hover:underline sm:min-h-0"
+        data-brief-link
+      >
+        {link.label} →
+      </Link>
     )}
   </section>
 );
