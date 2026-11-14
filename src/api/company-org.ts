@@ -12,6 +12,7 @@ import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
 import { capacityFacts, agentFacts, holdOf, type CapacityFacts } from "../runner/hold.js";
 import { projectSheet, type ProjectSheet, type RunBrief } from "./company-extra.js";
 import { agentOfActor, asistenteAgent } from "../runner/events.js";
+import { latestBrief } from "../runner/asistente.js";
 import { PROMPT_DOCS, isRunnerRole, lastReading, loadSettings, planView, roleOf, screenTz, weekBounds, weekUsage, type CardUsage, type PlanView, type WeekUsage } from "../runner/limits.js";
 import { TEAM_TEMPLATES, TEMPLATE_ROWS, ensureMember, isTeamTemplate, teamOf, teamSlug, type TeamTemplate } from "../runner/team.js";
 import { actionsFor, companyThread, projectThread, threadSummary } from "../runner/threads.js";
@@ -112,6 +113,9 @@ export type CompanyRead = {
   decisions: Decision[];
   // PLA-I36-2: what Bandeja counts, so Te toca never says "Nada te espera" while it holds something.
   inbox: { decisiones: number; pasos: number };
+  // PLA-I42-5: "Brief de hoy", the Morning brief's 0-token projection (the asistente.brief event, up to 5 lines),
+  // with a link to the full /brief page. null until the first brief is stored.
+  brief: { lines: string[]; generated_at: string; link: "/brief" } | null;
 };
 
 const ORDER = new Map<string, number>(TEAM_TEMPLATES.map((t, i) => [t, i]));
@@ -545,7 +549,13 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     plumbing: { spend, running: running?.n ?? 0, paused: settings.companyPaused },
     decisions,
     inbox: countInbox(inbox),
+    brief: await briefLine(db),
   };
+}
+
+async function briefLine(db: Db): Promise<CompanyRead["brief"]> {
+  const b = await latestBrief(db);
+  return b ? { lines: b.lines.slice(0, 5), generated_at: b.generated_at, link: "/brief" } : null;
 }
 
 // ---- One project

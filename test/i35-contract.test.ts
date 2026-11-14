@@ -96,7 +96,7 @@ test("I35-1 #1: parseProposal reads numbered options, the recommended one and th
 
 test("I35-1 #1: GET /api/company has plan, this_week, next and work per project and decisions[]", async () => {
   const c = await company();
-  assert.deepEqual(keys(c), ["asistente", "company", "decisions", "inbox", "plumbing", "projects", "week"]);
+  assert.deepEqual(keys(c), ["asistente", "brief", "company", "decisions", "inbox", "plumbing", "projects", "week"]);
   for (const p of c.projects) {
     assert.deepEqual(keys(p), ["auto_accept", "goal", "latest", "light", "light_reason", "next", "next_move", "orders", "paused", "plan", "plan_approval", "preview_url", "ready", "route", "rumbo", "slug", "stale_requests", "team", "this_week", "thread", "title", "usage", "work"], p.slug);
     assert.deepEqual(keys(p.this_week), ["docs", "done", "last_at", "prs"]);

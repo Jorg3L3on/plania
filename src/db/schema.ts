@@ -11,6 +11,7 @@ import {
   primaryKey,
   real,
   text,
+  time,
   timestamp,
   unique,
   uniqueIndex,
@@ -1106,7 +1107,7 @@ export type PlanReading = typeof planReadings.$inferSelect;
 // the team answers there too). Messages link what they talk about and keep the action Jorge took.
 export const THREAD_KINDS = ["company", "project"] as const;
 export type ThreadKind = (typeof THREAD_KINDS)[number];
-export const LINK_KINDS = ["ticket", "doc", "pr", "idea", "question"] as const;
+export const LINK_KINDS = ["ticket", "doc", "pr", "idea", "question", "brief_plan"] as const;
 export type ThreadLink = { kind: (typeof LINK_KINDS)[number]; ref: string; title: string };
 // PLA-I36-7/8: what a PO proposes. choice: options to pick from. plan: what it understood of an order, the steps
 // (each with what done means) and the cost; on approval the server makes one Ready ticket per step.
@@ -1292,3 +1293,153 @@ export const qaLanes = pgTable(
   ],
 );
 export type QaLane = typeof qaLanes.$inferSelect;
+
+// PLA-I41-1: the Morning brief (spec "Spec: Morning brief" §7.2). A brief per run (several a day are fine; the page
+// shows the newest), the runs that made them, Send to Plania requests, the owner's checks, and one settings row.
+// Migration 0045. The BriefData shape lives with the brief engine; here data is plain JSON.
+export const BRIEF_TRIGGERS = ["schedule", "manual", "cli"] as const;
+export type BriefTrigger = (typeof BRIEF_TRIGGERS)[number];
+export const BRIEF_MODES = ["full", "partial", "facts_only"] as const;
+export type BriefMode = (typeof BRIEF_MODES)[number];
+
+export const morningBriefs = pgTable(
+  "morning_briefs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The date in the brief's time zone.
+    localDate: date("local_date").notNull(),
+    generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+    trigger: text("trigger").$type<BriefTrigger>().notNull(),
+    mode: text("mode").$type<BriefMode>().notNull(),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull(),
+    // brief_runs.id (no foreign key: a run row may be pruned while the brief stays).
+    runId: uuid("run_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("morning_briefs_date_idx").on(t.localDate.desc(), t.generatedAt.desc()),
+    check("morning_briefs_trigger_check", sql`${t.trigger} in ('schedule', 'manual', 'cli')`),
+    check("morning_briefs_mode_check", sql`${t.mode} in ('full', 'partial', 'facts_only')`),
+  ],
+);
+
+export type MorningBrief = typeof morningBriefs.$inferSelect;
+
+export const BRIEF_RUN_STATUSES = ["waiting", "running", "ok", "partial", "fail", "fallback"] as const;
+export type BriefRunStatus = (typeof BRIEF_RUN_STATUSES)[number];
+export type BriefPassRecord = { status: string; turns?: number; tokens?: number; log_file?: string };
+
+export const briefRuns = pgTable(
+  "brief_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    trigger: text("trigger").notNull(),
+    status: text("status").$type<BriefRunStatus>().notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    // {brief: {status, turns, tokens, log_file}, ideas: {...}}; log_file is a file name only.
+    passes: jsonb("passes").$type<Record<string, BriefPassRecord>>().notNull().default({}),
+    // One plain line; never home paths, env values or tokens.
+    summary: text("summary").notNull().default(""),
+  },
+  (t) => [
+    check("brief_runs_status_check", sql`${t.status} in ('waiting', 'running', 'ok', 'partial', 'fail', 'fallback')`),
+  ],
+);
+
+export type BriefRun = typeof briefRuns.$inferSelect;
+
+export const BRIEF_PLAN_STATUSES = ["open", "done", "partial", "failed"] as const;
+export type BriefPlanStatus = (typeof BRIEF_PLAN_STATUSES)[number];
+export type BriefPlanTarget = {
+  slug: string;
+  po_agent: string;
+  codes: string[];
+  wake_run_id?: string | null;
+  state: "waiting_paused" | "queued" | "running" | "done" | "failed";
+  // PLA-I43-1: the "Plan these ideas" message (posted in the same transaction as the wake), why the target waits
+  // or failed (one plain line), and when it last changed.
+  message_id?: string | null;
+  note?: string | null;
+  updated_at?: string;
+  results: {
+    code: string;
+    status: "created" | "duplicate" | "proposed" | "failed";
+    idea_key?: string;
+    initiative_key?: string;
+    ticket_keys?: string[];
+    note?: string;
+  }[];
+};
+
+// Send to Plania (D3): the ideas the owner picked from a brief, and how each target project's PO is doing.
+export const briefPlanRequests = pgTable(
+  "brief_plan_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    briefId: uuid("brief_id")
+      .notNull()
+      .references(() => morningBriefs.id, { onDelete: "cascade" }),
+    codes: text("codes").array().notNull(),
+    // The chosen Idea objects (code, app, title, why, flags).
+    ideas: jsonb("ideas").$type<Record<string, unknown>[]>().notNull(),
+    targets: jsonb("targets").$type<BriefPlanTarget[]>().notNull().default([]),
+    status: text("status").$type<BriefPlanStatus>().notNull().default("open"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("brief_plan_requests_status_check", sql`${t.status} in ('open', 'done', 'partial', 'failed')`)],
+);
+
+export type BriefPlanRequest = typeof briefPlanRequests.$inferSelect;
+
+// Item.id or Idea.id, stable across days. Uncheck = delete; ids unseen for 30 days are pruned by the pipeline.
+export const briefChecks = pgTable("brief_checks", {
+  itemId: text("item_id").primaryKey(),
+  checkedAt: timestamp("checked_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type BriefCheck = typeof briefChecks.$inferSelect;
+
+export const BRIEF_LANGUAGES = ["en", "es"] as const;
+export type BriefLanguage = (typeof BRIEF_LANGUAGES)[number];
+export const BRIEF_GITHUB_MODES = ["poller", "gh", "off"] as const;
+export type BriefGithubMode = (typeof BRIEF_GITHUB_MODES)[number];
+export type BriefPassTimeouts = { brief: number; ideas: number; plan: number };
+export type BriefProjectSetting = { include?: boolean; include_ideas?: boolean; letter?: string; order?: number };
+
+export const briefSettings = pgTable(
+  "brief_settings",
+  {
+    id: integer("id").primaryKey().default(1),
+    enabled: boolean("enabled").notNull().default(true),
+    runAt: time("run_at").notNull().default("07:00"),
+    // Null = PLANIA_TZ.
+    timezone: text("timezone"),
+    // Null = derived (small map, else the IANA city).
+    timezoneLabel: text("timezone_label"),
+    // D5: content and page labels.
+    language: text("language").$type<BriefLanguage>().notNull().default("en"),
+    // Null = PLANIA_CEO_NAME.
+    ownerName: text("owner_name"),
+    hiddenRefs: text("hidden_refs").array().notNull().default(sql`'{}'::text[]`),
+    maxItemsPerApp: integer("max_items_per_app").notNull().default(5),
+    ideasPerProject: integer("ideas_per_project").notNull().default(3),
+    ideasEnabled: boolean("ideas_enabled").notNull().default(true),
+    // D4: hard ceiling for the scheduled brief (local time).
+    fallbackAt: time("fallback_at").notNull().default("11:00"),
+    // Null = CLI default.
+    model: text("model"),
+    passTimeouts: jsonb("pass_timeouts").$type<BriefPassTimeouts>().notNull().default({ brief: 10, ideas: 20, plan: 30 }),
+    projects: jsonb("projects").$type<Record<string, BriefProjectSetting>>().notNull().default({}),
+    githubMode: text("github_mode").$type<BriefGithubMode>().notNull().default("poller"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("brief_settings_id_check", sql`${t.id} = 1`),
+    check("brief_settings_language_check", sql`${t.language} in ('en', 'es')`),
+    check("brief_settings_github_mode_check", sql`${t.githubMode} in ('poller', 'gh', 'off')`),
+  ],
+);
+
+export type BriefSettings = typeof briefSettings.$inferSelect;

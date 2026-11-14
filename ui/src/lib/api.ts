@@ -367,6 +367,8 @@ export type OrgCompany = {
   plumbing: OrgPlumbing;
   decisions: Decision[];
   inbox?: { decisiones: number; pasos: number };
+  // PLA-I42-5: Brief de hoy (the Morning brief's 0-token lines) and the link to /brief. Optional for older servers.
+  brief?: { lines: string[]; generated_at: string; link: string } | null;
 };
 export type OrgTemplate = { slug: string; title: string };
 // PLA-I46-13: every role template and whether it can be added (free), is on the team (taken) or lacks its prompt doc.
@@ -375,7 +377,7 @@ export type PackRef = { slug: string; name: string; when: string; doc_id: string
 export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[]; hire?: HireRole[] };
 
 export type ThreadAction = "aceptar" | "cambios" | "responder" | "fusionar";
-export type ThreadLink = { kind: "ticket" | "doc" | "pr" | "idea" | "question"; ref: string; title: string };
+export type ThreadLink = { kind: "ticket" | "doc" | "pr" | "idea" | "question" | "brief_plan"; ref: string; title: string };
 // result is an object on the server ({ticket, status} …); older fixtures carry a string.
 export type ThreadActionState = { action: ThreadAction; at: string; result: string | Record<string, unknown> | null };
 export type ThreadMessage = {

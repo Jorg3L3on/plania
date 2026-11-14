@@ -102,6 +102,27 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
+// PLA-I41-3: a slot reservation (the Morning brief). While it is up, wakes queue instead of starting,
+// drainQueue starts nothing and the heartbeat wakes no one; live runs are never stopped.
+let reservation: { label: string; since: Date } | null = null;
+
+// True when this call took the reservation; false when one is already up (its holder releases it).
+export function reserveSlot(label: string): boolean {
+  if (reservation) return false;
+  reservation = { label: label.slice(0, 80), since: new Date() };
+  return true;
+}
+
+export function releaseReservation(): void {
+  reservation = null;
+}
+
+export const slotReservation = (): { label: string; since: Date } | null => (reservation ? { ...reservation } : null);
+
+// Resolves once every wake or drain already inside the serial chain has finished, so a run started
+// by one of them shows in liveRuns() before the caller looks.
+export const settleRunner = (): Promise<void> => serial(async () => undefined);
+
 export const liveRuns = (): { runId: string; agentId: string; projectId: string; role: string }[] =>
   [...live.values()].map(({ runId, agentId, projectId, role }) => ({ runId, agentId, projectId, role }));
 
@@ -116,6 +137,7 @@ export async function waitForAllRuns(): Promise<void> {
 
 export function resetRunnerForTests(): void {
   live.clear();
+  reservation = null;
   lastProbeAt = 0;
   chain = Promise.resolve();
 }
@@ -215,6 +237,8 @@ async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, 
   }
   const full = capacityHold(capacity);
   if (full?.code === "usage") return { ok: false, kind: "skipped", summary: planGuardSummary(capacity.plan) };
+  // PLA-I41-3: while the Morning brief holds the slot, a wake queues and the queue waits.
+  if (reservation) return { ok: false, kind: "cap", summary: opts.fromQueue ? "queued" : `queued: slot reserved (${reservation.label})` };
   if (full?.code === "slot") return { ok: false, kind: "cap", summary: opts.fromQueue ? "queued" : "queued: cap reached" };
   return { ok: true };
 }
@@ -248,12 +272,12 @@ export async function wakeClaude(
         taskKey,
         role: ctx.role!,
         status: "queued",
-        summary: pre.ok ? "starting" : "queued: cap reached",
+        summary: pre.ok ? "starting" : pre.summary,
         queuedAt: input.now,
         reserveTokens: settings.reserveTokens,
       })
       .returning();
-    if (!pre.ok) return { kind: "queued", runId: row!.id, summary: "queued: cap reached", taskKey };
+    if (!pre.ok) return { kind: "queued", runId: row!.id, summary: pre.summary, taskKey };
     return start(db, row!, ctx, deps);
   });
 }
@@ -332,6 +356,8 @@ export async function canStart(db: Db, agent: Agent, projectId: string, taskKey:
 export async function drainQueue(db: Db, now: Date, deps: RunnerDeps = {}): Promise<{ started: number; dropped: number }> {
   return serial(async () => {
     const out = { started: 0, dropped: 0 };
+    // PLA-I41-3: queued runs stay queued while a reservation is up.
+    if (reservation) return out;
     const queued = await db.select().from(agentRuns).where(eq(agentRuns.status, "queued")).orderBy(asc(agentRuns.queuedAt));
     for (const run of queued) {
       const [agent] = await db.select().from(agents).where(eq(agents.id, run.agentId)).limit(1);

@@ -44,6 +44,14 @@
     --color-sidebar-primary: var(--sidebar-primary);
     --color-sidebar-foreground: var(--sidebar-foreground);
     --color-sidebar: var(--sidebar);
+    /* PLA-I42-1: Morning brief app slots (BriefApp.color c0…c5, other). Tailwind: bg-brief-c0, text-brief-other… */
+    --color-brief-c0: var(--brief-c0);
+    --color-brief-c1: var(--brief-c1);
+    --color-brief-c2: var(--brief-c2);
+    --color-brief-c3: var(--brief-c3);
+    --color-brief-c4: var(--brief-c4);
+    --color-brief-c5: var(--brief-c5);
+    --color-brief-other: var(--brief-other);
     --color-chart-5: var(--chart-5);
     --color-chart-4: var(--chart-4);
     --color-chart-3: var(--chart-3);
@@ -100,6 +108,14 @@
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
+    /* PLA-I42-1: Morning brief app slots, six hues at even lightness (oklch only, no hex). */
+    --brief-c0: oklch(0.58 0.16 255);
+    --brief-c1: oklch(0.62 0.16 155);
+    --brief-c2: oklch(0.66 0.16 70);
+    --brief-c3: oklch(0.58 0.2 25);
+    --brief-c4: oklch(0.56 0.18 300);
+    --brief-c5: oklch(0.62 0.12 200);
+    --brief-other: var(--muted-foreground);
     --radius: 0.625rem;
     --sidebar: oklch(0.985 0 0);
     --sidebar-foreground: oklch(0.145 0 0);
@@ -154,6 +170,14 @@
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
+    /* PLA-I42-1: the same six hues, lighter for the dark background. */
+    --brief-c0: oklch(0.72 0.14 255);
+    --brief-c1: oklch(0.76 0.15 155);
+    --brief-c2: oklch(0.8 0.14 75);
+    --brief-c3: oklch(0.72 0.17 25);
+    --brief-c4: oklch(0.72 0.15 300);
+    --brief-c5: oklch(0.78 0.11 200);
+    --brief-other: var(--muted-foreground);
     --sidebar: oklch(0.205 0 0);
     --sidebar-foreground: oklch(0.985 0 0);
     --sidebar-primary: oklch(0.488 0.243 264.376);

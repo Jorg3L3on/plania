@@ -71,7 +71,7 @@ after(async () => {
 
 test("I32-6 #1: GET /api/company has exactly the contract keys, a team of four per project and the plumbing line", async () => {
   const c = await get("/api/company");
-  assert.deepEqual(keys(c), ["asistente", "company", "decisions", "inbox", "plumbing", "projects", "week"], "PLA-I35-1 added decisions, PLA-I36-2 inbox");
+  assert.deepEqual(keys(c), ["asistente", "brief", "company", "decisions", "inbox", "plumbing", "projects", "week"], "PLA-I35-1 added decisions, PLA-I36-2 inbox, PLA-I42-5 brief");
   assert.deepEqual(keys(c.company), ["paused"]);
   assert.deepEqual(keys(c.week), ["resets_at", "starts_at", "timezone"]);
   assert.deepEqual(keys(c.asistente), ["last_run", "state", "thread_id", "unread", "usage"]);
