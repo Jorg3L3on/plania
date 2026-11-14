@@ -283,9 +283,10 @@ test("I40-5 #1: no plan says so with Que PO lo planee; one leg; a 120-character 
   assert.ok(text(one).includes("+3 pasos más") && text(one).includes("+2 más"));
 });
 
-test("I40-5 #3: the legs wrap instead of scrolling sideways, and long text breaks", () => {
+test("I40-5 #3: the legs never scroll sideways, and long text breaks", () => {
   const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  assert.ok(css.includes(".edi-legs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));"));
+  // PLA-I46-14: one row of legs on every width (Jorge, 13 Nov 2026), each column allowed to shrink.
+  assert.ok(css.includes(".edi-legs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--n, 5), minmax(0, 1fr));"));
   assert.match(css, /\.edi-leg b \{[^}]*overflow-wrap: anywhere/);
   assert.match(css, /\.edi-stext b \{[^}]*overflow-wrap: anywhere/);
   assert.match(css, /\.edi-route \{[^}]*grid-column: 1 \/ -1[^}]*min-width: 0/);
