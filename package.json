@@ -23,7 +23,9 @@
     "hash-password": "tsx scripts/hash-password.ts",
     "vapid": "tsx scripts/vapid.ts",
     "scan:diff": "tsx scripts/scan-diff.ts",
-    "scan:hashes": "tsx scripts/scan-hashes.ts"
+    "scan:hashes": "tsx scripts/scan-hashes.ts",
+    "brief:run": "tsx --env-file=.env scripts/brief-run.ts",
+    "brief:doctor": "tsx --env-file=.env scripts/brief-doctor.ts"
   },
   "dependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.3.0",

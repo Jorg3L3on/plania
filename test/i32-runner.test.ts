@@ -1,5 +1,5 @@
-// PLA-I32-5: Asistente as a runner role (woken by Jorge's message, the 07:00 brief run with the server summary
-// as fallback, routine acceptance), the idle PO's weekly proposal wake, budgets per project and for Asistente
+// PLA-I32-5: Asistente as a runner role (woken by Jorge's message, routine acceptance; PLA-I41-6 replaced the 07:00
+// brief run with the Morning brief pipeline), the idle PO's weekly proposal wake, budgets per project and for Asistente
 // (role caps retired), and event wakes routed to the project's own team. Every process is a fake child;
 // throwaway DB; nothing reaches a real claude or repo.
 import assert from "node:assert/strict";
@@ -139,53 +139,44 @@ test("I32-5 #1: Jorge's message wakes Asistente; the queued run starts, runs wit
   assert.deepEqual(run, { status: "ok", role: "asistente", slug: "zigzag" });
 });
 
-test("I32-5 #1: at 07:00 the brief is an Asistente run; when the run ends well no server summary is written", async () => {
-  const f = fakes();
-  // Only the brief here: no idle PO with a goal to propose.
+// PLA-I41-6 (D1): the free-text Asistente brief run is gone; the 07:00 step starts the Morning brief pipeline.
+// Wakes on and an Asistente agent present: on four days in a row, from 06:00 to 13:00, nothing is ever queued for
+// the brief and no asistente.brief_run event is written; one Morning brief a day is stored and projected instead.
+test("PLA-I41-6 check 4: no Asistente brief run is ever queued; the Morning brief is stored instead (fake spawnPass)", async () => {
   await raw.query(`delete from goals`);
-  const seven = new Date("2026-11-10T13:05:00Z"); // 07:05 in Mexico City
-  await readingAt(seven);
-  const first = await asistente.runAsistente(db, seven, wakesOn);
-  assert.deepEqual([first.brief_run, first.brief], [1, 0]);
-  const [q] = await queued();
-  assert.equal(q.slug, "asistente");
-  assert.match(q.summary, /brief 2026-11-10/);
-  await runner.drainQueue(db, seven, f.deps as never);
-  assert.equal(f.spawned.length, 1);
-  assert.match(f.spawned[0]!.args[f.spawned[0]!.args.indexOf("-p") + 1]!, /Why you woke: brief 2026-11-10/);
-  assert.equal((await asistente.runAsistente(db, new Date(seven.getTime() + 60_000), wakesOn)).brief, 0, "waits while it runs");
-  for (const s of f.spawned) s.child.finish();
-  await runner.waitForAllRuns();
-  const done = await asistente.runAsistente(db, new Date(seven.getTime() + 120_000), wakesOn);
-  assert.equal(done.brief, 1);
-  const ev = (await raw.query(`select payload from events where type = 'asistente.brief'`)).rows.map((r) => r.payload);
-  assert.deepEqual(ev.map((p) => p.source), ["run"]);
-  assert.equal((await companyMessages()).some((m) => m.body.startsWith("Resumen del servidor")), false);
-  assert.equal((await asistente.runAsistente(db, new Date(seven.getTime() + 3_600_000), wakesOn)).brief + (await queued()).length, 0, "once a day");
-});
-
-test("I32-5 #1: the server summary is the fallback: when Asistente cannot run, and when its run fails", async () => {
-  await raw.query(`update runner_settings set company_paused = true`);
-  const seven = new Date("2026-11-11T13:05:00Z");
-  const out = await asistente.runAsistente(db, seven, wakesOn);
-  assert.deepEqual([out.brief, out.brief_run], [1, 0]);
-  const last = (await companyMessages()).find((m) => m.body.startsWith("Resumen del servidor"))!;
-  assert.equal(last.author.agent, "asistente");
-  assert.match(last.body, /^Resumen del servidor \(Asistente no pudo correr\):\n- La compañía está en pausa/);
-
-  // The next day the run is queued but fails: the summary follows on the next tick.
-  await raw.query(`update runner_settings set company_paused = false`);
-  asistente.resetAsistenteForTests();
-  const f = fakes();
-  const next = new Date("2026-11-12T13:05:00Z");
-  await readingAt(next);
-  assert.equal((await asistente.runAsistente(db, next, wakesOn)).brief_run, 1);
-  await runner.drainQueue(db, next, f.deps as never);
-  const briefRun = f.spawned.find((s) => /Why you woke: brief/.test(s.args[s.args.indexOf("-p") + 1]!))!;
-  for (const s of f.spawned) s.child.finish(s === briefRun ? "error_max_turns" : "success");
-  await runner.waitForAllRuns();
-  assert.equal((await asistente.runAsistente(db, new Date(next.getTime() + 60_000), wakesOn)).brief, 1);
-  assert.ok((await companyMessages()).some((m) => m.body.startsWith("Resumen del servidor (la corrida de Asistente no terminó bien)")));
+  const schedule = await import("../src/brief/schedule.js");
+  let clock = new Date("2026-11-10T12:00:00Z");
+  const spawned: string[] = [];
+  const brief = {
+    now: () => clock,
+    liveRuns: () => [],
+    pollMs: 1,
+    tmpDir: path.join(scratch, "brief-tmp"),
+    spawnPass: async (_db: unknown, input: { pass: string }) => {
+      spawned.push(input.pass);
+      return { ok: false, reason: "error", summary: "fake pass", attempts: 1, logPath: null } as never;
+    },
+  };
+  const env = { ...wakesOn.env, PLANIA_BRIEF_TOKEN: "fake-read-token" } as NodeJS.ProcessEnv;
+  for (let day = 0; day < 4; day += 1) {
+    const start = Date.parse("2026-11-10T12:00:00Z") + day * 86_400_000; // 06:00 local
+    for (let t = start; t <= start + 7 * 3_600_000; t += 15 * 60_000) {
+      clock = new Date(t);
+      await readingAt(clock);
+      await asistente.runAsistente(db, clock, { ...wakesOn, env, brief });
+      await schedule.waitForScheduledBrief();
+    }
+  }
+  const runs = (await raw.query(`select a.slug, r.summary from agent_runs r join agents a on a.id = r.agent_id`)).rows as { slug: string; summary: string }[];
+  assert.equal(runs.filter((r) => /brief/i.test(r.summary)).length, 0, "no run was queued for the brief");
+  assert.ok(runs.filter((r) => r.slug === "asistente").every((r) => r.summary.includes("2-hour check")), "Asistente runs only for the 2-hourly check");
+  assert.equal((await raw.query(`select count(*)::int as n from events where type = 'asistente.brief_run'`)).rows[0].n, 0);
+  const briefs = (await raw.query(`select local_date::text as d, trigger from morning_briefs where local_date between '2026-11-10' and '2026-11-13' order by 1`)).rows;
+  assert.deepEqual(briefs, ["2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13"].map((d) => ({ d, trigger: "schedule" })), "one scheduled Morning brief a day");
+  assert.deepEqual(spawned, Array(4).fill(["brief", "ideas"]).flat(), "pass A then pass B, once a day");
+  const ev = (await raw.query(`select payload from events where type = 'asistente.brief' order by id`)).rows.map((r) => r.payload);
+  assert.ok(ev.length >= 4 && ev.every((p) => p.source === "morning_brief" && p.link === "/brief"), "Brief de hoy is the 0-token projection");
+  assert.equal((await companyMessages()).some((m) => m.body.startsWith("Resumen del servidor")), false, "no free-text summary in the company thread");
 });
 
 test("I32-5 #2: a PO's ticket In review that Jorge asked for, with its checks done, is accepted by Asistente with a line", async () => {

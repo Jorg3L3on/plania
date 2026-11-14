@@ -219,7 +219,7 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   });
 
 const home = (env: NodeJS.ProcessEnv) => env.HOME || homedir();
-const commandOf = (env: NodeJS.ProcessEnv) => env.CLAUDE_CODE_BIN?.trim() || path.join(home(env), ".local", "bin", "claude");
+export const commandOf = (env: NodeJS.ProcessEnv): string => env.CLAUDE_CODE_BIN?.trim() || path.join(home(env), ".local", "bin", "claude");
 const sysCtx: Ctx = { actor: { ...SYSTEM_ACTOR, machine: hostname() }, system: true, tool: "brief.report_tokens" };
 
 // Short, plain zod error for the retry prompt (no values echoed back beyond the path).

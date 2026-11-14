@@ -41,6 +41,7 @@ import { templateRoutes } from "./templates.js";
 import { companyRoutes } from "./company.js";
 import { plumbing } from "./company-org.js";
 import { threadRoutes } from "./threads.js";
+import { briefApi } from "./brief.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
 // the MCP Bearer never opens it and the cookie never opens /mcp.
@@ -645,6 +646,8 @@ api.route("/delegation", delegationRoutes);
 api.route("/dashboard", dashboardRoutes);
 api.route("/usage", usageRoutes);
 api.route("/templates", templateRoutes);
+// PLA-I41-6: the Morning brief (spec §7.3).
+api.route("/brief", briefApi);
 
 // Mounted sub-apps do not use their own notFound, so claim unknown API paths explicitly.
 api.all("*", (c) => c.json({ error: "NOT_FOUND" }, 404));

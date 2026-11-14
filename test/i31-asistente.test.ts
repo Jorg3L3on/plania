@@ -13,13 +13,28 @@ const { seedLegacyOrg: seedOrg } = await import("./fixtures/legacy-org.js");
 const writes = await import("../src/mcp/writes.js");
 const asistente = await import("../src/runner/asistente.js");
 const { jobsToStart } = await import("../src/jobs/index.js");
+const schedule = await import("../src/brief/schedule.js");
 
 type Db = ReturnType<typeof makeDb>["db"];
 let raw: pg.Client;
 let db: Db;
 let closeDb: () => Promise<void>;
 const TZ = "America/Mexico_City";
-const deps = { tz: TZ, env: { PLANIA_HOME_PROJECT: "micasa" } as NodeJS.ProcessEnv };
+// PLA-I41-6: the brief tick starts the Morning brief pipeline; the fake spawnPass answers like a missing read token,
+// so every brief here is facts only and no claude process exists.
+let clock = new Date();
+const deps = {
+  tz: TZ,
+  env: { PLANIA_HOME_PROJECT: "micasa" } as NodeJS.ProcessEnv,
+  brief: { now: () => clock, liveRuns: () => [], pollMs: 1, spawnPass: async () => ({ ok: false, reason: "no_token", summary: "Add PLANIA_BRIEF_TOKEN (read scope) to .env", attempts: 0, logPath: null }) as never },
+};
+// One asistente tick on the test clock; waits for a scheduled brief it started.
+async function tick(now: Date, d: typeof deps = deps) {
+  clock = now;
+  const out = await asistente.runAsistente(db, now, d);
+  await schedule.waitForScheduledBrief();
+  return out;
+}
 const ctx = { actor: { agent: "test-agent", session_id: "s-i31-2" } };
 
 async function id(table: "agents" | "projects", slug: string): Promise<string> {
@@ -55,7 +70,7 @@ test("I31-2 #1: on a fake clock the brief fires once, at 07:00 local, and the ch
   let checks = 0;
   for (let t = start; t < start + 24 * 3_600_000; t += 10 * 60_000) {
     const now = new Date(t);
-    const out = await asistente.runAsistente(db, now, deps);
+    const out = await tick(now);
     if (out.brief) briefs.push(now.toISOString());
     checks += out.check;
   }
@@ -69,10 +84,10 @@ test("I31-2 #1: on a fake clock the brief fires once, at 07:00 local, and the ch
 
 test("I31-2: a server asleep at 07:00 writes the brief on its first tick after, once that day", async () => {
   const late = new Date("2026-11-11T16:30:00Z"); // 10:30 local
-  assert.equal((await asistente.runAsistente(db, late, deps)).brief, 1);
-  assert.equal((await asistente.runAsistente(db, new Date(late.getTime() + 3_600_000), deps)).brief, 0);
+  assert.equal((await tick(late)).brief, 1);
+  assert.equal((await tick(new Date(late.getTime() + 3_600_000))).brief, 0);
   // Before 07:00 the next day: nothing yet.
-  assert.equal((await asistente.runAsistente(db, new Date("2026-11-12T12:00:00Z"), deps)).brief, 0);
+  assert.equal((await tick(new Date("2026-11-12T12:00:00Z"))).brief, 0);
 });
 
 test("I31-2 #2 (PLA-21): a heavy week yields no budget line and no ask; the brief is stored and posted", async () => {
@@ -89,7 +104,7 @@ test("I31-2 #2 (PLA-21): a heavy week yields no budget line and no ask; the brie
 
   // A zone where it is already past 07:00, so this tick also writes the brief.
   const tz = now.getUTCHours() >= 7 ? "UTC" : "Pacific/Kiritimati";
-  const out = await asistente.runAsistente(db, now, { ...deps, tz });
+  const out = await tick(now, { ...deps, tz });
   assert.equal(out.brief, 1);
   assert.equal(out.check, 1);
   assert.equal(out.asks, 0);
@@ -97,18 +112,19 @@ test("I31-2 #2 (PLA-21): a heavy week yields no budget line and no ask; the brie
   const check = (await raw.query(`select payload from events where type = 'asistente.check' order by id desc limit 1`)).rows[0];
   for (const line of (check?.payload.lines ?? []) as string[]) assert.doesNotMatch(line, /presupuesto/i);
 
-  // The brief is stored as {lines, generated_at} and, PLA-I32-5, posted in the company thread (server summary:
-  // event wakes are off here, so no Asistente run could write it).
+  // PLA-I41-6: the brief is the Morning brief's 0-token projection ({lines, generated_at}; GET /api/company reads it).
+  await schedule.waitForScheduledBrief();
   const brief = await asistente.latestBrief(db);
   assert.ok(brief);
   assert.deepEqual(Object.keys(brief).sort(), ["generated_at", "lines"]);
   assert.ok(brief.lines.length > 0);
-  assert.equal(brief.generated_at, now.toISOString());
+  for (const line of brief.lines) assert.doesNotMatch(line, /presupuesto|budget/i);
+  const ev = (await raw.query(`select payload from events where type = 'asistente.brief' order by id desc limit 1`)).rows[0].payload;
+  assert.equal(ev.source, "morning_brief");
+  // No free-text summary is posted in the company thread any more (D1).
   const res = await app.request("/api/threads/company", { headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } });
   const thread = (await res.json()) as { messages: { author: { agent: string }; body: string }[] };
-  const posted = thread.messages.filter((m) => m.body.startsWith("Resumen del servidor")).at(-1)!;
-  assert.equal(posted.author.agent, "asistente");
-  assert.doesNotMatch(posted.body, /presupuesto/i);
+  assert.equal(thread.messages.some((m) => m.body.startsWith("Resumen del servidor")), false);
 });
 
 test("I31-2: there is no brief before the first one", async () => {
@@ -132,7 +148,7 @@ test("I31-2 #3: the same failure twice yields exactly one ask; a different failu
   await run("AS-ONCE", "fail: error_max_turns (40 turns, session cccc3333)", 10);
 
   const t0 = new Date();
-  const first = await asistente.runAsistente(db, t0, deps);
+  const first = await tick(t0);
   assert.equal(first.asks, 1);
   const qs = await questionsOn("AS-FAIL");
   assert.equal(qs.length, 1);
@@ -143,7 +159,7 @@ test("I31-2 #3: the same failure twice yields exactly one ask; a different failu
 
   // The next check (another slot) and a third identical failure ask nothing more.
   await run("AS-FAIL", "fail: error_max_turns (40 turns, session dddd4444)", 1);
-  const later = await asistente.runAsistente(db, new Date(t0.getTime() + 2 * 3_600_000), deps);
+  const later = await tick(new Date(t0.getTime() + 2 * 3_600_000));
   assert.equal(later.check, 1);
   assert.equal(later.asks, 0);
   assert.equal((await questionsOn("AS-FAIL")).length, 1);

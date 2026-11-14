@@ -1,15 +1,13 @@
 // PLA-I31-2: Asistente, the chief of staff. PLA-I32-5: Asistente is a runner role now.
-// - At 07:00 the job queues an Asistente run that writes the brief in the company thread. Only when it cannot
-//   run (wakes off, no runner agent, company paused) or its run ends without success is
-//   the server summary below written instead, marked as such, in the thread and as asistente.brief.
+// - The brief (PLA-I41-6, decisions D1 and D4): the 07:00 step starts the Morning brief pipeline
+//   (src/brief/schedule.ts): brief_settings.enabled and run_at, once per local date with catch-up, waiting for a
+//   running build with no cutoff, and at fallback_at a facts-only brief from buildBrief(). No Asistente run writes
+//   the brief any more; "Brief de hoy" is the pipeline's 0-token asistente.brief projection.
 // - Every 2 hours: routine acceptance (a PO's ticket In review that Jorge asked for, ops or research, with
 //   every check done → Done, with a line in the project thread), the weekly proposal wake of an idle PO with
 //   a goal (2-3 ideas, at most once a week), and the findings below; when they change an Asistente run is
 //   queued to write them up, or the server posts them when it cannot run.
-// - The brief, daily at 07:00 in Jorge's time zone (PLANIA_TZ). It is a deterministic summary the
-//   server writes from data it already has (0 tokens), whether the runner is on or off; no claude run
-//   writes it. Stored as an asistente.brief event in the home project; GET /api/company reads the latest.
-//   A server that was asleep at 07:00 writes it on its first tick after (once per local day).
+// - buildBrief() is the deterministic server summary (0 tokens) the facts-only Morning brief is made from.
 // - The check, every 2 hours (one per local 2-hour slot): stuck or quiet projects (quiet = no event in
 //   more than 48 h), and the same failure twice in a row on a ticket, which yields exactly one ask into Solo tú.
 //   The other escalations (money, production, main, unclear direction) are judgement calls the role
@@ -26,8 +24,9 @@ import { asistenteAgent, enqueueWake, eventWakesEnabled } from "./events.js";
 import { projectGoal } from "./runner.js";
 import { asistenteHome, companyThread, postMessage, projectThread } from "./threads.js";
 import { setTask } from "../mcp/writes.js";
+import { resetScheduleForTests, scheduledBrief } from "../brief/schedule.js";
+import type { RunBriefDeps } from "../brief/pipeline.js";
 
-export const BRIEF_HOUR = 7;
 export const CHECK_EVERY_HOURS = 2;
 export const QUIET_HOURS = 48;
 export const STUCK_HOURS = 24;
@@ -195,20 +194,15 @@ export async function latestBrief(db: Db): Promise<Brief | null> {
   return { lines: p.lines.filter((l): l is string => typeof l === "string"), generated_at: p.generated_at };
 }
 
-async function briefDate(db: Db): Promise<string | null> {
-  const [row] = await db.select({ payload: events.payload }).from(events).where(eq(events.type, "asistente.brief")).orderBy(desc(events.id)).limit(1);
-  const date = (row?.payload as { date?: unknown } | undefined)?.date;
-  return typeof date === "string" ? date : null;
-}
-
 // ---- The job's tick
 
 let lastCheck: string | null = null;
 export function resetAsistenteForTests(): void {
   lastCheck = null;
+  resetScheduleForTests();
 }
 
-export type AsistenteDeps = { tz?: string; env?: NodeJS.ProcessEnv };
+export type AsistenteDeps = { tz?: string; env?: NodeJS.ProcessEnv; brief?: RunBriefDeps };
 
 async function askOnce(db: Db, f: RepeatedFailure): Promise<boolean> {
   const [project] = await db.select().from(projects).where(eq(projects.slug, f.project)).limit(1);
@@ -241,8 +235,11 @@ async function askOnce(db: Db, f: RepeatedFailure): Promise<boolean> {
 }
 
 export type AsistenteTick = {
+  // A scheduled Morning brief started this tick; brief_fallback: it is facts only; brief_ceiling: a waiting one was
+  // stopped at fallback_at.
   brief: number;
-  brief_run: number;
+  brief_fallback: number;
+  brief_ceiling: number;
   check: number;
   check_run: number;
   asks: number;
@@ -251,9 +248,6 @@ export type AsistenteTick = {
   no_home: number;
 };
 
-const ENDED_BADLY = new Set(["fail", "skipped", "stopped"]);
-// A brief run still queued this long after 07:00 gives way to the server summary.
-const BRIEF_WAIT_MS = 3 * HOUR;
 const WEEK_MS = 7 * 24 * HOUR;
 
 // One Asistente run, queued in its home project, or null when it cannot run now: wakes off, no runner
@@ -281,55 +275,6 @@ export async function queueAsistente(db: Db, home: Project, reason: string, env:
 }
 
 const actorCtx = (tool: string) => ({ actor: { ...ASISTENTE_ACTOR, machine: hostname() }, tool });
-
-async function serverBrief(db: Db, home: Project, date: string, now: Date, why: string): Promise<void> {
-  const lines = await buildBrief(db, now);
-  await writeTx(db, home, { ...actorCtx("jobs.asistente"), requestId: `asistente:brief:${date}` }, async (_tx, emit) => {
-    await emit("asistente.brief", null, { date, lines, generated_at: now.toISOString(), source: "summary", why });
-  });
-  const body = [`Resumen del servidor (${why}):`, ...lines.map((l) => `- ${l}`)].join("\n").slice(0, 4000);
-  await postMessage(db, { thread: await companyThread(db), project: null }, { author: { agent: "asistente", role: "asistente" }, body }, actorCtx("jobs.asistente.brief"));
-}
-
-async function briefEvents(db: Db, date: string): Promise<{ done: boolean; runId: string | null }> {
-  const rows = await db
-    .select({ type: events.type, payload: events.payload })
-    .from(events)
-    .where(and(inArray(events.type, ["asistente.brief", "asistente.brief_run"]), sql`${events.payload}->>'date' = ${date}`));
-  const run = rows.find((r) => r.type === "asistente.brief_run");
-  return { done: rows.some((r) => r.type === "asistente.brief"), runId: (run?.payload as { run_id?: string } | undefined)?.run_id ?? null };
-}
-
-async function brief(db: Db, home: Project, date: string, now: Date, env: NodeJS.ProcessEnv, out: AsistenteTick): Promise<void> {
-  const state = await briefEvents(db, date);
-  if (state.done) return;
-  if (!state.runId) {
-    const runId = await queueAsistente(db, home, `brief ${date}: write the morning brief in the company thread`, env, now);
-    if (runId) {
-      await writeTx(db, home, { ...actorCtx("jobs.asistente"), requestId: `asistente:brief_run:${date}` }, async (_tx, emit) => {
-        await emit("asistente.brief_run", null, { date, run_id: runId, at: now.toISOString() });
-      });
-      out.brief_run = 1;
-      return;
-    }
-    await serverBrief(db, home, date, now, "Asistente no pudo correr");
-    out.brief = 1;
-    return;
-  }
-  const [run] = await db.select({ status: agentRuns.status, queuedAt: agentRuns.queuedAt }).from(agentRuns).where(eq(agentRuns.id, state.runId)).limit(1);
-  if (run?.status === "ok") {
-    await writeTx(db, home, { ...actorCtx("jobs.asistente"), requestId: `asistente:brief:${date}` }, async (_tx, emit) => {
-      await emit("asistente.brief", null, { date, lines: [], generated_at: now.toISOString(), source: "run", run_id: state.runId });
-    });
-    out.brief = 1;
-    return;
-  }
-  const late = run?.status === "queued" && now.getTime() - run.queuedAt.getTime() > BRIEF_WAIT_MS;
-  if (!run || ENDED_BADLY.has(run.status) || late) {
-    await serverBrief(db, home, date, now, "la corrida de Asistente no terminó bien");
-    out.brief = 1;
-  }
-}
 
 // A PO's ticket that Jorge asked for (origin jorge), ops or research, In review with every check done or
 // waived: Asistente accepts it (Done), says so in the project thread and lists it in the next brief.
@@ -408,14 +353,15 @@ export async function idleProposals(db: Db, env: NodeJS.ProcessEnv, now: Date): 
 export async function runAsistente(db: Db, now = new Date(), deps: AsistenteDeps = {}): Promise<AsistenteTick> {
   const tz = deps.tz ?? screenTz();
   const env = deps.env ?? process.env;
-  const out: AsistenteTick = { brief: 0, brief_run: 0, check: 0, check_run: 0, asks: 0, accepted: 0, proposals: 0, no_home: 0 };
+  const out: AsistenteTick = { brief: 0, brief_fallback: 0, brief_ceiling: 0, check: 0, check_run: 0, asks: 0, accepted: 0, proposals: 0, no_home: 0 };
   const home = await asistenteHome(db, env);
+  if (!home) out.no_home = 1;
 
-  const { date, hour } = localParts(now, tz);
-  if (hour >= BRIEF_HOUR) {
-    if (!home) out.no_home = 1;
-    else await brief(db, home, date, now, env, out);
-  }
+  // D1: the Morning brief pipeline, never an Asistente run. Without a home project it still runs (no projection).
+  const b = await scheduledBrief(db, now, { env, tz, brief: deps.brief });
+  out.brief = b.started;
+  out.brief_fallback = b.fallback;
+  out.brief_ceiling = b.ceiling;
 
   const slot = checkSlot(now, tz);
   if (slot !== lastCheck) {
