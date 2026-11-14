@@ -270,7 +270,7 @@ export type DecisionEvidence = { verdict: string; kind: string; cite: string; pa
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number };
-export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar";
+export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "aplicar";
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
 export type Decision = {
   id: string;
@@ -298,9 +298,11 @@ export type Decision = {
   hold?: string | null;
   // PLA-I39-1: who asked (null: nobody on a team, e.g. a release).
   asker?: DecisionAsker | null;
+  // A step that asks for lines in a file: Plania can commit them to the PR (aplicar).
+  file_step?: { path: string; lines: string; pr_url: string | null; source: "agent" | "text" } | null;
 };
 export type DecisionAsker = { agent: string; role: string };
-export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string };
+export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string };
 export type DecisionResult = { ok: boolean; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
 export type OrgPlumbing = { spend: number; running: number; paused: boolean };
 export type OrgCompany = {

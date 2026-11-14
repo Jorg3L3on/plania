@@ -22,7 +22,7 @@ export type BlockerInput =
   | string
   | { task: string }
   | { env: string; condition: string; value?: string | number }
-  | { human_action: { assignee?: string; text: string; before_release?: boolean } }
+  | { human_action: { assignee?: string; text: string; before_release?: boolean; file?: { path: string; append: string } } }
   | { env_flag: { env: string; flag: string; equals: string | number | boolean } }
   | { time_after: string }
   | { metric_gte: { name: string; value: number } };
@@ -60,7 +60,19 @@ function typedBlocker(b: Exclude<BlockerInput, string | { task: string } | { env
   if ("human_action" in b) {
     const text = b.human_action?.text?.trim();
     if (!text) throw bad("human_action", "text says what Jorge has to do");
-    return { type: "human_action", spec: { assignee: b.human_action.assignee?.trim() || "jorge", text, ...(b.human_action.before_release ? { before_release: true } : {}) } };
+    // A file the session may not write (e.g. .env.example): the lines go with it, and Compañía commits them to the PR.
+    const file = b.human_action.file;
+    if (file && (typeof file.path !== "string" || !file.path.trim() || typeof file.append !== "string" || !file.append.trim()))
+      throw bad("human_action", "file needs path (inside the repo) and append (the exact lines)");
+    return {
+      type: "human_action",
+      spec: {
+        assignee: b.human_action.assignee?.trim() || "jorge",
+        text,
+        ...(b.human_action.before_release ? { before_release: true } : {}),
+        ...(file ? { file: { path: file.path.trim(), append: file.append } } : {}),
+      },
+    };
   }
   if ("env_flag" in b) {
     const f = b.env_flag ?? ({} as { env?: string; flag?: string; equals?: unknown });

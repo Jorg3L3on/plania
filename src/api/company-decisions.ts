@@ -10,7 +10,9 @@
 //   question     an open question (with its options when it has them): elegir {option} or responder {text}
 //                answers it. Questions of paused projects show only when human_only.
 // PLA-I36-2: Te toca holds everything Bandeja calls a paso, and a row carries its evidence.
-//   step         a human_action a ticket is blocked on: hecho {note?} resolves it (as Bandeja does).
+//   step         a human_action a ticket is blocked on: hecho {note?} resolves it (as Bandeja does). A step that
+//                asks for lines in a file (file_step, src/api/file-step.ts) also takes aplicar {path, lines}: Plania
+//                commits them to the ticket's PR and resolves it.
 //   release      a project's release step (from → into): commits ahead, the tickets it ships, open checks.
 //                Publishing stays behind the owner's code (PLA-I36-11): the row opens it in Bandeja.
 //   Every row carries links (doc, PR, ticket of its message or ticket), body (the full message, for a
@@ -38,13 +40,14 @@ import { JORGE, actionsFor, postMessage, resolveThread, type MessageAction } fro
 import { ceoAgentId } from "./company-plan.js";
 import { threadAction } from "./thread-actions.js";
 import { jorgePosts } from "./threads.js";
+import { applyFileStep, fileStepOf, stepOf, type FileStep } from "./file-step.js";
 
 const HOUR = 3_600_000;
 const KEEP_ACTED = 24 * HOUR;
 const RANK: Record<DecisionKind, number> = { plan: 0, proposal: 1, question: 2, pr: 3, deliverable: 4, step: 5, action: 6, release: 7 };
 
 export type DecisionKind = "proposal" | "plan" | "action" | "question" | "deliverable" | "pr" | "step" | "release";
-export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar";
+export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "aplicar";
 // PLA-I36-7: a structured option also says what it changes and what it costs (cost as words).
 export type DecisionOption = { n: number; label: string; recommended: boolean; effect?: string; cost?: string };
 // PLA-I36-8: a PO's plan for an order.
@@ -83,6 +86,8 @@ export type Decision = {
   preview_url: string | null;
   hold: string | null;
   asker: DecisionAsker | null;
+  // A step that asks for lines in a file: what, where, and that Plania can do it.
+  file_step: FileStep | null;
 };
 
 // ---- parsing a PO's proposal
@@ -147,6 +152,7 @@ export function parseProposal(body: string): Proposal | null {
 const firstLine = (s: string, n = 140) => cut(clean(s.trim().split("\n").find((l) => l.trim()) ?? ""), n);
 const stateOf = (s: ActionState | null | undefined): DecisionState | null => (s ? { action: s.action, at: s.at, result: s.result ?? {} } : null);
 const NO_EVIDENCE = {
+  file_step: null as FileStep | null,
   links: [] as DecisionLink[],
   body: null,
   checks: null,
@@ -349,6 +355,7 @@ async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, 
     const pr = m.actionState ? m.links.some((l) => l.kind === "pr") || !!m.actionState.result?.merged : actions.includes("fusionar");
     const ticket = link?.kind === "ticket" ? await ticketByKey(db, projectId, link.ref) : null;
     out.push({
+      file_step: null,
       id: `m-${m.id}`,
       project: p?.slug ?? null,
       title: link?.title || firstLine(m.body),
@@ -442,14 +449,17 @@ async function pasoRows(db: Db, all: Project[], inbox: Map<string, InboxItem[]>,
       if (it.kind === "human_action") {
         if (it.key && ceoTickets.has(`${p.slug}/${it.key}`)) continue;
         const t = await ticketByKey(db, p.id, it.key);
+        const step = await stepOf(db, it.id);
+        const file = step ? fileStepOf(step.spec, String(step.spec.text ?? it.why), it.pr_url ?? null) : null;
         out.push({
           ...NO_EVIDENCE,
+          file_step: file,
           id: `b-${it.id}`,
           project: p.slug,
           title: firstLine(it.why, 200),
           kind: "step",
           options: null,
-          actions: ["hecho"],
+          actions: file ? ["aplicar", "hecho"] : ["hecho"],
           state: null,
           at: it.waiting_since,
           ref: it.key,
@@ -523,7 +533,7 @@ export async function decisionsRead(db: Db, now = new Date(), inboxed?: Map<stri
 
 // ---- acting
 
-export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string };
+export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string };
 export type DecisionRefusal = { error: string; status: 400 | 404 | 409; hint: string; [k: string]: unknown };
 export type DecisionDone = { ok: true; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
 
@@ -694,6 +704,7 @@ async function actOnQuestion(db: Db, id: string, qid: string, input: DecisionInp
 
 // PLA-I36-2: a manual step, marked done as Bandeja does (the ticket may go back to Ready at once).
 async function actOnStep(db: Db, id: string, blockerId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
+  if (input.action === "aplicar") return applyStep(db, blockerId, input);
   if (input.action !== "hecho") return refuse("INVALID_ACTION", "Aquí: Hecho.", 400);
   const [row] = await db.execute<{ project_id: string; satisfied_at: Date | null }>(sql`select t.project_id, b.satisfied_at from blockers b join tasks t on t.id = b.task_id where b.id = ${blockerId} and b.type = 'human_action'`).then((r) => r.rows);
   if (!row) return refuse("DECISION_NOT_FOUND", "Ese paso ya no está.", 404);
@@ -708,6 +719,31 @@ async function actOnStep(db: Db, id: string, blockerId: string, input: DecisionI
   }
   const state = { action: "hecho", at: new Date().toISOString(), result: {} };
   return { ok: true, state, decision: null };
+}
+
+// The file step: commit the lines to the ticket's PR, then resolve the step with a note that says where they went.
+async function applyStep(db: Db, blockerId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
+  const step = await stepOf(db, blockerId);
+  if (!step) return refuse("DECISION_NOT_FOUND", "Ese paso ya no está.", 404);
+  const [open] = await db.execute<{ satisfied_at: Date | null }>(sql`select satisfied_at from blockers where id = ${blockerId}`).then((r) => r.rows);
+  if (open?.satisfied_at) return refuse("ALREADY_ACTED", "Ese paso ya está hecho.");
+  const draft = fileStepOf(step.spec, String(step.spec.text ?? ""), step.t.prUrl);
+  const path = input.path?.trim() || draft?.path;
+  const lines = input.lines ?? draft?.lines;
+  if (!path || !lines?.trim()) return refuse("FILE_EMPTY", "Falta el archivo o las líneas.", 400);
+  const done = await applyFileStep(db, step.t, { path, lines, pr_url: draft?.pr_url ?? step.t.prUrl });
+  if ("error" in done) return refuse(done.error, done.hint);
+  const [p] = await db.select().from(projects).where(eq(projects.id, step.t.projectId)).limit(1);
+  const note = done.added
+    ? `Plania agregó ${done.added} ${done.added === 1 ? "línea" : "líneas"} a ${done.path} en ${done.branch}${done.commit ? ` (${done.commit.slice(0, 7)})` : ""}.`
+    : `${done.path} en ${done.branch} ya tenía esas líneas.`;
+  try {
+    await writeTx(db, p!, { ...webCtx, tool: "screen.decision_file" }, (tx, emit) => resolveHumanAction(tx, emit, p!.id, blockerId, webCtx.actor, note));
+  } catch (e) {
+    if (e instanceof ToolError) return refuse(e.code, "Se agregó al PR, pero Plania no dejó marcar el paso; márcalo con Hecho.", 409, e.detail);
+    throw e;
+  }
+  return { ok: true, state: { action: "aplicar", at: new Date().toISOString(), result: { ...done } }, decision: null };
 }
 
 export async function actOnDecision(db: Db, id: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {

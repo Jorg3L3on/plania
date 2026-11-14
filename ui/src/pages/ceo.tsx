@@ -186,7 +186,11 @@ const Compania = () => {
     onError: (e, v) =>
       setErrors((x) => ({
         ...x,
-        [v.d.id]: e instanceof ApiError ? (DECISION_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar.",
+        // A file step's refusal carries its own reason (GitHub's, or why Plania will not write that file).
+        [v.d.id]:
+          e instanceof ApiError
+            ? (DECISION_REFUSAL[e.code] ?? (e.code.startsWith("FILE_") && typeof e.detail.hint === "string" ? e.detail.hint : `No se pudo (${e.code}).`))
+            : "No se pudo. Si la Mac está dormida, intenta al despertar.",
       })),
     onSettled: () => setBusy(null),
   });

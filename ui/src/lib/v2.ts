@@ -85,6 +85,12 @@ export function stateText(s: DecisionState): string {
       return ["Respondiste", str(r.text) || str(r.answer), WAKE[str(r.wake)] ?? ""].filter(Boolean).join(" · ");
     case "hecho":
       return "Hecho";
+    case "aplicar": {
+      const n = typeof r.added === "number" ? r.added : 0;
+      const at = [str(r.path), str(r.branch) && `en ${str(r.branch)}`].filter(Boolean).join(" ");
+      const commit = str(r.commit) ? ` (${str(r.commit).slice(0, 7)})` : "";
+      return n ? `Agregado al PR · ${n === 1 ? "1 línea" : `${n} líneas`} en ${at}${commit} · paso hecho` : `Ya estaba en el PR · ${at} · paso hecho`;
+    }
     case "aplazar":
       return "Aplazado · vuelve a la lista de pendientes";
     case "aceptar":

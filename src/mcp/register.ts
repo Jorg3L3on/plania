@@ -101,7 +101,17 @@ const blockedBy = z
         condition: z.string().describe(ENV_CONDITIONS.join(" | ")),
         value: z.union([z.string(), z.number()]).optional().describe("sha | migration number | ISO time (omit for the next deploy)"),
       }),
-      z.object({ human_action: z.object({ assignee: z.string().optional(), text: z.string(), before_release: z.boolean().optional() }) }).describe("Something Jorge has to do; shows in his inbox. before_release: true lists it as a step of the project's release"),
+      z.object({
+        human_action: z.object({
+          assignee: z.string().optional(),
+          text: z.string(),
+          before_release: z.boolean().optional(),
+          file: z
+            .object({ path: z.string().describe("Path inside the repo, e.g. .env.example"), append: z.string().describe("The exact lines to add, newline-separated") })
+            .optional()
+            .describe("Lines your session may not write into a file (e.g. .env.example): Jorge reviews them and Plania commits them to this ticket's PR in one click. Never real secrets: .env and .env.local are refused."),
+        }),
+      }).describe("Something Jorge has to do; shows in his inbox. before_release: true lists it as a step of the project's release. A file you may not write: add file {path, append}"),
       z.object({ env_flag: z.object({ env: z.string(), flag: z.string(), equals: z.union([z.string(), z.number(), z.boolean()]) }) }).describe("A flag set with set_env"),
       z.object({ time_after: z.string() }).describe("Not before this ISO-8601 time"),
       z.object({ metric_gte: z.object({ name: z.string(), value: z.number() }) }).describe("A metric reported with set_metric or on a result"),

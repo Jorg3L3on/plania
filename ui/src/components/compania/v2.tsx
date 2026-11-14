@@ -12,6 +12,7 @@ import type { Decision, DecisionInput } from "@/lib/api";
 import { linkHref, roleName } from "@/lib/org";
 import { checksText, ordered, releaseText, stateText, evidenceText, plainLink } from "@/lib/v2";
 import { Dot, TONE_INK, pillGhost, pillPrimary } from "@/components/compania/parts";
+import { FileStepBox } from "@/components/compania/file-step";
 
 const pillSmall = "min-h-9 px-3.5 text-xs";
 
@@ -48,6 +49,8 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
   const busyHere = busy?.id === d.id;
   const options = ordered(d);
   const label = (key: string, word: string) => (busyHere && busy?.key === key ? "…" : word);
+  // A file step Plania can do itself (aplicar): the file, the lines, and one button.
+  const fileStep = d.file_step && d.actions.includes("aplicar") ? d.file_step : null;
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (text.trim().length < 2) return;
@@ -140,6 +143,14 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
         </p>
       ) : (
         <>
+          {fileStep && (
+            <FileStepBox
+              d={{ ...d, file_step: fileStep }}
+              busy={busyHere && busy?.key === "aplicar"}
+              disabled={busyHere && busy?.key !== "aplicar"}
+              onApply={(input) => onAct(d, input, "aplicar")}
+            />
+          )}
           {options.length > 0 && (
             <ol className="grid gap-1" data-options={options.length}>
               {options.map((o) => (
@@ -210,8 +221,14 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
                 </Link>
               ))}
             {d.actions.includes("hecho") && (
-              <button type="button" data-action="hecho" className={cn(pillPrimary, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "hecho" }, "hecho")}>
-                {label("hecho", "Hecho")}
+              <button
+                type="button"
+                data-action="hecho"
+                className={cn(fileStep ? pillGhost : pillPrimary, pillSmall)}
+                disabled={busyHere}
+                onClick={() => onAct(d, { action: "hecho" }, "hecho")}
+              >
+                {label("hecho", fileStep ? "Ya lo hice yo" : "Hecho")}
               </button>
             )}
             {d.actions.includes("aplazar") && (
