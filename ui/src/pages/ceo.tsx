@@ -90,6 +90,8 @@ const DECISION_REFUSAL: Record<string, string> = {
   BASE_NOT_SANDBOX: "El cambio no apunta a la copia de prueba.",
   OWNER_CODE: "Publicar se hace en Bandeja, con tu código.",
   INVALID_ACTION: "Eso no se puede hacer aquí. Recarga la página y vuelve a intentarlo.",
+  PR_NOT_OPEN: "El PR está cerrado sin fusionar: pide cambios o que Taller abra otro.",
+  NO_TICKET: "El mensaje no enlaza un ticket.",
 };
 
 const Compania = () => {
@@ -194,7 +196,7 @@ const Compania = () => {
         // A file step's refusal carries its own reason (GitHub's, or why Plania will not write that file).
         [v.d.id]:
           e instanceof ApiError
-            ? (DECISION_REFUSAL[e.code] ?? ((e.code.startsWith("FILE_") || e.code === "NOT_WOKEN" || e.code === "NO_OWNER") && typeof e.detail.hint === "string" ? e.detail.hint : `No se pudo (${e.code}).`))
+            ? (DECISION_REFUSAL[e.code] ?? ((e.code.startsWith("FILE_") || e.code === "NOT_WOKEN" || e.code === "NO_OWNER") && typeof e.detail.hint === "string" ? e.detail.hint : `No se pudo (${e.code}). Recarga la página: puede que ya haya cambiado.`))
             : "No se pudo. Si la Mac está dormida, intenta al despertar.",
       })),
     onSettled: () => setBusy(null),

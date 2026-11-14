@@ -98,7 +98,7 @@ export function stateText(s: DecisionState): string {
     case "aplazar":
       return "Aplazado · vuelve a la lista de pendientes";
     case "aceptar":
-      return r.merged ? "Aceptado en la copia de prueba" : "Aceptado";
+      return r.already ? "Ya estaba aceptado en la copia de prueba" : r.merged ? "Aceptado en la copia de prueba" : "Aceptado";
     case "fusionar":
       return "Aceptado en la copia de prueba";
     case "empezar": {

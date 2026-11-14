@@ -147,6 +147,30 @@ test("I32-4 #1: aceptar on a PR merges it into sandbox with gh pr merge --merge 
   assert.equal(((await failed.json()) as { error: string }).error, "MERGE_FAILED");
 });
 
+test("a PR already merged into sandbox (another card, or GitHub) is the accept itself, not an error; closed unmerged is refused in words", async () => {
+  let state = "MERGED";
+  const calls: string[][] = [];
+  releaseGh.run = async (args) => {
+    calls.push(args);
+    if (args[1] === "view" && args.includes("baseRefName,state,headRefOid,url")) return { ok: true, stdout: JSON.stringify({ baseRefName: "sandbox", state, headRefOid: "f".repeat(40), url: "https://github.com/example/micasa/pull/11" }), stderr: "" };
+    if (args[1] === "view") return { ok: true, stdout: JSON.stringify({ mergeCommit: { oid: "b".repeat(40) }, url: "https://github.com/example/micasa/pull/11" }), stderr: "" };
+    return { ok: false, stdout: "", stderr: "unexpected" };
+  };
+  const t = await reviewTicket("Aviso de privacidad", "code", { pr: "https://github.com/example/micasa/pull/11" });
+  const res = await act({ message_id: t.message, action: "fusionar" });
+  assert.equal(res.status, 200, await res.clone().text());
+  const out = (await res.json()) as { action_state: { result: Record<string, unknown> } };
+  assert.deepEqual(out.action_state.result, { merged: true, already: true, pr: "https://github.com/example/micasa/pull/11", base: "sandbox", sha: "b".repeat(40), ticket: t.key });
+  assert.equal(calls.some((a) => a[1] === "merge"), false, "nothing merged again");
+  assert.equal((await raw.query(`select count(*)::int as n from events where type = 'pr.merged' and task_key = $1`, [t.key])).rows[0].n, 0, "no second pr.merged");
+
+  state = "CLOSED";
+  const other = await reviewTicket("Cerrado sin fusionar", "code", { pr: "https://github.com/example/micasa/pull/11" });
+  const closed = (await (await act({ message_id: other.message, action: "fusionar" })).json()) as { error: string; hint: string };
+  assert.equal(closed.error, "PR_NOT_OPEN");
+  assert.match(closed.hint, /cerrado sin fusionar/);
+});
+
 test("I32-4 #2: cambios sends the ticket back to Ready with the text as a note and queues its owner's wake", async () => {
   await raw.query(`delete from agent_runs`);
   const { key, message } = await reviewTicket("Plan de lanzamiento", "ops", { owner: "po-micasa" });

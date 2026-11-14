@@ -67,7 +67,14 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: Accep
     };
     // Never main, never anything but sandbox: the runner's deny rules hold for the screen too.
     if (view.baseRefName !== MERGE_BASE) return refuse("BASE_NOT_SANDBOX", `El PR apunta a ${view.baseRefName}; desde aquí solo se fusiona a ${MERGE_BASE}.`, { base: view.baseRefName });
-    if (view.state !== "OPEN") return refuse("PR_NOT_OPEN", `El PR está ${view.state.toLowerCase()}.`, { state: view.state });
+    // Already merged into sandbox (another card or GitHub, before the poller caught up): that is the accept the
+    // owner asked for. This message records it; pr.merged is not written twice (the merge already has its event
+    // or the poller writes it).
+    if (view.state === "MERGED") {
+      const done = JSON.parse(await gh("view", ["pr", "view", number!, "--repo", repo!, "--json", "mergeCommit,url"])) as { mergeCommit: { oid: string } | null };
+      return record(db, msg, { action: "aceptar", at: new Date().toISOString(), result: { merged: true, already: true, pr: url, base: MERGE_BASE, sha: done.mergeCommit?.oid ?? null, ticket: t.key } });
+    }
+    if (view.state !== "OPEN") return refuse("PR_NOT_OPEN", `El PR #${number} está cerrado sin fusionar: pide cambios o abre otro.`, { state: view.state });
     await gh("merge", ["pr", "merge", number!, "--repo", repo!, "--merge", "--match-head-commit", view.headRefOid]);
     const after = JSON.parse(await gh("view", ["pr", "view", number!, "--repo", repo!, "--json", "mergeCommit,url"])) as { mergeCommit: { oid: string } | null; url: string };
     const sha = after.mergeCommit?.oid;

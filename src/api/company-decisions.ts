@@ -353,15 +353,21 @@ async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, 
     )
     .orderBy(desc(threadMessages.at))
     .limit(200);
+  // One card per ticket: rows come newest first, so an open message whose ticket already has a card (a newer
+  // delivery, or one already accepted or sent back) is the same delivery said again and is left out.
+  const carded = new Set<string>();
   for (const { m, projectId } of rows) {
     if (skip.has(m.id)) continue;
     const p = projectId ? slugById.get(projectId) : undefined;
+    const link = m.links.find((l) => l.kind === "ticket" || l.kind === "idea");
+    const card = link ? `${projectId ?? ""}/${link.ref}` : null;
+    if (!m.actionState && card && carded.has(card)) continue;
     let actions: MessageAction[] = [];
     if (!m.actionState) {
       actions = await actionsFor(db, m, projectId ?? null);
       if (actions.length === 0) continue;
     } else if (!["aceptar", "cambios"].includes(m.actionState.action)) continue;
-    const link = m.links.find((l) => l.kind === "ticket" || l.kind === "idea");
+    if (card) carded.add(card);
     const pr = m.actionState ? m.links.some((l) => l.kind === "pr") || !!m.actionState.result?.merged : actions.includes("fusionar");
     const ticket = link?.kind === "ticket" ? await ticketByKey(db, projectId, link.ref) : null;
     const { stale, head: _head, headBranch: _branch, ...ev } = await workEvidence(db, p ?? null, ticket, m.links.find((l) => l.kind === "pr")?.ref ?? null);

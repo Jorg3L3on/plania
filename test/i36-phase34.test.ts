@@ -402,6 +402,30 @@ test("PLA-14 #2, #3: a repo with no CI says so and Aceptar opens with a pass on 
   assert.ok(button(renderTeToca([d])).includes(' disabled=""'));
 });
 
+test("one card per delivery: a ticket said ready three times shows once, the newest; once acted the older ones stay out", async () => {
+  const t = (await writes.createTask(db, { project: "workia", title: "Tres veces lista", scope: "s", checks: ["c1"], owner_agent: po } as never, PO())) as Json;
+  const url = "https://github.com/x/workia/pull/41";
+  await raw.query(`update tasks set status = 'In review', pr_url = $2 where key = $1`, [t.key, url]);
+  const thread = (await raw.query(`select id from threads where kind = 'project' and project_id = (select id from projects where slug = 'workia')`)).rows[0].id;
+  const links = JSON.stringify([
+    { kind: "ticket", ref: t.key, title: "Tres veces lista" },
+    { kind: "pr", ref: url, title: "PR" },
+  ]);
+  const ids: string[] = [];
+  for (const [i, body] of ["Lista.", "Evidencia registrada.", "Lista para revisar."].entries()) {
+    const r = await raw.query(`insert into thread_messages (thread_id, author_agent, author_role, body, links, at) values ($1, 'taller', 'taller', $2, $3::jsonb, now() + ($4 || ' minutes')::interval) returning id`, [thread, body, links, String(20 + i)]);
+    ids.push(r.rows[0].id);
+  }
+  const cards = async () => (await company()).decisions.filter((d: Json) => d.ref === t.key);
+  let mine = await cards();
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].id, `m-${ids[2]}`, "the newest message is the card");
+  // Accepted on the newest: the older two do not come back with Aceptar.
+  await raw.query(`update thread_messages set action_state = $2::jsonb where id = $1`, [ids[2], JSON.stringify({ action: "aceptar", at: new Date().toISOString(), result: { merged: true } })]);
+  mine = await cards();
+  assert.deepEqual(mine.map((d: Json) => [d.id, d.actions]), [[`m-${ids[2]}`, []]]);
+});
+
 // ---- PLA-I36-11
 
 test("PLA-24: publishing asks no owner's code, even with none enrolled; a Bearer is still refused", async () => {
