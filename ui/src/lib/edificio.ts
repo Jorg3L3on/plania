@@ -9,7 +9,8 @@ import type { AskResult, Decision, OrgMember, OrgMemberState, OrgMoveAction, Org
 import { byLight, byRole, roleName } from "./org";
 import { pending, waitingPlan } from "./v2";
 
-export type WindowState = "work" | "ask" | "idle" | "off";
+// PLA-I46-10: back is violet, a delivery sent back that Taller is fixing (never from the server's state alone).
+export type WindowState = "work" | "ask" | "idle" | "off" | "back";
 const STATE: Record<OrgMemberState, WindowState> = {
   running: "work",
   waiting_jorge: "ask",
@@ -107,6 +108,7 @@ export function caption(m: OrgMember, now: number, opts: { companyPaused?: boole
 
 // The accessible name of a window: role, state and what it is on.
 const STATE_WORD: Record<WindowState, string> = {
+  back: "devuelto",
   work: "trabajando",
   ask: "te espera",
   idle: "libre",
@@ -243,8 +245,9 @@ export function startsLine(n: OrgNextStart, now: number, timeZone?: string): str
   return "nadie lo ha despertado";
 }
 
-export type NowState = "work" | "rest" | "you" | "stuck" | "done" | "off" | "idle";
-export const NOW_WORD: Record<NowState, string> = { work: "Trabajando", rest: "Pausa corta", you: "Te toca", stuck: "Atorado", done: "Plan terminado", off: "En pausa", idle: "Sin trabajo en curso" };
+export type NowState = "work" | "rest" | "you" | "stuck" | "done" | "off" | "idle" | "back";
+export const BACK_WORD = "Devuelto · arreglando";
+export const NOW_WORD: Record<NowState, string> = { back: BACK_WORD, work: "Trabajando", rest: "Pausa corta", you: "Te toca", stuck: "Atorado", done: "Plan terminado", off: "En pausa", idle: "Sin trabajo en curso" };
 // PLA-I46-3: the band's action is the floor's move (OrgMoveAction, green), or a secondary nudge that is never the
 // owner's turn (start a resting teammate now, or past the usage guard).
 export type NowAction = OrgMoveAction | { kind: "start"; agent: string; pastGuard: boolean; label: string };
@@ -259,7 +262,22 @@ export type NowLine = {
   action: NowAction | null;
   // PLA-I46-3: the floor's siguiente jugada when it has one: then say is its texto and action its accion.
   move: OrgNextMove | null;
+  // PLA-I46-10: a returned delivery's note, behind «Ver nota» (grey, never green).
+  note?: string | null;
 };
+
+// PLA-I46-10: the delivery on this floor that went back to Taller (the owner's Devolver, or QA's own return) and has
+// not come back yet. Same rule as the server's returnedDelivery (src/api/company-move.ts), which drops the move.
+export type Returned = { d: Decision; agent: string | null; role: string; text: string; by: "qa" | "owner" };
+export function returnedOf(slug: string, decisions: Decision[]): Returned | null {
+  const open = new Set(decisions.filter((d) => d.project === slug && d.ref && pending(d)).map((d) => d.ref));
+  const d = decisions
+    .filter((x) => x.project === slug && (x.kind === "pr" || x.kind === "deliverable") && x.state?.action === "cambios" && !(x.ref && open.has(x.ref)))
+    .sort((a, b) => b.state!.at.localeCompare(a.state!.at))[0];
+  if (!d) return null;
+  const r = d.state!.result ?? {};
+  return { d, agent: d.asker?.agent ?? null, role: d.asker?.role ?? "taller", text: typeof r.text === "string" ? r.text : "", by: r.by === "qa" ? "qa" : "owner" };
+}
 
 const DOES: Record<string, string> = { taller: "construye", research: "investiga", artist: "diseña", qa: "prueba", copy: "escribe" };
 const q = (s: string | null | undefined, n = 80) => (s ? `«${clip(s, n)}»` : "lo siguiente");
@@ -302,6 +320,18 @@ export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts:
   // PLA-I46-3: one source. What is the owner's comes from the server's move; nothing below offers him a turn.
   const m = moveOf(p);
   if (m) return line("you", { say: m.texto, why: moveWhy(m, p, decisions), holder: "owner", action: m.accion, move: m });
+
+  // PLA-I46-10: sent back: Taller's to fix. No button but «Ver nota»; it comes back to him with the next delivery.
+  const back = returnedOf(p.slug, decisions);
+  if (back) {
+    const qa = p.team.some((x) => x.role === "qa");
+    return line("back", {
+      say: `${roleName(back.role)} arregla ${q(back.d.title)}.`,
+      why: `${back.by === "qa" ? "QA lo devolvió. " : ""}Vuelve a ti ${qa ? "cuando QA lo pase otra vez" : "con la próxima entrega"}.`,
+      holder: back.agent,
+      note: back.text || null,
+    });
+  }
 
   const team = [...p.team].sort(byRole);
   const working = team.find((x) => x.state === "running");

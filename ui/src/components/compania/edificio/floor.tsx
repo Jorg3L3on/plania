@@ -3,7 +3,8 @@
 // under it. On the right: the route (Entrega) first, then the Ahora band and the team, then Solo tú.
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 import type { Decision, OrgMember, OrgProject } from "@/lib/api";
-import { RECIBIRIA, floorHue, hangingFor, nowLine, ownerCaption } from "@/lib/edificio";
+import { RECIBIRIA, floorHue, hangingFor, nowLine, ownerCaption, returnedOf } from "@/lib/edificio";
+import { deliveryOf } from "@/lib/evidencia";
 import { byRole } from "@/lib/org";
 import { After, Last } from "./after";
 import { Figure } from "./figure";
@@ -63,10 +64,16 @@ export const Floor = ({
   const you = ownerCaption(line);
   // PLA-I46-11: a leg's plan that is the move shows in Ahora (plan.tsx), not under the PO's window.
   const o = line.move?.origen;
-  const inAhora = o?.kind === "decision" && decisions?.find((d) => d.id === o.id)?.plan?.leg ? o.id : null;
+  // PLA-I46-10: so does a delivery to accept: its evidence card is in Ahora, so it does not hang under Taller.
+  const dv = deliveryOf(line.move, decisions ?? []);
+  const inAhora = o?.kind === "decision" && (decisions?.find((d) => d.id === o.id)?.plan?.leg || dv) ? o.id : null;
+  // PLA-I46-10: a delivery sent back: its maker's window is violet until it comes back.
+  const back = line.move ? null : returnedOf(p.slug, decisions ?? []);
+  const isBack = (m: OrgMember) => !!back && (back.agent ? back.agent === m.agent : m.role === "taller");
   const slots = team.length + 1 + (children ? 1 : 0);
+  const bubbles = !!(decisions && acts && team.some((m) => hangingFor(decisions, p.slug, m.agent, inAhora)));
   return (
-    <article id={`piso-${p.slug}`} className="edi-floor" data-floor={p.slug} data-light={p.light} data-move={line.move ? line.move.verbo : undefined} style={{ "--c": floorHue(p.slug) } as CSSProperties} aria-label={p.title}>
+    <article id={`piso-${p.slug}`} tabIndex={-1} className="edi-floor" data-floor={p.slug} data-light={p.light} data-move={line.move ? line.move.verbo : undefined} style={{ "--c": floorHue(p.slug) } as CSSProperties} aria-label={p.title}>
       <div className="edi-plate">
         {plate ?? (
           <Plate project={p} onFijar={onFijar} onPlan={onPlan} onPublish={onPublish} noSteps={p.route !== undefined}>
@@ -76,7 +83,7 @@ export const Floor = ({
         )}
       </div>
       <div className="edi-wins">
-        <Now project={p} line={line} now={now} decisions={decisions} acts={nowActs} qacts={acts} onFijar={onFijar} onPublish={onPublish} side={ventana} />
+        <Now project={p} line={line} now={now} decisions={decisions} acts={nowActs} qacts={acts} onFijar={onFijar} onPublish={onPublish} side={ventana} anchor={dv && !bubbles ? `pregunta-${p.slug}` : undefined} />
         {team.map((m, i) => {
           const hanging = decisions && acts ? hangingFor(decisions, p.slug, m.agent, inAhora) : null;
           const anchor = hanging && first ? `pregunta-${p.slug}` : undefined;
@@ -92,6 +99,7 @@ export const Floor = ({
                   companyPaused={companyPaused}
                   timeZone={timeZone}
                   onOpen={onOpen}
+                  back={isBack(m)}
                   hint={typing && m.role === "product-owner" ? RECIBIRIA : null}
                 />
               </div>
@@ -122,7 +130,7 @@ export const Floor = ({
           </div>
         )}
         <Route project={p} now={now} timeZone={timeZone} onPlan={nowActs?.onPlan} busy={nowActs?.busy === `${p.slug}:plan`} />
-        <After project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={nowActs} qacts={acts} solo={solo} />
+        <After project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={nowActs} qacts={acts} solo={solo} hideAuto={!!dv} />
       </div>
     </article>
   );

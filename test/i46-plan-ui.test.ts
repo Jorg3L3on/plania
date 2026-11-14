@@ -141,8 +141,9 @@ test("I46-11 #1: the plan is the move, and Ahora shows its steps, questions with
   assert.equal((card.match(/<sup>sugerida<\/sup>/g) ?? []).length, 2);
   // The list is three inputs with the PO's lines.
   assert.deepEqual([...card.matchAll(/class="edi-pfield"[^>]*value="([^"]*)"/g)].map((x) => x[1]), LIST);
-  // Three exits: the green Aceptar plan, Cambiar algo, Después.
-  assert.deepEqual([...card.matchAll(/<button[^>]*>([^<]+)<\/button>/g)].map((x) => x[1]!).filter((l) => !/^(Sí|No|Solo|La tienda)/.test(l)), ["Aceptar plan", "Cambiar algo", "Después"]);
+  // Three exits: the green Aceptar plan, Cambiar algo, Después. PLA-I46-15: «Al frente» shows the same decision in
+  // the layer; it is a view, not a fourth exit.
+  assert.deepEqual([...card.matchAll(/<button[^>]*>([^<]+)<\/button>/g)].map((x) => x[1]!).filter((l) => !/^(Sí|No|Solo|La tienda)/.test(l)), ["Aceptar plan", "Cambiar algo", "Después", "Al frente"]);
   // The same button on the Tú window and in the phone bar; no second copy hanging under the PO.
   assert.ok(/data-where="tu"[^>]*>Aceptar plan</.test(s), "Tú");
   assert.ok(/data-where="barra"[^>]*>Aceptar plan</.test(s), "phone bar");

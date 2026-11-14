@@ -13,6 +13,7 @@ import type { Decision, OrgCompany, OrgMember, OrgProject } from "@/lib/api";
 import { floorOrder, hourIn, skyLine, skyMove } from "@/lib/edificio";
 import { companyLine } from "@/lib/v2";
 import { BlockError } from "@/components/compania/parts";
+import { DecisionLayer } from "./decision-layer";
 import { Floor } from "./floor";
 import { Plate } from "./plate";
 import { ActButton, type NowActs } from "./now";
@@ -153,6 +154,8 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
         </div>
       )}
       {!empty && <PhoneBar projects={company.projects} decisions={decisions} ctx={{ decisions, acts: nowActs, qacts: acts, onFijar, onPublish }} pedir={!!askFor} />}
+      {/* PLA-I46-15: a decision at the front (Ahora's «Al frente»). */}
+      {!empty && <DecisionLayer projects={company.projects} decisions={decisions} ctx={{ decisions, acts: nowActs, qacts: acts, onFijar, onPublish }} now={now} companyPaused={paused} timeZone={timeZone} />}
       {!empty && (
         <div className="edi-lobby edi-lobby-end">
           <button type="button" className="edi-door" onClick={onNew} data-control="piso-nuevo">

@@ -7,6 +7,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Decision, OrgProject } from "@/lib/api";
 import { countdown, type NowAction, type NowLine } from "@/lib/edificio";
+import { deliveryOf } from "@/lib/evidencia";
+import { BackNote, EvidenceActs, EvidenceBody } from "./evidence";
+import { openLayer } from "./evidence-store";
 import { PlanActs, PlanBody, floorPlan } from "./plan";
 import { planInput } from "./plan-draft";
 import { revealQuestion } from "./publish";
@@ -100,6 +103,7 @@ export const Now = ({
   onFijar,
   onPublish,
   side,
+  anchor,
 }: {
   project: OrgProject;
   line: NowLine;
@@ -111,15 +115,20 @@ export const Now = ({
   onPublish?: (p: OrgProject) => void;
   // PLA-I46-7: the Ventana a la app, beside the text (under it at 390).
   side?: ReactNode;
+  // PLA-I46-10: the delivery's card is where «Ver y responder» lands (no bubble hangs for it).
+  anchor?: string;
 }) => {
   const a = line.action;
   const ctx: MoveCtx = { decisions, acts, qacts, onFijar, onPublish };
   // PLA-I46-11: the leg's plan, when it is this move or waits for later (plan.tsx).
   const fp = decisions ? floorPlan(p, decisions) : null;
   const plan = fp && (fp.waiting || (line.move?.origen.kind === "decision" && line.move.origen.id === fp.d.id)) ? fp : null;
+  // PLA-I46-10: a delivery to accept carries its evidence card (evidence.tsx).
+  const dv = decisions ? deliveryOf(line.move, decisions) : null;
+  const held = !!dv && a?.kind === "reveal";
   // PLA-I46-3: only a card with a move breathes (data-breathe); the CSS stops it under reduce-motion.
   return (
-    <div className="edi-nowb" data-now={line.state} data-holder={line.holder ?? undefined} data-breathe={line.move ? "1" : undefined} data-side={side ? "1" : undefined} aria-live="polite">
+    <div id={dv ? anchor : undefined} className="edi-nowb" data-now={line.state} data-holder={line.holder ?? undefined} data-breathe={line.move ? "1" : undefined} data-side={side ? "1" : undefined} aria-live="polite">
       <div className="edi-ntext">
         <p className="edi-nword" data-now-word>
           {line.word}
@@ -132,14 +141,23 @@ export const Now = ({
             {line.why}
           </p>
         )}
-        {(a || plan) && (
+        {(a || plan || dv || line.note) && (
           <div className="edi-nacts">
-            {a && <ActButton project={p} action={a} move={!!line.move} where="ahora" ctx={ctx} />}
+            {a && !held && <ActButton project={p} action={a} move={!!line.move} where="ahora" ctx={ctx} />}
+            {dv && <EvidenceActs p={p} d={dv} qacts={qacts} held={held} />}
             {plan && <PlanActs d={plan.d} waiting={plan.waiting} qacts={qacts} />}
+            {/* PLA-I46-15: the plan to accept can come to the front too. */}
+            {plan && !plan.waiting && (
+              <button type="button" className="edi-vlink" data-ev-act="frente" onClick={(e) => openLayer(p.slug, plan.d.id, e.currentTarget)}>
+                Al frente
+              </button>
+            )}
+            {line.note && <BackNote note={line.note} />}
           </div>
         )}
       </div>
       {plan && <PlanBody d={plan.d} waiting={plan.waiting} qacts={qacts} />}
+      {dv && <EvidenceBody p={p} d={dv} acts={acts} qacts={qacts} />}
       {side}
       {line.starts_at && <Tick key={line.starts_at} until={line.starts_at} now={now} label={line.state === "stuck" ? "para reintentar" : "para arrancar"} onElapsed={acts?.onElapsed} />}
     </div>

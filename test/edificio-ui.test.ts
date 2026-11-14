@@ -355,6 +355,15 @@ test("I39-5 #2: each of the eight decision kinds shows the same actions Te toca 
   };
   for (const d of KINDS) {
     const out = render(company({ decisions: [d] }), { acts: acts(), roofOpen: d.id });
+    // PLA-I46-10: a PR delivery is the floor's move and Ahora carries it as the evidence card, with the same two
+    // exits (held here, so its Aceptar is plain), and it does not hang a second time under Taller's window.
+    if (d.kind === "pr") {
+      const card = /<div id="pregunta-workia" class="edi-nowb"[\s\S]*?(?=<div class="edi-slot")/.exec(out)?.[0] ?? "";
+      assert.ok(card.includes(`data-evidence="${d.id}"`), "pr is shown in Ahora");
+      assert.deepEqual([...card.matchAll(/data-ev-act="([a-z]+)"/g)].map((m) => m[1]), ["aceptar", "devolver", "frente"]);
+      assert.equal(out.includes(`data-bubble="${d.id}"`), false);
+      continue;
+    }
     const where = d.asker ? out.slice(out.indexOf('data-floor="workia"')) : out.slice(out.indexOf("data-roof"), out.indexOf("edi-tower"));
     assert.ok(where.includes(`data-bubble="${d.id}"`), `${d.kind} is shown`);
     assert.deepEqual(actionsIn(where), TE_TOCA[d.kind], d.kind);

@@ -310,10 +310,11 @@ test("I40-6 #1: an answered decision is a line under Lo último, not a bubble; a
   assert.match(s, /<details class="dark edi-lastd"><summary>Ver<\/summary>/);
   assert.equal(lib.hangingFor([answered()], "workia", "taller-workia"), null);
 
+  // PLA-I46-10: a pending PR delivery is the move: Ahora carries it (the evidence card), no bubble hangs for it.
   const open = floor(full(), [delivery(), answered({ id: "pr-0", title: "Acceso privado del equipo" })]);
-  assert.equal((open.match(/data-bubble="/g) ?? []).length, 1);
-  assert.match(open, /data-bubble="pr-1"/);
-  assert.ok(open.includes("Taller te entrega") && open.includes('data-last="answered"'));
+  assert.equal((open.match(/data-bubble="/g) ?? []).length, 0);
+  assert.match(open, /data-evidence="pr-1"/);
+  assert.ok(open.includes('data-last="answered"'));
   // Three lines at most, newest first.
   const many = lib.lastLines(full({ latest: [{ kind: "published", title: null, n: 1, at: "2026-11-13T20:35:00Z" }, { kind: "delivered", title: "Listado", n: null, at: "2026-11-13T20:21:00Z" }, { kind: "delivered", title: "Acceso", n: null, at: "2026-11-13T18:50:00Z" }] }), [answered()]);
   assert.deepEqual(many.map((l: Json) => l.text), ["Publicaste 1 cambio", "Aceptaste «Listado de novias con búsqueda y filtros»", "El equipo entregó «Listado»"]);

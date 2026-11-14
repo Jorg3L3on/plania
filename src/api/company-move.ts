@@ -52,6 +52,17 @@ export const pendingDecision = (d: Pick<Decision, "state" | "actions" | "kind"> 
 const ONE_CLICK: Partial<Record<DecisionAction, string>> = { aceptar: "Aceptar", fusionar: "Aceptar", empezar: "Sí, empiecen", hecho: "Ya lo hice" };
 const HOLD_ORDER = ["no_goal", "waiting_owner", "unqueued"];
 
+// PLA-I46-10: a delivery sent back to Taller (Devolver a Taller, or QA's own return) that has not come back yet.
+// While it stands, nothing on that floor is the owner's: no green button anywhere, Taller's window is violet.
+export const returnedDelivery = <D extends Pick<Decision, "project" | "kind" | "state" | "ref" | "actions" | "plan" | "at">>(slug: string, decisions: D[]): D | null => {
+  const open = new Set(decisions.filter((d) => d.project === slug && d.ref && pendingDecision(d)).map((d) => d.ref));
+  return (
+    decisions
+      .filter((d) => d.project === slug && (d.kind === "pr" || d.kind === "deliverable") && d.state?.action === "cambios" && !(d.ref && open.has(d.ref)))
+      .sort((a, b) => b.state!.at.localeCompare(a.state!.at))[0] ?? null
+  );
+};
+
 export const PLAN_LEG = (title: string) => `Planea «${title}»: sus pasos y qué significa hecho en cada uno.`;
 
 export function nextMove(p: MoveFloor, decisions: Decision[], opts: { companyPaused?: boolean } = {}): NextMove | null {
@@ -73,6 +84,9 @@ export function nextMove(p: MoveFloor, decisions: Decision[], opts: { companyPau
     if (d.kind === "plan") return { verbo: "aceptar", texto: `Aceptar el plan ${q(d.title)}`, accion, origen };
     return { verbo: "responder", texto: `Responder a ${who(d.asker?.role)}: ${q(d.title, 60)}`, accion, origen };
   }
+
+  // PLA-I46-10: a delivery he (or QA) sent back is Taller's now; the floor asks nothing until it comes back.
+  if (returnedDelivery(p.slug, decisions)) return null;
 
   // 2. The light says something is the owner's, without a decision behind it.
   if (p.light === "needs_jorge" && p.light_reason) {
