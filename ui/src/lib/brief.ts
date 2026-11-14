@@ -110,10 +110,39 @@ export const latestPollInterval = (data: BriefLatest | undefined): number | fals
 
 // ---- Hooks
 
+// PLA-I42-2: the last good latest reply is kept per device, so a reload while the API is down still shows the brief
+// with "Couldn't refresh". It holds no secrets (the same JSON the page renders).
+export const LATEST_CACHE_KEY = "plania.brief.latest";
+
+function readLatestCache(): BriefLatest | undefined {
+  try {
+    const raw = localStorage.getItem(LATEST_CACHE_KEY);
+    const v = raw ? (JSON.parse(raw) as BriefLatest) : undefined;
+    return v && typeof v === "object" && "brief" in v && Array.isArray(v.checks) ? { ...v, run: null } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeLatestCache(v: BriefLatest) {
+  try {
+    localStorage.setItem(LATEST_CACHE_KEY, JSON.stringify(v));
+  } catch {
+    // Private mode or a full quota: the in-memory cache still works.
+  }
+}
+
 export function useBriefLatest() {
   return useQuery({
     queryKey: briefKeys.latest,
-    queryFn: briefApi.latest,
+    queryFn: async () => {
+      const v = await briefApi.latest();
+      writeLatestCache(v);
+      return v;
+    },
+    // The device copy shows at once and is refetched right away (updated at 0 = stale).
+    initialData: readLatestCache,
+    initialDataUpdatedAt: 0,
     staleTime: 30_000,
     refetchInterval: (q) => latestPollInterval(q.state.data),
   });
@@ -181,3 +210,73 @@ export function useSaveBriefSettings() {
 
 /** The CSS variable of an app slot (theme vars in index.css; other = muted foreground). */
 export const slotVar = (slot: Slot) => `var(--brief-${slot})`;
+
+// ---- PLA-I42-2: what the page shows (pure, for tests)
+
+/** Needs you = blockers and needs_you; Up next = next and open PRs. */
+export const NEEDS: readonly Status[] = ["blocker", "needs_you"];
+export const UP_NEXT: readonly Status[] = ["next", "open_pr"];
+export type BriefView = "open" | "all";
+export type SectionId = "needs" | "next";
+
+const RANK: Record<Status, number> = { blocker: 0, needs_you: 1, next: 2, open_pr: 3 };
+
+/** A section's rows: its statuses, the app filter, checked rows hidden in "open"; blockers first, else brief order. */
+export function sectionItems(items: Item[], statuses: readonly Status[], o: { app: string | null; view: BriefView; checks: string[] }): Item[] {
+  const checked = new Set(o.checks);
+  return items
+    .map((it, i) => ({ it, i }))
+    .filter(({ it }) => statuses.includes(it.status) && (!o.app || it.app === o.app) && (o.view === "all" || !checked.has(it.id)))
+    .sort((a, b) => RANK[a.it.status] - RANK[b.it.status] || a.i - b.i)
+    .map(({ it }) => it);
+}
+
+export type BriefCounts = { needs: number; blockers: number; next: number; ideas: number; checked: number };
+
+/** The summary line's counts for the app filter (null = every app). needs/blockers/next/ideas count what is not checked. */
+export function briefCounts(data: BriefData, checks: string[], app: string | null = null): BriefCounts {
+  const checked = new Set(checks);
+  const mine = <T extends { app: string }>(xs: T[]) => xs.filter((x) => !app || x.app === app);
+  const items = mine(data.items);
+  const ideas = mine(data.ideas);
+  const open = items.filter((i) => !checked.has(i.id));
+  return {
+    needs: open.filter((i) => NEEDS.includes(i.status)).length,
+    blockers: open.filter((i) => i.status === "blocker").length,
+    next: open.filter((i) => UP_NEXT.includes(i.status)).length,
+    ideas: ideas.filter((i) => !checked.has(i.id)).length,
+    checked: items.filter((i) => checked.has(i.id)).length + ideas.filter((i) => checked.has(i.id)).length,
+  };
+}
+
+/** Open (not checked) items per app, in the brief's app order; apps with none are kept (count 0). */
+export function openPerApp(data: BriefData, checks: string[]): { app: BriefApp; open: number }[] {
+  const checked = new Set(checks);
+  return data.apps.map((app) => ({ app, open: data.items.filter((i) => i.app === app.id && !checked.has(i.id)).length }));
+}
+
+/** Only http(s) links are rendered (the server already drops others; this is the second fence). */
+export const safeUrl = (url: string | undefined): string | null => (url && /^https?:\/\//i.test(url) ? url : null);
+
+// Collapse state per device (spec §8): {"needs": true} means collapsed. PLA-I42-3 adds "ideas:<app>" keys.
+export const COLLAPSED_KEY = "plania.brief.collapsed";
+
+export function readCollapsed(): Record<string, boolean> {
+  try {
+    const v = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "{}") as unknown;
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function writeCollapsed(v: Record<string, boolean>) {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(v));
+  } catch {
+    // Private mode: the state lasts for this visit only.
+  }
+}
+
+/** Minutes a run has been going, at least 1, for "Generating… 3 min". */
+export const runMinutes = (startedAt: string, now: number): number => Math.max(1, Math.round((now - new Date(startedAt).getTime()) / 60_000));
