@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Morning brief items (pass A)",
+  "type": "object",
+  "required": ["items"],
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "type": "array",
+      "maxItems": 60,
+      "items": {
+        "type": "object",
+        "required": ["app", "status", "title"],
+        "additionalProperties": false,
+        "properties": {
+          "app": { "type": "string", "minLength": 1, "maxLength": 60, "description": "A project id from the table, or \"cross\"." },
+          "status": { "enum": ["blocker", "needs_you", "next", "open_pr"] },
+          "ref": { "type": "string", "maxLength": 120, "description": "Keys and PR numbers joined with \" · \"." },
+          "title": { "type": "string", "minLength": 1, "maxLength": 90, "description": "Verb first, what to do." },
+          "detail": { "type": "string", "maxLength": 600 },
+          "url": { "type": "string", "maxLength": 500, "pattern": "^https?://" },
+          "action": { "enum": ["Review", "Open PR", "Open compare", "Decide", "Open"] }
+        }
+      }
+    },
+    "notes": {
+      "type": "array",
+      "maxItems": 5,
+      "items": { "type": "string", "maxLength": 300 }
+    }
+  }
+}
