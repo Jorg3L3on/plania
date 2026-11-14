@@ -14,6 +14,8 @@ const { setBriefApiDepsForTests } = await import("../src/api/brief.js");
 const plan = await import("../src/brief/plan.js");
 const { runAsistente, resetAsistenteForTests } = await import("../src/runner/asistente.js");
 const { saveBriefSettings } = await import("../src/brief/settings.js");
+const writes = await import("../src/mcp/writes.js");
+const threads = await import("../src/runner/threads.js");
 
 type Db = ReturnType<typeof makeDb>["db"];
 let raw: pg.Client;
@@ -43,10 +45,38 @@ async function newBrief(): Promise<string> {
   const r = await raw.query(`insert into morning_briefs (local_date, trigger, mode, data) values ('2026-11-14', 'manual', 'full', $1::jsonb) returning id`, [JSON.stringify(data)]);
   return r.rows[0].id;
 }
+// The server's "Plan these ideas" messages in a project thread (the fake PO's closing lines are left out).
 const messages = async (slug: string) =>
-  (await raw.query(`select m.body, m.author_agent, m.links from thread_messages m join threads t on t.id = m.thread_id join projects p on p.id = t.project_id where p.slug = $1 order by m.at`, [slug])).rows as { body: string; author_agent: string; links: { kind: string; ref: string }[] }[];
+  (await raw.query(`select m.body, m.author_agent, m.links from thread_messages m join threads t on t.id = m.thread_id join projects p on p.id = t.project_id where p.slug = $1 and m.author_agent = 'asistente' order by m.at`, [slug])).rows as { body: string; author_agent: string; links: { kind: string; ref: string }[] }[];
 const runsOf = async (agent: string) => (await raw.query(`select r.id, r.status, r.summary, r.task_key from agent_runs r join agents a on a.id = r.agent_id where a.slug = $1 order by r.queued_at`, [agent])).rows as { id: string; status: string; summary: string; task_key: string | null }[];
 const endRun = (id: string, status = "ok") => raw.query(`update agent_runs set status = $2, started_at = now(), ended_at = now() where id = $1`, [id, status]);
+
+/**
+ * A fake PO run's writes (the PO itself never runs here): per code an idea, an initiative and one ticket, each with
+ * its brief-plan request id and the run's session, then the closing thread line. dup: codes it reports as duplicates.
+ */
+async function poPlans(runId: string, slug: string, requestId: string, codes: string[], opts: { ready?: string[]; dup?: Record<string, string>; propose?: string[]; noLine?: boolean } = {}) {
+  const po = (await raw.query(`select a.slug from agent_runs r join agents a on a.id = r.agent_id where r.id = $1`, [runId])).rows[0].slug as string;
+  const c = (code: string, step: string, tool = "create_task") => ({ actor: { agent: po, session_id: `run-${runId.slice(0, 8)}` }, requestId: plan.planRequestId(requestId, code, step), tool });
+  const entries: string[] = [];
+  for (const code of codes) {
+    if (opts.dup?.[code]) {
+      entries.push(`${code} -> duplicate of ${opts.dup[code]}`);
+      continue;
+    }
+    if (opts.propose?.includes(code)) {
+      entries.push(`${code} -> proposed instead`);
+      continue;
+    }
+    const title = IDEAS.find((i) => i.code === code)!.title;
+    await writes.createTask(db, { project: slug, kind: "idea", title } as never, c(code, "idea"));
+    const ini = (await writes.createTask(db, { project: slug, kind: "initiative", title, base_branch: "sandbox" } as never, c(code, "initiative"))) as { key: string };
+    await writes.createTask(db, { project: slug, parent_key: ini.key, title: `${title}: phase 1`, scope: "s", checks: ["c"], status: opts.ready?.includes(code) ? "Ready" : "Backlog" } as never, c(code, "ticket-1"));
+    entries.push(`${code} -> ${ini.key} (1 tickets, Backlog)`);
+  }
+  if (opts.noLine) return;
+  await threads.postMessage(db, await threads.resolveThread(db, slug), { author: { agent: po, role: "product-owner" }, body: `Brief plan ${requestId}: ${entries.join("; ")}.` }, c(codes[0]!, "line", "thread_post"));
+}
 
 before(async () => {
   raw = await resetTestDb();
@@ -147,6 +177,7 @@ test("check 2: one wake per project, at most 3 ideas per run, a follow-up wake f
   assert.equal((await runsOf("po-workia")).length, 1);
   assert.equal((await progress(out.request_id)).targets[0]!.state, "running");
 
+  await poPlans(runs[0]!.id, "workia", out.request_id, ["W1", "W2", "W3"]);
   await endRun(runs[0]!.id);
   const tick = await plan.resumeWaiting(db);
   assert.equal(tick.posted, 1);
@@ -160,6 +191,7 @@ test("check 2: one wake per project, at most 3 ideas per run, a follow-up wake f
   const p = await progress(out.request_id);
   assert.deepEqual(p.targets.map((t) => t.state), ["done", "queued"]);
 
+  await poPlans(runs[1]!.id, "workia", out.request_id, ["W4"]);
   await endRun(runs[1]!.id);
   await plan.resumeWaiting(db);
   assert.equal((await progress(out.request_id)).status, "done");
@@ -206,6 +238,7 @@ test("check 3 (D7): a paused project gets no message and no wake; both happen on
   // Never twice: later ticks, with the run queued, running or ended, post and wake nothing more.
   for (let i = 0; i < 2; i += 1) await runAsistente(db, new Date(), { env: ENV });
   const [run] = await runsOf("po-zigzag");
+  await poPlans(run!.id, "zigzag", out.request_id, ["Z3"]);
   await endRun(run!.id);
   for (let i = 0; i < 2; i += 1) await plan.resumeWaiting(db);
   assert.equal((await messages("zigzag")).length, 1);
@@ -233,6 +266,7 @@ test("check 5: a project with no product-owner bot fails with the reason, and th
   assert.equal((await messages("filmia")).length, 0);
   assert.equal((await runsOf("po-workia")).length, 1);
   const [run] = await runsOf("po-workia");
+  await poPlans(run!.id, "workia", out.request_id, ["W1"]);
   await endRun(run!.id);
   await plan.resumeWaiting(db);
   assert.equal((await progress(out.request_id)).status, "partial");
@@ -245,7 +279,7 @@ test("a failed PO run marks its target failed with the run's summary; the reques
   await plan.resumeWaiting(db);
   const p = await progress(out.request_id);
   assert.equal(p.targets[0]!.state, "failed");
-  assert.match(p.targets[0]!.note!, /^run fail: .*timed out after 45 min/);
+  assert.match(p.targets[0]!.note!, /^W1: run fail: .*timed out after 45 min/);
   assert.equal(p.targets[1]!.state, "queued", "the other target is not touched");
   assert.equal((await raw.query(`select count(*)::int n from brief_plan_requests`)).rows[0].n, 1);
 });
@@ -268,7 +302,6 @@ test("the message fits a thread message even with three ideas at the longest why
 
 // ---- PLA-I43-2: the render and the request ids
 
-const writes = await import("../src/mcp/writes.js");
 const PO_CTX = (requestId: string, tool = "create_task") => ({ actor: { agent: "po-workia", session_id: "run-0000abcd" }, requestId, tool });
 
 test("PLA-I43-2 check 1: the message leaves no {{…}} and lists every chosen idea with its why, flags and source", async () => {
@@ -327,11 +360,9 @@ test("PLA-I43-2 check 2: sending the same codes again posts nothing, wakes nothi
 test("PLA-I43-2 check 2: the PO's writes with the same request ids make nothing twice, also after a failed run is re-sent", async () => {
   const sent = await plan.sendToPlania(db, { briefId, codes: ["W1"] }, { env: ENV });
   const id = (step: string) => plan.planRequestId(sent.request_id, "W1", step);
+  // The run makes the idea, then fails before the initiative; the owner sends W1 again. Same request id, a fresh
+  // message and wake.
   const ideaA = (await writes.createTask(db, { project: "workia", kind: "idea", title: "Renewal board" } as never, PO_CTX(id("idea")))) as { key: string };
-  const ini = (await writes.createTask(db, { project: "workia", kind: "initiative", title: "Renewal board", base_branch: "sandbox" } as never, PO_CTX(id("initiative")))) as { key: string };
-  await writes.createTask(db, { project: "workia", parent_key: ini.key, title: "Board page", scope: "s", checks: ["c"], status: "Backlog" } as never, PO_CTX(id("ticket-1")));
-
-  // The run fails half way; the owner sends W1 again. Same request id, a fresh message and wake.
   const [run] = await runsOf("po-workia");
   await raw.query(`update agent_runs set status = 'fail', summary = 'timed out', ended_at = now() where id = $1`, [run!.id]);
   await plan.resumeWaiting(db);
@@ -345,10 +376,145 @@ test("PLA-I43-2 check 2: the PO's writes with the same request ids make nothing 
 
   // The second run repeats the same writes: each replays the first response.
   const ideaB = (await writes.createTask(db, { project: "workia", kind: "idea", title: "Renewal board" } as never, PO_CTX(id("idea")))) as { key: string };
-  const iniB = (await writes.createTask(db, { project: "workia", kind: "initiative", title: "Renewal board", base_branch: "sandbox" } as never, PO_CTX(id("initiative")))) as { key: string };
+  const ini = (await writes.createTask(db, { project: "workia", kind: "initiative", title: "Renewal board", base_branch: "sandbox" } as never, PO_CTX(id("initiative")))) as { key: string };
+  await writes.createTask(db, { project: "workia", parent_key: ini.key, title: "Board page", scope: "s", checks: ["c"], status: "Backlog" } as never, PO_CTX(id("ticket-1")));
+  // ...and a third try (a retry inside the run) replays all three.
+  const iniC = (await writes.createTask(db, { project: "workia", kind: "initiative", title: "Renewal board", base_branch: "sandbox" } as never, PO_CTX(id("initiative")))) as { key: string };
   await writes.createTask(db, { project: "workia", parent_key: ini.key, title: "Board page", scope: "s", checks: ["c"], status: "Backlog" } as never, PO_CTX(id("ticket-1")));
   assert.equal(ideaB.key, ideaA.key);
-  assert.equal(iniB.key, ini.key);
-  const count = await raw.query(`select kind, count(*)::int n from tasks t join projects p on p.id = t.project_id where p.slug = 'workia' and t.title in ('Renewal board', 'Board page') group by kind order by kind`);
+  assert.equal(iniC.key, ini.key);
+  const count = await raw.query(`select kind, count(*)::int n from tasks t where t.key = any($1::text[]) or t.parent_id = (select id from tasks where key = $2) group by kind order by kind`, [[ideaA.key, ini.key], ini.key]);
   assert.deepEqual(count.rows, [{ kind: "idea", n: 1 }, { kind: "initiative", n: 1 }, { kind: "ticket", n: 1 }]);
+  const ideas = await raw.query(`select count(*)::int n from write_requests where request_id = $1`, [id("idea")]);
+  assert.equal(ideas.rows[0].n, 1);
+});
+
+// ---- PLA-I43-3: the result check, the Ready guard and the company-thread summary
+
+const companyMsgs = async () =>
+  (await raw.query(`select m.body, m.links from thread_messages m join threads t on t.id = m.thread_id where t.kind = 'company' order by m.at`)).rows as { body: string; links: { kind: string; ref: string }[] }[];
+const status = async (key: string) => (await raw.query(`select status from tasks where key = $1`, [key])).rows[0]?.status as string;
+
+test("PLA-I43-3 check 1: a ticket a PO run made Ready is put back to Backlog by the server and reported", async () => {
+  const out = await plan.sendToPlania(db, { briefId, codes: ["W1"] }, { env: ENV });
+  const [run] = await runsOf("po-workia");
+  await poPlans(run!.id, "workia", out.request_id, ["W1"], { ready: ["W1"] });
+  const p0 = await progress(out.request_id);
+  assert.equal(p0.targets[0]!.state, "queued");
+  await endRun(run!.id);
+  const tick = await plan.resumeWaiting(db);
+  assert.equal(tick.guarded, 1);
+  const p = await progress(out.request_id);
+  const r = p.ideas[0]!.result!;
+  assert.equal(r.status, "created");
+  assert.match(r.initiative_key!, /^WRK-I\d+$/);
+  assert.match(r.idea_key!, /^WRK-IDEA\d+$/);
+  assert.equal(r.ticket_keys!.length, 1);
+  assert.equal(await status(r.ticket_keys![0]!), "Backlog");
+  assert.match(r.note!, new RegExp(`${r.ticket_keys![0]} was Ready: put back to Backlog`));
+  assert.equal(p.targets[0]!.state, "done");
+  const ev = await raw.query(`select actor, payload from events where task_key = $1 and type = 'task.status' order by id desc limit 1`, [r.ticket_keys![0]]);
+  assert.equal(ev.rows[0].actor.session_id, "brief-plan-guard");
+  assert.equal(ev.rows[0].payload.to, "Backlog");
+  const [summary] = await companyMsgs();
+  assert.match(summary!.body, new RegExp(`^Send to Plania \\(Morning brief 2026-11-14\\):\\n- W1 planned as ${r.initiative_key}, 1 ticket, Backlog \\(${r.ticket_keys![0]} was Ready: put back to Backlog\\)\\.$`));
+  assert.deepEqual(summary!.links.map((l) => [l.kind, l.ref]), [["brief_plan", out.request_id]]);
+});
+
+test("PLA-I43-3 check 2: duplicate and proposed outcomes are recorded, from the closing line or a posted proposal", async () => {
+  const out = await plan.sendToPlania(db, { briefId, codes: ["W1", "W2", "W3", "Z3"] }, { env: ENV });
+  const [w] = await runsOf("po-workia");
+  await poPlans(w!.id, "workia", out.request_id, ["W1", "W2", "W3"], { dup: { W2: "WRK-IDEA7" }, propose: ["W3"] });
+  await endRun(w!.id);
+  // po-zigzag posts a proposal and no closing line.
+  const [z] = await runsOf("po-zigzag");
+  await raw.query(
+    `insert into thread_messages (thread_id, author_agent, author_role, body, proposal) select t.id, 'po-zigzag', 'product-owner', 'Two ways to do Z3', '{"kind":"choice","title":"Z3","options":[]}'::jsonb from threads t join projects p on p.id = t.project_id where p.slug = 'zigzag'`,
+  );
+  await endRun(z!.id);
+  await plan.resumeWaiting(db);
+  const p = await progress(out.request_id);
+  assert.deepEqual(
+    p.ideas.map((i) => [i.code, i.result?.status, i.result?.note ?? null]),
+    [
+      ["W1", "created", null],
+      ["W2", "duplicate", "duplicate of WRK-IDEA7"],
+      ["W3", "proposed", "proposed in Te toca instead of planned"],
+      ["Z3", "proposed", "proposed in Te toca instead of planned"],
+    ],
+  );
+  assert.equal(p.ideas[1]!.result!.idea_key, "WRK-IDEA7");
+  assert.deepEqual(p.targets.map((t) => t.state), ["done", "done"]);
+  assert.equal(p.status, "done");
+  const [summary] = await companyMsgs();
+  assert.match(summary!.body, /- W2: duplicate of WRK-IDEA7 in Workia\./);
+  assert.match(summary!.body, /- W3: proposed in Te toca instead of planned\./);
+  assert.match(summary!.body, /- Z3: proposed in Te toca instead of planned\./);
+  assert.equal((await companyMsgs()).length, 1);
+});
+
+test("PLA-I43-3 check 3: a failed target does not stop the others and is re-queued alone on resend", async () => {
+  const out = await plan.sendToPlania(db, { briefId, codes: ["W1", "Z3"] }, { env: ENV });
+  const [w] = await runsOf("po-workia");
+  const [z] = await runsOf("po-zigzag");
+  await raw.query(`update agent_runs set status = 'fail', summary = 'timed out after 45 min', ended_at = now() where id = $1`, [w!.id]);
+  await poPlans(z!.id, "zigzag", out.request_id, ["Z3"]);
+  await endRun(z!.id);
+  await plan.resumeWaiting(db);
+  let p = await progress(out.request_id);
+  assert.deepEqual(p.targets.map((t) => [t.slug, t.state]), [["workia", "failed"], ["zigzag", "done"]]);
+  assert.equal(p.status, "partial");
+  let company = await companyMsgs();
+  assert.equal(company.length, 1);
+  assert.match(company[0]!.body, /- W1 failed: run fail: .*timed out after 45 min\./);
+  assert.match(company[0]!.body, /- Z3 planned as ZIG-I\d+, 1 ticket, Backlog\./);
+
+  // Ticks repeat nothing.
+  await plan.resumeWaiting(db);
+  assert.equal((await companyMsgs()).length, 1);
+
+  // Send both again: only the failed workia target goes back in the queue.
+  const zigMsgs = (await messages("zigzag")).length;
+  const again = await plan.sendToPlania(db, { briefId, codes: ["W1", "Z3"] }, { env: ENV });
+  assert.equal(again.request_id, out.request_id);
+  assert.deepEqual(again.targets.map((t) => [t.slug, t.codes, t.state]), [["workia", ["W1"], "queued"]]);
+  assert.deepEqual(again.already_sent, ["Z3"]);
+  assert.equal(again.runs, 1);
+  assert.equal((await runsOf("po-workia")).length, 2);
+  assert.equal((await runsOf("po-zigzag")).length, 1);
+  assert.equal((await messages("zigzag")).length, zigMsgs);
+  p = await progress(out.request_id);
+  assert.equal(p.targets[1]!.state, "done", "the done target keeps its result");
+  assert.equal(p.ideas.find((i) => i.code === "Z3")!.result!.status, "created");
+
+  const w2 = (await runsOf("po-workia"))[1]!;
+  await poPlans(w2.id, "workia", out.request_id, ["W1"]);
+  await endRun(w2.id);
+  await plan.resumeWaiting(db);
+  p = await progress(out.request_id);
+  assert.equal(p.status, "done");
+  company = await companyMsgs();
+  assert.equal(company.length, 2, "a new outcome gets a new summary");
+  assert.match(company[1]!.body, /- W1 planned as WRK-I\d+, 1 ticket, Backlog\.\n- Z3 planned as ZIG-I\d+, 1 ticket, Backlog\./);
+  await plan.resumeWaiting(db);
+  assert.equal((await companyMsgs()).length, 2);
+});
+
+test("PLA-I43-3: a run that ended ok without planning an idea fails it with the reason", async () => {
+  const out = await plan.sendToPlania(db, { briefId, codes: ["W1", "W2"] }, { env: ENV });
+  const [w] = await runsOf("po-workia");
+  await poPlans(w!.id, "workia", out.request_id, ["W1"], { noLine: true });
+  await endRun(w!.id);
+  await plan.resumeWaiting(db);
+  const p = await progress(out.request_id);
+  assert.deepEqual(p.ideas.map((i) => [i.code, i.result?.status]), [["W1", "created"], ["W2", "failed"]]);
+  assert.equal(p.ideas[1]!.result!.note, "the PO made no plan for W2");
+  assert.equal(p.targets[0]!.state, "failed");
+});
+
+test("parsePlanLine reads each entry of the closing line", () => {
+  const req = "11111111-2222-4333-8444-555555555555";
+  const m = plan.parsePlanLine(`Done.\nBrief plan ${req}: W1 -> WRK-I18 (4 tickets, Backlog); W2 -> duplicate of WRK-IDEA7.`, req);
+  assert.deepEqual([...m], [["W1", "WRK-I18 (4 tickets, Backlog)"], ["W2", "duplicate of WRK-IDEA7"]]);
+  assert.equal(plan.parsePlanLine("Brief plan other: W1 -> X", req).size, 0);
 });

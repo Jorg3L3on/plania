@@ -13,14 +13,20 @@
 //   and no wake; resumeWaiting(), called on every asistente tick, posts and wakes it once runs are back on.
 //   enqueueWake is unchanged.
 // - No PO for the project: the target fails with "no product-owner bot for <slug>". The others go on.
+// - PLA-I43-3: when a PO run ends, checkResults() reads what it made (its brief-plan request ids, the initiative's
+//   tickets, its closing line, a posted proposal): per idea created / duplicate / proposed / failed. A ticket the
+//   run left Ready goes back to Backlog (D3) and is reported. A failed target is re-queued alone by sending again.
+//   Once every target ended, one summary goes to the company thread.
+import { createHash } from "node:crypto";
 import { hostname } from "node:os";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, like, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agentRuns, agents, briefPlanRequests, morningBriefs, projects, type Agent, type BriefPlanRequest, type BriefPlanStatus, type BriefPlanTarget, type Project } from "../db/schema.js";
-import { writeTx, type Q } from "../mcp/tx.js";
+import { agentRuns, agents, briefPlanRequests, events, morningBriefs, projects, tasks, threadMessages, writeRequests, type Agent, type BriefPlanRequest, type BriefPlanStatus, type BriefPlanTarget, type Project } from "../db/schema.js";
+import { writeTx, type Emit, type Q } from "../mcp/tx.js";
+import { setTaskInTx } from "../mcp/writes.js";
 import { enqueueWake } from "../runner/events.js";
 import { loadSettings, roleOf } from "../runner/limits.js";
-import { MAX_BODY, homeSlug, insertMessage, projectThread } from "../runner/threads.js";
+import { MAX_BODY, companyThread, homeSlug, insertMessage, postMessage, projectThread } from "../runner/threads.js";
 import { poPlanIdeasPrompt, type PlanIdea } from "./prompts.js";
 import { Idea } from "./types.js";
 
@@ -232,12 +238,12 @@ export async function sendToPlania(db: Db, input: { briefId: string; codes: unkn
 
 // ---- Moving targets along (on send and on every asistente tick)
 
-type Advance = { posted: number; failed: number; finished: number };
+type Advance = { posted: number; failed: number; finished: number; guarded: number; summaries: number };
 
 /** Follows each target's run, and posts + wakes the ones that can go now. Returns the request as stored. */
 export async function advanceRequest(db: Db, requestId: string, opts: { now?: Date; counts?: Advance } = {}): Promise<BriefPlanRequest> {
   const now = opts.now ?? new Date();
-  const counts = opts.counts ?? { posted: 0, failed: 0, finished: 0 };
+  const counts = opts.counts ?? { posted: 0, failed: 0, finished: 0, guarded: 0, summaries: 0 };
   const [first] = await db.select().from(briefPlanRequests).where(eq(briefPlanRequests.id, requestId)).limit(1);
   if (!first) throw new PlanError("PLAN_NOT_FOUND", 404);
   const [brief] = await db.select({ localDate: morningBriefs.localDate }).from(morningBriefs).where(eq(morningBriefs.id, first.briefId)).limit(1);
@@ -261,14 +267,19 @@ export async function advanceRequest(db: Db, requestId: string, opts: { now?: Da
         await tx.update(briefPlanRequests).set({ targets, status: requestStatus(targets), updatedAt: now }).where(eq(briefPlanRequests.id, requestId));
       };
 
-      // Already woken: follow its run.
+      // Already woken: follow its run. Once it ends, the result check reads what the PO made (PLA-I43-3).
       if (t.wake_run_id) {
-        const [run] = await tx.select({ status: agentRuns.status, summary: agentRuns.summary }).from(agentRuns).where(eq(agentRuns.id, t.wake_run_id)).limit(1);
-        const state: BriefPlanTarget["state"] = !run ? "failed" : ENDED_OK.has(run.status) ? "done" : ENDED_BAD.has(run.status) ? "failed" : run.status === "running" ? "running" : "queued";
-        if (state === t.state) return;
-        const note = state === "failed" ? (run ? `run ${run.status}: ${run.summary}`.slice(0, 300) : "the run is gone") : t.note ?? null;
-        if (FINAL.has(state)) counts.finished += 1;
-        await save({ ...t, state, note });
+        const [run] = await tx.select().from(agentRuns).where(eq(agentRuns.id, t.wake_run_id)).limit(1);
+        const ended = !run || ENDED_OK.has(run.status) || ENDED_BAD.has(run.status);
+        if (!ended) {
+          const state: BriefPlanTarget["state"] = run.status === "running" ? "running" : "queued";
+          if (state !== t.state) await save({ ...t, state });
+          return;
+        }
+        const checked = await checkResults(tx, emit, project, requestId, t, run ?? null);
+        counts.finished += 1;
+        counts.guarded += checked.guarded.length;
+        await save({ ...t, ...checked.target });
         return;
       }
 
@@ -317,6 +328,7 @@ export async function advanceRequest(db: Db, requestId: string, opts: { now?: Da
     });
   }
   const [after] = await db.select().from(briefPlanRequests).where(eq(briefPlanRequests.id, requestId)).limit(1);
+  if (after && after.status !== "open" && (await postSummary(db, after, brief?.localDate ?? null))) counts.summaries += 1;
   return after!;
 }
 
@@ -338,7 +350,7 @@ async function patchTarget(db: Db, requestId: string, i: number, now: Date, fn: 
  * project's next batch go.
  */
 export async function resumeWaiting(db: Db, now = new Date()): Promise<Advance> {
-  const counts: Advance = { posted: 0, failed: 0, finished: 0 };
+  const counts: Advance = { posted: 0, failed: 0, finished: 0, guarded: 0, summaries: 0 };
   const open = await db.select({ id: briefPlanRequests.id }).from(briefPlanRequests).where(eq(briefPlanRequests.status, "open")).orderBy(asc(briefPlanRequests.createdAt));
   for (const r of open) await advanceRequest(db, r.id, { now, counts });
   return counts;
@@ -383,4 +395,179 @@ export async function planProgress(db: Q, id: string): Promise<PlanProgress> {
 export async function planOfBrief(db: Q, briefId: string): Promise<string | null> {
   const [row] = await db.select({ id: briefPlanRequests.id }).from(briefPlanRequests).where(eq(briefPlanRequests.briefId, briefId)).orderBy(asc(briefPlanRequests.createdAt)).limit(1);
   return row?.id ?? null;
+}
+
+// ---- The result check (PLA-I43-3, spec Initiative C step 5 and §11)
+
+type Run = typeof agentRuns.$inferSelect;
+type Result = BriefPlanTarget["results"][number];
+const KEY = /\b[A-Z][A-Z0-9]*-(?:IDEA|I)?\d+(?:-\d+)?\b/g;
+// The server's own actor (not a poller move: ctx.system only allows the GitHub and deploy moves); Ready → Backlog is
+// an ordinary move, and a Ready ticket holds no lease.
+const GUARD_CTX = { actor: { agent: "plania", session_id: "brief-plan-guard" }, tool: "brief.plan_guard" } as const;
+
+/** One entry of the PO's closing line "Brief plan <request>: W1 -> WRK-I18 (4 tickets, Backlog); W2 -> duplicate of WRK-IDEA7." */
+export function parsePlanLine(body: string, requestId: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const at = body.indexOf(`Brief plan ${requestId}:`);
+  if (at < 0) return out;
+  const rest = body.slice(at + `Brief plan ${requestId}:`.length).split("\n")[0]!;
+  for (const part of rest.split(";")) {
+    const m = /^\s*([A-Z]\d{1,3})\s*(?:->|→)\s*(.+?)\s*\.?\s*$/.exec(part);
+    if (m) out.set(m[1]!, m[2]!);
+  }
+  return out;
+}
+
+/**
+ * Reads what a PO run did for its target, from Plania data (the PO runs have no JSON schema): the writes it made with
+ * brief-plan:<request>:<code>:<step> request ids, the tickets under the initiative it made, its closing thread line
+ * and any proposal it posted. Per idea: created / duplicate / proposed / failed. Any ticket the run left Ready
+ * (made Ready, or moved there) goes back to Backlog, by the server as system, and is reported (D3: never Ready).
+ */
+export async function checkResults(
+  tx: Q,
+  emit: Emit,
+  project: Project,
+  requestId: string,
+  t: BriefPlanTarget,
+  run: Run | null,
+): Promise<{ target: Pick<BriefPlanTarget, "state" | "note" | "results">; guarded: string[] }> {
+  const since = run?.queuedAt ?? new Date(0);
+  const session = run ? `run-${run.id.slice(0, 8)}` : null;
+
+  // The PO's writes with this request's ids, by code and step.
+  const wr = await tx
+    .select({ requestId: writeRequests.requestId, tool: writeRequests.tool, response: writeRequests.response })
+    .from(writeRequests)
+    .where(and(eq(writeRequests.projectId, project.id), like(writeRequests.requestId, `brief-plan:${requestId}:%`)));
+  const steps = new Map<string, Map<string, string>>();
+  for (const w of wr) {
+    const id = parsePlanRequestId(w.requestId);
+    const key = (w.response as { key?: unknown } | null)?.key;
+    if (!id || typeof key !== "string") continue;
+    steps.set(id.code, (steps.get(id.code) ?? new Map()).set(id.step, key));
+  }
+
+  // The closing line and any proposal the PO posted during the run.
+  const thread = await projectThread(tx, project.id);
+  const msgs = await tx
+    .select({ body: threadMessages.body, proposal: threadMessages.proposal })
+    .from(threadMessages)
+    .where(and(eq(threadMessages.threadId, thread.id), eq(threadMessages.authorAgent, t.po_agent), gte(threadMessages.at, since)))
+    .orderBy(asc(threadMessages.at));
+  const line = new Map<string, string>();
+  for (const m of msgs) for (const [code, text] of parsePlanLine(m.body, requestId)) line.set(code, text);
+  const proposed = msgs.some((m) => m.proposal);
+
+  const byKey = async (keys: string[]) =>
+    keys.length ? await tx.select({ id: tasks.id, key: tasks.key, kind: tasks.kind, status: tasks.status, version: tasks.version, parentId: tasks.parentId }).from(tasks).where(and(eq(tasks.projectId, project.id), inArray(tasks.key, keys))) : [];
+
+  const results: Result[] = [];
+  const ticketsSeen = new Set<string>();
+  for (const code of t.codes) {
+    const s = steps.get(code) ?? new Map<string, string>();
+    const said = line.get(code) ?? "";
+    const named = [...new Set([...s.values(), ...(said.match(KEY) ?? [])])];
+    const found = await byKey(named);
+    const initiative = found.find((x) => x.key === s.get("initiative") && x.kind === "initiative") ?? found.find((x) => x.kind === "initiative");
+    const idea = found.find((x) => x.key === s.get("idea") && x.kind === "idea") ?? found.find((x) => x.kind === "idea");
+    const children = initiative ? await tx.select({ key: tasks.key }).from(tasks).where(and(eq(tasks.parentId, initiative.id), eq(tasks.kind, "ticket"))) : [];
+    const ticketKeys = [...new Set([...children.map((c) => c.key), ...found.filter((x) => x.kind === "ticket").map((x) => x.key)])].sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+    for (const k of ticketKeys) ticketsSeen.add(k);
+    const dup = /duplicate of\s+([A-Z][A-Z0-9]*-[A-Z0-9-]+)/i.exec(said);
+    if (initiative && !dup) {
+      results.push({ code, status: "created", idea_key: idea?.key, initiative_key: initiative.key, ticket_keys: ticketKeys });
+    } else if (dup) {
+      results.push({ code, status: "duplicate", note: `duplicate of ${dup[1]}`, ...(dup[1]!.includes("IDEA") ? { idea_key: dup[1] } : { initiative_key: dup[1] }) });
+    } else if (/propos/i.test(said) || proposed) {
+      results.push({ code, status: "proposed", note: "proposed in Te toca instead of planned" });
+    } else {
+      const why = run && run.status !== "ok" ? `run ${run.status}: ${run.summary}` : !run ? "the run is gone" : `the PO made no plan for ${code}`;
+      results.push({ code, status: "failed", note: why.slice(0, 300), ...(idea ? { idea_key: idea.key } : {}) });
+    }
+  }
+
+  // D3 guard: nothing this run made ends Ready.
+  const touched = session
+    ? await tx
+        .select({ key: events.taskKey })
+        .from(events)
+        .where(and(eq(events.projectId, project.id), inArray(events.type, ["task.created", "task.status"]), sql`${events.actor}->>'session_id' = ${session}`, gte(events.createdAt, since)))
+    : [];
+  for (const e of touched) if (e.key) ticketsSeen.add(e.key);
+  const ready = (await byKey([...ticketsSeen])).filter((x) => x.kind === "ticket" && x.status === "Ready");
+  const guarded: string[] = [];
+  // The guard's events carry its own actor, not the writeTx's.
+  const guardEmit: Emit = (type, task, payload, actor) => emit(type, task, payload, actor ?? GUARD_CTX.actor);
+  for (const r of ready) {
+    try {
+      await setTaskInTx(tx, guardEmit, project, { project: project.slug, key: r.key, status: "Backlog", version: r.version, note: "Send to Plania plans only: a ticket a PO run made is never Ready. Put back to Backlog by the server." } as never, GUARD_CTX);
+      guarded.push(r.key);
+    } catch {
+      // Claimed or moved meanwhile: reported below as still Ready.
+    }
+  }
+  if (ready.length) {
+    for (const res of results) {
+      const mine = ready.filter((r) => res.ticket_keys?.includes(r.key) || (!results.some((o) => o.ticket_keys?.includes(r.key)) && res === results[0]));
+      if (!mine.length) continue;
+      const back = mine.filter((r) => guarded.includes(r.key)).map((r) => r.key);
+      const stuck = mine.filter((r) => !guarded.includes(r.key)).map((r) => r.key);
+      const parts = [back.length ? `${back.join(", ")} ${back.length === 1 ? "was" : "were"} Ready: put back to Backlog` : "", stuck.length ? `${stuck.join(", ")} still Ready` : ""].filter(Boolean);
+      res.note = [res.note, ...parts].filter(Boolean).join("; ");
+    }
+  }
+
+  const failed = results.filter((r) => r.status === "failed");
+  const note = failed.length ? failed.map((r) => `${r.code}: ${r.note}`).join("; ").slice(0, 300) : null;
+  return { target: { state: failed.length ? "failed" : "done", note, results }, guarded };
+}
+
+// ---- The company-thread summary
+
+const outcome = (r: Result, project: string): string => {
+  const guard = r.note && /Ready/.test(r.note) && r.status !== "failed" ? ` (${r.note.split("; ").filter((p) => /Ready/.test(p)).join("; ")})` : "";
+  if (r.status === "created") {
+    const n = r.ticket_keys?.length ?? 0;
+    return `${r.code} planned as ${r.initiative_key}, ${n} ${n === 1 ? "ticket" : "tickets"}, Backlog${guard}.`;
+  }
+  if (r.status === "duplicate") return `${r.code}: ${r.note} in ${project}.`;
+  if (r.status === "proposed") return `${r.code}: proposed in Te toca instead of planned.`;
+  return `${r.code} failed: ${r.note}.`;
+};
+
+/** The lines of the summary: one per chosen idea, in the order chosen. */
+export function summaryLines(req: Pick<BriefPlanRequest, "codes" | "targets">, titles: Map<string, string>): string[] {
+  const lines: string[] = [];
+  for (const code of req.codes) {
+    const t = req.targets.find((x) => x.codes.includes(code));
+    if (!t) continue;
+    const project = titles.get(t.slug) ?? t.slug;
+    const r = t.results.find((x) => x.code === code) ?? { code, status: "failed" as const, note: t.note ?? "not planned" };
+    lines.push(outcome(r, project));
+  }
+  return lines;
+}
+
+/**
+ * Once every target of a request is done or failed: one summary in the company thread. The request id is a hash
+ * of the outcome, so it is posted once per outcome (a resend that changes it gets a new summary, a tick never).
+ */
+export async function postSummary(db: Db, req: BriefPlanRequest, briefDate: string | null): Promise<boolean> {
+  const slugs = [...new Set(req.targets.map((t) => t.slug))];
+  const titles = new Map((slugs.length ? await db.select({ slug: projects.slug, title: projects.title }).from(projects).where(inArray(projects.slug, slugs)) : []).map((p) => [p.slug, p.title]));
+  const lines = summaryLines(req, titles);
+  if (!lines.length) return false;
+  const hash = createHash("sha1").update(JSON.stringify(req.targets.map((t) => [t.codes, t.state, t.results]))).digest("hex").slice(0, 12);
+  const body = [`Send to Plania${briefDate ? ` (Morning brief ${briefDate})` : ""}:`, ...lines.map((l) => `- ${l}`)].join("\n").slice(0, MAX_BODY);
+  const before = await db.select({ n: sql<number>`count(*)::int` }).from(threadMessages);
+  await postMessage(
+    db,
+    { thread: await companyThread(db), project: null },
+    { author: AUTHOR, body, links: [{ kind: "brief_plan", ref: req.id, title: "Send to Plania" }] },
+    { ...ctx("brief.plan_summary"), requestId: `brief-plan:${req.id}:summary:${hash}` },
+  );
+  const afterCount = await db.select({ n: sql<number>`count(*)::int` }).from(threadMessages);
+  return afterCount[0]!.n > before[0]!.n;
 }
