@@ -54,7 +54,38 @@ export const DENY_RULES: readonly string[] = [
 
 export type DenySettings = { permissions: { deny: string[]; defaultMode?: string } };
 
-export const denySettings = (): DenySettings => ({ permissions: { deny: [...DENY_RULES] } });
+// PLA-I46-9: a QA run reviews a delivery and writes nothing to the app repo: no edits, no commits, no pushes, no
+// PR changes, no branch moves. Plania records its report.
+export const QA_DENY_RULES: readonly string[] = [
+  "Edit",
+  "Write",
+  "NotebookEdit",
+  "Bash(git commit*)",
+  "Bash(git -C * commit*)",
+  "Bash(git push*)",
+  "Bash(git -C * push*)",
+  "Bash(git reset*)",
+  "Bash(git checkout*)",
+  "Bash(git switch*)",
+  "Bash(git rebase*)",
+  "Bash(git merge*)",
+  "Bash(git stash*)",
+  "Bash(git restore*)",
+  "Bash(git clean*)",
+  "Bash(git tag*)",
+  "Bash(gh pr create*)",
+  "Bash(gh pr edit*)",
+  "Bash(gh pr comment*)",
+  "Bash(gh pr review*)",
+  "Bash(gh pr close*)",
+  "mcp__plania__start",
+  "mcp__plania__claim",
+  "mcp__plania__finish",
+  "mcp__plania__set_task",
+  "mcp__plania__thread_post",
+];
+
+export const denySettings = (extra: readonly string[] = []): DenySettings => ({ permissions: { deny: [...DENY_RULES, ...extra] } });
 
 const globToRegex = (glob: string): RegExp =>
   new RegExp(`^${glob.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`, "s");

@@ -28,12 +28,13 @@ import {
 import { registerFootprint, releaseFootprint } from "../mcp/footprint.js";
 import { SYSTEM_ACTOR, WEB_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
-import { denySettings } from "./deny.js";
+import { QA_DENY_RULES, denySettings } from "./deny.js";
 import { EVENT_SUMMARY, wakePoIfWaiting } from "./events.js";
 import { capacityFacts, capacityHold, agentFacts, agentHold, projectGoal } from "./hold.js";
 
 export { projectGoal };
 import { asistenteHome } from "./threads.js";
+import { qaBriefFor } from "./qa.js";
 import {
   PROMPT_DOCS,
   lastReading,
@@ -433,6 +434,8 @@ export type ClaudeArgsInput = {
   systemPromptPath: string | null;
   maxTurns: number;
   resume: string | null;
+  // PLA-I46-9: a QA review of a small change runs on a smaller model.
+  model?: string | null;
 };
 
 export function claudeArgs(input: ClaudeArgsInput): string[] {
@@ -457,6 +460,7 @@ export function claudeArgs(input: ClaudeArgsInput): string[] {
   // The role prompt goes on a session's first run only; a resumed session already has it.
   if (input.systemPromptPath && !input.resume) args.push("--append-system-prompt-file", input.systemPromptPath);
   if (input.resume) args.push("--resume", input.resume);
+  if (input.model) args.push("--model", input.model);
   return args;
 }
 
@@ -523,7 +527,9 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     .from(agentSessions)
     .where(and(eq(agentSessions.agentId, ctx.agent.id), eq(agentSessions.projectId, project.id)))
     .limit(1);
-  const resume = session && session.cwd === cwd ? session.claudeSessionId : null;
+  // PLA-I46-9: a QA run is always a fresh session, so its review has not seen anyone's earlier reasoning.
+  const qa = role === "qa" ? await qaBriefFor(db, run.id, cwd) : null;
+  const resume = !qa && session && session.cwd === cwd ? session.claudeSessionId : null;
 
   const tmp = path.join(tmpDirOf(deps), run.id);
   mkdirSync(tmp, { recursive: true, mode: 0o700 });
@@ -538,13 +544,13 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     writeFileSync(systemPromptPath, markdown, { mode: 0o600 });
   }
   const settingsPath = path.join(tmp, "settings.json");
-  writeFileSync(settingsPath, JSON.stringify(denySettings()), { mode: 0o600 });
+  writeFileSync(settingsPath, JSON.stringify(denySettings(role === "qa" ? QA_DENY_RULES : [])), { mode: 0o600 });
   const mcpConfigPath = path.join(tmp, "mcp.json");
   writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp")), { mode: 0o600 });
 
   const goal = await projectGoal(db, project.id);
   const planiaSession = `run-${run.id.slice(0, 8)}`;
-  const prompt = userPrompt({
+  const prompt = qa?.prompt ?? userPrompt({
     agent: ctx.agent.name,
     role,
     project: { slug: project.slug, title: project.title },
@@ -554,7 +560,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     sessionId: planiaSession,
     reason: run.summary.startsWith(EVENT_SUMMARY) ? run.summary.slice(EVENT_SUMMARY.length).trim() || null : null,
   });
-  const args = claudeArgs({ prompt, settingsPath, mcpConfigPath, systemPromptPath, maxTurns: settings.maxTurns, resume });
+  const args = claudeArgs({ prompt, settingsPath, mcpConfigPath, systemPromptPath, maxTurns: settings.maxTurns, resume, model: qa?.model ?? null });
   const command = claudeCommand(ctx.agent.adapterConfig, env);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const logPath = path.join(logDirOf(deps, env), `${stamp}-${ctx.agent.slug}-${run.id.slice(0, 8)}.jsonl`);
