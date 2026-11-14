@@ -698,7 +698,8 @@ async function actOnPlan(db: Db, id: string, m: typeof threadMessages.$inferSele
 // PLA-I46-11: a plan for a leg. Three exits, the screen's Aceptar plan / Cambiar algo / Después.
 //   empezar  with answers (0-based, one per question; the suggestion when left out) and the check list as the owner
 //            edited it (3 lines). Makes the steps under the leg (phase 1..n, Ready, po_checklist on each), sets a
-//            Planning leg Active so the route stands on it, and notes it on the order (as Sí, empiecen does). Existing tickets are not touched:
+//            Planning leg Active so the route stands on it, and closes the order (the PO parked it in
+//            Backlog when it proposed; its reason names the steps). Existing tickets are not touched:
 //            what was put off (Backlog, an On hold leg) stays put off.
 //   cambiar  text: what to change. Closes this order and sends a new one to the PO with the leg's title and the
 //            change, so the PO plans again; the plan is acted on.
@@ -755,8 +756,9 @@ async function actOnLegPlan(db: Db, id: string, m: typeof threadMessages.$inferS
       const created = await makeSteps(db, p.slug, kept, ctx);
       await db.update(threadMessages).set({ proposal: { ...kept, created } }).where(eq(threadMessages.id, m.id));
       if (leg.status === "Planning") await setTask(db, { project: p.slug, key: leg.key, status: "Active", version: leg.version, note: `Plan aceptado: ${created.join(", ")}.` } as never, ctx);
+      // The order was parked when the PO proposed; the accepted plan is its answer, so it closes here.
       if (order && !["Done", "Won't do"].includes(order.status)) {
-        await setTask(db, { project: p.slug, key: order.key, note: `Jorge aceptó el plan: ${created.join(", ")}.` } as never, ctx);
+        await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: `Respondido con el plan aceptado: ${created.join(", ")}.` } as never, ctx);
       }
       await postMessage(db, ref, { author: JORGE, body: "Plan aceptado." }, ctx);
       result = { created, leg: leg.key, answers, checklist: list };
@@ -765,7 +767,7 @@ async function actOnLegPlan(db: Db, id: string, m: typeof threadMessages.$inferS
         await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: "Jorge cambia el plan: va otro pedido al PO." } as never, ctx);
       }
       const posted = await jorgePosts(db, ref, `Planea «${leg.title}» otra vez. Cambia esto: ${text}`);
-      result = { leg: leg.key, text, order: posted.created?.key ?? null };
+      result = { leg: leg.key, change: text, order: posted.created?.key ?? null };
       extra = { created: posted.created, wake: posted.wake };
     }
   } catch (e) {

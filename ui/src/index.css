@@ -690,6 +690,24 @@
   /* Unused since PLA-I46-3 (the stars are still); kept as the end mark of the floor's static rules. */
   @keyframes edi-twinkle { 50% { opacity: calc(var(--dark, 1) * 0.2); } }
 
+  /* PLA-I46-11: el plan para aceptar, inside Ahora: steps, closed questions (the suggestion marked), the PO's
+     check list as editable lines; three columns that wrap to one at 390. No motion here. */
+  .edi-plan { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; min-width: 0; }
+  .edi-pcol { display: grid; gap: 8px; align-content: start; padding: 10px 12px; border-radius: 12px; background: rgb(0 0 0 / 0.22); min-width: 0; }
+  .edi-peye { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--e-muted); }
+  .edi-pcol ol { margin: 0; padding-left: 20px; list-style: decimal; display: grid; gap: 6px; font-size: 13.5px; overflow-wrap: anywhere; }
+  .edi-pq { display: grid; gap: 5px; font-size: 13px; overflow-wrap: anywhere; }
+  .edi-popts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .edi-popt { min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--e-line); background: none; color: var(--e-muted); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; overflow-wrap: anywhere; text-align: left; }
+  .edi-popt[aria-checked="true"] { border-color: var(--e-fg); color: var(--e-fg); background: rgb(255 255 255 / 0.1); font-weight: 600; }
+  .edi-popt:focus-visible, .edi-pfield:focus-visible { outline: 2px solid var(--e-fg); outline-offset: 2px; }
+  .edi-popt sup { font-size: 9.5px; font-weight: 500; color: #7fd8ff; margin-left: 5px; }
+  .edi-pfield { height: 40px; width: 100%; min-width: 0; border-radius: 10px; padding: 0 12px; background: rgb(255 255 255 / 0.07); border: 1px solid var(--e-line); color: var(--e-fg); font: inherit; font-size: 13.5px; }
+  .edi-pfield[aria-invalid="true"] { border-color: #ff8a80; }
+  .edi-pchange { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+  .edi-pchange .edi-pfield { flex: 1 1 240px; }
+  .edi-perr { grid-column: 1 / -1; font-size: 13px; color: #ff8a80; }
+
   @media (width < 64rem) {
     .edi { padding: 20px 14px 0; border-radius: 22px; }
     .edi-rooftop { padding: 0 10px; }

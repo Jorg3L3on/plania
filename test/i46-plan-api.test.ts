@@ -117,12 +117,15 @@ test("the plan's shape: at most 4 steps, 3 closed questions with a suggestion in
 });
 
 let planId = "";
+let planOrder = "";
 test("I46-11 #1: the PO's plan for the next leg is the floor's move, with its steps, questions and check list", async () => {
   assert.equal((await card()).next_move?.verbo, "planear", "I2 is done and I3 has no steps");
   const order = await orderFor("Ajustes finales y entrega");
   const out = (await propose(db, legPlan(order), PO() as never)) as Json;
   assert.equal(out.proposal.leg, "MIC-I3", "found from the order's «title»");
   assert.equal((await under("MIC-I3")).length, 0, "nothing is made before Aceptar plan");
+  assert.equal(await status(order), "Backlog", "parked: it neither wakes the PO again nor reads as a delivery");
+  planOrder = order;
   planId = `m-${out.message.id}`;
   const row = (await company()).decisions.find((d: Json) => d.id === planId);
   assert.deepEqual(row.actions, ["empezar", "cambiar", "despues"]);
@@ -171,6 +174,10 @@ test("I46-11 #2, #4: Aceptar plan with a changed answer and an edited list makes
   const taller = { id: "x", slug: "taller-micasa", role: "taller", capabilities: ["micasa"], projectSlug: "micasa" };
   assert.equal(pickReady(taller, rows)!.key, steps[0]!.key);
   assert.equal((await act(planId, { action: "empezar" })).status, 409, "twice is refused");
+  assert.equal(await status(planOrder), "Won't do", "the accepted plan closes its order");
+  const card1 = (await card()).orders.find((o: Json) => o.key === planOrder);
+  assert.ok(card1, "the order card is there");
+  assert.equal(card1.stage, "trabajando", "closed by its plan, not cancelled");
 
   // Postponed work stays postponed.
   assert.equal(await status("MIC-I1-1"), "Backlog");
@@ -187,7 +194,7 @@ test("I46-11 #2, #4: Aceptar plan with a changed answer and an edited list makes
   assert.equal("po_checklist" in plain, false, "a ticket without a list shows none");
 });
 
-test("Cambiar algo closes the order and sends the PO a new one with the leg and the change", async () => {
+test("Cambiar algo sends the PO a new order with the leg and the change", async () => {
   await make({ kind: "initiative", key: "MIC-I5", title: "Fotos de vestidos" });
   const order = await orderFor("Fotos de vestidos");
   const out = (await propose(db, legPlan(order, { title: "Fotos de vestidos" }), PO() as never)) as Json;
@@ -197,7 +204,8 @@ test("Cambiar algo closes the order and sends the PO a new one with the leg and 
   const res = await act(id, { action: "cambiar", text: "Solo dos pasos" });
   assert.equal(res.status, 200, await res.clone().text());
   const next = ((await res.json()) as Json).state.result.order as string;
-  assert.equal(await status(order), "Won't do");
+  assert.equal(await status(order), "Won't do", "the first order is closed");
+  assert.notEqual(next, order);
   const scope = (await raw.query(`select scope from tasks where key = $1`, [next])).rows[0].scope as string;
   assert.ok(scope.includes("Planea «Fotos de vestidos» otra vez. Cambia esto: Solo dos pasos"), scope);
   assert.equal((await under("MIC-I5")).length, 0, "nothing made");

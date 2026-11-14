@@ -24,7 +24,7 @@ import { agentOfActor } from "../runner/events.js";
 import { assertThreadAccess, checkLinks, messageView, postMessage, projectThread } from "../runner/threads.js";
 import { ToolError } from "./errors.js";
 import type { Ctx } from "./tx.js";
-import { createTask } from "./writes.js";
+import { createTask, setTask } from "./writes.js";
 
 type ActorIn = { agent?: string; session_id: string; machine?: string; model?: string };
 export type ProposeInput = {
@@ -190,6 +190,12 @@ export async function legOf(db: Db, projectId: string, leg: string | null, order
 }
 export const POSTPONED = ["On hold"];
 
+async function parkOrder(db: Db, slug: string, key: string, ctx: Ctx) {
+  const [o] = await db.select({ status: tasks.status, version: tasks.version }).from(tasks).innerJoin(projects, eq(projects.id, tasks.projectId)).where(and(eq(projects.slug, slug), eq(tasks.key, key))).limit(1);
+  if (!o || !["Ready", "In progress"].includes(o.status)) return;
+  await setTask(db, { project: slug, key, status: "Backlog", version: o.version, note: "Plan propuesto: espera «Aceptar plan» en el piso." } as never, ctx);
+}
+
 export async function propose(db: Db, input: ProposeInput, ctx: Ctx) {
   const [p] = await db.select().from(projects).where(eq(projects.slug, input.project)).limit(1);
   if (!p) throw new ToolError("PROJECT_NOT_FOUND", { project: input.project });
@@ -212,6 +218,9 @@ export async function propose(db: Db, input: ProposeInput, ctx: Ctx) {
     if (!data.links.some((l) => l.kind === "ticket" && l.ref === data.order)) data.links.unshift({ kind: "ticket", ref: data.order!, title: data.title.slice(0, 200) });
   }
   const msg = await postMessage(db, ref, { author: { agent: agent.slug, role }, body: proposalBody(data), links: data.links.slice(0, 10), proposal: data }, ctx);
+  // PLA-I46-11: a leg plan is the whole answer to its order. The order is parked in Backlog so it neither wakes the
+  // PO again nor reads as a delivery; the plan waits on the floor, and Aceptar plan closes the order.
+  if (isLegPlan(data)) await parkOrder(db, p.slug, data.order!, ctx);
   return { thread: ref.thread.id, message: await messageView(db, msg, p.id), proposal: data };
 }
 

@@ -7,7 +7,7 @@
 //   skyAt        the sky's colours for an hour; floorHue one of six fixed hues from the slug.
 import type { AskResult, Decision, OrgMember, OrgMemberState, OrgMoveAction, OrgNextMove, OrgNextStart, OrgProject, OrgRoute, OrgRouteLeg, OrgRouteStep } from "./api";
 import { byLight, byRole, roleName } from "./org";
-import { pending } from "./v2";
+import { pending, waitingPlan } from "./v2";
 
 export type WindowState = "work" | "ask" | "idle" | "off";
 const STATE: Record<OrgMemberState, WindowState> = {
@@ -164,9 +164,10 @@ export const hourIn = (iso: string | number, timeZone?: string) =>
 
 // The decision under a teammate's window: the asker must be on that floor's team. The oldest shows; the rest count.
 export type Hanging = { decision: Decision; more: Decision[] };
-export function hangingFor(decisions: Decision[], project: string, agent: string): Hanging | null {
+export function hangingFor(decisions: Decision[], project: string, agent: string, inAhora: string | null = null): Hanging | null {
   // PLA-I40-6: only what still waits hangs under a window; an answered one is a line under Lo último (lastLines).
-  const open = decisions.filter((d) => d.project === project && d.asker?.agent === agent && pending(d)).sort((a, b) => a.at.localeCompare(b.at));
+  // PLA-I46-11: the decision Ahora already carries (a leg's plan to accept) does not hang a second time.
+  const open = decisions.filter((d) => d.project === project && d.asker?.agent === agent && pending(d) && d.id !== inAhora).sort((a, b) => a.at.localeCompare(b.at));
   const shown = open[0];
   if (!shown) return null;
   return { decision: shown, more: open.slice(1) };
@@ -277,6 +278,12 @@ function moveWhy(m: OrgNextMove, p: OrgProject, decisions: Decision[]): string {
     const hold = d?.hold ? `${d.hold} ` : "";
     if (o.decision === "release") return `Publicar es tuyo.${more}`;
     if (o.decision === "pr" || o.decision === "deliverable") return `${hold}Mientras no la aceptes, el paso siguiente no arranca.${more}`;
+    // PLA-I46-11: a leg's plan says what the PO proposes.
+    if (o.decision === "plan" && d?.plan?.leg) {
+      const n = d.plan.steps.length;
+      const k = d.plan.questions?.length ?? 0;
+      return `El PO propone ${n === 1 ? "1 paso" : `${n} pasos`}${k ? ` y ${k === 1 ? "1 pregunta" : `${k} preguntas`}, con su respuesta sugerida ya marcada` : ""}.${more}`;
+    }
     return `${hold}El equipo espera tu respuesta para seguir.${more}`;
   }
   if (o.kind === "hold") return o.hold === "no_goal" ? "Sin meta nadie arranca. Fíjala y sigue solo." : o.hold === "waiting_owner" ? "Mientras no la aceptes, el paso siguiente no arranca." : "Está listo para empezar y nadie lo ha despertado.";
@@ -335,6 +342,10 @@ export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts:
         return line("idle", { say: `${what} espera un paso anterior.`, why: n.text, holder: null });
     }
   }
+
+  // PLA-I46-11: a leg's plan the owner left for later waits here; nothing starts until he accepts it.
+  const later = decisions.find((d) => d.project === p.slug && waitingPlan(d) && d.plan?.leg);
+  if (later) return line("rest", { word: "En pausa", say: `El plan de ${q(later.plan!.leg!.title)} te espera.`, why: "Nadie empieza hasta que lo aceptes." });
 
   const legs = p.route?.legs ?? [];
   const at = legs.findIndex((l) => l.state === "here");
@@ -434,7 +445,7 @@ export const SOLO_TU = "Aceptar cada entrega para que el paso siguiente arranque
 export const SOLO_TU_AUTO = "Publicar. Las entregas con pruebas en verde se aceptan solas en la copia de prueba.";
 export const AUTO_LABEL = "Aceptar sola en la copia de prueba si las pruebas pasan";
 
-const DID: Record<string, string> = { aceptar: "Aceptaste", fusionar: "Aceptaste", cambios: "Pediste cambios en", elegir: "Respondiste", responder: "Respondiste", hecho: "Marcaste hecho", aplazar: "Aplazaste", empezar: "Aprobaste el plan", cambiar: "Pediste cambiar", cancelar: "Cancelaste" };
+const DID: Record<string, string> = { aceptar: "Aceptaste", fusionar: "Aceptaste", cambios: "Pediste cambios en", elegir: "Respondiste", responder: "Respondiste", hecho: "Marcaste hecho", aplazar: "Aplazaste", empezar: "Aprobaste el plan", cambiar: "Pediste cambiar", cancelar: "Cancelaste", despues: "Dejaste para después" };
 export type LastLine = { id: string; text: string; at: string; decision: Decision | null };
 // The newest three: the owner's answers (a decision's state) and what the server saw (a publish, a delivery).
 export function lastLines(p: OrgProject, decisions: Decision[], max = 3): LastLine[] {
