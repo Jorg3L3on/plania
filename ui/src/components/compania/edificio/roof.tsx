@@ -2,6 +2,7 @@
 // saying the move's texto word for word (lib/edificio.ts roofChips); a chip jumps to its floor, or opens its row in
 // place when nobody on that floor asked it. Then a decision no floor can show. Deliveries this week; no tokens on the
 // building (PLA-I46-4: they live in Máquina).
+import { Link } from "react-router";
 import type { Decision, OrgPlumbing, OrgProject } from "@/lib/api";
 import { roofChips } from "@/lib/edificio";
 import { Glass } from "./window";
@@ -44,9 +45,10 @@ export const Roof = ({
               const label = `${where}: ${c.move ? c.move.texto : short(c.decision!.title)}`;
               const d = c.decision;
               return c.onTeam || !onChip || !d ? (
-                <a key={c.key} className="edi-chip" data-chip={c.key} data-chip-move={c.move ? "1" : undefined} data-on-team={c.onTeam ? "1" : "0"} href={c.project ? `#piso-${c.project.slug}` : "#"}>
+                // PLA-I47-2: a chip opens its floor (?piso=<slug>).
+                <Link key={c.key} className="edi-chip" data-chip={c.key} data-chip-move={c.move ? "1" : undefined} data-on-team={c.onTeam ? "1" : "0"} to={c.project ? `/ceo?piso=${encodeURIComponent(c.project.slug)}` : "/ceo"}>
                   {label}
-                </a>
+                </Link>
               ) : (
                 <button key={c.key} type="button" className="edi-chip" data-chip={c.key} data-chip-move={c.move ? "1" : undefined} data-on-team="0" aria-expanded={open === d.id} onClick={() => onChip(d, c.onTeam)}>
                   {label}

@@ -148,6 +148,7 @@ export const Route = ({
   onPlan,
   busy,
   play,
+  steps = true,
 }: {
   project: OrgProject;
   now: number;
@@ -155,6 +156,8 @@ export const Route = ({
   onPlan?: (slug: string, text: string) => void;
   busy?: boolean;
   play?: Play | null;
+  // PLA-I47-2: the floor draws the leg's steps in its right column (Steps), not under the legs.
+  steps?: boolean;
 }) => {
   const r = p.route;
   if (r === undefined) return null;
@@ -174,7 +177,6 @@ export const Route = ({
         )}
       </div>
     );
-  const here = r.legs.find((l) => l.state === "here");
   return (
     <div className="edi-route" data-route={r.legs.length}>
       <p className="edi-rhead">
@@ -182,6 +184,16 @@ export const Route = ({
         <span data-route-count>{routeCount(r)}</span>
       </p>
       <Legs slug={p.slug} route={r} play={play} />
+      {steps && <Steps project={p} now={now} timeZone={timeZone} />}
+    </div>
+  );
+};
+
+// The leg in course's steps by name, one line of state each. PLA-I47-2: the floor's right column (until La fila).
+export const Steps = ({ project: p, now, timeZone }: { project: OrgProject; now: number; timeZone?: string }) => {
+  const here = p.route?.legs.find((l) => l.state === "here");
+  return (
+    <>
       {here?.steps && here.steps.length > 0 && (
         <ol className="edi-steps" data-steps-of={here.title}>
           {here.steps.map((s) => (
@@ -205,6 +217,6 @@ export const Route = ({
           )}
         </ol>
       )}
-    </div>
+    </>
   );
 };

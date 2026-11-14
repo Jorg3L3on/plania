@@ -154,13 +154,13 @@ test("I40-4 #1: one sentence per state: working, soon, stuck, your turn, plan fi
   for (const l of [working, soon, usage, nobody, mine, asked, release, done]) clean(`${l.say} ${l.why}`);
 });
 
-test("I40-4 #2: with a pending delivery the mark is under Tú and the main action is its accept", () => {
+// PLA-I47-2: the Tú window is gone; Ahora says the owner holds the work and no teammate carries the mark.
+test("I40-4 #2: with a pending delivery the owner holds the work and the main action is its accept", () => {
   const s = floor(resting(), [delivery()]);
-  assert.match(s, /data-now="you"/);
-  assert.match(s, /<div class="edi-slot"[^>]*data-owner="true"[^>]*data-holding="1"/);
-  assert.equal((s.match(/class="edi-mark"/g) ?? []).length, 1, "one mark on the floor");
+  assert.match(s, /data-now="you" data-holder="owner"/);
+  assert.equal((s.match(/class="edi-mark"/g) ?? []).length, 0, "no teammate's mark while it waits on the owner");
   assert.match(s, /data-now-action="decision"[^>]*>Aceptar</);
-  assert.match(s, /class="edi-win edi-you" data-state="you"/);
+  assert.match(s, /data-pill="you"/);
   // The button runs the delivery's own accept.
   const calls: Json[] = [];
   const el = nowc.Now({ project: resting(), line: line(resting(), [delivery()]), now: NOW, decisions: [delivery()], qacts: { now: NOW, busy: null, onAct: (d: Json, input: Json, key: string) => calls.push({ id: d.id, input, key }) } });
@@ -172,13 +172,12 @@ test("I40-4 #2: with a pending delivery the mark is under Tú and the main actio
 test("I40-4 #3: Que empiece ya calls the start of that teammate; once it runs the band says Trabajando", () => {
   const s = floor(resting());
   assert.match(s, /data-now="rest"/);
-  assert.match(s, /<div class="edi-slot"[^>]*data-holding="1"[^>]*>\s*<span class="edi-mark"[^>]*><\/span>\s*<div class="edi-win"[^>]*data-agent="taller-workia"/);
+  assert.match(s, /<div class="edi-slot"[^>]*data-holding="1"[^>]*>\s*<div class="edi-win"[^>]*data-agent="taller-workia"[\s\S]*?<\/div>\s*<span class="edi-mark"/);
   assert.match(s, /data-countdown="2026-11-13T20:52:00Z"/);
   assert.ok(text(s).includes("8:00") && text(s).includes("para arrancar"));
   assert.ok(text(s).includes("descansa · arranca 2:52 pm"), "the window's caption says why, not just not yet");
   assert.equal(text(s).includes("aún no empieza"), false);
-  assert.match(s, /class="edi-win edi-you" data-state="idle"/);
-  assert.ok(text(s).includes("Nada por ahora"));
+  assert.equal(/data-pill="you"/.test(s), false, "PLA-I47-2: not the owner's turn: the pill is not orange");
   assert.equal(/edi-go[" ]|data-move=/.test(s), false, "a resting teammate is not the owner's turn: no green button");
 
   const calls: unknown[][] = [];
@@ -322,11 +321,11 @@ test("I40-6 #1: an answered decision is a line under Lo último, not a bubble; a
   clean(s);
 });
 
-test("I40-6: Solo tú says what is the owner's; Pasa sin ti is not drawn; Lo último sits on the plate", () => {
+test("I40-6: Solo tú says what is the owner's; Pasa sin ti is not drawn; Lo último sits in the floor's right column", () => {
   const html = floor(full());
   const s = text(html).replace(/\s+/g, " ");
   assert.equal(s.includes("Pasa sin ti"), false);
-  assert.ok(html.indexOf('data-col="ultimo"') < html.indexOf('class="edi-wins"'), "Lo último is on the plate, left of the team");
+  assert.ok(html.indexOf('data-col="fila"') < html.indexOf('data-col="ultimo"') && html.indexOf('class="edi-wins edi-team"') < html.indexOf('data-col="ultimo"'), "PLA-I47-2: Lo último is in the right column, after the team");
   assert.ok(s.includes("Solo tú Aceptar cada entrega para que el paso siguiente arranque, y publicar."));
   const working = { ...mianovia, legs: mianovia.legs.map((l: Json) => (l.steps ? { ...l, steps: l.steps.map((x: Json) => (x.state === "next" ? { ...x, state: "working" } : x)) } : l)) };
   assert.match(lib.sinTi(full({ route: working })), /^Taller termina «Ficha de la novia y notas internas» y te lo entrega\./);

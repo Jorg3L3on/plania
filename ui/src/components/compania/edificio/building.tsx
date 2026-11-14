@@ -8,6 +8,10 @@
 //   (the project switch); last, at the end of the page, the door "Abrir un piso nuevo" (the new-project dialog).
 // PLA-I39-5: each decision hangs under its asker's window (question.tsx); one nobody on a team asked opens from its
 //   roof chip, in place.
+// PLA-I47-2 (v6): one floor at a time. The tower rail (tower.tsx) replaces scrolling between floors: Tu oficina (the
+//   roof, opened over the floor), one tile per floor, the street, the paused floors and «+». ?piso=<slug> picks the
+//   floor; ↑ ↓ walk the tower (the page listens: this component stays hook-free for the tests). The open floor fills
+//   the window and never grows with its content.
 import type { ReactNode } from "react";
 import type { Decision, OrgCompany, OrgMember, OrgProject } from "@/lib/api";
 import { floorOrder, hourIn, skyLine, skyMove } from "@/lib/edificio";
@@ -15,11 +19,11 @@ import { companyLine } from "@/lib/v2";
 import { BlockError } from "@/components/compania/parts";
 import { DecisionLayer } from "./decision-layer";
 import { Floor } from "./floor";
-import { Plate } from "./plate";
 import { ActButton, type NowActs } from "./now";
 import type { QuestionActs } from "./question";
 import { Roof } from "./roof";
 import { EdificioSkeleton, Scene } from "./scene";
+import { Tower, openFloor } from "./tower";
 
 const firstLine = (s: string, n = 160) => {
   const one = (s.split("\n").find((l) => l.trim()) ?? "").replace(/[*_#`]/g, "").trim();
@@ -55,14 +59,25 @@ export type BuildingProps = {
   nowActs?: NowActs;
   // PLA-I46-7: the Ventana a la app of a floor (the page passes VentanaLive).
   ventanaFor?: (p: OrgProject) => ReactNode;
+  // PLA-I47-2: the open floor (?piso=<slug>) and changing it (the rail, ↑ ↓).
+  piso?: string | null;
+  onPiso?: (slug: string) => void;
+  // PLA-I47-2: Tu oficina opened over the floor (the page holds it), and what else lives there (Brief de hoy).
+  office?: boolean;
+  onOffice?: () => void;
+  officeMore?: ReactNode;
 };
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor }: BuildingProps) => {
+
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
+  const open = openFloor(floors, basement, piso);
+  const officeOpen = !!office || !!roofOpen;
   // Only what Asistente wrote in a run that finished: a skipped or failed run's summary is the runner's own words.
   const summary = company.asistente.last_run?.status === "ok" && company.asistente.last_run.summary ? firstLine(company.asistente.last_run.summary) : "";
   const empty = company.projects.length === 0;
+  const isOff = !!open && basement.includes(open);
   return (
     <Scene
       hour={hourIn(now, timeZone)}
@@ -82,88 +97,65 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
         ) : null
       }
     >
-      {!empty && <Roof decisions={decisions} projects={company.projects} plumbing={company.plumbing} onChip={onChip} open={roofOpen} acts={acts} />}
-      <div className="edi-tower" data-tower={floors.length}>
-        {empty ? (
+      {empty ? (
+        <div className="edi-tower">
           <div className="edi-empty" data-empty="projects">
             <p>Un proyecto es un nombre y una meta. Llega con su equipo: PO, Research, Artist y Taller, cada uno en su ventana.</p>
             <button type="button" className="edi-door" onClick={onNew} data-control="primer-piso">
               ＋ Abrir el primer piso
             </button>
           </div>
-        ) : (
-          <>
-            {floors.map((p) => (
-              <Floor
-                key={p.slug}
-                project={p}
-                now={now}
-                companyPaused={paused}
-                onOpen={onOpen ? (m, el) => onOpen(p.slug, m, el) : undefined}
-                onFijar={onFijar}
-                onPlan={onPlan}
-                onPublish={onPublish}
-                decisions={decisions}
-                acts={acts}
-                ask={askFor?.(p)}
-                typing={!!typing?.[p.slug]}
-                timeZone={timeZone}
-                nowActs={nowActs}
-                ventana={ventanaFor?.(p)}
-              >
-                {onAdd && p.team.length < 8 ? (
-                  <button type="button" className="edi-win edi-add" onClick={(e) => onAdd(p.slug, e.currentTarget)} data-control="sumar" aria-label={`Sumar a alguien al equipo de ${p.title}`}>
-                    <span className="edi-glass" aria-hidden>
-                      +
-                    </span>
-                    <span className="edi-who">
-                      <b>Sumar al equipo</b>
-                    </span>
-                  </button>
-                ) : null}
-              </Floor>
-            ))}
-          </>
-        )}
-      </div>
-      <div className="edi-street" aria-hidden />
-      {basement.length > 0 && (
-        <div className="edi-under" data-basement={basement.length}>
-          <p className="edi-eyebrow">Bajo la calle · en pausa</p>
-          {basement.map((p) => (
+        </div>
+      ) : (
+        <div className="edi-bld" data-open={open?.slug}>
+          <Tower floors={floors} basement={basement} decisions={decisions} projects={company.projects} open={open?.slug ?? null} officeOpen={officeOpen} companyPaused={paused} onPiso={onPiso} onOffice={onOffice} onNew={onNew} />
+          {/* Tu oficina: what waits on the owner across floors, over the floor while open. */}
+          <div className="edi-office" data-office={officeOpen ? "open" : "closed"} hidden={!officeOpen}>
+            <Roof decisions={decisions} projects={company.projects} plumbing={company.plumbing} onChip={onChip} open={roofOpen} acts={acts} />
+            {officeMore && <div className="edi-office-more">{officeMore}</div>}
+          </div>
+          {open && (
             <Floor
-              key={p.slug}
-              project={p}
+              key={open.slug}
+              project={open}
               now={now}
               companyPaused={paused}
+              onOpen={onOpen ? (m, el) => onOpen(open.slug, m, el) : undefined}
+              onFijar={onFijar}
+              onPlan={onPlan}
+              onPublish={isOff ? undefined : onPublish}
+              decisions={isOff ? undefined : decisions}
+              acts={isOff ? undefined : acts}
+              ask={isOff ? undefined : askFor?.(open)}
+              typing={!!typing?.[open.slug]}
               timeZone={timeZone}
-              onOpen={onOpen ? (m, el) => onOpen(p.slug, m, el) : undefined}
-              plate={
-                <Plate project={p} onPlan={onPlan} noSteps={p.route !== undefined}>
-                  {onResume && (
-                    <div className="edi-links">
-                      <button type="button" className="edi-btn" disabled={resuming === p.slug} onClick={() => onResume(p.slug)} data-control="reanudar">
-                        {resuming === p.slug ? "…" : "Reanudar"}
-                      </button>
-                    </div>
-                  )}
-                </Plate>
+              nowActs={isOff ? undefined : nowActs}
+              ventana={isOff ? undefined : ventanaFor?.(open)}
+              resume={
+                isOff && onResume ? (
+                  <button type="button" className="edi-btn" disabled={resuming === open.slug} onClick={() => onResume(open.slug)} data-control="reanudar">
+                    {resuming === open.slug ? "…" : "Reanudar"}
+                  </button>
+                ) : undefined
               }
-            />
-          ))}
+            >
+              {!isOff && onAdd && open.team.length < 8 ? (
+                <button type="button" className="edi-win edi-add" onClick={(e) => onAdd(open.slug, e.currentTarget)} data-control="sumar" aria-label={`Sumar a alguien al equipo de ${open.title}`}>
+                  <span className="edi-glass" aria-hidden>
+                    +
+                  </span>
+                  <span className="edi-who">
+                    <b>Sumar</b>
+                  </span>
+                </button>
+              ) : null}
+            </Floor>
+          )}
         </div>
       )}
-      {!empty && <PhoneBar projects={company.projects} decisions={decisions} ctx={{ decisions, acts: nowActs, qacts: acts, onFijar, onPublish }} pedir={!!askFor} />}
+      {!empty && open && <PhoneBar projects={company.projects} decisions={decisions} floor={open} ctx={{ decisions, acts: nowActs, qacts: acts, onFijar, onPublish }} pedir={!!askFor && !isOff} />}
       {/* PLA-I46-15: a decision at the front (Ahora's «Al frente»). */}
       {!empty && <DecisionLayer projects={company.projects} decisions={decisions} ctx={{ decisions, acts: nowActs, qacts: acts, onFijar, onPublish }} now={now} companyPaused={paused} timeZone={timeZone} />}
-      {!empty && (
-        <div className="edi-lobby edi-lobby-end">
-          <button type="button" className="edi-door" onClick={onNew} data-control="piso-nuevo">
-            ＋ Abrir un piso nuevo
-          </button>
-          <span className="edi-muted">Un proyecto nuevo llega con su equipo: PO, Research, Artist y Taller.</span>
-        </div>
-      )}
     </Scene>
   );
 };
@@ -172,9 +164,9 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
 // first floor's move (the same action as Ahora's, whose own button hides there), and Pedir for that floor (it opens
 // the plate's side page). Without a move it says so and draws no green button.
 const openAsk = (slug: string) => document.querySelector<HTMLButtonElement>(`[data-ask-open="${CSS.escape(slug)}"] [data-control="pedir-abrir"]`)?.click();
-export const PhoneBar = ({ projects, decisions, ctx, pedir }: { projects: OrgProject[]; decisions: Decision[]; ctx: Parameters<typeof ActButton>[0]["ctx"]; pedir?: boolean }) => {
+export const PhoneBar = ({ projects, decisions, ctx, pedir, floor: shown }: { projects: OrgProject[]; decisions: Decision[]; ctx: Parameters<typeof ActButton>[0]["ctx"]; pedir?: boolean; floor?: OrgProject }) => {
   const sky = skyMove(projects, decisions);
-  const floor = sky?.project ?? floorOrder(projects, decisions).floors[0];
+  const floor = shown ?? sky?.project ?? floorOrder(projects, decisions).floors[0];
   if (!floor) return null;
   return (
     <div className="edi-pbar" data-pbar={floor.slug} role="region" aria-label="Tu siguiente jugada">

@@ -7,7 +7,8 @@
 // Data: GET /api/company (decisions[] with asker, team[] with queue), GET /api/threads/:id,
 // GET /api/company/projects/:slug for the plan and adding someone; POST /api/company/decisions/:id acts.
 // URL: ?m=<slug>:<agent> a teammate, ?plan=<slug> the plan, ?add=<slug> adding someone, ?asistente the thread,
-// ?decision=<id> scrolls to that decision, ?doc=<id> a doc, ?nuevo the new project dialog; ?p=<slug> and
+// ?decision=<id> scrolls to that decision, ?doc=<id> a doc, ?nuevo the new project dialog, ?piso=<slug> the open
+// floor (PLA-I47-2); ?p=<slug> and
 // ?vista=<slug> redirect to /p/<slug>, ?equipo to Máquina.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,7 +20,7 @@ import { toast } from "sonner";
 import { ThreadPanel } from "@/components/compania/org";
 import type { DecisionBusy } from "@/components/compania/v2";
 import { AskBox } from "@/components/compania/edificio/ask";
-import { AsistenteFab } from "@/components/compania/edificio/asistente";
+import { AsistenteButton } from "@/components/compania/edificio/asistente";
 import { Building, BuildingBlock } from "@/components/compania/edificio/building";
 import { VentanaLive } from "@/components/compania/edificio/ventana";
 import { PublishBody, PublishDone, publishError } from "@/components/compania/edificio/publish";
@@ -32,10 +33,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ApiError, api, type Decision, type DecisionInput, type OrgProject } from "@/lib/api";
 import { ceoRedirect, sheetOf, sheetSearch } from "@/lib/compania";
-import { caption } from "@/lib/edificio";
+import { caption, floorOrder } from "@/lib/edificio";
+import { openFloor, stepFloor } from "@/components/compania/edificio/tower";
 import { byLight, plumbingLine } from "@/lib/org";
 import { greeting } from "@/lib/greeting";
 import { hireLabel } from "@/lib/sumar";
+
+const typingIn = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || !!t.closest("[role=dialog]"));
 
 const dayLabel = (timeZone: string) =>
   new Intl.DateTimeFormat("es-MX", {
@@ -126,8 +130,20 @@ const Compania = () => {
   });
 
   const projects = useMemo(() => [...(company?.projects ?? [])].sort(byLight), [company]);
-  const openSheet = (search: string) => navigate({ pathname: "/ceo", search });
-  const closeSheet = () => navigate({ pathname: "/ceo", search: "" }, { replace: true });
+  // PLA-I47-2: ?piso=<slug> is the open floor; it stays in the address while a side page opens and closes.
+  const piso = new URLSearchParams(location.search).get("piso");
+  const withPiso = (search: string) => {
+    const q = new URLSearchParams(search);
+    if (piso && !q.has("piso")) q.set("piso", piso);
+    const out = q.toString();
+    return out ? `?${out}` : "";
+  };
+  const openSheet = (search: string) => navigate({ pathname: "/ceo", search: withPiso(search) });
+  const closeSheet = () => navigate({ pathname: "/ceo", search: withPiso("") }, { replace: true });
+  const onPiso = (slug: string) => navigate({ pathname: "/ceo", search: `?piso=${encodeURIComponent(slug)}` }, { replace: true });
+  const [office, setOffice] = useState(false);
+  // A roof chip or a tile opens a floor: Tu oficina closes.
+  useEffect(() => setOffice(false), [piso]);
   // PLA-I39-6: the side page. Its project and teammate come from the company read; plan and add read the project.
   const sideProject = sheet && (sheet.kind === "member" || sheet.kind === "plan" || sheet.kind === "add") ? (company?.projects.find((p) => p.slug === sheet.slug) ?? null) : null;
   const sideMember = sheet?.kind === "member" ? (sideProject?.team.find((m) => m.agent === sheet.agent) ?? null) : null;
@@ -170,6 +186,24 @@ const Compania = () => {
   }, [openDecision, company]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const decisions = useMemo(() => (company?.decisions ?? []).map((d) => acted[d.id] ?? d), [company, acted]);
+  // PLA-I47-2: ↑ ↓ walk the tower's floors, unless the owner is typing or a dialog is open.
+  const shownPiso = piso ?? decisions.find((d) => d.id === openDecision)?.project ?? null;
+  useEffect(() => {
+    if (!company) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key !== "ArrowUp" && e.key !== "ArrowDown") || e.metaKey || e.ctrlKey || e.altKey || typingIn(e.target)) return;
+      const { floors, basement } = floorOrder(company.projects, decisions);
+      const open = openFloor(floors, basement, shownPiso);
+      const to = stepFloor(floors, basement, open?.slug ?? null, e.key === "ArrowUp" ? -1 : 1);
+      if (to && to !== open?.slug) {
+        e.preventDefault();
+        onPiso(to);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [company, decisions, shownPiso]);
   const act = useMutation({
     mutationFn: (v: { d: Decision; input: DecisionInput; key: string }) => api.actDecision(v.d.id, v.input),
     onMutate: (v) => {
@@ -406,15 +440,6 @@ const Compania = () => {
         </p>
       )}
 
-      {/* PLA-I42-5: Brief de hoy, the Morning brief's 0-token lines (no Claude run) and a link to the full /brief. */}
-      {company?.brief && (
-        <Brief
-          lines={company.brief.lines}
-          title={briefTitle(company.brief.generated_at, now, timeZone)}
-          sign="Asistente"
-          link={{ to: company.brief.link, label: BRIEF_LINK_LABEL }}
-        />
-      )}
 
       {/* PLA-I39-3: the building in place of the 360 px column and the cards grid. */}
       <BuildingBlock loading={comp.isPending} error={comp.isError && !company} onRetry={() => void comp.refetch()}>
@@ -432,6 +457,15 @@ const Compania = () => {
                 <Link to="/machine" className="edi-mini" data-plumbing>
                   Plomería · {plumbingLine(company.plumbing).text}
                 </Link>
+                {/* PLA-I47-5: Asistente in the sky line, not floating over the floor. */}
+                <AsistenteButton
+                  unread={company.asistente.unread ?? 0}
+                  waiting={company.asistente.state === "waiting_jorge"}
+                  onOpen={(el) => {
+                    opener.current = el;
+                    openSheet(sheetSearch({ kind: "asistente" }));
+                  }}
+                />
               </>
             }
             onNew={onNew}
@@ -464,6 +498,16 @@ const Compania = () => {
             typing={typing}
             nowActs={nowActs}
             ventanaFor={(p) => <VentanaLive slug={p.slug} title={p.title} timeZone={timeZone} />}
+            // PLA-I42-5: Brief de hoy, the Morning brief's 0-token lines; PLA-I47-2: inside Tu oficina, not above the floor.
+            office={office}
+            onOffice={() => setOffice((v) => !v)}
+            officeMore={
+              company.brief ? (
+                <Brief lines={company.brief.lines} title={briefTitle(company.brief.generated_at, now, timeZone)} sign="Asistente" link={{ to: company.brief.link, label: BRIEF_LINK_LABEL }} />
+              ) : undefined
+            }
+            piso={shownPiso}
+            onPiso={onPiso}
             onAdd={(slug, el) => {
               opener.current = el;
               setAdded(null);
@@ -474,19 +518,6 @@ const Compania = () => {
       </BuildingBlock>
 
       {/* PLA-I39-7: Asistente floats; room so it never covers the last floor's controls. */}
-      {company && (
-        <>
-          <div className="edi-fab-room" aria-hidden />
-          <AsistenteFab
-            unread={company.asistente.unread ?? 0}
-            waiting={company.asistente.state === "waiting_jorge"}
-            onOpen={(el) => {
-              opener.current = el;
-              openSheet(sheetSearch({ kind: "asistente" }));
-            }}
-          />
-        </>
-      )}
       <SidePage
         open={sheet?.kind === "asistente" && !!company}
         wide={wide}
