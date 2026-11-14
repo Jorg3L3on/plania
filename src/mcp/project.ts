@@ -4,6 +4,7 @@ import { projects, type Project, type ProjectSettings } from "../db/schema.js";
 import { ToolError } from "./errors.js";
 import { headlineWarnings } from "./jorge-lines.js";
 import { checkReleaseSettings } from "./release-plan.js";
+import { parseCaptureSettings } from "../captures/settings.js";
 import { TEXT_LIMITS } from "./limits.js";
 import { findProject } from "./queries.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
@@ -12,7 +13,7 @@ import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 // additions to the protocol) and the headline (one line on where it stands, ≤ 280 chars).
 // Replaced with the version you read; rules_version moves with the rules, headline_version with the headline.
 
-const SETTING_KEYS = ["release_target", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel", "release", "team"] as const;
+const SETTING_KEYS = ["release_target", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel", "release", "team", "capture"] as const;
 
 // settings merge key by key; null removes one. Secrets never: integrations name env vars.
 function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>): ProjectSettings {
@@ -32,6 +33,12 @@ function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>)
   }
   if (next.release_target !== undefined && !/^[a-z][a-z0-9_-]{0,29}$/.test(String(next.release_target))) throw new ToolError("INVALID_FILTER", { field: "settings.release_target" });
   if (next.release !== undefined) next.release = checkReleaseSettings(next.release);
+  // PLA-I46-6: how Plania reaches the running app (src/captures/settings.ts).
+  if (next.capture !== undefined) {
+    const c = parseCaptureSettings(next.capture);
+    if (!c.ok) throw new ToolError("INVALID_FILTER", { field: c.field, hint: c.hint });
+    next.capture = c.settings;
+  }
   if (next.team !== undefined) {
     const team = next.team as { idle_minutes?: unknown };
     if (typeof team !== "object" || team === null || Array.isArray(team)) throw new ToolError("INVALID_FILTER", { field: "settings.team" });

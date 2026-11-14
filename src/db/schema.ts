@@ -775,6 +775,8 @@ export type ProjectSettings = {
   preview_url?: string;
   // PLA-I40-7: a delivery whose tests pass is accepted into the test copy without the owner. Off unless set.
   auto_accept?: boolean;
+  // PLA-I46-6: how Plania starts and captures the project's test copy (src/captures/settings.ts).
+  capture?: import("../captures/settings.js").CaptureSettings;
 };
 
 // 2.13: mode "command" (default) shows the command Jorge runs; "merge" lets him ship from the screen
@@ -1170,3 +1172,44 @@ export const threadMessages = pgTable(
 );
 
 export type ThreadMessage = typeof threadMessages.$inferSelect;
+
+// PLA-I46-6: stills of a project's running app (the floor's Ventana, QA evidence). One row per page and
+// viewport per run. The PNG lives in the local capture store (src/captures/store.ts) under file, named by
+// its sha256; Plania keeps only the row. A failed page is a row with status error, no file and the error
+// text, so the last good still of that page stays readable beside it.
+export const CAPTURE_STATUSES = ["ok", "error"] as const;
+export const captureStills = pgTable(
+  "capture_stills",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    // The ticket or delivery the run was for; null for a plain look at the test copy.
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    runId: uuid("run_id").notNull(),
+    pageKey: text("page_key").notNull(),
+    pageLabel: text("page_label").notNull(),
+    path: text("path").notNull(),
+    viewport: text("viewport").notNull(), // desktop | phone
+    width: integer("width").notNull(),
+    height: integer("height"),
+    status: text("status").notNull(),
+    error: text("error"),
+    file: text("file"), // <sha256>.png in the store, null on error
+    bytes: integer("bytes"),
+    url: text("url"), // where the page ended up (after a follow or a redirect)
+    commit: text("commit"),
+    branch: text("branch"),
+    actor: jsonb("actor").$type<Actor>().notNull(),
+    takenAt: timestamp("taken_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("capture_stills_latest_idx").on(t.projectId, t.pageKey, t.viewport, t.takenAt),
+    index("capture_stills_task_idx").on(t.taskId, t.takenAt),
+    check("capture_stills_status_check", sql`${t.status} in ('ok', 'error')`),
+    check("capture_stills_viewport_check", sql`${t.viewport} in ('desktop', 'phone')`),
+    check("capture_stills_file_check", sql`(${t.status} = 'ok') = (${t.file} is not null)`),
+  ],
+);
+export type CaptureStill = typeof captureStills.$inferSelect;
