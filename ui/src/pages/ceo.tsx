@@ -507,6 +507,18 @@ const Compania = () => {
               ) : undefined
             }
             piso={shownPiso}
+            // PLA-I47-3: La fila acts through the routes the side page already used; a row opens the plan (La ficha, PLA-I47-4).
+            fila={{
+              onPickNext: steer.onPickNext,
+              onStop: (id) => steer.onRun("stop", id),
+              onAccept: (d, action) => act.mutate({ d, input: { action }, key: `fila-${action}` }),
+              onCancel: steer.onCancelOrder,
+              onRow: (slug, _row, el) => {
+                opener.current = el;
+                openSheet(sheetSearch({ kind: "plan", slug }));
+              },
+              busy: steer.busy,
+            }}
             onPiso={onPiso}
             onAdd={(slug, el) => {
               opener.current = el;

@@ -1022,6 +1022,40 @@
     .edi-fcol { overflow: visible; }
   }
 
+
+  /* PLA-I47-3: La fila, in the floor's right column. Rows act where they are read; the list scrolls inside. */
+  .edi-fila { display: grid; gap: 4px; align-content: start; min-width: 0; }
+  .edi-fila-h { display: flex; align-items: baseline; gap: 8px; margin: 0 4px 2px; font-family: var(--font-display); font-weight: 700; font-size: 15px; }
+  .edi-fila-h span { font-family: inherit; font-weight: 500; font-size: 11.5px; color: var(--e-muted); }
+  .edi-fsec { display: grid; gap: 2px; min-width: 0; }
+  .edi-fsec h3 { display: flex; gap: 7px; align-items: baseline; margin: 8px 6px 2px; }
+  .edi-fsec h3 small { font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; color: rgb(255 255 255 / 0.4); }
+  .edi-flist { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+  .edi-frow { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; border-radius: 11px; }
+  .edi-frow:hover, .edi-frow:focus-within { background: rgb(255 255 255 / 0.055); }
+  .edi-frow-main { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 9px; align-items: center; width: 100%; min-width: 0; padding: 5px 8px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 11px; }
+  .edi-fmk { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font: 600 10.5px var(--font-mono, ui-monospace); color: var(--e-muted); box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.22); }
+  .edi-fmk[data-mk="done"], .edi-fmk[data-mk="pub"] { background: rgb(61 220 151 / 0.2); box-shadow: inset 0 0 0 1.5px #3ddc97; color: #3ddc97; }
+  .edi-fmk[data-mk="work"] { box-shadow: inset 0 0 0 2px #ffc46b; background: radial-gradient(circle, #ffc46b 34%, transparent 38%); }
+  .edi-fmk[data-mk="you"] { background: var(--e-you); box-shadow: none; color: #1b1206; }
+  .edi-fmk[data-mk="off"] { box-shadow: none; border: 1.5px dashed rgb(255 255 255 / 0.28); }
+  .edi-fmk[data-mk="order"] { box-shadow: inset 0 0 0 1.5px var(--e-you); color: var(--e-you-ink); font-family: inherit; font-weight: 700; font-size: 9.5px; }
+  .edi-ftx { display: grid; min-width: 0; }
+  .edi-ftx b { font-weight: 600; font-size: 13px; line-height: 1.3; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+  .edi-ftx small { color: var(--e-muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-frow[data-g="done"] .edi-ftx b, .edi-frow[data-g="pub"] .edi-ftx b, .edi-frow[data-g="off"] .edi-ftx b, .edi-frow[data-g="held"] .edi-ftx b { font-weight: 500; color: var(--e-muted); }
+  .edi-frow[data-g="you"] .edi-ftx small { color: var(--e-you-ink); }
+  .edi-frow-acts { display: none; gap: 4px; padding-right: 6px; }
+  .edi-frow:hover .edi-frow-acts, .edi-frow:focus-within .edi-frow-acts { display: flex; }
+  @media (hover: none) { .edi-frow-acts { display: flex; } }
+  .edi-fmini { height: 24px; padding: 0 9px; border-radius: 99px; border: 0; font-size: 11px; font-weight: 650; background: rgb(255 255 255 / 0.12); color: var(--e-fg); white-space: nowrap; cursor: pointer; }
+  .edi-fmini:hover { background: rgb(255 255 255 / 0.2); }
+  .edi-fmini:disabled { opacity: 0.45; cursor: default; }
+  .edi-fmini[data-control="fila-aceptar"] { background: #3ddc97; color: #04261a; }
+  .edi-fempty { color: rgb(255 255 255 / 0.45); font-size: 12.5px; padding: 4px 8px; margin: 0; }
+  .edi-fmore { justify-self: start; border: 0; background: none; color: var(--e-muted); font-size: 12px; font-weight: 600; padding: 4px 8px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+  @media (max-height: 770px) and (min-width: 48rem) { .edi-frow-main { padding-block: 4px; } .edi-fsec h3 { margin-top: 6px; } }
+
   @media (prefers-reduced-motion: reduce) {
     .edi *, .edi *::before, .edi *::after { animation: none !important; transition: none !important; }
   }

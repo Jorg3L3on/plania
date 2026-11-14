@@ -92,6 +92,8 @@ export type ProjectCard = {
   next: NextLine | null;
   // PLA-I36-6: the next Ready tickets, for Cambiar lo siguiente.
   ready: ReadyLine[];
+  // PLA-I47-3: the ticket the owner put first (Hacer primero), so La fila numbers Sigue as the runner takes it.
+  next_first: string | null;
   // PLA-I36-8: whether a PO's plan waits for "Sí, empiecen". PLA-I36-10: the running preview.
   plan_approval: boolean;
   preview_url: string | null;
@@ -513,6 +515,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       this_week: await thisWeekOf(db, p, now),
       next: upNext.next,
       ready: upNext.ready,
+      next_first: p.settings.next_first ?? null,
       plan_approval: !!p.settings.plan_approval,
       preview_url: p.settings.preview_url ?? null,
       work: await workOf(db, p),

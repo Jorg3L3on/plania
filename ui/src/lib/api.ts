@@ -252,6 +252,8 @@ export type OrgProject = {
   orders?: OrgOrder[];
   // PLA-I36-6/8/10.
   ready?: { key: string; title: string }[];
+  // PLA-I47-3: the ticket the owner put first.
+  next_first?: string | null;
   plan_approval?: boolean;
   preview_url?: string | null;
   // PLA-I46-3: la siguiente jugada (src/api/company-move.ts). Null: nothing here is the owner's; absent: older server.
@@ -271,7 +273,8 @@ export type OrgNextMove = { verbo: OrgMoveVerb; texto: string; accion: OrgMoveAc
 export type OrgLatest = { kind: "published" | "delivered"; title: string | null; n: number | null; at: string };
 export type OrgStaleRequest = { key: string; title: string; since: string };
 export type OrgStepState = "done" | "published" | "delivered" | "working" | "next" | "later";
-export type OrgRouteStep = { key: string; title: string; state: OrgStepState; who: string | null; at: string | null };
+// PLA-I47-3: postponed (a Backlog step) and waits (the step that holds it) only when they say something.
+export type OrgRouteStep = { key: string; title: string; state: OrgStepState; who: string | null; at: string | null; postponed?: boolean; waits?: string | null };
 export type OrgRouteLeg = { key: string; title: string; done: number; total: number; state: "done" | "here" | "planned" | "unplanned"; note: string | null; postponed?: boolean; steps?: OrgRouteStep[]; more_steps?: number };
 export type OrgRoute = { legs: OrgRouteLeg[]; more_legs: number };
 // PLA-I36-5: position by calendar. weeks, today_pct, done_pct are null without a delivery date (no bar).

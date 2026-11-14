@@ -10,6 +10,7 @@ import { RECIBIRIA, floorHue, hangingFor, nowLine, returnedOf } from "@/lib/edif
 import { deliveryOf } from "@/lib/evidencia";
 import { byRole } from "@/lib/org";
 import { After, Last } from "./after";
+import { Fila, type FilaActs } from "./fila";
 import { Head } from "./head";
 import { Now, type NowActs } from "./now";
 import { Question, bubblePlace, type QuestionActs } from "./question";
@@ -33,7 +34,7 @@ export const Floor = ({
   nowActs,
   solo,
   ventana,
-  column,
+  fila,
   children,
 }: {
   project: OrgProject;
@@ -59,8 +60,8 @@ export const Floor = ({
   solo?: ReactNode;
   // PLA-I46-7: the Ventana a la app, mounted beside Ahora's text.
   ventana?: ReactNode;
-  // PLA-I47-3: the right column (La fila); without it, the leg's steps and Lo último.
-  column?: ReactNode;
+  // PLA-I47-3: La fila's calls; with them the right column is La fila, then Lo último and Solo tú.
+  fila?: FilaActs;
   // The «+ Sumar» window.
   children?: ReactNode;
 }) => {
@@ -117,13 +118,9 @@ export const Floor = ({
           {ask && <div className="edi-askbar">{ask}</div>}
         </div>
         <div className="edi-fcol" data-col="fila">
-          {column ?? (
-            <>
-              <Steps project={p} now={now} timeZone={timeZone} />
-              <Last project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={nowActs} qacts={acts} />
-              <After project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={nowActs} qacts={acts} solo={solo} hideAuto={!!dv} />
-            </>
-          )}
+          {fila ? <Fila project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={fila} /> : <Steps project={p} now={now} timeZone={timeZone} />}
+          <Last project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={nowActs} qacts={acts} />
+          <After project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={nowActs} qacts={acts} solo={solo} hideAuto={!!dv} />
         </div>
       </div>
     </article>

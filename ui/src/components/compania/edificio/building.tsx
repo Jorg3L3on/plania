@@ -24,6 +24,7 @@ import type { QuestionActs } from "./question";
 import { Roof } from "./roof";
 import { EdificioSkeleton, Scene } from "./scene";
 import { Tower, openFloor } from "./tower";
+import type { FilaActs } from "./fila";
 
 const firstLine = (s: string, n = 160) => {
   const one = (s.split("\n").find((l) => l.trim()) ?? "").replace(/[*_#`]/g, "").trim();
@@ -66,10 +67,12 @@ export type BuildingProps = {
   office?: boolean;
   onOffice?: () => void;
   officeMore?: ReactNode;
+  // PLA-I47-3: La fila's calls (Hacer primero, Detener, Aceptar, Quitar).
+  fila?: FilaActs;
 };
 
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore }: BuildingProps) => {
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore, fila }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
   const open = openFloor(floors, basement, piso);
@@ -131,6 +134,7 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
               timeZone={timeZone}
               nowActs={isOff ? undefined : nowActs}
               ventana={isOff ? undefined : ventanaFor?.(open)}
+              fila={isOff ? undefined : fila}
               resume={
                 isOff && onResume ? (
                   <button type="button" className="edi-btn" disabled={resuming === open.slug} onClick={() => onResume(open.slug)} data-control="reanudar">
