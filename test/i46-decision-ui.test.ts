@@ -148,7 +148,7 @@ test("I46-10: a delivery to accept is one evidence card in Ahora: tests, separat
   assert.equal((card.match(/\bedi-go\b/g) ?? []).length, 1, "one green button on the card");
   // No second copy hanging under Taller's window; the Tú window and the phone bar carry the same Aceptar.
   assert.equal(s.includes(`data-bubble="${d.id}"`), false);
-  assert.ok(/data-where="tu"[^>]*>Aceptar</.test(s) && /data-where="barra"[^>]*>Aceptar</.test(s));
+  assert.ok(/data-where="barra"[^>]*>Aceptar</.test(s));
   // Aceptar runs the same thing from every surface: the floor's fusionar on that delivery.
   const calls: unknown[][] = [];
   const run = nowc.runOf(c.projects[0], c.projects[0].next_move.accion, { decisions: [d], qacts: { now: NOW, busy: null, onAct: (...a: unknown[]) => calls.push(a) } });

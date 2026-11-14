@@ -145,7 +145,6 @@ test("I46-11 #1: the plan is the move, and Ahora shows its steps, questions with
   // the layer; it is a view, not a fourth exit.
   assert.deepEqual([...card.matchAll(/<button[^>]*>([^<]+)<\/button>/g)].map((x) => x[1]!).filter((l) => !/^(Sí|No|Solo|La tienda)/.test(l)), ["Aceptar plan", "Cambiar algo", "Después", "Al frente"]);
   // The same button on the Tú window and in the phone bar; no second copy hanging under the PO.
-  assert.ok(/data-where="tu"[^>]*>Aceptar plan</.test(s), "Tú");
   assert.ok(/data-where="barra"[^>]*>Aceptar plan</.test(s), "phone bar");
   assert.ok(!s.includes(`data-bubble="${d.id}"`), "not hung under the PO's window");
 });

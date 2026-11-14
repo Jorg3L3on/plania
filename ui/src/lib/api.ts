@@ -133,6 +133,8 @@ export const api = {
   company: () => request<OrgCompany>("GET", "/company"),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
+  companyFicha: (slug: string) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha`),
+  projectDoc: (slug: string, id: string) => request<ProjectDocBody>("GET", `/company/docs/${encodeURIComponent(id)}?project=${encodeURIComponent(slug)}`),
   // PLA-I46-13: packs are set in the same call; the server refuses an unknown pack before hiring.
   addToTeam: (slug: string, template: string, packs?: string[]) =>
     request<{ agent: OrgMember; team: OrgMember[]; packs?: PackRef[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, packs?.length ? { template, packs } : { template }),
@@ -250,6 +252,8 @@ export type OrgProject = {
   orders?: OrgOrder[];
   // PLA-I36-6/8/10.
   ready?: { key: string; title: string }[];
+  // PLA-I47-3: the ticket the owner put first.
+  next_first?: string | null;
   plan_approval?: boolean;
   preview_url?: string | null;
   // PLA-I46-3: la siguiente jugada (src/api/company-move.ts). Null: nothing here is the owner's; absent: older server.
@@ -269,7 +273,8 @@ export type OrgNextMove = { verbo: OrgMoveVerb; texto: string; accion: OrgMoveAc
 export type OrgLatest = { kind: "published" | "delivered"; title: string | null; n: number | null; at: string };
 export type OrgStaleRequest = { key: string; title: string; since: string };
 export type OrgStepState = "done" | "published" | "delivered" | "working" | "next" | "later";
-export type OrgRouteStep = { key: string; title: string; state: OrgStepState; who: string | null; at: string | null };
+// PLA-I47-3: postponed (a Backlog step) and waits (the step that holds it) only when they say something.
+export type OrgRouteStep = { key: string; title: string; state: OrgStepState; who: string | null; at: string | null; postponed?: boolean; waits?: string | null };
 export type OrgRouteLeg = { key: string; title: string; done: number; total: number; state: "done" | "here" | "planned" | "unplanned"; note: string | null; postponed?: boolean; steps?: OrgRouteStep[]; more_steps?: number };
 export type OrgRoute = { legs: OrgRouteLeg[]; more_legs: number };
 // PLA-I36-5: position by calendar. weeks, today_pct, done_pct are null without a delivery date (no bar).
@@ -375,6 +380,28 @@ export type OrgTemplate = { slug: string; title: string };
 export type HireRole = OrgTemplate & { state: "free" | "taken" | "no_doc" };
 export type PackRef = { slug: string; name: string; when: string; doc_id: string };
 export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[]; hire?: HireRole[] };
+
+// PLA-I47-1: La ficha's tabs (GET /api/company/projects/:slug/ficha). Rows only; a doc's body is read on open.
+export type FichaIdea = {
+  key: string;
+  title: string;
+  stage: string | null;
+  waits: string | null;
+  updated_at: string;
+  docs: { Idea: string | null; Research: string | null; Design: string | null; Plan: string | null };
+};
+export type FichaPr = { number: number; title: string; url: string; state: string; ci_state: string | null; task_key: string | null; merged_at: string | null; head_branch: string | null };
+export type FichaDoc = { id: string; title: string; task_key: string | null; updated_at: string };
+export type FichaDesign = { idea_key: string; doc_id: string; url: string };
+export type OrgFicha = {
+  slug: string;
+  counts: { ideas: number; prs: number; docs: number; designs: number };
+  ideas: FichaIdea[];
+  prs: FichaPr[];
+  docs: FichaDoc[];
+  designs: FichaDesign[];
+};
+export type ProjectDocBody = { id: string; title: string; version: number; markdown: string; task_key: string | null };
 
 export type ThreadAction = "aceptar" | "cambios" | "responder" | "fusionar";
 export type ThreadLink = { kind: "ticket" | "doc" | "pr" | "idea" | "question" | "brief_plan"; ref: string; title: string };

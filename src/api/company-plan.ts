@@ -107,9 +107,12 @@ export async function planOf(db: Db, p: Project, today = new Date(), goalTarget:
 //         was put off when only Backlog tickets are left, and postponed is true then (PLA-I46-14: drawn striped).
 //   step  done (accepted), published (in a release that shipped, or Released), delivered (In review, waits for
 //         the owner), working (In progress), next (the first Ready step nothing holds), later (the rest).
+//         PLA-I47-3 (La fila): postponed is true on a Backlog step (put off on purpose); waits names the first step
+//         that holds a Ready one (its unlanded blocker), so the list says «Espera a <paso>».
+//         Both are present only when they say something, so older readers see the same shape.
 // At most 8 legs and 12 steps; more_legs and more_steps count what was left out.
 export type StepState = "done" | "published" | "delivered" | "working" | "next" | "later";
-export type RouteStep = { key: string; title: string; state: StepState; who: string | null; at: string | null };
+export type RouteStep = { key: string; title: string; state: StepState; who: string | null; at: string | null; postponed?: true; waits?: string };
 export type LegState = "done" | "here" | "planned" | "unplanned";
 export type RouteLeg = { key: string; title: string; done: number; total: number; state: LegState; note: string | null; postponed: boolean; steps?: RouteStep[]; more_steps?: number };
 export type Route = { legs: RouteLeg[]; more_legs: number };
@@ -148,6 +151,14 @@ export async function routeOf(db: Db, p: Project): Promise<Route | null> {
             where tb.task_id = t.id and b.status not in ('Merged', 'Released', 'Done')))`);
       for (const r of rows.rows) held.add(String(r.id));
     }
+    const waits = new Map<string, string>();
+    if (held.size) {
+      const by = await db.execute<{ task_id: string; title: string }>(sql`
+        select tb.task_id, b.title from ${taskBlockers} tb join ${tasks} b on b.id = tb.blocker_id
+        where tb.task_id in (${sql.join([...held].map((id) => sql`${id}::uuid`), sql`, `)}) and b.status not in ('Merged', 'Released', 'Done')
+        order by b.phase nulls last, b.key`);
+      for (const r of by.rows) if (!waits.has(String(r.task_id))) waits.set(String(r.task_id), String(r.title));
+    }
     const next = ready.find((t) => !held.has(t.id))?.id ?? null;
     const owners = [...new Set(mine.map((t) => t.ownerAgent).filter((x): x is string => !!x))];
     const roles = new Map<string, string>();
@@ -166,7 +177,11 @@ export async function routeOf(db: Db, p: Project): Promise<Route | null> {
                   ? "next"
                   : "later";
       const who = (t.ownerAgent && roles.get(t.ownerAgent)) || ((t.workType ?? "code") === "code" ? "taller" : "product-owner");
-      return { key: t.key, title: t.title, state, who, at: t.statusChangedAt?.toISOString() ?? null };
+      const step: RouteStep = { key: t.key, title: t.title, state, who, at: t.statusChangedAt?.toISOString() ?? null };
+      if (state === "later" && t.status === "Backlog") step.postponed = true;
+      const w = waits.get(t.id);
+      if (state === "later" && w) step.waits = w;
+      return step;
     });
     const leg = legs.find((l) => l.key === here.key)!;
     leg.steps = steps.slice(0, MAX_STEPS);

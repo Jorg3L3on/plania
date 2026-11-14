@@ -1,11 +1,11 @@
-// PLA-I39-7: Asistente floats. A button at the bottom right (above the tab bar and the safe area on a phone) with the
-// unread count and a dot when Asistente waits on the owner. It opens the side page (?asistente) with the existing
-// thread panel and composer (useThread); the 360 px column is gone.
+// PLA-I39-7: Asistente's button, with the unread count and a dot when Asistente waits on the owner. It opens the side
+// page (?asistente) with the existing thread panel and composer (useThread); the 360 px column is gone.
+// PLA-I47-5: it no longer floats at the bottom right; it sits in the sky line, beside the plumbing link.
 
-export const AsistenteFab = ({ unread, waiting, onOpen }: { unread: number; waiting: boolean; onOpen: (el: HTMLElement) => void }) => (
+export const AsistenteButton = ({ unread, waiting, onOpen }: { unread: number; waiting: boolean; onOpen: (el: HTMLElement) => void }) => (
   <button
     type="button"
-    className="edi-fab"
+    className="edi-asis"
     onClick={(e) => onOpen(e.currentTarget)}
     aria-haspopup="dialog"
     aria-label={`Asistente${unread > 0 ? `, ${unread === 1 ? "1 mensaje sin leer" : `${unread} mensajes sin leer`}` : ""}${waiting ? ", te espera" : ""}`}
@@ -13,7 +13,7 @@ export const AsistenteFab = ({ unread, waiting, onOpen }: { unread: number; wait
     data-unread={unread}
     data-waiting={waiting ? "1" : undefined}
   >
-    <span className="edi-face edi-fab-face" aria-hidden>
+    <span className="edi-face edi-asis-face" aria-hidden>
       A
     </span>
     Asistente
@@ -22,6 +22,6 @@ export const AsistenteFab = ({ unread, waiting, onOpen }: { unread: number; wait
         {unread}
       </span>
     )}
-    {waiting && <span className="edi-fab-dot" aria-hidden />}
+    {waiting && <span className="edi-asis-dot" aria-hidden />}
   </button>
 );
