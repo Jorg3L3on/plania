@@ -20,7 +20,7 @@ import type { DecisionBusy } from "@/components/compania/v2";
 import { AskBox } from "@/components/compania/edificio/ask";
 import { AsistenteFab } from "@/components/compania/edificio/asistente";
 import { Building, BuildingBlock } from "@/components/compania/edificio/building";
-import { PublishBody, publishError } from "@/components/compania/edificio/publish";
+import { PublishBody, PublishDone, publishError } from "@/components/compania/edificio/publish";
 import { AddPage, MemberHead, MemberSide, PlanPage, SidePage, memberTitle } from "@/components/compania/edificio/side";
 import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
 import { useThread } from "@/components/compania/use-thread";
@@ -322,19 +322,29 @@ const Compania = () => {
   // publishing keeps the project while the sheet slides closed, so it never flashes an empty name.
   const [publishing, setPublishing] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
-  const publishRelease = publishing ? (decisions.find((d) => d.kind === "release" && d.project === publishing && !d.state) ?? null) : null;
+  const liveRelease = publishing ? (decisions.find((d) => d.kind === "release" && d.project === publishing && !d.state) ?? null) : null;
+  // What the owner clicked on: kept while it publishes and after, when the floor no longer lists it.
+  const [shipped, setShipped] = useState<typeof liveRelease>(null);
+  const [publishSince, setPublishSince] = useState<number | null>(null);
+  const publishRelease = shipped ?? liveRelease;
   const publishTitle = publishing ? (company?.projects.find((p) => p.slug === publishing)?.title ?? publishing) : "";
   const openPublish = (slug: string | null | undefined) => {
     if (!slug) return;
     publish.reset();
+    setShipped(null);
+    setPublishSince(null);
     setPublishing(slug);
     setPublishOpen(true);
   };
   const publish = useMutation({
     mutationFn: (v: { slug: string }) => api.shipRelease(v.slug),
+    onMutate: () => {
+      setShipped(liveRelease);
+      setPublishSince(Date.now());
+    },
+    // The sheet stays open on success and says what went out (PublishDone); a toast too, if it was closed meanwhile.
     onSuccess: (_r, v) => {
-      toast(`${publishTitle || v.slug}: publicado. Ya está en la versión principal.`);
-      setPublishOpen(false);
+      toast.success(`${publishTitle || v.slug}: publicado. Ya está en la versión principal.`);
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ["company"] });
@@ -550,11 +560,14 @@ const Compania = () => {
             <SheetDescription>Lo que ya aceptaste en la copia de prueba pasa a la versión principal.</SheetDescription>
           </SheetHeader>
           <div className="px-4 pb-8">
-            {publishing && publishRelease?.release ? (
+            {publishing && publishRelease?.release && publish.isSuccess ? (
+              <PublishDone title={publishTitle} release={publishRelease.release} result={publish.data} onClose={() => setPublishOpen(false)} />
+            ) : publishing && publishRelease?.release ? (
               <PublishBody
                 title={publishTitle}
                 release={publishRelease.release}
                 busy={publish.isPending}
+                since={publishSince}
                 error={publish.isError ? (publish.error instanceof ApiError ? publishError(publish.error.code, publish.error.detail) : "No se pudo. Si la Mac está dormida, intenta al despertar.") : null}
                 onPublish={() => publish.mutate({ slug: publishing })}
                 onCancel={() => setPublishOpen(false)}

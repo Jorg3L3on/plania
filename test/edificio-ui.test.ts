@@ -727,6 +727,12 @@ test("PLA-23 #1: the roof chip of a release publishes in place, and the sheet sa
   assert.equal(confirm(body).includes('disabled=""'), false);
   const sending = html(h(publishUi.PublishBody, { title: "Mianovia", release: release().release, busy: true, onPublish: noop, onCancel: noop }));
   assert.ok(confirm(sending).includes('disabled=""') && sending.includes("Publicando…"));
+  // It never just closes: while it publishes, a status line with a running clock; when done, what went out and the PR.
+  const working = html(h(publishUi.PublishBody, { title: "Mianovia", release: release().release, busy: true, since: 0, onPublish: noop, onCancel: noop }));
+  assert.ok(working.includes("data-publish-working") && working.includes("Publicando en GitHub"));
+  assert.ok(html(h(publishUi.PublishWorking, { release: release().release, since: 0, now: 75_000 })).includes("1:15"));
+  const done = html(h(publishUi.PublishDone, { title: "Mianovia", release: release().release, result: { merged: true, pr: { number: 699, url: "https://github.com/x/y/pull/699" }, merge_sha: "7cccccc1234", tickets: [], migrations: [] }, onClose: noop }));
+  assert.ok(done.includes("data-publish-done") && done.includes("Publicado.") && done.includes("#699") && done.includes("7cccccc") && done.includes('data-control="publicar-listo"'));
   assert.equal(publishUi.publishError("OWNER_CODE_INVALID"), "Ese código no es válido o ya se usó; espera el siguiente.");
   assert.match(publishUi.publishError("RELEASE_NOT_READY", { reason: "open_checks" }), /puntos abiertos/);
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");

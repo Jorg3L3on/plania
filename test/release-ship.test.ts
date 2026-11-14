@@ -18,7 +18,7 @@ const { createTask } = await import("../src/mcp/writes.js");
 const { setProject } = await import("../src/mcp/project.js");
 const { findProject, findTask, listEvents } = await import("../src/mcp/queries.js");
 const { pollGithubProject } = await import("../src/jobs/github.js");
-const { releasePlan } = await import("../src/mcp/release-plan.js");
+const { releasePending, releasePlan, releaseUnknown } = await import("../src/mcp/release-plan.js");
 const { releaseGh, runReleaseGh, shipRelease } = await import("../src/mcp/release-ship.js");
 const { inbox } = await import("../src/mcp/inbox.js");
 
@@ -251,6 +251,10 @@ describe("shipping", () => {
     assert.deepEqual(plan.merged, { sha: MERGE, pr_url: `https://github.com/${REPO}/pull/699`, at: plan.merged!.at });
     assert.deepEqual(plan.ship, { ready: false, reason: "merged" });
     assert.equal((await ship()).status, 409, "a second click does not merge again");
+    // Published: it no longer waits on Jorge, even before the poller's next compare (the floor stops offering Publicar).
+    assert.equal(releasePending(plan), false);
+    assert.equal(releaseUnknown(plan), false);
+    assert.equal((await inbox(db, p)).items.some((i: Json) => i.kind === "release"), false);
   });
 
   test("without an open PR one is created; the poller then sees main contain sandbox and the step goes", async () => {
