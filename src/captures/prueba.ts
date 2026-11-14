@@ -87,6 +87,8 @@ type Copy = {
   error: string | null;
   tail: string[];
   stopping: boolean;
+  // The server footprint being written for this copy, so a failure can wait for it and release it.
+  registering: Promise<unknown> | null;
 };
 
 let deps: PruebaDeps = {};
@@ -201,18 +203,21 @@ export async function encender(db: Db, slug: string): Promise<PruebaRead> {
   const had = copies.get(slug);
   if (had && had.phase !== "failed") return read(had);
   if (had) await apagar(db, slug); // Reintentar after a failed start: clean up first
-  const c: Copy = { slug, phase: "starting", managed: true, port: null, pid: null, worktree: null, repo: null, command: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false };
+  const c: Copy = { slug, phase: "starting", managed: true, port: null, pid: null, worktree: null, repo: null, command: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null };
   copies.set(slug, c);
   hook();
   void start(db, c, p, s).catch((e) => fail(db, c, `No se pudo encender: ${short(e)}`));
   return read(c);
 }
 
+// Error shows only once the process is stopped and its footprint released (a footprint still being written is
+// waited for first), so whoever reads «failed» never finds the copy still registered.
 async function fail(db: Db, c: Copy, error: string): Promise<void> {
   if (copies.get(c.slug) !== c) return;
   c.error = error;
-  c.phase = "failed";
+  if (c.registering) await c.registering;
   await stopProcess(db, c);
+  if (copies.get(c.slug) === c) c.phase = "failed";
 }
 
 async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: CaptureSettings): Promise<void> {
@@ -293,7 +298,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
     void fail(db, c, c.phase === "starting" ? `La copia de prueba se cerró al arrancar (${exited})` : `La copia de prueba se apagó (${exited})`);
   });
   if (deps.footprints !== false) {
-    await registerFootprint(
+    c.registering = registerFootprint(
       db,
       {
         project: p.slug,
@@ -305,8 +310,10 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
       },
       ctx(),
     ).catch(() => undefined);
+    await c.registering;
+    c.registering = null;
     // It may have exited (or been turned off) while the footprint was being written: release it again.
-    if (copies.get(c.slug) !== c || c.stopping || c.phase === "failed") {
+    if (copies.get(c.slug) !== c || c.stopping || c.phase === "failed" || exited) {
       await releaseFootprint(db, { project: p.slug, kind: "server", locator: `port:${port}` }, ctx()).catch(() => undefined);
       return;
     }
@@ -391,7 +398,7 @@ export async function tomar(db: Db, slug: string): Promise<PruebaRead> {
       });
     return read(had);
   }
-  const c: Copy = { slug, phase: "capturing", managed: false, port: s.port, pid: null, worktree: null, repo: null, command: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false };
+  const c: Copy = { slug, phase: "capturing", managed: false, port: s.port, pid: null, worktree: null, repo: null, command: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null };
   copies.set(slug, c);
   void (deps.capture ?? runCapture)(db, { project: slug, checkout: repoPathOf(p.slug, p.settings, env()), base_url: urlOf(s.port), actor: ctx().actor })
     .catch(() => undefined)

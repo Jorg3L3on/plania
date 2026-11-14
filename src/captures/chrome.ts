@@ -22,6 +22,9 @@ export interface Browser {
 export type LaunchBrowser = () => Promise<Browser>;
 
 const NAV_TIMEOUT_MS = 30_000;
+// A cold headless Chrome on the Mac takes 2 to 10 s to open its DevTools port when idle (PLA-I46-16 measured it),
+// and more next to the test suite or a second Chrome. 15 s failed under that load; this is only an upper bound.
+const LAUNCH_TIMEOUT_MS = 45_000;
 const SETTLE_MS = 600; // after load: fonts, client components, a streamed Suspense boundary
 
 // Where Chrome lives: PLANIA_CHROME_PATH, the installed Google Chrome or Chromium, else Playwright's
@@ -178,10 +181,16 @@ export const launchChrome: LaunchBrowser = async () => {
   );
   const cleanup = () => {
     if (proc.exitCode === null) proc.kill("SIGKILL");
-    rmSync(profile, { recursive: true, force: true });
+    // A Chrome still shutting down can write into its profile while it is removed (ENOTEMPTY, PLA-I46-16): retry, and
+    // never let a leftover temp folder fail the capture.
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } catch {
+      // left in the temp folder; the OS clears it
+    }
   };
   try {
-    const port = Number((await waitForFile(path.join(profile, "DevToolsActivePort"), 15_000, proc)).split("\n")[0]);
+    const port = Number((await waitForFile(path.join(profile, "DevToolsActivePort"), LAUNCH_TIMEOUT_MS, proc)).split("\n")[0]);
     const targets = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as { type: string; webSocketDebuggerUrl: string }[];
     const tab = targets.find((t) => t.type === "page");
     if (!tab) throw new Error("Chrome opened no tab");

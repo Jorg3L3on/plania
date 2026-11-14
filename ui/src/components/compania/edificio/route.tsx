@@ -199,7 +199,7 @@ export const Route = ({
             <li data-mark="later">
               <span className="edi-smark" aria-hidden />
               <span className="edi-stext">
-                <span>+{here.more_steps} pasos más</span>
+                <span>+{here.more_steps} {here.more_steps === 1 ? "paso" : "pasos"} más</span>
               </span>
             </li>
           )}

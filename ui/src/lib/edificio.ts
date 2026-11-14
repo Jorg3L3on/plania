@@ -132,8 +132,9 @@ export function floorOrder(projects: OrgProject[], decisions: Decision[]): { flo
   return { floors, basement };
 }
 
-// Six fixed hues; the slug picks one (projects have no colour of their own).
-export const HUES = ["#ff6f9f", "#a290ff", "#45cad6", "#ffd166", "#7bd88f", "#ff8f6b"] as const;
+// Six fixed hues; the slug picks one (projects have no colour of their own). No orange among them: orange is only
+// «te toca» (PLA-I46-16 swapped the coral #ff8f6b for a blue).
+export const HUES = ["#ff6f9f", "#a290ff", "#45cad6", "#ffd166", "#7bd88f", "#6ea8ff"] as const;
 export function floorHue(slug: string): string {
   let h = 0;
   for (const ch of slug) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -430,7 +431,7 @@ export function routeCount(r: OrgRoute): string {
   const done = r.legs.reduce((n, l) => n + l.done, 0);
   const total = r.legs.reduce((n, l) => n + l.total, 0);
   const open = r.legs.filter((l) => l.state === "unplanned").length;
-  const steps = total === 0 ? "Aún no hay pasos" : `${done} de ${total} pasos`;
+  const steps = total === 0 ? "Aún no hay pasos" : `${done} de ${total} ${total === 1 ? "paso" : "pasos"}`;
   return [steps, open ? (open === 1 ? "1 entregable sin planear" : `${open} entregables sin planear`) : "", r.more_legs ? `+${r.more_legs} más` : ""].filter(Boolean).join(" · ");
 }
 export type StepMark = "done" | "now" | "later";
@@ -509,7 +510,7 @@ export function plateStatus(p: OrgProject): string {
   const legs = p.route?.legs ?? [];
   const here = legs.find((l) => l.state === "here");
   const parts: string[] = [];
-  if (here) parts.push(here.total > 0 && here.done === here.total ? `${here.title} completo` : here.total > 0 ? `${here.title}: ${here.done} de ${here.total} pasos` : `${here.title}: sin pasos todavía`);
+  if (here) parts.push(here.total > 0 && here.done === here.total ? `${here.title} completo` : here.total > 0 ? `${here.title}: ${here.done} de ${here.total} ${here.total === 1 ? "paso" : "pasos"}` : `${here.title}: sin pasos todavía`);
   else if (p.plan && p.plan.total > 0) parts.push(`${p.plan.done} de ${p.plan.total} pasos hechos`);
   else if (!legs.length) parts.push("Aún no hay pasos");
   const postponed = legs.filter((l) => l.note && /^pospuesto|pospuestos$/i.test(l.note));
