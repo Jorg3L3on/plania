@@ -143,7 +143,7 @@ export function checkChecklist(raw: string[] | undefined, bad: Bad = (field, hin
 }
 
 // The plan's tickets: one Ready ticket per step, in the order's project. Returns their keys.
-// PLA-I46-11: a leg plan's steps go under its initiative, in order (phase 1..n), with the answers the owner kept
+// PLA-I46-11: a leg plan's steps go under its initiative, in order (phase 1..n, each blocked by the one before), with the answers the owner kept
 // and the check list in the scope, and the list itself on tasks.po_checklist for QA to tick.
 export async function makeSteps(db: Db, slug: string, p: ProposalData, ctx: Ctx): Promise<string[]> {
   const keys: string[] = [];
@@ -169,7 +169,8 @@ export async function makeSteps(db: Db, slug: string, p: ProposalData, ctx: Ctx)
         priority: "P2",
         scope: scope.join("\n\n"),
         checks: [s.done_when],
-        ...(legPlan ? { parent_key: p.leg, phase: i + 1 } : {}),
+        // A leg's steps run in order: each waits for the one before it (the runner wakes it when that one lands).
+        ...(legPlan ? { parent_key: p.leg, phase: i + 1, ...(i > 0 ? { blocked_by: [keys[i - 1]] } : {}) } : {}),
       } as never,
       ctx,
     )) as { key: string };

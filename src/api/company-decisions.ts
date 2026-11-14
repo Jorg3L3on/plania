@@ -755,7 +755,12 @@ async function actOnLegPlan(db: Db, id: string, m: typeof threadMessages.$inferS
       const kept: ProposalData = { ...data, answers, checklist: list, later_at: null };
       const created = await makeSteps(db, p.slug, kept, ctx);
       await db.update(threadMessages).set({ proposal: { ...kept, created } }).where(eq(threadMessages.id, m.id));
-      if (leg.status === "Planning") await setTask(db, { project: p.slug, key: leg.key, status: "Active", version: leg.version, note: `Plan aceptado: ${created.join(", ")}.` } as never, ctx);
+      // The route stands on this leg now, unless another Active leg still has open steps (then it waits its turn).
+      const busy = await db.execute<{ n: number }>(sql`
+        select count(*)::int as n from ${tasks} t join ${tasks} i on i.id = t.parent_id
+        where i.project_id = ${p.id} and i.kind = 'initiative' and i.status = 'Active' and i.id <> ${leg.id}::uuid
+          and t.kind = 'ticket' and t.status not in ('Done', 'Merged', 'Released', 'Won''t do', 'Backlog')`);
+      if (leg.status === "Planning" && Number(busy.rows[0]?.n ?? 0) === 0) await setTask(db, { project: p.slug, key: leg.key, status: "Active", version: leg.version, note: `Plan aceptado: ${created.join(", ")}.` } as never, ctx);
       // The order was parked when the PO proposed; the accepted plan is its answer, so it closes here.
       if (order && !["Done", "Won't do"].includes(order.status)) {
         await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: `Respondido con el plan aceptado: ${created.join(", ")}.` } as never, ctx);

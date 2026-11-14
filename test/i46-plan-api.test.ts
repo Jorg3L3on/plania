@@ -173,6 +173,9 @@ test("I46-11 #2, #4: Aceptar plan with a changed answer and an edited list makes
   const rows = (await loadReady(db)).filter((r) => r.project === "micasa");
   const taller = { id: "x", slug: "taller-micasa", role: "taller", capabilities: ["micasa"], projectSlug: "micasa" };
   assert.equal(pickReady(taller, rows)!.key, steps[0]!.key);
+  // The steps run in order: each is blocked by the one before it.
+  const chain = (await raw.query(`select t.key, b.key as blocker from task_blockers tb join tasks t on t.id = tb.task_id join tasks b on b.id = tb.blocker_id where t.key = any($1) order by t.key`, [steps.map((s) => s.key)])).rows;
+  assert.deepEqual(chain.map((r) => [r.key, r.blocker]), [[steps[1]!.key, steps[0]!.key], [steps[2]!.key, steps[1]!.key]]);
   assert.equal((await act(planId, { action: "empezar" })).status, 409, "twice is refused");
   assert.equal(await status(planOrder), "Won't do", "the accepted plan closes its order");
   const card1 = (await card()).orders.find((o: Json) => o.key === planOrder);
@@ -213,7 +216,19 @@ test("Cambiar algo sends the PO a new order with the leg and the change", async 
 
 test("planning never starts postponed work: a plan for an On hold leg is refused", async () => {
   const order = await orderFor("Dominio propio");
-  await assert.rejects(propose(db, legPlan(order, { title: "Dominio propio" }), PO() as never), /LEG_POSTPONED/);
-  await assert.rejects(propose(db, legPlan(order, { leg: "MIC-I4" }), PO() as never), /LEG_POSTPONED/);
+  const refused = (e: unknown) => (e as { code?: string }).code === "LEG_POSTPONED";
+  await assert.rejects(propose(db, legPlan(order, { title: "Dominio propio" }), PO() as never), refused);
+  await assert.rejects(propose(db, legPlan(order, { leg: "MIC-I4" }), PO() as never), refused);
   assert.equal((await under("MIC-I4")).length, 0);
+});
+
+test("accepting a plan while another leg still has open steps leaves the route where it stands", async () => {
+  await make({ kind: "initiative", key: "MIC-I6", title: "Lista de espera" });
+  const order = await orderFor("Lista de espera");
+  const out = (await propose(db, legPlan(order, { title: "Lista de espera" }), PO() as never)) as Json;
+  const res = await act(`m-${out.message.id}`, { action: "empezar" });
+  assert.equal(res.status, 200, await res.clone().text());
+  assert.equal((await under("MIC-I6")).length, 3, "the steps are made");
+  assert.equal(await status("MIC-I6"), "Planning", "MIC-I3 still has open steps: it stays «aquí»");
+  assert.equal((await card()).route.legs.find((l: Json) => l.state === "here").key, "MIC-I3");
 });
