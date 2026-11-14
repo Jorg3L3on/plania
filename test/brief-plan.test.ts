@@ -265,3 +265,90 @@ test("the message fits a thread message even with three ideas at the longest why
   for (const c of ["W1", "W2", "W3"]) assert.match(body, new RegExp(`### ${c}: `));
   assert.doesNotMatch(body, /\{\{/);
 });
+
+// ---- PLA-I43-2: the render and the request ids
+
+const writes = await import("../src/mcp/writes.js");
+const PO_CTX = (requestId: string, tool = "create_task") => ({ actor: { agent: "po-workia", session_id: "run-0000abcd" }, requestId, tool });
+
+test("PLA-I43-2 check 1: the message leaves no {{…}} and lists every chosen idea with its why, flags and source", async () => {
+  const req = "11111111-2222-4333-8444-555555555555";
+  const chosen = [{ ...IDEAS[0]!, flags: ["cost", "overlap:WRK-I3"] }, IDEAS[1]!, IDEAS[2]!];
+  const body = plan.planMessage({ briefDate: "2026-11-14", requestId: req, projectSlug: "workia", ideas: chosen as never });
+  assert.doesNotMatch(body, /\{\{[^}]*\}\}/);
+  assert.match(body, /^## Plan these ideas \(from the Morning brief, 2026-11-14\)/);
+  assert.match(body, new RegExp(`Request: ${req}\\.`));
+  assert.match(body, /in this project \(workia\)/);
+  for (const i of chosen) {
+    assert.match(body, new RegExp(`### ${i.code}: ${i.title}\\n- Why: ${i.why}`));
+  }
+  assert.match(body, /- Flags: cost, overlap:WRK-I3/);
+  assert.match(body, /- Flags: none/);
+  assert.match(body, /- Source: workia/);
+  assert.match(body, new RegExp(`brief-plan:${req}:W1:idea`));
+  assert.match(body, /Steps: idea, idea-doc, initiative, plan-doc, ticket-1/);
+  assert.match(body, /NEVER "Ready"/);
+  // A cross-app idea is planned in the home project.
+  const x = plan.planMessage({ briefDate: "2026-11-14", requestId: req, projectSlug: "plania", ideas: [IDEAS[6]!] as never });
+  assert.match(x, /### X1: One login for every app/);
+  assert.match(x, /in this project \(plania\)/);
+  assert.doesNotMatch(x, /\{\{/);
+});
+
+test("PLA-I43-2: request ids are brief-plan:<request>:<code>:<step> and parse back", () => {
+  const req = "11111111-2222-4333-8444-555555555555";
+  assert.equal(plan.planRequestId(req, "W1", "idea"), `brief-plan:${req}:W1:idea`);
+  assert.equal(plan.planRequestId(req, "W1", "ticket-2"), `brief-plan:${req}:W1:ticket-2`);
+  assert.throws(() => plan.planRequestId(req, "W1", "anything"), /unknown step/);
+  assert.deepEqual(plan.parsePlanRequestId(`brief-plan:${req}:Z3:plan-doc`), { requestId: req, code: "Z3", step: "plan-doc" });
+  assert.equal(plan.parsePlanRequestId(`brief-plan:${req}:Z3:bogus`), null);
+  assert.equal(plan.parsePlanRequestId("morning_brief:projection:x"), null);
+});
+
+test("PLA-I43-2 check 2: sending the same codes again posts nothing, wakes nothing and keeps the request id", async () => {
+  const first = await plan.sendToPlania(db, { briefId, codes: ["W1", "Z3"] }, { env: ENV });
+  const again = await plan.sendToPlania(db, { briefId, codes: ["Z3", "W1"] }, { env: ENV });
+  assert.equal(again.request_id, first.request_id);
+  assert.deepEqual(again.already_sent, ["Z3", "W1"]);
+  assert.deepEqual(again.targets, []);
+  assert.equal(again.runs, 0);
+  assert.deepEqual(again.estimate_min, [0, 0]);
+  assert.equal((await messages("workia")).length + (await messages("zigzag")).length, 2);
+  assert.equal((await raw.query(`select count(*)::int n from agent_runs`)).rows[0].n, 2);
+  assert.equal((await raw.query(`select count(*)::int n from brief_plan_requests`)).rows[0].n, 1);
+  // A new code from the same brief joins the same request; the sent one is left alone.
+  const more = (await (await post({ brief_id: briefId, codes: ["W1", "W2"] })).json()) as Sent;
+  assert.equal(more.request_id, first.request_id);
+  assert.deepEqual(more.already_sent, ["W1"]);
+  assert.deepEqual(more.targets.map((t) => [t.codes, t.state, t.note]), [[["W2"], "queued", "after the earlier run"]]);
+  assert.deepEqual((await progress(first.request_id)).codes, ["W1", "Z3", "W2"]);
+});
+
+test("PLA-I43-2 check 2: the PO's writes with the same request ids make nothing twice, also after a failed run is re-sent", async () => {
+  const sent = await plan.sendToPlania(db, { briefId, codes: ["W1"] }, { env: ENV });
+  const id = (step: string) => plan.planRequestId(sent.request_id, "W1", step);
+  const ideaA = (await writes.createTask(db, { project: "workia", kind: "idea", title: "Renewal board" } as never, PO_CTX(id("idea")))) as { key: string };
+  const ini = (await writes.createTask(db, { project: "workia", kind: "initiative", title: "Renewal board", base_branch: "sandbox" } as never, PO_CTX(id("initiative")))) as { key: string };
+  await writes.createTask(db, { project: "workia", parent_key: ini.key, title: "Board page", scope: "s", checks: ["c"], status: "Backlog" } as never, PO_CTX(id("ticket-1")));
+
+  // The run fails half way; the owner sends W1 again. Same request id, a fresh message and wake.
+  const [run] = await runsOf("po-workia");
+  await raw.query(`update agent_runs set status = 'fail', summary = 'timed out', ended_at = now() where id = $1`, [run!.id]);
+  await plan.resumeWaiting(db);
+  const resent = await plan.sendToPlania(db, { briefId, codes: ["W1"] }, { env: ENV });
+  assert.equal(resent.request_id, sent.request_id);
+  assert.deepEqual(resent.targets.map((t) => [t.codes, t.state]), [[["W1"], "queued"]]);
+  const runs = await runsOf("po-workia");
+  assert.equal(runs.length, 2);
+  assert.match(runs[1]!.summary, new RegExp(`brief plan ${sent.request_id}:`));
+  assert.equal((await messages("workia")).length, 2);
+
+  // The second run repeats the same writes: each replays the first response.
+  const ideaB = (await writes.createTask(db, { project: "workia", kind: "idea", title: "Renewal board" } as never, PO_CTX(id("idea")))) as { key: string };
+  const iniB = (await writes.createTask(db, { project: "workia", kind: "initiative", title: "Renewal board", base_branch: "sandbox" } as never, PO_CTX(id("initiative")))) as { key: string };
+  await writes.createTask(db, { project: "workia", parent_key: ini.key, title: "Board page", scope: "s", checks: ["c"], status: "Backlog" } as never, PO_CTX(id("ticket-1")));
+  assert.equal(ideaB.key, ideaA.key);
+  assert.equal(iniB.key, ini.key);
+  const count = await raw.query(`select kind, count(*)::int n from tasks t join projects p on p.id = t.project_id where p.slug = 'workia' and t.title in ('Renewal board', 'Board page') group by kind order by kind`);
+  assert.deepEqual(count.rows, [{ kind: "idea", n: 1 }, { kind: "initiative", n: 1 }, { kind: "ticket", n: 1 }]);
+});

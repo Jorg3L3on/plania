@@ -24,8 +24,9 @@ For each idea, in this project ({{PROJECT_SLUG}}):
 6. Do not use propose for these ideas, and do not ask the owner to pick between them: they already picked.
    If something truly blocks planning (for example a paid service is the only way), plan it anyway, mark it in
    Cost and Risks, and say so in your thread line.
-7. Pass request_id "brief-plan:{{REQUEST_ID}}:<idea code>:<step>" on every write (for example
-   "brief-plan:{{REQUEST_ID}}:{{FIRST_CODE}}:idea"), so a retry repeats nothing.
+7. Pass request_id "brief-plan:{{REQUEST_ID}}:<idea code>:<step>" on every write, so a retry repeats nothing.
+   Steps: idea, idea-doc, initiative, plan-doc, ticket-1, ticket-2, ..., constraints (the Idea doc update), and
+   line (your closing thread line, with the first code). For example "brief-plan:{{REQUEST_ID}}:{{FIRST_CODE}}:idea".
 8. End with ONE thread line in this format, one entry per idea:
    "Brief plan {{REQUEST_ID}}: W1 -> ABC-I18 (4 tickets, Backlog); W2 -> duplicate of ABC-IDEA7."
 For a cross-app idea (code X…): plan it in this project ({{PROJECT_SLUG}}). In the Plan doc, name each

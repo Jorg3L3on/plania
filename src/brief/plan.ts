@@ -124,6 +124,27 @@ export function wakeReason(requestId: string, codes: string[]): string {
   return `brief plan ${requestId}: the owner chose ideas ${codes.join(", ")} in the Morning brief. Read your project thread (thread_read) for the message "Plan these ideas" and plan them fully. Planned only: tickets in Backlog, never Ready.`.slice(0, 480);
 }
 
+// ---- Request ids (PLA-I43-2)
+
+/**
+ * The steps a PO names in its request ids (po-plan-ideas.md step 7). A retry of the same run, or a re-queued
+ * failed target, writes with the same ids, so writeTx replays the first response and nothing is made twice.
+ */
+export const PLAN_STEPS = ["idea", "idea-doc", "initiative", "plan-doc", "ticket-<n>", "constraints", "line"] as const;
+const STEP = /^(idea|idea-doc|initiative|plan-doc|ticket-[1-9]\d{0,2}|constraints|line)$/;
+
+/** brief-plan:<request>:<code>:<step> */
+export function planRequestId(requestId: string, code: string, step: string): string {
+  if (!STEP.test(step)) throw new Error(`planRequestId: unknown step ${step}`);
+  return `brief-plan:${requestId}:${code}:${step}`;
+}
+
+/** The parts of a brief-plan request id, or null for any other id. */
+export function parsePlanRequestId(id: string): { requestId: string; code: string; step: string } | null {
+  const m = /^brief-plan:([0-9a-f-]{36}):([A-Z]\d{1,3}):([a-z0-9-]+)$/.exec(id);
+  return m && STEP.test(m[3]!) ? { requestId: m[1]!, code: m[2]!, step: m[3]! } : null;
+}
+
 // ---- Request status
 
 export function requestStatus(targets: BriefPlanTarget[]): BriefPlanStatus {
