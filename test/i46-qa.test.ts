@@ -448,8 +448,10 @@ test("I46-9: without a QA teammate a delivery reaches the floor as before; the c
     assert.deepEqual(((await put.json()) as Json).items, [{ n: 1, text: "Uno" }, { n: 2, text: "Dos" }]);
     const four = await app.request(`/api/projects/zigzag/qa/${key}/checklist`, { method: "PUT", headers: jorge(), body: JSON.stringify({ items: ["1", "2", "3", "4"] }) });
     assert.equal(four.status, 400);
-    const written = (await raw.query(`select written_by from po_checks where task_id = (select id from tasks where key = $1) order by n`, [key])).rows;
-    assert.equal(written[0].written_by.agent, "jorge");
+    const written = (await raw.query(`select actor from events where type = 'po_checks.set' and task_key = $1 order by created_at desc limit 1`, [key])).rows;
+    assert.equal(written[0].actor.agent, "jorge");
+    const stored = (await raw.query(`select po_checklist from tasks where key = $1`, [key])).rows[0].po_checklist;
+    assert.deepEqual(stored.map((c: Json) => [c.n, c.text, c.done]), [[1, "Uno", false], [2, "Dos", false]], "one storage: tasks.po_checklist");
   } finally {
     await raw.query(`update agents set status = 'idle' where slug = 'qa-zz'`);
   }

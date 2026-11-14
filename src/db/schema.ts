@@ -216,6 +216,8 @@ export const tasks = pgTable(
     goalId: uuid("goal_id").references((): AnyPgColumn => goals.id, { onDelete: "set null" }),
     // PLA-I23: how many times assign moved owner_agent. Above 3 the next assign is refused.
     assignHops: integer("assign_hops").notNull().default(0),
+    // PLA-I46-11: the PO's check list, copied onto each step of an accepted plan; QA ticks it.
+    poChecklist: jsonb("po_checklist").$type<PoCheck[]>().notNull().default(sql`'[]'::jsonb`),
   },
   (t) => [
     unique("tasks_project_key_unique").on(t.projectId, t.key),
@@ -1108,6 +1110,10 @@ export type ThreadLink = { kind: (typeof LINK_KINDS)[number]; ref: string; title
 export type ProposalCost = { tickets?: number; days?: number; tokens?: number; delays?: string };
 export type ProposalOption = { n: number; label: string; effect: string; cost: ProposalCost; recommended: boolean };
 export type ProposalStep = { title: string; done_when: string; work_type: string };
+// PLA-I46-11: a closed question in a leg's plan: two to four answers, the PO's suggestion marked (0-based).
+export type PlanQuestion = { text: string; options: string[]; suggested: number };
+// One line of the PO's check list on a ticket: what to verify, and whether QA ticked it.
+export type PoCheck = { n: number; text: string; done: boolean; done_at: string | null; done_by: string | null };
 export type ProposalData = {
   kind: "choice" | "plan";
   title: string;
@@ -1122,6 +1128,13 @@ export type ProposalData = {
   // plan: whether it waited for approval (the project's switch when it was posted), and the tickets made.
   needs_approval: boolean;
   created: string[];
+  // PLA-I46-11, plan for a leg of the route: the initiative it fills, up to 3 closed questions, the PO's check list
+  // (3 things to verify), when the owner said Después, and what he accepted (answers by index, the edited list).
+  leg?: string | null;
+  questions?: PlanQuestion[];
+  checklist?: string[];
+  later_at?: string | null;
+  answers?: number[] | null;
 };
 export const THREAD_ACTIONS = ["aceptar", "cambios", "responder"] as const;
 export type ThreadAction = (typeof THREAD_ACTIONS)[number];
@@ -1216,27 +1229,8 @@ export const captureStills = pgTable(
 );
 export type CaptureStill = typeof captureStills.$inferSelect;
 
-// PLA-I46-9: the PO's check list for a ticket (up to three things to verify) and the QA lane's passes on its
-// deliveries. Migration 0049. QA's marks live on the lane (per commit), not on the item.
-export const poChecks = pgTable(
-  "po_checks",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
-    taskId: uuid("task_id")
-      .notNull()
-      .references(() => tasks.id, { onDelete: "cascade" }),
-    n: integer("n").notNull(), // 1..3
-    text: text("text").notNull(),
-    writtenBy: jsonb("written_by").$type<Actor>().notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [uniqueIndex("po_checks_task_n_idx").on(t.taskId, t.n), check("po_checks_n_check", sql`${t.n} between 1 and 3`)],
-);
-export type PoCheck = typeof poChecks.$inferSelect;
+// PLA-I46-9: the QA lane's passes on a delivery. Migration 0049. The PO's check list it reads is tasks.po_checklist
+// (PoCheck, migration 0048); QA's marks live on the lane (per commit), not on the item.
 
 export type QaVerifyItem = {
   name: string;

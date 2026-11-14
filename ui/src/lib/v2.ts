@@ -12,7 +12,9 @@ export const TE_TOCA_EMPTY = "Nada te espera. El equipo sigue; Asistente te avis
 // ---- Te toca
 
 // A release has no button here (publishing asks for the owner's code in Bandeja) and still waits.
-export const pending = (d: Decision) => d.state === null && (d.actions.length > 0 || d.kind === "release");
+// PLA-I46-11: a plan left for later (Después) waits on its floor but is not Te toca.
+export const waitingPlan = (d: Decision) => d.state === null && d.kind === "plan" && !!d.plan?.later_at;
+export const pending = (d: Decision) => d.state === null && !waitingPlan(d) && (d.actions.length > 0 || d.kind === "release");
 
 // PLA-I36-2: "Nada te espera" only when Bandeja's decisiones and pasos are empty too.
 export function teTocaEmpty(inbox: { decisiones: number; pasos: number } | undefined): string {

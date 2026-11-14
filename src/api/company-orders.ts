@@ -136,7 +136,8 @@ export async function ordersOf(db: Db, p: Project, threadId: string, now = new D
     const run = await runView(db, p.id, [t.key, ...created]);
     const open = steps.filter((x) => x.status !== "Won't do");
     let stage: OrderStage;
-    if (st === "cancelada" || pl?.acted === "cancelar" || pl?.acted === "cambiar") stage = "cancelada";
+    // PLA-I46-11: an order closed by its accepted leg plan is not cancelled: its steps tell the stage.
+    if ((st === "cancelada" && pl?.acted !== "empezar") || pl?.acted === "cancelar" || pl?.acted === "cambiar") stage = "cancelada";
     else if (open.length && open.every((x) => DELIVERED.includes(x.status))) stage = "listo";
     else if (open.length && open.every((x) => DELIVERED.includes(x.status) || x.status === "In review")) stage = "pruebalo";
     else if (open.length || run?.status === "running" || st === "en_curso") stage = !open.length && t.status === "In review" ? "pruebalo" : "trabajando";

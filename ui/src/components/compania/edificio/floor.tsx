@@ -61,6 +61,9 @@ export const Floor = ({
   // PLA-I40-4: what is happening now, who holds the work (a mark sits under them), and the owner as one more figure.
   const line = nowLine(p, decisions ?? [], now, { companyPaused, timeZone });
   const you = ownerCaption(line);
+  // PLA-I46-11: a leg's plan that is the move shows in Ahora (plan.tsx), not under the PO's window.
+  const o = line.move?.origen;
+  const inAhora = o?.kind === "decision" && decisions?.find((d) => d.id === o.id)?.plan?.leg ? o.id : null;
   const slots = team.length + 1 + (children ? 1 : 0);
   return (
     <article id={`piso-${p.slug}`} className="edi-floor" data-floor={p.slug} data-light={p.light} data-move={line.move ? line.move.verbo : undefined} style={{ "--c": floorHue(p.slug) } as CSSProperties} aria-label={p.title}>
@@ -75,7 +78,7 @@ export const Floor = ({
       <div className="edi-wins">
         <Now project={p} line={line} now={now} decisions={decisions} acts={nowActs} qacts={acts} onFijar={onFijar} onPublish={onPublish} side={ventana} />
         {team.map((m, i) => {
-          const hanging = decisions && acts ? hangingFor(decisions, p.slug, m.agent) : null;
+          const hanging = decisions && acts ? hangingFor(decisions, p.slug, m.agent, inAhora) : null;
           const anchor = hanging && first ? `pregunta-${p.slug}` : undefined;
           if (hanging) first = false;
           return (

@@ -1,22 +1,7 @@
 -- PLA-I46-9: the QA lane. Idempotent. Nothing here touches any app repo.
---   po_checks  the PO's check list for a ticket: up to three things to verify, written when planning (a later
---              ticket has the PO write them; Jorge may edit them). QA marks them per delivery in qa_lanes.marks.
+--   (the PO's check list QA reads is tasks.po_checklist, migration 0048; QA marks it per delivery in qa_lanes.marks)
 --   qa_lanes   one QA pass on one delivery (a ticket at a commit): the verify list, the captures, a fresh review
 --              and the check-list marks. attempt 1 that fails goes back to Taller once; a later failure goes to Jorge.
-
-CREATE TABLE IF NOT EXISTS "po_checks" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-  "project_id" uuid NOT NULL REFERENCES "projects"("id") ON DELETE cascade,
-  "task_id" uuid NOT NULL REFERENCES "tasks"("id") ON DELETE cascade,
-  "n" integer NOT NULL,
-  "text" text NOT NULL,
-  "written_by" jsonb NOT NULL,
-  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
-  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-  CONSTRAINT "po_checks_n_check" CHECK ("n" between 1 and 3),
-  CONSTRAINT "po_checks_text_check" CHECK (length(trim("text")) between 1 and 300)
-);
-CREATE UNIQUE INDEX IF NOT EXISTS "po_checks_task_n_idx" ON "po_checks" USING btree ("task_id","n");
 
 CREATE TABLE IF NOT EXISTS "qa_lanes" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

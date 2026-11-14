@@ -283,12 +283,26 @@ export type OrgPlan = {
 export type OrgRumbo = { goal_id: string | null; goal: string | null; why: string; target_on: string | null; forecast_on: string | null; weeks_behind: number | null; missing: boolean };
 // PLA-I35-1: Te toca rows (GET /api/company decisions[]) and POST /api/company/decisions/:id.
 export type DecisionKind = "proposal" | "plan" | "action" | "question" | "deliverable" | "pr" | "step" | "release";
-export type DecisionPlan = { order: string; understood: string; steps: { title: string; done_when: string }[]; cost: string; needs_approval: boolean; created: string[] };
+// PLA-I46-11: a plan for a leg also carries the leg, its closed questions (suggested: 0-based) and the PO's
+// check list; later_at once the owner said Después.
+export type PlanQuestion = { text: string; options: string[]; suggested: number };
+export type DecisionPlan = {
+  order: string;
+  understood: string;
+  steps: { title: string; done_when: string }[];
+  cost: string;
+  needs_approval: boolean;
+  created: string[];
+  leg?: { key: string; title: string } | null;
+  questions?: PlanQuestion[];
+  checklist?: string[];
+  later_at?: string | null;
+};
 export type DecisionEvidence = { verdict: string; kind: string; cite: string; pass: number | null; fail: number | null; at: string };
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number };
-export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "aplicar" | "verificar";
+export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar";
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
 export type Decision = {
   id: string;
@@ -322,7 +336,7 @@ export type Decision = {
   verify?: { state: "queued" | "running"; since: string; role: string | null } | null;
 };
 export type DecisionAsker = { agent: string; role: string };
-export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string };
+export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string; answers?: number[]; checklist?: string[] };
 export type DecisionResult = { ok: boolean; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
 export type OrgPlumbing = { spend: number; running: number; paused: boolean };
 export type OrgCompany = {

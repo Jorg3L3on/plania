@@ -7,6 +7,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Decision, OrgProject } from "@/lib/api";
 import { countdown, type NowAction, type NowLine } from "@/lib/edificio";
+import { PlanActs, PlanBody, floorPlan } from "./plan";
+import { planInput } from "./plan-draft";
 import { revealQuestion } from "./publish";
 import type { QuestionActs } from "./question";
 
@@ -56,7 +58,8 @@ export function runOf(p: OrgProject, a: NowAction | null, c: MoveCtx): (() => vo
   if (a.kind === "start") return c.acts?.onStart ? () => c.acts!.onStart!(p.slug, a.agent, "pastGuard" in a ? a.pastGuard : false) : null;
   if (a.kind === "decision") {
     const d = c.decisions?.find((x) => x.id === a.id);
-    return d && c.qacts ? () => c.qacts!.onAct(d, { action: a.action }, `now-${a.action}`) : null;
+    // PLA-I46-11: Aceptar plan sends the answers and the check list as the owner left them.
+    return d && c.qacts ? () => c.qacts!.onAct(d, { action: a.action, ...planInput(d, a.action) }, `now-${a.action}`) : null;
   }
   if (a.kind === "reveal") return () => revealQuestion(p.slug);
   if (a.kind === "publish") return c.onPublish ? () => c.onPublish!(p) : null;
@@ -111,6 +114,9 @@ export const Now = ({
 }) => {
   const a = line.action;
   const ctx: MoveCtx = { decisions, acts, qacts, onFijar, onPublish };
+  // PLA-I46-11: the leg's plan, when it is this move or waits for later (plan.tsx).
+  const fp = decisions ? floorPlan(p, decisions) : null;
+  const plan = fp && (fp.waiting || (line.move?.origen.kind === "decision" && line.move.origen.id === fp.d.id)) ? fp : null;
   // PLA-I46-3: only a card with a move breathes (data-breathe); the CSS stops it under reduce-motion.
   return (
     <div className="edi-nowb" data-now={line.state} data-holder={line.holder ?? undefined} data-breathe={line.move ? "1" : undefined} data-side={side ? "1" : undefined} aria-live="polite">
@@ -126,12 +132,14 @@ export const Now = ({
             {line.why}
           </p>
         )}
-        {a && (
+        {(a || plan) && (
           <div className="edi-nacts">
-            <ActButton project={p} action={a} move={!!line.move} where="ahora" ctx={ctx} />
+            {a && <ActButton project={p} action={a} move={!!line.move} where="ahora" ctx={ctx} />}
+            {plan && <PlanActs d={plan.d} waiting={plan.waiting} qacts={qacts} />}
           </div>
         )}
       </div>
+      {plan && <PlanBody d={plan.d} waiting={plan.waiting} qacts={qacts} />}
       {side}
       {line.starts_at && <Tick key={line.starts_at} until={line.starts_at} now={now} label={line.state === "stuck" ? "para reintentar" : "para arrancar"} onElapsed={acts?.onElapsed} />}
     </div>

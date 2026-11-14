@@ -3,7 +3,7 @@
 //   1. the project's verify list (settings.qa.verify: test, typecheck, lint), run in the delivery's checkout
 //   2. captures of the running test copy (settings.capture), the app started on a free port for the pass
 //   3. a review by the QA agent in a fresh session (never resumed, so it has not seen Taller's reasoning)
-//   4. the PO's check list for the ticket (po_checks), each item marked pass or fail by that agent
+//   4. the PO's check list for the ticket (tasks.po_checklist), each item marked pass or fail by that agent
 // Steps 1 and 2 are Plania's own code (no tokens). Step 3 and 4 are one QA run, queued through the runner, so the
 // switches, the plan guard (usage hold) and the cap stop it like any other run; a run a hold skipped or stopped
 // is queued again once the runner's checks say it would start. A failing pass on attempt 1 sends the ticket back
@@ -22,7 +22,6 @@ import {
   agentRuns,
   agents,
   events,
-  poChecks,
   projects,
   pullRequests,
   qaLanes,
@@ -113,13 +112,15 @@ export async function latestLane(db: Db, taskId: string): Promise<QaLane | null>
   return l ?? null;
 }
 
-// ---- The PO's check list (storage; the PO writes it when planning in a later ticket, Jorge may edit it)
+// ---- The PO's check list (tasks.po_checklist: the plan writes it on Aceptar plan, the owner may edit it here)
 
 export async function poChecksOf(db: Db, taskId: string): Promise<PoCheck[]> {
-  return db.select().from(poChecks).where(eq(poChecks.taskId, taskId)).orderBy(poChecks.n);
+  const [t] = await db.select({ list: tasks.poChecklist }).from(tasks).where(eq(tasks.id, taskId)).limit(1);
+  return [...(t?.list ?? [])].sort((a, b) => a.n - b.n);
 }
 
-/** Replaces a ticket's check list with up to three items (n = 1..3 in order). An empty list clears it. */
+/** Replaces a ticket's check list with up to three items (n = 1..3 in order). An empty list clears it. A line whose
+ *  text did not change keeps its done mark. */
 export async function setPoChecks(db: Db, input: { project: string; key: string; items: string[] }, actor: Actor): Promise<PoCheck[]> {
   const items = input.items.map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
   if (items.length > CHECKLIST_MAX) throw new ToolError("INVALID_FILTER", { field: "items", hint: `at most ${CHECKLIST_MAX} things to verify` });
@@ -128,15 +129,19 @@ export async function setPoChecks(db: Db, input: { project: string; key: string;
   if (!p) throw new ToolError("PROJECT_NOT_FOUND", { project: input.project });
   const [t] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, input.key))).limit(1);
   if (!t) throw new ToolError("TASK_NOT_FOUND", { key: input.key });
+  const old = t.poChecklist ?? [];
+  const list: PoCheck[] = items.map((text, i) => {
+    const was = old.find((c) => c.n === i + 1 && c.text === text);
+    return was ? { ...was } : { n: i + 1, text, done: false, done_at: null, done_by: null };
+  });
   await db.transaction(async (tx) => {
-    await tx.delete(poChecks).where(eq(poChecks.taskId, t.id));
-    if (items.length) await tx.insert(poChecks).values(items.map((text, i) => ({ projectId: p.id, taskId: t.id, n: i + 1, text, writtenBy: actor })));
+    await tx.update(tasks).set({ poChecklist: list }).where(eq(tasks.id, t.id));
     await tx.insert(events).values({ projectId: p.id, taskId: t.id, taskKey: t.key, type: "po_checks.set", actor, payload: { items } });
   });
-  return poChecksOf(db, t.id);
+  return list;
 }
 
-// ---- The gate the floor reads
+// ---- What the floor waits for
 
 export type QaGate = { pending: boolean; hold: string | null };
 
