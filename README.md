@@ -280,6 +280,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `get_task` | One initiative or ticket, by its key or any former key (aliases). |
 | `get_memory` | Fixed memory: rules, design_docs (project docs, with markdown; view summary lists them without it), and the decision log, newest first (limit default 100, max 500). |
 | `get_doc` | One doc by id (from get_task docs, get_memory design_docs, or a decision's adr_doc_id), with its markdown and version. |
+| `search` | The tickets, docs and decisions of one project closest in meaning to a question, nearest first. |
 | `get_next` | Next claimable ticket: Backlog or Ready, or In progress with an expired lease (stale_claim: true), with every blocker satisfied (tasks In review or Done, env conditions holding). |
 | `list_events` | What changed, oldest first: every write is an event with its actor, server time, project and a one-line summary (Spanish). |
 | `list_projects` | Every project in one line each: slug, title, key_prefix, headline, line (what is claimed, else the next step, else what is next to claim, else the last event, else empty), ticket counts (open, in_progress, in_review, needs_jorge, blocked, done), open_questions, claims, last_event_id and last_event_at, and readiness (state, reasons, line; same object as get_resume), sorted by slug. |
@@ -522,6 +523,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `RELEASE_NOT_READY` | 409 | release/ship: the step cannot ship now (detail: reason mode_command | no_repo | no_release | no_github_data | nothing_to_ship | before_steps | open_checks | merged) |
 | `REQUEST_ID_REUSED` | 409 | request_id was already used by a different tool in this project |
 | `RESOURCE_HELD` | 409 | another session holds the resource (detail: holder, lease_until, purpose) |
+| `SEARCH_UNAVAILABLE` | 409 | search needs a devva engine and an embedder, and this server has neither configured (PLANIA_SEARCH, SEXTANT_URL); list_tasks search matches words |
 | `SEQUENCE_TAKEN` | 409 | the requested sequence value is held by another live ticket |
 | `STAGE_REQUIREMENTS_MISSING` | 409 | moving an idea forward without that stage's doc or its headings (detail: doc, missing) |
 | `STALE_VERSION` | 409 | the task (or doc) changed since you read it (detail: current_version) |

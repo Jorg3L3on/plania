@@ -26,7 +26,7 @@ const REQUEST_TTL_MS = 30 * 24 * 3_600_000;
 type DevvaRecord = { getString(key: string): string | undefined; getNumber(key: string): number | undefined };
 type DevvaPage = Iterable<DevvaRecord> & { hasMore: boolean; cursor: string | undefined };
 type DevvaQuery = { limit(n: number): DevvaQuery; cursor(token: string): DevvaQuery; records(): Promise<DevvaPage>; one(): Promise<DevvaRecord | null> };
-type DevvaClient = {
+export type DevvaClient = {
   readonly isAlive: boolean;
   close(): void;
   execute(statement: string, params?: unknown): Promise<unknown>;
@@ -555,7 +555,7 @@ export class DevvaStore implements Store {
 
 // The devva client is not a dependency yet: it is loaded from a built copy named by DEVVA_CLIENT (or the option),
 // by default the one the spike's setup script copies.
-async function loadClient(opts: DevvaOptions): Promise<() => Promise<DevvaClient>> {
+export async function loadClient(opts: DevvaOptions): Promise<() => Promise<DevvaClient>> {
   const root = path.resolve(import.meta.dirname, "..", "..");
   const entry = opts.clientModule ?? process.env.DEVVA_CLIENT ?? path.join(root, "spike", "devva-commit-log", "vendor", "xyzdb", "dist", "src", "index.js");
   const tokenFile = opts.tokenFile ?? process.env.DEVVA_TOKEN_FILE ?? path.join(root, "spike", "devva-commit-log", ".token");

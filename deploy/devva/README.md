@@ -31,6 +31,19 @@ Postgres stays the system of record.
 `PLANIA_DEVVA_PREFIX` sets the prefix (default `plania`). Give every store its own: the service, a dev
 server and a test run must not share lobes.
 
+## Search
+
+`PLANIA_SEARCH=devva` adds the `search` tool: the tickets, docs and decisions of one project closest in
+meaning to a question. It works with either store, because the index lives on devva.
+
+- It needs an embedding service. `--profile search` in the compose file starts sextant on
+  `127.0.0.1:8080`; set `SEXTANT_URL=http://127.0.0.1:8080`.
+- The index is the lobe `<prefix>_vec`, bucketed by project, so a search is exact inside its project and never
+  leaves it. Results are ranked; the engine returns no score.
+- It is rebuilt from the store at start and follows every commit. Changing the embedder re-embeds everything,
+  and needs the lobe emptied first: its declared embedder is fixed when the lobe is created.
+- Only the first 6,000 characters of a doc are embedded, so a long doc is found by how it starts.
+
 ## Limits to know
 
 - The engine loses recent updates of an existing record across a restart; inserts survive. That is why the

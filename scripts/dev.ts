@@ -66,6 +66,14 @@ serve({ fetch: server.fetch, port, hostname }, () => console.log(`plania on http
 // Background jobs (lease warnings, legacy card archiving, later the pollers). PLANIA_JOBS=0 turns them off.
 if (process.env.PLANIA_JOBS !== "0") startJobs();
 
+// PLANIA_SEARCH=devva: the search tool, on a devva vector lobe with embeddings from SEXTANT_URL. It works with
+// either store. An unreachable engine or embedder is logged; the server runs on without search.
+if (process.env.PLANIA_SEARCH === "devva") {
+  const { startSearch } = await import("../src/search/service.js");
+  const { makeDb } = await import("../src/db/client.js");
+  void startSearch(makeDb().db).catch((e) => console.log(`[search] off: ${e instanceof Error ? e.message : String(e)}`));
+}
+
 // Devva as a shadow of Postgres (deploy/devva/README.md). An unreachable engine is logged; the server runs on.
 if (process.env.PLANIA_SHADOW === "devva" && process.env.PLANIA_STORE !== "devva") {
   const { Shadow } = await import("../src/store/shadow.js");

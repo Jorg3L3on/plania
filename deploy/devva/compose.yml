@@ -27,6 +27,15 @@ services:
       - "127.0.0.1:${DEVVA_PORT:-2505}:2505"
     restart: unless-stopped
 
+  # The embedding service for the search tool (PLANIA_SEARCH=devva). Stateless; the image carries its model.
+  # Start it with: docker compose -f deploy/devva/compose.yml --profile search up -d
+  sextant:
+    image: ${SEXTANT_IMAGE:-devva-sextant:main}
+    profiles: ["search"]
+    ports:
+      - "127.0.0.1:${SEXTANT_PORT:-8080}:8080"
+    restart: unless-stopped
+
 secrets:
   devva-token:
     file: ${DEVVA_TOKEN_FILE:?absolute path of the file holding the engine token}

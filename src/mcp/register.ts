@@ -33,6 +33,7 @@ import { runBatch } from "./batch.js";
 import { WORK_TYPES } from "./lifecycle.js";
 import { setCheck } from "./checks.js";
 import { attachDoc, getDoc } from "./docs.js";
+import { search } from "./search.js";
 import { REVIEW_EVIDENCE, RESULT_KINDS, VERDICTS, addResult, validateEvidence } from "./evidence.js";
 import { checkSizes } from "./limits.js";
 import type { Ctx } from "./tx.js";
@@ -496,6 +497,17 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       annotations: readOnly,
     },
     ({ project, doc_id }) => run(async () => getDoc(db, (await findProject(db, project)).id, doc_id)),
+  );
+
+  server.registerTool(
+    "search",
+    {
+      description:
+        "The tickets, docs and decisions of one project closest in meaning to a question, nearest first. It finds by meaning, not by words (list_tasks search matches words). kinds narrows to task, doc or decision; limit defaults to 8 (max 50). Each result names what to open: a ticket key, a doc_id (with its task_key), or a decision_id. SEARCH_UNAVAILABLE when the server has no search index.",
+      inputSchema: { project, query: z.string().min(1).max(2000), limit: z.number().int().min(1).max(50).optional(), kinds: z.array(z.enum(["task", "doc", "decision"])).max(3).optional() },
+      annotations: readOnly,
+    },
+    (input) => run(() => search(db, input)),
   );
 
   server.registerTool(
