@@ -777,6 +777,8 @@ export type ProjectSettings = {
   auto_accept?: boolean;
   // PLA-I46-6: how Plania starts and captures the project's test copy (src/captures/settings.ts).
   capture?: import("../captures/settings.js").CaptureSettings;
+  // PLA-I46-9: the QA lane's verify list and review model (src/runner/qa-settings.ts).
+  qa?: import("../runner/qa-settings.js").QaSettings;
 };
 
 // 2.13: mode "command" (default) shows the command Jorge runs; "merge" lets him ship from the screen
@@ -1213,3 +1215,83 @@ export const captureStills = pgTable(
   ],
 );
 export type CaptureStill = typeof captureStills.$inferSelect;
+
+// PLA-I46-9: the PO's check list for a ticket (up to three things to verify) and the QA lane's passes on its
+// deliveries. Migration 0049. QA's marks live on the lane (per commit), not on the item.
+export const poChecks = pgTable(
+  "po_checks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    n: integer("n").notNull(), // 1..3
+    text: text("text").notNull(),
+    writtenBy: jsonb("written_by").$type<Actor>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("po_checks_task_n_idx").on(t.taskId, t.n), check("po_checks_n_check", sql`${t.n} between 1 and 3`)],
+);
+export type PoCheck = typeof poChecks.$inferSelect;
+
+export type QaVerifyItem = {
+  name: string;
+  command: string;
+  exit_code: number | null;
+  ok: boolean;
+  pass: number | null;
+  fail: number | null;
+  duration_s: number;
+  tail: string; // the last lines of output, for Taller's notes
+};
+export type QaCapture = { run_id: string | null; ok: number; failed: number; still_ids: string[]; error: string | null };
+export type QaReview = { verdict: "pass" | "fail"; notes: string; model: string | null };
+export type QaMark = { n: number; mark: "pass" | "fail"; note: string };
+export const QA_STATUSES = ["queued", "checking", "reviewing", "pass", "fail", "error"] as const;
+export type QaStatus = (typeof QA_STATUSES)[number];
+
+export const qaLanes = pgTable(
+  "qa_lanes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    taskKey: text("task_key").notNull(),
+    commit: text("commit"),
+    branch: text("branch"),
+    prUrl: text("pr_url"),
+    attempt: integer("attempt").notNull().default(1),
+    status: text("status").$type<QaStatus>().notNull().default("queued"),
+    hold: text("hold"),
+    verify: jsonb("verify").$type<QaVerifyItem[]>().notNull().default([]),
+    capture: jsonb("capture").$type<QaCapture | null>(),
+    review: jsonb("review").$type<QaReview | null>(),
+    marks: jsonb("marks").$type<QaMark[]>().notNull().default([]),
+    notes: text("notes"),
+    diffLines: integer("diff_lines"),
+    model: text("model"),
+    runId: uuid("run_id"),
+    reviewTries: integer("review_tries").notNull().default(0),
+    headAfter: text("head_after"),
+    returned: boolean("returned").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("qa_lanes_task_idx").on(t.taskId, t.createdAt),
+    index("qa_lanes_status_idx").on(t.status),
+    index("qa_lanes_run_idx").on(t.runId),
+    check("qa_lanes_status_check", sql`${t.status} in ('queued', 'checking', 'reviewing', 'pass', 'fail', 'error')`),
+    check("qa_lanes_attempt_check", sql`${t.attempt} >= 1`),
+  ],
+);
+export type QaLane = typeof qaLanes.$inferSelect;

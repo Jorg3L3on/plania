@@ -302,6 +302,13 @@
       "when": 1794470400000,
       "tag": "0047_capture_stills",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794556800000,
+      "tag": "0049_qa_lane",
+      "breakpoints": true
     }
   ]
 }

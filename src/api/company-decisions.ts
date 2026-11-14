@@ -42,6 +42,7 @@ import { threadAction } from "./thread-actions.js";
 import { jorgePosts } from "./threads.js";
 import { applyFileStep, fileStepOf, stepOf, type FileStep } from "./file-step.js";
 import { requestVerify, verifyingOf, whoWord, type Verifying } from "./verify.js";
+import { qaGate } from "../runner/qa.js";
 
 const HOUR = 3_600_000;
 const KEEP_ACTED = 24 * HOUR;
@@ -370,7 +371,10 @@ async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, 
     if (card) carded.add(card);
     const pr = m.actionState ? m.links.some((l) => l.kind === "pr") || !!m.actionState.result?.merged : actions.includes("fusionar");
     const ticket = link?.kind === "ticket" ? await ticketByKey(db, projectId, link.ref) : null;
-    const { stale, head: _head, headBranch: _branch, ...ev } = await workEvidence(db, p ?? null, ticket, m.links.find((l) => l.kind === "pr")?.ref ?? null);
+    const { stale, head, headBranch: _branch, ...ev } = await workEvidence(db, p ?? null, ticket, m.links.find((l) => l.kind === "pr")?.ref ?? null);
+    // PLA-I46-9: a code delivery on a project with QA waits for its QA pass before it is the owner's turn.
+    const qa = !m.actionState && pr ? await qaGate(db, p ?? null, ticket, head) : null;
+    if (qa?.pending) continue;
     out.push({
       file_step: null,
       id: `m-${m.id}`,
@@ -385,6 +389,7 @@ async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, 
       ref: link?.ref ?? null,
       detail: firstLine(m.body, 200),
       ...ev,
+      hold: ev.hold ?? qa?.hold ?? null,
       links: linksOf(m.links),
       body: m.body,
       asker: await ownerAsker(db, p, ticket, m.authorAgent),

@@ -5,6 +5,7 @@ import { ToolError } from "./errors.js";
 import { headlineWarnings } from "./jorge-lines.js";
 import { checkReleaseSettings } from "./release-plan.js";
 import { parseCaptureSettings } from "../captures/settings.js";
+import { parseQaSettings } from "../runner/qa-settings.js";
 import { TEXT_LIMITS } from "./limits.js";
 import { findProject } from "./queries.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
@@ -13,7 +14,7 @@ import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 // additions to the protocol) and the headline (one line on where it stands, ≤ 280 chars).
 // Replaced with the version you read; rules_version moves with the rules, headline_version with the headline.
 
-const SETTING_KEYS = ["release_target", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel", "release", "team", "capture"] as const;
+const SETTING_KEYS = ["release_target", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel", "release", "team", "capture", "qa"] as const;
 
 // settings merge key by key; null removes one. Secrets never: integrations name env vars.
 function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>): ProjectSettings {
@@ -38,6 +39,12 @@ function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>)
     const c = parseCaptureSettings(next.capture);
     if (!c.ok) throw new ToolError("INVALID_FILTER", { field: c.field, hint: c.hint });
     next.capture = c.settings;
+  }
+  // PLA-I46-9: the QA lane's verify list (src/runner/qa-settings.ts).
+  if (next.qa !== undefined) {
+    const q = parseQaSettings(next.qa);
+    if (!q.ok) throw new ToolError("INVALID_FILTER", { field: q.field, hint: q.hint });
+    next.qa = q.settings;
   }
   if (next.team !== undefined) {
     const team = next.team as { idle_minutes?: unknown };

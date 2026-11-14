@@ -4,6 +4,7 @@ import { ADAPTERS, agents, heartbeatRuns, projects, tasks, type AdapterConfig, t
 import { spawn, type SpawnDeps, type SpawnTask } from "../adapters/index.js";
 import { requeueHeld, sweepFailedRuns, sweepStoppedRuns } from "../runner/failed.js";
 import { sweepAutoAccept } from "../api/auto-accept.js";
+import { sweepQa } from "../runner/qa.js";
 import { cleanupWorktrees, drainQueue, enforceLive, wakeClaude, type RunnerDeps } from "../runner/runner.js";
 import { ToolError } from "../mcp/errors.js";
 import { iso } from "../mcp/tx.js";
@@ -296,6 +297,8 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
   const held = await requeueHeld(db, now, deps?.runner);
   // PLA-I40-7: deliveries whose tests pass are accepted into the test copy where the project's switch is on.
   const auto = await sweepAutoAccept(db, now).catch(() => ({ accepted: [] as string[], held: [] }));
+  // PLA-I46-9: QA passes on code deliveries; a review run it queues starts in the drain below.
+  const qa = await sweepQa(db, now, { runner: deps?.runner, env: deps?.runner?.env, worktreeRoot: deps?.runner?.worktreeRoot, git: deps?.runner?.git }).catch(() => null);
   const drained = await drainQueue(db, now, deps?.runner);
   const cleaned = await cleanupWorktrees(db, deps?.runner);
   const roster = await db.select({ slug: agents.slug, minutes: agents.heartbeatMinutes }).from(agents);
@@ -313,6 +316,9 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
     handed_to_jorge: failed.held,
     freed_after_stop: freed.freed,
     requeued_held: held.requeued,
+    qa_opened: qa?.opened ?? 0,
+    qa_started: qa?.started ?? 0,
+    qa_concluded: qa?.concluded ?? 0,
   };
   for (const row of roster) {
     if (row.minutes == null) continue;
