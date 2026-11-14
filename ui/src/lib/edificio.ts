@@ -5,7 +5,7 @@
 //                its queue, else its last delivery. Never a ticket key, null or money.
 //   floorOrder   the floors: those that need the owner first, then by light; paused ones go to the basement.
 //   skyAt        the sky's colours for an hour; floorHue one of six fixed hues from the slug.
-import type { AskResult, Decision, DecisionAction, OrgMember, OrgMemberState, OrgNextStart, OrgProject, OrgRoute, OrgRouteLeg, OrgRouteStep } from "./api";
+import type { AskResult, Decision, OrgMember, OrgMemberState, OrgMoveAction, OrgNextMove, OrgNextStart, OrgProject, OrgRoute, OrgRouteLeg, OrgRouteStep } from "./api";
 import { byLight, byRole, roleName } from "./org";
 import { pending } from "./v2";
 
@@ -171,13 +171,25 @@ export function hangingFor(decisions: Decision[], project: string, agent: string
   if (!shown) return null;
   return { decision: shown, more: open.slice(1) };
 }
-// What goes on the roof as a chip: every pending decision; those with no asker on its floor's team open their row.
-export function roofChips(decisions: Decision[], projects: OrgProject[]): { decision: Decision; onTeam: boolean }[] {
-  const team = new Map(projects.map((p) => [p.slug, new Set(p.team.map((m) => m.agent))]));
-  return decisions.filter(pending).map((d) => ({
-    decision: d,
-    onTeam: !!(d.project && d.asker && team.get(d.project)?.has(d.asker.agent) && !isPaused(projects.find((p) => p.slug === d.project)!)),
-  }));
+// PLA-I46-3: the roof, one chip per floor whose move waits (its texto, word for word), then any pending decision no
+// floor can show (no project, or a project in the basement). A chip whose decision has no asker on that floor's team
+// opens its row in place (onTeam false); the rest jump to their floor.
+export type RoofChip = { key: string; project: OrgProject | null; move: OrgNextMove | null; decision: Decision | null; onTeam: boolean };
+export function roofChips(decisions: Decision[], projects: OrgProject[]): RoofChip[] {
+  const { floors } = floorOrder(projects, decisions);
+  const live = new Set(floors.map((p) => p.slug));
+  const out: RoofChip[] = [];
+  for (const p of floors) {
+    const m = moveOf(p);
+    if (!m) continue;
+    const o = m.origen;
+    const d = o.kind === "decision" ? (decisions.find((x) => x.id === o.id) ?? null) : null;
+    const team = new Set(p.team.map((x) => x.agent));
+    out.push({ key: d?.id ?? `move-${p.slug}`, project: p, move: m, decision: d, onTeam: !d || !!(d.asker && team.has(d.asker.agent)) });
+  }
+  for (const d of decisions.filter(pending))
+    if (!d.project || !live.has(d.project)) out.push({ key: d.id, project: projects.find((p) => p.slug === d.project) ?? null, move: null, decision: d, onTeam: false });
+  return out;
 }
 
 export const HOUR = 3_600_000;
@@ -232,13 +244,9 @@ export function startsLine(n: OrgNextStart, now: number, timeZone?: string): str
 
 export type NowState = "work" | "rest" | "you" | "stuck" | "done" | "off" | "idle";
 export const NOW_WORD: Record<NowState, string> = { work: "Trabajando", rest: "Pausa corta", you: "Te toca", stuck: "Atorado", done: "Plan terminado", off: "En pausa", idle: "Sin trabajo en curso" };
-export type NowAction =
-  | { kind: "start"; agent: string; pastGuard: boolean; label: string }
-  | { kind: "decision"; id: string; action: DecisionAction; label: string }
-  | { kind: "reveal"; label: string }
-  | { kind: "publish"; label: string }
-  | { kind: "fijar"; label: string }
-  | { kind: "plan"; text: string; label: string };
+// PLA-I46-3: the band's action is the floor's move (OrgMoveAction, green), or a secondary nudge that is never the
+// owner's turn (start a resting teammate now, or past the usage guard).
+export type NowAction = OrgMoveAction | { kind: "start"; agent: string; pastGuard: boolean; label: string };
 export type NowLine = {
   state: NowState;
   word: string;
@@ -248,21 +256,48 @@ export type NowLine = {
   holder: string | null;
   starts_at: string | null;
   action: NowAction | null;
+  // PLA-I46-3: the floor's siguiente jugada when it has one: then say is its texto and action its accion.
+  move: OrgNextMove | null;
 };
 
 const DOES: Record<string, string> = { taller: "construye", research: "investiga", artist: "diseña", qa: "prueba", copy: "escribe" };
 const q = (s: string | null | undefined, n = 80) => (s ? `«${clip(s, n)}»` : "lo siguiente");
-// Actions the band can take in one click: they need no words and no choice from the owner.
-const ONE_CLICK: Partial<Record<DecisionAction, string>> = { aceptar: "Aceptar", fusionar: "Aceptar", empezar: "Sí, empiecen", hecho: "Ya lo hice" };
 const HOLD_ORDER = ["rest", "soon", "usage", "no_goal", "unqueued", "slot", "waiting_owner", "waiting_step"];
 
+// PLA-I46-3: the floor's move as the server sent it; an older server sends none.
+export const moveOf = (p: Pick<OrgProject, "next_move">): OrgNextMove | null => p.next_move ?? null;
+
+// The second line under a move: why it is the owner's. The sentence itself is the move's texto, unchanged.
+function moveWhy(m: OrgNextMove, p: OrgProject, decisions: Decision[]): string {
+  const o = m.origen;
+  if (o.kind === "decision") {
+    const mine = decisions.filter((d) => d.project === p.slug && pending(d));
+    const d = mine.find((x) => x.id === o.id);
+    const more = mine.length > 1 ? ` Hay ${mine.length - 1} más.` : "";
+    const hold = d?.hold ? `${d.hold} ` : "";
+    if (o.decision === "release") return `Publicar es tuyo.${more}`;
+    if (o.decision === "pr" || o.decision === "deliverable") return `${hold}Mientras no la aceptes, el paso siguiente no arranca.${more}`;
+    return `${hold}El equipo espera tu respuesta para seguir.${more}`;
+  }
+  if (o.kind === "hold") return o.hold === "no_goal" ? "Sin meta nadie arranca. Fíjala y sigue solo." : o.hold === "waiting_owner" ? "Mientras no la aceptes, el paso siguiente no arranca." : "Está listo para empezar y nadie lo ha despertado.";
+  if (o.kind === "route") {
+    const here = p.route?.legs.find((l) => l.state === "here");
+    return `${here ? `${q(here.title)} está completo. ` : ""}El PO arma los pasos y tú los aceptas.`;
+  }
+  return "";
+}
+
 export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts: { companyPaused?: boolean; timeZone?: string } = {}): NowLine {
-  const line = (state: NowState, x: Partial<NowLine> & { say: string }): NowLine => ({ state, word: NOW_WORD[state], why: "", holder: null, starts_at: null, action: null, ...x });
+  const line = (state: NowState, x: Partial<NowLine> & { say: string }): NowLine => ({ state, word: NOW_WORD[state], why: "", holder: null, starts_at: null, action: null, move: null, ...x });
   if (opts.companyPaused) return line("off", { say: "La compañía está en pausa.", why: "Nada arranca hasta que la reanudes en Máquina." });
   if (isPaused(p)) return line("off", { say: "Este proyecto está en pausa.", why: "Nada arranca hasta que lo reanudes." });
 
+  // PLA-I46-3: one source. What is the owner's comes from the server's move; nothing below offers him a turn.
+  const m = moveOf(p);
+  if (m) return line("you", { say: m.texto, why: moveWhy(m, p, decisions), holder: "owner", action: m.accion, move: m });
+
   const team = [...p.team].sort(byRole);
-  const working = team.find((m) => m.state === "running");
+  const working = team.find((x) => x.state === "running");
   if (working) {
     const who = roleName(working.role);
     return line("work", {
@@ -272,31 +307,8 @@ export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts:
     });
   }
 
-  const mine = decisions.filter((d) => d.project === p.slug && pending(d)).sort((a, b) => a.at.localeCompare(b.at));
-  const d = mine.find((x) => x.kind !== "release") ?? mine[0];
-  if (d) {
-    const more = mine.length > 1 ? ` Hay ${mine.length - 1} más.` : "";
-    if (d.kind === "release") {
-      const n = d.release?.tickets?.length ?? 0;
-      return line("you", { say: n === 1 ? "1 cambio listo espera que lo publiques." : `${n} cambios listos esperan que los publiques.`, why: `Publicar es tuyo.${more}`, holder: "owner", action: { kind: "publish", label: "Publicar" } });
-    }
-    const who = d.asker ? roleName(d.asker.role) : "El equipo";
-    const delivery = d.kind === "pr" || d.kind === "deliverable";
-    const first = d.actions.find((a) => ONE_CLICK[a]);
-    return line("you", {
-      say: delivery ? `${who} te entrega ${q(d.title)}.` : d.kind === "plan" ? `${who} te propone un plan: ${q(d.title)}.` : `${who} te pregunta: ${clip(d.title, 100)}`,
-      why: `${d.hold ? `${d.hold} ` : ""}${delivery ? "Mientras no la aceptes, el paso siguiente no arranca." : "El equipo espera tu respuesta para seguir."}${more}`,
-      holder: "owner",
-      action: first && !d.hold ? { kind: "decision", id: d.id, action: first, label: ONE_CLICK[first]! } : { kind: "reveal", label: "Ver y responder" },
-    });
-  }
-  if (p.light === "needs_jorge" && p.light_reason) {
-    const publish = p.light_reason.action?.href === "#publicar";
-    return line("you", { say: p.light_reason.text, why: "", holder: "owner", action: publish ? { kind: "publish", label: "Publicar" } : null });
-  }
-
   const next = team
-    .filter((m) => m.next_start)
+    .filter((x) => x.next_start)
     .sort((a, b) => HOLD_ORDER.indexOf(a.next_start!.hold) - HOLD_ORDER.indexOf(b.next_start!.hold))[0];
   if (next) {
     const n = next.next_start!;
@@ -314,11 +326,11 @@ export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts:
       case "usage":
         return line("stuck", { say: `${who} no arrancó ${what}.`, why: `${n.text} ${at ? `Vuelve a intentarlo solo a las ${at}.` : "Vuelve a intentarlo solo cuando el uso baje."}`, holder: next.agent, starts_at: at ? n.starts_at : null, action: start("Seguir de todos modos", true) });
       case "no_goal":
-        return line("stuck", { say: `${who} no puede arrancar: falta la meta del proyecto.`, why: "Fíjala y sigue solo.", holder: "owner", action: { kind: "fijar", label: "Fijar meta" } });
+        return line("stuck", { say: `${who} no puede arrancar: falta la meta del proyecto.`, why: n.text, holder: next.agent });
       case "unqueued":
-        return line("stuck", { say: `Nadie ha despertado a ${who} para ${what}.`, why: "Está listo para empezar.", holder: next.agent, action: start("Que empiece ya") });
+        return line("stuck", { say: `Nadie ha despertado a ${who} para ${what}.`, why: "Está listo para empezar.", holder: next.agent });
       case "waiting_owner":
-        return line("you", { say: `${what} espera que aceptes la entrega anterior.`, why: "", holder: "owner", action: { kind: "reveal", label: "Ver la entrega" } });
+        return line("idle", { say: `${what} espera una entrega anterior.`, why: n.text, holder: null });
       default:
         return line("idle", { say: `${what} espera un paso anterior.`, why: n.text, holder: null });
     }
@@ -330,21 +342,28 @@ export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts:
   if (here && here.total > 0 && here.done === here.total) {
     const after = legs.slice(at + 1).find((l) => l.state !== "done");
     if (!after) return line("done", { say: `${q(here.title)} está completo.`, why: "No queda nada más en el plan." });
-    const unplanned = after.state === "unplanned";
-    return line("done", {
-      say: `${q(here.title)} está completo. Sigue ${unplanned ? "planear " : ""}${q(after.title)}.`,
-      why: unplanned ? "El PO arma los pasos y Taller empieza sin que lo pidas." : "",
-      holder: team.find((m) => m.role === "product-owner")?.agent ?? null,
-      action: unplanned ? { kind: "plan", text: `Planea «${after.title}»: sus pasos y qué significa hecho en cada uno.`, label: "Que PO lo planee" } : null,
-    });
+    return line("done", { say: `${q(here.title)} está completo. Sigue ${q(after.title)}.`, why: "" });
   }
-  return line("idle", { say: "Nadie tiene trabajo ahora.", why: "Pide algo en la caja de la izquierda y el PO lo reparte." });
+  return line("idle", { say: "Nadie tiene trabajo ahora.", why: "Pide algo con Pedir y el PO lo reparte." });
 }
 
-// What the owner's own figure says: what waits on him here, else nothing.
+// What the owner's own window says: the floor's move, word for word, else nothing for now.
 export function ownerCaption(l: NowLine): { doing: string; lit: boolean } {
-  if (l.holder !== "owner") return { doing: "Nada pendiente", lit: false };
-  return { doing: l.action && l.action.kind !== "reveal" ? l.action.label : "Te esperan", lit: true };
+  if (!l.move) return { doing: "Nada por ahora", lit: false };
+  return { doing: l.move.texto, lit: true };
+}
+
+// PLA-I46-3: the sky reads the first floor whose move waits (the floors' order puts those first).
+export function skyMove(projects: OrgProject[], decisions: Decision[]): { project: OrgProject; move: OrgNextMove; more: number } | null {
+  const { floors } = floorOrder(projects, decisions);
+  const withMove = floors.filter((p) => moveOf(p));
+  const first = withMove[0];
+  return first ? { project: first, move: moveOf(first)!, more: withMove.length - 1 } : null;
+}
+export function skyLine(projects: OrgProject[], decisions: Decision[], base: string): string {
+  const s = skyMove(projects, decisions);
+  if (!s) return `${base}. Nada te espera.`;
+  return `Te toca: ${s.move.texto}${s.more ? ` · y ${s.more === 1 ? "1 piso más" : `${s.more} pisos más`}` : ""}.`;
 }
 
 // ---- the route (PLA-I40-5): the delivery as legs, the current one with its named steps
@@ -440,3 +459,22 @@ export const staleAge = (sinceIso: string, now: number) => {
   const h = Math.max(1, Math.round((now - Date.parse(sinceIso)) / HOUR));
   return h < 48 ? `${h} h` : `${Math.round(h / 24)} días`;
 };
+
+// ---- the plate (PLA-I46-4): one status line, in plain words
+
+// Where the delivery stands, what is postponed on purpose, and the forecast when late. Never a token, never a key.
+export function plateStatus(p: OrgProject): string {
+  const legs = p.route?.legs ?? [];
+  const here = legs.find((l) => l.state === "here");
+  const parts: string[] = [];
+  if (here) parts.push(here.total > 0 && here.done === here.total ? `${here.title} completo` : here.total > 0 ? `${here.title}: ${here.done} de ${here.total} pasos` : `${here.title}: sin pasos todavía`);
+  else if (p.plan && p.plan.total > 0) parts.push(`${p.plan.done} de ${p.plan.total} pasos hechos`);
+  else if (!legs.length) parts.push("Aún no hay pasos");
+  const postponed = legs.filter((l) => l.note && /^pospuesto|pospuestos$/i.test(l.note));
+  const one = postponed.length === 1 ? /^Pospuesto: (.+)$/i.exec(postponed[0]!.note!) : null;
+  if (one) parts.push(`${q(one[1], 50)} sigue pospuesto a propósito`);
+  else if (postponed.length) parts.push("hay pasos pospuestos a propósito");
+  const r = p.rumbo;
+  if (r && !r.missing && (r.weeks_behind ?? 0) > 0 && r.forecast_on) parts.push(`va ${r.weeks_behind === 1 ? "1 semana" : `${r.weeks_behind} semanas`} tarde`);
+  return parts.join(" · ");
+}

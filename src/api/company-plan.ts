@@ -43,7 +43,7 @@ export type WorkLine = { open: number; in_progress: number };
 
 // MIA-I2 before MIA-I10: the number at the end of the key, then creation.
 const keyNumber = (key: string) => Number(/(\d+)$/.exec(key)?.[1] ?? Number.MAX_SAFE_INTEGER);
-const byKey = (a: Task, b: Task) => keyNumber(a.key) - keyNumber(b.key) || a.createdAt.getTime() - b.createdAt.getTime();
+export const byKey = (a: Task, b: Task) => keyNumber(a.key) - keyNumber(b.key) || a.createdAt.getTime() - b.createdAt.getTime();
 const OPEN_INITIATIVE = ["Planning", "Active", "Shipping", "On hold"];
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const atNoon = (iso: string) => Date.parse(`${iso}T12:00:00Z`);

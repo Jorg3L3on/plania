@@ -7,7 +7,7 @@ import { RECIBIRIA, floorHue, hangingFor, nowLine, ownerCaption } from "@/lib/ed
 import { byRole } from "@/lib/org";
 import { After, Last } from "./after";
 import { Figure } from "./figure";
-import { Now, type NowActs } from "./now";
+import { ActButton, Now, type NowActs } from "./now";
 import { Plate } from "./plate";
 import { Question, bubblePlace, type QuestionActs } from "./question";
 import { Route } from "./route";
@@ -60,7 +60,7 @@ export const Floor = ({
   const you = ownerCaption(line);
   const slots = team.length + 1 + (children ? 1 : 0);
   return (
-    <article id={`piso-${p.slug}`} className="edi-floor" data-floor={p.slug} data-light={p.light} style={{ "--c": floorHue(p.slug) } as CSSProperties} aria-label={p.title}>
+    <article id={`piso-${p.slug}`} className="edi-floor" data-floor={p.slug} data-light={p.light} data-move={line.move ? line.move.verbo : undefined} style={{ "--c": floorHue(p.slug) } as CSSProperties} aria-label={p.title}>
       <div className="edi-plate">
         {plate ?? (
           <Plate project={p} onFijar={onFijar} onPlan={onPlan} onPublish={onPublish} noSteps={p.route !== undefined}>
@@ -106,6 +106,8 @@ export const Floor = ({
             <span className="edi-do" data-doing>
               {you.doing}
             </span>
+            {/* PLA-I46-3: the same button as Ahora's, still (only Ahora breathes); hidden at 390 where the bar has it. */}
+            {line.move && <ActButton project={p} action={line.move.accion} move where="tu" className="edi-tu-go" ctx={{ decisions, acts: nowActs, qacts: acts, onFijar, onPublish }} />}
           </div>
         </div>
         {children && (

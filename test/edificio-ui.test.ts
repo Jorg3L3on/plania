@@ -6,6 +6,7 @@ import { test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
+import { nextMove } from "../src/api/company-move.js";
 
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
@@ -81,8 +82,10 @@ const company = (patch: Json = {}): Json => ({
   inbox: { decisiones: 0, pasos: 0 },
   ...patch,
 });
+// PLA-I46-3: each floor's move comes from the server (src/api/company-move.ts); attach it as companyRead does.
+const withMoves = (c: Json): Json => ({ ...c, projects: c.projects.map((p: Json) => ("next_move" in p ? p : { ...p, next_move: nextMove(p as never, c.decisions as never, { companyPaused: c.company.paused }) })) });
 const render = (c: Json, extra: Json = {}) =>
-  html(h(building.Building, { company: c, decisions: c.decisions, now: NOW, timeZone: TZ, hello: "Buenas tardes", day: "Martes 10 de noviembre", onNew: noop, ...extra }));
+  html(h(building.Building, { company: withMoves(c), decisions: c.decisions, now: NOW, timeZone: TZ, hello: "Buenas tardes", day: "Martes 10 de noviembre", onNew: noop, ...extra }));
 const one = (m: Json, extra: Json = {}) => html(h(win.Window, { member: m, project: "Workia", now: NOW, ...extra }));
 
 // ---- PLA-I39-3
@@ -129,17 +132,23 @@ test("I39-3 #2: the caption is role and verb, then what it is on with since when
   assert.deepEqual(["product-owner", "research", "artist", "taller", "qa", "copy"].map(lib.propOf), ["headset", "glasses", "beret", "hardhat", "magnifier", "none"]);
 });
 
-test("I39-3 #3: the roof shows Te toca with the number, one chip per decision, deliveries and tokens this week", () => {
+test("I39-3 #3 / I46-3: the roof shows Te toca with the number, one chip per floor's move, deliveries; no tokens", () => {
   const ds = [decision(), decision({ id: "m-2", kind: "proposal", title: "Dos caminos", asker: { agent: "product-owner-workia", role: "product-owner" } })];
-  const out = html(h(roof.Roof, { decisions: ds, projects: [project()], plumbing: { spend: 1_250_000, running: 1, paused: false } }));
-  assert.match(out, /data-te-toca="2"/);
-  assert.ok(text(out).includes("Te toca") && out.includes(">2<"));
-  assert.equal((out.match(/data-chip=/g) ?? []).length, 2);
-  assert.ok(out.includes("Workia: ¿Qué tienda abrimos primero?") && out.includes('href="#piso-workia"'));
-  assert.ok(out.includes("2 entregas esta semana") && out.includes("1.25M tokens esta semana"));
+  const projects = withMoves(company({ decisions: ds })).projects;
+  const out = html(h(roof.Roof, { decisions: ds, projects, plumbing: { spend: 1_250_000, running: 1, paused: false } }));
+  assert.match(out, /data-te-toca="1"/, "one floor, one move");
+  assert.ok(text(out).includes("Te toca") && out.includes(">1<"));
+  assert.equal((out.match(/data-chip=/g) ?? []).length, 1);
+  assert.ok(out.includes("Workia: Responder a Research: «¿Qué tienda abrimos primero?»") && out.includes('href="#piso-workia"'));
+  assert.ok(out.includes("2 entregas esta semana"));
+  assert.equal(/tokens|1\.25M/.test(out), false, "PLA-I46-4: no tokens on the building");
   clean(out);
-  const calm = html(h(roof.Roof, { decisions: [], projects: [project()], plumbing: { spend: 0, running: 0, paused: false } }));
-  assert.ok(calm.includes("Nada te espera.") && /data-te-toca="0"/.test(calm));
+  const calm = html(h(roof.Roof, { decisions: [], projects: [project({ next_move: null })], plumbing: { spend: 0, running: 0, paused: false } }));
+  assert.ok(calm.includes("Nada pendiente.") && /data-te-toca="0"/.test(calm));
+  // A decision no floor can show (no project) still gets its chip, opened in place.
+  const loose = html(h(roof.Roof, { decisions: [decision({ id: "c-1", project: null, asker: null })], projects: [project({ next_move: null })], onChip: noop }));
+  assert.match(loose, /data-te-toca="1"/);
+  assert.match(loose, /<button[^>]*data-chip="c-1"/);
 });
 
 test("I39-3 #4: empty is a lot with the door, loading the outline with dark windows, error the existing block", () => {
@@ -176,10 +185,12 @@ test("I39-3 #6: with prefers-reduced-motion nothing in the scene animates", () =
   const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
   const block = /@media \(prefers-reduced-motion: reduce\) \{\s*\.edi \*, \.edi \*::before, \.edi \*::after \{ animation: none !important; transition: none !important; \}/.test(css);
   assert.ok(block, "the .edi reduced-motion rule");
-  // Nothing in the scene moves to look busy: the only animations are the stars and the antenna.
-  const edi = css.slice(css.indexOf("/* PLA-I39: the building"), css.indexOf("@keyframes edi-twinkle"));
+  // PLA-I46-3: nothing in the scene moves but the Ahora card that holds a move (still stars, still antenna).
+  const start = css.indexOf("/* PLA-I39: the building");
+  const edi = css.slice(start, css.indexOf("@keyframes edi-twinkle", start));
   const animated = [...edi.matchAll(/^\s*(\.[^{]+)\{[^}]*animation:/gm)].map((m) => m[1]!.trim());
-  assert.deepEqual(animated, [".edi-star", ".edi-antenna::after"]);
+  assert.deepEqual(animated, [".edi-nowb[data-breathe]"]);
+  assert.match(edi, /\.edi-nowb\[data-breathe\] \{[^}]*animation: edi-breathe 2\.4s/);
   const out = html(h(scene.EdificioSkeleton, {}));
   assert.ok(out.includes("edi"));
 });
@@ -205,13 +216,13 @@ const findAll = (node: unknown, pred: (el: El) => boolean, out: El[] = []): El[]
   return out;
 };
 const control = (tree: unknown, name: string) => findAll(tree, (el) => el.props?.["data-control"] === name);
-const tree = (c: Json, extra: Json = {}) => expand(h(building.Building, { company: c, decisions: c.decisions, now: NOW, timeZone: TZ, hello: "Hola", day: "Martes", onNew: noop, ...extra }));
+const tree = (c: Json, extra: Json = {}) => expand(h(building.Building, { company: withMoves(c), decisions: c.decisions, now: NOW, timeZone: TZ, hello: "Hola", day: "Martes", onNew: noop, ...extra }));
 
 // ---- PLA-I39-4
 
 const plan = { initiative: { key: "WRK-I2", title: "Formulario de bienvenida" }, done: 2, total: 5, start_on: null, due_on: null, weeks: null, today_pct: null, done_pct: null, pace: null, weeks_behind: null, forecast_on: null };
 
-test("I39-4 #1: the plate shows name, deliverable, steps done of total, goal with date or Sin meta: Fijar, and the light's reason", () => {
+test("I39-4 #1 / I46-4: the compact plate: name, the real goal, one status line, Sin meta only without a goal, no tokens", () => {
   const set = project({
     plan,
     rumbo: { goal_id: "g-1", goal: "Que una tienda reciba su primer pedido", why: "", target_on: "2026-12-05", forecast_on: "2026-12-05", weeks_behind: 0, missing: false },
@@ -219,16 +230,15 @@ test("I39-4 #1: the plate shows name, deliverable, steps done of total, goal wit
     light_reason: { text: "El equipo te hizo una pregunta y espera tu respuesta.", action: { label: "Ver en Te toca", href: "#te-toca" } },
   });
   const out = render(company({ projects: [set] }), { onFijar: noop });
-  assert.ok(out.includes("Workia") && out.includes('title="Workia"'));
-  assert.ok(out.includes("Formulario de bienvenida") && out.includes("2 de 5 pasos hechos"));
-  assert.equal((out.match(/edi-seg edi-seg-done/g) ?? []).length, 2);
-  assert.ok(out.includes("Meta: <b>Que una tienda reciba su primer pedido</b> · 5 dic") && out.includes("a tiempo"));
-  assert.ok(out.includes("El equipo te hizo una pregunta y espera tu respuesta.") && out.includes('data-control="ver-pregunta"'));
-  assert.ok(out.includes("100k tokens esta semana"));
+  const plate = out.slice(out.indexOf('class="edi-plate"'), out.indexOf('class="edi-wins"'));
+  assert.ok(plate.includes("Workia") && plate.includes('title="Workia"'));
+  assert.match(plate, /class="edi-goal" data-rumbo="set" data-goal="true" title="Que una tienda reciba su primer pedido">Que una tienda reciba su primer pedido</);
+  assert.ok(plate.includes("2 de 5 pasos hechos"), "one status line");
+  assert.equal(/Sin meta|tokens|100k|edi-seg|ver-pregunta|edi-reason|te hizo una pregunta/.test(plate), false, "no Sin meta, no tokens, no strip, no action of its own; the question is the floor's move");
   clean(out);
   const missing = render(company({ projects: [project({ next: { title: "Pantalla del carrito", key: "WRK-3", owner: "taller", due: null } })] }), { onFijar: noop });
-  assert.ok(missing.includes('data-rumbo="missing"') && missing.includes("Sin meta: ") && missing.includes('data-control="fijar"'));
-  assert.ok(missing.includes("Pantalla del carrito") && missing.includes("Aún no hay pasos"));
+  assert.ok(missing.includes('data-rumbo="missing"') && text(missing).replace(/\s+/g, " ").includes("Sin meta · Fijar meta") && missing.includes('data-control="fijar"'));
+  assert.ok(missing.includes("Aún no hay pasos"));
   clean(missing);
   // Fijar opens the goal dialog for that project.
   let fixed: Json | null = null;
@@ -260,15 +270,15 @@ test("I39-4 #3: company paused: no window is lit and the banner says it resumes 
   assert.ok(page.includes('data-banner="paused"') && page.includes("La compañía está detenida: nada arranca. Se reanuda en Máquina."));
 });
 
-test("I39-4 #4: a long name stays on one line with ellipsis and its full text in title; a long deliverable wraps to two lines", () => {
+test("I39-4 #4: a long name stays on one line with ellipsis and its full text in title; a long goal wraps whole", () => {
   const name = "Telar de cuentos para niños y abuelos que leen en voz alta";
-  const deliv = "Una pantalla del cuento con un título muy largo que ocupa por lo menos dos líneas en el teléfono y algo más";
-  const out = render(company({ projects: [project({ title: name, plan: { ...plan, initiative: { key: "WRK-I3", title: deliv } } })] }));
+  const goal = "Una pantalla del cuento con un título muy largo que ocupa por lo menos dos líneas en el teléfono y algo más";
+  const out = render(company({ projects: [project({ title: name, rumbo: { goal_id: "g", goal, why: "", target_on: null, forecast_on: null, weeks_behind: null, missing: true } })] }));
   assert.ok(new RegExp(`<a[^>]*class="edi-nm"[^>]*title="${name}"`).test(out) && out.includes(`>${name}</a>`));
-  assert.ok(new RegExp(`class="edi-deliv"[^>]*title="${deliv}"`).test(out));
+  assert.ok(new RegExp(`class="edi-goal"[^>]*title="${goal}"`).test(out) && out.includes(`>${goal}</p>`), "a goal without a date is still the goal, whole");
   const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
   assert.ok(/\.edi-nm \{[^}]*overflow: hidden; text-overflow: ellipsis; white-space: nowrap;/.test(css), "one line with ellipsis");
-  assert.ok(/\.edi-deliv \{[^}]*-webkit-line-clamp: 2;/.test(css), "two lines at most");
+  assert.ok(/\.edi-goal \{[^}]*overflow-wrap: anywhere;/.test(css), "it wraps, never clipped");
 });
 
 test("I39-4 #5: the door opens the new-project dialog and a created project shows as a new floor", () => {
@@ -325,8 +335,9 @@ test("I39-5 #1: a proposal hangs under the PO's window and a question under the 
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
   assert.equal(page.includes("<TeToca"), false);
   assert.ok(page.includes('get("decision")'));
+  // PLA-I46-3: the floor's move points at the question on this floor (Ahora's Ver y responder).
   const reason = render(company({ projects: [project({ light: "needs_jorge", light_reason: { text: "Te preguntan.", action: { label: "Ver en Te toca", href: "#te-toca" } } })], decisions: [decision()] }), { acts: acts() });
-  assert.ok(reason.includes('data-control="ver-pregunta"') && reason.includes('id="pregunta-workia"') && reason.includes("Ver la pregunta"));
+  assert.ok(reason.includes('data-control="ahora-reveal"') && reason.includes('id="pregunta-workia"') && reason.includes("Ver y responder"));
   clean(out);
 });
 
@@ -697,17 +708,18 @@ const release = (patch: Json = {}): Json =>
   });
 const waitingRelease = project({ light: "needs_jorge", light_reason: { text: "2 cambios listos esperan que los publiques.", action: { label: "Publicar", href: "#publicar" } } });
 
-test("PLA-23 #1: a floor with a release has a Publicar button on its plate that opens publishing for that project", () => {
-  const opened: string[] = [];
-  const t = tree(company({ projects: [waitingRelease], decisions: [release()] }), { acts: acts(), onPublish: (p: Json) => opened.push(p.slug) });
-  const [btn] = control(t, "publicar");
-  assert.ok(btn, "the plate has Publicar");
-  btn!.props.onClick();
-  assert.deepEqual(opened, ["workia"]);
+test("PLA-23 #1 / I46-3: a floor with a release has its move Publicar in Ahora, Tú and the phone bar; each opens publishing", () => {
+  for (const where of ["ahora", "tu", "barra"]) {
+    const opened: string[] = [];
+    const t = tree(company({ projects: [waitingRelease], decisions: [release()] }), { acts: acts(), onPublish: (p: Json) => opened.push(p.slug) });
+    const [btn] = control(t, `${where}-publish`);
+    assert.ok(btn, `${where} has Publicar`);
+    btn!.props.onClick();
+    assert.deepEqual(opened, ["workia"], where);
+  }
   const out = render(company({ projects: [waitingRelease], decisions: [release()] }), { acts: acts(), onPublish: noop });
-  assert.ok(out.includes("2 cambios listos esperan que los publiques.") && !out.includes('href="#publicar"'));
-  // Without a handler (an older page), it still goes somewhere: Bandeja.
-  assert.ok(render(company({ projects: [waitingRelease] })).includes('href="/inbox"'));
+  assert.ok(text(out).includes("Publicar 2 cambios") && !out.includes('href="#publicar"'));
+  assert.equal(out.includes('data-control="publicar"'), false, "the plate draws no Publicar of its own");
 });
 
 test("PLA-23 #1: the roof chip of a release publishes in place, and the sheet says what goes out, where, and asks the code", () => {
@@ -741,32 +753,26 @@ test("PLA-23 #1: the roof chip of a release publishes in place, and the sheet sa
   assert.equal(/OwnerCodeInput|isOwnerCode/.test(bandeja), false, "Bandeja's Lanzar asks no code either");
 });
 
-test("PLA-23 #2: Ver la pregunta is a button that brings the question into view", () => {
-  const seen: string[] = [];
+test("PLA-23 #2 / I46-3: Ver y responder is the move's button; it brings the question into view", () => {
   const out = render(company({ projects: [project({ light: "needs_jorge", light_reason: { text: "Te preguntan.", action: { label: "Ver en Te toca", href: "#te-toca" } } })], decisions: [decision()] }), { acts: acts() });
-  assert.match(out, /<button type="button" class="edi-mini"[^>]*data-control="ver-pregunta"/);
-  const p = plateReveal((x: Json) => seen.push(x.slug));
-  p.props.onClick();
-  assert.deepEqual(seen, ["workia"]);
+  assert.match(out, /<button type="button" class="edi-nact edi-go"[^>]*data-control="ahora-reveal"[^>]*>Ver y responder</);
   const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
   assert.ok(css.includes("[data-flash]"));
 });
 const plateUi = await load("components/compania/edificio/plate.tsx");
-function plateReveal(onReveal: (p: Json) => void): El {
-  const p = project({ light: "needs_jorge", light_reason: { text: "Te preguntan.", action: { label: "Ver en Te toca", href: "#te-toca" } } });
-  return control(expand(h(plateUi.Plate, { project: p, onReveal })), "ver-pregunta")[0]!;
-}
 
 test("PLA-23 #3: bubbles, captions, goal and tokens say what they mean", () => {
   assert.equal(questionUi.bubbleHead({ kind: "pr", state: null }, "taller"), "Taller te entrega");
   assert.equal(questionUi.bubbleHead({ kind: "question", state: null }, "research"), "Research te pregunta");
   assert.equal(questionUi.bubbleHead({ kind: "pr", state: { action: "aceptar", at: "x", result: {} } }, "taller"), "Ya respondiste a Taller");
+  // PLA-I46-4: a goal without a date is still a goal: no «Sin meta». Only a project with none says it.
   const goalNoDate = render(company({ projects: [project({ rumbo: { goal_id: "g", goal: "Primera boda", why: "", target_on: null, forecast_on: null, weeks_behind: null, missing: true } })] }), { onFijar: noop });
-  assert.ok(text(goalNoDate).includes("Meta sin fecha") && goalNoDate.includes("Poner fecha"));
+  assert.ok(text(goalNoDate).includes("Primera boda") && !text(goalNoDate).includes("Sin meta"));
   const noGoal = render(company({ projects: [project()] }), { onFijar: noop });
   assert.ok(text(noGoal).includes("Sin meta") && noGoal.includes("Fijar meta"));
+  // No token figure anywhere on the building.
   const tok = render(company({ projects: [project({ usage: { used: 14_620_000, last_week: 9_400_000 } })] }));
-  assert.ok(text(tok).includes("14.62M tokens esta semana") && text(tok).includes("9.4M la pasada"));
+  assert.equal(/tokens|14\.62M|9\.4M/.test(text(tok)), false);
   const ci = v2lib.checksText({ checks: { open: 0, ci: "none" } });
   assert.deepEqual(ci, { text: "repo sin CI", tone: "idle", open: false });
   const msg = html(h(v2.DecisionBody, { d: decision({ kind: "pr", body: "Hice esto.", asker: { agent: "taller-workia", role: "taller" } }), now: NOW, busy: null, onAct: noop }));

@@ -18,9 +18,10 @@ import { companyState, type CompanyState, type RunView } from "../runner/company
 import { autoAcceptOf, type AutoAccept } from "./auto-accept.js";
 import { decisionsRead, inboxByProject, type Decision } from "./company-decisions.js";
 import { ordersOf, type Order } from "./company-orders.js";
+import { nextMove, type NextMove } from "./company-move.js";
 import { loadReadiness } from "../mcp/readiness.js";
 import type { InboxItem } from "../mcp/inbox.js";
-import { ceoAgentId, planOf, readyOf, routeOf, type Route, type QueuedTicket, type ReadyLine, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
+import { byKey, ceoAgentId, planOf, readyOf, routeOf, type Route, type QueuedTicket, type ReadyLine, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
 
 const HOUR = 3_600_000;
 const QUIET_HOURS = 48;
@@ -93,6 +94,8 @@ export type ProjectCard = {
   work: WorkLine;
   // PLA-I36-3: Tus órdenes (src/api/company-orders.ts).
   orders: Order[];
+  // PLA-I46-3: la siguiente jugada, the one thing on this floor that is the owner's (src/api/company-move.ts).
+  next_move: NextMove | null;
 };
 
 export type CompanyRead = {
@@ -142,7 +145,30 @@ async function lastRunOf(db: Db, agentId: string) {
 }
 
 // The newest thing a member delivered, from its own lines in the project thread.
-async function producedBy(db: Db, threadId: string, slug: string): Promise<TeamMember["produced"]> {
+// PLA-I46-4: a window names a delivered PR by its step: «Paso N · <the ticket's title>», the title the plan wrote
+// (in Spanish), never the PR's own (often English). With no ticket behind the PR it says only «Paso N».
+const PR_NUMBER = /\/pull\/(\d+)|#(\d+)/;
+export async function prStepTitle(db: Db, projectId: string | null, ref: string, prTitle: string): Promise<string> {
+  const m = PR_NUMBER.exec(ref) ?? PR_NUMBER.exec(prTitle);
+  const n = m ? (m[1] ?? m[2]) : null;
+  const rows = projectId
+    ? await db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.projectId, projectId), eq(tasks.kind, "ticket"), n ? sql`(${tasks.prUrl} = ${ref} or ${tasks.prUrl} like ${`%/pull/${n}`})` : eq(tasks.prUrl, ref)))
+        .limit(1)
+    : [];
+  const t = rows[0];
+  if (!t) return n ? `Paso ${n}` : "Un paso";
+  if (!t.parentId) return t.title;
+  const steps = (await db.select().from(tasks).where(and(eq(tasks.parentId, t.parentId), eq(tasks.kind, "ticket"))))
+    .filter((x) => x.status !== "Won't do")
+    .sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || byKey(a, b));
+  const i = steps.findIndex((x) => x.id === t.id);
+  return i >= 0 ? `Paso ${i + 1} · ${t.title}` : t.title;
+}
+
+async function producedBy(db: Db, threadId: string, slug: string, projectId: string | null): Promise<TeamMember["produced"]> {
   const rows = await db
     .select({ links: threadMessages.links })
     .from(threadMessages)
@@ -153,7 +179,7 @@ async function producedBy(db: Db, threadId: string, slug: string): Promise<TeamM
     const link = r.links.find((l) => l.kind === "doc" || l.kind === "pr" || l.kind === "idea");
     if (!link) continue;
     const kind = link.kind === "doc" && /^plan\b/i.test(link.title) ? "plan" : (link.kind as "doc" | "pr" | "idea");
-    return { kind, ref: link.ref, title: link.title };
+    return { kind, ref: link.ref, title: kind === "pr" ? await prStepTitle(db, projectId, link.ref, link.title) : link.title };
   }
   return null;
 }
@@ -176,7 +202,7 @@ async function memberView(db: Db, a: Agent, ctx: { paused: boolean; threadId: st
     now: running ? { ticket: running.taskKey, title: await ticketTitle(db, a.projectId, running.taskKey), since: (running.startedAt ?? new Date()).toISOString(), run_id: running.id } : null,
     last: ended ? { ticket: ended.taskKey, title: await ticketTitle(db, a.projectId, ended.taskKey), status: ended.status, at: ended.endedAt!.toISOString(), run_id: ended.id } : null,
     queue: [],
-    produced: await producedBy(db, ctx.threadId, a.slug),
+    produced: await producedBy(db, ctx.threadId, a.slug, a.projectId),
     waiting,
     next_start: null,
   };
@@ -185,7 +211,10 @@ async function memberView(db: Db, a: Agent, ctx: { paused: boolean; threadId: st
 type GoalRow = { id: string; title: string; why: string; target_on: string | null };
 async function goalOf(db: Db, projectId: string): Promise<GoalRow | null> {
   const rows = await db.execute<{ id: string; title: string; why: string; target_on: string | Date | null }>(
-    sql`select id, title, why, target_on from goals where project_id = ${projectId} and status = 'active' and parent_id is null order by position, created_at limit 1`,
+    // PLA-I46-4: a project's goal usually hangs under a company goal; only a sub-goal of the same project is skipped.
+    sql`select g.id, g.title, g.why, g.target_on from goals g where g.project_id = ${projectId} and g.status = 'active'
+        and not exists (select 1 from goals pg where pg.id = g.parent_id and pg.project_id = g.project_id)
+        order by g.position, g.created_at limit 1`,
   );
   const r = rows.rows[0];
   if (!r) return null;
@@ -480,6 +509,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       preview_url: p.settings.preview_url ?? null,
       work: await workOf(db, p),
       orders: await ordersOf(db, p, thread.id, now),
+      next_move: null,
     });
   }
 
@@ -496,19 +526,19 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     else if (!settings.companyPaused && (await openQuestionsByAgent(db)).has(asis.id)) state = "waiting_jorge";
   }
 
-  const spend = await db.execute<{ used: string }>(sql`
-    select coalesce(sum(tokens_total), 0)::bigint as used
-    from agent_runs where status in ('running', 'ok', 'fail', 'stopped') and coalesce(started_at, queued_at) >= ${startsAt.toISOString()}::timestamptz`);
+  // PLA-I46-5: the company's week is input + output, as Máquina shows it (cache apart).
+  const spend = (await weekUsage(db, { kind: "all" }, startsAt)).used;
   const [running] = await db.select({ n: sql<number>`count(*)::int` }).from(agentRuns).where(eq(agentRuns.status, "running"));
 
   const decisions = await decisionsRead(db, now, inbox);
   for (const c of cards) if (c.auto_accept.on) c.auto_accept = await autoAcceptOf(db, all.find((p) => p.slug === c.slug)!, decisions);
+  for (const c of cards) c.next_move = nextMove(c, decisions, { companyPaused: settings.companyPaused });
   return {
     company: { paused: settings.companyPaused },
     week: { starts_at: startsAt.toISOString(), resets_at: resetsAt.toISOString(), timezone: tz },
     asistente: { thread_id: company.id, usage: asisUsage, last_run: lastRun, state, unread: companyUnread },
     projects: cards,
-    plumbing: { spend: Number(spend.rows[0]?.used ?? 0), running: running?.n ?? 0, paused: settings.companyPaused },
+    plumbing: { spend, running: running?.n ?? 0, paused: settings.companyPaused },
     decisions,
     inbox: countInbox(inbox),
   };
@@ -572,7 +602,7 @@ export type Plumbing = {
   week: CompanyState["week"];
   plan: PlanView;
   // PLA-21: this week's tokens, shown only (no budgets).
-  usage: { asistente: WeekUsage; projects: CompanyState["projects"] };
+  usage: { asistente: WeekUsage; projects: CompanyState["projects"]; week: WeekUsage };
   runs: { live: RunView[]; queued: RunView[] };
   log: RunBrief[];
   viewer: { can_edit_limits: boolean };
@@ -592,7 +622,7 @@ export async function plumbing(db: Db, now = new Date()): Promise<Plumbing> {
     settings: state.settings,
     week: state.week,
     plan: planView(await lastReading(db), settings.planGuardPct, now, settings.guardOverride),
-    usage: { asistente: await weekUsage(db, { kind: "asistente" }, startsAt), projects: state.projects },
+    usage: { asistente: await weekUsage(db, { kind: "asistente" }, startsAt), projects: state.projects, week: await weekUsage(db, { kind: "all" }, startsAt) },
     runs: state.runs,
     log: log.rows.map((r) => ({
       id: String(r.id),

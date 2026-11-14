@@ -240,7 +240,20 @@ export type OrgProject = {
   ready?: { key: string; title: string }[];
   plan_approval?: boolean;
   preview_url?: string | null;
+  // PLA-I46-3: la siguiente jugada (src/api/company-move.ts). Null: nothing here is the owner's; absent: older server.
+  next_move?: OrgNextMove | null;
 };
+export type OrgMoveVerb = "aceptar" | "publicar" | "responder" | "fijar" | "arrancar" | "planear" | "ver";
+export type OrgMoveAction =
+  | { kind: "decision"; id: string; action: DecisionAction; label: string }
+  | { kind: "reveal"; id: string | null; label: string }
+  | { kind: "publish"; label: string }
+  | { kind: "fijar"; label: string }
+  | { kind: "plan"; text: string; label: string }
+  | { kind: "start"; agent: string; label: string }
+  | { kind: "link"; href: string; label: string };
+export type OrgMoveOrigin = { kind: "decision"; id: string; decision: string } | { kind: "light" } | { kind: "hold"; agent: string; hold: string } | { kind: "route"; leg: string };
+export type OrgNextMove = { verbo: OrgMoveVerb; texto: string; accion: OrgMoveAction; origen: OrgMoveOrigin };
 export type OrgLatest = { kind: "published" | "delivered"; title: string | null; n: number | null; at: string };
 export type OrgStaleRequest = { key: string; title: string; since: string };
 export type OrgStepState = "done" | "published" | "delivered" | "working" | "next" | "later";
@@ -343,7 +356,8 @@ export type MachinePlumbing = {
   settings: Company["settings"];
   week: Company["week"];
   plan: CompanyPlan;
-  usage: { asistente: Usage; projects: CompanyProjectRow[] };
+  // PLA-I46-5: week is the whole company's, input + output in used, cache reads and writes apart.
+  usage: { asistente: Usage; projects: CompanyProjectRow[]; week?: Usage };
   runs: { live: CompanyRun[]; queued: CompanyRun[] };
   log: RunBrief[];
   viewer?: { can_edit_limits: boolean };
@@ -358,8 +372,8 @@ export type CompanyProject = {
   playbook: { title: string; version: number } | null;
 };
 
-export type UsageTotal = { agent: string; project: string; week: string; input: number; output: number };
-
-export type UsageSummary = { label: "reportado"; totals: UsageTotal[] };
+export type UsageTotal = { agent: string; project: string; week: string; input: number; output: number; cache_read?: number; cache_create?: number };
+export type UsageWeek = { week: string; starts_at: string; used: number; input: number; output: number; cache_read: number; cache_create: number };
+export type UsageSummary = { label: "reportado"; totals: UsageTotal[]; screen?: UsageWeek };
 
 export const isUnauthorized = (e: unknown) => e instanceof ApiError && e.status === 401;

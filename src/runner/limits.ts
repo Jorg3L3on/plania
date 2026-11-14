@@ -69,26 +69,33 @@ export async function weekBounds(db: Q, now: Date, tz = screenTz()): Promise<{ s
 // PLA-21: weekly token budgets are gone (Jorge, 2026-11-12). The week's tokens are only shown, never checked.
 
 // A project's usage is its team's; Asistente's runs (role asistente) count apart.
-export type UsageScope = { kind: "project"; projectId: string } | { kind: "asistente" };
-export type WeekUsage = { used: number };
+export type UsageScope = { kind: "project"; projectId: string } | { kind: "asistente" } | { kind: "all" };
+// PLA-I46-5: used is input + output, the work the models did. Cache reads and cache writes are counted apart: a
+// resumed session re-reads its whole context each turn, so they can be 99% of the total and say little.
+export type WeekUsage = { used: number; input: number; output: number; cache_read: number; cache_create: number };
 // PLA-23: a card shows last week next to this week, so the number has something to compare with.
-export type CardUsage = WeekUsage & { last_week: number };
+export type CardUsage = { used: number; last_week: number };
 
 export function scopeWhere(scope: UsageScope) {
   if (scope.kind === "asistente") return sql`r.role = 'asistente'`;
+  if (scope.kind === "all") return sql`true`;
   return sql`r.project_id = ${scope.projectId} and r.role <> 'asistente'`;
 }
 
 // Tokens from weekStart (to weekEnd when given), ended and running runs alike.
 export async function weekUsage(db: Q, scope: UsageScope, weekStart: Date, weekEnd?: Date): Promise<WeekUsage> {
-  const rows = await db.execute<{ used: string | null }>(sql`
-    select coalesce(sum(r.tokens_total), 0)::bigint as used
+  const rows = await db.execute<{ input: string | null; output: string | null; cache_read: string | null; cache_create: string | null }>(sql`
+    select coalesce(sum(r.input_tokens), 0)::bigint as input, coalesce(sum(r.output_tokens), 0)::bigint as output,
+           coalesce(sum(r.cache_read_tokens), 0)::bigint as cache_read, coalesce(sum(r.cache_create_tokens), 0)::bigint as cache_create
     from agent_runs r
     where ${scopeWhere(scope)}
       and r.status in ('running', 'ok', 'fail', 'stopped')
       and coalesce(r.started_at, r.queued_at) >= ${weekStart.toISOString()}::timestamptz
       and (${weekEnd?.toISOString() ?? null}::timestamptz is null or coalesce(r.started_at, r.queued_at) < ${weekEnd?.toISOString() ?? null}::timestamptz)`);
-  return { used: Number(rows.rows[0]?.used ?? 0) };
+  const r = rows.rows[0];
+  const input = Number(r?.input ?? 0);
+  const output = Number(r?.output ?? 0);
+  return { used: input + output, input, output, cache_read: Number(r?.cache_read ?? 0), cache_create: Number(r?.cache_create ?? 0) };
 }
 
 // ---- Plan guard

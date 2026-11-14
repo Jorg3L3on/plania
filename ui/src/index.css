@@ -443,7 +443,8 @@
     background: linear-gradient(180deg, var(--sky1, #070a18) 0%, var(--sky2, #171d3d) 46%, var(--sky2, #171d3d) 100%);
     padding: 28px 30px 0;
   }
-  .edi-star { position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #fff; opacity: calc(var(--dark, 1) * 0.75); animation: edi-twinkle 4s ease-in-out infinite; }
+  .edi-star { position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #fff; opacity: calc(var(--dark, 1) * 0.75); }
+  /* PLA-I46-3: nothing on the building moves but the Ahora card that holds the owner's move. */
   .edi-orb { position: absolute; right: 5%; top: 78px; width: 46px; height: 46px; border-radius: 50%; background: #f2efe0; box-shadow: 0 0 60px 14px rgb(242 239 224 / 0.22); z-index: 0; }
   .edi-orb[data-orb="sun"] { background: #ffd58a; box-shadow: 0 0 70px 18px rgb(255 200 120 / 0.3); }
   .edi-sky { position: relative; z-index: 1; padding-bottom: 26px; }
@@ -470,7 +471,7 @@
   .edi-chip { display: inline-block; max-width: 100%; overflow-wrap: anywhere; border: 1px solid color-mix(in srgb, var(--e-you) 60%, transparent); background: rgb(255 159 67 / 0.13); color: var(--e-you-ink); border-radius: 999px; min-height: 32px; padding: 5px 13px; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; }
   .edi-chip:hover { background: rgb(255 159 67 / 0.24); }
   .edi-antenna { width: 2px; height: 58px; background: rgb(255 255 255 / 0.35); position: relative; margin-right: 8%; flex: none; }
-  .edi-antenna::after { content: ""; position: absolute; left: -3px; top: -4px; width: 8px; height: 8px; border-radius: 50%; background: #ff5a6e; box-shadow: 0 0 12px 3px rgb(255 90 110 / 0.7); animation: city-blink 2.2s ease-in-out infinite; }
+  .edi-antenna::after { content: ""; position: absolute; left: -3px; top: -4px; width: 8px; height: 8px; border-radius: 50%; background: #ff5a6e; box-shadow: 0 0 12px 3px rgb(255 90 110 / 0.7); }
 
   /* the tower and its floors */
   .edi-tower { position: relative; z-index: 1; margin: 0 22px; background: var(--e-wall); border: 1px solid rgb(255 255 255 / 0.09); border-bottom: 0; border-radius: 16px 16px 0 0; box-shadow: 0 -12px 70px rgb(0 0 0 / 0.35); }
@@ -482,6 +483,8 @@
   .edi-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; letter-spacing: inherit; background: none; border: 0; padding: 0; color: var(--c); text-align: left; }
   button.edi-nm { cursor: pointer; }
   .edi-deliv { font-size: 14.5px; font-weight: 600; margin-top: 4px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+  /* PLA-I46-4: the real goal, whole (it wraps, never clipped). */
+  .edi-goal { font-size: 14.5px; font-weight: 600; margin-top: 4px; line-height: 1.35; overflow-wrap: anywhere; }
   .edi-segs { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; min-height: 10px; }
   .edi-seg { width: 17px; height: 6px; border-radius: 3px; background: rgb(255 255 255 / 0.15); }
   .edi-seg-done { background: var(--c); }
@@ -515,6 +518,20 @@
   .edi-nowb[data-now="you"] { order: -3; }
   .edi-nowb[data-now="stuck"] { --st: #ff8a80; }
   .edi-nowb[data-now="done"] { --st: #8fe0a4; }
+  /* PLA-I46-3: la siguiente jugada. Only this card breathes, in orange, every 2.4 s; the Tú window takes the same
+     orange, still. The move's button is green (#8fe0a4, dark text); every other button is an outline. */
+  .edi-nowb[data-breathe] { padding: 16px 18px; border: 1px solid color-mix(in srgb, var(--e-you) 55%, transparent); border-radius: 18px; background: rgb(255 159 67 / 0.07); animation: edi-breathe 2.4s ease-in-out infinite; }
+  @keyframes edi-breathe { 0%, 100% { box-shadow: 0 0 0 0 rgb(255 159 67 / 0); } 50% { box-shadow: 0 0 0 5px rgb(255 159 67 / 0.16), 0 0 46px rgb(255 159 67 / 0.2); } }
+  .edi .edi-go { background: #8fe0a4; color: #10131f; border: 0; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+  .edi .edi-go:hover { background: #a6ecb8; filter: none; }
+  .edi-nacts .edi-btn { min-height: 40px; }
+  .edi-tu-go { justify-self: start; min-height: 32px !important; padding: 0 12px !important; font-size: 12.5px !important; margin-top: 4px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .edi-you[data-state="you"] .edi-do { -webkit-line-clamp: 4; }
+  .edi-you[data-state="you"] .edi-who b { color: var(--e-you-ink); }
+  /* PLA-I46-3: the phone bar, fixed above the app's bottom nav under 40rem: the one main button and Pedir. */
+  .edi-pbar { display: none; }
+  .edi-lastall summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--e-muted); text-decoration: underline; text-underline-offset: 3px; }
+  .edi-lastall[open] { display: grid; gap: 6px; }
   .edi-ntext { display: grid; gap: 6px; min-width: 0; }
   .edi-nword { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--st); }
   .edi-nword::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--st); flex: none; }
@@ -669,6 +686,8 @@
   .edi-under .edi-nm { color: var(--e-muted); text-shadow: none; }
   .edi-under .edi-bullet { background: var(--e-muted); }
 
+
+  /* Unused since PLA-I46-3 (the stars are still); kept as the end mark of the floor's static rules. */
   @keyframes edi-twinkle { 50% { opacity: calc(var(--dark, 1) * 0.2); } }
 
   @media (width < 64rem) {
@@ -690,6 +709,18 @@
     .edi-lobby { padding: 12px 14px 0; }
     .edi-street, .edi-under { margin: 0 -14px; }
     .edi-under { padding: 14px 14px 22px; }
+  }
+
+  @media (width < 40rem) {
+    .edi-pbar { position: fixed; z-index: 25; left: 0; right: 0; bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)); display: grid; gap: 6px; padding: 10px 14px 10px; background: rgb(13 16 32 / 0.95); border-top: 1px solid var(--e-line); backdrop-filter: blur(8px); }
+    .edi-pbar-say { font-size: 13px; font-weight: 600; color: var(--e-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .edi-pbar-acts { display: flex; gap: 8px; min-width: 0; }
+    .edi-pbar-acts > * { min-height: 46px; }
+    .edi-pbar-go { flex: 1; min-width: 0; padding: 0 14px; border-radius: 999px; font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+    .edi:has(.edi-pbar) { padding-bottom: 120px; }
+    /* The bar carries the main button, so Ahora and the Tú window hide theirs. */
+    .edi-nowb .edi-go[data-move], .edi-tu-go { display: none !important; }
+    body:has(.edi-pbar) .edi-fab { bottom: calc(4.5rem + 126px + env(safe-area-inset-bottom, 0px)); }
   }
 
   @media (prefers-reduced-motion: reduce) {

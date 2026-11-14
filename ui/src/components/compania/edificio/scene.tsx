@@ -1,6 +1,7 @@
 // PLA-I39-3: the night panel. Stars and the moon (or the sun, by the hour viewed), the sentence in the sky
 // (companyLine, then Asistente's last summary), the roof, the tower of floors, the street and the basement.
-// The scene stays a night panel in both app themes, as Inicio's city does. Nothing moves to look busy.
+// The scene stays a night panel in both app themes, as Inicio's city does. Nothing moves to look busy: PLA-I46-3,
+// the stars are still; only the Ahora card with the owner's move breathes.
 import type { ReactNode } from "react";
 import type { CSSProperties } from "react";
 import { skyAt } from "@/lib/edificio";
@@ -68,7 +69,6 @@ export const Scene = ({
             style={{
               left: `${x}%`,
               top: `${y}%`,
-              animationDelay: `${(i % 5) * 0.7}s`,
             }}
           />
         ))}

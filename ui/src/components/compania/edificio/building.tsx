@@ -10,12 +10,12 @@
 //   roof chip, in place.
 import type { ReactNode } from "react";
 import type { Decision, OrgCompany, OrgMember, OrgProject } from "@/lib/api";
-import { floorOrder, hourIn } from "@/lib/edificio";
+import { floorOrder, hourIn, skyLine, skyMove } from "@/lib/edificio";
 import { companyLine } from "@/lib/v2";
 import { BlockError } from "@/components/compania/parts";
 import { Floor } from "./floor";
 import { Plate } from "./plate";
-import type { NowActs } from "./now";
+import { ActButton, type NowActs } from "./now";
 import type { QuestionActs } from "./question";
 import { Roof } from "./roof";
 import { EdificioSkeleton, Scene } from "./scene";
@@ -64,7 +64,7 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
     <Scene
       hour={hourIn(now, timeZone)}
       pre={`${hello}, Jorge · ${day}`}
-      line={empty ? "Todavía no hay pisos." : `${companyLine(company.projects).replace(/^./, (c) => c.toUpperCase())}.`}
+      line={empty ? "Todavía no hay pisos." : skyLine(company.projects, decisions, companyLine(company.projects).replace(/^./, (c) => c.toUpperCase()))}
       meta={meta}
       by={
         summary ? (
@@ -149,6 +149,7 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
           ))}
         </div>
       )}
+      {!empty && <PhoneBar projects={company.projects} decisions={decisions} ctx={{ decisions, acts: nowActs, qacts: acts, onFijar, onPublish }} pedir={!!askFor} />}
       {!empty && (
         <div className="edi-lobby edi-lobby-end">
           <button type="button" className="edi-door" onClick={onNew} data-control="piso-nuevo">
@@ -158,6 +159,31 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
         </div>
       )}
     </Scene>
+  );
+};
+
+// PLA-I46-3: the bar fixed at the bottom of a phone (CSS shows it under 40rem). It carries the one main button, the
+// first floor's move (the same action as Ahora's, whose own button hides there), and Pedir for that floor (it opens
+// the plate's side page). Without a move it says so and draws no green button.
+const openAsk = (slug: string) => document.querySelector<HTMLButtonElement>(`[data-ask-open="${CSS.escape(slug)}"] [data-control="pedir-abrir"]`)?.click();
+export const PhoneBar = ({ projects, decisions, ctx, pedir }: { projects: OrgProject[]; decisions: Decision[]; ctx: Parameters<typeof ActButton>[0]["ctx"]; pedir?: boolean }) => {
+  const sky = skyMove(projects, decisions);
+  const floor = sky?.project ?? floorOrder(projects, decisions).floors[0];
+  if (!floor) return null;
+  return (
+    <div className="edi-pbar" data-pbar={floor.slug} role="region" aria-label="Tu siguiente jugada">
+      <p className="edi-pbar-say" data-pbar-say>
+        {sky ? sky.move.texto : "Nada te toca ahora"}
+      </p>
+      <div className="edi-pbar-acts">
+        {sky && <ActButton project={sky.project} action={sky.move.accion} move where="barra" ctx={ctx} className="edi-pbar-go" />}
+        {pedir && (
+          <button type="button" className="edi-btn" onClick={() => openAsk(floor.slug)} data-control="barra-pedir">
+            Pedir
+          </button>
+        )}
+      </div>
+    </div>
   );
 };
 
