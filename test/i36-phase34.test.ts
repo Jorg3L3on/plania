@@ -494,3 +494,37 @@ test("I36-12 #1-#3: a plan whose tickets the PO moved under an initiative still 
   const statuses = (await raw.query(`select status from tasks where key = any($1)`, [moved2])).rows.map((r) => r.status);
   assert.deepEqual(statuses, ["Won't do", "Won't do"]);
 });
+
+// ---- PLA-27 (last, so its orders do not push earlier ones out of the five shown)
+
+test("PLA-27: a plan that needed no approval is accepted like any delivery once its order is In review", async () => {
+  await post("/api/company/projects/workia/options", { plan_approval: false }, "PUT");
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega contacto por WhatsApp" })).json()) as Json).key as string;
+  const out = (await propose(db, plan(order, { title: "Contacto" }), PO() as never)) as Json;
+  assert.equal(out.proposal.needs_approval, false);
+  await raw.query(`update tasks set status = 'In review' where key = $1`, [order]);
+  await raw.query(`update checks set done = true, done_at = now() where task_id = (select id from tasks where key = $1)`, [order]);
+  const id = `m-${out.message.id}`;
+  const d = (await company()).decisions.find((x: Json) => x.id === id);
+  assert.ok(d, "the plan's message shows as the order's delivery");
+  assert.deepEqual([d.kind, d.actions], ["deliverable", ["aceptar", "cambios"]]);
+  const res = await act(id, { action: "aceptar" });
+  assert.equal(res.status, 200, await res.clone().text());
+  assert.equal((await raw.query(`select status from tasks where key = $1`, [order])).rows[0].status, "Done");
+  const again = await act(id, { action: "aceptar" });
+  assert.deepEqual([again.status, ((await again.json()) as Json).error], [409, "ALREADY_ACTED"]);
+});
+
+test("PLA-27: a plan that waits for approval still refuses aceptar and takes Sí, empiecen", async () => {
+  await post("/api/company/projects/workia/options", { plan_approval: true }, "PUT");
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega exportar a Excel" })).json()) as Json).key as string;
+  const out = (await propose(db, plan(order, { title: "Excel" }), PO() as never)) as Json;
+  assert.equal(out.proposal.needs_approval, true);
+  const id = `m-${out.message.id}`;
+  const refused = await act(id, { action: "aceptar" });
+  assert.deepEqual([refused.status, ((await refused.json()) as Json).error], [400, "INVALID_ACTION"]);
+  assert.equal((await act(id, { action: "empezar" })).status, 200);
+  await post("/api/company/projects/workia/options", { plan_approval: false }, "PUT");
+  const page = (await import("node:fs")).readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes('INVALID_ACTION: "Eso no se puede hacer aquí.'), "the screen says it in words");
+});
