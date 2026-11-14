@@ -10,7 +10,9 @@
 //   question     an open question (with its options when it has them): elegir {option} or responder {text}
 //                answers it. Questions of paused projects show only when human_only.
 // PLA-I36-2: Te toca holds everything Bandeja calls a paso, and a row carries its evidence.
-//   step         a human_action a ticket is blocked on: hecho {note?} resolves it (as Bandeja does).
+//   step         a human_action a ticket is blocked on: hecho {note?} resolves it (as Bandeja does). A step that
+//                asks for lines in a file (file_step, src/api/file-step.ts) also takes aplicar {path, lines}: Plania
+//                commits them to the ticket's PR and resolves it.
 //   release      a project's release step (from → into): commits ahead, the tickets it ships, open checks.
 //                Publishing stays behind the owner's code (PLA-I36-11): the row opens it in Bandeja.
 //   Every row carries links (doc, PR, ticket of its message or ticket), body (the full message, for a
@@ -28,6 +30,7 @@ import { writeTx } from "../mcp/tx.js";
 import { ToolError } from "../mcp/errors.js";
 import type { ReleasePlan } from "../mcp/release-plan.js";
 import { setCheck } from "../mcp/checks.js";
+import { headFor, resultShape } from "../mcp/evidence.js";
 import { answer } from "../mcp/questions.js";
 import { webCtx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
@@ -37,13 +40,15 @@ import { JORGE, actionsFor, postMessage, resolveThread, type MessageAction } fro
 import { ceoAgentId } from "./company-plan.js";
 import { threadAction } from "./thread-actions.js";
 import { jorgePosts } from "./threads.js";
+import { applyFileStep, fileStepOf, stepOf, type FileStep } from "./file-step.js";
+import { requestVerify, verifyingOf, whoWord, type Verifying } from "./verify.js";
 
 const HOUR = 3_600_000;
 const KEEP_ACTED = 24 * HOUR;
 const RANK: Record<DecisionKind, number> = { plan: 0, proposal: 1, question: 2, pr: 3, deliverable: 4, step: 5, action: 6, release: 7 };
 
 export type DecisionKind = "proposal" | "plan" | "action" | "question" | "deliverable" | "pr" | "step" | "release";
-export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar";
+export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "aplicar" | "verificar";
 // PLA-I36-7: a structured option also says what it changes and what it costs (cost as words).
 export type DecisionOption = { n: number; label: string; recommended: boolean; effect?: string; cost?: string };
 // PLA-I36-8: a PO's plan for an order.
@@ -52,7 +57,8 @@ export type DecisionPlan = { order: string; understood: string; steps: { title: 
 export type DecisionEvidence = { verdict: string; kind: string; cite: string; pass: number | null; fail: number | null; at: string };
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
-export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | null };
+// PLA-14: ci none is a repo with no CI at all (no check run, no status on the head); it never reads as running.
+export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 // PLA-I39-1: who asked, so the screen hangs the decision under that teammate's window. Null: nobody on a team.
 export type DecisionAsker = { agent: string; role: string };
 export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number };
@@ -81,6 +87,10 @@ export type Decision = {
   preview_url: string | null;
   hold: string | null;
   asker: DecisionAsker | null;
+  // A step that asks for lines in a file: what, where, and that Plania can do it.
+  file_step: FileStep | null;
+  // The owner's run on this ticket while it is queued or running (e.g. re-running its checks): the card says so.
+  verify: Verifying | null;
 };
 
 // ---- parsing a PO's proposal
@@ -145,6 +155,8 @@ export function parseProposal(body: string): Proposal | null {
 const firstLine = (s: string, n = 140) => cut(clean(s.trim().split("\n").find((l) => l.trim()) ?? ""), n);
 const stateOf = (s: ActionState | null | undefined): DecisionState | null => (s ? { action: s.action, at: s.at, result: s.result ?? {} } : null);
 const NO_EVIDENCE = {
+  file_step: null as FileStep | null,
+  verify: null as Verifying | null,
   links: [] as DecisionLink[],
   body: null,
   checks: null,
@@ -160,7 +172,7 @@ const NO_EVIDENCE = {
 };
 const linksOf = (links: ThreadLink[]): DecisionLink[] =>
   links.filter((l): l is ThreadLink & { kind: DecisionLink["kind"] } => l.kind !== "question").map((l) => ({ kind: l.kind, ref: l.ref, title: l.title }));
-const CI = new Set(["pending", "success", "failure"]);
+const CI = new Set(["pending", "success", "failure", "none"]);
 
 // A ticket's open checks and its PR's CI (the PR by url, else the newest PR on the ticket).
 async function evidenceOf(db: Db, t: Task | null, prUrl: string | null): Promise<DecisionChecks | null> {
@@ -181,6 +193,17 @@ async function evidenceOf(db: Db, t: Task | null, prUrl: string | null): Promise
   return { open, ci };
 }
 
+// PLA-14: with no CI on the repo, Aceptar needs the ticket's own pass on the PR's current head (not stale_for_head).
+export async function passOnHead(db: Db, t: Task | null, head: string | null, branch: string | null): Promise<boolean> {
+  if (!t) return false;
+  const passes = await db.select().from(results).where(and(eq(results.taskId, t.id), eq(results.verdict, "pass"))).orderBy(desc(results.createdAt));
+  for (const r of passes) {
+    const at = head ?? (await headFor(db, t, r.branch ?? branch ?? t.branch ?? null));
+    if (resultShape(r, at).stale_for_head !== true) return true;
+  }
+  return false;
+}
+
 // PLA-I36-10: what a finished piece of work shows before Aceptar: its checks and CI, the latest result (pass and
 // fail counts), how many files the PR changes, the project's preview, and why accepting is held (null: it is not).
 async function workEvidence(db: Db, p: Project | null, t: Task | null, prUrl: string | null) {
@@ -191,9 +214,15 @@ async function workEvidence(db: Db, p: Project | null, t: Task | null, prUrl: st
     if (r) evidence = { verdict: r.verdict, kind: r.kind, cite: cut(clean(r.cite), 200), pass: r.counts?.pass ?? null, fail: r.counts?.fail ?? null, at: r.createdAt.toISOString() };
   }
   const url = prUrl ?? t?.prUrl ?? null;
-  const [pr] = url || t ? await db.select({ files: pullRequests.changedFiles }).from(pullRequests).where(url ? eq(pullRequests.url, url) : eq(pullRequests.taskId, t!.id)).orderBy(desc(pullRequests.updatedAt)).limit(1) : [];
+  const [pr] = url || t ? await db.select({ files: pullRequests.changedFiles, head: pullRequests.headSha, branch: pullRequests.headBranch }).from(pullRequests).where(url ? eq(pullRequests.url, url) : eq(pullRequests.taskId, t!.id)).orderBy(desc(pullRequests.updatedAt)).limit(1) : [];
+  const verify = await verifyingOf(db, t);
+  // No CI and the pass on record is on an older commit: the owner can be asked to run the checks again (verificar).
+  const stale = checks?.ci === "none" && !!t && !(await passOnHead(db, t, pr?.head ?? null, pr?.branch ?? null));
+  const who = whoWord(verify?.role);
   const hold =
-    checks?.ci === "failure"
+    stale && verify
+      ? `${who} ${verify.state === "running" ? "está corriendo" : "va a correr"} las pruebas en el último commit.`
+      : checks?.ci === "failure"
       ? "Las pruebas fallan."
       : checks && checks.open > 0
         ? `${checks.open === 1 ? "Falta 1 check" : `Faltan ${checks.open} checks`}.`
@@ -201,8 +230,10 @@ async function workEvidence(db: Db, p: Project | null, t: Task | null, prUrl: st
           ? "La última prueba falló."
           : checks?.ci === "pending"
             ? "Las pruebas siguen corriendo."
-            : null;
-  return { checks, release: null, combinable: [] as number[][], recommended_reason: null, plan: null, evidence, files: pr?.files ?? null, preview_url: p?.settings.preview_url ?? null, hold };
+            : stale
+              ? "Este repo no tiene CI y falta una prueba que pase en el último commit."
+              : null;
+  return { checks, release: null, combinable: [] as number[][], recommended_reason: null, plan: null, evidence, files: pr?.files ?? null, preview_url: p?.settings.preview_url ?? null, hold, verify, stale, head: pr?.head ?? null, headBranch: pr?.branch ?? null };
 }
 
 async function ticketByKey(db: Db, projectId: string | null | undefined, key: string | null | undefined): Promise<Task | null> {
@@ -322,29 +353,38 @@ async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, 
     )
     .orderBy(desc(threadMessages.at))
     .limit(200);
+  // One card per ticket: rows come newest first, so an open message whose ticket already has a card (a newer
+  // delivery, or one already accepted or sent back) is the same delivery said again and is left out.
+  const carded = new Set<string>();
   for (const { m, projectId } of rows) {
     if (skip.has(m.id)) continue;
     const p = projectId ? slugById.get(projectId) : undefined;
+    const link = m.links.find((l) => l.kind === "ticket" || l.kind === "idea");
+    const card = link ? `${projectId ?? ""}/${link.ref}` : null;
+    if (!m.actionState && card && carded.has(card)) continue;
     let actions: MessageAction[] = [];
     if (!m.actionState) {
       actions = await actionsFor(db, m, projectId ?? null);
       if (actions.length === 0) continue;
     } else if (!["aceptar", "cambios"].includes(m.actionState.action)) continue;
-    const link = m.links.find((l) => l.kind === "ticket" || l.kind === "idea");
+    if (card) carded.add(card);
     const pr = m.actionState ? m.links.some((l) => l.kind === "pr") || !!m.actionState.result?.merged : actions.includes("fusionar");
     const ticket = link?.kind === "ticket" ? await ticketByKey(db, projectId, link.ref) : null;
+    const { stale, head: _head, headBranch: _branch, ...ev } = await workEvidence(db, p ?? null, ticket, m.links.find((l) => l.kind === "pr")?.ref ?? null);
     out.push({
+      file_step: null,
       id: `m-${m.id}`,
       project: p?.slug ?? null,
       title: link?.title || firstLine(m.body),
       kind: pr ? "pr" : "deliverable",
       options: null,
-      actions: actions as DecisionAction[],
+      // Held only because the pass is on an older commit: offer asking the owner to run the checks again.
+      actions: [...(actions as DecisionAction[]), ...(!m.actionState && stale && !ev.verify && ticket?.ownerAgent ? (["verificar"] as DecisionAction[]) : [])],
       state: stateOf(m.actionState),
       at: m.at.toISOString(),
       ref: link?.ref ?? null,
       detail: firstLine(m.body, 200),
-      ...(await workEvidence(db, p ?? null, ticket, m.links.find((l) => l.kind === "pr")?.ref ?? null)),
+      ...ev,
       links: linksOf(m.links),
       body: m.body,
       asker: await ownerAsker(db, p, ticket, m.authorAgent),
@@ -427,14 +467,17 @@ async function pasoRows(db: Db, all: Project[], inbox: Map<string, InboxItem[]>,
       if (it.kind === "human_action") {
         if (it.key && ceoTickets.has(`${p.slug}/${it.key}`)) continue;
         const t = await ticketByKey(db, p.id, it.key);
+        const step = await stepOf(db, it.id);
+        const file = step ? fileStepOf(step.spec, String(step.spec.text ?? it.why), it.pr_url ?? null) : null;
         out.push({
           ...NO_EVIDENCE,
+          file_step: file,
           id: `b-${it.id}`,
           project: p.slug,
           title: firstLine(it.why, 200),
           kind: "step",
           options: null,
-          actions: ["hecho"],
+          actions: file ? ["aplicar", "hecho"] : ["hecho"],
           state: null,
           at: it.waiting_since,
           ref: it.key,
@@ -508,7 +551,7 @@ export async function decisionsRead(db: Db, now = new Date(), inboxed?: Map<stri
 
 // ---- acting
 
-export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string };
+export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string };
 export type DecisionRefusal = { error: string; status: 400 | 404 | 409; hint: string; [k: string]: unknown };
 export type DecisionDone = { ok: true; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
 
@@ -533,7 +576,10 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
   if (!m) return refuse("DECISION_NOT_FOUND", "Esa decisión ya no está.", 404);
   if (m.actionState) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.", 409, { state: stateOf(m.actionState) });
   const ref = await resolveThread(db, m.threadId);
-  if (m.proposal?.kind === "plan") return actOnPlan(db, id, m, input);
+  if (input.action === "verificar") return verifyMessage(db, id, m, ref.project?.id ?? null);
+  // PLA-27: only a plan that waits for "Sí, empiecen" is acted on as a plan. One that needed no approval is
+  // information: its message shows as a delivery of the order's ticket, and is accepted or sent back like one.
+  if (m.proposal?.kind === "plan" && (m.proposal.needs_approval || ["empezar", "cambiar", "cancelar"].includes(input.action))) return actOnPlan(db, id, m, input);
   const proposal = m.proposal?.kind === "choice" ? { title: m.proposal.title, options: optionsOf(m.proposal), note: null } : m.authorRole === "product-owner" ? parseProposal(m.body) : null;
 
   if (proposal && (input.action === "elegir" || input.action === "responder")) {
@@ -677,6 +723,7 @@ async function actOnQuestion(db: Db, id: string, qid: string, input: DecisionInp
 
 // PLA-I36-2: a manual step, marked done as Bandeja does (the ticket may go back to Ready at once).
 async function actOnStep(db: Db, id: string, blockerId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
+  if (input.action === "aplicar") return applyStep(db, blockerId, input);
   if (input.action !== "hecho") return refuse("INVALID_ACTION", "Aquí: Hecho.", 400);
   const [row] = await db.execute<{ project_id: string; satisfied_at: Date | null }>(sql`select t.project_id, b.satisfied_at from blockers b join tasks t on t.id = b.task_id where b.id = ${blockerId} and b.type = 'human_action'`).then((r) => r.rows);
   if (!row) return refuse("DECISION_NOT_FOUND", "Ese paso ya no está.", 404);
@@ -691,6 +738,50 @@ async function actOnStep(db: Db, id: string, blockerId: string, input: DecisionI
   }
   const state = { action: "hecho", at: new Date().toISOString(), result: {} };
   return { ok: true, state, decision: null };
+}
+
+// Volver a probar (src/api/verify.ts): the delivery stays as it is; its ticket's owner wakes to run the checks on the head.
+async function verifyMessage(db: Db, id: string, m: typeof threadMessages.$inferSelect, projectId: string | null): Promise<DecisionDone | DecisionRefusal> {
+  const link = m.links.find((l) => l.kind === "ticket");
+  const t = link && projectId ? await ticketByKey(db, projectId, link.ref) : null;
+  if (!t) return refuse("NO_TICKET", "El mensaje no enlaza un ticket.", 409);
+  const prUrl = m.links.find((l) => l.kind === "pr")?.ref ?? t.prUrl;
+  const [pr] = await db.select({ head: pullRequests.headSha, branch: pullRequests.headBranch }).from(pullRequests).where(prUrl ? eq(pullRequests.url, prUrl) : eq(pullRequests.taskId, t.id)).orderBy(desc(pullRequests.updatedAt)).limit(1);
+  const out = await requestVerify(db, t, pr?.head ?? null, pr?.branch ?? t.branch);
+  if ("error" in out) return refuse(out.error, out.hint);
+  return after(db, id, { action: "verificar", at: new Date().toISOString(), result: { ticket: t.key, wake: out.wake, role: out.role } });
+}
+
+// The file step: commit the lines to the ticket's PR, then resolve the step with a note that says where they went.
+async function applyStep(db: Db, blockerId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
+  const step = await stepOf(db, blockerId);
+  if (!step) return refuse("DECISION_NOT_FOUND", "Ese paso ya no está.", 404);
+  const [open] = await db.execute<{ satisfied_at: Date | null }>(sql`select satisfied_at from blockers where id = ${blockerId}`).then((r) => r.rows);
+  if (open?.satisfied_at) return refuse("ALREADY_ACTED", "Ese paso ya está hecho.");
+  const draft = fileStepOf(step.spec, String(step.spec.text ?? ""), step.t.prUrl);
+  const path = input.path?.trim() || draft?.path;
+  const lines = input.lines ?? draft?.lines;
+  if (!path || !lines?.trim()) return refuse("FILE_EMPTY", "Falta el archivo o las líneas.", 400);
+  const done = await applyFileStep(db, step.t, { path, lines, pr_url: draft?.pr_url ?? step.t.prUrl });
+  if ("error" in done) return refuse(done.error, done.hint);
+  const [p] = await db.select().from(projects).where(eq(projects.id, step.t.projectId)).limit(1);
+  const note = done.added
+    ? `Plania agregó ${done.added} ${done.added === 1 ? "línea" : "líneas"} a ${done.path} en ${done.branch}${done.commit ? ` (${done.commit.slice(0, 7)})` : ""}.`
+    : `${done.path} en ${done.branch} ya tenía esas líneas.`;
+  try {
+    await writeTx(db, p!, { ...webCtx, tool: "screen.decision_file" }, (tx, emit) => resolveHumanAction(tx, emit, p!.id, blockerId, webCtx.actor, note));
+  } catch (e) {
+    if (e instanceof ToolError) return refuse(e.code, "Se agregó al PR, pero Plania no dejó marcar el paso; márcalo con Hecho.", 409, e.detail);
+    throw e;
+  }
+  // A new commit on a delivery whose repo has no CI makes its pass stale: ask its owner to run the checks again now.
+  let verify: string | null = null;
+  if (done.commit && step.t.status === "In review" && (await evidenceOf(db, step.t, done.pr_url))?.ci === "none") {
+    const fresh = (await db.select().from(tasks).where(eq(tasks.id, step.t.id)).limit(1))[0] ?? step.t;
+    const out = await requestVerify(db, fresh, done.commit, done.branch);
+    verify = "error" in out ? out.hint : (out.role ?? "owner");
+  }
+  return { ok: true, state: { action: "aplicar", at: new Date().toISOString(), result: { ...done, verify } }, decision: null };
 }
 
 export async function actOnDecision(db: Db, id: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {

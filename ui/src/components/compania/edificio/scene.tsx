@@ -35,7 +35,6 @@ export const Scene = ({
   line,
   by,
   meta,
-  mode = "now",
   children,
   label = "Compañía",
 }: {
@@ -44,7 +43,6 @@ export const Scene = ({
   line: string;
   by?: ReactNode;
   meta?: ReactNode;
-  mode?: "now" | "past";
   children: ReactNode;
   label?: string;
 }) => {
@@ -54,7 +52,6 @@ export const Scene = ({
       className="edi"
       aria-label={label}
       data-edi
-      data-mode={mode}
       style={
         {
           "--sky1": sky.top,

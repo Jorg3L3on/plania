@@ -162,18 +162,13 @@ export const NewProjectDone = ({ state, onOpen, onClose }: { state: Extract<NewP
   );
 };
 
-// ---- Jorge-only number editor: a weekly token limit or the plan guard.
+// ---- Jorge-only number editor: the plan guard.
 
-export type LimitTarget =
-  | { kind: "project"; slug: string; title: string; current: number | null }
-  | { kind: "role"; role: RunnerRole; current: number | null }
-  | { kind: "asistente"; current: number | null }
-  | { kind: "guard"; current: number };
+// PLA-21: the only limit left on screen is the plan guard (no token budgets).
+export type LimitTarget = { kind: "guard"; current: number };
 
-// PLA-I36-11: raising a limit (higher, or where there was none) asks for the owner's code.
-// Six digits, nothing else.
+// PLA-I36-11: the owner's code. Six digits, nothing else.
 export const isOwnerCode = (c: string) => c.length === 6 && !/\D/.test(c);
-export const raisesLimit = (current: number | null, next: number | null) => next != null && (current == null || next > current);
 
 export const LimitForm = ({
   target,
@@ -184,41 +179,32 @@ export const LimitForm = ({
 }: {
   target: LimitTarget;
   busy?: boolean;
-  onSave: (value: number | null, code?: string) => void;
+  onSave: (value: number) => void;
   onCancel: () => void;
   error?: string | null;
 }) => {
-  const guard = target.kind === "guard";
-  const [value, setValue] = useState(target.current == null ? "" : String(target.current));
-  const [code, setCode] = useState("");
+  const [value, setValue] = useState(String(target.current));
   const parsed = value.trim() === "" ? null : Number(value.replace(/[_\s,]/g, ""));
-  const valid0 = guard ? parsed !== null && Number.isInteger(parsed) && parsed >= 0 && parsed <= 100 : parsed === null || (Number.isInteger(parsed) && parsed >= 1);
-  const needsCode = !guard && valid0 && raisesLimit(target.current, parsed);
-  const valid = valid0 && (!needsCode || isOwnerCode(code));
+  const valid = parsed !== null && Number.isInteger(parsed) && parsed >= 0 && parsed <= 100;
   return (
     <form
       className="grid gap-3"
       onSubmit={(e) => {
         e.preventDefault();
-        if (valid) onSave(parsed, needsCode ? code : undefined);
+        if (valid) onSave(parsed);
       }}
     >
       <label className="grid gap-1.5 text-sm">
-        <span className="font-semibold">{guard ? "Guardia del plan (% de la ventana de 5 h)" : "Límite semanal en tokens"}</span>
+        <span className="font-semibold">Guardia del plan (% de la ventana de 5 h)</span>
         <input
           inputMode="numeric"
           className="min-h-11 rounded-xl bg-background px-3 font-mono ring-1 ring-foreground/15 outline-none focus:ring-2 focus:ring-foreground/40"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder={guard ? "70" : "500000"}
+          placeholder="70"
         />
-        <span className="text-xs text-muted-foreground">
-          {guard
-            ? "Arriba de este % no arranca nada nuevo, para que te quede plan a ti."
-            : `${parsed ? tokens(parsed) : "Vacío = sin límite, y sin límite no arranca nada"} · aviso al 80%, alto al 100%`}
-        </span>
+        <span className="text-xs text-muted-foreground">Arriba de este % no arranca nada nuevo, para que te quede plan a ti.</span>
       </label>
-      {needsCode && <OwnerCodeInput value={code} onChange={setCode} why="Subir un límite pide el código del dueño." />}
       {error && <p className="text-sm text-ink-blocked">{error}</p>}
       <div className="flex flex-wrap gap-2">
         <button type="submit" className={pillPrimary} disabled={!valid || busy}>
@@ -232,14 +218,7 @@ export const LimitForm = ({
   );
 };
 
-export const limitTitle = (t: LimitTarget) =>
-  t.kind === "guard"
-    ? "Mover guardia"
-    : t.kind === "project"
-      ? `Presupuesto de ${t.title}`
-      : t.kind === "asistente"
-        ? "Presupuesto de Asistente"
-        : `Límite de ${ROLE_LABEL[t.role]}`;
+export const limitTitle = (_t: LimitTarget) => "Mover guardia";
 
 // PLA-I36-11: the owner's six-digit code, from an authenticator app.
 export const OwnerCodeInput = ({ value, onChange, why }: { value: string; onChange: (v: string) => void; why: string }) => (
@@ -288,7 +267,7 @@ export const OwnerCodeRow = ({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm">
           <span className="font-semibold">Código del dueño</span>
-          <span className="text-muted-foreground"> · {enrolled == null ? "…" : enrolled ? "configurado: publicar, subir límites y borrar proyectos lo piden" : "sin configurar: publicar y subir límites no se pueden hasta configurarlo"}</span>
+          <span className="text-muted-foreground"> · {enrolled == null ? "…" : enrolled ? "configurado: borrar un proyecto lo pide" : "sin configurar: solo hace falta para borrar un proyecto"}</span>
         </p>
         <button type="button" className={pillGhost} onClick={() => setOpen(!open)} aria-expanded={open}>
           {enrolled ? "Cambiar" : "Configurar"}

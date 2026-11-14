@@ -1,21 +1,19 @@
 // PLA-I39: the building (/ceo). Pure functions, so test/edificio-*.test.ts loads them with node:test.
 //   windowState  a teammate's window from what the server reported: running is work, waiting_jorge is ask, idle is
-//                idle, no_budget is hold, paused is off. Nothing else lights a window.
+//                idle, paused is off. Nothing else lights a window. PLA-21: no budgets, so no "hold".
 //   caption      under a window: the role with its verb, then what it is on (with since when), else the first of
 //                its queue, else its last delivery. Never a ticket key, null or money.
 //   floorOrder   the floors: those that need the owner first, then by light; paused ones go to the basement.
 //   skyAt        the sky's colours for an hour; floorHue one of six fixed hues from the slug.
-//   The clock (PLA-I39-8): litAt, marksOf, stepEvent.
-import type { AskResult, Decision, OrgHistory, OrgHistoryEvent, OrgMember, OrgMemberState, OrgProject } from "./api";
-import { byLight, roleName } from "./org";
+import type { AskResult, Decision, DecisionAction, OrgMember, OrgMemberState, OrgNextStart, OrgProject, OrgRoute, OrgRouteLeg, OrgRouteStep } from "./api";
+import { byLight, byRole, roleName } from "./org";
 import { pending } from "./v2";
 
-export type WindowState = "work" | "ask" | "idle" | "hold" | "off";
+export type WindowState = "work" | "ask" | "idle" | "off";
 const STATE: Record<OrgMemberState, WindowState> = {
   running: "work",
   waiting_jorge: "ask",
   idle: "idle",
-  no_budget: "hold",
   paused: "off",
 };
 // The company switch puts every blind down: nothing starts and live runs are stopped.
@@ -66,7 +64,7 @@ const clip = (s: string, n = 90) => {
 };
 
 export type Caption = { who: string; verb: string; doing: string; sub: string };
-export function caption(m: OrgMember, now: number, opts: { companyPaused?: boolean } = {}): Caption {
+export function caption(m: OrgMember, now: number, opts: { companyPaused?: boolean; timeZone?: string } = {}): Caption {
   const state = windowState(m, opts.companyPaused);
   const base = { who: roleName(m.role), verb: roleVerb(m.role) };
   const queue = m.queue ?? [];
@@ -84,17 +82,13 @@ export function caption(m: OrgMember, now: number, opts: { companyPaused?: boole
       sub: m.waiting ? clip(m.waiting, 80) : "te espera",
     };
   if (state === "off") return { ...base, doing: "En pausa", sub: "" };
-  if (state === "hold")
-    return {
-      ...base,
-      doing: "Sin presupuesto",
-      sub: queue[0] ? `espera: ${clip(queue[0].title, 60)}` : "",
-    };
   if (queue[0])
     return {
       ...base,
-      doing: `Sigue: ${clip(queue[0].title)}`,
-      sub: rest || "en fila",
+      // PLA-23: next, not now: it has not started (a live run is "work" above).
+      doing: `Siguiente: ${clip(queue[0].title)}`,
+      // PLA-I40-4: the server's reason when it sent one, not just "not yet".
+      sub: [m.next_start ? startsLine(m.next_start, now, opts.timeZone) : "aún no empieza", rest].filter(Boolean).join(" · "),
     };
   if (m.produced)
     return {
@@ -116,7 +110,6 @@ const STATE_WORD: Record<WindowState, string> = {
   work: "trabajando",
   ask: "te espera",
   idle: "libre",
-  hold: "sin presupuesto",
   off: "en pausa",
 };
 export const windowLabel = (m: OrgMember, project: string, now: number, companyPaused = false) => {
@@ -172,11 +165,11 @@ export const hourIn = (iso: string | number, timeZone?: string) =>
 // The decision under a teammate's window: the asker must be on that floor's team. The oldest shows; the rest count.
 export type Hanging = { decision: Decision; more: Decision[] };
 export function hangingFor(decisions: Decision[], project: string, agent: string): Hanging | null {
-  const mine = decisions.filter((d) => d.project === project && d.asker?.agent === agent && (pending(d) || !!d.state)).sort((a, b) => a.at.localeCompare(b.at));
-  const open = mine.filter((d) => !d.state);
-  const shown = open[0] ?? mine.at(-1);
+  // PLA-I40-6: only what still waits hangs under a window; an answered one is a line under Lo último (lastLines).
+  const open = decisions.filter((d) => d.project === project && d.asker?.agent === agent && pending(d)).sort((a, b) => a.at.localeCompare(b.at));
+  const shown = open[0];
   if (!shown) return null;
-  return { decision: shown, more: open.filter((d) => d.id !== shown.id) };
+  return { decision: shown, more: open.slice(1) };
 }
 // What goes on the roof as a chip: every pending decision; those with no asker on its floor's team open their row.
 export function roofChips(decisions: Decision[], projects: OrgProject[]): { decision: Decision; onTeam: boolean }[] {
@@ -187,58 +180,7 @@ export function roofChips(decisions: Decision[], projects: OrgProject[]): { deci
   }));
 }
 
-// ---- the clock (PLA-I39-8)
-
 export const HOUR = 3_600_000;
-// Lit at t when a run of that teammate covers t, the first and last minute included. A live run reaches now.
-export function litAt(history: OrgHistory, project: string, agent: string, t: number, now: number = Date.parse(history.to)): boolean {
-  const p = history.projects.find((x) => x.slug === project);
-  if (!p) return false;
-  return p.runs.some((r) => r.agent === agent && Date.parse(r.from) <= t && t <= (r.to ? Date.parse(r.to) : now));
-}
-export type Mark = {
-  at: number;
-  pct: number;
-  kind: OrgHistoryEvent["kind"];
-  project: string;
-  title: string;
-  role: string;
-};
-export function marksOf(history: OrgHistory): Mark[] {
-  const from = Date.parse(history.from);
-  const span = Math.max(1, Date.parse(history.to) - from);
-  return history.projects
-    .flatMap((p) =>
-      p.events.map((e) => ({
-        at: Date.parse(e.at),
-        kind: e.kind,
-        project: p.slug,
-        title: e.title,
-        role: e.role,
-      })),
-    )
-    .sort((a, b) => a.at - b.at)
-    .map((m) => ({
-      ...m,
-      pct: Math.min(100, Math.max(0, ((m.at - from) / span) * 100)),
-    }));
-}
-// The next (dir 1) or previous (dir -1) event time from t, or null at the ends.
-export function stepEvent(marks: Mark[], t: number, dir: 1 | -1): number | null {
-  if (dir === 1) return marks.find((m) => m.at > t)?.at ?? null;
-  return [...marks].reverse().find((m) => m.at < t)?.at ?? null;
-}
-// The bar never goes past now, nor before the window.
-export const clampTime = (t: number, history: OrgHistory) => Math.min(Date.parse(history.to), Math.max(Date.parse(history.from), t));
-export const lastBefore = (marks: Mark[], t: number): Mark | null => [...marks].reverse().find((m) => m.at <= t) ?? null;
-const EVENT_WORD: Record<OrgHistoryEvent["kind"], string> = {
-  delivered: "entregó",
-  asked: "preguntó",
-  answered: "respondiste",
-  ordered: "pediste",
-};
-export const eventText = (m: Mark) =>
-  m.kind === "answered" || m.kind === "ordered" ? `${EVENT_WORD[m.kind]}: ${m.title}` : `${roleName(m.role)} ${EVENT_WORD[m.kind]}: ${m.title}`;
 
 // ---- the side page (PLA-I39-6)
 
@@ -262,12 +204,239 @@ export function askedLine(r: AskResult, project?: string): string {
 }
 export const RECIBIRIA = "Recibiría tu pedido";
 
-// The run of a teammate that covers t, if any (what it was on at that hour).
-export function runAt(history: OrgHistory, project: string, agent: string, t: number) {
-  const now = Date.parse(history.to);
-  return history.projects.find((x) => x.slug === project)?.runs.find((r) => r.agent === agent && Date.parse(r.from) <= t && t <= (r.to ? Date.parse(r.to) : now)) ?? null;
+// ---- Ahora (PLA-I40-4): what is happening on a floor, why, until when, and the one thing the owner can do
+
+export const clockAt = (iso: string | number, timeZone?: string) =>
+  new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone })
+    .format(new Date(iso))
+    .replace(/\s?([AP])M$/, (_, x: string) => ` ${x.toLowerCase()}m`);
+// mm:ss until a time, never negative.
+export const countdown = (iso: string, now: number) => {
+  const s = Math.max(0, Math.round((Date.parse(iso) - now) / 1000));
+  const m = Math.floor(s / 60);
+  return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min` : `${m}:${String(s % 60).padStart(2, "0")}`;
+};
+// Under a window: the hold in a few words, with the time when there is one.
+export function startsLine(n: OrgNextStart, now: number, timeZone?: string): string {
+  const at = n.starts_at && Date.parse(n.starts_at) > now ? clockAt(n.starts_at, timeZone) : null;
+  if (n.hold === "rest") return at ? `descansa · arranca ${at}` : "descansa un momento";
+  if (n.hold === "soon") return "arranca en un momento";
+  if (n.hold === "usage") return at ? `detenido por el uso · reintenta ${at}` : "detenido por el uso";
+  if (n.hold === "slot") return "espera un lugar";
+  if (n.hold === "paused") return "en pausa";
+  if (n.hold === "no_goal") return "falta la meta";
+  if (n.hold === "waiting_owner") return "espera tu visto bueno";
+  if (n.hold === "waiting_step") return "espera un paso anterior";
+  return "nadie lo ha despertado";
 }
-// The time a position on the bar (0..1000) stands for, and back. The bar ends at now.
-export const RANGE = 1000;
-export const timeAt = (v: number, history: OrgHistory) => clampTime(Date.parse(history.from) + (Math.min(RANGE, Math.max(0, v)) / RANGE) * (Date.parse(history.to) - Date.parse(history.from)), history);
-export const valueAt = (t: number, history: OrgHistory) => Math.round(((clampTime(t, history) - Date.parse(history.from)) / Math.max(1, Date.parse(history.to) - Date.parse(history.from))) * RANGE);
+
+export type NowState = "work" | "rest" | "you" | "stuck" | "done" | "off" | "idle";
+export const NOW_WORD: Record<NowState, string> = { work: "Trabajando", rest: "Pausa corta", you: "Te toca", stuck: "Atorado", done: "Plan terminado", off: "En pausa", idle: "Sin trabajo en curso" };
+export type NowAction =
+  | { kind: "start"; agent: string; pastGuard: boolean; label: string }
+  | { kind: "decision"; id: string; action: DecisionAction; label: string }
+  | { kind: "reveal"; label: string }
+  | { kind: "publish"; label: string }
+  | { kind: "fijar"; label: string }
+  | { kind: "plan"; text: string; label: string };
+export type NowLine = {
+  state: NowState;
+  word: string;
+  say: string;
+  why: string;
+  // Who holds the work: a teammate's agent, "owner" when it waits on Jorge, null when nobody does.
+  holder: string | null;
+  starts_at: string | null;
+  action: NowAction | null;
+};
+
+const DOES: Record<string, string> = { taller: "construye", research: "investiga", artist: "diseña", qa: "prueba", copy: "escribe" };
+const q = (s: string | null | undefined, n = 80) => (s ? `«${clip(s, n)}»` : "lo siguiente");
+// Actions the band can take in one click: they need no words and no choice from the owner.
+const ONE_CLICK: Partial<Record<DecisionAction, string>> = { aceptar: "Aceptar", fusionar: "Aceptar", empezar: "Sí, empiecen", hecho: "Ya lo hice" };
+const HOLD_ORDER = ["rest", "soon", "usage", "no_goal", "unqueued", "slot", "waiting_owner", "waiting_step"];
+
+export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts: { companyPaused?: boolean; timeZone?: string } = {}): NowLine {
+  const line = (state: NowState, x: Partial<NowLine> & { say: string }): NowLine => ({ state, word: NOW_WORD[state], why: "", holder: null, starts_at: null, action: null, ...x });
+  if (opts.companyPaused) return line("off", { say: "La compañía está en pausa.", why: "Nada arranca hasta que la reanudes en Máquina." });
+  if (isPaused(p)) return line("off", { say: "Este proyecto está en pausa.", why: "Nada arranca hasta que lo reanudes." });
+
+  const team = [...p.team].sort(byRole);
+  const working = team.find((m) => m.state === "running");
+  if (working) {
+    const who = roleName(working.role);
+    return line("work", {
+      say: working.now?.title ? `${who} ${DOES[working.role] ?? "trabaja en"} ${q(working.now.title)}.` : `${who} está trabajando.`,
+      why: working.now ? (since(working.now.since, now) === "recién empezó" ? "Recién empezó." : `Trabaja ${since(working.now.since, now)}.`) : "",
+      holder: working.agent,
+    });
+  }
+
+  const mine = decisions.filter((d) => d.project === p.slug && pending(d)).sort((a, b) => a.at.localeCompare(b.at));
+  const d = mine.find((x) => x.kind !== "release") ?? mine[0];
+  if (d) {
+    const more = mine.length > 1 ? ` Hay ${mine.length - 1} más.` : "";
+    if (d.kind === "release") {
+      const n = d.release?.tickets?.length ?? 0;
+      return line("you", { say: n === 1 ? "1 cambio listo espera que lo publiques." : `${n} cambios listos esperan que los publiques.`, why: `Publicar es tuyo.${more}`, holder: "owner", action: { kind: "publish", label: "Publicar" } });
+    }
+    const who = d.asker ? roleName(d.asker.role) : "El equipo";
+    const delivery = d.kind === "pr" || d.kind === "deliverable";
+    const first = d.actions.find((a) => ONE_CLICK[a]);
+    return line("you", {
+      say: delivery ? `${who} te entrega ${q(d.title)}.` : d.kind === "plan" ? `${who} te propone un plan: ${q(d.title)}.` : `${who} te pregunta: ${clip(d.title, 100)}`,
+      why: `${d.hold ? `${d.hold} ` : ""}${delivery ? "Mientras no la aceptes, el paso siguiente no arranca." : "El equipo espera tu respuesta para seguir."}${more}`,
+      holder: "owner",
+      action: first && !d.hold ? { kind: "decision", id: d.id, action: first, label: ONE_CLICK[first]! } : { kind: "reveal", label: "Ver y responder" },
+    });
+  }
+  if (p.light === "needs_jorge" && p.light_reason) {
+    const publish = p.light_reason.action?.href === "#publicar";
+    return line("you", { say: p.light_reason.text, why: "", holder: "owner", action: publish ? { kind: "publish", label: "Publicar" } : null });
+  }
+
+  const next = team
+    .filter((m) => m.next_start)
+    .sort((a, b) => HOLD_ORDER.indexOf(a.next_start!.hold) - HOLD_ORDER.indexOf(b.next_start!.hold))[0];
+  if (next) {
+    const n = next.next_start!;
+    const who = roleName(next.role);
+    const what = q(n.title);
+    const at = n.starts_at && Date.parse(n.starts_at) > now ? clockAt(n.starts_at, opts.timeZone) : null;
+    const start = (label: string, pastGuard = false): NowAction => ({ kind: "start", agent: next.agent, pastGuard, label });
+    switch (n.hold) {
+      case "rest":
+        return line("rest", { say: at ? `${who} arranca ${what} a las ${at}.` : `${who} arranca ${what} en un momento.`, why: `${n.text} No tienes que hacer nada.`, holder: next.agent, starts_at: at ? n.starts_at : null, action: start("Que empiece ya") });
+      case "soon":
+        return line("rest", { say: `${who} arranca ${what} en un momento.`, why: "Ya está en fila; no tienes que hacer nada.", holder: next.agent });
+      case "slot":
+        return line("rest", { say: `${who} arranca ${what} en cuanto haya lugar.`, why: n.text, holder: next.agent });
+      case "usage":
+        return line("stuck", { say: `${who} no arrancó ${what}.`, why: `${n.text} ${at ? `Vuelve a intentarlo solo a las ${at}.` : "Vuelve a intentarlo solo cuando el uso baje."}`, holder: next.agent, starts_at: at ? n.starts_at : null, action: start("Seguir de todos modos", true) });
+      case "no_goal":
+        return line("stuck", { say: `${who} no puede arrancar: falta la meta del proyecto.`, why: "Fíjala y sigue solo.", holder: "owner", action: { kind: "fijar", label: "Fijar meta" } });
+      case "unqueued":
+        return line("stuck", { say: `Nadie ha despertado a ${who} para ${what}.`, why: "Está listo para empezar.", holder: next.agent, action: start("Que empiece ya") });
+      case "waiting_owner":
+        return line("you", { say: `${what} espera que aceptes la entrega anterior.`, why: "", holder: "owner", action: { kind: "reveal", label: "Ver la entrega" } });
+      default:
+        return line("idle", { say: `${what} espera un paso anterior.`, why: n.text, holder: null });
+    }
+  }
+
+  const legs = p.route?.legs ?? [];
+  const at = legs.findIndex((l) => l.state === "here");
+  const here = legs[at];
+  if (here && here.total > 0 && here.done === here.total) {
+    const after = legs.slice(at + 1).find((l) => l.state !== "done");
+    if (!after) return line("done", { say: `${q(here.title)} está completo.`, why: "No queda nada más en el plan." });
+    const unplanned = after.state === "unplanned";
+    return line("done", {
+      say: `${q(here.title)} está completo. Sigue ${unplanned ? "planear " : ""}${q(after.title)}.`,
+      why: unplanned ? "El PO arma los pasos y Taller empieza sin que lo pidas." : "",
+      holder: team.find((m) => m.role === "product-owner")?.agent ?? null,
+      action: unplanned ? { kind: "plan", text: `Planea «${after.title}»: sus pasos y qué significa hecho en cada uno.`, label: "Que PO lo planee" } : null,
+    });
+  }
+  return line("idle", { say: "Nadie tiene trabajo ahora.", why: "Pide algo en la caja de la izquierda y el PO lo reparte." });
+}
+
+// What the owner's own figure says: what waits on him here, else nothing.
+export function ownerCaption(l: NowLine): { doing: string; lit: boolean } {
+  if (l.holder !== "owner") return { doing: "Nada pendiente", lit: false };
+  return { doing: l.action && l.action.kind !== "reveal" ? l.action.label : "Te esperan", lit: true };
+}
+
+// ---- the route (PLA-I40-5): the delivery as legs, the current one with its named steps
+
+const DAY_MS = 86_400_000;
+const dayKey = (t: number, timeZone?: string) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date(t));
+// "hoy 2:35 pm", "ayer", else "el 12 nov".
+export function whenWord(iso: string, now: number, timeZone?: string): string {
+  const t = Date.parse(iso);
+  if (dayKey(t, timeZone) === dayKey(now, timeZone)) return `hoy ${clockAt(t, timeZone)}`;
+  if (dayKey(t, timeZone) === dayKey(now - DAY_MS, timeZone)) return "ayer";
+  return `el ${new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone }).format(new Date(t)).replace(".", "")}`;
+}
+export function legLine(l: OrgRouteLeg): string {
+  if (l.state === "unplanned") return "sin planear";
+  if (l.state === "done") return "completo";
+  const count = `${l.done} de ${l.total}`;
+  if (l.state === "here") return `${count} · aquí`;
+  return l.note ? `${count} · ${l.note.charAt(0).toLowerCase()}${l.note.slice(1)}` : count;
+}
+export function routeCount(r: OrgRoute): string {
+  const done = r.legs.reduce((n, l) => n + l.done, 0);
+  const total = r.legs.reduce((n, l) => n + l.total, 0);
+  const open = r.legs.filter((l) => l.state === "unplanned").length;
+  const steps = total === 0 ? "Aún no hay pasos" : `${done} de ${total} pasos`;
+  return [steps, open ? (open === 1 ? "1 entregable sin planear" : `${open} entregables sin planear`) : "", r.more_legs ? `+${r.more_legs} más` : ""].filter(Boolean).join(" · ");
+}
+export type StepMark = "done" | "now" | "later";
+export const stepMark = (s: OrgRouteStep): StepMark => (s.state === "done" || s.state === "published" ? "done" : s.state === "later" ? "later" : "now");
+// One line of state per step. The step that comes next reads from the same next_start the band reads.
+export function stepLine(s: OrgRouteStep, team: OrgMember[], now: number, timeZone?: string): string {
+  const who = s.who ? roleName(s.who) : "El equipo";
+  if (s.state === "published") return s.at ? `Publicado ${whenWord(s.at, now, timeZone)}` : "Publicado";
+  if (s.state === "done") return s.at ? `Aceptado ${whenWord(s.at, now, timeZone)}` : "Aceptado";
+  if (s.state === "delivered") return "Entregado · espera que lo aceptes";
+  if (s.state === "working") {
+    const m = team.find((x) => x.state === "running" && x.now?.ticket === s.key);
+    return m?.now ? `En curso · ${who}, ${since(m.now.since, now)}` : `En curso · ${who}`;
+  }
+  if (s.state === "next") {
+    const n = team.find((x) => x.next_start?.key === s.key)?.next_start;
+    if (!n) return `Sigue · ${who}`;
+    const at = n.starts_at && Date.parse(n.starts_at) > now ? clockAt(n.starts_at, timeZone) : null;
+    return n.hold === "rest" && at ? `Sigue · ${who} arranca a las ${at}` : `Sigue · ${who}: ${startsLine(n, now, timeZone)}`;
+  }
+  return "Después · espera el paso anterior";
+}
+
+// ---- under the route (PLA-I40-6): what runs without the owner, what only he does, and the last things that happened
+
+const TO_DO: Record<string, string> = { taller: "construye", research: "investiga", artist: "diseña", qa: "prueba", copy: "escribe", "product-owner": "prepara" };
+export function sinTi(p: OrgProject): string {
+  if (isPaused(p)) return "Nada: el proyecto está en pausa.";
+  const steps = p.route?.legs.find((l) => l.state === "here")?.steps ?? [];
+  const at = steps.find((s) => s.state === "working") ?? steps.find((s) => s.state === "next");
+  if (at) {
+    const who = at.who ? roleName(at.who) : "El equipo";
+    const then = steps[steps.indexOf(at) + 1];
+    return `${who} ${at.state === "working" ? "termina" : (TO_DO[at.who ?? ""] ?? "hace")} ${q(at.title)} y te lo entrega.${then ? ` Después sigue ${q(then.title)}.` : ""}`;
+  }
+  if (steps.some((s) => s.state === "delivered")) return "En cuanto aceptes la entrega, el equipo toma el paso siguiente.";
+  const queued = [...p.team].sort(byRole).find((m) => m.state === "running" || m.next_start || (m.queue ?? []).length > 0);
+  if (queued) return `${roleName(queued.role)} sigue con lo que tiene en fila.`;
+  return "Nada en fila. Lo que pidas lo reparte el PO.";
+}
+export const SOLO_TU = "Aceptar cada entrega para que el paso siguiente arranque, y publicar.";
+// PLA-I40-7: with the switch on, accepting is the team's when the tests pass; publishing stays the owner's.
+export const SOLO_TU_AUTO = "Publicar. Las entregas con pruebas en verde se aceptan solas en la copia de prueba.";
+export const AUTO_LABEL = "Aceptar sola en la copia de prueba si las pruebas pasan";
+
+const DID: Record<string, string> = { aceptar: "Aceptaste", fusionar: "Aceptaste", cambios: "Pediste cambios en", elegir: "Respondiste", responder: "Respondiste", hecho: "Marcaste hecho", aplazar: "Aplazaste", empezar: "Aprobaste el plan", cambiar: "Pediste cambiar", cancelar: "Cancelaste" };
+export type LastLine = { id: string; text: string; at: string; decision: Decision | null };
+// The newest three: the owner's answers (a decision's state) and what the server saw (a publish, a delivery).
+export function lastLines(p: OrgProject, decisions: Decision[], max = 3): LastLine[] {
+  const answered = decisions
+    .filter((d) => d.project === p.slug && d.state)
+    .map((d) => {
+      // PLA-I40-7: an accept the project's switch made says so, with the test counts it stood on.
+      const auto = d.state!.result?.by === "auto";
+      const counts = auto && d.evidence?.pass != null ? ` · ${d.evidence.pass} pruebas pasan` : "";
+      return { id: `d-${d.id}`, text: auto ? `Se aceptó sola ${q(d.title, 70)}${counts}` : `${DID[d.state!.action] ?? "Respondiste"} ${q(d.title, 70)}`, at: d.state!.at, decision: d };
+    });
+  const seen = (p.latest ?? []).map((l, i) => ({
+    id: `l-${i}-${l.at}`,
+    text: l.kind === "published" ? (l.n ? `Publicaste ${l.n === 1 ? "1 cambio" : `${l.n} cambios`}` : "Publicaste los cambios") : `El equipo entregó ${q(l.title, 70)}`,
+    at: l.at,
+    decision: null,
+  }));
+  return [...answered, ...seen].sort((a, b) => b.at.localeCompare(a.at)).slice(0, max);
+}
+// "lleva 16 h" / "lleva 3 días".
+export const staleAge = (sinceIso: string, now: number) => {
+  const h = Math.max(1, Math.round((now - Date.parse(sinceIso)) / HOUR));
+  return h < 48 ? `${h} h` : `${Math.round(h / 24)} días`;
+};

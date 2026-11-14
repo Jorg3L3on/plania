@@ -103,12 +103,10 @@ beforeEach(async () => {
   asistente.resetAsistenteForTests();
   await raw.query(`delete from agent_runs`);
   await raw.query(`delete from heartbeat_runs`);
-  await raw.query(`delete from token_budgets`);
   await raw.query(`delete from events where type like 'asistente.%' or type = 'po.propose_queued'`);
-  await raw.query(`update runner_settings set company_paused = false, max_concurrent = 2, cooldown_minutes = 0, plan_guard_pct = 70, reserve_tokens = 1000, asistente_weekly_limit = 500000`);
+  await raw.query(`update runner_settings set company_paused = false, max_concurrent = 2, cooldown_minutes = 0, plan_guard_pct = 70, reserve_tokens = 1000`);
   await raw.query(`update projects set runs_paused = true`);
   await raw.query(`update projects set runs_paused = false where slug in ('micasa', 'mianovia')`);
-  for (const p of ["micasa", "mianovia", "zigzag"]) await raw.query(`insert into token_budgets (scope, project_id, weekly_limit) values ('project', $1, 1000000)`, [await pid(p)]);
   await raw.query(`delete from plan_readings`);
   await raw.query(`insert into plan_readings (at, source, status, five_hour_pct, five_hour_resets_at) values (now(), 'stream', 'allowed', 10, now() + interval '3 hours')`);
   await raw.query(`delete from goals`);
@@ -232,32 +230,18 @@ test("I32-5: an idle PO with a goal is woken to propose ideas, at most once a we
   assert.equal(await asistente.idleProposals(db, wakesOn.env, new Date(Date.now() + 8 * 24 * 3_600_000)), 1);
 });
 
-test("I32-5 #3: a project without budget left does not start; a role at its old cap no longer blocks", async () => {
+test("I32-5 #3 (PLA-21): no budget stops a team or Asistente, however much they spent this week", async () => {
   const f = fakes();
   await writes.createTask(db, { project: "micasa", key: "MIC-900", title: "Arreglo", scope: "s", checks: ["c"], status: "Ready", owner_agent: "taller-micasa" } as never, A);
   await raw.query(`delete from agent_runs`);
-  // The retired role cap: taller at 100% of a tiny role budget, spent in another project.
-  await raw.query(`insert into token_budgets (scope, role, weekly_limit) values ('role', 'taller', 10)`);
-  await raw.query(`insert into agent_runs (agent_id, project_id, role, status, started_at, ended_at, tokens_total) values ($1, $2, 'taller', 'ok', now(), now(), 5000)`, [await aid("taller-mianovia"), await pid("mianovia")]);
+  await raw.query(`insert into agent_runs (agent_id, project_id, role, status, started_at, ended_at, tokens_total) values ($1, $2, 'research', 'ok', now(), now(), 900000000)`, [await aid("research-micasa"), await pid("micasa")]);
+  await raw.query(`insert into agent_runs (agent_id, project_id, role, status, started_at, ended_at, tokens_total) values ($1, $2, 'asistente', 'ok', now(), now(), 900000000)`, [await aid("asistente"), await pid("zigzag")]);
   const ok = await wakeAgent(db, { agent: "taller-micasa", taskKey: "MIC-900", now: new Date() }, { runner: f.deps as never });
   assert.equal(ok.run!.status, "running", ok.run!.summary);
-  f.spawned[0]!.child.finish();
-  await runner.waitForAllRuns();
-
-  // micasa's team has spent its week (Asistente's runs there do not count against it).
-  await raw.query(`delete from agent_runs`);
-  await raw.query(`update token_budgets set weekly_limit = 1000 where scope = 'project' and project_id = $1`, [await pid("micasa")]);
-  await raw.query(`insert into agent_runs (agent_id, project_id, role, status, started_at, ended_at, tokens_total) values ($1, $2, 'research', 'ok', now(), now(), 1000)`, [await aid("research-micasa"), await pid("micasa")]);
-  const stopped = await wakeAgent(db, { agent: "taller-micasa", taskKey: "MIC-900", now: new Date() }, { runner: f.deps as never });
-  assert.equal(stopped.run!.status, "skipped");
-  assert.match(stopped.run!.summary, /^skipped: BUDGET_STOPPED project micasa at 100%/);
-  assert.equal(f.spawned.length, 1, "nothing new spawned");
-
-  // Asistente has its own budget: micasa's being spent does not stop it, its own does.
-  await raw.query(`update runner_settings set asistente_weekly_limit = 100`);
-  await raw.query(`insert into agent_runs (agent_id, project_id, role, status, started_at, ended_at, tokens_total) values ($1, $2, 'asistente', 'ok', now(), now(), 100)`, [await aid("asistente"), await pid("zigzag")]);
   const asis = await wakeAgent(db, { agent: "asistente", now: new Date() }, { runner: f.deps as never });
-  assert.match(asis.run!.summary, /^skipped: BUDGET_STOPPED asistente at 100%/);
+  assert.doesNotMatch(asis.run!.summary, /BUDGET/);
+  for (const s of f.spawned) s.child.finish();
+  await runner.waitForAllRuns();
 });
 
 test("I32-5 #4: an event wake on a Mianovia ticket goes to taller-mianovia, never another project's Taller", async () => {

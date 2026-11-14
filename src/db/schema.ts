@@ -620,7 +620,7 @@ export const pullRequests = pgTable(
     baseBranch: text("base_branch"),
     mergedAt: timestamp("merged_at", { withTimezone: true }),
     mergeSha: text("merge_sha"),
-    ciState: text("ci_state"), // pending | success | failure
+    ciState: text("ci_state"), // pending | success | failure | none (PLA-14: the head has no check run and no status)
     ciUrl: text("ci_url"),
     // PLA-I36-10: how many files the PR changes, when the poller read it.
     changedFiles: integer("changed_files"),
@@ -774,6 +774,8 @@ export type ProjectSettings = {
   plan_approval?: boolean;
   // PLA-I36-10: where the project's running preview lives (Ver la vista previa).
   preview_url?: string;
+  // PLA-I40-7: a delivery whose tests pass is accepted into the test copy without the owner. Off unless set.
+  auto_accept?: boolean;
 };
 
 // 2.13: mode "command" (default) shows the command Jorge runs; "merge" lets him ship from the screen
@@ -982,7 +984,7 @@ export const heartbeatRuns = pgTable(
 export type HeartbeatRun = typeof heartbeatRuns.$inferSelect;
 
 // PLA-I29: the autonomous runner. One settings row (company switch and the knobs only Jorge moves),
-// weekly token budgets, the run queue and live runs, the claude session per agent and project,
+// the run queue and live runs (PLA-21: no token budgets), the claude session per agent and project,
 // and plan-window readings. Migration 0039.
 export const runnerSettings = pgTable(
   "runner_settings",
@@ -993,42 +995,16 @@ export const runnerSettings = pgTable(
     maxConcurrent: integer("max_concurrent").notNull().default(1),
     cooldownMinutes: integer("cooldown_minutes").notNull().default(30),
     planGuardPct: integer("plan_guard_pct").notNull().default(70),
+    guardOverride: boolean("guard_override").notNull().default(false),
     reserveTokens: integer("reserve_tokens").notNull().default(60000),
     maxTurns: integer("max_turns").notNull().default(40),
     timeoutMinutes: integer("timeout_minutes").notNull().default(45),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    // PLA-I32-1: Asistente's weekly token budget (its runs are role asistente). Null stops them.
-    asistenteWeeklyLimit: bigint("asistente_weekly_limit", { mode: "number" }).default(500_000),
   },
-  (t) => [
-    check("runner_settings_singleton", sql`${t.id} = 1`),
-    check(
-      "runner_settings_asistente_limit_check",
-      sql`${t.asistenteWeeklyLimit} is null or (${t.asistenteWeeklyLimit} > 0 and ${t.asistenteWeeklyLimit} <= 10000000000)`,
-    ),
-  ],
+  (t) => [check("runner_settings_singleton", sql`${t.id} = 1`)],
 );
 
 export type RunnerSettings = typeof runnerSettings.$inferSelect;
-
-// PLA-I32-1: scope 'role' is retired. The rows stay for history; no run is checked against them.
-export const BUDGET_SCOPES = ["role", "project"] as const;
-
-export const tokenBudgets = pgTable(
-  "token_budgets",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    scope: text("scope").notNull(),
-    role: text("role"),
-    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
-    weeklyLimit: bigint("weekly_limit", { mode: "number" }).notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex("token_budgets_role_unique").on(t.role).where(sql`${t.scope} = 'role'`),
-    uniqueIndex("token_budgets_project_unique").on(t.projectId).where(sql`${t.scope} = 'project'`),
-  ],
-);
 
 export const RUN_STATUSES = ["queued", "running", "ok", "fail", "skipped", "stopped"] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];

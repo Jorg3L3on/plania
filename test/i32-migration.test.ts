@@ -37,7 +37,8 @@ test("schema.ts exposes project_id, role_template, threads and thread_messages w
     "thread_messages_links_check",
     "thread_messages_proposal_check",
   ]);
-  assert.ok(getTableConfig(runnerSettings).columns.some((c) => c.name === "asistente_weekly_limit"));
+  // PLA-21 (0043) dropped Asistente's weekly limit again.
+  assert.equal(getTableConfig(runnerSettings).columns.some((c) => c.name === "asistente_weekly_limit"), false);
 });
 
 test("0041 applies twice on a throwaway copy; threads exist for the company and every project", async () => {

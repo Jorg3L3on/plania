@@ -5,13 +5,15 @@
 // Cancelar; a step Hecho; a release goes to Bandeja. Keys live behind Detalles. Presentational: data and actions come
 // in as props (test/edificio-ui.test.ts, test/compania-v2.test.ts and test/i36-ui.test.ts render it with fake data).
 import { useState, type FormEvent } from "react";
+import { Loader2Icon } from "lucide-react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { ago } from "@/lib/compania";
 import type { Decision, DecisionInput } from "@/lib/api";
-import { linkHref } from "@/lib/org";
+import { linkHref, roleName } from "@/lib/org";
 import { checksText, ordered, releaseText, stateText, evidenceText, plainLink } from "@/lib/v2";
 import { Dot, TONE_INK, pillGhost, pillPrimary } from "@/components/compania/parts";
+import { FileStepBox } from "@/components/compania/file-step";
 
 const pillSmall = "min-h-9 px-3.5 text-xs";
 
@@ -30,9 +32,11 @@ export type DecisionProps = {
   error?: string | null;
   opened?: boolean;
   onAct: (d: Decision, input: DecisionInput, key: string) => void;
+  // PLA-23: a release publishes in place when the page can (the building); else it goes to Bandeja.
+  onPublish?: (d: Decision) => void;
 };
 
-export const DecisionView = ({ d, now, busy, error, onAct, ui }: DecisionProps & { ui: DecisionUi }) => {
+export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: DecisionProps & { ui: DecisionUi }) => {
   const { reply, setReply, text, setText, open, setOpen } = ui;
   const acted = !!d.state;
   const checks = checksText(d);
@@ -46,6 +50,8 @@ export const DecisionView = ({ d, now, busy, error, onAct, ui }: DecisionProps &
   const busyHere = busy?.id === d.id;
   const options = ordered(d);
   const label = (key: string, word: string) => (busyHere && busy?.key === key ? "…" : word);
+  // A file step Plania can do itself (aplicar): the file, the lines, and one button.
+  const fileStep = d.file_step && d.actions.includes("aplicar") ? d.file_step : null;
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (text.trim().length < 2) return;
@@ -74,7 +80,7 @@ export const DecisionView = ({ d, now, busy, error, onAct, ui }: DecisionProps &
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs" data-links={links.length}>
           {d.body && (
             <button type="button" className="font-semibold hover:underline" aria-expanded={open} onClick={() => setOpen(!open)} data-control="ver-mensaje">
-              {open ? "Ocultar mensaje" : "Ver mensaje"}
+              {open ? "Ocultar mensaje" : d.asker ? `Ver el mensaje de ${roleName(d.asker.role)}` : "Ver mensaje"}
             </button>
           )}
           {links.map((l) =>
@@ -138,6 +144,14 @@ export const DecisionView = ({ d, now, busy, error, onAct, ui }: DecisionProps &
         </p>
       ) : (
         <>
+          {fileStep && (
+            <FileStepBox
+              d={{ ...d, file_step: fileStep }}
+              busy={busyHere && busy?.key === "aplicar"}
+              disabled={busyHere && busy?.key !== "aplicar"}
+              onApply={(input) => onAct(d, input, "aplicar")}
+            />
+          )}
           {options.length > 0 && (
             <ol className="grid gap-1" data-options={options.length}>
               {options.map((o) => (
@@ -197,14 +211,25 @@ export const DecisionView = ({ d, now, busy, error, onAct, ui }: DecisionProps &
                 {label("cancelar", "Cancelar")}
               </button>
             )}
-            {d.kind === "release" && (
-              <Link to="/inbox" className={cn(pillPrimary, pillSmall)} data-action="publicar">
-                Publicar en Bandeja
-              </Link>
-            )}
+            {d.kind === "release" &&
+              (onPublish ? (
+                <button type="button" className={cn(pillPrimary, pillSmall)} data-action="publicar" onClick={() => onPublish(d)}>
+                  Publicar
+                </button>
+              ) : (
+                <Link to="/inbox" className={cn(pillPrimary, pillSmall)} data-action="publicar">
+                  Publicar en Bandeja
+                </Link>
+              ))}
             {d.actions.includes("hecho") && (
-              <button type="button" data-action="hecho" className={cn(pillPrimary, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "hecho" }, "hecho")}>
-                {label("hecho", "Hecho")}
+              <button
+                type="button"
+                data-action="hecho"
+                className={cn(fileStep ? pillGhost : pillPrimary, pillSmall)}
+                disabled={busyHere}
+                onClick={() => onAct(d, { action: "hecho" }, "hecho")}
+              >
+                {label("hecho", fileStep ? "Ya lo hice yo" : "Hecho")}
               </button>
             )}
             {d.actions.includes("aplazar") && (
@@ -225,9 +250,16 @@ export const DecisionView = ({ d, now, busy, error, onAct, ui }: DecisionProps &
               </button>
             )}
             {d.hold && (d.actions.includes("fusionar") || d.actions.includes("aceptar")) && (
-              <span className="text-xs font-semibold text-ink-blocked" data-hold>
+              <span className={cn("inline-flex items-center gap-1.5 text-xs font-semibold", d.verify ? "text-foreground" : "text-ink-blocked")} data-hold role={d.verify ? "status" : undefined}>
+                {d.verify && <Loader2Icon className="size-3.5 shrink-0 animate-spin" aria-hidden />}
                 {d.hold}
+                {d.verify && <span className="font-normal text-muted-foreground">· {ago(d.verify.since, now)}</span>}
               </span>
+            )}
+            {d.actions.includes("verificar") && (
+              <button type="button" data-action="verificar" className={cn(pillGhost, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "verificar" }, "verificar")}>
+                {label("verificar", `Que ${d.asker ? roleName(d.asker.role) : "su dueño"} vuelva a probar`)}
+              </button>
             )}
             {d.actions.includes("cambios") && (
               <button type="button" data-action="cambios" className={cn(pillGhost, pillSmall)} disabled={busyHere} aria-expanded={reply} onClick={() => setReply(!reply)}>

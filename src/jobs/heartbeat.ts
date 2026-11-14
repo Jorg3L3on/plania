@@ -2,6 +2,8 @@ import { and, desc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { ADAPTERS, agents, heartbeatRuns, projects, tasks, type AdapterConfig, type AdapterName } from "../db/schema.js";
 import { spawn, type SpawnDeps, type SpawnTask } from "../adapters/index.js";
+import { requeueHeld, sweepFailedRuns, sweepStoppedRuns } from "../runner/failed.js";
+import { sweepAutoAccept } from "../api/auto-accept.js";
 import { cleanupWorktrees, drainQueue, enforceLive, wakeClaude, type RunnerDeps } from "../runner/runner.js";
 import { ToolError } from "../mcp/errors.js";
 import { iso } from "../mcp/tx.js";
@@ -283,12 +285,35 @@ export const listHeartbeatRuns = async (db: Db, filter: { agent?: string; limit?
 };
 
 export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDeps): Promise<Record<string, number>> => {
-  // PLA-I29: switches and budgets stop live runs first, then queued runs take free slots.
+  // PLA-I29: switches stop live runs first, then queued runs take free slots.
   const stopped = await enforceLive(db, now);
+  // PLA-16: a run that failed holding its ticket is retried once (queued here, started by the drain below),
+  // or its ticket is handed to Jorge after a second failure in a row.
+  const failed = await sweepFailedRuns(db);
+  // PLA-18: a run a limit stopped lets go of its ticket, and work a limit held is queued again once the
+  // runner's checks say it would start.
+  const freed = await sweepStoppedRuns(db);
+  const held = await requeueHeld(db, now, deps?.runner);
+  // PLA-I40-7: deliveries whose tests pass are accepted into the test copy where the project's switch is on.
+  const auto = await sweepAutoAccept(db, now).catch(() => ({ accepted: [] as string[], held: [] }));
   const drained = await drainQueue(db, now, deps?.runner);
   const cleaned = await cleanupWorktrees(db, deps?.runner);
   const roster = await db.select({ slug: agents.slug, minutes: agents.heartbeatMinutes }).from(agents);
-  const counts = { woken: 0, skipped: 0, failed: 0, held: 0, queued: 0, stopped, started_from_queue: drained.started, dropped_from_queue: drained.dropped, worktrees_removed: cleaned };
+  const counts = {
+    woken: 0,
+    skipped: 0,
+    failed: 0,
+    held: 0,
+    queued: 0,
+    stopped,
+    started_from_queue: drained.started,
+    dropped_from_queue: drained.dropped,
+    worktrees_removed: cleaned,
+    retried_after_fail: failed.retried,
+    handed_to_jorge: failed.held,
+    freed_after_stop: freed.freed,
+    requeued_held: held.requeued,
+  };
   for (const row of roster) {
     if (row.minutes == null) continue;
     const result = await wakeAgent(db, { agent: row.slug, now }, deps);

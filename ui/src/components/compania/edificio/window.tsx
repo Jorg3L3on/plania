@@ -1,6 +1,6 @@
 // PLA-I39-3: one teammate is one window. Its light is the server's state (windowState): lit with a laptop while
-// its run is live, orange with a raised hand when it waits on the owner, blinds down when paused, dim when out of
-// budget, dark when idle. Under it: the role with its verb, what it is on, else its queue, else its last delivery.
+// its run is live, orange with a raised hand when it waits on the owner, blinds down when paused, dark when
+// idle. Under it: the role with its verb, what it is on, else its queue, else its last delivery.
 // PLA-I39-6: a window opens its teammate in the side page (onOpen). PLA-I39-7: hint replaces the caption while the
 // owner types in the floor's box ("Recibiría tu pedido").
 import type { OrgMember } from "@/lib/api";
@@ -20,27 +20,23 @@ export const Window = ({
   project,
   now,
   companyPaused,
-  state: forced,
   hint,
-  pastTitle,
+  timeZone,
   onOpen,
 }: {
   member: OrgMember;
   project: string;
   now: number;
   companyPaused?: boolean;
-  // PLA-I39-8: a past time on the clock decides the light instead.
-  state?: WindowState;
   hint?: string | null;
-  // PLA-I39-8: what its run at that hour was on.
-  pastTitle?: string | null;
+  timeZone?: string;
   onOpen?: (m: OrgMember, el: HTMLElement) => void;
 }) => {
-  const state = hint ? "ghost" : (forced ?? windowState(m, companyPaused));
-  const c = caption(m, now, { companyPaused });
-  const doing = hint ?? (forced ? (forced === "work" ? (pastTitle ?? "Trabajando") : "Sin trabajo") : c.doing);
-  const sub = hint || forced ? "" : c.sub;
-  const label = forced ? `${c.who} de ${project}, ${forced === "work" ? "trabajando" : "sin trabajo"} a esa hora: ${doing}` : windowLabel(m, project, now, companyPaused);
+  const state = hint ? "ghost" : windowState(m, companyPaused);
+  const c = caption(m, now, { companyPaused, timeZone });
+  const doing = hint ?? c.doing;
+  const sub = hint ? "" : c.sub;
+  const label = windowLabel(m, project, now, companyPaused);
   const body = (
     <>
       <span className="edi-glass">

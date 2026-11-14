@@ -92,6 +92,19 @@ export async function resumeRun(db: Db, id: string, deps?: HeartbeatDeps): Promi
   const r = await runRow(db, id);
   if (!r) return { error: "RUN_NOT_FOUND", status: 404, hint: "Esa corrida no existe." };
   if (r.status !== "stopped") return { error: "RUN_NOT_STOPPED", status: 409, hint: "Solo una corrida detenida se retoma." };
+  // PLA-18: a run a switch (or, before PLA-21, a budget) stopped still holds its ticket until the next tick frees it, and the
+  // wake needs the ticket Ready. Only that run's own lease is released here.
+  if (r.taskKey) {
+    const [t] = await db
+      .select({ status: tasks.status, owner: tasks.owner })
+      .from(tasks)
+      .innerJoin(projects, eq(projects.id, tasks.projectId))
+      .where(and(eq(projects.slug, r.project), eq(tasks.key, r.taskKey)))
+      .limit(1);
+    if (t?.status === "In progress" && t.owner?.session_id === `run-${r.id.slice(0, 8)}`) {
+      await claim(db, { project: r.project, key: r.taskKey, action: "release" } as never, { ...webCtx, tool: "screen.run_resume" });
+    }
+  }
   const out = await wakeAgent(db, { agent: r.agent, taskKey: r.taskKey ?? undefined }, deps);
   return { woke: out.woke, reason: out.reason, ticket: r.taskKey };
 }

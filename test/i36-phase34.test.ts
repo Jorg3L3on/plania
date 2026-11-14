@@ -8,7 +8,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import type pg from "pg";
-import { ownerCode, resetTestDb, useOwnerCode, useTestEnv } from "./helpers.js";
+import { TEST_BEARER, ownerCode, resetTestDb, useOwnerCode, useTestEnv } from "./helpers.js";
 
 useTestEnv();
 await useOwnerCode();
@@ -55,10 +55,6 @@ before(async () => {
   const p = (await raw.query(`select id, slug, title from projects where slug = 'workia'`)).rows[0] as { id: string; slug: string; title: string };
   await ensureMember(db, p, "product-owner", { reportsTo: "ceo", note: "test" });
   po = (await raw.query(`select slug from agents where project_id = $1 and role_template = 'product-owner'`, [p.id])).rows[0].slug;
-  for (const slug of ["workia", "filmia"]) {
-    const b = await post("/api/company/budgets", { scope: "project", project: slug, weekly_limit: 5_000_000, code: await ownerCode() }, "PUT");
-    assert.equal(b.status, 200, await b.clone().text());
-  }
 });
 
 after(async () => {
@@ -165,8 +161,8 @@ test("I36-7 #3: 1 + 2 shows and is accepted only when the proposal marks them co
   assert.equal(ok.status, 200, await ok.clone().text());
 });
 
-test("I36-7 #5: the protocol is 2.20 and docs/bot-protocol.md describes propose", async () => {
-  assert.equal(PROTOCOL_VERSION, "2.20");
+test("I36-7 #5: the protocol is 2.21 and docs/bot-protocol.md describes propose", async () => {
+  assert.equal(PROTOCOL_VERSION, "2.21");
   const { readFileSync } = await import("node:fs");
   const doc = readFileSync(new URL("../docs/bot-protocol.md", import.meta.url), "utf8");
   assert.ok(doc.includes("## Proposals (protocol 2.19)") && doc.includes('kind: "plan"') && doc.includes("combinable"));
@@ -327,43 +323,142 @@ test("I36-10 #1-#4: a delivery shows pass and fail counts, files and the preview
   assert.match(note.text, /la galería se corta en el teléfono/);
 });
 
+// ---- PLA-14
+
+test("PLA-14 #2, #3: a repo with no CI says so and Aceptar opens with a pass on the head; real CI pending or red still holds", async () => {
+  const t = (await writes.createTask(db, { project: "workia", title: "Sin CI", scope: "s", checks: ["c1"], owner_agent: po } as never, PO())) as Json;
+  const url = "https://github.com/x/workia/pull/32";
+  const OLD = "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const HEAD = "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  await raw.query(`update tasks set status = 'In review', pr_url = $2 where key = $1`, [t.key, url]);
+  await raw.query(`update checks set done = true where task_id = (select id from tasks where key = $1)`, [t.key]);
+  await raw.query(
+    `insert into pull_requests (project_id, repo, number, url, title, task_id, state, ci_state, head_sha, head_branch, changed_files) select project_id, 'x/workia', 32, $2, 'pr', id, 'open', 'none', $3, 'jl/sin-ci', 3 from tasks where key = $1`,
+    [t.key, url, HEAD],
+  );
+  const pass = (commit: string) =>
+    raw.query(`insert into results (task_id, kind, verdict, cite, counts, commit, branch, actor) select id, 'test', 'pass', 'pnpm test', '{"pass": 56, "fail": 0}'::jsonb, $2, 'jl/sin-ci', '{"agent":"taller"}'::jsonb from tasks where key = $1`, [t.key, commit]);
+  await pass(OLD);
+  const thread = (await raw.query(`select id from threads where kind = 'project' and project_id = (select id from projects where slug = 'workia')`)).rows[0].id;
+  await raw.query(`insert into thread_messages (thread_id, author_agent, author_role, body, links, at) values ($1, 'taller', 'taller', 'Listo para revisar.', $2::jsonb, now() + interval '10 minutes')`, [
+    thread,
+    JSON.stringify([
+      { kind: "ticket", ref: t.key, title: "Sin CI" },
+      { kind: "pr", ref: url, title: "PR" },
+    ]),
+  ]);
+  const find = async () => (await company()).decisions.find((d: Json) => d.ref === t.key && (d.kind === "pr" || d.kind === "deliverable"));
+  const button = (h: string) => /<button[^>]*data-action="(?:fusionar|aceptar)"[^>]*>/.exec(h)![0];
+  // A pass on an older commit is stale for the head: still held, and the reason names the missing CI.
+  let d = await find();
+  assert.deepEqual(d.checks, { open: 0, ci: "none" });
+  assert.match(d.hold, /no tiene CI/);
+  let html = renderTeToca([d]);
+  assert.ok(html.includes("repo sin CI") && !html.includes("pruebas corriendo") && !html.includes("siguen corriendo"));
+  assert.ok(button(html).includes(' disabled=""'));
+  // Held only by the stale pass: the card offers asking the ticket's owner to run the checks again.
+  assert.ok(d.actions.includes("verificar"));
+  assert.match(html, /data-action="verificar"[^>]*>Que (el )?PO vuelva a probar/);
+  // Its owner (the PO here) busy with another run: refused, with the reason.
+  await raw.query(`update agent_runs set status = 'running' where id = (select id from agent_runs order by queued_at desc limit 1)`);
+  const busyOwner = (await raw.query(`select count(*)::int as n from agent_runs where status in ('queued', 'running') and agent_id = (select id from agents where slug = $1)`, [po])).rows[0].n;
+  if (busyOwner > 0) {
+    const refused = (await (await act(d.id, { action: "verificar" })).json()) as Json;
+    assert.equal(refused.error, "NOT_WOKEN");
+    assert.match(refused.hint, /^El PO está en otra corrida/);
+    await raw.query(`update agent_runs set status = 'ok', ended_at = now() where status in ('queued', 'running') and agent_id = (select id from agents where slug = $1)`, [po]);
+  }
+  const asked = await act(d.id, { action: "verificar" });
+  assert.equal(asked.status, 200, await asked.clone().text());
+  const run = (await raw.query(`select status, task_key from agent_runs where task_key = $1 order by queued_at desc limit 1`, [t.key])).rows[0];
+  assert.deepEqual(run, { status: "queued", task_key: t.key }, "the owner wakes on that ticket");
+  const note = (await raw.query(`select payload->>'text' as text from events where task_key = $1 and type = 'note' order by id desc limit 1`, [t.key])).rows[0];
+  assert.match(note.text, /volver a correr las pruebas en el último commit \(2222222\)/);
+  assert.equal((await raw.query(`select status from tasks where key = $1`, [t.key])).rows[0].status, "In review", "the delivery stays as it is");
+  // While that run is queued the card says so (no button, Aceptar still held); asking twice queues nothing more.
+  d = await find();
+  assert.equal(d.verify.state, "queued");
+  assert.match(d.hold, /va a correr las pruebas en el último commit/);
+  assert.equal(d.actions.includes("verificar"), false);
+  html = renderTeToca([d]);
+  assert.ok(html.includes('role="status"') && button(html).includes(' disabled=""'));
+  await raw.query(`update agent_runs set status = 'running', started_at = now() where task_key = $1`, [t.key]);
+  assert.match((await find()).hold, /está corriendo las pruebas/);
+  await raw.query(`update agent_runs set status = 'skipped', ended_at = now() where task_key = $1`, [t.key]);
+  // A pass on the current head opens Aceptar.
+  await pass(HEAD);
+  d = await find();
+  assert.equal(d.hold, null);
+  html = renderTeToca([d]);
+  assert.equal(button(html).includes(' disabled=""'), false, "Aceptar enabled with a fresh pass and no CI");
+  // Real CI keeps today's behaviour, even with that fresh pass.
+  await raw.query(`update pull_requests set ci_state = 'pending' where url = $1`, [url]);
+  d = await find();
+  assert.equal(d.hold, "Las pruebas siguen corriendo.");
+  assert.ok(button(renderTeToca([d])).includes(' disabled=""'));
+  await raw.query(`update pull_requests set ci_state = 'failure' where url = $1`, [url]);
+  d = await find();
+  assert.equal(d.hold, "Las pruebas fallan.");
+  assert.ok(button(renderTeToca([d])).includes(' disabled=""'));
+});
+
+test("one card per delivery: a ticket said ready three times shows once, the newest; once acted the older ones stay out", async () => {
+  const t = (await writes.createTask(db, { project: "workia", title: "Tres veces lista", scope: "s", checks: ["c1"], owner_agent: po } as never, PO())) as Json;
+  const url = "https://github.com/x/workia/pull/41";
+  await raw.query(`update tasks set status = 'In review', pr_url = $2 where key = $1`, [t.key, url]);
+  const thread = (await raw.query(`select id from threads where kind = 'project' and project_id = (select id from projects where slug = 'workia')`)).rows[0].id;
+  const links = JSON.stringify([
+    { kind: "ticket", ref: t.key, title: "Tres veces lista" },
+    { kind: "pr", ref: url, title: "PR" },
+  ]);
+  const ids: string[] = [];
+  for (const [i, body] of ["Lista.", "Evidencia registrada.", "Lista para revisar."].entries()) {
+    const r = await raw.query(`insert into thread_messages (thread_id, author_agent, author_role, body, links, at) values ($1, 'taller', 'taller', $2, $3::jsonb, now() + ($4 || ' minutes')::interval) returning id`, [thread, body, links, String(20 + i)]);
+    ids.push(r.rows[0].id);
+  }
+  const cards = async () => (await company()).decisions.filter((d: Json) => d.ref === t.key);
+  let mine = await cards();
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].id, `m-${ids[2]}`, "the newest message is the card");
+  // Accepted on the newest: the older two do not come back with Aceptar.
+  await raw.query(`update thread_messages set action_state = $2::jsonb where id = $1`, [ids[2], JSON.stringify({ action: "aceptar", at: new Date().toISOString(), result: { merged: true } })]);
+  mine = await cards();
+  assert.deepEqual(mine.map((d: Json) => [d.id, d.actions]), [[`m-${ids[2]}`, []]]);
+});
+
 // ---- PLA-I36-11
 
-test("I36-11 #2: publishing to main without a valid code is refused by the server", async () => {
-  const none = await app.request("/api/projects/zigzag/release/ship", { method: "POST", headers: jorge(), body: JSON.stringify({}) });
-  assert.equal(none.status, 403);
-  assert.equal(((await none.json()) as Json).error, "OWNER_CODE_REQUIRED");
-  const bad = await app.request("/api/projects/zigzag/release/ship", { method: "POST", headers: jorge(), body: JSON.stringify({ code: "000000" }) });
-  assert.equal(((await bad.json()) as Json).error, "OWNER_CODE_INVALID");
+test("PLA-24: publishing asks no owner's code, even with none enrolled; a Bearer is still refused", async () => {
   await useOwnerCode(false);
-  const unset = await app.request("/api/projects/zigzag/release/ship", { method: "POST", headers: jorge(), body: JSON.stringify({ code: "123456" }) });
-  assert.equal(((await unset.json()) as Json).error, "OWNER_CODE_UNSET");
+  for (const body of [{}, { code: "000000" }]) {
+    const res = await app.request("/api/projects/zigzag/release/ship", { method: "POST", headers: jorge(), body: JSON.stringify(body) });
+    const err = String(((await res.json()) as Json).error ?? "");
+    assert.equal(err.startsWith("OWNER_CODE"), false, err);
+  }
+  const bearer = await app.request("/api/projects/zigzag/release/ship", { method: "POST", headers: { ...jorge(), Authorization: `Bearer ${TEST_BEARER}` }, body: "{}" });
+  assert.equal(bearer.status, 403);
+  assert.equal(((await bearer.json()) as Json).error, "HUMAN_ONLY");
   await useOwnerCode(true);
 });
 
-test("I36-11 #3: raising a limit and deleting a project without a valid code are refused; lowering needs none", async () => {
-  const up = await post("/api/company/budgets", { scope: "project", project: "workia", weekly_limit: 9_000_000 }, "PUT");
-  assert.equal(up.status, 403);
-  const down = await post("/api/company/budgets", { scope: "project", project: "workia", weekly_limit: 4_000_000 }, "PUT");
-  assert.equal(down.status, 200);
-  const asis = await post("/api/company/settings", { asistente_weekly_limit: 1_000_000 }, "PUT");
-  assert.equal(asis.status, 403, "from none to a limit is raising");
-  const code = await ownerCode();
-  assert.equal((await post("/api/company/budgets", { scope: "project", project: "workia", weekly_limit: 9_000_000, code }, "PUT")).status, 200);
-  assert.equal((await post("/api/company/budgets", { scope: "project", project: "workia", weekly_limit: 9_500_000, code }, "PUT")).status, 403, "a code is spent once");
+test("I36-11 #3: deleting a project without a valid code is refused, and a code is spent once; PLA-21: no limit to raise", async () => {
+  assert.equal((await post("/api/company/budgets", { scope: "project", project: "workia", weekly_limit: 9_000_000 }, "PUT")).status, 404);
   const del = await post("/api/company/projects/filmia", {}, "DELETE");
   assert.equal(del.status, 403);
   assert.equal((await raw.query(`select count(*)::int as n from projects where slug = 'filmia'`)).rows[0].n, 1);
-  const ok = await post("/api/company/projects/filmia", { code: await ownerCode() }, "DELETE");
+  const code = await ownerCode();
+  const ok = await post("/api/company/projects/filmia", { code }, "DELETE");
   assert.equal(ok.status, 200);
   assert.equal((await raw.query(`select count(*)::int as n from projects where slug = 'filmia'`)).rows[0].n, 0);
+  await raw.query(`insert into projects (slug, title, key_prefix) values ('filmiados', 'Filmia dos', 'FMD')`);
+  assert.equal((await post("/api/company/projects/filmiados", { code }, "DELETE")).status, 403, "a code is spent once");
 });
 
 test("I36-11 #4: asking, approving a plan, stopping a run and accepting into the test copy need no code", async () => {
   const { readFileSync } = await import("node:fs");
   const company = readFileSync(new URL("../src/api/company.ts", import.meta.url), "utf8");
   const gated = [...company.matchAll(/checkOwnerCode\(/g)].length;
-  assert.equal(gated, 3, "budgets, settings (Asistente's limit) and delete project");
+  assert.equal(gated, 1, "only delete project (PLA-21 removed the limits)");
   // Exercised above without a code: ask (I36-6), Sí, empiecen (I36-8), stop (I36-9), Pedir cambios (I36-10).
   const r = await post("/api/company/projects/workia/ask", { text: "Otra cosa pequeña" });
   assert.equal(r.status, 201);
@@ -451,4 +546,38 @@ test("I36-12 #1-#3: a plan whose tickets the PO moved under an initiative still 
   assert.equal((await post(`/api/company/projects/workia/orders/${other}/cancel`)).status, 200);
   const statuses = (await raw.query(`select status from tasks where key = any($1)`, [moved2])).rows.map((r) => r.status);
   assert.deepEqual(statuses, ["Won't do", "Won't do"]);
+});
+
+// ---- PLA-27 (last, so its orders do not push earlier ones out of the five shown)
+
+test("PLA-27: a plan that needed no approval is accepted like any delivery once its order is In review", async () => {
+  await post("/api/company/projects/workia/options", { plan_approval: false }, "PUT");
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega contacto por WhatsApp" })).json()) as Json).key as string;
+  const out = (await propose(db, plan(order, { title: "Contacto" }), PO() as never)) as Json;
+  assert.equal(out.proposal.needs_approval, false);
+  await raw.query(`update tasks set status = 'In review' where key = $1`, [order]);
+  await raw.query(`update checks set done = true, done_at = now() where task_id = (select id from tasks where key = $1)`, [order]);
+  const id = `m-${out.message.id}`;
+  const d = (await company()).decisions.find((x: Json) => x.id === id);
+  assert.ok(d, "the plan's message shows as the order's delivery");
+  assert.deepEqual([d.kind, d.actions], ["deliverable", ["aceptar", "cambios"]]);
+  const res = await act(id, { action: "aceptar" });
+  assert.equal(res.status, 200, await res.clone().text());
+  assert.equal((await raw.query(`select status from tasks where key = $1`, [order])).rows[0].status, "Done");
+  const again = await act(id, { action: "aceptar" });
+  assert.deepEqual([again.status, ((await again.json()) as Json).error], [409, "ALREADY_ACTED"]);
+});
+
+test("PLA-27: a plan that waits for approval still refuses aceptar and takes Sí, empiecen", async () => {
+  await post("/api/company/projects/workia/options", { plan_approval: true }, "PUT");
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega exportar a Excel" })).json()) as Json).key as string;
+  const out = (await propose(db, plan(order, { title: "Excel" }), PO() as never)) as Json;
+  assert.equal(out.proposal.needs_approval, true);
+  const id = `m-${out.message.id}`;
+  const refused = await act(id, { action: "aceptar" });
+  assert.deepEqual([refused.status, ((await refused.json()) as Json).error], [400, "INVALID_ACTION"]);
+  assert.equal((await act(id, { action: "empezar" })).status, 200);
+  await post("/api/company/projects/workia/options", { plan_approval: false }, "PUT");
+  const page = (await import("node:fs")).readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes('INVALID_ACTION: "Eso no se puede hacer aquí.'), "the screen says it in words");
 });

@@ -25,10 +25,6 @@ const clean = (s: string) => {
   assert.equal(/\$|USD/.test(s), false, "tokens, never money");
 };
 
-const budget = (used: number, limit: number) => {
-  const pct = Math.floor((used / limit) * 1000) / 10;
-  return { used, limit, pct, state: pct >= 100 ? "stopped" : pct >= 80 ? "warn" : "ok", reason: null };
-};
 const member = (role: string, slug: string, patch: Record<string, unknown> = {}) => ({
   agent: role === "product-owner" ? `po-${slug}` : `${role}-${slug}`,
   role,
@@ -47,7 +43,7 @@ const project = (slug: string, title: string, patch: Record<string, unknown> = {
   paused: false,
   light: "ok",
   goal: "Meta de prueba",
-  budget: budget(1_250_000, 6_000_000),
+  usage: { used: 1_250_000 },
   team: team(slug),
   thread: { id: `t-${slug}`, unread: 0, last: null },
   plan: null,

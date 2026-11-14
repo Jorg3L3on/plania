@@ -9,7 +9,8 @@ import type { Hanging } from "@/lib/edificio";
 import { roleName } from "@/lib/org";
 import { DecisionBody, type DecisionBusy } from "@/components/compania/v2";
 
-export const WIDE_COLS = 5;
+// PLA-I40-4: six across, so a team of four, the owner and the "+" share one row.
+export const WIDE_COLS = 6;
 export const PHONE_COLS = 2;
 // Where the bubble goes in the windows' grid (after the asker's row) and where its notch points, per layout.
 export function bubblePlace(index: number, count: number) {
@@ -29,12 +30,22 @@ export type QuestionActs = {
   opened?: string | null;
   disabled?: boolean;
   onAct: (d: Decision, input: DecisionInput, key: string) => void;
+  // PLA-23: a release publishes in place.
+  onPublish?: (d: Decision) => void;
 };
+
+// PLA-23: what the bubble says it is. Waiting: a delivery is handed over, a question is asked. Done: it says so,
+// so an accepted delivery never reads as a question still open.
+export function bubbleHead(d: Pick<Decision, "kind" | "state">, role: string): string {
+  const who = roleName(role);
+  if (d.state) return `Ya respondiste a ${who}`;
+  return d.kind === "pr" || d.kind === "deliverable" ? `${who} te entrega` : `${who} te pregunta`;
+}
 
 export const Question = ({ hanging, role, anchor, style, acts }: { hanging: Hanging; role: string; anchor?: string; style?: CSSProperties; acts: QuestionActs }) => {
   const d = hanging.decision;
   const body = (x: Decision) => (
-    <DecisionBody key={x.id} d={x} now={acts.now} busy={acts.busy} error={acts.errors?.[x.id] ?? null} opened={acts.opened === x.id} onAct={acts.onAct} />
+    <DecisionBody key={x.id} d={x} now={acts.now} busy={acts.busy} error={acts.errors?.[x.id] ?? null} opened={acts.opened === x.id} onAct={acts.onAct} onPublish={acts.onPublish} />
   );
   return (
     <div
@@ -48,7 +59,7 @@ export const Question = ({ hanging, role, anchor, style, acts }: { hanging: Hang
       inert={acts.disabled || undefined}
     >
       <p className="edi-bq">
-        {roleName(role)} {d.state ? "te preguntó" : "te pregunta"}
+        {bubbleHead(d, role)}
       </p>
       {body(d)}
       {hanging.more.length > 0 && (
@@ -71,6 +82,6 @@ export const Question = ({ hanging, role, anchor, style, acts }: { hanging: Hang
 export const RoofQuestion = ({ d, title, acts }: { d: Decision; title: string; acts: QuestionActs }) => (
   <div className="dark edi-bubble edi-roof-q" data-bubble={d.id} data-kind={d.kind} inert={acts.disabled || undefined}>
     <p className="edi-bq">{title}</p>
-    <DecisionBody d={d} now={acts.now} busy={acts.busy} error={acts.errors?.[d.id] ?? null} opened={acts.opened === d.id} onAct={acts.onAct} />
+    <DecisionBody d={d} now={acts.now} busy={acts.busy} error={acts.errors?.[d.id] ?? null} opened={acts.opened === d.id} onAct={acts.onAct} onPublish={acts.onPublish} />
   </div>
 );

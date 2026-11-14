@@ -1,19 +1,14 @@
 // PLA-I29-6/7/8: the limits a run must pass before it starts.
-// - Weekly token budgets, from Monday 00:00 in Jorge's time zone. PLA-I32-5: one per project, shared by its
-//   team, and one for Asistente (runner_settings.asistente_weekly_limit; its runs are role asistente and do
-//   not count against the project they are recorded in). Role budgets are retired: never read for a run.
-//   80% warns, 100% stops that scope only. A running run counts its reserve until it ends.
-//   No limit set, or a run whose usage is unknown, stops the scope (unknown = stop).
+// - No token budgets (PLA-21): the week's usage is shown, never checked.
+// - PLA-25: guard_override (a screen switch) lets runs go on past the guard; only status "rejected" still stops.
 // - The plan guard: no new run when the last reading is allowed_warning/rejected, or the 5-hour
 //   window is at or over the guard (default 70%). No reading, or a stale one, is unknown = stop.
 // - Company and project switches (runs_paused). Only Jorge's screen session writes any of these.
 import { desc, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { planReadings, runnerSettings, tokenBudgets, type PlanReading, type RunnerSettings } from "../db/schema.js";
+import { planReadings, runnerSettings, type PlanReading, type RunnerSettings } from "../db/schema.js";
 import type { Q } from "../mcp/tx.js";
 
-export const WARN_PCT = 80;
-export const STOP_PCT = 100;
 // A reading older than this, or past its 5-hour reset, says nothing about now.
 export const READING_TTL_MS = 30 * 60_000;
 
@@ -70,89 +65,30 @@ export async function weekBounds(db: Q, now: Date, tz = screenTz()): Promise<{ s
   return { startsAt: new Date(rows.rows[0]!.s), resetsAt: new Date(rows.rows[0]!.e) };
 }
 
-// ---- Budgets
+// ---- Usage this week
+// PLA-21: weekly token budgets are gone (Jorge, 2026-11-12). The week's tokens are only shown, never checked.
 
-export type BudgetState = "ok" | "warn" | "stopped";
-export type BudgetView = {
-  used: number;
-  limit: number | null;
-  pct: number | null;
-  state: BudgetState;
-  // Why it stopped below 100%: no limit set, or a run whose usage is unknown.
-  reason: "unset" | "usage_unknown" | null;
-};
+// A project's usage is its team's; Asistente's runs (role asistente) count apart.
+export type UsageScope = { kind: "project"; projectId: string } | { kind: "asistente" };
+export type WeekUsage = { used: number };
+// PLA-23: a card shows last week next to this week, so the number has something to compare with.
+export type CardUsage = WeekUsage & { last_week: number };
 
-// role: retired (PLA-I32-5); kept so old rows can still be shown, never checked before a run.
-export type BudgetScope = { kind: "role"; role: string } | { kind: "project"; projectId: string } | { kind: "asistente" };
-
-export function budgetState(used: number, limit: number | null, unknownRuns: number): BudgetView {
-  if (limit == null || limit <= 0) return { used, limit: null, pct: null, state: "stopped", reason: "unset" };
-  const pct = Math.floor((used / limit) * 1000) / 10;
-  if (unknownRuns > 0) return { used, limit, pct, state: "stopped", reason: "usage_unknown" };
-  if (pct >= STOP_PCT) return { used, limit, pct, state: "stopped", reason: null };
-  if (pct >= WARN_PCT) return { used, limit, pct, state: "warn", reason: null };
-  return { used, limit, pct, state: "ok", reason: null };
-}
-
-export async function budgetLimit(db: Q, scope: BudgetScope): Promise<number | null> {
-  if (scope.kind === "asistente") {
-    const v = (await loadSettings(db)).asistenteWeeklyLimit;
-    return v == null ? null : Number(v);
-  }
-  const [row] = await db
-    .select({ limit: tokenBudgets.weeklyLimit })
-    .from(tokenBudgets)
-    .where(
-      scope.kind === "role"
-        ? sql`${tokenBudgets.scope} = 'role' and ${tokenBudgets.role} = ${scope.role}`
-        : sql`${tokenBudgets.scope} = 'project' and ${tokenBudgets.projectId} = ${scope.projectId}`,
-    )
-    .limit(1);
-  return row ? Number(row.limit) : null;
-}
-
-// Which runs a scope counts. A project's budget is its team's: Asistente's runs (role asistente) are its own.
-export function scopeWhere(scope: BudgetScope) {
-  if (scope.kind === "role") return sql`r.role = ${scope.role}`;
+export function scopeWhere(scope: UsageScope) {
   if (scope.kind === "asistente") return sql`r.role = 'asistente'`;
   return sql`r.project_id = ${scope.projectId} and r.role <> 'asistente'`;
 }
 
-// Used this week: ended runs count their tokens; running runs count the larger of tokens so far and their reserve.
-export async function budgetUsage(db: Q, scope: BudgetScope, weekStart: Date): Promise<{ used: number; unknown: number }> {
-  const where = scopeWhere(scope);
-  const rows = await db.execute<{ used: string | null; unknown: number }>(sql`
-    select coalesce(sum(case when r.status = 'running' then greatest(r.tokens_total, r.reserve_tokens) else r.tokens_total end), 0)::bigint as used,
-           count(*) filter (where r.usage_known = false and r.usage_ack_at is null)::int as unknown
+// Tokens from weekStart (to weekEnd when given), ended and running runs alike.
+export async function weekUsage(db: Q, scope: UsageScope, weekStart: Date, weekEnd?: Date): Promise<WeekUsage> {
+  const rows = await db.execute<{ used: string | null }>(sql`
+    select coalesce(sum(r.tokens_total), 0)::bigint as used
     from agent_runs r
-    where ${where}
+    where ${scopeWhere(scope)}
       and r.status in ('running', 'ok', 'fail', 'stopped')
-      and coalesce(r.started_at, r.queued_at) >= ${weekStart.toISOString()}::timestamptz`);
-  return { used: Number(rows.rows[0]?.used ?? 0), unknown: Number(rows.rows[0]?.unknown ?? 0) };
-}
-
-export async function budgetView(db: Q, scope: BudgetScope, weekStart: Date): Promise<BudgetView> {
-  const [limit, usage] = await Promise.all([budgetLimit(db, scope), budgetUsage(db, scope, weekStart)]);
-  return budgetState(usage.used, limit, usage.unknown);
-}
-
-export type BudgetGate =
-  | { ok: true; warn: { scope: string; pct: number }[] }
-  | { ok: false; summary: string; scope: string };
-
-// Both scopes must have room for the new run's reserve.
-export function budgetGate(views: { label: string; view: BudgetView }[], reserve: number): BudgetGate {
-  const warn: { scope: string; pct: number }[] = [];
-  for (const { label, view } of views) {
-    if (view.reason === "unset") return { ok: false, scope: label, summary: `skipped: BUDGET_STOPPED ${label} (no limit set)` };
-    if (view.reason === "usage_unknown") return { ok: false, scope: label, summary: `skipped: BUDGET_STOPPED ${label} (usage unknown)` };
-    if (view.state === "stopped") return { ok: false, scope: label, summary: `skipped: BUDGET_STOPPED ${label} at ${view.pct}%` };
-    if (view.limit != null && view.used + reserve > view.limit) {
-      return { ok: false, scope: label, summary: `skipped: BUDGET_STOPPED ${label} (reserve does not fit)` };
-    }
-    if (view.state === "warn") warn.push({ scope: label, pct: view.pct ?? 0 });
-  }
-  return { ok: true, warn };
+      and coalesce(r.started_at, r.queued_at) >= ${weekStart.toISOString()}::timestamptz
+      and (${weekEnd?.toISOString() ?? null}::timestamptz is null or coalesce(r.started_at, r.queued_at) < ${weekEnd?.toISOString() ?? null}::timestamptz)`);
+  return { used: Number(rows.rows[0]?.used ?? 0) };
 }
 
 // ---- Plan guard
@@ -168,6 +104,8 @@ export type PlanView = {
   state: PlanState;
   read_at: string | null;
   source: string | null;
+  // PLA-25: Jorge's screen switch. While on, the percentage, a warning and an unknown reading do not stop a wake.
+  override: boolean;
 };
 
 export async function lastReading(db: Q): Promise<PlanReading | null> {
@@ -175,7 +113,7 @@ export async function lastReading(db: Q): Promise<PlanReading | null> {
   return row ?? null;
 }
 
-export function planView(reading: PlanReading | null, guardPct: number, now: Date): PlanView {
+export function planView(reading: PlanReading | null, guardPct: number, now: Date, override = false): PlanView {
   const base = {
     five_hour_pct: reading?.fiveHourPct ?? null,
     seven_day_pct: reading?.sevenDayPct ?? null,
@@ -185,7 +123,10 @@ export function planView(reading: PlanReading | null, guardPct: number, now: Dat
     status: reading?.status ?? null,
     read_at: reading?.at.toISOString() ?? null,
     source: reading?.source ?? null,
+    override,
   };
+  // PLA-25: with the switch on only a real "rejected" stops (the run would fail anyway).
+  if (override) return { ...base, state: reading?.status === "rejected" ? "stopped" : "ok" };
   if (!reading) return { ...base, state: "unknown" };
   const stale =
     now.getTime() - reading.at.getTime() > READING_TTL_MS ||

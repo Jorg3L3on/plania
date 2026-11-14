@@ -20,19 +20,3 @@ A product owner offers options or answers one of Jorge's orders with `propose`, 
 - `kind: "plan"`: the answer to an order (`order` is the order ticket's key). It says what the PO `understood` in one plain line, the `steps` (each with `done_when` and `work_type`) and the `cost`. When the project approves plans (on by default for a new project), the PO creates no ticket for the order: Plania creates one Ready ticket per step when someone presses "Sí, empiecen". "Cambiar algo" sends the order back to the box and "Cancelar" closes it. Without approval the tickets are created at once and the plan shows as information.
 
 Titles, labels and `understood` use plain words: no ticket keys, branch names or the word sandbox. Anyone at the Mac reads them.
-
-## App-repo merges (protocol 2.20)
-
-Before merging a pull request in filmia, micasa, zigzag, or workia, run this from the plania repo:
-
-```bash
-pnpm merge-gate <owner/repo> <pr-number> --merge squash --record <TICKET>
-```
-
-`--record` writes the scan result through Plania. The cite is the redacted report, `command` is `merge-gate`, and `commit` is the scanned head (40 hex). Do not call `add_result` yourself for this pass. Exit 0 only when `ok` is true, `gitleaks.ran` is true, and `gitleaks.error` is null.
-
-A finding blocks the merge unless that path or string is on the allowlist. Only Jorge appends an allowlist entry. `SCAN_REQUIRED` blocks Merged unless that pass's commit is exactly the PR head.
-
-A merge that does not go through merge-gate is only detected: the ticket stays In review. Stopping that merge is the PLA-I38-3 ruleset, which is not here yet. When that ruleset is live, the pass should also accept or require a GitHub check named `plania-scan` with success on the head. A bot cannot fabricate that status.
-
-Do not add files to the app repo for this. The write token may be a static token with actor `merge-gate`, or set `PLANIA_MERGE_GATE_AGENT` to the agent named on a bound token. `PLANIA_MCP_URL` defaults to `http://127.0.0.1:3737/mcp`.

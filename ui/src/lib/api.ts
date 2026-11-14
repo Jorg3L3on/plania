@@ -2,7 +2,7 @@ import type { TaskComment, RoutineRun } from "@/components/delegation/types";
 import type { TeamRoster } from "@/components/team/types";
 import type { Dashboard, WakeResult } from "@/components/dashboard/types";
 import type { Goal, GoalWrite } from "@/components/goals/model";
-import type { Budget, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
+import type { Usage, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
 
 export class ApiError extends Error {
@@ -63,7 +63,7 @@ export const api = {
   inbox: (project?: string) => request<Inbox>("GET", project ? `/inbox?project=${encodeURIComponent(project)}` : "/inbox"),
   // 2.13: Jorge ships the release step (merge mode): a PR from → into, merged with a merge commit.
   // PLA-I36-11: publishing carries the owner's code.
-  shipRelease: (slug: string, code?: string) => request<ShipResult>("POST", `/projects/${encodeURIComponent(slug)}/release/ship`, { code }),
+  shipRelease: (slug: string) => request<ShipResult>("POST", `/projects/${encodeURIComponent(slug)}/release/ship`, {}),
   resolveBlocker: (slug: string, id: string, note?: string) =>
     request<{ key: string }>("POST", `/projects/${encodeURIComponent(slug)}/blockers/${encodeURIComponent(id)}/resolve`, note ? { note } : undefined),
   // Screen only. The bot cannot read or flip this.
@@ -125,7 +125,6 @@ export const api = {
   // PLA-I33 Compañía como organización: the contract in the Plan doc (61ad843a, "Contrato de API").
   company: () => request<OrgCompany>("GET", "/company"),
   // PLA-I39-2: the clock's read.
-  companyHistory: (hours = 20) => request<OrgHistory>("GET", `/company/history?hours=${hours}`),
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   addToTeam: (slug: string, template: string) =>
     request<{ agent: string; role: string; template: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, { template }),
@@ -142,17 +141,19 @@ export const api = {
   setCompanyPaused: (paused: boolean) => request<{ paused: boolean; stopped: number }>("POST", "/company/switch", { paused }),
   setProjectPaused: (slug: string, paused: boolean) =>
     request<{ project: string; paused: boolean; stopped: number }>("POST", `/company/projects/${encodeURIComponent(slug)}/switch`, { paused }),
-  setBudget: (input: ({ scope: "role"; role: string; weekly_limit: number | null } | { scope: "project"; project: string; weekly_limit: number | null }) & { code?: string }) =>
-    request<{ scope: string; key: string; weekly_limit: number | null }>("PUT", "/company/budgets", input),
-  setRunnerSettings: (input: { plan_guard_pct?: number; asistente_weekly_limit?: number | null; code?: string }) => request<Company["settings"]>("PUT", "/company/settings", input),
+  setRunnerSettings: (input: { plan_guard_pct?: number; guard_override?: boolean }) => request<Company["settings"]>("PUT", "/company/settings", input),
   // PLA-I36: steer a project from its card.
+  // PLA-I40-2: Que empiece ya for one teammate.
+  startTeammate: (slug: string, agent: string, pastGuard = false) =>
+    request<StartNowResult>("POST", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/start`, pastGuard ? { past_guard: true } : {}),
   askProject: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean }) => request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, input),
   pickNext: (slug: string, key: string) => request<{ next: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/next`, { key }),
-  setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null }) =>
+  setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null; auto_accept?: boolean }) =>
     request<{ plan_approval: boolean; preview_url: string | null }>("PUT", `/company/projects/${encodeURIComponent(slug)}/options`, input),
   stopRun: (id: string) => request<{ stopped: true; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/stop`),
   resumeRun: (id: string) => request<{ woke: boolean; reason: string; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/resume`),
   noteTask: (slug: string, key: string, text: string) => request<{ noted: true }>("POST", `/company/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/note`, { text }),
+  resendRequest: (slug: string, key: string) => request<{ key: string; wake: "queued" | "busy" | "off" }>("POST", `/company/projects/${encodeURIComponent(slug)}/requests/${encodeURIComponent(key)}/resend`),
   cancelOrder: (slug: string, key: string) => request<{ cancelled: string[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/orders/${encodeURIComponent(key)}/cancel`),
   ownerCode: () => request<{ enrolled: boolean }>("GET", "/company/owner-code"),
   enrolOwnerCode: (input: { password: string; code?: string }) => request<{ secret_base32: string; otpauth_uri: string }>("POST", "/company/owner-code/enroll", input),
@@ -163,11 +164,12 @@ export const api = {
 };
 
 // ---- PLA-I33: the organization (Plan doc 61ad843a, "Contrato de API"). Fields the contract leaves
-// untyped (week, budget, last_run) reuse the PLA-I30 shapes.
+// untyped (week, usage, last_run) reuse the PLA-I30 shapes.
 
 export type OrderKind = "cambio" | "direccion" | "idea";
+export type StartNowResult = { started: boolean; reason: "started" | "queued" | "busy" | "idle" | "held" | "fail"; ticket: string | null; run_id: string | null; summary: string };
 export type AskResult = { key: string; title: string; po: string; wake: "queued" | "busy" | "off"; woke: { woke: boolean; reason: string; ticket: string | null; summary: string } | null };
-export type OrgLight = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused" | "no_budget";
+export type OrgLight = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused";
 export type OrgLightReason = { text: string; action: { label: string; href: string } | null };
 // PLA-I36-3: Tus órdenes.
 export type OrderState = "enviada" | "entendida" | "en_curso" | "entregada" | "sin_tomar" | "cancelada";
@@ -189,7 +191,7 @@ export type OrgOrder = {
   plan?: { needs_approval: boolean; approved: boolean; steps: number; done: number; decision: string } | null;
   run?: OrgRun | null;
 };
-export type OrgMemberState = "running" | "idle" | "waiting_jorge" | "paused" | "no_budget";
+export type OrgMemberState = "running" | "idle" | "waiting_jorge" | "paused";
 export type OrgProduced = { kind: "doc" | "pr" | "idea" | "plan"; ref: string; title: string };
 export type OrgMember = {
   agent: string;
@@ -203,7 +205,11 @@ export type OrgMember = {
   waiting: string | null;
   // PLA-I39-1: up to three Ready tickets waiting for this teammate.
   queue?: { key: string; title: string }[];
+  // PLA-I40-1: why the next step has not started, and when it will if that is known.
+  next_start?: OrgNextStart | null;
 };
+export type OrgNextHold = "rest" | "usage" | "slot" | "paused" | "no_goal" | "waiting_owner" | "waiting_step" | "unqueued" | "soon";
+export type OrgNextStart = { key: string | null; title: string | null; hold: OrgNextHold; starts_at: string | null; text: string };
 export type OrgThreadRef = { id: string; unread: number; last: { at: string; author_role: string; body: string } | null };
 export type OrgProject = {
   slug: string;
@@ -213,11 +219,19 @@ export type OrgProject = {
   light_reason?: OrgLightReason | null;
   goal: string | null;
   rumbo?: OrgRumbo;
-  budget: Budget;
+  // PLA-21: this week's tokens, shown only.
+  usage: Usage;
   team: OrgMember[];
   thread: OrgThreadRef;
   // PLA-I35-1: the card as a report.
   plan: OrgPlan | null;
+  // PLA-I40-7: the accept-by-itself switch, and why the oldest waiting delivery was not accepted.
+  auto_accept?: { on: boolean; hold: string | null };
+  // PLA-I40-6: what just happened here, and the owner's requests nobody took.
+  latest?: OrgLatest[];
+  stale_requests?: OrgStaleRequest[];
+  // PLA-I40-3: the delivery as legs; the one marked here carries its named steps.
+  route?: OrgRoute | null;
   this_week: { done: number; docs: number; prs: number; last_at: string | null };
   next: { title: string; key: string; owner: string; due: string | null } | null;
   work: { open: number; in_progress: number };
@@ -227,6 +241,12 @@ export type OrgProject = {
   plan_approval?: boolean;
   preview_url?: string | null;
 };
+export type OrgLatest = { kind: "published" | "delivered"; title: string | null; n: number | null; at: string };
+export type OrgStaleRequest = { key: string; title: string; since: string };
+export type OrgStepState = "done" | "published" | "delivered" | "working" | "next" | "later";
+export type OrgRouteStep = { key: string; title: string; state: OrgStepState; who: string | null; at: string | null };
+export type OrgRouteLeg = { key: string; title: string; done: number; total: number; state: "done" | "here" | "planned" | "unplanned"; note: string | null; steps?: OrgRouteStep[]; more_steps?: number };
+export type OrgRoute = { legs: OrgRouteLeg[]; more_legs: number };
 // PLA-I36-5: position by calendar. weeks, today_pct, done_pct are null without a delivery date (no bar).
 export type OrgPlan = {
   initiative: { key: string; title: string };
@@ -248,9 +268,9 @@ export type DecisionKind = "proposal" | "plan" | "action" | "question" | "delive
 export type DecisionPlan = { order: string; understood: string; steps: { title: string; done_when: string }[]; cost: string; needs_approval: boolean; created: string[] };
 export type DecisionEvidence = { verdict: string; kind: string; cite: string; pass: number | null; fail: number | null; at: string };
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
-export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | null };
+export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number };
-export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar";
+export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "aplicar" | "verificar";
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
 export type Decision = {
   id: string;
@@ -278,24 +298,24 @@ export type Decision = {
   hold?: string | null;
   // PLA-I39-1: who asked (null: nobody on a team, e.g. a release).
   asker?: DecisionAsker | null;
+  // A step that asks for lines in a file: Plania can commit them to the PR (aplicar).
+  file_step?: { path: string; lines: string; pr_url: string | null; source: "agent" | "text" } | null;
+  // The owner's run on this ticket while queued or running (e.g. re-running its checks after verificar).
+  verify?: { state: "queued" | "running"; since: string; role: string | null } | null;
 };
 export type DecisionAsker = { agent: string; role: string };
-export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string };
+export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string };
 export type DecisionResult = { ok: boolean; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
-export type OrgPlumbing = { spend: number; limit: number | null; running: number; paused: boolean };
+export type OrgPlumbing = { spend: number; running: number; paused: boolean };
 export type OrgCompany = {
   company: { paused: boolean };
   week: Company["week"];
-  asistente: { thread_id: string; budget: Budget; last_run: { status: string; at: string | null; summary?: string } | null; state: OrgMemberState; unread?: number };
+  asistente: { thread_id: string; usage: Usage; last_run: { status: string; at: string | null; summary?: string } | null; state: OrgMemberState; unread?: number };
   projects: OrgProject[];
   plumbing: OrgPlumbing;
   decisions: Decision[];
   inbox?: { decisiones: number; pasos: number };
 };
-// PLA-I39-2: GET /api/company/history. A live run has to null; events are oldest first.
-export type OrgHistoryRun = { agent: string; role: string; ticket: string | null; title: string | null; from: string; to: string | null; status: string };
-export type OrgHistoryEvent = { at: string; kind: "delivered" | "asked" | "answered" | "ordered"; role: string; title: string };
-export type OrgHistory = { from: string; to: string; projects: { slug: string; runs: OrgHistoryRun[]; events: OrgHistoryEvent[] }[] };
 export type OrgTemplate = { slug: string; title: string };
 export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[] };
 
@@ -317,13 +337,13 @@ export type Thread = { id: string; kind: "company" | "project"; project: string 
 export type ThreadPostResult = { message: ThreadMessage; created: { kind: string; key: string } | null; wake: string };
 export type ThreadActionResult = { ok: boolean; action_state: ThreadActionState };
 
-// GET /api/machine plus the plumbing blocks that left Compañía (budgets, plan guard, switches, runs, log).
+// GET /api/machine plus the plumbing blocks that left Compañía (week tokens, plan guard, switches, runs, log).
 export type MachinePlumbing = {
   company: { paused: boolean; paused_at: string | null };
   settings: Company["settings"];
   week: Company["week"];
   plan: CompanyPlan;
-  budgets: { asistente: Budget; projects: CompanyProjectRow[] };
+  usage: { asistente: Usage; projects: CompanyProjectRow[] };
   runs: { live: CompanyRun[]; queued: CompanyRun[] };
   log: RunBrief[];
   viewer?: { can_edit_limits: boolean };

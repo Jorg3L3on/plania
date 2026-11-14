@@ -56,7 +56,7 @@ after(async () => {
 describe("protocol 2.17", () => {
   test("no gates, human_only is a click on the screen, the delegated path is honest, and the text stays under 900 words", () => {
     const text = instructions(false);
-    assert.equal(PROTOCOL_VERSION, "2.20");
+    assert.equal(PROTOCOL_VERSION, "2.21");
     assert.match(text, /Unknown or missing data is caution, never ready/);
     assert.match(text, /ENV_UNKNOWN/);
     assert.match(text, /The screen shows the server's reason text/);

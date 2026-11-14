@@ -1,6 +1,6 @@
 // PLA-I33: the words and rules of Compañía como organización (ADR 31c1cead, Design 3a2c3385). Pure: the
 // pages and test/compania-org.test.ts read the same functions. Spend is tokens, never money.
-import type { Budget, Plumbed } from "./compania";
+import type { Plumbed, Usage } from "./compania";
 import { ago, tokens, type Tone } from "./compania";
 import type { MachinePlumbing, OrgLight, OrgMember, OrgMemberState, OrgPlumbing, OrgProduced, ThreadAction, ThreadActionState, ThreadLink, ThreadMessage } from "./api";
 
@@ -14,12 +14,11 @@ export const LIGHT: Record<OrgLight, { word: string; tone: Tone }> = {
   late: { word: "Atrasado", tone: "warn" },
   quiet: { word: "Quieto", tone: "warn" },
   paused: { word: "En pausa", tone: "idle" },
-  no_budget: { word: "Sin presupuesto", tone: "stop" },
 };
 export const lightOf = (light: OrgLight) => LIGHT[light] ?? { word: light, tone: "idle" as Tone };
 
 // The worst first (PLA-I36-1), then the rest by name; paused last.
-const LIGHT_RANK: Record<OrgLight, number> = { needs_jorge: 0, failed: 1, blocked: 2, no_budget: 3, late: 4, quiet: 5, ok: 6, paused: 7 };
+const LIGHT_RANK: Record<OrgLight, number> = { needs_jorge: 0, failed: 1, blocked: 2, late: 3, quiet: 4, ok: 5, paused: 6 };
 export const byLight = <T extends { light: OrgLight; slug: string }>(a: T, b: T) =>
   (LIGHT_RANK[a.light] ?? 9) - (LIGHT_RANK[b.light] ?? 9) || a.slug.localeCompare(b.slug);
 
@@ -68,7 +67,6 @@ export const MEMBER_STATE: Record<OrgMemberState, { word: string; tone: Tone }> 
   idle: { word: "libre", tone: "idle" },
   waiting_jorge: { word: "te espera", tone: "stop" },
   paused: { word: "en pausa", tone: "idle" },
-  no_budget: { word: "sin presupuesto", tone: "stop" },
 };
 
 export type MemberLine = { doing: string; when: string; tone: Tone; still: boolean };
@@ -104,25 +102,14 @@ export const linkLabel = (link: { kind: string; ref: string; title: string }) =>
   return `${kind} “${link.title || link.ref}”`;
 };
 
-// ---- the plumbing line: "912k / 6M · en marcha", amber at 80%, red at 100% or paused budget
+// ---- the plumbing line: "912k · 1 en marcha". PLA-21: no budgets, so no limit and no red for tokens.
 
-export function plumbingTone(spend: number, limit: number | null): Tone {
-  if (limit == null || limit <= 0) return "idle";
-  const p = (spend / limit) * 100;
-  if (p >= 100) return "stop";
-  if (p >= 80) return "warn";
-  return "ok";
-}
 export function plumbingLine(p: OrgPlumbing): { text: string; tone: Tone } {
-  const used = p.limit == null ? `${tokens(p.spend)} · sin límite` : `${tokens(p.spend)} / ${tokens(p.limit)}`;
   const state = p.paused ? "detenida" : p.running === 0 ? "nada corre" : p.running === 1 ? "1 en marcha" : `${p.running} en marcha`;
-  return { text: `${used} · ${state}`, tone: p.paused ? "idle" : plumbingTone(p.spend, p.limit) };
+  return { text: `${tokens(p.spend)} · ${state}`, tone: p.paused ? "idle" : "ok" };
 }
-export function budgetLine(b: Budget, opts: { paused: boolean }): { text: string; tone: Tone } {
-  const used = b.limit == null ? `${tokens(b.used)} · sin límite` : `${tokens(b.used)} / ${tokens(b.limit)}`;
-  const state = opts.paused ? "en pausa" : b.state === "stopped" && b.reason === null ? "sin presupuesto" : "en marcha";
-  const tone: Tone = opts.paused ? "idle" : b.reason === "unset" ? "warn" : b.state === "stopped" ? "stop" : b.state === "warn" ? "warn" : "ok";
-  return { text: `${used} · ${state}`, tone };
+export function usageLine(u: Usage, opts: { paused: boolean }): { text: string; tone: Tone } {
+  return { text: `${tokens(u.used)} esta semana · ${opts.paused ? "en pausa" : "en marcha"}`, tone: opts.paused ? "idle" : "ok" };
 }
 
 // ---- threads
@@ -203,7 +190,7 @@ export const plumbedOf = (p: MachinePlumbing): Plumbed => ({
   company: p.company,
   settings: p.settings,
   week: p.week,
-  projects: p.budgets.projects,
+  projects: p.usage.projects,
   runs: p.runs,
   plan: p.plan,
 });

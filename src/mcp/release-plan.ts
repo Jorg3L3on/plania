@@ -172,7 +172,8 @@ async function mergedFromScreen(db: Q, projectId: string, fromHead: string): Pro
 
 /** PLA-03: tickets are waiting but the poller has no compare for these heads, so whether `from` is
  * ahead is unknown. Said as "sin datos de GitHub", never as nothing to ship. */
-export const releaseUnknown = (plan: ReleasePlan | null): plan is ReleasePlan => !!plan && !plan.shipped && plan.ahead === null && plan.tickets.length > 0;
+export const releaseUnknown = (plan: ReleasePlan | null): plan is ReleasePlan => !!plan && !plan.merged && !plan.shipped && plan.ahead === null && plan.tickets.length > 0;
 
-/** The plan waits on Jorge: `from` is ahead and carries tickets. */
-export const releasePending = (plan: ReleasePlan | null): plan is ReleasePlan => !!plan && !plan.shipped && (plan.ahead ?? 0) > 0 && plan.tickets.length > 0;
+/** The plan waits on Jorge: `from` is ahead and carries tickets. Once Jorge published this `from` head (merged),
+ * it no longer waits, even before the poller's next compare catches up; a new commit on `from` clears merged. */
+export const releasePending = (plan: ReleasePlan | null): plan is ReleasePlan => !!plan && !plan.merged && !plan.shipped && (plan.ahead ?? 0) > 0 && plan.tickets.length > 0;

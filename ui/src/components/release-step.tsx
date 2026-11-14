@@ -9,7 +9,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 import { CopyCommand } from "@/components/copy-command";
 import { ProjectMark } from "@/components/plania-mark";
-import { OWNER_CODE_WORDS, OwnerCodeInput, isOwnerCode } from "@/components/compania/sheets";
+import { OWNER_CODE_WORDS } from "@/components/compania/sheets";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ApiError, api } from "@/lib/api";
@@ -51,11 +51,9 @@ function shipError(e: unknown): string {
 
 function ShipButton({ item, plan }: { item: InboxItem; plan: ReleasePlan }) {
   const [open, setOpen] = useState(false);
-  // PLA-I36-11: publishing to main asks for the owner's code.
-  const [code, setCode] = useState("");
   const queryClient = useQueryClient();
   const ship = useMutation({
-    mutationFn: () => api.shipRelease(item.project, code),
+    mutationFn: () => api.shipRelease(item.project),
     onSuccess: (out) => {
       toast(`${plan.from.branch} → ${plan.into.branch} fusionado (${out.merge_sha.slice(0, 7)}); el deploy lo cierra`);
       setOpen(false);
@@ -104,7 +102,6 @@ function ShipButton({ item, plan }: { item: InboxItem; plan: ReleasePlan }) {
                 {plural(plan.migrations.length, "migración", "migraciones")}: {plan.migrations.join(", ")}. {plan.into.branch} las necesita en {plan.env}.
               </p>
             )}
-            <OwnerCodeInput value={code} onChange={setCode} why="Publicar pide el código del dueño." />
             {ship.isError && (
               <p role="alert" className="rounded-lg border border-destructive/40 px-3 py-2 text-destructive">
                 {shipError(ship.error)}
@@ -115,7 +112,7 @@ function ShipButton({ item, plan }: { item: InboxItem; plan: ReleasePlan }) {
             <Button variant="outline" className="h-11 sm:h-9" onClick={() => setOpen(false)} disabled={ship.isPending}>
               Cancelar
             </Button>
-            <Button className="h-11 sm:h-9" onClick={() => ship.mutate()} disabled={ship.isPending || !isOwnerCode(code)}>
+            <Button className="h-11 sm:h-9" onClick={() => ship.mutate()} disabled={ship.isPending}>
               {ship.isPending ? "Lanzando…" : `Lanzar ${plural(plan.tickets.length, "ticket", "tickets")}`}
             </Button>
           </SheetFooter>

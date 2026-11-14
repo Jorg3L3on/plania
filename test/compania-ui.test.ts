@@ -1,13 +1,13 @@
-// PLA-I30 blocks that PLA-I33 kept, rendered with fake data: Máquina's plumbing (budgets per project and for
-// Asistente, plan guard, switches, En marcha, run log) with the 5e/5g/5h banners, the per-block error, the
-// 5i stop sheet, the new-project dialog and the nav. Cambiar and Mover guardia show only with canEdit.
+// PLA-I30 blocks that PLA-I33 kept, rendered with fake data: Máquina's plumbing (the week's tokens per project
+// and for Asistente, plan guard, switches, En marcha, run log) with the 5e/5h banners, the per-block error, the
+// 5i stop sheet, the new-project dialog and the nav. Mover guardia shows only with canEdit. PLA-21: no budgets.
 // Server-rendered with react-dom/server; no browser, no database.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
-import type { Budget, CompanyProjectRow, CompanyRun, RunBrief } from "../ui/src/lib/compania.js";
+import type { CompanyProjectRow, CompanyRun, RunBrief } from "../ui/src/lib/compania.js";
 
 // The UI files use the automatic JSX runtime under Vite; tsx compiles them with React.createElement.
 (globalThis as { React?: unknown }).React = React;
@@ -25,12 +25,7 @@ const NOW = new Date("2026-11-08T15:00:00Z").getTime();
 const TZ = "America/Mexico_City";
 const count = (s: string, re: RegExp) => (s.match(re) ?? []).length;
 
-const budget = (used: number, limit: number | null): Budget => {
-  if (limit == null) return { used, limit: null, pct: null, state: "stopped", reason: "unset" };
-  const pct = Math.floor((used / limit) * 1000) / 10;
-  return { used, limit, pct, state: pct >= 100 ? "stopped" : pct >= 80 ? "warn" : "ok", reason: null };
-};
-const project = (slug: string, title: string, b: Budget, paused = false): CompanyProjectRow => ({ slug, title, paused, paused_at: paused ? "2026-11-06T04:10:00Z" : null, budget: b });
+const project = (slug: string, title: string, used: number, paused = false): CompanyProjectRow => ({ slug, title, paused, paused_at: paused ? "2026-11-06T04:10:00Z" : null, usage: { used } });
 const run = (id: string, role: string, project: string, status: "running" | "queued", started: string | null): CompanyRun => ({
   id, agent: role, role, project, ticket: "MIA-I3-4", status, queued_at: "2026-11-08T14:40:00Z", started_at: started, turns: 18, tokens: 92_000,
 });
@@ -43,16 +38,16 @@ type Patch = Partial<{
   plan: Record<string, unknown>;
   projects: CompanyProjectRow[];
   runs: { live: CompanyRun[]; queued: CompanyRun[] };
-  asistente: Budget;
+  asistente: number;
 }>;
 const plumbing = (patch: Patch = {}) => ({
   company: patch.company ?? { paused: false, paused_at: null },
   settings: { max_concurrent: 2, cooldown_minutes: 30, plan_guard_pct: 70, reserve_tokens: 60000, max_turns: 40, timeout_minutes: 45 },
   week: { starts_at: "2026-11-02T06:00:00Z", resets_at: "2026-11-09T06:00:00Z", timezone: TZ },
   plan: { five_hour_pct: 41, seven_day_pct: 23, resets_at: "2026-11-08T19:20:00Z", seven_day_resets_at: null, guard_pct: 70, status: "allowed", state: "ok", read_at: null, source: "stream", ...(patch.plan ?? {}) },
-  budgets: {
-    asistente: patch.asistente ?? budget(180_000, 600_000),
-    projects: patch.projects ?? [project("mianovia", "Mianovia", budget(1_180_000, 2_000_000)), project("micasa", "MiCasa", budget(1_640_000, 2_000_000))],
+  usage: {
+    asistente: { used: patch.asistente ?? 180_000 },
+    projects: patch.projects ?? [project("mianovia", "Mianovia", 1_180_000), project("micasa", "MiCasa", 1_640_000)],
   },
   runs: patch.runs ?? { live: [run("r1", "taller", "mianovia", "running", "2026-11-08T14:45:28Z")], queued: [run("r2", "product-owner", "plania", "queued", null)] },
   log,
@@ -64,10 +59,6 @@ const page = (p: ReturnType<typeof plumbing>, canEdit = true) =>
       plumbing: p,
       now: NOW,
       canEdit,
-      dismissed: new Set(),
-      onDismiss: noop,
-      onEditProject: noop,
-      onEditAsistente: noop,
       onMoveGuard: noop,
       onStopCompany: noop,
       onResumeCompany: noop,
@@ -77,25 +68,39 @@ const page = (p: ReturnType<typeof plumbing>, canEdit = true) =>
   );
 const noMoney = (s: string) => assert.equal(/\$|USD|usd/.test(s), false, "no money on screen");
 
-test("Máquina plumbing: five blocks, budgets per project and for Asistente, no per-role limits, tokens only", () => {
+test("Máquina plumbing: the week's tokens per project and for Asistente with no limit, guard, switches, log; tokens only", () => {
   const out = page(plumbing());
-  assert.deepEqual([...out.matchAll(/data-block="([^"]+)"/g)].map((m) => m[1]), ["presupuestos", "guardia", "interruptores", "bitacora"]);
-  for (const t of ["Presupuestos", "Asistente", "180k / 600k", "Mianovia", "1.18M / 2M", "Guardia del plan", "Ventana de 5 h del plan", "41%", "En marcha", "Tope: 2 a la vez · 1 en espera", "14:32", "Detener la compañía", "Bitácora de corridas", "MIA-I4-1", "falló", "64k tok"]) {
+  assert.deepEqual([...out.matchAll(/data-block="([^"]+)"/g)].map((m) => m[1]), ["tokens", "guardia", "interruptores", "bitacora"]);
+  for (const t of ["Tokens esta semana", "sin límite", "Asistente", "180k", "Mianovia", "1.18M", "1.64M", "Guardia del plan", "Ventana de 5 h del plan", "41%", "En marcha", "Tope: 2 a la vez · 1 en espera", "14:32", "Detener la compañía", "Bitácora de corridas", "MIA-I4-1", "falló", "64k tok"]) {
     assert.ok(out.includes(t), t);
   }
-  assert.equal(/Por rol|Product owners|Límite de Taller/.test(out), false, "no per-role limits");
+  assert.equal(/Presupuesto|Por rol|Product owners|Límite de Taller|Subir límite| \/ \d/.test(out), false, "no budgets or limits");
   assert.equal(count(out, /data-switch=/g), 2);
   noMoney(out);
 });
 
-test("Máquina plumbing: Cambiar and Mover guardia only for a session that can edit limits", () => {
+test("Máquina plumbing: Mover guardia only for a session that can edit; no Cambiar for tokens", () => {
   const jorge = page(plumbing(), true);
-  assert.equal(count(jorge, /data-control="cambiar"/g), 3, "Asistente and two projects");
+  assert.equal(count(jorge, /data-control="cambiar"/g), 0, "no budget to change");
   assert.equal(count(jorge, /data-control="mover-guardia"/g), 1);
   const agent = page(plumbing(), false);
   assert.equal(agent.includes("Cambiar"), false);
   assert.equal(agent.includes("Mover guardia"), false);
   assert.equal(agent.includes(">Pausar<"), false);
+});
+
+test("PLA-25: the Guardia block has a switch to go on past the guard, saying so when on, editable only by Jorge", () => {
+  const off = page(plumbing(), true);
+  assert.equal(count(off, /data-control="seguir-sin-guardia"/g), 1);
+  assert.ok(off.includes("Seguir aunque el plan esté alto"));
+  assert.ok(off.includes('data-state="activo"'));
+  const box = (s: string) => s.match(/<input[^>]*seguir-sin-guardia[^>]*>/)![0];
+  assert.equal(box(off).includes("checked"), false);
+  const on = page(plumbing({ plan: { override: true, five_hour_pct: 77, state: "ok" } }), true);
+  assert.ok(on.includes("Límite ignorado"));
+  assert.ok(on.includes('data-state="ignorado"'));
+  assert.ok(box(on).includes("checked"));
+  assert.ok(box(page(plumbing({ plan: { override: true } }), false)).includes("disabled"));
 });
 
 test("5b/5c a block that failed says so and offers Reintentar; unknown plan usage reads as high", () => {
@@ -110,7 +115,7 @@ test("5b/5c a block that failed says so and offers Reintentar; unknown plan usag
 test("5e company stopped: grey banner, nothing runs, Reanudar la compañía, a project's own pause kept", () => {
   const out = page(plumbing({
     company: { paused: true, paused_at: "2026-11-08T16:42:00Z" },
-    projects: [project("mianovia", "Mianovia", budget(10, 1000)), project("zigzag", "ZigZag", budget(0, 1000), true)],
+    projects: [project("mianovia", "Mianovia", 10), project("zigzag", "ZigZag", 0, true)],
     runs: { live: [], queued: [] },
   }));
   assert.ok(out.includes('data-banner="paused"'));
@@ -121,14 +126,12 @@ test("5e company stopped: grey banner, nothing runs, Reanudar la compañía, a p
   assert.equal(out.includes('data-banner="budget"'), false);
 });
 
-test("5g 100%: red banner with Subir límite for Jorge only", () => {
-  const p = plumbing({ projects: [project("micasa", "MiCasa", budget(2_000_000, 2_000_000)), project("mianovia", "Mianovia", budget(10, 1000))] });
+test("PLA-21: a project past any old limit shows no budget banner and no Subir límite", () => {
+  const p = plumbing({ projects: [project("micasa", "MiCasa", 900_000_000), project("mianovia", "Mianovia", 10)] });
   const jorge = page(p, true);
-  assert.ok(jorge.includes('data-banner="budget"'));
-  assert.ok(jorge.includes("MiCasa llegó a su límite semanal · 2M / 2M · nada nuevo arranca ahí hasta el lunes 00:00 · los demás siguen"));
-  assert.ok(jorge.includes("Subir límite"));
-  assert.ok(jorge.includes("Dejarlo así"));
-  assert.equal(page(p, false).includes("Subir límite"), false);
+  assert.equal(jorge.includes('data-banner="budget"'), false);
+  assert.equal(/Subir límite|llegó a su límite|Sin presupuesto/i.test(jorge), false);
+  assert.ok(jorge.includes("900M"));
   noMoney(jorge);
 });
 
@@ -167,10 +170,11 @@ test("new project (4a/4b): starts paused, and a missing endpoint is a clear erro
   assert.ok(done.includes("Ver Viajia"));
 });
 
-test("limit editor titles: a project's budget, Asistente's budget, the guard", () => {
-  assert.equal((sheets.limitTitle as unknown as (t: unknown) => string)({ kind: "project", slug: "m", title: "Mianovia", current: 1 }), "Presupuesto de Mianovia");
-  assert.equal((sheets.limitTitle as unknown as (t: unknown) => string)({ kind: "asistente", current: null }), "Presupuesto de Asistente");
+test("limit editor: only the guard is left (PLA-21)", () => {
   assert.equal((sheets.limitTitle as unknown as (t: unknown) => string)({ kind: "guard", current: 70 }), "Mover guardia");
+  const form = html(h(sheets.LimitForm!, { target: { kind: "guard", current: 70 }, onSave: noop, onCancel: noop }));
+  assert.ok(form.includes("Guardia del plan"));
+  assert.equal(/Límite semanal|aviso al 80|código del dueño/i.test(form), false);
 });
 
 test("nav: the logo is Inicio and the header has exactly four links; the phone tab bar has the same four", () => {

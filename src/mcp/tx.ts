@@ -69,7 +69,7 @@ export async function writeTx<T>(
       if (seen && seen.tool !== ctx.tool) throw new ToolError("REQUEST_ID_REUSED", { tool: seen.tool });
       if (seen) return ((seen.response as { __void?: boolean })?.__void ? undefined : seen.response) as T;
     }
-    for (const key of await reapExpiredLeases(tx, project.id)) touched("claim.expired", key);
+    for (const key of await reapExpiredLeases(tx, project.id, project.slug)) touched("claim.expired", key);
     const emit: Emit = async (type, task, payload = {}, actor = ctx.actor) => {
       touched(type, task?.key ?? null);
       await tx.insert(events).values({
@@ -107,7 +107,9 @@ export async function writeTx<T>(
 // afterwards clears the owner (In progress goes back to Ready) and logs claim.expired. The leases
 // job runs an empty writeTx on projects with an expired lease, so this fires within a minute even
 // when nobody writes. The workspace stays, so whoever claims next knows where the code is.
-export async function reapExpiredLeases(tx: Q, projectId: string): Promise<string[]> {
+// PLA-16: with the project's slug, claim.expired goes through the event hook like an emitted event, so a
+// runner run's ticket that falls back to Ready wakes its role again.
+export async function reapExpiredLeases(tx: Q, projectId: string, slug?: string): Promise<string[]> {
   const expired = await tx.execute<{ id: string; key: string; owner: Actor; from: string; to: string; lease_until: Date }>(sql`
     with expired as (
       select id, owner, status, lease_until from tasks
@@ -123,14 +125,9 @@ export async function reapExpiredLeases(tx: Q, projectId: string): Promise<strin
     from expired e where t.id = e.id
     returning t.id, t.key, e.owner, e.status as "from", t.status as "to", e.lease_until`);
   for (const r of expired.rows) {
-    await tx.insert(events).values({
-      projectId,
-      taskId: r.id,
-      taskKey: r.key,
-      type: "claim.expired",
-      actor: SYSTEM_ACTOR,
-      payload: { owner: r.owner, from: r.from, to: r.to, lease_until: iso(new Date(r.lease_until)) },
-    });
+    const payload = { owner: r.owner, from: r.from, to: r.to, lease_until: iso(new Date(r.lease_until)) };
+    await tx.insert(events).values({ projectId, taskId: r.id, taskKey: r.key, type: "claim.expired", actor: SYSTEM_ACTOR, payload });
+    if (slug) await onWriteEvent(tx, { id: projectId, slug }, "claim.expired", { id: r.id, key: r.key }, payload);
   }
   return expired.rows.map((r) => r.key);
 }

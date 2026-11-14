@@ -84,7 +84,7 @@ export type ReadinessTicket = {
   lastActivityAt: Date | null;
   areas: string[];
   /** null when the ticket has no pull request. `unknown` when the PR cannot be read. */
-  pr: { ci: "success" | "failure" | "pending" | "unknown" } | null;
+  pr: { ci: "success" | "failure" | "pending" | "none" | "unknown" } | null;
   /** A non-human blocker does not hold yet (another ticket, env, flag, time, metric). */
   unsatisfiedBlocker: boolean;
   /** null when the ticket is not claimed. An empty list is a claim with no footprint row. */
@@ -302,8 +302,8 @@ export function readinessOf(input: ReadinessInput): Readiness {
   return { state: "ready", reasons: [], line: readyLine(live, review, input) };
 }
 
-function ciOf(state: string | null | undefined): "success" | "failure" | "pending" | "unknown" {
-  if (state === "success" || state === "failure" || state === "pending") return state;
+function ciOf(state: string | null | undefined): "success" | "failure" | "pending" | "none" | "unknown" {
+  if (state === "success" || state === "failure" || state === "pending" || state === "none") return state;
   return "unknown";
 }
 

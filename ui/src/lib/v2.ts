@@ -30,9 +30,12 @@ export function checksText(d: Pick<Decision, "checks">): { text: string; tone: T
   if (c.ci === "failure") parts.push("pruebas fallando");
   else if (c.ci === "pending") parts.push("pruebas corriendo");
   else if (c.ci === "success") parts.push("pruebas en verde");
+  else if (c.ci === "none") parts.push("repo sin CI");
   if (parts.length === 0) return c.open === 0 && c.ci === null ? null : { text: "checks completos", tone: "ok", open: false };
   const open = c.open > 0 || c.ci === "failure" || c.ci === "pending";
-  return { text: parts.join(" · "), tone: c.ci === "failure" ? "stop" : open ? "warn" : "ok", open };
+  // PLA-23: a repo with no CI is neither good nor bad news: neutral, unless something else is open.
+  const tone: Tone = c.ci === "failure" ? "stop" : open ? "warn" : c.ci === "none" ? "idle" : "ok";
+  return { text: parts.join(" · "), tone, open };
 }
 
 // "4 commits · 3 cambios · 1 check abierto · 1 paso antes".
@@ -82,10 +85,20 @@ export function stateText(s: DecisionState): string {
       return ["Respondiste", str(r.text) || str(r.answer), WAKE[str(r.wake)] ?? ""].filter(Boolean).join(" · ");
     case "hecho":
       return "Hecho";
+    case "aplicar": {
+      const n = typeof r.added === "number" ? r.added : 0;
+      const at = [str(r.path), str(r.branch) && `en ${str(r.branch)}`].filter(Boolean).join(" ");
+      const commit = str(r.commit) ? ` (${str(r.commit).slice(0, 7)})` : "";
+      const base = n ? `Agregado al PR · ${n === 1 ? "1 línea" : `${n} líneas`} en ${at}${commit} · paso hecho` : `Ya estaba en el PR · ${at} · paso hecho`;
+      // A new commit on a delivery with no CI: its owner was asked to run the checks again (or why not).
+      const v = str(r.verify);
+      if (!v) return base;
+      return v === "taller" || v === "product-owner" ? `${base} · ${v === "taller" ? "Taller" : "El PO"} vuelve a probar el último commit` : `${base} · ${v}`;
+    }
     case "aplazar":
       return "Aplazado · vuelve a la lista de pendientes";
     case "aceptar":
-      return r.merged ? "Aceptado en la copia de prueba" : "Aceptado";
+      return r.already ? "Ya estaba aceptado en la copia de prueba" : r.merged ? "Aceptado en la copia de prueba" : "Aceptado";
     case "fusionar":
       return "Aceptado en la copia de prueba";
     case "empezar": {
@@ -200,7 +213,6 @@ export function nowLines(p: OrgProject): { role: string; text: string; tone: Ton
 }
 export function nobodyWhy(p: OrgProject, decisions: Decision[], companyPaused: boolean): string {
   if (companyPaused) return "la compañía está detenida";
-  if (p.light === "no_budget") return "sin presupuesto esta semana";
   if (p.light === "failed") return "la última corrida falló";
   if (p.light === "blocked") return "el trabajo está bloqueado";
   const d = decisions.find((x) => x.project === p.slug && pending(x));

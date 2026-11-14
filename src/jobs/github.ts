@@ -7,7 +7,7 @@ import { branches, pollState, projects, pullRequests, tasks, type Project, type 
 import { DRIFT_STATUSES } from "../mcp/audit.js";
 import { touchBranch } from "../mcp/branches.js";
 import { addResult } from "../mcp/evidence.js";
-import { ToolError, findTask, prRowOf } from "../mcp/queries.js";
+import { findTask, prRowOf } from "../mcp/queries.js";
 import { compareKey, releaseCompareOf, releasePlan, type ReleaseCompare } from "../mcp/release-plan.js";
 import { recordRelease } from "../mcp/releases.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
@@ -49,6 +49,9 @@ type Pr = {
   base: { ref: string };
 };
 type CheckRuns = { check_runs: { name: string; status: string; conclusion: string | null; html_url: string; head_sha: string }[] };
+// The combined commit status (legacy statuses, e.g. a deploy bot). GitHub answers state "pending" with
+// total_count 0 when a commit has no statuses at all, so only the statuses themselves are read.
+type CombinedStatus = { state?: string; total_count?: number; statuses?: { context: string; state: string; target_url: string | null }[] };
 type Review = { id: number; state: string; submitted_at?: string | null };
 // Reviews that ask Taller for something. An approval needs no wake.
 const REVIEW_WAKES = ["CHANGES_REQUESTED", "COMMENTED"];
@@ -178,6 +181,77 @@ async function trailerKey(deps: GithubDeps, token: string, repo: string, pr: Pr)
   return undefined;
 }
 
+// PLA-14: a PR head's CI from its check runs and its commit statuses. failure if any is red, success if every one
+// is green, pending while any runs, and none when the head has no check run and no status at all (a repo with no
+// CI): that is not "tests running", so it never holds Aceptar. Only a change of state is written; success and
+// failure also add a ci result, and a failure on an In review ticket sends it back to Ready.
+export type CiState = "pending" | "success" | "failure" | "none";
+export function ciStateOf(runs: CheckRuns["check_runs"], statuses: NonNullable<CombinedStatus["statuses"]>): {
+  state: CiState;
+  failed: { name: string; why: string; url: string | null } | null;
+  url: string | null;
+  count: number;
+} {
+  const count = runs.length + statuses.length;
+  if (count === 0) return { state: "none", failed: null, url: null, count };
+  const run = runs.find((r) => r.status === "completed" && ["failure", "timed_out", "cancelled", "action_required"].includes(r.conclusion ?? ""));
+  const status = statuses.find((x) => x.state === "failure" || x.state === "error");
+  const failed = run ? { name: run.name, why: run.conclusion ?? "failure", url: run.html_url } : status ? { name: status.context, why: status.state, url: status.target_url } : null;
+  const green =
+    runs.every((r) => r.status === "completed" && ["success", "neutral", "skipped"].includes(r.conclusion ?? "")) && statuses.every((x) => x.state === "success");
+  const url = failed?.url ?? runs[0]?.html_url ?? statuses[0]?.target_url ?? null;
+  return { state: failed ? "failure" : green ? "success" : "pending", failed, url, count };
+}
+
+async function pollCi(
+  db: Db,
+  p: Project,
+  deps: GithubDeps,
+  token: string,
+  pr: { number: number; url: string; sha: string; ref: string },
+  task: Task,
+  first: boolean,
+  summary: Record<string, number>,
+): Promise<void> {
+  const repo = p.settings.github!.repo;
+  const runs = await gh(deps, token, `/repos/${repo}/commits/${pr.sha}/check-runs?per_page=50`);
+  if (runs.status !== 200) return;
+  const combined = await gh(deps, token, `/repos/${repo}/commits/${pr.sha}/status?per_page=100`);
+  const list = (runs.data as CheckRuns).check_runs ?? [];
+  const statuses = combined.status === 200 && Array.isArray((combined.data as CombinedStatus).statuses) ? (combined.data as CombinedStatus).statuses! : [];
+  const { state: ciState, failed, url, count } = ciStateOf(list, statuses);
+  const where = and(eq(pullRequests.projectId, p.id), eq(pullRequests.repo, repo), eq(pullRequests.number, pr.number));
+  const [row] = await db.select({ ciState: pullRequests.ciState }).from(pullRequests).where(where);
+  if (row?.ciState === ciState && !first) return;
+  await db.update(pullRequests).set({ ciState, ciUrl: url }).where(where);
+  if (ciState !== "success" && ciState !== "failure") return;
+  await addResult(
+    db,
+    {
+      project: p.slug,
+      key: task.key,
+      kind: "ci",
+      verdict: ciState === "success" ? "pass" : "fail",
+      cite: failed ? `${failed.name}: ${failed.why}` : `${count} checks green`,
+      url: url ?? undefined,
+      commit: pr.sha,
+      branch: pr.ref,
+    },
+    systemCtx(`gh:${repo}#${pr.number}:ci:${pr.sha}:${ciState}`, "jobs.github"),
+  );
+  summary.ci!++;
+  if (ciState === "failure" && task.status === "In review") {
+    await writeTx(db, p, systemCtx(`gh:${repo}#${pr.number}:ci_failed:${pr.sha}`, "jobs.github"), async (_tx, emit) => {
+      await emit("pr.ci_failed", task, { pr: pr.url, sha: pr.sha, url: failed!.url, check: failed!.name });
+    });
+    await setTask(
+      db,
+      { project: p.slug, key: task.key, status: "Ready", note: `CI red on PR #${pr.number} (${failed!.name}); back from review` },
+      systemCtx(`gh:${repo}#${pr.number}:ci_back:${pr.sha}`, "jobs.github"),
+    );
+  }
+}
+
 export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): Promise<Record<string, number>> {
   const cfg = p.settings.github;
   if (!cfg?.repo) return {};
@@ -191,6 +265,7 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
   try {
     // 1. Pull requests, newest change first.
     const pulls = await gh(deps, token, `/repos/${cfg.repo}/pulls?state=all&sort=updated&direction=desc&per_page=50`, cursor.pulls_etag as string | undefined);
+    const seen = new Set<number>();
     if (pulls.status === 200) {
       cursor.pulls_etag = pulls.etag;
       for (const pr of pulls.data as Pr[]) {
@@ -281,13 +356,12 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
           const sharing = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.prUrl, pr.html_url), eq(tasks.status, "In review"))).orderBy(tasks.key);
           const moving = [...(task.status === "In review" ? [task] : []), ...sharing.filter((t) => t.id !== task!.id)];
           for (const t of moving) {
-            const moved = await markMerged(
+            await setTask(
               db,
               { project: p.slug, key: t.key, status: "Merged", note: `PR #${pr.number} merged into ${pr.base.ref} (${mergeSha?.slice(0, 7)})` },
               systemCtx(`gh:${cfg.repo}#${pr.number}:merged:${mergeSha}${t.id === task.id ? "" : `:${t.key}`}`, "jobs.github"),
             );
-            if (moved) summary.merged!++;
-            else summary.scan_blocked = (summary.scan_blocked ?? 0) + 1;
+            summary.merged!++;
           }
         }
         // PLA-I31-1: a new review asking for changes (or commenting) on an open linked PR is said once
@@ -308,49 +382,23 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
         }
         // 2. Check runs on open linked PRs.
         if (state === "open") {
-          const runs = await gh(deps, token, `/repos/${cfg.repo}/commits/${pr.head.sha}/check-runs?per_page=50`);
-          if (runs.status === 200) {
-            const list = (runs.data as CheckRuns).check_runs;
-            const failed = list.find((r) => r.status === "completed" && ["failure", "timed_out", "cancelled", "action_required"].includes(r.conclusion ?? ""));
-            const allGreen = list.length > 0 && list.every((r) => r.status === "completed" && ["success", "neutral", "skipped"].includes(r.conclusion ?? ""));
-            const ciState = failed ? "failure" : allGreen ? "success" : "pending";
-            const [row] = await db.select({ ciState: pullRequests.ciState }).from(pullRequests).where(and(eq(pullRequests.projectId, p.id), eq(pullRequests.repo, cfg.repo), eq(pullRequests.number, pr.number)));
-            if (row?.ciState !== ciState || !current) {
-              await db
-                .update(pullRequests)
-                .set({ ciState, ciUrl: (failed ?? list[0])?.html_url ?? null })
-                .where(and(eq(pullRequests.projectId, p.id), eq(pullRequests.repo, cfg.repo), eq(pullRequests.number, pr.number)));
-              if (ciState !== "pending") {
-                await addResult(
-                  db,
-                  {
-                    project: p.slug,
-                    key: task.key,
-                    kind: "ci",
-                    verdict: ciState === "success" ? "pass" : "fail",
-                    cite: failed ? `${failed.name}: ${failed.conclusion}` : `${list.length} checks green`,
-                    url: (failed ?? list[0])?.html_url,
-                    commit: pr.head.sha,
-                    branch: pr.head.ref,
-                  },
-                  systemCtx(`gh:${cfg.repo}#${pr.number}:ci:${pr.head.sha}:${ciState}`, "jobs.github"),
-                );
-                summary.ci!++;
-                if (ciState === "failure" && task.status === "In review") {
-                  await writeTx(db, p, systemCtx(`gh:${cfg.repo}#${pr.number}:ci_failed:${pr.head.sha}`, "jobs.github"), async (_tx, emit) => {
-                    await emit("pr.ci_failed", task!, { pr: pr.html_url, sha: pr.head.sha, url: failed!.html_url, check: failed!.name });
-                  });
-                  await setTask(
-                    db,
-                    { project: p.slug, key: task.key, status: "Ready", note: `CI red on PR #${pr.number} (${failed!.name}); back from review` },
-                    systemCtx(`gh:${cfg.repo}#${pr.number}:ci_back:${pr.head.sha}`, "jobs.github"),
-                  );
-                }
-              }
-            }
-          }
+          await pollCi(db, p, deps, token, { number: pr.number, url: pr.html_url, sha: pr.head.sha, ref: pr.head.ref }, task, !current, summary);
+          seen.add(pr.number);
         }
       }
+    }
+
+    // PLA-14: a GitHub check finishing does not touch the PR's updated_at, and the list may answer 304, so an open
+    // linked PR still stored as pending (or never checked) is asked again here. A head with no CI at all becomes none.
+    const waiting = await db
+      .select()
+      .from(pullRequests)
+      .where(and(eq(pullRequests.projectId, p.id), eq(pullRequests.repo, cfg.repo), eq(pullRequests.state, "open"), sql`${pullRequests.taskId} is not null`, sql`(${pullRequests.ciState} is null or ${pullRequests.ciState} = 'pending')`));
+    for (const row of waiting) {
+      if (seen.has(row.number) || !row.headSha || !row.headBranch) continue;
+      const [task] = await db.select().from(tasks).where(eq(tasks.id, row.taskId!)).limit(1);
+      if (!task) continue;
+      await pollCi(db, p, deps, token, { number: row.number, url: row.url, sha: row.headSha, ref: row.headBranch }, task, false, summary);
     }
 
     // 3. Branch heads and deletions for the branches the project knows (the release's two included).
@@ -463,26 +511,15 @@ export async function mergeLateReviews(db: Db, p: Project, repo: string): Promis
   for (const { t, pr } of rows) {
     if (seen.has(t.id)) continue;
     seen.add(t.id);
-    const moved = await markMerged(
+    await setTask(
       db,
       { project: p.slug, key: t.key, status: "Merged", note: `PR #${pr.number} merged into ${pr.baseBranch ?? "?"} (${pr.mergeSha?.slice(0, 7) ?? "?"})` },
       systemCtx(`gh:${repo}#${pr.number}:merged-late:${t.key}:${t.version}`, "jobs.github"),
     );
-    if (!moved) seen.delete(t.id);
   }
   return seen.size;
 }
 
-// A missing scan pass leaves the ticket In review and the rest of the poll continues.
-async function markMerged(db: Db, input: { project: string; key: string; status: "Merged"; note: string }, ctx: Ctx): Promise<boolean> {
-  try {
-    await setTask(db, input, ctx);
-    return true;
-  } catch (error) {
-    if (error instanceof ToolError && error.code === "SCAN_REQUIRED") return false;
-    throw error;
-  }
-}
 
 // PLA-03: one pr.status_drift event per (PR, ticket) when a merged PR's ticket (linked, or the same
 // pr_url) is still before In review. The request id makes a later tick replay instead of writing again.

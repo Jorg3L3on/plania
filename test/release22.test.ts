@@ -240,7 +240,6 @@ describe("evidence and the review gate", () => {
     await raw.query("update results set commit = null where kind = 'ci'");
     assert.equal((await call("set_task", { ...P, key: "FIL-I1-1", status: "Merged", version: await v() })).__error, "EVIDENCE_REQUIRED");
     await call("add_result", { ...P, key: "FIL-I1-1", kind: "ci", verdict: "pass", cite: "merge commit green", commit: "cccccccc1" });
-    await call("add_result", { ...P, key: "FIL-I1-1", kind: "scan", verdict: "pass", cite: "pnpm merge-gate example/filmia 130", commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
     await raw.query(
       `insert into pull_requests (project_id, repo, number, url, title, task_id, state, head_sha, merge_sha, merged_at, head_branch, base_branch)
        select p.id, 'example/filmia', 130, t.pr_url, 'phase', t.id, 'merged', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'cccccccc1', now(), 'jl/google-sso', 'main'
