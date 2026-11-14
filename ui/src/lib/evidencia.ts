@@ -34,8 +34,9 @@ export const EV_WORDS = {
   auto: "Aceptar sola en la copia de prueba",
 } as const;
 
-const clip = (s: string, n: number) => {
-  const one = s.replace(/\s+/g, " ").trim();
+// A text that did not come (an older or partial read) is an empty line, never a crash (PLA-I47-7).
+const clip = (s: string | null | undefined, n: number) => {
+  const one = (s ?? "").replace(/\s+/g, " ").trim();
   return one.length > n ? `${one.slice(0, n - 1).trimEnd()}…` : one;
 };
 const BUSY = new Set(["waiting", "checking", "reviewing"]);

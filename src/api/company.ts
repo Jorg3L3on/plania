@@ -13,7 +13,8 @@
 //        → 201 {slug, key_prefix, paused: true, po, prompt_doc_id}; 409 PROJECT_EXISTS | PROMPT_DOC_MISSING
 // PLA-I30 (src/api/company-extra.ts): the read gains viewer, prompts, roster and project_facts, plus
 //   GET  /api/company/projects/:slug       the project sheet
-//   GET  /api/company/docs/:id             one role prompt doc (Prompt ↗)
+//   GET  /api/company/docs/:id             one role prompt doc (Prompt ↗); ?project=<slug>: any doc of that project (PLA-I47-1)
+//   GET  /api/company/projects/:slug/ficha La ficha's rows: ideas, PRs, docs, lienzos (PLA-I47-1)
 // PLA-I30-6/7: POST /api/company/projects/:slug/ask {text}  and  POST /api/company/projects/:slug/wake
 // PLA-I36-11: deleting a project needs the owner's code ({code}). src/auth/owner-code.ts.
 // PLA-21: no token budgets, so no limit to raise.
@@ -37,6 +38,7 @@ import { askPo, pickNext, resendRequest, setProjectOptions, startTeammateNow, wa
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
 import { cancelOrder } from "./company-orders.js";
 import { promptDoc } from "./company-extra.js";
+import { fichaRead, projectDocRead } from "./company-ficha.js";
 import { addTeamMember, companyRead, projectRead } from "./company-org.js";
 import { actOnDecision } from "./company-decisions.js";
 import { setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner/company.js";
@@ -76,6 +78,15 @@ companyRoutes.get("/", async (c) => c.json(await withDb((db) => companyRead(db))
 companyRoutes.get("/projects/:slug", async (c) => {
   try {
     return c.json(await withDb((db) => projectRead(db, c.req.param("slug"))));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I47-1 (src/api/company-ficha.ts): what La ficha's tabs read (ideas, PRs, docs, lienzos).
+companyRoutes.get("/projects/:slug/ficha", async (c) => {
+  try {
+    return c.json(await withDb((db) => fichaRead(db, c.req.param("slug"))));
   } catch (e) {
     return fail(c, e);
   }
@@ -167,7 +178,10 @@ companyRoutes.put("/projects/:slug/team/:agent/packs", async (c) => {
 companyRoutes.get("/docs/:id", async (c) => {
   const id = c.req.param("id");
   if (!/^[0-9a-f-]{36}$/i.test(id)) return c.json({ error: "DOC_NOT_FOUND" }, 404);
+  // PLA-I47-1: ?project=<slug> reads any doc of that one project (La ficha); without it, role prompts and task docs only.
+  const project = c.req.query("project");
   try {
+    if (project) return c.json(await withDb((db) => projectDocRead(db, project, id)));
     return c.json(await withDb((db) => promptDoc(db, id)));
   } catch (e) {
     return fail(c, e);

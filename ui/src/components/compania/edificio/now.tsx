@@ -29,6 +29,8 @@ export type NowActs = {
   onElapsed?: () => void;
   // "<slug>:<kind>" while a call is out.
   busy?: string | null;
+  // PLA-I47-7: an in-page link («#te-toca») from the floor's light: nothing on the page has those anchors any more.
+  onLink?: (slug: string, href: string) => void;
 };
 
 const Tick = ({ until, now, label, onElapsed }: { until: string; now: number; label: string; onElapsed?: () => void }) => {
@@ -67,17 +69,17 @@ export function runOf(p: OrgProject, a: NowAction | null, c: MoveCtx): (() => vo
   if (a.kind === "reveal") return () => revealQuestion(p.slug);
   if (a.kind === "publish") return c.onPublish ? () => c.onPublish!(p) : null;
   if (a.kind === "fijar") return c.onFijar ? () => c.onFijar!(p) : null;
-  if (a.kind === "link") return null;
+  if (a.kind === "link") return a.href.startsWith("#") && c.acts?.onLink ? () => c.acts!.onLink!(p.slug, a.href) : null;
   return c.acts?.onPlan ? () => c.acts!.onPlan!(p.slug, a.text) : null;
 }
 const busyOf = (p: OrgProject, a: NowAction, c: MoveCtx) => c.acts?.busy === `${p.slug}:${a.kind}` || (a.kind === "decision" && c.qacts?.busy?.id === a.id);
 
 // The one button of an action. A move is green (edi-go); anything else is a secondary outline button. where says
 // which surface draws it (ahora, tu, barra), so the phone bar can stand in for Ahora's at 390.
-export const ActButton = ({ project: p, action: a, move, where, ctx, className = "" }: { project: OrgProject; action: NowAction; move: boolean; where: "ahora" | "tu" | "barra"; ctx: MoveCtx; className?: string }) => {
+export const ActButton = ({ project: p, action: a, move, where, ctx, className = "" }: { project: OrgProject; action: NowAction; move: boolean; where: "ahora" | "tu" | "barra" | "edificio"; ctx: MoveCtx; className?: string }) => {
   const cls = `${move ? "edi-nact edi-go" : "edi-btn"} ${className}`.trim();
   const data = { "data-now-action": a.kind, "data-where": where, "data-move": move ? "1" : undefined, "data-control": `${where}-${a.kind}` };
-  if (a.kind === "link")
+  if (a.kind === "link" && !(a.href.startsWith("#") && ctx.acts?.onLink))
     return (
       <a href={a.href} className={cls} {...data}>
         {a.label}

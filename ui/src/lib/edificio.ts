@@ -406,7 +406,10 @@ export function skyMove(projects: OrgProject[], decisions: Decision[]): { projec
 export function skyLine(projects: OrgProject[], decisions: Decision[], base: string): string {
   const s = skyMove(projects, decisions);
   if (!s) return `${base}. Nada te espera.`;
-  return `Te toca: ${s.move.texto}${s.more ? ` · y ${s.more === 1 ? "1 piso más" : `${s.more} pisos más`}` : ""}.`;
+  const more = s.more ? ` · y ${s.more === 1 ? "1 piso más" : `${s.more} pisos más`}` : "";
+  // PLA-I47-7: a texto that already ends a sentence keeps one period, not two.
+  const texto = more ? s.move.texto.replace(/[.。]+\s*$/, "") : s.move.texto;
+  return `Te toca: ${texto}${more}${/[.!?…]\s*$/.test(texto + more) ? "" : "."}`;
 }
 
 // ---- the route (PLA-I40-5): the delivery as legs, the current one with its named steps

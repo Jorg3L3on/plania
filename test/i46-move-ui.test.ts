@@ -146,26 +146,24 @@ test("I46-3 #4: the move for each state: plan next initiative, accept a delivery
   assert.equal(nextMove(project({ team: [member("product-owner", { queue: [{ key: "MIA-20", title: "Planea" }] })] }) as never, []), null);
 });
 
-test("I46-3 #1: Ahora, Tú, the roof, the sky and the phone bar say the same sentence with the same button", () => {
+test("I46-3 #1: Ahora, the roof, the sky and the phone bar say the same sentence with the same button", () => {
   for (const [name, { p, ds }] of Object.entries(STATES)) {
     const want = EXPECTED[name];
     if (!want) continue;
     const out = render(company(p, ds));
     const ahora = pick(out, /data-now-say="true">([^<]*)</);
-    const tu = pick(out, /class="edi-win edi-you"[\s\S]*?data-doing="true">([^<]*)</);
     const chip = pick(out, /class="edi-chip"[^>]*data-chip-move="1"[^>]*>([^<]*)</);
     const bar = pick(out, /data-pbar-say="true">([^<]*)</);
     const sky = pick(out, /data-voice="true">([^<]*)</);
     assert.equal(ahora, want.texto, `${name}: Ahora`);
-    assert.equal(tu, want.texto, `${name}: Tú`);
     assert.equal(chip, `Mianovia: ${want.texto}`, `${name}: roof`);
     assert.equal(bar, want.texto, `${name}: phone bar`);
     assert.equal(sky, `Te toca: ${want.texto}.`, `${name}: sky`);
     // The same button, in green, on the three surfaces that carry one.
     const b = buttons(out);
-    assert.deepEqual(b.map((x) => x.where).sort(), ["ahora", "barra", "tu"], name);
+    assert.deepEqual(b.map((x) => x.where).sort(), ["ahora", "barra"], name);
     for (const x of b) assert.deepEqual([x.kind, x.label], [want.kind, want.label], `${name}: ${x.where}`);
-    assert.match(out, /class="edi-win edi-you" data-state="you"/, `${name}: Tú takes the orange`);
+    assert.match(out, /data-pill="you"/, `${name}: the floor's pill takes the orange`);
     assert.match(out, /data-te-toca="1"/);
   }
 });
@@ -175,8 +173,7 @@ test("I46-3 #2: with no next move, no green button is drawn anywhere on the floo
     const { p, ds } = STATES[name]!;
     const out = render(company(p, ds));
     assert.equal(GREEN.test(out), false, name);
-    assert.match(out, /class="edi-win edi-you" data-state="idle"/, name);
-    assert.ok(text(out).includes("Nada por ahora"), name);
+    assert.equal(/data-pill="you"/.test(out), false, name);
     assert.equal(pick(out, /data-pbar-say="true">([^<]*)</), "Nada te toca ahora", name);
     assert.match(out, /data-te-toca="0"/, name);
     assert.ok(pick(out, /data-voice="true">([^<]*)</).endsWith("Nada te espera."), name);

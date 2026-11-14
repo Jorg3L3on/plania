@@ -139,7 +139,7 @@ test("I39-3 #3 / I46-3: the roof shows Te toca with the number, one chip per flo
   assert.match(out, /data-te-toca="1"/, "one floor, one move");
   assert.ok(text(out).includes("Te toca") && out.includes(">1<"));
   assert.equal((out.match(/data-chip=/g) ?? []).length, 1);
-  assert.ok(out.includes("Workia: Responder a Research: «¿Qué tienda abrimos primero?»") && out.includes('href="#piso-workia"'));
+  assert.ok(out.includes("Workia: Responder a Research: «¿Qué tienda abrimos primero?»") && out.includes('href="/ceo?piso=workia"'));
   assert.ok(out.includes("2 entregas esta semana"));
   assert.equal(/tokens|1\.25M/.test(out), false, "PLA-I46-4: no tokens on the building");
   clean(out);
@@ -230,11 +230,13 @@ test("I39-4 #1 / I46-4: the compact plate: name, the real goal, one status line,
     light_reason: { text: "El equipo te hizo una pregunta y espera tu respuesta.", action: { label: "Ver en Te toca", href: "#te-toca" } },
   });
   const out = render(company({ projects: [set] }), { onFijar: noop });
-  const plate = out.slice(out.indexOf('class="edi-plate"'), out.indexOf('class="edi-wins"'));
+  // PLA-I47-2: the plate became the floor's Encabezado (one line).
+  const plate = out.slice(out.indexOf('class="edi-fhead"'), out.indexOf("</header>", out.indexOf('class="edi-fhead"')));
   assert.ok(plate.includes("Workia") && plate.includes('title="Workia"'));
   assert.match(plate, /class="edi-goal" data-rumbo="set" data-goal="true" title="Que una tienda reciba su primer pedido">Que una tienda reciba su primer pedido</);
   assert.ok(plate.includes("2 de 5 pasos hechos"), "one status line");
   assert.equal(/Sin meta|tokens|100k|edi-seg|ver-pregunta|edi-reason|te hizo una pregunta/.test(plate), false, "no Sin meta, no tokens, no strip, no action of its own; the question is the floor's move");
+  assert.ok(plate.includes('data-pill="you"') && plate.includes("Entrega <b>"), "the state pill and the delivery date");
   clean(out);
   const missing = render(company({ projects: [project({ next: { title: "Pantalla del carrito", key: "WRK-3", owner: "taller", due: null } })] }), { onFijar: noop });
   assert.ok(missing.includes('data-rumbo="missing"') && text(missing).replace(/\s+/g, " ").includes("Sin meta · Fijar meta") && missing.includes('data-control="fijar"'));
@@ -249,16 +251,21 @@ test("I39-4 #1 / I46-4: the compact plate: name, the real goal, one status line,
 test("I39-4 #2: a paused project sits below the street with Reanudar and no lit window; Reanudar calls the project switch", () => {
   const paused = project({ slug: "nido", title: "Nido", paused: true, light: "paused", team: ["product-owner", "taller"].map((r) => member(r, { agent: `${r}-nido`, state: "paused" })) });
   const c = company({ projects: [project(), paused] });
-  const out = render(c, { onResume: noop });
-  const under = out.slice(out.indexOf("data-basement"));
-  assert.ok(under.includes("Bajo la calle · en pausa") && under.includes('data-floor="nido"') && under.includes("Reanudar"));
-  assert.equal(/data-state="(work|ask)"/.test(under), false);
-  assert.ok(out.indexOf('data-floor="workia"') < out.indexOf("edi-street") && out.indexOf("edi-street") < out.indexOf('data-floor="nido"'));
+  // PLA-I47-2: the paused floor is a tile under the street on the rail; it opens with ?piso=nido.
+  const rail = render(c, { onResume: noop });
+  const under = rail.slice(rail.indexOf("data-basement"), rail.indexOf("</nav>"));
+  assert.ok(under.includes("Bajo la calle · en pausa") && under.includes('data-tile="nido"') && under.includes("en pausa"));
+  assert.ok(rail.indexOf('data-tile="workia"') < rail.indexOf("edi-rail-street") && rail.indexOf("edi-rail-street") < rail.indexOf('data-tile="nido"'));
+  assert.ok(rail.includes('data-floor="workia"') && !rail.includes('data-floor="nido"'), "one floor at a time: the first running one");
+  const out = render(c, { onResume: noop, piso: "nido" });
+  const floorOut = out.slice(out.indexOf('data-floor="nido"'));
+  assert.ok(floorOut.includes("Reanudar"));
+  assert.equal(/data-state="(work|ask)"/.test(floorOut), false);
   const calls: string[] = [];
-  const [btn] = control(tree(c, { onResume: (slug: string) => calls.push(slug) }), "reanudar");
+  const [btn] = control(tree(c, { onResume: (slug: string) => calls.push(slug), piso: "nido" }), "reanudar");
   btn!.props.onClick();
   assert.deepEqual(calls, ["nido"]);
-  assert.equal(control(tree(c, { onResume: noop, resuming: "nido" }), "reanudar")[0]!.props.disabled, true);
+  assert.equal(control(tree(c, { onResume: noop, resuming: "nido", piso: "nido" }), "reanudar")[0]!.props.disabled, true);
 });
 
 test("I39-4 #3: company paused: no window is lit and the banner says it resumes in Máquina", () => {
@@ -327,10 +334,10 @@ test("I39-5 #1: a proposal hangs under the PO's window and a question under the 
   assert.match(floor, new RegExp(`data-bubble="${proposal.id}"[^>]*data-asker="product-owner-workia"`));
   assert.match(floor, /data-bubble="q-00000000-0000-4000-8000-000000000001"[^>]*data-asker="research-workia"/);
   assert.ok(floor.includes("PO te pregunta") && floor.includes("Research te pregunta"));
-  // The bubble follows its asker's row: PO is window 0, Research window 1. PLA-I40-4: six per row on a Mac (the
-  // team, the owner and the "+"), two on a phone.
-  assert.match(floor, /data-bubble="m-[^"]+"[^>]*style="--o-wide:9;--o-phone:3;--nx-wide:8\.33[0-9]*%;--nx-phone:25%"/);
-  assert.match(floor, /data-asker="research-workia"[^>]*style="--o-wide:9;--o-phone:3;--nx-wide:25%;--nx-phone:75%"/);
+  // The bubble follows its asker's row: PO is window 0, Research window 1. PLA-I47-2: one row of the team on a Mac
+  // (no «Tú» window any more), two per row on a phone.
+  assert.match(floor, /data-bubble="m-[^"]+"[^>]*style="--o-wide:7;--o-phone:3;--nx-wide:8\.33[0-9]*%;--nx-phone:25%"/);
+  assert.match(floor, /data-asker="research-workia"[^>]*style="--o-wide:7;--o-phone:3;--nx-wide:25%;--nx-phone:75%"/);
   // The plate's pointer goes to the question on this floor, and Te toca's block is gone from the page.
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
   assert.equal(page.includes("<TeToca"), false);
@@ -383,7 +390,7 @@ test("I39-5 #3: choosing an option acts once with that option; the result line a
   const busy = expand(h(v2.DecisionView, { d: proposal, now: NOW, busy: { id: proposal.id, key: "elegir-1" }, onAct: noop, ui }));
   assert.ok(findAll(busy, (el) => el.props?.["data-action"] === "elegir").every((b) => b.props.disabled === true));
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("api.actDecision(v.d.id, v.input)") && page.includes("onAct: (d, input, key) => act.mutate({ d, input, key })"));
+  assert.ok(page.includes("api.actDecision(v.d.id, v.input)") && page.includes("onAct: (d: Decision, input: DecisionInput, key: string) => act.mutate({ d, input, key })"));
   // Acted. PLA-I40-6: it no longer hangs as a bubble; the floor keeps it as one line under Lo último, with the
   // result behind Ver.
   const done = render(company({ projects: [project({ latest: [], stale_requests: [] })], decisions: [{ ...proposal, actions: [], state: { action: "elegir", at: "2026-11-10T17:55:00Z", result: { option: 1, label: "Con el borrador" } } }] }), { acts: acts() });
@@ -471,7 +478,8 @@ test("I39-6 #1: a window opens that teammate's page with what it is on, its queu
   win0!.props.onClick({ currentTarget: {} });
   assert.deepEqual(opened, ["?m=workia:taller-workia"]);
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes('sheetSearch({ kind: "member", slug, agent: m.agent })') && page.includes("sheetOf(location.search)"));
+  // PLA-I47-4: the page opens the teammate in La ficha (?f=member:<agent>); the old ?m= link still lands there.
+  assert.ok(page.includes('showFicha({ kind: "member", agent: m.agent }, el, slug)') && page.includes("fichaOf(location.search)"));
 });
 
 test("I39-6 #2: Dile algo notes the teammate's current ticket, or sends an order to the PO naming the role", () => {
@@ -665,15 +673,15 @@ test("I39-7 #2: while the box has text the PO's window says Recibiría tu pedido
   assert.ok(box.includes("onTyping?.(project.slug, v.trim().length > 0)"));
 });
 
-test("I39-7 #3: the floating button shows the unread count and a dot when Asistente waits; it opens the thread in the side page", () => {
-  const out = html(h(fab.AsistenteFab, { unread: 3, waiting: true, onOpen: noop }));
-  assert.ok(out.includes('data-unread="3"') && out.includes('class="edi-badge"') && out.includes(">3<") && out.includes("edi-fab-dot") && out.includes('data-waiting="1"'));
+test("I39-7 #3 / I47-5: Asistente's button shows the unread count and a dot when Asistente waits; it opens the thread in the side page", () => {
+  const out = html(h(fab.AsistenteButton, { unread: 3, waiting: true, onOpen: noop }));
+  assert.ok(out.includes('data-unread="3"') && out.includes('class="edi-badge"') && out.includes(">3<") && out.includes("edi-asis-dot") && out.includes('data-waiting="1"'));
   assert.ok(out.includes("3 mensajes sin leer, te espera"));
-  const quiet = html(h(fab.AsistenteFab, { unread: 0, waiting: false, onOpen: noop }));
-  assert.equal(quiet.includes("edi-badge") || quiet.includes("edi-fab-dot"), false);
+  const quiet = html(h(fab.AsistenteButton, { unread: 0, waiting: false, onOpen: noop }));
+  assert.equal(quiet.includes("edi-badge") || quiet.includes("edi-asis-dot"), false);
   const opened: number[] = [];
-  expand(h(fab.AsistenteFab, { unread: 0, waiting: false, onOpen: () => opened.push(1) }));
-  (expand(h(fab.AsistenteFab, { unread: 0, waiting: false, onOpen: () => opened.push(1) })) as El).props.onClick({ currentTarget: {} });
+  expand(h(fab.AsistenteButton, { unread: 0, waiting: false, onOpen: () => opened.push(1) }));
+  (expand(h(fab.AsistenteButton, { unread: 0, waiting: false, onOpen: () => opened.push(1) })) as El).props.onClick({ currentTarget: {} });
   assert.deepEqual(opened, [1]);
   assert.deepEqual(companiaLib.sheetOf("?asistente"), { kind: "asistente" });
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
@@ -764,8 +772,9 @@ test("I39-9 live: the sky quotes Asistente only from a run that finished ok; the
   assert.equal(skipped.includes("BUDGET") || skipped.includes("data-asistente-line"), false);
   assert.ok(render(company()).includes("Resumen: Workia avanza."));
   const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  // PLA-22: no clock under it any more; on a phone the button sits just above the tab bar.
-  assert.ok(css.includes(".edi-fab { bottom: calc(4.5rem + 14px + env(safe-area-inset-bottom, 0px));"));
+  // PLA-I47-5: Asistente sits in the sky line; nothing floats at the bottom right any more.
+  assert.equal(css.includes("edi-fab"), false);
+  assert.ok(css.includes(".edi-asis {"));
 });
 
 // ---- PLA-23: the floor says what it wants, and its action acts
@@ -785,8 +794,9 @@ const release = (patch: Json = {}): Json =>
   });
 const waitingRelease = project({ light: "needs_jorge", light_reason: { text: "2 cambios listos esperan que los publiques.", action: { label: "Publicar", href: "#publicar" } } });
 
-test("PLA-23 #1 / I46-3: a floor with a release has its move Publicar in Ahora, Tú and the phone bar; each opens publishing", () => {
-  for (const where of ["ahora", "tu", "barra"]) {
+// PLA-I47-2: the Tú window is gone; the move is Ahora's and the phone bar's.
+test("PLA-23 #1 / I46-3: a floor with a release has its move Publicar in Ahora and the phone bar; each opens publishing", () => {
+  for (const where of ["ahora", "barra"]) {
     const opened: string[] = [];
     const t = tree(company({ projects: [waitingRelease], decisions: [release()] }), { acts: acts(), onPublish: (p: Json) => opened.push(p.slug) });
     const [btn] = control(t, `${where}-publish`);
@@ -825,7 +835,7 @@ test("PLA-23 #1: the roof chip of a release publishes in place, and the sheet sa
   assert.equal(publishUi.publishError("OWNER_CODE_INVALID"), "Ese código no es válido o ya se usó; espera el siguiente.");
   assert.match(publishUi.publishError("RELEASE_NOT_READY", { reason: "open_checks" }), /puntos abiertos/);
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("api.shipRelease(v.slug)") && page.includes("onPublish: (d) => openPublish(d.project)"));
+  assert.ok(page.includes("api.shipRelease(v.slug)") && page.includes("onPublish: (d: Decision) => openPublish(d.project)"));
   const bandeja = readFileSync(new URL("../ui/src/components/release-step.tsx", import.meta.url), "utf8");
   assert.equal(/OwnerCodeInput|isOwnerCode/.test(bandeja), false, "Bandeja's Lanzar asks no code either");
 });
