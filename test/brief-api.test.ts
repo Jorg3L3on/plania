@@ -87,7 +87,7 @@ test("every route needs the session cookie", async () => {
 test("GET /latest before any brief: no brief, no checks, no run", async () => {
   const res = await get("/latest");
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { brief: null, checks: [], run: null });
+  assert.deepEqual(await res.json(), { brief: null, checks: [], run: null, plan_id: null });
 });
 
 test("POST /run: 202 {run_id}; a second press while it runs is 409 BRIEF_RUNNING with the run id; latest shows the run", async () => {
@@ -256,9 +256,11 @@ test("PLA-I42-4: GET /doctor is the read-only Setup check without the claude dry
   assert.doesNotMatch(JSON.stringify(body), /brief-read-token-value|test-read-token|\/Users\//);
 });
 
-test("POST /plan and GET /plan/:id answer 501 until Morning brief C", async () => {
-  const plan = await send("POST", "/plan", { brief_id: "x", codes: ["W1"] });
-  assert.equal(plan.status, 501);
-  assert.equal(((await plan.json()) as { error: string }).error, "NOT_IMPLEMENTED");
-  assert.equal((await get("/plan/abc")).status, 501);
+test("POST /plan and GET /plan/:id: bad input is 400 or 404, never 501 (PLA-I43-1)", async () => {
+  const bad = await send("POST", "/plan", { brief_id: "x" });
+  assert.equal(bad.status, 400);
+  const missing = await send("POST", "/plan", { brief_id: "00000000-0000-4000-8000-000000000000", codes: ["W1"] });
+  assert.equal(missing.status, 404);
+  assert.equal(((await missing.json()) as { error: string }).error, "BRIEF_NOT_FOUND");
+  assert.equal((await get("/plan/abc")).status, 404);
 });

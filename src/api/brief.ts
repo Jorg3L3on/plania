@@ -2,9 +2,8 @@
 // routes.ts). latest / history / :date read morning_briefs; run starts the pipeline (Generate now, pnpm brief:run);
 // checks/:itemId checks and unchecks an item or idea; settings reads and saves brief_settings (PLA-I42-4 adds the
 // per-project rows); personas/:slug reads and saves a project's "Idea persona" doc; doctor is the sheet's read-only
-// Setup check (pnpm brief:doctor without the claude dry run, which uses the owner's plan). The Send to Plania
-// routes (plan, plan/:id) answer 501 until Morning brief C (PLA-I43). Nothing here returns a token, an env value
-// or a log's content.
+// Setup check (pnpm brief:doctor without the claude dry run, which uses the owner's plan). plan and plan/:id are
+// Send to Plania (PLA-I43). Nothing here returns a token, an env value or a log's content.
 import { Hono, type Context } from "hono";
 import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -13,6 +12,7 @@ import { briefChecks, docs, morningBriefs, projects, type MorningBrief } from ".
 import { BriefRunningError, localDateIn, runningRun, startBrief, type RunBriefDeps } from "../brief/pipeline.js";
 import { IDEA_PERSONA_DOC } from "../brief/prompts.js";
 import { runDoctor } from "../brief/doctor.js";
+import { MAX_CODES, PlanError, planOfBrief, planProgress, sendToPlania } from "../brief/plan.js";
 import { BriefSettingsError, briefProjects, loadBriefSettings, resolveBriefSettings, saveBriefSettings } from "../brief/settings.js";
 import { attachDoc } from "../mcp/docs.js";
 import { ToolError } from "../mcp/errors.js";
@@ -23,8 +23,10 @@ export const briefApi = new Hono();
 
 // Tests: a fake spawnPass, clock and liveRuns for POST /run. Never set outside tests.
 let runDeps: RunBriefDeps = {};
+let planEnv: NodeJS.ProcessEnv = process.env;
 export function setBriefApiDepsForTests(deps: RunBriefDeps): void {
   runDeps = deps;
+  planEnv = deps.env ?? process.env;
 }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -55,7 +57,8 @@ async function runState(db: Db) {
 briefApi.get("/latest", (c) =>
   withDb(async (db) => {
     const [b] = await db.select().from(morningBriefs).orderBy(desc(morningBriefs.generatedAt)).limit(1);
-    return c.json({ brief: b ? briefOut(b) : null, checks: await checksFor(db, b ?? null), run: await runState(db) });
+    // plan_id: this brief's Send to Plania request, so the page shows its progress after a reload (PLA-I43).
+    return c.json({ brief: b ? briefOut(b) : null, checks: await checksFor(db, b ?? null), run: await runState(db), plan_id: b ? await planOfBrief(db, b.id) : null });
   }),
 );
 
@@ -214,10 +217,36 @@ briefApi.put("/personas/:slug", async (c) => {
 // PLA-I42-4: the sheet's read-only Setup check: the same lines as pnpm brief:doctor --skip-claude (no values, no paths).
 briefApi.get("/doctor", (c) => withDb(async (db) => c.json({ lines: await runDoctor(db, { skipClaudeRun: true }) })));
 
-// Send to Plania (D3) is Morning brief C (PLA-I43).
-const notYet = (c: Context) => c.json({ error: "NOT_IMPLEMENTED", hint: "Send to Plania comes with Morning brief C" }, 501);
-briefApi.post("/plan", notYet);
-briefApi.get("/plan/:id", notYet);
+// Send to Plania (D3, D7): POST plan groups the chosen codes by project, posts "Plan these ideas" in each project
+// thread and queues each PO's wake (PLA-I43-1); GET plan/:id is the progress per target and per idea.
+const PlanBody = z.object({ brief_id: z.string().min(1).max(64), codes: z.array(z.string().max(20)).min(1).max(MAX_CODES) });
+const planError = (c: Context, err: unknown) => {
+  if (err instanceof PlanError) return c.json({ error: err.code, ...err.detail }, err.status);
+  throw err;
+};
+
+briefApi.post("/plan", async (c) => {
+  if (!c.req.header("Content-Type")?.startsWith("application/json")) return c.json({ error: "JSON_REQUIRED" }, 415);
+  const body = PlanBody.safeParse(await c.req.json().catch(() => undefined));
+  if (!body.success) return c.json({ error: "INVALID_BODY", hint: "{brief_id, codes: [\"W1\", \"Z3\"]}" }, 400);
+  return withDb(async (db) => {
+    try {
+      return c.json(await sendToPlania(db, { briefId: body.data.brief_id, codes: body.data.codes }, { env: planEnv }), 202);
+    } catch (err) {
+      return planError(c, err);
+    }
+  });
+});
+
+briefApi.get("/plan/:id", (c) =>
+  withDb(async (db) => {
+    try {
+      return c.json(await planProgress(db, c.req.param("id")));
+    } catch (err) {
+      return planError(c, err);
+    }
+  }),
+);
 
 briefApi.get("/:date", async (c) => {
   const date = c.req.param("date");

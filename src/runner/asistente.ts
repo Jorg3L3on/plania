@@ -25,6 +25,7 @@ import { projectGoal } from "./runner.js";
 import { asistenteHome, companyThread, postMessage, projectThread } from "./threads.js";
 import { setTask } from "../mcp/writes.js";
 import { resetScheduleForTests, scheduledBrief } from "../brief/schedule.js";
+import { resumeWaiting } from "../brief/plan.js";
 import type { RunBriefDeps } from "../brief/pipeline.js";
 
 export const CHECK_EVERY_HOURS = 2;
@@ -246,6 +247,10 @@ export type AsistenteTick = {
   accepted: number;
   proposals: number;
   no_home: number;
+  // Send to Plania (PLA-I43-1, D7): "Plan these ideas" messages posted with their PO wake this tick (a paused
+  // project's once its runs are back on, or a project's next batch), and targets that failed.
+  plan_posted: number;
+  plan_failed: number;
 };
 
 const WEEK_MS = 7 * 24 * HOUR;
@@ -353,7 +358,7 @@ export async function idleProposals(db: Db, env: NodeJS.ProcessEnv, now: Date): 
 export async function runAsistente(db: Db, now = new Date(), deps: AsistenteDeps = {}): Promise<AsistenteTick> {
   const tz = deps.tz ?? screenTz();
   const env = deps.env ?? process.env;
-  const out: AsistenteTick = { brief: 0, brief_fallback: 0, brief_ceiling: 0, check: 0, check_run: 0, asks: 0, accepted: 0, proposals: 0, no_home: 0 };
+  const out: AsistenteTick = { brief: 0, brief_fallback: 0, brief_ceiling: 0, check: 0, check_run: 0, asks: 0, accepted: 0, proposals: 0, no_home: 0, plan_posted: 0, plan_failed: 0 };
   const home = await asistenteHome(db, env);
   if (!home) out.no_home = 1;
 
@@ -362,6 +367,11 @@ export async function runAsistente(db: Db, now = new Date(), deps: AsistenteDeps
   out.brief = b.started;
   out.brief_fallback = b.fallback;
   out.brief_ceiling = b.ceiling;
+
+  // D7: Send to Plania targets waiting on paused runs, finished PO runs and follow-up batches, every tick.
+  const plan = await resumeWaiting(db, now);
+  out.plan_posted = plan.posted;
+  out.plan_failed = plan.failed;
 
   const slot = checkSlot(now, tz);
   if (slot !== lastCheck) {

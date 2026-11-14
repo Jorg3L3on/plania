@@ -1098,7 +1098,7 @@ export type PlanReading = typeof planReadings.$inferSelect;
 // the team answers there too). Messages link what they talk about and keep the action Jorge took.
 export const THREAD_KINDS = ["company", "project"] as const;
 export type ThreadKind = (typeof THREAD_KINDS)[number];
-export const LINK_KINDS = ["ticket", "doc", "pr", "idea", "question"] as const;
+export const LINK_KINDS = ["ticket", "doc", "pr", "idea", "question", "brief_plan"] as const;
 export type ThreadLink = { kind: (typeof LINK_KINDS)[number]; ref: string; title: string };
 // PLA-I36-7/8: what a PO proposes. choice: options to pick from. plan: what it understood of an order, the steps
 // (each with what done means) and the cost; on approval the server makes one Ready ticket per step.
@@ -1235,6 +1235,11 @@ export type BriefPlanTarget = {
   codes: string[];
   wake_run_id?: string | null;
   state: "waiting_paused" | "queued" | "running" | "done" | "failed";
+  // PLA-I43-1: the "Plan these ideas" message (posted in the same transaction as the wake), why the target waits
+  // or failed (one plain line), and when it last changed.
+  message_id?: string | null;
+  note?: string | null;
+  updated_at?: string;
   results: {
     code: string;
     status: "created" | "duplicate" | "proposed" | "failed";
