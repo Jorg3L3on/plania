@@ -73,7 +73,7 @@ const Li = ({ onClick, lead, title, sub, tail, data }: { onClick: () => void; le
 
 const Resumen = ({ p, onRef, slots }: { p: OrgProject; onRef: (r: FichaRef) => void; slots: FichaSlots }) => {
   const r = rumboText(p);
-  const ojo = [p.light_reason && p.light !== "ok" ? p.light_reason.text : null, ...(p.stale_requests ?? []).map((s) => `Nadie tomó «${s.title}»`)].filter((x): x is string => !!x);
+  const ojo = [p.light_reason && p.light !== "ok" && p.light !== "needs_jorge" ? p.light_reason.text : null, ...(p.stale_requests ?? []).map((s) => `Nadie tomó «${s.title}»`)].filter((x): x is string => !!x);
   return (
     <>
       <Sec title="Rumbo" data="rumbo">
@@ -345,11 +345,26 @@ const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone }: { p: Org
     case "member":
       return slots.member ?? <Empty>Esa persona ya no está en el equipo.</Empty>;
     case "plan":
-      return slots.plan ?? <Empty>Sin plan.</Empty>;
+      return (
+        <>
+          <Title eyebrow="El plan" title={p.title} />
+          {slots.plan ?? <Empty>Sin plan.</Empty>}
+        </>
+      );
     case "sumar":
-      return slots.sumar ?? <Empty>El equipo está completo.</Empty>;
+      return (
+        <>
+          <Title eyebrow="Sumar al equipo" title={p.title} />
+          {slots.sumar ?? <Empty>El equipo está completo.</Empty>}
+        </>
+      );
     case "app":
-      return slots.app ?? <Empty>Este proyecto no tiene app que mirar.</Empty>;
+      return (
+        <>
+          <Title eyebrow="La app" title={p.title} />
+          {slots.app ?? <Empty>Este proyecto no tiene app que mirar.</Empty>}
+        </>
+      );
   }
 };
 
@@ -380,7 +395,9 @@ export const Ficha = ({
   const counts = rows.status === "ok" && rows.data ? rows.data.counts : null;
   const n: Partial<Record<FichaTab, number>> = counts ? { ideas: counts.ideas, diseno: counts.designs, prs: counts.prs, docs: counts.docs } : {};
   return (
-    <aside className="edi-ficha" aria-label={`Ficha de ${p.title}`} data-ficha={fref.kind === "tab" ? fref.tab : fref.kind} style={{ "--c": floorHue(p.slug) } as CSSProperties}>
+    // dark: the parts it borrows from the app (a teammate, the plan, Sumar) use the app's tokens; the card is a night
+    // panel in both themes, like the question bubbles (PLA-I47-7).
+    <aside className="dark edi-ficha" aria-label={`Ficha de ${p.title}`} data-ficha={fref.kind === "tab" ? fref.tab : fref.kind} style={{ "--c": floorHue(p.slug) } as CSSProperties}>
       <div className="edi-fi-top">
         <div className="edi-fi-tabs" role="tablist" aria-label="Ficha">
           {FICHA_TABS.map((t, i) => (

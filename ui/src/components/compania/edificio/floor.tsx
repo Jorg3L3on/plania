@@ -91,7 +91,7 @@ export const Floor = ({
       <div className="edi-fbody">
         <div className="edi-stage">
           <Now project={p} line={line} now={now} decisions={decisions} acts={nowActs} qacts={acts} onFijar={onFijar} onPublish={onPublish} side={ventana} anchor={dv && !bubbles ? `pregunta-${p.slug}` : undefined} />
-          <div className="edi-wins edi-team" style={{ "--n": Math.max(slots, 4) } as CSSProperties} data-team={team.length}>
+          <div className="edi-wins edi-team" style={{ "--n": Math.max(team.length, 3), "--add": children ? "46px" : "0px" } as CSSProperties} data-team={team.length}>
             {team.map((m, i) => {
               const hanging = decisions && acts ? hangingFor(decisions, p.slug, m.agent, inAhora) : null;
               const anchor = hanging && first ? `pregunta-${p.slug}` : undefined;

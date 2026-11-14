@@ -36,6 +36,7 @@ import { ceoRedirect, sheetOf, sheetSearch } from "@/lib/compania";
 import { caption, floorOrder } from "@/lib/edificio";
 import { openFloor, stepFloor } from "@/components/compania/edificio/tower";
 import { Ficha, type Load } from "@/components/compania/edificio/ficha";
+import { Resguardo } from "@/components/compania/edificio/resguardo";
 import { After, Last } from "@/components/compania/edificio/after";
 import { FICHA_TABS, escStep, fichaOf, fichaSearch, needsRows, needsTask, type FichaRef } from "@/lib/ficha";
 import { byLight, plumbingLine } from "@/lib/org";
@@ -209,9 +210,14 @@ const Compania = () => {
           <MemberSide key={m.agent} project={fp} member={m} now={now} steer={steer} />
         </div>
       ) : undefined,
-      plan: <PlanPage project={fp} sheet={detail.data} loading={detail.isPending} error={detail.isError} onRetry={() => void detail.refetch()} now={now} steer={steer} onFijar={setFijar} />,
+      plan: (
+        <div className="edi-fi-slot">
+          <PlanPage project={fp} sheet={detail.data} loading={detail.isPending} error={detail.isError} onRetry={() => void detail.refetch()} now={now} steer={steer} onFijar={setFijar} />
+        </div>
+      ),
       sumar:
         fp.team.length < 8 ? (
+          <div className="edi-fi-slot">
           <SumarSide
             key={fp.slug}
             hire={detail.data?.hire}
@@ -222,6 +228,7 @@ const Compania = () => {
             added={added}
             onAdd={(template, chosen) => addMember.mutate({ slug: fp.slug, template, packs: chosen })}
           />
+          </div>
         ) : undefined,
       app: <VentanaLive slug={fp.slug} title={fp.title} timeZone={timeZone} />,
       solo: <After project={fp} decisions={decisions} now={now} timeZone={timeZone} acts={nowActs} qacts={qacts} />,
@@ -447,6 +454,8 @@ const Compania = () => {
   const nowActs = {
     busy: nowBusy,
     onElapsed: refresh,
+    // PLA-I47-7: «#te-toca» opens Tu oficina (the building zoomed out, where what waits on the owner is); «#publicar» publishes.
+    onLink: (slug: string, href: string) => (href === "#publicar" ? openPublish(slug) : setZoom(true, slug)),
     onAuto: (slug: string, on: boolean) => {
       setNowBusy(`${slug}:auto`);
       void api
@@ -588,7 +597,9 @@ const Compania = () => {
 
       {/* PLA-I39-3: the building in place of the 360 px column and the cards grid. */}
       <BuildingBlock loading={comp.isPending} error={comp.isError && !company} onRetry={() => void comp.refetch()}>
+        {/* PLA-I47-7: a part that fails to draw says so in place instead of blanking the page. */}
         {company && (
+          <Resguardo what="el edificio">
           <Building
             company={company}
             decisions={decisions}
@@ -669,6 +680,7 @@ const Compania = () => {
             onFichaClose={closeFicha}
             ficha={
               fichaProject ? (
+                <Resguardo what="la ficha">
                 <Ficha
                   project={fichaProject}
                   fref={fref}
@@ -681,9 +693,11 @@ const Compania = () => {
                   onClose={closeFicha}
                   slots={fichaSlots(fichaProject)}
                 />
+                </Resguardo>
               ) : undefined
             }
           />
+          </Resguardo>
         )}
       </BuildingBlock>
 

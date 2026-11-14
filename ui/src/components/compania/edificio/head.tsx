@@ -10,6 +10,8 @@ import { rumboText } from "@/lib/v2";
 
 const TONE: Record<NowLine["state"], string> = { you: "you", work: "work", rest: "idle", stuck: "bad", done: "ok", off: "idle", idle: "idle", back: "back" };
 
+export const TONE_OF = TONE;
+
 export const Head = ({
   project: p,
   line,
@@ -83,7 +85,8 @@ export const Head = ({
           )}
         </p>
       ) : (
-        status && (
+        status &&
+        !p.route?.legs.length && (
           <p className="edi-fstatus edi-count" data-status title={status}>
             {status}
           </p>

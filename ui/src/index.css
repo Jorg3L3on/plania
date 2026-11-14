@@ -1126,11 +1126,14 @@
   .edi-fi-md :is(h1, h2, h3) { font-family: var(--font-display); font-size: 15px; margin: 12px 0 4px; }
   .edi-fi-md :is(ul, ol) { padding-left: 18px; }
   .edi-fi-md pre, .edi-fi-md code { font-size: 11.5px; white-space: pre-wrap; }
-  .edi-fi-mhead { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
+  .edi-fi-mhead { display: flex; gap: 12px; align-items: center; margin-bottom: 4px; }
+  .edi-fi-member, .edi-fi-slot { display: grid; gap: 16px; min-width: 0; }
   /* The side page's parts drawn inside the dark card use the app's dark tokens. */
   .edi-ficha :is(.edi-fi-member, [data-section]) { color: var(--e-fg); }
-  .edi-legbtn { display: contents; color: inherit; font: inherit; cursor: pointer; }
-  .edi-legbtn:focus-visible > .edi-legbar { outline: 2px solid var(--e-fg); outline-offset: 2px; }
+  /* A real box (display: contents dropped it from the Tab order in Chrome; found in the PLA-I47-7 browser pass). */
+  .edi-legbtn { display: grid; gap: 4px; align-content: start; width: 100%; min-width: 0; padding: 4px 6px 4px; margin: -4px -6px; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .edi-legbtn:hover { background: rgb(255 255 255 / 0.055); }
+  .edi-legbtn:focus-visible { outline: 2px solid var(--e-fg); outline-offset: 2px; }
   .edi-scrim { display: none; }
   @media (width < 1180px) {
     .edi-bld[data-ficha="open"] { grid-template-columns: 72px minmax(0, 1fr); }
@@ -1138,7 +1141,10 @@
   }
   @media (width < 40rem) {
     .edi-bld[data-ficha="open"] { grid-template-columns: minmax(0, 1fr); }
-    .edi-bld > .edi-ficha { top: auto; left: 0; right: 0; bottom: 0; width: auto; height: min(78dvh, 640px); border-radius: 22px 22px 0 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
+    /* The sheet sits above the app's tab bar (4.5rem); the phone bar steps aside while it is open. The building is its
+       own stacking layer, so the sheet cannot climb over them with z-index (found in the PLA-I47-7 browser pass). */
+    .edi-bld > .edi-ficha { top: auto; left: 0; right: 0; bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)); width: auto; height: min(72dvh, 600px); border-radius: 22px 22px 0 0; }
+    .edi:has(.edi-bld[data-ficha="open"]) .edi-pbar { display: none; }
     .edi-bld[data-ficha="open"] > .edi-scrim:not([hidden]) { display: block; position: fixed; inset: 0; z-index: 39; background: rgb(4 6 14 / 0.6); }
   }
 
@@ -1188,6 +1194,42 @@
     .edi-fa-move { padding-left: 14px; }
     .edi-fa-list, .edi-fa-roof { overflow: visible; max-height: none; }
   }
+
+  /* PLA-I47-7, from the browser pass at 1280x720: Ahora had 125-138 px and hid its own button. The sky is one row, the
+     legs and the team captions one line each, so Ahora gets the height back. Dim text is #959cb8 or lighter (axe AA). */
+  @media (width >= 48rem) {
+    .edi:has(.edi-bld) > .edi-sky { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "voice meta" "by by"; align-items: center; gap: 0 16px; padding-bottom: 8px; }
+    .edi:has(.edi-bld) > .edi-sky > .edi-meta { grid-area: meta; flex-wrap: nowrap; justify-content: flex-end; }
+    .edi:has(.edi-bld) > .edi-sky > .edi-meta > .edi-eyebrow { display: none; }
+    .edi:has(.edi-bld) > .edi-sky > .edi-voice { grid-area: voice; margin: 0; min-width: 0; flex-wrap: nowrap; }
+    .edi:has(.edi-bld) > .edi-sky > .edi-voice .edi-vpre { flex: none; }
+    .edi:has(.edi-bld) > .edi-sky > .edi-by { grid-area: by; margin-top: 2px; font-size: 12px; }
+    .edi:has(.edi-bld) .edi-orb { display: none; }
+    .edi-bld .edi-route .edi-leg b { display: flex; gap: 5px; align-items: baseline; min-width: 0; }
+    .edi-bld .edi-route .edi-legcode { flex: none; white-space: nowrap; }
+    .edi-bld .edi-route .edi-legname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .edi-bld .edi-route .edi-legline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* The team: one track per teammate and a narrow one for «+»; the name on one line, the verb only when it fits. */
+    .edi-team { grid-template-columns: repeat(var(--n), minmax(0, 1fr)) var(--add, 0px); gap: 4px 8px; }
+    .edi-team .edi-add .edi-who { display: none; }
+    .edi-team .edi-who { flex-wrap: nowrap; white-space: nowrap; overflow: hidden; min-width: 0; }
+    .edi-team .edi-who b { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    .edi-team .edi-who i { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .edi-team .edi-do { -webkit-line-clamp: 2; font-size: 11px; line-height: 1.25; }
+  }
+  /* A narrow stage keeps the teammate's name whole and drops the verb (the name says the role). */
+  @container (max-width: 620px) {
+    .edi-team .edi-who i { display: none; }
+  }
+  @media (width < 40rem) {
+    .edi-stage .edi-nsay { font-size: 22px; line-height: 1.2; }
+  }
+  .edi-fi-tab small, .edi-fi-li em, .edi-fi-tube li, .edi-fsec h3 small, .edi-fempty, .edi-fi-empty { color: #959cb8; }
+  .edi-fi-tube li[data-here] { color: var(--e-fg); }
+
+  /* PLA-I47-7: a part that failed to draw says so in its place. */
+  .edi-fail { display: grid; gap: 10px; justify-items: start; padding: 18px; border-radius: 18px; border: 1px solid rgb(255 107 138 / 0.45); background: rgb(255 107 138 / 0.08); color: var(--e-fg, #eef0f6); font-size: 13.5px; }
+  .edi-fail p { margin: 0; }
 
   @media (prefers-reduced-motion: reduce) {
     .edi *, .edi *::before, .edi *::after { animation: none !important; transition: none !important; }

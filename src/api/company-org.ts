@@ -254,6 +254,7 @@ export function rumboOf(goal: GoalRow | null, plan: PlanLine | null): Rumbo {
 const quote = (s: string, n = 80) => `«${s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s}»`;
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const TE_TOCA = { label: "Ver en Te toca", href: "#te-toca" };
+export const DELIVERY_WAITS = "Una entrega espera tu visto bueno.";
 
 export type LightCtx = { paused: boolean; threadId: string; now: Date; ceoId: string | null; team: TeamMember[]; plan: PlanLine | null; inbox: InboxItem[] };
 
@@ -286,7 +287,7 @@ export async function lightOf(db: Db, p: Project, c: LightCtx): Promise<{ light:
     };
   }
   const recent = await db.select().from(threadMessages).where(and(eq(threadMessages.threadId, c.threadId), isNull(threadMessages.actionState))).orderBy(desc(threadMessages.at)).limit(30);
-  for (const m of recent) if ((await actionsFor(db, m, p.id)).length > 0) return jorge("Una entrega espera tu visto bueno.");
+  for (const m of recent) if ((await actionsFor(db, m, p.id)).length > 0) return jorge(DELIVERY_WAITS);
 
   const failed = c.team.find((m) => m.state !== "running" && m.last?.status === "fail");
   if (failed) {
@@ -542,6 +543,15 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
   const [running] = await db.select({ n: sql<number>`count(*)::int` }).from(agentRuns).where(eq(agentRuns.status, "running"));
 
   const decisions = await decisionsRead(db, now, inbox);
+  // PLA-I47-7: the light read a delivery before the decisions were read. A delivery held for QA's pass (or any rule
+  // that keeps it off Te toca) is not the owner's turn yet, so the floor must not say it is (it drew a dead button).
+  for (const c of cards) {
+    const waiting = decisions.some((d) => d.project === c.slug && d.state === null && (d.kind === "pr" || d.kind === "deliverable"));
+    if (c.light === "needs_jorge" && c.light_reason?.text === DELIVERY_WAITS && !waiting) {
+      c.light = "ok";
+      c.light_reason = null;
+    }
+  }
   for (const c of cards) if (c.auto_accept.on) c.auto_accept = await autoAcceptOf(db, all.find((p) => p.slug === c.slug)!, decisions);
   for (const c of cards) c.next_move = nextMove(c, decisions, { companyPaused: settings.companyPaused });
   return {

@@ -6,6 +6,7 @@ import type { CSSProperties, ReactNode } from "react";
 import type { Decision, OrgProject } from "@/lib/api";
 import { floorHue, floorOrder, nowLine, plateStatus, windowState } from "@/lib/edificio";
 import { byRole } from "@/lib/org";
+import { TONE_OF } from "./head";
 import { ActButton, type MoveCtx } from "./now";
 import { legLooks } from "./route";
 import { Glass } from "./window";
@@ -45,7 +46,8 @@ const Row = ({ p, now, decisions, companyPaused, timeZone, ctx, onPiso }: { p: O
           ))}
         </span>
         <span className="edi-fa-now">
-          <span className="edi-pill" data-pill={line.state}>
+          <span className="edi-pill" data-pill={line.state} data-tone={TONE_OF[line.state]}>
+            <i aria-hidden />
             {line.word}
           </span>
           <span className="edi-fa-say">{line.say}</span>
