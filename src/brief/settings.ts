@@ -120,19 +120,14 @@ export async function saveBriefSettings(db: Q, patch: unknown): Promise<BriefSet
   return checked;
 }
 
-const TZ_LABELS: Record<string, string> = {
-  "America/Mexico_City": "CDMX",
-  "America/Monterrey": "MTY",
-  "America/New_York": "NYC",
-  "America/Los_Angeles": "LA",
-  "Europe/Madrid": "Madrid",
-  UTC: "UTC",
-};
-
-/** A short label for the page: the settings label, a small map, else the IANA city ("America/Bogota" → "Bogota"). */
+/**
+ * A short label for the page: the label set on screen, else the IANA city ("America/Bogota" → "Bogota",
+ * "America/Mexico_City" → "Mexico City"). PLA-I44-2: no built-in nicknames, so a fresh install shows the plain city
+ * name; an owner who wants a nickname sets timezone_label.
+ */
 export function timezoneLabel(tz: string, label?: string | null): string {
-  if (label) return label;
-  return TZ_LABELS[tz] ?? (tz.split("/").pop() ?? tz).replace(/_/g, " ");
+  if (label?.trim()) return label.trim();
+  return (tz.split("/").pop() ?? tz).replace(/_/g, " ");
 }
 
 export function resolveBriefSettings(s: BriefSettings, env: NodeJS.ProcessEnv = process.env): ResolvedBriefSettings {

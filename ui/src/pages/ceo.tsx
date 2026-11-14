@@ -12,7 +12,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
-import { BlockError, StopBody } from "@/components/compania/parts";
+import { BRIEF_LINK_LABEL, BlockError, StopBody, briefTitle } from "@/components/compania/parts";
+import { Brief } from "@/components/dashboard/ceo-v2";
 import type { Steer } from "@/components/compania/timon";
 import { toast } from "sonner";
 import { ThreadPanel } from "@/components/compania/org";
@@ -399,6 +400,16 @@ const Compania = () => {
         <p role="status" data-banner="paused" className="rounded-[16px] bg-surface-sunken px-4 py-2.5 text-sm ring-1 ring-foreground/15">
           La compañía está detenida: nada arranca. Se reanuda en Máquina.
         </p>
+      )}
+
+      {/* PLA-I42-5: Brief de hoy, the Morning brief's 0-token lines (no Claude run) and a link to the full /brief. */}
+      {company?.brief && (
+        <Brief
+          lines={company.brief.lines}
+          title={briefTitle(company.brief.generated_at, now, timeZone)}
+          sign="Asistente"
+          link={{ to: company.brief.link, label: BRIEF_LINK_LABEL }}
+        />
       )}
 
       {/* PLA-I39-3: the building in place of the 360 px column and the cards grid. */}

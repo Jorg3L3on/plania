@@ -24,12 +24,15 @@ export function readPrompt(name: PromptFile): string {
   return readFileSync(new URL(name, PROMPTS_DIR), "utf8");
 }
 
-// The schema text for --json-schema, and the parsed object for checks.
+// The schema text for --json-schema, and the parsed object for checks. PLA-I44-2: the "$schema" key is left out of
+// what goes to claude: CLI 2.1.302 refuses "https://json-schema.org/draft/2020-12/schema" ("no schema with key or
+// ref") and the pass ends with exit 1 before a single turn. The file keeps it for editors.
 export function readSchemaText(pass: BriefPass): string {
-  return readFileSync(new URL(`${pass}.schema.json`, PROMPTS_DIR), "utf8");
+  const { $schema: _draft, ...schema } = JSON.parse(readFileSync(new URL(`${pass}.schema.json`, PROMPTS_DIR), "utf8")) as Record<string, unknown>;
+  return JSON.stringify(schema);
 }
 export function readSchema(pass: BriefPass): Record<string, unknown> {
-  return JSON.parse(readSchemaText(pass)) as Record<string, unknown>;
+  return JSON.parse(readFileSync(new URL(`${pass}.schema.json`, PROMPTS_DIR), "utf8")) as Record<string, unknown>;
 }
 
 export function placeholders(template: string): string[] {

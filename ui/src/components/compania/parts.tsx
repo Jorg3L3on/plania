@@ -279,3 +279,9 @@ export const StopBody = ({
 };
 
 // ---- Brief header line (Asistente signs it). The brief itself is ceo-v2's Brief.
+
+// PLA-I42-5: "Brief de hoy" when the Morning brief's lines are from today in the screen's zone, else "Último brief".
+const dayIn = (ms: number, timeZone: string) => new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
+export const briefTitle = (generatedAt: string, now: number, timeZone: string): string =>
+  dayIn(Date.parse(generatedAt), timeZone) === dayIn(now, timeZone) ? "Brief de hoy" : "Último brief";
+export const BRIEF_LINK_LABEL = "Ver el brief completo";

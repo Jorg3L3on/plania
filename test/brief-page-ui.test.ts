@@ -16,6 +16,8 @@ const summary = await load("components/brief/brief-summary.tsx");
 const items = await load("components/brief/brief-items.tsx");
 const header = await load("components/brief/brief-header.tsx");
 const footer = await load("components/brief/brief-footer.tsx");
+const ceo = await load("components/dashboard/ceo-v2.tsx");
+const parts = await load("components/compania/parts.tsx");
 
 const h = React.createElement;
 const html = (el: React.ReactElement) => renderToStaticMarkup(h(QueryClientProvider, { client: new QueryClient() }, h(MemoryRouter, null, el)));
@@ -164,4 +166,17 @@ test("labels: en and es tables have the same keys", () => {
 test("runMinutes is at least 1", () => {
   assert.equal(lib.runMinutes(new Date(1000).toISOString(), 1000), 1);
   assert.equal(lib.runMinutes(new Date(0).toISOString(), 10 * 60_000), 10);
+});
+
+test("PLA-I42-5: Brief de hoy shows its lines and a link to /brief", () => {
+  const lines = ["Zigzag: Prod is down", "Workia: Need 1", "Workia: Need 2", "Workia: Need 3", "Workia: Need 4"];
+  const out = html(h(ceo.Brief, { lines, title: "Brief de hoy", sign: "Asistente", link: { to: "/brief", label: parts.BRIEF_LINK_LABEL } }));
+  assert.equal((out.match(/<li /g) ?? []).length, 5);
+  assert.match(out, /<a [^>]*data-brief-link[^>]*href="\/brief"[^>]*>Ver el brief completo →<\/a>/);
+  assert.match(text(out), /Brief de hoy .*Asistente/);
+  assert.doesNotMatch(html(h(ceo.Brief, { lines })), /data-brief-link/, "older callers get no link");
+  const tz = "America/Mexico_City";
+  const now = Date.parse("2026-11-13T20:00:00Z");
+  assert.equal(parts.briefTitle("2026-11-13T13:04:12Z", now, tz), "Brief de hoy");
+  assert.equal(parts.briefTitle("2026-11-12T13:04:12Z", now, tz), "Último brief");
 });

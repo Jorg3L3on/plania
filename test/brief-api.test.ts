@@ -191,7 +191,7 @@ test("GET / PUT /settings: brief_settings, the resolved zone and owner, and pers
   assert.equal(body.settings.run_at, "07:00");
   assert.equal(body.settings.fallback_at, "11:00");
   assert.equal(body.settings.enabled, true);
-  assert.deepEqual(body.resolved, { timezone: "America/Mexico_City", timezone_label: "CDMX", owner_name: body.resolved.owner_name });
+  assert.deepEqual(body.resolved, { timezone: "America/Mexico_City", timezone_label: "Mexico City", owner_name: body.resolved.owner_name });
   assert.deepEqual(body.personas, [{ project: "zigzag", doc_id: doc }]);
   assert.doesNotMatch(JSON.stringify(body), /brief-read-token-value|test-read-token/);
 
@@ -263,4 +263,19 @@ test("POST /plan and GET /plan/:id: bad input is 400 or 404, never 501 (PLA-I43-
   assert.equal(missing.status, 404);
   assert.equal(((await missing.json()) as { error: string }).error, "BRIEF_NOT_FOUND");
   assert.equal((await get("/plan/abc")).status, 404);
+});
+
+// PLA-I44-2: the sheet's read-only Setup check: the doctor's lines, never the claude dry run, never a value.
+test("GET /doctor: the Setup check lines without the claude dry run or any value", async () => {
+  const res = await get("/doctor");
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { ok: boolean; lines: { ok: boolean; text: string }[] };
+  const texts = body.lines.map((l) => l.text);
+  assert.ok(texts.some((t) => t.startsWith("claude found")));
+  assert.ok(texts.includes("claude logged in: skipped (--skip-claude)"), "no dry run from the screen");
+  assert.ok(texts.some((t) => t === "read token set (PLANIA_BRIEF_TOKEN)"));
+  assert.ok(texts.some((t) => t === "migration 0045 applied"));
+  assert.ok(texts.some((t) => t.startsWith("product owner for workia")));
+  assert.equal(body.ok, body.lines.every((l) => l.ok));
+  assert.doesNotMatch(JSON.stringify(body), new RegExp(`brief-read-token-value|test-read-token|${scratch}`));
 });

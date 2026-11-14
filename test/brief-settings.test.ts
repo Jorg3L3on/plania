@@ -82,8 +82,9 @@ test("resolve: settings first, then PLANIA_TZ / PLANIA_CEO_NAME, then the defaul
   const base = S.DEFAULT_SETTINGS;
   const r = S.resolveBriefSettings(base, {});
   assert.equal(r.timezone, "America/Mexico_City");
-  assert.equal(r.timezone_label, "CDMX");
+  assert.equal(r.timezone_label, "Mexico City", "no nickname unless the owner sets one");
   assert.equal(r.owner_name, "the owner");
+  assert.equal(S.resolveBriefSettings({ ...base, timezone_label: "CDMX" }, {}).timezone_label, "CDMX", "a label set on screen wins");
   const env = S.resolveBriefSettings(base, { PLANIA_TZ: "America/Bogota", PLANIA_CEO_NAME: "Jorge" });
   assert.equal(env.timezone, "America/Bogota");
   assert.equal(env.timezone_label, "Bogota");
@@ -115,4 +116,30 @@ test("projects: order, letters (MIC/MIA collision), include, color slots", () =>
   const many = Array.from({ length: 8 }, (_, i) => mk(`p${i}`, `P${i}`, `P${i}`));
   assert.deepEqual(S.briefProjects(many, { projects: {} }).map((p) => p.color), ["c0", "c1", "c2", "c3", "c4", "c5", "other", "other"]);
   assert.equal(new Set(S.briefProjects(many, { projects: {} }).map((p) => p.letter)).size, 8, "letters never repeat");
+});
+
+// PLA-I44-2 (spec Initiative D, acceptance test 13): a fresh install with other projects names nobody and nothing
+// of the author's: every project included, letters auto-assigned, hidden refs empty, owner "the owner".
+test("first-run defaults are generic: two sample projects, nothing of the author's", () => {
+  const AUTHOR = /jorge|cdmx|micasa|workia|filmia|zigzag|mianovia|grok|PLA-I\d/i;
+  assert.doesNotMatch(JSON.stringify(S.DEFAULT_SETTINGS), AUTHOR);
+  assert.deepEqual(S.DEFAULT_SETTINGS.hidden_refs, []);
+  assert.deepEqual(S.DEFAULT_SETTINGS.projects, {});
+  assert.equal(S.DEFAULT_SETTINGS.owner_name, null);
+  assert.equal(S.DEFAULT_SETTINGS.timezone_label, null);
+
+  const r = S.resolveBriefSettings(S.DEFAULT_SETTINGS, { PLANIA_TZ: "Europe/Lisbon" });
+  assert.deepEqual([r.timezone, r.timezone_label, r.owner_name], ["Europe/Lisbon", "Lisbon", "the owner"]);
+  assert.doesNotMatch(JSON.stringify(r), AUTHOR);
+  // Without PLANIA_TZ the zone is the spec default, labelled by its plain city name.
+  assert.doesNotMatch(JSON.stringify(S.resolveBriefSettings(S.DEFAULT_SETTINGS, {})), /jorge|cdmx/i);
+
+  const mk = (slug: string, title: string, keyPrefix: string) => ({ id: slug, slug, title, keyPrefix });
+  const out = S.briefProjects([mk("bakery", "Corner Bakery", "BAK"), mk("bikes", "Bike Rental", "BIK")], S.DEFAULT_SETTINGS);
+  assert.deepEqual(out.map((p) => [p.slug, p.include, p.include_ideas]), [["bakery", true, true], ["bikes", true, true]]);
+  const letters = out.map((p) => p.letter);
+  assert.equal(new Set(letters).size, 2, "each project its own letter");
+  assert.equal(letters[0], "B");
+  assert.ok(!letters.includes("X"), "X stays for cross ideas");
+  assert.deepEqual(out.map((p) => p.color), ["c0", "c1"]);
 });

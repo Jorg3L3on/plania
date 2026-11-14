@@ -222,8 +222,15 @@ briefApi.put("/personas/:slug", async (c) => {
   });
 });
 
-// PLA-I42-4: the sheet's read-only Setup check: the same lines as pnpm brief:doctor --skip-claude (no values, no paths).
-briefApi.get("/doctor", (c) => withDb(async (db) => c.json({ lines: await runDoctor(db, { skipClaudeRun: true }) })));
+// PLA-I42-4 / PLA-I44-2: the read-only "Setup check" at the bottom of the settings sheet (spec §8, §9). The same lines as
+// pnpm brief:doctor, without the claude dry run (that one uses the owner's plan; the doctor command runs it).
+briefApi.get("/doctor", (c) =>
+  withDb(async (db) => {
+    const lines = await runDoctor(db, { skipClaudeRun: true, ...(runDeps.env ? { env: runDeps.env } : {}) });
+    return c.json({ ok: lines.every((l) => l.ok), lines });
+  }),
+);
+
 
 // Send to Plania (D3, D7): POST plan groups the chosen codes by project, posts "Plan these ideas" in each project
 // thread and queues each PO's wake (PLA-I43-1); GET plan/:id is the progress per target and per idea.
