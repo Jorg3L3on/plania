@@ -35,6 +35,8 @@ export const Floor = ({
   solo,
   ventana,
   fila,
+  onLeg,
+  ficha,
   children,
 }: {
   project: OrgProject;
@@ -62,6 +64,10 @@ export const Floor = ({
   ventana?: ReactNode;
   // PLA-I47-3: La fila's calls; with them the right column is La fila, then Lo último and Solo tú.
   fila?: FilaActs;
+  // PLA-I47-4: a leg opens in La ficha.
+  onLeg?: (key: string, el: HTMLElement) => void;
+  // PLA-I47-4: La ficha is on screen (it carries Lo último and Solo tú).
+  ficha?: boolean;
   // The «+ Sumar» window.
   children?: ReactNode;
 }) => {
@@ -81,7 +87,7 @@ export const Floor = ({
   return (
     <article id={`piso-${p.slug}`} tabIndex={-1} className="edi-floor" data-floor={p.slug} data-light={p.light} data-move={line.move ? line.move.verbo : undefined} style={{ "--c": floorHue(p.slug) } as CSSProperties} aria-label={p.title}>
       <Head project={p} line={line} onFijar={onFijar} onPlan={onPlan} extra={resume} />
-      <Route project={p} now={now} timeZone={timeZone} onPlan={nowActs?.onPlan} busy={nowActs?.busy === `${p.slug}:plan`} steps={false} />
+      <Route project={p} now={now} timeZone={timeZone} onPlan={nowActs?.onPlan} busy={nowActs?.busy === `${p.slug}:plan`} steps={false} onLeg={onLeg} />
       <div className="edi-fbody">
         <div className="edi-stage">
           <Now project={p} line={line} now={now} decisions={decisions} acts={nowActs} qacts={acts} onFijar={onFijar} onPublish={onPublish} side={ventana} anchor={dv && !bubbles ? `pregunta-${p.slug}` : undefined} />
@@ -119,8 +125,13 @@ export const Floor = ({
         </div>
         <div className="edi-fcol" data-col="fila">
           {fila ? <Fila project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={fila} /> : <Steps project={p} now={now} timeZone={timeZone} />}
-          <Last project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={nowActs} qacts={acts} />
-          <After project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={nowActs} qacts={acts} solo={solo} hideAuto={!!dv} />
+          {/* PLA-I47-4: with La ficha, Lo último and Solo tú live in its Resumen. */}
+          {!ficha && (
+            <>
+              <Last project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={nowActs} qacts={acts} />
+              <After project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={nowActs} qacts={acts} solo={solo} hideAuto={!!dv} />
+            </>
+          )}
         </div>
       </div>
     </article>

@@ -69,10 +69,14 @@ export type BuildingProps = {
   officeMore?: ReactNode;
   // PLA-I47-3: La fila's calls (Hacer primero, Detener, Aceptar, Quitar).
   fila?: FilaActs;
+  // PLA-I47-4: La ficha beside the floor (the page reads and draws it), and a leg opening in it.
+  ficha?: ReactNode;
+  fichaOpen?: boolean;
+  onLeg?: (slug: string, key: string, el: HTMLElement) => void;
 };
 
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore, fila }: BuildingProps) => {
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore, fila, ficha, fichaOpen, onLeg }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
   const open = openFloor(floors, basement, piso);
@@ -110,7 +114,7 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
           </div>
         </div>
       ) : (
-        <div className="edi-bld" data-open={open?.slug}>
+        <div className="edi-bld" data-open={open?.slug} data-ficha={ficha ? (fichaOpen ? "open" : "closed") : undefined}>
           <Tower floors={floors} basement={basement} decisions={decisions} projects={company.projects} open={open?.slug ?? null} officeOpen={officeOpen} companyPaused={paused} onPiso={onPiso} onOffice={onOffice} onNew={onNew} />
           {/* Tu oficina: what waits on the owner across floors, over the floor while open. */}
           <div className="edi-office" data-office={officeOpen ? "open" : "closed"} hidden={!officeOpen}>
@@ -135,6 +139,8 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
               nowActs={isOff ? undefined : nowActs}
               ventana={isOff ? undefined : ventanaFor?.(open)}
               fila={isOff ? undefined : fila}
+              ficha={!!ficha}
+              onLeg={onLeg ? (key, el) => onLeg(open.slug, key, el) : undefined}
               resume={
                 isOff && onResume ? (
                   <button type="button" className="edi-btn" disabled={resuming === open.slug} onClick={() => onResume(open.slug)} data-control="reanudar">
@@ -154,6 +160,12 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
                 </button>
               ) : null}
             </Floor>
+          )}
+          {ficha && (
+            <>
+              <div className="edi-scrim" aria-hidden hidden={!fichaOpen} />
+              {ficha}
+            </>
           )}
         </div>
       )}

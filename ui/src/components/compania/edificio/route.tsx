@@ -6,7 +6,7 @@
 // When a leg's last step is accepted while the floor is open, the segment fills (300 ms), the leg glows with pink
 // sparks (900 ms) and the light passes on (400 ms), once. A load never plays it; reduce-motion shows the end state.
 // At 390 the five legs stay in one row with short labels («I1 4/5», «✓», «sigue») and one detail line underneath.
-import { memo, useEffect, useLayoutEffect, useState, type CSSProperties } from "react";
+import { memo, useEffect, useLayoutEffect, useState, type CSSProperties, type ReactNode } from "react";
 import type { OrgProject, OrgRoute, OrgRouteLeg } from "@/lib/api";
 import { legLine, routeCount, stepLine, stepMark } from "@/lib/edificio";
 
@@ -75,8 +75,18 @@ const SPARKS = Array.from({ length: 10 }, (_, i) => {
   } as CSSProperties;
 });
 
+// PLA-I47-4: with onLeg a leg is a button that opens it in La ficha; without it, the same content as before.
+const LegBody = ({ onClick, title, children }: { onClick?: (el: HTMLElement) => void; title: string; children: ReactNode }) =>
+  onClick ? (
+    <button type="button" className="edi-legbtn" title={title} onClick={(e) => onClick(e.currentTarget)} data-control="leg">
+      {children}
+    </button>
+  ) : (
+    <>{children}</>
+  );
+
 // The legs hold the celebration's state, so they are their own (memo) component and Route stays hook-free.
-const Legs = memo(function Legs({ slug, route: r, play: forced }: { slug: string; route: OrgRoute; play?: Play | null }) {
+const Legs = memo(function Legs({ slug, route: r, play: forced, onLeg }: { slug: string; route: OrgRoute; play?: Play | null; onLeg?: (key: string, el: HTMLElement) => void }) {
   const [played, setPlay] = useState<Play | null>(null);
   const play = forced ?? played;
   const sig = r.legs.map((l) => `${l.key}:${l.done}/${l.total}:${l.state}`).join("|");
@@ -111,22 +121,24 @@ const Legs = memo(function Legs({ slug, route: r, play: forced }: { slug: string
               data-play={playing}
               data-arrive={arriving ? "" : undefined}
             >
-              <span className="edi-legbar" aria-hidden>
-                <i
-                  style={{
-                    width: `${pct(l)}%`,
-                    ...(playing === "fill" ? ({ "--from": `${play!.from}%` } as CSSProperties) : {}),
-                  }}
-                />
-              </span>
-              <b>
-                <small className="edi-legcode">
-                  {legCode(l, i)}
-                  <span className="edi-legshort"> {legShort(l, looks[i]!)}</span>
-                </small>
-                <span className="edi-legname">{l.title}</span>
-              </b>
-              <span className="edi-legline">{lineOf(l, looks[i]!)}</span>
+              <LegBody onClick={onLeg ? (el) => onLeg(l.key, el) : undefined} title={l.title}>
+                <span className="edi-legbar" aria-hidden>
+                  <i
+                    style={{
+                      width: `${pct(l)}%`,
+                      ...(playing === "fill" ? ({ "--from": `${play!.from}%` } as CSSProperties) : {}),
+                    }}
+                  />
+                </span>
+                <b>
+                  <small className="edi-legcode">
+                    {legCode(l, i)}
+                    <span className="edi-legshort"> {legShort(l, looks[i]!)}</span>
+                  </small>
+                  <span className="edi-legname">{l.title}</span>
+                </b>
+                <span className="edi-legline">{lineOf(l, looks[i]!)}</span>
+              </LegBody>
               {playing === "glow" && SPARKS.map((s, k) => <i key={k} className="edi-spark" style={s} aria-hidden />)}
             </li>
           );
@@ -149,6 +161,7 @@ export const Route = ({
   busy,
   play,
   steps = true,
+  onLeg,
 }: {
   project: OrgProject;
   now: number;
@@ -158,6 +171,8 @@ export const Route = ({
   play?: Play | null;
   // PLA-I47-2: the floor draws the leg's steps in its right column (Steps), not under the legs.
   steps?: boolean;
+  // PLA-I47-4: a leg opens in La ficha.
+  onLeg?: (key: string, el: HTMLElement) => void;
 }) => {
   const r = p.route;
   if (r === undefined) return null;
@@ -183,7 +198,7 @@ export const Route = ({
         <b>Entrega</b>
         <span data-route-count>{routeCount(r)}</span>
       </p>
-      <Legs slug={p.slug} route={r} play={play} />
+      <Legs slug={p.slug} route={r} play={play} onLeg={onLeg} />
       {steps && <Steps project={p} now={now} timeZone={timeZone} />}
     </div>
   );

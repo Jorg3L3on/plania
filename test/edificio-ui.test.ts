@@ -390,7 +390,7 @@ test("I39-5 #3: choosing an option acts once with that option; the result line a
   const busy = expand(h(v2.DecisionView, { d: proposal, now: NOW, busy: { id: proposal.id, key: "elegir-1" }, onAct: noop, ui }));
   assert.ok(findAll(busy, (el) => el.props?.["data-action"] === "elegir").every((b) => b.props.disabled === true));
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("api.actDecision(v.d.id, v.input)") && page.includes("onAct: (d, input, key) => act.mutate({ d, input, key })"));
+  assert.ok(page.includes("api.actDecision(v.d.id, v.input)") && page.includes("onAct: (d: Decision, input: DecisionInput, key: string) => act.mutate({ d, input, key })"));
   // Acted. PLA-I40-6: it no longer hangs as a bubble; the floor keeps it as one line under Lo último, with the
   // result behind Ver.
   const done = render(company({ projects: [project({ latest: [], stale_requests: [] })], decisions: [{ ...proposal, actions: [], state: { action: "elegir", at: "2026-11-10T17:55:00Z", result: { option: 1, label: "Con el borrador" } } }] }), { acts: acts() });
@@ -478,7 +478,8 @@ test("I39-6 #1: a window opens that teammate's page with what it is on, its queu
   win0!.props.onClick({ currentTarget: {} });
   assert.deepEqual(opened, ["?m=workia:taller-workia"]);
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes('sheetSearch({ kind: "member", slug, agent: m.agent })') && page.includes("sheetOf(location.search)"));
+  // PLA-I47-4: the page opens the teammate in La ficha (?f=member:<agent>); the old ?m= link still lands there.
+  assert.ok(page.includes('showFicha({ kind: "member", agent: m.agent }, el, slug)') && page.includes("fichaOf(location.search)"));
 });
 
 test("I39-6 #2: Dile algo notes the teammate's current ticket, or sends an order to the PO naming the role", () => {
@@ -834,7 +835,7 @@ test("PLA-23 #1: the roof chip of a release publishes in place, and the sheet sa
   assert.equal(publishUi.publishError("OWNER_CODE_INVALID"), "Ese código no es válido o ya se usó; espera el siguiente.");
   assert.match(publishUi.publishError("RELEASE_NOT_READY", { reason: "open_checks" }), /puntos abiertos/);
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("api.shipRelease(v.slug)") && page.includes("onPublish: (d) => openPublish(d.project)"));
+  assert.ok(page.includes("api.shipRelease(v.slug)") && page.includes("onPublish: (d: Decision) => openPublish(d.project)"));
   const bandeja = readFileSync(new URL("../ui/src/components/release-step.tsx", import.meta.url), "utf8");
   assert.equal(/OwnerCodeInput|isOwnerCode/.test(bandeja), false, "Bandeja's Lanzar asks no code either");
 });

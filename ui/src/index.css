@@ -1056,6 +1056,89 @@
   .edi-fmore { justify-self: start; border: 0; background: none; color: var(--e-muted); font-size: 12px; font-weight: 600; padding: 4px 8px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
   @media (max-height: 770px) and (min-width: 48rem) { .edi-frow-main { padding-block: 4px; } .edi-fsec h3 { margin-top: 6px; } }
 
+
+  /* PLA-I47-4: La ficha. Beside the floor from 1180 px (300-348 px wide), sliding over the floor below that, a sheet
+     from the bottom on a phone. It scrolls inside itself; the page never grows. */
+  .edi-bld[data-ficha="open"] { grid-template-columns: 72px minmax(0, 1fr) clamp(300px, 24vw, 348px); }
+  .edi-bld[data-ficha="closed"] > .edi-ficha { display: none; }
+  .edi-ficha { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; border-radius: 22px; border: 1px solid rgb(255 255 255 / 0.07); background: #1f2442; color: var(--e-fg); }
+  .edi-fi-top { display: flex; align-items: flex-end; gap: 4px; padding: 8px 8px 0 10px; border-bottom: 1px solid rgb(255 255 255 / 0.07); }
+  .edi-fi-tabs { display: flex; gap: 1px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .edi-fi-tab { padding: 7px 6px 9px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--e-muted); font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+  .edi-fi-tab:hover { color: var(--e-fg); }
+  .edi-fi-tab[aria-selected="true"] { color: var(--e-fg); border-color: var(--c); }
+  .edi-fi-tab small { margin-left: 3px; font: 500 10.5px var(--font-mono, ui-monospace); color: rgb(255 255 255 / 0.45); }
+  .edi-fi-x { margin-bottom: 6px; width: 30px; height: 28px; border-radius: 9px; border: 1px solid var(--e-line); background: rgb(255 255 255 / 0.04); color: var(--e-muted); cursor: pointer; }
+  .edi-fi-x:hover { color: var(--e-fg); }
+  .edi-fi-s { min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 14px 16px 20px; display: grid; gap: 16px; align-content: start; scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.18) transparent; }
+  .edi-fi-back { justify-self: start; border: 0; background: none; color: var(--e-muted); font: inherit; font-size: 12px; font-weight: 600; padding: 0; cursor: pointer; }
+  .edi-fi-back:hover { color: var(--e-fg); }
+  .edi-fi-head { display: grid; gap: 4px; }
+  .edi-fi-title { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 19px; line-height: 1.2; overflow-wrap: anywhere; }
+  .edi-fi-state-line { margin: 0; color: var(--e-muted); font-size: 12.5px; }
+  .edi-fi-sec { display: grid; gap: 7px; min-width: 0; }
+  .edi-fi-p { margin: 0; font-size: 13px; color: var(--e-muted); overflow-wrap: anywhere; }
+  .edi-fi-p b { color: var(--e-fg); font-weight: 600; }
+  .edi-fi-cal { position: relative; display: block; height: 6px; border-radius: 3px; background: rgb(255 255 255 / 0.1); }
+  .edi-fi-cal i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--c); }
+  .edi-fi-cal u { position: absolute; top: -4px; bottom: -4px; width: 2px; border-radius: 1px; background: var(--e-fg); }
+  .edi-fi-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .edi-fi-stats div { padding: 8px 10px; border-radius: 11px; background: rgb(255 255 255 / 0.045); }
+  .edi-fi-stats b { display: block; font-family: var(--font-display); font-weight: 700; font-size: 19px; line-height: 1.1; }
+  .edi-fi-stats span { font-size: 11.5px; color: var(--e-muted); }
+  .edi-fi-ojo { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; color: var(--e-you-ink); }
+  .edi-fi-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .edi-fi-ext { display: inline-flex; align-items: center; text-decoration: none; }
+  .edi-fi-lis { list-style: none; margin: 0 -8px; padding: 0; display: grid; gap: 1px; }
+  .edi-fi-li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; padding: 7px 8px; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .edi-fi-li:hover { background: rgb(255 255 255 / 0.055); }
+  .edi-fi-li em { font-style: normal; font-size: 11.5px; color: rgb(255 255 255 / 0.45); white-space: nowrap; }
+  .edi-fi-num { font: 500 11.5px var(--font-mono, ui-monospace); color: var(--e-muted); min-width: 26px; }
+  .edi-fi-empty { margin: 0; color: rgb(255 255 255 / 0.5); font-size: 12.5px; }
+  .edi-fi-state { display: grid; gap: 8px; justify-items: start; font-size: 13px; color: var(--e-muted); }
+  .edi-fi-state p { margin: 0; }
+  .edi-sk { display: block; width: 100%; height: 10px; border-radius: 5px; background: rgb(255 255 255 / 0.1); }
+  .edi-sk:nth-child(2) { width: 80%; }
+  .edi-sk:nth-child(3) { width: 60%; }
+  .edi-fi-checks, .edi-fi-ev, .edi-fi-hist { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; font-size: 13px; }
+  .edi-fi-checks li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; }
+  .edi-fi-checks li::before { content: ""; width: 13px; height: 13px; margin-top: 3px; border-radius: 4px; box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.28); }
+  .edi-fi-checks li[data-ok]::before { content: "✓"; background: #3ddc97; box-shadow: none; color: #04261a; font: 700 10px/13px inherit; text-align: center; }
+  .edi-fi-ev li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; overflow-wrap: anywhere; }
+  .edi-fi-ev li > i { font-style: normal; font-weight: 700; color: #3ddc97; }
+  .edi-fi-ev li[data-verdict="fail"] > i { color: #ff6b8a; }
+  .edi-fi-hist { color: var(--e-muted); font-size: 12.5px; }
+  .edi-fi-hist li { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px; }
+  .edi-fi-link { color: var(--e-fg); font-weight: 600; font-size: 13px; }
+  .edi-fi-kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 14px; margin: 0; font-size: 13px; }
+  .edi-fi-kv dt { color: var(--e-muted); }
+  .edi-fi-kv dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+  .edi-fi-tube { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 3px; }
+  .edi-fi-tube li { display: grid; gap: 4px; min-width: 0; font-size: 10.5px; color: rgb(255 255 255 / 0.45); }
+  .edi-fi-tube i { height: 5px; border-radius: 3px; background: rgb(255 255 255 / 0.1); }
+  .edi-fi-tube li[data-on] i { background: var(--c); }
+  .edi-fi-tube li[data-here] { color: var(--e-fg); font-weight: 600; }
+  .edi-fi-tube span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-fi-md { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  .edi-fi-md :is(h1, h2, h3) { font-family: var(--font-display); font-size: 15px; margin: 12px 0 4px; }
+  .edi-fi-md :is(ul, ol) { padding-left: 18px; }
+  .edi-fi-md pre, .edi-fi-md code { font-size: 11.5px; white-space: pre-wrap; }
+  .edi-fi-mhead { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
+  /* The side page's parts drawn inside the dark card use the app's dark tokens. */
+  .edi-ficha :is(.edi-fi-member, [data-section]) { color: var(--e-fg); }
+  .edi-legbtn { display: contents; color: inherit; font: inherit; cursor: pointer; }
+  .edi-legbtn:focus-visible > .edi-legbar { outline: 2px solid var(--e-fg); outline-offset: 2px; }
+  .edi-scrim { display: none; }
+  @media (width < 1180px) {
+    .edi-bld[data-ficha="open"] { grid-template-columns: 72px minmax(0, 1fr); }
+    .edi-bld > .edi-ficha { position: fixed; z-index: 40; top: calc(60px + env(safe-area-inset-top, 0px)); right: max(12px, env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); width: min(360px, calc(100vw - 24px)); box-shadow: -24px 0 70px rgb(0 0 0 / 0.55); }
+  }
+  @media (width < 40rem) {
+    .edi-bld[data-ficha="open"] { grid-template-columns: minmax(0, 1fr); }
+    .edi-bld > .edi-ficha { top: auto; left: 0; right: 0; bottom: 0; width: auto; height: min(78dvh, 640px); border-radius: 22px 22px 0 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
+    .edi-bld[data-ficha="open"] > .edi-scrim:not([hidden]) { display: block; position: fixed; inset: 0; z-index: 39; background: rgb(4 6 14 / 0.6); }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .edi *, .edi *::before, .edi *::after { animation: none !important; transition: none !important; }
   }

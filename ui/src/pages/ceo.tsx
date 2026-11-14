@@ -35,6 +35,9 @@ import { ApiError, api, type Decision, type DecisionInput, type OrgProject } fro
 import { ceoRedirect, sheetOf, sheetSearch } from "@/lib/compania";
 import { caption, floorOrder } from "@/lib/edificio";
 import { openFloor, stepFloor } from "@/components/compania/edificio/tower";
+import { Ficha, type Load } from "@/components/compania/edificio/ficha";
+import { After, Last } from "@/components/compania/edificio/after";
+import { FICHA_TABS, escStep, fichaOf, fichaSearch, needsRows, needsTask, type FichaRef } from "@/lib/ficha";
 import { byLight, plumbingLine } from "@/lib/org";
 import { greeting } from "@/lib/greeting";
 import { hireLabel } from "@/lib/sumar";
@@ -60,6 +63,17 @@ export const useWide = () => {
     return () => query.removeEventListener("change", onChange);
   }, []);
   return wide;
+};
+
+export const useMedia = (query: string) => {
+  const [on, setOn] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches);
+  useEffect(() => {
+    const q = window.matchMedia(query);
+    const onChange = () => setOn(q.matches);
+    q.addEventListener("change", onChange);
+    return () => q.removeEventListener("change", onChange);
+  }, [query]);
+  return on;
 };
 
 // "hace 5 min" keeps moving without a refetch.
@@ -144,23 +158,26 @@ const Compania = () => {
   const [office, setOffice] = useState(false);
   // A roof chip or a tile opens a floor: Tu oficina closes.
   useEffect(() => setOffice(false), [piso]);
-  // PLA-I39-6: the side page. Its project and teammate come from the company read; plan and add read the project.
-  const sideProject = sheet && (sheet.kind === "member" || sheet.kind === "plan" || sheet.kind === "add") ? (company?.projects.find((p) => p.slug === sheet.slug) ?? null) : null;
-  const sideMember = sheet?.kind === "member" ? (sideProject?.team.find((m) => m.agent === sheet.agent) ?? null) : null;
-  const detail = useQuery({
-    queryKey: ["company-project", sideProject?.slug ?? ""],
-    queryFn: () => api.companyProject(sideProject!.slug),
-    enabled: !!sideProject && (sheet?.kind === "plan" || sheet?.kind === "add"),
+  // PLA-I47-4: La ficha. ?f=<kind>:<ref> is what it shows (the old ?m=, ?plan=, ?add= links still land there); the
+  // project is the open floor. Open by default from 1180 px (closing it is remembered in this browser); narrower,
+  // it slides over (a sheet on a phone) only while the address names something.
+  const fichaAt = fichaOf(location.search);
+  const fref: FichaRef = fichaAt?.ref ?? { kind: "tab", tab: "resumen" };
+  const wideFicha = useMedia("(min-width: 1180px)");
+  const [fichaHidden, setFichaHidden] = useState(() => {
+    try {
+      return window.localStorage.getItem("edi-ficha") === "closed";
+    } catch {
+      return false;
+    }
   });
+  const fichaOpen = !!fichaAt || (wideFicha && !fichaHidden);
   const [added, setAdded] = useState<string | null>(null);
   // PLA-I39-7: floors whose ask box has text: their PO's window says "Recibiría tu pedido".
   const [typing, setTyping] = useState<Record<string, boolean>>({});
   const opener = useRef<HTMLElement | null>(null);
-  // The side page last open, so closing (which clears the address first) still knows what to focus.
-  const lastSide = useRef(sheet);
-  if (sheet && (sheet.kind === "member" || sheet.kind === "plan" || sheet.kind === "add")) lastSide.current = sheet;
   // PLA-I46-13: the Sumar sheet's packs, read from Plania (GET /api/company/packs).
-  const packs = useQuery({ queryKey: ["company-packs"], queryFn: () => api.packs(), enabled: sheet?.kind === "add" });
+  const packs = useQuery({ queryKey: ["company-packs"], queryFn: () => api.packs(), enabled: fref.kind === "sumar" });
   const addMember = useMutation({
     mutationFn: (v: { slug: string; template: string; packs: string[] }) => api.addToTeam(v.slug, v.template, v.packs),
     onSuccess: (_r, v) => {
@@ -170,6 +187,42 @@ const Compania = () => {
     },
     onError: (e) => toast.error(e instanceof ApiError ? `No se pudo sumar (${e.code}).` : "No se pudo. Si la Mac está dormida, intenta al despertar."),
   });
+
+  // PLA-I47-4: what La ficha draws with parts that already exist (a teammate, the plan, Sumar, the app, the accept-by-itself switch).
+  const fichaSlots = (fp: OrgProject) => {
+    const m = fref.kind === "member" ? fp.team.find((x) => x.agent === fref.agent) : undefined;
+    return {
+      member: m ? (
+        <div className="edi-fi-member" data-member={m.agent}>
+          <div className="edi-fi-mhead">
+            <MemberHead m={m} companyPaused={company?.company.paused} />
+            <div>
+              <h3 className="edi-fi-title">{memberTitle(m, fp)}</h3>
+              <p className="edi-fi-state-line">{caption(m, now, { companyPaused: company?.company.paused }).doing}</p>
+            </div>
+          </div>
+          <MemberSide key={m.agent} project={fp} member={m} now={now} steer={steer} />
+        </div>
+      ) : undefined,
+      plan: <PlanPage project={fp} sheet={detail.data} loading={detail.isPending} error={detail.isError} onRetry={() => void detail.refetch()} now={now} steer={steer} onFijar={setFijar} />,
+      sumar:
+        fp.team.length < 8 ? (
+          <SumarSide
+            key={fp.slug}
+            hire={detail.data?.hire}
+            packs={packs.data?.packs}
+            loading={detail.isPending || packs.isPending}
+            packsError={packs.isError}
+            busy={addMember.isPending}
+            added={added}
+            onAdd={(template, chosen) => addMember.mutate({ slug: fp.slug, template, packs: chosen })}
+          />
+        ) : undefined,
+      app: <VentanaLive slug={fp.slug} title={fp.title} timeZone={timeZone} />,
+      solo: <After project={fp} decisions={decisions} now={now} timeZone={timeZone} acts={nowActs} qacts={qacts} />,
+      last: <Last project={fp} decisions={decisions} now={now} timeZone={timeZone} acts={nowActs} qacts={qacts} />,
+    };
+  };
 
   // Te toca: the result is written in the row at once; the next read keeps it (acted rows stay 24 h).
   const [acted, setActed] = useState<Record<string, Decision>>({});
@@ -187,11 +240,85 @@ const Compania = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const decisions = useMemo(() => (company?.decisions ?? []).map((d) => acted[d.id] ?? d), [company, acted]);
   // PLA-I47-2: ↑ ↓ walk the tower's floors, unless the owner is typing or a dialog is open.
-  const shownPiso = piso ?? decisions.find((d) => d.id === openDecision)?.project ?? null;
+  const shownPiso = piso ?? fichaAt?.slug ?? decisions.find((d) => d.id === openDecision)?.project ?? null;
+  const fichaProject = useMemo(() => {
+    if (!company) return null;
+    const { floors, basement } = floorOrder(company.projects, decisions);
+    return openFloor(floors, basement, shownPiso);
+  }, [company, decisions, shownPiso]);
+  const fslug = fichaProject?.slug ?? "";
+  // Each read loads only when its view is open (the Resumen tab reads nothing new).
+  const fichaRows = useQuery({ queryKey: ["company-ficha", fslug], queryFn: () => api.companyFicha(fslug), enabled: fichaOpen && !!fslug && needsRows(fref), staleTime: 15_000 });
+  const taskKey = needsTask(fref);
+  const fichaTask = useQuery({ queryKey: ["ficha-task", fslug, taskKey], queryFn: () => api.task(fslug, taskKey!), enabled: fichaOpen && !!fslug && !!taskKey });
+  const docId = fref.kind === "doc" ? fref.id : null;
+  const fichaDoc = useQuery({ queryKey: ["ficha-doc", fslug, docId], queryFn: () => api.projectDoc(fslug, docId!), enabled: fichaOpen && !!fslug && !!docId });
+  const detail = useQuery({
+    queryKey: ["company-project", fslug],
+    queryFn: () => api.companyProject(fslug),
+    enabled: fichaOpen && !!fslug && (fref.kind === "plan" || fref.kind === "sumar"),
+  });
+  const loadOf = <T,>(q: { isError: boolean; data?: T; refetch: () => unknown }, on: boolean): Load<T> => ({
+    status: !on ? "idle" : q.isError ? "error" : q.data !== undefined ? "ok" : "loading",
+    data: q.data,
+    retry: () => void q.refetch(),
+  });
+  // Opening something in La ficha: the floor stays, the address carries what is shown.
+  const setFicha = (r: FichaRef | null, el?: HTMLElement | null, slug = fslug) => {
+    if (el) opener.current = el;
+    navigate({ pathname: "/ceo", search: fichaSearch(slug || null, r) });
+  };
+  const closeFicha = () => {
+    if (wideFicha) {
+      setFichaHidden(true);
+      try {
+        window.localStorage.setItem("edi-ficha", "closed");
+      } catch {
+        /* the browser keeps nothing: it opens again next time */
+      }
+    }
+    navigate({ pathname: "/ceo", search: fichaSearch(fslug || null, null) }, { replace: true });
+    const back = opener.current;
+    if (back?.isConnected) window.setTimeout(() => back.focus(), 0);
+  };
+  const showFicha = (r: FichaRef, el?: HTMLElement | null, slug?: string) => {
+    if (fichaHidden) {
+      setFichaHidden(false);
+      try {
+        window.localStorage.removeItem("edi-ficha");
+      } catch {
+        /* nothing kept */
+      }
+    }
+    setFicha(r, el, slug);
+  };
   useEffect(() => {
     if (!company) return;
     const onKey = (e: KeyboardEvent) => {
-      if ((e.key !== "ArrowUp" && e.key !== "ArrowDown") || e.metaKey || e.ctrlKey || e.altKey || typingIn(e.target)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || typingIn(e.target) || document.querySelector("[role=dialog]")) return;
+      if (e.key === "Escape" && fichaOpen) {
+        const to = escStep(fref);
+        e.preventDefault();
+        if (to === "close") closeFicha();
+        else {
+          setFicha(to);
+          const back = opener.current;
+          if (back?.isConnected) window.setTimeout(() => back.focus(), 0);
+        }
+        return;
+      }
+      if (e.key.length === 1 && "12345".includes(e.key)) {
+        e.preventDefault();
+        showFicha({ kind: "tab", tab: FICHA_TABS[Number(e.key) - 1]! });
+        return;
+      }
+      if (e.key === "i" || e.key === "I") {
+        e.preventDefault();
+        if (fichaOpen) closeFicha();
+        else showFicha(fref);
+        return;
+      }
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
       const { floors, basement } = floorOrder(company.projects, decisions);
       const open = openFloor(floors, basement, shownPiso);
       const to = stepFloor(floors, basement, open?.slug ?? null, e.key === "ArrowUp" ? -1 : 1);
@@ -203,7 +330,7 @@ const Compania = () => {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company, decisions, shownPiso]);
+  }, [company, decisions, shownPiso, fichaOpen, fref.kind, fslug]);
   const act = useMutation({
     mutationFn: (v: { d: Decision; input: DecisionInput; key: string }) => api.actDecision(v.d.id, v.input),
     onMutate: (v) => {
@@ -299,6 +426,8 @@ const Compania = () => {
     held: "No pudo arrancar: el uso de Claude está al límite.",
     fail: "No pudo arrancar. Míralo en Máquina.",
   };
+  // The questions' calls, the same on the floor and in La ficha.
+  const qacts = { now, busy, errors, opened: openDecision, onAct: (d: Decision, input: DecisionInput, key: string) => act.mutate({ d, input, key }), onPublish: (d: Decision) => openPublish(d.project) };
   const nowActs = {
     busy: nowBusy,
     onElapsed: refresh,
@@ -472,18 +601,12 @@ const Compania = () => {
             onFijar={setFijar}
             onResume={(slug) => resume.mutate(slug)}
             resuming={resuming}
-            acts={{ now, busy, errors, opened: openDecision, onAct: (d, input, key) => act.mutate({ d, input, key }), onPublish: (d) => openPublish(d.project) }}
+            acts={qacts}
             onPublish={(p) => openPublish(p.slug)}
             roofOpen={roofOpen}
             onChip={(d) => setRoofOpen((x) => (x === d.id ? null : d.id))}
-            onOpen={(slug, m, el) => {
-              opener.current = el;
-              openSheet(sheetSearch({ kind: "member", slug, agent: m.agent }));
-            }}
-            onPlan={(p, el) => {
-              opener.current = el;
-              openSheet(sheetSearch({ kind: "plan", slug: p.slug }));
-            }}
+            onOpen={(slug, m, el) => showFicha({ kind: "member", agent: m.agent }, el, slug)}
+            onPlan={(p, el) => showFicha({ kind: "tab", tab: "resumen" }, el, p.slug)}
             askFor={(p) => (
               <AskBox
                 key={p.slug}
@@ -513,18 +636,36 @@ const Compania = () => {
               onStop: (id) => steer.onRun("stop", id),
               onAccept: (d, action) => act.mutate({ d, input: { action }, key: `fila-${action}` }),
               onCancel: steer.onCancelOrder,
-              onRow: (slug, _row, el) => {
-                opener.current = el;
-                openSheet(sheetSearch({ kind: "plan", slug }));
+              onRow: (slug, row, el) => {
+                const here = company.projects.find((x) => x.slug === slug)?.route?.legs.find((l) => l.state === "here");
+                if (row.key && /^[A-Z][A-Z0-9]*-/.test(row.key)) showFicha({ kind: "step", key: row.key }, el, slug);
+                else if (here) showFicha({ kind: "leg", key: here.key }, el, slug);
               },
               busy: steer.busy,
             }}
             onPiso={onPiso}
             onAdd={(slug, el) => {
-              opener.current = el;
               setAdded(null);
-              openSheet(sheetSearch({ kind: "add", slug }));
+              showFicha({ kind: "sumar" }, el, slug);
             }}
+            onLeg={(slug, key, el) => showFicha({ kind: "leg", key }, el, slug)}
+            fichaOpen={fichaOpen}
+            ficha={
+              fichaProject ? (
+                <Ficha
+                  project={fichaProject}
+                  fref={fref}
+                  rows={loadOf(fichaRows, needsRows(fref))}
+                  task={loadOf(fichaTask, !!taskKey)}
+                  doc={loadOf(fichaDoc, !!docId)}
+                  now={now}
+                  timeZone={timeZone}
+                  onRef={(r) => setFicha(r)}
+                  onClose={closeFicha}
+                  slots={fichaSlots(fichaProject)}
+                />
+              ) : undefined
+            }
           />
         )}
       </BuildingBlock>
@@ -559,41 +700,6 @@ const Compania = () => {
           onMore={asistente.onMore}
           className="ring-0 p-0"
         />
-      </SidePage>
-
-      {/* PLA-I39-6: the side page: a teammate, the plan, adding someone. */}
-      <SidePage
-        open={!!sideProject && (sheet?.kind !== "member" || !!sideMember)}
-        wide={wide}
-        title={sideMember && sideProject ? memberTitle(sideMember, sideProject) : sheet?.kind === "add" ? `Sumar a ${sideProject?.title ?? ""}` : (sideProject?.title ?? "")}
-        description={sideMember ? caption(sideMember, now, { companyPaused: company?.company.paused }).doing : sheet?.kind === "add" ? "Elige el rol y sus paquetes. Su ventana aparece en el piso." : "El plan del proyecto"}
-        head={sideMember ? <MemberHead m={sideMember} companyPaused={company?.company.paused} /> : undefined}
-        onClose={closeSheet}
-        returnTo={() => {
-          // What opened it; after a reload, the window or the name it belongs to.
-          if (opener.current?.isConnected) return opener.current;
-          const last = lastSide.current;
-          if (last?.kind === "member") return document.querySelector<HTMLElement>(`button[data-agent="${CSS.escape(last.agent)}"]`);
-          if (last && "slug" in last) return document.querySelector<HTMLElement>(`[data-floor="${CSS.escape(last.slug)}"] [data-control="${last.kind === "add" ? "sumar" : "plan"}"]`);
-          return null;
-        }}
-      >
-        {sideProject && sideMember && <MemberSide key={sideMember.agent} project={sideProject} member={sideMember} now={now} steer={steer} />}
-        {sideProject && sheet?.kind === "plan" && (
-          <PlanPage project={sideProject} sheet={detail.data} loading={detail.isPending} error={detail.isError} onRetry={() => void detail.refetch()} now={now} steer={steer} onFijar={setFijar} />
-        )}
-        {sideProject && sheet?.kind === "add" && (
-          <SumarSide
-            key={sideProject.slug}
-            hire={detail.data?.hire}
-            packs={packs.data?.packs}
-            loading={detail.isPending || packs.isPending}
-            packsError={packs.isError}
-            busy={addMember.isPending}
-            added={added}
-            onAdd={(template, chosen) => addMember.mutate({ slug: sideProject.slug, template, packs: chosen })}
-          />
-        )}
       </SidePage>
 
       {/* A doc linked from a message or a role row */}
