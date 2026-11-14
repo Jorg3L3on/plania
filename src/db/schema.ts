@@ -782,6 +782,8 @@ export type ProjectSettings = {
   capture?: import("../captures/settings.js").CaptureSettings;
   // PLA-I46-9: the QA lane's verify list and review model (src/runner/qa-settings.ts).
   qa?: import("../runner/qa-settings.js").QaSettings;
+  // PLA-I48-2: the floor's Máquinas: env file, migrate and seed commands, migrations folder (src/maquinas/settings.ts).
+  maquinas?: import("../maquinas/env.js").MaquinasSettings;
 };
 
 // 2.13: mode "command" (default) shows the command Jorge runs; "merge" lets him ship from the screen
