@@ -9,6 +9,7 @@ import { z } from "zod";
 import { withDb, type Db } from "../db/client.js";
 import { briefChecks, docs, morningBriefs, projects, type MorningBrief } from "../db/schema.js";
 import { BriefRunningError, localDateIn, runningRun, startBrief, type RunBriefDeps } from "../brief/pipeline.js";
+import { runDoctor } from "../brief/doctor.js";
 import { IDEA_PERSONA_DOC } from "../brief/prompts.js";
 import { BriefSettingsError, loadBriefSettings, resolveBriefSettings, saveBriefSettings } from "../brief/settings.js";
 import { liveRuns } from "../runner/runner.js";
@@ -164,6 +165,15 @@ briefApi.put("/settings", async (c) => {
     return c.json(await settingsOut(db));
   });
 });
+
+// PLA-I44-2: the read-only "Setup check" at the bottom of the settings sheet (spec §8, §9). The same lines as
+// pnpm brief:doctor, without the claude dry run (that one uses the owner's plan; the doctor command runs it).
+briefApi.get("/doctor", (c) =>
+  withDb(async (db) => {
+    const lines = await runDoctor(db, { skipClaudeRun: true, ...(runDeps.env ? { env: runDeps.env } : {}) });
+    return c.json({ ok: lines.every((l) => l.ok), lines });
+  }),
+);
 
 // Send to Plania (D3) is Morning brief C (PLA-I43).
 const notYet = (c: Context) => c.json({ error: "NOT_IMPLEMENTED", hint: "Send to Plania comes with Morning brief C" }, 501);

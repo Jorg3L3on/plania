@@ -15,7 +15,7 @@ import { repoPathOf } from "../runner/worktree.js";
 import { StreamReader } from "../runner/stream.js";
 import { briefArgs, briefChildEnv, briefSettings, commandOf } from "./claude.js";
 import { PROMPTS_DIR, PROMPT_FILES } from "./prompts.js";
-import { loadBriefProjects } from "./settings.js";
+import { loadBriefProjects, loadBriefSettings, validTimezone } from "./settings.js";
 
 export type DoctorLine = { ok: boolean; text: string };
 export type ExecResult = { code: number | null; stdout: string; stderr: string };
@@ -72,6 +72,44 @@ async function claudeDryRun(cmd: string, env: NodeJS.ProcessEnv, exec: ExecFn): 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * PLA-I44-2: the settings rows of §9. Saved or first-run defaults, on or off (with the run time), and whether the
+ * time zone the brief uses is a real IANA zone (an invalid one silently falls back, so it is a ✗ here).
+ */
+async function settingsLines(db: Db, env: NodeJS.ProcessEnv): Promise<DoctorLine[]> {
+  const [saved] = (await db.execute<{ n: number }>(sql`select count(*)::int as n from brief_settings`)).rows;
+  const s = await loadBriefSettings(db);
+  const out: DoctorLine[] = [];
+  const state = s.enabled ? `on, runs at ${s.run_at}` : "off: no daily run, Generate now still works";
+  out.push(line(true, saved?.n ? `brief settings saved (${state})` : `brief settings: first-run defaults (${state}, every project included, no hidden refs)`));
+  const zone = s.timezone || env.PLANIA_TZ?.trim();
+  if (!zone) out.push(line(true, "time zone valid (the default; set it on /brief or with PLANIA_TZ)"));
+  else if (validTimezone(zone)) out.push(line(true, `time zone valid (${s.timezone ? "brief settings" : "PLANIA_TZ"})`));
+  else out.push(line(false, `time zone valid: ${s.timezone ? "the brief settings zone" : "PLANIA_TZ"} is not an IANA zone, e.g. Europe/Madrid (the brief falls back to the default)`));
+  return out;
+}
+
+/**
+ * PLA-I44-2: the PO-per-project row of §9 (Send to Plania). Each included project needs its product owner (po-<slug>,
+ * or a product-owner agent with that project_id), and cross ideas need the home project (PLANIA_HOME_PROJECT).
+ */
+async function sendLines(db: Db, slugs: string[], env: NodeJS.ProcessEnv): Promise<DoctorLine[]> {
+  const out: DoctorLine[] = [];
+  const pos = await db.execute<{ slug: string }>(sql`
+    select p.slug from projects p
+    where exists (select 1 from agents a where coalesce(a.status, '') <> 'retired'
+      and (a.slug = 'po-' || p.slug or (a.project_id = p.id and (a.role_template = 'product-owner' or a.role = 'product-owner'))))`);
+  const have = new Set(pos.rows.map((r) => r.slug));
+  for (const slug of slugs) {
+    out.push(have.has(slug) ? line(true, `product owner for ${slug}`) : line(false, `product owner for ${slug}: none (Send to Plania needs po-${slug}; create_company_project or scripts/seed-org.ts makes it)`));
+  }
+  // Same fallback as the runner's homeProjectSlug (src/runner/asistente.ts), without importing the runner here.
+  const home = env.PLANIA_HOME_PROJECT || env.PLANIA_PROMPTS_PROJECT || "plania";
+  const [found] = (await db.execute<{ n: number }>(sql`select count(*)::int as n from projects where slug = ${home}`)).rows;
+  out.push(found?.n ? line(true, "home project for cross ideas exists (PLANIA_HOME_PROJECT)") : line(false, "home project for cross ideas exists: no project with that slug (set PLANIA_HOME_PROJECT to one of your projects)"));
+  return out;
 }
 
 export async function runDoctor(db: Db | null, deps: DoctorDeps = {}): Promise<DoctorLine[]> {
@@ -131,6 +169,8 @@ export async function runDoctor(db: Db | null, deps: DoctorDeps = {}): Promise<D
           const dir = repoPathOf(p.slug, settingsOf.get(p.slug) ?? null, env);
           out.push(exists(dir) ? line(true, `repo for ${p.slug} exists`) : line(false, `repo for ${p.slug} exists: not found (set settings.local.repo_path or PLANIA_PROJECTS_ROOT)`));
         }
+        out.push(...(await settingsLines(db, env)));
+        out.push(...(await sendLines(db, projects.map((p) => p.slug), env)));
       } else {
         out.push(line(false, "repo paths: skipped until migration 0045 is applied"));
       }

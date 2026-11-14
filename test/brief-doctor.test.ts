@@ -21,7 +21,7 @@ const scratch = mkdtempSync(path.join(tmpdir(), "plania-brief-doctor-test-"));
 const FIXTURE = readFileSync(new URL("./fixtures/claude/structured-output-2.1.302.jsonl", import.meta.url), "utf8");
 const SECRETS = { PLANIA_BRIEF_TOKEN: "brief-secret-value-123", PLANIA_RUNNER_TOKEN: "runner-secret-value-456", GITHUB_TOKEN: "ghp_secretvalue789", MCP_READ_TOKEN: "read-secret-000" };
 const root = path.join(scratch, "projects");
-const env = { HOME: scratch, PATH: "/usr/bin:/bin", CLAUDE_CODE_BIN: path.join(scratch, "bin", "claude"), PLANIA_PROJECTS_ROOT: root, ANTHROPIC_API_KEY: "sk-ant-secret", ...SECRETS } as NodeJS.ProcessEnv;
+const env = { HOME: scratch, PATH: "/usr/bin:/bin", CLAUDE_CODE_BIN: path.join(scratch, "bin", "claude"), PLANIA_PROJECTS_ROOT: root, PLANIA_HOME_PROJECT: "workia", ANTHROPIC_API_KEY: "sk-ant-secret", ...SECRETS } as NodeJS.ProcessEnv;
 
 function fakeExec(dry: { stdout: string; code?: number } = { stdout: FIXTURE }) {
   const calls: { args: string[]; env: NodeJS.ProcessEnv }[] = [];
@@ -37,6 +37,10 @@ before(async () => {
   raw = await resetTestDb();
   ({ db } = makeDb());
   for (const slug of ["micasa", "workia", "zigzag"]) mkdirSync(path.join(root, slug), { recursive: true });
+  // Product owners: po-<slug> for two, a product-owner agent by project_id for the third, none for filmia.
+  await raw.query(`insert into agents (slug, name, role, kind) values ('po-micasa', 'PO MiCasa', 'product-owner', 'bot'), ('po-workia', 'PO Workia', 'product-owner', 'bot')`);
+  await raw.query(`insert into agents (slug, name, role, kind, project_id, role_template) select 'owner-zz', 'ZZ owner', 'product-owner', 'bot', id, 'product-owner' from projects where slug = 'zigzag'`);
+  await raw.query(`insert into agents (slug, name, role, kind, status) values ('po-filmia', 'PO Filmia (old)', 'product-owner', 'bot', 'retired')`);
 });
 
 after(async () => {
@@ -67,6 +71,13 @@ test("check 6: one line per check, ✓ or ✗, and no secret values", async () =
       [true, "repo for micasa exists"],
       [true, "repo for workia exists"],
       [true, "repo for zigzag exists"],
+      [true, "brief settings"],
+      [true, "time zone valid"],
+      [false, "product owner for filmia"],
+      [true, "product owner for micasa"],
+      [true, "product owner for workia"],
+      [true, "product owner for zigzag"],
+      [true, "home project for cross ideas exists"],
       [true, "migration 0045 applied"],
       [true, "prompts folder present"],
     ],
@@ -134,9 +145,40 @@ test("check 6: the script prints the lines and exits 1 on a ✗ (fake claude on 
     ),
   );
   const lines = res.stdout.trim().split("\n");
-  assert.equal(lines.length, 11);
+  assert.equal(lines.length, 18);
   for (const l of lines) assert.match(l, /^[✓✗] /);
   assert.match(res.stdout, /✓ claude logged in: skipped \(--skip-claude\)/);
   assert.equal(res.code, 1, "filmia's repo is missing");
   noValues(res.stdout);
+});
+
+// PLA-I44-2: the §9 settings and Send to Plania rows: first-run defaults vs saved, on/off, the zone, each included
+// project's product owner (a retired one does not count), the home project. Still no values.
+test("§9 rows: settings, time zone, product owners, home project", async () => {
+  const f = fakeExec();
+  let out = formatDoctor(await runDoctor(db, { env, exec: f.exec, skipClaudeRun: true }));
+  assert.match(out, /✓ brief settings: first-run defaults \(on, runs at 07:00, every project included, no hidden refs\)/);
+  assert.match(out, /✓ time zone valid \(the default; set it on \/brief or with PLANIA_TZ\)/);
+  assert.match(out, /✗ product owner for filmia: none \(Send to Plania needs po-filmia; create_company_project or scripts\/seed-org.ts makes it\)/);
+  assert.match(out, /✓ home project for cross ideas exists/);
+
+  out = formatDoctor(await runDoctor(db, { env: { ...env, PLANIA_TZ: "Mars/Olympus", PLANIA_HOME_PROJECT: "nowhere" }, exec: f.exec, skipClaudeRun: true }));
+  assert.match(out, /✗ time zone valid: PLANIA_TZ is not an IANA zone/);
+  assert.match(out, /✗ home project for cross ideas exists: no project with that slug/);
+  assert.doesNotMatch(out, /Mars|nowhere/, "the env values are not printed");
+
+  // Saved, off, a zone of its own; filmia left out of the brief, so its missing PO and repo no longer count.
+  const { saveBriefSettings } = await import("../src/brief/settings.js");
+  await saveBriefSettings(db, { enabled: false, timezone: "Europe/Lisbon", projects: { filmia: { include: false } } });
+  try {
+    const lines = await runDoctor(db, { env, exec: f.exec, skipClaudeRun: true });
+    out = formatDoctor(lines);
+    assert.match(out, /✓ brief settings saved \(off: no daily run, Generate now still works\)/);
+    assert.match(out, /✓ time zone valid \(brief settings\)/);
+    assert.doesNotMatch(out, /filmia/);
+    assert.ok(lines.every((l) => l.ok), out);
+    noValues(out);
+  } finally {
+    await raw.query(`delete from brief_settings`);
+  }
 });
