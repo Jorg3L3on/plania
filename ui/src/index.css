@@ -511,6 +511,8 @@
   .edi-nowb[data-now="work"] { --st: #ffc46b; }
   .edi-nowb[data-now="rest"] { --st: #b9a6ff; }
   .edi-nowb[data-now="you"] { --st: var(--e-you); }
+  /* Te toca leads the card, above the route (order -2); any other Ahora state sits under it. */
+  .edi-nowb[data-now="you"] { order: -3; }
   .edi-nowb[data-now="stuck"] { --st: #ff8a80; }
   .edi-nowb[data-now="done"] { --st: #8fe0a4; }
   .edi-ntext { display: grid; gap: 6px; min-width: 0; }
