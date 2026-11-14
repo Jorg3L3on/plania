@@ -1,15 +1,16 @@
 // PLA-I42-2: the /brief page (spec "Spec: Morning brief" §8, layout items 1–3 and 5, Behavior): header, summary with
 // filters, Needs you and Up next, footer, empty states, and the cached brief with "Couldn't refresh" when the API
-// fails. PLA-I42-3 adds Today's ideas (item 4) and the floating send bar (item 6); the settings sheet comes in PLA-I42-4.
+// fails. PLA-I42-3 adds Today's ideas (item 4) and the floating send bar (item 6); PLA-I42-4 the settings sheet.
 // Labels follow the brief's language (D5).
 import { useState } from "react";
 import { BriefIdeas } from "@/components/brief/brief-ideas";
 import { BriefSendBar } from "@/components/brief/brief-send-bar";
+import { BriefSettingsSheet } from "@/components/brief/brief-settings";
 import { BriefFooter } from "@/components/brief/brief-footer";
 import { BriefHeader } from "@/components/brief/brief-header";
 import { BriefSection, EmptyRow, NeedsRow, NextRow } from "@/components/brief/brief-items";
 import { BriefSummary } from "@/components/brief/brief-summary";
-import { BRIEF_LABELS, briefStamp } from "@/components/brief/labels";
+import { BRIEF_LABELS, briefStamp } from "@/lib/brief-i18n";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   type BriefLanguage,
@@ -38,6 +39,7 @@ export function BriefPage() {
   const [date, setDate] = useState<string | null>(null);
   const [view, setView] = useState<BriefView>("open");
   const [app, setApp] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [picked, setPicked] = useState<{ brief: string | null; ids: Set<string> }>({ brief: null, ids: new Set() });
   const past = useBriefByDate(date);
 
@@ -90,7 +92,9 @@ export function BriefPage() {
         todayDate={latest.data?.brief?.local_date ?? null}
         date={date}
         onDate={setDate}
+        onSettings={() => setSettingsOpen(true)}
       />
+      <BriefSettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} language={language} />
 
       {(refreshFailed || readOnly) && (
         <p className="-mt-3 text-sm text-muted-foreground" role="status" data-brief={refreshFailed ? "refresh-failed" : "past"}>

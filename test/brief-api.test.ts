@@ -78,7 +78,7 @@ after(async () => {
 });
 
 test("every route needs the session cookie", async () => {
-  for (const [method, p] of [["GET", "/latest"], ["GET", "/history"], ["GET", "/2026-11-13"], ["POST", "/run"], ["PUT", "/checks/x"], ["DELETE", "/checks/x"], ["GET", "/settings"], ["PUT", "/settings"], ["POST", "/plan"], ["GET", "/plan/1"]] as const) {
+  for (const [method, p] of [["GET", "/latest"], ["GET", "/history"], ["GET", "/2026-11-13"], ["POST", "/run"], ["PUT", "/checks/x"], ["DELETE", "/checks/x"], ["GET", "/settings"], ["PUT", "/settings"], ["POST", "/plan"], ["GET", "/plan/1"], ["GET", "/personas/workia"], ["PUT", "/personas/workia"], ["GET", "/doctor"]] as const) {
     const res = await app.request(`/api/brief${p}`, { method });
     assert.equal(res.status, 401, `${method} ${p}`);
   }
@@ -207,6 +207,53 @@ test("GET / PUT /settings: brief_settings, the resolved zone and owner, and pers
   assert.equal((await send("PUT", "/settings", { nope: true })).status, 400, "unknown keys are refused");
   assert.equal((await send("PUT", "/settings", [1])).status, 400);
   await send("PUT", "/settings", { run_at: "07:00", fallback_at: "11:00", language: "en" });
+});
+
+test("PLA-I42-4: GET /settings lists every project with its resolved letter, order and include flags", async () => {
+  const body = (await (await get("/settings")).json()) as { projects: { slug: string; letter: string; order: number; include: boolean; include_ideas: boolean }[] };
+  assert.ok(body.projects.length >= 2);
+  assert.deepEqual(body.projects.map((p) => p.order), body.projects.map((_, i) => i));
+  for (const p of body.projects) {
+    assert.match(p.letter, /^[A-WYZ]$/);
+    assert.equal(typeof p.include, "boolean");
+  }
+  await send("PUT", "/settings", { projects: { zigzag: { include: false, include_ideas: false, letter: "Q", order: 0 } } });
+  const after = (await (await get("/settings")).json()) as { projects: { slug: string; letter: string; order: number; include: boolean }[] };
+  const z = after.projects.find((p) => p.slug === "zigzag")!;
+  assert.deepEqual([z.letter, z.order, z.include], ["Q", 0, false]);
+  await send("PUT", "/settings", { projects: { zigzag: {} } });
+});
+
+test("PLA-I42-4: GET / PUT /personas/:slug read and save the project's Idea persona doc; a stale version is 409", async () => {
+  const none = (await (await get("/personas/workia")).json()) as { doc_id: string | null; markdown: string; version: number | null };
+  assert.deepEqual([none.doc_id, none.markdown, none.version], [null, "", null]);
+  const made = await send("PUT", "/personas/workia", { markdown: "You run HR for a multi-branch store." });
+  assert.equal(made.status, 200);
+  const doc = (await made.json()) as { doc_id: string; version: number; markdown: string };
+  assert.equal(doc.version, 1);
+  const row = (await raw.query(`select d.title, d.markdown, d.task_id from docs d join projects p on p.id = d.project_id where p.slug = 'workia' and d.title = 'Idea persona'`)).rows;
+  assert.deepEqual(row, [{ title: "Idea persona", markdown: "You run HR for a multi-branch store.", task_id: null }]);
+  const again = await send("PUT", "/personas/workia", { markdown: "Second take.", version: 1 });
+  assert.equal(((await again.json()) as { version: number }).version, 2);
+  assert.equal((await send("PUT", "/personas/workia", { markdown: "Late.", version: 1 })).status, 409, "stale version");
+  assert.equal((await send("PUT", "/personas/workia", { markdown: "No version." })).status, 409, "creating over an existing doc");
+  assert.equal(((await (await get("/personas/workia")).json()) as { markdown: string }).markdown, "Second take.");
+  const settings = (await (await get("/settings")).json()) as { personas: { project: string }[] };
+  assert.ok(settings.personas.some((p) => p.project === "workia"));
+  assert.equal((await get("/personas/nope")).status, 404);
+  assert.equal((await get("/personas/Bad_Slug")).status, 400);
+  assert.equal((await send("PUT", "/personas/workia", { markdown: 3 })).status, 400);
+});
+
+test("PLA-I42-4: GET /doctor is the read-only Setup check without the claude dry run, and prints no values", async () => {
+  const res = await get("/doctor");
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { lines: { ok: boolean; text: string }[] };
+  assert.ok(body.lines.length >= 5);
+  assert.ok(body.lines.every((l) => typeof l.ok === "boolean" && typeof l.text === "string"));
+  assert.ok(body.lines.some((l) => /claude logged in: skipped/.test(l.text)));
+  assert.ok(body.lines.some((l) => /migration 0045 applied/.test(l.text) && l.ok));
+  assert.doesNotMatch(JSON.stringify(body), /brief-read-token-value|test-read-token|\/Users\//);
 });
 
 test("POST /plan and GET /plan/:id answer 501 until Morning brief C", async () => {

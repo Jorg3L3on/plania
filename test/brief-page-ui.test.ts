@@ -11,7 +11,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
 const lib = await load("lib/brief.ts");
-const labels = await load("components/brief/labels.ts");
+const labels = await load("lib/brief-i18n.ts");
 const summary = await load("components/brief/brief-summary.tsx");
 const items = await load("components/brief/brief-items.tsx");
 const header = await load("components/brief/brief-header.tsx");

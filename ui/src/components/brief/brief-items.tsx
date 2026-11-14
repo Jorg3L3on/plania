@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { type BriefApp, type BriefLanguage, type Item, type SectionId, readCollapsed, safeUrl, writeCollapsed } from "@/lib/brief";
 import { AppBadge } from "./app-badge";
-import { BRIEF_LABELS } from "./labels";
+import { BRIEF_LABELS } from "@/lib/brief-i18n";
 
 /** One section's collapsed flag, read once and written on every toggle. */
 export function useCollapsed(id: string): [boolean, () => void] {

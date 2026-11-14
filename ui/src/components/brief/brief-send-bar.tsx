@@ -5,7 +5,7 @@ import { CopyIcon, SendIcon, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { BRIEF_SEND_ENABLED, type BriefLanguage } from "@/lib/brief";
-import { BRIEF_LABELS } from "./labels";
+import { BRIEF_LABELS } from "@/lib/brief-i18n";
 
 type CopyState = "idle" | "copied" | "failed";
 

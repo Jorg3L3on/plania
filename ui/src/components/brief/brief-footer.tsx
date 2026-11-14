@@ -1,7 +1,7 @@
 // PLA-I42-2: the footer (spec §8 item 5): "Generated {stamp}" plus the app names; a muted line when parts are
 // missing (partial or facts_only). No banner.
 import type { BriefData, BriefLanguage } from "@/lib/brief";
-import { BRIEF_LABELS } from "./labels";
+import { BRIEF_LABELS } from "@/lib/brief-i18n";
 
 export function BriefFooter({ data, stamp, language }: { data: BriefData; stamp: string; language: BriefLanguage }) {
   const t = BRIEF_LABELS[language];

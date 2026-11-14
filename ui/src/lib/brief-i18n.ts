@@ -1,5 +1,7 @@
-// PLA-I42-2: the /brief page's labels in the brief's language (D5). A small local table for now;
-// PLA-I42-4 moves it to ui/src/lib/brief-i18n.ts with the settings sheet labels and the flag captions.
+// PLA-I42-4: every label of the /brief page and its settings sheet, in English and Spanish (D5: the page follows the
+// brief's language; the nav tab stays "Brief"; the rest of Plania stays Spanish). Components never hard-code a label:
+// they read BRIEF_LABELS[language]. Weekdays and months come from Intl.DateTimeFormat(language); counts use the
+// plural functions below.
 import type { BriefLanguage } from "@/lib/brief";
 
 type Plural = (n: number) => string;
@@ -56,6 +58,64 @@ export type BriefLabels = {
   copied: string;
   copyFailed: string;
   sendToPlania: string;
+  s: SettingsLabels;
+};
+
+/** The settings sheet (spec §8 "Settings sheet") and its Setup check. */
+export type SettingsLabels = {
+  title: string;
+  description: string;
+  close: string;
+  general: string;
+  enabled: string;
+  enabledHint: string;
+  runAt: string;
+  fallbackAt: string;
+  fallbackHint: string;
+  timezone: string;
+  timezoneHint: (resolved: string) => string;
+  timezoneLabel: string;
+  language: string;
+  languages: { en: string; es: string };
+  ownerName: string;
+  ownerHint: (resolved: string) => string;
+  content: string;
+  hiddenRefs: string;
+  hiddenRefsHint: string;
+  addRef: string;
+  removeRef: (ref: string) => string;
+  maxItems: string;
+  ideasPerProject: string;
+  ideasEnabled: string;
+  model: string;
+  modelHint: string;
+  projects: string;
+  projectsHint: string;
+  include: (name: string) => string;
+  includeIdeas: (name: string) => string;
+  inBrief: string;
+  ideasOn: string;
+  letter: string;
+  order: string;
+  editPersona: string;
+  hidePersona: string;
+  persona: (name: string) => string;
+  personaHint: string;
+  personaNone: string;
+  savePersona: string;
+  personaSaved: string;
+  personaStale: string;
+  save: string;
+  saving: string;
+  saved: string;
+  saveFailed: string;
+  cancel: string;
+  loading: string;
+  setup: string;
+  setupHint: string;
+  setupOk: string;
+  setupBad: string;
+  setupFailed: string;
 };
 
 const en: BriefLabels = {
@@ -111,6 +171,61 @@ const en: BriefLabels = {
   copied: "Copied",
   copyFailed: "Couldn't copy",
   sendToPlania: "Send to Plania",
+  s: {
+    title: "Brief settings",
+    description: "The morning brief for every project. Changes apply to the next brief.",
+    close: "Close",
+    general: "Schedule",
+    enabled: "Morning brief on",
+    enabledHint: "Off means no scheduled run. Generate now still works.",
+    runAt: "Run time",
+    fallbackAt: "Fallback time",
+    fallbackHint: "If the full brief hasn't started by then, a facts-only brief is stored.",
+    timezone: "Time zone",
+    timezoneHint: (r) => `Blank uses the server zone (now ${r}).`,
+    timezoneLabel: "Zone label",
+    language: "Language",
+    languages: { en: "English", es: "Spanish" },
+    ownerName: "Owner name",
+    ownerHint: (r) => `Blank uses the server default (now “${r}”).`,
+    content: "Content",
+    hiddenRefs: "Hidden refs",
+    hiddenRefsHint: "Items and ideas that mention one of these are left out.",
+    addRef: "Add",
+    removeRef: (r) => `Remove ${r}`,
+    maxItems: "Max items per app",
+    ideasPerProject: "Ideas per project",
+    ideasEnabled: "Ideas on",
+    model: "Model",
+    modelHint: "Blank uses Claude's default.",
+    projects: "Projects",
+    projectsHint: "Include, ideas, idea letter and order for each project.",
+    include: (n) => `Include ${n} in the brief`,
+    includeIdeas: (n) => `Ideas for ${n}`,
+    inBrief: "In brief",
+    ideasOn: "Ideas",
+    letter: "Letter",
+    order: "Order",
+    editPersona: "Edit persona",
+    hidePersona: "Close persona",
+    persona: (n) => `Idea persona for ${n}`,
+    personaHint: "Who suggests this project's ideas. Saved as the project doc “Idea persona”.",
+    personaNone: "No persona yet.",
+    savePersona: "Save persona",
+    personaSaved: "Persona saved",
+    personaStale: "Someone changed it meanwhile. Reopen it and try again.",
+    save: "Save",
+    saving: "Saving…",
+    saved: "Saved",
+    saveFailed: "Couldn't save. Check the fields.",
+    cancel: "Cancel",
+    loading: "Loading…",
+    setup: "Setup check",
+    setupHint: "Read-only. The Claude login check runs only in pnpm brief:doctor.",
+    setupOk: "OK",
+    setupBad: "Needs attention",
+    setupFailed: "Couldn't run the setup check.",
+  },
 };
 
 const es: BriefLabels = {
@@ -166,6 +281,61 @@ const es: BriefLabels = {
   copied: "Copiada",
   copyFailed: "No se pudo copiar",
   sendToPlania: "Mandar a Plania",
+  s: {
+    title: "Ajustes del brief",
+    description: "El brief de la mañana para todos los proyectos. Los cambios valen para el siguiente brief.",
+    close: "Cerrar",
+    general: "Horario",
+    enabled: "Brief de la mañana encendido",
+    enabledHint: "Apagado no hay corrida programada. Generar ahora sigue funcionando.",
+    runAt: "Hora de corrida",
+    fallbackAt: "Hora límite",
+    fallbackHint: "Si el brief completo no ha empezado a esa hora, se guarda uno solo con datos.",
+    timezone: "Zona horaria",
+    timezoneHint: (r) => `Vacío usa la zona del servidor (ahora ${r}).`,
+    timezoneLabel: "Etiqueta de zona",
+    language: "Idioma",
+    languages: { en: "Inglés", es: "Español" },
+    ownerName: "Nombre del dueño",
+    ownerHint: (r) => `Vacío usa el valor del servidor (ahora “${r}”).`,
+    content: "Contenido",
+    hiddenRefs: "Refs ocultas",
+    hiddenRefsHint: "Se omiten los pendientes e ideas que mencionen alguna.",
+    addRef: "Agregar",
+    removeRef: (r) => `Quitar ${r}`,
+    maxItems: "Máximo de pendientes por app",
+    ideasPerProject: "Ideas por proyecto",
+    ideasEnabled: "Ideas encendidas",
+    model: "Modelo",
+    modelHint: "Vacío usa el modelo por defecto de Claude.",
+    projects: "Proyectos",
+    projectsHint: "Incluir, ideas, letra de idea y orden de cada proyecto.",
+    include: (n) => `Incluir ${n} en el brief`,
+    includeIdeas: (n) => `Ideas para ${n}`,
+    inBrief: "En el brief",
+    ideasOn: "Ideas",
+    letter: "Letra",
+    order: "Orden",
+    editPersona: "Editar persona",
+    hidePersona: "Cerrar persona",
+    persona: (n) => `Persona de ideas de ${n}`,
+    personaHint: "Quién propone las ideas de este proyecto. Se guarda como el doc del proyecto “Idea persona”.",
+    personaNone: "Aún no hay persona.",
+    savePersona: "Guardar persona",
+    personaSaved: "Persona guardada",
+    personaStale: "Alguien la cambió mientras tanto. Ábrela de nuevo e inténtalo otra vez.",
+    save: "Guardar",
+    saving: "Guardando…",
+    saved: "Guardado",
+    saveFailed: "No se pudo guardar. Revisa los campos.",
+    cancel: "Cancelar",
+    loading: "Cargando…",
+    setup: "Revisión de instalación",
+    setupHint: "Solo lectura. La revisión del login de Claude corre solo en pnpm brief:doctor.",
+    setupOk: "Bien",
+    setupBad: "Requiere atención",
+    setupFailed: "No se pudo correr la revisión de instalación.",
+  },
 };
 
 export const BRIEF_LABELS: Record<BriefLanguage, BriefLabels> = { en, es };

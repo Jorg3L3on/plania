@@ -1,13 +1,13 @@
 // PLA-I42-2: the /brief header (spec §8 item 1). Stamp, H1, Generate now ("Generating… 3 min" / "Waiting for the
 // current build" while a run goes), the history select (Today plus the past 14 days, read-only) and the settings
-// gear (the sheet itself is PLA-I42-4; until then the gear is disabled).
+// gear that opens the settings sheet (PLA-I42-4).
 import { SettingsIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Kicker } from "@/components/plan/visuals";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type BriefHistoryRow, type BriefLanguage, type BriefRun, runMinutes } from "@/lib/brief";
-import { BRIEF_LABELS, dayLabel } from "./labels";
+import { BRIEF_LABELS, dayLabel } from "@/lib/brief-i18n";
 
 const TODAY = "today";
 

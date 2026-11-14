@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { type BriefApp, type BriefLanguage, type Idea, type IdeaGroup, parseFlag, showSource } from "@/lib/brief";
 import { SLOT_BG } from "./app-badge";
 import { useCollapsed } from "./brief-items";
-import { BRIEF_LABELS, type BriefLabels } from "./labels";
+import { BRIEF_LABELS, type BriefLabels } from "@/lib/brief-i18n";
 
 type CardProps = {
   idea: Idea;

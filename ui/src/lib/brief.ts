@@ -63,11 +63,16 @@ export type BriefRun = { id: string; status: "waiting" | "running"; started_at: 
 export type BriefLatest = { brief: StoredBrief | null; checks: string[]; run: BriefRun | null };
 export type BriefByDate = { brief: StoredBrief; checks: string[] };
 export type BriefHistoryRow = { id: string; local_date: string; generated_at: string; mode: BriefMode; needs: number; next: number; ideas: number };
+/** PLA-I42-4: one project as the settings sheet lists it (brief order, resolved letter and include flags). */
+export type BriefProjectRow = { slug: string; name: string; key_prefix: string; letter: string; order: number; include: boolean; include_ideas: boolean };
 export type BriefSettingsReply = {
   settings: BriefSettings;
   resolved: { timezone: string; timezone_label: string; owner_name: string };
   personas: { project: string; doc_id: string }[];
+  projects?: BriefProjectRow[];
 };
+export type BriefPersona = { project: string; doc_id: string | null; markdown: string; version: number | null };
+export type DoctorLine = { ok: boolean; text: string };
 export type BriefPass = "brief" | "ideas";
 export type BriefCheckReply = { item_id: string; checked: boolean };
 
@@ -94,6 +99,9 @@ export const briefApi = {
   uncheck: (itemId: string) => call<BriefCheckReply>("DELETE", `/checks/${encodeURIComponent(itemId)}`),
   settings: () => call<BriefSettingsReply>("GET", "/settings"),
   saveSettings: (patch: BriefSettingsPatch) => call<BriefSettingsReply>("PUT", "/settings", patch),
+  persona: (slug: string) => call<BriefPersona>("GET", `/personas/${encodeURIComponent(slug)}`),
+  savePersona: (slug: string, body: { markdown: string; version?: number }) => call<BriefPersona>("PUT", `/personas/${encodeURIComponent(slug)}`, body),
+  doctor: () => call<{ lines: DoctorLine[] }>("GET", "/doctor"),
 };
 
 export const briefKeys = {
@@ -101,6 +109,8 @@ export const briefKeys = {
   history: (days: number) => ["brief", "history", days] as const,
   date: (date: string) => ["brief", "date", date] as const,
   settings: ["brief", "settings"] as const,
+  persona: (slug: string) => ["brief", "persona", slug] as const,
+  doctor: ["brief", "doctor"] as const,
 };
 
 export const BRIEF_POLL_MS = 5_000;
@@ -204,8 +214,31 @@ export function useSaveBriefSettings() {
     mutationFn: (patch: BriefSettingsPatch) => briefApi.saveSettings(patch),
     onSuccess: (reply) => {
       qc.setQueryData(briefKeys.settings, reply);
+      // A new language, zone or app list changes what latest shows next time.
+      void qc.invalidateQueries({ queryKey: briefKeys.latest });
     },
   });
+}
+
+/** PLA-I42-4: a project's Idea persona doc, read when its editor opens. */
+export function useBriefPersona(slug: string | null) {
+  return useQuery({ queryKey: briefKeys.persona(slug ?? ""), queryFn: () => briefApi.persona(slug!), enabled: !!slug, staleTime: 0 });
+}
+
+export function useSaveBriefPersona() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ slug, markdown, version }: { slug: string; markdown: string; version?: number }) => briefApi.savePersona(slug, { markdown, version }),
+    onSuccess: (reply) => {
+      qc.setQueryData(briefKeys.persona(reply.project), reply);
+      void qc.invalidateQueries({ queryKey: briefKeys.settings });
+    },
+  });
+}
+
+/** PLA-I42-4: the read-only Setup check, fetched when the sheet opens. */
+export function useBriefDoctor(enabled: boolean) {
+  return useQuery({ queryKey: briefKeys.doctor, queryFn: briefApi.doctor, enabled, staleTime: 60_000 });
 }
 
 /** The CSS variable of an app slot (theme vars in index.css; other = muted foreground). */

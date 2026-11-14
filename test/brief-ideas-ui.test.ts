@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
 const lib = await load("lib/brief.ts");
-const labels = await load("components/brief/labels.ts");
+const labels = await load("lib/brief-i18n.ts");
 const ideas = await load("components/brief/brief-ideas.tsx");
 const bar = await load("components/brief/brief-send-bar.tsx");
 

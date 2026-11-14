@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { type BriefData, type BriefLanguage, type BriefView, briefCounts, openPerApp } from "@/lib/brief";
 import { AppDot, SLOT_BG } from "./app-badge";
-import { BRIEF_LABELS } from "./labels";
+import { BRIEF_LABELS } from "@/lib/brief-i18n";
 
 const chip =
   "inline-flex min-h-11 items-center gap-2 rounded-full border px-3 text-sm font-medium transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:min-h-9";

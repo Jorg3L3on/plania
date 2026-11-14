@@ -1,6 +1,8 @@
 // PLA-I41-6: the Morning brief API (spec §7.3), behind the plania_session cookie (mounted after the session check in
 // routes.ts). latest / history / :date read morning_briefs; run starts the pipeline (Generate now, pnpm brief:run);
-// checks/:itemId checks and unchecks an item or idea; settings reads and saves brief_settings. The Send to Plania
+// checks/:itemId checks and unchecks an item or idea; settings reads and saves brief_settings (PLA-I42-4 adds the
+// per-project rows); personas/:slug reads and saves a project's "Idea persona" doc; doctor is the sheet's read-only
+// Setup check (pnpm brief:doctor without the claude dry run, which uses the owner's plan). The Send to Plania
 // routes (plan, plan/:id) answer 501 until Morning brief C (PLA-I43). Nothing here returns a token, an env value
 // or a log's content.
 import { Hono, type Context } from "hono";
@@ -10,7 +12,11 @@ import { withDb, type Db } from "../db/client.js";
 import { briefChecks, docs, morningBriefs, projects, type MorningBrief } from "../db/schema.js";
 import { BriefRunningError, localDateIn, runningRun, startBrief, type RunBriefDeps } from "../brief/pipeline.js";
 import { IDEA_PERSONA_DOC } from "../brief/prompts.js";
-import { BriefSettingsError, loadBriefSettings, resolveBriefSettings, saveBriefSettings } from "../brief/settings.js";
+import { runDoctor } from "../brief/doctor.js";
+import { BriefSettingsError, briefProjects, loadBriefSettings, resolveBriefSettings, saveBriefSettings } from "../brief/settings.js";
+import { attachDoc } from "../mcp/docs.js";
+import { ToolError } from "../mcp/errors.js";
+import { webCtx } from "../mcp/tx.js";
 import { liveRuns } from "../runner/runner.js";
 
 export const briefApi = new Hono();
@@ -145,7 +151,10 @@ async function settingsOut(db: Db) {
     .innerJoin(projects, eq(projects.id, docs.projectId))
     .where(and(isNull(docs.taskId), eq(docs.title, IDEA_PERSONA_DOC)))
     .orderBy(projects.slug);
-  return { settings, resolved: { timezone: r.timezone, timezone_label: r.timezone_label, owner_name: r.owner_name }, personas };
+  // PLA-I42-4: the per-project rows the sheet shows (every project, brief order, resolved letter and include flags).
+  const all = await db.select({ id: projects.id, slug: projects.slug, title: projects.title, keyPrefix: projects.keyPrefix }).from(projects);
+  const rows = briefProjects(all, settings).map((p) => ({ slug: p.slug, name: p.name, key_prefix: p.key_prefix, letter: p.letter, order: p.order, include: p.include, include_ideas: p.include_ideas }));
+  return { settings, resolved: { timezone: r.timezone, timezone_label: r.timezone_label, owner_name: r.owner_name }, personas, projects: rows };
 }
 
 briefApi.get("/settings", (c) => withDb(async (db) => c.json(await settingsOut(db))));
@@ -164,6 +173,46 @@ briefApi.put("/settings", async (c) => {
     return c.json(await settingsOut(db));
   });
 });
+
+// PLA-I42-4: a project's "Idea persona" doc for the sheet's "Edit persona". GET gives {doc_id, markdown, version}
+// (null fields when the project has none); PUT {markdown, version?} creates it, or saves it when version matches.
+const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
+const PersonaBody = z.object({ markdown: z.string().max(20_000), version: z.number().int().positive().optional() });
+
+briefApi.get("/personas/:slug", async (c) => {
+  const slug = c.req.param("slug");
+  if (!SLUG.test(slug)) return c.json({ error: "INVALID_SLUG" }, 400);
+  return withDb(async (db) => {
+    const [p] = await db.select({ id: projects.id }).from(projects).where(eq(projects.slug, slug)).limit(1);
+    if (!p) return c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+    const [d] = await db
+      .select({ id: docs.id, markdown: docs.markdown, version: docs.version })
+      .from(docs)
+      .where(and(eq(docs.projectId, p.id), isNull(docs.taskId), eq(docs.title, IDEA_PERSONA_DOC)))
+      .limit(1);
+    return c.json({ project: slug, doc_id: d?.id ?? null, markdown: d?.markdown ?? "", version: d?.version ?? null });
+  });
+});
+
+briefApi.put("/personas/:slug", async (c) => {
+  const slug = c.req.param("slug");
+  if (!SLUG.test(slug)) return c.json({ error: "INVALID_SLUG" }, 400);
+  if (!c.req.header("Content-Type")?.startsWith("application/json")) return c.json({ error: "JSON_REQUIRED" }, 415);
+  const body = PersonaBody.safeParse(await c.req.json().catch(() => undefined));
+  if (!body.success) return c.json({ error: "INVALID_BODY" }, 400);
+  return withDb(async (db) => {
+    try {
+      const { doc } = await attachDoc(db, { project: slug, title: IDEA_PERSONA_DOC, markdown: body.data.markdown, version: body.data.version }, { ...webCtx, tool: "screen.brief_persona" });
+      return c.json({ project: slug, doc_id: doc.id, markdown: doc.markdown, version: doc.version });
+    } catch (err) {
+      if (err instanceof ToolError) return c.json({ error: err.code, ...err.detail }, err.status);
+      throw err;
+    }
+  });
+});
+
+// PLA-I42-4: the sheet's read-only Setup check: the same lines as pnpm brief:doctor --skip-claude (no values, no paths).
+briefApi.get("/doctor", (c) => withDb(async (db) => c.json({ lines: await runDoctor(db, { skipClaudeRun: true }) })));
 
 // Send to Plania (D3) is Morning brief C (PLA-I43).
 const notYet = (c: Context) => c.json({ error: "NOT_IMPLEMENTED", hint: "Send to Plania comes with Morning brief C" }, 501);
