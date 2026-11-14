@@ -548,7 +548,9 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
   if (!m) return refuse("DECISION_NOT_FOUND", "Esa decisión ya no está.", 404);
   if (m.actionState) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.", 409, { state: stateOf(m.actionState) });
   const ref = await resolveThread(db, m.threadId);
-  if (m.proposal?.kind === "plan") return actOnPlan(db, id, m, input);
+  // PLA-27: only a plan that waits for "Sí, empiecen" is acted on as a plan. One that needed no approval is
+  // information: its message shows as a delivery of the order's ticket, and is accepted or sent back like one.
+  if (m.proposal?.kind === "plan" && (m.proposal.needs_approval || ["empezar", "cambiar", "cancelar"].includes(input.action))) return actOnPlan(db, id, m, input);
   const proposal = m.proposal?.kind === "choice" ? { title: m.proposal.title, options: optionsOf(m.proposal), note: null } : m.authorRole === "product-owner" ? parseProposal(m.body) : null;
 
   if (proposal && (input.action === "elegir" || input.action === "responder")) {

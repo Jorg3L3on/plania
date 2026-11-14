@@ -89,6 +89,7 @@ const DECISION_REFUSAL: Record<string, string> = {
   MERGE_FAILED: "No se pudo fusionar: revisa el PR.",
   BASE_NOT_SANDBOX: "El cambio no apunta a la copia de prueba.",
   OWNER_CODE: "Publicar se hace en Bandeja, con tu código.",
+  INVALID_ACTION: "Eso no se puede hacer aquí. Recarga la página y vuelve a intentarlo.",
 };
 
 const Compania = () => {
