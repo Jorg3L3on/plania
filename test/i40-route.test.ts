@@ -78,6 +78,8 @@ test("I40-3 #1: five initiatives read as five legs with their counts, states and
     ],
   );
   assert.equal(route.more_legs, 0);
+  // PLA-I46-14: the leg whose only open steps were put off says so as a flag, so the floor draws it striped.
+  assert.deepEqual(route.legs.map((l: Json) => l.postponed), [true, false, false, false, false]);
   assert.deepEqual(route.legs.filter((l: Json) => l.steps).map((l: Json) => l.key), ["MIC-I3"], "only the leg we stand on carries steps");
 });
 
