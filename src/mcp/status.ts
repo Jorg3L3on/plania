@@ -1,5 +1,5 @@
 import type { Project, Task } from "../db/schema.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { lastAudit } from "./audit.js";
 import { envShape } from "./env.js";
 import { nextTask } from "./queries.js";

@@ -4,7 +4,7 @@ import type { Db } from "../../db/client.js";
 import { sameMachine } from "../../mcp/footprint-read.js";
 import { liveOwner } from "../../mcp/queries.js";
 import { SYSTEM_ACTOR, iso, writeTx } from "../../mcp/tx.js";
-import { readerOf } from "../../store/pg.js";
+import { readerOf } from "../../store/port.js";
 import type { Reader } from "../../store/types.js";
 import type { Job, JobSummary } from "../index.js";
 import {

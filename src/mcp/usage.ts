@@ -3,7 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import { ToolError } from "./errors.js";
 import { findProject, requireTask } from "./queries.js";
 import { iso, writeTx, type Ctx } from "./tx.js";

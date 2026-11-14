@@ -1,7 +1,7 @@
 import type { Actor, Task } from "../db/schema.js";
 import { writeVia } from "../runner/limits.js";
 // This file exports a readerOf of its own (the digest reader's key), so the port's is renamed here.
-import { readerOf as storeReaderOf } from "../store/pg.js";
+import { readerOf as storeReaderOf } from "../store/port.js";
 import { lt, lte, notNull, type Reader } from "../store/types.js";
 import { payloadText } from "./delegate.js";
 import { footprintsOf } from "./footprint-read.js";

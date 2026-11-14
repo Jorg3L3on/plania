@@ -20,7 +20,7 @@ import type { Db } from "../db/client.js";
 import type { Actor, Project } from "../db/schema.js";
 import { ask } from "../mcp/questions.js";
 import { writeTx, type Q } from "../mcp/tx.js";
-import { pgStore, readerOf, uowOf } from "../store/pg.js";
+import { storeOf, readerOf, uowOf } from "../store/port.js";
 import { lastReading, loadSettings, planView, roleOf, screenTz } from "./limits.js";
 import { asistenteAgent, enqueueWake, eventWakesEnabled } from "./events.js";
 import { projectGoal } from "./runner.js";
@@ -348,7 +348,7 @@ export async function routineAccept(db: Db, now: Date): Promise<number> {
     const thread = await projectThread(db, r.project_id);
     const at = now.toISOString();
     // The thread's messages that link this ticket and nobody acted on yet get Asistente's acceptance.
-    await pgStore(db).write(r.project_id, {}, async (uow) => {
+    await storeOf(db).write(r.project_id, {}, async (uow) => {
       for (const m of await uow.find("threadMessages", { threadId: thread.id, actionState: null })) {
         if (!m.links.some((l) => l.kind === "ticket" && l.ref === r.key)) continue;
         await uow.update("threadMessages", { id: m.id, actionState: null }, { actionState: { action: "aceptar", at, result: { ticket: r.key, status: "Done", by: "asistente" } } });

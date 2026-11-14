@@ -23,7 +23,6 @@
     "src",
     "scripts",
     "test",
-    "drizzle.config.ts",
     "vite.config.ts"
   ]
 }

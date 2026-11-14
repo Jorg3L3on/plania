@@ -1,5 +1,5 @@
 import type { Task } from "../db/schema.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { blockerList, type BlockerView } from "./blockers.js";
 import { liveOwner, prOf, type PrShape } from "./queries.js";
 import type { Q } from "./tx.js";

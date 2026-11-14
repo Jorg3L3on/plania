@@ -10,7 +10,7 @@ import { setGoal } from "../mcp/goals.js";
 import { deleteProject, setProject } from "../mcp/project.js";
 import { setAgent } from "../mcp/team.js";
 import { webCtx, writeTx } from "../mcp/tx.js";
-import { pgStore, readerOf } from "../store/pg.js";
+import { storeOf, readerOf } from "../store/port.js";
 import { COMPANY, PROMPT_DOCS } from "./limits.js";
 import { CORE_TEMPLATES, ensureTeam, teamSlug } from "./team.js";
 
@@ -71,7 +71,7 @@ export async function createProjectFromTemplate(db: Db, input: { name: string; g
   const ceo = await r.get("agents", { slug: "ceo" });
   // The new project's id is chosen here, so its first write is already its own.
   const id = randomUUID();
-  const project = await pgStore(db).write(id, {}, (uow) =>
+  const project = await storeOf(db).write(id, {}, (uow) =>
     uow.insert("projects", { id, slug, title: name, keyPrefix, runsPaused: true, runsPausedAt: uow.now, settings: { plan_approval: true } }),
   );
   try {
@@ -96,9 +96,9 @@ export async function createProjectFromTemplate(db: Db, input: { name: string; g
     });
     await ensureTeam(db, { id: project.id, slug, title: name });
   } catch (err) {
-    await pgStore(db).write(COMPANY, {}, (uow) => uow.delete("agents", { slug: team }));
+    await storeOf(db).write(COMPANY, {}, (uow) => uow.delete("agents", { slug: team }));
     // The project and everything made under it so far (its goal, events, threads...), removed through the port.
-    await pgStore(db).write(project.id, {}, (uow) => deleteProject(uow, project.id));
+    await storeOf(db).write(project.id, {}, (uow) => deleteProject(uow, project.id));
     throw err;
   }
   return { slug, key_prefix: keyPrefix, paused: true, po, team, prompt_doc_id: prompt.id };

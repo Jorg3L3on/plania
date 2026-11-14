@@ -1,1 +1,0 @@
-ALTER TABLE "projects" ADD COLUMN "rules_version" integer DEFAULT 1 NOT NULL;

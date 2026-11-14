@@ -18,7 +18,7 @@ import { setTask } from "../mcp/writes.js";
 import { enqueueWake } from "../runner/events.js";
 import { COMPANY } from "../runner/limits.js";
 import type { ThreadRef } from "../runner/threads.js";
-import { pgStore, readerOf } from "../store/pg.js";
+import { storeOf, readerOf } from "../store/port.js";
 
 export const MERGE_BASE = "sandbox";
 const PR = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/;
@@ -45,7 +45,7 @@ async function projectOf(db: Db, t: Task) {
 
 // The action_state, written in a store write of its own under the thread's project.
 async function record(db: Db, ref: ThreadRef, msg: ThreadMessage, state: ActionState): Promise<ActionDone> {
-  await pgStore(db).write(ref.project?.id ?? COMPANY, {}, (uow) => uow.update("threadMessages", { id: msg.id }, { actionState: state }));
+  await storeOf(db).write(ref.project?.id ?? COMPANY, {}, (uow) => uow.update("threadMessages", { id: msg.id }, { actionState: state }));
   return { ok: true, action_state: state };
 }
 

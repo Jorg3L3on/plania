@@ -1,6 +1,6 @@
 import type { Db } from "../db/client.js";
 import type { Actor, Project, Task } from "../db/schema.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import { LEGACY_APPROVAL_HINT } from "./delegate.js";
 import { ToolError, findProject, liveOwner, requireTask, writeReply } from "./queries.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";

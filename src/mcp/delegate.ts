@@ -1,6 +1,6 @@
 import type { Db } from "../db/client.js";
 import type { Actor } from "../db/schema.js";
-import { pgStore, readerOf, uowOf } from "../store/pg.js";
+import { storeOf, readerOf, uowOf } from "../store/port.js";
 import type { Reader, UnitOfWork } from "../store/types.js";
 import { ToolError } from "./errors.js";
 import { findProject } from "./queries.js";
@@ -126,7 +126,7 @@ export async function markDelegatedReviewed(db: Db, ids: string[]): Promise<numb
   const moves = [...new Set(ids.filter((id) => /^\d+$/.test(id)).map((id) => Number(id)))];
   if (!answers.length && !moves.length) return 0;
   // The answers may span projects and machine_state belongs to none.
-  return pgStore(db).write(NO_PROJECT, {}, async (uow) => {
+  return storeOf(db).write(NO_PROJECT, {}, async (uow) => {
     let n = 0;
     if (answers.length) {
       const rows = await uow.update("delegatedAnswers", { reviewedAt: null, id: answers }, { reviewedAt: uow.now });
@@ -197,7 +197,7 @@ export async function delegationEnabled(db: Q): Promise<boolean> {
 }
 
 export async function setDelegationEnabled(db: Db, enabled: boolean): Promise<boolean> {
-  await pgStore(db).write(NO_PROJECT, {}, (uow) => putMachineState(uow, DELEGATION_STATE_KEY, { enabled }));
+  await storeOf(db).write(NO_PROJECT, {}, (uow) => putMachineState(uow, DELEGATION_STATE_KEY, { enabled }));
   return enabled;
 }
 

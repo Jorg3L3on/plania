@@ -4,10 +4,10 @@
 import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
-import { withDb, type Db } from "../src/db/client.js";
+import { closeStore, withDb, type Db } from "../src/db/client.js";
 import type { ProjectSettings } from "../src/db/schema.js";
 import { writeTx, type Ctx } from "../src/mcp/tx.js";
-import { pgStore, readerOf } from "../src/store/pg.js";
+import { storeOf, readerOf } from "../src/store/port.js";
 
 const ACTOR = { agent: "jorge-cli", session_id: "register-project" };
 
@@ -23,12 +23,12 @@ export async function registerProject(db: Db, input: RegisterInput): Promise<{ c
   const existing = await readerOf(db).get("projects", { slug: input.slug });
   if (existing) {
     const merged: ProjectSettings = { ...settings, ...existing.settings };
-    await pgStore(db).write(existing.id, {}, (uow) => uow.update("projects", { id: existing.id }, { settings: merged }));
+    await storeOf(db).write(existing.id, {}, (uow) => uow.update("projects", { id: existing.id }, { settings: merged }));
     return { created: false, slug: existing.slug };
   }
   // The new project's id is chosen here, so the write that inserts it is already that project's.
   const id = randomUUID();
-  const p = await pgStore(db).write(id, {}, (uow) => uow.insert("projects", { id, slug: input.slug, title: input.title, keyPrefix: input.prefix, settings }));
+  const p = await storeOf(db).write(id, {}, (uow) => uow.insert("projects", { id, slug: input.slug, title: input.title, keyPrefix: input.prefix, settings }));
   const ctx: Ctx = { actor: ACTOR, requestId: `project-created:${p.slug}`, tool: "register-project" };
   await writeTx(db, p, ctx, async (_tx, emit) => {
     await emit("project.created", null, { slug: p.slug, title: p.title, key_prefix: p.keyPrefix });
@@ -48,4 +48,5 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   }
   const r = await withDb((db) => registerProject(db, { slug, title: values.title!, prefix: values.prefix!, repo: values.repo, path: values.path }));
   console.log(`${r.slug}: ${r.created ? "created" : "already existed; settings filled where empty"}`);
+  await closeStore();
 }

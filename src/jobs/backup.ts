@@ -1,30 +1,27 @@
-import { spawn } from "node:child_process";
-import { createWriteStream, existsSync } from "node:fs";
 import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import { pipeline } from "node:stream/promises";
-import { createGzip, gzipSync } from "node:zlib";
-import { sql } from "drizzle-orm";
+import { gzipSync } from "node:zlib";
 import type { Db } from "../db/client.js";
 import type { Finding } from "../mcp/audit.js";
 import type { Q } from "../mcp/tx.js";
 import { writeVia } from "../runner/limits.js";
 import { DevvaStore } from "../store/devva.js";
 import { storeOfHandle } from "../store/handles.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import type { Job } from "./index.js";
 
-// The nightly backup (2.9 fix b): once per local day after 03:00 (PLANIA_TZ), `pg_dump --no-owner`
-// of DATABASE_URL, gzipped into ~/plania-backups/plania-<YYYYMMDD>.sql.gz. Keeps the last KEEP daily
-// dumps; the hand-made plania-pre-* dumps are never touched. The last run lives in machine_state
-// (key "backup"), so GET /api/machine and the audit can tell when it failed or went stale.
+// The nightly backup: once per local day after 03:00 (PLANIA_TZ), the store's commit log as gzipped text in
+// ~/plania-backups/plania-<YYYYMMDD>.devva.jsonl.gz. A dump only counts after it has been loaded into a
+// throwaway store and compared row by row with the live one. Keeps the last KEEP daily dumps; anything
+// else in the folder is never touched. The last run lives in machine_state (key "backup"), so
+// GET /api/machine and the audit can tell when it failed or went stale.
 
 export const KEEP = 14;
 export const STALE_MS = 48 * 3600_000;
 const AFTER_HOUR = 3;
 const STATE_KEY = "backup";
-const DAILY = /^plania-(\d{8})\.(sql|devva\.jsonl)\.gz$/;
+const DAILY = /^plania-(\d{8})\.devva\.jsonl\.gz$/;
 
 export type BackupState = {
   at: string | null; // last success
@@ -38,8 +35,6 @@ const EMPTY: BackupState = { at: null, path: null, bytes: null, day: null, error
 
 export type BackupDeps = {
   dir?: string;
-  url?: string;
-  pgDump?: string;
   tz?: string;
 };
 
@@ -57,30 +52,6 @@ function localParts(now: Date, tz: string): { day: string; hour: number } {
   return { day: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) };
 }
 
-// The Postgres server's major version (16 for 16.4), 0 when it cannot be read. Postgres-specific on purpose and
-// the one SQL query left in this file: the backup is a pg_dump of Postgres, not a read of plania's data, so it
-// stays off the store port and goes away with the Postgres adapter.
-async function postgresMajorVersion(db: Q): Promise<number> {
-  return db
-    .execute<{ v: string }>(sql`select current_setting('server_version_num') as v`)
-    .then((r) => Math.floor(Number(r.rows[0]?.v ?? 0) / 10000))
-    .catch(() => 0);
-}
-
-// PLANIA_PG_BIN (a directory or the binary itself), else Homebrew's pg_dump for the server's major
-// version (a newer pg_dump writes SET lines an older server rejects on restore), else Homebrew's default.
-async function findPgDump(db: Q): Promise<string> {
-  const env = process.env.PLANIA_PG_BIN;
-  if (env) return env.endsWith("pg_dump") ? env : path.join(env, "pg_dump");
-  const major = await postgresMajorVersion(db);
-  const candidates = [
-    ...(major ? [`/opt/homebrew/opt/postgresql@${major}/bin/pg_dump`, `/usr/local/opt/postgresql@${major}/bin/pg_dump`] : []),
-    "/opt/homebrew/bin/pg_dump",
-    "/usr/local/bin/pg_dump",
-  ];
-  return candidates.find((c) => existsSync(c)) ?? "pg_dump";
-}
-
 export async function backupState(db: Q): Promise<BackupState> {
   const row = await readerOf(db).get("machineState", { key: STATE_KEY });
   return { ...EMPTY, ...(row?.value as Partial<BackupState> | undefined) };
@@ -94,25 +65,6 @@ async function saveState(db: Q, value: BackupState): Promise<void> {
   });
 }
 
-// pg_dump's stdout through gzip into `file`. Rejects with pg_dump's stderr when it fails.
-function dumpTo(pgDump: string, url: string, file: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(pgDump, ["--no-owner", url], { stdio: ["ignore", "pipe", "pipe"] });
-    let stderr = "";
-    child.stderr.on("data", (d) => (stderr += String(d)));
-    const written = pipeline(child.stdout, createGzip(), createWriteStream(file));
-    let exit: number | null | undefined;
-    child.on("error", reject);
-    child.on("close", (code) => {
-      exit = code;
-      written.then(
-        () => (exit === 0 ? resolve() : reject(new Error(stderr.trim().split("\n").pop() || `pg_dump exited ${exit}`))),
-        reject,
-      );
-    });
-  });
-}
-
 // Deletes daily dumps beyond the newest KEEP; anything else in the folder stays.
 export async function prune(dir: string, keep = KEEP): Promise<string[]> {
   const daily = (await readdir(dir)).filter((f) => DAILY.test(f)).sort();
@@ -121,9 +73,8 @@ export async function prune(dir: string, keep = KEEP): Promise<string[]> {
   return old;
 }
 
-// On the devva store the backup is the commit log as gzipped text, and it is checked before it counts: the
-// dump is loaded into a throwaway store and compared row by row with the live one.
-async function dumpDevva(live: DevvaStore, file: string): Promise<void> {
+// The dump, written only after the restore drill agrees with the live store.
+async function dumpChecked(live: DevvaStore, file: string): Promise<void> {
   const text = await live.dump();
   const drill = await DevvaStore.open({ prefix: `drill_${process.pid}_${Date.now().toString(36)}` });
   try {
@@ -146,18 +97,13 @@ export async function runBackup(db: Db, now: Date, deps: BackupDeps = {}): Promi
   if (hour < AFTER_HOUR || state.day === day) return { dumped: 0, pruned: 0, failed: 0 };
 
   const dir = deps.dir ?? backupDir();
-  const url = deps.url ?? process.env.DATABASE_URL;
-  const devva = storeOfHandle(db)?.store;
-  const onDevva = devva instanceof DevvaStore;
-  const file = path.join(dir, `plania-${day.replaceAll("-", "")}.${onDevva ? "devva.jsonl" : "sql"}.gz`);
+  const live = storeOfHandle(db)?.store;
+  const file = path.join(dir, `plania-${day.replaceAll("-", "")}.devva.jsonl.gz`);
   const tmp = `${file}.partial`;
   try {
     await mkdir(dir, { recursive: true });
-    if (onDevva) await dumpDevva(devva, tmp);
-    else {
-      if (!url) throw new Error("DATABASE_URL is not set");
-      await dumpTo(deps.pgDump ?? (await findPgDump(db)), url, tmp);
-    }
+    if (!(live instanceof DevvaStore)) throw new Error("the store has no dump");
+    await dumpChecked(live, tmp);
     await rename(tmp, file);
     const { size } = await stat(file);
     const pruned = await prune(dir);
@@ -182,7 +128,7 @@ export function backupFindings(s: Pick<BackupState, "at" | "error" | "attempted_
   if (!s.attempted_at) return [];
   if (s.at && now.getTime() - new Date(s.at).getTime() <= STALE_MS) return [];
   const detail = s.at ? `last backup ${s.at}, more than 48 h ago` : "no backup recorded yet";
-  return [{ code: "BACKUP_STALE", key: null, detail: s.error ? `${detail}; last attempt failed: ${s.error}` : detail, fix_hint: "check pg_dump (PLANIA_PG_BIN) and ~/plania-backups; the backup job retries every hour" }];
+  return [{ code: "BACKUP_STALE", key: null, detail: s.error ? `${detail}; last attempt failed: ${s.error}` : detail, fix_hint: "check the devva engine and ~/plania-backups; the backup job retries every hour" }];
 }
 
 export const backupJob: Job = {

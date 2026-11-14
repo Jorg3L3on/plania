@@ -1,5 +1,5 @@
 import type { Project, Task, Workspace } from "../db/schema.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { listDecisions } from "./decisions.js";
 import { auditForKeys } from "./orden.js";
 import { ToolError } from "./errors.js";

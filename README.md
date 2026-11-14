@@ -5,7 +5,8 @@ The plan lives here, not in each product repo. v2 (approved 2026-10-06) makes it
 sessions at once: leased claims, versioned writes, an event log with who did what, and server time everywhere.
 
 - App: Hono on Node, one long-lived process on this Mac (`scripts/dev.ts`, the launchd service).
-- DB: local Postgres, Drizzle over `pg`, one shared pool per process (`src/db/client.ts`).
+- Store: a devva engine on this Mac (`deploy/devva/`). Every write is one record in a commit log; the server
+  keeps the rows in memory, rebuilt from that log at start (`src/store/devva.ts`). There is no SQL database.
 - Screen: React SPA (Vite, shadcn/ui) in `ui/`, served by the same app; password login (argon2id + `plania_session` cookie).
 - Agents: `POST /mcp` with `Authorization: Bearer <token>`: an agent token issued on screen (`/tokens`), or the
   static `MCP_BEARER_TOKEN` / `MCP_READ_TOKEN` from `.env`.
@@ -23,123 +24,33 @@ Fill `.env`:
 
 | Var | Value |
 |---|---|
-| `DATABASE_URL` | Postgres connection string (the local `plania` database) |
+| `DEVVA_TOKEN_FILE` | File holding the devva engine's token. Default `~/.config/plania/devva-token`. |
+| `DEVVA_HOST`, `DEVVA_PORT` | Optional. Where the engine listens. Default `127.0.0.1:2505`. |
+| `PLANIA_DEVVA_PREFIX` | Optional. Prefix of the lobes this server uses. Default `plania`; a second server on the same engine needs its own. |
 | `MCP_BEARER_TOKEN` | Random token, e.g. `openssl rand -hex 32`. Clients use it as `PLANIA_MCP_TOKEN`. |
 | `SESSION_SECRET` | At least 32 bytes, e.g. `openssl rand -base64 48` |
 | `PLANIA_PASSWORD_HASH` | Output of `pnpm hash-password`. Quote it in `.env`. Never a plain password. |
 | `MCP_READ_TOKEN` | Optional. A second token for planning sessions: read tools only. |
 | `PLANIA_CI_TOKEN` | Optional. Token for `/hooks/*` only; it cannot use `/mcp`. |
 | `PLANIA_TZ` | Optional. Time zone the screen shows times in, and the nightly backup's clock. Default `America/Mexico_City`. |
-| `PLANIA_PG_BIN` | Optional. Directory of the `pg_dump` the backup uses. Default: Homebrew's for the server's major version. |
 | `PLANIA_BACKUP_DIR` | Optional. Where the nightly dumps go. Default `~/plania-backups`. |
 
-## Database
+## Store
 
-Migrations are generated here (`pnpm db:generate`) and applied by Jorge, in order:
+Start the devva engine first ([deploy/devva/README.md](deploy/devva/README.md)), then:
 
 ```bash
-for f in drizzle/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done   # fresh database
 pnpm seed
 ```
+
+There are no migrations. `src/db/schema.ts` names the tables, their columns and defaults; the store reads it
+at start and creates its lobes on the first write. The devva client is in `vendor/devva-client`.
 
 `pnpm seed` loads the day-one projects `micasa`, `workia`, `filmia`, `zigzag`. It is safe to rerun:
 
 - Title and body belong to the seed until someone edits them with `set_project`; after that the seed leaves them alone.
 - Each project's handoff "must keep" line is added once as a pinned decision.
 - Rules and design docs are not seeded: write them with `set_project` and `attach_doc`.
-
-### Upgrading to 2.3 (audit, context, handoff)
-
-Migration `0018` adds `audit_runs`, `releases`, `tasks.state_note` / `state_note_at` / `handoff` and `checks.derived_from`.
-Nothing to backfill. The audit job starts with the server; `audit(project)` runs it on demand.
-
-### Upgrading to 2.2 (branches, typed blockers, pollers)
-
-Migration `0017` adds `projects.settings`, the typed `blockers` table (the old `env_blockers` rows are copied in),
-`branches`, `resources`, `quota_usage`, `pull_requests`, `poll_state`, `project_metrics`, the structured result
-columns, env `flags`/`migrations`/`deploy_source`, and the bug and debt fields. Then, per project, set what the
-pollers need (`set_project settings`): `github: {repo}`, `vercel: {project_id, team_id?}`, `release_target`,
-`branch_pattern` (filmia: `^jl/[a-z0-9][a-z0-9-]*$`), `claim_from`. `GITHUB_TOKEN` in `.env` still wins when it is
-set; otherwise the poller reads `~/.config/plania/github-token` (one line, mode `0600`, see GitHub token file). Put `VERCEL_TOKEN`
-in `.env`. The settings only name the variables.
-
-### Upgrading to 2.1 (keys, approvals, tokens)
-
-Migrations `0015` and `0016` add the key counters and aliases (and set each project's `key_prefix`), agent tokens,
-approvals, check waivers, decision retirement, the headline and `events.token_id`; `0016` also copies the old
-single `supersedes_id` into `decision_supersessions`. Then move the keys of a
-project to the 2.1 scheme once (initiatives `FIL-I1`, phases `FIL-I1-1`, standalone tickets unchanged); every old key
-stays as an alias and each rename is a `task.rekeyed` event:
-
-```bash
-pnpm rekey --project filmia            # dry run: prints the plan
-pnpm rekey --project filmia --apply    # writes it, in one transaction
-```
-
-### Upgrading to 2.9 (backups, v1 cleanup)
-
-Migration `0022` adds `machine_state` (the nightly backup's record), copies every non-empty v1 `tasks.body` into a
-task doc titled "v1 body", then drops `tasks.body`, the four `projects.resume_*` columns, `design_pages`,
-`env_blockers` and `decisions.supersedes_id`. Take a `plania-pre-0022-*` dump first.
-
-Upgrading a v1 database: the backfill that did it (`scripts/backfill-v2.ts`) is in the git history before 2.9.
-
-### Upgrading to 2.11 (derived truth)
-
-Migration `0024` (there is no `0023`: 2.10 needed none) renames `projects.headline`, `headline_version`,
-`headline_at` and `headline_stale` to `headline_note*`, data kept: the headline is generated now and what
-`set_project headline` writes is its note. Take a `plania-pre-0024-*` dump first. The 2.11 server reads only the new
-names and the old one only the old, so apply the migration right before the restart.
-
-### Upgrading to 2.12 (intent and the day)
-
-Migration `0025` adds `push_subscriptions`; nothing else changes shape (Jorge's requests reuse `tasks.origin` with the
-new value `jorge`). Take a `plania-pre-0025-*` dump first. The 2.12 server's push job and `/api/push/*` read the table,
-so apply it before the restart. Push also needs the VAPID trio in `.env` (`pnpm vapid` prints a pair); without it push
-stays off and everything else works. Phone access over Tailscale and turning push on: [docs/phone-access.md](docs/phone-access.md).
-
-### Upgrading to 2.13 (agent surface)
-
-No migration. `pnpm build`, then restart the service; agents get the `start` / `finish` tools on their
-next `initialize`. That release served protocol 2.12. PLA-I8-3 moved the protocol to 2.13: those questions were answered only on the screen (that step was removed in 2.17). Shipping a release from the screen is off until a project asks for it: add `mode: "merge"` to its
-`settings.release` (on screen or `set_project settings {release: {from, into, env, mode: "merge"}}`) and keep
-`settings.github.repo` set. The merge runs `gh` with `GH_TOKEN` from `~/.config/plania/github-release-token`, or from
-`~/.config/plania/github-token` when that file has no token. The token needs write access to the repo. Without `mode`
-the release row keeps the command to copy.
-
-### Upgrading to 2.14 (screen click)
-
-Migration `0028` drops `gate_challenges` and deletes the `machine_state` row the old screen step stored. Take a dump first. Apply `0028`, `pnpm build`, then restart `com.plania.server`. The protocol moved to 2.14: human-only questions were answered by a click on the owner's screen (that step was removed in 2.17).
-
-### Upgrading to 2.15 (delegated answers)
-
-Migration `0029` adds `delegated_answers`. Take a dump first. Apply `0029`, `pnpm build`, then restart `com.plania.server`. The protocol moves to 2.15. The kill switch defaults on. It is the `machine_state` key `delegation` (`{enabled: true|false}`). The screen toggles it. Nothing else can.
-
-### Upgrading to 2.16 (readiness)
-
-No migration and no schema change. `pnpm build`, then restart the service. `get_resume`, `list_projects`, `get_digest` and `GET /api/projects` gain `readiness` (`state`, `reasons`, `line`). Existing fields keep their shape. The protocol moves to 2.16.
-
-### Upgrading to 2.17 (stage docs only)
-
-The old screen step is gone (PLA-I18). An idea moves idea → research → design → planning → ready by `set_task stage` alone; the only check left is the stage doc and its headings (`STAGE_REQUIREMENTS_MISSING`). A promoted initiative goes Active like any other. `ask` that still sends the removed field ignores it and the reply includes a hint, so a bot still on 2.16 stores the question. `GATE_NOT_PASSED`, `GATE_OPEN`, `GATE_ANSWERED_BY_AGENT` and `STAGE_DOC_STALE` no longer exist; `GATE_ANSWERED_DELEGATED` is now `DELEGATED_ANSWER`. The Bandeja has no section for that old step.
-
-Old question rows stay as read-only history: the letter column, its check constraint and every `delegated_answers` row are kept, and nothing is dropped. Migration `0030_close_gates` (PLA-I18-5) closes the rows of that kind that are still open:
-
-1. Take a dump first: `pg_dump --no-owner "$DATABASE_URL" | gzip > ~/plania-backups/plania-pre-0030-$(date +%Y%m%d).sql.gz`.
-2. Apply `drizzle/migrations/0030_close_gates.sql` (`psql "$DATABASE_URL" -f …`). It only updates those open rows and is safe to run twice.
-3. `pnpm build`, then restart `com.plania.server`.
-
-Until `0030` runs, an open old row stays out of the inbox and can only be closed on the screen; it moves nothing. The protocol moves to 2.17.
-
-### Upgrading to 2.18 (direct moves)
-
-Migration `0032_drop_gates_approvals` copies old approval rows and lettered questions into events, then drops the approval table, the letter column and its check. Take a dump first. The protocol moves to 2.18.
-
-`request_approval` is gone. Won't do and reopening a closed task are a direct `set_task`: a `reason`, and an agent also sends `delegated_by_jorge` `{message_id, quote}` (the same evidence as `answer_delegated`). The screen session needs only the reason. The move is logged (`task.delegated_move`) and, when an agent sent a quote, listed in the inbox delegated list. `waive_check` takes the reason alone, at every status. `lease_resource` ignores `needs_approval`. An `approval_id` on those calls is accepted and ignored, and the reply includes a hint, for one release. A Won't do with no screen actor, no delegated evidence and no archived granted row is the audit finding `WONT_DO_WITHOUT_EVIDENCE`.
-
-1. Take a dump first: `pg_dump --no-owner "$DATABASE_URL" | gzip > ~/plania-backups/plania-pre-0032-$(date +%Y%m%d).sql.gz`.
-2. Apply `drizzle/migrations/0032_drop_gates_approvals.sql` (`psql "$DATABASE_URL" -f …`). It copies those rows into `approval.archived` and `question.archived`, then drops them. A second run copies nothing and drops nothing.
-3. `pnpm build`, then restart `com.plania.server`.
 
 ### GitHub token file
 
@@ -177,27 +88,17 @@ What proves a human on this Mac answered, on the click path, is the screen sessi
 pnpm dev     # API on 3738 (tsx watch) + Vite on http://localhost:5173 with hot reload
 pnpm build   # typecheck server and UI, then build the SPA into dist/ui
 pnpm start   # serve API, MCP and the built SPA on http://localhost:3737
-pnpm test    # MCP, API, live-event, hooks, seed and backup tests; rebuilds this checkout's local plania_test_<hash> database each run
+pnpm test    # MCP, API, live-event, hooks, seed and backup tests; needs a running devva engine
 ```
 
 Port 3737 avoids the 3000 that product repos use. The server only listens on 127.0.0.1.
 In dev, Vite proxies `/api` and `/mcp` to the dev API on 3738, so the service on 3737 keeps running.
 
-Tests connect to Postgres on `localhost:5432` as the OS user with no password, which is Homebrew's default.
-For any other server or role, set `PLANIA_TEST_PG` to its URL without a database, for example
-`PLANIA_TEST_PG=postgres://postgres@127.0.0.1:5432`. The role must be allowed to create and drop databases.
-
-Each checkout and worktree gets its own test database, `plania_test_` plus a six-character hash of the repo's absolute path,
-so test runs in different worktrees can run at the same time. Tests only ever drop databases named `plania_test_*`, never `plania`.
-Databases from deleted worktrees stay behind. To list and remove them:
-
-```bash
-psql -l | grep plania_test_
-```
-
-```bash
-dropdb plania_test_3f9a2c
-```
+Tests use the engine that `DEVVA_HOST`, `DEVVA_PORT` and `DEVVA_TOKEN_FILE` name (the same defaults as the server).
+Each test file writes to lobes of its own, named `t_<pid>_<time>`, and empties them when it ends, so test runs in
+different worktrees can run at the same time and never touch the `plania` lobes. With `SEXTANT_URL` set, one search
+test uses real embeddings. One crash test restarts the engine and runs only when `DEVVA_TEST_CONTAINER` names its
+container.
 
 ### Scanning a diff for personal data and secrets
 
@@ -215,7 +116,7 @@ It prints `file:line` and a rule id. It does not print the matched value. Exit 0
 
 Plania runs on this Mac.
 
-- Database: local Postgres 14 (Homebrew service), database `plania`.
+- Store: the devva engine in Docker (`deploy/devva/compose.yml`), on `127.0.0.1:2505`, lobes `plania_*`.
 - Server: launchd agent `com.plania.server` at `~/Library/LaunchAgents/com.plania.server.plist`.
   It starts at login, restarts on crash, and logs to `~/Library/Logs/plania/server.log`.
   It runs nvm's Node by absolute path, so update the plist after switching Node versions.
@@ -233,13 +134,14 @@ Deploy note: the service reads `~/.config/plania/github-token` itself. It does n
 
 Owner: create a read-only fine-grained token for the plania repo and save it with `umask 077; mkdir -p ~/.config/plania; pbpaste > ~/.config/plania/github-token` (non-blocking).
 
-Backups: the `backup` job dumps the database once a day after 03:00 (`PLANIA_TZ`) into
-`~/plania-backups/plania-<YYYYMMDD>.sql.gz` and keeps the last 14; hand-made `plania-pre-*` dumps stay. The Máquina
-page shows the last copy, and `BACKUP_STALE` appears there when the last one is older than 48 h. To restore:
+Backups: the `backup` job dumps the store's commit log once a day after 03:00 (`PLANIA_TZ`) into
+`~/plania-backups/plania-<YYYYMMDD>.devva.jsonl.gz` and keeps the last 14; other files in the folder stay. A dump
+is written only after it has been loaded into a throwaway store and compared row by row with the live one. The
+Máquina page shows the last copy, and `BACKUP_STALE` appears there when the last one is older than 48 h.
 
-```bash
-createdb plania_restore && gunzip -c ~/plania-backups/plania-20261016.sql.gz | psql -v ON_ERROR_STOP=1 plania_restore
-```
+To restore, load a dump into an empty store with `DevvaStore.restore` (`src/store/devva.ts`): open a store on a
+new `PLANIA_DEVVA_PREFIX`, pass it the gunzipped text, then start the server with that prefix. It refuses a store
+that already has commits and a dump that is incomplete or out of order.
 
 Change the screen password with `pnpm hash-password`, paste the result into `.env` as
 `PLANIA_PASSWORD_HASH='...'`, then restart. Rotating `MCP_BEARER_TOKEN` means updating all three client configs.

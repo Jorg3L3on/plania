@@ -1,5 +1,5 @@
 // What a crash leaves behind on the devva store, and what boot does about it.
-// Skipped unless DEVVA_TEST=1. The engine test also needs DEVVA_TEST_CONTAINER (the engine's container name):
+// It needs a running devva engine. The engine test also needs DEVVA_TEST_CONTAINER (the engine container's name):
 // it kills and restarts that container, so point it only at a throwaway engine.
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -7,7 +7,6 @@ import path from "node:path";
 import { after, describe, test } from "node:test";
 import { DevvaStore } from "../src/store/devva.js";
 
-const live = process.env.DEVVA_TEST === "1";
 const container = process.env.DEVVA_TEST_CONTAINER;
 const prefix = `kill_${Date.now().toString(36)}`;
 const writer = path.resolve(import.meta.dirname, "fixtures", "devva-writer.ts");
@@ -37,7 +36,7 @@ async function consistent(store: DevvaStore): Promise<void> {
   assert.equal(await store.read((r) => r.count("events")), rows.length, "each write's two rows committed together");
 }
 
-describe("devva store after a crash", { skip: live ? false : "set DEVVA_TEST=1 with the spike engine running" }, () => {
+describe("devva store after a crash", () => {
   after(async () => {
     const store = await open();
     await store.purge();

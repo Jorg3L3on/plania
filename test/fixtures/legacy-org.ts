@@ -3,7 +3,7 @@
 // (dashboards, delegation, the presence sweep, routines...) use it as their fixture, so PLA-I32-2's
 // per-project teams (scripts/seed-org.ts, test/i32-roster.test.ts) do not rewrite them. Fake values only.
 import type { Db } from "../../src/db/client.js";
-import { pgStore } from "../../src/store/pg.js";
+import { storeOf } from "../../src/store/port.js";
 
 type Row = { slug: string; name: string; role: string; title: string; kind: "bot" | "human"; reportsTo: string | null; capabilities: string[]; note?: string };
 
@@ -37,7 +37,7 @@ export const LEGACY_ORG: Row[] = [
 export async function seedLegacyOrg(db: Db): Promise<{ inserted: string[]; removed: string[] }> {
   const inserted: string[] = [];
   // Through the store port (one write, no project), so the fixture seeds the devva store too.
-  await pgStore(db).write("", {}, async (uow) => {
+  await storeOf(db).write("", {}, async (uow) => {
     for (const row of LEGACY_ORG) {
       if (await uow.get("agents", { slug: row.slug })) continue;
       const human = row.kind === "human";

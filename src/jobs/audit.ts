@@ -1,5 +1,5 @@
 import type { Db } from "../db/client.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { runAudit } from "../mcp/audit.js";
 import type { Job } from "./index.js";
 

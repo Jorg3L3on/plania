@@ -1,13 +1,12 @@
 // PLA-I15-2: plania-bot may record one answer the owner gave in his own chat.
 // The screen click stays. The server cannot prove the caller or the message.
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import pg from "pg";
-import { onDevva, pgOnly, pgUrl, resetTestStore, TEST_BEARER, TEST_CI_TOKEN, TEST_DATABASE_URL, useTestEnv, type TestStore } from "./helpers.js";
+import { resetTestStore, TEST_BEARER, TEST_CI_TOKEN, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -86,46 +85,6 @@ describe("answer_delegated", () => {
   after(async () => {
     await client?.close();
     await store?.end();
-  });
-
-  test("migration 0029 applies twice", pgOnly("replays migration 0029 on a private database and reads the catalog"), async () => {
-    // 0029's foreign key names the approval table. 0032 drops that table, so this runs on a
-    // private copy that stops before 0029.
-    const name = "plania_mig_0029";
-    const adminUrl = pgUrl("postgres");
-    const admin = new pg.Client({ connectionString: adminUrl });
-    await admin.connect();
-    await admin.query(`drop database if exists ${name} with (force)`);
-    await admin.query(`create database ${name}`);
-    await admin.end();
-    const db = new pg.Client({ connectionString: pgUrl(name) });
-    await db.connect();
-    try {
-      const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
-      for (const f of readdirSync(dir).filter((file) => file.endsWith(".sql") && file < "0029").sort()) {
-        await db.query(readFileSync(path.join(dir, f), "utf8"));
-      }
-      const sql = readFileSync(path.join(dir, "0029_delegated_answers.sql"), "utf8");
-      await db.query(sql);
-      await db.query(sql);
-      const tables = await db.query("select to_regclass('public.delegated_answers') as t");
-      assert.equal(tables.rows[0].t, "delegated_answers");
-      const idx = await db.query("select indexname from pg_indexes where tablename = 'delegated_answers' order by 1");
-      assert.deepEqual(idx.rows.map((r) => r.indexname), [
-        "delegated_answers_approval_unique",
-        "delegated_answers_created_idx",
-        "delegated_answers_pkey",
-        "delegated_answers_question_unique",
-      ]);
-      const fk = await db.query("select 1 from pg_constraint where conname = 'delegated_answers_approval_id_approvals_id_fk'");
-      assert.equal(fk.rows.length, 1);
-    } finally {
-      await db.end();
-      const drop = new pg.Client({ connectionString: adminUrl });
-      await drop.connect();
-      await drop.query(`drop database if exists ${name} with (force)`);
-      await drop.end();
-    }
   });
 
   test("missing or short evidence is refused and stores nothing", async () => {
@@ -410,20 +369,7 @@ describe("answer_delegated", () => {
     assert.equal(await store.count("delegatedAnswers", { questionId: g.id }), 0);
   });
 
-  test("PLA-06: migration 0031 applies twice; Visto is the screen cookie only; a seen answer leaves the Bandeja and the audit, the row stays", async () => {
-    // Replaying the migration is Postgres's part; the rest of the test runs on both stores.
-    if (!onDevva) {
-      const sql = readFileSync(path.resolve(import.meta.dirname, "../drizzle/migrations/0031_delegated_reviewed.sql"), "utf8");
-      const raw = new pg.Client({ connectionString: TEST_DATABASE_URL });
-      await raw.connect();
-      try {
-        await raw.query(sql);
-        await raw.query(sql);
-      } finally {
-        await raw.end();
-      }
-    }
-
+  test("PLA-06: Visto is the screen cookie only; a seen answer leaves the Bandeja and the audit, the row stays", async () => {
     const g = await gate("Visto");
     const done = await call("answer_delegated", { question_id: g.id, option: "pursue", actor: BOT, ...evidence("msg-owner-0600", "sigue con esa idea ya") });
     assert.equal(done.__error, undefined, JSON.stringify(done));

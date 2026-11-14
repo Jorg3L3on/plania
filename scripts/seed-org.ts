@@ -9,11 +9,11 @@
 // is repaired. Adapter fields are filled while they are still the default (adapter none, empty config,
 // no cadence) or a dead http row (no wake_url, no config). Safe to run again. Config values are env var names.
 import { pathToFileURL } from "node:url";
-import { withDb, type Db } from "../src/db/client.js";
+import { closeStore, withDb, type Db } from "../src/db/client.js";
 import type { AdapterConfig, AdapterName, Agent } from "../src/db/schema.js";
 import { COMPANY } from "../src/runner/limits.js";
 import { RUNNER_CONFIG, ensureTeam, teamSlug, untouchedAdapter, type TeamTemplate } from "../src/runner/team.js";
-import { pgStore, readerOf } from "../src/store/pg.js";
+import { storeOf, readerOf } from "../src/store/port.js";
 import type { NewRow, UnitOfWork } from "../src/store/types.js";
 
 export type OrgRow = {
@@ -71,7 +71,7 @@ export const RETIRED: { slug: string; role?: string; into?: string }[] = [
 const bySlug = (db: Db, slug: string): Promise<Agent | undefined> => readerOf(db).get("agents", { slug });
 
 // The roster belongs to no project: its writes go to the store under the company's empty id.
-const rosterWrite = <T>(db: Db, fn: (uow: UnitOfWork) => Promise<T>): Promise<T> => pgStore(db).write(COMPANY, {}, fn);
+const rosterWrite = <T>(db: Db, fn: (uow: UnitOfWork) => Promise<T>): Promise<T> => storeOf(db).write(COMPANY, {}, fn);
 
 export async function retireOrg(db: Db): Promise<{ removed: string[] }> {
   const removed: string[] = [];
@@ -218,4 +218,5 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     if (retired.length) console.log(`retired ${retired.join(", ")}`);
     console.log(inserted.length ? `inserted ${inserted.join(", ")}` : "org already present");
   });
+  await closeStore();
 }

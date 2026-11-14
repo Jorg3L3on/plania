@@ -3,7 +3,7 @@
 // The rules are plain functions so tests can pin them without a database.
 import type { Db } from "../db/client.js";
 import type { Task } from "../db/schema.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { gt, gte, notNull, type Reader } from "../store/types.js";
 import type { AgentView } from "./team.js";
 import { dayInTz, isPruebaTitle, weekRange } from "./progress.js";

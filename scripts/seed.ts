@@ -8,10 +8,10 @@
 // - rules_text and design docs are not in the handoff seed and are left untouched.
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { withDb, type Db } from "../src/db/client.js";
+import { closeStore, withDb, type Db } from "../src/db/client.js";
 import type { Actor } from "../src/db/schema.js";
 import { writeTx } from "../src/mcp/tx.js";
-import { pgStore, readerOf, uowOf } from "../src/store/pg.js";
+import { storeOf, readerOf, uowOf } from "../src/store/port.js";
 
 type Seed = { slug: string; title: string; prefix: string; body: string; must_keep: string };
 
@@ -55,7 +55,7 @@ export async function seedProjects(db: Db): Promise<{ slug: string; pinned: bool
     // A new project's id is chosen here, so the write that inserts it is already that project's.
     const id = (await readerOf(db).get("projects", { slug: s.slug }))?.id ?? randomUUID();
     // p is the row this run inserted or rewrote; undefined when the project's text is no longer the seed's.
-    const p = await pgStore(db).write(id, {}, async (uow) => {
+    const p = await storeOf(db).write(id, {}, async (uow) => {
       const row = await uow.get("projects", { slug: s.slug });
       if (!row) return uow.insert("projects", { id, slug: s.slug, title: s.title, body: s.body, keyPrefix: s.prefix });
       // Once set_project edited the project (version > 1), its text belongs to the project, not the seed.
@@ -94,4 +94,5 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
       console.log(`${r.slug}: body set; pinned decision ${r.pinned ? "added" : "kept"}`);
     }
   });
+  await closeStore();
 }

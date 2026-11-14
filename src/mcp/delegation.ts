@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
 import { ROUTINE_STATUSES, type RoutineRun, type TaskComment } from "../db/schema.js";
-import { pgStore, readerOf, uowOf } from "../store/pg.js";
+import { storeOf, readerOf, uowOf } from "../store/port.js";
 import type { FindOptions } from "../store/types.js";
 import { NO_PROJECT, payloadText } from "./delegate.js";
 import { ToolError } from "./errors.js";
@@ -245,7 +245,7 @@ export async function recordRoutineRun(db: Db, input: RecordRoutineInput): Promi
     throw new ToolError("INVALID_FILTER", { field: "task_key" });
   }
   // A run belongs to an agent, not to a project.
-  const row = await pgStore(db).write(NO_PROJECT, {}, (uow) =>
+  const row = await storeOf(db).write(NO_PROJECT, {}, (uow) =>
     uow.insert("routineRuns", { agent, routine, startedAt, endedAt, status, summary, taskKey }),
   );
   return routineView(row);

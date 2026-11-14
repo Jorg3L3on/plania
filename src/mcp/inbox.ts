@@ -1,6 +1,6 @@
 import type { Project } from "../db/schema.js";
 import { describeStale } from "../jobs/machine/infer.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { gt } from "../store/types.js";
 import { delegatedForInbox, type DelegatedReviewItem } from "./delegate.js";
 import { openHumanActions } from "./blockers.js";

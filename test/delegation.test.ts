@@ -1,13 +1,9 @@
 // PLA-I23-1: comments, assign with a hop cap, and ping-pong on the same owner pair.
-// Migration 0036 is applied twice on a private database, never a real one.
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
-import path from "node:path";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import pg from "pg";
-import { pgOnly, pgUrl, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -56,60 +52,6 @@ after(async () => {
   await client?.close();
   await closeDb?.();
   await store?.end();
-});
-
-test("0036_delegation.sql applies twice on a throwaway database", pgOnly("replays migration 0036 on a private database and reads the catalog"), async () => {
-  const name = "plania_mig_0036";
-  const adminUrl = pgUrl("postgres");
-  const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
-  const sql0036 = readFileSync(path.join(dir, "0036_delegation.sql"), "utf8");
-  const admin = new pg.Client({ connectionString: adminUrl });
-  await admin.connect();
-  await admin.query(`drop database if exists ${name} with (force)`);
-  await admin.query(`create database ${name}`);
-  await admin.end();
-
-  const mig = new pg.Client({ connectionString: pgUrl(name) });
-  await mig.connect();
-  try {
-    const files = readdirSync(dir).filter((f) => f.endsWith(".sql") && f < "0036").sort();
-    for (const f of files) await mig.query(readFileSync(path.join(dir, f), "utf8"));
-    const project = await mig.query("insert into projects (slug, title, key_prefix) values ('mig', 'Mig', 'MIG') returning id");
-    const task = await mig.query(
-      "insert into tasks (project_id, kind, key, title, status) values ($1, 'ticket', 'MIG-1', 'Uno', 'Backlog') returning id",
-      [project.rows[0].id],
-    );
-
-    await mig.query(sql0036);
-    const hops = await mig.query(
-      "select column_default from information_schema.columns where table_name = 'tasks' and column_name = 'assign_hops'",
-    );
-    assert.equal(hops.rows.length, 1);
-    assert.match(String(hops.rows[0].column_default), /0/);
-    await mig.query(
-      "insert into task_comments (task_id, author_agent, body) values ($1, 'taller', 'hola')",
-      [task.rows[0].id],
-    );
-    await mig.query(
-      "insert into routine_runs (agent, routine, started_at, status, summary) values ('ceo', 'morning', now(), 'ok', 'listo')",
-    );
-
-    await mig.query(sql0036);
-    assert.equal((await mig.query("select count(*)::int as n from task_comments")).rows[0].n, 1);
-    assert.equal((await mig.query("select count(*)::int as n from routine_runs")).rows[0].n, 1);
-    assert.equal((await mig.query("select assign_hops from tasks where key = 'MIG-1'")).rows[0].assign_hops, 0);
-    await assert.rejects(
-      mig.query("insert into routine_runs (agent, routine, started_at, status) values ('ceo', 'morning', now(), 'nope')"),
-    );
-    await mig.query(sql0036);
-    assert.equal((await mig.query("select count(*)::int as n from task_comments")).rows[0].n, 1);
-  } finally {
-    await mig.end();
-    const drop = new pg.Client({ connectionString: adminUrl });
-    await drop.connect();
-    await drop.query(`drop database if exists ${name} with (force)`);
-    await drop.end();
-  }
 });
 
 test("comment stores the author and refuses an empty or oversized body", async () => {

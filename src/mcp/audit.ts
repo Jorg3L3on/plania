@@ -1,6 +1,6 @@
 import type { Db } from "../db/client.js";
 import type { Actor, Project, questions, Task } from "../db/schema.js";
-import { pgStore, readerOf } from "../store/pg.js";
+import { storeOf, readerOf } from "../store/port.js";
 import { openHumanActions, unsatisfiedBlockers } from "./blockers.js";
 import { footprintFindings } from "./footprint-audit.js";
 import { WAITING_ON_JORGE, isGating, parseJorgeLines } from "./jorge-lines.js";
@@ -305,7 +305,7 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
 // Stores the run as a write of its own (never inside writeTx: every caller runs it after its write).
 export async function runAudit(db: Db, p: Project) {
   const findings = await auditProject(db, p);
-  await pgStore(db).write(p.id, {}, async (uow) => {
+  await storeOf(db).write(p.id, {}, async (uow) => {
     const at = { projectId: p.id };
     if (await uow.get("auditRuns", at)) await uow.update("auditRuns", at, { findings, count: findings.length, at: uow.now });
     else await uow.insert("auditRuns", { ...at, findings, count: findings.length });

@@ -13,7 +13,7 @@ import type { Agent, AgentRun, AdapterConfig, Project } from "../db/schema.js";
 import { registerFootprint, releaseFootprint } from "../mcp/footprint.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
-import { pgStore, readerOf } from "../store/pg.js";
+import { storeOf, readerOf } from "../store/port.js";
 import type { UnitOfWork } from "../store/types.js";
 import { denySettings } from "./deny.js";
 import { EVENT_SUMMARY } from "./events.js";
@@ -119,7 +119,7 @@ function claudeCommand(config: AdapterConfig | null, env: NodeJS.ProcessEnv): st
 const sysCtx = (tool: string): Ctx => ({ actor: { ...SYSTEM_ACTOR, machine: hostname() }, system: true, tool });
 
 // A run's rows change in a serialized store write of their own, under the run's project.
-const runWrite = <T>(db: Db, run: Pick<AgentRun, "projectId">, fn: (uow: UnitOfWork) => Promise<T>): Promise<T> => pgStore(db).write(run.projectId, {}, fn);
+const runWrite = <T>(db: Db, run: Pick<AgentRun, "projectId">, fn: (uow: UnitOfWork) => Promise<T>): Promise<T> => storeOf(db).write(run.projectId, {}, fn);
 
 // ---- Context the checks read
 
@@ -783,7 +783,7 @@ export async function sweepOrphans(db: Db, deps: RunnerDeps = {}): Promise<numbe
     n += 1;
   }
   // Queued rows from an earlier server are dropped too: the cadence queues them again.
-  await pgStore(db).write(COMPANY, {}, (uow) => uow.update("agentRuns", { status: "queued" }, { status: "skipped", summary: "skipped: server restarted", endedAt: uow.now }));
+  await storeOf(db).write(COMPANY, {}, (uow) => uow.update("agentRuns", { status: "queued" }, { status: "skipped", summary: "skipped: server restarted", endedAt: uow.now }));
   return n;
 }
 

@@ -1,6 +1,6 @@
 import type { Db } from "../db/client.js";
 import type { Project, ProjectSettings } from "../db/schema.js";
-import { uowOf } from "../store/pg.js";
+import { uowOf } from "../store/port.js";
 import type { Row, TableName, UnitOfWork } from "../store/types.js";
 import { ToolError } from "./errors.js";
 import { headlineWarnings } from "./jorge-lines.js";

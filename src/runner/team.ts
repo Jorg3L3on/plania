@@ -5,7 +5,7 @@
 // <template>-<project> for the rest (research-mianovia, taller-mianovia).
 import type { AdapterConfig, Agent } from "../db/schema.js";
 import type { Q } from "../mcp/tx.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import type { NewRow } from "../store/types.js";
 import { writeVia } from "./limits.js";
 

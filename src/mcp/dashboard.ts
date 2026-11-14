@@ -2,7 +2,7 @@
 // already cached by Mi progreso. No budgets, no new tables, no second scan of the year.
 // PLA-I27: the greeting name and this week's reported usage. Still no budgets.
 import type { Db } from "../db/client.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { gt, notNull } from "../store/types.js";
 import { inbox } from "./inbox.js";
 import { listGoals, type GoalView } from "./goals.js";

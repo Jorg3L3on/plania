@@ -1,6 +1,6 @@
 import webpush from "web-push";
 import type { Db } from "./db/client.js";
-import { pgStore, readerOf } from "./store/pg.js";
+import { storeOf, readerOf } from "./store/port.js";
 import type { UnitOfWork } from "./store/types.js";
 
 // 2.12: web push to the phones that turned on "Avisarme cuando me toque". VAPID keys come from .env
@@ -24,7 +24,7 @@ export type PushSubscriptionInput = { endpoint: string; keys: { p256dh: string; 
 
 // A store write belongs to a project; subscriptions belong to the phone, so their writes belong to none.
 const NO_PROJECT = "";
-const write = <T>(db: Db, fn: (uow: UnitOfWork) => Promise<T>) => pgStore(db).write(NO_PROJECT, {}, fn);
+const write = <T>(db: Db, fn: (uow: UnitOfWork) => Promise<T>) => storeOf(db).write(NO_PROJECT, {}, fn);
 
 // The browser's PushSubscription.toJSON(); one row per endpoint, so a device that subscribes again updates its row.
 export async function subscribe(db: Db, sub: PushSubscriptionInput, userAgent: string | null) {

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { withDb } from "../db/client.js";
 import { listAgents, workingOnBySlug, type AgentView, type WorkingOn } from "../mcp/team.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { notNull } from "../store/types.js";
 
 // Closed work is not "owned" on the chart. The lease stays on tasks.owner; this list is informational.

@@ -15,7 +15,7 @@ import { WEB_ACTOR } from "../mcp/tx.js";
 import { createTask } from "../mcp/writes.js";
 import { eventWakesEnabled } from "../runner/events.js";
 import { loadSettings, roleOf } from "../runner/limits.js";
-import { pgStore, readerOf } from "../store/pg.js";
+import { storeOf, readerOf } from "../store/port.js";
 
 export type ActionRefusal = { error: "PROJECT_NOT_FOUND" | "PROJECT_PAUSED" | "COMPANY_PAUSED" | "NO_PO"; status: 404 | 409; hint: string };
 
@@ -103,7 +103,7 @@ export async function askPo(db: Db, slug: string, text: string, opts: { kind?: O
 // PLA-I36-6: Cambiar lo siguiente. The ticket must be Ready in this project.
 // The project's settings replaced whole, in a write of its own (no event, as before).
 const saveSettings = (db: Db, projectId: string, settings: ProjectSettings) =>
-  pgStore(db).write(projectId, {}, (uow) => uow.update("projects", { id: projectId }, { settings, updatedAt: uow.now }));
+  storeOf(db).write(projectId, {}, (uow) => uow.update("projects", { id: projectId }, { settings, updatedAt: uow.now }));
 
 export async function pickNext(db: Db, slug: string, key: string): Promise<{ next: string } | { error: string; status: 404 | 409; hint: string }> {
   const r = readerOf(db);

@@ -1,5 +1,5 @@
-// Integration tests for the MCP tools (v2 contract) against a throwaway local database.
-// Run: pnpm test  (needs a local Postgres; rebuilds this checkout's plania_test_<hash> database from the migrations each run)
+// Integration tests for the MCP tools (v2 contract) against a throwaway store.
+// Run: pnpm test  (needs a running devva engine: deploy/devva/README.md)
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";

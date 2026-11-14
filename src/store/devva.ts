@@ -10,6 +10,7 @@
 // (inserts survive), so nothing is kept only in an updated record: <prefix>_ent is a projection, compared
 // with the log and rewritten on boot.
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Q } from "../mcp/tx.js";
@@ -463,7 +464,7 @@ export class DevvaStore implements Store {
     return next;
   }
 
-  // Applies a write set produced by another store (the Postgres adapter, while devva runs as its shadow).
+  // Applies a write set produced by another store (a copy being brought level with this one).
   replicate(c: Committed): Promise<void> {
     const run = async (): Promise<void> => {
       if (c.changes.length === 0) return;
@@ -557,12 +558,12 @@ export class DevvaStore implements Store {
 // by default the one the spike's setup script copies.
 export async function loadClient(opts: DevvaOptions): Promise<() => Promise<DevvaClient>> {
   const root = path.resolve(import.meta.dirname, "..", "..");
-  const entry = opts.clientModule ?? process.env.DEVVA_CLIENT ?? path.join(root, "spike", "devva-commit-log", "vendor", "xyzdb", "dist", "src", "index.js");
-  const tokenFile = opts.tokenFile ?? process.env.DEVVA_TOKEN_FILE ?? path.join(root, "spike", "devva-commit-log", ".token");
+  const entry = opts.clientModule ?? process.env.DEVVA_CLIENT ?? path.join(root, "vendor", "devva-client", "lib", "index.js");
+  const tokenFile = opts.tokenFile ?? process.env.DEVVA_TOKEN_FILE ?? path.join(homedir(), ".config", "plania", "devva-token");
   const token = readFileSync(tokenFile, "utf8").trim();
   process.env.DEVVA_TOKEN = process.env.XYZDB_TOKEN = token;
   const mod = (await import(pathToFileURL(entry).href)) as { connect(host: string, port: number, timeoutMs: number): Promise<DevvaClient> };
   const host = opts.host ?? process.env.DEVVA_HOST ?? "127.0.0.1";
-  const port = opts.port ?? Number(process.env.DEVVA_PORT ?? 2511);
+  const port = opts.port ?? Number(process.env.DEVVA_PORT ?? 2505);
   return () => mod.connect(host, port, 15_000);
 }

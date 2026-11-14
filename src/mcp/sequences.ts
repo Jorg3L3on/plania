@@ -1,6 +1,6 @@
 import type { Db } from "../db/client.js";
 import type { sequenceReservations } from "../db/schema.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import type { Reader } from "../store/types.js";
 import { ToolError, findProject, requireTask } from "./queries.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";

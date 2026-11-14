@@ -1,6 +1,6 @@
 import type { Db } from "../db/client.js";
 import type { Workspace } from "../db/schema.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { getContext } from "./context.js";
 import { addResultInTx, type AddResultInput } from "./evidence.js";
 import { ToolError, findProject, requireTask } from "./queries.js";

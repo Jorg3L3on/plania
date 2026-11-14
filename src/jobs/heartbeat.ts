@@ -6,7 +6,7 @@ import { COMPANY } from "../runner/limits.js";
 import { cleanupWorktrees, drainQueue, enforceLive, wakeClaude, type RunnerDeps } from "../runner/runner.js";
 import { ToolError } from "../mcp/errors.js";
 import { iso } from "../mcp/tx.js";
-import { pgStore, readerOf } from "../store/pg.js";
+import { storeOf, readerOf } from "../store/port.js";
 import type { NewRow } from "../store/types.js";
 import type { Job } from "./index.js";
 
@@ -159,7 +159,7 @@ const viewOf = (
 });
 
 // A heartbeat run belongs to an agent, a company row: its write carries no project.
-const recordRun = (db: Db, run: NewRow<"heartbeatRuns">) => pgStore(db).write(COMPANY, {}, (uow) => uow.insert("heartbeatRuns", run));
+const recordRun = (db: Db, run: NewRow<"heartbeatRuns">) => storeOf(db).write(COMPANY, {}, (uow) => uow.insert("heartbeatRuns", run));
 
 const explicitTask = async (db: Db, agentId: string, taskKey: string): Promise<ReadyWork> => {
   const key = taskKey.trim();
@@ -207,7 +207,7 @@ export const wakeAgent = async (db: Db, input: { agent: string; taskKey?: string
   if (!cadenceOpen) return { woke: false, reason: "cadence", run: null };
 
   // The cadence is taken inside one serialized write: of two wakes at once, only the first finds it still open.
-  const claimed = await pgStore(db).write(COMPANY, {}, async (uow) => {
+  const claimed = await storeOf(db).write(COMPANY, {}, async (uow) => {
     const cur = await uow.get("agents", { id: row.id });
     if (!cur) return false;
     if (dueBefore != null && cur.lastHeartbeatAt != null && cur.lastHeartbeatAt.getTime() > dueBefore.getTime()) return false;

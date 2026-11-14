@@ -34,7 +34,7 @@ import { setTask } from "../mcp/writes.js";
 import { COMPANY, loadSettings, roleOf } from "../runner/limits.js";
 import { agentOfActor } from "../runner/events.js";
 import { JORGE, actionsFor, postMessage, resolveThread, type MessageAction, type ThreadRef } from "../runner/threads.js";
-import { pgStore, readerOf } from "../store/pg.js";
+import { storeOf, readerOf } from "../store/port.js";
 import { ceoAgentId } from "./company-plan.js";
 import { threadAction } from "./thread-actions.js";
 import { jorgePosts } from "./threads.js";
@@ -536,7 +536,7 @@ async function after(db: Db, id: string, state: DecisionState, extra: Partial<De
 // With claim, only while nobody acted on it yet: false means another click got there first.
 async function setActionState(db: Db, ref: ThreadRef, msgId: string, patch: Partial<Pick<ThreadMessage, "actionState" | "proposal">>, claim = false): Promise<boolean> {
   const where = claim ? { id: msgId, actionState: null } : { id: msgId };
-  const changed = await pgStore(db).write(ref.project?.id ?? COMPANY, {}, (uow) => uow.update("threadMessages", where, patch));
+  const changed = await storeOf(db).write(ref.project?.id ?? COMPANY, {}, (uow) => uow.update("threadMessages", where, patch));
   return changed.length > 0;
 }
 

@@ -4,8 +4,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import pg from "pg";
-import { onDevva, resetTestStore, TEST_DATABASE_URL, useTestEnv, type TestStore } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -80,25 +79,12 @@ describe("headline", () => {
 });
 
 describe("v1 leftovers (gone in 2.9, migration 0022)", () => {
-  test("no legacy card in get_resume, no archive_legacy_card tool, no v1 columns or tables", async () => {
+  test("no legacy card in get_resume, no archive_legacy_card tool", async () => {
     await call("add_decision", { ...P, text: "Keep the slug", pin: true });
     const r = await call("get_resume", P);
     assert.equal("legacy_card" in r, false);
     assert.equal("legacy_card_present" in r, false);
     assert.ok(!(await client.listTools()).tools.some((t) => t.name === "archive_legacy_card"));
-    // The columns and tables are looked for in Postgres's catalog; devva has no catalog to look in.
-    if (!onDevva) {
-      const raw = new pg.Client({ connectionString: TEST_DATABASE_URL });
-      await raw.connect();
-      try {
-        const { rows } = await raw.query(`select table_name, column_name from information_schema.columns
-          where (table_name = 'tasks' and column_name = 'body') or (table_name = 'projects' and column_name like 'resume_%')
-             or (table_name = 'decisions' and column_name = 'supersedes_id') or table_name in ('design_pages', 'env_blockers')`);
-        assert.deepEqual(rows, []);
-      } finally {
-        await raw.end();
-      }
-    }
   });
 });
 

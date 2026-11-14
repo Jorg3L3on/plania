@@ -1,4 +1,4 @@
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { gt, notNull } from "../store/types.js";
 import { payloadText } from "./delegate.js";
 import type { Q } from "./tx.js";

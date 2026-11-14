@@ -1,5 +1,5 @@
 import { describeStale, primaryPgPort, spanAgo } from "../jobs/machine/infer.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import type { Finding } from "./audit.js";
 import type { Q } from "./tx.js";
 

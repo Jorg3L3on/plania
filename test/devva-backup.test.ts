@@ -1,5 +1,5 @@
 // Backup on the devva store: the dump, loading it into an empty store, and the nightly job that checks it.
-// Skipped unless DEVVA_TEST=1 (needs the spike's engine and client build, like store-devva.test.ts).
+// It needs a running devva engine (deploy/devva/README.md).
 import assert from "node:assert/strict";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,18 +9,16 @@ import { gunzipSync } from "node:zlib";
 import { useTestEnv } from "./helpers.js";
 
 useTestEnv();
-delete process.env.DATABASE_URL;
 const { makeDb, useDb } = await import("../src/db/client.js");
 const { DevvaStore } = await import("../src/store/devva.js");
 const { runBackup, backupState } = await import("../src/jobs/backup.js");
 type Store = Awaited<ReturnType<typeof DevvaStore.open>>;
 
-const live = process.env.DEVVA_TEST === "1";
 const stamp = Date.now().toString(36);
 let store: Store;
 let dir = "";
 
-describe("devva backup", { skip: live ? false : "set DEVVA_TEST=1 with the spike engine running" }, () => {
+describe("devva backup", () => {
   before(async () => {
     dir = mkdtempSync(path.join(tmpdir(), "plania-devva-backup-"));
     store = await DevvaStore.open({ prefix: `bk_${stamp}` });

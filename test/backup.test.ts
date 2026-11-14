@@ -1,13 +1,11 @@
-// The nightly backup job (2.9 fix b): when it runs, what it keeps, what it records, and that the dump restores.
+// The nightly backup job (2.9 fix b): when it runs, what it keeps and what it records. The dump itself and
+// loading it back are in devva-backup.test.ts.
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { gunzipSync } from "node:zlib";
 import { after, before, describe, test } from "node:test";
-import pg from "pg";
-import { TEST_DATABASE_URL, pgOnly, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -40,59 +38,28 @@ describe("runBackup", () => {
     assert.deepEqual(readdirSync(dir), []);
   });
 
-  test("dumps once that day into plania-<YYYYMMDD>.sql.gz and records it", pgOnly("exercises pg_dump"), async () => {
-    assert.equal((await runBackup(db, MORNING, { dir, tz: TZ })).dumped, 1);
-    const file = path.join(dir, "plania-20261015.sql.gz");
-    assert.ok(existsSync(file));
-    const sql = gunzipSync(readFileSync(file)).toString("utf8");
-    assert.match(sql, /CREATE TABLE public\.tasks/);
-    assert.doesNotMatch(sql, /OWNER TO/, "--no-owner");
-    const s = await backupState(db);
-    assert.equal(s.path, file);
-    assert.equal(s.day, "2026-10-15");
-    assert.equal(s.error, null);
-    assert.ok(s.bytes! > 1000);
-    // the same day again: nothing
-    assert.deepEqual(await runBackup(db, new Date(MORNING.getTime() + 3600_000), { dir, tz: TZ }), { dumped: 0, pruned: 0, failed: 0 });
-  });
-
-  test("the dump restores into an empty database", pgOnly("restores a pg_dump into a database of its own with psql"), async () => {
-    const name = `${new URL(TEST_DATABASE_URL).pathname.slice(1)}_restore`;
-    const admin = new pg.Client({ connectionString: TEST_DATABASE_URL });
-    await admin.connect();
-    await admin.query(`drop database if exists ${name} with (force)`);
-    await admin.query(`create database ${name}`);
-    try {
-      const url = new URL(TEST_DATABASE_URL);
-      url.pathname = `/${name}`;
-      const psql = path.join(path.dirname(realpathSync(execFileSync("which", ["pg_dump"]).toString().trim())), "psql");
-      execFileSync(psql, ["-q", "-v", "ON_ERROR_STOP=1", url.toString()], { input: gunzipSync(readFileSync(path.join(dir, "plania-20261015.sql.gz"))) });
-      const restored = new pg.Client({ connectionString: url.toString() });
-      await restored.connect();
-      const { rows } = await restored.query("select count(*)::int as n from projects");
-      await restored.end();
-      assert.equal(rows[0].n, 4);
-    } finally {
-      await admin.query(`drop database if exists ${name} with (force)`);
-      await admin.end();
-    }
-  });
-
-  test("a failed run keeps the last good dump and records the error; the next hour retries", pgOnly("exercises pg_dump"), async () => {
-    const r = await runBackup(db, NEXT, { dir, tz: TZ, pgDump: "/nonexistent/pg_dump" });
+  test("a failed run keeps the last good dump and records the error; the next hour retries", async () => {
+    // The 2026-10-15 dump, as the job records it.
+    const good = { at: MORNING.toISOString(), path: path.join(dir, "plania-20261015.devva.jsonl.gz"), bytes: 1, day: "2026-10-15", error: null, attempted_at: MORNING.toISOString() };
+    await store.fix((uow) => uow.insert("machineState", { key: "backup", value: good }));
+    // A folder holds the next day's file name, so the finished dump cannot be moved into place.
+    const taken = path.join(dir, "plania-20261016.devva.jsonl.gz");
+    mkdirSync(taken);
+    const r = await runBackup(db, NEXT, { dir, tz: TZ });
     assert.equal(r.failed, 1);
     const s = await backupState(db);
     assert.equal(s.day, "2026-10-15", "the good dump stays the last one");
-    assert.match(s.error!, /ENOENT|nonexistent/);
+    assert.match(s.error!, /EISDIR|EPERM|ENOTEMPTY|EEXIST/);
     assert.ok(!readdirSync(dir).some((f) => f.endsWith(".partial")));
+    rmSync(taken, { recursive: true });
     assert.equal((await runBackup(db, new Date(NEXT.getTime() + 3600_000), { dir, tz: TZ })).dumped, 1);
     assert.equal((await backupState(db)).error, null);
   });
 
-  test("GET /api/machine carries the backup", pgOnly("reads the backup the pg_dump runs above recorded"), async () => {
+  test("GET /api/machine carries the backup", async () => {
     const res = await app.request("/api/machine", { headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } });
     const body = (await res.json()) as Record<string, any>;
-    assert.equal(body.backup.path, path.join(dir, "plania-20261016.sql.gz"));
+    assert.equal(body.backup.path, path.join(dir, "plania-20261016.devva.jsonl.gz"));
     assert.equal(typeof body.backup.bytes, "number");
     assert.equal(body.backup.error, null);
   });
@@ -101,11 +68,18 @@ describe("runBackup", () => {
 describe("prune", () => {
   test(`keeps the newest ${KEEP} daily dumps and never touches plania-pre-*`, async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "plania-prune-"));
-    for (let d = 1; d <= 20; d++) writeFileSync(path.join(dir, `plania-202610${String(d).padStart(2, "0")}.sql.gz`), "x");
+    for (let d = 1; d <= 20; d++) writeFileSync(path.join(dir, `plania-202610${String(d).padStart(2, "0")}.devva.jsonl.gz`), "x");
     writeFileSync(path.join(dir, "plania-pre-0022-20261015T060000Z.sql"), "x");
     writeFileSync(path.join(dir, "notes.txt"), "x");
     const removed = await prune(dir);
-    assert.deepEqual(removed, ["plania-20261001.sql.gz", "plania-20261002.sql.gz", "plania-20261003.sql.gz", "plania-20261004.sql.gz", "plania-20261005.sql.gz", "plania-20261006.sql.gz"]);
+    assert.deepEqual(removed, [
+      "plania-20261001.devva.jsonl.gz",
+      "plania-20261002.devva.jsonl.gz",
+      "plania-20261003.devva.jsonl.gz",
+      "plania-20261004.devva.jsonl.gz",
+      "plania-20261005.devva.jsonl.gz",
+      "plania-20261006.devva.jsonl.gz",
+    ]);
     const left = readdirSync(dir).sort();
     assert.equal(left.filter((f) => /^plania-\d{8}/.test(f)).length, KEEP);
     assert.ok(left.includes("plania-pre-0022-20261015T060000Z.sql"));

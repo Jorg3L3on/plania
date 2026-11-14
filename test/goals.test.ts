@@ -1,14 +1,11 @@
 // PLA-I22-1: goals table, goal_id on initiatives, list_goals / set_goal, progress roll-up.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import pg from "pg";
 import type { Db } from "../src/db/client.js";
 import { whyChainOf } from "../src/mcp/goals.js";
-import { pgOnly, resetTestStore, TEST_DATABASE_URL, useTestEnv, type TestStore } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -48,38 +45,6 @@ after(async () => {
 });
 
 describe("goals", () => {
-  test("migration 0035 applies twice and only an initiative can point at a goal", pgOnly("replays migration 0035, reads the catalog and asserts a check constraint's name"), async () => {
-    const raw = new pg.Client({ connectionString: TEST_DATABASE_URL });
-    await raw.connect();
-    try {
-      const sql = readFileSync(path.resolve(import.meta.dirname, "../drizzle/migrations/0035_goals.sql"), "utf8");
-      await raw.query(sql);
-      await raw.query(sql);
-      const cols = await raw.query<{ column_name: string }>(
-        "select column_name from information_schema.columns where table_name = 'goals' order by 1",
-      );
-      assert.deepEqual(
-        cols.rows.map((r) => r.column_name),
-        ["created_at", "id", "parent_id", "position", "project_id", "status", "target_on", "title", "updated_at", "why"],
-      );
-      const goal = await raw.query<{ id: string }>("insert into goals (title, why) values ('Suelta', 'nadie la pide') returning id");
-      const project = await raw.query<{ id: string }>("select id from projects where slug = 'workia'");
-      await raw.query("insert into tasks (project_id, kind, key, title, status, goal_id) values ($1, 'initiative', 'WRK-GOAL-OK', 'Ok', 'Planning', $2)", [
-        project.rows[0]!.id,
-        goal.rows[0]!.id,
-      ]);
-      await assert.rejects(
-        raw.query("insert into tasks (project_id, kind, key, title, status, goal_id) values ($1, 'ticket', 'WRK-GOAL-NO', 'No', 'Backlog', $2)", [
-          project.rows[0]!.id,
-          goal.rows[0]!.id,
-        ]),
-        /tasks_goal_initiative/,
-      );
-    } finally {
-      await raw.end();
-    }
-  });
-
   test("progress rolls up a company goal from its project goals, and ignores an initiative with no goal", async () => {
     const company = await write("set_goal", { title: "Una dirección", why: "para que todo empuje igual" });
     assert.equal(company.__error, undefined);

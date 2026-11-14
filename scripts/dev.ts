@@ -21,15 +21,11 @@ const hostname = "127.0.0.1";
 const distDir = path.resolve(import.meta.dirname, "../dist/ui");
 const indexPath = path.join(distDir, "index.html");
 
-// PLANIA_STORE=devva: plania runs on the devva store and needs no Postgres (deploy/devva/README.md).
-// Everything that asks for the database gets the store's handle. The default is Postgres.
-if (process.env.PLANIA_STORE === "devva") {
-  const { DevvaStore } = await import("../src/store/devva.js");
-  const { useDb } = await import("../src/db/client.js");
-  const store = await DevvaStore.open({ prefix: process.env.PLANIA_DEVVA_PREFIX || "plania" });
-  useDb(store.handle);
-  console.log(`[store] devva: ${store.commits} commits replayed, ${store.recovered.repaired} projection records rewritten`);
-}
+// The store is devva (deploy/devva/README.md). It is opened before anything asks for it: boot replays its log
+// and brings its projection level, so the server never answers from a store that is behind.
+const { openStore } = await import("../src/store/open.js");
+const store = await openStore();
+console.log(`[store] devva: ${store.commits} commits replayed, ${store.recovered.repaired} projection records rewritten`);
 
 const server = new Hono();
 server.route("/", app);
@@ -66,21 +62,12 @@ serve({ fetch: server.fetch, port, hostname }, () => console.log(`plania on http
 // Background jobs (lease warnings, legacy card archiving, later the pollers). PLANIA_JOBS=0 turns them off.
 if (process.env.PLANIA_JOBS !== "0") startJobs();
 
-// PLANIA_SEARCH=devva: the search tool, on a devva vector lobe with embeddings from SEXTANT_URL. It works with
-// either store. An unreachable engine or embedder is logged; the server runs on without search.
+// PLANIA_SEARCH=devva: the search tool, on a devva vector lobe with embeddings from SEXTANT_URL.
+// An unreachable embedder is logged; the server runs on without search.
 if (process.env.PLANIA_SEARCH === "devva") {
   const { startSearch } = await import("../src/search/service.js");
   const { makeDb } = await import("../src/db/client.js");
   void startSearch(makeDb().db).catch((e) => console.log(`[search] off: ${e instanceof Error ? e.message : String(e)}`));
-}
-
-// Devva as a shadow of Postgres (deploy/devva/README.md). An unreachable engine is logged; the server runs on.
-if (process.env.PLANIA_SHADOW === "devva" && process.env.PLANIA_STORE !== "devva") {
-  const { Shadow } = await import("../src/store/shadow.js");
-  const { makeDb } = await import("../src/db/client.js");
-  void Shadow.start(makeDb().db, { prefix: process.env.PLANIA_DEVVA_PREFIX || "plania" })
-    .then((s) => console.log(`[shadow] devva on, ${s.devva.commits} commits in its log`))
-    .catch((e) => console.log(`[shadow] off: ${e instanceof Error ? e.message : String(e)}`));
 }
 
 // PLA-I29-2: runs left "running" by an earlier server are stopped and closed (fail: orphaned).

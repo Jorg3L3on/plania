@@ -1,6 +1,6 @@
 import type { Db } from "../db/client.js";
 import type { resources, Project } from "../db/schema.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import { LEGACY_APPROVAL_HINT } from "./delegate.js";
 import { ToolError } from "./errors.js";
 import { findProject } from "./queries.js";

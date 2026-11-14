@@ -13,7 +13,7 @@
 import type { Db } from "../db/client.js";
 import type { Project, Task } from "../db/schema.js";
 import { roleOf } from "../runner/limits.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { gte, notNull } from "../store/types.js";
 
 const DAY = 86_400_000;

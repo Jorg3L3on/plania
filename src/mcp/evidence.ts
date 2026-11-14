@@ -1,6 +1,6 @@
 import type { Db } from "../db/client.js";
 import type { Project, Task } from "../db/schema.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import type { Row } from "../store/types.js";
 import { UUID_TEXT, setMetricInTx } from "./blockers.js";
 import { ToolError, findProject, requireTask, writeReply } from "./queries.js";

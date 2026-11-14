@@ -1,7 +1,7 @@
 import type { Db } from "../db/client.js";
 import { IDEA_STATUSES, INITIATIVE_STATUSES, PRIORITIES, TICKET_STATUSES, type Task, type Workspace } from "../db/schema.js";
 import type { Project } from "../db/schema.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import type { NewRow } from "../store/types.js";
 import {
   ToolError,

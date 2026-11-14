@@ -1,6 +1,6 @@
 import type { Db } from "../db/client.js";
 import type { DeploySource, envStates } from "../db/schema.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import { ENV_NAME, promoteUnblocked } from "./blockers.js";
 import { ToolError } from "./errors.js";
 import { markHeadlineStale } from "./project.js";

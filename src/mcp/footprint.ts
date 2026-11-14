@@ -3,7 +3,7 @@ import type { Db } from "../db/client.js";
 import type { footprints, Task } from "../db/schema.js";
 import { bus } from "../events.js";
 import { FOOTPRINT_KINDS, type FootprintKind } from "../jobs/machine/infer.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import { ToolError } from "./errors.js";
 import { footprintShape, sameMachine } from "./footprint-read.js";
 import { findProject, findTask } from "./queries.js";

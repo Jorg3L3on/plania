@@ -19,7 +19,7 @@
 import type { Actor, Agent, AgentRun } from "../db/schema.js";
 import { unsatisfiedBlockers } from "../mcp/blockers.js";
 import type { Q } from "../mcp/tx.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import { loadSettings, roleOf, writeVia, type RunnerRole } from "./limits.js";
 
 export const EVENT_SUMMARY = "queued: event";

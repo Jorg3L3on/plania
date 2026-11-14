@@ -5,7 +5,7 @@ import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
 import { ADAPTERS, AGENT_KINDS, AGENT_STATUSES, type AdapterConfig, type Agent, type ProjectSettings, type Task } from "../db/schema.js";
 import { COMPANY } from "../runner/limits.js";
-import { pgStore, readerOf, uowOf } from "../store/pg.js";
+import { storeOf, readerOf, uowOf } from "../store/port.js";
 import { ToolError } from "./errors.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 export { workingOnBySlug, type WorkingOn } from "./working-on.js";
@@ -278,7 +278,7 @@ export async function setAgent(db: Db, input: SetAgentInput): Promise<AgentView>
   if (input.role !== undefined && !role) throw new ToolError("INVALID_FILTER", { field: "role" });
 
   // One serialized store write, like every other write, so a roster change never interleaves with one.
-  return pgStore(db).write(COMPANY, {}, async (uow) => {
+  return storeOf(db).write(COMPANY, {}, async (uow) => {
     const tx = uow.sql;
     const existing = await uow.get("agents", { slug });
     let reportsTo: string | null | undefined;
@@ -360,7 +360,7 @@ export async function checkIn(db: Db, input: CheckInInput, ctx: Ctx): Promise<Ag
     working = { projectId: found[0]!.projectId, slug: found[0]!.slug, task: found[0]!.task };
   }
 
-  await pgStore(db).write(COMPANY, {}, (uow) =>
+  await storeOf(db).write(COMPANY, {}, (uow) =>
     uow.update("agents", { id: agent.id }, { lastCheckInAt: uow.now, status: "alive", ...(input.note !== undefined ? { note: input.note } : {}), updatedAt: uow.now }),
   );
 

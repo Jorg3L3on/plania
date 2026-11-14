@@ -4,10 +4,10 @@
 // The stable key is the title on that project (or the company title, with no project).
 // A second run finds those rows and inserts nothing. Projects that are not registered are skipped.
 import { pathToFileURL } from "node:url";
-import { withDb, type Db } from "../src/db/client.js";
+import { closeStore, withDb, type Db } from "../src/db/client.js";
 import { setGoal } from "../src/mcp/goals.js";
 import { webCtx } from "../src/mcp/tx.js";
-import { readerOf } from "../src/store/pg.js";
+import { readerOf } from "../src/store/port.js";
 
 export const GOAL_SLUGS = ["micasa", "filmia", "workia", "zigzag", "plania", "mianovia"] as const;
 
@@ -73,4 +73,5 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     if (kept.length) console.log(`kept ${kept.join(", ")}`);
     if (missing.length) console.log(`missing projects ${missing.join(", ")}`);
   });
+  await closeStore();
 }

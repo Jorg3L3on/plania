@@ -1,8 +1,7 @@
 // PLA-I31-3: POST /api/company/projects, the new-project template that starts paused. Throwaway DB.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import pg from "pg";
-import { TEST_BEARER, TEST_DATABASE_URL, onDevva, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
+import { TEST_BEARER, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 process.env.PLANIA_PROMPTS_PROJECT = "micasa";
@@ -93,18 +92,6 @@ test("I31-3 #1: a created project is paused, has its goal, a PO with the templat
     { slug: "taller-cafe-lindo", role_template: "taller", adapter: "claude_code", boss: "po-cafe-lindo" },
   ]);
   for (const m of team) assert.equal(roleOf({ slug: m.slug, role: "x", capabilities: [], roleTemplate: m.role_template }), m.role_template);
-
-  // PLA-21: no weekly limit is made for it.
-  // The table is gone from Postgres's catalog; devva has no catalog and the schema has no such table.
-  if (!onDevva) {
-    const raw = new pg.Client({ connectionString: TEST_DATABASE_URL });
-    await raw.connect();
-    try {
-      assert.equal((await raw.query(`select to_regclass('token_budgets') as t`)).rows[0].t, null);
-    } finally {
-      await raw.end();
-    }
-  }
 
   // Nothing is queued while paused, not even when a ticket in it moves to Ready.
   await writes.createTask(db, { project: "cafe-lindo", title: "Primera", scope: "s", checks: ["c"] } as never, { actor: { agent: "t", session_id: "s" } });

@@ -5,7 +5,7 @@ import type { Db } from "../db/client.js";
 import type { RunnerSettings } from "../db/schema.js";
 import { findProject } from "../mcp/queries.js";
 import { webCtx, writeTx } from "../mcp/tx.js";
-import { pgStore, readerOf, uowOf } from "../store/pg.js";
+import { storeOf, readerOf, uowOf } from "../store/port.js";
 import { COMPANY, lastReading, loadSettings, planView, screenTz, weekBounds, weekUsage, type PlanView, type WeekUsage } from "./limits.js";
 import { latestBrief, type Brief } from "./asistente.js";
 import { stopLive } from "./runner.js";
@@ -107,7 +107,7 @@ export async function companyState(db: Db, now = new Date()): Promise<CompanySta
 // so a project Jorge paused on its own stays paused.
 export async function setCompanyPaused(db: Db, paused: boolean): Promise<{ paused: boolean; stopped: number }> {
   await loadSettings(db);
-  await pgStore(db).write(COMPANY, {}, (uow) =>
+  await storeOf(db).write(COMPANY, {}, (uow) =>
     uow.update("runnerSettings", { id: 1 }, { companyPaused: paused, companyPausedAt: paused ? uow.now : null, updatedAt: uow.now }),
   );
   const stopped = paused ? stopLive(() => true, "company paused") : 0;
@@ -146,7 +146,7 @@ export async function setRunnerSettings(db: Db, patch: SettingsPatch): Promise<C
   if (patch.reserve_tokens !== undefined) set.reserveTokens = patch.reserve_tokens;
   if (patch.max_turns !== undefined) set.maxTurns = patch.max_turns;
   if (patch.timeout_minutes !== undefined) set.timeoutMinutes = patch.timeout_minutes;
-  await pgStore(db).write(COMPANY, {}, (uow) => uow.update("runnerSettings", { id: 1 }, { ...set, updatedAt: uow.now }));
+  await storeOf(db).write(COMPANY, {}, (uow) => uow.update("runnerSettings", { id: 1 }, { ...set, updatedAt: uow.now }));
   const s = await loadSettings(db);
   return {
     max_concurrent: s.maxConcurrent,

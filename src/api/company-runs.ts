@@ -12,7 +12,7 @@ import { ToolError } from "../mcp/errors.js";
 import { webCtx } from "../mcp/tx.js";
 import { claim, setTask } from "../mcp/writes.js";
 import { stopRun } from "../runner/runner.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { gte, notNull } from "../store/types.js";
 
 export type RunLine = { id: string; role: string; agent: string; step: string; ticket: string; since: string; last: string | null; status: "running" | "stopped" };

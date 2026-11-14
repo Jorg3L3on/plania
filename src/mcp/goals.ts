@@ -5,7 +5,7 @@ import type { Db } from "../db/client.js";
 import { GOAL_STATUSES, type Goal, type Task } from "../db/schema.js";
 import { bus } from "../events.js";
 import { COMPANY } from "../runner/limits.js";
-import { pgStore, readerOf, uowOf } from "../store/pg.js";
+import { storeOf, readerOf, uowOf } from "../store/port.js";
 import { ToolError } from "./errors.js";
 import { writeTx, type Ctx, type Q } from "./tx.js";
 
@@ -306,7 +306,7 @@ export async function setGoal(db: Db, input: SetGoalInput, ctx: Ctx): Promise<Go
     });
   }
   // A company goal has no project's writeTx; it is still one serialized store write.
-  const view = await pgStore(db).write(COMPANY, {}, (uow) => run(uow.sql));
+  const view = await storeOf(db).write(COMPANY, {}, (uow) => run(uow.sql));
   bus.publish({ type: "project", project: "" });
   return view;
 }

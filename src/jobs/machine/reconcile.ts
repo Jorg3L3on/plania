@@ -3,7 +3,7 @@ import type { footprints } from "../../db/schema.js";
 import { bus } from "../../events.js";
 import { releaseRow } from "../../mcp/footprint.js";
 import { SYSTEM_ACTOR, writeTx, type Emit, type Q } from "../../mcp/tx.js";
-import { pgStore, readerOf, uowOf } from "../../store/pg.js";
+import { storeOf, readerOf, uowOf } from "../../store/port.js";
 import type { UnitOfWork } from "../../store/types.js";
 import { groupOf } from "./collect.js";
 import { GHOST_RELEASE_MS, computeVerdict, ownerFacts, suggestTeardown, type Directory, type Observed, type Owner, type StateInput, type Verdict } from "./infer.js";
@@ -288,13 +288,13 @@ export async function reconcile(
       });
     } else {
       // No event without a project, but the write is still serialized with every other one.
-      await pgStore(db).write(projectId ?? NO_PROJECT, {}, (uow) => apply(uow.sql, null, g));
+      await storeOf(db).write(projectId ?? NO_PROJECT, {}, (uow) => apply(uow.sql, null, g));
     }
   }
 
   // The refreshes that carry no event, in one write.
   if (touch.length || changed.length || missed.length || ghostNew.length || release.length) {
-    await pgStore(db).write(NO_PROJECT, {}, async (uow) => {
+    await storeOf(db).write(NO_PROJECT, {}, async (uow) => {
       if (touch.length) await uow.update("footprints", { id: touch }, { lastSeenAt: now, misses: 0 });
       for (const c of changed) await uow.update("footprints", { id: c.id }, c.set);
       // One more miss on the count as it is now, read inside the write.

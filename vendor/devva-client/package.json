@@ -1,0 +1,50 @@
+{
+  "name": "xyzdb",
+  "version": "1.1.1",
+  "description": "Official TypeScript/JavaScript driver for xyzDB — a thin client that speaks the binary wire protocol directly.",
+  "license": "Apache-2.0",
+  "author": "Tunolabs <ivan@tuno.bar>",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/src",
+    "README.md"
+  ],
+  "keywords": [
+    "xyzdb",
+    "database",
+    "driver",
+    "client",
+    "vector",
+    "gravity",
+    "mcp",
+    "agent-memory"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Tunolabs/xyzdb.git"
+  },
+  "homepage": "https://xyzdb.bar",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "test:integration": "npm run build && XYZDB_LIVE=1 node --test dist/test/integration.test.js",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

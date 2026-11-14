@@ -1,6 +1,6 @@
 import type { Db } from "../db/client.js";
 import type { Project, Task } from "../db/schema.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { CLAIMABLE_BUT_WAITING, auditProject, canonicalAuditCode, runAudit, type Finding } from "./audit.js";
 import { retireDecision } from "./decisions.js";
 import { setEnv } from "./env.js";

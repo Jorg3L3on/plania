@@ -1,5 +1,5 @@
 import type { footprints } from "../db/schema.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { iso, type Q } from "./tx.js";
 
 // Reads of the `footprints` table for the MCP tools (get_task, get_context). The Machine page's

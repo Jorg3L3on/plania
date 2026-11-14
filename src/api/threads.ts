@@ -17,7 +17,7 @@ import { webCtx } from "../mcp/tx.js";
 import { asistenteAgent, eventWakesEnabled } from "../runner/events.js";
 import { loadSettings } from "../runner/limits.js";
 import { JORGE, listThreads, markRead, messageView, postMessage, readThread, resolveThread, type ThreadRef } from "../runner/threads.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { createPoTicket, projectPo } from "./company-actions.js";
 import { threadAction } from "./thread-actions.js";
 

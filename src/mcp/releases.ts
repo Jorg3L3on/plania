@@ -1,5 +1,5 @@
 import type { Project } from "../db/schema.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import { prRowOf } from "./queries.js";
 import { iso, type Q } from "./tx.js";
 

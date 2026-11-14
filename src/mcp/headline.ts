@@ -1,5 +1,5 @@
 import type { Project } from "../db/schema.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { inboxFor } from "./inbox.js";
 import { PR_NUMBER } from "./queries.js";
 import { releasePending } from "./release-plan.js";

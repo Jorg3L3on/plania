@@ -16,7 +16,7 @@ import type { Db } from "../db/client.js";
 import type { ProposalCost, ProposalData, ThreadLink } from "../db/schema.js";
 import { agentOfActor } from "../runner/events.js";
 import { assertThreadAccess, checkLinks, messageView, postMessage, projectThread } from "../runner/threads.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { ToolError } from "./errors.js";
 import type { Ctx } from "./tx.js";
 import { createTask } from "./writes.js";

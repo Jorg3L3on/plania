@@ -1,5 +1,5 @@
 import type { Actor, Project, Task } from "../db/schema.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import type { Reader, Row, UnitOfWork, Where } from "../store/types.js";
 import { agentRefOf } from "./team.js";
 import { blockedTaskIds, blockerList } from "./blockers.js";

@@ -1,7 +1,7 @@
 import type { Db } from "../db/client.js";
 import { SEARCH_KINDS, type SearchKind } from "../search/index.js";
 import { searchIndex } from "../search/service.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { ToolError } from "./errors.js";
 import { findProject } from "./queries.js";
 

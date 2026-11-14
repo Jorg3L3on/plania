@@ -1,11 +1,9 @@
 // PLA-I21-1: agents table, org seed, list_agents / set_agent, owner_agent on tasks.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import pg from "pg";
-import { pgOnly, resetTestStore, TEST_DATABASE_URL, useTestEnv, type TestStore } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -39,27 +37,6 @@ after(async () => {
   await client?.close();
   await closeDb?.();
   await store?.end();
-});
-
-test("0034_agents.sql applies twice", pgOnly("replays migration 0034 and reads the catalog"), async () => {
-  const raw = new pg.Client({ connectionString: TEST_DATABASE_URL });
-  await raw.connect();
-  try {
-    const sql = readFileSync(new URL("../drizzle/migrations/0034_agents.sql", import.meta.url), "utf8");
-    await raw.query(sql);
-    await raw.query(sql);
-    const { rows } = await raw.query<{ column_name: string }>(
-      `select column_name from information_schema.columns where table_name = 'agents' order by column_name`,
-    );
-    const cols = rows.map((r) => r.column_name);
-    for (const name of ["slug", "name", "role", "title", "reports_to", "capabilities", "kind", "wake_url", "last_check_in_at", "last_wake_at", "status", "note"]) {
-      assert.ok(cols.includes(name), name);
-    }
-    const { rows: owner } = await raw.query(`select column_name from information_schema.columns where table_name = 'tasks' and column_name = 'owner_agent'`);
-    assert.equal(owner.length, 1);
-  } finally {
-    await raw.end();
-  }
 });
 
 test("seed creates the org once, with a reports_to chain, and leaves edits in place", async () => {

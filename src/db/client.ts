@@ -1,47 +1,33 @@
-import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import pg from "pg";
-import * as schema from "./schema.js";
+// The handle plania's code passes around where it means "the store". It is opaque: the store that is open
+// (src/store/open.ts) hands it out, and src/store/port.ts resolves it back to that store.
+export type Db = { readonly __planiaStore: never };
 
-export type Db = NodePgDatabase<typeof schema>;
+let current: Db | null = null;
 
-// One pool for the whole process (Plania runs as one long-lived server on the Mac).
-// Created on first use, so tests can set DATABASE_URL before anything connects.
-let shared: { pool: pg.Pool; db: Db } | null = null;
-
-// A store that is not Postgres (src/store/devva.ts) puts its own handle here; every caller of makeDb and
-// withDb then runs on that store.
-let override: Db | null = null;
+// Puts a store's handle in place, or removes it.
 export function useDb(handle: Db | null): void {
-  override = handle;
+  current = handle;
 }
 
-function sharedDb(): { pool: pg.Pool; db: Db } {
-  if (override) return { pool: undefined as unknown as pg.Pool, db: override };
-  if (shared) return shared;
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL is not set");
-  // allowExitOnIdle: idle connections never keep a finished script or test process alive.
-  const pool = new pg.Pool({ connectionString: url, max: 10, idleTimeoutMillis: 30_000, allowExitOnIdle: true });
-  // An idle client that loses its connection (Postgres restart, a test dropping its database)
-  // is removed by the pool; without a listener the error would crash the process.
-  pool.on("error", (err) => console.error("[db] idle client error:", err.message));
-  shared = { pool, db: drizzle(pool, { schema }) };
-  return shared;
+function handle(): Db {
+  if (!current) throw new Error("the store is not open: call openStore() (src/store/open.ts) first");
+  return current;
 }
 
-// The shared db. close is a no-op kept for callers written for the per-request pool.
+// The open store's handle. close is a no-op kept for callers written when each request had its own connection.
 export function makeDb(): { db: Db; close: () => Promise<void> } {
-  return { db: sharedDb().db, close: async () => {} };
+  return { db: handle(), close: async () => {} };
 }
 
-// Runs fn with the shared Db.
+// Runs fn with the store's handle, opening the store first when nothing has (a script's first call).
 export async function withDb<T>(fn: (db: Db) => Promise<T>): Promise<T> {
-  return fn(sharedDb().db);
+  if (!current) await (await import("../store/open.js")).openStore();
+  return fn(handle());
 }
 
-// Ends the shared pool; the next call opens a new one. For tests that drop and rebuild the database.
-export async function resetPool(): Promise<void> {
-  const old = shared;
-  shared = null;
-  if (old) await old.pool.end();
+// Closes the store this process opened, so a script can end. The server never calls it.
+export async function closeStore(): Promise<void> {
+  if (!current) return;
+  (await (await import("../store/open.js")).openStore()).close();
+  current = null;
 }

@@ -4,12 +4,12 @@
 //   pnpm rekey --project filmia --apply    # writes it, in one transaction
 // Counters are reseeded from the new keys and the aliases, so no number is handed out twice.
 import { parseArgs } from "node:util";
-import { withDb, type Db } from "../src/db/client.js";
+import { closeStore, withDb, type Db } from "../src/db/client.js";
 import type { Task } from "../src/db/schema.js";
 import { addAlias, prefixOf } from "../src/mcp/keys.js";
 import { findProject } from "../src/mcp/queries.js";
 import { writeTx, type Ctx } from "../src/mcp/tx.js";
-import { readerOf, uowOf } from "../src/store/pg.js";
+import { readerOf, uowOf } from "../src/store/port.js";
 
 export const REKEY_ACTOR = { agent: "plania", session_id: "rekey" };
 
@@ -81,4 +81,5 @@ if (isMain) {
   if (!renames.length) console.log(`${values.project}: every key already fits the scheme`);
   for (const r of renames) console.log(`${values.apply ? "renamed" : "would rename"} ${r.from} → ${r.to} (${r.kind})`);
   if (!values.apply && renames.length) console.log("dry run; pass --apply to write");
+  await closeStore();
 }

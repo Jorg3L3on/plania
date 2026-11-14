@@ -1,5 +1,5 @@
-// Plania's own code running on the devva store, with no Postgres: the MCP tools, driven as an agent would.
-// Skipped unless DEVVA_TEST=1 (needs the spike's engine and client build, like store-devva.test.ts).
+// Plania's own code running on the devva store: the MCP tools, driven as an agent would.
+// It needs a running devva engine (deploy/devva/README.md).
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
@@ -8,14 +8,11 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { useTestEnv } from "./helpers.js";
 
 useTestEnv();
-// No database URL at all: anything that still reaches for Postgres fails loudly.
-delete process.env.DATABASE_URL;
 const { makeDb, useDb } = await import("../src/db/client.js");
 const { DevvaStore } = await import("../src/store/devva.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
 type Store = Awaited<ReturnType<typeof DevvaStore.open>>;
 
-const live = process.env.DEVVA_TEST === "1";
 const prefix = `app_${Date.now().toString(36)}`;
 const A = { agent: "test-agent", session_id: "s1", machine: "ci" };
 const B = { agent: "other-agent", session_id: "s2", machine: "ci" };
@@ -39,7 +36,7 @@ async function call(name: string, args: Json, c: Client = client): Promise<Json>
   return r.isError ? { __error: data.error, ...data } : data;
 }
 
-describe("plania on devva", { skip: live ? false : "set DEVVA_TEST=1 with the spike engine running" }, () => {
+describe("plania on devva", () => {
   before(async () => {
     store = await DevvaStore.open({ prefix });
     useDb(store.handle);

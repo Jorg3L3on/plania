@@ -3,7 +3,7 @@ import type { Db } from "../db/client.js";
 import type { Actor } from "../db/schema.js";
 import { iso, type Q } from "../mcp/tx.js";
 import { writeVia } from "../runner/limits.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import type { Row } from "../store/types.js";
 
 // Per-agent tokens (2.1, R-04). Issued on screen, shown once, stored as a sha256. Each one names the

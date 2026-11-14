@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Task } from "../db/schema.js";
-import { uowOf } from "../store/pg.js";
+import { uowOf } from "../store/port.js";
 import { UUID_TEXT } from "./blockers.js";
 import { ToolError } from "./errors.js";
 import type { WriteWarning } from "./queries.js";

@@ -37,7 +37,7 @@ import { setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner
 import { checkOwnerCode, enrolOwnerCode, ownerCodeEnrolled } from "../auth/owner-code.js";
 import { deleteProject } from "../mcp/project.js";
 import { findProject } from "../mcp/queries.js";
-import { pgStore } from "../store/pg.js";
+import { storeOf } from "../store/port.js";
 
 export const companyRoutes = new Hono();
 
@@ -182,7 +182,7 @@ companyRoutes.delete("/projects/:slug", async (c) => {
         return c.json(rest, status);
       }
       // Everything under the project goes with it, through the store (what the foreign keys' cascades did).
-      await pgStore(db).write(p.id, {}, (uow) => deleteProject(uow, p.id));
+      await storeOf(db).write(p.id, {}, (uow) => deleteProject(uow, p.id));
       return c.json({ deleted: p.slug });
     });
   } catch (e) {

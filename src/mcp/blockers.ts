@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import type { Actor, Task } from "../db/schema.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import type { Reader, Row } from "../store/types.js";
 import { ToolError } from "./errors.js";
 import { isGating } from "./jorge-lines.js";

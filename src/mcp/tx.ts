@@ -1,16 +1,14 @@
-import type { NodePgQueryResultHKT } from "drizzle-orm/node-postgres";
-import type { PgDatabase } from "drizzle-orm/pg-core";
 import type { Db } from "../db/client.js";
 import type * as schema from "../db/schema.js";
 import type { Actor, Project } from "../db/schema.js";
 import { bus, type PlaniaEvent } from "../events.js";
 import { onWriteEvent } from "../runner/events.js";
-import { pgStore, uowOf } from "../store/pg.js";
+import { storeOf, uowOf } from "../store/port.js";
 import { RequestIdReused } from "../store/types.js";
 import { ToolError } from "./errors.js";
 
 // A Db or an open transaction. Reads that run inside writeTx must use the transaction.
-export type Q = PgDatabase<NodePgQueryResultHKT, typeof schema>;
+export type Q = Db;
 
 // Who is writing and through which channel. human is true only for Jorge's screen (cookie),
 // never inferred from the actor value. requestId + tool make a retry replay the first response.
@@ -58,7 +56,7 @@ export async function writeTx<T>(
   let result: T;
   try {
     // The store serializes the write, replays a retried request id, and commits everything fn did together.
-    result = await pgStore(db).write(project.id, { requestId: ctx.requestId, tool: ctx.tool }, async (uow) => {
+    result = await storeOf(db).write(project.id, { requestId: ctx.requestId, tool: ctx.tool }, async (uow) => {
       const tx = uow.sql;
       for (const key of await reapExpiredLeases(tx, project.id, project.slug)) touched("claim.expired", key);
       const emit: Emit = async (type, task, payload = {}, actor = ctx.actor) => {

@@ -10,7 +10,7 @@ import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
 import { LINK_KINDS, type ThreadLink } from "../db/schema.js";
 import { agentOfActor, runOfSession } from "../runner/events.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { roleOf } from "../runner/limits.js";
 import { assertThreadAccess, checkLinks, lastLineFor, messageView, postMessage, projectThread, readThread, resolveThread } from "../runner/threads.js";
 import type { Ctx } from "./tx.js";

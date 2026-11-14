@@ -1,7 +1,6 @@
 # The devva engine for plania
 
-Plania can keep a second copy of its data in devva (a shadow of Postgres). This folder runs the engine.
-Postgres stays the system of record.
+Plania keeps all of its data in devva. This folder runs the engine. The server does not start without it.
 
 ## Start
 
@@ -17,7 +16,8 @@ Postgres stays the system of record.
    DEVVA_TOKEN_FILE=$HOME/.config/plania/devva-token docker compose -f deploy/devva/compose.yml up -d
    ```
 
-3. Point plania at it in `.env` (see `.env.example`): `DEVVA_TOKEN_FILE`, `DEVVA_CLIENT`, and `PLANIA_SHADOW=devva`.
+3. Plania finds it with the defaults. To use another token file, host or port, set `DEVVA_TOKEN_FILE`,
+   `DEVVA_HOST` and `DEVVA_PORT` in `.env` (see `.env.example`).
 
 `DEVVA_IMAGE` picks another engine build; `DEVVA_PORT` another host port.
 
@@ -25,16 +25,25 @@ Postgres stays the system of record.
 
 | Lobe | Holds |
 |---|---|
-| `<prefix>_log` | One record per committed write: the changes it made. This is the source of truth on the devva side. |
+| `<prefix>_log` | One record per committed write: the changes it made. This is the source of truth. |
 | `<prefix>_ent` | One record per row, bucketed by project. A projection of the log, compared with it and rewritten at boot. |
 
 `PLANIA_DEVVA_PREFIX` sets the prefix (default `plania`). Give every store its own: the service, a dev
 server and a test run must not share lobes.
 
+The server keeps every row in memory, rebuilt from the log at start, and answers reads from there. A write
+is one record added to the log; it either lands whole or not at all.
+
+## Backup
+
+The nightly `backup` job writes the log as `~/plania-backups/plania-<YYYYMMDD>.devva.jsonl.gz`, after loading
+it into a throwaway store and comparing it with the live one. Keep that folder: the engine's volume is the only
+other copy.
+
 ## Search
 
 `PLANIA_SEARCH=devva` adds the `search` tool: the tickets, docs and decisions of one project closest in
-meaning to a question. It works with either store, because the index lives on devva.
+meaning to a question.
 
 - It needs an embedding service. `--profile search` in the compose file starts sextant on
   `127.0.0.1:8080`; set `SEXTANT_URL=http://127.0.0.1:8080`.
@@ -50,5 +59,6 @@ meaning to a question. It works with either store, because the index lives on de
   log is insert-only and `<prefix>_ent` is rebuilt from it. Do not read `<prefix>_ent` with other tools and
   trust it after an engine restart until plania has booted.
 - One token can read, write and purge everything on the engine. Keep the port on loopback.
-- The devva TypeScript client is not an npm dependency of plania. `DEVVA_CLIENT` names a built copy's
-  `dist/src/index.js`; `spike/devva-commit-log/setup.mjs` copies one.
+- The client has no reconnect: if the engine restarts, restart plania.
+- The devva TypeScript client is not on npm. A built copy is in `vendor/devva-client`; `DEVVA_CLIENT` names
+  another build's `index.js`.

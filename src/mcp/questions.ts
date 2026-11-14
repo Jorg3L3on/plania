@@ -1,7 +1,7 @@
 import type { Db } from "../db/client.js";
 import { LEGACY_ASK_FIELD } from "../db/legacy-names.js";
 import type { decisions, delegatedAnswers, questions, Actor, Task } from "../db/schema.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import type { Reader, UnitOfWork } from "../store/types.js";
 import { decisionShape } from "./decisions.js";
 import { isUuidText } from "./docs.js";

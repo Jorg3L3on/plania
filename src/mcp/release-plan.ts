@@ -1,5 +1,5 @@
 import type { Project, ReleaseSettings } from "../db/schema.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { openHumanActions } from "./blockers.js";
 import { ToolError } from "./errors.js";
 import { type Q } from "./tx.js";

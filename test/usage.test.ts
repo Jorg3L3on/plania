@@ -1,12 +1,11 @@
-// PLA-I25-1: reported token totals. Migration 0037 runs twice on a private database.
+// PLA-I25-1: reported token totals.
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import pg from "pg";
-import { pgOnly, pgUrl, resetTestStore, TEST_BEARER, useTestEnv, type TestStore } from "./helpers.js";
+import { resetTestStore, TEST_BEARER, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -44,60 +43,6 @@ after(async () => {
   await client?.close();
   await closeDb?.();
   await store?.end();
-});
-
-test("0037_token_usage.sql applies twice on a throwaway database", pgOnly("replays migration 0037 on a private database and reads the catalog"), async () => {
-  const name = "plania_mig_0037";
-  const adminUrl = pgUrl("postgres");
-  const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
-  const sql0037 = readFileSync(path.join(dir, "0037_token_usage.sql"), "utf8");
-  const admin = new pg.Client({ connectionString: adminUrl });
-  await admin.connect();
-  await admin.query(`drop database if exists ${name} with (force)`);
-  await admin.query(`create database ${name}`);
-  await admin.end();
-
-  const mig = new pg.Client({ connectionString: pgUrl(name) });
-  await mig.connect();
-  try {
-    const files = readdirSync(dir).filter((f) => f.endsWith(".sql") && f < "0037").sort();
-    for (const f of files) await mig.query(readFileSync(path.join(dir, f), "utf8"));
-    const project = await mig.query("insert into projects (slug, title, key_prefix) values ('mig', 'Mig', 'MIG') returning id");
-    const projectId = project.rows[0].id as string;
-
-    await mig.query(sql0037);
-    const cols = await mig.query(
-      "select column_name from information_schema.columns where table_name = 'token_usage'",
-    );
-    const names = cols.rows.map((row) => row.column_name as string);
-    for (const column of ["agent", "task_key", "run_id", "model", "input", "output", "at"]) {
-      assert.equal(names.includes(column), true, column);
-    }
-    await mig.query(
-      `insert into token_usage (project_id, agent, task_key, run_id, model, input, output, at)
-       values ($1, 'cursor', 'MIG-1', 'run-1', 'fake-model', 10, 4, now())`,
-      [projectId],
-    );
-
-    await mig.query(sql0037);
-    assert.equal((await mig.query("select count(*)::int as n from token_usage")).rows[0].n, 1);
-    assert.equal((await mig.query("select input from token_usage where run_id = 'run-1'")).rows[0].input, 10);
-    await assert.rejects(
-      mig.query(
-        `insert into token_usage (project_id, agent, task_key, run_id, model, input, output, at)
-         values ($1, 'cursor', 'MIG-1', 'run-bad', 'fake-model', -1, 0, now())`,
-        [projectId],
-      ),
-    );
-    await mig.query(sql0037);
-    assert.equal((await mig.query("select count(*)::int as n from token_usage")).rows[0].n, 1);
-  } finally {
-    await mig.end();
-    const drop = new pg.Client({ connectionString: adminUrl });
-    await drop.connect();
-    await drop.query(`drop database if exists ${name} with (force)`);
-    await drop.end();
-  }
 });
 
 test("report_tokens stores a run and a repeat replaces it", async () => {

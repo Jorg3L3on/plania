@@ -7,7 +7,7 @@
 import type { Db } from "../db/client.js";
 import type { AgentRun, PlanReading, RunnerSettings } from "../db/schema.js";
 import type { Q } from "../mcp/tx.js";
-import { pgStore, readerOf, uowOf } from "../store/pg.js";
+import { storeOf, readerOf, uowOf } from "../store/port.js";
 import type { UnitOfWork } from "../store/types.js";
 
 // ---- Writes from a handle
@@ -16,7 +16,7 @@ import type { UnitOfWork } from "../store/types.js";
 // that no project's write carries goes to the store under this id, the empty slug the bus uses for the company.
 export const COMPANY = "";
 
-// A store write from a Drizzle handle: the write the handle is already in, else a new serialized write on the
+// A store write from a handle: the write the handle is already in, else a new serialized write on the
 // plain Db. Never call it with the plain Db from inside another write: it would wait on the lock that write holds.
 export async function writeVia<T>(q: Q, fn: (uow: UnitOfWork) => Promise<T>, projectId = COMPANY): Promise<T> {
   let uow: UnitOfWork | null;
@@ -25,7 +25,7 @@ export async function writeVia<T>(q: Q, fn: (uow: UnitOfWork) => Promise<T>, pro
   } catch {
     uow = null;
   }
-  return uow ? fn(uow) : pgStore(q as Db).write(projectId, {}, fn);
+  return uow ? fn(uow) : storeOf(q as Db).write(projectId, {}, fn);
 }
 
 // A reading older than this, or past its 5-hour reset, says nothing about now.

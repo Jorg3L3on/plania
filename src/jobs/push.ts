@@ -1,7 +1,7 @@
 import type { Db } from "../db/client.js";
 import { inbox, type InboxItem } from "../mcp/inbox.js";
 import { sendToAll, vapidConfig, webPushSender, type PushPayload, type Sender } from "../push.js";
-import { pgStore, readerOf } from "../store/pg.js";
+import { storeOf, readerOf } from "../store/port.js";
 import type { Job } from "./index.js";
 
 // 2.12 push: once a minute, what is new in Jorge's inbox (decisiones and pasos: a question,
@@ -48,7 +48,7 @@ const NO_PROJECT = "";
 
 async function writeState(db: Db, state: PushState) {
   const value = state as unknown as Record<string, unknown>;
-  await pgStore(db).write(NO_PROJECT, {}, async (uow) => {
+  await storeOf(db).write(NO_PROJECT, {}, async (uow) => {
     if (await uow.get("machineState", { key: STATE_KEY })) await uow.update("machineState", { key: STATE_KEY }, { value, updatedAt: uow.now });
     else await uow.insert("machineState", { key: STATE_KEY, value });
   });

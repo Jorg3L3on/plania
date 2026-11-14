@@ -28,7 +28,7 @@ import { WEB_ACTOR, iso, webCtx, writeTx } from "../mcp/tx.js";
 import { claim, createTask, setTask } from "../mcp/writes.js";
 import { getDigest, rememberCursor } from "../mcp/watch.js";
 import { subscribe, unsubscribe, vapidConfig } from "../push.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { gt, type Row } from "../store/types.js";
 import { teamRoutes } from "./team.js";
 import { goalsApi } from "./goals.js";

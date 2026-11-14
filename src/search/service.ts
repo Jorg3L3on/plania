@@ -1,7 +1,7 @@
 // The server's one search index, when it has one. Search needs a devva engine and an embedder; without
 // both, plania runs as before and the search tool says it is unavailable.
 import type { Db } from "../db/client.js";
-import { pgStore } from "../store/pg.js";
+import { storeOf } from "../store/port.js";
 import { sextantEmbedder } from "./embedder.js";
 import { SearchIndex } from "./index.js";
 
@@ -17,7 +17,7 @@ export async function startSearch(db: Db, log: (line: string) => void = console.
   const url = process.env.SEXTANT_URL;
   if (!url) throw new Error("SEXTANT_URL is not set");
   const index = await SearchIndex.open({ prefix: process.env.PLANIA_DEVVA_PREFIX || "plania" }, sextantEmbedder(url), log);
-  const store = pgStore(db);
+  const store = storeOf(db);
   store.onCommit((c) => void index.follow(c));
   const done = await store.read((r) => index.sync(r));
   log(`[search] ${done.indexed} entries indexed (${done.added} embedded now, ${done.removed} removed)`);

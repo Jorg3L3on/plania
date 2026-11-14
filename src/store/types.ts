@@ -1,7 +1,7 @@
-// The store port. Plania's handlers talk to this; an adapter (Postgres today, devva next) implements it.
+// The store port. Plania's handlers talk to this; the devva adapter (devva.ts) implements it.
 //
 // A write is a unit of work: every change made through it commits or rolls back together, and the changes
-// it made are kept as a write set of record images. The write set is what a second store replays.
+// it made are kept as a write set of record images. The write set is what the commit log stores.
 import type { PgTable } from "drizzle-orm/pg-core";
 import type * as schema from "../db/schema.js";
 import type { Q } from "../mcp/tx.js";
@@ -50,8 +50,7 @@ export interface UnitOfWork extends Reader {
   readonly now: Date;
   // The changes made through this unit of work so far, in order.
   readonly changes: readonly Change[];
-  // The adapter's own handle, for code not yet moved onto the port. Changes made through it are not in
-  // `changes`. It exists only on the Postgres adapter and goes away with it.
+  // The handle of this write, for code that takes a handle (Q) and finds the unit of work again with uowOf.
   readonly sql: Q;
 }
 

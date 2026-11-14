@@ -1,5 +1,5 @@
 import type { Project, Task } from "../db/schema.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import type { Reader } from "../store/types.js";
 import { blockedTaskIds, blockerList } from "./blockers.js";
 import { liveOwner, nextTask } from "./queries.js";

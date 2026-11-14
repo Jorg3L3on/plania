@@ -8,7 +8,7 @@
 import type { Db } from "../db/client.js";
 import type { Actor, Project, Task } from "../db/schema.js";
 import { agentOfActor } from "../runner/events.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { notNull } from "../store/types.js";
 import { orderText } from "./company-decisions.js";
 import { runView, type RunLine } from "./company-runs.js";

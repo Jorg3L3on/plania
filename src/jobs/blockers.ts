@@ -1,7 +1,7 @@
 import type { Db } from "../db/client.js";
 import { promoteUnblocked } from "../mcp/blockers.js";
 import { SYSTEM_ACTOR, writeTx } from "../mcp/tx.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import type { Job } from "./index.js";
 
 // time_after blockers are satisfied by the clock alone, so a job checks every 30 s for Blocked

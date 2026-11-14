@@ -1,4 +1,4 @@
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { iso, type Q } from "./tx.js";
 
 // 2.12 Pedir: what Jorge asked for from the screen (origin "jorge"). get_resume, get_context and

@@ -25,7 +25,7 @@ import { unsatisfiedBlockers } from "../mcp/blockers.js";
 import { ToolError } from "../mcp/errors.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx, type Emit, type Q } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import { queueWake } from "./events.js";
 import { canStart, type RunnerDeps } from "./runner.js";
 

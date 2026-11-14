@@ -2,7 +2,7 @@ import type { Db } from "../db/client.js";
 import { WAKE_INTERVAL_MS, claimsFor, liveClaims, presenceOf } from "../mcp/team.js";
 import { SYSTEM_ACTOR, iso, writeTx } from "../mcp/tx.js";
 import { COMPANY } from "../runner/limits.js";
-import { pgStore, readerOf } from "../store/pg.js";
+import { storeOf, readerOf } from "../store/port.js";
 import { lt } from "../store/types.js";
 import type { Job } from "./index.js";
 
@@ -52,7 +52,7 @@ export async function sweepStuck(db: Db, now = new Date(), wake: Wake = fetch): 
     counts[status]++;
     const wakeDue = status === "stuck" && !!row.wakeUrl && (!row.lastWakeAt || now.getTime() - new Date(row.lastWakeAt).getTime() >= WAKE_INTERVAL_MS);
     if (status !== row.status || wakeDue) {
-      await pgStore(db).write(COMPANY, {}, (uow) => uow.update("agents", { id: row.id }, { status, ...(wakeDue ? { lastWakeAt: now } : {}), updatedAt: uow.now }));
+      await storeOf(db).write(COMPANY, {}, (uow) => uow.update("agents", { id: row.id }, { status, ...(wakeDue ? { lastWakeAt: now } : {}), updatedAt: uow.now }));
     }
     if (!wakeDue || !row.wakeUrl) continue;
     counts.woken++;

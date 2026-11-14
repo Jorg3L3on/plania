@@ -7,7 +7,7 @@ import type { Db } from "../db/client.js";
 import { LINK_KINDS, type Agent, type Project, type Thread, type ThreadLink, type ThreadMessage, type ProposalData } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
 import { writeTx, type Ctx, type Q } from "../mcp/tx.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import { roleOf, writeVia } from "./limits.js";
 
 export const MAX_BODY = 4000;

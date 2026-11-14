@@ -3,7 +3,7 @@ import { runInGroup, type GroupRun } from "./gh-process.js";
 import { oneLine, readTokenFile } from "./gh-token.js";
 import { commandPath } from "./machine/run.js";
 import type { Project, Task } from "../db/schema.js";
-import { pgStore, readerOf } from "../store/pg.js";
+import { storeOf, readerOf } from "../store/port.js";
 import type { UnitOfWork, Where } from "../store/types.js";
 import { DRIFT_STATUSES } from "../mcp/audit.js";
 import { touchBranch } from "../mcp/branches.js";
@@ -149,7 +149,7 @@ async function gh(deps: GithubDeps, token: string, path: string, etag?: string) 
 
 // The poller's own rows (poll_state, pull_requests, branches) change outside writeTx: each change is a
 // store write of its own, with no request id and no event.
-const write = (db: Db, projectId: string, fn: (uow: UnitOfWork) => Promise<unknown>) => pgStore(db).write(projectId, {}, fn);
+const write = (db: Db, projectId: string, fn: (uow: UnitOfWork) => Promise<unknown>) => storeOf(db).write(projectId, {}, fn);
 const branchSeen = (db: Db, projectId: string, name: string, patch: Parameters<typeof touchBranch>[3]) =>
   write(db, projectId, (uow) => touchBranch(uow.sql, projectId, name, patch));
 

@@ -1,18 +1,17 @@
 // The devva adapter of the store port (src/store/devva.ts), against a live engine.
-// Skipped unless DEVVA_TEST=1: it needs the spike's engine (spike/devva-commit-log/compose.yml) and client build.
+// It needs a running devva engine (deploy/devva/README.md).
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 import { DevvaStore } from "../src/store/devva.js";
 import { gt, lte, ne, notNull, RequestIdReused, type Committed } from "../src/store/types.js";
 
-const live = process.env.DEVVA_TEST === "1";
 const prefix = `t_${Date.now().toString(36)}`;
 const P1 = randomUUID();
 const P2 = randomUUID();
 let store: DevvaStore;
 
-describe("devva store", { skip: live ? false : "set DEVVA_TEST=1 with the spike engine running" }, () => {
+describe("devva store", () => {
   before(async () => {
     store = await DevvaStore.open({ prefix });
     await store.write(P1, {}, async (uow) => {

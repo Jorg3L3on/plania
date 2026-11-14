@@ -1,7 +1,7 @@
 import type { Db } from "../db/client.js";
 import { liveTaskFootprint } from "../mcp/footprint-read.js";
 import { SYSTEM_ACTOR, iso, writeTx } from "../mcp/tx.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import type { Job } from "./index.js";
 
 // R-07 (part): claim.expiring, logged once per lease five minutes before it runs out, so a session

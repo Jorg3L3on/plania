@@ -6,8 +6,7 @@ import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import pg from "pg";
-import { pgOnly, pgUrl, resetTestStore, TEST_BEARER, TEST_DATABASE_URL, useTestEnv, type TestStore } from "./helpers.js";
+import { resetTestStore, TEST_BEARER, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -61,32 +60,6 @@ let client: Client;
 let store: TestStore;
 let cookie: string;
 
-const migrationsDir = path.resolve(import.meta.dirname, "../drizzle/migrations");
-
-// Historical SQL still names the letter column. Apply it on a private database that stops
-// before that file, never on the shared test database (0032 has already dropped the column).
-async function withPartialDb(name: string, beforeFile: string, run: (db: pg.Client) => Promise<void>) {
-  const adminUrl = pgUrl("postgres");
-  const admin = new pg.Client({ connectionString: adminUrl });
-  await admin.connect();
-  await admin.query(`drop database if exists ${name} with (force)`);
-  await admin.query(`create database ${name}`);
-  await admin.end();
-  const db = new pg.Client({ connectionString: pgUrl(name) });
-  await db.connect();
-  try {
-    const files = readdirSync(migrationsDir).filter((f) => f.endsWith(".sql") && f < beforeFile).sort();
-    for (const f of files) await db.query(readFileSync(path.join(migrationsDir, f), "utf8"));
-    await run(db);
-  } finally {
-    await db.end();
-    const drop = new pg.Client({ connectionString: adminUrl });
-    await drop.connect();
-    await drop.query(`drop database if exists ${name} with (force)`);
-    await drop.end();
-  }
-}
-
 function req(method: string, url: string, opts: { body?: unknown; cookie?: string | null; headers?: Record<string, string> } = {}) {
   const headers: Record<string, string> = { ...(opts.headers ?? {}) };
   const c = opts.cookie === undefined ? cookie : opts.cookie;
@@ -130,135 +103,6 @@ describe("screen gates", () => {
   after(async () => {
     await client?.close();
     await store?.end();
-  });
-
-  test("migration 0027 applies twice, adds gate_challenges, and flags open gates", pgOnly("replays migration 0027 on a private database and reads the catalog"), async () => {
-    await withPartialDb("plania_mig_0027", "0027", async (db) => {
-      const project = await db.query("insert into projects (slug, title, key_prefix) values ('old', 'Old', 'OLD') returning id");
-      const projectId = project.rows[0].id as string;
-      const task = await db.query(
-        "insert into tasks (project_id, kind, key, title, status, stage) values ($1, 'idea', 'OLD-1', 'Fila previa', 'Open', 'idea') returning id",
-        [projectId],
-      );
-      const taskId = task.rows[0].id as string;
-      const actor = JSON.stringify(A);
-      await db.query(
-        `insert into questions (project_id, task_id, question, gate, human_only, asked_by) values
-          ($1, $2, 'Abierta', 'A', false, $3::jsonb),
-          ($1, $2, 'Respondida', 'A', false, $3::jsonb),
-          ($1, $2, 'Normal', null, false, $3::jsonb)`,
-        [projectId, taskId, actor],
-      );
-      await db.query(
-        "update questions set answer = 'pursue', answered_at = now(), answered_by = $1::jsonb where question = 'Respondida'",
-        [actor],
-      );
-      const sql = readFileSync(path.resolve(import.meta.dirname, "../drizzle/migrations/0027_gate_challenges.sql"), "utf8");
-      await db.query(sql);
-      await db.query(sql);
-      const { rows } = await db.query(
-        "select column_name from information_schema.columns where table_name = 'gate_challenges' order by column_name",
-      );
-      assert.deepEqual(rows.map((r) => r.column_name), [
-        "attempts", "created_at", "expires_at", "id", "nonce", "option", "question_id", "state", "totp_step", "used_at",
-      ]);
-      const flags = await db.query(
-        "select question, human_only from questions where task_id = $1 order by question",
-        [taskId],
-      );
-      assert.deepEqual(
-        flags.rows.map((r) => [r.question, r.human_only]),
-        [["Abierta", true], ["Normal", false], ["Respondida", false]],
-      );
-    });
-  });
-
-  test("migration 0028 applies twice and drops the challenge table", pgOnly("replays migration 0028 and reads the catalog"), async () => {
-    const raw = new pg.Client({ connectionString: TEST_DATABASE_URL });
-    await raw.connect();
-    try {
-      await raw.query(`
-        create table if not exists gate_challenges (
-          id uuid primary key default gen_random_uuid(),
-          question_id uuid,
-          option text,
-          nonce text,
-          totp_step bigint
-        )
-      `);
-      await raw.query(`
-        create unique index if not exists gate_challenges_totp_step_unique
-        on gate_challenges (totp_step) where totp_step is not null
-      `);
-      await raw.query(
-        `insert into machine_state (key, value) values ('gate.totp', '{"steps":[1]}'::jsonb)
-         on conflict (key) do update set value = excluded.value`,
-      );
-      const sql = readFileSync(path.resolve(import.meta.dirname, "../drizzle/migrations/0028_gate_click.sql"), "utf8");
-      await raw.query(sql);
-      await raw.query(sql);
-      const tables = await raw.query("select to_regclass('public.gate_challenges') as name");
-      assert.equal(tables.rows[0].name, null);
-      const index = await raw.query("select 1 from pg_indexes where indexname = 'gate_challenges_totp_step_unique'");
-      assert.equal(index.rows.length, 0);
-      const column = await raw.query(
-        "select 1 from information_schema.columns where table_name = 'gate_challenges' and column_name = 'totp_step'",
-      );
-      assert.equal(column.rows.length, 0);
-      const state = await raw.query("select key from machine_state where key = 'gate.totp'");
-      assert.equal(state.rows.length, 0);
-    } finally {
-      await raw.end();
-    }
-  });
-
-  test("migration 0030 closes only open gate rows, is idempotent, and drops nothing", pgOnly("replays migration 0030 on a private database and reads the catalog"), async () => {
-    await withPartialDb("plania_mig_0030", "0030", async (db) => {
-      const project = await db.query("insert into projects (slug, title, key_prefix) values ('old', 'Old', 'OLD') returning id");
-      const projectId = project.rows[0].id as string;
-      const task = await db.query(
-        "insert into tasks (project_id, kind, key, title, status, stage) values ($1, 'idea', 'OLD-30', 'Antes de 2.17', 'Open', 'planning') returning id",
-        [projectId],
-      );
-      const taskId = task.rows[0].id as string;
-      const actor = JSON.stringify(A);
-      await db.query(
-        `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by) values
-          ($1, $2, 'Gate abierta', '{ready,rework,drop}', 'C', true, $3::jsonb),
-          ($1, $2, 'Normal abierta', '{}', null, true, $3::jsonb)`,
-        [projectId, taskId, actor],
-      );
-      await db.query(
-        `insert into questions (project_id, task_id, question, options, gate, human_only, asked_by, answer, answered_by, answered_at)
-         values ($1, $2, 'Gate respondida', '{pursue,drop,later}', 'A', true, $3::jsonb, 'pursue', $4::jsonb, '2026-01-02T00:00:00Z')`,
-        [projectId, taskId, actor, JSON.stringify(SCREEN)],
-      );
-      const sql = readFileSync(path.resolve(import.meta.dirname, "../drizzle/migrations/0030_close_gates.sql"), "utf8");
-      const first = await db.query(sql);
-      assert.ok(first.rowCount! >= 1, String(first.rowCount));
-      const second = await db.query(sql);
-      assert.equal(second.rowCount, 0, "a second run updates 0 rows");
-
-      const rows = (await db.query(
-        "select question, gate, answer, answered_by, answered_at from questions where task_id = $1 order by question",
-        [taskId],
-      )).rows;
-      const by = Object.fromEntries(rows.map((r) => [r.question, r]));
-      assert.equal(by["Gate abierta"].answer, "closed: gates removed");
-      assert.deepEqual(by["Gate abierta"].answered_by, { agent: "plania", session_id: "system" });
-      assert.ok(by["Gate abierta"].answered_at);
-      assert.equal(by["Gate abierta"].gate, "C", "the gate letter stays as history");
-      assert.equal(by["Normal abierta"].answered_at, null, "an ordinary open question is untouched");
-      assert.equal(by["Gate respondida"].answer, "pursue");
-      assert.deepEqual(by["Gate respondida"].answered_by, SCREEN);
-
-      const column = await db.query("select 1 from information_schema.columns where table_name = 'questions' and column_name = 'gate'");
-      assert.equal(column.rows.length, 1);
-      const check = await db.query("select 1 from pg_constraint where conname = 'questions_gate_check'");
-      assert.equal(check.rows.length, 1);
-      assert.equal((await db.query("select to_regclass('public.delegated_answers') as t")).rows[0].t, "delegated_answers");
-      assert.doesNotMatch(sql, /\b(drop|delete|truncate|alter)\b/i);
-    });
   });
 
   test("a question that is not a gate is still answered by an agent", async () => {

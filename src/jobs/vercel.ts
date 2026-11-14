@@ -1,7 +1,7 @@
 import type { Db } from "../db/client.js";
 import type { Project } from "../db/schema.js";
 import { setEnv } from "../mcp/env.js";
-import { pgStore, readerOf } from "../store/pg.js";
+import { storeOf, readerOf } from "../store/port.js";
 import { SYSTEM_ACTOR } from "../mcp/tx.js";
 import { releaseMerged, type Fetch } from "./github.js";
 import type { Job } from "./index.js";
@@ -33,7 +33,7 @@ export async function pollVercelProject(db: Db, p: Project, deps: VercelDeps): P
   const cursor = row?.cursor ?? {};
   // The poller's cursor is a store write of its own, outside writeTx: no request id, no event.
   const save = (error: string | null) =>
-    pgStore(db).write(p.id, {}, async (uow) => {
+    storeOf(db).write(p.id, {}, async (uow) => {
       if (await uow.get("pollState", at)) await uow.update("pollState", at, { cursor, polledAt: uow.now, error });
       else await uow.insert("pollState", { ...at, cursor, polledAt: uow.now, error });
     });

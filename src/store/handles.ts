@@ -1,6 +1,5 @@
-// Plania's code passes a database handle around (a Drizzle Db, or a transaction). A store that is not
-// Postgres hands out opaque handles of its own, registered here, so the same code runs on it unchanged:
-// pgStore, uowOf and readerOf in pg.ts look a handle up here before treating it as Drizzle's.
+// Plania's code passes a database handle around (the Db, or the handle of a write in progress). The store
+// hands out opaque handles, registered here; storeOf, uowOf and readerOf in port.ts look a handle up here.
 import type { Reader, Store, UnitOfWork } from "./types.js";
 
 const stores = new WeakMap<object, { store: Store; reader: () => Reader }>();

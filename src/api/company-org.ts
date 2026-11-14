@@ -6,7 +6,7 @@
 // Tokens only, never money. Cookie-only routes (src/api/company.ts and the /api session for /api/machine).
 import type { Db } from "../db/client.js";
 import type { Actor, Agent, AgentRun, Project } from "../db/schema.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { gte, notNull } from "../store/types.js";
 import { ENDED_STATUSES, projectSheet, type ProjectSheet, type RunBrief } from "./company-extra.js";
 import { agentOfActor, asistenteAgent } from "../runner/events.js";

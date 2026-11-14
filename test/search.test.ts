@@ -1,6 +1,5 @@
 // The search tool: a devva vector lobe bucketed by project, kept current from each commit.
-// Skipped unless DEVVA_TEST=1 (needs the spike's engine and client build). It runs on either store: the
-// index lives on devva whichever store holds the plan. With SEXTANT_URL set, one test uses real embeddings.
+// It needs a running devva engine. With SEXTANT_URL set, one test uses real embeddings.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -10,14 +9,13 @@ import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
-const { pgStore } = await import("../src/store/pg.js");
+const { storeOf } = await import("../src/store/port.js");
 const { SearchIndex } = await import("../src/search/index.js");
 const { sextantEmbedder } = await import("../src/search/embedder.js");
 const { useSearch } = await import("../src/search/service.js");
 type Embedder = import("../src/search/embedder.js").Embedder;
 type Index = Awaited<ReturnType<typeof SearchIndex.open>>;
 
-const live = process.env.DEVVA_TEST === "1";
 const stamp = `${process.pid}_${Date.now().toString(36)}`;
 const A = { agent: "test-agent", session_id: "s1", machine: "ci" };
 type Json = Record<string, any>;
@@ -64,11 +62,11 @@ async function found(project: string, query: string, extra: Json = {}): Promise<
 }
 async function open(embedder: Embedder, prefix: string): Promise<void> {
   index = await SearchIndex.open({ prefix }, embedder, () => {});
-  stop = pgStore(makeDb().db).onCommit((c) => void index.follow(c));
+  stop = storeOf(makeDb().db).onCommit((c) => void index.follow(c));
   useSearch(index);
 }
 
-describe("search", { skip: live ? false : "set DEVVA_TEST=1 with the spike engine running" }, () => {
+describe("search", () => {
   before(async () => {
     store = await resetTestStore();
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -119,7 +117,7 @@ describe("search", { skip: live ? false : "set DEVVA_TEST=1 with the spike engin
 
     const { deleteProject } = await import("../src/mcp/project.js");
     const micasa = await store.projectId("micasa");
-    await pgStore(makeDb().db).write(micasa, {}, (uow) => deleteProject(uow, micasa));
+    await storeOf(makeDb().db).write(micasa, {}, (uow) => deleteProject(uow, micasa));
     await index.settled();
     assert.equal((await index.search(micasa, "database migration")).length, 0);
     assert.deepEqual(index.errors, []);
@@ -129,11 +127,11 @@ describe("search", { skip: live ? false : "set DEVVA_TEST=1 with the spike engin
     await index.settled();
     await index.purge();
     assert.deepEqual(await found("zigzag", "database migration"), []);
-    const rebuilt = await pgStore(makeDb().db).read((r) => index.sync(r));
+    const rebuilt = await storeOf(makeDb().db).read((r) => index.sync(r));
     assert.equal(rebuilt.added, rebuilt.indexed);
     assert.ok(rebuilt.indexed >= 3);
     assert.equal((await found("zigzag", "database migration"))[0].key, "ZIG-01");
-    assert.deepEqual(await pgStore(makeDb().db).read((r) => index.sync(r)), { indexed: rebuilt.indexed, added: 0, removed: 0 });
+    assert.deepEqual(await storeOf(makeDb().db).read((r) => index.sync(r)), { indexed: rebuilt.indexed, added: 0, removed: 0 });
   });
 
   test("bad input and a server without search are refused by name", async () => {
@@ -152,7 +150,7 @@ describe("search", { skip: live ? false : "set DEVVA_TEST=1 with the spike engin
     const words = index;
     await open(sextantEmbedder(process.env.SEXTANT_URL!), `sx_${stamp}`);
     try {
-      const done = await pgStore(makeDb().db).read((r) => index.sync(r));
+      const done = await storeOf(makeDb().db).read((r) => index.sync(r));
       assert.equal(done.added, done.indexed);
       await ok("create_task", { project: "zigzag", title: "Avisar al cliente cuando su pedido sale a reparto", scope: "Un mensaje al salir el repartidor", checks: ["listo"], actor: A });
       // No word in common with the ticket it should find.

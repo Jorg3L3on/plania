@@ -8,7 +8,7 @@ import { projectEnv } from "../mcp/env.js";
 import { listEvents, taskShape } from "../mcp/queries.js";
 import { projectSequences } from "../mcp/sequences.js";
 import { iso } from "../mcp/tx.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 
 // A whole project as one JSON file: a backup, or a way to move it. Jorge's session or an MCP
 // token (read-write or read-only) may download it; the CI token may not.

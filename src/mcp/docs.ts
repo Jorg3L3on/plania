@@ -1,6 +1,6 @@
 import type { Db } from "../db/client.js";
 import type { docs, Task } from "../db/schema.js";
-import { readerOf, uowOf } from "../store/pg.js";
+import { readerOf, uowOf } from "../store/port.js";
 import { ToolError, findProject, requireTask } from "./queries.js";
 import { iso, writeTx, type Ctx, type Emit, type Q } from "./tx.js";
 

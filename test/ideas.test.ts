@@ -1,14 +1,11 @@
 // PLA-I8-1: the idea kind, its key, the stage machine and the reads that must ignore it.
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
-import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import pg from "pg";
 import type { Db } from "../src/db/client.js";
 import { forwardBlock, ideaWaitText, STAGE_DOCS } from "../src/mcp/ideas.js";
-import { pgOnly, pgUrl, resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
+import { resetTestStore, useTestEnv, type TestStore } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -28,8 +25,6 @@ async function call(name: string, args: Json = {}): Promise<Json> {
   const data = JSON.parse(r.content[0]!.text) as Json;
   return r.isError ? { __error: data.error, __status: data.status, ...data } : data;
 }
-
-const migrationsDir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
 const ideaDoc = { title: "Idea", markdown: "## Problem\n\n## Who it is for\n\n## Why now\n" };
 const research = { title: "Research", markdown: "## What we learned\n\n## Options\n\n## Recommendation\n" };
@@ -56,71 +51,6 @@ test("idea wait text names the doc and the headings in Spanish", () => {
   assert.equal(ideaWaitText("idea", [ideaDoc], [{ question: "¿Para quién?", answered: true }]), "Puede avanzar");
   assert.doesNotMatch(ideaWaitText("idea", [ideaDoc], [{ question: "¿La seguimos?", answered: false }]), /Puerta/);
   assert.equal(ideaWaitText("ready", [], []), "Lista para promover");
-});
-
-test("migration 0026 leaves existing rows unchanged and is not 0025", pgOnly("replays migration 0026 on a private database"), async () => {
-  const files = readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort();
-  assert.equal(files.includes("0025_push_subscriptions.sql"), true);
-  assert.equal(files.includes("0026_ideas.sql"), true);
-  assert.equal(files.some((f) => f.startsWith("0025_") && f !== "0025_push_subscriptions.sql"), false);
-
-  const name = "plania_mig_idea";
-  const admin = new pg.Client({ connectionString: pgUrl("postgres") });
-  await admin.connect();
-  await admin.query(`drop database if exists ${name} with (force)`);
-  await admin.query(`create database ${name}`);
-  await admin.end();
-
-  const db = new pg.Client({ connectionString: pgUrl(name) });
-  await db.connect();
-  try {
-    for (const f of files.filter((f) => f < "0026")) {
-      await db.query(readFileSync(path.join(migrationsDir, f), "utf8"));
-    }
-    const project = await db.query("insert into projects (slug, title, key_prefix) values ('old', 'Old', 'OLD') returning id");
-    const projectId = project.rows[0].id as string;
-    const task = await db.query(
-      "insert into tasks (project_id, kind, key, title, status, summary) values ($1, 'ticket', 'OLD-01', 'Keep me', 'Backlog', 'unchanged') returning *",
-      [projectId],
-    );
-    const beforeTask = task.rows[0];
-    const question = await db.query(
-      "insert into questions (project_id, task_id, question, asked_by) values ($1, $2, 'Still here?', $3::jsonb) returning *",
-      [projectId, beforeTask.id, JSON.stringify(A)],
-    );
-    const beforeQuestion = question.rows[0];
-
-    await db.query(readFileSync(path.join(migrationsDir, "0026_ideas.sql"), "utf8"));
-
-    const afterTask = (await db.query("select * from tasks where id = $1", [beforeTask.id])).rows[0];
-    const afterQuestion = (await db.query("select * from questions where id = $1", [beforeQuestion.id])).rows[0];
-    assert.equal(afterTask.stage, null);
-    assert.equal(afterTask.promoted_to, null);
-    assert.equal(afterTask.kind, "ticket");
-    assert.equal(afterTask.status, "Backlog");
-    assert.equal(afterTask.title, "Keep me");
-    assert.equal(afterTask.summary, "unchanged");
-    assert.equal(afterTask.key, "OLD-01");
-    assert.equal(afterQuestion.gate, null);
-    assert.equal(afterQuestion.human_only, false);
-    assert.equal(afterQuestion.question, "Still here?");
-    assert.equal(afterQuestion.answer, null);
-
-    const idea = await db.query(
-      "insert into tasks (project_id, kind, key, title, status, stage) values ($1, 'idea', 'OLD-IDEA1', 'New', 'Open', 'idea') returning stage, promoted_to",
-      [projectId],
-    );
-    assert.equal(idea.rows[0].stage, "idea");
-    assert.equal(idea.rows[0].promoted_to, null);
-    const still = (await db.query("select stage, promoted_to, status from tasks where key = 'OLD-01'")).rows[0];
-    assert.deepEqual(still, { stage: null, promoted_to: null, status: "Backlog" });
-  } finally {
-    await db.end();
-    const drop = new pg.Client({ connectionString: pgUrl("postgres") });
-    await drop.connect();
-    await drop.query(`drop database if exists ${name} with (force)`);
-    await drop.end();
-  }
 });
 
 before(async () => {

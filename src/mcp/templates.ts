@@ -8,7 +8,7 @@ import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
 import type { Project } from "../db/schema.js";
 import { COMPANY } from "../runner/limits.js";
-import { pgStore, readerOf } from "../store/pg.js";
+import { storeOf, readerOf } from "../store/port.js";
 import { attachDoc } from "./docs.js";
 import { ToolError } from "./errors.js";
 import { deleteProject, setProject } from "./project.js";
@@ -103,7 +103,7 @@ export async function createCompanyProject(
   const ceo = await r.get("agents", { slug: "ceo" });
   // The new project's id is chosen here, so its first write is already its own.
   const id = randomUUID();
-  const project = await pgStore(db).write(id, {}, (uow) => uow.insert("projects", { id, slug, title: name, keyPrefix: prefixOf(slug) }));
+  const project = await storeOf(db).write(id, {}, (uow) => uow.insert("projects", { id, slug, title: name, keyPrefix: prefixOf(slug) }));
   try {
     const quiet = { ...ctx, requestId: undefined };
     await writeTx(db, project, { ...quiet, tool: "create_company_project" }, async (_tx, emit) => {
@@ -127,9 +127,9 @@ export async function createCompanyProject(
     const fresh = await r.get("projects", { id: project.id });
     return shapeOf(db, fresh!, true);
   } catch (err) {
-    await pgStore(db).write(COMPANY, {}, (uow) => uow.delete("agents", { slug: ownerSlug }));
+    await storeOf(db).write(COMPANY, {}, (uow) => uow.delete("agents", { slug: ownerSlug }));
     // The project and everything made under it so far, removed through the port (no request id, not a writeTx).
-    await pgStore(db).write(project.id, {}, (uow) => deleteProject(uow, project.id));
+    await storeOf(db).write(project.id, {}, (uow) => deleteProject(uow, project.id));
     throw err;
   }
 }

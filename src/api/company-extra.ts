@@ -11,7 +11,7 @@ import { ToolError } from "../mcp/errors.js";
 import { iso } from "../mcp/tx.js";
 import { loadReady, pickReady } from "../jobs/heartbeat.js";
 import { PROMPT_DOCS, RUNNER_ROLES, roleOf, type RunnerRole } from "../runner/limits.js";
-import { readerOf } from "../store/pg.js";
+import { readerOf } from "../store/port.js";
 import { ne, notNull } from "../store/types.js";
 
 export type PromptRef = { doc_id: string; title: string; version: number };
