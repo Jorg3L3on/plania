@@ -45,7 +45,9 @@ const clip = (s: string, n: number) => {
 const q = (s: string | null | undefined, n = 70) => (s ? `«${clip(s, n)}»` : "lo siguiente");
 
 // Same rule as the screen's Te toca (ui/src/lib/v2.ts pending).
-export const pendingDecision = (d: Pick<Decision, "state" | "actions" | "kind">) => d.state === null && (d.actions.length > 0 || d.kind === "release");
+// PLA-I46-11: a plan the owner left for later (Después) waits, but is not his move until he opens it again.
+export const waitingPlan = (d: Pick<Decision, "state" | "kind" | "plan">) => d.state === null && d.kind === "plan" && !!d.plan?.later_at;
+export const pendingDecision = (d: Pick<Decision, "state" | "actions" | "kind"> & { plan?: Decision["plan"] }) => d.state === null && !waitingPlan({ ...d, plan: d.plan ?? null }) && (d.actions.length > 0 || d.kind === "release");
 // Actions a single click can take: no words and no choice.
 const ONE_CLICK: Partial<Record<DecisionAction, string>> = { aceptar: "Aceptar", fusionar: "Aceptar", empezar: "Sí, empiecen", hecho: "Ya lo hice" };
 const HOLD_ORDER = ["no_goal", "waiting_owner", "unqueued"];
@@ -67,6 +69,7 @@ export function nextMove(p: MoveFloor, decisions: Decision[], opts: { companyPau
     const first = d.actions.find((a) => ONE_CLICK[a]);
     const accion: MoveAction = first && !d.hold ? { kind: "decision", id: d.id, action: first, label: ONE_CLICK[first]! } : { kind: "reveal", id: d.id, label: "Ver y responder" };
     if (d.kind === "pr" || d.kind === "deliverable") return { verbo: "aceptar", texto: `Aceptar ${q(d.title)}`, accion, origen };
+    if (d.kind === "plan" && d.plan?.leg) return { verbo: "aceptar", texto: `Aceptar el plan de ${q(d.plan.leg.title)}`, accion: { kind: "decision", id: d.id, action: "empezar", label: "Aceptar plan" }, origen };
     if (d.kind === "plan") return { verbo: "aceptar", texto: `Aceptar el plan ${q(d.title)}`, accion, origen };
     return { verbo: "responder", texto: `Responder a ${who(d.asker?.role)}: ${q(d.title, 60)}`, accion, origen };
   }
@@ -98,7 +101,9 @@ export function nextMove(p: MoveFloor, decisions: Decision[], opts: { companyPau
   const here = legs[at];
   if (!busy && here && here.total > 0 && here.done === here.total) {
     const after = legs.slice(at + 1).find((l) => l.state !== "done");
-    if (after?.state === "unplanned") return { verbo: "planear", texto: `Planear ${q(after.title)}`, accion: { kind: "plan", text: PLAN_LEG(after.title), label: "Que PO lo planee" }, origen: { kind: "route", leg: after.key } };
+    // A plan for it that the owner left for later is waiting: asking the PO again would make a second one.
+    const waiting = decisions.some((x) => x.project === p.slug && waitingPlan(x) && x.plan?.leg?.key === after?.key);
+    if (after?.state === "unplanned" && !waiting) return { verbo: "planear", texto: `Planear ${q(after.title)}`, accion: { kind: "plan", text: PLAN_LEG(after.title), label: "Que PO lo planee" }, origen: { kind: "route", leg: after.key } };
   }
   return null;
 }

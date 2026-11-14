@@ -6,6 +6,11 @@
 //                (settings.plan_approval) nothing is made until someone presses "Sí, empiecen" in Te toca; then
 //                Plania makes one Ready ticket per step. Without approval the tickets are made now and the plan
 //                shows as information.
+//   PLA-I46-11, a plan for a leg (leg: the initiative's key, or found from the order's «title»): at most 4 steps,
+//                up to 3 closed questions {text, options (2 to 4), suggested (0-based)}, and the check list (exactly
+//                3 things to verify). It always waits for the owner (Aceptar plan / Cambiar algo / Después on the
+//                floor), whatever the project's switch says; accepting makes the steps under that initiative, each
+//                with the check list (tasks.po_checklist) for QA. A leg that is On hold (postponed) is refused.
 // The message body is a prose copy (numbered options), so an older screen still reads it through parseProposal.
 // Only the project's PO (or Asistente) may propose; the author is the agent behind the actor.
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -14,7 +19,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { projects, tasks, type ProposalCost, type ProposalData, type ThreadLink } from "../db/schema.js";
+import { projects, tasks, type PlanQuestion, type PoCheck, type ProposalCost, type ProposalData, type ThreadLink } from "../db/schema.js";
 import { agentOfActor } from "../runner/events.js";
 import { assertThreadAccess, checkLinks, messageView, postMessage, projectThread } from "../runner/threads.js";
 import { ToolError } from "./errors.js";
@@ -34,7 +39,20 @@ export type ProposeInput = {
   steps?: { title: string; done_when: string; work_type?: string }[];
   cost?: ProposalCost;
   links?: unknown;
+  leg?: string;
+  questions?: { text: string; options: string[]; suggested?: number }[];
+  checklist?: string[];
 };
+
+export const PLAN_MAX_STEPS = 4;
+export const PLAN_MAX_QUESTIONS = 3;
+export const CHECKLIST_SIZE = 3;
+// «Planea «<title>»: …» is how the floor's Que PO lo planee words an order (company-move.ts PLAN_LEG).
+export const legTitleOf = (text: string) => /Planea «([^»]+)»/.exec(text)?.[1]?.trim() ?? null;
+// A leg plan carries the questions and the check list; an order's plan (PLA-I36-8) does not.
+export const isLegPlan = (p: Pick<ProposalData, "kind" | "leg">) => p.kind === "plan" && !!p.leg;
+// The owner's edited list, as stored on each step.
+export const poChecks = (list: string[]): PoCheck[] => list.map((text, i) => ({ n: i + 1, text, done: false, done_at: null, done_by: null }));
 
 const STEP_TYPES = ["code", "ops", "research", "bug", "debt"];
 
@@ -57,6 +75,8 @@ export function proposalBody(p: ProposalData): string {
       `Plan para tu pedido: ${p.title}`,
       p.understood ? `Entendí: ${p.understood}` : "",
       ...p.steps.map((s, i) => `${i + 1}. ${s.title} — hecho cuando: ${s.done_when}`),
+      ...(p.questions ?? []).map((q) => `¿${q.text.replace(/^¿|\?$/g, "")}? ${q.options.map((o, i) => (i === q.suggested ? `[${o}]` : o)).join(" / ")}`),
+      (p.checklist ?? []).length ? `Check list: ${p.checklist!.join(" · ")}` : "",
       costText(p.cost) ? `Costo: ${costText(p.cost)}` : "",
       p.needs_approval ? "Nada empieza hasta que digas «Sí, empiecen»." : "Empieza ya; el plan queda como información.",
     ];
@@ -90,16 +110,55 @@ export function checkProposal(input: ProposeInput, approval: boolean, links: Thr
   if (!input.order?.trim()) throw bad("order", "the key of Jorge's order this plan answers");
   if (!input.understood?.trim()) throw bad("understood", "what you understood, one line");
   const steps = (input.steps ?? []).map((s) => ({ title: s.title.trim(), done_when: s.done_when.trim(), work_type: s.work_type ?? "code" }));
-  if (steps.length < 1 || steps.length > 10) throw bad("steps", "1 to 10 steps");
+  const leg = input.leg?.trim() || null;
+  const max = leg ? PLAN_MAX_STEPS : 10;
+  if (steps.length < 1 || steps.length > max) throw bad("steps", `1 to ${max} steps`);
   if (steps.some((s) => !s.title || !s.done_when)) throw bad("steps", "each step has a title and done_when");
   if (steps.some((s) => !STEP_TYPES.includes(s.work_type))) throw bad("steps", `work_type one of ${STEP_TYPES.join(", ")}`);
-  return { kind: "plan", title, options: [], recommended_reason: null, combinable: [], order: input.order.trim(), understood: input.understood.trim(), steps, cost: input.cost ?? {}, links, needs_approval: approval, created: [] };
+  const base: ProposalData = { kind: "plan", title, options: [], recommended_reason: null, combinable: [], order: input.order.trim(), understood: input.understood.trim(), steps, cost: input.cost ?? {}, links, needs_approval: approval, created: [] };
+  if (!leg) {
+    if (input.questions?.length || input.checklist?.length) throw bad("leg", "questions and checklist go with a plan for a leg: pass leg (the initiative's key)");
+    return base;
+  }
+  return { ...base, needs_approval: true, leg, questions: checkQuestions(input.questions ?? [], bad), checklist: checkChecklist(input.checklist, bad), later_at: null, answers: null };
+}
+
+type Bad = (field: string, hint: string) => ToolError;
+function checkQuestions(raw: NonNullable<ProposeInput["questions"]>, bad: Bad): PlanQuestion[] {
+  if (raw.length > PLAN_MAX_QUESTIONS) throw bad("questions", `${PLAN_MAX_QUESTIONS} closed questions at most`);
+  return raw.map((q) => {
+    const text = q.text.trim();
+    const options = q.options.map((o) => o.trim()).filter(Boolean);
+    const suggested = q.suggested ?? 0;
+    if (!text || options.length < 2 || options.length > 4) throw bad("questions", "each question has text and 2 to 4 answers");
+    if (!Number.isInteger(suggested) || suggested < 0 || suggested >= options.length) throw bad("questions", "suggested is the index (0-based) of one of its answers");
+    return { text, options, suggested };
+  });
+}
+export function checkChecklist(raw: string[] | undefined, bad: Bad = (field, hint) => new ToolError("INVALID_FILTER", { field, hint })): string[] {
+  const list = (raw ?? []).map((c) => c.replace(/\s+/g, " ").trim()).filter(Boolean);
+  if (list.length !== CHECKLIST_SIZE) throw bad("checklist", `${CHECKLIST_SIZE} things to verify, one line each`);
+  if (list.some((c) => c.length > 200)) throw bad("checklist", "200 characters per line at most");
+  return list;
 }
 
 // The plan's tickets: one Ready ticket per step, in the order's project. Returns their keys.
+// PLA-I46-11: a leg plan's steps go under its initiative, in order (phase 1..n), with the answers the owner kept
+// and the check list in the scope, and the list itself on tasks.po_checklist for QA to tick.
 export async function makeSteps(db: Db, slug: string, p: ProposalData, ctx: Ctx): Promise<string[]> {
   const keys: string[] = [];
-  for (const s of p.steps) {
+  const legPlan = isLegPlan(p);
+  const answers = legPlan ? (p.questions ?? []).map((q, i) => `- ${q.text}: ${q.options[p.answers?.[i] ?? q.suggested]}`) : [];
+  const list = legPlan ? (p.checklist ?? []) : [];
+  const pid = list.length ? await projectIdOf(db, slug) : null;
+  for (const [i, s] of p.steps.entries()) {
+    const scope = [
+      `Paso del pedido ${p.order}: ${p.title}`,
+      `Lo que se entendió: ${p.understood ?? ""}`,
+      `Hecho cuando: ${s.done_when}`,
+      answers.length ? `Respuestas del dueño:\n${answers.join("\n")}` : "",
+      list.length ? `Check list del PO (QA la verifica):\n${list.map((c) => `- ${c}`).join("\n")}` : "",
+    ].filter(Boolean);
     const made = (await createTask(
       db,
       {
@@ -108,15 +167,28 @@ export async function makeSteps(db: Db, slug: string, p: ProposalData, ctx: Ctx)
         status: "Ready",
         work_type: s.work_type,
         priority: "P2",
-        scope: `Paso del pedido ${p.order}: ${p.title}\n\nLo que se entendió: ${p.understood ?? ""}\n\nHecho cuando: ${s.done_when}`,
+        scope: scope.join("\n\n"),
         checks: [s.done_when],
+        ...(legPlan ? { parent_key: p.leg, phase: i + 1 } : {}),
       } as never,
       ctx,
     )) as { key: string };
+    if (pid) await db.update(tasks).set({ poChecklist: poChecks(list) }).where(and(eq(tasks.key, made.key), eq(tasks.projectId, pid)));
     keys.push(made.key);
   }
   return keys;
 }
+
+const projectIdOf = async (db: Db, slug: string) => (await db.select({ id: projects.id }).from(projects).where(eq(projects.slug, slug)).limit(1))[0]?.id ?? null;
+
+// The leg a plan fills: the key the PO passed, else the open initiative whose title the order names.
+export async function legOf(db: Db, projectId: string, leg: string | null, orderText: string) {
+  const all = await db.select().from(tasks).where(and(eq(tasks.projectId, projectId), eq(tasks.kind, "initiative")));
+  if (leg) return all.find((t) => t.key === leg) ?? null;
+  const title = legTitleOf(orderText);
+  return title ? (all.find((t) => t.title === title && !["Done", "Won't do", "Released"].includes(t.status)) ?? null) : null;
+}
+export const POSTPONED = ["On hold"];
 
 export async function propose(db: Db, input: ProposeInput, ctx: Ctx) {
   const [p] = await db.select().from(projects).where(eq(projects.slug, input.project)).limit(1);
@@ -124,7 +196,15 @@ export async function propose(db: Db, input: ProposeInput, ctx: Ctx) {
   const ref = { thread: await projectThread(db, p.id), project: p };
   const { agent, role } = await assertThreadAccess(db, await agentOfActor(db, ctx.actor), ref);
   if (role !== "product-owner" && role !== "asistente") throw new ToolError("THREAD_FORBIDDEN", { hint: "only the project's PO proposes" });
-  const data = checkProposal(input, !!p.settings.plan_approval, checkLinks(input.links));
+  let leg: string | null = input.kind === "plan" ? input.leg?.trim() || null : null;
+  if (input.kind === "plan" && input.order) {
+    const [o] = await db.select({ scope: tasks.scope, title: tasks.title }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, input.order.trim()))).limit(1);
+    const found = o ? await legOf(db, p.id, leg, `${o.title}\n${o.scope}`) : null;
+    if (leg && !found) throw new ToolError("TASK_NOT_FOUND", { key: leg, hint: "leg is the key of the initiative this plan fills" });
+    if (found && POSTPONED.includes(found.status)) throw new ToolError("LEG_POSTPONED", { key: found.key, status: found.status, hint: "that leg is postponed on purpose: planning it is not permission to start it" });
+    leg = found?.key ?? null;
+  }
+  const data = checkProposal({ ...input, leg: leg ?? undefined }, !!p.settings.plan_approval, checkLinks(input.links));
   if (data.kind === "plan") {
     const [order] = await db.select({ id: tasks.id, origin: tasks.origin }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, data.order!))).limit(1);
     if (!order) throw new ToolError("TASK_NOT_FOUND", { key: data.order, hint: "order is the key of Jorge's order in this project" });
@@ -150,6 +230,7 @@ export const registerProposalTools = (
         "Post a proposal as data in your project's thread; Jorge decides it in Te toca. Only the project's PO.",
         "kind choice: title, 2 to 6 options {label, effect (what changes), cost {tickets, days, tokens, delays}, recommended}, recommended_reason, combinable (sets of option numbers that may go together, e.g. [[1, 2]]; omit when they exclude each other). It stays in Te toca until answered, even if you write again.",
         "kind plan: the answer to one of Jorge's orders. order (the order ticket's key), understood (one line, plain words), steps [{title, done_when, work_type code|ops|research|bug|debt}], cost. When the project approves plans, do not create tickets: Plania makes one Ready ticket per step when someone presses \"Sí, empiecen\". Otherwise the tickets are made now.",
+        "Plan for a leg of the route (the order says «Planea «<title>»»): also pass leg (that initiative's key; found from the title when omitted), at most 4 steps, questions (up to 3 closed ones: {text, options 2 to 4 short answers, suggested: index of the one you recommend}) and checklist (exactly 3 short things QA verifies on every step). It always waits for the owner's Aceptar plan; then the steps are made under that initiative. A postponed (On hold) leg is refused: never plan it to start it.",
         "No keys, branch names or the word sandbox in title, labels or understood: anyone at the Mac reads them.",
       ].join(" "),
       inputSchema: {
@@ -165,6 +246,9 @@ export const registerProposalTools = (
         understood: z.string().max(300).optional(),
         steps: z.array(z.object({ title: z.string().min(1).max(200), done_when: z.string().min(1).max(300), work_type: z.string().optional() })).max(10).optional(),
         cost: cost.optional(),
+        leg: z.string().min(1).max(40).optional(),
+        questions: z.array(z.object({ text: z.string().min(1).max(200), options: z.array(z.string().min(1).max(80)).min(2).max(4), suggested: z.number().int().min(0).max(3).optional() })).max(3).optional(),
+        checklist: z.array(z.string().min(1).max(200)).max(3).optional(),
         links: z.array(z.object({ kind: z.enum(["ticket", "doc", "pr", "idea", "question"]), ref: z.string().min(1).max(300), title: z.string().max(200) })).max(9).optional(),
       },
       annotations: write,
