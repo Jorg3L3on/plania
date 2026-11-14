@@ -258,6 +258,8 @@ export const LEGACY_REDIRECTS: Record<string, string> = {
 export const NAV: { to: string; label: string }[] = [
   { to: "/ceo", label: "Compañía" },
   { to: "/inbox", label: "Bandeja" },
+  // PLA-I42-1 (D2): the Morning brief is its own tab, "Brief" in both languages.
+  { to: "/brief", label: "Brief" },
   { to: "/progreso", label: "Progreso" },
   { to: "/machine", label: "Máquina" },
 ];

@@ -4,7 +4,7 @@ import { ADAPTERS, agents, heartbeatRuns, projects, tasks, type AdapterConfig, t
 import { spawn, type SpawnDeps, type SpawnTask } from "../adapters/index.js";
 import { requeueHeld, sweepFailedRuns, sweepStoppedRuns } from "../runner/failed.js";
 import { sweepAutoAccept } from "../api/auto-accept.js";
-import { cleanupWorktrees, drainQueue, enforceLive, wakeClaude, type RunnerDeps } from "../runner/runner.js";
+import { cleanupWorktrees, drainQueue, enforceLive, slotReservation, wakeClaude, type RunnerDeps } from "../runner/runner.js";
 import { ToolError } from "../mcp/errors.js";
 import { iso } from "../mcp/tx.js";
 import type { Job } from "./index.js";
@@ -298,7 +298,6 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
   const auto = await sweepAutoAccept(db, now).catch(() => ({ accepted: [] as string[], held: [] }));
   const drained = await drainQueue(db, now, deps?.runner);
   const cleaned = await cleanupWorktrees(db, deps?.runner);
-  const roster = await db.select({ slug: agents.slug, minutes: agents.heartbeatMinutes }).from(agents);
   const counts = {
     woken: 0,
     skipped: 0,
@@ -313,7 +312,14 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
     handed_to_jorge: failed.held,
     freed_after_stop: freed.freed,
     requeued_held: held.requeued,
+    reserved: 0,
   };
+  // PLA-I41-3: while the Morning brief holds the slot, no agent is woken (cadences stay due for the next tick).
+  if (slotReservation()) {
+    counts.reserved = 1;
+    return counts;
+  }
+  const roster = await db.select({ slug: agents.slug, minutes: agents.heartbeatMinutes }).from(agents);
   for (const row of roster) {
     if (row.minutes == null) continue;
     const result = await wakeAgent(db, { agent: row.slug, now }, deps);

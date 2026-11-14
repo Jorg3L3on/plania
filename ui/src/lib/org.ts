@@ -92,9 +92,11 @@ export function linkHref(link: Pick<ThreadLink, "kind" | "ref"> | OrgProduced, p
   if (link.kind === "pr") return /^https?:\/\//.test(link.ref) ? link.ref : null;
   if (link.kind === "doc" || link.kind === "plan") return `/ceo?doc=${encodeURIComponent(link.ref)}`;
   if (link.kind === "question") return project ? `/p/${encodeURIComponent(project)}` : "/inbox";
+  // PLA-I43-1: a Send to Plania message links its request; the progress lives on /brief.
+  if (link.kind === "brief_plan") return "/brief";
   return project ? `/p/${encodeURIComponent(project)}?task=${encodeURIComponent(link.ref)}` : null;
 }
-const KIND_WORD: Record<string, string> = { ticket: "", doc: "doc", pr: "PR", idea: "idea", plan: "plan", question: "pregunta" };
+const KIND_WORD: Record<string, string> = { ticket: "", doc: "doc", pr: "PR", idea: "idea", plan: "plan", question: "pregunta", brief_plan: "brief" };
 export const linkLabel = (link: { kind: string; ref: string; title: string }) => {
   const kind = KIND_WORD[link.kind] ?? link.kind;
   if (link.kind === "pr") return link.title || "PR";

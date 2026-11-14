@@ -21,7 +21,7 @@ import {
   type ProposalData,
 } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
-import { writeTx, type Ctx, type Q } from "../mcp/tx.js";
+import { writeTx, type Ctx, type Emit, type Q } from "../mcp/tx.js";
 import { roleOf } from "./limits.js";
 
 export const MAX_BODY = 4000;
@@ -98,36 +98,46 @@ export type PostInput = {
 };
 
 export async function postMessage(db: Db, ref: ThreadRef, input: PostInput, ctx: Ctx): Promise<ThreadMessage> {
-  const body = input.body.trim();
-  if (!body) throw new ToolError("INVALID_FILTER", { field: "body", hint: "empty" });
-  if (body.length > MAX_BODY) throw new ToolError("TOO_LARGE", { field: "body", max: MAX_BODY });
+  checkBody(input.body);
   const home = ref.project ?? (await asistenteHome(db));
   if (!home) throw new ToolError("PROJECT_NOT_FOUND", { hint: "no project to record the company thread's events in" });
+  return writeTx(db, home, ctx, (tx, emit) => insertMessage(tx, emit, ref, input));
+}
+
+function checkBody(raw: string): string {
+  const body = raw.trim();
+  if (!body) throw new ToolError("INVALID_FILTER", { field: "body", hint: "empty" });
+  if (body.length > MAX_BODY) throw new ToolError("TOO_LARGE", { field: "body", max: MAX_BODY });
+  return body;
+}
+
+// PLA-I43-1: the insert and its thread.message event, inside a writeTx the caller already holds (Send to Plania
+// posts the message and queues the PO's wake in one transaction, so neither happens without the other).
+export async function insertMessage(tx: Q, emit: Emit, ref: ThreadRef, input: PostInput): Promise<ThreadMessage> {
+  const body = checkBody(input.body);
   const links = input.links ?? [];
-  return writeTx(db, home, ctx, async (tx, emit) => {
-    // A question link names the question the message carries (Responder answers it).
-    let questionId = input.questionId ?? null;
-    if (!questionId) {
-      const q = links.find((l) => l.kind === "question" && UUID.test(l.ref));
-      if (q) {
-        const [found] = await tx.select({ id: questions.id }).from(questions).where(eq(questions.id, q.ref)).limit(1);
-        questionId = found?.id ?? null;
-      }
+  // A question link names the question the message carries (Responder answers it).
+  let questionId = input.questionId ?? null;
+  if (!questionId) {
+    const q = links.find((l) => l.kind === "question" && UUID.test(l.ref));
+    if (q) {
+      const [found] = await tx.select({ id: questions.id }).from(questions).where(eq(questions.id, q.ref)).limit(1);
+      questionId = found?.id ?? null;
     }
-    const [msg] = await tx
-      .insert(threadMessages)
-      .values({ threadId: ref.thread.id, authorAgent: input.author.agent.slice(0, 60), authorRole: input.author.role.slice(0, 40), body, links, questionId, proposal: input.proposal ?? null })
-      .returning();
-    await emit("thread.message", null, {
-      thread_id: ref.thread.id,
-      thread_kind: ref.thread.kind,
-      project: ref.project?.slug ?? null,
-      message_id: msg!.id,
-      author: msg!.authorAgent,
-      author_role: msg!.authorRole,
-    });
-    return msg!;
+  }
+  const [msg] = await tx
+    .insert(threadMessages)
+    .values({ threadId: ref.thread.id, authorAgent: input.author.agent.slice(0, 60), authorRole: input.author.role.slice(0, 40), body, links, questionId, proposal: input.proposal ?? null })
+    .returning();
+  await emit("thread.message", null, {
+    thread_id: ref.thread.id,
+    thread_kind: ref.thread.kind,
+    project: ref.project?.slug ?? null,
+    message_id: msg!.id,
+    author: msg!.authorAgent,
+    author_role: msg!.authorRole,
   });
+  return msg!;
 }
 
 // ---- Permissions (bots)

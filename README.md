@@ -39,10 +39,20 @@ Migrations are generated here (`pnpm db:generate`) and applied by Jorge, in orde
 
 ```bash
 for f in drizzle/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done   # fresh database
-pnpm seed
 ```
 
-`pnpm seed` loads the day-one projects `micasa`, `workia`, `filmia`, `zigzag`. It is safe to rerun:
+Then add your own projects, and give each one its team (product owner, Research, Artist, Taller):
+
+```bash
+pnpm project:add <slug> --title "<Title>" --prefix <PFX> [--repo owner/name] [--path /abs/repo]
+pnpm tsx --env-file=.env scripts/seed-org.ts
+```
+
+`--path` is the repo on this Mac (default `PLANIA_PROJECTS_ROOT/<slug>`, else `~/Developer/Projects/<slug>`).
+`--repo` is its GitHub `owner/name`. Both are safe to rerun.
+
+`pnpm seed` is the original owner's setup: it loads their day-one projects `micasa`, `workia`, `filmia`, `zigzag`.
+Skip it on a new install. It is safe to rerun:
 
 - Title and body belong to the seed until someone edits them with `set_project`; after that the seed leaves them alone.
 - Each project's handoff "must keep" line is added once as a pinned decision.
@@ -239,6 +249,58 @@ createdb plania_restore && gunzip -c ~/plania-backups/plania-20261016.sql.gz | p
 
 Change the screen password with `pnpm hash-password`, paste the result into `.env` as
 `PLANIA_PASSWORD_HASH='...'`, then restart. Rotating `MCP_BEARER_TOKEN` means updating all three client configs.
+
+## Morning brief
+
+A daily brief of every project, made by a headless `claude -p` on this Mac with the owner's own Claude subscription
+(no API key, nothing paid) and shown on `/brief`. It runs once a day at `run_at` (default 07:00, local time) and on
+"Generate now". Passes A (brief) and B (ideas) are read-only: they read Plania with a read token and each repo with
+`git`, and write nothing.
+
+To turn it on:
+
+1. Apply migration `0045` (take a dump first, like every migration):
+
+   ```bash
+   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f drizzle/migrations/0045_morning_brief.sql
+   ```
+
+2. On `/tokens`, issue a token with read scope (name it `morning-brief`) and put it in `.env` as `PLANIA_BRIEF_TOKEN`.
+   Without it the brief falls back to `MCP_READ_TOKEN`, and with neither it stores a facts-only brief that says so.
+   If `.env` has no `PLANIA_RUNNER_TOKEN` yet (the agent runner uses it too), issue one with write scope there as well:
+   Send to Plania wakes each project's product owner with it.
+3. Make sure `claude` is installed and logged in with your subscription: run `claude` once and log in. The brief uses
+   `CLAUDE_CODE_BIN` when it is set, else `~/.local/bin/claude`.
+4. Run the setup check. Every line should be ✓; each ✗ line says what to fix. It never prints a token or a path.
+
+   ```bash
+   pnpm brief:doctor                 # includes a short claude dry run (one small turn on your plan)
+   pnpm brief:doctor --skip-claude   # everything except that dry run
+   ```
+
+5. Build and restart the service:
+
+   ```bash
+   pnpm build && launchctl kickstart -k gui/$(id -u)/com.plania.server
+   ```
+
+Then open `/brief` and press "Generate now" (or `pnpm brief:run`). The first brief takes a few minutes.
+
+What the doctor checks: claude found and its version; claude logged in (the dry run also confirms the result carries
+`structured_output`); read token set; runner token set (`PLANIA_RUNNER_TOKEN`, needed for Send to Plania); GitHub
+token readable (`GITHUB_TOKEN`, else `~/.config/plania/github-token`, see GitHub token file); each included
+project's repo path exists; the brief settings (saved or first-run defaults, on or off) and a valid time zone; each
+included project's product owner and the home project (both for Send to Plania); the prompts folder
+`prompts/morning-brief` is present; migration `0045` applied. The same lines, without the claude dry run, are the
+"Setup check" at the bottom of the settings sheet on `/brief` (`GET /api/brief/doctor`).
+
+First-run defaults (change them on `/brief`, settings): on, 07:00, time zone `PLANIA_TZ` (else
+`America/Mexico_City`; the label is the city name unless you set one), language `en`, owner name `PLANIA_CEO_NAME` (else "the owner"), every project included, each
+project's idea letter taken from its key prefix (X is for cross ideas), no hidden refs, facts-only fallback at 11:00.
+A project's repo is `settings.local.repo_path`, else `PLANIA_PROJECTS_ROOT/<slug>`. Its GitHub repo is
+`settings.github.repo`. Send to Plania needs a product-owner agent per project (`po-<slug>`, made by
+`create_company_project`, or `scripts/seed-org.ts` above); cross ideas go to `PLANIA_HOME_PROJECT` (default `plania`;
+set it to one of your projects if you have no `plania` project). The doctor checks both.
 
 ## MCP
 
@@ -569,14 +631,9 @@ The local configs on this Mac hold the token literally, because apps launched fr
 
 ### In a product repo
 
-Add this to the repo's `CLAUDE.md` (or `AGENTS.md`). The rules themselves come from Plania, so they do not drift:
-
-```markdown
-## Plan
-
-The plan for this product lives in Plania (MCP server `plania`, project `<slug>`), not in this repo.
-Follow the protocol in the Plania server's instructions and the project's rules (`get_project`).
-```
+Nothing. Do not add a `CLAUDE.md`, `AGENTS.md`, `.cursor/`, `.claude/`, hooks or CI for Plania to a product repo.
+The plan and the rules live in Plania: the server's `instructions` carry the protocol, and `get_project` /
+`get_memory` carry the project's rules. Client-side rules belong in the owner's user-level config, not in the repo.
 
 ## Screen
 
