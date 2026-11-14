@@ -1,18 +1,14 @@
-// PLA-I39-4: the plate at the left of a floor. The project's name (one line, ellipsis, full text in title); the
-// current deliverable (the active plan's title, else what is next; two lines at most); steps done of total as a
-// strip; goal and date with the forecast, or "Sin meta: Fijar" (the goal dialog); the light's reason with its
-// action; tokens used this week. PLA-I39-6: the name opens the plan in the side page (onPlan).
-// PLA-23: the reason's action acts on this floor: "Publicar" opens the publish sheet (onPublish); "Ver la pregunta"
-// brings the floor's question into view and marks it (onReveal), so the click always does something. The goal line
-// says what is missing (a goal, or only its date), and the tokens line shows last week next to this week.
+// PLA-I39-4: the plate at the left of a floor. PLA-I46-4: compact. The project's name (one line, ellipsis, full
+// text in title; it opens the plan in the side page with onPlan); the real goal (the goal sentence, or «Sin meta ·
+// Fijar meta» only when the project has none); one status line in plain words (lib/edificio.ts plateStatus: where
+// the delivery stands, what is postponed on purpose); then what the floor passes in: Pedir (a secondary button that
+// opens the side page) and Lo último in one line with «Ver todo». No tokens and no action buttons here: what is the
+// owner's to do is the floor's move (Ahora, Tú and the phone bar).
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import type { OrgProject } from "@/lib/api";
-import { tokens } from "@/lib/compania";
+import { plateStatus } from "@/lib/edificio";
 import { rumboText } from "@/lib/v2";
-import { revealQuestion } from "./publish";
-
-const MAX_SEGS = 24;
 
 export const deliverableOf = (p: OrgProject): string | null => p.plan?.initiative.title ?? p.next?.title ?? null;
 
@@ -20,31 +16,20 @@ export const Plate = ({
   project: p,
   onFijar,
   onPlan,
-  onPublish,
-  onReveal = (x) => revealQuestion(x.slug),
-  noSteps,
   children,
 }: {
   project: OrgProject;
   onFijar?: (p: OrgProject) => void;
   onPlan?: (p: OrgProject, el: HTMLElement) => void;
+  // Kept for callers that still pass them: the plate draws no action of its own any more.
   onPublish?: (p: OrgProject) => void;
   onReveal?: (p: OrgProject) => void;
-  // PLA-I40-5: the floor's route says the steps, so the plate leaves its strip and count out.
   noSteps?: boolean;
   children?: ReactNode;
 }) => {
-  const deliverable = deliverableOf(p);
   const rumbo = rumboText(p);
-  const done = p.plan?.done ?? 0;
-  const total = p.plan?.total ?? 0;
-  const segs = Math.min(total, MAX_SEGS);
-  const lit = total > 0 ? Math.round((done / total) * segs) : 0;
-  const reason = p.light_reason;
-  const href = reason?.action?.href ?? "";
-  // PLA-I39-5: Te toca left the page; its pointer goes to the question on this floor (an older server still sends it).
-  const toQuestion = href === "#te-toca" || href.startsWith("#pregunta");
-  const usage = p.usage ?? { used: 0 };
+  const status = plateStatus(p);
+  const problem = p.light_reason && p.light !== "needs_jorge" && p.light !== "ok" ? p.light_reason : null;
   return (
     <>
       <h2 className="edi-fname">
@@ -61,82 +46,41 @@ export const Plate = ({
           </Link>
         )}
       </h2>
-      <p className="edi-deliv" data-deliverable title={deliverable ?? undefined}>
-        {deliverable ?? "Sin entregable todavía"}
-      </p>
-      {noSteps ? null : total > 0 ? (
-        <>
-          <div className="edi-segs" role="img" aria-label={`${done} de ${total} pasos hechos`} data-segs={segs}>
-            {Array.from({ length: segs }, (_, i) => (
-              <i key={i} className={i < lit ? "edi-seg edi-seg-done" : "edi-seg"} />
-            ))}
-          </div>
-          <p className="edi-count" data-steps>
-            {done} de {total} pasos hechos
-          </p>
-        </>
-      ) : (
-        <p className="edi-count" data-steps>
-          Aún no hay pasos
-        </p>
-      )}
-      {rumbo.missing ? (
-        <p className="edi-dest" data-rumbo="missing" title={rumbo.goal ? rumbo.goal : undefined}>
-          {rumbo.goal ? "Meta sin fecha" : "Sin meta"}
-          {onFijar ? ": " : ""}
-          {onFijar && (
-            <button type="button" className="edi-mini" onClick={() => onFijar(p)} data-control="fijar">
-              {rumbo.goal ? "Poner fecha" : "Fijar meta"}
-            </button>
-          )}
+      {rumbo.goal ? (
+        <p className="edi-goal" data-rumbo="set" data-goal title={rumbo.goal}>
+          {rumbo.goal}
         </p>
       ) : (
-        <p className="edi-dest" data-rumbo="set">
-          Meta: <b>{rumbo.goal}</b> · {rumbo.date}
-          {rumbo.forecast && <span className={rumbo.forecast.tone === "ok" ? "edi-muted" : "edi-warn"}> · {rumbo.forecast.text}</span>}
+        <p className="edi-dest" data-rumbo="missing">
+          <span className="edi-warn">Sin meta</span>
           {onFijar && (
             <>
-              {" "}
+              {" · "}
               <button type="button" className="edi-mini" onClick={() => onFijar(p)} data-control="fijar">
-                Cambiar
+                Fijar meta
               </button>
             </>
           )}
         </p>
       )}
-      {reason && (
-        <p className="edi-reason" data-light-reason>
-          {reason.text}
-          {reason.action &&
-            (href === "#publicar" ? (
-              onPublish ? (
-                <button type="button" className="edi-mini edi-mini-strong" onClick={() => onPublish(p)} data-light-action data-control="publicar">
-                  Publicar
-                </button>
-              ) : (
-                <Link to="/inbox" className="edi-mini" data-light-action>
-                  Publicar en Bandeja →
-                </Link>
-              )
-            ) : toQuestion ? (
-              <button type="button" className="edi-mini" onClick={() => onReveal(p)} data-light-action data-control="ver-pregunta">
-                Ver la pregunta
-              </button>
-            ) : href.startsWith("#") || href.startsWith("/ceo") ? (
-              <a href={href} className="edi-mini" data-light-action>
-                {reason.action.label}
-              </a>
-            ) : (
-              <Link to={reason.action.href} className="edi-mini" data-light-action>
-                {reason.action.label} →
-              </Link>
-            ))}
+      {/* A problem the light names (a failed run, a block) is the status line, with its link; what is the owner's
+          to do is not repeated here (needs_jorge is the floor's move). */}
+      {problem ? (
+        <p className="edi-reason" data-light-reason data-status>
+          {problem.text}
+          {problem.action && !problem.action.href.startsWith("#") && (
+            <Link to={problem.action.href} className="edi-mini" data-light-action>
+              {problem.action.label} →
+            </Link>
+          )}
         </p>
+      ) : (
+        status && (
+          <p className="edi-count" data-status>
+            {status}
+          </p>
+        )
       )}
-      <p className="edi-count" data-usage>
-        {tokens(usage.used)} tokens esta semana
-        {usage.last_week != null && <span className="edi-muted"> · {tokens(usage.last_week)} la pasada</span>}
-      </p>
       {children}
     </>
   );

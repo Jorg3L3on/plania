@@ -43,7 +43,7 @@ export type WorkLine = { open: number; in_progress: number };
 
 // MIA-I2 before MIA-I10: the number at the end of the key, then creation.
 const keyNumber = (key: string) => Number(/(\d+)$/.exec(key)?.[1] ?? Number.MAX_SAFE_INTEGER);
-const byKey = (a: Task, b: Task) => keyNumber(a.key) - keyNumber(b.key) || a.createdAt.getTime() - b.createdAt.getTime();
+export const byKey = (a: Task, b: Task) => keyNumber(a.key) - keyNumber(b.key) || a.createdAt.getTime() - b.createdAt.getTime();
 const OPEN_INITIATIVE = ["Planning", "Active", "Shipping", "On hold"];
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const atNoon = (iso: string) => Date.parse(`${iso}T12:00:00Z`);
@@ -104,14 +104,14 @@ export async function planOf(db: Db, p: Project, today = new Date(), goalTarget:
 // PLA-I40-3: the route. The project's open initiatives in the plan's order are its legs; the one the plan stands
 // on (planOf's active initiative, so both counts agree) is "here" and carries its tickets as named steps.
 //   leg   done (every ticket landed), here, planned (has tickets), unplanned (none yet); note says a step that
-//         was put off when only Backlog tickets are left.
+//         was put off when only Backlog tickets are left, and postponed is true then (PLA-I46-14: drawn striped).
 //   step  done (accepted), published (in a release that shipped, or Released), delivered (In review, waits for
 //         the owner), working (In progress), next (the first Ready step nothing holds), later (the rest).
 // At most 8 legs and 12 steps; more_legs and more_steps count what was left out.
 export type StepState = "done" | "published" | "delivered" | "working" | "next" | "later";
 export type RouteStep = { key: string; title: string; state: StepState; who: string | null; at: string | null };
 export type LegState = "done" | "here" | "planned" | "unplanned";
-export type RouteLeg = { key: string; title: string; done: number; total: number; state: LegState; note: string | null; steps?: RouteStep[]; more_steps?: number };
+export type RouteLeg = { key: string; title: string; done: number; total: number; state: LegState; note: string | null; postponed: boolean; steps?: RouteStep[]; more_steps?: number };
 export type Route = { legs: RouteLeg[]; more_legs: number };
 const MAX_LEGS = 8;
 const MAX_STEPS = 12;
@@ -128,7 +128,7 @@ export async function routeOf(db: Db, p: Project): Promise<Route | null> {
     const left = mine.filter((t) => !DONE.includes(t.status));
     const off = left.length > 0 && left.every((t) => t.status === "Backlog");
     const state: LegState = i.id === here?.id ? "here" : mine.length === 0 ? "unplanned" : done === mine.length ? "done" : "planned";
-    return { key: i.key, title: i.title, done, total: mine.length, state, note: off ? (left.length === 1 ? `Pospuesto: ${left[0]!.title}` : `${left.length} pasos pospuestos`) : null };
+    return { key: i.key, title: i.title, done, total: mine.length, state, note: off ? (left.length === 1 ? `Pospuesto: ${left[0]!.title}` : `${left.length} pasos pospuestos`) : null, postponed: off };
   });
 
   if (here) {

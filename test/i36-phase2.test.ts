@@ -144,8 +144,9 @@ const render = (p: Json, onFijar: unknown = () => {}) => html(h(plate.Plate, { p
 
 test("I36-4 #1 (UI): the plate shows the goal, its date and the forecast", () => {
   const out = render(project({ rumbo: { goal_id: "g1", goal: "Tienda en línea con pagos", why: "", target_on: "2026-12-20", forecast_on: "2027-01-03", weeks_behind: 2, missing: false } }));
-  assert.ok(out.includes('data-rumbo="set"') && out.includes("Meta: <b>Tienda en línea con pagos</b> · 20 dic"));
-  assert.ok(out.includes("pronóstico 3 ene") && out.includes("edi-warn"));
+  // PLA-I46-4: the goal sentence itself; the one status line says when it runs late.
+  assert.ok(out.includes('data-rumbo="set"') && out.includes(">Tienda en línea con pagos</p>"));
+  assert.ok(out.includes("va 2 semanas tarde"));
 });
 
 test("I36-4 #2, #3 (UI): the placeholder shows Sin meta and Fijar; the page opens the goal dialog in place", async () => {
@@ -161,16 +162,16 @@ test("I36-4 #2, #3 (UI): the placeholder shows Sin meta and Fijar; the page open
 test("I36-4 #4 (UI): a long goal wraps whole on the plate", async () => {
   const long = "Una meta muy larga ".repeat(20).trim();
   const out = render(project({ rumbo: { goal_id: "g1", goal: long, why: "", target_on: "2026-12-20", forecast_on: null, weeks_behind: null, missing: false } }));
-  assert.ok(out.includes(`<b>${long}</b>`));
+  assert.ok(out.includes(`>${long}</p>`));
   const { readFileSync } = await import("node:fs");
   const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  assert.ok(/\.edi-dest \{[^}]*overflow-wrap: anywhere/.test(css));
+  assert.ok(/\.edi-goal \{[^}]*overflow-wrap: anywhere/.test(css));
 });
 
 test("I36-5 #1, #2 (UI): the plate shows the plan's steps done of total; the calendar words stay in the lib", () => {
   const dated = { initiative: { key: "X-I1", title: "Pagos" }, done: 1, total: 4, start_on: "2026-11-01", due_on: "2026-12-27", weeks: 8, today_pct: 50, done_pct: 25, pace: "bad", weeks_behind: 2, forecast_on: "2027-01-10" };
   const out = render(project({ plan: dated }));
-  assert.ok(out.includes("Pagos") && out.includes("1 de 4 pasos hechos") && out.includes('data-segs="4"'));
+  assert.ok(out.includes("1 de 4 pasos hechos"), "PLA-I46-4: one status line, no strip");
   assert.equal(/Semana \d+ de/.test(out), false);
   assert.equal(lib.calendarBar(dated)!.line, "Hoy va al 50% del tiempo y la obra al 25%: 2 semanas atrás");
   assert.equal(lib.calendarBar({ ...dated, weeks: null }), null);

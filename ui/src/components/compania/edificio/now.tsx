@@ -1,10 +1,17 @@
 // PLA-I40-4: the band at the top of a floor. One state word, one sentence that says what is happening and until
 // when (lib/edificio.ts nowLine), a second line with the reason, and the one action the owner can take. With a
 // start time it counts down every second; with reduced motion it only shows the time. Presentational: the page
-// holds the calls (test/i40-floor-ui.test.ts renders it with fake data).
-import { useEffect, useRef, useState } from "react";
+// holds the calls (test/i40-floor-ui.test.ts renders it with fake data). PLA-I46-3: when the floor has a move (the
+// server's next_move) the band says its texto, breathes in orange and its button is green; ActButton and runOf are
+// shared with the Tú window and the phone bar, so the three run the same action.
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Decision, OrgProject } from "@/lib/api";
-import { countdown, type NowLine } from "@/lib/edificio";
+import { countdown, type NowAction, type NowLine } from "@/lib/edificio";
+import { deliveryOf } from "@/lib/evidencia";
+import { BackNote, EvidenceActs, EvidenceBody } from "./evidence";
+import { openLayer } from "./evidence-store";
+import { PlanActs, PlanBody, floorPlan } from "./plan";
+import { planInput } from "./plan-draft";
 import { revealQuestion } from "./publish";
 import type { QuestionActs } from "./question";
 
@@ -46,6 +53,46 @@ const Tick = ({ until, now, label, onElapsed }: { until: string; now: number; la
   );
 };
 
+// PLA-I46-3: what a click on an action does. The same function backs Ahora's button, the Tú window's and the phone
+// bar's, so the three run the same thing. Null when this page cannot do it here (no handler passed).
+export type MoveCtx = { decisions?: Decision[]; acts?: NowActs; qacts?: QuestionActs; onFijar?: (p: OrgProject) => void; onPublish?: (p: OrgProject) => void };
+export function runOf(p: OrgProject, a: NowAction | null, c: MoveCtx): (() => void) | null {
+  if (!a) return null;
+  if (a.kind === "start") return c.acts?.onStart ? () => c.acts!.onStart!(p.slug, a.agent, "pastGuard" in a ? a.pastGuard : false) : null;
+  if (a.kind === "decision") {
+    const d = c.decisions?.find((x) => x.id === a.id);
+    // PLA-I46-11: Aceptar plan sends the answers and the check list as the owner left them.
+    return d && c.qacts ? () => c.qacts!.onAct(d, { action: a.action, ...planInput(d, a.action) }, `now-${a.action}`) : null;
+  }
+  if (a.kind === "reveal") return () => revealQuestion(p.slug);
+  if (a.kind === "publish") return c.onPublish ? () => c.onPublish!(p) : null;
+  if (a.kind === "fijar") return c.onFijar ? () => c.onFijar!(p) : null;
+  if (a.kind === "link") return null;
+  return c.acts?.onPlan ? () => c.acts!.onPlan!(p.slug, a.text) : null;
+}
+const busyOf = (p: OrgProject, a: NowAction, c: MoveCtx) => c.acts?.busy === `${p.slug}:${a.kind}` || (a.kind === "decision" && c.qacts?.busy?.id === a.id);
+
+// The one button of an action. A move is green (edi-go); anything else is a secondary outline button. where says
+// which surface draws it (ahora, tu, barra), so the phone bar can stand in for Ahora's at 390.
+export const ActButton = ({ project: p, action: a, move, where, ctx, className = "" }: { project: OrgProject; action: NowAction; move: boolean; where: "ahora" | "tu" | "barra"; ctx: MoveCtx; className?: string }) => {
+  const cls = `${move ? "edi-nact edi-go" : "edi-btn"} ${className}`.trim();
+  const data = { "data-now-action": a.kind, "data-where": where, "data-move": move ? "1" : undefined, "data-control": `${where}-${a.kind}` };
+  if (a.kind === "link")
+    return (
+      <a href={a.href} className={cls} {...data}>
+        {a.label}
+      </a>
+    );
+  const run = runOf(p, a, ctx);
+  if (!run) return null;
+  const busy = busyOf(p, a, ctx);
+  return (
+    <button type="button" className={cls} onClick={run} disabled={busy || ctx.qacts?.disabled} {...data}>
+      {busy ? "…" : a.label}
+    </button>
+  );
+};
+
 export const Now = ({
   project: p,
   line,
@@ -55,6 +102,8 @@ export const Now = ({
   qacts,
   onFijar,
   onPublish,
+  side,
+  anchor,
 }: {
   project: OrgProject;
   line: NowLine;
@@ -64,26 +113,22 @@ export const Now = ({
   qacts?: QuestionActs;
   onFijar?: (p: OrgProject) => void;
   onPublish?: (p: OrgProject) => void;
+  // PLA-I46-7: the Ventana a la app, beside the text (under it at 390).
+  side?: ReactNode;
+  // PLA-I46-10: the delivery's card is where «Ver y responder» lands (no bubble hangs for it).
+  anchor?: string;
 }) => {
   const a = line.action;
-  const d = a?.kind === "decision" ? decisions?.find((x) => x.id === a.id) : undefined;
-  const run =
-    !a
-      ? null
-      : a.kind === "start"
-        ? acts?.onStart && (() => acts.onStart!(p.slug, a.agent, a.pastGuard))
-        : a.kind === "decision"
-          ? d && qacts && (() => qacts.onAct(d, { action: a.action }, `now-${a.action}`))
-          : a.kind === "reveal"
-            ? () => revealQuestion(p.slug)
-            : a.kind === "publish"
-              ? onPublish && (() => onPublish(p))
-              : a.kind === "fijar"
-                ? onFijar && (() => onFijar(p))
-                : acts?.onPlan && (() => acts.onPlan!(p.slug, a.text));
-  const busy = !!a && (acts?.busy === `${p.slug}:${a.kind}` || (a.kind === "decision" && qacts?.busy?.id === a.id));
+  const ctx: MoveCtx = { decisions, acts, qacts, onFijar, onPublish };
+  // PLA-I46-11: the leg's plan, when it is this move or waits for later (plan.tsx).
+  const fp = decisions ? floorPlan(p, decisions) : null;
+  const plan = fp && (fp.waiting || (line.move?.origen.kind === "decision" && line.move.origen.id === fp.d.id)) ? fp : null;
+  // PLA-I46-10: a delivery to accept carries its evidence card (evidence.tsx).
+  const dv = decisions ? deliveryOf(line.move, decisions) : null;
+  const held = !!dv && a?.kind === "reveal";
+  // PLA-I46-3: only a card with a move breathes (data-breathe); the CSS stops it under reduce-motion.
   return (
-    <div className="edi-nowb" data-now={line.state} data-holder={line.holder ?? undefined} aria-live="polite">
+    <div id={dv ? anchor : undefined} className="edi-nowb" data-now={line.state} data-holder={line.holder ?? undefined} data-breathe={line.move ? "1" : undefined} data-side={side ? "1" : undefined} aria-live="polite">
       <div className="edi-ntext">
         <p className="edi-nword" data-now-word>
           {line.word}
@@ -96,14 +141,24 @@ export const Now = ({
             {line.why}
           </p>
         )}
-        {a && run && (
+        {(a || plan || dv || line.note) && (
           <div className="edi-nacts">
-            <button type="button" className="edi-nact" onClick={run} disabled={busy || qacts?.disabled} data-now-action={a.kind} data-control={`ahora-${a.kind}`}>
-              {busy ? "…" : a.label}
-            </button>
+            {a && !held && <ActButton project={p} action={a} move={!!line.move} where="ahora" ctx={ctx} />}
+            {dv && <EvidenceActs p={p} d={dv} qacts={qacts} held={held} />}
+            {plan && <PlanActs d={plan.d} waiting={plan.waiting} qacts={qacts} />}
+            {/* PLA-I46-15: the plan to accept can come to the front too. */}
+            {plan && !plan.waiting && (
+              <button type="button" className="edi-vlink" data-ev-act="frente" onClick={(e) => openLayer(p.slug, plan.d.id, e.currentTarget)}>
+                Al frente
+              </button>
+            )}
+            {line.note && <BackNote note={line.note} />}
           </div>
         )}
       </div>
+      {plan && <PlanBody d={plan.d} waiting={plan.waiting} qacts={qacts} />}
+      {dv && <EvidenceBody p={p} d={dv} acts={acts} qacts={qacts} />}
+      {side}
       {line.starts_at && <Tick key={line.starts_at} until={line.starts_at} now={now} label={line.state === "stuck" ? "para reintentar" : "para arrancar"} onElapsed={acts?.onElapsed} />}
     </div>
   );

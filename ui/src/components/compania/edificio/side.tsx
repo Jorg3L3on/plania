@@ -5,16 +5,18 @@
 //               the last thing it delivered; "Dile algo", a note on its current ticket or an order to the PO.
 //   PlanPage    in progress, next and blocked (the project read); your orders with their stage, Hacer primero and
 //               Quitar; goal and date (the goal dialog); Pausar; plan approval and the preview address.
-//   AddPage     the role templates not on the team yet.
+//   SumarPage   PLA-I46-13: a role (QA, Escritura, Seguridad, Research, Otro) and skill packs from Plania; the engine
+//               is one line («Motor: Claude Code»); ends with «Sumar <rol>».
 // The views are pure (state comes in as props) so tests call their handlers without a DOM.
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router";
-import type { OrgMember, OrgProject, OrgTemplate } from "@/lib/api";
+import type { HireRole, OrgMember, OrgProject, PackRef } from "@/lib/api";
 import type { ProjectSheetData } from "@/lib/compania";
 import { ago } from "@/lib/compania";
 import { caption, sayTo, windowState, type Say } from "@/lib/edificio";
 import { linkHref, roleName } from "@/lib/org";
 import { orderText, rumboText } from "@/lib/v2";
+import { MOTOR, OTRO, STATE_NOTE, firstFree, hireLabel, roleChoices, suggestedPacks, type RoleChoice } from "@/lib/sumar";
 import { BlockError, Dot, TONE_INK, eyebrow, pillGhost, pillPrimary } from "@/components/compania/parts";
 import { Detalles, type Steer } from "@/components/compania/timon";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -355,33 +357,153 @@ export const PlanPage = ({
   );
 };
 
-// ---- adding someone
+// ---- adding someone (PLA-I46-13, Design PLA-I46 screen 7)
 
-export const AddPage = ({ templates, loading, busy, onAdd, added }: { templates?: OrgTemplate[]; loading?: boolean; busy?: string | null; onAdd: (template: string) => void; added?: string | null }) =>
-  loading ? (
-    <div className="h-24 animate-pulse rounded-xl bg-muted" aria-hidden />
-  ) : (
-    <>
-      {templates && templates.length > 0 ? (
-        <ul className="grid gap-2" data-templates={templates.length}>
-          {templates.map((t) => (
-            <li key={t.slug} className="flex min-w-0 items-center justify-between gap-2 text-sm">
-              <span className="min-w-0 font-semibold">{t.title}</span>
-              <button type="button" className={cn(pillPrimary, pillSmall)} disabled={busy === t.slug} onClick={() => onAdd(t.slug)} data-add={t.slug}>
-                {busy === t.slug ? "…" : "Sumar"}
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-sm text-muted-foreground" data-empty="templates">
-          Ya están todos los puestos que hay.
-        </p>
+// Pure: the role and packs picked come in as props (SumarSide holds them).
+export const SumarPage = ({
+  hire,
+  packs,
+  loading,
+  packsError,
+  role,
+  chosen,
+  busy,
+  added,
+  onRole,
+  onPack,
+  onAdd,
+}: {
+  hire?: HireRole[];
+  packs?: PackRef[];
+  loading?: boolean;
+  packsError?: boolean;
+  role: string | null;
+  chosen: string[];
+  busy?: boolean;
+  added?: string | null;
+  onRole: (slug: string) => void;
+  onPack: (slug: string) => void;
+  onAdd: (template: string, packs: string[]) => void;
+}) => {
+  if (loading) return <div className="h-40 animate-pulse rounded-xl bg-muted" aria-hidden />;
+  const choices = roleChoices(hire ?? []);
+  const otroOn = !!role && choices.otros.some((c) => c.slug === role);
+  const chip = (c: RoleChoice, extra?: Record<string, string>) => (
+    <button
+      key={c.slug}
+      type="button"
+      role="radio"
+      aria-checked={role === c.slug}
+      disabled={c.state !== "free"}
+      onClick={() => onRole(c.slug)}
+      data-hire={c.slug}
+      data-state={c.state}
+      {...extra}
+      className={cn(
+        "inline-flex min-h-10 min-w-0 flex-col items-start justify-center rounded-xl px-3 py-1.5 text-left text-sm ring-1 disabled:opacity-45",
+        role === c.slug ? "bg-foreground font-semibold text-background ring-foreground" : "ring-foreground/15 hover:bg-muted",
       )}
+    >
+      <span>{c.label}</span>
+      {STATE_NOTE[c.state] && <span className="text-[11px] leading-tight opacity-80">{STATE_NOTE[c.state]}</span>}
+    </button>
+  );
+  const otrosFree = choices.otros.filter((c) => c.state === "free");
+  const label = role ? hireLabel(role) : null;
+  return (
+    <div className="grid min-w-0 gap-4" data-sumar>
+      <Section title="Rol" data="rol">
+        <div role="radiogroup" aria-label="Rol" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {choices.main.map((c) => chip(c))}
+          <button
+            type="button"
+            role="radio"
+            aria-checked={otroOn}
+            disabled={otrosFree.length === 0}
+            onClick={() => otrosFree[0] && !otroOn && onRole(otrosFree[0].slug)}
+            data-hire={OTRO}
+            className={cn(
+              "inline-flex min-h-10 min-w-0 flex-col items-start justify-center rounded-xl px-3 py-1.5 text-left text-sm ring-1 disabled:opacity-45",
+              otroOn ? "bg-foreground font-semibold text-background ring-foreground" : "ring-foreground/15 hover:bg-muted",
+            )}
+          >
+            <span>Otro</span>
+            {otrosFree.length === 0 && <span className="text-[11px] leading-tight opacity-80">No queda otro</span>}
+          </button>
+        </div>
+        {otroOn && (
+          <div role="radiogroup" aria-label="Otro rol" className="flex flex-wrap gap-2" data-otros={otrosFree.length}>
+            {otrosFree.map((c) => chip(c))}
+          </div>
+        )}
+      </Section>
+
+      <Section title="Paquetes" data="paquetes">
+        {packsError ? (
+          <p className="text-sm text-muted-foreground" data-empty="packs-error">
+            No se pudieron leer los paquetes. Puedes sumar sin ellos.
+          </p>
+        ) : packs && packs.length > 0 ? (
+          <ul className="grid gap-1.5" data-packs={packs.length}>
+            {packs.map((p) => (
+              <li key={p.slug}>
+                <label className="flex min-w-0 cursor-pointer items-start gap-2.5 rounded-xl px-2 py-1.5 hover:bg-muted">
+                  <input type="checkbox" className="mt-1 size-4 shrink-0 accent-current" checked={chosen.includes(p.slug)} onChange={() => onPack(p.slug)} data-pack={p.slug} />
+                  <span className="grid min-w-0 gap-0.5">
+                    <span className="text-sm font-semibold">{p.name}</span>
+                    {p.when && <span className="text-xs break-words text-muted-foreground">{p.when}</span>}
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground" data-empty="packs">
+            Aún no hay paquetes en Plania.
+          </p>
+        )}
+      </Section>
+
+      <p className="text-sm" data-motor>
+        <span className="text-muted-foreground">Motor:</span> <b>{MOTOR}</b>
+      </p>
+      <p className="text-xs text-muted-foreground" data-note="sumar">
+        Publicar sigue siendo tuyo. Los paquetes viven en Plania, no en el repo de la app.
+      </p>
+
+      <button
+        type="button"
+        className={cn(pillPrimary, "w-full sm:w-auto sm:justify-self-start")}
+        disabled={!role || busy}
+        onClick={() => role && onAdd(role, chosen)}
+        data-control="sumar-rol"
+      >
+        {busy ? "Sumando…" : label ? `Sumar ${label}` : "Elige un rol"}
+      </button>
       {added && (
         <p className="text-xs font-semibold text-ink-done" role="status" data-added>
           ✓ {added} se suma; su ventana aparece en el piso.
         </p>
       )}
-    </>
+    </div>
   );
+};
+
+// Holds the role and packs picked; picking a role ticks its suggested packs.
+export const SumarSide = (props: Omit<Parameters<typeof SumarPage>[0], "role" | "chosen" | "onRole" | "onPack">) => {
+  const choices = roleChoices(props.hire ?? []);
+  const [picked, setPicked] = useState<string | null>(null);
+  const role = picked && [...choices.main, ...choices.otros].some((c) => c.slug === picked && c.state === "free") ? picked : firstFree(choices);
+  // The ticks belong to the role they were made for; another role starts from its own suggestion.
+  const [chosen, setChosen] = useState<{ role: string | null; packs: string[] } | null>(null);
+  const packs = chosen && chosen.role === role ? chosen.packs : suggestedPacks(role, props.packs ?? []);
+  return (
+    <SumarPage
+      {...props}
+      role={role}
+      chosen={packs}
+      onRole={setPicked}
+      onPack={(slug) => setChosen({ role, packs: packs.includes(slug) ? packs.filter((s) => s !== slug) : [...packs, slug] })}
+    />
+  );
+};

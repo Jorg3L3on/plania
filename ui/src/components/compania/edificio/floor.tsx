@@ -3,11 +3,12 @@
 // under it. On the right: the route (Entrega) first, then the Ahora band and the team, then Solo tú.
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 import type { Decision, OrgMember, OrgProject } from "@/lib/api";
-import { RECIBIRIA, floorHue, hangingFor, nowLine, ownerCaption } from "@/lib/edificio";
+import { RECIBIRIA, floorHue, hangingFor, nowLine, ownerCaption, returnedOf } from "@/lib/edificio";
+import { deliveryOf } from "@/lib/evidencia";
 import { byRole } from "@/lib/org";
 import { After, Last } from "./after";
 import { Figure } from "./figure";
-import { Now, type NowActs } from "./now";
+import { ActButton, Now, type NowActs } from "./now";
 import { Plate } from "./plate";
 import { Question, bubblePlace, type QuestionActs } from "./question";
 import { Route } from "./route";
@@ -29,6 +30,7 @@ export const Floor = ({
   timeZone,
   nowActs,
   solo,
+  ventana,
   children,
 }: {
   project: OrgProject;
@@ -51,6 +53,8 @@ export const Floor = ({
   nowActs?: NowActs;
   // PLA-I40-7: what goes under Solo tú (the project's switch).
   solo?: ReactNode;
+  // PLA-I46-7: the Ventana a la app, mounted beside Ahora's text.
+  ventana?: ReactNode;
   children?: ReactNode;
 }) => {
   const team = [...p.team].sort(byRole);
@@ -58,9 +62,18 @@ export const Floor = ({
   // PLA-I40-4: what is happening now, who holds the work (a mark sits under them), and the owner as one more figure.
   const line = nowLine(p, decisions ?? [], now, { companyPaused, timeZone });
   const you = ownerCaption(line);
+  // PLA-I46-11: a leg's plan that is the move shows in Ahora (plan.tsx), not under the PO's window.
+  const o = line.move?.origen;
+  // PLA-I46-10: so does a delivery to accept: its evidence card is in Ahora, so it does not hang under Taller.
+  const dv = deliveryOf(line.move, decisions ?? []);
+  const inAhora = o?.kind === "decision" && (decisions?.find((d) => d.id === o.id)?.plan?.leg || dv) ? o.id : null;
+  // PLA-I46-10: a delivery sent back: its maker's window is violet until it comes back.
+  const back = line.move ? null : returnedOf(p.slug, decisions ?? []);
+  const isBack = (m: OrgMember) => !!back && (back.agent ? back.agent === m.agent : m.role === "taller");
   const slots = team.length + 1 + (children ? 1 : 0);
+  const bubbles = !!(decisions && acts && team.some((m) => hangingFor(decisions, p.slug, m.agent, inAhora)));
   return (
-    <article id={`piso-${p.slug}`} className="edi-floor" data-floor={p.slug} data-light={p.light} style={{ "--c": floorHue(p.slug) } as CSSProperties} aria-label={p.title}>
+    <article id={`piso-${p.slug}`} tabIndex={-1} className="edi-floor" data-floor={p.slug} data-light={p.light} data-move={line.move ? line.move.verbo : undefined} style={{ "--c": floorHue(p.slug) } as CSSProperties} aria-label={p.title}>
       <div className="edi-plate">
         {plate ?? (
           <Plate project={p} onFijar={onFijar} onPlan={onPlan} onPublish={onPublish} noSteps={p.route !== undefined}>
@@ -70,9 +83,9 @@ export const Floor = ({
         )}
       </div>
       <div className="edi-wins">
-        <Now project={p} line={line} now={now} decisions={decisions} acts={nowActs} qacts={acts} onFijar={onFijar} onPublish={onPublish} />
+        <Now project={p} line={line} now={now} decisions={decisions} acts={nowActs} qacts={acts} onFijar={onFijar} onPublish={onPublish} side={ventana} anchor={dv && !bubbles ? `pregunta-${p.slug}` : undefined} />
         {team.map((m, i) => {
-          const hanging = decisions && acts ? hangingFor(decisions, p.slug, m.agent) : null;
+          const hanging = decisions && acts ? hangingFor(decisions, p.slug, m.agent, inAhora) : null;
           const anchor = hanging && first ? `pregunta-${p.slug}` : undefined;
           if (hanging) first = false;
           return (
@@ -86,6 +99,7 @@ export const Floor = ({
                   companyPaused={companyPaused}
                   timeZone={timeZone}
                   onOpen={onOpen}
+                  back={isBack(m)}
                   hint={typing && m.role === "product-owner" ? RECIBIRIA : null}
                 />
               </div>
@@ -106,6 +120,8 @@ export const Floor = ({
             <span className="edi-do" data-doing>
               {you.doing}
             </span>
+            {/* PLA-I46-3: the same button as Ahora's, still (only Ahora breathes); hidden at 390 where the bar has it. */}
+            {line.move && <ActButton project={p} action={line.move.accion} move where="tu" className="edi-tu-go" ctx={{ decisions, acts: nowActs, qacts: acts, onFijar, onPublish }} />}
           </div>
         </div>
         {children && (
@@ -114,7 +130,7 @@ export const Floor = ({
           </div>
         )}
         <Route project={p} now={now} timeZone={timeZone} onPlan={nowActs?.onPlan} busy={nowActs?.busy === `${p.slug}:plan`} />
-        <After project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={nowActs} qacts={acts} solo={solo} />
+        <After project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={nowActs} qacts={acts} solo={solo} hideAuto={!!dv} />
       </div>
     </article>
   );

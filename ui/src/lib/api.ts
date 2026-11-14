@@ -3,6 +3,7 @@ import type { TeamRoster } from "@/components/team/types";
 import type { Dashboard, WakeResult } from "@/components/dashboard/types";
 import type { Goal, GoalWrite } from "@/components/goals/model";
 import type { Usage, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
+import type { CapturesRead, PruebaRead } from "@/lib/ventana";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
 
 export class ApiError extends Error {
@@ -72,6 +73,12 @@ export const api = {
   // PLA-06: mark delegated answers seen (they leave the Bandeja and the audit; the record stays).
   reviewDelegated: (ids: string[]) => request<{ reviewed: number }>("POST", "/delegated/reviewed", { ids }),
   machine: () => request<Machine>("GET", "/machine"),
+  // PLA-I46-7/8: the Ventana a la app (stills of the test copy) and its clicks: Encenderla, Reintentar, Apagar.
+  captures: (slug: string) => request<CapturesRead>("GET", `/projects/${encodeURIComponent(slug)}/captures`),
+  prueba: (slug: string, act: "encender" | "tomar" | "apagar") =>
+    request<{ prueba: PruebaRead }>("POST", `/projects/${encodeURIComponent(slug)}/captures/${act}`, {}),
+  // PLA-I46-10: the QA lane's evidence for one delivery (the floor's evidence card).
+  qa: (slug: string, key: string) => request<QaRead>("GET", `/projects/${encodeURIComponent(slug)}/qa/${encodeURIComponent(key)}`),
   team: () => request<TeamRoster>("GET", "/team"),
   comments: (slug: string, key: string) =>
     request<{ comments: TaskComment[] }>(
@@ -126,8 +133,11 @@ export const api = {
   company: () => request<OrgCompany>("GET", "/company"),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
-  addToTeam: (slug: string, template: string) =>
-    request<{ agent: string; role: string; template: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, { template }),
+  // PLA-I46-13: packs are set in the same call; the server refuses an unknown pack before hiring.
+  addToTeam: (slug: string, template: string, packs?: string[]) =>
+    request<{ agent: OrgMember; team: OrgMember[]; packs?: PackRef[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, packs?.length ? { template, packs } : { template }),
+  // PLA-I46-12: the skill packs (Plania docs `Pack: <name>`).
+  packs: () => request<{ packs: PackRef[] }>("GET", "/company/packs"),
   actDecision: (id: string, input: DecisionInput) => request<DecisionResult>("POST", `/company/decisions/${encodeURIComponent(id)}`, input),
   thread: (id: string, after?: string) =>
     request<Thread>("GET", `/threads/${encodeURIComponent(id)}${after ? `?after=${encodeURIComponent(after)}` : ""}`),
@@ -207,6 +217,8 @@ export type OrgMember = {
   queue?: { key: string; title: string }[];
   // PLA-I40-1: why the next step has not started, and when it will if that is known.
   next_start?: OrgNextStart | null;
+  // PLA-I46-12: the skill pack slugs this role carries.
+  packs?: string[];
 };
 export type OrgNextHold = "rest" | "usage" | "slot" | "paused" | "no_goal" | "waiting_owner" | "waiting_step" | "unqueued" | "soon";
 export type OrgNextStart = { key: string | null; title: string | null; hold: OrgNextHold; starts_at: string | null; text: string };
@@ -240,12 +252,25 @@ export type OrgProject = {
   ready?: { key: string; title: string }[];
   plan_approval?: boolean;
   preview_url?: string | null;
+  // PLA-I46-3: la siguiente jugada (src/api/company-move.ts). Null: nothing here is the owner's; absent: older server.
+  next_move?: OrgNextMove | null;
 };
+export type OrgMoveVerb = "aceptar" | "publicar" | "responder" | "fijar" | "arrancar" | "planear" | "ver";
+export type OrgMoveAction =
+  | { kind: "decision"; id: string; action: DecisionAction; label: string }
+  | { kind: "reveal"; id: string | null; label: string }
+  | { kind: "publish"; label: string }
+  | { kind: "fijar"; label: string }
+  | { kind: "plan"; text: string; label: string }
+  | { kind: "start"; agent: string; label: string }
+  | { kind: "link"; href: string; label: string };
+export type OrgMoveOrigin = { kind: "decision"; id: string; decision: string } | { kind: "light" } | { kind: "hold"; agent: string; hold: string } | { kind: "route"; leg: string };
+export type OrgNextMove = { verbo: OrgMoveVerb; texto: string; accion: OrgMoveAction; origen: OrgMoveOrigin };
 export type OrgLatest = { kind: "published" | "delivered"; title: string | null; n: number | null; at: string };
 export type OrgStaleRequest = { key: string; title: string; since: string };
 export type OrgStepState = "done" | "published" | "delivered" | "working" | "next" | "later";
 export type OrgRouteStep = { key: string; title: string; state: OrgStepState; who: string | null; at: string | null };
-export type OrgRouteLeg = { key: string; title: string; done: number; total: number; state: "done" | "here" | "planned" | "unplanned"; note: string | null; steps?: OrgRouteStep[]; more_steps?: number };
+export type OrgRouteLeg = { key: string; title: string; done: number; total: number; state: "done" | "here" | "planned" | "unplanned"; note: string | null; postponed?: boolean; steps?: OrgRouteStep[]; more_steps?: number };
 export type OrgRoute = { legs: OrgRouteLeg[]; more_legs: number };
 // PLA-I36-5: position by calendar. weeks, today_pct, done_pct are null without a delivery date (no bar).
 export type OrgPlan = {
@@ -265,12 +290,39 @@ export type OrgPlan = {
 export type OrgRumbo = { goal_id: string | null; goal: string | null; why: string; target_on: string | null; forecast_on: string | null; weeks_behind: number | null; missing: boolean };
 // PLA-I35-1: Te toca rows (GET /api/company decisions[]) and POST /api/company/decisions/:id.
 export type DecisionKind = "proposal" | "plan" | "action" | "question" | "deliverable" | "pr" | "step" | "release";
-export type DecisionPlan = { order: string; understood: string; steps: { title: string; done_when: string }[]; cost: string; needs_approval: boolean; created: string[] };
+// PLA-I46-11: a plan for a leg also carries the leg, its closed questions (suggested: 0-based) and the PO's
+// check list; later_at once the owner said Después.
+export type PlanQuestion = { text: string; options: string[]; suggested: number };
+export type DecisionPlan = {
+  order: string;
+  understood: string;
+  steps: { title: string; done_when: string }[];
+  cost: string;
+  needs_approval: boolean;
+  created: string[];
+  leg?: { key: string; title: string } | null;
+  questions?: PlanQuestion[];
+  checklist?: string[];
+  later_at?: string | null;
+};
 export type DecisionEvidence = { verdict: string; kind: string; cite: string; pass: number | null; fail: number | null; at: string };
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number };
-export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "aplicar" | "verificar";
+export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar";
+// PLA-I46-9/10: GET /api/projects/:slug/qa/:key (src/runner/qa.ts qaEvidence).
+export type QaState = "off" | "none" | "waiting" | "checking" | "reviewing" | "pass" | "fail" | "returned" | "error";
+export type QaRead = {
+  project: string;
+  key: string;
+  enabled: boolean;
+  state: QaState;
+  tests: { pass: number; total: number; verdict: "pass" | "fail" | null; items: { name: string; command: string; ok: boolean; exit_code: number | null; pass: number | null; fail: number | null; duration_s: number }[] };
+  review: { verdict: "pass" | "fail"; notes: string; model: string | null } | null;
+  checklist: { n: number; text: string; mark: "pass" | "fail" | null; note: string | null }[];
+  captures: { ids: string[]; image_urls: string[]; ok: number; failed: number; error: string | null } | null;
+  notes: string | null;
+};
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
 export type Decision = {
   id: string;
@@ -304,7 +356,7 @@ export type Decision = {
   verify?: { state: "queued" | "running"; since: string; role: string | null } | null;
 };
 export type DecisionAsker = { agent: string; role: string };
-export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string };
+export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string; answers?: number[]; checklist?: string[] };
 export type DecisionResult = { ok: boolean; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
 export type OrgPlumbing = { spend: number; running: number; paused: boolean };
 export type OrgCompany = {
@@ -319,7 +371,10 @@ export type OrgCompany = {
   brief?: { lines: string[]; generated_at: string; link: string } | null;
 };
 export type OrgTemplate = { slug: string; title: string };
-export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[] };
+// PLA-I46-13: every role template and whether it can be added (free), is on the team (taken) or lacks its prompt doc.
+export type HireRole = OrgTemplate & { state: "free" | "taken" | "no_doc" };
+export type PackRef = { slug: string; name: string; when: string; doc_id: string };
+export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[]; hire?: HireRole[] };
 
 export type ThreadAction = "aceptar" | "cambios" | "responder" | "fusionar";
 export type ThreadLink = { kind: "ticket" | "doc" | "pr" | "idea" | "question" | "brief_plan"; ref: string; title: string };
@@ -345,7 +400,8 @@ export type MachinePlumbing = {
   settings: Company["settings"];
   week: Company["week"];
   plan: CompanyPlan;
-  usage: { asistente: Usage; projects: CompanyProjectRow[] };
+  // PLA-I46-5: week is the whole company's, input + output in used, cache reads and writes apart.
+  usage: { asistente: Usage; projects: CompanyProjectRow[]; week?: Usage };
   runs: { live: CompanyRun[]; queued: CompanyRun[] };
   log: RunBrief[];
   viewer?: { can_edit_limits: boolean };
@@ -360,8 +416,8 @@ export type CompanyProject = {
   playbook: { title: string; version: number } | null;
 };
 
-export type UsageTotal = { agent: string; project: string; week: string; input: number; output: number };
-
-export type UsageSummary = { label: "reportado"; totals: UsageTotal[] };
+export type UsageTotal = { agent: string; project: string; week: string; input: number; output: number; cache_read?: number; cache_create?: number };
+export type UsageWeek = { week: string; starts_at: string; used: number; input: number; output: number; cache_read: number; cache_create: number };
+export type UsageSummary = { label: "reportado"; totals: UsageTotal[]; screen?: UsageWeek };
 
 export const isUnauthorized = (e: unknown) => e instanceof ApiError && e.status === 401;

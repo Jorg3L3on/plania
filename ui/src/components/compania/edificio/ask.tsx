@@ -3,7 +3,8 @@
 // box has text the PO's window says "Recibiría tu pedido" (onTyping). After sending, the plate says where it landed.
 // AskView is pure (tests call its handlers); AskBox holds the text and the result.
 // The floor shows only a Pedir button; the box opens in the side page, the way Asistente opens. A send closes it and
-// the plate keeps the line that says where it landed.
+// the plate keeps the line that says where it landed. PLA-I46-4: Pedir is a secondary button: the floor's one main
+// button is its move.
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { AskResult, OrgProject } from "@/lib/api";
 import { askedLine } from "@/lib/edificio";
@@ -130,7 +131,7 @@ export const AskBox = ({
       <button
         ref={opener}
         type="button"
-        className="edi-btn edi-btn-primary"
+        className="edi-btn"
         disabled={disabled}
         aria-haspopup="dialog"
         onClick={() => {

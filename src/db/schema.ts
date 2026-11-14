@@ -217,6 +217,8 @@ export const tasks = pgTable(
     goalId: uuid("goal_id").references((): AnyPgColumn => goals.id, { onDelete: "set null" }),
     // PLA-I23: how many times assign moved owner_agent. Above 3 the next assign is refused.
     assignHops: integer("assign_hops").notNull().default(0),
+    // PLA-I46-11: the PO's check list, copied onto each step of an accepted plan; QA ticks it.
+    poChecklist: jsonb("po_checklist").$type<PoCheck[]>().notNull().default(sql`'[]'::jsonb`),
   },
   (t) => [
     unique("tasks_project_key_unique").on(t.projectId, t.key),
@@ -776,6 +778,10 @@ export type ProjectSettings = {
   preview_url?: string;
   // PLA-I40-7: a delivery whose tests pass is accepted into the test copy without the owner. Off unless set.
   auto_accept?: boolean;
+  // PLA-I46-6: how Plania starts and captures the project's test copy (src/captures/settings.ts).
+  capture?: import("../captures/settings.js").CaptureSettings;
+  // PLA-I46-9: the QA lane's verify list and review model (src/runner/qa-settings.ts).
+  qa?: import("../runner/qa-settings.js").QaSettings;
 };
 
 // 2.13: mode "command" (default) shows the command Jorge runs; "merge" lets him ship from the screen
@@ -825,10 +831,13 @@ export const agents = pgTable(
     // and the role template it was made from (product-owner, research, artist, taller, ...). Migration 0041.
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     roleTemplate: text("role_template"),
+    // PLA-I46-12: the skill packs this role carries, by slug (a `Pack: <name>` doc in Plania). Migration 0046.
+    skillPacks: text("skill_packs").array().notNull().default(sql`'{}'::text[]`),
     ...timestamps,
   },
   (t) => [
     index("agents_project_idx").on(t.projectId),
+    check("agents_skill_packs_check", sql`cardinality(${t.skillPacks}) <= 10`),
     check("agents_kind_check", sql`${t.kind} in ('bot', 'coder', 'human')`),
     check("agents_status_check", sql`${t.status} in ('alive', 'idle', 'stuck', 'retired')`),
     check("agents_role_template_check", sql`${t.roleTemplate} is null or ${t.roleTemplate} ~ '^[a-z][a-z0-9-]{0,39}$'`),
@@ -1105,6 +1114,10 @@ export type ThreadLink = { kind: (typeof LINK_KINDS)[number]; ref: string; title
 export type ProposalCost = { tickets?: number; days?: number; tokens?: number; delays?: string };
 export type ProposalOption = { n: number; label: string; effect: string; cost: ProposalCost; recommended: boolean };
 export type ProposalStep = { title: string; done_when: string; work_type: string };
+// PLA-I46-11: a closed question in a leg's plan: two to four answers, the PO's suggestion marked (0-based).
+export type PlanQuestion = { text: string; options: string[]; suggested: number };
+// One line of the PO's check list on a ticket: what to verify, and whether QA ticked it.
+export type PoCheck = { n: number; text: string; done: boolean; done_at: string | null; done_by: string | null };
 export type ProposalData = {
   kind: "choice" | "plan";
   title: string;
@@ -1119,6 +1132,13 @@ export type ProposalData = {
   // plan: whether it waited for approval (the project's switch when it was posted), and the tickets made.
   needs_approval: boolean;
   created: string[];
+  // PLA-I46-11, plan for a leg of the route: the initiative it fills, up to 3 closed questions, the PO's check list
+  // (3 things to verify), when the owner said Después, and what he accepted (answers by index, the edited list).
+  leg?: string | null;
+  questions?: PlanQuestion[];
+  checklist?: string[];
+  later_at?: string | null;
+  answers?: number[] | null;
 };
 export const THREAD_ACTIONS = ["aceptar", "cambios", "responder"] as const;
 export type ThreadAction = (typeof THREAD_ACTIONS)[number];
@@ -1171,6 +1191,108 @@ export const threadMessages = pgTable(
 );
 
 export type ThreadMessage = typeof threadMessages.$inferSelect;
+
+// PLA-I46-6: stills of a project's running app (the floor's Ventana, QA evidence). One row per page and
+// viewport per run. The PNG lives in the local capture store (src/captures/store.ts) under file, named by
+// its sha256; Plania keeps only the row. A failed page is a row with status error, no file and the error
+// text, so the last good still of that page stays readable beside it.
+export const CAPTURE_STATUSES = ["ok", "error"] as const;
+export const captureStills = pgTable(
+  "capture_stills",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    // The ticket or delivery the run was for; null for a plain look at the test copy.
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    runId: uuid("run_id").notNull(),
+    pageKey: text("page_key").notNull(),
+    pageLabel: text("page_label").notNull(),
+    path: text("path").notNull(),
+    viewport: text("viewport").notNull(), // desktop | phone
+    width: integer("width").notNull(),
+    height: integer("height"),
+    status: text("status").notNull(),
+    error: text("error"),
+    file: text("file"), // <sha256>.png in the store, null on error
+    bytes: integer("bytes"),
+    url: text("url"), // where the page ended up (after a follow or a redirect)
+    commit: text("commit"),
+    branch: text("branch"),
+    actor: jsonb("actor").$type<Actor>().notNull(),
+    takenAt: timestamp("taken_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("capture_stills_latest_idx").on(t.projectId, t.pageKey, t.viewport, t.takenAt),
+    index("capture_stills_task_idx").on(t.taskId, t.takenAt),
+    check("capture_stills_status_check", sql`${t.status} in ('ok', 'error')`),
+    check("capture_stills_viewport_check", sql`${t.viewport} in ('desktop', 'phone')`),
+    check("capture_stills_file_check", sql`(${t.status} = 'ok') = (${t.file} is not null)`),
+  ],
+);
+export type CaptureStill = typeof captureStills.$inferSelect;
+
+// PLA-I46-9: the QA lane's passes on a delivery. Migration 0049. The PO's check list it reads is tasks.po_checklist
+// (PoCheck, migration 0048); QA's marks live on the lane (per commit), not on the item.
+
+export type QaVerifyItem = {
+  name: string;
+  command: string;
+  exit_code: number | null;
+  ok: boolean;
+  pass: number | null;
+  fail: number | null;
+  duration_s: number;
+  tail: string; // the last lines of output, for Taller's notes
+};
+export type QaCapture = { run_id: string | null; ok: number; failed: number; still_ids: string[]; error: string | null };
+export type QaReview = { verdict: "pass" | "fail"; notes: string; model: string | null };
+export type QaMark = { n: number; mark: "pass" | "fail"; note: string };
+export const QA_STATUSES = ["queued", "checking", "reviewing", "pass", "fail", "error"] as const;
+export type QaStatus = (typeof QA_STATUSES)[number];
+
+export const qaLanes = pgTable(
+  "qa_lanes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    taskKey: text("task_key").notNull(),
+    commit: text("commit"),
+    branch: text("branch"),
+    prUrl: text("pr_url"),
+    attempt: integer("attempt").notNull().default(1),
+    status: text("status").$type<QaStatus>().notNull().default("queued"),
+    hold: text("hold"),
+    verify: jsonb("verify").$type<QaVerifyItem[]>().notNull().default([]),
+    capture: jsonb("capture").$type<QaCapture | null>(),
+    review: jsonb("review").$type<QaReview | null>(),
+    marks: jsonb("marks").$type<QaMark[]>().notNull().default([]),
+    notes: text("notes"),
+    diffLines: integer("diff_lines"),
+    model: text("model"),
+    runId: uuid("run_id"),
+    reviewTries: integer("review_tries").notNull().default(0),
+    headAfter: text("head_after"),
+    returned: boolean("returned").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("qa_lanes_task_idx").on(t.taskId, t.createdAt),
+    index("qa_lanes_status_idx").on(t.status),
+    index("qa_lanes_run_idx").on(t.runId),
+    check("qa_lanes_status_check", sql`${t.status} in ('queued', 'checking', 'reviewing', 'pass', 'fail', 'error')`),
+    check("qa_lanes_attempt_check", sql`${t.attempt} >= 1`),
+  ],
+);
+export type QaLane = typeof qaLanes.$inferSelect;
 
 // PLA-I41-1: the Morning brief (spec "Spec: Morning brief" §7.2). A brief per run (several a day are fine; the page
 // shows the newest), the runs that made them, Send to Plania requests, the owner's checks, and one settings row.

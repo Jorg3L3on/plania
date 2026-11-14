@@ -41,6 +41,8 @@ import { templateRoutes } from "./templates.js";
 import { companyRoutes } from "./company.js";
 import { plumbing } from "./company-org.js";
 import { threadRoutes } from "./threads.js";
+import { captureRoutes } from "./captures.js";
+import { qaRoutes } from "./qa.js";
 import { briefApi } from "./brief.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
@@ -646,6 +648,10 @@ api.route("/delegation", delegationRoutes);
 api.route("/dashboard", dashboardRoutes);
 api.route("/usage", usageRoutes);
 api.route("/templates", templateRoutes);
+// PLA-I46-6: stills of the running app (src/api/captures.ts).
+api.route("/projects", captureRoutes);
+// PLA-I46-9: a delivery's QA evidence and the PO's check list (src/api/qa.ts).
+api.route("/projects", qaRoutes);
 // PLA-I41-6: the Morning brief (spec §7.3).
 api.route("/brief", briefApi);
 
