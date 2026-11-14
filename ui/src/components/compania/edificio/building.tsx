@@ -24,6 +24,7 @@ import type { QuestionActs } from "./question";
 import { Roof } from "./roof";
 import { EdificioSkeleton, Scene } from "./scene";
 import { Tower, openFloor } from "./tower";
+import { Facade } from "./facade";
 import type { FilaActs } from "./fila";
 
 const firstLine = (s: string, n = 160) => {
@@ -63,7 +64,8 @@ export type BuildingProps = {
   // PLA-I47-2: the open floor (?piso=<slug>) and changing it (the rail, ↑ ↓).
   piso?: string | null;
   onPiso?: (slug: string) => void;
-  // PLA-I47-2: Tu oficina opened over the floor (the page holds it), and what else lives there (Brief de hoy).
+  // PLA-I47-2 / PLA-I47-5: office is the zoomed-out building (?edificio): Tu oficina on top and one row per
+  // project; the page holds it. officeMore is what else lives in Tu oficina (Brief de hoy).
   office?: boolean;
   onOffice?: () => void;
   officeMore?: ReactNode;
@@ -73,14 +75,16 @@ export type BuildingProps = {
   ficha?: ReactNode;
   fichaOpen?: boolean;
   onLeg?: (slug: string, key: string, el: HTMLElement) => void;
+  // PLA-I47-6: a tap outside the sheet closes La ficha on a phone.
+  onFichaClose?: () => void;
 };
 
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore, fila, ficha, fichaOpen, onLeg }: BuildingProps) => {
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore, fila, ficha, fichaOpen, onLeg, onFichaClose }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
   const open = openFloor(floors, basement, piso);
-  const officeOpen = !!office || !!roofOpen;
+  const officeOpen = !office && !!roofOpen;
   // Only what Asistente wrote in a run that finished: a skipped or failed run's summary is the runner's own words.
   const summary = company.asistente.last_run?.status === "ok" && company.asistente.last_run.summary ? firstLine(company.asistente.last_run.summary) : "";
   const empty = company.projects.length === 0;
@@ -114,14 +118,34 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
           </div>
         </div>
       ) : (
-        <div className="edi-bld" data-open={open?.slug} data-ficha={ficha ? (fichaOpen ? "open" : "closed") : undefined}>
-          <Tower floors={floors} basement={basement} decisions={decisions} projects={company.projects} open={open?.slug ?? null} officeOpen={officeOpen} companyPaused={paused} onPiso={onPiso} onOffice={onOffice} onNew={onNew} />
+        <div className="edi-bld" data-open={open?.slug} data-zoom={office ? "out" : "in"} data-ficha={ficha && !office ? (fichaOpen ? "open" : "closed") : undefined}>
+          <Tower floors={floors} basement={basement} decisions={decisions} projects={company.projects} open={open?.slug ?? null} officeOpen={!!office} companyPaused={paused} onPiso={onPiso} onOffice={onOffice} onNew={onNew} />
           {/* Tu oficina: what waits on the owner across floors, over the floor while open. */}
-          <div className="edi-office" data-office={officeOpen ? "open" : "closed"} hidden={!officeOpen}>
-            <Roof decisions={decisions} projects={company.projects} plumbing={company.plumbing} onChip={onChip} open={roofOpen} acts={acts} />
-            {officeMore && <div className="edi-office-more">{officeMore}</div>}
-          </div>
-          {open && (
+          {!office && (
+            <div className="edi-office" data-office={officeOpen ? "open" : "closed"} hidden={!officeOpen}>
+              <Roof decisions={decisions} projects={company.projects} plumbing={company.plumbing} onChip={onChip} open={roofOpen} acts={acts} />
+              {officeMore && <div className="edi-office-more">{officeMore}</div>}
+            </div>
+          )}
+          {office && (
+            <Facade
+              projects={company.projects}
+              decisions={decisions}
+              now={now}
+              companyPaused={paused}
+              timeZone={timeZone}
+              ctx={{ decisions, acts: nowActs, qacts: acts, onFijar, onPublish }}
+              onPiso={onPiso}
+              onResume={onResume}
+              roof={
+                <>
+                  <Roof decisions={decisions} projects={company.projects} plumbing={company.plumbing} onChip={onChip} open={roofOpen} acts={acts} />
+                  {officeMore && <div className="edi-office-more">{officeMore}</div>}
+                </>
+              }
+            />
+          )}
+          {open && !office && (
             <Floor
               key={open.slug}
               project={open}
@@ -161,9 +185,9 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
               ) : null}
             </Floor>
           )}
-          {ficha && (
+          {ficha && !office && (
             <>
-              <div className="edi-scrim" aria-hidden hidden={!fichaOpen} />
+              <div className="edi-scrim" aria-hidden hidden={!fichaOpen} onClick={onFichaClose} />
               {ficha}
             </>
           )}

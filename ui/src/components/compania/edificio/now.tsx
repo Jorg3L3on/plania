@@ -74,7 +74,7 @@ const busyOf = (p: OrgProject, a: NowAction, c: MoveCtx) => c.acts?.busy === `${
 
 // The one button of an action. A move is green (edi-go); anything else is a secondary outline button. where says
 // which surface draws it (ahora, tu, barra), so the phone bar can stand in for Ahora's at 390.
-export const ActButton = ({ project: p, action: a, move, where, ctx, className = "" }: { project: OrgProject; action: NowAction; move: boolean; where: "ahora" | "tu" | "barra"; ctx: MoveCtx; className?: string }) => {
+export const ActButton = ({ project: p, action: a, move, where, ctx, className = "" }: { project: OrgProject; action: NowAction; move: boolean; where: "ahora" | "tu" | "barra" | "edificio"; ctx: MoveCtx; className?: string }) => {
   const cls = `${move ? "edi-nact edi-go" : "edi-btn"} ${className}`.trim();
   const data = { "data-now-action": a.kind, "data-where": where, "data-move": move ? "1" : undefined, "data-control": `${where}-${a.kind}` };
   if (a.kind === "link")

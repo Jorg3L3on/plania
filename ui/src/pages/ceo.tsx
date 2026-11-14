@@ -155,9 +155,14 @@ const Compania = () => {
   const openSheet = (search: string) => navigate({ pathname: "/ceo", search: withPiso(search) });
   const closeSheet = () => navigate({ pathname: "/ceo", search: withPiso("") }, { replace: true });
   const onPiso = (slug: string) => navigate({ pathname: "/ceo", search: `?piso=${encodeURIComponent(slug)}` }, { replace: true });
-  const [office, setOffice] = useState(false);
-  // A roof chip or a tile opens a floor: Tu oficina closes.
-  useEffect(() => setOffice(false), [piso]);
+  // PLA-I47-5: ?edificio is the building zoomed out (Tu oficina and one row per project); a floor zooms back in.
+  const zoomOut = new URLSearchParams(location.search).has("edificio");
+  const setZoom = (out: boolean, slug = piso) => {
+    const q = new URLSearchParams();
+    if (slug) q.set("piso", slug);
+    if (out) q.set("edificio", "");
+    navigate({ pathname: "/ceo", search: q.toString() ? `?${q.toString().replace("edificio=", "edificio")}` : "" });
+  };
   // PLA-I47-4: La ficha. ?f=<kind>:<ref> is what it shows (the old ?m=, ?plan=, ?add= links still land there); the
   // project is the open floor. Open by default from 1180 px (closing it is remembered in this browser); narrower,
   // it slides over (a sheet on a phone) only while the address names something.
@@ -296,6 +301,17 @@ const Compania = () => {
     if (!company) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || typingIn(e.target) || document.querySelector("[role=dialog]")) return;
+      // PLA-I47-5: Esc zooms back in from the building; from a floor with nothing open in La ficha it zooms out.
+      if (e.key === "Escape" && zoomOut) {
+        e.preventDefault();
+        setZoom(false, fslug || piso);
+        return;
+      }
+      if (e.key === "Escape" && !(fichaOpen && (fichaAt || wideFicha))) {
+        e.preventDefault();
+        setZoom(true, fslug || piso);
+        return;
+      }
       if (e.key === "Escape" && fichaOpen) {
         const to = escStep(fref);
         e.preventDefault();
@@ -330,7 +346,7 @@ const Compania = () => {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company, decisions, shownPiso, fichaOpen, fref.kind, fslug]);
+  }, [company, decisions, shownPiso, fichaOpen, fref.kind, fslug, zoomOut]);
   const act = useMutation({
     mutationFn: (v: { d: Decision; input: DecisionInput; key: string }) => api.actDecision(v.d.id, v.input),
     onMutate: (v) => {
@@ -622,8 +638,8 @@ const Compania = () => {
             nowActs={nowActs}
             ventanaFor={(p) => <VentanaLive slug={p.slug} title={p.title} timeZone={timeZone} />}
             // PLA-I42-5: Brief de hoy, the Morning brief's 0-token lines; PLA-I47-2: inside Tu oficina, not above the floor.
-            office={office}
-            onOffice={() => setOffice((v) => !v)}
+            office={zoomOut}
+            onOffice={() => setZoom(!zoomOut, fichaProject?.slug ?? piso)}
             officeMore={
               company.brief ? (
                 <Brief lines={company.brief.lines} title={briefTitle(company.brief.generated_at, now, timeZone)} sign="Asistente" link={{ to: company.brief.link, label: BRIEF_LINK_LABEL }} />
@@ -650,6 +666,7 @@ const Compania = () => {
             }}
             onLeg={(slug, key, el) => showFicha({ kind: "leg", key }, el, slug)}
             fichaOpen={fichaOpen}
+            onFichaClose={closeFicha}
             ficha={
               fichaProject ? (
                 <Ficha

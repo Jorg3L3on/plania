@@ -28,7 +28,7 @@ const Sec = ({ title, children, data }: { title: string; children: ReactNode; da
 );
 
 // Loading, error and empty, the same in every tab and detail.
-function gate<T>(load: Load<T>, what: string, draw: (d: T) => ReactNode): ReactNode {
+function whenLoaded<T>(load: Load<T>, what: string, draw: (d: T) => ReactNode): ReactNode {
   if (load.status === "error")
     return (
       <div className="edi-fi-state" data-state="error">
@@ -135,7 +135,7 @@ const prLine = (pr: FichaPr) => [PR_STATE[pr.state] ?? pr.state, pr.ci_state ? C
 const docLine = (d: FichaDoc, timeZone?: string) => `${d.task_key ?? "del proyecto"} · ${day(d.updated_at, timeZone)}`;
 
 const ListTab = ({ tab, rows, onRef, timeZone }: { tab: Exclude<FichaTab, "resumen">; rows: Load<OrgFicha>; onRef: (r: FichaRef) => void; timeZone?: string }) =>
-  gate(rows, "la ficha", (f) => {
+  whenLoaded(rows, "la ficha", (f) => {
     if (tab === "ideas")
       return f.ideas.length === 0 ? (
         <Empty>No hay ideas abiertas.</Empty>
@@ -246,14 +246,14 @@ const TaskBody = ({ t, onRef, timeZone }: { t: TaskDetail; onRef: (r: FichaRef) 
 const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone }: { p: OrgProject; r: Exclude<FichaRef, { kind: "tab" }>; rows: Load<OrgFicha>; task: Load<TaskDetail>; doc: Load<ProjectDocBody>; onRef: (r: FichaRef) => void; slots: FichaSlots; now: number; timeZone?: string }) => {
   switch (r.kind) {
     case "step":
-      return gate(task, "el paso", (t) => (
+      return whenLoaded(task, "el paso", (t) => (
         <>
           <Title eyebrow="Paso" title={t.title} state={t.status} />
           <TaskBody t={t} onRef={onRef} timeZone={timeZone} />
         </>
       ));
     case "idea":
-      return gate(task, "la idea", (t) => {
+      return whenLoaded(task, "la idea", (t) => {
         const row = rows.data?.ideas.find((i) => i.key === r.key);
         const here = STAGES.indexOf((t.stage ?? "idea") as (typeof STAGES)[number]);
         return (
@@ -282,7 +282,7 @@ const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone }: { p: Org
       );
     }
     case "pr":
-      return gate(rows, "los PRs", (f) => {
+      return whenLoaded(rows, "los PRs", (f) => {
         const pr = f.prs.find((x) => x.number === r.n);
         if (!pr) return <Empty>Ese PR ya no está en la lista.</Empty>;
         return (
@@ -316,7 +316,7 @@ const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone }: { p: Org
         );
       });
     case "doc":
-      return gate(doc, "el doc", (d) => (
+      return whenLoaded(doc, "el doc", (d) => (
         <>
           <Title eyebrow={d.task_key ? `Doc de ${d.task_key}` : "Doc del proyecto"} title={d.title} state={`v${d.version}`} />
           <div className="edi-fi-md">

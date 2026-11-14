@@ -993,6 +993,7 @@
   /* Under 48rem the floor is one column and the page scrolls (the phone pass is PLA-I47-6). */
   @media (width < 48rem) {
     .edi:has(.edi-bld) { height: auto; min-height: 0; }
+    .edi-bld { flex: none; }
     .edi-fbody { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
     .edi-stage { container-type: normal; }
     .edi-stage > .edi-nowb { flex: none; }
@@ -1001,6 +1002,8 @@
   /* Phone (PLA-I47-6 polishes it): one column that scrolls as a page; the rail is a strip on top. */
   @media (width < 40rem) {
     .edi:has(.edi-bld) { height: auto; min-height: 0; }
+    .edi-bld { flex: none; }
+    .edi:has(.edi-bld) .edi-orb { display: none; }
     .edi-bld { grid-template-columns: minmax(0, 1fr); }
     .edi-rail { flex-direction: row; overflow-x: auto; overflow-y: visible; padding: 6px 2px 8px; gap: 8px; }
     .edi-rail-ant, .edi-rail-street, .edi-tile-fl[aria-current="true"]::after { display: none; }
@@ -1137,6 +1140,53 @@
     .edi-bld[data-ficha="open"] { grid-template-columns: minmax(0, 1fr); }
     .edi-bld > .edi-ficha { top: auto; left: 0; right: 0; bottom: 0; width: auto; height: min(78dvh, 640px); border-radius: 22px 22px 0 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
     .edi-bld[data-ficha="open"] > .edi-scrim:not([hidden]) { display: block; position: fixed; inset: 0; z-index: 39; background: rgb(4 6 14 / 0.6); }
+  }
+
+
+  /* PLA-I47-5: El edificio zoomed out. Tu oficina on top, one row per project, the paused ones under the street. */
+  .edi-bld[data-zoom="out"] { grid-template-columns: 72px minmax(0, 1fr); }
+  .edi-facade { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; min-height: 0; min-width: 0; }
+  .edi-fa-roof { min-width: 0; }
+  .edi-fa-roof .edi-pent { width: 100%; max-width: none; }
+  .edi-fa-roof .edi-rooftop { padding: 0; }
+  .edi-fa-roof .edi-antenna { display: none; }
+  .edi-fa-roof .edi-office-more { margin-top: 8px; }
+  .edi-fa-list { list-style: none; margin: 0; padding: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; border-radius: 22px; border: 1px solid rgb(255 255 255 / 0.07); background: var(--e-wall); }
+  .edi-fa-row { position: relative; flex: 1 1 88px; min-height: 72px; max-height: 170px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 0 18px 0 0; background: linear-gradient(90deg, color-mix(in srgb, var(--c) 11%, transparent), transparent 46%); border-top: 5px solid rgb(255 255 255 / 0.05); }
+  .edi-fa-row:first-child { border-top: 0; }
+  .edi-fa-row:hover { background: linear-gradient(90deg, color-mix(in srgb, var(--c) 18%, transparent), rgb(255 255 255 / 0.03) 62%); }
+  .edi-fa-open { display: grid; grid-template-columns: minmax(200px, 1.1fr) minmax(140px, 1fr) auto minmax(180px, 1.6fr); gap: 20px; align-items: center; min-width: 0; width: 100%; height: 100%; padding: 9px 0 9px 18px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .edi-fa-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .edi-fa-names { display: grid; min-width: 0; }
+  .edi-fa-name { font-family: var(--font-display); font-weight: 800; font-size: 20px; line-height: 1.15; letter-spacing: -0.02em; color: color-mix(in srgb, var(--c) 85%, white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-fa-names small { color: var(--e-muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-fa-route { display: grid; gap: 5px; min-width: 0; }
+  .edi-fa-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 3px; }
+  .edi-fa-bars i { position: relative; height: 5px; border-radius: 3px; background: rgb(255 255 255 / 0.11); overflow: hidden; }
+  .edi-fa-bars u { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: color-mix(in srgb, var(--c) 50%, #7d829c); }
+  .edi-fa-bars i[data-look="now"] u { background: var(--c); }
+  .edi-fa-route small { color: var(--e-muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-fa-team { display: flex; gap: 5px; }
+  .edi-fa-team .edi-win { width: 34px; }
+  .edi-fa-team .edi-glass { height: 30px; }
+  .edi-fa-now { display: grid; gap: 5px; justify-items: start; min-width: 0; }
+  .edi-fa-say { font-family: var(--font-display); font-weight: 700; font-size: 15px; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .edi-fa-move .edi-go { white-space: nowrap; }
+  .edi-fa-under { display: grid; gap: 6px; padding: 8px 4px 0; }
+  .edi-fa-off { display: flex; flex-wrap: wrap; gap: 8px; }
+  .edi-fa-offitem { display: inline-flex; align-items: center; gap: 6px; }
+  .edi-fa-offitem > button:first-child { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px 5px 5px; border-radius: 99px; border: 1px solid rgb(255 255 255 / 0.07); background: none; color: var(--e-muted); font: inherit; font-weight: 600; font-size: 12.5px; cursor: pointer; }
+  .edi-fa-offitem .edi-bullet { width: 22px; height: 22px; font-size: 11px; opacity: 0.75; }
+  @media (width < 64rem) {
+    .edi-fa-open { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 14px; }
+    .edi-fa-team { display: none; }
+  }
+  @media (width < 40rem) {
+    .edi-bld[data-zoom="out"] { grid-template-columns: minmax(0, 1fr); }
+    .edi-fa-row { grid-template-columns: minmax(0, 1fr); max-height: none; padding: 0 14px 12px 0; }
+    .edi-fa-open { grid-template-columns: minmax(0, 1fr); }
+    .edi-fa-move { padding-left: 14px; }
+    .edi-fa-list, .edi-fa-roof { overflow: visible; max-height: none; }
   }
 
   @media (prefers-reduced-motion: reduce) {
