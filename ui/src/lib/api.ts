@@ -3,6 +3,7 @@ import type { TeamRoster } from "@/components/team/types";
 import type { Dashboard, WakeResult } from "@/components/dashboard/types";
 import type { Goal, GoalWrite } from "@/components/goals/model";
 import type { Usage, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
+import type { CapturesRead, PruebaRead } from "@/lib/ventana";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
 
 export class ApiError extends Error {
@@ -72,6 +73,10 @@ export const api = {
   // PLA-06: mark delegated answers seen (they leave the Bandeja and the audit; the record stays).
   reviewDelegated: (ids: string[]) => request<{ reviewed: number }>("POST", "/delegated/reviewed", { ids }),
   machine: () => request<Machine>("GET", "/machine"),
+  // PLA-I46-7/8: the Ventana a la app (stills of the test copy) and its clicks: Encenderla, Reintentar, Apagar.
+  captures: (slug: string) => request<CapturesRead>("GET", `/projects/${encodeURIComponent(slug)}/captures`),
+  prueba: (slug: string, act: "encender" | "tomar" | "apagar") =>
+    request<{ prueba: PruebaRead }>("POST", `/projects/${encodeURIComponent(slug)}/captures/${act}`, {}),
   team: () => request<TeamRoster>("GET", "/team"),
   comments: (slug: string, key: string) =>
     request<{ comments: TaskComment[] }>(

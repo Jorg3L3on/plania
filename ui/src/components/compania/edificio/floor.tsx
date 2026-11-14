@@ -29,6 +29,7 @@ export const Floor = ({
   timeZone,
   nowActs,
   solo,
+  ventana,
   children,
 }: {
   project: OrgProject;
@@ -51,6 +52,8 @@ export const Floor = ({
   nowActs?: NowActs;
   // PLA-I40-7: what goes under Solo tú (the project's switch).
   solo?: ReactNode;
+  // PLA-I46-7: the Ventana a la app, mounted beside Ahora's text.
+  ventana?: ReactNode;
   children?: ReactNode;
 }) => {
   const team = [...p.team].sort(byRole);
@@ -70,7 +73,7 @@ export const Floor = ({
         )}
       </div>
       <div className="edi-wins">
-        <Now project={p} line={line} now={now} decisions={decisions} acts={nowActs} qacts={acts} onFijar={onFijar} onPublish={onPublish} />
+        <Now project={p} line={line} now={now} decisions={decisions} acts={nowActs} qacts={acts} onFijar={onFijar} onPublish={onPublish} side={ventana} />
         {team.map((m, i) => {
           const hanging = decisions && acts ? hangingFor(decisions, p.slug, m.agent) : null;
           const anchor = hanging && first ? `pregunta-${p.slug}` : undefined;

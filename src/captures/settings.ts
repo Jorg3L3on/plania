@@ -46,9 +46,13 @@ const session = z
 
 export const captureSettingsSchema = z
   .object({
-    // How the test copy starts on the Mac (Encenderla, a later ticket). {port} is replaced.
+    // How the test copy starts on the Mac (Encenderla, src/captures/prueba.ts). {port} is replaced; the port
+    // is the first free one from this one up, so two floors and a runner's dev server never clash.
     start_command: z.string().min(1).max(300),
     port: z.number().int().min(1024).max(65535),
+    // PLA-I46-8: run once in the test copy when its dependencies are missing or the lockfile changed.
+    // Default: npm ci / pnpm install --frozen-lockfile / yarn install --frozen-lockfile, from the lockfile there.
+    install_command: z.string().min(1).max(300).optional(),
     // The path that answers once the app is up (default /).
     ready_path: z.string().regex(PATH).max(300).optional(),
     pages: z.array(page).min(1).max(12),

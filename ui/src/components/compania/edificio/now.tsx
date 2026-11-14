@@ -4,7 +4,7 @@
 // holds the calls (test/i40-floor-ui.test.ts renders it with fake data). PLA-I46-3: when the floor has a move (the
 // server's next_move) the band says its texto, breathes in orange and its button is green; ActButton and runOf are
 // shared with the Tú window and the phone bar, so the three run the same action.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Decision, OrgProject } from "@/lib/api";
 import { countdown, type NowAction, type NowLine } from "@/lib/edificio";
 import { revealQuestion } from "./publish";
@@ -96,6 +96,7 @@ export const Now = ({
   qacts,
   onFijar,
   onPublish,
+  side,
 }: {
   project: OrgProject;
   line: NowLine;
@@ -105,12 +106,14 @@ export const Now = ({
   qacts?: QuestionActs;
   onFijar?: (p: OrgProject) => void;
   onPublish?: (p: OrgProject) => void;
+  // PLA-I46-7: the Ventana a la app, beside the text (under it at 390).
+  side?: ReactNode;
 }) => {
   const a = line.action;
   const ctx: MoveCtx = { decisions, acts, qacts, onFijar, onPublish };
   // PLA-I46-3: only a card with a move breathes (data-breathe); the CSS stops it under reduce-motion.
   return (
-    <div className="edi-nowb" data-now={line.state} data-holder={line.holder ?? undefined} data-breathe={line.move ? "1" : undefined} aria-live="polite">
+    <div className="edi-nowb" data-now={line.state} data-holder={line.holder ?? undefined} data-breathe={line.move ? "1" : undefined} data-side={side ? "1" : undefined} aria-live="polite">
       <div className="edi-ntext">
         <p className="edi-nword" data-now-word>
           {line.word}
@@ -129,6 +132,7 @@ export const Now = ({
           </div>
         )}
       </div>
+      {side}
       {line.starts_at && <Tick key={line.starts_at} until={line.starts_at} now={now} label={line.state === "stuck" ? "para reintentar" : "para arrancar"} onElapsed={acts?.onElapsed} />}
     </div>
   );

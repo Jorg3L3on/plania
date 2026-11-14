@@ -52,9 +52,11 @@ export type BuildingProps = {
   onPublish?: (p: OrgProject) => void;
   // PLA-I40-4: the calls of each floor's Ahora band.
   nowActs?: NowActs;
+  // PLA-I46-7: the Ventana a la app of a floor (the page passes VentanaLive).
+  ventanaFor?: (p: OrgProject) => ReactNode;
 };
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs }: BuildingProps) => {
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
   // Only what Asistente wrote in a run that finished: a skipped or failed run's summary is the runner's own words.
@@ -106,6 +108,7 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
                 typing={!!typing?.[p.slug]}
                 timeZone={timeZone}
                 nowActs={nowActs}
+                ventana={ventanaFor?.(p)}
               >
                 {onAdd && p.team.length < 8 ? (
                   <button type="button" className="edi-win edi-add" onClick={(e) => onAdd(p.slug, e.currentTarget)} data-control="sumar" aria-label={`Sumar a alguien al equipo de ${p.title}`}>

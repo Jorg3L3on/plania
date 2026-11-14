@@ -687,8 +687,44 @@
   .edi-under .edi-bullet { background: var(--e-muted); }
 
 
+  /* PLA-I46-7: la Ventana a la app, beside Ahora's text (under it at 390). Stills of the test copy: desktop 1280
+     and phone 390 side by side; grey with a line and one button when it is off or the capture failed. */
+  .edi-nowb[data-side] { grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr); align-items: start; }
+  .edi-nowb[data-side] > .edi-ntick { grid-column: 1; }
+  .edi-vent { display: grid; gap: 8px; align-content: start; min-width: 0; }
+  .edi-vhead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 10px; }
+  .edi-vopen, .edi-vlink { background: none; border: 0; padding: 0; font-size: 12.5px; font-weight: 600; color: var(--e-muted); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; white-space: nowrap; }
+  .edi-vopen:hover, .edi-vlink:hover { color: var(--e-fg); }
+  .edi-vlink:disabled { opacity: 0.45; cursor: default; }
+  .edi-vpages { display: flex; flex-wrap: wrap; gap: 6px; }
+  .edi-vpage { min-height: 30px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--e-line); background: none; color: var(--e-muted); font-size: 12px; font-weight: 500; cursor: pointer; }
+  .edi-vpage[aria-pressed="true"] { border-color: var(--e-fg); color: var(--e-fg); background: rgb(255 255 255 / 0.1); font-weight: 600; }
+  .edi-vframe { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 24%; gap: 8px; align-items: end; min-width: 0; }
+  .edi-vshot { display: block; width: 100%; height: auto; aspect-ratio: 1280 / 800; object-fit: cover; object-position: top; border-radius: 9px; border: 1px solid rgb(255 255 255 / 0.25); background: rgb(255 255 255 / 0.06); }
+  .edi-vshot.edi-vph { aspect-ratio: 390 / 844; }
+  .edi-vnone { border-style: dashed; border-color: var(--e-rail); }
+  .edi-vframe[data-v] .edi-vshot { filter: grayscale(1) brightness(0.55); }
+  .edi-vover { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px; padding: 12px; text-align: center; border-radius: 9px; background: rgb(11 14 28 / 0.55); }
+  .edi-vover b { font-size: 14px; color: var(--e-fg); text-shadow: 0 1px 8px rgb(0 0 0 / 0.6); }
+  .edi-vframe[data-v="error"] .edi-vover b { color: #ff8a80; }
+  .edi-vacts { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 14px; }
+  .edi-vskel { display: block; aspect-ratio: 1280 / 800; border-radius: 9px; background: linear-gradient(100deg, rgb(255 255 255 / 0.06) 30%, rgb(255 255 255 / 0.16) 50%, rgb(255 255 255 / 0.06) 70%); background-size: 220% 100%; }
+  .edi-vskel.edi-vph { aspect-ratio: 390 / 844; }
+  .edi-vempty { min-height: 150px; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 12px; border: 1.5px dashed var(--e-rail); border-radius: 12px; text-align: center; font-size: 13px; color: var(--e-muted); }
+  .edi-vempty b { font-weight: 600; color: var(--e-muted); }
+  .edi-vempty[data-v="error"] b { color: #ff8a80; }
+  .edi-vcap { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; font-size: 12.5px; color: var(--e-muted); overflow-wrap: anywhere; }
+  .edi-vlive { display: inline-flex; align-items: center; gap: 6px; color: #8fe0a4; font-weight: 600; }
+  .edi-vlive::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #8fe0a4; }
+  .edi-vdetail { margin: 0; max-height: 160px; overflow: auto; padding: 10px 12px; border-radius: 10px; background: rgb(0 0 0 / 0.3); border: 1px solid var(--e-line); font: 11.5px/1.45 var(--font-mono, ui-monospace, monospace); color: var(--e-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+
   /* Unused since PLA-I46-3 (the stars are still); kept as the end mark of the floor's static rules. */
   @keyframes edi-twinkle { 50% { opacity: calc(var(--dark, 1) * 0.2); } }
+
+  /* PLA-I46-7: the Ventana's skeleton shimmers while a capture is taken (reduce motion keeps it still). After the
+     end mark on purpose: on the floor only Ahora breathes. */
+  .edi-vframe[data-skeleton] .edi-vskel { animation: edi-shim 1.2s linear infinite; }
+  @keyframes edi-shim { to { background-position: -220% 0; } }
 
   @media (width < 64rem) {
     .edi { padding: 20px 14px 0; border-radius: 22px; }
@@ -720,6 +756,8 @@
     .edi:has(.edi-pbar) { padding-bottom: 120px; }
     /* The bar carries the main button, so Ahora and the Tú window hide theirs. */
     .edi-nowb .edi-go[data-move], .edi-tu-go { display: none !important; }
+    /* PLA-I46-7: the Ventana stacks under Ahora's text. */
+    .edi-nowb[data-side] { grid-template-columns: minmax(0, 1fr); }
     body:has(.edi-pbar) .edi-fab { bottom: calc(4.5rem + 126px + env(safe-area-inset-bottom, 0px)); }
   }
 

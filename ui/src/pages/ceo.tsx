@@ -20,6 +20,7 @@ import type { DecisionBusy } from "@/components/compania/v2";
 import { AskBox } from "@/components/compania/edificio/ask";
 import { AsistenteFab } from "@/components/compania/edificio/asistente";
 import { Building, BuildingBlock } from "@/components/compania/edificio/building";
+import { VentanaLive } from "@/components/compania/edificio/ventana";
 import { PublishBody, PublishDone, publishError } from "@/components/compania/edificio/publish";
 import { AddPage, MemberHead, MemberSide, PlanPage, SidePage, memberTitle } from "@/components/compania/edificio/side";
 import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
@@ -448,6 +449,7 @@ const Compania = () => {
             )}
             typing={typing}
             nowActs={nowActs}
+            ventanaFor={(p) => <VentanaLive slug={p.slug} title={p.title} timeZone={timeZone} />}
             onAdd={(slug, el) => {
               opener.current = el;
               setAdded(null);
