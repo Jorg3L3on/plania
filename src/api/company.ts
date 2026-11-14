@@ -77,7 +77,7 @@ companyRoutes.get("/projects/:slug", async (c) => {
 // PLA-I35-1 (src/api/company-decisions.ts): act on one Te toca row.
 const DecisionBody = z
   .object({
-    action: z.enum(["elegir", "responder", "hecho", "aplazar", "aceptar", "fusionar", "cambios", "empezar", "cambiar", "cancelar", "aplicar"]),
+    action: z.enum(["elegir", "responder", "hecho", "aplazar", "aceptar", "fusionar", "cambios", "empezar", "cambiar", "cancelar", "aplicar", "verificar"]),
     option: z.union([z.number().int().min(1).max(20), z.array(z.number().int().min(1).max(20)).min(1).max(5)]).optional(),
     text: z.string().trim().min(1).max(2000).optional(),
     // aplicar: the file and the lines the owner reviewed (a file step).

@@ -124,7 +124,7 @@ describe("Agregar al PR", () => {
     const res = await act(s.id, { action: "aplicar", path: ".env.example", lines: row.file_step.lines });
     assert.equal(res.status, 200, await res.clone().text());
     const out = (await res.json()) as Json;
-    assert.deepEqual(out.state.result, { path: ".env.example", branch: "jl/mia-i5-1", added: 3, commit: "c0ffee1234567", pr_url: PR_URL });
+    assert.deepEqual(out.state.result, { path: ".env.example", branch: "jl/mia-i5-1", added: 3, commit: "c0ffee1234567", pr_url: PR_URL, verify: null });
     assert.equal(put!.branch, "jl/mia-i5-1");
     assert.equal(put!.sha, "abc");
     assert.equal(put!.at, `repos/${REPO}/contents/.env.example`);
@@ -185,5 +185,7 @@ describe("the card", () => {
     assert.ok(html.includes("data-file-working") && html.includes("Agregando en GitHub"));
     assert.equal(lib.stateText({ action: "aplicar", at: "", result: { path: ".env.example", branch: "jl/x", added: 3, commit: "c0ffee1234" } }), "Agregado al PR · 3 líneas en .env.example en jl/x (c0ffee1) · paso hecho");
     assert.equal(lib.stateText({ action: "aplicar", at: "", result: { path: ".env.example", branch: "jl/x", added: 0, commit: null } }), "Ya estaba en el PR · .env.example en jl/x · paso hecho");
+    // On a delivery with no CI the new commit makes its pass stale: the line says its owner is re-running the checks.
+    assert.equal(lib.stateText({ action: "aplicar", at: "", result: { path: ".env.example", branch: "jl/x", added: 1, commit: "c0ffee1", verify: "taller" } }), "Agregado al PR · 1 línea en .env.example en jl/x (c0ffee1) · paso hecho · Taller vuelve a probar el último commit");
   });
 });

@@ -356,6 +356,35 @@ test("PLA-14 #2, #3: a repo with no CI says so and Aceptar opens with a pass on 
   let html = renderTeToca([d]);
   assert.ok(html.includes("repo sin CI") && !html.includes("pruebas corriendo") && !html.includes("siguen corriendo"));
   assert.ok(button(html).includes(' disabled=""'));
+  // Held only by the stale pass: the card offers asking the ticket's owner to run the checks again.
+  assert.ok(d.actions.includes("verificar"));
+  assert.match(html, /data-action="verificar"[^>]*>Que (el )?PO vuelva a probar/);
+  // Its owner (the PO here) busy with another run: refused, with the reason.
+  await raw.query(`update agent_runs set status = 'running' where id = (select id from agent_runs order by queued_at desc limit 1)`);
+  const busyOwner = (await raw.query(`select count(*)::int as n from agent_runs where status in ('queued', 'running') and agent_id = (select id from agents where slug = $1)`, [po])).rows[0].n;
+  if (busyOwner > 0) {
+    const refused = (await (await act(d.id, { action: "verificar" })).json()) as Json;
+    assert.equal(refused.error, "NOT_WOKEN");
+    assert.match(refused.hint, /^El PO está en otra corrida/);
+    await raw.query(`update agent_runs set status = 'ok', ended_at = now() where status in ('queued', 'running') and agent_id = (select id from agents where slug = $1)`, [po]);
+  }
+  const asked = await act(d.id, { action: "verificar" });
+  assert.equal(asked.status, 200, await asked.clone().text());
+  const run = (await raw.query(`select status, task_key from agent_runs where task_key = $1 order by queued_at desc limit 1`, [t.key])).rows[0];
+  assert.deepEqual(run, { status: "queued", task_key: t.key }, "the owner wakes on that ticket");
+  const note = (await raw.query(`select payload->>'text' as text from events where task_key = $1 and type = 'note' order by id desc limit 1`, [t.key])).rows[0];
+  assert.match(note.text, /volver a correr las pruebas en el último commit \(2222222\)/);
+  assert.equal((await raw.query(`select status from tasks where key = $1`, [t.key])).rows[0].status, "In review", "the delivery stays as it is");
+  // While that run is queued the card says so (no button, Aceptar still held); asking twice queues nothing more.
+  d = await find();
+  assert.equal(d.verify.state, "queued");
+  assert.match(d.hold, /va a correr las pruebas en el último commit/);
+  assert.equal(d.actions.includes("verificar"), false);
+  html = renderTeToca([d]);
+  assert.ok(html.includes('role="status"') && button(html).includes(' disabled=""'));
+  await raw.query(`update agent_runs set status = 'running', started_at = now() where task_key = $1`, [t.key]);
+  assert.match((await find()).hold, /está corriendo las pruebas/);
+  await raw.query(`update agent_runs set status = 'skipped', ended_at = now() where task_key = $1`, [t.key]);
   // A pass on the current head opens Aceptar.
   await pass(HEAD);
   d = await find();

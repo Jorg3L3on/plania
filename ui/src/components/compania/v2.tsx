@@ -5,6 +5,7 @@
 // Cancelar; a step Hecho; a release goes to Bandeja. Keys live behind Detalles. Presentational: data and actions come
 // in as props (test/edificio-ui.test.ts, test/compania-v2.test.ts and test/i36-ui.test.ts render it with fake data).
 import { useState, type FormEvent } from "react";
+import { Loader2Icon } from "lucide-react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { ago } from "@/lib/compania";
@@ -249,9 +250,16 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
               </button>
             )}
             {d.hold && (d.actions.includes("fusionar") || d.actions.includes("aceptar")) && (
-              <span className="text-xs font-semibold text-ink-blocked" data-hold>
+              <span className={cn("inline-flex items-center gap-1.5 text-xs font-semibold", d.verify ? "text-foreground" : "text-ink-blocked")} data-hold role={d.verify ? "status" : undefined}>
+                {d.verify && <Loader2Icon className="size-3.5 shrink-0 animate-spin" aria-hidden />}
                 {d.hold}
+                {d.verify && <span className="font-normal text-muted-foreground">· {ago(d.verify.since, now)}</span>}
               </span>
+            )}
+            {d.actions.includes("verificar") && (
+              <button type="button" data-action="verificar" className={cn(pillGhost, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "verificar" }, "verificar")}>
+                {label("verificar", `Que ${d.asker ? roleName(d.asker.role) : "su dueño"} vuelva a probar`)}
+              </button>
             )}
             {d.actions.includes("cambios") && (
               <button type="button" data-action="cambios" className={cn(pillGhost, pillSmall)} disabled={busyHere} aria-expanded={reply} onClick={() => setReply(!reply)}>

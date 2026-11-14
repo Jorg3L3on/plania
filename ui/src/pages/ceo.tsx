@@ -170,6 +170,11 @@ const Compania = () => {
       setErrors((e) => ({ ...e, [v.d.id]: "" }));
     },
     onSuccess: (r, v) => {
+      // Volver a probar leaves the delivery open: the live row (with its run) shows, not a frozen acted copy.
+      if (v.input.action === "verificar") {
+        void client.invalidateQueries({ queryKey: ["company"] });
+        return;
+      }
       setActed((a) => ({
         ...a,
         [v.d.id]: r.decision ?? { ...v.d, state: r.state, actions: [] },
@@ -189,7 +194,7 @@ const Compania = () => {
         // A file step's refusal carries its own reason (GitHub's, or why Plania will not write that file).
         [v.d.id]:
           e instanceof ApiError
-            ? (DECISION_REFUSAL[e.code] ?? (e.code.startsWith("FILE_") && typeof e.detail.hint === "string" ? e.detail.hint : `No se pudo (${e.code}).`))
+            ? (DECISION_REFUSAL[e.code] ?? ((e.code.startsWith("FILE_") || e.code === "NOT_WOKEN" || e.code === "NO_OWNER") && typeof e.detail.hint === "string" ? e.detail.hint : `No se pudo (${e.code}).`))
             : "No se pudo. Si la Mac está dormida, intenta al despertar.",
       })),
     onSettled: () => setBusy(null),

@@ -89,7 +89,11 @@ export function stateText(s: DecisionState): string {
       const n = typeof r.added === "number" ? r.added : 0;
       const at = [str(r.path), str(r.branch) && `en ${str(r.branch)}`].filter(Boolean).join(" ");
       const commit = str(r.commit) ? ` (${str(r.commit).slice(0, 7)})` : "";
-      return n ? `Agregado al PR · ${n === 1 ? "1 línea" : `${n} líneas`} en ${at}${commit} · paso hecho` : `Ya estaba en el PR · ${at} · paso hecho`;
+      const base = n ? `Agregado al PR · ${n === 1 ? "1 línea" : `${n} líneas`} en ${at}${commit} · paso hecho` : `Ya estaba en el PR · ${at} · paso hecho`;
+      // A new commit on a delivery with no CI: its owner was asked to run the checks again (or why not).
+      const v = str(r.verify);
+      if (!v) return base;
+      return v === "taller" || v === "product-owner" ? `${base} · ${v === "taller" ? "Taller" : "El PO"} vuelve a probar el último commit` : `${base} · ${v}`;
     }
     case "aplazar":
       return "Aplazado · vuelve a la lista de pendientes";
