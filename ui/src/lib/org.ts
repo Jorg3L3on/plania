@@ -32,13 +32,14 @@ const ROLE_WORDS: Record<string, string> = {
   taller: "Taller",
   qa: "QA",
   copy: "Copy",
+  seguridad: "Seguridad",
   marketing: "Marketing",
   data: "Data",
   asistente: "Asistente",
   jorge: "Jorge",
 };
 export const roleName = (role: string) => ROLE_WORDS[role] ?? role.charAt(0).toUpperCase() + role.slice(1);
-const ROLE_ORDER = ["product-owner", "po", "research", "artist", "taller", "qa", "copy", "marketing", "data"];
+const ROLE_ORDER = ["product-owner", "po", "research", "artist", "taller", "qa", "copy", "seguridad", "marketing", "data"];
 const rank = (role: string) => {
   const i = ROLE_ORDER.indexOf(role);
   return i === -1 ? ROLE_ORDER.length : i;

@@ -28,6 +28,7 @@ const VERB: Record<string, string> = {
   taller: "construye",
   qa: "prueba",
   copy: "escribe",
+  seguridad: "revisa",
   marketing: "difunde",
   data: "mide",
 };

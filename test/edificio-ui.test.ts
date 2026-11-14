@@ -513,22 +513,90 @@ test("I39-6 #4: the plan page lists in progress, next and blocked, and your orde
   assert.deepEqual(plans, ["workia"]);
 });
 
-test("I39-6 #5: adding someone lists only the templates not on the team; the new window shows after the next read", () => {
-  const added: string[] = [];
-  const el = h(side.AddPage, { templates: [{ slug: "qa", title: "QA" }, { slug: "copy", title: "Copy" }], onAdd: (t: string) => added.push(t) });
+// PLA-I46-13 (replaces the I39-6 #5 list): the Sumar sheet. Role and packs are the two choices; the engine is one line.
+const HIRE = [
+  { slug: "product-owner", title: "Product owner", state: "taken" },
+  { slug: "research", title: "Research", state: "taken" },
+  { slug: "artist", title: "Artist", state: "taken" },
+  { slug: "taller", title: "Builder", state: "taken" },
+  { slug: "qa", title: "QA", state: "free" },
+  { slug: "copy", title: "Copy", state: "free" },
+  { slug: "seguridad", title: "Seguridad", state: "no_doc" },
+  { slug: "marketing", title: "Marketing", state: "free" },
+  { slug: "data", title: "Data", state: "free" },
+];
+const PACKS = [
+  { slug: "pruebas-primero", name: "Pruebas primero", when: "Antes de escribir código.", doc_id: "d1" },
+  { slug: "qa-visual-con-capturas", name: "QA visual con capturas", when: "Al revisar una pantalla.", doc_id: "d2" },
+  { slug: "revision-de-seguridad", name: "Revisión de seguridad", when: "Antes de publicar.", doc_id: "d3" },
+  { slug: "espanol-claro", name: "Español claro", when: "Al escribir textos.", doc_id: "d4" },
+  { slug: "preguntas-antes-de-construir", name: "Preguntas antes de construir", when: "Si algo no está claro.", doc_id: "d5" },
+];
+const sumar = await load("lib/sumar.ts");
+const sumarPage = (patch: Json = {}) => h(side.SumarPage, { hire: HIRE, packs: PACKS, role: "qa", chosen: ["pruebas-primero"], onRole: noop, onPack: noop, onAdd: noop, ...patch });
+
+test("I46-13 #1: the + window opens the Sumar sheet; it adds the role with its packs and the new window shows after the next read", () => {
+  const adds: [string, string[]][] = [];
+  const el = sumarPage({ onAdd: (t: string, p: string[]) => adds.push([t, p]) });
   const out = html(el);
-  assert.ok(out.includes('data-templates="2"') && out.includes("QA") && out.includes("Copy"));
-  findAll(expand(el), (x) => x.props?.["data-add"] === "qa")[0]!.props.onClick();
-  assert.deepEqual(added, ["qa"]);
-  assert.ok(html(h(side.AddPage, { templates: [], onAdd: noop })).includes('data-empty="templates"'));
+  clean(out);
+  const words = text(out);
+  for (const w of ["QA", "Escritura", "Seguridad", "Research", "Otro", "Motor:", "Claude Code", "Publicar sigue siendo tuyo", "viven en Plania", "Sumar QA"]) assert.ok(words.includes(w), w);
+  // The packs are the ones read from Plania, with their «Cuándo» line; none is named in the sheet's code.
+  assert.ok(out.includes('data-packs="5"'));
+  for (const p of PACKS) assert.ok(words.includes(p.name) && words.includes(p.when), p.name);
+  const sideSrc = readFileSync(new URL("../ui/src/components/compania/edificio/side.tsx", import.meta.url), "utf8");
+  assert.equal(/Pruebas primero|QA visual con capturas|Revisión de seguridad|Español claro/.test(sideSrc), false, "packs come from the API");
+  // One engine is one line, not a step.
+  assert.equal((out.match(/data-motor/g) ?? []).length, 1);
+  assert.equal(/radio[^>]*Claude Code/.test(out), false);
+  control(expand(el), "sumar-rol")[0]!.props.onClick();
+  assert.deepEqual(adds, [["qa", ["pruebas-primero"]]]);
   // The "+" window opens it; after the next read the new teammate has its window.
   const opened: string[] = [];
   control(tree(company(), { onAdd: (slug: string) => opened.push(slug) }), "sumar")[0]!.props.onClick({ currentTarget: {} });
   assert.deepEqual(opened, ["workia"]);
-  const after = render(company({ projects: [project({ team: [...project().team, member("qa")] })] }), { onAdd: noop });
+  const after = render(company({ projects: [project({ team: [...project().team, member("qa", { packs: ["pruebas-primero"] })] })] }), { onAdd: noop });
   assert.ok(after.includes('data-agent="qa-workia"') && after.includes('data-prop="magnifier"'));
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("api.addToTeam(v.slug, v.template)") && page.includes('invalidateQueries({ queryKey: ["company"] })'));
+  assert.ok(page.includes("api.addToTeam(v.slug, v.template, v.packs)") && page.includes("api.packs()") && page.includes('invalidateQueries({ queryKey: ["company"] })'));
+});
+
+test("I46-13 #2: role states, Otro, and the packs a role suggests", () => {
+  const view = expand(sumarPage());
+  const roleEl = (slug: string) => findAll(view, (x) => x.props?.["data-hire"] === slug)[0]!;
+  assert.equal(roleEl("qa").props["aria-checked"], true);
+  assert.equal(roleEl("research").props.disabled, true, "already on the team");
+  assert.equal(roleEl("seguridad").props.disabled, true, "no prompt doc yet");
+  const out = text(html(sumarPage()));
+  assert.ok(out.includes("Ya está") && out.includes("Falta su doc"));
+  // Otro picks the first free template that is not one of the four, and lists the rest.
+  const roles: string[] = [];
+  findAll(expand(sumarPage({ onRole: (r: string) => roles.push(r) })), (x) => x.props?.["data-hire"] === "otro")[0]!.props.onClick();
+  assert.deepEqual(roles, ["marketing"]);
+  const otro = html(sumarPage({ role: "marketing", chosen: [] }));
+  assert.ok(otro.includes('data-otros="2"') && text(otro).includes("Sumar Marketing") && text(otro).includes("Data"));
+  // Ticking a pack goes through onPack; the button names the role.
+  const ticks: string[] = [];
+  findAll(expand(sumarPage({ onPack: (p: string) => ticks.push(p) })), (x) => x.props?.["data-pack"] === "espanol-claro")[0]!.props.onChange();
+  assert.deepEqual(ticks, ["espanol-claro"]);
+  assert.ok(text(html(sumarPage({ role: "copy" }))).includes("Sumar Escritura"));
+  // Suggestions only keep packs Plania has.
+  assert.deepEqual(sumar.suggestedPacks("qa", PACKS), ["pruebas-primero", "qa-visual-con-capturas"]);
+  assert.deepEqual(sumar.suggestedPacks("seguridad", PACKS.slice(0, 2)), []);
+  assert.equal(sumar.firstFree(sumar.roleChoices(HIRE)), "qa");
+  assert.equal(sumar.firstFree(sumar.roleChoices(HIRE.map((x) => ({ ...x, state: "taken" })))), null);
+  // Nothing to add, no packs, a failed packs read: the sheet still says so.
+  const none = html(sumarPage({ hire: HIRE.map((x) => ({ ...x, state: "taken" })), role: null, packs: [] }));
+  assert.ok(text(none).includes("Elige un rol") && none.includes('data-empty="packs"') && text(none).includes("No queda otro"));
+  assert.ok(html(sumarPage({ packsError: true })).includes('data-empty="packs-error"'));
+});
+
+test("I46-13 #3: the sheet works at 390: role chips in two columns, rows wrap, the button fills the width", () => {
+  const out = html(sumarPage());
+  assert.ok(out.includes("grid-cols-2") && out.includes("sm:grid-cols-3"));
+  assert.ok(out.includes("w-full sm:w-auto"));
+  assert.ok(out.includes("break-words") && out.includes("min-w-0"));
 });
 
 // ---- PLA-I39-7

@@ -21,7 +21,7 @@ import { AskBox } from "@/components/compania/edificio/ask";
 import { AsistenteFab } from "@/components/compania/edificio/asistente";
 import { Building, BuildingBlock } from "@/components/compania/edificio/building";
 import { PublishBody, PublishDone, publishError } from "@/components/compania/edificio/publish";
-import { AddPage, MemberHead, MemberSide, PlanPage, SidePage, memberTitle } from "@/components/compania/edificio/side";
+import { MemberHead, MemberSide, PlanPage, SidePage, SumarSide, memberTitle } from "@/components/compania/edificio/side";
 import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
 import { useThread } from "@/components/compania/use-thread";
 import { GoalDialog } from "@/components/goals/goal-dialog";
@@ -33,6 +33,7 @@ import { ceoRedirect, sheetOf, sheetSearch } from "@/lib/compania";
 import { caption } from "@/lib/edificio";
 import { byLight, plumbingLine } from "@/lib/org";
 import { greeting } from "@/lib/greeting";
+import { hireLabel } from "@/lib/sumar";
 
 const dayLabel = (timeZone: string) =>
   new Intl.DateTimeFormat("es-MX", {
@@ -140,10 +141,12 @@ const Compania = () => {
   // The side page last open, so closing (which clears the address first) still knows what to focus.
   const lastSide = useRef(sheet);
   if (sheet && (sheet.kind === "member" || sheet.kind === "plan" || sheet.kind === "add")) lastSide.current = sheet;
+  // PLA-I46-13: the Sumar sheet's packs, read from Plania (GET /api/company/packs).
+  const packs = useQuery({ queryKey: ["company-packs"], queryFn: () => api.packs(), enabled: sheet?.kind === "add" });
   const addMember = useMutation({
-    mutationFn: (v: { slug: string; template: string }) => api.addToTeam(v.slug, v.template),
-    onSuccess: (r, v) => {
-      setAdded(detail.data?.templates.find((t) => t.slug === v.template)?.title ?? r.role);
+    mutationFn: (v: { slug: string; template: string; packs: string[] }) => api.addToTeam(v.slug, v.template, v.packs),
+    onSuccess: (_r, v) => {
+      setAdded(hireLabel(v.template));
       void client.invalidateQueries({ queryKey: ["company"] });
       void client.invalidateQueries({ queryKey: ["company-project", v.slug] });
     },
@@ -507,7 +510,7 @@ const Compania = () => {
         open={!!sideProject && (sheet?.kind !== "member" || !!sideMember)}
         wide={wide}
         title={sideMember && sideProject ? memberTitle(sideMember, sideProject) : sheet?.kind === "add" ? `Sumar a ${sideProject?.title ?? ""}` : (sideProject?.title ?? "")}
-        description={sideMember ? caption(sideMember, now, { companyPaused: company?.company.paused }).doing : sheet?.kind === "add" ? "Un puesto más en el equipo, con su ventana." : "El plan del proyecto"}
+        description={sideMember ? caption(sideMember, now, { companyPaused: company?.company.paused }).doing : sheet?.kind === "add" ? "Elige el rol y sus paquetes. Su ventana aparece en el piso." : "El plan del proyecto"}
         head={sideMember ? <MemberHead m={sideMember} companyPaused={company?.company.paused} /> : undefined}
         onClose={closeSheet}
         returnTo={() => {
@@ -524,12 +527,15 @@ const Compania = () => {
           <PlanPage project={sideProject} sheet={detail.data} loading={detail.isPending} error={detail.isError} onRetry={() => void detail.refetch()} now={now} steer={steer} onFijar={setFijar} />
         )}
         {sideProject && sheet?.kind === "add" && (
-          <AddPage
-            templates={detail.data?.templates}
-            loading={detail.isPending}
-            busy={addMember.isPending ? (addMember.variables?.template ?? null) : null}
+          <SumarSide
+            key={sideProject.slug}
+            hire={detail.data?.hire}
+            packs={packs.data?.packs}
+            loading={detail.isPending || packs.isPending}
+            packsError={packs.isError}
+            busy={addMember.isPending}
             added={added}
-            onAdd={(template) => addMember.mutate({ slug: sideProject.slug, template })}
+            onAdd={(template, chosen) => addMember.mutate({ slug: sideProject.slug, template, packs: chosen })}
           />
         )}
       </SidePage>

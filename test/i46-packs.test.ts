@@ -278,3 +278,36 @@ test("I46-12: hiring with packs sets them in the same call; an unknown pack hire
   assert.deepEqual(out.agent.packs, ["espanol-claro"]);
   assert.deepEqual((await raw.query(`select skill_packs from agents where slug = 'research-micasa'`)).rows[0].skill_packs, ["espanol-claro"]);
 });
+
+test("I46-13: the project read lists every role with free, taken or no_doc; Seguridad is hired with its packs and joins the team", async () => {
+  const read = async () => (await (await app.request("/api/company/projects/micasa", { headers: jorge })).json()) as { hire: { slug: string; state: string }[]; templates: { slug: string }[]; team: { agent: string; template: string | null; packs: string[] }[] };
+  const stateOf = (r: Awaited<ReturnType<typeof read>>, slug: string) => r.hire.find((x) => x.slug === slug)?.state;
+  const first = await read();
+  assert.equal(stateOf(first, "seguridad"), "no_doc");
+  assert.equal(stateOf(first, "qa"), "no_doc");
+  assert.equal(first.templates.some((t) => t.slug === "seguridad"), false);
+  const micasa = await projectId("micasa");
+  await raw.query(`insert into docs (project_id, title, markdown, actor) values ($1, 'Prompt: Seguridad', '# Seguridad', '{"agent":"test","session_id":"s"}')`, [micasa]);
+  const second = await read();
+  assert.equal(stateOf(second, "seguridad"), "free");
+  assert.ok(second.templates.some((t) => t.slug === "seguridad"));
+
+  const res = await app.request("/api/company/projects/micasa/team", {
+    method: "POST",
+    headers: jorge,
+    body: JSON.stringify({ template: "seguridad", packs: ["pruebas-primero", "espanol-claro"] }),
+  });
+  assert.equal(res.status, 201);
+  const row = (await raw.query(`select role, role_template, project_id, skill_packs, adapter from agents where slug = 'seguridad-micasa'`)).rows[0];
+  assert.deepEqual(
+    { role: row.role, template: row.role_template, project: row.project_id, packs: row.skill_packs, adapter: row.adapter },
+    { role: "seguridad", template: "seguridad", project: micasa, packs: ["pruebas-primero", "espanol-claro"], adapter: "claude_code" },
+  );
+  // Its window: the next read has it on the team, with its packs; the role is taken now.
+  const third = await read();
+  assert.equal(stateOf(third, "seguridad"), "taken");
+  const member = third.team.find((m) => m.agent === "seguridad-micasa");
+  assert.deepEqual(member && { template: member.template, packs: member.packs }, { template: "seguridad", packs: ["pruebas-primero", "espanol-claro"] });
+  const company = (await (await app.request("/api/company", { headers: jorge })).json()) as { projects: { slug: string; team: { agent: string }[] }[] };
+  assert.ok(company.projects.find((p) => p.slug === "micasa")?.team.some((m) => m.agent === "seguridad-micasa"));
+});
