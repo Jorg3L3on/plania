@@ -7,7 +7,7 @@
 // event, so GET /api/company keeps working) -> prune checks unseen for 30 days -> ok / partial / fallback; a crash
 // is fail. Stale rows (a run that died with the server) are marked fail by markStaleRuns.
 //
-// Not here (PLA-I41-6): the 07:00 schedule, the fallback_at timer, waiting out the plan guard, the API and the CLI.
+// The 07:00 schedule, the fallback_at timer and waiting out the plan guard are in schedule.ts (PLA-I41-6).
 import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
@@ -15,7 +15,7 @@ import path from "node:path";
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type pg from "pg";
 import type { Db } from "../db/client.js";
-import { briefPlanRequests, briefRuns, morningBriefs, projects, tasks, type BriefPassRecord, type BriefRunStatus } from "../db/schema.js";
+import { briefChecks, briefPlanRequests, briefRuns, morningBriefs, projects, tasks, type BriefPassRecord, type BriefRunStatus } from "../db/schema.js";
 import { writeTx } from "../mcp/tx.js";
 import { buildBrief as defaultBuildBrief, ASISTENTE_ACTOR } from "../runner/asistente.js";
 import { liveRuns as defaultLiveRuns, releaseReservation, reserveSlot, settleRunner } from "../runner/runner.js";
@@ -192,8 +192,9 @@ async function yesterdayIdeas(db: Db, today: string): Promise<Idea[]> {
     return p.success ? [p.data] : [];
   });
   if (!ideas.length) return [];
-  const checked = await db.execute<{ item_id: string }>(sql`select item_id from brief_checks where item_id = any(${ideas.map((i) => i.id)}::text[])`);
-  const seen = new Set(checked.rows.map((r) => r.item_id));
+  // PLA-I41-6: inArray, not any(${array}::text[]): drizzle spreads an array param into a list, which broke the cast.
+  const checked = await db.select({ item_id: briefChecks.itemId }).from(briefChecks).where(inArray(briefChecks.itemId, ideas.map((i) => i.id)));
+  const seen = new Set(checked.map((r) => r.item_id));
   return ideas.filter((i) => !seen.has(i.id));
 }
 
@@ -437,7 +438,7 @@ async function execute(db: Db, runId: string, opts: RunBriefOptions, deps: RunBr
   }
 }
 
-function ceilingText(lang: string, fallbackAt: string, because: string): string {
+export function ceilingText(lang: string, fallbackAt: string, because: string): string {
   return lang === "es"
     ? `El brief completo no corrió antes de las ${fallbackAt} porque ${because}. Pulsa Generar ahora cuando esté libre.`
     : `The full brief didn't run by ${fallbackAt} because ${because}. Press Generate now when it's free.`;
