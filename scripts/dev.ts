@@ -3,6 +3,7 @@
 //   pnpm start            → port 3737, the launchd service
 //   pnpm dev:api          → port 3738, behind Vite's dev proxy
 // Bound to 127.0.0.1 so nothing outside this machine can reach it.
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -13,6 +14,7 @@ import { app } from "../src/app.js";
 import { startJobs } from "../src/jobs/index.js";
 import { withDb } from "../src/db/client.js";
 import { sweepOrphans } from "../src/runner/runner.js";
+import { gitState, readUiBuild, staleReason } from "../src/ui-build.js";
 
 const { values } = parseArgs({ options: { port: { type: "string", default: "3737" } }, strict: false });
 const port = Number(values.port);
@@ -20,8 +22,34 @@ const hostname = "127.0.0.1";
 
 const distDir = path.resolve(import.meta.dirname, "../dist/ui");
 const indexPath = path.join(distDir, "index.html");
+const repoDir = path.resolve(import.meta.dirname, "..");
+
+// PLA-I46-1: a restart is a deploy. dist/ui used to be rebuilt only by a manual `pnpm build`, so a
+// restart on a newer HEAD kept serving the old bundle. Rebuild here when the stamp is not HEAD.
+// Only for the launchd server (3737); the dev API behind Vite never serves dist/ui.
+if ((port === 3737 && process.env.PLANIA_UI_BUILD !== "0") || process.env.PLANIA_UI_BUILD === "1") {
+  const reason = staleReason(readUiBuild(distDir), gitState(repoDir), existsSync(indexPath));
+  if (reason) {
+    console.log(`[ui] rebuilding dist/ui: ${reason}`);
+    try {
+      execFileSync(process.execPath, [path.join(repoDir, "node_modules/vite/bin/vite.js"), "build"], {
+        cwd: repoDir,
+        stdio: "inherit",
+        timeout: 5 * 60_000,
+      });
+      console.log(`[ui] built ${readUiBuild(distDir)?.commit?.slice(0, 7) ?? "unknown"}`);
+    } catch (e) {
+      console.log(`[ui] build failed, serving the previous dist/ui: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+}
 
 const server = new Hono();
+// Which commit the screen is on, for a check after a deploy (no auth: it names a commit, nothing else).
+server.get("/health/ui", (c) => {
+  c.header("Cache-Control", "no-store");
+  return c.json({ ui: readUiBuild(distDir), head: gitState(repoDir) });
+});
 server.route("/", app);
 
 // Hashed build assets can be cached forever; index.html must always be fresh.
