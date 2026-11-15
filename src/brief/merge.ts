@@ -263,6 +263,8 @@ export type MergeInput = {
   waitingPaused?: WaitingPaused[];
   // Ticket keys that are settled (Done, Won't do): an item whose every key is settled is dropped.
   settledKeys?: ReadonlySet<string>;
+  // PLA-I49-3: item ids the owner set aside from a brief (Not relevant, or Later until a date still ahead).
+  setAside?: ReadonlySet<string>;
 };
 
 // ---- Items
@@ -450,7 +452,7 @@ export function mergeBrief(input: MergeInput): BriefData {
   }
 
   const fromClaude = briefOk && input.brief?.ok ? input.brief.data.items : factsItems(input.facts, s.language);
-  const cleaned = [...server, ...fromClaude].map((r) => cleanItem(r, ctx, input.settledKeys)).filter((i): i is Item => !!i);
+  const cleaned = [...server, ...fromClaude].map((r) => cleanItem(r, ctx, input.settledKeys)).filter((i): i is Item => !!i && !input.setAside?.has(i.id));
   const items = capItems(cleaned, s.max_items_per_app);
 
   const drafts = ideasOk && input.ideas?.ok ? input.ideas.data.ideas.map((r) => cleanIdea(r, ctx, sourceOf)).filter((d): d is DraftIdea => !!d) : [];

@@ -1403,6 +1403,28 @@ export const briefChecks = pgTable("brief_checks", {
 
 export type BriefCheck = typeof briefChecks.$inferSelect;
 
+// PLA-I49-3: what the owner did from a brief row (migration 0050). request_id makes a retry write once.
+export type BriefActionOutcome = { status: "running" | "done" | "failed"; line?: string; error?: string; hint?: string; result?: Record<string, unknown>; undo?: Record<string, unknown> };
+export const briefActions = pgTable(
+  "brief_actions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    briefId: uuid("brief_id")
+      .notNull()
+      .references(() => morningBriefs.id, { onDelete: "cascade" }),
+    itemId: text("item_id").notNull(),
+    action: text("action").notNull(),
+    target: jsonb("target").$type<Record<string, unknown> | null>(),
+    input: jsonb("input").$type<Record<string, unknown>>().notNull().default({}),
+    outcome: jsonb("outcome").$type<BriefActionOutcome>().notNull().default({ status: "running" }),
+    requestId: text("request_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    undoneAt: timestamp("undone_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("brief_actions_request_idx").on(t.requestId), index("brief_actions_item_idx").on(t.itemId, t.createdAt.desc()), index("brief_actions_brief_idx").on(t.briefId)],
+);
+export type BriefAction = typeof briefActions.$inferSelect;
+
 export const BRIEF_LANGUAGES = ["en", "es"] as const;
 export type BriefLanguage = (typeof BRIEF_LANGUAGES)[number];
 export const BRIEF_GITHUB_MODES = ["poller", "gh", "off"] as const;

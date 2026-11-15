@@ -21,6 +21,7 @@ import { buildBrief as defaultBuildBrief, ASISTENTE_ACTOR } from "../runner/asis
 import { liveRuns as defaultLiveRuns, releaseReservation, reserveSlot, settleRunner } from "../runner/runner.js";
 import { asistenteHome } from "../runner/threads.js";
 import { BRIEF_AGENT, spawnPass as defaultSpawnPass, type BriefPass, type PassOutcome, type SpawnPassDeps, type SpawnPassInput } from "./claude.js";
+import { setAsideItems } from "./act.js";
 import { briefWindow, buildFacts, type Facts } from "./facts.js";
 import { mergeBrief, projectionLines, type OpenIdea, type PassResult, type WaitingPaused } from "./merge.js";
 import { loadPassPrompts, readSchemaText, type SystemVars } from "./prompts.js";
@@ -418,6 +419,7 @@ async function execute(db: Db, runId: string, opts: RunBriefOptions, deps: RunBr
       yesterdayIdeas: await yesterdayIdeas(db, localDate),
       waitingPaused: await waitingPaused(db, facts),
       settledKeys: await settledKeys(db, brief?.ok ? brief.data.items : []),
+      setAside: await setAsideItems(db, localDate),
     });
 
     // 5. Store, project, prune.

@@ -365,3 +365,11 @@ test("v2 check 5: the Nov 13 sample's 7 items, without about, get their main tar
   console.log(`check 5: ${right.length}/7 items get the right main target${wrong.length ? `; wrong: ${wrong.join("; ")}` : ""}`);
   for (const i of data.items) assert.equal(i.id, sample.items.find((s) => s.title === i.title)!.id, "ids do not change, so old checks still hide the rows");
 });
+
+test("PLA-I49-3: rows the owner set aside (Not relevant, Later) are left out of the next brief", () => {
+  const items = sample.items.map(({ id: _id, ...rest }) => rest);
+  const aside = new Set([sample.items[0]!.id, sample.items[5]!.id]);
+  const data = mergeBrief(inputV2({ brief: { ok: true, data: { items } }, setAside: aside }));
+  assert.equal(data.items.length, 5);
+  assert.ok(data.items.every((i) => !aside.has(i.id)));
+});

@@ -12,6 +12,7 @@ import { briefChecks, docs, morningBriefs, projects, type MorningBrief } from ".
 import { BriefRunningError, localDateIn, runningRun, startBrief, type RunBriefDeps } from "../brief/pipeline.js";
 import { IDEA_PERSONA_DOC } from "../brief/prompts.js";
 import { runDoctor } from "../brief/doctor.js";
+import { act, ActBody, briefState, undo, type ActError } from "../brief/act.js";
 import { MAX_CODES, PlanError, planOfBrief, planProgress, sendToPlania } from "../brief/plan.js";
 import { BriefSettingsError, briefProjects, loadBriefSettings, resolveBriefSettings, saveBriefSettings } from "../brief/settings.js";
 import { attachDoc } from "../mcp/docs.js";
@@ -260,6 +261,40 @@ briefApi.get("/plan/:id", (c) =>
     } catch (err) {
       return planError(c, err);
     }
+  }),
+);
+
+// PLA-I49-3: act on a row (src/brief/act.ts). The screen's cookie only: a request that carries any Bearer token is
+// refused, so no agent, CI or MCP token can publish, merge or answer through the brief (PLA-24's guard).
+const bearer = (c: Context) => /^\s*bearer\b/i.test(c.req.header("Authorization") ?? "");
+const actError = (c: Context, e: ActError) => c.json({ error: e.error, hint: e.hint }, e.http);
+
+briefApi.post("/act", async (c) => {
+  if (bearer(c)) return c.json({ error: "HUMAN_ONLY", hint: "brief actions come from the screen only" }, 403);
+  if (!c.req.header("Content-Type")?.startsWith("application/json")) return c.json({ error: "JSON_REQUIRED" }, 415);
+  const body = ActBody.safeParse(await c.req.json().catch(() => undefined));
+  if (!body.success) return c.json({ error: "INVALID_BODY", hint: "{brief_id, item_id, action, target?, input?, request_id}" }, 400);
+  return withDb(async (db) => {
+    const out = await act(db, body.data, planEnv);
+    if ("http" in out) return actError(c, out);
+    return c.json(out, out.status === "failed" ? 409 : 200);
+  });
+});
+
+briefApi.post("/act/:id/undo", async (c) => {
+  if (bearer(c)) return c.json({ error: "HUMAN_ONLY", hint: "brief actions come from the screen only" }, 403);
+  return withDb(async (db) => {
+    const out = await undo(db, c.req.param("id"), planEnv);
+    if ("http" in out) return actError(c, out);
+    return c.json(out);
+  });
+});
+
+briefApi.get("/:id/state", (c) =>
+  withDb(async (db) => {
+    const id = c.req.param("id");
+    const out = /^[0-9a-f-]{36}$/i.test(id) ? await briefState(db, id, planEnv) : null;
+    return out ? c.json(out) : c.json({ error: "NOT_FOUND" }, 404);
   }),
 );
 
