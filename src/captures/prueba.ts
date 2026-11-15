@@ -8,7 +8,7 @@
 // Everything here is in memory: one Plania server per Mac. Tests inject every outside call (setPruebaDeps).
 import { spawn as nodeSpawn, execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { hostname } from "node:os";
 import path from "node:path";
@@ -22,7 +22,7 @@ import type { Ctx } from "../mcp/tx.js";
 import { defaultGit, isInside, repoPathOf, worktreeRoot, type GitFn } from "../runner/worktree.js";
 import { checkoutEnv, runCapture, shellExec, type CaptureInput, type CaptureSummary, type Exec } from "./run.js";
 import type { CaptureSettings } from "./settings.js";
-import { scrub as scrubLine, secretValues as secretValuesOf } from "../maquinas/env.js";
+import { ENV_FILES, scrub as scrubLine, secretValues as secretValuesOf, type MaquinasSettings } from "../maquinas/env.js";
 
 export const BRANCH = "sandbox";
 export const IDLE_MS = 20 * 60_000; // nobody looked at the floor for this long: the copy stops
@@ -275,6 +275,9 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   if (!head || head !== want || detached !== "HEAD") return fail(db, c, `${what} no está en ${ref}`);
   if (copies.get(c.id) !== c || c.stopping) return;
 
+  // PLA-38: the app's own env file (untracked, so not in a fresh worktree): its database and keys.
+  syncEnvFile(repo, wt, p.settings.maquinas);
+
   // Dependencies, once per lockfile.
   const install = installCommand(wt, s);
   if (install) {
@@ -373,6 +376,27 @@ function tailOf(text: string): string[] {
     .filter(Boolean)
     .slice(-TAIL_LINES)
     .map((l) => l.slice(0, 240));
+}
+
+// PLA-38: copy the project's env file (settings.maquinas.env_file, else the first of ENV_FILES) from the repo
+// into a copy's worktree when it is missing there or the repo's is newer. Mode 0600. It stays untracked (env files
+// are ignored in the app repos) and it is the app's own file: Plania's environment never reaches it.
+export function syncEnvFile(repo: string, wt: string, s?: MaquinasSettings): string | null {
+  const names = s?.env_file ? [s.env_file] : ENV_FILES;
+  for (const f of names) {
+    const from = path.join(repo, f);
+    const to = path.join(wt, f);
+    if (!from.startsWith(repo + path.sep) || !to.startsWith(wt + path.sep) || !existsSync(from)) continue;
+    try {
+      if (existsSync(to) && statSync(to).mtimeMs >= statSync(from).mtimeMs) return f;
+      copyFileSync(from, to);
+      chmodSync(to, 0o600);
+      return f;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 // The install command for the test copy: the setting, or the lockfile's own tool. Its hash is the lockfile's,
