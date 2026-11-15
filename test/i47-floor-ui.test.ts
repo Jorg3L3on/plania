@@ -103,7 +103,8 @@ test("I47-2 #5: ↑ ↓ walk the tower's order, then the basement, and stop at t
 
 test("I47-2: the building is the window's height, the floor has no plate column and no Tú window", () => {
   const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  assert.match(css, /\.edi:has\(\.edi-bld\) \{[^}]*height: calc\(100svh - 89px/);
+  // PLA-29: the building is the page; only the app's top bar (49 px) is above it.
+  assert.match(css, /\.edi:has\(\.edi-bld\) \{[^}]*height: calc\(100svh - 49px/);
   assert.match(css, /\.edi-bld \{[^}]*flex: 1 1 0; min-height: 0;/);
   assert.match(css, /\.edi-stage > \.edi-nowb \{ flex: 1 1 0; min-height: 0; overflow: auto;/, "only Ahora grows, and it scrolls inside");
   assert.match(css, /\.edi-fcol \{ min-height: 0; min-width: 0; overflow: auto;/, "the right column scrolls inside");

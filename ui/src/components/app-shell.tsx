@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BellIcon, CloudOffIcon, EllipsisIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Outlet, useNavigate } from "react-router";
+import { Outlet, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -129,6 +129,9 @@ function MoreMenu({ onLogout }: { onLogout: () => void }) {
 export function AppShell() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  // PLA-29: Compañía (/ceo) is the building itself: it runs edge to edge under the header, with no gutter or
+  // max width around it. The phone keeps room for the tab bar.
+  const fullBleed = useLocation().pathname === "/ceo";
   // The Bandeja badge and Máquina's quiet Limpieza count; live changes refresh them.
   const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
   const counts = { inbox: inbox.data?.count ?? 0, chores: inbox.data?.chores ?? 0 };
@@ -159,7 +162,14 @@ export function AppShell() {
           </div>
           <OfflineBanner />
         </header>
-        <main className="mx-auto max-w-[1480px] gutter pt-5 tiny:pt-2 pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <main
+          data-full-bleed={fullBleed || undefined}
+          className={
+            fullBleed
+              ? "pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:pb-0"
+              : "mx-auto max-w-[1480px] gutter pt-5 tiny:pt-2 pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+          }
+        >
           <Outlet />
         </main>
         <TabBar counts={counts} />
