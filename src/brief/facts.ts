@@ -329,12 +329,15 @@ async function projectFacts(db: Q, p: Project, s: BriefSettings, w: FactsWindow,
   if (plan) {
     const r = p.settings.release!;
     const cached = await releaseCompareOf(db, p.id);
-    const fresh = cached && plan.from.head_sha && plan.into.head_sha && cached.from_head === plan.from.head_sha && cached.into_head === plan.into.head_sha ? (cached as typeof cached & { status?: string; behind_by?: number }) : null;
+    const fresh = cached && plan.from.head_sha && plan.into.head_sha && cached.from_head === plan.from.head_sha && cached.into_head === plan.into.head_sha ? cached : null;
     const same = !!plan.from.head_sha && plan.from.head_sha === plan.into.head_sha;
     const behind = typeof fresh?.behind_by === "number" ? fresh.behind_by : null;
+    // Both sides have commits the other lacks: diverged, whatever else the cache says.
     const state = same
       ? "identical"
-      : typeof fresh?.status === "string"
+      : (plan.ahead ?? 0) > 0 && (behind ?? 0) > 0
+        ? "diverged"
+        : typeof fresh?.status === "string"
         ? fresh.status
         : plan.ahead === null
           ? "unknown"
