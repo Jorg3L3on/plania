@@ -112,7 +112,7 @@ test("brief_settings: one row with the spec defaults, fallback_at 11:00", async 
   assert.equal(s.enabled, true);
   assert.equal(s.runAt, "07:00:00");
   assert.equal(s.fallbackAt, "11:00:00");
-  assert.equal(s.language, "en");
+  assert.equal(s.language, "es", "PLA-I51-1: Spanish by default");
   assert.deepEqual(s.hiddenRefs, []);
   assert.equal(s.maxItemsPerApp, 5);
   assert.equal(s.ideasPerProject, 3);

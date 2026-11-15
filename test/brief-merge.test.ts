@@ -29,7 +29,8 @@ const PROJECTS = [
 const ORDER = { workia: { order: 0 }, zigzag: { order: 1 }, filmia: { order: 2 }, micasa: { order: 3 }, mianovia: { order: 4 } };
 
 function input(over: Partial<MergeInput> = {}, settings: Partial<BriefSettings> = {}): MergeInput {
-  const stored: BriefSettings = { ...structuredClone(DEFAULT_SETTINGS), projects: ORDER, ...settings };
+  // These tests read the English texts; Spanish is the default since PLA-I51-1 and has its own test below.
+  const stored: BriefSettings = { ...structuredClone(DEFAULT_SETTINGS), language: "en", projects: ORDER, ...settings };
   return {
     settings: resolveBriefSettings(stored, { PLANIA_TZ: "America/Mexico_City" }),
     projects: briefProjects(PROJECTS, stored),
@@ -290,7 +291,7 @@ test("projection: up to 5 lines, blockers first, then Needs you titles with the 
 const factsSample = JSON.parse(readFileSync(new URL("./fixtures/brief-facts-sample.json", import.meta.url), "utf8")) as MergeInput["facts"];
 const PROJECTS_PLUS = [...PROJECTS, { id: "6", slug: "plania", title: "Plania", keyPrefix: "PLA" }];
 function inputV2(over: Partial<MergeInput> = {}): MergeInput {
-  const stored: BriefSettings = { ...structuredClone(DEFAULT_SETTINGS), projects: { ...ORDER, plania: { order: 5 } } };
+  const stored: BriefSettings = { ...structuredClone(DEFAULT_SETTINGS), language: "en", projects: { ...ORDER, plania: { order: 5 } } };
   return { ...input(over), settings: resolveBriefSettings(stored, { PLANIA_TZ: "America/Mexico_City" }), projects: briefProjects(PROJECTS_PLUS, stored), facts: factsSample, ...over };
 }
 const main = (i: Item | undefined) => (i?.targets?.[0] ? `${i.targets[0].kind}:${i.targets[0].project}:${i.targets[0].pr ?? i.targets[0].key ?? i.targets[0].env ?? ""}` : null);

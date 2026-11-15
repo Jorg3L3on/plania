@@ -194,7 +194,14 @@ test("a sketch that came back makes a Needs you row about the idea in the next b
   const r = ready.find((x) => x.key === m.key)!;
   assert.equal(r.next, "sketch_ready");
   assert.equal(r.doc_url, "https://claude.ai/artifact/demo-sketch");
-  const stored = { ...structuredClone(DEFAULT_SETTINGS), projects: { micasa: { order: 0 } } };
+  // PLA-I51-4: promoted_to is null while the idea is open work, and the initiative's key once it is planned.
+  assert.equal(r.promoted_to, null);
+  await raw.query(`update tasks set promoted_to = 'MIC-I99' where id = $1`, [m.id]);
+  const planned = (await ideasInMotion(db, ["micasa"])).find((x) => x.key === m.key)!;
+  assert.equal(planned.promoted_to, "MIC-I99");
+  assert.equal(planned.next, "planned");
+  await raw.query(`update tasks set promoted_to = null where id = $1`, [m.id]);
+  const stored = { ...structuredClone(DEFAULT_SETTINGS), language: "en", projects: { micasa: { order: 0 } } };
   const data = mergeBrief({
     settings: resolveBriefSettings(stored as never, { PLANIA_TZ: "America/Mexico_City" }),
     projects: briefProjects([{ id: "4", slug: "micasa", title: "MiCasa", keyPrefix: "MIC" }], stored as never),

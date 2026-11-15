@@ -70,7 +70,8 @@ before(async () => {
       ($2, 'FIL-9', 'ticket', 'Done', null, 'Start the taste map', '')`,
     [await pid("zigzag"), await pid("filmia")],
   );
-  await saveBriefSettings(db, { github_mode: "off", projects: { workia: { order: 0 }, zigzag: { order: 1 }, filmia: { order: 2 }, micasa: { order: 3 } } });
+  // English texts below; Spanish is the default since PLA-I51-1.
+  await saveBriefSettings(db, { github_mode: "off", language: "en", projects: { workia: { order: 0 }, zigzag: { order: 1 }, filmia: { order: 2 }, micasa: { order: 3 } } });
 });
 
 beforeEach(async () => {

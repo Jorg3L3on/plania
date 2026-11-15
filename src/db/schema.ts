@@ -1443,7 +1443,7 @@ export const briefSettings = pgTable(
     // Null = derived (small map, else the IANA city).
     timezoneLabel: text("timezone_label"),
     // D5: content and page labels.
-    language: text("language").$type<BriefLanguage>().notNull().default("en"),
+    language: text("language").$type<BriefLanguage>().notNull().default("es"),
     // Null = PLANIA_CEO_NAME.
     ownerName: text("owner_name"),
     hiddenRefs: text("hidden_refs").array().notNull().default(sql`'{}'::text[]`),

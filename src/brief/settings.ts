@@ -23,7 +23,7 @@ export const DEFAULT_SETTINGS: BriefSettings = Object.freeze({
   run_at: "07:00",
   timezone: null,
   timezone_label: null,
-  language: "en",
+  language: "es",
   owner_name: null,
   hidden_refs: [],
   max_items_per_app: 5,
