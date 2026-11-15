@@ -180,7 +180,7 @@ before(async () => {
   await raw.query(`insert into goals (project_id, title) select id, 'Ship the beta' from projects`);
   await raw.query(`update runner_settings set company_paused = false, max_concurrent = 1, cooldown_minutes = 0, plan_guard_pct = 70`);
   await raw.query(`insert into plan_readings (at, source, status, five_hour_pct, five_hour_resets_at) values (now(), 'stream', 'allowed', 10, now() + interval '3 hours')`);
-  await saveBriefSettings(db, { github_mode: "off", projects: { workia: { order: 0 }, zigzag: { order: 1 }, filmia: { order: 2 }, micasa: { order: 3 }, plania: { order: 4 } } });
+  await saveBriefSettings(db, { github_mode: "off", language: "en", projects: { workia: { order: 0 }, zigzag: { order: 1 }, filmia: { order: 2 }, micasa: { order: 3 }, plania: { order: 4 } } });
 });
 
 after(async () => {
