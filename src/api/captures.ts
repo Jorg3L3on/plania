@@ -16,6 +16,7 @@ import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { apagar, apagarEntrega, encender, entregaRead, pruebaRead, tomar } from "../captures/prueba.js";
 import { warmEntrega } from "../captures/entrega.js";
+import { assertKey, probadorRead, probar } from "../captures/probador.js";
 import { latestStills, stillFile } from "../captures/store.js";
 import { projects } from "../db/schema.js";
 import { eq } from "drizzle-orm";
@@ -67,6 +68,26 @@ captureRoutes.post("/:slug/entrega/encender", async (c) => {
 captureRoutes.post("/:slug/entrega/apagar", async (c) => {
   try {
     return c.json({ entrega: null, prueba: await withDb((db) => apagarEntrega(db, c.req.param("slug"))) });
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I52-3: El Probador's read for one delivery, and Volver a tomar (the whole pass again, in the background).
+captureRoutes.get("/:slug/probador/:key", async (c) => {
+  try {
+    const r = await withDb((db) => probadorRead(db, c.req.param("slug"), assertKey(c.req.param("key"))));
+    return r ? c.json(r) : c.json({ error: "TASK_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+captureRoutes.post("/:slug/probador/:key/tomar", async (c) => {
+  try {
+    const slug = c.req.param("slug");
+    const key = assertKey(c.req.param("key"));
+    void withDb((db) => probar(db, slug, key)).catch(() => null);
+    return c.json({ ok: true });
   } catch (e) {
     return fail(c, e);
   }

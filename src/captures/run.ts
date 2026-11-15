@@ -43,11 +43,20 @@ export type CaptureInput = {
   branch?: string;
   task_key?: string;
   pages?: string[]; // page keys; default every page
+  // PLA-I52-3: El Probador. The delivery's own views (its muestra) instead of the project's pages, which side of
+  // the pair this run is, and whether a path that is not there yet (404) is a new screen rather than an error.
+  views?: ViewPage[];
+  side?: "antes" | "despues";
+  allow_missing?: boolean;
   viewports?: ViewportName[];
   actor: Actor;
 };
 
-export type CaptureOutcome = { page: string; viewport: ViewportName; status: "ok" | "error"; id: string; error?: string };
+// A muestra's view as a page to shoot: the page fields plus what to do on it before the still.
+export type ViewPage = CapturePage & { acciones?: ({ click: string } | { fill: string; value: string })[] };
+class Missing extends Error {}
+
+export type CaptureOutcome = { page: string; viewport: ViewportName; status: "ok" | "error"; id: string; error?: string; missing?: boolean };
 export type CaptureSummary = {
   run_id: string;
   project: string;
@@ -127,9 +136,10 @@ async function logIn(page: BrowserPage, base: string, s: NonNullable<CaptureSett
 }
 
 // Opens one page (and its follow), checks it is the page and not an error or the login, and takes the still.
-async function shoot(page: BrowserPage, base: string, pg: CapturePage, settings: CaptureSettings): Promise<{ png: Buffer; url: string }> {
+async function shoot(page: BrowserPage, base: string, pg: ViewPage, settings: CaptureSettings, allowMissing = false): Promise<{ png: Buffer; url: string }> {
   let nav = await page.goto(base + pg.path);
   const check = () => {
+    if (allowMissing && nav.status === 404) throw new Missing(`${pg.path} no existe todavía`);
     if (nav.status !== null && nav.status >= 400) throw new Error(`${pg.path} respondió ${nav.status}`);
     const login = settings.session?.login_path;
     if (pg.session && login && new URL(nav.url).pathname === login) throw new Error(`${pg.path} pidió entrar otra vez`);
@@ -141,6 +151,30 @@ async function shoot(page: BrowserPage, base: string, pg: CapturePage, settings:
     if (new URL(href).origin !== new URL(base).origin) throw new Error(`${pg.follow} lleva fuera de la copia de prueba`);
     nav = await page.goto(href);
     check();
+  }
+  for (const a of pg.acciones ?? []) {
+    const done = await page.evaluate<string>(
+      "click" in a
+        ? `(() => {
+            const want = ${JSON.stringify(a.click)}.trim().toLowerCase();
+            const all = [...document.querySelectorAll('button, a, [role=button], [role=tab], label, summary, input[type=submit]')];
+            const el = all.find((e) => (e.innerText || e.value || '').trim().toLowerCase() === want) || all.find((e) => (e.innerText || e.value || '').trim().toLowerCase().includes(want));
+            if (!el) return 'missing';
+            el.click();
+            return 'ok';
+          })()`
+        : `(() => {
+            const el = document.querySelector(${JSON.stringify(a.fill)});
+            if (!el) return 'missing';
+            const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+            Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${JSON.stringify(a.value)});
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            return 'ok';
+          })()`,
+    );
+    if (done === "missing") throw new Error("click" in a ? `En ${pg.path} no encontré «${a.click}»` : `En ${pg.path} no hay ${a.fill}`);
+    await new Promise((res) => setTimeout(res, 400)); // let the page settle after the action
   }
   return { png: await page.screenshot(Boolean(pg.full_page)), url: nav.url };
 }
@@ -159,7 +193,7 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
     if (!t) throw new ToolError("TASK_NOT_FOUND", { key: input.task_key });
     taskId = t.id;
   }
-  const pages = input.pages?.length ? settings.pages.filter((x) => input.pages!.includes(x.key)) : settings.pages;
+  const pages: ViewPage[] = input.views?.length ? input.views : input.pages?.length ? settings.pages.filter((x) => input.pages!.includes(x.key)) : settings.pages;
   if (!pages.length) throw new ToolError("INVALID_FILTER", { field: "pages", allowed: settings.pages.map((x) => x.key) });
   const viewports = input.viewports?.length ? input.viewports : VIEWPORT_NAMES;
   const base = (input.base_url ?? baseUrl(settings)).replace(/\/$/, "");
@@ -168,7 +202,7 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
   const runId = randomUUID();
   const stills: CaptureOutcome[] = [];
 
-  const save = async (pg: CapturePage, vp: ViewportName, r: { png: Buffer; url: string } | { error: string }) => {
+  const save = async (pg: CapturePage, vp: ViewportName, r: { png: Buffer; url: string } | { error: string; missing?: boolean }) => {
     const v = VIEWPORTS[vp];
     const common = {
       projectId: p.id,
@@ -182,12 +216,13 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
       commit,
       branch,
       actor: input.actor,
+      side: input.side ?? null,
     };
     const row =
       "png" in r
         ? await recordStill(db, p.slug, { ...common, height: pngHeight(r.png, v.scale), ok: true, png: r.png, url: r.url })
-        : await recordStill(db, p.slug, { ...common, height: null, ok: false, error: r.error, url: null });
-    stills.push({ page: pg.key, viewport: vp, status: row.status as "ok" | "error", id: row.id, ...(row.error ? { error: row.error } : {}) });
+        : await recordStill(db, p.slug, { ...common, height: null, ok: false, error: r.error, url: null, missing: Boolean(r.missing) });
+    stills.push({ page: pg.key, viewport: vp, status: row.status as "ok" | "error", id: row.id, ...(row.error ? { error: row.error } : {}), ...(row.missing ? { missing: true } : {}) });
   };
   const failAll = async (list: CapturePage[], error: string) => {
     for (const vp of viewports) for (const pg of list) await save(pg, vp, { error });
@@ -239,9 +274,9 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
           continue;
         }
         try {
-          await save(pg, vp, await shoot(browser.page, base, pg, settings));
+          await save(pg, vp, await shoot(browser.page, base, pg, settings, Boolean(input.allow_missing)));
         } catch (e) {
-          await save(pg, vp, { error: short(e) });
+          await save(pg, vp, { error: short(e), missing: e instanceof Missing });
         }
       }
     }

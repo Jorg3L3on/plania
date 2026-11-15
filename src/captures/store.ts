@@ -59,6 +59,8 @@ export type StillInput = {
   commit: string | null;
   branch: string | null;
   actor: Actor;
+  side?: "antes" | "despues" | null; // PLA-I52-3: a delivery's pair
+  missing?: boolean;
 } & ({ ok: true; png: Buffer; url: string | null } | { ok: false; error: string; url: string | null });
 
 export async function recordStill(db: Db, slug: string, s: StillInput): Promise<CaptureStill> {
@@ -83,6 +85,8 @@ export async function recordStill(db: Db, slug: string, s: StillInput): Promise<
       commit: s.commit,
       branch: s.branch,
       actor: s.actor,
+      side: s.side ?? null,
+      missing: Boolean(s.missing),
     })
     .returning();
   return row!;
@@ -183,7 +187,7 @@ export async function latestStills(db: Db, slug: string, opts: { taskKey?: strin
       c.id, c.page_key, c.page_label, c.path, c.viewport, c.status, c.error, c.width, c.height, c.url,
       c.commit, c.branch, t.key as task_key, c.taken_at
     from capture_stills c left join tasks t on t.id = c.task_id
-    where c.project_id = ${p.id} ${taskId ? sql`and c.task_id = ${taskId}` : sql``}
+    where c.project_id = ${p.id} ${taskId ? sql`and c.task_id = ${taskId}` : sql`and c.side is null`}
     order by c.page_key, c.viewport, c.status, c.taken_at desc`);
   const at = (r: { taken_at: Date | string }) => new Date(r.taken_at);
   const pages = new Map<string, CapturePageRead>();

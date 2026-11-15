@@ -221,6 +221,8 @@ export const tasks = pgTable(
     poChecklist: jsonb("po_checklist").$type<PoCheck[]>().notNull().default(sql`'[]'::jsonb`),
     // PLA-I52-1: what Taller hands over with a delivery so Plania can show it (src/captures/muestra.ts). Null until finish.
     muestra: jsonb("muestra").$type<import("../captures/muestra.js").Muestra>(),
+    // PLA-I52-3: where the delivery's pictures stand (src/captures/probador.ts). Null until Plania starts them.
+    probador: jsonb("probador").$type<import("../captures/probador.js").ProbadorState>(),
   },
   (t) => [
     unique("tasks_project_key_unique").on(t.projectId, t.key),
@@ -1226,8 +1228,14 @@ export const captureStills = pgTable(
     branch: text("branch"),
     actor: jsonb("actor").$type<Actor>().notNull(),
     takenAt: timestamp("taken_at", { withTimezone: true }).notNull().defaultNow(),
+    // PLA-I52-3: a delivery's pair. side antes (sandbox) | despues (the delivery's copy); null for the Ventana's.
+    side: text("side"),
+    missing: boolean("missing").notNull().default(false), // antes: the path did not exist (a new screen)
+    diff: jsonb("diff").$type<import("../captures/diff.js").DiffBox | { nueva: true } | { unreadable: true }>(), // despues
   },
   (t) => [
+    index("capture_stills_side_idx").on(t.taskId, t.side, t.pageKey, t.viewport, t.takenAt),
+    check("capture_stills_side_check", sql`${t.side} is null or ${t.side} in ('antes', 'despues')`),
     index("capture_stills_latest_idx").on(t.projectId, t.pageKey, t.viewport, t.takenAt),
     index("capture_stills_task_idx").on(t.taskId, t.takenAt),
     check("capture_stills_status_check", sql`${t.status} in ('ok', 'error')`),

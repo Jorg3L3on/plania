@@ -463,10 +463,10 @@ export async function tomar(db: Db, slug: string): Promise<PruebaRead> {
 
 // ---- La copia de la entrega (PLA-I52-2)
 
-export type EntregaRead = PruebaRead & { key: string | null; branch: string | null; commit: string | null };
+export type EntregaRead = PruebaRead & { key: string | null; branch: string | null; commit: string | null; worktree: string | null };
 
 function readEntrega(c: Copy): EntregaRead {
-  return { ...read(c), key: c.taskKey, branch: c.ref, commit: c.commit };
+  return { ...read(c), key: c.taskKey, branch: c.ref, commit: c.commit, worktree: c.worktree };
 }
 
 // Starts the delivery's copy (its PR branch, next to sandbox's), or returns the one already running for the same

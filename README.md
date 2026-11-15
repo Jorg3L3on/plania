@@ -573,6 +573,8 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `TASK_MISSING_PR_URL` | 400 | Done, Merged or Released on a code ticket without pr_url: pass pr_url, or no_pr_reason when the work had no PR |
 | `TEMPLATE_INVALID` | 400 | create_task: a ticket without scope, or a code/ops ticket without checks (detail: missing) |
 | `TEXT_HAS_DATE` | 400 | decision text starts with a date: the server stamps dates |
+| `MUESTRA_REQUIRED` | 400 | finish: the delivery changes the screen on a project Plania photographs; pass muestra {frase, vistas, pasos} (detail: ui_files, hint) |
+| `MUESTRA_INVALID` | 400 | finish: muestra does not fit its shape (detail: field, hint) |
 | `TOO_LARGE` | 400 | a text field exceeds its limit (detail: field, max) |
 | `VERSION_REQUIRED` | 400 | set_task changes fields without the version you read |
 | `ACTOR_MISMATCH` | 403 | actor.agent or actor.machine disagrees with the agent token's (detail: expected) |

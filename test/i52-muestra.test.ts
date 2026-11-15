@@ -17,6 +17,7 @@ const { makeDb } = await import("../src/db/client.js");
 const { createMcpServer } = await import("../src/mcp/register.js");
 const { instructions, PROTOCOL_VERSION } = await import("../src/mcp/protocol.js");
 const { uiFiles, globToRegex, parseMuestra, DEFAULT_UI_GLOBS } = await import("../src/captures/muestra.js");
+const surface = await import("../src/mcp/agent-surface.js");
 
 type Json = Record<string, any>;
 const A = { agent: "test-agent", session_id: "s-i52", machine: "ci" };
@@ -139,6 +140,15 @@ describe("finish and the muestra", () => {
     assert.deepEqual(t.muestra, MUESTRA);
     const log = await call("list_events", { ...P, key });
     assert.ok(log.events.some((e: Json) => e.type === "task.muestra"));
+  });
+
+  test("a muestra that does not fit its shape is MUESTRA_INVALID, naming the field", async () => {
+    const key = (await call("list_tasks", { ...P, search: "Pantalla de sucursales" })).tasks[0].key;
+    const { db } = makeDb();
+    await assert.rejects(
+      surface.finish(db, { ...P, key, result: pass(), pr_url: PR, muestra: { ...MUESTRA, pasos: ["solo uno"] } }, { actor: A } as never),
+      (e: any) => e.code === "MUESTRA_INVALID" && e.detail.field === "muestra.pasos",
+    );
   });
 
   test("a change that does not touch the screen finishes without one", async () => {

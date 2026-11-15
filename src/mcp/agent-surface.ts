@@ -48,7 +48,7 @@ export type FinishDeps = { changedFiles?: (repo: string, base: string, branch: s
 // The muestra check, before the transaction (it reads git). A code delivery on a project Plania photographs
 // (settings.capture) that touches the screen needs a muestra, passed now or stored by an earlier finish. When
 // Plania cannot read the diff (no repo on this Mac, unknown branch) it does not refuse: the warning says so.
-async function muestraGate(
+async function muestraCheck(
   db: Db,
   p: Awaited<ReturnType<typeof findProject>>,
   input: FinishInput,
@@ -81,7 +81,7 @@ async function muestraGate(
 
 export async function finish(db: Db, input: FinishInput, ctx: Ctx, deps: FinishDeps = {}) {
   const p = await findProject(db, input.project);
-  const gate = await muestraGate(db, p, input, deps);
+  const sample = await muestraCheck(db, p, input, deps);
   return writeTx(db, p, ctx, async (tx, emit) => {
     const t = await requireTask(tx, p.id, input.key);
     if (t.kind !== "ticket") throw new ToolError("INVALID_TRANSITION", { from: t.status, to: "In review", hint: "finish is for tickets; an initiative closes with set_task" });
@@ -101,10 +101,10 @@ export async function finish(db: Db, input: FinishInput, ctx: Ctx, deps: FinishD
       ctx,
     );
     const changed = [...new Set(["results", ...(added.changed.includes("checks") ? ["checks"] : []), ...moved.changed])];
-    if (gate.muestra) {
-      await tx.update(tasks).set({ muestra: gate.muestra }).where(eq(tasks.id, t.id));
+    if (sample.muestra) {
+      await tx.update(tasks).set({ muestra: sample.muestra }).where(eq(tasks.id, t.id));
       changed.push("muestra");
-      await emit("task.muestra", { id: t.id, key: t.key }, { vistas: gate.muestra.vistas.map((v) => v.key) });
+      await emit("task.muestra", { id: t.id, key: t.key }, { vistas: sample.muestra.vistas.map((v) => v.key) });
     }
     if (noPr && !prUrl) {
       changed.push("no_pr");
@@ -117,6 +117,6 @@ export async function finish(db: Db, input: FinishInput, ctx: Ctx, deps: FinishD
       initiative = { key: r.key, version: r.version, next_action: input.note.trim() };
     }
     const { changed: _c, ...rest } = moved;
-    return { ...rest, changed, result: added.result, ...(initiative ? { initiative } : {}), ...(gate.warning ? { warnings: [gate.warning] } : {}) };
+    return { ...rest, changed, result: added.result, ...(initiative ? { initiative } : {}), ...(sample.warning ? { warnings: [sample.warning] } : {}) };
   });
 }
