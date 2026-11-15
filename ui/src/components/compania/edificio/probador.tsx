@@ -4,7 +4,7 @@
 // drag), Escritorio / Teléfono, Resaltar cambios (the box around what changed), Pruébala en vivo (the delivery's own
 // copy), the three steps and what accepting does. Pure parts in lib/probador.ts.
 import { memo, useState, type CSSProperties } from "react";
-import { api, type Decision, type OrgProject, type ParVista, type ProbadorRead } from "@/lib/api";
+import { api, type Decision, type OrgProject, type ParVista, type ProbadorRead, type VivoRead } from "@/lib/api";
 import { KIND_WORD, PROBADOR_WORDS as W, firstVista, frameOf, sideFor, siAceptas, stateLine, type Side, type Width } from "@/lib/probador";
 import { openLayer, setView, viewOf } from "./evidence-store";
 
@@ -82,6 +82,9 @@ export const ProbadorViewer = memo(function ProbadorViewer({ p, d, read }: { p: 
   const [live, setLive] = useState(read.entrega);
   const [starting, setStarting] = useState(false);
   const [retaking, setRetaking] = useState(false);
+  const [vivo, setVivo] = useState<VivoRead | null>(null);
+  const [opening, setOpening] = useState(false);
+  const [pass, setPass] = useState<string | null>(null);
   if (!v) return null;
   const state = stateLine(read);
   // The line to drag only when both sides have a picture at this width; otherwise side by side.
@@ -103,7 +106,19 @@ export const ProbadorViewer = memo(function ProbadorViewer({ p, d, read }: { p: 
       setStarting(false);
     }
   };
-  const liveUrl = live?.phase === "live" && live.url ? live.url + v.path : null;
+  // PLA-I52-5: the live copy opens through Plania's proxy, signed in; on the tailnet when the Mac has Tailscale.
+  const abrir = async () => {
+    setOpening(true);
+    try {
+      setVivo((await api.vivo(p.slug)).vivo);
+    } catch {
+      setVivo({ url: null, local_url: null, tailnet: false, signed_in: false, user: null, error: "No se pudo abrir la copia en vivo", hint: null });
+    } finally {
+      setOpening(false);
+    }
+  };
+  const liveUrl = vivo?.url ? vivo.url + v.path : null;
+  const liveOn = live?.phase === "live";
   const id = (s: string) => `pb-${d.id}-${s}`;
   const viewer = (
     <section className="edi-pb" data-probador={d.id} aria-label="El Probador">
@@ -192,6 +207,10 @@ export const ProbadorViewer = memo(function ProbadorViewer({ p, d, read }: { p: 
           <a className="edi-btn edi-pblive" href={liveUrl} target="_blank" rel="noreferrer" data-control="vivo">
             {W.vivo} ↗
           </a>
+        ) : liveOn ? (
+          <button type="button" className="edi-btn edi-pblive" onClick={abrir} disabled={opening} data-control="abrir-vivo">
+            {opening ? "Entrando…" : W.vivo}
+          </button>
         ) : (
           <button type="button" className="edi-btn" onClick={encender} disabled={starting || !d.ref || live?.phase === "starting"} data-control="encender">
             {starting || live?.phase === "starting" ? W.encendiendo : W.encender}
@@ -212,6 +231,32 @@ export const ProbadorViewer = memo(function ProbadorViewer({ p, d, read }: { p: 
           </button>
         )}
       </div>
+      {vivo && (vivo.error || vivo.hint || !vivo.signed_in) && (
+        <div className="edi-pbvivo" role="status" data-vivo-note>
+          {vivo.error && <span>{vivo.error}.</span>}
+          {!vivo.signed_in && vivo.user && (
+            <span>
+              Entra como <code>{vivo.user}</code>{" "}
+              <button
+                type="button"
+                className="edi-vlink"
+                data-control="contrasena"
+                onClick={async () => {
+                  const r = await api.contrasena(p.slug).catch(() => null);
+                  if (r) {
+                    setPass(r.password);
+                    await navigator.clipboard?.writeText(r.password).catch(() => null);
+                  }
+                }}
+              >
+                Copiar contraseña
+              </button>
+              {pass && <code className="edi-pbpass">{pass}</code>}
+            </span>
+          )}
+          {vivo.hint && <span>{vivo.hint}</span>}
+        </div>
+      )}
     </section>
   );
   return (

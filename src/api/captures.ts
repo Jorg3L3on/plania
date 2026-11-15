@@ -17,6 +17,7 @@ import { ToolError } from "../mcp/errors.js";
 import { apagar, apagarEntrega, encender, entregaRead, pruebaRead, tomar } from "../captures/prueba.js";
 import { warmEntrega } from "../captures/entrega.js";
 import { assertKey, probadorRead, probar } from "../captures/probador.js";
+import { startVivo, vivoRead } from "../captures/vivo.js";
 import { latestStills, stillFile } from "../captures/store.js";
 import { projects } from "../db/schema.js";
 import { eq } from "drizzle-orm";
@@ -61,6 +62,15 @@ captureRoutes.post("/:slug/entrega/encender", async (c) => {
     const r = await withDb((db) => warmEntrega(db, c.req.param("slug"), body.key as string));
     if (!r) return c.json({ error: "INVALID_FILTER", field: "key", hint: "the delivery has no muestra or no branch, or the project has no capture settings" }, 400);
     return c.json({ entrega: r });
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+// PLA-I52-5: En vivo. The delivery's copy, signed in, through Plania's proxy (and the tailnet when there is one).
+captureRoutes.get("/:slug/entrega/vivo", (c) => c.json({ vivo: vivoRead(c.req.param("slug")) }));
+captureRoutes.post("/:slug/entrega/vivo", async (c) => {
+  try {
+    return c.json({ vivo: await withDb((db) => startVivo(db, c.req.param("slug"))) });
   } catch (e) {
     return fail(c, e);
   }

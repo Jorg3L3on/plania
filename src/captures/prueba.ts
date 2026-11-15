@@ -531,6 +531,8 @@ export async function apagar(db: Db, slug: string): Promise<PruebaRead> {
 
 async function stopId(db: Db, id: string): Promise<PruebaRead> {
   const c = copies.get(id);
+  // PLA-I52-5: the live proxy goes with the delivery's copy.
+  if (c?.lane === "entrega") await import("./vivo.js").then((m) => m.stopVivo(c.slug)).catch(() => undefined);
   if (c && c.managed) {
     c.stopping = true;
     copies.delete(id);

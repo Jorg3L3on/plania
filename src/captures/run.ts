@@ -179,6 +179,29 @@ async function shoot(page: BrowserPage, base: string, pg: ViewPage, settings: Ca
   return { png: await page.screenshot(Boolean(pg.full_page)), url: nav.url };
 }
 
+// PLA-I52-5: sign the test user in on a running copy and return the session cookies, for El Probador's live copy.
+// A fresh password every time (never kept), the same login as the stills. Throws with the reason in Spanish.
+export async function sessionCookies(
+  input: { base_url: string; checkout: string; settings: CaptureSettings },
+  deps: CaptureDeps = {},
+): Promise<{ name: string; value: string }[]> {
+  const s = input.settings.session;
+  if (!s) return [];
+  const exec = deps.exec ?? shellExec;
+  const password = (deps.password ?? (() => randomBytes(18).toString("base64url")))();
+  const r = await exec(s.password_command.replaceAll("{user}", s.user), { cwd: input.checkout, stdin: `${password}\n${password}\n`, timeoutMs: 120_000, env: checkoutEnv() });
+  if (r.code !== 0) throw new Error(`No se pudo preparar el usuario de prueba (código ${r.code})`);
+  const browser = await (deps.launch ?? launchChrome)();
+  try {
+    await browser.page.setViewport(VIEWPORTS.desktop);
+    const err = await logIn(browser.page, input.base_url.replace(/\/$/, ""), s, password, deps.loginWaitMs ?? LOGIN_WAIT_MS);
+    if (err) throw new Error(err);
+    return (await browser.page.cookies?.()) ?? [];
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
 export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps = {}): Promise<CaptureSummary> {
   const exec = deps.exec ?? shellExec;
   const launch = deps.launch ?? launchChrome;

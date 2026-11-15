@@ -186,7 +186,7 @@ test("I52-4 layer: El Probador opens on the new screen, with views, sides, width
   assert.deepEqual([...layer.matchAll(/aria-pressed="(true|false)" data-side="([^"]+)"/g)].map((m) => [m[2], m[1]]), [["antes", "false"], ["despues", "true"], ["comparar", "false"]]);
   assert.deepEqual([...layer.matchAll(/aria-pressed="(true|false)" data-width="([^"]+)"/g)].map((m) => [m[2], m[1]]), [["desktop", "true"], ["phone", "false"]]);
   assert.ok(layer.includes('src="/api/projects/demo/captures/s-d.png"'));
-  assert.match(layer, /href="http:\/\/localhost:3001\/panel\/sucursales"[^>]*data-control="vivo"/);
+  assert.match(layer, /data-control="abrir-vivo">Pruébala en vivo</, "the delivery's copy is on: one click opens it signed in (PLA-I52-5)");
   assert.ok(unq(text(layer)).includes("Pruébala en 3 pasos · 0 de 3"));
   assert.ok(unq(text(layer)).includes("Pasa a sandbox, tu copia de prueba."));
   assert.match(layer, /role="switch" class="edi-sw" aria-checked="true"[^>]*data-control="resaltar"/);
