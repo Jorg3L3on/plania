@@ -77,10 +77,15 @@ export type BuildingProps = {
   onLeg?: (slug: string, key: string, el: HTMLElement) => void;
   // PLA-I47-6: a tap outside the sheet closes La ficha on a phone.
   onFichaClose?: () => void;
+  // PLA-I48: the open floor's level, its switch and its Máquinas level; the floors whose app is on (rail lights).
+  nivel?: "trabajo" | "maquinas";
+  liftFor?: (p: OrgProject) => ReactNode;
+  maquinasFor?: (p: OrgProject, ask: ReactNode) => ReactNode;
+  appsOn?: string[];
 };
 
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore, fila, ficha, fichaOpen, onLeg, onFichaClose }: BuildingProps) => {
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore, fila, ficha, fichaOpen, onLeg, onFichaClose, nivel, liftFor, maquinasFor, appsOn }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
   const open = openFloor(floors, basement, piso);
@@ -119,7 +124,7 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
         </div>
       ) : (
         <div className="edi-bld" data-open={open?.slug} data-zoom={office ? "out" : "in"} data-ficha={ficha && !office ? (fichaOpen ? "open" : "closed") : undefined}>
-          <Tower floors={floors} basement={basement} decisions={decisions} projects={company.projects} open={open?.slug ?? null} officeOpen={!!office} companyPaused={paused} onPiso={onPiso} onOffice={onOffice} onNew={onNew} />
+          <Tower floors={floors} basement={basement} decisions={decisions} projects={company.projects} appsOn={appsOn} open={open?.slug ?? null} officeOpen={!!office} companyPaused={paused} onPiso={onPiso} onOffice={onOffice} onNew={onNew} />
           {/* Tu oficina: what waits on the owner across floors, over the floor while open. */}
           {!office && (
             <div className="edi-office" data-office={officeOpen ? "open" : "closed"} hidden={!officeOpen}>
@@ -165,6 +170,9 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
               fila={isOff ? undefined : fila}
               ficha={!!ficha}
               onLeg={onLeg ? (key, el) => onLeg(open.slug, key, el) : undefined}
+              nivel={nivel}
+              lift={liftFor?.(open)}
+              maquinas={maquinasFor ? (ask) => maquinasFor(open, ask) : undefined}
               resume={
                 isOff && onResume ? (
                   <button type="button" className="edi-btn" disabled={resuming === open.slug} onClick={() => onResume(open.slug)} data-control="reanudar">

@@ -14,6 +14,8 @@ export const VIEWPORT_NAMES = Object.keys(VIEWPORTS) as ViewportName[];
 // A test account only: a reserved test domain (RFC 2606 / 6761), so a real person's address never fits.
 const TEST_USER = /^[a-z0-9._%+-]+@([a-z0-9-]+\.)*(example\.(com|org|net)|[a-z0-9-]+\.(test|example|invalid|localhost))$/i;
 const PATH = /^\/[^\s]*$/;
+// PLA-I48-3: the same rule for code that acts on a stored user (Cómo probarla's password).
+export const isTestUser = (user: string): boolean => TEST_USER.test(user);
 const PAGE_KEY = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 const page = z

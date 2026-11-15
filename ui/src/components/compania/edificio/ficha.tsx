@@ -12,7 +12,7 @@ import { rumboText } from "@/lib/v2";
 import { Steps } from "./route";
 
 export type Load<T> = { status: "idle" | "loading" | "error" | "ok"; data?: T; retry?: () => void };
-export type FichaSlots = { member?: ReactNode; plan?: ReactNode; sumar?: ReactNode; app?: ReactNode; solo?: ReactNode; last?: ReactNode };
+export type FichaSlots = { member?: ReactNode; plan?: ReactNode; sumar?: ReactNode; app?: ReactNode; solo?: ReactNode; last?: ReactNode; maq?: ReactNode };
 
 const STAGES = ["idea", "research", "design", "planning", "ready"] as const;
 const STAGE_WORD: Record<string, string> = { idea: "Idea", research: "Investigación", design: "Diseño", planning: "Planeación", ready: "Lista" };
@@ -365,6 +365,10 @@ const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone }: { p: Org
           {slots.app ?? <Empty>Este proyecto no tiene app que mirar.</Empty>}
         </>
       );
+    // PLA-I48-5/6: the Máquinas kinds are drawn by the page (maquinas-ficha.tsx), which holds their reads.
+    case "maq":
+    case "maq-tabla":
+      return slots.maq ?? <Empty>Baja a Máquinas para ver esto.</Empty>;
   }
 };
 
