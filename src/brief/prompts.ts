@@ -3,7 +3,7 @@
 // src/runner/limits.ts: the project doc "Prompt: Morning brief" on the prompts project is appended to system.md,
 // and a project doc "Idea persona" on any project is that project's persona in pass B ({{PERSONAS}}).
 import { readFileSync } from "node:fs";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { docs, projects } from "../db/schema.js";
 import type { Q } from "../mcp/tx.js";
 
@@ -171,8 +171,34 @@ export function briefPrompt(v: { factsPath: string; maxItemsPerApp: number }): s
   return render(readPrompt("brief.md"), { FACTS_PATH: v.factsPath, MAX_ITEMS_PER_APP: String(v.maxItemsPerApp) });
 }
 
-export function ideasPrompt(v: { ideasPerProject: number | string; personas: Persona[] }): string {
-  return render(readPrompt("ideas.md"), { IDEAS_PER_PROJECT: String(v.ideasPerProject), PERSONAS: personasBlock(v.personas) });
+export type DiscardedIdea = { app: string; title: string; reason: string; note: string | null };
+
+/** PLA-I49-6: the ideas the owner discarded in the last 60 days, one line each, for pass B to leave alone. */
+export function discardedBlock(list: DiscardedIdea[]): string {
+  if (!list.length) return "   (none)";
+  return list.map((d) => `   - ${d.app || "cross"}: ${d.title} (${d.reason.replace(/_/g, " ")}${d.note ? `: ${d.note}` : ""})`).join("\n");
+}
+
+export function ideasPrompt(v: { ideasPerProject: number | string; personas: Persona[]; discarded?: DiscardedIdea[] }): string {
+  return render(readPrompt("ideas.md"), { IDEAS_PER_PROJECT: String(v.ideasPerProject), PERSONAS: personasBlock(v.personas), DISCARDED: discardedBlock(v.discarded ?? []) });
+}
+
+/** Discards from brief_actions, newest first, one per title (src/brief/ideas.ts discardedIdeas, kept here to avoid an import cycle). */
+async function loadDiscarded(db: Q, now = new Date()): Promise<DiscardedIdea[]> {
+  const since = new Date(now.getTime() - 60 * 86_400_000).toISOString();
+  const rows = await db.execute<{ result: Record<string, unknown> | null }>(sql`
+    select outcome->'result' as result from brief_actions
+    where action = 'discard' and undone_at is null and outcome->>'status' = 'done' and created_at >= ${since}::timestamptz
+    order by created_at desc limit 200`);
+  const seen = new Set<string>();
+  const out: DiscardedIdea[] = [];
+  for (const r of rows.rows) {
+    const x = (r.result ?? {}) as { app?: string; title?: string; reason?: string; note?: string | null };
+    if (!x.title || seen.has(x.title.toLowerCase())) continue;
+    seen.add(x.title.toLowerCase());
+    out.push({ app: x.app ?? "", title: x.title, reason: x.reason ?? "other", note: x.note ?? null });
+  }
+  return out;
 }
 
 export function poPlanIdeasPrompt(v: { briefDate: string; requestId: string; projectSlug: string; ideas: PlanIdea[] }): string {
@@ -198,5 +224,5 @@ export async function loadPassPrompts(
   if (pass === "brief") return { system, prompt: briefPrompt(v) };
   const found = await loadPersonas(db, v.projects.map((p) => p.id));
   const personas = v.projects.flatMap((p) => (found.has(p.id) ? [{ id: p.id, name: p.name, markdown: found.get(p.id)! }] : []));
-  return { system, prompt: ideasPrompt({ ideasPerProject: v.ideasPerProject, personas }) };
+  return { system, prompt: ideasPrompt({ ideasPerProject: v.ideasPerProject, personas, discarded: await loadDiscarded(db) }) };
 }

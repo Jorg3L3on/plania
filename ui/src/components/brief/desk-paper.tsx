@@ -27,6 +27,7 @@ export const INK: Record<ActionId, "go" | "route" | "wait" | "no" | "stop"> = {
   put_first: "route",
   hold: "wait",
   fix_finding: "go",
+  close_idea: "stop",
   later: "wait",
   dismiss: "no",
   give_to_po: "route",

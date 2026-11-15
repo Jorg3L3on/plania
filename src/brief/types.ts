@@ -64,6 +64,8 @@ export const Idea = z.object({
   why: z.string().min(1).max(400),
   source: z.string(),
   flags: z.array(z.string().regex(IDEA_FLAG)).optional(),
+  // PLA-I49-6: in how many earlier briefs nobody acted on it (shown as "seen N days"; dropped after 3).
+  seen: z.number().int().min(1).max(10).optional(),
 });
 export type Idea = z.infer<typeof Idea>;
 
@@ -98,7 +100,7 @@ export type BriefData = z.infer<typeof BriefData>;
 // merge.ts keeps only handles that are in the facts. targets are the server's, never Claude's.
 export const PassItem = Item.omit({ id: true, targets: true }).extend({ action: ItemAction.optional(), about: z.array(z.string().max(200)).max(8).optional() });
 export type PassItem = z.infer<typeof PassItem>;
-export const PassIdea = Idea.omit({ id: true, code: true, source: true });
+export const PassIdea = Idea.omit({ id: true, code: true, source: true, seen: true });
 export type PassIdea = z.infer<typeof PassIdea>;
 export const BriefPassOutput = z.object({ items: z.array(PassItem).max(60), notes: z.array(z.string()).max(5).optional() });
 export const IdeasPassOutput = z.object({ ideas: z.array(PassIdea).min(1).max(40) });

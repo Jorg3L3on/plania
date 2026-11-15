@@ -17,7 +17,7 @@ export type BriefApp = { id: string; name: string; color: Slot };
 export type TargetKind = "question" | "step" | "release" | "pr" | "ticket" | "initiative" | "idea" | "runs" | "env" | "finding";
 export type Target = { kind: TargetKind; project: string; key?: string; id?: string; pr?: number; env?: string; code?: string };
 export type Item = { id: string; app: string; status: Status; ref?: string; title: string; detail?: string; url?: string; action?: string; targets?: Target[] };
-export type Idea = { id: string; code: string; app: string; title: string; why: string; source: string; flags?: string[] };
+export type Idea = { id: string; code: string; app: string; title: string; why: string; source: string; flags?: string[]; seen?: number };
 export type BriefSource = { name: "plania" | "github" | "claude_brief" | "claude_ideas"; ok: boolean; note?: string };
 export type BriefMode = "full" | "partial" | "facts_only";
 export type BriefLanguage = "en" | "es";
@@ -120,7 +120,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 // PLA-I49-3/4: a row's live state and the act API (src/brief/act.ts, src/brief/actions.ts).
-export type ActionId = "answer" | "step_done" | "add_to_pr" | "publish" | "accept_pr" | "request_changes" | "resume_runs" | "postpone" | "put_first" | "hold" | "fix_finding" | "later" | "dismiss" | "give_to_po" | "start_now" | "start_building";
+export type ActionId = "answer" | "step_done" | "add_to_pr" | "publish" | "accept_pr" | "request_changes" | "resume_runs" | "postpone" | "put_first" | "hold" | "fix_finding" | "close_idea" | "later" | "dismiss" | "give_to_po" | "start_now" | "start_building";
 export type ActionLevel = "instant" | "confirm" | "wake";
 // PLA-I49-5: a wake action says who wakes and about how long before it runs.
 export type WakeInfo = { agent: string | null; role: string | null; low: number; high: number; paused: boolean; company_paused: boolean; busy: boolean };
@@ -139,8 +139,15 @@ export type Live =
   | { kind: "env"; env: string; commit: string | null; updated_at: string }
   | { kind: "finding"; code: string; key: string | null; present: boolean; id: string | null; fixable: boolean; detail: string | null };
 export type ItemState = { state: RowState; line: string | null; actions: RowAction[]; action_id: string | null; undo: boolean; until?: string | null; live?: Live | null; at?: string | null; action?: ActionId | null };
-export type BriefStateReply = { brief_id: string; read_only: boolean; items: Record<string, ItemState> };
-export type ActRequest = { brief_id: string; item_id: string; action: ActionId; target?: number; input?: Record<string, unknown>; request_id: string };
+// PLA-I49-6: an idea card's fate, and the Open Plania ideas of the brief's projects.
+export type IdeaFate = "open" | "kept" | "discarded" | "research" | "sketch" | "planned";
+export type IdeaCardState = { state: IdeaFate; line: string | null; key: string | null; action_id: string | null; undo: boolean; at: string | null; project: string; paused: boolean };
+export type IdeaInMotion = { project: string; key: string; title: string; stage: string | null; next: "sketch_ready" | "research_ready" | "planned" | "in_motion"; sketch: boolean; research: boolean; doc_url: string | null };
+export type IdeaAction = "keep" | "discard" | "research" | "sketch" | "plan";
+export const DISCARD_REASONS = ["not_now", "not_for_product", "exists", "too_big", "costs_money", "other"] as const;
+export type DiscardReason = (typeof DISCARD_REASONS)[number];
+export type BriefStateReply = { brief_id: string; read_only: boolean; items: Record<string, ItemState>; ideas?: Record<string, IdeaCardState>; in_motion?: IdeaInMotion[] };
+export type ActRequest = { brief_id: string; item_id: string; action: ActionId | IdeaAction; target?: number; input?: Record<string, unknown>; request_id: string };
 export type ActReply =
   | { status: "done"; action_id: string; line: string; undo: boolean; state: ItemState; replay?: boolean }
   | { status: "stale"; line: string | null; live: Live | null; state: ItemState }
@@ -427,26 +434,6 @@ export function writeCollapsed(v: Record<string, boolean>) {
 export const runMinutes = (startedAt: string, now: number): number => Math.max(1, Math.round((now - new Date(startedAt).getTime()) / 60_000));
 
 // ---- PLA-I42-3: Today's ideas and the send bar (spec §8 items 4 and 6; pure, for tests)
-
-export type IdeaGroup = { app: BriefApp; ideas: Idea[] };
-
-/** Ideas grouped per app in the brief's app order (apps without ideas left out), the app filter applied, checked ideas hidden in "open". */
-export function ideaGroups(data: BriefData, o: { app: string | null; view: BriefView; checks: string[] }): IdeaGroup[] {
-  const checked = new Set(o.checks);
-  const known = new Set(data.apps.map((a) => a.id));
-  const appOf = (id: string) => (known.has(id) ? id : CROSS);
-  const groups = data.apps.map((app) => ({
-    app,
-    ideas: data.ideas.filter((i) => appOf(i.app) === app.id && (o.view === "all" || !checked.has(i.id))),
-  }));
-  return groups.filter((g) => g.ideas.length > 0 && (!o.app || g.app.id === o.app));
-}
-
-/** The reply for the selected ideas in the brief's order, e.g. "yes W1 Z3". */
-export function replyText(data: BriefData, selected: ReadonlySet<string>): string {
-  const codes = data.ideas.filter((i) => selected.has(i.id)).map((i) => i.code);
-  return [data.reply.prefix || "yes", ...codes].join(" ");
-}
 
 /** One idea flag as a caption key and its argument: "overlap:FIL-IDEA12" → ["overlap", "FIL-IDEA12"]. Unknown flags are dropped. */
 export type FlagKey = "cost" | "outside_service" | "legal" | "repo_change" | "big" | "overlap";

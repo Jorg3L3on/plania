@@ -7,18 +7,23 @@ import { z } from "zod";
 import type { Db } from "../db/client.js";
 import { agentRuns, agents, briefActions, briefChecks, morningBriefs, projects, tasks, type BriefAction, type BriefActionOutcome, type MorningBrief } from "../db/schema.js";
 import { webCtx, writeTx } from "../mcp/tx.js";
+import { setTask } from "../mcp/writes.js";
 import { homeSlug } from "../runner/threads.js";
 import { ACTION_IDS, ANY_ROW, actionsFor, handledLine, live, REGISTRY, ROW_ACTIONS, undoRun, wakeInfo, type ActionId, type Level, type Live, type WakeInfo } from "./actions.js";
 import { localDateIn } from "./pipeline.js";
+import { IDEA_ACTIONS, IDEA_INPUT, ideaProject, ideaRecord, ideasInMotion, isIdeaId, runIdea, type IdeaAction, type IdeaInMotion } from "./ideas.js";
 import { loadBriefSettings, resolveBriefSettings } from "./settings.js";
-import { Target, type Item } from "./types.js";
+import { Target, type Idea as IdeaRow, type Item } from "./types.js";
 
 export type RowState = "open" | "handled" | "later" | "dismissed" | "gone";
 // wake: for a wake action, who wakes, about how long and whether runs are paused (the cost line before it runs).
 export type RowAction = { id: ActionId; level: Level; undo: boolean; target: number | null; wake?: WakeInfo | null };
 // live: the main target as it is now (the page's evidence); at and action: when and how the owner handled it here.
 export type ItemState = { state: RowState; line: string | null; actions: RowAction[]; action_id: string | null; undo: boolean; until?: string | null; live?: Live | null; at?: string | null; action?: ActionId | null };
-export type BriefStateReply = { brief_id: string; read_only: boolean; items: Record<string, ItemState> };
+// PLA-I49-6: an idea card's fate and the Plania idea it became.
+export type IdeaFate = "open" | "kept" | "discarded" | "research" | "sketch" | "planned";
+export type IdeaCardState = { state: IdeaFate; line: string | null; key: string | null; action_id: string | null; undo: boolean; at: string | null; project: string; paused: boolean };
+export type BriefStateReply = { brief_id: string; read_only: boolean; items: Record<string, ItemState>; ideas: Record<string, IdeaCardState>; in_motion: IdeaInMotion[] };
 
 export type ActReply =
   | { status: "done"; action_id: string; line: string; undo: boolean; state: ItemState; replay?: boolean }
@@ -138,7 +143,101 @@ export async function briefState(db: Db, briefId: string, env: NodeJS.ProcessEnv
   const lang = String(b.data.language ?? "en");
   const out: Record<string, ItemState> = {};
   for (const i of items) out[i.id] = await stateOfItem(db, b, i, acts.get(i.id), checked.has(i.id), today, ro, lang, env);
-  return { brief_id: b.id, read_only: ro, items: out };
+  const ideas: Record<string, IdeaCardState> = {};
+  for (const idea of ideasOf(b)) ideas[idea.id] = await ideaCardState(db, b, idea, ro, env);
+  const slugs = [...new Set((Array.isArray(b.data.apps) ? (b.data.apps as { id: string }[]) : []).map((a) => (a.id === "cross" ? homeSlug(env) : a.id)))];
+  // Ideas in motion: Open Plania ideas of the brief's projects, except the ones this brief's cards already show.
+  const shown = new Set(Object.values(ideas).map((x) => x.key).filter(Boolean));
+  const in_motion = (await ideasInMotion(db, slugs)).filter((m) => !shown.has(m.key));
+  return { brief_id: b.id, read_only: ro, items: out, ideas, in_motion };
+}
+
+const ideasOf = (b: MorningBrief): IdeaRow[] => (Array.isArray(b.data.ideas) ? (b.data.ideas as IdeaRow[]).filter((i) => typeof i?.id === "string") : []);
+const FATE: Record<IdeaAction, IdeaFate> = { keep: "kept", discard: "discarded", research: "research", sketch: "sketch", plan: "planned" };
+
+async function ideaCardState(db: Db, b: MorningBrief, idea: IdeaRow, ro: boolean, env: NodeJS.ProcessEnv): Promise<IdeaCardState> {
+  const [act] = await db
+    .select()
+    .from(briefActions)
+    .where(and(eq(briefActions.itemId, idea.id), isNull(briefActions.undoneAt), sql`${briefActions.outcome}->>'status' = 'done'`))
+    .orderBy(desc(briefActions.createdAt))
+    .limit(1);
+  const project = ideaProject(idea, env);
+  const [pr] = await db.select({ paused: projects.runsPaused }).from(projects).where(eq(projects.slug, project)).limit(1);
+  const paused = !!pr?.paused;
+  if (!act) return { state: "open", line: null, key: null, action_id: null, undo: false, at: null, project, paused };
+  const r = (act.outcome.result ?? {}) as { key?: string | null };
+  const record = r.key ? await ideaRecord(db, idea, env) : null;
+  const where = record ? ` · ${record.key}${record.stage ? ` · ${record.stage}` : ""}${record.status !== "Open" ? ` · ${record.status}` : ""}` : "";
+  return {
+    state: FATE[act.action as IdeaAction] ?? "kept",
+    line: `${act.outcome.line ?? ""}${where}`,
+    key: r.key ?? null,
+    action_id: act.id,
+    undo: !ro && (act.action === "keep" || act.action === "discard"),
+    at: act.createdAt.toISOString(),
+    project,
+    paused,
+  };
+}
+
+async function actOnIdea(db: Db, b: MorningBrief, body: ActBody, env: NodeJS.ProcessEnv): Promise<ActReply | ActError> {
+  const idea = ideasOf(b).find((i) => i.id === body.item_id);
+  if (!idea) return { error: "ITEM_NOT_FOUND", hint: "That idea is not in this brief.", http: 404 };
+  if (!(IDEA_ACTIONS as readonly string[]).includes(body.action)) return { error: "INVALID_ACTION", hint: "Ideas take keep, discard, research, sketch or plan.", http: 400 };
+  const action = body.action as IdeaAction;
+  const parsed = IDEA_INPUT[action].safeParse(body.input ?? {});
+  if (!parsed.success) return { error: "INVALID_INPUT", hint: parsed.error.issues.map((i) => i.message).join("; "), http: 400 };
+  const lang = String(b.data.language ?? "en");
+  const ro = false;
+  const now = await ideaCardState(db, b, idea, ro, env);
+  // A card already decided is stale; keep on a kept idea is a no-op answered as stale too.
+  if (now.state !== "open" && !(now.state === "kept" && action !== "keep")) return { status: "stale", line: now.line, live: null, state: ideaAsItemState(now) };
+  const [row] = await db
+    .insert(briefActions)
+    .values({ briefId: b.id, itemId: idea.id, action, target: null, input: parsed.data, requestId: body.request_id, outcome: { status: "running" } })
+    .onConflictDoNothing({ target: briefActions.requestId })
+    .returning();
+  if (!row) {
+    const [other] = await db.select().from(briefActions).where(eq(briefActions.requestId, body.request_id)).limit(1);
+    return replayOf(other!);
+  }
+  let outcome: BriefActionOutcome;
+  try {
+    const out = await runIdea(db, b, idea, action, parsed.data, lang, env);
+    outcome = "error" in out ? { status: "failed", error: out.error, hint: out.hint } : { status: "done", line: out.line, result: out.result };
+  } catch (e) {
+    outcome = { status: "failed", error: "ACTION_FAILED", hint: e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300) };
+  }
+  await db.update(briefActions).set({ outcome }).where(eq(briefActions.id, row.id));
+  const asItem = { id: idea.id, app: idea.app, status: "next", title: idea.title } as Item;
+  const key = (outcome.result as { key?: string } | undefined)?.key;
+  await emitAction(db, row, asItem, { kind: "idea", project: ideaProject(idea, env), ...(key ? { key } : {}) }, outcome, env);
+  if (outcome.status === "failed") return { status: "failed", error: outcome.error ?? "FAILED", hint: outcome.hint ?? "", action_id: row.id };
+  const st = await ideaCardState(db, b, idea, false, env);
+  return { status: "done", action_id: row.id, line: outcome.line ?? "", undo: action === "keep" || action === "discard", state: ideaAsItemState(st) };
+}
+
+const ideaAsItemState = (s: IdeaCardState): ItemState => ({ state: s.state === "open" ? "open" : "handled", line: s.line, actions: [], action_id: s.action_id, undo: s.undo, at: s.at, action: null });
+
+/** Undo Keep (the idea it made closes, Won't do) or Discard (a record it closed opens again). */
+async function undoIdea(db: Db, row: BriefAction, b: MorningBrief, env: NodeJS.ProcessEnv): Promise<{ status: "undone"; line: string; state: ItemState } | ActError> {
+  const r = (row.outcome.result ?? {}) as { key?: string | null; project?: string; created?: boolean };
+  const lang = String(b.data.language ?? "en");
+  const es = lang === "es";
+  const idea = ideasOf(b).find((i) => i.id === row.itemId);
+  const project = r.project ?? (idea ? ideaProject(idea, env) : null);
+  if (r.key && project) {
+    const [t] = await db.select().from(tasks).where(and(eq(tasks.key, r.key))).limit(1);
+    const tool = { ...webCtx, tool: "screen.brief_undo_idea" };
+    if (row.action === "keep" && r.created && t?.status === "Open") await setTask(db, { project, key: r.key, status: "Won't do", version: t.version, reason: "Deshecho desde el brief." } as never, tool);
+    if (row.action === "discard" && t?.status === "Won't do") await setTask(db, { project, key: r.key, status: "Open", version: t.version, reason: "Descarte deshecho desde el brief." } as never, tool);
+  }
+  const done = await db.update(briefActions).set({ undoneAt: sql`now()` }).where(and(eq(briefActions.id, row.id), isNull(briefActions.undoneAt))).returning({ id: briefActions.id });
+  if (!done.length) return { error: "ALREADY_UNDONE", hint: "That was already undone.", http: 409 };
+  const line = es ? "Deshecho" : "Undone";
+  const st = idea ? await ideaCardState(db, b, idea, false, env) : null;
+  return { status: "undone", line, state: st ? ideaAsItemState(st) : { state: "open", line: null, actions: [], action_id: null, undo: false } };
 }
 
 // ---- Act
@@ -147,7 +246,7 @@ export const ActBody = z
   .object({
     brief_id: z.string().uuid(),
     item_id: z.string().min(1).max(200),
-    action: z.enum(ACTION_IDS),
+    action: z.enum([...ACTION_IDS, ...IDEA_ACTIONS]),
     // The index of one of the item's targets (default its main one, 0), or the target itself.
     target: z.union([z.number().int().min(0).max(3), Target]).optional(),
     input: z.record(z.string(), z.unknown()).optional(),
@@ -194,16 +293,19 @@ export async function act(db: Db, body: ActBody, env: NodeJS.ProcessEnv = proces
   const [b] = await db.select().from(morningBriefs).where(eq(morningBriefs.id, body.brief_id)).limit(1);
   if (!b) return { error: "BRIEF_NOT_FOUND", hint: "That brief does not exist.", http: 404 };
   if (await readOnly(db, b)) return { error: "READ_ONLY", hint: "A past day's brief shows what happened; act on today's.", http: 409 };
+  if (isIdeaId(body.item_id)) return actOnIdea(db, b, body, env);
   const item = itemsOf(b).find((i) => i.id === body.item_id);
   if (!item) return { error: "ITEM_NOT_FOUND", hint: "That row is not in this brief.", http: 404 };
-  const def = REGISTRY[body.action];
+  if (!(ACTION_IDS as readonly string[]).includes(body.action)) return { error: "INVALID_ACTION", hint: "That action is for ideas.", http: 400 };
+  const actionId = body.action as ActionId;
+  const def = REGISTRY[actionId];
   const targets = targetsOf(item);
   let t: Target | null;
   if (typeof body.target === "number") t = targets[body.target] ?? null;
   else if (body.target) t = targets.find((x) => same(x, body.target as Target)) ?? null;
   else t = targets[0] ?? null;
   if (body.target !== undefined && !t) return { error: "TARGET_NOT_IN_ROW", hint: "That object is not one this row is about.", http: 400 };
-  if (!t && !ANY_ROW.has(body.action)) return { error: "NO_TARGET", hint: "This row is about nothing Plania can act on.", http: 409 };
+  if (!t && !ANY_ROW.has(actionId)) return { error: "NO_TARGET", hint: "This row is about nothing Plania can act on.", http: 409 };
   const parsed = def.input.safeParse(body.input ?? {});
   if (!parsed.success) return { error: "INVALID_INPUT", hint: parsed.error.issues.map((i) => i.message).join("; "), http: 400 };
   const input = { ...parsed.data };
@@ -218,7 +320,7 @@ export async function act(db: Db, body: ActBody, env: NodeJS.ProcessEnv = proces
 
   // Re-check against Plania now: a target that moved meanwhile is "stale", with what it is now.
   const l = t ? await live(db, t) : null;
-  if (!ANY_ROW.has(body.action) && !def.applies(t, l)) return { status: "stale", line: l ? handledLine(l, { itemStatus: item.status, briefAt: b.generatedAt, lang }) : null, live: l, state: await refresh() };
+  if (!ANY_ROW.has(actionId) && !def.applies(t, l)) return { status: "stale", line: l ? handledLine(l, { itemStatus: item.status, briefAt: b.generatedAt, lang }) : null, live: l, state: await refresh() };
 
   // Claim the request first: of two concurrent calls with the same request_id, one inserts and the other replays.
   const [row] = await db
@@ -258,6 +360,13 @@ export async function undo(db: Db, actionId: string, env: NodeJS.ProcessEnv = pr
   const [row] = await db.select().from(briefActions).where(eq(briefActions.id, actionId)).limit(1);
   if (!row) return { error: "ACTION_NOT_FOUND", hint: "No such action.", http: 404 };
   if (row.undoneAt) return { error: "ALREADY_UNDONE", hint: "That was already undone.", http: 409 };
+  if (isIdeaId(row.itemId)) {
+    if (!["keep", "discard"].includes(row.action) || row.outcome.status !== "done") return { error: "NOT_UNDOABLE", hint: "This action cannot be undone.", http: 409 };
+    const [ib] = await db.select().from(morningBriefs).where(eq(morningBriefs.id, row.briefId)).limit(1);
+    if (!ib) return { error: "BRIEF_NOT_FOUND", hint: "That brief does not exist.", http: 404 };
+    if (await readOnly(db, ib)) return { error: "READ_ONLY", hint: "A past day's brief is read-only.", http: 409 };
+    return undoIdea(db, row, ib, env);
+  }
   const def = REGISTRY[row.action as ActionId];
   if (!def?.undo || row.outcome.status !== "done") return { error: "NOT_UNDOABLE", hint: "This action cannot be undone.", http: 409 };
   const [b] = await db.select().from(morningBriefs).where(eq(morningBriefs.id, row.briefId)).limit(1);

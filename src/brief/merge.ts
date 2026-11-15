@@ -26,6 +26,8 @@ type Lang = "en" | "es";
 export const CROSS_NAME = "Cross-app";
 export const CROSS_LETTER = "X";
 export const MAX_CROSS_IDEAS = 2;
+/** PLA-I49-6: an idea shown in this many briefs with no action is not shown again. */
+export const IDEA_SEEN_MAX = 3;
 const TITLE_MAX = 90;
 const IDEA_TITLE_MAX = 70;
 const DETAIL_MAX = 600;
@@ -265,6 +267,12 @@ export type MergeInput = {
   settledKeys?: ReadonlySet<string>;
   // PLA-I49-3: item ids the owner set aside from a brief (Not relevant, or Later until a date still ahead).
   setAside?: ReadonlySet<string>;
+  // PLA-I49-6: idea ids the owner already acted on (kept, discarded, sketch, research, plan) leave Today's ideas;
+  // an idea earlier briefs showed this many times without an action is marked, and dropped at IDEA_SEEN_MAX.
+  actedIdeas?: ReadonlySet<string>;
+  ideaSeen?: ReadonlyMap<string, number>;
+  // Plania ideas whose sketch or research came back: one Needs you row each, about that idea.
+  ideasReady?: { project: string; key: string; title: string; next: string; doc_url: string | null }[];
 };
 
 // ---- Items
@@ -446,6 +454,15 @@ export function mergeBrief(input: MergeInput): BriefData {
   for (const e of input.facts?.source_errors ?? []) server.push({ app: CROSS, status: "needs_you", ...t.github(nameOf(e.project), e.detail, e.fix), action: "Open" });
   const paused = new Map<string, string[]>();
   for (const w of input.waitingPaused ?? []) paused.set(w.slug, [...new Set([...(paused.get(w.slug) ?? []), ...w.codes])]);
+  for (const r of input.ideasReady ?? []) {
+    if (r.next !== "sketch_ready" && r.next !== "research_ready") continue;
+    const h = `idea:${r.key}`;
+    if (!ctx.handles!.has(h)) ctx.handles!.set(h, { kind: "idea", project: r.project, key: r.key });
+    const sketch = r.next === "sketch_ready";
+    const title = s.language === "es" ? (sketch ? `Mira el boceto de ${r.title}` : `Lee la investigación de ${r.title}`) : sketch ? `Look at the sketch for ${r.title}` : `Read the research on ${r.title}`;
+    const detail = s.language === "es" ? "Decide qué pasa con la idea: dásela al PO o descártala." : "Decide what happens to the idea: give it to the PO or discard it.";
+    server.push({ app: ctx.apps.has(r.project) ? r.project : CROSS, status: "needs_you", ref: r.key, title: clip(title, TITLE_MAX), detail, ...(r.doc_url ? { url: r.doc_url } : {}), action: "Open", about: [h] });
+  }
   for (const [slug, codes] of paused) {
     if (!codes.length) continue;
     server.push({ app: ctx.apps.has(slug) ? slug : CROSS, status: "needs_you", ...t.turnOn(nameOf(slug), codes), action: "Open", about: [`runs:${slug}`] });
@@ -455,9 +472,18 @@ export function mergeBrief(input: MergeInput): BriefData {
   const cleaned = [...server, ...fromClaude].map((r) => cleanItem(r, ctx, input.settledKeys)).filter((i): i is Item => !!i && !input.setAside?.has(i.id));
   const items = capItems(cleaned, s.max_items_per_app);
 
-  const drafts = ideasOk && input.ideas?.ok ? input.ideas.data.ideas.map((r) => cleanIdea(r, ctx, sourceOf)).filter((d): d is DraftIdea => !!d) : [];
+  const fresh = (d: DraftIdea) => {
+    const id = ideaId(d.app, d.title);
+    return !input.actedIdeas?.has(id) && (input.ideaSeen?.get(id) ?? 0) < IDEA_SEEN_MAX;
+  };
+  const drafts = ideasOk && input.ideas?.ok ? input.ideas.data.ideas.map((r) => cleanIdea(r, ctx, sourceOf)).filter((d): d is DraftIdea => !!d && fresh(d)) : [];
   let ideas = codeIdeas(drafts, ctx, s.ideas_per_project);
-  if (!ideas.length) ideas = codeIdeas(fallbackIdeas(input, ctx), ctx, s.ideas_per_project);
+  if (!ideas.length) ideas = codeIdeas(fallbackIdeas(input, ctx).filter(fresh), ctx, s.ideas_per_project);
+  if (!ideas.length) ideas = codeIdeas(fallbackIdeas({ ...input, openIdeas: [], yesterdayIdeas: [] }, ctx), ctx, s.ideas_per_project);
+  ideas = ideas.map((i) => {
+    const seen = input.ideaSeen?.get(i.id) ?? 0;
+    return seen > 0 ? { ...i, seen } : i;
+  });
 
   const githubOk = !(input.facts?.source_errors.length ?? 0);
   const sources: BriefSource[] = [

@@ -53,11 +53,9 @@ function props(over: Record<string, unknown> = {}) {
     onAct: async () => ({ status: "done" }),
     onUndo: async () => ({}),
     acting: false,
-    onHideIdea: noop,
     selected: new Set(),
     onSelect: noop,
     onClearSelection: noop,
-    onSendIdeas: noop,
     ideaCost: () => ({ bots: 1, low: 10, high: 25 }),
     sending: false,
     plans: new Map(),
@@ -148,4 +146,33 @@ test("labels: the desk table has the same keys in en and es, and a verb and a st
   }
   assert.equal(lib.targetHref({ kind: "ticket", project: "workia", key: "WRK-13" }), "/p/workia?task=WRK-13");
   assert.equal(lib.targetHref({ kind: "pr", project: "plania", pr: 9 }, { kind: "pr", number: 9, state: "open", base: null, url: "", ticket: { key: "PLA-1", status: "In review" }, message_id: null }), "/p/plania?task=PLA-1");
+});
+
+test("PLA-I49-6: an idea paper offers Keep and Discard; the people plan, sketch and research it; Ideas in motion lists Plania ideas", () => {
+  const z1 = data.ideas.find((i: any) => i.code === "Z1");
+  const w1 = data.ideas.find((i: any) => i.code === "W1");
+  const st = {
+    brief_id: "b1",
+    read_only: false,
+    items: {},
+    ideas: { [w1.id]: { state: "kept", line: "Kept in Plania: WRK-IDEA3", key: "WRK-IDEA3", action_id: "a1", undo: true, at: "2026-11-13T13:00:00Z", project: "workia", paused: false } },
+    in_motion: [{ project: "filmia", key: "FIL-IDEA14", title: "Quiniela leaderboard", stage: "design", next: "sketch_ready", sketch: true, research: false, doc_url: "https://claude.ai/artifact/x" }],
+  };
+  const desk2 = (over: Record<string, unknown>) => html(h(desk.BriefDesk, props({ data: { ...data, items: [] }, state: st, ...over })));
+  // Ideas pile: W1 is in motion (kept), FIL-IDEA14 too, then today's ideas without W1.
+  const out = desk2({});
+  assert.match(out, /data-pile="ideas"/);
+  const ideasPile = html(h(desk.BriefDesk, props({ data: { ...data, items: [] }, state: st })));
+  assert.match(ideasPile, /data-paper="d\|/, "with no rows, the first idea is on the paper");
+  assert.match(ideasPile, /data-moving="d\|workia/);
+  assert.match(ideasPile, /data-motion="FIL-IDEA14"[^>]*>|href="https:\/\/claude.ai\/artifact\/x"/);
+  assert.match(text(ideasPile), /Sketch ready/);
+  assert.doesNotMatch(ideasPile, new RegExp(`data-tab="${w1.id.replace(/\|/g, "\\|")}"`), "a kept idea leaves Today's ideas");
+  assert.match(text(ideasPile), /Keep .*Discard/);
+  assert.match(ideasPile, /data-person="po"[^>]*>|Plan it/);
+  for (const v of ["Plan it", "Sketch it", "Research it"]) assert.match(text(ideasPile), new RegExp(v));
+  assert.match(ideasPile, /data-away="keep"/);
+  assert.match(ideasPile, /data-away="discard"/);
+  assert.equal(desk.deskCounts(data, st, [], new Set(), new Set([w1.id])).left, data.items.length + data.ideas.length - 1);
+  void z1;
 });

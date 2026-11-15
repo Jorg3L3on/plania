@@ -39,7 +39,7 @@ import { roleOf } from "../runner/limits.js";
 import type { Target } from "./types.js";
 
 export type Level = "instant" | "confirm" | "wake";
-export const ACTION_IDS = ["answer", "step_done", "add_to_pr", "publish", "accept_pr", "request_changes", "resume_runs", "postpone", "put_first", "hold", "fix_finding", "later", "dismiss", "give_to_po", "start_now", "start_building"] as const;
+export const ACTION_IDS = ["answer", "step_done", "add_to_pr", "publish", "accept_pr", "request_changes", "resume_runs", "postpone", "put_first", "hold", "fix_finding", "close_idea", "later", "dismiss", "give_to_po", "start_now", "start_building"] as const;
 export type ActionId = (typeof ACTION_IDS)[number];
 /** Brief-state actions: they write only brief_actions and fit every row, with or without a target. */
 export const ROW_ACTIONS: ReadonlySet<ActionId> = new Set(["later", "dismiss"]);
@@ -458,6 +458,22 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
         const p = (await projectBySlug(db, t.project))!;
         await fixFinding(db, p, { code: l.code, key: l.key, id: l.id });
         return { line: OUT[lang].fixed(l.code, l.key) };
+      }),
+  },
+  // PLA-I49-6: a Plania idea (its sketch or research came back) discarded from the brief: Won't do, with the reason.
+  close_idea: {
+    id: "close_idea",
+    level: "instant",
+    undo: false,
+    applies: (_t, l) => l?.kind === "idea" && l.status === "Open",
+    input: z.object({ reason: z.string().trim().min(1).max(300).optional() }).strict(),
+    run: (db, t, _l, input, lang) =>
+      guarded(async () => {
+        const p = (await projectBySlug(db, t.project))!;
+        const row = (await taskByKey(db, p.id, t.key))!;
+        const why = typeof input.reason === "string" ? input.reason : "not now";
+        await setTask(db, { project: t.project, key: row.key, status: "Won't do", version: row.version, reason: `Descartada desde el brief: ${why}` } as never, ctxOf("close_idea"));
+        return { line: lang === "es" ? `${row.key} descartada: ${why}` : `${row.key} discarded: ${why}` };
       }),
   },
   later: {

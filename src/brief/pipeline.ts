@@ -22,6 +22,13 @@ import { liveRuns as defaultLiveRuns, releaseReservation, reserveSlot, settleRun
 import { asistenteHome } from "../runner/threads.js";
 import { BRIEF_AGENT, spawnPass as defaultSpawnPass, type BriefPass, type PassOutcome, type SpawnPassDeps, type SpawnPassInput } from "./claude.js";
 import { setAsideItems } from "./act.js";
+import { actedIdeaIds, actedTargetKeys, ideaSeen, ideasInMotion } from "./ideas.js";
+
+/** Plania ideas whose sketch or research came back and no brief row has acted on yet. */
+async function readyIdeas(db: Db, slugs: string[]) {
+  const done = await actedTargetKeys(db);
+  return (await ideasInMotion(db, slugs)).filter((i) => (i.next === "sketch_ready" || i.next === "research_ready") && !done.has(i.key));
+}
 import { briefWindow, buildFacts, type Facts } from "./facts.js";
 import { mergeBrief, projectionLines, type OpenIdea, type PassResult, type WaitingPaused } from "./merge.js";
 import { loadPassPrompts, readSchemaText, type SystemVars } from "./prompts.js";
@@ -420,6 +427,9 @@ async function execute(db: Db, runId: string, opts: RunBriefOptions, deps: RunBr
       waitingPaused: await waitingPaused(db, facts),
       settledKeys: await settledKeys(db, brief?.ok ? brief.data.items : []),
       setAside: await setAsideItems(db, localDate),
+      actedIdeas: await actedIdeaIds(db),
+      ideaSeen: await ideaSeen(db, localDate),
+      ideasReady: await readyIdeas(db, included.map((p) => p.slug)),
     });
 
     // 5. Store, project, prune.

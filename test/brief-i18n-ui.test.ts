@@ -16,8 +16,7 @@ const summary = await load("components/brief/brief-summary.tsx");
 const items = await load("components/brief/brief-items.tsx");
 const header = await load("components/brief/brief-header.tsx");
 const footer = await load("components/brief/brief-footer.tsx");
-const ideas = await load("components/brief/brief-ideas.tsx");
-const bar = await load("components/brief/brief-send-bar.tsx");
+const desk = await load("components/brief/desk.tsx");
 const settings = await load("components/brief/brief-settings.tsx");
 
 const h = React.createElement;
@@ -43,14 +42,12 @@ function shape(t: unknown): unknown {
 function page(language: "en" | "es") {
   const data = { ...sample, language };
   const stamp = i18n.briefStamp(data.generatedAt, data.timezone, data.timezoneLabel, language);
-  const groups = lib.ideaGroups(data, { app: null, view: "open", checks: [] });
   return [
     html(h(header.BriefHeader, { language, stamp, run: null, pending: false, canGenerate: true, onGenerate: noop, history: [], todayDate: null, date: null, onDate: noop, onSettings: noop })),
     html(h(summary.BriefSummary, { data, checks: [], language, view: "open", onView: noop, app: null, onApp: noop })),
     html(h(items.BriefSection, { id: "needs", title: i18n.BRIEF_LABELS[language].needsYou, count: 1 }, h(items.NeedsRow, { item: data.items[0], index: 0, app: data.apps[2], checked: false, readOnly: false, onCheck: noop, language }))),
     html(h(items.BriefSection, { id: "next", title: i18n.BRIEF_LABELS[language].upNext, count: 1 }, h(items.NextRow, { item: { ...data.items[5], url: "https://example.com" }, app: data.apps[0], checked: false, readOnly: false, onCheck: noop, language }))),
-    html(h(ideas.BriefIdeas, { groups, checks: [], selected: new Set(), readOnly: false, onCheck: noop, onSelect: noop, language })),
-    html(h(bar.BriefSendBar, { count: 2, reply: "yes W1 Z1", onClear: noop, language })),
+    html(h(desk.BriefDesk, { data, briefId: "b1", state: undefined, stateLoading: false, checks: [], language, readOnly: false, stamp, run: null, generating: false, canGenerate: true, onGenerate: noop, history: [], todayDate: null, date: null, onDate: noop, onSettings: noop, banner: null, onRetry: noop, onAct: noop, onUndo: noop, acting: false, selected: new Set(), onSelect: noop, onClearSelection: noop, ideaCost: () => null, sending: false, plans: new Map() })),
     html(h(footer.BriefFooter, { data: { ...data, mode: "partial" }, stamp, language })),
   ].join("\n");
 }
@@ -62,7 +59,7 @@ test("the en and es tables have the same keys at every level, settings sheet inc
 
 test("check 1: with language es the page labels are Spanish and the stamp uses Spanish weekday and month", () => {
   const out = text(page("es"));
-  for (const label of ["Te necesita", "Lo siguiente", "Ideas de hoy", "Generar ahora", "Sin marcar", "Todo", "Todas las apps", "Limpiar", "Copiar respuesta", "Faltan algunas partes"]) {
+  for (const label of ["Te necesita", "Lo siguiente", "Te toca", "Generar ahora", "Sin marcar", "Todo", "Todas las apps", "Dáselo a", "Guárdalo", "Bandeja de salida", "Faltan algunas partes"]) {
     assert.ok(out.includes(label), label);
   }
   assert.match(page("es"), /aria-label="Ajustes"/);
@@ -76,7 +73,7 @@ test("check 1: with language es the page labels are Spanish and the stamp uses S
 
 test("check 2: with language en every label is English, and neither language shows the other's labels", () => {
   const en = text(page("en"));
-  for (const label of ["Needs you", "Up next", "Today's ideas", "Generate now", "Not checked", "All apps", "Clear", "Copy reply", "Some parts are missing"]) {
+  for (const label of ["Needs you", "Up next", "Ideas", "Generate now", "Not checked", "All apps", "Hand it to", "Put it away", "Out tray", "Some parts are missing"]) {
     assert.ok(en.includes(label), label);
   }
   assert.equal(i18n.briefStamp("2026-11-13T07:04:12-06:00", "America/Mexico_City", "CDMX", "en"), "Fri · Nov 13 · 07:04 CDMX");
