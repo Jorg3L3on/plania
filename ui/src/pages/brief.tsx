@@ -87,6 +87,7 @@ export function BriefPage() {
           readOnly={readOnly || !!rows.data?.read_only}
           stamp={stamp}
           run={latest.data?.run ?? null}
+          lastRun={date ? null : (latest.data?.last_run ?? null)}
           generating={run.isPending}
           canGenerate={enabled}
           onGenerate={() => run.mutate(undefined)}

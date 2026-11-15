@@ -63,7 +63,9 @@ export type BriefSettingsPatch = Partial<BriefSettings>;
 /** One stored brief: the row's fields plus the page data. */
 export type StoredBrief = { id: string; local_date: string; generated_at: string; trigger: string; mode: BriefMode; data: BriefData };
 export type BriefRun = { id: string; status: "waiting" | "running"; started_at: string; waiting_for_build: boolean };
-export type BriefLatest = { brief: StoredBrief | null; checks: string[]; run: BriefRun | null; plan_id?: string | null; home_project?: string };
+/** PLA-33: the last run failed after the brief on screen was made. kind auth = Claude is not signed in. */
+export type BriefLastRun = { status: "fail"; kind: "auth" | "other"; reason: string; ended_at: string };
+export type BriefLatest = { brief: StoredBrief | null; checks: string[]; run: BriefRun | null; last_run?: BriefLastRun | null; plan_id?: string | null; home_project?: string };
 export type BriefByDate = { brief: StoredBrief; checks: string[] };
 export type BriefHistoryRow = { id: string; local_date: string; generated_at: string; mode: BriefMode; needs: number; next: number; ideas: number };
 /** PLA-I42-4: one project as the settings sheet lists it (brief order, resolved letter and include flags). */

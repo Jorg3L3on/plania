@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   briefApps,
+  fallbackIdeas,
   capItems,
   hasHiddenRef,
   ideaId,
@@ -372,4 +373,21 @@ test("PLA-I49-3: rows the owner set aside (Not relevant, Later) are left out of 
   const data = mergeBrief(inputV2({ brief: { ok: true, data: { items } }, setAside: aside }));
   assert.equal(data.items.length, 5);
   assert.ok(data.items.every((i) => !aside.has(i.id)));
+});
+
+// ---- PLA-33 check 4: the cap counts only ideas nobody acted on
+
+test("PLA-33 check 4: fallbackIdeas with 3 acted open ideas and 2 not acted for one project returns the 2", () => {
+  const i = input({
+    ideas: { ok: false, summary: "error" },
+    openIdeas: [1, 2, 3, 4, 5].map((n) => ({ app: "zigzag", key: `ZIG-IDEA${n}`, title: `Idea ${n}`, summary: null })),
+    actedIdeas: new Set([1, 2, 3].map((n) => ideaId("zigzag", `Idea ${n}`))),
+  });
+  const data = mergeBrief(i);
+  assert.deepEqual(data.ideas.filter((x) => x.app === "zigzag").map((x) => x.title), ["Idea 4", "Idea 5"]);
+  // and the exported function filters first, caps after, with the same predicate
+  const ctxInput = { openIdeas: i.openIdeas, yesterdayIdeas: [], settings: i.settings };
+  const acted = i.actedIdeas!;
+  const out = fallbackIdeas(ctxInput, { apps: new Map(), projects: new Map(i.projects.filter((p) => p.include).map((p) => [p.slug, p])), hidden: [], facts: null, handles: undefined } as never, (d) => !acted.has(ideaId(d.app, d.title)));
+  assert.deepEqual(out.filter((d) => d.app === "zigzag").map((d) => d.title), ["Idea 4", "Idea 5"]);
 });

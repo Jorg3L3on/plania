@@ -20,6 +20,7 @@ import {
   type BriefData,
   type BriefHistoryRow,
   type BriefLanguage,
+  type BriefLastRun,
   type BriefRun,
   type BriefStateReply,
   type Idea,
@@ -83,6 +84,7 @@ export type DeskProps = {
   stamp: string;
   // the sky's tools
   run: BriefRun | null;
+  lastRun?: BriefLastRun | null;
   generating: boolean;
   canGenerate: boolean;
   onGenerate: () => void;
@@ -105,6 +107,15 @@ export type DeskProps = {
   sending: boolean;
   plans: Map<string, PlanIdeaProgress>;
 };
+
+/** HH:MM of an ISO time in the brief's zone. */
+function clockIn(iso: string, tz: string, language: string): string {
+  try {
+    return new Intl.DateTimeFormat(language === "es" ? "es-MX" : "en-US", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso));
+  } catch {
+    return iso.slice(11, 16);
+  }
+}
 
 export function BriefDesk(props: DeskProps) {
   const { data, state, language, readOnly } = props;
@@ -290,6 +301,12 @@ export function BriefDesk(props: DeskProps) {
         </div>
       </header>
 
+      {props.lastRun && (
+        <div className="dk-banner" role="status" data-brief="last-run">
+          <b>{t.runFailedAt(clockIn(props.lastRun.ended_at, data.timezone, language))}</b>
+          <span>{props.lastRun.kind === "auth" ? t.signInFix : props.lastRun.reason}</span>
+        </div>
+      )}
       {data.mode !== "full" && !props.banner && (
         <div className="dk-banner" role="status" data-brief="missing">
           <span>{t.missing}</span>
