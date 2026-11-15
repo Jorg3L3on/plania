@@ -4,10 +4,11 @@
 // accepted alone). Three exits: Aceptar (the floor's move: Ahora's green ActButton, the Tú window's and the phone
 // bar's) · Devolver a Taller (a quick reason and one optional line) · Ver PR. After a return the floor is violet and
 // asks nothing; BackNote is the grey «Ver nota». Stateful pieces are memo components (the tests expand plain ones).
-import { memo, useState } from "react";
+import { memo, useState, type ReactNode } from "react";
 import type { Decision, OrgProject } from "@/lib/api";
 import { EV_WORDS, RETURN_REASONS, evidenceView, returnText } from "@/lib/evidencia";
-import { openLayer, setReturn, useLayer, useQaRead, useReturn } from "./evidence-store";
+import { openLayer, pinsOf, setPins, setReturn, useLayer, usePins, useProbador, useQaRead, useReturn } from "./evidence-store";
+import { ProbadorSide, ProbadorStrip, ProbadorViewer } from "./probador";
 import type { NowActs } from "./now";
 import type { QuestionActs } from "./question";
 
@@ -48,12 +49,15 @@ export const EvidenceActs = memo(function EvidenceActs({ p, d, qacts, front = tr
 // Devolver a Taller: one reason (a tap), one optional line, Devolver. Taller reads «reason: line» as a note.
 export const ReturnSheet = memo(function ReturnSheet({ d, qacts, where = "ahora" }: { d: Decision; qacts?: QuestionActs; where?: "ahora" | "capa" }) {
   const r = useReturn(d.id);
+  const marcas = usePins(d.id);
   if (!r.open || !qacts) return null;
   const busy = busyOn(d, qacts);
   const error = qacts.errors?.[d.id];
   const send = () => {
-    qacts.onAct(d, { action: "cambios", text: returnText(r.reason, r.line) }, "devolver");
+    const list = pinsOf(d.id);
+    qacts.onAct(d, { action: "cambios", text: returnText(r.reason, r.line), ...(list.length ? { marcas: list } : {}) }, "devolver");
     setReturn(d.id, { open: false });
+    setPins(d.id, []);
   };
   return (
     <form
@@ -74,6 +78,11 @@ export const ReturnSheet = memo(function ReturnSheet({ d, qacts, where = "ahora"
           </button>
         ))}
       </div>
+      {marcas.length > 0 && (
+        <p className="edi-pbsent" data-marcas={marcas.length}>
+          Van tus {marcas.length} {marcas.length === 1 ? "marca" : "marcas"}, cada una con su foto.
+        </p>
+      )}
       <input className="edi-pfield" value={r.line} maxLength={300} placeholder={EV_WORDS.line} aria-label="Nota para Taller" onChange={(e) => setReturn(d.id, { line: e.target.value })} disabled={busy} />
       <div className="edi-nacts">
         <button type="submit" className="edi-nact edi-back" data-ev-act="enviar" disabled={busy}>
@@ -92,17 +101,41 @@ export const ReturnSheet = memo(function ReturnSheet({ d, qacts, where = "ahora"
   );
 });
 
+// PLA-I52-6: in the layer, with El Probador, the tiles stack in one right column beside the pictures.
+const EvRight = ({ on, children }: { on: boolean; children: ReactNode }) => (on ? <div className="edi-pbright">{children}</div> : <>{children}</>);
+
 // The tiles, the stills and the switch. Loading: the tiles say so, nothing jumps.
 // inLayer: drawn in Una decisión; while the layer holds this decision, Ahora's copy keeps its sheet closed.
 export const EvidenceBody = memo(function EvidenceBody({ p, d, acts, qacts, inLayer = false }: { p: OrgProject; d: Decision; acts?: NowActs; qacts?: QuestionActs; inLayer?: boolean }) {
   const read = useQaRead(p.slug, d.ref, d.id);
+  // PLA-I52-4: a delivery with a muestra leads with its pictures (El Probador); the QA stills step aside.
+  const prob = useProbador(p.slug, d.ref, d.id);
+  const shown = prob && prob.muestra && prob.vistas.length ? prob : null;
   const layer = useLayer();
   const sheet = inLayer || layer?.id !== d.id;
   const v = evidenceView(read, d);
   const on = !!p.auto_accept?.on;
+  const invisible = !!p.auto_accept?.invisible;
+  // PLA-I52-7: a change with nothing to see says so plainly; one that acts without a screen asks for its result.
+  const kindTile =
+    shown || !d.cambio || d.cambio === "se_ve"
+      ? null
+      : d.cambio === "no_se_ve"
+        ? { title: "Nada cambia en pantalla", sub: "Cambian datos o código por dentro: juzga con las pruebas y la revisión." }
+        : { title: "Cambia lo que hace la app", sub: "No tiene pantalla propia: pide a Taller el resultado (el correo, el archivo) con Pregúntale o Devolver." };
   const busy = acts?.busy === `${p.slug}:auto`;
   return (
-    <div className="edi-ev" data-evidence={d.id} aria-busy={v.loading || undefined}>
+    <div className="edi-ev" data-evidence={d.id} data-probador-on={shown ? "1" : undefined} aria-busy={v.loading || undefined}>
+      {shown && (inLayer ? <ProbadorViewer p={p} d={d} read={shown} /> : <ProbadorStrip p={p} d={d} read={shown} />)}
+      <EvRight on={!!(shown && inLayer)}>
+      {shown && inLayer && <ProbadorSide p={p} d={d} read={shown} />}
+      {kindTile && (
+        <div className="edi-evt" data-ev="cambio" data-cambio={d.cambio ?? undefined}>
+          <p className="edi-peye">Qué cambia</p>
+          <b>{kindTile.title}</b>
+          <span>{kindTile.sub}</span>
+        </div>
+      )}
       <div className="edi-evt" data-ev="tests">
         <p className="edi-peye">Pruebas</p>
         <b data-ok={v.tests.ok === null ? undefined : v.tests.ok ? "1" : "0"}>{v.loading ? "…" : v.tests.value}</b>
@@ -128,7 +161,7 @@ export const EvidenceBody = memo(function EvidenceBody({ p, d, acts, qacts, inLa
           <span>{v.loading ? "" : "El PO no escribió una para este paso"}</span>
         )}
       </div>
-      {v.stills.length > 0 && (
+      {!shown && v.stills.length > 0 && (
         <div className="edi-evt edi-evshots" data-ev="stills">
           <p className="edi-peye">Capturas de la entrega</p>
           <span className="edi-evpair">
@@ -143,8 +176,15 @@ export const EvidenceBody = memo(function EvidenceBody({ p, d, acts, qacts, inLa
           <i aria-hidden />
           {EV_WORDS.auto} · {on ? "encendido" : "apagado"}
         </button>
-        {on && p.auto_accept?.hold && <span data-auto-hold>No se aceptó sola: {p.auto_accept.hold}</span>}
+        {!on && (
+          <button type="button" role="switch" className="edi-sw" aria-checked={invisible} onClick={() => acts?.onAutoInvisible?.(p.slug, !invisible)} disabled={!acts?.onAutoInvisible || busy} data-control="aceptar-invisible">
+            <i aria-hidden />
+            Solo lo que no se ve · {invisible ? "encendido" : "apagado"}
+          </button>
+        )}
+        {(on || invisible) && p.auto_accept?.hold && <span data-auto-hold>No se aceptó sola: {p.auto_accept.hold}</span>}
       </div>
+      </EvRight>
       {sheet && <ReturnSheet d={d} qacts={qacts} where={inLayer ? "capa" : "ahora"} />}
     </div>
   );

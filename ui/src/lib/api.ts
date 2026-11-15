@@ -98,6 +98,12 @@ export const api = {
   tablero: () => request<TableroRead>("GET", "/maquinas/tablero"),
   // PLA-I46-10: the QA lane's evidence for one delivery (the floor's evidence card).
   qa: (slug: string, key: string) => request<QaRead>("GET", `/projects/${encodeURIComponent(slug)}/qa/${encodeURIComponent(key)}`),
+  // PLA-I52-4: El Probador. The delivery's pairs (antes / después per view and width), its copy, and the two clicks.
+  probador: (slug: string, key: string) => request<ProbadorRead>("GET", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}`),
+  probadorTomar: (slug: string, key: string) => request<{ ok: true }>("POST", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}/tomar`, {}),
+  preguntar: (slug: string, key: string, text: string) => request<{ id: string; wake: string }>("POST", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}/preguntar`, { text }),
+  vivo: (slug: string) => request<{ vivo: VivoRead }>("POST", `/projects/${encodeURIComponent(slug)}/entrega/vivo`, {}),
+  entregaEncender: (slug: string, key: string) => request<{ entrega: EntregaRead }>("POST", `/projects/${encodeURIComponent(slug)}/entrega/encender`, { key }),
   team: () => request<TeamRoster>("GET", "/team"),
   comments: (slug: string, key: string) =>
     request<{ comments: TaskComment[] }>(
@@ -179,7 +185,7 @@ export const api = {
     request<StartNowResult>("POST", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/start`, pastGuard ? { past_guard: true } : {}),
   askProject: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean }) => request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, input),
   pickNext: (slug: string, key: string) => request<{ next: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/next`, { key }),
-  setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null; auto_accept?: boolean }) =>
+  setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null; auto_accept?: boolean; auto_accept_invisible?: boolean }) =>
     request<{ plan_approval: boolean; preview_url: string | null }>("PUT", `/company/projects/${encodeURIComponent(slug)}/options`, input),
   stopRun: (id: string) => request<{ stopped: true; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/stop`),
   resumeRun: (id: string) => request<{ woke: boolean; reason: string; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/resume`),
@@ -259,7 +265,7 @@ export type OrgProject = {
   // PLA-I35-1: the card as a report.
   plan: OrgPlan | null;
   // PLA-I40-7: the accept-by-itself switch, and why the oldest waiting delivery was not accepted.
-  auto_accept?: { on: boolean; hold: string | null };
+  auto_accept?: { on: boolean; hold: string | null; invisible?: boolean };
   // PLA-I40-6: what just happened here, and the owner's requests nobody took.
   latest?: OrgLatest[];
   stale_requests?: OrgStaleRequest[];
@@ -332,7 +338,8 @@ export type DecisionPlan = {
 export type DecisionEvidence = { verdict: string; kind: string; cite: string; pass: number | null; fail: number | null; at: string };
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
-export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number };
+export type ReelItem = { key: string; title: string; label: string; kind: "nueva" | "cambio"; image_url: string };
+export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[] };
 export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar";
 // PLA-I46-9/10: GET /api/projects/:slug/qa/:key (src/runner/qa.ts qaEvidence).
 export type QaState = "off" | "none" | "waiting" | "checking" | "reviewing" | "pass" | "fail" | "returned" | "error";
@@ -347,6 +354,19 @@ export type QaRead = {
   captures: { ids: string[]; image_urls: string[]; ok: number; failed: number; error: string | null } | null;
   notes: string | null;
 };
+// PLA-I52-4: GET /api/projects/:slug/probador/:key (src/captures/probador.ts probadorRead).
+export type MuestraVista = { key: string; label: string; path: string; estado?: string; session?: boolean };
+export type Muestra = { frase: string; vistas: MuestraVista[]; pasos: string[] };
+export type ProbadorState = { state: "tomando" | "lista" | "fallo"; attempts: number; error: string | null; commit: string | null; at: string };
+export type ParShot = { id: string; image_url: string; width: number; height: number | null; taken_at: string } | null;
+export type ParSide = { still: ParShot; error: string | null; missing: boolean };
+export type DiffBox = { x: number; y: number; w: number; h: number; ratio: number };
+export type ParWidth = { antes: ParSide; despues: ParSide; diff: DiffBox | null };
+export type ParVista = { key: string; label: string; path: string; estado: string | null; kind: "nueva" | "cambio" | "igual" | "sin_antes"; desktop: ParWidth; phone: ParWidth };
+export type EntregaRead = { phase: "starting" | "capturing" | "live" | "failed" | "off" | "running"; port: number | null; url: string | null; error: string | null; key: string | null; branch: string | null; commit: string | null };
+export type VivoRead = { url: string | null; local_url: string | null; tailnet: boolean; signed_in: boolean; user: string | null; error: string | null; hint: string | null };
+export type ProbadorQA = { id: string; text: string; at: string; answer: { text: string; at: string; by: string } | null };
+export type ProbadorRead = { key: string; muestra: Muestra | null; state: ProbadorState | null; vistas: ParVista[]; entrega: EntregaRead | null; preguntas?: ProbadorQA[] };
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
 export type Decision = {
   id: string;
@@ -364,6 +384,7 @@ export type Decision = {
   body?: string | null;
   checks?: DecisionChecks | null;
   release?: DecisionRelease | null;
+  cambio?: "se_ve" | "se_comporta" | "no_se_ve" | null;
   // PLA-I36-7/8/10.
   combinable?: number[][];
   recommended_reason?: string | null;
@@ -380,7 +401,8 @@ export type Decision = {
   verify?: { state: "queued" | "running"; since: string; role: string | null } | null;
 };
 export type DecisionAsker = { agent: string; role: string };
-export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string; answers?: number[]; checklist?: string[] };
+export type Marca = { vista: string; side: "antes" | "despues"; width: "desktop" | "phone"; x: number; y: number; note: string };
+export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string; answers?: number[]; checklist?: string[]; marcas?: Marca[] };
 export type DecisionResult = { ok: boolean; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
 export type OrgPlumbing = { spend: number; running: number; paused: boolean };
 export type OrgCompany = {

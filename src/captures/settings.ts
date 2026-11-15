@@ -59,6 +59,9 @@ export const captureSettingsSchema = z
     ready_path: z.string().regex(PATH).max(300).optional(),
     pages: z.array(page).min(1).max(12),
     session: session.optional(),
+    // PLA-I52-1: the repo paths that count as touching the screen (a delivery there needs a muestra).
+    // Default: src/captures/muestra.ts DEFAULT_UI_GLOBS. ** spans folders, * stays inside one.
+    ui_globs: z.array(z.string().min(1).max(120)).min(1).max(30).optional(),
   })
   .strict()
   .superRefine((s, ctx) => {

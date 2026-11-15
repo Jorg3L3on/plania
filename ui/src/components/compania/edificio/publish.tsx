@@ -137,6 +137,22 @@ export const PublishBody = ({
           </li>
         ))}
       </ul>
+      {!!release.reel?.length && (
+        <div className="grid gap-2" data-publish-reel={release.reel.length}>
+          <p className="font-medium">Lo que verán tus usuarias</p>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
+            {release.reel.map((r) => (
+              <figure key={r.key} className="m-0 grid gap-1">
+                <img src={r.image_url} alt={`${r.title}: ${r.label}`} loading="lazy" decoding="async" className="aspect-[1280/800] w-full rounded-md object-cover object-top ring-1 ring-foreground/15" />
+                <figcaption className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ring-foreground/15">{r.kind === "nueva" ? "nueva" : "cambió"}</span>
+                  <span className="truncate">{r.label}</span>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </div>
+      )}
       {blocked && (
         <p className="font-medium text-ink-now" data-publish-blocked>
           {release.open_checks > 0 ? `${plural(release.open_checks, "punto abierto", "puntos abiertos")} en estos cambios` : `${plural(release.before, "paso tuyo", "pasos tuyos")} antes de publicar`}: GitHub lo

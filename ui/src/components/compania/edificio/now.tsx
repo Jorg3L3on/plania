@@ -25,6 +25,8 @@ export type NowActs = {
   onClose?: (slug: string, key: string) => void;
   // PLA-I40-7: the project's accept-by-itself switch.
   onAuto?: (slug: string, on: boolean) => void;
+  // PLA-I52-7: «solo lo que no se ve».
+  onAutoInvisible?: (slug: string, on: boolean) => void;
   // The countdown reached zero: read the floor again.
   onElapsed?: () => void;
   // "<slug>:<kind>" while a call is out.

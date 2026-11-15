@@ -14,6 +14,8 @@ export interface BrowserPage {
   goto(url: string): Promise<Nav>;
   evaluate<T>(expression: string): Promise<T>;
   screenshot(fullPage: boolean): Promise<Buffer>;
+  // PLA-I52-5: the session the page holds (El Probador's live copy signs the owner in with it). Optional for fakes.
+  cookies?(): Promise<{ name: string; value: string }[]>;
 }
 export interface Browser {
   page: BrowserPage;
@@ -144,6 +146,11 @@ class CdpPage implements BrowserPage {
     } finally {
       offResponse();
     }
+  }
+
+  async cookies(): Promise<{ name: string; value: string }[]> {
+    const r = await this.cdp.send<{ cookies: { name: string; value: string }[] }>("Network.getCookies");
+    return r.cookies.map((c) => ({ name: c.name, value: c.value }));
   }
 
   async evaluate<T>(expression: string): Promise<T> {

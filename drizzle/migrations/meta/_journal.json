@@ -344,6 +344,34 @@
       "when": 1794816000000,
       "tag": "0051_brief_spanish",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794902400000,
+      "tag": "0052_probador_muestra",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1794988800000,
+      "tag": "0053_probador_pares",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1795075200000,
+      "tag": "0054_probador_preguntas",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1795161600000,
+      "tag": "0055_probador_cambio",
+      "breakpoints": true
     }
   ]
 }

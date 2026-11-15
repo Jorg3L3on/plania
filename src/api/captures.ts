@@ -7,10 +7,18 @@
 //   POST /api/projects/:slug/captures/encender     Encenderla: start the test copy (sandbox) on this Mac
 //   POST /api/projects/:slug/captures/tomar        Reintentar: take the stills again
 //   POST /api/projects/:slug/captures/apagar       turn Plania's test copy off
-import { Hono } from "hono";
+// PLA-I52-2: the delivery's own copy (its PR branch, next to sandbox's), for El Probador:
+//   GET  /api/projects/:slug/entrega               the copy's read (null when off)
+//   POST /api/projects/:slug/entrega/encender      {key}: start the copy of that delivery (its ticket's branch)
+//   POST /api/projects/:slug/entrega/apagar        turn it off
+import { Hono, type Context } from "hono";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
-import { apagar, encender, pruebaRead, tomar } from "../captures/prueba.js";
+import { apagar, apagarEntrega, encender, entregaRead, pruebaRead, tomar } from "../captures/prueba.js";
+import { warmEntrega } from "../captures/entrega.js";
+import { assertKey, probadorRead, probar } from "../captures/probador.js";
+import { startVivo, vivoRead } from "../captures/vivo.js";
+import { preguntar } from "../captures/preguntas.js";
 import { latestStills, stillFile } from "../captures/store.js";
 import { projects } from "../db/schema.js";
 import { eq } from "drizzle-orm";
@@ -41,6 +49,73 @@ for (const name of Object.keys(acts) as (keyof typeof acts)[]) {
     }
   });
 }
+
+const fail = (c: Context, e: unknown) => {
+  if (e instanceof ToolError) return c.json({ error: e.code, ...e.detail }, e.code === "PROJECT_NOT_FOUND" ? 404 : 400);
+  throw e;
+};
+
+captureRoutes.get("/:slug/entrega", (c) => c.json({ entrega: entregaRead(c.req.param("slug")) }));
+captureRoutes.post("/:slug/entrega/encender", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { key?: unknown };
+  if (typeof body.key !== "string" || !body.key.trim()) return c.json({ error: "INVALID_FILTER", field: "key" }, 400);
+  try {
+    const r = await withDb((db) => warmEntrega(db, c.req.param("slug"), body.key as string));
+    if (!r) return c.json({ error: "INVALID_FILTER", field: "key", hint: "the delivery has no muestra or no branch, or the project has no capture settings" }, 400);
+    return c.json({ entrega: r });
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+// PLA-I52-5: En vivo. The delivery's copy, signed in, through Plania's proxy (and the tailnet when there is one).
+captureRoutes.get("/:slug/entrega/vivo", (c) => c.json({ vivo: vivoRead(c.req.param("slug")) }));
+captureRoutes.post("/:slug/entrega/vivo", async (c) => {
+  try {
+    return c.json({ vivo: await withDb((db) => startVivo(db, c.req.param("slug"))) });
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+captureRoutes.post("/:slug/entrega/apagar", async (c) => {
+  try {
+    return c.json({ entrega: null, prueba: await withDb((db) => apagarEntrega(db, c.req.param("slug"))) });
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I52-3: El Probador's read for one delivery, and Volver a tomar (the whole pass again, in the background).
+captureRoutes.get("/:slug/probador/:key", async (c) => {
+  try {
+    const r = await withDb((db) => probadorRead(db, c.req.param("slug"), assertKey(c.req.param("key"))));
+    return r ? c.json(r) : c.json({ error: "TASK_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+captureRoutes.post("/:slug/probador/:key/tomar", async (c) => {
+  try {
+    const slug = c.req.param("slug");
+    const key = assertKey(c.req.param("key"));
+    void withDb((db) => probar(db, slug, key)).catch(() => null);
+    return c.json({ ok: true });
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I52-6: «Pregúntale a Taller». The answer comes back in the project thread and shows on the card.
+captureRoutes.post("/:slug/probador/:key/preguntar", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { text?: unknown };
+  if (typeof body.text !== "string") return c.json({ error: "INVALID_FILTER", field: "text" }, 400);
+  try {
+    const slug = c.req.param("slug");
+    const key = assertKey(c.req.param("key"));
+    return c.json(await withDb((db) => preguntar(db, slug, key, body.text as string)));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
 
 captureRoutes.get("/:slug/captures/:file", async (c) => {
   const m = /^([0-9a-f-]{36})\.png$/.exec(c.req.param("file"));

@@ -77,7 +77,16 @@ export type PruebaDeps = {
   signals?: boolean; // false: no exit/signal hooks (tests)
 };
 
+// PLA-I52-2: two lanes per project. «sandbox» is Encenderla's copy (the before, and what the Ventana shows);
+// «entrega» is the delivery under review (a PR branch), warm while the owner decides, at most one per project.
+export type Lane = "sandbox" | "entrega";
+const idOf = (slug: string, lane: Lane) => (lane === "sandbox" ? slug : `${slug}::entrega`);
+
 type Copy = {
+  id: string;
+  lane: Lane;
+  ref: string; // the branch it runs: sandbox, or the delivery's branch
+  taskKey: string | null; // the delivery's ticket (entrega only)
   slug: string;
   phase: Phase;
   managed: boolean;
@@ -208,8 +217,8 @@ export async function encender(db: Db, slug: string): Promise<PruebaRead> {
   const had = copies.get(slug);
   if (had && had.phase !== "failed") return read(had);
   if (had) await apagar(db, slug); // Reintentar after a failed start: clean up first
-  const c: Copy = { slug, phase: "starting", managed: true, port: null, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null };
-  copies.set(slug, c);
+  const c = newCopy(slug, "sandbox", BRANCH, null, "starting", true);
+  copies.set(c.id, c);
   hook();
   void start(db, c, p, s).catch((e) => fail(db, c, `No se pudo encender: ${short(e)}`));
   return read(c);
@@ -217,12 +226,16 @@ export async function encender(db: Db, slug: string): Promise<PruebaRead> {
 
 // Error shows only once the process is stopped and its footprint released (a footprint still being written is
 // waited for first), so whoever reads «failed» never finds the copy still registered.
+function newCopy(slug: string, lane: Lane, ref: string, taskKey: string | null, phase: Phase, managed: boolean, port: number | null = null): Copy {
+  return { id: idOf(slug, lane), lane, ref, taskKey, slug, phase, managed, port, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null };
+}
+
 async function fail(db: Db, c: Copy, error: string): Promise<void> {
-  if (copies.get(c.slug) !== c) return;
+  if (copies.get(c.id) !== c) return;
   c.error = error;
   if (c.registering) await c.registering;
   await stopProcess(db, c);
-  if (copies.get(c.slug) === c) c.phase = "failed";
+  if (copies.get(c.id) === c) c.phase = "failed";
 }
 
 async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: CaptureSettings): Promise<void> {
@@ -230,34 +243,37 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   const repo = repoPathOf(p.slug, p.settings, env());
   c.repo = repo;
   if (!existsSync(repo)) return fail(db, c, `No encuentro el repo de ${p.title} en ${repo}`);
-  const wt = path.join(worktreeRoot(env()), p.slug, "_prueba");
+  const wt = path.join(worktreeRoot(env()), p.slug, c.lane === "sandbox" ? "_prueba" : "_entrega");
+  const ref = c.ref;
+  const what = c.lane === "sandbox" ? "La copia de prueba" : "La copia de la entrega";
   if (isInside(wt, repo)) return fail(db, c, "La copia de prueba quedaría dentro del repo");
   c.worktree = wt;
 
-  // The test copy is origin/sandbox, detached. Never main, never a branch Jorge works on.
-  if ((await g(["fetch", "origin", BRANCH], repo)).code !== 0) return fail(db, c, `No se pudo traer ${BRANCH} de origin`);
+  // The test copy is origin/sandbox (or the delivery's origin/<branch>), detached. Never main, never a checkout
+  // Jorge works in.
+  if ((await g(["fetch", "origin", ref], repo)).code !== 0) return fail(db, c, `No se pudo traer ${ref} de origin`);
   if (existsSync(wt)) {
     const dirty = await g(["status", "--porcelain", "--untracked-files=no"], wt);
-    if (dirty.code !== 0) return fail(db, c, "No se pudo leer la copia de prueba");
-    if (dirty.stdout.trim()) return fail(db, c, "La copia de prueba tiene cambios sin guardar; no la toco");
-    if ((await g(["checkout", "--detach", `origin/${BRANCH}`], wt)).code !== 0) return fail(db, c, `No se pudo poner la copia de prueba en ${BRANCH}`);
+    if (dirty.code !== 0) return fail(db, c, `No se pudo leer ${what.toLowerCase()}`);
+    if (dirty.stdout.trim()) return fail(db, c, `${what} tiene cambios sin guardar; no la toco`);
+    if ((await g(["checkout", "--detach", `origin/${ref}`], wt)).code !== 0) return fail(db, c, `No se pudo poner ${what.toLowerCase()} en ${ref}`);
   } else {
     mkdirSync(path.dirname(wt), { recursive: true });
-    if ((await g(["worktree", "add", "--detach", wt, `origin/${BRANCH}`], repo)).code !== 0) return fail(db, c, "No se pudo crear la copia de prueba");
+    if ((await g(["worktree", "add", "--detach", wt, `origin/${ref}`], repo)).code !== 0) return fail(db, c, `No se pudo crear ${what.toLowerCase()}`);
     if (deps.footprints !== false) {
       await registerFootprint(
         db,
-        { project: p.slug, kind: "worktree", locator: wt, purpose: `Copia de prueba de ${p.title} (${BRANCH}), para Encenderla`, teardown: `git -C ${repo} worktree remove --force ${wt}` },
+        { project: p.slug, kind: "worktree", locator: wt, purpose: c.lane === "sandbox" ? `Copia de prueba de ${p.title} (${BRANCH}), para Encenderla` : `Copia de la entrega de ${p.title}, para El Probador`, teardown: `git -C ${repo} worktree remove --force ${wt}` },
         ctx(),
       ).catch(() => undefined);
     }
   }
   const head = (await g(["rev-parse", "HEAD"], wt)).stdout.trim();
   c.commit = head || null;
-  const want = (await g(["rev-parse", `origin/${BRANCH}`], repo)).stdout.trim();
-  const ref = (await g(["rev-parse", "--abbrev-ref", "HEAD"], wt)).stdout.trim();
-  if (!head || head !== want || ref !== "HEAD") return fail(db, c, `La copia de prueba no está en ${BRANCH}`);
-  if (copies.get(c.slug) !== c || c.stopping) return;
+  const want = (await g(["rev-parse", `origin/${ref}`], repo)).stdout.trim();
+  const detached = (await g(["rev-parse", "--abbrev-ref", "HEAD"], wt)).stdout.trim();
+  if (!head || head !== want || detached !== "HEAD") return fail(db, c, `${what} no está en ${ref}`);
+  if (copies.get(c.id) !== c || c.stopping) return;
 
   // Dependencies, once per lockfile.
   const install = installCommand(wt, s);
@@ -275,7 +291,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
       writeFileSync(mark, hash);
     }
   }
-  if (copies.get(c.slug) !== c || c.stopping) return;
+  if (copies.get(c.id) !== c || c.stopping) return;
 
   const port = await pickPort(db, s.port);
   if (!port) return fail(db, c, `No hay un puerto libre entre ${s.port} y ${s.port + PORT_SPAN - 1}`);
@@ -300,8 +316,8 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   child.once("exit", (code, signal) => {
     exited = signal ? `señal ${signal}` : `código ${code}`;
     c.pid = null;
-    if (copies.get(c.slug) !== c || c.stopping) return;
-    void fail(db, c, c.phase === "starting" ? `La copia de prueba se cerró al arrancar (${exited})` : `La copia de prueba se apagó (${exited})`);
+    if (copies.get(c.id) !== c || c.stopping) return;
+    void fail(db, c, c.phase === "starting" ? `${what} se cerró al arrancar (${exited})` : `${what} se apagó (${exited})`);
   });
   if (deps.footprints !== false) {
     c.registering = registerFootprint(
@@ -310,16 +326,16 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
         project: p.slug,
         kind: "server",
         locator: `port:${port}`,
-        purpose: `Copia de prueba de ${p.title} (${BRANCH}), encendida desde el piso`,
+        purpose: c.lane === "sandbox" ? `Copia de prueba de ${p.title} (${BRANCH}), encendida desde el piso` : `Copia de la entrega ${c.taskKey ?? ""} de ${p.title} (${ref}), para El Probador`,
         teardown: `kill -TERM -${child.pid}`,
-        details: { pid: child.pid, pgid: child.pid, server_pid: process.pid, worktree: wt, command, commit: head, branch: BRANCH },
+        details: { pid: child.pid, pgid: child.pid, server_pid: process.pid, worktree: wt, command, commit: head, branch: ref, lane: c.lane, ...(c.taskKey ? { task_key: c.taskKey } : {}) },
       },
       ctx(),
     ).catch(() => undefined);
     await c.registering;
     c.registering = null;
     // It may have exited (or been turned off) while the footprint was being written: release it again.
-    if (copies.get(c.slug) !== c || c.stopping || c.phase === "failed" || exited) {
+    if (copies.get(c.id) !== c || c.stopping || c.phase === "failed" || exited) {
       await releaseFootprint(db, { project: p.slug, kind: "server", locator: `port:${port}` }, ctx()).catch(() => undefined);
       return;
     }
@@ -329,12 +345,17 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   const ready = urlOf(port) + (s.ready_path ?? "/");
   const until = now() + (deps.readyMs ?? READY_MS);
   for (;;) {
-    if (copies.get(c.slug) !== c || c.stopping || exited) return;
+    if (copies.get(c.id) !== c || c.stopping || exited) return;
     if (await (deps.up ?? defaultUp)(ready)) break;
-    if (now() > until) return fail(db, c, `La copia de prueba no respondió en ${Math.round((deps.readyMs ?? READY_MS) / 1000)} s`);
+    if (now() > until) return fail(db, c, `${what} no respondió en ${Math.round((deps.readyMs ?? READY_MS) / 1000)} s`);
     await new Promise((r) => setTimeout(r, deps.pollMs ?? POLL_MS));
   }
 
+  // The delivery's copy is En vivo as soon as it answers; its stills are the Probador's (PLA-I52-3), not the Ventana's.
+  if (c.lane === "entrega") {
+    c.phase = "live";
+    return;
+  }
   // Fresh stills, then En vivo.
   c.phase = "capturing";
   try {
@@ -342,7 +363,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   } catch (e) {
     c.error = `No se pudo tomar la captura: ${short(e)}`;
   }
-  if (copies.get(c.slug) === c && !c.stopping && c.phase === "capturing") c.phase = "live";
+  if (copies.get(c.id) === c && !c.stopping && c.phase === "capturing") c.phase = "live";
 }
 
 function tailOf(text: string): string[] {
@@ -430,14 +451,57 @@ export async function tomar(db: Db, slug: string): Promise<PruebaRead> {
       });
     return read(had);
   }
-  const c: Copy = { slug, phase: "capturing", managed: false, port: s.port, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null };
-  copies.set(slug, c);
+  const c = newCopy(slug, "sandbox", BRANCH, null, "capturing", false, s.port);
+  copies.set(c.id, c);
   void (deps.capture ?? runCapture)(db, { project: slug, checkout: repoPathOf(p.slug, p.settings, env()), base_url: urlOf(s.port), actor: ctx().actor })
     .catch(() => undefined)
     .finally(() => {
       if (copies.get(slug) === c) copies.delete(slug);
     });
   return read(c);
+}
+
+// ---- La copia de la entrega (PLA-I52-2)
+
+export type EntregaRead = PruebaRead & { key: string | null; branch: string | null; commit: string | null; worktree: string | null };
+
+function readEntrega(c: Copy): EntregaRead {
+  return { ...read(c), key: c.taskKey, branch: c.ref, commit: c.commit, worktree: c.worktree };
+}
+
+// Starts the delivery's copy (its PR branch, next to sandbox's), or returns the one already running for the same
+// ticket and branch. A different delivery in the same project replaces it: one delivery copy per project.
+export async function encenderEntrega(db: Db, slug: string, delivery: { key: string; branch: string }): Promise<EntregaRead> {
+  const { p, s } = await settingsOf(db, slug);
+  const branch = delivery.branch.trim();
+  if (!/^[A-Za-z0-9._\/-]{1,200}$/.test(branch) || branch.startsWith("-") || branch.includes("..")) {
+    throw new ToolError("INVALID_FILTER", { field: "branch", hint: "a plain branch name" });
+  }
+  if (branch === "main" || branch === BRANCH) throw new ToolError("INVALID_FILTER", { field: "branch", hint: `the delivery's copy runs the PR branch, never ${branch}` });
+  const id = idOf(slug, "entrega");
+  const had = copies.get(id);
+  if (had && had.taskKey === delivery.key && had.ref === branch && had.phase !== "failed") {
+    had.seenAt = now();
+    return readEntrega(had);
+  }
+  if (had) await stopId(db, id);
+  const c = newCopy(slug, "entrega", branch, delivery.key, "starting", true);
+  copies.set(id, c);
+  hook();
+  void start(db, c, p, s).catch((e) => fail(db, c, `No se pudo encender: ${short(e)}`));
+  return readEntrega(c);
+}
+
+// What El Probador shows. Reading it counts as somebody looking (the idle clock starts again).
+export function entregaRead(slug: string): EntregaRead | null {
+  const c = copies.get(idOf(slug, "entrega"));
+  if (!c) return null;
+  c.seenAt = now();
+  return readEntrega(c);
+}
+
+export async function apagarEntrega(db: Db, slug: string): Promise<PruebaRead> {
+  return stopId(db, idOf(slug, "entrega"));
 }
 
 // ---- Apagar
@@ -462,10 +526,16 @@ async function stopProcess(db: Db, c: Copy): Promise<void> {
 
 // Turns the copy off (Jorge's Apagar, the idle sweep, Reintentar after a failure). The worktree stays for next time.
 export async function apagar(db: Db, slug: string): Promise<PruebaRead> {
-  const c = copies.get(slug);
+  return stopId(db, idOf(slug, "sandbox"));
+}
+
+async function stopId(db: Db, id: string): Promise<PruebaRead> {
+  const c = copies.get(id);
+  // PLA-I52-5: the live proxy goes with the delivery's copy.
+  if (c?.lane === "entrega") await import("./vivo.js").then((m) => m.stopVivo(c.slug)).catch(() => undefined);
   if (c && c.managed) {
     c.stopping = true;
-    copies.delete(slug);
+    copies.delete(id);
     await stopProcess(db, c);
   }
   return { phase: "off", managed: false, port: null, url: null, started_at: null, error: null, detail: null };
@@ -477,8 +547,8 @@ export async function sweepIdle(db: Db): Promise<string[]> {
   const gone: string[] = [];
   for (const c of [...copies.values()]) {
     if (!c.managed || now() - c.seenAt < idle) continue;
-    await apagar(db, c.slug);
-    gone.push(c.slug);
+    await stopId(db, c.id);
+    gone.push(c.id);
   }
   if (!copies.size && sweeper) {
     clearInterval(sweeper);
@@ -525,7 +595,7 @@ export async function reapOrphans(db: Db, cmdOf: (pid: number) => Promise<string
     .where(and(eq(footprints.kind, "server"), isNull(footprints.releasedAt), sql`${footprints.holder}->>'session_id' = ${SESSION}`));
   let n = 0;
   for (const r of rows) {
-    if (copies.has(r.project)) continue;
+    if (copies.has(r.project) || copies.has(idOf(r.project, "entrega"))) continue;
     const declared = (r.details.declared ?? r.details) as { pid?: number; command?: string; server_pid?: number };
     const owner = Number(declared.server_pid);
     if (Number.isInteger(owner) && owner > 1 && owner !== process.pid && (deps.alive ?? defaultAlive)(owner)) continue;

@@ -848,6 +848,117 @@
     .edi-kbd { display: none; }
   }
 
+  /* PLA-I52-4: El Probador. The delivery's pictures lead the card: a strip in Ahora, the viewer in the layer. The
+     app's stills keep their own light; the orange box is what changed. One screen at 1440×800: the stage is capped by
+     the window's height. Still, no motion. */
+  .edi-lcard[data-wide] { width: min(1180px, 100%); }
+  .edi-layer:has(.edi-lcard[data-wide]) { padding-top: 3vh; }
+  .edi-ev[data-probador-on] { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .edi-pbstrip, .edi-pb { grid-column: 1 / -1; }
+  .edi-pbfrase { margin: 0; color: var(--e-fg); font-size: 14px; font-weight: 600; }
+  .edi-pbstate { margin: 0; color: var(--e-you-ink); font-size: 12.5px; }
+  .edi-pbthumbs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+  .edi-pbthumb { display: grid; gap: 5px; padding: 0; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+  .edi-pbthumbimg { display: block; aspect-ratio: 1280 / 800; overflow: hidden; border-radius: 8px; border: 1px solid rgb(255 255 255 / 0.18); background: #10132a; }
+  .edi-pbthumbimg img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+  .edi-pbthumbimg > span { display: grid; place-items: center; height: 100%; font-size: 12px; color: var(--e-muted); }
+  .edi-pbthumb:hover .edi-pbthumbimg, .edi-pbthumb:focus-visible .edi-pbthumbimg { border-color: var(--e-you); }
+  .edi-pbcap { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--e-muted); min-width: 0; }
+  .edi-pbcap > span:not(.sr-only) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .edi-pbk { font: 600 10px/1 var(--font-sans, inherit); font-style: normal; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 6px; border-radius: 5px; background: rgb(255 159 67 / 0.18); color: var(--e-you-ink); flex: none; }
+  .edi-pbk[data-kind="nueva"] { background: rgb(143 224 164 / 0.18); color: #8fe0a4; }
+  .edi-pbk[data-kind="igual"], .edi-pbk[data-kind="sin_antes"] { background: rgb(255 255 255 / 0.1); color: var(--e-muted); }
+  .edi-pb { display: grid; gap: 10px; min-width: 0; }
+  .edi-pbbar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 12px; align-items: center; }
+  .edi-pbtabs, .edi-pbsegs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .edi-pbtab { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--e-line); background: transparent; color: var(--e-muted); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .edi-pbtab[aria-selected="true"] { background: var(--e-fg); color: #12152a; border-color: var(--e-fg); }
+  .edi-pbseg { display: inline-flex; border: 1px solid var(--e-line); border-radius: 999px; padding: 2px; }
+  .edi-pbseg button { min-height: 32px; padding: 0 11px; border: 0; border-radius: 999px; background: transparent; color: var(--e-muted); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .edi-pbseg button[aria-pressed="true"] { background: rgb(255 255 255 / 0.16); color: var(--e-fg); }
+  .edi-pbstage { position: relative; display: grid; place-items: center; height: min(52vh, 560px); min-height: 240px; border-radius: 12px; background: #10132a; border: 1px solid var(--e-line); overflow: hidden; }
+  .edi-pbimg { position: relative; max-width: 100%; max-height: 100%; display: grid; }
+  .edi-pbimg img { display: block; max-width: 100%; max-height: min(52vh, 560px); width: auto; height: auto; object-fit: contain; }
+  .edi-pbstage[data-width="phone"] .edi-pbimg img { max-height: min(50vh, 540px); border-radius: 18px; }
+  .edi-pbbox { position: absolute; outline: 3px dashed var(--e-you); outline-offset: 2px; border-radius: 6px; pointer-events: none; }
+  .edi-pbnone { display: grid; gap: 4px; place-items: center; text-align: center; padding: 20px; max-width: 42ch; color: var(--e-muted); font-size: 13px; }
+  .edi-pbnone b { color: var(--e-fg); font-size: 15px; }
+  .edi-pbnone[data-frame="nueva"] b { color: #8fe0a4; text-transform: uppercase; letter-spacing: 0.08em; font-size: 12px; }
+  .edi-pbcmp { position: relative; display: grid; max-width: 100%; max-height: 100%; }
+  .edi-pbcmp > * { grid-area: 1 / 1; }
+  .edi-pbafter { clip-path: inset(0 0 0 var(--line)); }
+  .edi-pbline { position: absolute; top: 0; bottom: 0; left: var(--line); border-left: 3px solid var(--e-you); pointer-events: none; }
+  .edi-pbl, .edi-pbr { position: absolute; top: 8px; font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 999px; background: rgb(14 17 36 / 0.85); color: #fff; }
+  .edi-pbl { left: 8px; } .edi-pbr { right: 8px; background: var(--e-you); color: #1d1203; }
+  .edi-pbpair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; height: 100%; padding: 8px; align-items: center; }
+  .edi-pbpair figure { margin: 0; display: grid; gap: 4px; justify-items: center; min-width: 0; min-height: 0; }
+  .edi-pbpair figcaption { font-size: 11.5px; font-weight: 700; color: var(--e-muted); }
+  .edi-pbpair .edi-pbimg img { max-height: min(46vh, 500px); }
+  .edi-pbfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 12.5px; color: var(--e-muted); }
+  .edi-pbpath { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+  .edi-pbpath code { font-size: 12px; color: var(--e-fg); }
+  .edi-pbrange { display: inline-flex; align-items: center; gap: 8px; }
+  .edi-pbrange input { accent-color: var(--e-you); width: 130px; }
+  .edi-pblive { text-decoration: none; color: #8fe0a4; border-color: rgb(143 224 164 / 0.5); }
+  .edi-pbrow { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 8px; }
+  .edi-pbsteps { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .edi-pbsteps button { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: start; width: 100%; min-height: 32px; padding: 4px 6px; border: 0; border-radius: 8px; background: transparent; color: var(--e-fg); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+  .edi-pbsteps button:hover { background: rgb(255 255 255 / 0.06); }
+  .edi-pbsteps i { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--e-rail); display: grid; place-items: center; font-style: normal; font-size: 11px; color: var(--e-muted); }
+  .edi-pbsteps button[aria-pressed="true"] i { background: #8fe0a4; border-color: #8fe0a4; color: #10131f; font-weight: 800; }
+  .edi-pbsi span { color: var(--e-fg); }
+  .edi-pbimg[data-pinning] { cursor: crosshair; outline: 2px solid var(--e-you); }
+  .edi-pbpin { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50% 50% 50% 4px; background: var(--e-you); color: #1d1203; display: grid; place-items: center; font: 800 13px/1 var(--font-sans, inherit); font-style: normal; box-shadow: 0 0 0 3px rgb(255 159 67 / 0.35); pointer-events: none; }
+  .edi-pbhint { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); background: var(--e-you); color: #1d1203; font-weight: 700; font-size: 12px; padding: 5px 10px; border-radius: 999px; pointer-events: none; }
+  .edi-pbmarcas { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+  .edi-pbmarcas li { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+  .edi-pbmarcas i { width: 20px; height: 20px; border-radius: 50% 50% 50% 3px; background: var(--e-you); color: #1d1203; display: grid; place-items: center; font-style: normal; font-weight: 800; font-size: 11px; }
+  .edi-pbmarcas .edi-pfield, .edi-pbask .edi-pfield { min-height: 32px; font-size: 12.5px; }
+  .edi-pbqa { display: grid; gap: 3px; font-size: 12.5px; }
+  .edi-pbq { justify-self: end; max-width: 92%; padding: 5px 9px; border-radius: 10px 10px 3px 10px; background: rgb(255 255 255 / 0.1); color: var(--e-fg); }
+  .edi-pba { max-width: 96%; padding: 5px 9px; border-radius: 10px 10px 10px 3px; background: rgb(185 166 255 / 0.12); color: var(--e-fg); }
+  .edi-pba[data-wait] { color: var(--e-muted); }
+  .edi-pbask { display: flex; gap: 6px; }
+  .edi-pbask .edi-pfield { flex: 1; min-width: 0; }
+  .edi-pbsent { margin: 0; font-size: 12.5px; color: var(--e-you-ink); }
+  .edi-pbvivo { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12.5px; color: var(--e-muted); }
+  .edi-pbvivo code { color: var(--e-fg); }
+  .edi-pbpass { user-select: all; padding: 2px 6px; border-radius: 6px; background: rgb(0 0 0 / 0.3); }
+  /* In the layer the pictures take the left column at full height; the steps, what accepting does and the evidence
+     stack on the right, so the whole decision fits one screen at 1440×800 with no scroll. */
+  .edi-lcard[data-wide] .edi-ev[data-probador-on] { grid-template-columns: minmax(0, 1fr) clamp(270px, 26vw, 344px); align-items: start; gap: 8px 14px; }
+  .edi-lcard[data-wide] .edi-ev[data-probador-on] > .edi-pb { grid-column: 1; }
+  .edi-pbright { grid-column: 2; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-content: start; max-height: calc(100vh - 3vh - 170px); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; min-width: 0; }
+  .edi-pbright > * { grid-column: 1 / -1; }
+  .edi-pbright .edi-pbrow { grid-template-columns: minmax(0, 1fr); }
+  .edi-pbright > [data-ev="tests"] { grid-column: 1; }
+  .edi-pbright > [data-ev="review"] { grid-column: 2; }
+  .edi-lcard[data-wide] .edi-ev[data-probador-on] > .edi-sheet { grid-column: 1 / -1; }
+  .edi-lcard[data-wide] .edi-pbstage { height: clamp(220px, calc(100vh - 456px), 620px); }
+  .edi-lcard[data-wide] .edi-pbimg img { max-height: clamp(200px, calc(100vh - 472px), 600px); }
+  .edi-lcard[data-wide] .edi-pbpair .edi-pbimg img { max-height: clamp(180px, calc(100vh - 496px), 580px); }
+  .edi-lcard[data-wide] { padding-block: 14px; gap: 8px; }
+  .edi-lcard[data-wide] .edi-lsay { font-size: clamp(18px, 2.2vw, 22px); }
+  .edi-pbtab { white-space: nowrap; }
+  .edi-pbtabs, .edi-pbsegs { min-width: 0; max-width: 100%; }
+  .edi-lcard[data-wide] .edi-evt { padding: 8px 10px; }
+  .edi-lcard[data-wide] .edi-nwhy { display: none; }
+  .edi-pbtab[aria-selected="true"] .edi-pbk { background: #ffe2c2; color: #7c3d0a; }
+  .edi-pbtab[aria-selected="true"] .edi-pbk[data-kind="nueva"] { background: #cdeed6; color: #14532d; }
+  .edi-pbtab[aria-selected="true"] .edi-pbk[data-kind="igual"], .edi-pbtab[aria-selected="true"] .edi-pbk[data-kind="sin_antes"] { background: #e3e5ee; color: #2a2f45; }
+  @media (width < 64rem) {
+    .edi-lcard[data-wide] .edi-ev[data-probador-on] { grid-template-columns: minmax(0, 1fr); }
+    .edi-pbright { grid-column: 1; max-height: none; overflow: visible; }
+  }
+  @media (width < 40rem) {
+    .edi-pbstage, .edi-lcard[data-wide] .edi-pbstage { height: auto; min-height: 260px; padding: 8px 0; }
+    .edi-lcard[data-wide] .edi-pbimg img { max-height: 62vh; }
+    .edi-pbimg img, .edi-pbpair .edi-pbimg img { max-height: 62vh; }
+    .edi-pbrow { grid-template-columns: minmax(0, 1fr); }
+    .edi-pbpair { grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; }
+  }
+
+
   @media (width < 64rem) {
     .edi { padding: 20px 14px 0; border-radius: 22px; }
     .edi-rooftop { padding: 0 10px; }

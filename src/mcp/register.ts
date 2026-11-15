@@ -60,6 +60,8 @@ import { registerHeartbeatTools } from "./heartbeat.js";
 import { closingLine, questionLine, registerThreadTools } from "./threads.js";
 import { registerProposalTools } from "./proposals.js";
 import { finish, start } from "./agent-surface.js";
+import { muestraSchema } from "../captures/muestra.js";
+import { afterFinish, warmOn } from "../captures/entrega.js";
 import { projectReleases } from "./releases.js";
 import { DIGEST_PER_PROJECT_DEFAULT, QUIET_MIN, getDigest, getRunning, listProjects, readerOf } from "./watch.js";
 
@@ -630,6 +632,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Every check must be done or waived: CHECKS_OPEN lists each open one with its n and text (tick them with result.check_ns, set_check, or waive_check with a reason).",
         "The result must be a pass of a kind the work_type accepts, at the branch head: EVIDENCE_STALE says the head the poller sees and the commit your pass named.",
         "version: the one you read (STALE_VERSION if it moved); omit it to take the current one. note: the initiative's new next_action, when it changed.",
+        "muestra: a delivery whose diff touches the screen, on a project Plania photographs (settings.capture), needs one: MUESTRA_REQUIRED lists the screen files. Plania shows the owner those views before asking; nobody approves what they cannot see.",
       ].join(" "),
       inputSchema: {
         project,
@@ -643,6 +646,11 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         version: z.number().int().optional(),
         note: z.string().optional().describe("The initiative's next_action, replaced"),
         no_pr_reason: z.string().optional().describe("Why a code ticket has no PR"),
+        muestra: muestraSchema
+          .optional()
+          .describe(
+            "What the owner will be shown (El Probador): frase (one sentence on what changes for the app's users), vistas (the views it touched: key, label, path, estado?, session?, follow?, acciones? [{click} | {fill, value}]), pasos (three ways to try it). Required when the diff touches the screen on a project with settings.capture (MUESTRA_REQUIRED)",
+          ),
       },
       annotations: write,
     },
@@ -651,6 +659,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       // PLA-I32-3: a runner's finish leaves its line in the project thread (best effort, after the commit).
       const i = input as { project: string; key: string; result?: { cite?: string; verdict?: string }; pr_url?: string };
       await closingLine(db, ctx, { project: i.project, key: i.key, via: "finish", cite: i.result?.cite, verdict: i.result?.verdict, prUrl: i.pr_url }).catch(() => null);
+      // PLA-I52-2/3: a delivery with a muestra warms its own copy and gets its pairs for El Probador (background).
+      if (warmOn()) afterFinish(db, i.project, i.key);
       return out;
     }),
   );

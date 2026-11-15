@@ -2,7 +2,7 @@
 // QA read of a delivery, the Devolver sheet as the owner left it (open, reason, line), and which decision is at the
 // front. Same pattern as plan-draft.ts. Tests prefill a read with setRead (they render without a browser).
 import { useEffect, useSyncExternalStore } from "react";
-import { api, type QaRead } from "@/lib/api";
+import { api, type Marca, type ProbadorRead, type QaRead } from "@/lib/api";
 import { RETURN_REASONS } from "@/lib/evidencia";
 
 export type ReturnDraft = { open: boolean; reason: string; line: string };
@@ -47,6 +47,47 @@ export function useQaRead(slug: string, key: string | null, id: string): QaRead 
   }, [k, slug, key, id]);
   if (!k) return null;
   return reads.has(k) ? reads.get(k)! : undefined;
+}
+
+// ---- PLA-I52-4: El Probador's read, once per delivery, and the view the owner was looking at
+
+const probs = new Map<string, ProbadorRead | null>();
+const probAsked = new Set<string>();
+const views = new Map<string, string>();
+export function setProbador(slug: string, key: string, id: string, read: ProbadorRead | null) {
+  probs.set(readKey(slug, key, id), read);
+  bump();
+}
+// undefined while it loads; null when there is nothing (no ticket, or the read failed).
+export function useProbador(slug: string, key: string | null, id: string): ProbadorRead | null | undefined {
+  useStore();
+  const k = key ? readKey(slug, key, id) : null;
+  useEffect(() => {
+    if (!k || !key || probs.has(k) || probAsked.has(k)) return;
+    probAsked.add(k);
+    api.probador(slug, key).then(
+      (r) => setProbador(slug, key, id, r),
+      () => setProbador(slug, key, id, null),
+    );
+  }, [k, slug, key, id]);
+  if (!k) return null;
+  return probs.has(k) ? probs.get(k)! : undefined;
+}
+export const viewOf = (id: string): string | null => views.get(id) ?? null;
+// PLA-I52-6: the pins the owner put on a delivery's pictures; they go with Devolver a Taller.
+const pins = new Map<string, Marca[]>();
+export const pinsOf = (id: string): Marca[] => pins.get(id) ?? [];
+export function setPins(id: string, list: Marca[]) {
+  pins.set(id, list);
+  bump();
+}
+export function usePins(id: string): Marca[] {
+  useStore();
+  return pinsOf(id);
+}
+export function setView(id: string, key: string) {
+  views.set(id, key);
+  bump();
 }
 
 // ---- Devolver a Taller

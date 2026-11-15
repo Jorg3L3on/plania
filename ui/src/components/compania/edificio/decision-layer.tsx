@@ -103,7 +103,7 @@ const LayerCard = memo(function LayerCard({ p, d, kind, say, why, ctx, run, labe
         if (e.target === e.currentTarget) closeLayer();
       }}
     >
-      <div ref={box} className="edi-lcard" role="dialog" aria-modal="true" aria-labelledby={`layer-say-${d.id}`} aria-describedby={`layer-why-${d.id}`} data-layer-card={d.id}>
+      <div ref={box} className="edi-lcard" data-wide={kind === "delivery" ? "1" : undefined} role="dialog" aria-modal="true" aria-labelledby={`layer-say-${d.id}`} aria-describedby={`layer-why-${d.id}`} data-layer-card={d.id}>
         <p className="edi-nword">Una decisión · {p.title}</p>
         <h2 className="edi-lsay" id={`layer-say-${d.id}`}>
           {say}

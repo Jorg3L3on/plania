@@ -43,6 +43,8 @@ import { jorgePosts } from "./threads.js";
 import { applyFileStep, fileStepOf, stepOf, type FileStep } from "./file-step.js";
 import { requestVerify, verifyingOf, whoWord, type Verifying } from "./verify.js";
 import { qaGate } from "../runner/qa.js";
+import { probadorGate, releaseReel, type ReelItem } from "../captures/probador.js";
+import { cleanMarcas, marcasText } from "../captures/preguntas.js";
 
 const HOUR = 3_600_000;
 const KEEP_ACTED = 24 * HOUR;
@@ -75,7 +77,7 @@ export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 // PLA-I39-1: who asked, so the screen hangs the decision under that teammate's window. Null: nobody on a team.
 export type DecisionAsker = { agent: string; role: string };
-export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number };
+export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[] };
 export type Decision = {
   id: string;
   project: string | null;
@@ -105,6 +107,8 @@ export type Decision = {
   file_step: FileStep | null;
   // The owner's run on this ticket while it is queued or running (e.g. re-running its checks): the card says so.
   verify: Verifying | null;
+  // PLA-I52-7: the kind of change a delivery is (from its diff at finish), so the card shapes its proof.
+  cambio?: "se_ve" | "se_comporta" | "no_se_ve" | null;
 };
 
 // ---- parsing a PO's proposal
@@ -401,6 +405,9 @@ async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, 
     // PLA-I46-9: a code delivery on a project with QA waits for its QA pass before it is the owner's turn.
     const qa = !m.actionState && pr ? await qaGate(db, p ?? null, ticket, head) : null;
     if (qa?.pending) continue;
+    // PLA-I52-3: nor before its pictures exist (El Probador); a delivery without a muestra is unchanged.
+    const shots = !m.actionState && pr ? probadorGate(p ?? null, ticket, head) : null;
+    if (shots?.pending) continue;
     out.push({
       file_step: null,
       id: `m-${m.id}`,
@@ -415,7 +422,8 @@ async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, 
       ref: link?.ref ?? null,
       detail: firstLine(m.body, 200),
       ...ev,
-      hold: ev.hold ?? qa?.hold ?? null,
+      hold: ev.hold ?? qa?.hold ?? shots?.hold ?? null,
+      cambio: (ticket?.cambio as Decision["cambio"]) ?? null,
       links: linksOf(m.links),
       body: m.body,
       asker: await ownerAsker(db, p, ticket, m.authorAgent),
@@ -545,6 +553,7 @@ async function pasoRows(db: Db, all: Project[], inbox: Map<string, InboxItem[]>,
             tickets: plan.tickets.map((t) => ({ key: t.key, title: t.title })),
             open_checks: plan.open_checks,
             before: plan.before.length,
+            ...(await releaseReel(db, p.id, p.slug, plan.tickets).then((reel) => (reel.length ? { reel } : {}))),
           },
         });
       }
@@ -582,7 +591,7 @@ export async function decisionsRead(db: Db, now = new Date(), inboxed?: Map<stri
 
 // ---- acting
 
-export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string; answers?: number[]; checklist?: string[] };
+export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string; answers?: number[]; checklist?: string[]; marcas?: unknown };
 export type DecisionRefusal = { error: string; status: 400 | 404 | 409; hint: string; [k: string]: unknown };
 export type DecisionDone = { ok: true; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
 
@@ -653,7 +662,15 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
   }
 
   if (!["aceptar", "fusionar", "cambios", "responder"].includes(input.action)) return refuse("INVALID_ACTION", "Esa acción no aplica aquí.", 400);
-  const out = await threadAction(db, ref, { message_id: m.id, action: input.action as "aceptar" | "fusionar" | "cambios" | "responder", text: input.text });
+  // PLA-I52-6: a return from El Probador carries the owner's pins, each with a crop of the picture.
+  let text = input.text;
+  const marcas = input.action === "cambios" ? cleanMarcas(input.marcas) : [];
+  const ticketRef = m.links.find((l) => l.kind === "ticket")?.ref;
+  if (marcas.length && ref.project && ticketRef) {
+    const extra = await marcasText(db, ref.project.slug, ticketRef, marcas);
+    text = [text?.trim() || "Otra cosa", extra.text].filter(Boolean).join("\n\n");
+  }
+  const out = await threadAction(db, ref, { message_id: m.id, action: input.action as "aceptar" | "fusionar" | "cambios" | "responder", text });
   if ("error" in out) return { ...out, status: out.status } as DecisionRefusal;
   return after(db, id, stateOf(out.action_state)!);
 }
