@@ -167,7 +167,7 @@ const Compania = () => {
     const q = new URLSearchParams(search);
     if (piso && !q.has("piso")) q.set("piso", piso);
     if (onOficina && !q.has("edificio")) q.set("edificio", "");
-    const out = q.toString().replace(/(^|&)edificio=(?=&|$)/, "$1edificio");
+    const out = q.toString().split("&").map((part) => (part === "edificio=" ? "edificio" : part)).join("&");
     return out ? `?${out}` : "";
   };
   const openSheet = (search: string) => navigate({ pathname: "/ceo", search: withPiso(search) });
