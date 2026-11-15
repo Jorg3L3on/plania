@@ -15,7 +15,7 @@ const progress = (p: OrgProject): number => {
   return p.plan && p.plan.total > 0 ? Math.round((p.plan.done / p.plan.total) * 100) : 0;
 };
 
-const Tile = ({ p, open, toca, off, companyPaused, onPiso }: { p: OrgProject; open: boolean; toca: boolean; off?: boolean; companyPaused?: boolean; onPiso?: (slug: string) => void }) => (
+const Tile = ({ p, open, toca, off, app, companyPaused, onPiso }: { p: OrgProject; open: boolean; toca: boolean; off?: boolean; app?: boolean; companyPaused?: boolean; onPiso?: (slug: string) => void }) => (
   <button
     type="button"
     className={`edi-tile-fl${off ? " is-off" : ""}`}
@@ -23,11 +23,14 @@ const Tile = ({ p, open, toca, off, companyPaused, onPiso }: { p: OrgProject; op
     aria-current={open ? "true" : undefined}
     data-tile={p.slug}
     data-toca={toca ? "" : undefined}
+    data-app={app ? "on" : undefined}
     title={p.title}
-    aria-label={`${p.title}${toca ? ", te toca" : ""}${off ? ", en pausa" : ""}`}
+    aria-label={`${p.title}${toca ? ", te toca" : ""}${off ? ", en pausa" : ""}${app ? ", la app está encendida" : ""}`}
     onClick={() => onPiso?.(p.slug)}
   >
     <b aria-hidden>{p.title.charAt(0).toUpperCase()}</b>
+    {/* PLA-I48-7: a light on the tile while the floor's app is on. */}
+    {app && <i className="edi-tile-app" aria-hidden />}
     {!off && (
       <>
         <span className="edi-tile-wins" aria-hidden>
@@ -54,7 +57,9 @@ export const Tower = ({
   onPiso,
   onOffice,
   onNew,
+  appsOn,
 }: {
+  appsOn?: string[];
   floors: OrgProject[];
   basement: OrgProject[];
   decisions: Decision[];
@@ -81,14 +86,14 @@ export const Tower = ({
       </button>
       <div className="edi-rail-floors">
         {floors.map((p) => (
-          <Tile key={p.slug} p={p} open={open === p.slug} toca={waitsOnOwner(p, decisions)} companyPaused={companyPaused} onPiso={onPiso} />
+          <Tile key={p.slug} p={p} open={open === p.slug} toca={waitsOnOwner(p, decisions)} app={appsOn?.includes(p.slug)} companyPaused={companyPaused} onPiso={onPiso} />
         ))}
       </div>
       <span className="edi-rail-street" aria-hidden />
       {basement.length > 0 && (
         <div className="edi-rail-under" data-basement={basement.length} aria-label="Bajo la calle · en pausa" role="group">
           {basement.map((p) => (
-            <Tile key={p.slug} p={p} open={open === p.slug} toca={false} off onPiso={onPiso} />
+            <Tile key={p.slug} p={p} open={open === p.slug} toca={false} off app={appsOn?.includes(p.slug)} onPiso={onPiso} />
           ))}
         </div>
       )}

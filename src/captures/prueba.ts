@@ -22,6 +22,7 @@ import type { Ctx } from "../mcp/tx.js";
 import { defaultGit, isInside, repoPathOf, worktreeRoot, type GitFn } from "../runner/worktree.js";
 import { checkoutEnv, runCapture, shellExec, type CaptureInput, type CaptureSummary, type Exec } from "./run.js";
 import type { CaptureSettings } from "./settings.js";
+import { scrub as scrubLine, secretValues as secretValuesOf } from "../maquinas/env.js";
 
 export const BRANCH = "sandbox";
 export const IDLE_MS = 20 * 60_000; // nobody looked at the floor for this long: the copy stops
@@ -31,6 +32,9 @@ const PORT_SPAN = 50; // ports tried from settings.capture.port up
 // Plania's own servers and the local databases: never handed to a test copy.
 const RESERVED = new Set([3737, 3738, 3791, 3792, 5173, 5432, 5433]);
 const SESSION = "plania-prueba";
+// PLA-I48-1: the output kept per copy (Bitácora) and the part the Ventana's «Ver detalle» shows.
+export const TAIL_LINES = 200;
+const DETAIL_LINES = 12;
 
 export type Phase = "starting" | "capturing" | "live" | "failed";
 export type PruebaPhase = Phase | "off" | "running"; // running: something else serves settings.capture.port
@@ -82,6 +86,7 @@ type Copy = {
   worktree: string | null;
   repo: string | null;
   command: string | null;
+  commit: string | null;
   startedAt: number;
   seenAt: number;
   error: string | null;
@@ -164,7 +169,7 @@ function read(c: Copy): PruebaRead {
     url: c.port ? urlOf(c.port) : null,
     started_at: new Date(c.startedAt).toISOString(),
     error: c.error,
-    detail: c.tail.length ? c.tail.join("\n") : null,
+    detail: c.tail.length ? c.tail.slice(-DETAIL_LINES).join("\n") : null,
   };
 }
 
@@ -203,7 +208,7 @@ export async function encender(db: Db, slug: string): Promise<PruebaRead> {
   const had = copies.get(slug);
   if (had && had.phase !== "failed") return read(had);
   if (had) await apagar(db, slug); // Reintentar after a failed start: clean up first
-  const c: Copy = { slug, phase: "starting", managed: true, port: null, pid: null, worktree: null, repo: null, command: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null };
+  const c: Copy = { slug, phase: "starting", managed: true, port: null, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null };
   copies.set(slug, c);
   hook();
   void start(db, c, p, s).catch((e) => fail(db, c, `No se pudo encender: ${short(e)}`));
@@ -248,6 +253,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
     }
   }
   const head = (await g(["rev-parse", "HEAD"], wt)).stdout.trim();
+  c.commit = head || null;
   const want = (await g(["rev-parse", `origin/${BRANCH}`], repo)).stdout.trim();
   const ref = (await g(["rev-parse", "--abbrev-ref", "HEAD"], wt)).stdout.trim();
   if (!head || head !== want || ref !== "HEAD") return fail(db, c, `La copia de prueba no está en ${BRANCH}`);
@@ -344,7 +350,7 @@ function tailOf(text: string): string[] {
     .split("\n")
     .map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").trimEnd())
     .filter(Boolean)
-    .slice(-12)
+    .slice(-TAIL_LINES)
     .map((l) => l.slice(0, 240));
 }
 
@@ -381,6 +387,32 @@ export async function pickPort(db: Db, base: number): Promise<number | null> {
   return null;
 }
 
+// PLA-I48-1: what Máquinas adds to the read: how the copy was started, on which commit, and where.
+export function pruebaInfo(slug: string): { command: string | null; commit: string | null; branch: string; worktree: string | null; started_by: string | null } | null {
+  const c = copies.get(slug);
+  if (!c) return null;
+  return { command: c.command, commit: c.commit, branch: BRANCH, worktree: c.worktree, started_by: c.managed ? "Plania, desde el piso" : null };
+}
+
+// The kept output (at most TAIL_LINES), with every value of Plania's own environment and every secret-looking
+// value scrubbed: the app may print what it read, and nothing of Plania's may reach the screen.
+export function pruebaLog(slug: string, secrets: string[] = []): string[] {
+  const c = copies.get(slug);
+  if (!c) return [];
+  const own = secretValuesOf(env());
+  return c.tail.slice(-TAIL_LINES).map((l) => scrubLine(l, [...own, ...secrets]));
+}
+
+// Reiniciar: Apagar, then Encenderla, with the same port rule (the first free port from settings.capture.port up).
+export async function reiniciar(db: Db, slug: string): Promise<PruebaRead> {
+  const { s } = await settingsOf(db, slug);
+  const c = copies.get(slug);
+  const outside = !c && (await pruebaRead(slug, s)).phase === "running";
+  if (outside || (c && !c.managed)) throw new ToolError("INVALID_FILTER", { field: "prueba", hint: "la app no la encendió Plania; no la puedo reiniciar" });
+  await apagar(db, slug);
+  return encender(db, slug);
+}
+
 // ---- Volver a tomar (Reintentar on a capture error)
 
 // Takes the stills again from whatever serves the app: Plania's copy when it is on, else settings.capture.port.
@@ -398,7 +430,7 @@ export async function tomar(db: Db, slug: string): Promise<PruebaRead> {
       });
     return read(had);
   }
-  const c: Copy = { slug, phase: "capturing", managed: false, port: s.port, pid: null, worktree: null, repo: null, command: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null };
+  const c: Copy = { slug, phase: "capturing", managed: false, port: s.port, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null };
   copies.set(slug, c);
   void (deps.capture ?? runCapture)(db, { project: slug, checkout: repoPathOf(p.slug, p.settings, env()), base_url: urlOf(s.port), actor: ctx().actor })
     .catch(() => undefined)

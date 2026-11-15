@@ -39,6 +39,9 @@ import { Ficha, type Load } from "@/components/compania/edificio/ficha";
 import { Resguardo } from "@/components/compania/edificio/resguardo";
 import { After, Last } from "@/components/compania/edificio/after";
 import { FICHA_TABS, escStep, fichaOf, fichaSearch, needsRows, needsTask, type FichaRef } from "@/lib/ficha";
+import { nivelOf, type Nivel } from "@/lib/maquinas";
+import { NivelSwitch, useMaquinasRoom } from "@/components/compania/edificio/maquinas-live";
+import { TableroLive } from "@/components/compania/edificio/tablero";
 import { byLight, plumbingLine } from "@/lib/org";
 import { greeting } from "@/lib/greeting";
 import { hireLabel } from "@/lib/sumar";
@@ -155,7 +158,9 @@ const Compania = () => {
   };
   const openSheet = (search: string) => navigate({ pathname: "/ceo", search: withPiso(search) });
   const closeSheet = () => navigate({ pathname: "/ceo", search: withPiso("") }, { replace: true });
-  const onPiso = (slug: string) => navigate({ pathname: "/ceo", search: `?piso=${encodeURIComponent(slug)}` }, { replace: true });
+  // PLA-I48-4: ?nivel=maquinas is the floor's lower level; it stays while walking floors and opening La ficha.
+  const nivel: Nivel = nivelOf(location.search);
+  const onPiso = (slug: string) => navigate({ pathname: "/ceo", search: `?piso=${encodeURIComponent(slug)}${nivel === "maquinas" ? "&nivel=maquinas" : ""}` }, { replace: true });
   // PLA-I47-5: ?edificio is the building zoomed out (Tu oficina and one row per project); a floor zooms back in.
   const zoomOut = new URLSearchParams(location.search).has("edificio");
   const setZoom = (out: boolean, slug = piso) => {
@@ -232,6 +237,7 @@ const Compania = () => {
         ) : undefined,
       app: <VentanaLive slug={fp.slug} title={fp.title} timeZone={timeZone} />,
       solo: <After project={fp} decisions={decisions} now={now} timeZone={timeZone} acts={nowActs} qacts={qacts} />,
+      maq: maq.ficha(fref),
       last: <Last project={fp} decisions={decisions} now={now} timeZone={timeZone} acts={nowActs} qacts={qacts} />,
     };
   };
@@ -278,8 +284,9 @@ const Compania = () => {
   // Opening something in La ficha: the floor stays, the address carries what is shown.
   const setFicha = (r: FichaRef | null, el?: HTMLElement | null, slug = fslug) => {
     if (el) opener.current = el;
-    navigate({ pathname: "/ceo", search: fichaSearch(slug || null, r) });
+    navigate({ pathname: "/ceo", search: fichaSearch(slug || null, r, nivel) });
   };
+  const setNivel = (n: Nivel, r: FichaRef | null = fichaAt?.ref ?? null) => navigate({ pathname: "/ceo", search: fichaSearch(fslug || null, r, n) }, { replace: true });
   const closeFicha = () => {
     if (wideFicha) {
       setFichaHidden(true);
@@ -289,7 +296,7 @@ const Compania = () => {
         /* the browser keeps nothing: it opens again next time */
       }
     }
-    navigate({ pathname: "/ceo", search: fichaSearch(fslug || null, null) }, { replace: true });
+    navigate({ pathname: "/ceo", search: fichaSearch(fslug || null, null, nivel) }, { replace: true });
     const back = opener.current;
     if (back?.isConnected) window.setTimeout(() => back.focus(), 0);
   };
@@ -304,6 +311,15 @@ const Compania = () => {
     }
     setFicha(r, el, slug);
   };
+  // PLA-I48: the open floor's Máquinas (its room, its switch's lights, and La ficha's Máquinas kinds).
+  const maq = useMaquinasRoom({
+    slug: fslug || null,
+    nivel,
+    fref: fichaOpen ? fref : null,
+    onFicha: (r, el) => showFicha(r, el),
+    onPedir: (slug, text) => setPrefill((x) => ({ ...x, [slug]: text })),
+  });
+  const [appsOn, setAppsOn] = useState<string[]>([]);
   useEffect(() => {
     if (!company) return;
     const onKey = (e: KeyboardEvent) => {
@@ -335,6 +351,12 @@ const Compania = () => {
         showFicha({ kind: "tab", tab: FICHA_TABS[Number(e.key) - 1]! });
         return;
       }
+      // PLA-I48-4: M goes down to Máquinas and back up to Trabajo.
+      if ((e.key === "m" || e.key === "M") && fslug) {
+        e.preventDefault();
+        setNivel(nivel === "maquinas" ? "trabajo" : "maquinas");
+        return;
+      }
       if (e.key === "i" || e.key === "I") {
         e.preventDefault();
         if (fichaOpen) closeFicha();
@@ -353,7 +375,7 @@ const Compania = () => {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company, decisions, shownPiso, fichaOpen, fref.kind, fslug, zoomOut]);
+  }, [company, decisions, shownPiso, fichaOpen, fref.kind, fslug, zoomOut, nivel, location.search]);
   const act = useMutation({
     mutationFn: (v: { d: Decision; input: DecisionInput; key: string }) => api.actDecision(v.d.id, v.input),
     onMutate: (v) => {
@@ -456,6 +478,9 @@ const Compania = () => {
     onElapsed: refresh,
     // PLA-I47-7: «#te-toca» opens Tu oficina (the building zoomed out, where what waits on the owner is); «#publicar» publishes.
     onLink: (slug: string, href: string) => (href === "#publicar" ? openPublish(slug) : setZoom(true, slug)),
+    // PLA-I48-6: an idle floor's «Probar la app» opens Cómo probarla on Máquinas; «Bajar a máquinas» goes down.
+    onMaquinas: (slug: string, what: "probar" | "bajar") =>
+      navigate({ pathname: "/ceo", search: fichaSearch(slug, what === "probar" ? { kind: "maq", what: "probar" } : (fichaAt?.ref ?? null), "maquinas") }),
     onAuto: (slug: string, on: boolean) => {
       setNowBusy(`${slug}:auto`);
       void api
@@ -613,6 +638,8 @@ const Compania = () => {
                 <Link to="/machine" className="edi-mini" data-plumbing>
                   Plomería · {plumbingLine(company.plumbing).text}
                 </Link>
+                {/* PLA-I48-7: the building's tablero, beside Plomería (which keeps counting tokens and runs). */}
+                <TableroLive onPiso={onPiso} onCount={setAppsOn} />
                 {/* PLA-I47-5: Asistente in the sky line, not floating over the floor. */}
                 <AsistenteButton
                   unread={company.asistente.unread ?? 0}
@@ -678,6 +705,10 @@ const Compania = () => {
             onLeg={(slug, key, el) => showFicha({ kind: "leg", key }, el, slug)}
             fichaOpen={fichaOpen}
             onFichaClose={closeFicha}
+            nivel={nivel}
+            liftFor={() => <NivelSwitch nivel={nivel} lights={maq.lights} onNivel={(n) => setNivel(n)} />}
+            maquinasFor={(_p, ask) => maq.room(ask)}
+            appsOn={appsOn}
             ficha={
               fichaProject ? (
                 <Resguardo what="la ficha">

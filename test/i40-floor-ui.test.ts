@@ -154,6 +154,34 @@ test("I40-4 #1: one sentence per state: working, soon, stuck, your turn, plan fi
   for (const l of [working, soon, usage, nobody, mine, asked, release, done]) clean(`${l.say} ${l.why}`);
 });
 
+// PLA-I48-6: an idle floor is not an empty panel: Ahora offers «Probar la app» and «Bajar a máquinas».
+test("I40-4 #1 (PLA-I48-6): the idle state gains Probar la app and Bajar a máquinas", () => {
+  const idle = line(project());
+  const calls: string[] = [];
+  const acts = { onMaquinas: (slug: string, what: string) => calls.push(`${slug}:${what}`) };
+  const out = renderToStaticMarkup(h(nowc.Now, { project: project(), line: idle, now: NOW, acts }));
+  assert.match(out, /data-now="idle"/);
+  assert.match(out, /data-now-say="true">Nadie tiene trabajo ahora\.</);
+  assert.match(out, /data-control="ahora-probar"[^>]*>Probar la app</);
+  assert.match(out, /data-control="ahora-bajar"[^>]*>Bajar a máquinas ↓</);
+  const el = nowc.Now({ project: project(), line: idle, now: NOW, acts });
+  const all: any[] = [];
+  const walk = (n: any): void => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) return n.forEach(walk);
+    all.push(n);
+    walk(n.props?.children);
+  };
+  walk(el);
+  all.find((e) => e.props?.["data-control"] === "ahora-probar").props.onClick();
+  all.find((e) => e.props?.["data-control"] === "ahora-bajar").props.onClick();
+  assert.deepEqual(calls, ["workia:probar", "workia:bajar"]);
+  // Without the Máquinas calls (and in every other state) Ahora is as before.
+  assert.ok(!renderToStaticMarkup(h(nowc.Now, { project: project(), line: idle, now: NOW })).includes("ahora-probar"));
+  const busy = { ...idle, state: "work", word: "Trabajando", say: "Taller construye «x»." };
+  assert.ok(!renderToStaticMarkup(h(nowc.Now, { project: project(), line: busy, now: NOW, acts })).includes("ahora-probar"));
+});
+
 // PLA-I47-2: the Tú window is gone; Ahora says the owner holds the work and no teammate carries the mark.
 test("I40-4 #2: with a pending delivery the owner holds the work and the main action is its accept", () => {
   const s = floor(resting(), [delivery()]);

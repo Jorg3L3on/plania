@@ -4,6 +4,7 @@ import type { Dashboard, WakeResult } from "@/components/dashboard/types";
 import type { Goal, GoalWrite } from "@/components/goals/model";
 import type { Usage, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
 import type { CapturesRead, PruebaRead } from "@/lib/ventana";
+import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
 
 export class ApiError extends Error {
@@ -77,6 +78,24 @@ export const api = {
   captures: (slug: string) => request<CapturesRead>("GET", `/projects/${encodeURIComponent(slug)}/captures`),
   prueba: (slug: string, act: "encender" | "tomar" | "apagar") =>
     request<{ prueba: PruebaRead }>("POST", `/projects/${encodeURIComponent(slug)}/captures/${act}`, {}),
+  // PLA-I48: Máquinas, the floor's second level (src/api/maquinas.ts).
+  maquinas: (slug: string) => request<MaquinasRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas`),
+  reiniciar: (slug: string) => request<{ prueba: PruebaRead }>("POST", `/projects/${encodeURIComponent(slug)}/captures/reiniciar`, {}),
+  bitacora: (slug: string) => request<{ lines: string[] }>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/bitacora`),
+  configurar: (slug: string) => request<MaquinasRead>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/configurar`, {}),
+  baseLever: (slug: string, act: "encender" | "apagar") => request<{ base: BaseRead }>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/base/${act}`, {}),
+  tablas: (slug: string) => request<TablesRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/tablas`),
+  filas: (slug: string, table: string, offset: number) =>
+    request<RowsRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/tablas/${encodeURIComponent(table)}/filas?offset=${offset}`),
+  migrar: (slug: string) => request<SeedResult>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/migrar`, {}),
+  sembrar: (slug: string) => request<SeedResult>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/sembrar`, {}),
+  vaciarYSembrar: (slug: string, rows: number) => request<SeedResult>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/vaciar-y-sembrar`, { rows }),
+  llaves: (slug: string) => request<LlavesRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/llaves`),
+  pruebas: (slug: string) => request<PruebasRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/pruebas`),
+  correrPruebas: (slug: string) => request<PruebasRead>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/pruebas`, {}),
+  recorrido: (slug: string) => request<RecorridoRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/recorrido`),
+  contrasena: (slug: string) => request<{ user: string; password: string }>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/recorrido/contrasena`, {}),
+  tablero: () => request<TableroRead>("GET", "/maquinas/tablero"),
   // PLA-I46-10: the QA lane's evidence for one delivery (the floor's evidence card).
   qa: (slug: string, key: string) => request<QaRead>("GET", `/projects/${encodeURIComponent(slug)}/qa/${encodeURIComponent(key)}`),
   team: () => request<TeamRoster>("GET", "/team"),

@@ -17,7 +17,14 @@ export type FichaRef =
   | { kind: "lienzo"; url: string }
   | { kind: "plan" }
   | { kind: "app" }
-  | { kind: "sumar" };
+  | { kind: "sumar" }
+  // PLA-I48-5/6: Máquinas. ?f=maq:servidor, maq:base, maq:llaves, maq:pruebas, maq:probar and maq:tabla:<name>.
+  | { kind: "maq"; what: MaqWhat }
+  | { kind: "maq-tabla"; name: string };
+
+export const MAQ_WHAT = ["servidor", "base", "llaves", "pruebas", "probar"] as const;
+export type MaqWhat = (typeof MAQ_WHAT)[number];
+const TABLE = /^[A-Za-z_][A-Za-z0-9_$-]{0,62}$/;
 
 const LIENZO = /^https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9_-]+$/;
 const KEY = /^[A-Z][A-Z0-9]*-(?:I|IDEA)?\d+(?:-\d+)?$/;
@@ -39,6 +46,10 @@ export function fichaOf(search: string): { ref: FichaRef; slug: string | null } 
     if (kind === "doc") return one(UUID.test(ref) ? { kind, id: ref } : null);
     if (kind === "lienzo") return one(LIENZO.test(ref) ? { kind, url: ref } : null);
     if (kind === "plan" || kind === "app" || kind === "sumar") return one({ kind });
+    if (kind === "maq") {
+      if (ref.startsWith("tabla:")) return one(TABLE.test(ref.slice(6)) ? { kind: "maq-tabla", name: ref.slice(6) } : null);
+      return one((MAQ_WHAT as readonly string[]).includes(ref) ? { kind: "maq", what: ref as MaqWhat } : null);
+    }
     return null;
   }
   const m = q.get("m");
@@ -66,15 +77,20 @@ export function fichaParam(ref: FichaRef): string {
       return `doc:${ref.id}`;
     case "lienzo":
       return `lienzo:${ref.url}`;
+    case "maq":
+      return `maq:${ref.what}`;
+    case "maq-tabla":
+      return `maq:tabla:${ref.name}`;
     default:
       return ref.kind;
   }
 }
 
-// The address for a floor and what its ficha shows.
-export function fichaSearch(slug: string | null, ref: FichaRef | null): string {
+// The address for a floor and what its ficha shows. PLA-I48: the level (?nivel=maquinas) stays.
+export function fichaSearch(slug: string | null, ref: FichaRef | null, nivel?: "trabajo" | "maquinas"): string {
   const q = new URLSearchParams();
   if (slug) q.set("piso", slug);
+  if (nivel === "maquinas") q.set("nivel", "maquinas");
   if (ref && !(ref.kind === "tab" && ref.tab === "resumen")) q.set("f", fichaParam(ref));
   const s = q.toString();
   return s ? `?${s}` : "";
@@ -97,4 +113,5 @@ export function escStep(ref: FichaRef): FichaRef | "close" {
 
 // Which reads a view needs: the ficha rows only for the four list tabs and their details (never for Resumen).
 export const needsRows = (ref: FichaRef) => ref.kind === "idea" || ref.kind === "pr" || ref.kind === "lienzo" || ref.kind === "doc" || (ref.kind === "tab" && ref.tab !== "resumen");
+export const isMaq = (ref: FichaRef) => ref.kind === "maq" || ref.kind === "maq-tabla";
 export const needsTask = (ref: FichaRef): string | null => (ref.kind === "step" || ref.kind === "idea" ? ref.key : null);
