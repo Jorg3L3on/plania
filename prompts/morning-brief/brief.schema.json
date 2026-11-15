@@ -19,7 +19,13 @@
           "title": { "type": "string", "minLength": 1, "maxLength": 90, "description": "Verb first, what to do." },
           "detail": { "type": "string", "maxLength": 600 },
           "url": { "type": "string", "maxLength": 500, "pattern": "^https?://" },
-          "action": { "enum": ["Review", "Open PR", "Open compare", "Decide", "Open"] }
+          "action": { "enum": ["Review", "Open PR", "Open compare", "Decide", "Open"] },
+          "about": {
+            "type": "array",
+            "maxItems": 4,
+            "items": { "type": "string", "maxLength": 200 },
+            "description": "Handles from facts.json (the `handle` fields), the main one first. Never invent one."
+          }
         }
       }
     },

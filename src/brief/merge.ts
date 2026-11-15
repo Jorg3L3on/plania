@@ -6,10 +6,13 @@
 import { createHash } from "node:crypto";
 import type { Facts } from "./facts.js";
 import {
+  BRIEF_VERSION,
   BriefData,
   CROSS,
   IDEA_FLAG,
+  MAX_ABOUT,
   STATUSES,
+  type Target,
   type BriefApp,
   type BriefProject,
   type BriefSource,
@@ -66,6 +69,117 @@ const isStatus = (s: unknown): s is Status => typeof s === "string" && (STATUSES
 
 /** Ticket keys mentioned in a ref ("ABC-I12-3 · #45" -> ["ABC-I12-3"]). */
 export const refKeys = (ref: string | null | undefined): string[] => (ref ?? "").toUpperCase().match(/\b[A-Z][A-Z0-9]*-[A-Z0-9-]*[0-9]\b/g) ?? [];
+
+// ---- Targets (PLA-I49-2)
+
+type FactsLike = Pick<Facts, "projects">;
+/** Every handle in the facts pack and the target it stands for. Nothing else can become a target. */
+export type HandleIndex = Map<string, Target>;
+
+export function factsHandles(facts: FactsLike | null): HandleIndex {
+  const idx: HandleIndex = new Map();
+  if (!facts) return idx;
+  const put = (h: string | undefined, t: Target) => {
+    if (h && !idx.has(h)) idx.set(h, t);
+  };
+  const task = (project: string, h: string | undefined, key: string) => h && put(h, { kind: h.startsWith("i:") ? "initiative" : h.startsWith("idea:") ? "idea" : "ticket", project, key });
+  for (const p of facts.projects) {
+    const project = p.slug;
+    put(p.runs_handle, { kind: "runs", project });
+    for (const q of p.inbox ?? []) {
+      if (q.kind === "question") put(q.handle, { kind: "question", project, id: q.id, ...(q.key ? { key: q.key } : {}) });
+      else if (q.kind === "human_action") put(q.handle, { kind: "step", project, id: q.id, ...(q.key ? { key: q.key } : {}) });
+      else if (q.kind === "release") put(q.handle, { kind: "release", project });
+    }
+    if (p.release) put(p.release.handle, { kind: "release", project });
+    // A partial pack (older facts, tests) may lack lists: what is missing has no handles.
+    for (const t of [...(p.tickets_in_progress ?? []), ...(p.tickets_in_review ?? []), ...(p.tickets_blocked ?? []), ...(p.created_in_window ?? []), ...(p.initiatives ?? []), ...(p.ready ?? [])]) task(project, t.handle, t.key);
+    const prs = p.pull_requests;
+    for (const pr of [...(prs?.open ?? []), ...(prs?.opened ?? []), ...(prs?.merged ?? []), ...(prs?.closed ?? [])]) put(pr.handle, { kind: "pr", project, pr: pr.number, ...(pr.ticket ? { key: pr.ticket } : {}) });
+    for (const e of p.envs ?? []) put(e.handle, { kind: "env", project, env: e.env });
+    for (const f of p.audit?.findings ?? []) put(f.handle, { kind: "finding", project, code: f.code, ...(f.key ? { key: f.key } : {}) });
+  }
+  return idx;
+}
+
+const sameTarget = (a: Target, b: Target) => JSON.stringify(a) === JSON.stringify(b);
+
+/** The project a key belongs to, by its key prefix (the longest that matches). */
+function projectOfKey(facts: FactsLike, key: string): string | null {
+  let best: { slug: string; n: number } | null = null;
+  for (const p of facts.projects) if (key.startsWith(`${p.key_prefix}-`) && (!best || p.key_prefix.length > best.n)) best = { slug: p.slug, n: p.key_prefix.length };
+  return best?.slug ?? null;
+}
+
+/** The project a GitHub URL points at, by its repo. */
+function projectOfUrl(facts: FactsLike, url: string | undefined): string | null {
+  const m = url?.match(/^https?:\/\/github\.com\/([^/]+\/[^/]+)\//i);
+  if (!m) return null;
+  return facts.projects.find((p) => p.github_repo?.toLowerCase() === m[1]!.toLowerCase())?.slug ?? null;
+}
+
+const TOKEN = /#(\d+)|\b([A-Z][A-Z0-9]*-[A-Z0-9-]*[0-9])\b/g;
+const RECORD = /\b(record|registro)\b/i;
+
+/**
+ * When an item names no handle: read its ref (keys and #numbers, in order), its URL and its action against the facts.
+ * A compare link or "Open compare" is the release; "<env> record" is that env record; a key that waits on the owner
+ * (needs_you, blocker) is its open question or human step before the ticket itself.
+ */
+export function inferTargets(r: { app: string; status: Status; ref?: string; title: string; url?: string; action?: string }, facts: FactsLike | null, idx: HandleIndex): Target[] {
+  if (!facts) return [];
+  const out: string[] = [];
+  const add = (h: string | null | undefined) => {
+    if (h && idx.has(h) && !out.includes(h)) out.push(h);
+  };
+  const ref = (r.ref ?? "").toUpperCase();
+  const keys = refKeys(ref);
+  const urlProject = projectOfUrl(facts, r.url);
+  const home = r.app !== CROSS ? r.app : (urlProject ?? (keys.length ? projectOfKey(facts, keys[0]!) : null));
+  const proj = home ? facts.projects.find((p) => p.slug === home) : undefined;
+
+  if (r.action === "Open compare" || /\/compare\//.test(r.url ?? "")) add(`rel:${urlProject ?? home}`);
+  if (proj?.envs && RECORD.test(`${r.ref ?? ""} ${r.title}`)) {
+    const text = `${r.ref ?? ""} ${r.title}`.toLowerCase();
+    const env = proj.envs.find((e) => new RegExp(`\\b${escapeRe(e.env.toLowerCase())}\\b`).test(text)) ?? (proj.envs.length === 1 ? proj.envs[0] : undefined);
+    if (env) add(env.handle);
+  }
+  const waits = r.status === "needs_you" || r.status === "blocker";
+  for (const m of ref.matchAll(TOKEN)) {
+    if (m[1]) {
+      const n = Number(m[1]);
+      const slug = home ?? urlProject;
+      if (slug) add(`pr:${slug}#${n}`);
+      else for (const p of facts.projects) if (idx.has(`pr:${p.slug}#${n}`)) add(`pr:${p.slug}#${n}`);
+    } else if (m[2]) {
+      const key = m[2];
+      const slug = projectOfKey(facts, key);
+      const p = facts.projects.find((x) => x.slug === slug);
+      if (waits && p) {
+        add(p.inbox?.find((q) => q.kind === "question" && q.key === key)?.handle);
+        add(p.inbox?.find((q) => q.kind === "human_action" && q.key === key)?.handle);
+      }
+      add(`t:${key}`);
+      add(`i:${key}`);
+      add(`idea:${key}`);
+    }
+  }
+  const pull = r.url?.match(/\/pull\/(\d+)/);
+  if (pull && urlProject) add(`pr:${urlProject}#${pull[1]}`);
+  return out.slice(0, MAX_ABOUT).map((h) => idx.get(h)!);
+}
+
+/** about (handles from Claude or the server) checked against the facts; when none is left, inferTargets. */
+export function resolveTargets(about: unknown, r: Parameters<typeof inferTargets>[0], facts: FactsLike | null, idx: HandleIndex): Target[] {
+  const out: Target[] = [];
+  for (const h of Array.isArray(about) ? about : []) {
+    if (typeof h !== "string") continue;
+    const t = idx.get(h.trim());
+    if (t && !out.some((x) => sameTarget(x, t))) out.push(t);
+    if (out.length >= MAX_ABOUT) break;
+  }
+  return out.length ? out : inferTargets(r, facts, idx);
+}
 
 // ---- Server-made texts (the brief's language)
 
@@ -153,7 +267,7 @@ export type MergeInput = {
 
 // ---- Items
 
-type Ctx = { apps: Map<string, BriefApp>; projects: Map<string, BriefProject>; hidden: string[] };
+type Ctx = { apps: Map<string, BriefApp>; projects: Map<string, BriefProject>; hidden: string[]; facts?: FactsLike | null; handles?: HandleIndex };
 
 function appOf(ctx: Ctx, app: unknown): string {
   return typeof app === "string" && ctx.apps.has(app) ? app : CROSS;
@@ -180,6 +294,10 @@ export function cleanItem(raw: unknown, ctx: Ctx, settled?: ReadonlySet<string>)
   if (url) item.url = url;
   const action = str(r.action);
   if (action) item.action = clip(action, 40);
+  if (ctx.handles) {
+    const targets = resolveTargets(r.about, { app, status: r.status, ref, title: t, url, action }, ctx.facts ?? null, ctx.handles);
+    if (targets.length) item.targets = targets;
+  }
   return item;
 }
 
@@ -204,17 +322,18 @@ export function factsItems(facts: Pick<Facts, "projects"> | null, lang: string):
   const out: Record<string, unknown>[] = [];
   for (const p of facts.projects) {
     for (const q of p.inbox) {
-      out.push({ app: p.slug, status: "needs_you", ref: q.key ?? undefined, title: t.answer(q.title ?? q.why), detail: q.why, url: q.pr_url ?? undefined, action: "Decide" });
+      const about = [q.handle, ...(q.key ? [`t:${q.key}`, `i:${q.key}`] : [])];
+      out.push({ app: p.slug, status: "needs_you", ref: q.key ?? undefined, title: t.answer(q.title ?? q.why), detail: q.why, url: q.pr_url ?? undefined, action: "Decide", about });
     }
     for (const r of p.tickets_in_review) {
       if (!r.pr) continue;
-      out.push({ app: p.slug, status: "needs_you", ref: `${r.key} · #${r.pr.number}`, title: t.review(`${r.key}: ${r.title}`), url: r.pr.url, action: "Review" });
+      out.push({ app: p.slug, status: "needs_you", ref: `${r.key} · #${r.pr.number}`, title: t.review(`${r.key}: ${r.title}`), url: r.pr.url, action: "Review", about: [`pr:${p.slug}#${r.pr.number}`, r.handle] });
     }
     for (const f of p.audit?.findings ?? []) {
-      out.push({ app: p.slug, status: "next", ref: f.key ?? undefined, title: t.fix(f.detail), detail: f.fix_hint, action: "Open" });
+      out.push({ app: p.slug, status: "next", ref: f.key ?? undefined, title: t.fix(f.detail), detail: f.fix_hint, action: "Open", about: [f.handle] });
     }
     const first = p.ready.find((r) => r.first) ?? p.ready[0];
-    if (first) out.push({ app: p.slug, status: "next", ref: first.key, title: t.start(first.key, first.title), action: "Open" });
+    if (first) out.push({ app: p.slug, status: "next", ref: first.key, title: t.start(first.key, first.title), action: "Open", about: [first.handle] });
   }
   return out;
 }
@@ -301,6 +420,8 @@ export function mergeBrief(input: MergeInput): BriefData {
     apps: new Map(apps.map((a) => [a.id, a])),
     projects: new Map(input.projects.filter((p) => p.include).map((p) => [p.slug, p])),
     hidden: s.hidden_refs,
+    facts: input.facts,
+    handles: factsHandles(input.facts),
   };
   const nameOf = (slug: string) => ctx.projects.get(slug)?.name ?? input.projects.find((p) => p.slug === slug)?.name ?? slug;
   const homeName = "Plania";
@@ -325,7 +446,7 @@ export function mergeBrief(input: MergeInput): BriefData {
   for (const w of input.waitingPaused ?? []) paused.set(w.slug, [...new Set([...(paused.get(w.slug) ?? []), ...w.codes])]);
   for (const [slug, codes] of paused) {
     if (!codes.length) continue;
-    server.push({ app: ctx.apps.has(slug) ? slug : CROSS, status: "needs_you", ...t.turnOn(nameOf(slug), codes), action: "Open" });
+    server.push({ app: ctx.apps.has(slug) ? slug : CROSS, status: "needs_you", ...t.turnOn(nameOf(slug), codes), action: "Open", about: [`runs:${slug}`] });
   }
 
   const fromClaude = briefOk && input.brief?.ok ? input.brief.data.items : factsItems(input.facts, s.language);
@@ -347,7 +468,7 @@ export function mergeBrief(input: MergeInput): BriefData {
   const mode = factsOnly ? "facts_only" : !briefOk || ideasFailed ? "partial" : "full";
 
   return BriefData.parse({
-    version: 1,
+    version: BRIEF_VERSION,
     generatedAt: input.generatedAt,
     timezone: s.timezone,
     timezoneLabel: s.timezone_label,

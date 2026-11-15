@@ -283,3 +283,85 @@ test("projection: up to 5 lines, blockers first, then Needs you titles with the 
   assert.deepEqual(projectionLines({ ...data, items: [] }), ["Nothing needs you today."]);
   assert.deepEqual(projectionLines(sample).length, 5);
 });
+
+// ---- PLA-I49-2: typed rows
+
+const factsSample = JSON.parse(readFileSync(new URL("./fixtures/brief-facts-sample.json", import.meta.url), "utf8")) as MergeInput["facts"];
+const PROJECTS_PLUS = [...PROJECTS, { id: "6", slug: "plania", title: "Plania", keyPrefix: "PLA" }];
+function inputV2(over: Partial<MergeInput> = {}): MergeInput {
+  const stored: BriefSettings = { ...structuredClone(DEFAULT_SETTINGS), projects: { ...ORDER, plania: { order: 5 } } };
+  return { ...input(over), settings: resolveBriefSettings(stored, { PLANIA_TZ: "America/Mexico_City" }), projects: briefProjects(PROJECTS_PLUS, stored), facts: factsSample, ...over };
+}
+const main = (i: Item | undefined) => (i?.targets?.[0] ? `${i.targets[0].kind}:${i.targets[0].project}:${i.targets[0].pr ?? i.targets[0].key ?? i.targets[0].env ?? ""}` : null);
+
+test("v2: an about handle that is in the facts becomes a target; one that is not never reaches the brief", () => {
+  const data = mergeBrief(
+    inputV2({
+      brief: {
+        ok: true,
+        data: {
+          items: [
+            passItem({ app: "filmia", ref: "FIL-I50-6", title: "Do the iPhone check", about: ["b:0b6c8a3e-1111-4f00-9000-000000000001", "q:made-up-id", "t:FIL-I50-6"] }),
+            passItem({ app: "workia", ref: "WRK-I14", title: "Release workia", about: ["rel:workia", "rel:zigzag", "pr:workia#999", "t:NOPE-1"] }),
+            passItem({ app: "workia", ref: "nothing here", title: "Talk to the lawyer", about: ["q:invented", "t:WRK-404"] }),
+          ],
+        },
+      },
+    }),
+  );
+  assert.equal(data.version, 2);
+  const [step, rel, none] = ["Do the iPhone check", "Release workia", "Talk to the lawyer"].map((t) => data.items.find((i) => i.title === t));
+  assert.deepEqual(step!.targets, [
+    { kind: "step", project: "filmia", id: "0b6c8a3e-1111-4f00-9000-000000000001", key: "FIL-I50-6" },
+    { kind: "ticket", project: "filmia", key: "FIL-I50-6" },
+  ]);
+  assert.deepEqual(rel!.targets, [{ kind: "release", project: "workia" }]);
+  assert.equal(none!.targets, undefined, "no handle survived and the ref names nothing");
+  const stored = JSON.stringify(data);
+  for (const bad of ["made-up-id", "rel:zigzag", "#999", "NOPE-1", "invented", "WRK-404"]) assert.ok(!stored.includes(bad), bad);
+  assert.equal(BriefData.safeParse(data).success, true);
+});
+
+test("v2: a facts-only brief (pass A failed) has a target on every inbox, review, audit and Ready row", () => {
+  const facts = structuredClone(factsSample)!;
+  const w = facts.projects.find((p) => p.slug === "workia")!;
+  w.inbox.push({ handle: "q:q-1", id: "q-1", kind: "question", key: "WRK-I14", title: "Legal", why: "Ship the legal text?", options: ["yes", "no"], waiting_since: "x", pr_url: null });
+  w.tickets_in_review.push({ handle: "t:WRK-I14-1", key: "WRK-I14-1", title: "Legal pages", parent: "WRK-I14", since: null, open_checks: 0, pr: { number: 50, url: "https://github.com/Jorg3L3on/workia/pull/50" } as never });
+  w.pull_requests.open.push({ handle: "pr:workia#50", number: 50, title: "Legal", url: "https://github.com/Jorg3L3on/workia/pull/50", state: "open", base: "sandbox", head: "x", ticket: "WRK-I14-1", ci_state: null, opened_at: null, age_days: 1, merged_at: null, updated_at: null });
+  w.audit = { at: "x", count: 1, findings: [{ handle: "f:workia/STALE_NOTE/WRK-I14", code: "STALE_NOTE", key: "WRK-I14", detail: "state note is stale", fix_hint: "Update it.", level: null }] };
+  const data = mergeBrief(inputV2({ facts, brief: { ok: false, summary: "pass brief timed out" } }));
+  const rows = data.items.filter((i) => i.app !== "cross");
+  assert.ok(rows.length >= 6, `rows: ${rows.length}`);
+  for (const i of rows) assert.ok(i.targets?.length, `no target on ${i.title}`);
+  const kinds = rows.map((i) => i.targets![0]!.kind);
+  for (const k of ["question", "step", "pr", "finding", "ticket"]) assert.ok(kinds.includes(k as never), k);
+  assert.deepEqual(rows.find((i) => i.ref === "WRK-I14-1 · #50")!.targets![0], { kind: "pr", project: "workia", pr: 50, key: "WRK-I14-1" });
+  assert.deepEqual(rows.find((i) => i.ref === "WRK-13")!.targets, [{ kind: "ticket", project: "workia", key: "WRK-13" }]);
+});
+
+test("v2: the D7 'Turn on runs' item is about the project's runs", () => {
+  const data = mergeBrief(inputV2({ waitingPaused: [{ slug: "micasa", codes: ["C1"] }] }));
+  const item = data.items.find((i) => i.title.startsWith("Turn on runs for MiCasa"))!;
+  assert.deepEqual(item.targets, [{ kind: "runs", project: "micasa" }]);
+});
+
+test("v2 check 5: the Nov 13 sample's 7 items, without about, get their main target from ref, URL and action", () => {
+  // What each item is about, by a person reading it (see brief-sample.json).
+  const want: Record<string, string> = {
+    "Close Juegos after the iPhone check; Quiniela data comes later": "step:filmia:FIL-I50-6",
+    "Filmia prod record in Plania is stale": "env:filmia:prod",
+    "Release sandbox to main (programados kit)": "release:micasa:",
+    "Release sandbox to main after the legal check": "release:workia:",
+    "Dependabot npm minor/patch bump": "pr:filmia:235",
+    "Fix expediente crash on contracts with pay": "ticket:workia:WRK-13",
+    "Close the leftover merge-gate PRs": "pr:plania:94",
+  };
+  const items = sample.items.map(({ id: _id, ...rest }) => rest);
+  const data = mergeBrief(inputV2({ brief: { ok: true, data: { items } } }));
+  assert.equal(data.items.length, 7);
+  const right = data.items.filter((i) => main(i) === want[i.title]);
+  const wrong = data.items.filter((i) => main(i) !== want[i.title]).map((i) => `${i.title}: ${main(i)}`);
+  assert.ok(right.length >= 6, `right ${right.length}/7; wrong: ${wrong.join("; ")}`);
+  console.log(`check 5: ${right.length}/7 items get the right main target${wrong.length ? `; wrong: ${wrong.join("; ")}` : ""}`);
+  for (const i of data.items) assert.equal(i.id, sample.items.find((s) => s.title === i.title)!.id, "ids do not change, so old checks still hide the rows");
+});

@@ -13,14 +13,17 @@ export type ItemAction = "Review" | "Open PR" | "Open compare" | "Decide" | "Ope
 export const CROSS = "cross" as const;
 
 export type BriefApp = { id: string; name: string; color: Slot };
-export type Item = { id: string; app: string; status: Status; ref?: string; title: string; detail?: string; url?: string; action?: string };
+// PLA-I49-2: the Plania object a row is about (src/brief/types.ts Target). v1 briefs have no targets.
+export type TargetKind = "question" | "step" | "release" | "pr" | "ticket" | "initiative" | "idea" | "runs" | "env" | "finding";
+export type Target = { kind: TargetKind; project: string; key?: string; id?: string; pr?: number; env?: string; code?: string };
+export type Item = { id: string; app: string; status: Status; ref?: string; title: string; detail?: string; url?: string; action?: string; targets?: Target[] };
 export type Idea = { id: string; code: string; app: string; title: string; why: string; source: string; flags?: string[] };
 export type BriefSource = { name: "plania" | "github" | "claude_brief" | "claude_ideas"; ok: boolean; note?: string };
 export type BriefMode = "full" | "partial" | "facts_only";
 export type BriefLanguage = "en" | "es";
 
 export type BriefData = {
-  version: 1;
+  version: 1 | 2;
   generatedAt: string;
   timezone: string;
   timezoneLabel: string;

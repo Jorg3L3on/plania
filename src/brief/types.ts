@@ -22,6 +22,26 @@ const httpUrl = z.string().regex(/^https?:\/\//);
 export const BriefApp = z.object({ id: z.string().min(1), name: z.string().min(1), color: Slot });
 export type BriefApp = z.infer<typeof BriefApp>;
 
+// PLA-I49-2: the Plania object a row is about. The server resolves it from a fact handle (facts.ts) and never takes
+// one from Claude as is. kind says which fields are set: question/step {key, id}, release {}, pr {pr, key?},
+// ticket/initiative/idea {key}, runs {}, env {env}, finding {code, key?}.
+export const TARGET_KINDS = ["question", "step", "release", "pr", "ticket", "initiative", "idea", "runs", "env", "finding"] as const;
+export const TargetKind = z.enum(TARGET_KINDS);
+export type TargetKind = z.infer<typeof TargetKind>;
+export const Target = z.object({
+  kind: TargetKind,
+  project: z.string().min(1),
+  key: z.string().min(1).optional(),
+  id: z.string().min(1).optional(),
+  pr: z.number().int().positive().optional(),
+  env: z.string().min(1).optional(),
+  code: z.string().min(1).optional(),
+});
+export type Target = z.infer<typeof Target>;
+export const MAX_ABOUT = 4;
+/** A fact handle: q:<id>, b:<id>, rel:<slug>, pr:<slug>#<n>, t:<KEY>, i:<KEY>, idea:<KEY>, runs:<slug>, env:<slug>/<env>, f:<slug>/<code>/<key>. */
+export const HANDLE = /^(q|b|rel|pr|t|i|idea|runs|env|f):\S{1,160}$/;
+
 export const Item = z.object({
   id: z.string().min(1),
   app: z.string().min(1),
@@ -31,6 +51,8 @@ export const Item = z.object({
   detail: z.string().max(600).optional(),
   url: httpUrl.optional(),
   action: z.string().optional(),
+  // v2: the objects the row is about, the main one first. Absent on v1 briefs and on rows about nothing.
+  targets: z.array(Target).max(MAX_ABOUT).optional(),
 });
 export type Item = z.infer<typeof Item>;
 
@@ -53,8 +75,10 @@ export const BRIEF_MODES = ["full", "partial", "facts_only"] as const;
 export const BRIEF_LANGUAGES = ["en", "es"] as const;
 export const BriefLanguage = z.enum(BRIEF_LANGUAGES);
 
+/** 2 since PLA-I49-2 (items carry targets). A stored version 1 brief has every other field and still parses. */
+export const BRIEF_VERSION = 2 as const;
 export const BriefData = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   generatedAt: z.string().min(1),
   timezone: z.string().min(1),
   timezoneLabel: z.string().min(1),
@@ -70,7 +94,9 @@ export const BriefData = z.object({
 export type BriefData = z.infer<typeof BriefData>;
 
 // What Claude returns (prompts/morning-brief/*.schema.json): the server adds ids, codes and source in merge.ts.
-export const PassItem = Item.omit({ id: true }).extend({ action: ItemAction.optional() });
+// about: up to 4 handles from facts.json, the main one first. Loose here so one bad handle never fails the pass:
+// merge.ts keeps only handles that are in the facts. targets are the server's, never Claude's.
+export const PassItem = Item.omit({ id: true, targets: true }).extend({ action: ItemAction.optional(), about: z.array(z.string().max(200)).max(8).optional() });
 export type PassItem = z.infer<typeof PassItem>;
 export const PassIdea = Idea.omit({ id: true, code: true, source: true });
 export type PassIdea = z.infer<typeof PassIdea>;

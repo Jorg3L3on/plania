@@ -56,7 +56,21 @@ const clip = (s: string, n = MAX_BODY): string => (s.length > n ? `${s.slice(0, 
 const inWindow = (d: Date | null | undefined, w: FactsWindow): boolean => !!d && d >= w.from && d <= w.to;
 const PRIORITY: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
 
+// PLA-I49-2: every fact the owner could act on carries a handle. Pass A names handles in an item's `about`; merge.ts
+// keeps only handles that are in this pack and turns them into targets (types.ts Target).
+export const handles = {
+  question: (id: string) => `q:${id}`,
+  step: (id: string) => `b:${id}`,
+  release: (slug: string) => `rel:${slug}`,
+  pr: (slug: string, n: number) => `pr:${slug}#${n}`,
+  task: (kind: string, key: string) => (kind === "initiative" ? `i:${key}` : kind === "idea" ? `idea:${key}` : `t:${key}`),
+  runs: (slug: string) => `runs:${slug}`,
+  env: (slug: string, env: string) => `env:${slug}/${env}`,
+  finding: (slug: string, code: string, key: string | null) => `f:${slug}/${code}/${key ?? "-"}`,
+};
+
 export type FactsPr = {
+  handle: string;
   number: number;
   title: string;
   url: string;
@@ -90,14 +104,17 @@ export type FactsProject = {
   name: string;
   key_prefix: string;
   runs_paused: boolean;
+  // runs:<slug>, the handle for "turn on runs" when runs_paused.
+  runs_handle: string;
   repo_path: string;
   github_repo: string | null;
   headline_note: string;
-  tickets_in_progress: { key: string; title: string; priority: string | null; parent: string | null; agent: string | null; lease_live: boolean; last_seen_at: string | null; branch: string | null }[];
-  tickets_in_review: { key: string; title: string; parent: string | null; since: string | null; open_checks: number; pr: PrShape | null }[];
-  tickets_blocked: { key: string; title: string; status: string; note: string | null }[];
-  created_in_window: { key: string; kind: string; title: string; status: string; stage: string | null; parent: string | null; created_at: string }[];
+  tickets_in_progress: { handle: string; key: string; title: string; priority: string | null; parent: string | null; agent: string | null; lease_live: boolean; last_seen_at: string | null; branch: string | null }[];
+  tickets_in_review: { handle: string; key: string; title: string; parent: string | null; since: string | null; open_checks: number; pr: PrShape | null }[];
+  tickets_blocked: { handle: string; key: string; title: string; status: string; note: string | null }[];
+  created_in_window: { handle: string; key: string; kind: string; title: string; status: string; stage: string | null; parent: string | null; created_at: string }[];
   initiatives: {
+    handle: string;
     key: string;
     title: string;
     status: string;
@@ -111,11 +128,13 @@ export type FactsProject = {
     waiting_on: { key: string; on: string }[];
     line: string;
   }[];
-  ready: { key: string; title: string; priority: string | null; first: boolean }[];
-  inbox: { kind: string; key: string | null; title: string | null; why: string; options?: string[]; urgency?: string | null; human_only?: boolean; waiting_since: string; pr_url: string | null }[];
-  audit: { at: string; count: number; findings: { code: string; key: string | null; detail: string; fix_hint: string; level: string | null }[] } | null;
+  ready: { handle: string; key: string; title: string; priority: string | null; first: boolean }[];
+  // id: the question or blocker id (release:<slug> for the release); assignee: who a human step is for.
+  inbox: { handle: string; id: string; kind: string; key: string | null; assignee?: string; title: string | null; why: string; options?: string[]; urgency?: string | null; human_only?: boolean; waiting_since: string; pr_url: string | null }[];
+  audit: { at: string; count: number; findings: { handle: string; code: string; key: string | null; detail: string; fix_hint: string; level: string | null }[] } | null;
   pull_requests: { opened: FactsPr[]; merged: FactsPr[]; closed: FactsPr[]; open: FactsPr[] };
   release: {
+    handle: string;
     from: string;
     into: string;
     env: string;
@@ -134,6 +153,7 @@ export type FactsProject = {
     compared_at: string | null;
   } | null;
   envs: {
+    handle: string;
     env: string;
     commit: string | null;
     branch: string | null;
@@ -150,7 +170,8 @@ export type FactsProject = {
 };
 
 export type Facts = {
-  version: 1;
+  // 2 since PLA-I49-2: facts carry handles.
+  version: 2;
   window: { from: string; to: string };
   timezone: string;
   language: string;
@@ -163,8 +184,9 @@ export type Facts = {
   source_errors: FactsSourceError[];
 };
 
-function prFact(pr: typeof pullRequests.$inferSelect, ticket: string | null, openedAt: Date | null, now: Date): FactsPr {
+function prFact(slug: string, pr: typeof pullRequests.$inferSelect, ticket: string | null, openedAt: Date | null, now: Date): FactsPr {
   return {
+    handle: handles.pr(slug, pr.number),
     number: pr.number,
     title: clip(pr.title, 200),
     url: pr.url,
@@ -217,6 +239,7 @@ async function projectFacts(db: Q, p: Project, s: BriefSettings, w: FactsWindow,
   const inProgress = tickets
     .filter((t) => t.status === "In progress")
     .map((t) => ({
+      handle: handles.task(t.kind, t.key),
       key: t.key,
       title: t.title,
       priority: t.priority,
@@ -232,6 +255,7 @@ async function projectFacts(db: Q, p: Project, s: BriefSettings, w: FactsWindow,
     : { rows: [] };
   const inReview = await Promise.all(
     reviewRows.map(async (t) => ({
+      handle: handles.task(t.kind, t.key),
       key: t.key,
       title: t.title,
       parent: parentKey(t),
@@ -242,17 +266,18 @@ async function projectFacts(db: Q, p: Project, s: BriefSettings, w: FactsWindow,
   );
   const blocked = tickets
     .filter((t) => t.status === "Blocked" || t.status === "Needs Jorge")
-    .map((t) => ({ key: t.key, title: t.title, status: t.status, note: t.blockedNote ? clip(t.blockedNote, 300) : null }));
+    .map((t) => ({ handle: handles.task(t.kind, t.key), key: t.key, title: t.title, status: t.status, note: t.blockedNote ? clip(t.blockedNote, 300) : null }));
   const created = all
     .filter((t) => inWindow(t.createdAt, w))
     .slice(0, MAX_LIST)
-    .map((t) => ({ key: t.key, kind: t.kind, title: t.title, status: t.status, stage: t.stage, parent: parentKey(t), created_at: t.createdAt.toISOString() }));
+    .map((t) => ({ handle: handles.task(t.kind, t.key), key: t.key, kind: t.kind, title: t.title, status: t.status, stage: t.stage, parent: parentKey(t), created_at: t.createdAt.toISOString() }));
 
   // Initiatives that are still open, with the state derived from their tickets.
   const initiatives = [];
   for (const i of all.filter((t) => t.kind === "initiative" && !["Done", "Won't do"].includes(t.status))) {
     const st = await initiativeState(db, i, all.filter((c) => c.parentId === i.id));
     initiatives.push({
+      handle: handles.task("initiative", i.key),
       key: i.key,
       title: i.title,
       status: i.status,
@@ -272,7 +297,7 @@ async function projectFacts(db: Q, p: Project, s: BriefSettings, w: FactsWindow,
     .filter((t) => t.status === "Ready")
     .sort((a, b) => (PRIORITY[a.priority ?? ""] ?? 9) - (PRIORITY[b.priority ?? ""] ?? 9) || a.key.localeCompare(b.key, "en", { numeric: true }))
     .slice(0, 5)
-    .map((t) => ({ key: t.key, title: t.title, priority: t.priority, first: p.settings.next_first === t.key }));
+    .map((t) => ({ handle: handles.task(t.kind, t.key), key: t.key, title: t.title, priority: t.priority, first: p.settings.next_first === t.key }));
   if (p.settings.next_first) ready.sort((a, b) => Number(b.first) - Number(a.first));
 
   // What waits on the owner: questions, human steps, the release.
@@ -280,8 +305,11 @@ async function projectFacts(db: Q, p: Project, s: BriefSettings, w: FactsWindow,
     .filter((it) => it.kind === "question" || it.kind === "human_action" || it.kind === "release")
     .slice(0, MAX_LIST)
     .map((it) => ({
+      handle: it.kind === "question" ? handles.question(it.id) : it.kind === "human_action" ? handles.step(it.id) : handles.release(p.slug),
+      id: it.id,
       kind: it.kind,
       key: it.key,
+      ...(it.action && it.kind === "human_action" ? { assignee: it.action } : {}),
       title: it.title,
       why: clip(it.why, 400),
       ...(it.options?.length ? { options: it.options.map((o) => clip(o, 160)) } : {}),
@@ -296,7 +324,7 @@ async function projectFacts(db: Q, p: Project, s: BriefSettings, w: FactsWindow,
     ? {
         at: auditRow.at.toISOString(),
         count: auditRow.count,
-        findings: auditRow.findings.slice(0, MAX_LIST).map((f) => ({ code: f.code, key: f.key, detail: clip(f.detail, 300), fix_hint: clip(f.fix_hint, 200), level: f.level ?? null })),
+        findings: auditRow.findings.slice(0, MAX_LIST).map((f) => ({ handle: handles.finding(p.slug, f.code, f.key), code: f.code, key: f.key, detail: clip(f.detail, 300), fix_hint: clip(f.fix_hint, 200), level: f.level ?? null })),
       }
     : null;
 
@@ -315,7 +343,7 @@ async function projectFacts(db: Q, p: Project, s: BriefSettings, w: FactsWindow,
     if (e.type === "pr.closed") closedAt.set(e.url, e.at);
   }
   const ticketOf = (pr: typeof pullRequests.$inferSelect) => (pr.taskId ? (byId.get(pr.taskId)?.key ?? null) : null);
-  const fact = (pr: typeof pullRequests.$inferSelect) => prFact(pr, ticketOf(pr), openedAt.get(pr.url) ?? null, now);
+  const fact = (pr: typeof pullRequests.$inferSelect) => prFact(p.slug, pr, ticketOf(pr), openedAt.get(pr.url) ?? null, now);
   const pull_requests = {
     opened: prs.filter((pr) => inWindow(openedAt.get(pr.url), w)).slice(0, MAX_LIST).map(fact),
     merged: prs.filter((pr) => pr.state === "merged" && inWindow(pr.mergedAt, w)).slice(0, MAX_LIST).map(fact),
@@ -344,6 +372,7 @@ async function projectFacts(db: Q, p: Project, s: BriefSettings, w: FactsWindow,
               ? "diverged"
               : "ahead";
     release = {
+      handle: handles.release(p.slug),
       from: r.from,
       into: r.into,
       env: r.env,
@@ -375,6 +404,7 @@ async function projectFacts(db: Q, p: Project, s: BriefSettings, w: FactsWindow,
           .map((pr) => ({ number: pr.number, title: clip(pr.title, 200), merged_at: pr.mergedAt!.toISOString() }))
       : [];
     return {
+      handle: handles.env(p.slug, e.env),
       env: e.env,
       commit: e.commit?.slice(0, 7) ?? null,
       branch: e.branch,
@@ -411,6 +441,7 @@ async function projectFacts(db: Q, p: Project, s: BriefSettings, w: FactsWindow,
     name: p.title,
     key_prefix: p.keyPrefix,
     runs_paused: p.runsPaused,
+    runs_handle: handles.runs(p.slug),
     repo_path: repoPathOf(p.slug, p.settings),
     github_repo: repo,
     headline_note: clip(p.headlineNote, 280),
@@ -501,7 +532,7 @@ export async function buildFacts(db: Q, window: FactsWindow, opts: BuildFactsOpt
   }
   const [ct] = await db.select().from(threads).where(eq(threads.kind, "company")).limit(1);
   const facts: Facts = {
-    version: 1,
+    version: 2,
     window: { from: window.from.toISOString(), to: window.to.toISOString() },
     timezone: s.timezone,
     language: s.language,

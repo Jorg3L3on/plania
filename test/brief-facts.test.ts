@@ -154,9 +154,9 @@ test("facts: window, settings, project order (included projects only)", () => {
 
 test("facts: workia tickets, initiative state, Ready (next_first first), inbox, audit", () => {
   const w = proj("workia");
-  assert.deepEqual(w.tickets_in_progress, [{ key: "WRK-I14-2", title: "WRK-I14-2 title", priority: "P1", parent: "WRK-I14", agent: "Claude Code", lease_live: true, last_seen_at: at(1), branch: "jl/wrk-i14-2" }]);
+  assert.deepEqual(w.tickets_in_progress, [{ handle: "t:WRK-I14-2", key: "WRK-I14-2", title: "WRK-I14-2 title", priority: "P1", parent: "WRK-I14", agent: "Claude Code", lease_live: true, last_seen_at: at(1), branch: "jl/wrk-i14-2" }]);
   assert.equal(w.tickets_in_review.length, 1);
-  assert.deepEqual({ ...w.tickets_in_review[0], pr: w.tickets_in_review[0]!.pr?.number }, { key: "WRK-I14-1", title: "WRK-I14-1 title", parent: "WRK-I14", since: at(5), open_checks: 1, pr: 50 });
+  assert.deepEqual({ ...w.tickets_in_review[0], pr: w.tickets_in_review[0]!.pr?.number }, { handle: "t:WRK-I14-1", key: "WRK-I14-1", title: "WRK-I14-1 title", parent: "WRK-I14", since: at(5), open_checks: 1, pr: 50 });
   assert.equal(w.initiatives.length, 1);
   const i = w.initiatives[0]!;
   assert.deepEqual([i.key, i.done, i.total, i.next_action], ["WRK-I14", 0, 2, "Release after the legal check"]);
@@ -244,6 +244,32 @@ test("facts.json carries no token values or emails", () => {
   assert.match(json, /\[email\]/);
   const micasa = facts.source_errors.find((e) => e.project === "micasa")!;
   assert.match(micasa.detail, /401 Bad credentials for token \[redacted\]/);
+});
+
+// PLA-I49-2: every fact the owner can act on carries a handle, and the handle keeps the id the inbox had.
+test("facts v2: handles on questions, steps, the release, PRs, tickets, initiatives, env records, findings and runs", async () => {
+  assert.equal(facts.version, 2);
+  const w = proj("workia");
+  const [qrow] = await q(`select id from questions where project_id = $1`, [ids.workia]);
+  const question = w.inbox.find((x) => x.kind === "question")!;
+  assert.equal(question.id, qrow.id);
+  assert.equal(question.handle, `q:${qrow.id}`);
+  assert.equal(w.release!.handle, "rel:workia");
+  assert.equal(w.runs_handle, "runs:workia");
+  assert.deepEqual(w.pull_requests.open.map((x) => x.handle), ["pr:workia#51", "pr:workia#50"]);
+  assert.equal(w.initiatives[0]!.handle, "i:WRK-I14");
+  assert.deepEqual(w.ready.map((r) => r.handle), ["t:WRK-14", "t:WRK-13"]);
+  assert.equal(w.envs[0]!.handle, "env:workia/prod");
+  assert.equal(w.audit!.findings[0]!.handle, "f:workia/STALE_NOTE/WRK-I14");
+  assert.equal(proj("zigzag").created_in_window[0]!.handle, "i:ZIG-I3");
+
+  // A human step: its blocker id is kept, with who it is for.
+  const [t] = await q(`select id from tasks where key = 'WRK-I14-1'`);
+  const [b] = await q(`insert into blockers (task_id, type, spec) values ($1, 'human_action', $2) returning id`, [t.id, JSON.stringify({ assignee: "jorge", text: "Check the legal text on the phone" })]);
+  const again = (await buildFacts(db, W)).projects.find((p) => p.slug === "workia")!;
+  const step = again.inbox.find((x) => x.kind === "human_action")!;
+  assert.deepEqual([step.handle, step.id, step.key, step.assignee], [`b:${b.id}`, b.id, "WRK-I14-1", "jorge"]);
+  await q(`delete from blockers where id = $1`, [b.id]);
 });
 
 test("redactText and briefWindow", () => {
