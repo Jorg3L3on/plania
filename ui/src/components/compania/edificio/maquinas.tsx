@@ -322,7 +322,7 @@ export const Maquinas = ({
   const bv = v.base;
   const overlay = drawer && rows ? <RowsSheet table={drawer} rows={rows} sample={!!t?.sample} acts={acts} /> : mapa && t ? <MapSheet tables={t} acts={acts} /> : null;
   const logLine = r.server.detail?.split("\n").filter(Boolean).pop() ?? null;
-  const keys = llaves ? `${llaves.set} de ${llaves.llaves.length} puestas` : "";
+  const keys = llaves?.llaves.length ? `${llaves.set} de ${llaves.llaves.length} puestas` : "";
   const tests = pruebas?.running ? "Corriendo…" : pruebas?.last ? (pruebas.last.ok ? `En verde${pruebas.last.passed !== null ? ` · ${pruebas.last.passed}` : ""}` : `Fallan${pruebas.last.failed !== null ? ` · ${pruebas.last.failed}` : ""}`) : "Sin correr";
   return (
     <div className="edi-maq" data-maq={v.state}>
@@ -467,7 +467,7 @@ export const Maquinas = ({
             <b>
               Llaves<small>{keys}</small>
             </b>
-            <small data-keys-missing={llaves?.missing || undefined}>{llaves ? (llaves.missing ? `Faltan ${llaves.missing}` : "Todas puestas") : "Ver cuáles faltan"}</small>
+            <small data-keys-missing={llaves?.missing || undefined}>{llaves ? (!llaves.llaves.length ? "La app no pide ninguna" : llaves.missing ? `Faltan ${llaves.missing}` : "Todas puestas") : "Ver cuáles faltan"}</small>
           </button>
           <button type="button" className="edi-maq-inst" onClick={(e) => acts.onOpen?.("pruebas", e.currentTarget)} data-control="maq-pruebas">
             <b>
@@ -477,7 +477,7 @@ export const Maquinas = ({
           </button>
         </div>
       </section>
-      {ask && <div className="edi-maq-ask">{ask}</div>}
+      {ask && <div className="edi-askbar edi-maq-ask">{ask}</div>}
     </div>
   );
 };

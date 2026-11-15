@@ -1326,7 +1326,8 @@
   .edi-maq-eye { flex: none; display: flex; justify-content: space-between; gap: 8px; margin: 0; padding: 2px 2px 0; }
   .edi-maq-eye small { font-size: 11.5px; font-weight: 400; letter-spacing: 0; text-transform: none; white-space: nowrap; }
   .edi-maq-mach { position: relative; flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 10px 11px 10px 14px; border-radius: 16px; background: linear-gradient(180deg, #282d4d, #20243f); border: 1px solid var(--e-line); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07), 0 3px 0 rgb(0 0 0 / 0.3); }
-  .edi-maq-mach[data-mach="base"] { flex: 1 1 auto; min-height: 0; grid-template-rows: auto minmax(0, 1fr); }
+  /* The base never shrinks below its drawers: when the column is short, the room scrolls inside instead. */
+  .edi-maq-mach[data-mach="base"] { flex: none; }
   .edi-maq-main { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1px 10px; align-content: start; min-width: 0; padding: 0; border: 0; border-radius: 10px; background: none; color: inherit; text-align: left; font: inherit; cursor: pointer; }
   .edi-maq-main > .edi-maq-lamp { grid-row: 1 / 3; margin-top: 5px; }
   .edi-maq-name { font-size: 10.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--e-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1421,6 +1422,8 @@
 
   /* the building's tablero, beside Plomería */
   .edi-maq-tlink { display: inline; }
+  /* Open, the sky line sits over the building (and La ficha) so the panel is never under them. */
+  .edi-sky:has([data-tablero]) { z-index: 50; }
   .edi-maq-tablero { position: absolute; z-index: 45; right: 0; top: 24px; width: min(440px, calc(100vw - 32px)); max-height: min(70vh, 560px); overflow: auto; display: grid; gap: 8px; padding: 0 14px 14px; border-radius: 18px; background: #161a35; border: 1px solid var(--e-rail); box-shadow: 0 24px 70px rgb(0 0 0 / 0.6); color: var(--e-fg); text-align: left; }
   .edi-maq-tablero .edi-maq-shead { padding: 12px 0 8px; }
   .edi-maq-trows { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
@@ -1456,7 +1459,6 @@
     .edi-maq { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; gap: 12px; background-image: none; }
     .edi-maq-viewer { height: min(70vh, 460px); }
     .edi-maq-room { overflow: visible; }
-    .edi-maq-mach[data-mach="base"] { flex: none; }
     .edi-maq-pipe-h { display: none; }
     .edi-maq-transom { flex-wrap: wrap; padding: 10px 14px 6px; }
     .edi-maq-tabs { flex-basis: 100%; }
@@ -1464,7 +1466,7 @@
     .edi-maq-url code { flex-basis: 100%; order: 5; }
     .edi-maq-ask [data-control="pedir-abrir"]::after { display: none; }
     .edi-maq-tablero { position: fixed; left: 12px; right: 12px; top: 72px; width: auto; }
-    .edi-fmeta { flex-wrap: wrap; }
+    .edi-fmeta { flex: 1 1 100%; flex-wrap: wrap; min-width: 0; }
   }
 
   /* PLA-I47-7: a part that failed to draw says so in its place. */
