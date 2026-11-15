@@ -83,7 +83,8 @@ describe("session", () => {
     assert.deepEqual(await bad.json(), { error: "INVALID_PASSWORD" });
     const good = await req("POST", "/api/login", { cookie: null, body: { password: "test-password-123" } });
     assert.equal(good.status, 204);
-    assert.match(good.headers.get("set-cookie") ?? "", /^plania_session=v1\.\d+\..+HttpOnly; Secure; SameSite=Lax/);
+    assert.match(good.headers.get("set-cookie") ?? "", /^plania_session=v1\.\d+\..+HttpOnly; SameSite=Lax/);
+    assert.doesNotMatch(good.headers.get("set-cookie") ?? "", /; Secure/, "plain http on loopback: Safari drops Secure cookies (PLA-30)");
     const formLogin = await app.request("/api/login", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "password=test-password-123",
     });

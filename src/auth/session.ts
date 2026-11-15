@@ -33,21 +33,15 @@ export function verifySession(value: string | undefined, now = Date.now()): bool
   return Number(expStr) > Math.floor(now / 1000);
 }
 
-// 2.12: the cookie is Secure whenever the browser is on a secure origin: HTTPS directly, HTTPS that a
-// reverse proxy on this Mac terminated (tailscale serve sends X-Forwarded-Proto: https), or a loopback
-// host (localhost, 127.0.0.1, [::1]), which browsers treat as secure and accept Secure cookies from.
+// PLA-30: the cookie is Secure only when the browser really is on HTTPS: HTTPS directly, or HTTPS that a
+// reverse proxy on this Mac terminated (tailscale serve sends X-Forwarded-Proto: https). Plain http on a
+// loopback host (localhost, 127.0.0.1, [::1]) gets a non-Secure cookie: Chrome and Firefox accept Secure
+// cookies there, but Safari drops them, so the login looked like it worked and then silently did nothing.
 // The forwarded header is trusted because the server binds 127.0.0.1: only this Mac can reach it.
-// Anything else (plain http to another name, which only a misconfigured proxy could send) gets a
-// non-Secure cookie, so the login still works there instead of failing silently.
-const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
-
 export function isSecureRequest(req: Request): boolean {
   const forwarded = req.headers.get("X-Forwarded-Proto")?.split(",")[0]?.trim().toLowerCase();
   if (forwarded) return forwarded === "https";
-  const url = new URL(req.url);
-  if (url.protocol === "https:") return true;
-  const host = (req.headers.get("Host") ?? url.host).toLowerCase().replace(/:\d+$/, "");
-  return LOOPBACK.has(host) || host.endsWith(".localhost");
+  return new URL(req.url).protocol === "https:";
 }
 
 export const sessionCookieOptions = (req: Request) =>
