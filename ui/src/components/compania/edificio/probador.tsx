@@ -4,11 +4,11 @@
 // drag), Escritorio / Teléfono, Resaltar cambios (the box around what changed), Pruébala en vivo (the delivery's own
 // copy), the three steps and what accepting does. Pure parts in lib/probador.ts.
 import { memo, useState, type CSSProperties } from "react";
-import { api, type Decision, type OrgProject, type ParVista, type ProbadorRead, type VivoRead } from "@/lib/api";
+import { api, type Decision, type Marca, type OrgProject, type ParVista, type ProbadorQA, type ProbadorRead, type VivoRead } from "@/lib/api";
 import { KIND_WORD, PROBADOR_WORDS as W, firstVista, frameOf, sideFor, siAceptas, stateLine, type Side, type Width } from "@/lib/probador";
-import { openLayer, setView, viewOf } from "./evidence-store";
+import { openLayer, setPins, setView, usePins, viewOf } from "./evidence-store";
 
-const Frame = ({ v, width, side, hi }: { v: ParVista; width: Width; side: "antes" | "despues"; hi: boolean }) => {
+const Frame = ({ v, width, side, hi, pins = [], onPin }: { v: ParVista; width: Width; side: "antes" | "despues"; hi: boolean; pins?: { n: number; x: number; y: number }[]; onPin?: (x: number, y: number) => void }) => {
   const f = frameOf(v, width, side);
   if (f.kind === "nueva")
     return (
@@ -26,8 +26,25 @@ const Frame = ({ v, width, side, hi }: { v: ParVista; width: Width; side: "antes
     );
   const box = side === "despues" && hi ? v[width].diff : null;
   return (
-    <div className="edi-pbimg" data-frame="still">
+    <div
+      className="edi-pbimg"
+      data-frame="still"
+      data-pinning={onPin ? "1" : undefined}
+      onClick={
+        onPin
+          ? (e) => {
+              const b = e.currentTarget.getBoundingClientRect();
+              onPin((e.clientX - b.left) / b.width, (e.clientY - b.top) / b.height);
+            }
+          : undefined
+      }
+    >
       <img src={f.src} alt={f.alt} decoding="async" />
+      {pins.map((p) => (
+        <i key={p.n} className="edi-pbpin" style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` } as CSSProperties} aria-hidden>
+          {p.n}
+        </i>
+      ))}
       {box && <i className="edi-pbbox" aria-hidden style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%` } as CSSProperties} />}
     </div>
   );
@@ -78,13 +95,14 @@ export const ProbadorViewer = memo(function ProbadorViewer({ p, d, read }: { p: 
   const [width, setWidth] = useState<Width>(() => (typeof window !== "undefined" && window.matchMedia?.("(width < 40rem)").matches ? "phone" : "desktop"));
   const [hi, setHi] = useState(true);
   const [line, setLine] = useState(50);
-  const [seen, setSeen] = useState<number[]>([]);
   const [live, setLive] = useState(read.entrega);
   const [starting, setStarting] = useState(false);
   const [retaking, setRetaking] = useState(false);
   const [vivo, setVivo] = useState<VivoRead | null>(null);
   const [opening, setOpening] = useState(false);
   const [pass, setPass] = useState<string | null>(null);
+  const pins = usePins(d.id);
+  const [pinning, setPinning] = useState(false);
   if (!v) return null;
   const state = stateLine(read);
   // The line to drag only when both sides have a picture at this width; otherwise side by side.
@@ -120,6 +138,14 @@ export const ProbadorViewer = memo(function ProbadorViewer({ p, d, read }: { p: 
   const liveUrl = vivo?.url ? vivo.url + v.path : null;
   const liveOn = live?.phase === "live";
   const id = (s: string) => `pb-${d.id}-${s}`;
+  // PLA-I52-6: a pin on the picture in view (one side at a time), its note typed in the list.
+  const single = side !== "comparar";
+  const pinsHere = pins.map((m, i) => ({ ...m, n: i + 1 })).filter((m) => m.vista === v.key && m.width === width && m.side === side);
+  const addPin = (x: number, y: number) => {
+    if (!single) return;
+    setPins(d.id, [...pins, { vista: v.key, side: side as "antes" | "despues", width, x, y, note: "" }]);
+    setPinning(false);
+  };
   const viewer = (
     <section className="edi-pb" data-probador={d.id} aria-label="El Probador">
       {read.muestra && <p className="edi-pbfrase">{read.muestra.frase}</p>}
@@ -185,8 +211,9 @@ export const ProbadorViewer = memo(function ProbadorViewer({ p, d, read }: { p: 
             </div>
           )
         ) : (
-          <Frame v={v} width={width} side={side} hi={hi} />
+          <Frame v={v} width={width} side={side} hi={hi} pins={pinsHere} onPin={pinning ? addPin : undefined} />
         )}
+        {pinning && <span className="edi-pbhint">Toca el punto que quieres cambiar</span>}
       </div>
       <div className="edi-pbfoot">
         <span className="edi-pbpath">
@@ -199,6 +226,9 @@ export const ProbadorViewer = memo(function ProbadorViewer({ p, d, read }: { p: 
             <input type="range" min={2} max={98} value={line} onChange={(e) => setLine(Number(e.target.value))} aria-label="Línea entre antes y después" />
           </label>
         )}
+        <button type="button" className="edi-btn" aria-pressed={pinning} disabled={!single} onClick={() => setPinning((x) => !x)} data-control="senalar">
+          {pinning ? "Cancelar" : "Señalar algo"}
+        </button>
         <button type="button" role="switch" className="edi-sw" aria-checked={hi} onClick={() => setHi((x) => !x)} data-control="resaltar">
           <i aria-hidden />
           {W.resaltar}
@@ -259,9 +289,33 @@ export const ProbadorViewer = memo(function ProbadorViewer({ p, d, read }: { p: 
       )}
     </section>
   );
+  return viewer;
+});
+
+// PLA-I52-6: the right column of the layer: the three steps, the pins, Pregúntale a Taller and what accepting does.
+export const ProbadorSide = memo(function ProbadorSide({ p, d, read }: { p: OrgProject; d: Decision; read: ProbadorRead }) {
+  const [seen, setSeen] = useState<number[]>([]);
+  const [ask, setAsk] = useState("");
+  const [asked, setAsked] = useState<ProbadorQA[]>([]);
+  const [asking, setAsking] = useState(false);
+  const pins = usePins(d.id);
+  const qas = [...(read.preguntas ?? []), ...asked.filter((a) => !(read.preguntas ?? []).some((q) => q.id === a.id))];
+  const send = async () => {
+    const t = ask.trim();
+    if (!t || !d.ref) return;
+    setAsking(true);
+    try {
+      const r = await api.preguntar(p.slug, d.ref, t);
+      setAsked((x) => [...x, { id: r.id, text: t, at: new Date().toISOString(), answer: null }]);
+      setAsk("");
+    } catch {
+      // the button stays; nothing was sent
+    } finally {
+      setAsking(false);
+    }
+  };
   return (
     <>
-      {viewer}
       {read.muestra && (
         <div className="edi-pbrow edi-pbside">
           <div className="edi-evt" data-ev="pasos">
@@ -278,6 +332,50 @@ export const ProbadorViewer = memo(function ProbadorViewer({ p, d, read }: { p: 
                 </li>
               ))}
             </ol>
+          </div>
+          {pins.length > 0 && (
+            <div className="edi-evt" data-ev="marcas">
+              <p className="edi-peye">Tus marcas · van con Devolver</p>
+              <ol className="edi-pbmarcas">
+                {pins.map((m, i) => (
+                  <li key={i}>
+                    <i aria-hidden>{i + 1}</i>
+                    <input
+                      className="edi-pfield"
+                      value={m.note}
+                      maxLength={300}
+                      placeholder="Qué quieres que cambie"
+                      aria-label={`Nota de la marca ${i + 1}`}
+                      onChange={(e) => setPins(d.id, pins.map((x, j) => (j === i ? { ...x, note: e.target.value } : x)))}
+                    />
+                    <button type="button" className="edi-vlink" aria-label={`Quitar la marca ${i + 1}`} onClick={() => setPins(d.id, pins.filter((_, j) => j !== i))}>
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+          <div className="edi-evt" data-ev="preguntar">
+            <p className="edi-peye">Pregúntale a Taller</p>
+            {qas.map((q) => (
+              <div key={q.id} className="edi-pbqa">
+                <span className="edi-pbq">{q.text}</span>
+                {q.answer ? <span className="edi-pba">{q.answer.text}</span> : <span className="edi-pba" data-wait>Taller la recibió. Te responde aquí.</span>}
+              </div>
+            ))}
+            <form
+              className="edi-pbask"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void send();
+              }}
+            >
+              <input className="edi-pfield" value={ask} maxLength={400} placeholder="Pregunta lo que quieras de esta entrega" aria-label="Pregunta para Taller" onChange={(e) => setAsk(e.target.value)} disabled={asking || !d.ref} />
+              <button type="submit" className="edi-btn" disabled={asking || !ask.trim() || !d.ref} data-control="preguntar">
+                {asking ? "…" : "Preguntar"}
+              </button>
+            </form>
           </div>
           <div className="edi-evt edi-pbsi" data-ev="si-aceptas">
             <p className="edi-peye">{W.siAceptas}</p>

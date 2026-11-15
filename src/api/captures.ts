@@ -18,6 +18,7 @@ import { apagar, apagarEntrega, encender, entregaRead, pruebaRead, tomar } from 
 import { warmEntrega } from "../captures/entrega.js";
 import { assertKey, probadorRead, probar } from "../captures/probador.js";
 import { startVivo, vivoRead } from "../captures/vivo.js";
+import { preguntar } from "../captures/preguntas.js";
 import { latestStills, stillFile } from "../captures/store.js";
 import { projects } from "../db/schema.js";
 import { eq } from "drizzle-orm";
@@ -98,6 +99,19 @@ captureRoutes.post("/:slug/probador/:key/tomar", async (c) => {
     const key = assertKey(c.req.param("key"));
     void withDb((db) => probar(db, slug, key)).catch(() => null);
     return c.json({ ok: true });
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I52-6: «Pregúntale a Taller». The answer comes back in the project thread and shows on the card.
+captureRoutes.post("/:slug/probador/:key/preguntar", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { text?: unknown };
+  if (typeof body.text !== "string") return c.json({ error: "INVALID_FILTER", field: "text" }, 400);
+  try {
+    const slug = c.req.param("slug");
+    const key = assertKey(c.req.param("key"));
+    return c.json(await withDb((db) => preguntar(db, slug, key, body.text as string)));
   } catch (e) {
     return fail(c, e);
   }

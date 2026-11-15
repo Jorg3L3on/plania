@@ -29,6 +29,7 @@ import { registerFootprint, releaseFootprint } from "../mcp/footprint.js";
 import { SYSTEM_ACTOR, WEB_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
 import { QA_DENY_RULES, denySettings } from "./deny.js";
+import { PREGUNTA_MARK } from "../captures/preguntas.js";
 import { EVENT_SUMMARY, wakePoIfWaiting } from "./events.js";
 import { capacityFacts, capacityHold, agentFacts, agentHold, projectGoal } from "./hold.js";
 
@@ -580,7 +581,13 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     writeFileSync(systemPromptPath, markdown, { mode: 0o600 });
   }
   const settingsPath = path.join(tmp, "settings.json");
-  writeFileSync(settingsPath, JSON.stringify(denySettings(role === "qa" ? QA_DENY_RULES : [])), { mode: 0o600 });
+  // PLA-I52-6: a run that answers the owner's question about a delivery reads only, like QA.
+  const asks = run.summary.includes(PREGUNTA_MARK);
+  if (asks) {
+    const h = await (deps.git ?? defaultGit)(["rev-parse", "HEAD"], cwd).catch(() => null);
+    askHeads.set(run.id, h && h.code === 0 ? h.stdout.trim() : null);
+  }
+  writeFileSync(settingsPath, JSON.stringify(denySettings(role === "qa" || asks ? QA_DENY_RULES : [])), { mode: 0o600 });
   const mcpConfigPath = path.join(tmp, "mcp.json");
   writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp")), { mode: 0o600 });
 
@@ -681,8 +688,27 @@ type FinishInput = {
   cwd: string;
 };
 
+// PLA-I52-6: the head a question run started at, checked again when it ends (it must not have moved).
+const askHeads = new Map<string, string | null>();
+export async function askHeadCheck(runId: string, cwd: string, git: GitFn): Promise<{ before: string | null; after: string | null; moved: boolean } | null> {
+  if (!askHeads.has(runId)) return null;
+  const before = askHeads.get(runId) ?? null;
+  askHeads.delete(runId);
+  const h = await git(["rev-parse", "HEAD"], cwd).catch(() => null);
+  const after = h && h.code === 0 ? h.stdout.trim() : null;
+  return { before, after, moved: !!before && !!after && before !== after };
+}
+export const markAskHead = (runId: string, head: string | null) => askHeads.set(runId, head);
+
 export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {}): Promise<void> {
   const { run, agent, project, reader, exit } = input;
+  const heads = await askHeadCheck(run.id, input.cwd, deps.git ?? defaultGit);
+  if (heads?.moved) {
+    await db
+      .insert(events)
+      .values({ projectId: project.id, taskKey: run.taskKey, type: "probador.answer_moved_head", actor: { agent: "plania", session_id: "plania-probador" }, payload: { run_id: run.id, before: heads.before, after: heads.after } })
+      .catch(() => undefined);
+  }
   reader.end();
   const result = reader.result;
   const endedAt = new Date();

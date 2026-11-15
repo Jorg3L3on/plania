@@ -223,6 +223,8 @@ export const tasks = pgTable(
     muestra: jsonb("muestra").$type<import("../captures/muestra.js").Muestra>(),
     // PLA-I52-3: where the delivery's pictures stand (src/captures/probador.ts). Null until Plania starts them.
     probador: jsonb("probador").$type<import("../captures/probador.js").ProbadorState>(),
+    // PLA-I52-6: what the owner asked about the delivery (answers live in the project thread).
+    preguntas: jsonb("preguntas").$type<{ id: string; text: string; at: string }[]>().notNull().default(sql`'[]'::jsonb`),
   },
   (t) => [
     unique("tasks_project_key_unique").on(t.projectId, t.key),

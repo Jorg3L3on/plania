@@ -44,6 +44,7 @@ import { applyFileStep, fileStepOf, stepOf, type FileStep } from "./file-step.js
 import { requestVerify, verifyingOf, whoWord, type Verifying } from "./verify.js";
 import { qaGate } from "../runner/qa.js";
 import { probadorGate } from "../captures/probador.js";
+import { cleanMarcas, marcasText } from "../captures/preguntas.js";
 
 const HOUR = 3_600_000;
 const KEEP_ACTED = 24 * HOUR;
@@ -586,7 +587,7 @@ export async function decisionsRead(db: Db, now = new Date(), inboxed?: Map<stri
 
 // ---- acting
 
-export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string; answers?: number[]; checklist?: string[] };
+export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string; answers?: number[]; checklist?: string[]; marcas?: unknown };
 export type DecisionRefusal = { error: string; status: 400 | 404 | 409; hint: string; [k: string]: unknown };
 export type DecisionDone = { ok: true; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
 
@@ -657,7 +658,15 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
   }
 
   if (!["aceptar", "fusionar", "cambios", "responder"].includes(input.action)) return refuse("INVALID_ACTION", "Esa acción no aplica aquí.", 400);
-  const out = await threadAction(db, ref, { message_id: m.id, action: input.action as "aceptar" | "fusionar" | "cambios" | "responder", text: input.text });
+  // PLA-I52-6: a return from El Probador carries the owner's pins, each with a crop of the picture.
+  let text = input.text;
+  const marcas = input.action === "cambios" ? cleanMarcas(input.marcas) : [];
+  const ticketRef = m.links.find((l) => l.kind === "ticket")?.ref;
+  if (marcas.length && ref.project && ticketRef) {
+    const extra = await marcasText(db, ref.project.slug, ticketRef, marcas);
+    text = [text?.trim() || "Otra cosa", extra.text].filter(Boolean).join("\n\n");
+  }
+  const out = await threadAction(db, ref, { message_id: m.id, action: input.action as "aceptar" | "fusionar" | "cambios" | "responder", text });
   if ("error" in out) return { ...out, status: out.status } as DecisionRefusal;
   return after(db, id, stateOf(out.action_state)!);
 }

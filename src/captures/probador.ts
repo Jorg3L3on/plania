@@ -16,6 +16,7 @@ import type { Muestra } from "./muestra.js";
 import { encender, encenderEntrega, entregaRead, pruebaInfo, pruebaOf, pruebaRead, BRANCH } from "./prueba.js";
 import { runCapture, type CaptureInput, type CaptureSummary, type ViewPage } from "./run.js";
 import { imageUrl, readFile } from "./store.js";
+import { preguntasOf, type QA } from "./preguntas.js";
 import { VIEWPORT_NAMES, type ViewportName } from "./settings.js";
 
 export type ProbadorState = {
@@ -224,6 +225,7 @@ export type ProbadorRead = {
   state: ProbadorState | null;
   vistas: ParVista[];
   entrega: ReturnType<typeof entregaRead>;
+  preguntas: QA[]; // PLA-I52-6
 };
 
 export async function probadorRead(db: Db, slug: string, key: string): Promise<ProbadorRead | null> {
@@ -257,7 +259,7 @@ export async function probadorRead(db: Db, slug: string, key: string): Promise<P
     const kind: ParVista["kind"] = per.desktop.antes.missing || raw?.nueva ? "nueva" : !per.desktop.antes.still ? "sin_antes" : raw && "x" in raw ? "cambio" : desk?.status === "ok" ? "igual" : "sin_antes";
     return { key: v.key, label: v.label, path: v.path, estado: v.estado ?? null, kind, ...per };
   });
-  return { key: t.key, muestra: m, state: t.probador ?? null, vistas, entrega: entregaRead(slug) };
+  return { key: t.key, muestra: m, state: t.probador ?? null, vistas, entrega: entregaRead(slug), preguntas: await preguntasOf(db, got.p, t) };
 }
 
 export function assertKey(key: string): string {

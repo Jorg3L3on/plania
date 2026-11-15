@@ -101,6 +101,7 @@ export const api = {
   // PLA-I52-4: El Probador. The delivery's pairs (antes / después per view and width), its copy, and the two clicks.
   probador: (slug: string, key: string) => request<ProbadorRead>("GET", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}`),
   probadorTomar: (slug: string, key: string) => request<{ ok: true }>("POST", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}/tomar`, {}),
+  preguntar: (slug: string, key: string, text: string) => request<{ id: string; wake: string }>("POST", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}/preguntar`, { text }),
   vivo: (slug: string) => request<{ vivo: VivoRead }>("POST", `/projects/${encodeURIComponent(slug)}/entrega/vivo`, {}),
   entregaEncender: (slug: string, key: string) => request<{ entrega: EntregaRead }>("POST", `/projects/${encodeURIComponent(slug)}/entrega/encender`, { key }),
   team: () => request<TeamRoster>("GET", "/team"),
@@ -363,7 +364,8 @@ export type ParWidth = { antes: ParSide; despues: ParSide; diff: DiffBox | null 
 export type ParVista = { key: string; label: string; path: string; estado: string | null; kind: "nueva" | "cambio" | "igual" | "sin_antes"; desktop: ParWidth; phone: ParWidth };
 export type EntregaRead = { phase: "starting" | "capturing" | "live" | "failed" | "off" | "running"; port: number | null; url: string | null; error: string | null; key: string | null; branch: string | null; commit: string | null };
 export type VivoRead = { url: string | null; local_url: string | null; tailnet: boolean; signed_in: boolean; user: string | null; error: string | null; hint: string | null };
-export type ProbadorRead = { key: string; muestra: Muestra | null; state: ProbadorState | null; vistas: ParVista[]; entrega: EntregaRead | null };
+export type ProbadorQA = { id: string; text: string; at: string; answer: { text: string; at: string; by: string } | null };
+export type ProbadorRead = { key: string; muestra: Muestra | null; state: ProbadorState | null; vistas: ParVista[]; entrega: EntregaRead | null; preguntas?: ProbadorQA[] };
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
 export type Decision = {
   id: string;
@@ -397,7 +399,8 @@ export type Decision = {
   verify?: { state: "queued" | "running"; since: string; role: string | null } | null;
 };
 export type DecisionAsker = { agent: string; role: string };
-export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string; answers?: number[]; checklist?: string[] };
+export type Marca = { vista: string; side: "antes" | "despues"; width: "desktop" | "phone"; x: number; y: number; note: string };
+export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string; answers?: number[]; checklist?: string[]; marcas?: Marca[] };
 export type DecisionResult = { ok: boolean; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
 export type OrgPlumbing = { spend: number; running: number; paused: boolean };
 export type OrgCompany = {

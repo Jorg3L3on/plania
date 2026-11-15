@@ -2,7 +2,7 @@
 // QA read of a delivery, the Devolver sheet as the owner left it (open, reason, line), and which decision is at the
 // front. Same pattern as plan-draft.ts. Tests prefill a read with setRead (they render without a browser).
 import { useEffect, useSyncExternalStore } from "react";
-import { api, type ProbadorRead, type QaRead } from "@/lib/api";
+import { api, type Marca, type ProbadorRead, type QaRead } from "@/lib/api";
 import { RETURN_REASONS } from "@/lib/evidencia";
 
 export type ReturnDraft = { open: boolean; reason: string; line: string };
@@ -74,6 +74,17 @@ export function useProbador(slug: string, key: string | null, id: string): Proba
   return probs.has(k) ? probs.get(k)! : undefined;
 }
 export const viewOf = (id: string): string | null => views.get(id) ?? null;
+// PLA-I52-6: the pins the owner put on a delivery's pictures; they go with Devolver a Taller.
+const pins = new Map<string, Marca[]>();
+export const pinsOf = (id: string): Marca[] => pins.get(id) ?? [];
+export function setPins(id: string, list: Marca[]) {
+  pins.set(id, list);
+  bump();
+}
+export function usePins(id: string): Marca[] {
+  useStore();
+  return pinsOf(id);
+}
 export function setView(id: string, key: string) {
   views.set(id, key);
   bump();

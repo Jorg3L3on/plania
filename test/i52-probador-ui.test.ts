@@ -220,3 +220,24 @@ test("I52-4: a delivery without a muestra keeps the old card", () => {
   assert.equal(card.includes("data-probador-on"), false);
   assert.ok(card.includes('data-ev="stills"'));
 });
+
+test("I52-6 layer: Señalar algo, the pins list once there are pins, and Pregúntale a Taller with its answers", () => {
+  const d = delivery({ id: "m-pb-6" });
+  store.setRead("demo", "DEM-3", d.id, READ);
+  store.setProbador("demo", "DEM-3", d.id, { ...PROB, preguntas: [
+    { id: "q1", text: "¿Y las novias?", at: "2026-11-15T09:00:00Z", answer: { text: "Se quedan.", at: "2026-11-15T09:02:00Z", by: "taller" } },
+    { id: "q2", text: "¿En el teléfono?", at: "2026-11-15T09:05:00Z", answer: null },
+  ] });
+  store.setPins(d.id, [{ vista: "sucursales", side: "despues", width: "desktop", x: 0.5, y: 0.2, note: "muy pegado" }]);
+  store.openLayer("demo", d.id, null);
+  const layer = /<div class="edi-layer"[\s\S]*$/.exec(render(company(project(), [d])))?.[0] ?? "";
+  store.closeLayer();
+  store.setPins(d.id, []);
+  assert.match(layer, /data-control="senalar">Señalar algo</);
+  assert.match(layer, /class="edi-pbpin"[^>]*>1</, "the pin sits on the picture it belongs to");
+  assert.match(layer, /data-ev="marcas"/);
+  assert.match(layer, /value="muy pegado"/);
+  assert.ok(unq(text(layer)).includes("¿Y las novias? Se quedan."));
+  assert.ok(unq(text(layer)).includes("¿En el teléfono? Taller la recibió. Te responde aquí."));
+  assert.match(layer, /data-control="preguntar"/);
+});

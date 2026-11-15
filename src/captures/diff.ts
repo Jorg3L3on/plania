@@ -1,6 +1,6 @@
 // PLA-I52-3: what changed between two stills. A small PNG reader (8-bit RGB/RGBA, not interlaced: what Chrome
 // writes) and the box around the pixels that differ, in fractions of the image, so the card can draw it at any size.
-import { inflateSync } from "node:zlib";
+import { deflateSync, inflateSync } from "node:zlib";
 
 export type Raster = { width: number; height: number; channels: 3 | 4; data: Buffer };
 export type DiffBox = { x: number; y: number; w: number; h: number; ratio: number } | null;
@@ -97,4 +97,65 @@ export function pngDiff(before: Buffer, after: Buffer): DiffBox | "unreadable" {
   const b = decodePng(after);
   if (!a || !b) return "unreadable";
   return diffBox(a, b);
+}
+
+// PLA-I52-6: a piece of a still (a pin's crop), written back as PNG (RGB, filter 0).
+export function cropRaster(r: Raster, x: number, y: number, w: number, h: number): Raster {
+  const x0 = Math.max(0, Math.min(r.width - 1, Math.round(x)));
+  const y0 = Math.max(0, Math.min(r.height - 1, Math.round(y)));
+  const W = Math.max(1, Math.min(r.width - x0, Math.round(w)));
+  const H = Math.max(1, Math.min(r.height - y0, Math.round(h)));
+  const out = Buffer.alloc(W * H * 3);
+  for (let j = 0; j < H; j++)
+    for (let i = 0; i < W; i++) {
+      const s = ((y0 + j) * r.width + (x0 + i)) * r.channels;
+      const d = (j * W + i) * 3;
+      out[d] = r.data[s]!;
+      out[d + 1] = r.data[s + 1]!;
+      out[d + 2] = r.data[s + 2]!;
+    }
+  return { width: W, height: H, channels: 3, data: out };
+}
+
+const CRC = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(buf: Buffer): number {
+  let c = 0xffffffff;
+  for (const b of buf) c = CRC[(c ^ b) & 0xff]! ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+function chunk(type: string, data: Buffer): Buffer {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length);
+  const td = Buffer.concat([Buffer.from(type, "ascii"), data]);
+  const c = Buffer.alloc(4);
+  c.writeUInt32BE(crc32(td));
+  return Buffer.concat([len, td, c]);
+}
+export function encodePng(r: Raster): Buffer {
+  const stride = r.width * 3;
+  const rows = Buffer.alloc(r.height * (stride + 1));
+  for (let y = 0; y < r.height; y++) {
+    rows[y * (stride + 1)] = 0;
+    for (let x = 0; x < r.width; x++) {
+      const s = (y * r.width + x) * r.channels;
+      const d = y * (stride + 1) + 1 + x * 3;
+      rows[d] = r.data[s]!;
+      rows[d + 1] = r.data[s + 1]!;
+      rows[d + 2] = r.data[s + 2]!;
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(r.width, 0);
+  ihdr.writeUInt32BE(r.height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(rows)), chunk("IEND", Buffer.alloc(0))]);
 }
