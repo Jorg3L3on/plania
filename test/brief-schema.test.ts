@@ -136,3 +136,33 @@ test("brief_settings: one row with the spec defaults, fallback_at 11:00", async 
   await assert.rejects(raw.query(`update brief_settings set language = 'fr'`), /brief_settings_language_check/);
   await assert.rejects(raw.query(`update brief_settings set github_mode = 'api'`), /brief_settings_github_mode_check/);
 });
+
+// PLA-I49-2: BriefData v2 (targets) and the pass A item's `about`.
+test("BriefData: v1 parses without targets, v2 with them; a bad target is refused", async () => {
+  const { BriefData, BriefPassOutput, HANDLE } = await import("../src/brief/types.js");
+  const v1 = JSON.parse(readFileSync(new URL("./fixtures/brief-sample.json", import.meta.url), "utf8"));
+  assert.ok(BriefData.safeParse(v1).success, "the stored v1 sample");
+  const v2 = structuredClone(v1);
+  v2.version = 2;
+  v2.items[0].targets = [{ kind: "step", project: "filmia", key: "FIL-I50-6", id: "b-1" }, { kind: "pr", project: "filmia", pr: 238 }];
+  assert.ok(BriefData.safeParse(v2).success);
+  v2.items[0].targets = [{ kind: "spaceship", project: "filmia" }];
+  assert.equal(BriefData.safeParse(v2).success, false);
+  v2.items[0].targets = Array.from({ length: 5 }, () => ({ kind: "runs", project: "filmia" }));
+  assert.equal(BriefData.safeParse(v2).success, false, "at most 4");
+  v2.version = 3;
+  v2.items[0].targets = undefined;
+  assert.equal(BriefData.safeParse(v2).success, false);
+
+  const out = BriefPassOutput.parse({ items: [{ app: "workia", status: "next", title: "x", about: ["t:WRK-1", "made up!"], targets: [{ kind: "runs", project: "x" }] }] });
+  assert.deepEqual(out.items[0]!.about, ["t:WRK-1", "made up!"], "about is loose here; the merge checks it");
+  assert.equal("targets" in out.items[0]!, false, "Claude cannot send targets");
+  for (const h of ["q:3f0c", "b:9", "rel:workia", "pr:workia#50", "t:WRK-1", "i:WRK-I14", "idea:WRK-IDEA3", "runs:workia", "env:workia/prod", "f:workia/STALE_NOTE/-"]) assert.match(h, HANDLE, h);
+});
+
+test("brief.schema.json: items may carry about, up to 4 strings", () => {
+  const schema = JSON.parse(readFileSync(new URL("../prompts/morning-brief/brief.schema.json", import.meta.url), "utf8"));
+  const about = schema.properties.items.items.properties.about;
+  assert.equal(about.type, "array");
+  assert.equal(about.maxItems, 4);
+});

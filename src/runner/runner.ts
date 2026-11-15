@@ -293,7 +293,7 @@ export type ForcedStart =
 
 export async function startNow(
   db: Db,
-  input: { agent: Agent; task: ReadyWork | null; pastGuard?: boolean; now: Date },
+  input: { agent: Agent; task: ReadyWork | null; pastGuard?: boolean; now: Date; reason?: string },
   deps: RunnerDeps = {},
 ): Promise<ForcedStart> {
   return serial(async () => {
@@ -321,7 +321,8 @@ export async function startNow(
             taskKey: task?.key ?? null,
             role: ctx.role!,
             status: "queued",
-            summary: pre.ok ? "starting" : "queued: cap reached",
+            // PLA-I49-5: a reason rides in the summary the way an event wake's does, so the prompt says why.
+            summary: input.reason ? `${EVENT_SUMMARY} ${input.reason}`.slice(0, 500) : pre.ok ? "starting" : "queued: cap reached",
             queuedAt: input.now,
             reserveTokens: (await loadSettings(db)).reserveTokens,
           })
@@ -439,8 +440,13 @@ export function userPrompt(input: {
     lines.push(`Workspace: ${input.workspace.path}${input.workspace.branch ? ` on branch ${input.workspace.branch}` : ""}, base sandbox.`);
   }
   lines.push(...packLines(input.packs ?? []));
+  // PLA-I49-6: an idea (PREFIX-IDEA<n>) is not a ticket and start refuses it. Research and Artist woken on an idea's
+  // stage work on the idea itself: read it, write the stage doc on it, move its stage.
+  const idea = !!input.task && /-IDEA\d+$/.test(input.task.key);
   lines.push(
-    `Plania first: open the ticket with start (actor session_id ${input.sessionId}, that workspace) before you touch code.`,
+    idea
+      ? `This is an idea, not a ticket: do not call start or claim on it. Read it with get_task, write your stage doc on it with attach_doc (key ${input.task!.key}), then move its stage with set_task.`
+      : `Plania first: open the ticket with start (actor session_id ${input.sessionId}, that workspace) before you touch code.`,
     "Never main: commit on your branch, open PRs into sandbox only, never merge. Stop when the ticket is In review or when only Jorge can decide (ask).",
   );
   return lines.join("\n");

@@ -256,9 +256,28 @@ export async function onWriteEvent(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<EventWake | null> {
   if (!WATCHED.has(type) || !eventWakesEnabled(env)) return null;
+  // PLA-I49-6: a project's runs coming back also wake the Artist or Research who own a Ready request of the owner's
+  // there (origin jorge: a sketch asked from the brief while the project was paused), once each. The PO wakes as before.
+  if (type === "project.runs_resumed") await wakeReadyOwners(tx, project);
   const target = await targetOf(tx, project, type, task, payload);
   if (!target) return null;
   return queueWake(tx, project, task, target, type);
+}
+
+async function wakeReadyOwners(tx: Q, project: ProjectRef): Promise<void> {
+  const rows = await tx
+    .select({ id: tasks.id, key: tasks.key, agent: agents })
+    .from(tasks)
+    .innerJoin(agents, eq(agents.id, tasks.ownerAgent))
+    .where(and(eq(tasks.projectId, project.id), eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), eq(tasks.origin, "jorge")))
+    .orderBy(asc(tasks.createdAt));
+  const seen = new Set<string>();
+  for (const r of rows) {
+    const role = roleOf(r.agent);
+    if ((role !== "artist" && role !== "research") || seen.has(r.agent.id)) continue;
+    seen.add(r.agent.id);
+    await queueWake(tx, project, { id: r.id, key: r.key }, { agent: r.agent, taskKey: r.key, reason: "project resumed" }, "project.runs_resumed");
+  }
 }
 
 // Queue one wake and log it as wake.queued (inserted directly, so it is never itself an event the hook reads).

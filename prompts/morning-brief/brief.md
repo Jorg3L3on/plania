@@ -28,6 +28,10 @@ Rules for items
   previous title and ref exactly, so the owner's check keeps hiding it.
 - detail: 1 to 3 short sentences: what happened (with time), why it matters, what is next.
 - url: only a real URL from facts or tools (PR, compare). action: Review | Open PR | Open compare | Decide | Open.
+- about: the Plania objects the item is about, as the `handle` values in facts.json (q:…, b:…, rel:…, pr:…, t:…,
+  i:…, idea:…, runs:…, env:…, f:…), at most 4, the one the owner acts on first. A question waiting on the owner is
+  its q: handle, a human step its b: handle, a release its rel: handle, a stale env record its env: handle. Copy
+  handles exactly; never make one up. Omit about when no handle fits.
 - At most {{MAX_ITEMS_PER_APP}} items per app (blockers and needs_you first). Merge related things into one item.
 - For each entry in facts.source_errors, add ONE "cross" needs_you item that says what is missing and the fix.
 - Inside each status, most urgent first.

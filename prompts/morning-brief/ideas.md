@@ -17,6 +17,9 @@ Rules for each idea
 - flags (optional, any of): cost (anything paid), outside_service (a new account or third party), legal (needs a
   lawyer or legal text), repo_change (adds tooling or dependencies beyond normal app code), big (more than about two
   weeks), overlap:<KEY> (an existing Plania idea or initiative covers part of it).
+- Never propose an idea the owner discarded in the last 60 days, or a near copy of one. These were discarded, with
+  the reason:
+{{DISCARDED}}
 - Never propose: agent or harness files (AGENTS.md, CLAUDE.md, hooks, CI) in product repos; anything that needs real
   customer data in Plania; an idea already Open in Plania (skip it).
 - Add up to 2 ideas with app "cross" that help several projects at once.

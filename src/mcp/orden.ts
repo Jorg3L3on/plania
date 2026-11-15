@@ -23,6 +23,9 @@ const ONE_CLICK: Record<string, CanFix> = {
   ENV_DEPLOYED_AT_MISSING: "mark_deployed",
 };
 
+/** PLA-I49-3: the finding has a fix Plania runs itself (fixFinding), not a command to copy. */
+export const canFixInOneClick = (code: string): boolean => !!ONE_CLICK[code] && ONE_CLICK[code] !== "copy";
+
 // Findings an agent clears with a tool (the fix hint names it), offered by get_next as chores.
 // STATE_NOTE_STALE is not an audit finding (2.11 demoted it to a flag on the note); it is a chore only.
 export const AGENT_CHORES = new Set([

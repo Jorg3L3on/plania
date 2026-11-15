@@ -1,0 +1,455 @@
+{
+ "version": 2,
+ "window": {
+  "from": "2026-11-13T00:00:00.000Z",
+  "to": "2026-11-13T13:04:12.000Z"
+ },
+ "timezone": "America/Mexico_City",
+ "language": "en",
+ "owner_name": "Jorge",
+ "hidden_refs": [],
+ "github_mode": "poller",
+ "projects": [
+  {
+   "slug": "workia",
+   "name": "Workia",
+   "key_prefix": "WRK",
+   "runs_paused": false,
+   "runs_handle": "runs:workia",
+   "repo_path": "/repos/workia",
+   "github_repo": "Jorg3L3on/workia",
+   "headline_note": "",
+   "tickets_in_progress": [],
+   "tickets_in_review": [],
+   "tickets_blocked": [],
+   "created_in_window": [],
+   "initiatives": [
+    {
+     "handle": "i:WRK-I14",
+     "key": "WRK-I14",
+     "title": "Legal pages",
+     "status": "Active",
+     "next_action": "",
+     "state_note": "",
+     "done": 1,
+     "total": 2,
+     "phase_now": 2,
+     "in_review": [],
+     "to_release": [],
+     "waiting_on": [],
+     "line": ""
+    },
+    {
+     "handle": "i:WRK-I15",
+     "key": "WRK-I15",
+     "title": "Contracts",
+     "status": "Active",
+     "next_action": "",
+     "state_note": "",
+     "done": 1,
+     "total": 2,
+     "phase_now": 2,
+     "in_review": [],
+     "to_release": [],
+     "waiting_on": [],
+     "line": ""
+    }
+   ],
+   "ready": [
+    {
+     "handle": "t:WRK-13",
+     "key": "WRK-13",
+     "title": "Fix expediente crash on contracts with pay",
+     "priority": "P2",
+     "first": true
+    }
+   ],
+   "inbox": [],
+   "audit": null,
+   "pull_requests": {
+    "opened": [],
+    "merged": [],
+    "closed": [],
+    "open": []
+   },
+   "release": {
+    "handle": "rel:workia",
+    "from": "sandbox",
+    "into": "main",
+    "env": "prod",
+    "from_head": "aaaaaaa",
+    "into_head": "bbbbbbb",
+    "state": "diverged",
+    "ahead": 9,
+    "behind": 2,
+    "fast_forward": false,
+    "compare_url": "https://github.com/Jorg3L3on/workia/compare/main...sandbox",
+    "tickets": [],
+    "migrations": [],
+    "before": [],
+    "open_checks": 0,
+    "compared_at": null
+   },
+   "envs": [
+    {
+     "handle": "env:workia/prod",
+     "env": "prod",
+     "commit": "ddddddd",
+     "branch": null,
+     "deployed_at": "2026-10-29T18:00:00.000Z",
+     "updated_at": "2026-10-29T18:00:00.000Z",
+     "migrations_applied": 24,
+     "migrations": [
+      "0024"
+     ],
+     "merged_since": [],
+     "stale": false
+    }
+   ],
+   "merged_branches_not_deleted": [],
+   "thread": {
+    "unread": 0,
+    "messages": []
+   }
+  },
+  {
+   "slug": "zigzag",
+   "name": "ZigZag",
+   "key_prefix": "ZIG",
+   "runs_paused": false,
+   "runs_handle": "runs:zigzag",
+   "repo_path": "/repos/zigzag",
+   "github_repo": null,
+   "headline_note": "",
+   "tickets_in_progress": [],
+   "tickets_in_review": [],
+   "tickets_blocked": [],
+   "created_in_window": [],
+   "initiatives": [],
+   "ready": [],
+   "inbox": [],
+   "audit": null,
+   "pull_requests": {
+    "opened": [],
+    "merged": [],
+    "closed": [],
+    "open": []
+   },
+   "release": null,
+   "envs": [],
+   "merged_branches_not_deleted": [],
+   "thread": {
+    "unread": 0,
+    "messages": []
+   }
+  },
+  {
+   "slug": "filmia",
+   "name": "Filmia",
+   "key_prefix": "FIL",
+   "runs_paused": false,
+   "runs_handle": "runs:filmia",
+   "repo_path": "/repos/filmia",
+   "github_repo": "Jorg3L3on/filmia",
+   "headline_note": "",
+   "tickets_in_progress": [],
+   "tickets_in_review": [
+    {
+     "handle": "t:FIL-I50-6",
+     "key": "FIL-I50-6",
+     "title": "iPhone check of Juegos",
+     "parent": "FIL-I50",
+     "since": null,
+     "open_checks": 1,
+     "pr": null
+    }
+   ],
+   "tickets_blocked": [],
+   "created_in_window": [],
+   "initiatives": [
+    {
+     "handle": "i:FIL-I50",
+     "key": "FIL-I50",
+     "title": "Juegos",
+     "status": "Active",
+     "next_action": "",
+     "state_note": "",
+     "done": 1,
+     "total": 2,
+     "phase_now": 2,
+     "in_review": [],
+     "to_release": [],
+     "waiting_on": [],
+     "line": ""
+    },
+    {
+     "handle": "i:FIL-I51",
+     "key": "FIL-I51",
+     "title": "Quinielas data",
+     "status": "Active",
+     "next_action": "",
+     "state_note": "",
+     "done": 1,
+     "total": 2,
+     "phase_now": 2,
+     "in_review": [],
+     "to_release": [],
+     "waiting_on": [],
+     "line": ""
+    }
+   ],
+   "ready": [],
+   "inbox": [
+    {
+     "handle": "b:0b6c8a3e-1111-4f00-9000-000000000001",
+     "id": "0b6c8a3e-1111-4f00-9000-000000000001",
+     "kind": "human_action",
+     "key": "FIL-I50-6",
+     "assignee": "jorge",
+     "title": "iPhone check of Juegos",
+     "why": "Test La tanda and Quinielas on your iPhone.",
+     "waiting_since": "2026-11-13T05:20:00.000Z",
+     "pr_url": null
+    }
+   ],
+   "audit": null,
+   "pull_requests": {
+    "opened": [],
+    "merged": [
+     {
+      "handle": "pr:filmia#238",
+      "number": 238,
+      "title": "Extras and Quinielas",
+      "url": "https://github.com/Jorg3L3on/filmia/pull/238",
+      "state": "merged",
+      "base": "main",
+      "head": "jl/pr-238",
+      "ticket": "FIL-I50-5",
+      "ci_state": null,
+      "opened_at": null,
+      "age_days": null,
+      "merged_at": null,
+      "updated_at": null
+     }
+    ],
+    "closed": [],
+    "open": [
+     {
+      "handle": "pr:filmia#235",
+      "number": 235,
+      "title": "Bump the npm group",
+      "url": "https://github.com/Jorg3L3on/filmia/pull/235",
+      "state": "open",
+      "base": "sandbox",
+      "head": "jl/pr-235",
+      "ticket": null,
+      "ci_state": null,
+      "opened_at": null,
+      "age_days": null,
+      "merged_at": null,
+      "updated_at": null
+     }
+    ]
+   },
+   "release": null,
+   "envs": [
+    {
+     "handle": "env:filmia/prod",
+     "env": "prod",
+     "commit": "1fb7188",
+     "branch": null,
+     "deployed_at": "2026-10-29T18:00:00.000Z",
+     "updated_at": "2026-10-29T18:00:00.000Z",
+     "migrations_applied": 24,
+     "migrations": [
+      "0024"
+     ],
+     "merged_since": [
+      {
+       "number": 238,
+       "title": "Extras and Quinielas",
+       "merged_at": "2026-11-13T05:11:00.000Z"
+      }
+     ],
+     "stale": true
+    }
+   ],
+   "merged_branches_not_deleted": [],
+   "thread": {
+    "unread": 0,
+    "messages": []
+   }
+  },
+  {
+   "slug": "micasa",
+   "name": "MiCasa",
+   "key_prefix": "MIC",
+   "runs_paused": false,
+   "runs_handle": "runs:micasa",
+   "repo_path": "/repos/micasa",
+   "github_repo": "Jorg3L3on/micasa",
+   "headline_note": "",
+   "tickets_in_progress": [],
+   "tickets_in_review": [],
+   "tickets_blocked": [],
+   "created_in_window": [],
+   "initiatives": [
+    {
+     "handle": "i:MIC-I16",
+     "key": "MIC-I16",
+     "title": "Programados kit",
+     "status": "Active",
+     "next_action": "",
+     "state_note": "",
+     "done": 1,
+     "total": 2,
+     "phase_now": 2,
+     "in_review": [],
+     "to_release": [],
+     "waiting_on": [],
+     "line": ""
+    }
+   ],
+   "ready": [],
+   "inbox": [],
+   "audit": null,
+   "pull_requests": {
+    "opened": [],
+    "merged": [
+     {
+      "handle": "pr:micasa#345",
+      "number": 345,
+      "title": "PR 345",
+      "url": "https://github.com/Jorg3L3on/micasa/pull/345",
+      "state": "merged",
+      "base": "sandbox",
+      "head": "jl/pr-345",
+      "ticket": "MIC-I16-3",
+      "ci_state": null,
+      "opened_at": null,
+      "age_days": null,
+      "merged_at": null,
+      "updated_at": null
+     }
+    ],
+    "closed": [],
+    "open": []
+   },
+   "release": {
+    "handle": "rel:micasa",
+    "from": "sandbox",
+    "into": "main",
+    "env": "prod",
+    "from_head": "aaaaaaa",
+    "into_head": "bbbbbbb",
+    "state": "diverged",
+    "ahead": 10,
+    "behind": 6,
+    "fast_forward": false,
+    "compare_url": "https://github.com/Jorg3L3on/micasa/compare/main...sandbox",
+    "tickets": [],
+    "migrations": [],
+    "before": [],
+    "open_checks": 0,
+    "compared_at": null
+   },
+   "envs": [],
+   "merged_branches_not_deleted": [],
+   "thread": {
+    "unread": 0,
+    "messages": []
+   }
+  },
+  {
+   "slug": "plania",
+   "name": "Plania",
+   "key_prefix": "PLA",
+   "runs_paused": false,
+   "runs_handle": "runs:plania",
+   "repo_path": "/repos/plania",
+   "github_repo": "Jorg3L3on/plania",
+   "headline_note": "",
+   "tickets_in_progress": [],
+   "tickets_in_review": [
+    {
+     "handle": "t:PLA-12",
+     "key": "PLA-12",
+     "title": "Merge gate basic auth",
+     "parent": null,
+     "since": null,
+     "open_checks": 0,
+     "pr": {
+      "number": 94
+     }
+    },
+    {
+     "handle": "t:PLA-13",
+     "key": "PLA-13",
+     "title": "Merge gate basic auth (2)",
+     "parent": null,
+     "since": null,
+     "open_checks": 0,
+     "pr": {
+      "number": 95
+     }
+    }
+   ],
+   "tickets_blocked": [],
+   "created_in_window": [],
+   "initiatives": [],
+   "ready": [],
+   "inbox": [],
+   "audit": null,
+   "pull_requests": {
+    "opened": [],
+    "merged": [],
+    "closed": [],
+    "open": [
+     {
+      "handle": "pr:plania#94",
+      "number": 94,
+      "title": "PR 94",
+      "url": "https://github.com/Jorg3L3on/plania/pull/94",
+      "state": "open",
+      "base": "sandbox",
+      "head": "jl/pr-94",
+      "ticket": "PLA-12",
+      "ci_state": null,
+      "opened_at": null,
+      "age_days": null,
+      "merged_at": null,
+      "updated_at": null
+     },
+     {
+      "handle": "pr:plania#95",
+      "number": 95,
+      "title": "PR 95",
+      "url": "https://github.com/Jorg3L3on/plania/pull/95",
+      "state": "open",
+      "base": "sandbox",
+      "head": "jl/pr-95",
+      "ticket": "PLA-13",
+      "ci_state": null,
+      "opened_at": null,
+      "age_days": null,
+      "merged_at": null,
+      "updated_at": null
+     }
+    ]
+   },
+   "release": null,
+   "envs": [],
+   "merged_branches_not_deleted": [],
+   "thread": {
+    "unread": 0,
+    "messages": []
+   }
+  }
+ ],
+ "company_thread": {
+  "unread": 0,
+  "messages": []
+ },
+ "previous_brief": null,
+ "source_errors": []
+}

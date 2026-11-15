@@ -279,3 +279,21 @@ test("GET /doctor: the Setup check lines without the claude dry run or any value
   assert.equal(body.ok, body.lines.every((l) => l.ok));
   assert.doesNotMatch(JSON.stringify(body), new RegExp(`brief-read-token-value|test-read-token|${scratch}`));
 });
+
+// PLA-I49-2 check 4: a brief stored before v2 (version 1, no targets) still loads from /latest and /:date.
+test("a stored v1 brief (no targets) still loads from GET /latest and GET /:date", async () => {
+  const { readFileSync } = await import("node:fs");
+  const v1 = JSON.parse(readFileSync(new URL("./fixtures/brief-sample.json", import.meta.url), "utf8"));
+  assert.equal(v1.version, 1);
+  const future = new Date(Date.now() + 60_000);
+  const d = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(future);
+  await raw.query(`insert into morning_briefs (local_date, generated_at, trigger, mode, data) values ($1, $2, 'manual', 'full', $3)`, [d, future, v1]);
+  const latest = (await (await get("/latest")).json()) as { brief: { local_date: string; data: { version: number; items: { targets?: unknown }[] } } };
+  assert.equal(latest.brief.data.version, 1);
+  assert.equal(latest.brief.data.items.length, 7);
+  assert.ok(latest.brief.data.items.every((i) => i.targets === undefined));
+  assert.ok(BriefData.safeParse(latest.brief.data).success, "a v1 brief still parses as BriefData");
+  const byDate = (await (await get(`/${d}`)).json()) as { brief: { data: { version: number } } };
+  assert.equal(byDate.brief.data.version, 1);
+  await raw.query(`delete from morning_briefs where generated_at = $1`, [future]);
+});

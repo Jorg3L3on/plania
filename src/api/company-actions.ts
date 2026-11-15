@@ -149,7 +149,8 @@ export async function wakePo(db: Db, slug: string, deps?: HeartbeatDeps): Promis
 export type StartNowResult = { started: boolean; reason: "started" | "queued" | "busy" | "idle" | "held" | "fail"; ticket: string | null; run_id: string | null; summary: string };
 export type StartRefusal = { error: "PROJECT_NOT_FOUND" | "PROJECT_PAUSED" | "COMPANY_PAUSED" | "AGENT_NOT_FOUND"; status: 404 | 409; hint: string };
 
-export async function startTeammateNow(db: Db, slug: string, agentSlug: string, opts: { past_guard?: boolean; now?: Date } = {}, deps?: HeartbeatDeps): Promise<StartNowResult | StartRefusal> {
+// PLA-I49-5: reason, when given, is what the bot reads under "Why you woke" (a screen wake had none).
+export async function startTeammateNow(db: Db, slug: string, agentSlug: string, opts: { past_guard?: boolean; now?: Date; reason?: string } = {}, deps?: HeartbeatDeps): Promise<StartNowResult | StartRefusal> {
   const [project] = await db.select({ id: projects.id, slug: projects.slug, paused: projects.runsPaused }).from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!project) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   if ((await loadSettings(db)).companyPaused) return { error: "COMPANY_PAUSED", status: 409, hint: "La compañía está detenida." };
@@ -157,7 +158,7 @@ export async function startTeammateNow(db: Db, slug: string, agentSlug: string, 
   const agent = (await teamOf(db, project.id)).find((a) => a.slug === agentSlug);
   if (!agent) return { error: "AGENT_NOT_FOUND", status: 404, hint: "Ese compañero no está en el equipo de este proyecto." };
   const work = pickReady({ ...agent, projectSlug: project.slug }, (await loadReady(db)).filter((r) => r.project === project.slug));
-  const out = await startNow(db, { agent, task: work, pastGuard: opts.past_guard, now: opts.now ?? new Date() }, deps?.runner);
+  const out = await startNow(db, { agent, task: work, pastGuard: opts.past_guard, now: opts.now ?? new Date(), reason: opts.reason }, deps?.runner);
   const base = { started: out.kind === "started", reason: out.kind, summary: "summary" in out ? out.summary : "" };
   return "runId" in out ? { ...base, ticket: out.taskKey, run_id: out.runId } : { ...base, ticket: null, run_id: null };
 }
