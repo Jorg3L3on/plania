@@ -2,7 +2,7 @@
 // its windows are its tickets, lit from the ground up as they close. A crane means agents are on
 // it, a red beacon that it is shipping, scaffolding that it is still being planned, and a
 // searchlight that it waits on Jorge. Tapping a tower opens the initiative on its project page.
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router";
 import { ProjectMark } from "@/components/plania-mark";
 import { accentInk, projectAccent } from "@/components/plan/visuals";
@@ -185,6 +185,96 @@ export function Ciudad({ districts, loose, headline, envLines, nowMs }: {
         {/* On a phone the skyline scrolls sideways: a fade on the right says there is more city. */}
         {!wide && <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 z-[2] w-10 bg-gradient-to-l from-[#0f1220] to-transparent" />}
       </section>
+    </div>
+  );
+}
+
+// PLA-31: the city as Compañía's Oficina view. The same towers; the header holds the greeting, the headline, its
+// voice line and the building's links (no other status strip on the page), the legend opens from an «i», each
+// district's plate is the page's own (goal, who works, the delivery's legs), and the paused projects sit under
+// the street. It fills the height it is given; the skyline stands on the bottom.
+export function CiudadOficina({ districts, pre, headline, links, plateFor, under }: {
+  districts: District[];
+  pre: string;
+  headline: Headline;
+  links?: ReactNode;
+  plateFor: (d: District) => ReactNode;
+  under?: ReactNode;
+}) {
+  const wide = useWide();
+  const [legend, setLegend] = useState(false);
+  const iRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!legend) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setLegend(false);
+      iRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [legend]);
+  let offset = 0;
+  return (
+    <div className="city-of" data-city-oficina={districts.length}>
+      <section aria-label="La ciudad: las iniciativas en curso y en revisión" className="city dark relative flex min-h-0 flex-col overflow-hidden rounded-t-[22px] border border-b-0 border-white/[0.07] text-foreground">
+        {STARS.map(([x, y, d], i) => <span key={i} aria-hidden className="city-star" style={{ left: `${x}%`, top: `${y}%`, animationDelay: `${d}s` }} />)}
+
+        <header className="relative z-[3] flex items-start justify-between gap-4 px-5 pt-4 md:px-7 md:pt-5">
+          <div className="grid min-w-0 gap-1">
+            <p className="font-mono text-[11px] tracking-[0.12em] text-muted-foreground uppercase" data-city-pre>{pre}</p>
+            <h1 className="font-display text-[26px] leading-[1.02] font-extrabold tracking-[-0.03em] text-balance md:text-[34px]" data-city-title>{headline.title}</h1>
+            <p className="font-voice text-lg leading-tight text-foreground/75 italic md:text-xl" data-city-voice>
+              {headline.voice.map((part, i) => (
+                <span key={i} className={part.tone === "jorge" ? "text-ink-jorge" : undefined}>{part.text}</span>
+              ))}
+            </p>
+            {links && <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-1.5" data-city-links>{links}</div>}
+          </div>
+          <div className="relative flex-none">
+            <button
+              ref={iRef}
+              type="button"
+              className="city-i"
+              aria-expanded={legend}
+              aria-controls="city-legend"
+              aria-label="Qué significa cada color"
+              onClick={() => setLegend((x) => !x)}
+              data-control="city-legend"
+            >
+              i
+            </button>
+            <div id="city-legend" className="city-legend" hidden={!legend}>
+              <Legend />
+            </div>
+          </div>
+        </header>
+
+        <div className="relative min-h-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="relative flex h-full min-h-[260px] w-max min-w-full items-end justify-evenly gap-4 px-3 pt-16 md:gap-6 md:px-6">
+            <div aria-hidden className="absolute inset-x-0 bottom-0 border-t border-white/10" style={{ height: "var(--street-h)", background: "var(--street)" }} />
+            {districts.length === 0 ? (
+              <p className="relative z-[1] w-full pb-28 text-center font-voice text-2xl text-foreground/70 italic">Nada en curso ni en revisión. La ciudad duerme.</p>
+            ) : (
+              districts.map((d) => {
+                const view = (
+                  <div key={d.slug} className="relative z-[1] flex flex-col" data-district={d.slug}>
+                    <div className="flex items-end justify-center gap-1 px-1 md:gap-1.5">
+                      {d.towers.map((t, i) => <TowerView key={t.key} t={t} projectTitle={d.title} index={offset + i} />)}
+                    </div>
+                    {plateFor(d)}
+                  </div>
+                );
+                offset += d.towers.length;
+                return view;
+              })
+            )}
+          </div>
+        </div>
+        {!wide && <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 z-[2] w-10 bg-gradient-to-l from-[#0f1220] to-transparent" />}
+      </section>
+      {under}
     </div>
   );
 }

@@ -1181,6 +1181,41 @@
   .edi-fa-now { display: grid; gap: 5px; justify-items: start; min-width: 0; }
   .edi-fa-say { font-family: var(--font-display); font-weight: 700; font-size: 15px; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
   .edi-fa-move .edi-go { white-space: nowrap; }
+  /* PLA-31: Oficina's city (oficina-ciudad.tsx) in the rows' place; it fills the row and stands on its street. The
+     paused floors are its basement, joined under the street. */
+  .edi-facade[data-city] { grid-template-rows: auto minmax(0, 1fr); }
+  .edi-fa-city { display: flex; min-height: 0; min-width: 0; }
+  .city-of { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; min-width: 0; }
+  .city-of > .city { flex: 1 1 auto; --street-h: 72px; }
+  .city-i { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 1px solid rgb(255 255 255 / 0.22); background: none; color: #c9cddc; font-family: var(--font-voice); font-style: italic; font-weight: 600; font-size: 16px; cursor: pointer; }
+  .city-i:hover, .city-i[aria-expanded="true"] { background: rgb(255 255 255 / 0.1); color: #fff; }
+  .city-i:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .city-legend { position: absolute; right: 0; top: 38px; z-index: 6; width: max-content; max-width: min(340px, calc(100vw - 48px)); padding: 12px 14px; border-radius: 12px; background: #151829; border: 1px solid rgb(255 255 255 / 0.12); box-shadow: 0 12px 30px rgb(0 0 0 / 0.45); }
+  .city-legend ul { display: grid; grid-template-columns: repeat(2, max-content); gap: 8px 18px; font-size: 11.5px; }
+  .city-plate { position: relative; display: flex; align-items: center; gap: 10px; height: var(--street-h); min-width: 200px; max-width: 280px; padding: 0 12px; border: 0; text-align: left; color: inherit; font: inherit; cursor: pointer;
+    background: linear-gradient(to bottom, color-mix(in oklab, var(--c) 20%, transparent), transparent 80%); transition: filter 0.2s; }
+  .city-plate[data-empty] { min-width: 150px; max-width: 200px; }
+  .city-plate:hover { filter: brightness(1.25); }
+  .city-plate:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+  .city-plate .edi-bullet { width: 24px; height: 24px; font-size: 12px; flex: none; }
+  .city-plate-name { font-family: var(--font-display); font-weight: 800; font-size: 17px; line-height: 1.1; letter-spacing: -0.02em; color: var(--c); }
+  .city-plate-line { display: block; font-size: 11px; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .city-plate-line strong { color: var(--foreground); font-weight: 600; }
+  .city-plate-legs { margin-top: 3px; max-width: 200px; }
+  .city-under { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-height: 12px; padding: 12px 20px 12px; border: 1px solid rgb(255 255 255 / 0.07); border-top: 0; border-radius: 0 0 22px 22px;
+    background: linear-gradient(180deg, #080a13, #0c0e18); position: relative; }
+  .city-under::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 5px; background: repeating-linear-gradient(90deg, #191d2c 0 6px, #0c0e18 6px 12px); opacity: 0.7; }
+  .city-under .edi-eyebrow { margin: 0; }
+  @media (width < 48rem) {
+    .city-of > .city { --street-h: 60px; }
+    .city-plate { min-width: 180px; }
+  }
+  /* On a phone Oficina scrolls: the city takes its natural height and the page leaves room for the phone bar. */
+  @media (width < 40rem) {
+    .edi:has(.edi-fa-city) { height: auto; min-height: 0; padding-bottom: 130px; }
+    .edi:has(.edi-fa-city) .edi-bld { flex: none; }
+    .city-of > .city { min-height: 400px; }
+  }
   .edi-fa-under { display: grid; gap: 6px; padding: 8px 4px 0; }
   .edi-fa-off { display: flex; flex-wrap: wrap; gap: 8px; }
   .edi-fa-offitem { display: inline-flex; align-items: center; gap: 6px; }
