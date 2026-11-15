@@ -124,6 +124,7 @@ export type DeskLabels = {
   roles: { po: string; artist: string; research: string; taller: string };
   giveToPo: string;
   soon: string;
+  offline: string;
   ideaPo: string;
   ideaCost: (bots: number, low: number, high: number) => string;
   wakeCost: (agent: string, low: number, high: number) => string;
@@ -410,7 +411,8 @@ const en: BriefLabels = {
     working: "Working…",
     roles: { po: "PO", artist: "Artist", research: "Research", taller: "Taller" },
     giveToPo: "Give to PO",
-    soon: "comes with the next phase",
+    soon: "not for this paper",
+    offline: "Plania did not answer (it may be restarting). Try again in a moment.",
     ideaPo: "Plan it",
     ideaCost: (bots, low, high) => `Wakes ${bots} project bot${bots === 1 ? "" : "s"} · about ${low}–${high} min · uses your plan, $0`,
     wakeCost: (agent, low, high) => `Wakes ${agent} · about ${low}–${high} min · uses your plan, $0`,
@@ -641,7 +643,8 @@ const es: BriefLabels = {
     working: "Trabajando…",
     roles: { po: "PO", artist: "Artist", research: "Research", taller: "Taller" },
     giveToPo: "Dárselo al PO",
-    soon: "llega en la siguiente fase",
+    soon: "no es para este papel",
+    offline: "Plania no respondió (puede estar reiniciando). Intenta de nuevo en un momento.",
     ideaPo: "Que lo planee",
     ideaCost: (bots, low, high) => `Despierta ${bots} bot${bots === 1 ? "" : "s"} de proyecto · unos ${low}–${high} min · usa tu plan, $0`,
     wakeCost: (agent, low, high) => `Despierta a ${agent} · unos ${low}–${high} min · usa tu plan, $0`,

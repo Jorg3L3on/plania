@@ -190,7 +190,9 @@ export function BriefDesk(props: DeskProps) {
       }
     } catch (e) {
       const err = e as { code?: string; message?: string; detail?: { hint?: string } };
-      setPending({ kind: "failed", action, target, error: err.code ?? "ERROR", hint: err.detail?.hint ?? err.message ?? "", input });
+      // No answer at all (the server restarting, the Mac asleep): say so in words, not the browser's.
+      const offline = e instanceof TypeError;
+      setPending({ kind: "failed", action, target, error: offline ? "OFFLINE" : (err.code ?? "ERROR"), hint: offline ? d.offline : (err.detail?.hint ?? err.message ?? ""), input });
     }
   };
 
@@ -213,7 +215,7 @@ export function BriefDesk(props: DeskProps) {
           last = reply.undo ? { action_id: reply.action_id, id } : null;
         } else if (reply.status === "failed") failed = reply.hint || reply.error;
       } catch (e) {
-        failed = (e as Error).message;
+        failed = e instanceof TypeError ? d.offline : (e as Error).message;
       }
     }
     props.onClearSelection();
@@ -288,6 +290,11 @@ export function BriefDesk(props: DeskProps) {
         </div>
       </header>
 
+      {data.mode !== "full" && !props.banner && (
+        <div className="dk-banner" role="status" data-brief="missing">
+          <span>{t.missing}</span>
+        </div>
+      )}
       {props.banner && (
         <div className="dk-banner" role="status" data-brief={props.banner}>
           {props.banner === "refresh-failed" ? (
