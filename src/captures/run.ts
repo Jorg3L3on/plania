@@ -3,6 +3,7 @@
 // tied to the ticket or delivery when there is one, with the commit and the time. Nothing is written to the
 // checkout. A page that fails gets an error row; its last good still stays and the read shows both.
 import { spawn } from "node:child_process";
+import path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
@@ -24,7 +25,16 @@ const CHECKOUT_ENV = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_AL
 export function checkoutEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const k of CHECKOUT_ENV) if (process.env[k] !== undefined) env[k] = process.env[k];
+  env.PATH = toolPath(process.env.PATH, process.execPath);
   return { ...env, ...extra };
+}
+
+// PLA-39: under launchd Plania's PATH is the bare system one, so npm and node are not found. The running node's own
+// folder (where npm lives for nvm and Homebrew) and the usual tool folders go first; what PATH had stays, once each.
+export const TOOL_DIRS = ["/opt/homebrew/bin", "/usr/local/bin"];
+export function toolPath(current: string | undefined, execPath: string): string {
+  const parts = [path.dirname(execPath), ...TOOL_DIRS, ...(current ?? "").split(":")].filter(Boolean);
+  return [...new Set(parts)].join(":");
 }
 
 export type CaptureDeps = {
