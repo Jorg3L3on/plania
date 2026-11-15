@@ -98,6 +98,10 @@ export const api = {
   tablero: () => request<TableroRead>("GET", "/maquinas/tablero"),
   // PLA-I46-10: the QA lane's evidence for one delivery (the floor's evidence card).
   qa: (slug: string, key: string) => request<QaRead>("GET", `/projects/${encodeURIComponent(slug)}/qa/${encodeURIComponent(key)}`),
+  // PLA-I52-4: El Probador. The delivery's pairs (antes / después per view and width), its copy, and the two clicks.
+  probador: (slug: string, key: string) => request<ProbadorRead>("GET", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}`),
+  probadorTomar: (slug: string, key: string) => request<{ ok: true }>("POST", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}/tomar`, {}),
+  entregaEncender: (slug: string, key: string) => request<{ entrega: EntregaRead }>("POST", `/projects/${encodeURIComponent(slug)}/entrega/encender`, { key }),
   team: () => request<TeamRoster>("GET", "/team"),
   comments: (slug: string, key: string) =>
     request<{ comments: TaskComment[] }>(
@@ -347,6 +351,17 @@ export type QaRead = {
   captures: { ids: string[]; image_urls: string[]; ok: number; failed: number; error: string | null } | null;
   notes: string | null;
 };
+// PLA-I52-4: GET /api/projects/:slug/probador/:key (src/captures/probador.ts probadorRead).
+export type MuestraVista = { key: string; label: string; path: string; estado?: string; session?: boolean };
+export type Muestra = { frase: string; vistas: MuestraVista[]; pasos: string[] };
+export type ProbadorState = { state: "tomando" | "lista" | "fallo"; attempts: number; error: string | null; commit: string | null; at: string };
+export type ParShot = { id: string; image_url: string; width: number; height: number | null; taken_at: string } | null;
+export type ParSide = { still: ParShot; error: string | null; missing: boolean };
+export type DiffBox = { x: number; y: number; w: number; h: number; ratio: number };
+export type ParWidth = { antes: ParSide; despues: ParSide; diff: DiffBox | null };
+export type ParVista = { key: string; label: string; path: string; estado: string | null; kind: "nueva" | "cambio" | "igual" | "sin_antes"; desktop: ParWidth; phone: ParWidth };
+export type EntregaRead = { phase: "starting" | "capturing" | "live" | "failed" | "off" | "running"; port: number | null; url: string | null; error: string | null; key: string | null; branch: string | null; commit: string | null };
+export type ProbadorRead = { key: string; muestra: Muestra | null; state: ProbadorState | null; vistas: ParVista[]; entrega: EntregaRead | null };
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
 export type Decision = {
   id: string;

@@ -7,7 +7,8 @@
 import { memo, useState } from "react";
 import type { Decision, OrgProject } from "@/lib/api";
 import { EV_WORDS, RETURN_REASONS, evidenceView, returnText } from "@/lib/evidencia";
-import { openLayer, setReturn, useLayer, useQaRead, useReturn } from "./evidence-store";
+import { openLayer, setReturn, useLayer, useProbador, useQaRead, useReturn } from "./evidence-store";
+import { ProbadorStrip, ProbadorViewer } from "./probador";
 import type { NowActs } from "./now";
 import type { QuestionActs } from "./question";
 
@@ -96,13 +97,17 @@ export const ReturnSheet = memo(function ReturnSheet({ d, qacts, where = "ahora"
 // inLayer: drawn in Una decisión; while the layer holds this decision, Ahora's copy keeps its sheet closed.
 export const EvidenceBody = memo(function EvidenceBody({ p, d, acts, qacts, inLayer = false }: { p: OrgProject; d: Decision; acts?: NowActs; qacts?: QuestionActs; inLayer?: boolean }) {
   const read = useQaRead(p.slug, d.ref, d.id);
+  // PLA-I52-4: a delivery with a muestra leads with its pictures (El Probador); the QA stills step aside.
+  const prob = useProbador(p.slug, d.ref, d.id);
+  const shown = prob && prob.muestra && prob.vistas.length ? prob : null;
   const layer = useLayer();
   const sheet = inLayer || layer?.id !== d.id;
   const v = evidenceView(read, d);
   const on = !!p.auto_accept?.on;
   const busy = acts?.busy === `${p.slug}:auto`;
   return (
-    <div className="edi-ev" data-evidence={d.id} aria-busy={v.loading || undefined}>
+    <div className="edi-ev" data-evidence={d.id} data-probador-on={shown ? "1" : undefined} aria-busy={v.loading || undefined}>
+      {shown && (inLayer ? <ProbadorViewer p={p} d={d} read={shown} /> : <ProbadorStrip p={p} d={d} read={shown} />)}
       <div className="edi-evt" data-ev="tests">
         <p className="edi-peye">Pruebas</p>
         <b data-ok={v.tests.ok === null ? undefined : v.tests.ok ? "1" : "0"}>{v.loading ? "…" : v.tests.value}</b>
@@ -128,7 +133,7 @@ export const EvidenceBody = memo(function EvidenceBody({ p, d, acts, qacts, inLa
           <span>{v.loading ? "" : "El PO no escribió una para este paso"}</span>
         )}
       </div>
-      {v.stills.length > 0 && (
+      {!shown && v.stills.length > 0 && (
         <div className="edi-evt edi-evshots" data-ev="stills">
           <p className="edi-peye">Capturas de la entrega</p>
           <span className="edi-evpair">
