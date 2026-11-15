@@ -302,6 +302,31 @@ A project's repo is `settings.local.repo_path`, else `PLANIA_PROJECTS_ROOT/<slug
 `create_company_project`, or `scripts/seed-org.ts` above); cross ideas go to `PLANIA_HOME_PROJECT` (default `plania`;
 set it to one of your projects if you have no `plania` project). The doctor checks both.
 
+### Acting from the brief (V2)
+
+`/brief` is a desk: the sky says how many rows are left and how many were handled today, the left column holds three
+piles (Needs you, Up next, Ideas), the middle shows one paper, and the right column holds the people of that paper's
+project, the drawer, the bin and the out tray. Every row knows the Plania object it is about (a question, a human
+step, the release, a PR, a ticket, an initiative, an idea, a paused project, an env record or an audit finding): pass A
+names it from `facts.json` handles and the server checks the handle, else reads the row's ref, URL and action.
+
+Each action runs the same server function as the button it mirrors elsewhere in Plania, through
+`POST /api/brief/act` (screen cookie only; a Bearer token is refused). Three levels:
+
+- **Instant, with Undo:** Later, Not relevant, Postpone, Put first, Put on hold, Keep (ideas), Discard (ideas). Answer
+  and Done on a step are instant too, with no Undo.
+- **Confirm first:** Publish to main (only when the release can ship), Accept into sandbox, Ask for changes, Add to
+  PR, Turn on runs, Fix it. The box says exactly what will happen.
+- **Wake, with a cost line first:** Give to PO (any row), Start now (a Ready ticket), Start building (an initiative's
+  first open phase), and for ideas Plan it, Sketch it, Research it. The line says who wakes, about how long, that it
+  uses your plan ($0), and that it waits when the project's runs are paused. The row then follows the run.
+
+Rows read Plania every 30 s while the tab is open, so a row handled in Bandeja or Compañía leaves by itself. A retry
+with the same request id writes once; a row whose object moved meanwhile answers "stale" and refreshes. Later keeps a
+row out until its date; Not relevant keeps it out of the next briefs. Discarded ideas are passed to the ideas prompt
+for 60 days so they are not proposed again; an idea shown in 3 briefs with no action is dropped. A past day shows its
+outcomes and no buttons. Migration `0050` adds `brief_actions`, one row per action.
+
 ## MCP
 
 `POST /mcp`, stateless JSON (no sessions, no GET listen stream). Every call needs a Bearer token;
