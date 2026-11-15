@@ -144,7 +144,7 @@ export type ItemState = { state: RowState; line: string | null; actions: RowActi
 // PLA-I49-6: an idea card's fate, and the Open Plania ideas of the brief's projects.
 export type IdeaFate = "open" | "kept" | "discarded" | "research" | "sketch" | "planned";
 export type IdeaCardState = { state: IdeaFate; line: string | null; key: string | null; action_id: string | null; undo: boolean; at: string | null; project: string; paused: boolean };
-export type IdeaInMotion = { project: string; key: string; title: string; stage: string | null; next: "sketch_ready" | "research_ready" | "planned" | "in_motion"; sketch: boolean; research: boolean; doc_url: string | null };
+export type IdeaInMotion = { project: string; key: string; title: string; stage: string | null; next: "sketch_ready" | "research_ready" | "planned" | "in_motion"; sketch: boolean; research: boolean; doc_url: string | null; promoted_to?: string | null };
 export type IdeaAction = "keep" | "discard" | "research" | "sketch" | "plan";
 export const DISCARD_REASONS = ["not_now", "not_for_product", "exists", "too_big", "costs_money", "other"] as const;
 export type DiscardReason = (typeof DISCARD_REASONS)[number];

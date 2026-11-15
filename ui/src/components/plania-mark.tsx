@@ -47,6 +47,8 @@ const PLANIA: Brand = {
 
 // Each project's own mark, by slug (from the logo export: the bare mark, not the app-icon tile).
 const PROJECTS: Record<string, Brand> = {
+  // PLA-I51-1: Plania is a project too; its violet accent stays apart from MiCasa's blue-violet.
+  plania: { ...PLANIA, accent: "#a58bff" },
   // An F drawn as a film strip, with sprocket holes punched along it.
   filmia: {
     from: "#FF6A3D",
@@ -123,9 +125,61 @@ export function PlaniaMark({ className }: { className?: string }) {
   return <BrandMark brand={PLANIA} className={className} />;
 }
 
-/** The project's logo, or nothing for a project without one. */
-export function ProjectMark({ slug, className }: { slug: string; className?: string }) {
-  const brand = PROJECTS[slug];
+// PLA-I51-1: the colour pairs a project without a logo takes (Inicio's accents, one per slug, stable).
+export const FALLBACK_ACCENTS: [string, string][] = [
+  ["#ff5fa2", "#ffb347"],
+  ["#3ddc97", "#5ec8ff"],
+  ["#ffb347", "#ff6b8a"],
+  ["#b094ff", "#5ec8ff"],
+  ["#5ec8ff", "#3ddc97"],
+  ["#ff6b8a", "#b094ff"],
+];
+export function fallbackAccent(slug: string): [string, string] {
+  let h = 0;
+  for (const ch of slug) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return FALLBACK_ACCENTS[h % FALLBACK_ACCENTS.length]!;
+}
+
+/** A monogram tile for a project with no logo yet: its first letter in a rounded frame, in its fallback colours. */
+function monogram(slug: string, name?: string): Brand {
+  const [from, to] = fallbackAccent(slug);
+  const letter = (name ?? slug).trim().slice(0, 1).toUpperCase() || "?";
+  return {
+    from,
+    to,
+    glyph: (
+      <>
+        <rect x="8" y="8" width="84" height="84" rx="24" fill="none" stroke="#fff" strokeWidth="9" />
+        <text x="50" y="71" textAnchor="middle" fontFamily="Bricolage Grotesque Variable, Geist Variable, sans-serif" fontWeight="800" fontSize="58" fill="#fff">
+          {letter}
+        </text>
+      </>
+    ),
+  };
+}
+
+// PLA-I51-1: the brief's "Entre apps" row (cross-app): two rings, in a neutral grey.
+const CROSS: Brand = {
+  from: "#c6cbdb",
+  to: "#7d86a3",
+  glyph: (
+    <>
+      <circle cx="36" cy="50" r="23" fill="none" stroke="#fff" strokeWidth="13" />
+      <circle cx="64" cy="50" r="23" fill="none" stroke="#fff" strokeWidth="13" />
+    </>
+  ),
+};
+
+export function CrossMark({ className }: { className?: string }) {
+  return <BrandMark brand={CROSS} className={cn("shrink-0", className)} />;
+}
+
+/**
+ * The project's logo. Without one it draws nothing, unless `fallback` asks for a monogram (the brief always shows a
+ * mark; Inicio does not).
+ */
+export function ProjectMark({ slug, className, fallback, name }: { slug: string; className?: string; fallback?: boolean; name?: string }) {
+  const brand = PROJECTS[slug] ?? (fallback ? monogram(slug, name) : undefined);
   return brand ? <BrandMark brand={brand} className={cn("shrink-0", className)} /> : null;
 }
 
@@ -133,3 +187,9 @@ export const hasProjectMark = (slug: string) => slug in PROJECTS;
 
 /** The project's accent taken from its logo, when it has one. */
 export const projectBrandAccent = (slug: string): string | undefined => PROJECTS[slug]?.accent;
+
+/** The project's two gradient stops (its logo's, else its fallback pair), for bands and stripes. */
+export const projectGradient = (slug: string): [string, string] => {
+  const b = PROJECTS[slug];
+  return b ? [b.from, b.to] : fallbackAccent(slug);
+};

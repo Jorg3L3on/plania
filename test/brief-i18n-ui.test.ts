@@ -16,7 +16,7 @@ const summary = await load("components/brief/brief-summary.tsx");
 const items = await load("components/brief/brief-items.tsx");
 const header = await load("components/brief/brief-header.tsx");
 const footer = await load("components/brief/brief-footer.tsx");
-const desk = await load("components/brief/desk.tsx");
+const city = await load("components/brief/city.tsx");
 const settings = await load("components/brief/brief-settings.tsx");
 
 const h = React.createElement;
@@ -29,7 +29,11 @@ const DIR = new URL("../ui/src/components/brief/", import.meta.url);
 /** Every string a table gives, functions called with a sample argument, nested tables flattened. */
 function strings(t: unknown): string[] {
   if (typeof t === "string") return [t];
-  if (typeof t === "function") return [String((t as (a: unknown) => unknown)(2))];
+  if (typeof t === "function") {
+    // PLA-I51: the city's tower and voice take counts; voice answers parts.
+    const out = (t as (...a: unknown[]) => unknown)(2, { blocked: 1, needs: 2, next: 1, ideas: 3 });
+    return Array.isArray(out) ? out.map((p) => (typeof p === "string" ? p : (p as { text: string }).text)) : [String(out)];
+  }
   if (t && typeof t === "object") return Object.values(t).flatMap(strings);
   return [];
 }
@@ -47,7 +51,7 @@ function page(language: "en" | "es") {
     html(h(summary.BriefSummary, { data, checks: [], language, view: "open", onView: noop, app: null, onApp: noop })),
     html(h(items.BriefSection, { id: "needs", title: i18n.BRIEF_LABELS[language].needsYou, count: 1 }, h(items.NeedsRow, { item: data.items[0], index: 0, app: data.apps[2], checked: false, readOnly: false, onCheck: noop, language }))),
     html(h(items.BriefSection, { id: "next", title: i18n.BRIEF_LABELS[language].upNext, count: 1 }, h(items.NextRow, { item: { ...data.items[5], url: "https://example.com" }, app: data.apps[0], checked: false, readOnly: false, onCheck: noop, language }))),
-    html(h(desk.BriefDesk, { data, briefId: "b1", state: undefined, stateLoading: false, checks: [], language, readOnly: false, stamp, run: null, generating: false, canGenerate: true, onGenerate: noop, history: [], todayDate: null, date: null, onDate: noop, onSettings: noop, banner: null, onRetry: noop, onAct: noop, onUndo: noop, acting: false, selected: new Set(), onSelect: noop, onClearSelection: noop, ideaCost: () => null, sending: false, plans: new Map() })),
+    html(h(city.BriefCity, { data: { ...data, version: 2 }, briefId: "b1", state: { brief_id: "b1", read_only: false, items: { [data.items[0].id]: { state: "open", line: null, actions: [{ id: "step_done", level: "instant", undo: true, target: 0 }, { id: "give_to_po", level: "wake", undo: false, target: 0, wake: { agent: "po", role: null, low: 10, high: 25, paused: false, company_paused: false, busy: false } }, { id: "later", level: "instant", undo: true, target: null }, { id: "dismiss", level: "instant", undo: true, target: null }], action_id: null, undo: false, live: null } }, ideas: {}, in_motion: [] }, stateLoading: false, checks: [], language, readOnly: false, stamp, run: null, generating: false, canGenerate: true, onGenerate: noop, history: [], todayDate: null, date: null, onDate: noop, onSettings: noop, banner: null, onRetry: noop, onAct: noop, onUndo: noop, acting: false, ideaCost: () => null, plans: new Map(), initial: { station: data.items[0].app } })),
     html(h(footer.BriefFooter, { data: { ...data, mode: "partial" }, stamp, language })),
   ].join("\n");
 }
@@ -59,7 +63,7 @@ test("the en and es tables have the same keys at every level, settings sheet inc
 
 test("check 1: with language es the page labels are Spanish and the stamp uses Spanish weekday and month", () => {
   const out = text(page("es"));
-  for (const label of ["Te necesita", "Lo siguiente", "Te toca", "Generar ahora", "Sin marcar", "Todo", "Todas las apps", "Dáselo a", "Guárdalo", "Bandeja de salida", "Faltan algunas partes"]) {
+  for (const label of ["Te necesita", "Lo siguiente", "Te toca", "Generar ahora", "Sin marcar", "Todo", "Todas las apps", "Hazlo tú", "Dáselo a", "Guárdalo", "en tu mesa", "Pendientes", "Faltan algunas partes"]) {
     assert.ok(out.includes(label), label);
   }
   assert.match(page("es"), /aria-label="Ajustes"/);
@@ -73,7 +77,7 @@ test("check 1: with language es the page labels are Spanish and the stamp uses S
 
 test("check 2: with language en every label is English, and neither language shows the other's labels", () => {
   const en = text(page("en"));
-  for (const label of ["Needs you", "Up next", "Ideas", "Generate now", "Not checked", "All apps", "Hand it to", "Put it away", "Out tray", "Some parts are missing"]) {
+  for (const label of ["Needs you", "Up next", "Ideas", "Generate now", "Not checked", "All apps", "Do it yourself", "Hand it to", "Put it away", "on your desk", "Pending", "Some parts are missing"]) {
     assert.ok(en.includes(label), label);
   }
   assert.equal(i18n.briefStamp("2026-11-13T07:04:12-06:00", "America/Mexico_City", "CDMX", "en"), "Fri · Nov 13 · 07:04 CDMX");
@@ -92,7 +96,7 @@ test("check 2: with language en every label is English, and neither language sho
 test("check 3: no hard-coded labels in ui/src/components/brief/* (grep), and labels.ts is gone", () => {
   assert.equal(existsSync(new URL("labels.ts", DIR)), false);
   const files = readdirSync(DIR).filter((f) => /\.tsx?$/.test(f));
-  assert.ok(files.length >= 8);
+  assert.ok(files.length >= 7);
   const found: string[] = [];
   for (const f of files) {
     const src = readFileSync(new URL(f, DIR), "utf8")

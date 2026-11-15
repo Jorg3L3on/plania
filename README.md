@@ -295,18 +295,36 @@ included project's product owner and the home project (both for Send to Plania);
 "Setup check" at the bottom of the settings sheet on `/brief` (`GET /api/brief/doctor`).
 
 First-run defaults (change them on `/brief`, settings): on, 07:00, time zone `PLANIA_TZ` (else
-`America/Mexico_City`; the label is the city name unless you set one), language `en`, owner name `PLANIA_CEO_NAME` (else "the owner"), every project included, each
+`America/Mexico_City`; the label is the city name unless you set one), language `es` (migration `0051` moved a saved `en` to `es`; English stays one setting away), owner name `PLANIA_CEO_NAME` (else "the owner"), every project included, each
 project's idea letter taken from its key prefix (X is for cross ideas), no hidden refs, facts-only fallback at 11:00.
 A project's repo is `settings.local.repo_path`, else `PLANIA_PROJECTS_ROOT/<slug>`. Its GitHub repo is
 `settings.github.repo`. Send to Plania needs a product-owner agent per project (`po-<slug>`, made by
 `create_company_project`, or `scripts/seed-org.ts` above); cross ideas go to `PLANIA_HOME_PROJECT` (default `plania`;
 set it to one of your projects if you have no `plania` project). The doctor checks both.
 
+### The page: the city at dawn (V3)
+
+`/brief` is the city at dawn, in Plania's own night (or light) surfaces. The sky on top has one tower per project of
+the brief, in brief order, then "Entre apps": the project's logo (Plania has its own; a project with no logo gets a
+monogram) and its Inicio colour, the open counts by kind, or "al día". Each row of today's brief is one window: orange
+waits for you, red blocks, blue is next (or an open PR), violet is a new idea, pale is handled. The sun climbs and the
+sky turns to day as rows are handled. The tools are Generar ahora (a menu: Pendientes e ideas, Solo pendientes, Solo
+ideas, each with its time; it sends `passes` to `POST /api/brief/run`), the day picker (past days are read-only),
+Ajustes, and "N resueltos hoy" (the handled list, with Deshacer where it exists).
+
+A tower is a tab: the page opens on the first project with a blocker. Below it, la mesa shows every card of that
+project (Pendientes, at most `max_items_per_app`; Ideas with two tabs, Nuevas and Ya en Plania, the open Plania ideas
+not yet planned and a count of the planned ones), and at the right la ficha shows the card in hand: what Plania says
+now, Hazlo tú (the first action answers to Enter), Dáselo a (only the teammates that can take that row, with the cost
+of waking them), Guárdalo (Después, No aplica). After an action the card keeps its stamp and time, a toast offers
+Deshacer, and the next open card is picked. Keys: J/K or the arrows move, left and right change project, Enter does the
+first action, L later, X not relevant, Z undo; keys do nothing while typing. "Ver <KEY> aquí" and an idea in Plania open
+the task sheet over the page; only GitHub and a sketch link leave it. A failed run after the day's brief keeps that
+brief and says when and why, with the steps to fix it and Reintentar.
+
 ### Acting from the brief (V2)
 
-`/brief` is a desk: the sky says how many rows are left and how many were handled today, the left column holds three
-piles (Needs you, Up next, Ideas), the middle shows one paper, and the right column holds the people of that paper's
-project, the drawer, the bin and the out tray. Every row knows the Plania object it is about (a question, a human
+Every row knows the Plania object it is about (a question, a human
 step, the release, a PR, a ticket, an initiative, an idea, a paused project, an env record or an audit finding): pass A
 names it from `facts.json` handles and the server checks the handle, else reads the row's ref, URL and action.
 
@@ -325,7 +343,7 @@ Rows read Plania every 30 s while the tab is open, so a row handled in Bandeja o
 with the same request id writes once; a row whose object moved meanwhile answers "stale" and refreshes. Later keeps a
 row out until its date; Not relevant keeps it out of the next briefs. Discarded ideas are passed to the ideas prompt
 for 60 days so they are not proposed again; an idea shown in 3 briefs with no action is dropped. A past day shows its
-outcomes and no buttons. Migration `0050` adds `brief_actions`, one row per action.
+outcomes and no buttons. Migration `0050` adds `brief_actions`, one row per action; `0051` makes Spanish the default.
 
 ## MCP
 

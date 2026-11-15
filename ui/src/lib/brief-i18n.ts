@@ -73,9 +73,82 @@ export type BriefLabels = {
   dismiss: string;
   s: SettingsLabels;
   d: DeskLabels;
+  c: CityLabels;
 };
 
-/** PLA-I49-4: the desk (ui/src/components/brief/desk.tsx). Verbs and stamps per action id (src/brief/actions.ts). */
+/** PLA-I51: counts that make the voice line and a tower's accessible name. */
+export type CityCounts = { blocked: number; needs: number; next: number; ideas: number };
+/** One piece of the voice line; tone colours it (blocked red, jorge orange). */
+export type VoicePart = { text: string; tone?: "blocked" | "jorge" };
+
+/** PLA-I51: the city at dawn (ui/src/components/brief/city.tsx). */
+export type CityLabels = {
+  cross: string;
+  projects: string;
+  onDesk: string;
+  handled: Plural;
+  handledTitle: Plural;
+  handledEmpty: string;
+  upToDate: string;
+  isUpToDate: (name: string) => string;
+  tower: (name: string, c: CityCounts) => string;
+  voice: (c: CityCounts) => VoicePart[];
+  pending: string;
+  ofTotal: (open: number, total: number) => string;
+  ideas: string;
+  newTab: string;
+  inPlaniaTab: string;
+  ideasTabs: string;
+  morePlanned: Plural;
+  onlyPlanned: Plural;
+  noNewIdeas: string;
+  noOpenIdeas: string;
+  noRows: string;
+  prevProject: (name: string) => string;
+  nextProject: (name: string) => string;
+  position: (i: number, n: number) => string;
+  prevCard: string;
+  nextCard: string;
+  readNow: string;
+  doIt: string;
+  giveIt: string;
+  giveIdea: string;
+  keepIt: string;
+  seeHere: (key: string) => string;
+  readDocs: string;
+  sketchLink: string;
+  github: string;
+  ideaInPlania: string;
+  newIdea: string;
+  stage: string;
+  stages: { idea: string; research: string; design: string; planning: string; ready: string };
+  isOpen: string;
+  isPlanned: string;
+  plannedNote: string;
+  inPlaniaNote: string;
+  status: { blocker: string; needs_you: string; next: string; open_pr: string; idea: string };
+  nextWithWork: string;
+  emptyHand: string;
+  clear: string;
+  clearLine: (n: number, time: string) => string;
+  genMenu: string;
+  genBoth: [string, string];
+  genBrief: [string, string];
+  genIdeas: [string, string];
+  howToFix: string;
+  hide: string;
+  fixAuth: string[];
+  fixOther: string[];
+  failedAt: (time: string) => string;
+  authReason: string;
+  stillShowing: (time: string) => string;
+  partial: { brief: string; ideas: string; both: string; github: string };
+  keys: string;
+  close: string;
+  doc: string;
+};
+
+/** PLA-I49-4: the row and idea labels, verbs and stamps per action id (src/brief/actions.ts); V3 (city.tsx) reuses them. */
 export type DeskAction = "answer" | "step_done" | "add_to_pr" | "publish" | "accept_pr" | "request_changes" | "resume_runs" | "postpone" | "put_first" | "hold" | "fix_finding" | "close_idea" | "later" | "dismiss" | "give_to_po" | "start_now" | "start_building";
 export type DeskKind = "question" | "step" | "release" | "pr" | "ticket" | "initiative" | "idea" | "runs" | "env" | "finding" | "none";
 export type DeskConfirm = { project: string; key?: string | null; pr?: number | null; from?: string; into?: string; tickets?: number; migrations?: string[]; path?: string | null; code?: string };
@@ -223,6 +296,20 @@ export type SettingsLabels = {
   setupBad: string;
   setupFailed: string;
 };
+
+const NUM_ES = ["cero", "una", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez"];
+
+/** "a, b and c." with the first letter capitalised. */
+function joinVoice(parts: VoicePart[], comma: string, and: string): VoicePart[] {
+  if (!parts.length) return [];
+  const out: VoicePart[] = [];
+  parts.forEach((p, i) => {
+    if (i > 0) out.push({ text: i === parts.length - 1 ? and : comma });
+    out.push(i === 0 ? { ...p, text: p.text.slice(0, 1).toUpperCase() + p.text.slice(1) } : p);
+  });
+  out.push({ text: "." });
+  return out;
+}
 
 const en: BriefLabels = {
   kicker: "Today",
@@ -455,6 +542,78 @@ const en: BriefLabels = {
     on: "on",
     none_: "None",
     handledAt: (t) => `at ${t}`,
+  },
+  c: {
+    cross: "Between apps",
+    projects: "Projects",
+    onDesk: "on your desk",
+    handled: (n) => `${n} handled today`,
+    handledTitle: (n) => `Handled today · ${n}`,
+    handledEmpty: "Handled cards land here, with Undo.",
+    upToDate: "up to date",
+    isUpToDate: (name) => `${name} is up to date.`,
+    tower: (name, c) => (c.blocked + c.needs + c.next + c.ideas ? `${name}: ${[c.blocked ? `${c.blocked} blocker${c.blocked === 1 ? "" : "s"}` : "", c.needs ? `${c.needs} your turn` : "", c.next ? `${c.next} next` : "", c.ideas ? `${c.ideas} idea${c.ideas === 1 ? "" : "s"}` : ""].filter(Boolean).join(", ")}` : `${name}: up to date`),
+    voice: (c) => {
+      const parts: VoicePart[] = [];
+      if (c.blocked) parts.push({ text: c.blocked === 1 ? "one blocker goes first" : `${c.blocked} blockers go first`, tone: "blocked" });
+      if (c.needs) parts.push({ text: c.needs === 1 ? "one thing is your turn" : `${c.needs} things are your turn`, tone: "jorge" });
+      if (c.next) parts.push({ text: c.next === 1 ? "one is next" : `${c.next} are next` });
+      if (c.ideas) parts.push({ text: c.ideas === 1 ? "there is one new idea" : `there are ${c.ideas} new ideas` });
+      return joinVoice(parts, ", ", " and ");
+    },
+    pending: "Pending",
+    ofTotal: (o, t) => `${o} of ${t}`,
+    ideas: "Ideas",
+    newTab: "New",
+    inPlaniaTab: "Already in Plania",
+    ideasTabs: "Ideas",
+    morePlanned: (n) => `and ${n} more, already planned`,
+    onlyPlanned: (n) => (n === 1 ? "1 idea already planned" : `${n} ideas already planned`),
+    noNewIdeas: "No new ideas for this project today.",
+    noOpenIdeas: "No open ideas in Plania.",
+    noRows: "Nothing pending here.",
+    prevProject: (n) => `Previous: ${n}`,
+    nextProject: (n) => `Next: ${n}`,
+    position: (i, n) => `${i} of ${n}`,
+    prevCard: "Previous card",
+    nextCard: "Next card",
+    readNow: "Read from Plania now",
+    doIt: "Do it yourself",
+    giveIt: "Hand it to",
+    giveIdea: "Hand it to",
+    keepIt: "Put it away",
+    seeHere: (k) => `See ${k} here`,
+    readDocs: "Read its docs here",
+    sketchLink: "Sketch",
+    github: "GitHub",
+    ideaInPlania: "Idea in Plania",
+    newIdea: "New idea",
+    stage: "Stage",
+    stages: { idea: "Idea", research: "Research", design: "Design", planning: "Planning", ready: "Ready" },
+    isOpen: "Open",
+    isPlanned: "Already an initiative",
+    plannedNote: "Already planned. It stays here to look at.",
+    inPlaniaNote: "Its next step is set in Plania: open it here to move it.",
+    status: { blocker: "Blocker", needs_you: "Your turn", next: "Next", open_pr: "Next", idea: "Idea" },
+    nextWithWork: "Next project",
+    emptyHand: "Nothing in hand.",
+    clear: "Your desk is clear.",
+    clearLine: (n, t) => `${n} handled today. Tomorrow's brief comes at ${t}.`,
+    genMenu: "Generate now · uses your plan, $0",
+    genBoth: ["Pending and ideas", "about 3 min"],
+    genBrief: ["Pending only", "1 min · today's ideas stay"],
+    genIdeas: ["Ideas only", "2 min · the part that uses most of your plan"],
+    howToFix: "How to fix it",
+    hide: "Hide",
+    fixAuth: ["Open Terminal on the Mac.", "Type claude, then /login.", "Come back here and press Retry."],
+    fixOther: ["On the Mac, run pnpm brief:doctor to see what failed.", "Come back here and press Retry."],
+    failedAt: (t) => `Couldn't update at ${t}.`,
+    authReason: "Claude lost its sign-in on this Mac, so no new rows or ideas came in.",
+    stillShowing: (t) => `You are still seeing the brief of ${t}.`,
+    partial: { brief: "Claude's rows did not come in; the rows from Plania's own data still work.", ideas: "Today's ideas did not come in.", both: "Claude's part did not come in: these rows are Plania's own data.", github: "GitHub data did not come in; PRs may be out of date." },
+    keys: "J K move · ← → project · Enter first action · L later · X not relevant · Z undo",
+    close: "Close",
+    doc: "Docs",
   },
 };
 
@@ -689,6 +848,78 @@ const es: BriefLabels = {
     on: "activas",
     none_: "Ninguna",
     handledAt: (t) => `a las ${t}`,
+  },
+  c: {
+    cross: "Entre apps",
+    projects: "Proyectos",
+    onDesk: "en tu mesa",
+    handled: (n) => (n === 1 ? "1 resuelto hoy" : `${n} resueltos hoy`),
+    handledTitle: (n) => `Resueltos hoy · ${n}`,
+    handledEmpty: "Aquí caen las fichas resueltas, con Deshacer.",
+    upToDate: "al día",
+    isUpToDate: (name) => `${name} está al día.`,
+    tower: (name, c) => (c.blocked + c.needs + c.next + c.ideas ? `${name}: ${[c.blocked ? `${c.blocked} bloqueo${c.blocked === 1 ? "" : "s"}` : "", c.needs ? `${c.needs} te toca${c.needs === 1 ? "" : "n"}` : "", c.next ? `${c.next} sigue${c.next === 1 ? "" : "n"}` : "", c.ideas ? `${c.ideas} idea${c.ideas === 1 ? "" : "s"}` : ""].filter(Boolean).join(", ")}` : `${name}: al día`),
+    voice: (c) => {
+      const parts: VoicePart[] = [];
+      if (c.blocked) parts.push({ text: c.blocked === 1 ? "un bloqueo va primero" : `${NUM_ES[c.blocked] ?? c.blocked} bloqueos van primero`, tone: "blocked" });
+      if (c.needs) parts.push({ text: c.needs === 1 ? "una cosa te toca" : `${NUM_ES[c.needs] ?? c.needs} cosas te tocan`, tone: "jorge" });
+      if (c.next) parts.push({ text: c.next === 1 ? "una sigue" : `${NUM_ES[c.next] ?? c.next} siguen` });
+      if (c.ideas) parts.push({ text: c.ideas === 1 ? "hay una idea nueva" : `hay ${NUM_ES[c.ideas] ?? c.ideas} ideas nuevas` });
+      return joinVoice(parts, ", ", " y ");
+    },
+    pending: "Pendientes",
+    ofTotal: (o, t) => `${o} de ${t}`,
+    ideas: "Ideas",
+    newTab: "Nuevas",
+    inPlaniaTab: "Ya en Plania",
+    ideasTabs: "Ideas",
+    morePlanned: (n) => `y ${n} más, ya planeada${n === 1 ? "" : "s"}`,
+    onlyPlanned: (n) => (n === 1 ? "1 idea ya planeada" : `${n} ideas ya planeadas`),
+    noNewIdeas: "Hoy no hay ideas nuevas para este proyecto.",
+    noOpenIdeas: "No hay ideas abiertas en Plania.",
+    noRows: "Aquí no hay pendientes.",
+    prevProject: (n) => `Anterior: ${n}`,
+    nextProject: (n) => `Siguiente: ${n}`,
+    position: (i, n) => `${i} de ${n}`,
+    prevCard: "Ficha anterior",
+    nextCard: "Ficha siguiente",
+    readNow: "Leído de Plania ahora",
+    doIt: "Hazlo tú",
+    giveIt: "Dáselo a",
+    giveIdea: "Dásela a",
+    keepIt: "Guárdalo",
+    seeHere: (k) => `Ver ${k} aquí`,
+    readDocs: "Leer sus docs aquí",
+    sketchLink: "Boceto",
+    github: "GitHub",
+    ideaInPlania: "Idea en Plania",
+    newIdea: "Idea nueva",
+    stage: "Etapa",
+    stages: { idea: "Idea", research: "Investigación", design: "Diseño", planning: "Planeación", ready: "Lista" },
+    isOpen: "Abierta",
+    isPlanned: "Ya es iniciativa",
+    plannedNote: "Ya está planeada. Se queda aquí solo para consultarla.",
+    inPlaniaNote: "Su siguiente paso se decide en Plania: ábrela aquí para moverla.",
+    status: { blocker: "Bloqueo", needs_you: "Te toca", next: "Sigue", open_pr: "Sigue", idea: "Idea" },
+    nextWithWork: "Siguiente proyecto",
+    emptyHand: "Nada en la mano.",
+    clear: "Tu mesa está limpia.",
+    clearLine: (n, t) => `${n === 1 ? "1 resuelto" : `${n} resueltos`} hoy. El brief de mañana llega a las ${t}.`,
+    genMenu: "Generar ahora · usa tu plan, $0",
+    genBoth: ["Pendientes e ideas", "unos 3 min"],
+    genBrief: ["Solo pendientes", "1 min · las ideas de hoy se quedan"],
+    genIdeas: ["Solo ideas", "2 min · la parte que más usa tu plan"],
+    howToFix: "Cómo arreglarlo",
+    hide: "Ocultar",
+    fixAuth: ["Abre Terminal en la Mac.", "Escribe claude y luego /login.", "Vuelve aquí y pulsa Reintentar."],
+    fixOther: ["En la Mac, corre pnpm brief:doctor para ver qué falló.", "Vuelve aquí y pulsa Reintentar."],
+    failedAt: (t) => `No se pudo actualizar a las ${t}.`,
+    authReason: "Claude perdió su sesión en esta Mac, así que no llegaron pendientes ni ideas nuevas.",
+    stillShowing: (t) => `Sigues viendo el brief de las ${t}.`,
+    partial: { brief: "No llegaron los pendientes de Claude; los que salen de los datos de Plania sí funcionan.", ideas: "No llegaron las ideas de hoy.", both: "No llegó la parte de Claude: estos pendientes salen de los datos de Plania.", github: "No llegaron los datos de GitHub; los PR pueden estar desactualizados." },
+    keys: "J K mover · ← → proyecto · Enter primera acción · L después · X no aplica · Z deshacer",
+    close: "Cerrar",
+    doc: "Docs",
   },
 };
 

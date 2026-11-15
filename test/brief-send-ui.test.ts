@@ -38,10 +38,10 @@ test("plan progress lines and links (the desk's Ideas in motion uses them)", () 
   assert.deepEqual(lib.planLine(done.ideas[2]), { kind: "waiting", project: "Filmia" });
 });
 
-// PLA-I49-6: Copy reply and the "yes W1 Z3" box are gone; ideas get their fates on the desk.
+// PLA-I49-6: Copy reply and the "yes W1 Z3" box are gone; ideas get their fates on the ficha (PLA-I51).
 test("check 6: the Copy reply button and the reply box are gone from the brief page", () => {
   const dir = new URL("../ui/src/components/brief/", import.meta.url);
-  for (const f of ["desk.tsx", "desk-paper.tsx"]) {
+  for (const f of ["city.tsx"]) {
     const src = readFileSync(new URL(f, dir), "utf8");
     assert.doesNotMatch(src, /copyReply|replyText|clipboard/, f);
   }

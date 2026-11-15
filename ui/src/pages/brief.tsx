@@ -1,14 +1,12 @@
-// PLA-I42-2: the /brief page. PLA-I49-4: with a brief on screen it is the desk (src/components/brief/desk.tsx); before
-// one exists, the V1 header with its empty or error card. The cached brief stays with "Couldn't refresh" when the API
-// fails; a past day is read-only. PLA-I49-6: ideas get their fates on the desk (Keep, Discard, Sketch, Research, Plan);
-// Copy reply and the reply box are gone. Send to Plania's progress (latest.plan_id) still shows on ideas in motion.
-// Labels follow the brief's language (D5).
+// PLA-I42-2: the /brief page. PLA-I51: with a brief on screen it is the city at dawn (src/components/brief/city.tsx);
+// before one exists, the same sky with the V1 texts (no brief yet, brief off, could not load), and a quiet loading
+// form on the first load. The cached brief stays with "Couldn't refresh" when the API fails; a past day is
+// read-only; a failed run after the brief keeps that brief on screen and says why (PLA-33's last_run). Labels follow
+// the brief's language, Spanish by default (PLA-I51-1).
 import { useState } from "react";
-import { BriefDesk } from "@/components/brief/desk";
+import { BriefCity, SkyFrame } from "@/components/brief/city";
 import { BriefSettingsSheet } from "@/components/brief/brief-settings";
-import { BriefHeader } from "@/components/brief/brief-header";
 import { BRIEF_LABELS, briefStamp } from "@/lib/brief-i18n";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   type BriefLanguage,
   planCost,
@@ -32,14 +30,13 @@ export function BriefPage() {
   const run = useRunBrief();
   const [date, setDate] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [picked, setPicked] = useState<{ brief: string | null; ids: Set<string> }>({ brief: null, ids: new Set() });
   const past = useBriefByDate(date);
 
   const shown = date ? past.data : latest.data;
   const stored = shown?.brief ?? null;
   const data = stored?.data;
   const checks = shown?.checks ?? [];
-  const language: BriefLanguage = data?.language ?? latest.data?.brief?.data.language ?? settings.data?.settings.language ?? "en";
+  const language: BriefLanguage = data?.language ?? latest.data?.brief?.data.language ?? settings.data?.settings.language ?? "es";
   const t = BRIEF_LABELS[language];
   const enabled = settings.data?.settings.enabled ?? true;
   const stamp = data ? briefStamp(data.generatedAt, data.timezone, data.timezoneLabel, language) : null;
@@ -52,17 +49,7 @@ export function BriefPage() {
   else if (!date && latest.isSuccess && !latest.data.brief) empty = t.empty(settings.data?.settings.run_at ?? "07:00");
   const refreshFailed = !date && latest.isError && !!latest.data;
 
-  // Selection belongs to the brief on screen.
   const briefId = stored?.id ?? null;
-  const selected = new Set(picked.brief === briefId ? [...picked.ids].filter((id) => data?.ideas.some((i) => i.id === id)) : []);
-  const onSelect = (id: string) =>
-    setPicked((prev) => {
-      const next = new Set(prev.brief === briefId ? prev.ids : []);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return { brief: briefId, ids: next };
-    });
-
   // Send to Plania's progress for today's brief (an idea's Plan fate goes through it).
   const planId = readOnly ? null : latest.data?.brief?.id === briefId ? (latest.data?.plan_id ?? null) : null;
   const progress = usePlanProgress(planId);
@@ -70,14 +57,16 @@ export function BriefPage() {
   const plans = new Map<string, PlanIdeaProgress>((plan?.ideas ?? []).map((p) => [p.code, p]));
   const rows = useBriefState(briefId);
   const acts = useBriefAct(briefId);
+  const generate = (passes?: ("brief" | "ideas")[]) => run.mutate(passes);
 
-  // PLA-I49-4: with a brief on screen the page is the desk (src/components/brief/desk.tsx); before that, the V1 header
-  // and its empty or error card.
+  const sheet = <BriefSettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} language={language} />;
+
   if (data && stamp && briefId) {
     return (
       <>
-        <BriefSettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} language={language} />
-        <BriefDesk
+        {sheet}
+        <BriefCity
+          key={briefId}
           data={data}
           briefId={briefId}
           state={rows.data && rows.data.brief_id === briefId ? rows.data : undefined}
@@ -90,7 +79,7 @@ export function BriefPage() {
           lastRun={date ? null : (latest.data?.last_run ?? null)}
           generating={run.isPending}
           canGenerate={enabled}
-          onGenerate={() => run.mutate(undefined)}
+          onGenerate={generate}
           history={history.data ?? []}
           todayDate={latest.data?.brief?.local_date ?? null}
           date={date}
@@ -101,45 +90,87 @@ export function BriefPage() {
           onAct={(body) => acts.act.mutateAsync({ ...body, brief_id: briefId })}
           onUndo={(actionId, itemId) => acts.undo.mutateAsync({ actionId, itemId })}
           acting={acts.act.isPending || acts.undo.isPending}
-          selected={selected}
-          onSelect={onSelect}
-          onClearSelection={() => setPicked({ brief: briefId, ids: new Set() })}
           ideaCost={(ids) => planCost(data, ids, latest.data?.home_project ?? null)}
-          sending={false}
           plans={plans}
+          maxItems={settings.data?.settings.max_items_per_app}
+          runAt={settings.data?.settings.run_at}
         />
       </>
     );
   }
 
+  const loading = !empty && (latest.isLoading || (date ? past.isLoading : false));
   return (
-    <div className="mx-auto grid w-full max-w-[1480px] gap-6 px-4 pt-5 sm:gap-8 sm:px-6" lang={language} data-brief="page">
-      <BriefHeader
+    <>
+      {sheet}
+      <BriefEmpty
         language={language}
-        stamp={stamp}
-        run={latest.data?.run ?? null}
-        pending={run.isPending}
-        canGenerate={enabled}
-        onGenerate={() => run.mutate(undefined)}
-        history={history.data ?? []}
-        todayDate={latest.data?.brief?.local_date ?? null}
-        date={date}
-        onDate={setDate}
+        text={loading ? null : (empty ?? t.failed)}
+        busy={!!latest.data?.run || run.isPending}
+        canGenerate={enabled && !date}
+        onGenerate={() => generate()}
         onSettings={() => setSettingsOpen(true)}
+        onToday={date ? () => setDate(null) : null}
       />
-      <BriefSettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} language={language} />
-      {(refreshFailed || readOnly) && (
-        <p className="-mt-3 text-sm text-muted-foreground" role="status" data-brief={refreshFailed ? "refresh-failed" : "past"}>
-          {refreshFailed ? t.refreshFailed : t.pastDay}
-        </p>
-      )}
-      <Card className="rounded-2xl">
-        <CardContent>
-          <p className="text-muted-foreground" data-brief="empty">
-            {empty ?? (latest.isLoading ? t.d.loading : t.failed)}
-          </p>
-        </CardContent>
-      </Card>
+    </>
+  );
+}
+
+/** No brief on screen: the sky with its tools and one line (or, on the first load, the page's quiet loading form). */
+export function BriefEmpty({ language, text, busy, canGenerate, onGenerate, onSettings, onToday }: { language: BriefLanguage; text: string | null; busy: boolean; canGenerate: boolean; onGenerate: () => void; onSettings: () => void; onToday: (() => void) | null }) {
+  const t = BRIEF_LABELS[language];
+  return (
+    <div className="bc" lang={language} data-brief="page">
+      <SkyFrame
+        p={0}
+        busy={busy}
+        stamp={null}
+        title={t.title}
+        tools={
+          <>
+            <button type="button" className="bc-chip" disabled={busy || !canGenerate} onClick={onGenerate} data-brief="generate">
+              {busy ? t.generating : t.generate}
+            </button>
+            {onToday && (
+              <button type="button" className="bc-chip" onClick={onToday} data-brief="back-today">
+                {t.d.backToday}
+              </button>
+            )}
+            <button type="button" className="bc-chip" onClick={onSettings} data-brief="settings">
+              {t.settings}
+            </button>
+          </>
+        }
+      >
+        <div className="bc-stations-x">
+          <div className="bc-stations" aria-hidden style={{ ["--n" as string]: "6" }}>
+            {Array.from({ length: 6 }, (_, i) => (
+              <span key={i} className="bc-stn bc-stn-sk">
+                <span className="bc-twr">
+                  <i className="bc-w" data-t="lit" />
+                  <i className="bc-w" data-t="lit" />
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </SkyFrame>
+      <div className="bc-body bc-body-empty">
+        {text === null ? (
+          <div className="bc-loading" data-brief="loading" aria-busy="true">
+            <p className="bc-note">{t.d.loading}</p>
+            <div className="bc-grid">
+              {Array.from({ length: 6 }, (_, i) => (
+                <span key={i} className="bc-c bc-c-sk" />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="bc-cleared" data-brief="empty">
+            <span>{text}</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -143,3 +143,20 @@ test("first-run defaults are generic: two sample projects, nothing of the author
   assert.ok(!letters.includes("X"), "X stays for cross ideas");
   assert.deepEqual(out.map((p) => p.color), ["c0", "c1"]);
 });
+
+// PLA-I51-1: Spanish by default. A fresh database reads es (column default and DEFAULT_SETTINGS); a saved row in en
+// reads es once migration 0051 has run (it runs again here on purpose: it only moves en to es).
+test("PLA-I51-1 check 2: a fresh database reads es, and a saved en row reads es after migration 0051", async () => {
+  await raw.query("delete from brief_settings");
+  assert.equal(S.DEFAULT_SETTINGS.language, "es");
+  assert.equal((await S.loadBriefSettings(db)).language, "es", "nothing saved: the defaults");
+  await raw.query("insert into brief_settings (id) values (1)");
+  assert.equal((await S.loadBriefSettings(db)).language, "es", "a row saved without a language takes the column default");
+  await raw.query("update brief_settings set language = 'en' where id = 1");
+  assert.equal((await S.loadBriefSettings(db)).language, "en");
+  await raw.query(readFileSync(new URL("../drizzle/migrations/0051_brief_spanish.sql", import.meta.url), "utf8"));
+  assert.equal((await S.loadBriefSettings(db)).language, "es");
+  // Choosing English afterwards still sticks.
+  await S.saveBriefSettings(db, { language: "en" });
+  assert.equal((await S.loadBriefSettings(db)).language, "en");
+});

@@ -184,7 +184,9 @@ export async function discardedIdeas(db: Db, now: Date = new Date()): Promise<{ 
   return out;
 }
 
-export type IdeaInMotion = { project: string; key: string; title: string; stage: string | null; next: "sketch_ready" | "research_ready" | "planned" | "in_motion"; sketch: boolean; research: boolean; doc_url: string | null };
+// PLA-I51-4: promoted_to is the initiative the idea became (null while it is still open work); the page lists only
+// the ones without it under "Ya en Plania" and counts the rest.
+export type IdeaInMotion = { project: string; key: string; title: string; stage: string | null; next: "sketch_ready" | "research_ready" | "planned" | "in_motion"; sketch: boolean; research: boolean; doc_url: string | null; promoted_to: string | null };
 
 /** Open Plania ideas of the brief's projects: their stage, and whether a Sketch or Research doc came back. */
 export async function ideasInMotion(db: Db, slugs: string[]): Promise<IdeaInMotion[]> {
@@ -194,7 +196,8 @@ export async function ideasInMotion(db: Db, slugs: string[]): Promise<IdeaInMoti
     .from(tasks)
     .innerJoin(projects, eq(projects.id, tasks.projectId))
     .where(and(eq(tasks.kind, "idea"), eq(tasks.status, "Open"), inArray(projects.slug, slugs)))
-    .orderBy(desc(tasks.updatedAt))
+    // Ideas not planned yet first, so the limit never pushes them out behind planned ones.
+    .orderBy(sql`${tasks.promotedTo} is not null`, desc(tasks.updatedAt))
     .limit(30);
   const ids = rows.map((r) => r.id);
   const docRows = ids.length ? await db.select({ taskId: docs.taskId, title: docs.title, markdown: docs.markdown }).from(docs).where(inArray(docs.taskId, ids)) : [];
@@ -204,7 +207,7 @@ export async function ideasInMotion(db: Db, slugs: string[]): Promise<IdeaInMoti
     const research = mine.some((d) => d.title === "Research");
     const url = sketch?.markdown.match(/https?:\/\/\S+/)?.[0]?.replace(/[).,]+$/, "") ?? null;
     const next = r.promoted ? "planned" : sketch ? "sketch_ready" : research ? "research_ready" : "in_motion";
-    return { project: r.project, key: r.key, title: r.title, stage: r.stage, next, sketch: !!sketch, research, doc_url: url };
+    return { project: r.project, key: r.key, title: r.title, stage: r.stage, next, sketch: !!sketch, research, doc_url: url, promoted_to: r.promoted ?? null };
   });
 }
 

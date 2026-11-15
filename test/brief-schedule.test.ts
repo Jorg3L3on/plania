@@ -64,7 +64,8 @@ before(async () => {
   ({ db } = makeDb());
   await seedOrg(db);
   await raw.query(`delete from plan_readings`);
-  await saveBriefSettings(db, { github_mode: "off" });
+  // English texts below; Spanish is the default since PLA-I51-1.
+  await saveBriefSettings(db, { github_mode: "off", language: "en" });
 });
 
 beforeEach(async () => {
