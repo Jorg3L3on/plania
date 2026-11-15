@@ -56,7 +56,7 @@ type Review = { id: number; state: string; submitted_at?: string | null };
 // Reviews that ask Taller for something. An approval needs no wake.
 const REVIEW_WAKES = ["CHANGES_REQUESTED", "COMMENTED"];
 type Branch = { name: string; commit: { sha: string } };
-type Compare = { status: "ahead" | "behind" | "identical" | "diverged"; ahead_by?: number; commits?: { sha: string }[] };
+type Compare = { status: "ahead" | "behind" | "identical" | "diverged"; ahead_by?: number; behind_by?: number; commits?: { sha: string }[] };
 
 export type GithubDeps = {
   fetch: Fetch;
@@ -466,7 +466,7 @@ async function pollRelease(db: Db, p: Project, deps: GithubDeps, token: string, 
   const key = compareKey(fromHead, intoHead);
   if (prev?.key === key) return 0;
   let next: ReleaseCompare;
-  if (fromHead === intoHead) next = { key, from_head: fromHead, into_head: intoHead, ahead: 0, contains: true, commits: [] };
+  if (fromHead === intoHead) next = { key, from_head: fromHead, into_head: intoHead, ahead: 0, behind_by: 0, status: "identical", contains: true, commits: [] };
   else {
     const res = await gh(deps, token, `/repos/${repo}/compare/${intoHead}...${fromHead}`);
     if (res.status !== 200) return 0;
@@ -476,6 +476,10 @@ async function pollRelease(db: Db, p: Project, deps: GithubDeps, token: string, 
       from_head: fromHead,
       into_head: intoHead,
       ahead: c.ahead_by ?? 0,
+      // PLA-I41-7: kept from the same response, so the brief can tell a diverged into (main has
+      // commits from lacks) from a plain ahead. No extra request.
+      behind_by: c.behind_by ?? 0,
+      status: c.status,
       contains: c.status === "behind" || c.status === "identical",
       commits: (c.commits ?? []).slice(-50).map((x) => x.sha.slice(0, 7)),
     };

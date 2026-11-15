@@ -10,7 +10,19 @@ import { type Q } from "./tx.js";
 // tickets not yet released, the migrations they reserved that env does not run yet, the human
 // actions that must happen first, the checks still open, and the command. Agents never merge `into`.
 
-export type ReleaseCompare = { key: string; from_head: string; into_head: string; ahead: number; contains: boolean; commits: string[]; shipped_at?: string };
+// behind_by and status come from GitHub's compare of into...from (PLA-I41-7); caches written before
+// that ticket lack them.
+export type ReleaseCompare = {
+  key: string;
+  from_head: string;
+  into_head: string;
+  ahead: number;
+  behind_by?: number;
+  status?: "ahead" | "behind" | "identical" | "diverged";
+  contains: boolean;
+  commits: string[];
+  shipped_at?: string;
+};
 
 export type ReleasePlan = {
   from: { branch: string; head_sha: string | null };
