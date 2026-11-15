@@ -412,14 +412,31 @@ export function BriefDesk(props: DeskProps) {
           <div className="dk-people" style={appStyle(homeApp)} data-brief="people">
             {(["po", "artist", "research", "taller"] as const).map((role) => {
               const ideaPo = role === "po" && pile === "ideas" && (many || !!curIdea) && !readOnly;
+              // PLA-I49-5: the row's wake actions. PO: Give to PO (any row). Taller: Start now, or Start building.
+              const rowWake = curItem && curOpen && !readOnly ? (curState?.actions ?? []).find((a) => (role === "po" ? a.id === "give_to_po" : role === "taller" ? a.id === "start_now" || a.id === "start_building" : false)) : undefined;
+              const on = ideaPo || !!rowWake;
+              const who = rowWake?.wake;
+              const status = who ? (who.company_paused || who.paused ? d.paused : who.busy ? d.working : (who.agent ?? d.roles[role])) : null;
               return (
-                <button key={role} type="button" className="dk-who" data-on={ideaPo || undefined} disabled={!ideaPo || props.sending} onClick={() => setHandIdeas(true)} data-person={role} title={ideaPo ? undefined : d.soon}>
+                <button
+                  key={role}
+                  type="button"
+                  className="dk-who"
+                  data-on={on || undefined}
+                  disabled={!on || props.sending || props.acting}
+                  onClick={() => {
+                    if (ideaPo) setHandIdeas(true);
+                    else if (rowWake && curItem) setPending({ kind: "wake", action: rowWake.id, target: rowWake.target });
+                  }}
+                  data-person={role}
+                  title={on ? undefined : d.soon}
+                >
                   <span className="dk-face" aria-hidden>
                     {d.roles[role].slice(0, 1)}
                   </span>
                   <span className="min-w-0">
-                    <b>{ideaPo ? d.ideaPo : role === "po" ? d.giveToPo : d.roles[role]}</b>
-                    <small>{ideaPo ? `${d.roles.po}${homeApp && homeApp.id !== CROSS ? ` ${homeApp.name}` : ""}` : d.soon}</small>
+                    <b>{ideaPo ? d.ideaPo : rowWake ? d.verbs[rowWake.id as DeskAction] : role === "po" ? d.giveToPo : d.roles[role]}</b>
+                    <small>{ideaPo ? `${d.roles.po}${homeApp && homeApp.id !== CROSS ? ` ${homeApp.name}` : ""}` : (status ?? d.soon)}</small>
                   </span>
                 </button>
               );

@@ -74,7 +74,7 @@ export type BriefLabels = {
 };
 
 /** PLA-I49-4: the desk (ui/src/components/brief/desk.tsx). Verbs and stamps per action id (src/brief/actions.ts). */
-export type DeskAction = "answer" | "step_done" | "add_to_pr" | "publish" | "accept_pr" | "request_changes" | "resume_runs" | "postpone" | "put_first" | "hold" | "fix_finding" | "later" | "dismiss";
+export type DeskAction = "answer" | "step_done" | "add_to_pr" | "publish" | "accept_pr" | "request_changes" | "resume_runs" | "postpone" | "put_first" | "hold" | "fix_finding" | "later" | "dismiss" | "give_to_po" | "start_now" | "start_building";
 export type DeskKind = "question" | "step" | "release" | "pr" | "ticket" | "initiative" | "idea" | "runs" | "env" | "finding" | "none";
 export type DeskConfirm = { project: string; key?: string | null; pr?: number | null; from?: string; into?: string; tickets?: number; migrations?: string[]; path?: string | null; code?: string };
 export type DeskLabels = {
@@ -126,6 +126,13 @@ export type DeskLabels = {
   soon: string;
   ideaPo: string;
   ideaCost: (bots: number, low: number, high: number) => string;
+  wakeCost: (agent: string, low: number, high: number) => string;
+  waitsPaused: (project: string) => string;
+  waitsCompany: string;
+  afterRun: (agent: string) => string;
+  noteForPo: string;
+  buildWhat: (keys: string[]) => string;
+  waitingPaused: (project: string) => string;
   wake: string;
   ideasInHand: Plural;
   ideaHint: string;
@@ -357,8 +364,8 @@ const en: BriefLabels = {
     releaseReady: "Release · ready",
     releaseNotReady: (r) => `Release · not ready: ${r}`,
     reasons: { mode_command: "ships by command", no_repo: "no GitHub repo", no_github_data: "no GitHub data yet", nothing_to_ship: "nothing to ship", before_steps: "steps before", open_checks: "checks open", merged: "already merged" },
-    verbs: { answer: "Answer", step_done: "Done", add_to_pr: "Add to PR", publish: "Publish to main", accept_pr: "Accept into sandbox", request_changes: "Ask for changes", resume_runs: "Turn on runs", postpone: "Postpone", put_first: "Put first", hold: "Put on hold", fix_finding: "Fix it", later: "Later", dismiss: "Not relevant" },
-    stamps: { answer: "Answered", step_done: "Done", add_to_pr: "Added", publish: "Published", accept_pr: "Accepted", request_changes: "Sent back", resume_runs: "Runs on", postpone: "Postponed", put_first: "First", hold: "On hold", fix_finding: "Fixed", later: "Later", dismiss: "Not relevant" },
+    verbs: { answer: "Answer", step_done: "Done", add_to_pr: "Add to PR", publish: "Publish to main", accept_pr: "Accept into sandbox", request_changes: "Ask for changes", resume_runs: "Turn on runs", postpone: "Postpone", put_first: "Put first", hold: "Put on hold", fix_finding: "Fix it", later: "Later", dismiss: "Not relevant", give_to_po: "Give to PO", start_now: "Start now", start_building: "Start building" },
+    stamps: { answer: "Answered", step_done: "Done", add_to_pr: "Added", publish: "Published", accept_pr: "Accepted", request_changes: "Sent back", resume_runs: "Runs on", postpone: "Postponed", put_first: "First", hold: "On hold", fix_finding: "Fixed", later: "Later", dismiss: "Not relevant", give_to_po: "To PO", start_now: "To Taller", start_building: "Building" },
     confirm: {
       publish: (c) => `This merges ${c.from ?? "sandbox"} into ${c.into ?? "main"} for ${c.project}: ${c.tickets ?? 0} ticket${c.tickets === 1 ? "" : "s"}${c.migrations?.length ? `, migrations ${c.migrations.join(", ")}` : ", no migrations"}. Prod deploys from ${c.into ?? "main"}.`,
       accept_pr: (c) => `This merges PR #${c.pr} into sandbox for ${c.project}${c.key ? ` (${c.key})` : ""}. Nothing reaches main.`,
@@ -388,6 +395,13 @@ const en: BriefLabels = {
     soon: "comes with the next phase",
     ideaPo: "Plan it",
     ideaCost: (bots, low, high) => `Wakes ${bots} project bot${bots === 1 ? "" : "s"} · about ${low}–${high} min · uses your plan, $0`,
+    wakeCost: (agent, low, high) => `Wakes ${agent} · about ${low}–${high} min · uses your plan, $0`,
+    waitsPaused: (p) => `waits until ${p} runs are on`,
+    waitsCompany: "waits until the company is running again",
+    afterRun: (a) => `after ${a}'s current run`,
+    noteForPo: "A note for the PO (optional)",
+    buildWhat: (keys) => `This moves ${[keys].flat().join(", ")} to Ready. Taller starts the first one; the later phases stay in Backlog.`,
+    waitingPaused: (p) => `Waiting: ${p} runs are paused.`,
     wake: "Wake",
     ideasInHand: (n) => `${n} ideas in hand`,
     ideaHint: "Hand them to the PO on the right, or put them away.",
@@ -563,8 +577,8 @@ const es: BriefLabels = {
     releaseReady: "Publicación · lista",
     releaseNotReady: (r) => `Publicación · no lista: ${r}`,
     reasons: { mode_command: "se publica por comando", no_repo: "sin repo de GitHub", no_github_data: "aún sin datos de GitHub", nothing_to_ship: "nada que publicar", before_steps: "pasos antes", open_checks: "checks abiertos", merged: "ya fusionada" },
-    verbs: { answer: "Responder", step_done: "Hecho", add_to_pr: "Agregar al PR", publish: "Publicar a main", accept_pr: "Aceptar en sandbox", request_changes: "Pedir cambios", resume_runs: "Activar corridas", postpone: "Aplazar", put_first: "Hacer primero", hold: "Poner en espera", fix_finding: "Corregir", later: "Después", dismiss: "No aplica" },
-    stamps: { answer: "Respondido", step_done: "Hecho", add_to_pr: "Agregado", publish: "Publicado", accept_pr: "Aceptado", request_changes: "Devuelto", resume_runs: "Activado", postpone: "Aplazado", put_first: "Primero", hold: "En espera", fix_finding: "Corregido", later: "Después", dismiss: "No aplica" },
+    verbs: { answer: "Responder", step_done: "Hecho", add_to_pr: "Agregar al PR", publish: "Publicar a main", accept_pr: "Aceptar en sandbox", request_changes: "Pedir cambios", resume_runs: "Activar corridas", postpone: "Aplazar", put_first: "Hacer primero", hold: "Poner en espera", fix_finding: "Corregir", later: "Después", dismiss: "No aplica", give_to_po: "Dárselo al PO", start_now: "Empezar ya", start_building: "Empezar a construir" },
+    stamps: { answer: "Respondido", step_done: "Hecho", add_to_pr: "Agregado", publish: "Publicado", accept_pr: "Aceptado", request_changes: "Devuelto", resume_runs: "Activado", postpone: "Aplazado", put_first: "Primero", hold: "En espera", fix_finding: "Corregido", later: "Después", dismiss: "No aplica", give_to_po: "Al PO", start_now: "A Taller", start_building: "Construyendo" },
     confirm: {
       publish: (c) => `Esto fusiona ${c.from ?? "sandbox"} en ${c.into ?? "main"} para ${c.project}: ${c.tickets ?? 0} ticket${c.tickets === 1 ? "" : "s"}${c.migrations?.length ? `, migraciones ${c.migrations.join(", ")}` : ", sin migraciones"}. Prod se despliega desde ${c.into ?? "main"}.`,
       accept_pr: (c) => `Esto fusiona el PR #${c.pr} en sandbox para ${c.project}${c.key ? ` (${c.key})` : ""}. Nada llega a main.`,
@@ -594,6 +608,13 @@ const es: BriefLabels = {
     soon: "llega en la siguiente fase",
     ideaPo: "Que lo planee",
     ideaCost: (bots, low, high) => `Despierta ${bots} bot${bots === 1 ? "" : "s"} de proyecto · unos ${low}–${high} min · usa tu plan, $0`,
+    wakeCost: (agent, low, high) => `Despierta a ${agent} · unos ${low}–${high} min · usa tu plan, $0`,
+    waitsPaused: (p) => `espera a que ${p} tenga corridas`,
+    waitsCompany: "espera a que la compañía vuelva a correr",
+    afterRun: (a) => `después de la corrida actual de ${a}`,
+    noteForPo: "Una nota para el PO (opcional)",
+    buildWhat: (keys) => `Esto pasa ${[keys].flat().join(", ")} a Listo. Taller empieza el primero; las fases siguientes se quedan en Backlog.`,
+    waitingPaused: (p) => `En espera: las corridas de ${p} están en pausa.`,
     wake: "Despertar a",
     ideasInHand: (n) => `${n} ideas en la mano`,
     ideaHint: "Dáselas al PO a la derecha, o guárdalas.",

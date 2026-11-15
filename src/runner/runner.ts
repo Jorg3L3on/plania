@@ -293,7 +293,7 @@ export type ForcedStart =
 
 export async function startNow(
   db: Db,
-  input: { agent: Agent; task: ReadyWork | null; pastGuard?: boolean; now: Date },
+  input: { agent: Agent; task: ReadyWork | null; pastGuard?: boolean; now: Date; reason?: string },
   deps: RunnerDeps = {},
 ): Promise<ForcedStart> {
   return serial(async () => {
@@ -321,7 +321,8 @@ export async function startNow(
             taskKey: task?.key ?? null,
             role: ctx.role!,
             status: "queued",
-            summary: pre.ok ? "starting" : "queued: cap reached",
+            // PLA-I49-5: a reason rides in the summary the way an event wake's does, so the prompt says why.
+            summary: input.reason ? `${EVENT_SUMMARY} ${input.reason}`.slice(0, 500) : pre.ok ? "starting" : "queued: cap reached",
             queuedAt: input.now,
             reserveTokens: (await loadSettings(db)).reserveTokens,
           })

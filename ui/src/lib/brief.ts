@@ -120,9 +120,11 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 // PLA-I49-3/4: a row's live state and the act API (src/brief/act.ts, src/brief/actions.ts).
-export type ActionId = "answer" | "step_done" | "add_to_pr" | "publish" | "accept_pr" | "request_changes" | "resume_runs" | "postpone" | "put_first" | "hold" | "fix_finding" | "later" | "dismiss";
+export type ActionId = "answer" | "step_done" | "add_to_pr" | "publish" | "accept_pr" | "request_changes" | "resume_runs" | "postpone" | "put_first" | "hold" | "fix_finding" | "later" | "dismiss" | "give_to_po" | "start_now" | "start_building";
 export type ActionLevel = "instant" | "confirm" | "wake";
-export type RowAction = { id: ActionId; level: ActionLevel; undo: boolean; target: number | null };
+// PLA-I49-5: a wake action says who wakes and about how long before it runs.
+export type WakeInfo = { agent: string | null; role: string | null; low: number; high: number; paused: boolean; company_paused: boolean; busy: boolean };
+export type RowAction = { id: ActionId; level: ActionLevel; undo: boolean; target: number | null; wake?: WakeInfo | null };
 export type RowState = "open" | "handled" | "later" | "dismissed" | "gone";
 export type Live =
   | { kind: "gone" }
@@ -130,8 +132,8 @@ export type Live =
   | { kind: "step"; text: string; satisfied: boolean; file: { path: string } | null; key: string; pr_url: string | null }
   | { kind: "release"; pending: boolean; unknown: boolean; ready: boolean; reason: string | null; ahead: number | null; tickets: string[]; migrations: string[]; before: number; open_checks: number; from: string; into: string; env: string }
   | { kind: "pr"; number: number; state: string; base: string | null; url: string; ticket: { key: string; status: string } | null; message_id: string | null }
-  | { kind: "ticket"; key: string; status: string; title: string; first: boolean }
-  | { kind: "initiative"; key: string; status: string; title: string }
+  | { kind: "ticket"; key: string; status: string; title: string; first: boolean; paused: boolean; owner: string | null }
+  | { kind: "initiative"; key: string; status: string; title: string; paused: boolean; next_phase: { phase: number; keys: string[] } | null }
   | { kind: "idea"; key: string; status: string; stage: string | null }
   | { kind: "runs"; paused: boolean }
   | { kind: "env"; env: string; commit: string | null; updated_at: string }

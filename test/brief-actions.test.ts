@@ -133,6 +133,7 @@ before(async () => {
   await delivery("chg", 79, "code");
   await raw.query(`insert into audit_runs (project_id, at, count, findings) values ($1, now(), 1, $2)`, [w.id, JSON.stringify([{ code: "ENV_DEPLOYED_AT_MISSING", key: null, id: "prod", detail: "prod has no deployed_at", fix_hint: "set_env" }])]);
   await raw.query(`insert into env_states (project_id, env, commit, by, updated_at) values ($1, 'prod', 'abcdef1', $2, now())`, [w.id, JSON.stringify(ctx.actor)]);
+  await raw.query(`update projects set runs_paused = false where slug <> 'micasa'`);
   await raw.query(`update projects set runs_paused = true where slug = 'micasa'`);
   await setProject(db, { project: "workia", version: (await findProject(db, "workia")).version, settings: { release: { from: "sandbox", into: "main", env: "prod", mode: "merge" } } }, { actor: { agent: "t", session_id: "s1" } });
 
@@ -203,16 +204,17 @@ test("GET state: each open row lists the actions that fit its object now, main o
   const s = await state();
   assert.equal(s.read_only, false);
   const ids = (k: string) => s.items[k]!.actions.map((a: Json) => a.id);
-  assert.deepEqual(ids(T.question), ["answer", "later", "dismiss"]);
-  assert.deepEqual(ids(T.step), ["step_done", "later", "dismiss"]);
-  assert.deepEqual(ids(T.postpone), ["postpone", "put_first", "later", "dismiss"]);
-  assert.deepEqual(ids(T.hold), ["hold", "later", "dismiss"]);
-  assert.deepEqual(ids(T.runs), ["resume_runs", "later", "dismiss"]);
-  assert.deepEqual(ids(T.prCode), ["accept_pr", "request_changes", "later", "dismiss"]);
-  assert.deepEqual(ids(T.release), ["publish", "later", "dismiss"]);
-  assert.deepEqual(ids(T.releaseNo), ["later", "dismiss"], "a release that is not ready offers no Publish");
-  assert.deepEqual(ids(T.finding), ["fix_finding", "later", "dismiss"]);
-  assert.deepEqual(ids(T.plain), ["later", "dismiss"], "a row with no target still has Later and Not relevant");
+  // PLA-I49-5: a paused project's row also offers Turn on runs; none of these projects is paused here.
+  assert.deepEqual(ids(T.question), ["answer", "give_to_po", "later", "dismiss"]);
+  assert.deepEqual(ids(T.step), ["step_done", "give_to_po", "later", "dismiss"]);
+  assert.deepEqual(ids(T.postpone), ["postpone", "put_first", "start_now", "give_to_po", "later", "dismiss"]);
+  assert.deepEqual(ids(T.hold), ["hold", "give_to_po", "later", "dismiss"]);
+  assert.deepEqual(ids(T.runs), ["resume_runs", "give_to_po", "later", "dismiss"]);
+  assert.deepEqual(ids(T.prCode), ["accept_pr", "request_changes", "give_to_po", "later", "dismiss"]);
+  assert.deepEqual(ids(T.release), ["publish", "give_to_po", "later", "dismiss"]);
+  assert.deepEqual(ids(T.releaseNo), ["give_to_po", "later", "dismiss"], "a release that is not ready offers no Publish");
+  assert.deepEqual(ids(T.finding), ["fix_finding", "give_to_po", "later", "dismiss"]);
+  assert.deepEqual(ids(T.plain), ["give_to_po", "later", "dismiss"], "a row with no target still has Give to PO, Later and Not relevant");
   for (const k of Object.values(T)) assert.equal(s.items[k]!.state, "open", k);
   assert.equal((await app.request(`/api/brief/${briefId}/state`)).status, 401, "cookie only");
 });
@@ -248,7 +250,7 @@ test("step_done: the human step is resolved; a stale target answers stale", asyn
 });
 
 test("add_to_pr: the file step's lines are committed to the PR and the step resolved; again is stale", async () => {
-  assert.deepEqual((await state()).items[T.file]!.actions.map((x: Json) => x.id), ["step_done", "add_to_pr", "later", "dismiss"]);
+  assert.deepEqual((await state()).items[T.file]!.actions.map((x: Json) => x.id), ["step_done", "add_to_pr", "give_to_po", "later", "dismiss"]);
   const a = await act(T.file, "add_to_pr");
   assert.equal(a.body.status, "done", JSON.stringify(a.body));
   assert.match(a.body.line, /Added 1 line to .env.example on jl\/pr-80/);

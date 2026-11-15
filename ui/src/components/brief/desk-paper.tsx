@@ -12,6 +12,7 @@ export type Pending =
   | { kind: "answer"; target: number | null }
   | { kind: "changes"; target: number | null }
   | { kind: "failed"; action: ActionId; target: number | null; error: string; hint: string; input?: Record<string, unknown> }
+  | { kind: "wake"; action: ActionId; target: number | null }
   | null;
 
 export const INK: Record<ActionId, "go" | "route" | "wait" | "no" | "stop"> = {
@@ -28,6 +29,9 @@ export const INK: Record<ActionId, "go" | "route" | "wait" | "no" | "stop"> = {
   fix_finding: "go",
   later: "wait",
   dismiss: "no",
+  give_to_po: "route",
+  start_now: "route",
+  start_building: "route",
 };
 
 /** How a stamp is pressed: at once, with a box first (confirm), with the options, or with a line of text. */
@@ -141,7 +145,10 @@ export function Paper({ item, app, st, language, readOnly, busy, pending, fresh,
   const [text, setText] = useState("");
   const l = st?.live ?? null;
   const open = !st || st.state === "open";
-  const stamps = (st?.actions ?? []).filter((a) => a.id !== "later" && a.id !== "dismiss");
+  // Wake actions live with the people on the right; the paper's stamps are what the owner does himself.
+  const stamps = (st?.actions ?? []).filter((a) => a.id !== "later" && a.id !== "dismiss" && a.level !== "wake");
+  const wakeAct = pending?.kind === "wake" ? (st?.actions ?? []).find((a) => a.id === pending.action) : undefined;
+  const paused = (l?.kind === "ticket" || l?.kind === "initiative") && l.paused && open;
   const url = safeUrl(item.url);
   const href = targetHref(item.targets?.[0], l);
   const ev = evidence(l, language);
@@ -196,6 +203,38 @@ export function Paper({ item, app, st, language, readOnly, busy, pending, fresh,
         </p>
       )}
 
+      {paused && open && !pending && <p className="dk-note" data-brief="waiting-paused">{d.waitingPaused(app?.name ?? item.app)}</p>}
+      {pending?.kind === "wake" && (
+        <div className="dk-ask dk-route" data-brief="wake">
+          <p>
+            <b>{d.verbs[pending.action as DeskAction]}</b>: {pending.action === "start_building" && l?.kind === "initiative" && l.next_phase ? d.buildWhat(l.next_phase.keys) : item.title}
+          </p>
+          {wakeAct?.wake && (
+            <div className="dk-cost" data-brief="cost">
+              {[
+                d.wakeCost(wakeAct.wake.agent ?? d.roles.po, wakeAct.wake.low, wakeAct.wake.high),
+                wakeAct.wake.company_paused ? d.waitsCompany : wakeAct.wake.paused ? d.waitsPaused(app?.name ?? item.app) : wakeAct.wake.busy ? d.afterRun(wakeAct.wake.agent ?? "") : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+          )}
+          {pending.action === "give_to_po" && (
+            <label className="grid gap-1 text-sm">
+              <span>{d.noteForPo}</span>
+              <textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={1000} />
+            </label>
+          )}
+          <div className="dk-r">
+            <Stamp action={pending.action} small solid disabled={busy} onClick={() => onRun(pending.action, pending.target, pending.action === "give_to_po" && text.trim() ? { note: text.trim() } : undefined)}>
+              {busy ? d.working : `${d.wake} ${wakeAct?.wake?.agent ?? ""}`.trim()}
+            </Stamp>
+            <Stamp small quiet onClick={onCancel}>
+              {d.cancel}
+            </Stamp>
+          </div>
+        </div>
+      )}
       {pending?.kind === "failed" && (
         <div className="dk-ask dk-stop" role="alert" data-brief="failed">
           <p>

@@ -14,12 +14,12 @@
 //   later, dismiss  brief state only                          any row
 // Three levels: instant (with undo where it can be undone), confirm (the page says exactly what happens first) and
 // wake (PLA-I49-5). live() reads Plania now; handledLine() says when a row was already handled elsewhere.
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.js";
-import { auditRuns, blockers, envStates, projects, pullRequests, questions, tasks, threadMessages, type Project } from "../db/schema.js";
+import { agentRuns, agents, auditRuns, blockers, envStates, projects, pullRequests, questions, tasks, threadMessages, type Project } from "../db/schema.js";
 import { actOnDecision, type DecisionDone, type DecisionRefusal } from "../api/company-decisions.js";
-import { pickNext } from "../api/company-actions.js";
+import { createPoTicket, pickNext, projectPo, startTeammateNow } from "../api/company-actions.js";
 import { threadAction } from "../api/thread-actions.js";
 import { ToolError } from "../mcp/errors.js";
 import { canFixInOneClick, fixFinding } from "../mcp/orden.js";
@@ -30,14 +30,23 @@ import { shipRelease } from "../mcp/release-ship.js";
 import { webCtx, writeTx, WEB_ACTOR } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
 import { setProjectPaused } from "../runner/company.js";
+import { loadSettings } from "../runner/limits.js";
+import { EVENT_SUMMARY } from "../runner/events.js";
 import { projectThread, resolveThread } from "../runner/threads.js";
+import { serviceAgent } from "../runner/events.js";
+import type { HeartbeatDeps } from "../jobs/heartbeat.js";
+import { roleOf } from "../runner/limits.js";
 import type { Target } from "./types.js";
 
 export type Level = "instant" | "confirm" | "wake";
-export const ACTION_IDS = ["answer", "step_done", "add_to_pr", "publish", "accept_pr", "request_changes", "resume_runs", "postpone", "put_first", "hold", "fix_finding", "later", "dismiss"] as const;
+export const ACTION_IDS = ["answer", "step_done", "add_to_pr", "publish", "accept_pr", "request_changes", "resume_runs", "postpone", "put_first", "hold", "fix_finding", "later", "dismiss", "give_to_po", "start_now", "start_building"] as const;
 export type ActionId = (typeof ACTION_IDS)[number];
 /** Brief-state actions: they write only brief_actions and fit every row, with or without a target. */
 export const ROW_ACTIONS: ReadonlySet<ActionId> = new Set(["later", "dismiss"]);
+/** Actions any open row has, about an object or not (PLA-I49-5: Give to PO works on the row's project). */
+export const ANY_ROW: ReadonlySet<ActionId> = new Set(["later", "dismiss", "give_to_po"]);
+/** What a row is, for actions that act on the row itself rather than its object. */
+export type RowCtx = { title: string; detail: string | null; ref: string | null; project: string };
 
 // ---- Live state
 
@@ -47,8 +56,8 @@ export type Live =
   | { kind: "step"; text: string; satisfied: boolean; file: { path: string } | null; key: string; pr_url: string | null }
   | { kind: "release"; pending: boolean; unknown: boolean; ready: boolean; reason: string | null; ahead: number | null; tickets: string[]; migrations: string[]; before: number; open_checks: number; from: string; into: string; env: string }
   | { kind: "pr"; number: number; state: string; base: string | null; url: string; ticket: { key: string; status: string } | null; message_id: string | null }
-  | { kind: "ticket"; key: string; status: string; title: string; first: boolean }
-  | { kind: "initiative"; key: string; status: string; title: string }
+  | { kind: "ticket"; key: string; status: string; title: string; first: boolean; paused: boolean; owner: string | null }
+  | { kind: "initiative"; key: string; status: string; title: string; paused: boolean; next_phase: { phase: number; keys: string[] } | null }
   | { kind: "idea"; key: string; status: string; stage: string | null }
   | { kind: "runs"; paused: boolean }
   | { kind: "env"; env: string; commit: string | null; updated_at: string }
@@ -81,6 +90,19 @@ async function deliveryMessage(db: Db, projectId: string, key: string): Promise<
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * PLA-I49-5: an initiative's first open phase (the lowest phase with a ticket not Done or Won't do) and its tickets
+ * still in Backlog: what Start building makes Ready. null when that phase has nothing in Backlog.
+ */
+async function nextPhase(db: Db, initiativeId: string): Promise<{ phase: number; keys: string[] } | null> {
+  const kids = await db.select({ key: tasks.key, status: tasks.status, phase: tasks.phase }).from(tasks).where(and(eq(tasks.parentId, initiativeId), eq(tasks.kind, "ticket")));
+  const open = kids.filter((k) => !CLOSED.has(k.status) && k.phase !== null);
+  if (!open.length) return null;
+  const phase = Math.min(...open.map((k) => k.phase!));
+  const keys = open.filter((k) => k.phase === phase && k.status === "Backlog").map((k) => k.key).sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+  return keys.length ? { phase, keys } : null;
+}
 
 /** What the target is in Plania right now. */
 export async function live(db: Db, t: Target): Promise<Live> {
@@ -140,9 +162,10 @@ export async function live(db: Db, t: Target): Promise<Live> {
     case "idea": {
       const row = await taskByKey(db, p.id, t.key);
       if (!row) return { kind: "gone" };
-      if (row.kind === "initiative") return { kind: "initiative", key: row.key, status: row.status, title: row.title };
+      if (row.kind === "initiative") return { kind: "initiative", key: row.key, status: row.status, title: row.title, paused: p.runsPaused, next_phase: await nextPhase(db, row.id) };
       if (row.kind === "idea") return { kind: "idea", key: row.key, status: row.status, stage: row.stage };
-      return { kind: "ticket", key: row.key, status: row.status, title: row.title, first: p.settings.next_first === row.key };
+      const owner = row.ownerAgent ? ((await db.select({ slug: agents.slug }).from(agents).where(eq(agents.id, row.ownerAgent)).limit(1))[0]?.slug ?? null) : null;
+      return { kind: "ticket", key: row.key, status: row.status, title: row.title, first: p.settings.next_first === row.key, paused: p.runsPaused, owner };
     }
     case "runs":
       return { kind: "runs", paused: p.runsPaused };
@@ -196,7 +219,7 @@ export function handledLine(l: Live, opts: { itemStatus?: string; briefAt?: Date
 export type RunOutcome = { line: string; result?: Record<string, unknown>; undo?: Record<string, unknown> };
 export type ActionRefusal = { error: string; hint: string };
 export type Lang = "en" | "es";
-type Run = (db: Db, t: Target, l: Live, input: Record<string, unknown>, lang: Lang) => Promise<RunOutcome | ActionRefusal>;
+type Run = (db: Db, t: Target, l: Live, input: Record<string, unknown>, lang: Lang, row: RowCtx) => Promise<RunOutcome | ActionRefusal>;
 
 // The outcome line a row keeps, in the brief's language.
 const OUT = {
@@ -220,6 +243,10 @@ const OUT = {
     paused: "Runs paused again",
     firstAgain: (k: string | null) => (k ? `${k} goes first again` : "No ticket goes first"),
     back: (k: string, st: string) => `${k} back to ${st}`,
+    toPo: (po: string, k: string) => `Given to ${po}: ${k}`,
+    started: (who: string, k: string | null) => `${who} started${k ? ` on ${k}` : ""}`,
+    queued: (who: string, k: string | null) => `${who} queued${k ? ` for ${k}` : ""}`,
+    building: (keys: string[]) => `${keys.join(", ")} Ready for Taller`,
   },
   es: {
     answered: (a: string) => `Respondida: ${a}`,
@@ -241,6 +268,10 @@ const OUT = {
     paused: "Corridas en pausa otra vez",
     firstAgain: (k: string | null) => (k ? `${k} va primero otra vez` : "Ningún ticket va primero"),
     back: (k: string, st: string) => `${k} volvió a ${st}`,
+    toPo: (po: string, k: string) => `Para ${po}: ${k}`,
+    started: (who: string, k: string | null) => `${who} arrancó${k ? ` con ${k}` : ""}`,
+    queued: (who: string, k: string | null) => `${who} en cola${k ? ` para ${k}` : ""}`,
+    building: (keys: string[]) => `${keys.join(", ")} listos para Taller`,
   },
 } as const;
 export const outLines = (lang: string) => OUT[lang === "es" ? "es" : "en"];
@@ -364,7 +395,8 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     id: "resume_runs",
     level: "confirm",
     undo: true,
-    applies: (_t, l) => l?.kind === "runs" && l.paused,
+    // A paused project's ticket or initiative offers it too (D7: "Waiting: <Project> runs are paused").
+    applies: (_t, l) => (l?.kind === "runs" && l.paused) || ((l?.kind === "ticket" || l?.kind === "initiative") && l.paused && !CLOSED.has(l.status)),
     input: none,
     run: (db, t, _l, _i, lang) =>
       guarded(async () => {
@@ -444,12 +476,113 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     input: z.object({ reason: z.string().trim().max(300).optional() }).strict(),
     run: async (_db, _t, _l, input, lang) => ({ line: OUT[lang].dismissed(typeof input.reason === "string" ? input.reason : null), result: { reason: input.reason ?? null } }),
   },
+  // ---- PLA-I49-5: actions that wake a bot. Each shows who wakes and about how long before it runs (wakeInfo).
+  give_to_po: {
+    id: "give_to_po",
+    level: "wake",
+    undo: false,
+    applies: () => true,
+    input: z.object({ note: z.string().trim().max(1000).optional() }).strict(),
+    run: (db, _t, _l, input, lang, row) =>
+      guarded(async () => {
+        const p = await projectBySlug(db, row.project);
+        if (!p) return { error: "PROJECT_NOT_FOUND", hint: "The row's project is gone." };
+        const po = await projectPo(db, p);
+        if (!po) return { error: "NO_PO", hint: `${p.title} has no product owner that runs in Claude Code.` };
+        const text = [row.title, row.detail, row.ref ? `(${row.ref})` : null, typeof input.note === "string" && input.note ? `Nota de Jorge: ${input.note}` : null].filter(Boolean).join("\n");
+        // A Ready ticket owned by the PO, origin jorge; the event hook queues the PO's wake in the same write. A
+        // busy PO is not lost: when its run ends, wakePoIfWaiting takes its oldest Ready ticket. A paused project
+        // keeps the ticket and wakes the PO once when its runs are turned on (project.runs_resumed).
+        const made = await createPoTicket(db, p, po, text, "el brief de la mañana");
+        await reasonOnQueued(db, po.id, made.key, `order from the morning brief: ${row.title}`);
+        return { line: OUT[lang].toPo(po.slug, made.key), result: { key: made.key, agent: po.slug, wake: made.wake, project: p.slug } };
+      }),
+  },
+  start_now: {
+    id: "start_now",
+    level: "wake",
+    undo: false,
+    applies: (_t, l) => l?.kind === "ticket" && l.status === "Ready" && !l.paused,
+    input: none,
+    run: (db, t, l, _i, lang) =>
+      guarded(async () => {
+        if (l.kind !== "ticket") return { error: "STALE", hint: "not a ticket" };
+        const who = await ownerOf(db, t.project, l.owner);
+        if (!who) return { error: "AGENT_NOT_FOUND", hint: "Nobody on this project's team takes this ticket." };
+        const out = await startTeammateNow(db, t.project, who, { reason: `started from the morning brief: ${l.key}` }, wakeDeps.heartbeat);
+        if ("error" in out) return { error: out.error, hint: out.hint };
+        if (out.reason === "started") return { line: OUT[lang].started(who, out.ticket), result: { agent: who, run_id: out.run_id, ticket: out.ticket, reason: out.reason } };
+        if (out.reason === "queued" || out.reason === "busy") return { line: OUT[lang].queued(who, out.ticket ?? l.key), result: { agent: who, run_id: out.run_id, ticket: out.ticket ?? l.key, reason: out.reason } };
+        return { error: out.reason.toUpperCase(), hint: out.summary || out.reason };
+      }),
+  },
+  start_building: {
+    id: "start_building",
+    level: "wake",
+    undo: false,
+    applies: (_t, l) => l?.kind === "initiative" && !CLOSED.has(l.status) && l.status !== "On hold" && !!l.next_phase,
+    input: none,
+    run: (db, t, l, _i, lang) =>
+      guarded(async () => {
+        if (l.kind !== "initiative" || !l.next_phase) return { error: "STALE", hint: "nothing waits in Backlog" };
+        const p = (await projectBySlug(db, t.project))!;
+        // Only the first open phase, nothing else: moving it to Ready wakes Taller through the event hook.
+        for (const key of l.next_phase.keys) {
+          const row = (await taskByKey(db, p.id, key))!;
+          await setTask(db, { project: t.project, key, status: "Ready", version: row.version, note: "Jorge lo empezó desde el brief." } as never, ctxOf("start_building"));
+        }
+        return { line: OUT[lang].building(l.next_phase.keys), result: { keys: l.next_phase.keys, phase: l.next_phase.phase } };
+      }),
+  },
 };
+
+/** Tests: a fake runner for Start now. Never set outside tests. */
+export const wakeDeps: { heartbeat?: HeartbeatDeps } = {};
+
+/** The team member a ticket goes to: its owner, else the project's Taller. */
+async function ownerOf(db: Db, slug: string, owner: string | null): Promise<string | null> {
+  if (owner) return owner;
+  const p = await projectBySlug(db, slug);
+  return p ? ((await serviceAgent(db, "taller", p))?.slug ?? null) : null;
+}
+
+/** The event hook queued the wake with a generic reason; the bot reads "Why you woke" from it, so say why. */
+async function reasonOnQueued(db: Db, agentId: string, key: string, reason: string): Promise<void> {
+  await db
+    .update(agentRuns)
+    .set({ summary: `${EVENT_SUMMARY} ${reason}`.slice(0, 500) })
+    .where(and(eq(agentRuns.agentId, agentId), eq(agentRuns.taskKey, key), eq(agentRuns.status, "queued")));
+}
+
+export type WakeInfo = { agent: string | null; role: string | null; low: number; high: number; paused: boolean; company_paused: boolean; busy: boolean };
+const MINUTES: Record<string, [number, number]> = { "product-owner": [10, 25], taller: [20, 45], research: [10, 20], artist: [10, 20] };
+
+/** Who a wake action wakes and about how long, for the cost line shown before it runs. */
+export async function wakeInfo(db: Db, action: ActionId, t: Target | null, l: Live | null, project: string): Promise<WakeInfo | null> {
+  if (REGISTRY[action].level !== "wake") return null;
+  const p = await projectBySlug(db, project);
+  if (!p) return null;
+  let agent: { id: string; slug: string } | null = null;
+  if (action === "give_to_po") agent = await projectPo(db, p);
+  else if (action === "start_now" && l?.kind === "ticket") {
+    const slug = await ownerOf(db, project, l.owner);
+    agent = slug ? ((await db.select().from(agents).where(eq(agents.slug, slug)).limit(1))[0] ?? null) : null;
+  } else if (action === "start_building") agent = await serviceAgent(db, "taller", p);
+  const full = agent ? (await db.select().from(agents).where(eq(agents.id, agent.id)).limit(1))[0] : undefined;
+  const role = full ? roleOf(full) : null;
+  const [lo, hi] = MINUTES[role ?? ""] ?? [10, 30];
+  const [busy] = agent ? await db.select({ id: agentRuns.id }).from(agentRuns).where(and(eq(agentRuns.agentId, agent.id), inArray(agentRuns.status, ["queued", "running"]))).limit(1) : [];
+  const companyPaused = (await loadSettings(db)).companyPaused;
+  void t;
+  return { agent: agent?.slug ?? null, role, low: lo, high: hi, paused: p.runsPaused, company_paused: companyPaused, busy: !!busy };
+}
 
 /** The actions that fit a target in its live state, the main one first. Row actions are added by the caller. */
 export function actionsFor(t: Target | null, l: Live | null): ActionId[] {
   if (!t || !l || l.kind === "gone") return [];
-  return (Object.values(REGISTRY) as ActionDef[]).filter((a) => !ROW_ACTIONS.has(a.id) && a.applies(t, l)).map((a) => a.id);
+  const ids = (Object.values(REGISTRY) as ActionDef[]).filter((a) => !ANY_ROW.has(a.id) && a.applies(t, l)).map((a) => a.id);
+  // On a paused project's ticket or initiative, Turn on runs comes after the object's own actions.
+  return l.kind === "runs" ? ids : [...ids.filter((id) => id !== "resume_runs"), ...ids.filter((id) => id === "resume_runs")];
 }
 
 /** Undo an instant action: put back what run() changed. Brief-state actions need nothing here. */
