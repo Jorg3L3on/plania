@@ -886,9 +886,12 @@
 
 
   /* PLA-I47-2 (Compañía v6, Design doc of PLA-IDEA13): one floor at a time, sized to the window and never to its
-     content. The building is the window's height minus the app's top bar and the page's padding (89 px: 48 + 1 + 20
-     + 20); the rail at the left changes floor; only Ahora grows, the right column scrolls inside itself. */
-  .edi:has(.edi-bld) { display: flex; flex-direction: column; height: calc(100svh - 89px - env(safe-area-inset-top, 0px)); min-height: 560px; padding: 14px 16px 14px; border-radius: 24px; }
+     content; the rail at the left changes floor; only Ahora grows, the right column scrolls inside itself.
+     PLA-29: the building is the page, not a card on it. It runs edge to edge under the app's top bar, so its height
+     is the window minus that bar (49 px: 48 + its border); the floor is the one card. On very wide windows the sky
+     keeps going and the content stops at 1480 px, centred, like the top bar. */
+  .edi:has(.edi-bld) { display: flex; flex-direction: column; height: calc(100svh - 49px - env(safe-area-inset-top, 0px)); min-height: 560px; padding: 14px clamp(16px, 2vw, 28px) 16px; border-radius: 0; }
+  .edi:has(.edi-bld) > .edi-sky, .edi:has(.edi-bld) > .edi-bld { width: 100%; max-width: 1480px; margin-inline: auto; }
   .edi:has(.edi-bld) > .edi-sky { flex: none; padding-bottom: 10px; }
   .edi:has(.edi-bld) .edi-voice { font-size: clamp(19px, 1.7vw, 25px); line-height: 1.15; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; }
   .edi:has(.edi-bld) .edi-vpre { display: inline; font-size: 12px; }
