@@ -612,9 +612,9 @@ const Compania = () => {
   };
 
   return (
-    <div className="mx-auto grid w-full max-w-[1380px] min-w-0 gap-5">
+    <div className="grid w-full min-w-0">
       {company?.company.paused && (
-        <p role="status" data-banner="paused" className="rounded-[16px] bg-surface-sunken px-4 py-2.5 text-sm ring-1 ring-foreground/15">
+        <p role="status" data-banner="paused" className="m-3 rounded-[16px] bg-surface-sunken px-4 py-2.5 text-sm ring-1 ring-foreground/15">
           La compañía está detenida: nada arranca. Se reanuda en Máquina.
         </p>
       )}
