@@ -72,6 +72,7 @@ export const Facade = ({
   roof,
   onPiso,
   onResume,
+  city,
 }: {
   projects: OrgProject[];
   decisions: Decision[];
@@ -83,11 +84,17 @@ export const Facade = ({
   roof?: ReactNode;
   onPiso?: (slug: string) => void;
   onResume?: (slug: string) => void;
+  // PLA-31: Oficina's city takes the rows' place, and the paused floors go under its street.
+  city?: ReactNode;
 }) => {
   const { floors, basement } = floorOrder(projects, decisions);
   return (
-    <section className="edi-facade" aria-label="El edificio completo" data-facade={floors.length}>
+    <section className="edi-facade" aria-label="El edificio completo" data-facade={floors.length} data-city={city ? "" : undefined}>
       {roof && <div className="edi-fa-roof">{roof}</div>}
+      {city ? (
+        <div className="edi-fa-city">{city}</div>
+      ) : (
+        <>
       <ol className="edi-fa-list">
         {floors.map((p) => (
           <Row key={p.slug} p={p} now={now} decisions={decisions} companyPaused={companyPaused} timeZone={timeZone} ctx={ctx} onPiso={onPiso} />
@@ -114,6 +121,8 @@ export const Facade = ({
             ))}
           </div>
         </div>
+      )}
+        </>
       )}
     </section>
   );

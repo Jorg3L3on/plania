@@ -11,6 +11,7 @@
 // floor (PLA-I47-2); ?p=<slug> and
 // ?vista=<slug> redirect to /p/<slug>, ?equipo to Máquina.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { BRIEF_LINK_LABEL, BlockError, StopBody, briefTitle } from "@/components/compania/parts";
@@ -21,6 +22,7 @@ import { ThreadPanel } from "@/components/compania/org";
 import type { DecisionBusy } from "@/components/compania/v2";
 import { AskBox } from "@/components/compania/edificio/ask";
 import { AsistenteButton } from "@/components/compania/edificio/asistente";
+import { OficinaCiudad } from "@/components/compania/edificio/oficina-ciudad";
 import { Building, BuildingBlock } from "@/components/compania/edificio/building";
 import { VentanaLive } from "@/components/compania/edificio/ventana";
 import { PublishBody, PublishDone, publishError } from "@/components/compania/edificio/publish";
@@ -90,6 +92,15 @@ export const useMinute = () => {
   return now;
 };
 
+const clockIn = (timeZone: string) => new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", timeZone }).format(new Date());
+
+// PLA-31: the app bar's slot for a page's own control (app-shell.tsx).
+const useShellSlot = () => {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  useEffect(() => setEl(document.getElementById("shell-actions")), []);
+  return el;
+};
+
 const sheetClass = "max-h-[92svh] overflow-y-auto bg-background sm:max-h-none data-[side=right]:sm:max-w-[560px]";
 
 export const CeoPage = () => {
@@ -150,10 +161,13 @@ const Compania = () => {
   const projects = useMemo(() => [...(company?.projects ?? [])].sort(byLight), [company]);
   // PLA-I47-2: ?piso=<slug> is the open floor; it stays in the address while a side page opens and closes.
   const piso = new URLSearchParams(location.search).get("piso");
+  // PLA-31: Oficina (?edificio) stays too, so closing Asistente or a doc returns to the city, not to a floor.
+  const onOficina = new URLSearchParams(location.search).has("edificio");
   const withPiso = (search: string) => {
     const q = new URLSearchParams(search);
     if (piso && !q.has("piso")) q.set("piso", piso);
-    const out = q.toString();
+    if (onOficina && !q.has("edificio")) q.set("edificio", "");
+    const out = q.toString().split("&").map((part) => (part === "edificio=" ? "edificio" : part)).join("&");
     return out ? `?${out}` : "";
   };
   const openSheet = (search: string) => navigate({ pathname: "/ceo", search: withPiso(search) });
@@ -163,6 +177,7 @@ const Compania = () => {
   const onPiso = (slug: string) => navigate({ pathname: "/ceo", search: `?piso=${encodeURIComponent(slug)}${nivel === "maquinas" ? "&nivel=maquinas" : ""}` }, { replace: true });
   // PLA-I47-5: ?edificio is the building zoomed out (Tu oficina and one row per project); a floor zooms back in.
   const zoomOut = new URLSearchParams(location.search).has("edificio");
+  const shellSlot = useShellSlot();
   const setZoom = (out: boolean, slug = piso) => {
     const q = new URLSearchParams();
     if (slug) q.set("piso", slug);
@@ -611,8 +626,32 @@ const Compania = () => {
     openSheet("?nuevo");
   };
 
+  // The building's links (Plomería, Tablero) and Asistente: in the sky strip on a floor; on Oficina (PLA-31) the links
+  // sit in the city's header and Asistente in the app bar.
+  const links = company ? (
+    <>
+      <Link to="/machine" className="edi-mini" data-plumbing>
+        Plomería · {plumbingLine(company.plumbing).text}
+      </Link>
+      {/* PLA-I48-7: the building's tablero, beside Plomería (which keeps counting tokens and runs). */}
+      <TableroLive onPiso={onPiso} onCount={setAppsOn} />
+    </>
+  ) : null;
+  const asistenteButton = company ? (
+    <AsistenteButton
+      unread={company.asistente.unread ?? 0}
+      waiting={company.asistente.state === "waiting_jorge"}
+      onOpen={(el) => {
+        opener.current = el;
+        openSheet(sheetSearch({ kind: "asistente" }));
+      }}
+    />
+  ) : null;
+  const cityOn = zoomOut && !!company && company.projects.length > 0;
+
   return (
     <div className="grid w-full min-w-0">
+      {cityOn && shellSlot && createPortal(asistenteButton, shellSlot)}
       {company?.company.paused && (
         <p role="status" data-banner="paused" className="m-3 rounded-[16px] bg-surface-sunken px-4 py-2.5 text-sm ring-1 ring-foreground/15">
           La compañía está detenida: nada arranca. Se reanuda en Máquina.
@@ -635,21 +674,23 @@ const Compania = () => {
             meta={
               <>
                 <span className="edi-eyebrow">Compañía</span>
-                <Link to="/machine" className="edi-mini" data-plumbing>
-                  Plomería · {plumbingLine(company.plumbing).text}
-                </Link>
-                {/* PLA-I48-7: the building's tablero, beside Plomería (which keeps counting tokens and runs). */}
-                <TableroLive onPiso={onPiso} onCount={setAppsOn} />
-                {/* PLA-I47-5: Asistente in the sky line, not floating over the floor. */}
-                <AsistenteButton
-                  unread={company.asistente.unread ?? 0}
-                  waiting={company.asistente.state === "waiting_jorge"}
-                  onOpen={(el) => {
-                    opener.current = el;
-                    openSheet(sheetSearch({ kind: "asistente" }));
-                  }}
-                />
+                {links}
+                {asistenteButton}
               </>
+            }
+            city={
+              <OficinaCiudad
+                projects={company.projects}
+                decisions={decisions}
+                now={now}
+                timeZone={timeZone}
+                companyPaused={company.company.paused}
+                pre={`${hello}, Jorge · ${dayLabel(timeZone)} · ${clockIn(timeZone)}`}
+                links={links}
+                onPiso={onPiso}
+                onResume={(slug) => resume.mutate(slug)}
+                resuming={resuming}
+              />
             }
             onNew={onNew}
             onFijar={setFijar}

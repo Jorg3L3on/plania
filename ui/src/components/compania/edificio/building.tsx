@@ -69,6 +69,8 @@ export type BuildingProps = {
   office?: boolean;
   onOffice?: () => void;
   officeMore?: ReactNode;
+  // PLA-31: Oficina's city (the page draws it). With it, Oficina has no sky strip, no Brief de hoy and no rows.
+  city?: ReactNode;
   // PLA-I47-3: La fila's calls (Hacer primero, Detener, Aceptar, Quitar).
   fila?: FilaActs;
   // PLA-I47-4: La ficha beside the floor (the page reads and draws it), and a leg opening in it.
@@ -85,7 +87,7 @@ export type BuildingProps = {
 };
 
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore, fila, ficha, fichaOpen, onLeg, onFichaClose, nivel, liftFor, maquinasFor, appsOn }: BuildingProps) => {
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore, city, fila, ficha, fichaOpen, onLeg, onFichaClose, nivel, liftFor, maquinasFor, appsOn }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
   const open = openFloor(floors, basement, piso);
@@ -94,12 +96,14 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
   const summary = company.asistente.last_run?.status === "ok" && company.asistente.last_run.summary ? firstLine(company.asistente.last_run.summary) : "";
   const empty = company.projects.length === 0;
   const isOff = !!open && basement.includes(open);
+  const cityOn = !!office && !!city && !empty;
   return (
     <Scene
       hour={hourIn(now, timeZone)}
       pre={`${hello}, Jorge · ${day}`}
       line={empty ? "Todavía no hay pisos." : skyLine(company.projects, decisions, companyLine(company.projects).replace(/^./, (c) => c.toUpperCase()))}
       meta={meta}
+      bare={cityOn}
       by={
         summary ? (
           <>
@@ -142,10 +146,11 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
               ctx={{ decisions, acts: nowActs, qacts: acts, onFijar, onPublish }}
               onPiso={onPiso}
               onResume={onResume}
+              city={cityOn ? city : undefined}
               roof={
                 <>
                   <Roof decisions={decisions} projects={company.projects} plumbing={company.plumbing} onChip={onChip} open={roofOpen} acts={acts} />
-                  {officeMore && <div className="edi-office-more">{officeMore}</div>}
+                  {officeMore && !cityOn && <div className="edi-office-more">{officeMore}</div>}
                 </>
               }
             />

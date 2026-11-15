@@ -157,6 +157,8 @@ export function AppShell() {
             <Logo />
             <div className="flex min-w-0 items-center gap-1 sm:gap-2">
               <HeaderNav counts={counts} />
+              {/* PLA-31: a page may put its own control here (Compañía's Asistente on Oficina). */}
+              <div id="shell-actions" className="flex items-center empty:hidden" />
               <LiveIndicator />
               <MoreMenu onLogout={logout} />
             </div>

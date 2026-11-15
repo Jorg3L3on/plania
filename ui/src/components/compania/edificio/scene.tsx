@@ -38,6 +38,7 @@ export const Scene = ({
   meta,
   children,
   label = "Compañía",
+  bare,
 }: {
   hour: number;
   pre: string;
@@ -46,6 +47,8 @@ export const Scene = ({
   meta?: ReactNode;
   children: ReactNode;
   label?: string;
+  // PLA-31: Oficina draws its own sky (the city's header), so no sentence, no links, no moon here.
+  bare?: boolean;
 }) => {
   const sky = skyAt(hour);
   return (
@@ -73,15 +76,17 @@ export const Scene = ({
           />
         ))}
       </div>
-      <span className="edi-orb" data-orb={sky.orb} aria-hidden />
-      <header className="edi-sky">
-        {meta && <div className="edi-meta">{meta}</div>}
-        <h1 className="edi-voice">
-          <span className="edi-vpre">{pre}</span>
-          <span data-voice>{line}</span>
-        </h1>
-        {by && <div className="edi-by">{by}</div>}
-      </header>
+      {!bare && <span className="edi-orb" data-orb={sky.orb} aria-hidden />}
+      {!bare && (
+        <header className="edi-sky">
+          {meta && <div className="edi-meta">{meta}</div>}
+          <h1 className="edi-voice">
+            <span className="edi-vpre">{pre}</span>
+            <span data-voice>{line}</span>
+          </h1>
+          {by && <div className="edi-by">{by}</div>}
+        </header>
+      )}
       {children}
     </section>
   );
