@@ -20,6 +20,8 @@ export type BriefLabels = {
   off: string;
   failed: string;
   refreshFailed: string;
+  runFailedAt: (time: string) => string;
+  signInFix: string;
   pastDay: string;
   needLine: Plural;
   nothingNeeds: string;
@@ -237,6 +239,8 @@ const en: BriefLabels = {
   off: "Morning brief is off. Turn it on in settings.",
   failed: "Couldn't load the brief.",
   refreshFailed: "Couldn't refresh",
+  runFailedAt: (time) => `Couldn't update at ${time}`,
+  signInFix: "Claude is not signed in. Run `claude` on the Mac, type /login, then press Generate now.",
   pastDay: "A past brief, read-only.",
   needLine: (n) => (n === 1 ? "1 thing needs you" : `${n} things need you`),
   nothingNeeds: "Nothing needs you",
@@ -469,6 +473,8 @@ const es: BriefLabels = {
   off: "El brief de la mañana está apagado. Enciéndelo en ajustes.",
   failed: "No se pudo cargar el brief.",
   refreshFailed: "No se pudo actualizar",
+  runFailedAt: (time) => `No se pudo actualizar a las ${time}`,
+  signInFix: "Claude no tiene sesión iniciada. Corre `claude` en la Mac, escribe /login y pulsa Generar ahora.",
   pastDay: "Un brief pasado, solo lectura.",
   needLine: (n) => (n === 1 ? "1 cosa te necesita" : `${n} cosas te necesitan`),
   nothingNeeds: "Nada te necesita",

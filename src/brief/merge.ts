@@ -391,7 +391,7 @@ export function codeIdeas(drafts: DraftIdea[], ctx: Ctx, perProject: number): Id
 }
 
 /** §11: open Plania ideas per project, then yesterday's unchecked ones; one cross idea when there are none at all. */
-export function fallbackIdeas(input: Pick<MergeInput, "openIdeas" | "yesterdayIdeas" | "settings">, ctx: Ctx): DraftIdea[] {
+export function fallbackIdeas(input: Pick<MergeInput, "openIdeas" | "yesterdayIdeas" | "settings">, ctx: Ctx, keep: (d: DraftIdea) => boolean = () => true): DraftIdea[] {
   const t = textsFor(input.settings.language);
   const per = input.settings.ideas_per_project;
   const out: DraftIdea[] = [];
@@ -399,7 +399,8 @@ export function fallbackIdeas(input: Pick<MergeInput, "openIdeas" | "yesterdayId
   for (const o of input.openIdeas ?? []) {
     if (!ctx.projects.get(o.app)?.include_ideas || count(o.app) >= per) continue;
     if (hasHiddenRef(o.key, ctx.hidden) || hasHiddenRef(o.title, ctx.hidden)) continue;
-    out.push({ app: o.app, title: clip(o.title, IDEA_TITLE_MAX), why: clip(str(o.summary) ?? t.openIdea(o.key), WHY_MAX), source: "Plania" });
+    const d: DraftIdea = { app: o.app, title: clip(o.title, IDEA_TITLE_MAX), why: clip(str(o.summary) ?? t.openIdea(o.key), WHY_MAX), source: "Plania" };
+    if (keep(d)) out.push(d); // PLA-33: filter before the cap counts, so acted ideas do not use up the slots
   }
   for (const y of input.yesterdayIdeas ?? []) {
     const app = appOf(ctx, y.app);
@@ -407,7 +408,8 @@ export function fallbackIdeas(input: Pick<MergeInput, "openIdeas" | "yesterdayId
     if (count(app) >= (app === CROSS ? MAX_CROSS_IDEAS : per)) continue;
     if (hasHiddenRef(y.title, ctx.hidden) || hasHiddenRef(y.why, ctx.hidden)) continue;
     if (out.some((d) => ideaId(d.app, d.title) === ideaId(app, y.title))) continue;
-    out.push({ app, title: y.title, why: y.why, source: y.source, ...(y.flags?.length ? { flags: y.flags } : {}) });
+    const d: DraftIdea = { app, title: y.title, why: y.why, source: y.source, ...(y.flags?.length ? { flags: y.flags } : {}) };
+    if (keep(d)) out.push(d);
   }
   if (!out.length) out.push({ app: CROSS, title: t.noIdeas.title, why: t.noIdeas.why, source: "Plania" });
   return out;
@@ -478,7 +480,7 @@ export function mergeBrief(input: MergeInput): BriefData {
   };
   const drafts = ideasOk && input.ideas?.ok ? input.ideas.data.ideas.map((r) => cleanIdea(r, ctx, sourceOf)).filter((d): d is DraftIdea => !!d && fresh(d)) : [];
   let ideas = codeIdeas(drafts, ctx, s.ideas_per_project);
-  if (!ideas.length) ideas = codeIdeas(fallbackIdeas(input, ctx).filter(fresh), ctx, s.ideas_per_project);
+  if (!ideas.length) ideas = codeIdeas(fallbackIdeas(input, ctx, fresh), ctx, s.ideas_per_project);
   if (!ideas.length) ideas = codeIdeas(fallbackIdeas({ ...input, openIdeas: [], yesterdayIdeas: [] }, ctx), ctx, s.ideas_per_project);
   ideas = ideas.map((i) => {
     const seen = input.ideaSeen?.get(i.id) ?? 0;

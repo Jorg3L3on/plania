@@ -200,11 +200,25 @@ export type SpawnPassInput<T> = {
 
 export type PassTokens = { input: number; output: number; cacheRead: number; cacheCreate: number; total: number };
 
-export type PassFailure = "aborted" | "no_token" | "plan_guard" | "timeout" | "stopped" | "error" | "invalid";
+export type PassFailure = "aborted" | "no_token" | "plan_guard" | "auth" | "timeout" | "stopped" | "error" | "invalid";
 
 export type PassOutcome<T> =
   | { ok: true; data: T; attempts: number; turns: number; tokens: PassTokens; models: ModelTokens[]; logPath: string }
   | { ok: false; reason: PassFailure; summary: string; attempts: number; plan?: PlanView; logPath: string | null };
+
+/** Claude's own sign-in failures ("Failed to authenticate", "OAuth session expired", "Please run /login"). */
+export const SIGN_IN = /authenticat|oauth|\/login|log ?in|not signed in|credential|invalid api key|\b401\b/i;
+
+/** One clipped line of a result's text with home paths and token-like strings taken out. */
+export function plainResultText(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  return raw
+    .replace(/\/Users\/[^\s/]+/g, "~")
+    .replace(/\b(sk|ghp|gho|github_pat)[-_][A-Za-z0-9_-]{8,}/g, "[token]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+}
 
 const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve) => {
@@ -380,7 +394,10 @@ export async function spawnPass<T>(db: Db, input: SpawnPassInput<T>, deps: Spawn
         const result = reader.result;
         if (!result) return { ok: false, reason: "error", summary: `pass ${input.pass} ended without a result (exit ${exit.code ?? exit.signal ?? "?"})`, attempts: n, logPath };
         if (result.isError || result.subtype !== "success") {
-          return { ok: false, reason: "error", summary: `pass ${input.pass} failed: ${result.subtype}`, attempts: n, logPath };
+          // PLA-33: result.subtype is "success" when is_error is true; the real text is in the result field.
+          const text = plainResultText(result.resultText);
+          if (result.isError && SIGN_IN.test(text)) return { ok: false, reason: "auth", summary: text, attempts: n, logPath };
+          return { ok: false, reason: "error", summary: `pass ${input.pass} failed: ${text || result.subtype}`, attempts: n, logPath };
         }
         let candidate: unknown = result.structuredOutput;
         if (candidate === undefined && result.resultText) {

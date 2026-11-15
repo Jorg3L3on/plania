@@ -176,3 +176,17 @@ test("PLA-I49-6: an idea paper offers Keep and Discard; the people plan, sketch 
   assert.equal(desk.deskCounts(data, st, [], new Set(), new Set([w1.id])).left, data.items.length + data.ideas.length - 1);
   void z1;
 });
+
+test("PLA-33 check 5: the last-run banner shows the reason over the kept brief, in es and en", () => {
+  const lastRun = { status: "fail", kind: "auth", reason: "Failed to authenticate", ended_at: "2026-11-15T03:10:00Z" };
+  const en = html(h(desk.BriefDesk, props({ lastRun })));
+  assert.match(en, /data-brief="last-run"/);
+  assert.match(text(en), /Couldn't update at 21:10/);
+  assert.match(text(en), /\/login/);
+  const es = text(html(h(desk.BriefDesk, props({ lastRun, language: "es", data: { ...data, language: "es" } }))));
+  assert.match(es, /No se pudo actualizar a las 21:10/);
+  assert.match(es, /Claude no tiene sesión iniciada/);
+  const other = text(html(h(desk.BriefDesk, props({ lastRun: { ...lastRun, kind: "other", reason: "pass brief timed out" } }))));
+  assert.match(other, /pass brief timed out/);
+  assert.doesNotMatch(html(h(desk.BriefDesk, props())), /data-brief="last-run"/);
+});

@@ -458,3 +458,30 @@ test("I41-3: logs older than 14 days are pruned; other logs stay", () => {
   assert.equal(existsSync(fresh), true);
   assert.equal(existsSync(other), true);
 });
+
+test("PLA-33 check 3: a sign-in failure is reason auth and the summary carries the result text, never 'failed: success'", async () => {
+  const f = fakes((c) => {
+    c.write([result({}, { is_error: true, subtype: "success", result: "Failed to authenticate: OAuth session expired and could not be refreshed (/Users/jorge/.claude)" })]);
+    c.exit(1);
+  });
+  const out = await brief.spawnPass(db, passInput(), f.deps);
+  assert.equal(out.ok, false);
+  if (out.ok) return;
+  assert.equal(out.reason, "auth");
+  assert.equal(f.spawned.length, 1, "no retry");
+  assert.match(out.summary, /OAuth session expired/);
+  assert.doesNotMatch(out.summary, /failed: success|\/Users\/jorge/);
+});
+
+test("PLA-33 check 3: another error result keeps its own text in the summary", async () => {
+  const f = fakes((c) => {
+    c.write([result({}, { is_error: true, subtype: "success", result: "Rate limit reached" })]);
+    c.exit(1);
+  });
+  const out = await brief.spawnPass(db, passInput(), f.deps);
+  assert.equal(out.ok, false);
+  if (out.ok) return;
+  assert.equal(out.reason, "error");
+  assert.match(out.summary, /Rate limit reached/);
+  assert.doesNotMatch(out.summary, /failed: success/);
+});

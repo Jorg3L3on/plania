@@ -5,11 +5,11 @@
 // Setup check (pnpm brief:doctor without the claude dry run, which uses the owner's plan). plan and plan/:id are
 // Send to Plania (PLA-I43). Nothing here returns a token, an env value or a log's content.
 import { Hono, type Context } from "hono";
-import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, notInArray } from "drizzle-orm";
 import { z } from "zod";
 import { withDb, type Db } from "../db/client.js";
-import { briefChecks, docs, morningBriefs, projects, type MorningBrief } from "../db/schema.js";
-import { BriefRunningError, localDateIn, runningRun, startBrief, type RunBriefDeps } from "../brief/pipeline.js";
+import { briefChecks, briefRuns, docs, morningBriefs, projects, type MorningBrief } from "../db/schema.js";
+import { AUTH_PREFIX, BriefRunningError, localDateIn, runningRun, startBrief, type RunBriefDeps } from "../brief/pipeline.js";
 import { IDEA_PERSONA_DOC } from "../brief/prompts.js";
 import { runDoctor } from "../brief/doctor.js";
 import { act, ActBody, briefState, undo, type ActError } from "../brief/act.js";
@@ -56,6 +56,14 @@ async function runState(db: Db) {
   return { id: run.id, status: run.status, started_at: run.started_at.toISOString(), waiting_for_build: run.status === "waiting" && liveRuns().length > 0 };
 }
 
+/** PLA-33: the last finished run when it failed after the brief on screen was made: the page says so over the kept brief. */
+async function lastFailedRun(db: Db, b: MorningBrief | null) {
+  const [r] = await db.select().from(briefRuns).where(notInArray(briefRuns.status, ["waiting", "running"])).orderBy(desc(briefRuns.startedAt)).limit(1);
+  if (!r || r.status !== "fail" || !r.endedAt || (b && r.endedAt <= b.generatedAt)) return null;
+  const auth = r.summary.startsWith(AUTH_PREFIX);
+  return { status: r.status, kind: auth ? ("auth" as const) : ("other" as const), reason: auth ? r.summary.slice(AUTH_PREFIX.length) : r.summary, ended_at: r.endedAt.toISOString() };
+}
+
 briefApi.get("/latest", (c) =>
   withDb(async (db) => {
     const [b] = await db.select().from(morningBriefs).orderBy(desc(morningBriefs.generatedAt)).limit(1);
@@ -65,6 +73,7 @@ briefApi.get("/latest", (c) =>
       brief: b ? briefOut(b) : null,
       checks: await checksFor(db, b ?? null),
       run: await runState(db),
+      last_run: await lastFailedRun(db, b ?? null),
       plan_id: b ? await planOfBrief(db, b.id) : null,
       home_project: homeSlug(planEnv),
     });

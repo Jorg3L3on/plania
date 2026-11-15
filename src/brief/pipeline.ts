@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
-import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type pg from "pg";
 import type { Db } from "../db/client.js";
 import { briefChecks, briefPlanRequests, briefRuns, morningBriefs, projects, tasks, type BriefPassRecord, type BriefRunStatus } from "../db/schema.js";
@@ -191,9 +191,14 @@ async function openIdeas(db: Db, slugs: string[]): Promise<OpenIdea[]> {
   return rows.filter((r) => IDEA_KEY.test(r.key)).map((r) => ({ app: r.slug, key: r.key, title: r.title, summary: r.summary || null }));
 }
 
-/** The newest brief of an earlier local date: its ideas the owner did not check. */
+/**
+ * The ideas of the newest brief that has Claude's ideas, minus the ones the owner checked: an earlier local date's, or
+ * (PLA-33) the same day's morning brief when a rerun's ideas pass failed.
+ */
 async function yesterdayIdeas(db: Db, today: string): Promise<Idea[]> {
-  const [prev] = await db.select({ data: morningBriefs.data }).from(morningBriefs).where(lt(morningBriefs.localDate, today)).orderBy(desc(morningBriefs.localDate), desc(morningBriefs.generatedAt)).limit(1);
+  const rows = await db.select({ data: morningBriefs.data, localDate: morningBriefs.localDate }).from(morningBriefs).where(lte(morningBriefs.localDate, today)).orderBy(desc(morningBriefs.localDate), desc(morningBriefs.generatedAt)).limit(12);
+  const claudeIdeas = (d: Record<string, unknown>) => Array.isArray(d.sources) && (d.sources as { name?: string; ok?: boolean }[]).some((x) => x.name === "claude_ideas" && x.ok);
+  const prev = rows.find((r) => (r.localDate < today ? true : claudeIdeas(r.data)));
   const raw = Array.isArray(prev?.data?.ideas) ? (prev!.data.ideas as unknown[]) : [];
   const ideas = raw.flatMap((r) => {
     const p = Idea.safeParse(r);
@@ -273,7 +278,7 @@ const passRecord = (o: PassOutcome<unknown>): BriefPassRecord => {
 };
 
 // Reasons that mean Claude could not run at all: the brief is facts only, not partial (§11).
-const FACTS_ONLY_REASONS = new Set(["no_token", "plan_guard", "aborted"]);
+const FACTS_ONLY_REASONS = new Set(["no_token", "plan_guard", "aborted", "auth"]);
 
 /**
  * Takes the lock and writes the waiting row, then runs in the background. Throws BriefRunningError when a run holds
@@ -398,16 +403,31 @@ async function execute(db: Db, runId: string, opts: RunBriefOptions, deps: RunBr
     // 2-3. Pass A, then pass B (never in parallel). When Claude cannot run at all, pass B is not tried.
     let brief: PassResult<{ items: unknown[] }> = null;
     let ideas: PassResult<{ ideas: unknown[] }> = null;
+    let authText: string | null = null;
     if (!factsOnly && wanted.has("brief")) {
       const a = await run("brief", BriefPassOutput);
       if (a.ok) brief = { ok: true, data: a.data };
-      else if (FACTS_ONLY_REASONS.has(a.reason)) factsOnly = a.reason === "aborted" ? ceilingText(s.language, stored.fallback_at, opts.ceilingLabel ?? "the run was stopped") : a.summary;
+      else if (a.reason === "auth") {
+        authText = a.summary;
+        factsOnly = signInText(s.language, a.summary);
+      } else if (FACTS_ONLY_REASONS.has(a.reason)) factsOnly = a.reason === "aborted" ? ceilingText(s.language, stored.fallback_at, opts.ceilingLabel ?? "the run was stopped") : a.summary;
       else brief = { ok: false, summary: a.summary };
     }
     if (!factsOnly && wanted.has("ideas")) {
       const b = await run("ideas", IdeasPassOutput);
       if (b.ok) ideas = { ok: true, data: b.data };
       else ideas = { ok: false, summary: b.summary };
+    }
+
+    // PLA-33: Claude could not sign in. When today already has a brief made by Claude's passes, keep it: no new row,
+    // the run ends failed with the plain reason (GET /latest returns it as last_run).
+    if (authText !== null) {
+      const [kept] = await db.select({ mode: morningBriefs.mode }).from(morningBriefs).where(and(eq(morningBriefs.localDate, localDate), inArray(morningBriefs.mode, ["full", "partial"]))).limit(1);
+      if (kept) {
+        const summary = `${AUTH_PREFIX}${authText}`.slice(0, 300);
+        await setRun({ status: "fail", endedAt: now(), passes: { ...passes }, summary });
+        return { runId, status: "fail", briefId: null, mode: null, summary };
+      }
     }
 
     // 4. Merge.
@@ -441,7 +461,7 @@ async function execute(db: Db, runId: string, opts: RunBriefOptions, deps: RunBr
     await pruneChecks(db, at);
 
     const status: BriefRunStatus = data.mode === "full" ? "ok" : data.mode === "partial" ? "partial" : "fallback";
-    const summary = runSummary(data, factsOnly, brief, ideas);
+    const summary = runSummary(data, factsOnly, authText, brief, ideas);
     await setRun({ status, endedAt: now(), passes: { ...passes }, summary });
     return { runId, status, briefId: row!.id, mode: data.mode, summary };
   } finally {
@@ -450,15 +470,24 @@ async function execute(db: Db, runId: string, opts: RunBriefOptions, deps: RunBr
   }
 }
 
+/** Run summaries that start with this are sign-in failures (the page words them in the brief's language). */
+export const AUTH_PREFIX = "sign-in: ";
+
+export function signInText(lang: string, detail: string): string {
+  return lang === "es"
+    ? `Claude no pudo iniciar sesión (${detail}). Corre \`claude\` en la Mac, escribe /login y pulsa Generar ahora.`
+    : `Claude could not sign in (${detail}). Run \`claude\` on the Mac, type /login, then press Generate now.`;
+}
+
 export function ceilingText(lang: string, fallbackAt: string, because: string): string {
   return lang === "es"
     ? `El brief completo no corrió antes de las ${fallbackAt} porque ${because}. Pulsa Generar ahora cuando esté libre.`
     : `The full brief didn't run by ${fallbackAt} because ${because}. Press Generate now when it's free.`;
 }
 
-function runSummary(data: BriefData, factsOnly: string | null, brief: PassResult<unknown>, ideas: PassResult<unknown>): string {
+function runSummary(data: BriefData, factsOnly: string | null, authText: string | null, brief: PassResult<unknown>, ideas: PassResult<unknown>): string {
   const counts = `${data.items.length} items, ${data.ideas.length} ideas`;
-  if (factsOnly) return `facts only: ${factsOnly}`.slice(0, 300);
+  if (factsOnly) return (authText ? `${AUTH_PREFIX}${authText}; facts only` : `facts only: ${factsOnly}`).slice(0, 300);
   const failed = [brief && !brief.ok ? `brief: ${brief.summary}` : "", ideas && !ideas.ok ? `ideas: ${ideas.summary}` : ""].filter(Boolean).join("; ");
   return (failed ? `${data.mode} (${counts}); ${failed}` : `${data.mode} (${counts})`).slice(0, 300);
 }

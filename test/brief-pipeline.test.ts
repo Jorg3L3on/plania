@@ -292,3 +292,56 @@ test("isoInZone writes the zone's offset", () => {
   assert.equal(pipeline.isoInZone(new Date("2026-07-01T00:30:00Z"), "Asia/Kolkata"), "2026-07-01T06:00:00+05:30");
   assert.equal(pipeline.localDateIn(new Date("2026-11-14T03:00:00Z"), "America/Mexico_City"), "2026-11-13");
 });
+
+// ---- PLA-33: a run where Claude cannot sign in must not replace the day's brief
+
+const SIGN_IN = "Failed to authenticate: OAuth session expired and could not be refreshed";
+const signedOut = () => fakeSpawn(() => fail("auth", SIGN_IN));
+const cookieHeader = () => ({ Cookie: `${SESSION_COOKIE}=${createSession()}` });
+const latest = async () => (await (await app.request("/api/brief/latest", { headers: cookieHeader() })).json()) as { brief: { id: string; mode: string }; last_run: { kind: string; reason: string; ended_at: string } | null };
+const briefCount = async () => (await raw.query(`select count(*)::int as n from morning_briefs`)).rows[0].n as number;
+
+test("PLA-33 check 1: both passes fail to sign in while today has a full brief: no new row, /latest keeps it and carries the reason", async () => {
+  await raw.query(`delete from morning_briefs`);
+  const good = await pipeline.runBrief(db, { trigger: "schedule" }, deps({ spawnPass: fakeSpawn().spawnPass }));
+  assert.equal(good.mode, "full");
+  const before = await briefCount();
+  const f = signedOut();
+  const res = await pipeline.runBrief(db, { trigger: "manual" }, deps({ spawnPass: f.spawnPass }));
+  assert.equal(res.status, "fail");
+  assert.equal(res.briefId, null);
+  assert.deepEqual(f.calls.map((c) => c.pass), ["brief"], "pass B is not tried");
+  assert.equal(await briefCount(), before, "no new morning_briefs row");
+  const run = await runRow(res.runId);
+  assert.equal(run.status, "fail");
+  assert.match(run.summary, /OAuth session expired/);
+  assert.doesNotMatch(run.summary, /failed: success/);
+  const l = await latest();
+  assert.equal(l.brief.id, good.briefId, "the 07:00 brief is still the latest");
+  assert.equal(l.last_run?.kind, "auth");
+  assert.match(l.last_run!.reason, /OAuth session expired/);
+});
+
+test("PLA-33 check 2: the same failure with no brief today stores a facts-only brief naming the sign-in reason and the fix", async () => {
+  await raw.query(`delete from morning_briefs`);
+  const res = await pipeline.runBrief(db, { trigger: "manual" }, deps({ spawnPass: signedOut().spawnPass }));
+  assert.equal(res.status, "fallback");
+  assert.equal(res.mode, "facts_only");
+  const data = BriefData.parse((await briefRow(res.briefId!)).data);
+  const cross = data.items.find((i) => i.app === "cross" && i.status === "needs_you")!;
+  assert.match(`${cross.title} ${cross.detail}`, /OAuth session expired/);
+  assert.match(cross.detail!, /\/login/);
+  assert.match(res.summary, /sign-in:.*OAuth session expired/);
+  assert.doesNotMatch(res.summary, /failed: success/);
+});
+
+test("PLA-33 check 4: a same-day rerun whose ideas pass fails keeps the morning's ideas nobody acted on", async () => {
+  await raw.query(`delete from morning_briefs`);
+  const morning = await pipeline.runBrief(db, { trigger: "schedule" }, deps({ spawnPass: fakeSpawn().spawnPass }));
+  const morningTitles = ((await briefRow(morning.briefId!)).data.ideas as { title: string }[]).map((i) => i.title).sort();
+  assert.deepEqual(morningTitles, ["Late-payer flag", "Renewal board"]);
+  const rerun = await pipeline.runBrief(db, { trigger: "manual" }, deps({ spawnPass: fakeSpawn((p) => (p === "brief" ? ok(ITEMS, p) : fail("error", "pass ideas failed: boom"))).spawnPass }));
+  assert.equal(rerun.mode, "partial");
+  const titles = ((await briefRow(rerun.briefId!)).data.ideas as { title: string }[]).map((i) => i.title);
+  assert.ok(titles.includes("Renewal board") && titles.includes("Late-payer flag"), `kept: ${titles.join(", ")}`);
+});
