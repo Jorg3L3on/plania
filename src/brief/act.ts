@@ -15,7 +15,8 @@ import { Target, type Item } from "./types.js";
 
 export type RowState = "open" | "handled" | "later" | "dismissed" | "gone";
 export type RowAction = { id: ActionId; level: Level; undo: boolean; target: number | null };
-export type ItemState = { state: RowState; line: string | null; actions: RowAction[]; action_id: string | null; undo: boolean; until?: string | null };
+// live: the main target as it is now (the page's evidence); at and action: when and how the owner handled it here.
+export type ItemState = { state: RowState; line: string | null; actions: RowAction[]; action_id: string | null; undo: boolean; until?: string | null; live?: Live | null; at?: string | null; action?: ActionId | null };
 export type BriefStateReply = { brief_id: string; read_only: boolean; items: Record<string, ItemState> };
 
 export type ActReply =
@@ -63,7 +64,12 @@ async function rowActions(targets: Target[], lives: (Live | null)[]): Promise<Ro
 }
 
 async function stateOfItem(db: Db, b: MorningBrief, item: Item, act: BriefAction | undefined, checked: boolean, today: string, ro: boolean, lang: string): Promise<ItemState> {
-  const base = { action_id: act?.id ?? null, undo: !!act && !ro && (REGISTRY[act.action as ActionId]?.undo ?? false) && act.outcome.status === "done" };
+  const base = {
+    action_id: act?.id ?? null,
+    undo: !!act && !ro && (REGISTRY[act.action as ActionId]?.undo ?? false) && act.outcome.status === "done",
+    at: act?.createdAt.toISOString() ?? null,
+    action: (act?.action as ActionId | undefined) ?? null,
+  };
   if (act?.action === "dismiss") return { state: "dismissed", line: act.outcome.line ?? null, actions: [], ...base };
   if (act?.action === "later") {
     const until = (act.input as { until?: string }).until ?? null;
@@ -71,11 +77,11 @@ async function stateOfItem(db: Db, b: MorningBrief, item: Item, act: BriefAction
   } else if (act && act.outcome.status === "done") {
     return { state: "handled", line: act.outcome.line ?? null, actions: [], ...base };
   }
-  if (checked) return { state: "dismissed", line: lang === "es" ? "Marcado" : "Checked", actions: [], action_id: null, undo: false };
+  if (checked) return { state: "dismissed", line: lang === "es" ? "Marcado" : "Checked", actions: [], action_id: null, undo: false, at: null, action: null };
   const targets = targetsOf(item);
   const lives = await Promise.all(targets.map((t) => live(db, t)));
   const main = lives[0];
-  const none = { action_id: null, undo: false };
+  const none = { action_id: null, undo: false, at: null, action: null, live: main ?? null };
   if (main?.kind === "gone") return { state: "gone", line: lang === "es" ? "Ya no está en Plania" : "No longer in Plania", actions: [], ...none };
   const handled = main ? handledLine(main, { itemStatus: item.status, briefAt: b.generatedAt, lang }) : null;
   if (handled) return { state: "handled", line: handled, actions: [], ...none };
@@ -190,7 +196,7 @@ export async function act(db: Db, body: ActBody, env: NodeJS.ProcessEnv = proces
 
   let outcome: BriefActionOutcome;
   try {
-    const out = await def.run(db, t as Target, l as Live, input);
+    const out = await def.run(db, t as Target, l as Live, input, lang === "es" ? "es" : "en");
     outcome = "error" in out ? { status: "failed", error: out.error, hint: out.hint } : { status: "done", line: out.line, ...(out.result ? { result: out.result } : {}), ...(out.undo ? { undo: out.undo } : {}) };
   } catch (e) {
     outcome = { status: "failed", error: "ACTION_FAILED", hint: e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300) };
@@ -220,14 +226,14 @@ export async function undo(db: Db, actionId: string, env: NodeJS.ProcessEnv = pr
   if (!b) return { error: "BRIEF_NOT_FOUND", hint: "That brief does not exist.", http: 404 };
   if (await readOnly(db, b)) return { error: "READ_ONLY", hint: "A past day's brief is read-only.", http: 409 };
   const t = row.target ? (Target.safeParse(row.target).data ?? null) : null;
-  const out = await undoRun(db, row.action as ActionId, t, row.outcome.undo);
+  const lang = String(b.data.language ?? "en");
+  const out = await undoRun(db, row.action as ActionId, t, row.outcome.undo, lang === "es" ? "es" : "en");
   if ("error" in out) return { error: out.error, hint: out.hint, http: 409 };
   // Only one undo wins.
   const done = await db.update(briefActions).set({ undoneAt: sql`now()` }).where(and(eq(briefActions.id, row.id), isNull(briefActions.undoneAt))).returning({ id: briefActions.id });
   if (!done.length) return { error: "ALREADY_UNDONE", hint: "That was already undone.", http: 409 };
   const item = itemsOf(b).find((i) => i.id === row.itemId) ?? ({ id: row.itemId, app: "cross", status: "next", title: "" } as Item);
   await emitAction(db, row, item, t, { status: "done", line: out.line }, env, true);
-  const lang = String(b.data.language ?? "en");
   const acts = await actionsByItem(db, b, [item.id]);
   const [chk] = await db.select().from(briefChecks).where(eq(briefChecks.itemId, item.id)).limit(1);
   return { status: "undone", line: out.line, state: await stateOfItem(db, b, item, acts.get(item.id), !!chk, await todayOf(db, env), false, lang) };

@@ -195,7 +195,55 @@ export function handledLine(l: Live, opts: { itemStatus?: string; briefAt?: Date
 
 export type RunOutcome = { line: string; result?: Record<string, unknown>; undo?: Record<string, unknown> };
 export type ActionRefusal = { error: string; hint: string };
-type Run = (db: Db, t: Target, l: Live, input: Record<string, unknown>) => Promise<RunOutcome | ActionRefusal>;
+export type Lang = "en" | "es";
+type Run = (db: Db, t: Target, l: Live, input: Record<string, unknown>, lang: Lang) => Promise<RunOutcome | ActionRefusal>;
+
+// The outcome line a row keeps, in the brief's language.
+const OUT = {
+  en: {
+    answered: (a: string) => `Answered: ${a}`,
+    step: (k: string) => `Step done on ${k}`,
+    added: (n: number, path: string, branch: string) => `Added ${n} line${n === 1 ? "" : "s"} to ${path} on ${branch}`,
+    had: (path: string) => `${path} already had those lines`,
+    published: (into: string, n: number) => `Published to ${into} with #${n}`,
+    merged: (n: number, base: string) => `#${n} merged into ${base}`,
+    status: (k: string, st: string) => `${k}: ${st}`,
+    changes: (k: string) => `Changes asked on ${k}`,
+    runsOn: "Runs turned on",
+    backlog: (k: string) => `${k} back to Backlog`,
+    first: (k: string) => `${k} goes first`,
+    hold: (k: string) => `${k} on hold`,
+    fixed: (c: string, k: string | null) => `Fixed: ${c}${k ? ` on ${k}` : ""}`,
+    later: (u: string | null) => (u ? `Later, until ${u}` : "Later"),
+    dismissed: (r: string | null) => (r ? `Not relevant: ${r}` : "Not relevant"),
+    undone: "Undone",
+    paused: "Runs paused again",
+    firstAgain: (k: string | null) => (k ? `${k} goes first again` : "No ticket goes first"),
+    back: (k: string, st: string) => `${k} back to ${st}`,
+  },
+  es: {
+    answered: (a: string) => `Respondida: ${a}`,
+    step: (k: string) => `Paso hecho en ${k}`,
+    added: (n: number, path: string, branch: string) => `${n} ${n === 1 ? "línea agregada" : "líneas agregadas"} a ${path} en ${branch}`,
+    had: (path: string) => `${path} ya tenía esas líneas`,
+    published: (into: string, n: number) => `Publicado a ${into} con #${n}`,
+    merged: (n: number, base: string) => `#${n} fusionado en ${base}`,
+    status: (k: string, st: string) => `${k}: ${st}`,
+    changes: (k: string) => `Cambios pedidos en ${k}`,
+    runsOn: "Corridas activadas",
+    backlog: (k: string) => `${k} volvió a Backlog`,
+    first: (k: string) => `${k} va primero`,
+    hold: (k: string) => `${k} en espera`,
+    fixed: (c: string, k: string | null) => `Corregido: ${c}${k ? ` en ${k}` : ""}`,
+    later: (u: string | null) => (u ? `Después, hasta el ${u}` : "Después"),
+    dismissed: (r: string | null) => (r ? `No aplica: ${r}` : "No aplica"),
+    undone: "Deshecho",
+    paused: "Corridas en pausa otra vez",
+    firstAgain: (k: string | null) => (k ? `${k} va primero otra vez` : "Ningún ticket va primero"),
+    back: (k: string, st: string) => `${k} volvió a ${st}`,
+  },
+} as const;
+export const outLines = (lang: string) => OUT[lang === "es" ? "es" : "en"];
 
 export type ActionDef = {
   id: ActionId;
@@ -230,13 +278,13 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     undo: false,
     applies: (_t, l) => l?.kind === "question" && !l.answered,
     input: z.union([z.object({ option: z.number().int().min(1).max(20) }).strict(), z.object({ text: z.string().trim().min(1).max(2000) }).strict()]),
-    run: (db, t, l, input) =>
+    run: (db, t, l, input, lang) =>
       guarded(async () => {
         if (l.kind !== "question") return { error: "STALE", hint: "not a question" };
         const text = typeof input.option === "number" ? l.options[input.option - 1] : String(input.text ?? "");
         if (!text) return { error: "INVALID_OPTION", hint: "That option is not on the question." };
         await answer(db, { project: t.project, question_id: t.id!, answer: text }, ctxOf("answer"));
-        return { line: `Answered: ${text}`, result: { answer: text } };
+        return { line: OUT[lang].answered(text), result: { answer: text } };
       }),
   },
   step_done: {
@@ -246,12 +294,12 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     undo: false,
     applies: (_t, l) => l?.kind === "step" && !l.satisfied,
     input: z.object({ note: z.string().trim().max(2000).optional() }).strict(),
-    run: (db, t, _l, input) =>
+    run: (db, t, _l, input, lang) =>
       guarded(async () => {
         const p = (await projectBySlug(db, t.project))!;
         const note = typeof input.note === "string" && input.note ? input.note : undefined;
         const out = await writeTx(db, p, ctxOf("step"), (tx, emit) => resolveHumanAction(tx, emit, p.id, t.id!, WEB_ACTOR, note));
-        return { line: `Step done on ${out.key}`, result: out };
+        return { line: OUT[lang].step(out.key), result: out };
       }),
   },
   add_to_pr: {
@@ -260,7 +308,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     undo: false,
     applies: (_t, l) => l?.kind === "step" && !l.satisfied && !!l.file && !!l.pr_url,
     input: none,
-    run: async (db, t) => {
+    run: async (db, t, _l, _i, lang) => {
       const out = await actOnDecision(db, `b-${t.id}`, { action: "aplicar" });
       if (out.ok !== true) {
         const no = out as DecisionRefusal;
@@ -268,7 +316,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
       }
       const done = out as DecisionDone;
       const r = done.state.result as { path?: string; added?: number; branch?: string };
-      return { line: r.added ? `Added ${r.added} line${r.added === 1 ? "" : "s"} to ${r.path} on ${r.branch}` : `${r.path} already had those lines`, result: done.state.result };
+      return { line: r.added ? OUT[lang].added(r.added, String(r.path), String(r.branch)) : OUT[lang].had(String(r.path)), result: done.state.result };
     },
   },
   publish: {
@@ -277,10 +325,10 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     undo: false,
     applies: (_t, l) => l?.kind === "release" && l.pending && l.ready,
     input: none,
-    run: (db, t) =>
+    run: (db, t, _l, _i, lang) =>
       guarded(async () => {
         const out = await shipRelease(db, t.project, ctxOf("publish"));
-        return { line: `Published to ${out.into.branch} with #${out.pr.number}`, result: { pr: out.pr, merge_sha: out.merge_sha, tickets: out.tickets } };
+        return { line: OUT[lang].published(out.into.branch, out.pr.number), result: { pr: out.pr, merge_sha: out.merge_sha, tickets: out.tickets } };
       }),
   },
   accept_pr: {
@@ -289,13 +337,13 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     undo: false,
     applies: (_t, l) => l?.kind === "pr" && l.state === "open" && l.ticket?.status === "In review" && !!l.message_id,
     input: none,
-    run: (db, t, l) =>
+    run: (db, t, l, _i, lang) =>
       guarded(async () => {
         if (l.kind !== "pr" || !l.message_id) return { error: "STALE", hint: "no delivery to accept" };
         const out = await threadAction(db, await resolveThread(db, t.project), { message_id: l.message_id, action: "aceptar" });
         if ("error" in out) return { error: out.error, hint: out.hint };
         const r = out.action_state.result as { merged?: boolean; base?: string; status?: string; ticket?: string };
-        return { line: r.merged ? `#${l.number} merged into ${r.base ?? "sandbox"}` : `${r.ticket ?? l.ticket?.key}: ${r.status ?? "Done"}`, result: out.action_state.result };
+        return { line: r.merged ? OUT[lang].merged(l.number, r.base ?? "sandbox") : OUT[lang].status(String(r.ticket ?? l.ticket?.key), r.status ?? "Done"), result: out.action_state.result };
       }),
   },
   request_changes: {
@@ -304,12 +352,12 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     undo: false,
     applies: (_t, l) => l?.kind === "pr" && l.state === "open" && !!l.ticket && !SHIPPED.has(l.ticket.status) && !!l.message_id,
     input: z.object({ text: z.string().trim().min(1).max(2000) }).strict(),
-    run: (db, t, l, input) =>
+    run: (db, t, l, input, lang) =>
       guarded(async () => {
         if (l.kind !== "pr" || !l.message_id) return { error: "STALE", hint: "no delivery" };
         const out = await threadAction(db, await resolveThread(db, t.project), { message_id: l.message_id, action: "cambios", text: String(input.text) });
         if ("error" in out) return { error: out.error, hint: out.hint };
-        return { line: `Changes asked on ${l.ticket?.key}`, result: out.action_state.result };
+        return { line: OUT[lang].changes(String(l.ticket?.key)), result: out.action_state.result };
       }),
   },
   resume_runs: {
@@ -318,10 +366,10 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     undo: true,
     applies: (_t, l) => l?.kind === "runs" && l.paused,
     input: none,
-    run: (db, t) =>
+    run: (db, t, _l, _i, lang) =>
       guarded(async () => {
         await setProjectPaused(db, t.project, false);
-        return { line: "Runs turned on", undo: { paused: true } };
+        return { line: OUT[lang].runsOn, undo: { paused: true } };
       }),
   },
   postpone: {
@@ -330,12 +378,12 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     undo: true,
     applies: (_t, l) => l?.kind === "ticket" && l.status === "Ready",
     input: none,
-    run: (db, t) =>
+    run: (db, t, _l, _i, lang) =>
       guarded(async () => {
         const p = (await projectBySlug(db, t.project))!;
         const row = (await taskByKey(db, p.id, t.key))!;
         await setTask(db, { project: t.project, key: row.key, status: "Backlog", version: row.version, note: "Jorge lo aplazó desde el brief." } as never, ctxOf("postpone"));
-        return { line: `${row.key} back to Backlog`, undo: { status: "Ready" } };
+        return { line: OUT[lang].backlog(row.key), undo: { status: "Ready" } };
       }),
   },
   put_first: {
@@ -344,12 +392,12 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     undo: true,
     applies: (_t, l) => l?.kind === "ticket" && l.status === "Ready" && !l.first,
     input: none,
-    run: async (db, t) => {
+    run: async (db, t, _l, _i, lang) => {
       const p = (await projectBySlug(db, t.project))!;
       const before = p.settings.next_first ?? null;
       const out = await pickNext(db, t.project, t.key!);
       if ("error" in out) return { error: out.error, hint: out.hint };
-      return { line: `${t.key} goes first`, undo: { next_first: before } };
+      return { line: OUT[lang].first(String(t.key)), undo: { next_first: before } };
     },
   },
   hold: {
@@ -358,12 +406,12 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     undo: true,
     applies: (_t, l) => l?.kind === "initiative" && (l.status === "Planning" || l.status === "Active"),
     input: none,
-    run: (db, t, l) =>
+    run: (db, t, l, _i, lang) =>
       guarded(async () => {
         const p = (await projectBySlug(db, t.project))!;
         const row = (await taskByKey(db, p.id, t.key))!;
         await setTask(db, { project: t.project, key: row.key, status: "On hold", version: row.version, note: "Jorge lo puso en espera desde el brief." } as never, ctxOf("hold"));
-        return { line: `${row.key} on hold`, undo: { status: l.kind === "initiative" ? l.status : "Planning" } };
+        return { line: OUT[lang].hold(row.key), undo: { status: l.kind === "initiative" ? l.status : "Planning" } };
       }),
   },
   fix_finding: {
@@ -372,12 +420,12 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     undo: false,
     applies: (_t, l) => l?.kind === "finding" && l.present && l.fixable,
     input: none,
-    run: (db, t, l) =>
+    run: (db, t, l, _i, lang) =>
       guarded(async () => {
         if (l.kind !== "finding" || !l.id) return { error: "STALE", hint: "the finding is gone" };
         const p = (await projectBySlug(db, t.project))!;
         await fixFinding(db, p, { code: l.code, key: l.key, id: l.id });
-        return { line: `Fixed: ${l.code}${l.key ? ` on ${l.key}` : ""}` };
+        return { line: OUT[lang].fixed(l.code, l.key) };
       }),
   },
   later: {
@@ -386,7 +434,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     undo: true,
     applies: () => true,
     input: z.object({ until: z.string().regex(DATE).optional() }).strict(),
-    run: async (_db, _t, _l, input) => ({ line: input.until ? `Later, until ${input.until}` : "Later", result: { until: input.until ?? null } }),
+    run: async (_db, _t, _l, input, lang) => ({ line: OUT[lang].later(typeof input.until === "string" ? input.until : null), result: { until: input.until ?? null } }),
   },
   dismiss: {
     id: "dismiss",
@@ -394,7 +442,7 @@ export const REGISTRY: Record<ActionId, ActionDef> = {
     undo: true,
     applies: () => true,
     input: z.object({ reason: z.string().trim().max(300).optional() }).strict(),
-    run: async (_db, _t, _l, input) => ({ line: input.reason ? `Not relevant: ${input.reason}` : "Not relevant", result: { reason: input.reason ?? null } }),
+    run: async (_db, _t, _l, input, lang) => ({ line: OUT[lang].dismissed(typeof input.reason === "string" ? input.reason : null), result: { reason: input.reason ?? null } }),
   },
 };
 
@@ -405,15 +453,16 @@ export function actionsFor(t: Target | null, l: Live | null): ActionId[] {
 }
 
 /** Undo an instant action: put back what run() changed. Brief-state actions need nothing here. */
-export async function undoRun(db: Db, action: ActionId, t: Target | null, undo: Record<string, unknown> | undefined): Promise<RunOutcome | ActionRefusal> {
-  if (ROW_ACTIONS.has(action)) return { line: "Undone" };
+export async function undoRun(db: Db, action: ActionId, t: Target | null, undo: Record<string, unknown> | undefined, lang: Lang = "en"): Promise<RunOutcome | ActionRefusal> {
+  const o = OUT[lang];
+  if (ROW_ACTIONS.has(action)) return { line: o.undone };
   if (!t || !undo) return { error: "NOT_UNDOABLE", hint: "This action cannot be undone." };
   return guarded(async () => {
     const p = await projectBySlug(db, t.project);
     if (!p) return { error: "PROJECT_NOT_FOUND", hint: "The project is gone." };
     if (action === "resume_runs") {
       await setProjectPaused(db, t.project, true);
-      return { line: "Runs paused again" };
+      return { line: o.paused };
     }
     if (action === "put_first") {
       const before = typeof undo.next_first === "string" ? undo.next_first : null;
@@ -421,13 +470,13 @@ export async function undoRun(db: Db, action: ActionId, t: Target | null, undo: 
       if (before) settings.next_first = before;
       else delete settings.next_first;
       await db.update(projects).set({ settings, updatedAt: sql`now()` }).where(eq(projects.id, p.id));
-      return { line: before ? `${before} goes first again` : "No ticket goes first" };
+      return { line: o.firstAgain(before) };
     }
     if (action === "postpone" || action === "hold") {
       const row = await taskByKey(db, p.id, t.key);
       if (!row) return { error: "TASK_NOT_FOUND", hint: "The ticket is gone." };
       await setTask(db, { project: t.project, key: row.key, status: String(undo.status), version: row.version, note: "Jorge deshizo el cambio desde el brief." } as never, ctxOf(`undo_${action}`));
-      return { line: `${row.key} back to ${String(undo.status)}` };
+      return { line: o.back(row.key, String(undo.status)) };
     }
     return { error: "NOT_UNDOABLE", hint: "This action cannot be undone." };
   });

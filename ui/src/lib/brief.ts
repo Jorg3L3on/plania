@@ -119,6 +119,32 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return (res.status === 204 ? undefined : await res.json()) as T;
 }
 
+// PLA-I49-3/4: a row's live state and the act API (src/brief/act.ts, src/brief/actions.ts).
+export type ActionId = "answer" | "step_done" | "add_to_pr" | "publish" | "accept_pr" | "request_changes" | "resume_runs" | "postpone" | "put_first" | "hold" | "fix_finding" | "later" | "dismiss";
+export type ActionLevel = "instant" | "confirm" | "wake";
+export type RowAction = { id: ActionId; level: ActionLevel; undo: boolean; target: number | null };
+export type RowState = "open" | "handled" | "later" | "dismissed" | "gone";
+export type Live =
+  | { kind: "gone" }
+  | { kind: "question"; question: string; options: string[]; human_only: boolean; answered: boolean; answer: string | null; key: string | null }
+  | { kind: "step"; text: string; satisfied: boolean; file: { path: string } | null; key: string; pr_url: string | null }
+  | { kind: "release"; pending: boolean; unknown: boolean; ready: boolean; reason: string | null; ahead: number | null; tickets: string[]; migrations: string[]; before: number; open_checks: number; from: string; into: string; env: string }
+  | { kind: "pr"; number: number; state: string; base: string | null; url: string; ticket: { key: string; status: string } | null; message_id: string | null }
+  | { kind: "ticket"; key: string; status: string; title: string; first: boolean }
+  | { kind: "initiative"; key: string; status: string; title: string }
+  | { kind: "idea"; key: string; status: string; stage: string | null }
+  | { kind: "runs"; paused: boolean }
+  | { kind: "env"; env: string; commit: string | null; updated_at: string }
+  | { kind: "finding"; code: string; key: string | null; present: boolean; id: string | null; fixable: boolean; detail: string | null };
+export type ItemState = { state: RowState; line: string | null; actions: RowAction[]; action_id: string | null; undo: boolean; until?: string | null; live?: Live | null; at?: string | null; action?: ActionId | null };
+export type BriefStateReply = { brief_id: string; read_only: boolean; items: Record<string, ItemState> };
+export type ActRequest = { brief_id: string; item_id: string; action: ActionId; target?: number; input?: Record<string, unknown>; request_id: string };
+export type ActReply =
+  | { status: "done"; action_id: string; line: string; undo: boolean; state: ItemState; replay?: boolean }
+  | { status: "stale"; line: string | null; live: Live | null; state: ItemState }
+  | { status: "running"; action_id: string; replay: true }
+  | { status: "failed"; error: string; hint: string; action_id?: string };
+
 export const briefApi = {
   latest: () => call<BriefLatest>("GET", "/latest"),
   history: (days = 14) => call<BriefHistoryRow[]>("GET", `/history?days=${days}`),
@@ -133,7 +159,18 @@ export const briefApi = {
   doctor: () => call<{ lines: DoctorLine[] }>("GET", "/doctor"),
   sendPlan: (briefId: string, codes: string[]) => call<PlanSendReply>("POST", "/plan", { brief_id: briefId, codes }),
   plan: (id: string) => call<PlanProgress>("GET", `/plan/${encodeURIComponent(id)}`),
+  state: (briefId: string) => call<BriefStateReply>("GET", `/${encodeURIComponent(briefId)}/state`),
+  act: (body: ActRequest) => actCall(body),
+  undo: (actionId: string) => call<{ status: "undone"; line: string; state: ItemState }>("POST", `/act/${encodeURIComponent(actionId)}/undo`, {}),
 };
+
+/** POST /act answers 409 with {status: "failed"} when the action ran and failed: that is a reply, not a throw. */
+async function actCall(body: ActRequest): Promise<ActReply> {
+  const res = await fetch("/api/brief/act", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (res.ok || json.status === "failed") return json as ActReply;
+  throw new ApiError(res.status, String(json.error ?? `HTTP_${res.status}`), json);
+}
 
 export const briefKeys = {
   latest: ["brief", "latest"] as const,
@@ -143,7 +180,48 @@ export const briefKeys = {
   persona: (slug: string) => ["brief", "persona", slug] as const,
   doctor: ["brief", "doctor"] as const,
   plan: (id: string) => ["brief", "plan", id] as const,
+  state: (id: string) => ["brief", "state", id] as const,
 };
+
+/** PLA-I49-4: the rows' live state, every 30 s while the tab is visible (TanStack pauses intervals in a hidden tab). */
+export const STATE_POLL_MS = 30_000;
+export function useBriefState(briefId: string | null) {
+  return useQuery({ queryKey: briefKeys.state(briefId ?? ""), queryFn: () => briefApi.state(briefId!), enabled: !!briefId, staleTime: 5_000, refetchInterval: STATE_POLL_MS });
+}
+
+/** A request id per click: a retry of the same click (network) reuses it; a new click makes a new one. */
+export const requestId = (): string => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `r-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+export function useBriefAct(briefId: string | null) {
+  const qc = useQueryClient();
+  const write = (itemId: string, st: ItemState) =>
+    qc.setQueryData<BriefStateReply>(briefKeys.state(briefId ?? ""), (old) => (old ? { ...old, items: { ...old.items, [itemId]: st } } : old));
+  const act = useMutation({
+    mutationFn: (body: ActRequest) => briefApi.act(body),
+    onSuccess: (reply, body) => {
+      if (reply.status === "done" || reply.status === "stale") write(body.item_id, reply.state);
+      void qc.invalidateQueries({ queryKey: briefKeys.state(briefId ?? "") });
+    },
+  });
+  const undo = useMutation({
+    mutationFn: ({ actionId }: { actionId: string; itemId: string }) => briefApi.undo(actionId),
+    onSuccess: (reply, v) => {
+      write(v.itemId, reply.state);
+      void qc.invalidateQueries({ queryKey: briefKeys.state(briefId ?? "") });
+    },
+  });
+  return { act, undo };
+}
+
+/** Where a target opens in Plania (before GitHub). */
+export function targetHref(t: Target | undefined, l?: Live | null): string | null {
+  if (!t) return null;
+  const p = `/p/${encodeURIComponent(t.project)}`;
+  const liveKey = l && "key" in l && typeof l.key === "string" ? l.key : l?.kind === "pr" ? l.ticket?.key : undefined;
+  const key = t.key ?? liveKey;
+  if (key) return `${p}?task=${encodeURIComponent(key)}`;
+  return p;
+}
 
 export const BRIEF_POLL_MS = 5_000;
 

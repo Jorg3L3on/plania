@@ -70,6 +70,73 @@ export type BriefLabels = {
   planPartial: string;
   dismiss: string;
   s: SettingsLabels;
+  d: DeskLabels;
+};
+
+/** PLA-I49-4: the desk (ui/src/components/brief/desk.tsx). Verbs and stamps per action id (src/brief/actions.ts). */
+export type DeskAction = "answer" | "step_done" | "add_to_pr" | "publish" | "accept_pr" | "request_changes" | "resume_runs" | "postpone" | "put_first" | "hold" | "fix_finding" | "later" | "dismiss";
+export type DeskKind = "question" | "step" | "release" | "pr" | "ticket" | "initiative" | "idea" | "runs" | "env" | "finding" | "none";
+export type DeskConfirm = { project: string; key?: string | null; pr?: number | null; from?: string; into?: string; tickets?: number; migrations?: string[]; path?: string | null; code?: string };
+export type DeskLabels = {
+  piles: { needs: string; next: string; ideas: string };
+  left: Plural;
+  handledToday: Plural;
+  menu: string;
+  labelsIn: string;
+  pileEmpty: string;
+  clear: string;
+  you: string;
+  hand: string;
+  away: string;
+  out: string;
+  outEmpty: string;
+  none: string;
+  readOnly: string;
+  backToday: string;
+  loading: string;
+  retry: string;
+  openInPlania: string;
+  openOnGithub: string;
+  kinds: Record<DeskKind, string>;
+  releaseReady: string;
+  releaseNotReady: (reason: string) => string;
+  reasons: Record<string, string>;
+  verbs: Record<DeskAction, string>;
+  stamps: Record<DeskAction, string>;
+  confirm: { publish: (c: DeskConfirm) => string; accept_pr: (c: DeskConfirm) => string; add_to_pr: (c: DeskConfirm) => string; resume_runs: (c: DeskConfirm) => string; fix_finding: (c: DeskConfirm) => string };
+  yourAnswer: string;
+  answerText: string;
+  changesAsk: string;
+  later: string;
+  laterHint: string;
+  notRelevant: string;
+  notRelevantHint: string;
+  why: string;
+  cancel: string;
+  send: string;
+  undo: string;
+  undone: string;
+  failed: string;
+  nothingChanged: string;
+  tryAgain: string;
+  stale: string;
+  working: string;
+  roles: { po: string; artist: string; research: string; taller: string };
+  giveToPo: string;
+  soon: string;
+  ideaPo: string;
+  ideaCost: (bots: number, low: number, high: number) => string;
+  wake: string;
+  ideasInHand: Plural;
+  ideaHint: string;
+  dropSelection: string;
+  hideIdea: string;
+  hideIdeaHint: string;
+  ev: { asked: string; options: string; step: string; ticket: string; status: string; tickets: string; migrations: string; before: string; checks: string; ahead: string; state: string; pr: string; runs: string; record: string; finding: string };
+  paused: string;
+  on: string;
+  none_: string;
+  handledAt: (time: string) => string;
 };
 
 /** The settings sheet (spec §8 "Settings sheet") and its Setup check. */
@@ -266,6 +333,73 @@ const en: BriefLabels = {
     setupBad: "Needs attention",
     setupFailed: "Couldn't run the setup check.",
   },
+  d: {
+    piles: { needs: "Needs you", next: "Up next", ideas: "Ideas" },
+    left: (n) => (n === 1 ? "left on your desk" : "left on your desk"),
+    handledToday: (n) => `${n} handled today`,
+    menu: "Brief menu",
+    labelsIn: "Labels: English",
+    pileEmpty: "This pile is empty.",
+    clear: "Your desk is clear.",
+    you: "Do it yourself",
+    hand: "Hand it to",
+    away: "Put it away",
+    out: "Out tray",
+    outEmpty: "Handled papers land here.",
+    none: "Nothing to stamp here. Hand it over or put it away.",
+    readOnly: "A past day: read only.",
+    backToday: "Back to today",
+    loading: "Reading your projects…",
+    retry: "Retry",
+    openInPlania: "Open in Plania",
+    openOnGithub: "Open on GitHub",
+    kinds: { question: "Question", step: "Your step", release: "Release", pr: "PR waiting", ticket: "Ticket", initiative: "Initiative", idea: "Idea", runs: "Paused project", env: "Inconsistency", finding: "Inconsistency", none: "Note" },
+    releaseReady: "Release · ready",
+    releaseNotReady: (r) => `Release · not ready: ${r}`,
+    reasons: { mode_command: "ships by command", no_repo: "no GitHub repo", no_github_data: "no GitHub data yet", nothing_to_ship: "nothing to ship", before_steps: "steps before", open_checks: "checks open", merged: "already merged" },
+    verbs: { answer: "Answer", step_done: "Done", add_to_pr: "Add to PR", publish: "Publish to main", accept_pr: "Accept into sandbox", request_changes: "Ask for changes", resume_runs: "Turn on runs", postpone: "Postpone", put_first: "Put first", hold: "Put on hold", fix_finding: "Fix it", later: "Later", dismiss: "Not relevant" },
+    stamps: { answer: "Answered", step_done: "Done", add_to_pr: "Added", publish: "Published", accept_pr: "Accepted", request_changes: "Sent back", resume_runs: "Runs on", postpone: "Postponed", put_first: "First", hold: "On hold", fix_finding: "Fixed", later: "Later", dismiss: "Not relevant" },
+    confirm: {
+      publish: (c) => `This merges ${c.from ?? "sandbox"} into ${c.into ?? "main"} for ${c.project}: ${c.tickets ?? 0} ticket${c.tickets === 1 ? "" : "s"}${c.migrations?.length ? `, migrations ${c.migrations.join(", ")}` : ", no migrations"}. Prod deploys from ${c.into ?? "main"}.`,
+      accept_pr: (c) => `This merges PR #${c.pr} into sandbox for ${c.project}${c.key ? ` (${c.key})` : ""}. Nothing reaches main.`,
+      add_to_pr: (c) => `Plania commits the lines to ${c.path ?? "the file"} on ${c.key ?? "the ticket"}'s PR branch, then marks the step done.`,
+      resume_runs: (c) => `This turns on ${c.project}'s runs. Its bots start on the next tick and use your plan ($0).`,
+      fix_finding: (c) => `Plania runs the fix for ${c.code ?? "this finding"}${c.key ? ` on ${c.key}` : ""} and audits ${c.project} again.`,
+    },
+    yourAnswer: "Your answer",
+    answerText: "Or write it",
+    changesAsk: "What should change? It goes back to its owner with your note.",
+    later: "Later",
+    laterHint: "Back tomorrow",
+    notRelevant: "Not relevant",
+    notRelevantHint: "Leaves the brief",
+    why: "Why? (optional)",
+    cancel: "Cancel",
+    send: "Send back",
+    undo: "Undo",
+    undone: "Undone",
+    failed: "Could not do it",
+    nothingChanged: "Nothing changed.",
+    tryAgain: "Try again",
+    stale: "This changed meanwhile; the paper shows it as it is now.",
+    working: "Working…",
+    roles: { po: "PO", artist: "Artist", research: "Research", taller: "Taller" },
+    giveToPo: "Give to PO",
+    soon: "comes with the next phase",
+    ideaPo: "Plan it",
+    ideaCost: (bots, low, high) => `Wakes ${bots} project bot${bots === 1 ? "" : "s"} · about ${low}–${high} min · uses your plan, $0`,
+    wake: "Wake",
+    ideasInHand: (n) => `${n} ideas in hand`,
+    ideaHint: "Hand them to the PO on the right, or put them away.",
+    dropSelection: "Clear selection",
+    hideIdea: "Hide",
+    hideIdeaHint: "Out of today's ideas",
+    ev: { asked: "Asked", options: "Options", step: "Step", ticket: "Ticket", status: "Status", tickets: "Ships", migrations: "Migrations", before: "Steps before", checks: "Open checks", ahead: "Ahead", state: "State", pr: "PR", runs: "Runs", record: "Record", finding: "Finding" },
+    paused: "paused",
+    on: "on",
+    none_: "None",
+    handledAt: (t) => `at ${t}`,
+  },
 };
 
 const es: BriefLabels = {
@@ -404,6 +538,73 @@ const es: BriefLabels = {
     setupOk: "Bien",
     setupBad: "Requiere atención",
     setupFailed: "No se pudo correr la revisión de instalación.",
+  },
+  d: {
+    piles: { needs: "Te toca", next: "Sigue", ideas: "Ideas" },
+    left: () => "en tu escritorio",
+    handledToday: (n) => `${n} resueltos hoy`,
+    menu: "Menú del brief",
+    labelsIn: "Etiquetas: español",
+    pileEmpty: "Esta pila está vacía.",
+    clear: "Tu escritorio está limpio.",
+    you: "Hazlo tú",
+    hand: "Dáselo a",
+    away: "Guárdalo",
+    out: "Bandeja de salida",
+    outEmpty: "Aquí caen los papeles resueltos.",
+    none: "Aquí no hay nada que sellar. Dáselo a alguien o guárdalo.",
+    readOnly: "Un día pasado: solo lectura.",
+    backToday: "Volver a hoy",
+    loading: "Leyendo tus proyectos…",
+    retry: "Reintentar",
+    openInPlania: "Abrir en Plania",
+    openOnGithub: "Abrir en GitHub",
+    kinds: { question: "Pregunta", step: "Tu paso", release: "Publicación", pr: "PR en espera", ticket: "Ticket", initiative: "Iniciativa", idea: "Idea", runs: "Proyecto en pausa", env: "Inconsistencia", finding: "Inconsistencia", none: "Nota" },
+    releaseReady: "Publicación · lista",
+    releaseNotReady: (r) => `Publicación · no lista: ${r}`,
+    reasons: { mode_command: "se publica por comando", no_repo: "sin repo de GitHub", no_github_data: "aún sin datos de GitHub", nothing_to_ship: "nada que publicar", before_steps: "pasos antes", open_checks: "checks abiertos", merged: "ya fusionada" },
+    verbs: { answer: "Responder", step_done: "Hecho", add_to_pr: "Agregar al PR", publish: "Publicar a main", accept_pr: "Aceptar en sandbox", request_changes: "Pedir cambios", resume_runs: "Activar corridas", postpone: "Aplazar", put_first: "Hacer primero", hold: "Poner en espera", fix_finding: "Corregir", later: "Después", dismiss: "No aplica" },
+    stamps: { answer: "Respondido", step_done: "Hecho", add_to_pr: "Agregado", publish: "Publicado", accept_pr: "Aceptado", request_changes: "Devuelto", resume_runs: "Activado", postpone: "Aplazado", put_first: "Primero", hold: "En espera", fix_finding: "Corregido", later: "Después", dismiss: "No aplica" },
+    confirm: {
+      publish: (c) => `Esto fusiona ${c.from ?? "sandbox"} en ${c.into ?? "main"} para ${c.project}: ${c.tickets ?? 0} ticket${c.tickets === 1 ? "" : "s"}${c.migrations?.length ? `, migraciones ${c.migrations.join(", ")}` : ", sin migraciones"}. Prod se despliega desde ${c.into ?? "main"}.`,
+      accept_pr: (c) => `Esto fusiona el PR #${c.pr} en sandbox para ${c.project}${c.key ? ` (${c.key})` : ""}. Nada llega a main.`,
+      add_to_pr: (c) => `Plania agrega las líneas a ${c.path ?? "el archivo"} en la rama del PR de ${c.key ?? "el ticket"} y marca el paso como hecho.`,
+      resume_runs: (c) => `Esto activa las corridas de ${c.project}. Sus bots arrancan en el siguiente tick y usan tu plan ($0).`,
+      fix_finding: (c) => `Plania corre la corrección de ${c.code ?? "este hallazgo"}${c.key ? ` en ${c.key}` : ""} y vuelve a auditar ${c.project}.`,
+    },
+    yourAnswer: "Tu respuesta",
+    answerText: "O escríbela",
+    changesAsk: "¿Qué debe cambiar? Vuelve a su dueño con tu nota.",
+    later: "Después",
+    laterHint: "Vuelve mañana",
+    notRelevant: "No aplica",
+    notRelevantHint: "Sale del brief",
+    why: "¿Por qué? (opcional)",
+    cancel: "Cancelar",
+    send: "Devolver",
+    undo: "Deshacer",
+    undone: "Deshecho",
+    failed: "No se pudo",
+    nothingChanged: "Nada cambió.",
+    tryAgain: "Intentar otra vez",
+    stale: "Esto cambió mientras tanto; el papel lo muestra como está ahora.",
+    working: "Trabajando…",
+    roles: { po: "PO", artist: "Artist", research: "Research", taller: "Taller" },
+    giveToPo: "Dárselo al PO",
+    soon: "llega en la siguiente fase",
+    ideaPo: "Que lo planee",
+    ideaCost: (bots, low, high) => `Despierta ${bots} bot${bots === 1 ? "" : "s"} de proyecto · unos ${low}–${high} min · usa tu plan, $0`,
+    wake: "Despertar a",
+    ideasInHand: (n) => `${n} ideas en la mano`,
+    ideaHint: "Dáselas al PO a la derecha, o guárdalas.",
+    dropSelection: "Soltar selección",
+    hideIdea: "Ocultar",
+    hideIdeaHint: "Fuera de las ideas de hoy",
+    ev: { asked: "Pregunta", options: "Opciones", step: "Paso", ticket: "Ticket", status: "Estado", tickets: "Lleva", migrations: "Migraciones", before: "Pasos antes", checks: "Checks abiertos", ahead: "Adelante", state: "Estado", pr: "PR", runs: "Corridas", record: "Registro", finding: "Hallazgo" },
+    paused: "en pausa",
+    on: "activas",
+    none_: "Ninguna",
+    handledAt: (t) => `a las ${t}`,
   },
 };
 

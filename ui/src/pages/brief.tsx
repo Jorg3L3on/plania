@@ -5,13 +5,9 @@
 // today's request through latest.plan_id).
 // Labels follow the brief's language (D5).
 import { useState } from "react";
-import { BriefIdeas } from "@/components/brief/brief-ideas";
-import { BriefSendBar } from "@/components/brief/brief-send-bar";
+import { BriefDesk } from "@/components/brief/desk";
 import { BriefSettingsSheet } from "@/components/brief/brief-settings";
-import { BriefFooter } from "@/components/brief/brief-footer";
 import { BriefHeader } from "@/components/brief/brief-header";
-import { BriefSection, EmptyRow, NeedsRow, NextRow } from "@/components/brief/brief-items";
-import { BriefSummary } from "@/components/brief/brief-summary";
 import { BRIEF_LABELS, briefStamp } from "@/lib/brief-i18n";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -24,7 +20,9 @@ import {
   replyText,
   selectedCodes,
   sectionItems,
+  useBriefAct,
   useBriefByDate,
+  useBriefState,
   useBriefCheck,
   useBriefHistory,
   useBriefLatest,
@@ -97,9 +95,11 @@ export function BriefPage() {
   const planShown = plan && (plan.status === "open" || sent?.id === plan.id) ? plan : null;
   const plans = new Map<string, PlanIdeaProgress>((plan?.ideas ?? []).map((p) => [p.code, p]));
   const cost = data ? planCost(data, selected, latest.data?.home_project ?? null) : null;
-  const onSend = () => {
+  const rows = useBriefState(briefId);
+  const acts = useBriefAct(briefId);
+  const onSendIds = (ids: string[]) => {
     if (!data || !briefId) return;
-    const codes = selectedCodes(data, selected);
+    const codes = selectedCodes(data, new Set(ids));
     if (!codes.length) return;
     send.mutate(
       { briefId, codes },
@@ -113,8 +113,53 @@ export function BriefPage() {
     );
   };
 
+  // PLA-I49-4: with a brief on screen the page is the desk (src/components/brief/desk.tsx); before that, the V1 header
+  // and its empty or error card.
+  if (data && stamp && briefId) {
+    return (
+      <>
+        <BriefSettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} language={language} />
+        <BriefDesk
+          data={data}
+          briefId={briefId}
+          state={rows.data && rows.data.brief_id === briefId ? rows.data : undefined}
+          stateLoading={rows.isLoading}
+          checks={checks}
+          language={language}
+          readOnly={readOnly || !!rows.data?.read_only}
+          stamp={stamp}
+          run={latest.data?.run ?? null}
+          generating={run.isPending}
+          canGenerate={enabled}
+          onGenerate={() => run.mutate(undefined)}
+          history={history.data ?? []}
+          todayDate={latest.data?.brief?.local_date ?? null}
+          date={date}
+          onDate={setDate}
+          onSettings={() => setSettingsOpen(true)}
+          banner={refreshFailed ? "refresh-failed" : readOnly ? "past" : null}
+          onRetry={() => void latest.refetch()}
+          onAct={(body) => acts.act.mutateAsync({ ...body, brief_id: briefId })}
+          onUndo={(actionId, itemId) => acts.undo.mutateAsync({ actionId, itemId })}
+          acting={acts.act.isPending || acts.undo.isPending}
+          onHideIdea={(id) => onCheck(id, true)}
+          selected={selected}
+          onSelect={onSelect}
+          onClearSelection={() => setPicked({ brief: briefId, ids: new Set() })}
+          onSendIdeas={(ids) => {
+            setPicked({ brief: briefId, ids: new Set(ids) });
+            onSendIds(ids);
+          }}
+          ideaCost={(ids) => planCost(data, ids, latest.data?.home_project ?? null)}
+          sending={send.isPending}
+          plans={plans}
+        />
+      </>
+    );
+  }
+
   return (
-    <div className="grid gap-6 sm:gap-8" lang={language} data-brief="page">
+    <div className="mx-auto grid w-full max-w-[1480px] gap-6 px-4 pt-5 sm:gap-8 sm:px-6" lang={language} data-brief="page">
       <BriefHeader
         language={language}
         stamp={stamp}
@@ -129,75 +174,18 @@ export function BriefPage() {
         onSettings={() => setSettingsOpen(true)}
       />
       <BriefSettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} language={language} />
-
       {(refreshFailed || readOnly) && (
         <p className="-mt-3 text-sm text-muted-foreground" role="status" data-brief={refreshFailed ? "refresh-failed" : "past"}>
           {refreshFailed ? t.refreshFailed : t.pastDay}
         </p>
       )}
-
-      {empty && (
-        <Card className="rounded-2xl">
-          <CardContent>
-            <p className="text-muted-foreground" data-brief="empty">
-              {empty}
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {data && stamp && (
-        <>
-          <BriefSummary data={data} checks={checks} language={language} view={view} onView={setView} app={appFilter} onApp={setApp} />
-
-          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
-            <BriefSection id="needs" title={t.needsYou} count={needs.filter((i) => !isChecked.has(i.id)).length}>
-              {needs.length ? (
-                <ul className="divide-y divide-border">
-                  {needs.map((item, i) => (
-                    <NeedsRow key={item.id} item={item} index={i} app={appOf(item.app)} checked={isChecked.has(item.id)} readOnly={readOnly} onCheck={onCheck} language={language} />
-                  ))}
-                </ul>
-              ) : (
-                <EmptyRow>{t.noNeeds}</EmptyRow>
-              )}
-            </BriefSection>
-            <BriefSection id="next" title={t.upNext} count={next.filter((i) => !isChecked.has(i.id)).length}>
-              {next.length ? (
-                <ul className="divide-y divide-border">
-                  {next.map((item) => (
-                    <NextRow key={item.id} item={item} app={appOf(item.app)} checked={isChecked.has(item.id)} readOnly={readOnly} onCheck={onCheck} language={language} />
-                  ))}
-                </ul>
-              ) : (
-                <EmptyRow>{t.noNext}</EmptyRow>
-              )}
-            </BriefSection>
-          </div>
-
-          <BriefIdeas groups={groups} checks={checks} selected={selected} readOnly={readOnly} onCheck={onCheck} onSelect={onSelect} language={language} plans={plans} />
-
-          <BriefFooter data={data} stamp={stamp} language={language} />
-
-          <BriefSendBar
-            count={selected.size}
-            reply={replyText(data, selected)}
-            onClear={() => setPicked({ brief: briefId, ids: new Set() })}
-            language={language}
-            canSend={!readOnly}
-            onSend={onSend}
-            cost={cost}
-            sending={send.isPending}
-            sendError={send.isError}
-            alreadySent={sent && sent.id === planShown?.id ? sent.already : []}
-            plan={planShown}
-            onDismiss={() => {
-              if (plan) setDismissed(plan.id);
-              setSent(null);
-            }}
-          />
-        </>
-      )}
+      <Card className="rounded-2xl">
+        <CardContent>
+          <p className="text-muted-foreground" data-brief="empty">
+            {empty ?? (latest.isLoading ? t.d.loading : t.failed)}
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }
