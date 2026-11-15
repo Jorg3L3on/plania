@@ -8,9 +8,9 @@ import { useQuery } from "@tanstack/react-query";
 import { CiudadOficina } from "@/components/home/ciudad";
 import type { Decision, OrgProject } from "@/lib/api";
 import { api } from "@/lib/api";
-import { cityOf, waitingOf, workingCity, type District } from "@/lib/city";
-import { floorHue, floorOrder, nowLine } from "@/lib/edificio";
-import { flightsOf, headlineOf } from "@/lib/home";
+import { cityOf, crewCity, waitingOf, type District } from "@/lib/city";
+import { floorHue, floorOrder, nowLine, workingNow } from "@/lib/edificio";
+import { headlineOf } from "@/lib/home";
 import { legLooks } from "./route";
 
 export const OficinaCiudad = ({ projects, decisions, now, timeZone, companyPaused, pre, links, onPiso, onResume, resuming }: {
@@ -32,17 +32,19 @@ export const OficinaCiudad = ({ projects, decisions, now, timeZone, companyPause
   const { floors, basement } = floorOrder(projects, decisions);
   const model = useMemo(() => {
     const all = cityOf(list.data ?? [], (inbox.data?.items ?? []).filter((i) => i.group !== "limpieza"));
-    const working = new Map(workingCity(all).map((d) => [d.slug, d]));
-    const items = machine.data?.items ?? [];
+    // PLA-32: one source. The headline, the plates and the cranes all count teammates whose run is live (Compañía's
+    // reading), not Inicio's claims.
+    const flights = workingNow(projects, companyPaused);
+    const working = new Map(crewCity(all, flights).map((d) => [d.slug, d]));
     const headline = headlineOf({
       projects: list.data ?? [],
-      flights: flightsOf(list.data ?? [], items),
+      flights,
       inbox: waitingOf(all, (inbox.data?.items ?? []).filter((i) => i.group !== "limpieza")),
       totals: machine.data?.totals ?? null,
       nowMs: now,
     });
     return { working, headline };
-  }, [list.data, inbox.data, machine.data, now]);
+  }, [list.data, inbox.data, machine.data, now, projects, companyPaused]);
 
   // Districts with towers first (in the tower's order), then the empty lots, so what is moving is never off screen.
   const lots: District[] = floors.map((p) => model.working.get(p.slug) ?? { slug: p.slug, title: p.title, towers: [] });
