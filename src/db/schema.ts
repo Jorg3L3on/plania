@@ -219,6 +219,8 @@ export const tasks = pgTable(
     assignHops: integer("assign_hops").notNull().default(0),
     // PLA-I46-11: the PO's check list, copied onto each step of an accepted plan; QA ticks it.
     poChecklist: jsonb("po_checklist").$type<PoCheck[]>().notNull().default(sql`'[]'::jsonb`),
+    // PLA-I52-1: what Taller hands over with a delivery so Plania can show it (src/captures/muestra.ts). Null until finish.
+    muestra: jsonb("muestra").$type<import("../captures/muestra.js").Muestra>(),
   },
   (t) => [
     unique("tasks_project_key_unique").on(t.projectId, t.key),

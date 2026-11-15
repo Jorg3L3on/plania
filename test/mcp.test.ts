@@ -1155,7 +1155,7 @@ describe("v2 C4: protocol and project text", () => {
     assert.match(text, /Unknown or missing data is caution, never ready/);
     assert.equal(client.getServerVersion()?.version, "2.21.0");
     const p = await call("get_project", { project: "zigzag" });
-    assert.equal(p.protocol_version, "2.21");
+    assert.equal(p.protocol_version, "2.22");
   });
 
   test("set_project edits body and rules with the version; rules_version follows the rules", async () => {

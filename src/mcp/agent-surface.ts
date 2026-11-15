@@ -1,6 +1,8 @@
 import type { Db } from "../db/client.js";
 import { tasks, type Workspace } from "../db/schema.js";
 import { eq } from "drizzle-orm";
+import { changedFiles, DEFAULT_UI_GLOBS, MUESTRA_HINT, parseMuestra, uiFiles, type Muestra } from "../captures/muestra.js";
+import { defaultGit, repoPathOf, type GitFn } from "../runner/worktree.js";
 import { getContext } from "./context.js";
 import { addResultInTx, type AddResultInput } from "./evidence.js";
 import { ToolError, findProject, requireTask } from "./queries.js";
@@ -37,10 +39,49 @@ export type FinishInput = {
   version?: number;
   note?: string;
   no_pr_reason?: string;
+  muestra?: unknown;
 };
 
-export async function finish(db: Db, input: FinishInput, ctx: Ctx) {
+// PLA-I52-1: how finish reads a branch's changed files (tests inject it). null = it could not tell.
+export type FinishDeps = { changedFiles?: (repo: string, base: string, branch: string) => Promise<string[] | null>; git?: GitFn };
+
+// The muestra check, before the transaction (it reads git). A code delivery on a project Plania photographs
+// (settings.capture) that touches the screen needs a muestra, passed now or stored by an earlier finish. When
+// Plania cannot read the diff (no repo on this Mac, unknown branch) it does not refuse: the warning says so.
+async function muestraGate(
+  db: Db,
+  p: Awaited<ReturnType<typeof findProject>>,
+  input: FinishInput,
+  deps: FinishDeps,
+): Promise<{ muestra: Muestra | null; warning?: string }> {
+  let muestra: Muestra | null = null;
+  if (input.muestra !== undefined && input.muestra !== null) {
+    const parsed = parseMuestra(input.muestra);
+    if (!parsed.ok) throw new ToolError("MUESTRA_INVALID", { field: parsed.field, hint: parsed.hint });
+    muestra = parsed.muestra;
+  }
+  const t = await requireTask(db, p.id, input.key);
+  const capture = p.settings?.capture;
+  if (muestra || t.muestra || !capture || t.kind !== "ticket" || (t.workType ?? "code") !== "code") return { muestra };
+  const branch = input.branch?.trim() || t.branch || t.workspace?.branch;
+  if (!branch) return { muestra, warning: "muestra not checked: no branch on the ticket or in this call" };
+  let base = p.settings?.release?.from ?? "main";
+  if (t.parentId) {
+    const [parent] = await db.select({ base: tasks.baseBranch }).from(tasks).where(eq(tasks.id, t.parentId)).limit(1);
+    if (parent?.base) base = parent.base;
+  }
+  const repo = repoPathOf(p.slug, p.settings ?? null);
+  const read = deps.changedFiles ?? ((r, b, h) => changedFiles(deps.git ?? defaultGit, r, b, h));
+  const files = await read(repo, base, branch).catch(() => null);
+  if (!files) return { muestra, warning: `muestra not checked: could not read ${base}...${branch} in ${repo}` };
+  const ui = uiFiles(files, capture.ui_globs ?? DEFAULT_UI_GLOBS);
+  if (ui.length) throw new ToolError("MUESTRA_REQUIRED", { key: t.key, base, branch, ui_files: ui.slice(0, 12), hint: MUESTRA_HINT });
+  return { muestra };
+}
+
+export async function finish(db: Db, input: FinishInput, ctx: Ctx, deps: FinishDeps = {}) {
   const p = await findProject(db, input.project);
+  const gate = await muestraGate(db, p, input, deps);
   return writeTx(db, p, ctx, async (tx, emit) => {
     const t = await requireTask(tx, p.id, input.key);
     if (t.kind !== "ticket") throw new ToolError("INVALID_TRANSITION", { from: t.status, to: "In review", hint: "finish is for tickets; an initiative closes with set_task" });
@@ -60,6 +101,11 @@ export async function finish(db: Db, input: FinishInput, ctx: Ctx) {
       ctx,
     );
     const changed = [...new Set(["results", ...(added.changed.includes("checks") ? ["checks"] : []), ...moved.changed])];
+    if (gate.muestra) {
+      await tx.update(tasks).set({ muestra: gate.muestra }).where(eq(tasks.id, t.id));
+      changed.push("muestra");
+      await emit("task.muestra", { id: t.id, key: t.key }, { vistas: gate.muestra.vistas.map((v) => v.key) });
+    }
     if (noPr && !prUrl) {
       changed.push("no_pr");
       await emit("task.no_pr", { id: t.id, key: t.key }, { reason: noPr, to: "In review" });
@@ -71,6 +117,6 @@ export async function finish(db: Db, input: FinishInput, ctx: Ctx) {
       initiative = { key: r.key, version: r.version, next_action: input.note.trim() };
     }
     const { changed: _c, ...rest } = moved;
-    return { ...rest, changed, result: added.result, ...(initiative ? { initiative } : {}) };
+    return { ...rest, changed, result: added.result, ...(initiative ? { initiative } : {}), ...(gate.warning ? { warnings: [gate.warning] } : {}) };
   });
 }
