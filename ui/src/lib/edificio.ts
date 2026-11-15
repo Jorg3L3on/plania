@@ -125,6 +125,22 @@ export const windowLabel = (m: OrgMember, project: string, now: number, companyP
 
 export const isPaused = (p: OrgProject) => p.paused || p.light === "paused";
 export const waitsOnOwner = (p: OrgProject, decisions: Decision[]) => p.light === "needs_jorge" || decisions.some((d) => d.project === p.slug && pending(d));
+/** PLA-32: who works now, by Compañía's reading (a teammate whose run is live), on floors that are not paused. The
+ *  Oficina headline counts these, so it says the same as each plate's word (nowLine «work»). */
+/** PLA-32: whether /ceo shows Oficina for this address: ?edificio, or nothing that names a floor (?piso, a La ficha
+ *  link ?f/?m/?plan/?add, or ?decision). So Compañía opens on Oficina; a sheet (?asistente, ?doc, ?nuevo) opens over it. */
+export function oficinaOf(search: string): boolean {
+  const q = new URLSearchParams(search);
+  return q.has("edificio") || !["piso", "f", "m", "plan", "add", "decision"].some((k) => q.has(k));
+}
+
+export function workingNow(projects: OrgProject[], companyPaused?: boolean): { slug: string; agent: string; ticket: string | null; title: string | null }[] {
+  if (companyPaused) return [];
+  return projects
+    .filter((p) => !isPaused(p))
+    .flatMap((p) => p.team.filter((m) => m.state === "running").map((m) => ({ slug: p.slug, agent: m.agent, ticket: m.now?.ticket ?? null, title: m.now?.title ?? null })));
+}
+
 export function floorOrder(projects: OrgProject[], decisions: Decision[]): { floors: OrgProject[]; basement: OrgProject[] } {
   const live = projects.filter((p) => !isPaused(p));
   const floors = [...live].sort((a, b) => Number(!waitsOnOwner(a, decisions)) - Number(!waitsOnOwner(b, decisions)) || byLight(a, b));

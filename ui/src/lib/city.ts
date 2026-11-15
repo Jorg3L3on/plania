@@ -149,6 +149,31 @@ export function workingCity(districts: District[]): District[] {
   return districts.map((d) => ({ ...d, towers: d.towers.filter((t) => t.working) })).filter((d) => d.towers.length > 0);
 }
 
+/**
+ * PLA-32: Oficina's skyline with its cranes from Compañía's reading (who is running now), the same one its headline and
+ * plates use. A teammate's crane stands on the initiative its ticket belongs to (MIA-I3-2 → MIA-I3); one whose ticket
+ * names no open tower goes on the district's first tower. A tower stands if it is working or has a crane.
+ */
+export function crewCity(districts: District[], crew: { slug: string; agent: string; ticket: string | null; title: string | null }[]): District[] {
+  return districts
+    .map((d) => {
+      const mine = crew.filter((c) => c.slug === d.slug);
+      const home = (c: (typeof mine)[number]) => d.towers.find((t) => !!c.ticket && (c.ticket === t.key || c.ticket.startsWith(`${t.key}-`)));
+      const towers = d.towers.map((t) => ({ ...t, agents: mine.filter((c) => home(c) === t).map((c) => ({ key: c.ticket ?? t.key, title: c.title ?? t.title, agent: c.agent, model: null })) }));
+      const shown = towers.filter((t) => t.working || t.agents.length > 0);
+      const loose = mine.filter((c) => !home(c));
+      if (loose.length > 0) {
+        const first = shown[0] ?? towers[0];
+        if (first) {
+          first.agents = [...first.agents, ...loose.map((c) => ({ key: c.ticket ?? first.key, title: c.title ?? first.title, agent: c.agent, model: null }))];
+          if (!shown.includes(first)) shown.unshift(first);
+        }
+      }
+      return { ...d, towers: shown };
+    })
+    .filter((d) => d.towers.length > 0);
+}
+
 /** Inbox items that belong to no open initiative: they still wait on Jorge, outside the skyline. */
 export function looseInbox(districts: District[], inbox: InboxItem[]): InboxItem[] {
   const placed = new Set(districts.flatMap((d) => d.towers.flatMap((t) => t.inbox.map((i) => i.id))));

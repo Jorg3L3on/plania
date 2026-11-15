@@ -128,7 +128,7 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
         </div>
       ) : (
         <div className="edi-bld" data-open={open?.slug} data-zoom={office ? "out" : "in"} data-ficha={ficha && !office ? (fichaOpen ? "open" : "closed") : undefined}>
-          <Tower floors={floors} basement={basement} decisions={decisions} projects={company.projects} appsOn={appsOn} open={open?.slug ?? null} officeOpen={!!office} companyPaused={paused} onPiso={onPiso} onOffice={onOffice} onNew={onNew} />
+          <Tower floors={floors} basement={basement} decisions={decisions} projects={company.projects} appsOn={appsOn} open={office ? null : (open?.slug ?? null)} officeOpen={!!office} companyPaused={paused} onPiso={onPiso} onOffice={onOffice} onNew={onNew} />
           {/* Tu oficina: what waits on the owner across floors, over the floor while open. */}
           {!office && (
             <div className="edi-office" data-office={officeOpen ? "open" : "closed"} hidden={!officeOpen}>

@@ -35,7 +35,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ApiError, api, type Decision, type DecisionInput, type OrgProject } from "@/lib/api";
 import { ceoRedirect, sheetOf, sheetSearch } from "@/lib/compania";
-import { caption, floorOrder } from "@/lib/edificio";
+import { caption, floorOrder, oficinaOf } from "@/lib/edificio";
 import { openFloor, stepFloor } from "@/components/compania/edificio/tower";
 import { Ficha, type Load } from "@/components/compania/edificio/ficha";
 import { Resguardo } from "@/components/compania/edificio/resguardo";
@@ -176,7 +176,8 @@ const Compania = () => {
   const nivel: Nivel = nivelOf(location.search);
   const onPiso = (slug: string) => navigate({ pathname: "/ceo", search: `?piso=${encodeURIComponent(slug)}${nivel === "maquinas" ? "&nivel=maquinas" : ""}` }, { replace: true });
   // PLA-I47-5: ?edificio is the building zoomed out (Tu oficina and one row per project); a floor zooms back in.
-  const zoomOut = new URLSearchParams(location.search).has("edificio");
+  // PLA-32: /ceo that names no floor (no ?piso, no ficha link, no ?decision) is Oficina too, so Compañía opens there.
+  const zoomOut = oficinaOf(location.search);
   const shellSlot = useShellSlot();
   const setZoom = (out: boolean, slug = piso) => {
     const q = new URLSearchParams();
