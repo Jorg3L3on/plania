@@ -138,6 +138,7 @@ describe("finish and the muestra", () => {
     assert.ok(r.changed.includes("muestra"));
     const t = await call("get_task", { ...P, key });
     assert.deepEqual(t.muestra, MUESTRA);
+    assert.equal((await raw.query(`select cambio from tasks where key = $1`, [key])).rows[0].cambio, "se_ve");
     const log = await call("list_events", { ...P, key });
     assert.ok(log.events.some((e: Json) => e.type === "task.muestra"));
   });
@@ -158,6 +159,7 @@ describe("finish and the muestra", () => {
     assert.equal(r.status, "In review");
     const t = await call("get_task", { ...P, key });
     assert.equal(t.muestra, undefined);
+    assert.equal((await raw.query(`select cambio from tasks where key = $1`, [key])).rows[0].cambio, "no_se_ve", "PLA-I52-7: finish records the kind of change");
   });
 
   test("a project Plania does not photograph never asks for one", async () => {

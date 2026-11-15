@@ -241,3 +241,16 @@ test("I52-6 layer: Señalar algo, the pins list once there are pins, and Pregún
   assert.ok(unq(text(layer)).includes("¿En el teléfono? Taller la recibió. Te responde aquí."));
   assert.match(layer, /data-control="preguntar"/);
 });
+
+test("I52-7 Ahora: a delivery that changes nothing on screen says so, and «Solo lo que no se ve» sits beside «Aceptar sola»", () => {
+  const d = delivery({ id: "m-pb-7", cambio: "no_se_ve" });
+  store.setRead("demo", "DEM-3", d.id, READ);
+  store.setProbador("demo", "DEM-3", d.id, { ...PROB, muestra: null, vistas: [] });
+  const card = nowCard(render(company(project({ auto_accept: { on: false, hold: null, invisible: true } }), [d])));
+  assert.match(card, /data-ev="cambio" data-cambio="no_se_ve"/);
+  assert.ok(unq(text(card)).includes("Nada cambia en pantalla"));
+  assert.match(card, /role="switch" class="edi-sw" aria-checked="true"[^>]*data-control="aceptar-invisible"/);
+  assert.ok(unq(text(card)).includes("Solo lo que no se ve · encendido"));
+  const se = nowCard(render(company(project(), [delivery({ id: "m-pb-8", cambio: "se_comporta" })])));
+  assert.ok(unq(text(se)).includes("Cambia lo que hace la app"));
+});

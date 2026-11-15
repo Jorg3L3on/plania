@@ -115,12 +115,27 @@ export const EvidenceBody = memo(function EvidenceBody({ p, d, acts, qacts, inLa
   const sheet = inLayer || layer?.id !== d.id;
   const v = evidenceView(read, d);
   const on = !!p.auto_accept?.on;
+  const invisible = !!p.auto_accept?.invisible;
+  // PLA-I52-7: a change with nothing to see says so plainly; one that acts without a screen asks for its result.
+  const kindTile =
+    shown || !d.cambio || d.cambio === "se_ve"
+      ? null
+      : d.cambio === "no_se_ve"
+        ? { title: "Nada cambia en pantalla", sub: "Cambian datos o código por dentro: juzga con las pruebas y la revisión." }
+        : { title: "Cambia lo que hace la app", sub: "No tiene pantalla propia: pide a Taller el resultado (el correo, el archivo) con Pregúntale o Devolver." };
   const busy = acts?.busy === `${p.slug}:auto`;
   return (
     <div className="edi-ev" data-evidence={d.id} data-probador-on={shown ? "1" : undefined} aria-busy={v.loading || undefined}>
       {shown && (inLayer ? <ProbadorViewer p={p} d={d} read={shown} /> : <ProbadorStrip p={p} d={d} read={shown} />)}
       <EvRight on={!!(shown && inLayer)}>
       {shown && inLayer && <ProbadorSide p={p} d={d} read={shown} />}
+      {kindTile && (
+        <div className="edi-evt" data-ev="cambio" data-cambio={d.cambio ?? undefined}>
+          <p className="edi-peye">Qué cambia</p>
+          <b>{kindTile.title}</b>
+          <span>{kindTile.sub}</span>
+        </div>
+      )}
       <div className="edi-evt" data-ev="tests">
         <p className="edi-peye">Pruebas</p>
         <b data-ok={v.tests.ok === null ? undefined : v.tests.ok ? "1" : "0"}>{v.loading ? "…" : v.tests.value}</b>
@@ -161,7 +176,13 @@ export const EvidenceBody = memo(function EvidenceBody({ p, d, acts, qacts, inLa
           <i aria-hidden />
           {EV_WORDS.auto} · {on ? "encendido" : "apagado"}
         </button>
-        {on && p.auto_accept?.hold && <span data-auto-hold>No se aceptó sola: {p.auto_accept.hold}</span>}
+        {!on && (
+          <button type="button" role="switch" className="edi-sw" aria-checked={invisible} onClick={() => acts?.onAutoInvisible?.(p.slug, !invisible)} disabled={!acts?.onAutoInvisible || busy} data-control="aceptar-invisible">
+            <i aria-hidden />
+            Solo lo que no se ve · {invisible ? "encendido" : "apagado"}
+          </button>
+        )}
+        {(on || invisible) && p.auto_accept?.hold && <span data-auto-hold>No se aceptó sola: {p.auto_accept.hold}</span>}
       </div>
       </EvRight>
       {sheet && <ReturnSheet d={d} qacts={qacts} where={inLayer ? "capa" : "ahora"} />}

@@ -510,7 +510,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       thread: threadLine(thread),
       plan,
       route: await routeOf(db, p),
-      auto_accept: { on: !!p.settings.auto_accept, hold: null },
+      auto_accept: { on: !!p.settings.auto_accept, hold: null, ...(p.settings.auto_accept_invisible ? { invisible: true } : {}) },
       latest: await latestOf(db, p),
       stale_requests: stale,
       this_week: await thisWeekOf(db, p, now),
@@ -552,7 +552,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       c.light_reason = null;
     }
   }
-  for (const c of cards) if (c.auto_accept.on) c.auto_accept = await autoAcceptOf(db, all.find((p) => p.slug === c.slug)!, decisions);
+  for (const c of cards) if (c.auto_accept.on || c.auto_accept.invisible) c.auto_accept = await autoAcceptOf(db, all.find((p) => p.slug === c.slug)!, decisions);
   for (const c of cards) c.next_move = nextMove(c, decisions, { companyPaused: settings.companyPaused });
   return {
     company: { paused: settings.companyPaused },

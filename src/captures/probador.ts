@@ -262,6 +262,33 @@ export async function probadorRead(db: Db, slug: string, key: string): Promise<P
   return { key: t.key, muestra: m, state: t.probador ?? null, vistas, entrega: entregaRead(slug), preguntas: await preguntasOf(db, got.p, t) };
 }
 
+// PLA-I52-7: the release card's reel. For each ticket the release ships that changed the screen, its newest
+// después picture (desktop) and how it changed, so publishing to production also shows what users will see.
+export type ReelItem = { key: string; title: string; label: string; kind: "nueva" | "cambio"; image_url: string };
+export async function releaseReel(db: Db, projectId: string, slug: string, tickets: { key: string; title: string }[]): Promise<ReelItem[]> {
+  const out: ReelItem[] = [];
+  for (const tk of tickets.slice(0, 20)) {
+    const [t] = await db.select({ id: tasks.id, cambio: tasks.cambio, muestra: tasks.muestra }).from(tasks).where(and(eq(tasks.projectId, projectId), eq(tasks.key, tk.key))).limit(1);
+    if (!t?.muestra || t.cambio === "no_se_ve") continue;
+    const rows = await db
+      .select()
+      .from(captureStills)
+      .where(and(eq(captureStills.taskId, t.id), eq(captureStills.viewport, "desktop"), inArray(captureStills.side, ["antes", "despues"])))
+      .orderBy(desc(captureStills.takenAt));
+    for (const v of t.muestra.vistas) {
+      const d = rows.find((r) => r.pageKey === v.key && r.side === "despues" && r.status === "ok");
+      if (!d) continue;
+      const a = rows.find((r) => r.pageKey === v.key && r.side === "antes");
+      const diff = d.diff as Record<string, unknown> | null;
+      const kind = a?.missing || diff?.nueva ? "nueva" : diff && "x" in diff ? "cambio" : null;
+      if (!kind) continue;
+      out.push({ key: tk.key, title: tk.title, label: v.label, kind, image_url: imageUrl(slug, d.id) });
+      break;
+    }
+  }
+  return out;
+}
+
 export function assertKey(key: string): string {
   if (!/^[A-Z][A-Z0-9]*-[A-Z0-9-]+$/.test(key)) throw new ToolError("INVALID_FILTER", { field: "key" });
   return key;

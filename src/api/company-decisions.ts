@@ -43,7 +43,7 @@ import { jorgePosts } from "./threads.js";
 import { applyFileStep, fileStepOf, stepOf, type FileStep } from "./file-step.js";
 import { requestVerify, verifyingOf, whoWord, type Verifying } from "./verify.js";
 import { qaGate } from "../runner/qa.js";
-import { probadorGate } from "../captures/probador.js";
+import { probadorGate, releaseReel, type ReelItem } from "../captures/probador.js";
 import { cleanMarcas, marcasText } from "../captures/preguntas.js";
 
 const HOUR = 3_600_000;
@@ -77,7 +77,7 @@ export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 // PLA-I39-1: who asked, so the screen hangs the decision under that teammate's window. Null: nobody on a team.
 export type DecisionAsker = { agent: string; role: string };
-export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number };
+export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[] };
 export type Decision = {
   id: string;
   project: string | null;
@@ -107,6 +107,8 @@ export type Decision = {
   file_step: FileStep | null;
   // The owner's run on this ticket while it is queued or running (e.g. re-running its checks): the card says so.
   verify: Verifying | null;
+  // PLA-I52-7: the kind of change a delivery is (from its diff at finish), so the card shapes its proof.
+  cambio?: "se_ve" | "se_comporta" | "no_se_ve" | null;
 };
 
 // ---- parsing a PO's proposal
@@ -421,6 +423,7 @@ async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, 
       detail: firstLine(m.body, 200),
       ...ev,
       hold: ev.hold ?? qa?.hold ?? shots?.hold ?? null,
+      cambio: (ticket?.cambio as Decision["cambio"]) ?? null,
       links: linksOf(m.links),
       body: m.body,
       asker: await ownerAsker(db, p, ticket, m.authorAgent),
@@ -550,6 +553,7 @@ async function pasoRows(db: Db, all: Project[], inbox: Map<string, InboxItem[]>,
             tickets: plan.tickets.map((t) => ({ key: t.key, title: t.title })),
             open_checks: plan.open_checks,
             before: plan.before.length,
+            ...(await releaseReel(db, p.id, p.slug, plan.tickets).then((reel) => (reel.length ? { reel } : {}))),
           },
         });
       }

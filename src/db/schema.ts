@@ -224,6 +224,8 @@ export const tasks = pgTable(
     // PLA-I52-3: where the delivery's pictures stand (src/captures/probador.ts). Null until Plania starts them.
     probador: jsonb("probador").$type<import("../captures/probador.js").ProbadorState>(),
     // PLA-I52-6: what the owner asked about the delivery (answers live in the project thread).
+    // PLA-I52-7: the kind of change finish read from the diff: se_ve | se_comporta | no_se_ve. Null when unknown.
+    cambio: text("cambio"),
     preguntas: jsonb("preguntas").$type<{ id: string; text: string; at: string }[]>().notNull().default(sql`'[]'::jsonb`),
   },
   (t) => [
@@ -784,6 +786,9 @@ export type ProjectSettings = {
   preview_url?: string;
   // PLA-I40-7: a delivery whose tests pass is accepted into the test copy without the owner. Off unless set.
   auto_accept?: boolean;
+  // PLA-I52-7: «solo lo que no se ve». With auto_accept off, deliveries whose diff does not change the screen
+  // (tasks.cambio no_se_ve) are accepted alone into the test copy under the same rules. Off unless set.
+  auto_accept_invisible?: boolean;
   // PLA-I46-6: how Plania starts and captures the project's test copy (src/captures/settings.ts).
   capture?: import("../captures/settings.js").CaptureSettings;
   // PLA-I46-9: the QA lane's verify list and review model (src/runner/qa-settings.ts).

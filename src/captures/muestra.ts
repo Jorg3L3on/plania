@@ -83,6 +83,16 @@ export async function changedFiles(git: GitFn, repo: string, base: string, branc
   return null;
 }
 
+// PLA-I52-7: the kind of change, from the files it touches. se_ve: the screen; se_comporta: what the app does with
+// no screen of its own (mail, exports, jobs); no_se_ve: everything else (data, refactors, dependencies).
+export type Cambio = "se_ve" | "se_comporta" | "no_se_ve";
+const BEHAVIOR = /(^|[/._-])(mail|mailer|email|correo|aviso|notif|export|exportar|excel|xlsx|csv|pdf|webhook|cron|job|jobs|sms|whatsapp)([/._-]|s?\.|$)/i;
+export function cambioOf(files: string[], globs: readonly string[] = DEFAULT_UI_GLOBS): Cambio {
+  if (uiFiles(files, globs).length) return "se_ve";
+  if (files.some((f) => !NOT_UI.some((n) => n.test(f)) && BEHAVIOR.test(f))) return "se_comporta";
+  return "no_se_ve";
+}
+
 export function parseMuestra(v: unknown): { ok: true; muestra: Muestra } | { ok: false; field: string; hint: string } {
   const r = muestraSchema.safeParse(v);
   if (r.success) return { ok: true, muestra: r.data };

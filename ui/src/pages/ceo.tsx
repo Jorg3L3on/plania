@@ -508,6 +508,17 @@ const Compania = () => {
           refresh();
         });
     },
+    onAutoInvisible: (slug: string, on: boolean) => {
+      setNowBusy(`${slug}:auto`);
+      void api
+        .setProjectOptions(slug, { auto_accept_invisible: on })
+        .then(() => toast(on ? "Las entregas que no cambian la pantalla se aceptan solas." : "Vuelves a aceptar también lo que no se ve."))
+        .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+        .finally(() => {
+          setNowBusy(null);
+          refresh();
+        });
+    },
     onResend: (slug: string, key: string) => {
       setNowBusy(`${slug}:request`);
       void api

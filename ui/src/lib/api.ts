@@ -185,7 +185,7 @@ export const api = {
     request<StartNowResult>("POST", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/start`, pastGuard ? { past_guard: true } : {}),
   askProject: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean }) => request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, input),
   pickNext: (slug: string, key: string) => request<{ next: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/next`, { key }),
-  setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null; auto_accept?: boolean }) =>
+  setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null; auto_accept?: boolean; auto_accept_invisible?: boolean }) =>
     request<{ plan_approval: boolean; preview_url: string | null }>("PUT", `/company/projects/${encodeURIComponent(slug)}/options`, input),
   stopRun: (id: string) => request<{ stopped: true; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/stop`),
   resumeRun: (id: string) => request<{ woke: boolean; reason: string; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/resume`),
@@ -265,7 +265,7 @@ export type OrgProject = {
   // PLA-I35-1: the card as a report.
   plan: OrgPlan | null;
   // PLA-I40-7: the accept-by-itself switch, and why the oldest waiting delivery was not accepted.
-  auto_accept?: { on: boolean; hold: string | null };
+  auto_accept?: { on: boolean; hold: string | null; invisible?: boolean };
   // PLA-I40-6: what just happened here, and the owner's requests nobody took.
   latest?: OrgLatest[];
   stale_requests?: OrgStaleRequest[];
@@ -338,7 +338,8 @@ export type DecisionPlan = {
 export type DecisionEvidence = { verdict: string; kind: string; cite: string; pass: number | null; fail: number | null; at: string };
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
-export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number };
+export type ReelItem = { key: string; title: string; label: string; kind: "nueva" | "cambio"; image_url: string };
+export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[] };
 export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar";
 // PLA-I46-9/10: GET /api/projects/:slug/qa/:key (src/runner/qa.ts qaEvidence).
 export type QaState = "off" | "none" | "waiting" | "checking" | "reviewing" | "pass" | "fail" | "returned" | "error";
@@ -383,6 +384,7 @@ export type Decision = {
   body?: string | null;
   checks?: DecisionChecks | null;
   release?: DecisionRelease | null;
+  cambio?: "se_ve" | "se_comporta" | "no_se_ve" | null;
   // PLA-I36-7/8/10.
   combinable?: number[][];
   recommended_reason?: string | null;

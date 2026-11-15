@@ -1,7 +1,7 @@
 import type { Db } from "../db/client.js";
 import { tasks, type Workspace } from "../db/schema.js";
 import { eq } from "drizzle-orm";
-import { changedFiles, DEFAULT_UI_GLOBS, MUESTRA_HINT, parseMuestra, uiFiles, type Muestra } from "../captures/muestra.js";
+import { cambioOf, changedFiles, DEFAULT_UI_GLOBS, MUESTRA_HINT, parseMuestra, uiFiles, type Cambio, type Muestra } from "../captures/muestra.js";
 import { defaultGit, repoPathOf, type GitFn } from "../runner/worktree.js";
 import { getContext } from "./context.js";
 import { addResultInTx, type AddResultInput } from "./evidence.js";
@@ -53,7 +53,7 @@ async function muestraCheck(
   p: Awaited<ReturnType<typeof findProject>>,
   input: FinishInput,
   deps: FinishDeps,
-): Promise<{ muestra: Muestra | null; warning?: string }> {
+): Promise<{ muestra: Muestra | null; cambio?: Cambio; warning?: string }> {
   let muestra: Muestra | null = null;
   if (input.muestra !== undefined && input.muestra !== null) {
     const parsed = parseMuestra(input.muestra);
@@ -62,7 +62,7 @@ async function muestraCheck(
   }
   const t = await requireTask(db, p.id, input.key);
   const capture = p.settings?.capture;
-  if (muestra || t.muestra || !capture || t.kind !== "ticket" || (t.workType ?? "code") !== "code") return { muestra };
+  if (!capture || t.kind !== "ticket" || (t.workType ?? "code") !== "code") return { muestra };
   const branch = input.branch?.trim() || t.branch || t.workspace?.branch;
   if (!branch) return { muestra, warning: "muestra not checked: no branch on the ticket or in this call" };
   let base = p.settings?.release?.from ?? "main";
@@ -75,8 +75,9 @@ async function muestraCheck(
   const files = await read(repo, base, branch).catch(() => null);
   if (!files) return { muestra, warning: `muestra not checked: could not read ${base}...${branch} in ${repo}` };
   const ui = uiFiles(files, capture.ui_globs ?? DEFAULT_UI_GLOBS);
-  if (ui.length) throw new ToolError("MUESTRA_REQUIRED", { key: t.key, base, branch, ui_files: ui.slice(0, 12), hint: MUESTRA_HINT });
-  return { muestra };
+  const cambio = cambioOf(files, capture.ui_globs ?? DEFAULT_UI_GLOBS);
+  if (ui.length && !muestra && !t.muestra) throw new ToolError("MUESTRA_REQUIRED", { key: t.key, base, branch, ui_files: ui.slice(0, 12), hint: MUESTRA_HINT });
+  return { muestra, cambio };
 }
 
 export async function finish(db: Db, input: FinishInput, ctx: Ctx, deps: FinishDeps = {}) {
@@ -101,6 +102,7 @@ export async function finish(db: Db, input: FinishInput, ctx: Ctx, deps: FinishD
       ctx,
     );
     const changed = [...new Set(["results", ...(added.changed.includes("checks") ? ["checks"] : []), ...moved.changed])];
+    if (sample.cambio) await tx.update(tasks).set({ cambio: sample.cambio }).where(eq(tasks.id, t.id));
     if (sample.muestra) {
       await tx.update(tasks).set({ muestra: sample.muestra }).where(eq(tasks.id, t.id));
       changed.push("muestra");

@@ -28,6 +28,9 @@ export async function autoVerdict(db: Db, p: Project, d: Decision): Promise<stri
   const key = msg?.links.find((l) => l.kind === "ticket")?.ref;
   const [t] = key ? await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1) : [];
   if (!msg || !t || t.status !== "In review") return "La entrega ya no está en revisión.";
+  // PLA-I52-7: with only «solo lo que no se ve» on, a delivery that changes the screen (or that finish could not
+  // classify) waits for the owner.
+  if (!p.settings.auto_accept && t.cambio !== "no_se_ve") return t.cambio ? "Cambia lo que se ve: revísala tú." : "No se sabe si cambia la pantalla: revísala tú.";
   const [waived] = await db.select({ n: sql<number>`count(*)::int` }).from(checks).where(and(eq(checks.taskId, t.id), isNotNull(checks.waivedAt)));
   if (Number(waived?.n ?? 0) > 0) return "Tiene un punto exento: revísala tú.";
   if (d.evidence?.verdict !== "pass" || (d.evidence.fail ?? 0) > 0) return "Faltan pruebas que pasen.";
@@ -41,19 +44,20 @@ export async function autoVerdict(db: Db, p: Project, d: Decision): Promise<stri
 }
 
 // What the floor shows under the switch: whether it is on, and why the oldest waiting delivery was not accepted.
-export type AutoAccept = { on: boolean; hold: string | null };
+export type AutoAccept = { on: boolean; hold: string | null; invisible?: boolean };
 export async function autoAcceptOf(db: Db, p: Project, decisions: Decision[]): Promise<AutoAccept> {
   const on = !!p.settings.auto_accept;
-  if (!on) return { on, hold: null };
+  const invisible = !!p.settings.auto_accept_invisible;
+  if (!on && !invisible) return { on, hold: null };
   const d = decisions.filter((x) => x.project === p.slug && x.kind === "pr" && pending(x)).sort((a, b) => a.at.localeCompare(b.at))[0];
-  return { on, hold: d ? await autoVerdict(db, p, d) : null };
+  return { on, hold: d ? await autoVerdict(db, p, d) : null, ...(invisible ? { invisible } : {}) };
 }
 
 // One pass over the projects with the switch on. Called from the heartbeat tick; never throws for one delivery.
 export async function sweepAutoAccept(db: Db, now = new Date()): Promise<{ accepted: string[]; held: { ref: string | null; reason: string }[] }> {
   const out = { accepted: [] as string[], held: [] as { ref: string | null; reason: string }[] };
   if ((await loadSettings(db)).companyPaused) return out;
-  const on = (await db.select().from(projects)).filter((p) => p.settings.auto_accept && !p.runsPaused);
+  const on = (await db.select().from(projects)).filter((p) => (p.settings.auto_accept || p.settings.auto_accept_invisible) && !p.runsPaused);
   if (on.length === 0) return out;
   const decisions = await decisionsRead(db, now);
   for (const p of on) {

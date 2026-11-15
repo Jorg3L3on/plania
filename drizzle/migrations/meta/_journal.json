@@ -365,6 +365,13 @@
       "when": 1795075200000,
       "tag": "0054_probador_preguntas",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1795161600000,
+      "tag": "0055_probador_cambio",
+      "breakpoints": true
     }
   ]
 }
