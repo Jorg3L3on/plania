@@ -7,11 +7,12 @@
 //             and tints the column; a page can pass what opens from it (the floor: the teammate in La ficha)
 //   corner    the top-left cell (the floor puts the teammates who have no station there, and Sumar)
 //   below     a full-width row under the stations (the floor hangs its teammates' questions there)
-//   tagsFor   extra tags on a card (F6's zone tag goes here)
+//   tagsFor   extra tags on a card (the zone tag, PLA-I53-6, is drawn by the card itself from t.zonas)
 //   actsFor   small buttons beside a card (the floor: Detener, Hacer primero, Aceptar, Quitar)
 //   folded    completed initiatives, one line of chips under the board
 import type { CSSProperties, ReactNode } from "react";
 import type { ProjectTicket, Tablero } from "@/lib/api";
+import { ZonaTags } from "@/components/plan/zona-tags";
 import { boardOf, ciTone, ciWord, OPEN_STATIONS, STATIONS, stationLine, toneOf, trackLine, trackPct, whoLine, wordOf, type Station, type StationId, type StageTone, type Track } from "@/lib/etapas";
 
 // The stage colours, from the app's status tokens. «pending» text uses the idle grey so it can be read on the card.
@@ -26,6 +27,8 @@ const TONE_VAR: Record<StageTone, string> = {
 };
 // More than this many cards in one cell fold behind «+ n más» (a native disclosure, no state).
 const CELL_MAX = 3;
+// The folded line shows the newest completed initiatives; the rest fold behind «+ n más» so the line stays one line.
+const FOLDED_MAX = 4;
 
 // What a page puts on a station: what opens from it, its accessible name, the figure in its window, the line under its
 // name when it is not lit (the floor: the teammate's own caption), and data attributes.
@@ -120,6 +123,7 @@ const Card = ({ t, now, selected, onTicket, tagsFor, actsFor }: { t: ProjectTick
         <span className="sb-mt">
           <span className="sb-key">{t.key}</span>
           {who && <span data-who>{who}</span>}
+          <ZonaTags zonas={t.zonas} />
           {tagsFor?.(t)}
           {ci && (
             <span className="sb-tag" data-ci={ciTone(e.ci) ?? undefined}>
@@ -173,6 +177,18 @@ const TrackLabel = ({ tr, onTrack }: { tr: Track; onTrack?: StageBoardProps["onT
 
 export const StageBoard = ({ tablero, now, selected, onTicket, onTrack, onDone, station, corner, below, tagsFor, actsFor, extra, folded, onFolded, label = "Tablero de etapas", className, empty }: StageBoardProps) => {
   const b = boardOf(tablero, { sueltos: !!extra && Object.values(extra).some((x) => x && x.length > 0) });
+  const chip = (f: { key: string; title: string }) =>
+    onFolded ? (
+      <button key={f.key} type="button" className="sb-fc" onClick={(e) => onFolded(f.key, e.currentTarget)} data-control="tablero-completa" title={f.title}>
+        <b>✓ {f.key}</b>
+        {f.title}
+      </button>
+    ) : (
+      <span key={f.key} className="sb-fc" title={f.title}>
+        <b>✓ {f.key}</b>
+        {f.title}
+      </span>
+    );
   return (
     <section className={className ? `${className} sb` : "sb"} aria-label={label} data-tracks={b.tracks.length}>
       <div className="sb-scroll">
@@ -209,18 +225,12 @@ export const StageBoard = ({ tablero, now, selected, onTicket, onTrack, onDone, 
               <span>
                 {folded.length} {folded.length === 1 ? "iniciativa completa" : "iniciativas completas"}
               </span>
-              {folded.map((f) =>
-                onFolded ? (
-                  <button key={f.key} type="button" className="sb-fc" onClick={(e) => onFolded(f.key, e.currentTarget)} data-control="tablero-completa" title={f.title}>
-                    <b>✓ {f.key}</b>
-                    {f.title}
-                  </button>
-                ) : (
-                  <span key={f.key} className="sb-fc" title={f.title}>
-                    <b>✓ {f.key}</b>
-                    {f.title}
-                  </span>
-                ),
+              {folded.slice(0, FOLDED_MAX).map(chip)}
+              {folded.length > FOLDED_MAX && (
+                <details className="sb-more sb-folded-more">
+                  <summary data-control="tablero-completas-mas">+ {folded.length - FOLDED_MAX} más</summary>
+                  <div className="sb-more-list">{folded.slice(FOLDED_MAX).map(chip)}</div>
+                </details>
               )}
             </div>
           )}

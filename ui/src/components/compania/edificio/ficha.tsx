@@ -10,6 +10,7 @@ import { FICHA_TABS, TAB_WORD, tabOf, type FichaRef, type FichaTab } from "@/lib
 import type { TaskDetail } from "@/lib/types";
 import { rumboText } from "@/lib/v2";
 import { columnOf, isDone, wordOf, whoLine, ciWord, STATIONS } from "@/lib/etapas";
+import { ZonaTags } from "@/components/plan/zona-tags";
 
 export type Load<T> = { status: "idle" | "loading" | "error" | "ok"; data?: T; retry?: () => void };
 export type FichaSlots = { member?: ReactNode; plan?: ReactNode; sumar?: ReactNode; app?: ReactNode; solo?: ReactNode; last?: ReactNode; maq?: ReactNode };
@@ -257,6 +258,7 @@ const StageLine = ({ p, k, fallback, now }: { p: OrgProject; k: string; fallback
       <b>{wordOf(e)}</b>
       {station && ` · ${station}`}
       {bits && ` · ${bits}`}
+      {t.zonas && t.zonas.length > 0 && <> · <ZonaTags zonas={t.zonas} /></>}
       {e.reason && <span className="edi-fi-why">{e.reason}</span>}
     </span>
   );
@@ -322,6 +324,14 @@ const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone }: { p: Org
             <TicketLists tickets={ini.tickets} now={now} onRef={onRef} />
           </>
         );
+      const closed = p.tablero?.done_initiatives?.find((i) => i.key === r.key);
+      if (!leg && closed)
+        return (
+          <>
+            <Title eyebrow={`Iniciativa · ${closed.key}`} title={closed.title} state={closed.done_at ? `Completa · ${day(closed.done_at, timeZone)}` : "Completa"} />
+            <Empty>Está completa: sus pasos ya no están en el tablero.</Empty>
+          </>
+        );
       if (!leg) return <Empty>Esa iniciativa ya no está en el plan.</Empty>;
       const complete = leg.state === "done" || (leg.total > 0 && leg.done === leg.total);
       return (
@@ -338,7 +348,7 @@ const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone }: { p: Org
         <>
           <Title eyebrow="Sueltos" title="Trabajo sin iniciativa" state={`${t.loose.length} abiertos · ${t.loose_done} hechos`} />
           <TicketLists tickets={t.loose} now={now} onRef={onRef} />
-          {t.loose_done > 0 && <Empty>{t.loose_done === 1 ? "1 suelto hecho." : `${t.loose_done} sueltos hechos.`}</Empty>}
+          {t.loose_done > 0 && <Empty>{`${t.loose_done === 1 ? "1 suelto hecho" : `${t.loose_done} sueltos hechos`}${t.loose_done_title ? `; el último: «${t.loose_done_title}»` : ""}.`}</Empty>}
         </>
       );
     }
