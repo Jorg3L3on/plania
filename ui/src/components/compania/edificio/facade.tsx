@@ -8,7 +8,7 @@ import { floorHue, floorOrder, nowLine, plateStatus, windowState } from "@/lib/e
 import { byRole } from "@/lib/org";
 import { TONE_OF } from "./head";
 import { ActButton, type MoveCtx } from "./now";
-import { legLooks } from "./route";
+import { legLooks } from "@/lib/legs";
 import { Glass } from "./window";
 
 const Row = ({ p, now, decisions, companyPaused, timeZone, ctx, onPiso }: { p: OrgProject; now: number; decisions: Decision[]; companyPaused?: boolean; timeZone?: string; ctx: MoveCtx; onPiso?: (slug: string) => void }) => {

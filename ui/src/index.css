@@ -569,47 +569,6 @@
   .edi-ntick { display: grid; justify-items: end; gap: 0; text-align: right; }
   .edi-ntick b { font-family: var(--font-mono); font-weight: 500; font-size: clamp(24px, 2.6vw, 34px); line-height: 1; font-variant-numeric: tabular-nums; color: var(--st); }
   .edi-ntick span { font-size: 11.5px; color: var(--e-muted); }
-  /* PLA-I40-5: the route under the team. */
-  /* The route (Entrega) leads the right side: above the Ahora band (order -1) and the team. */
-  .edi-route { order: -2; grid-column: 1 / -1; display: grid; gap: 10px; padding-bottom: 16px; margin-bottom: 4px; border-bottom: 1px solid var(--e-line); min-width: 0; }
-  .edi-rhead { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; font-size: 13px; }
-  .edi-rhead b { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--e-muted); }
-  .edi-rhead span { color: var(--e-muted); }
-  /* PLA-I46-14: one row of legs on every width, one pink light (never orange: orange is "te toca"). */
-  .edi-route { --e-light: #ff7ab6; overflow-x: clip; }
-  .edi-legs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--n, 5), minmax(0, 1fr)); gap: 10px 8px; }
-  .edi-leg { position: relative; display: grid; gap: 4px; align-content: start; min-width: 0; }
-  .edi-legbar { display: block; box-sizing: border-box; height: 7px; border-radius: 4px; background: rgb(255 255 255 / 0.13); overflow: hidden; }
-  .edi-legbar i { display: block; height: 100%; border-radius: 4px; background: color-mix(in srgb, var(--c) 55%, transparent); }
-  .edi-leg b { display: grid; gap: 1px; font-size: 12.5px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
-  .edi-legcode { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; line-height: 1.2; color: var(--e-muted); }
-  .edi-legshort { display: none; }
-  .edi-legline { font-size: 11.5px; color: var(--e-muted); line-height: 1.3; overflow-wrap: anywhere; }
-  .edi-legdetail { display: none; margin: 0; font-size: 12.5px; line-height: 1.35; color: var(--e-muted); overflow-wrap: anywhere; }
-  .edi-leg[data-look="now"] .edi-legbar i { background: var(--c); }
-  .edi-leg[data-look="off"] .edi-legbar { background: repeating-linear-gradient(135deg, rgb(255 255 255 / 0.24) 0 4px, transparent 4px 8px); }
-  .edi-leg[data-look="unplanned"] b, .edi-leg[data-look="planned"] b { color: var(--e-muted); font-weight: 500; }
-  .edi-leg[data-lit] b, .edi-leg[data-lit] .edi-legcode { color: var(--e-light); }
-  .edi-leg[data-lit] .edi-legbar { box-shadow: 0 0 14px color-mix(in srgb, var(--e-light) 50%, transparent); }
-  .edi-leg[data-look="next"] .edi-legbar { background: color-mix(in srgb, var(--e-light) 16%, transparent); }
-  .edi-leg[data-look="next"][data-plan="none"] .edi-legbar { background: none; border: 1.5px dotted var(--e-light); }
-  @media (width < 40rem) {
-    .edi-legs { gap: 4px; }
-    .edi-legname, .edi-legline { display: none; }
-    .edi-legshort { display: inline; }
-    .edi-legcode { font-size: 11.5px; }
-    .edi-legdetail { display: block; }
-  }
-  .edi-steps { list-style: none; margin: 2px 0 0; padding: 12px 14px; display: grid; gap: 9px; border-radius: 14px; background: rgb(255 255 255 / 0.045); }
-  .edi-steps li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; align-items: start; }
-  .edi-smark { width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; border: 2px solid var(--e-rail); display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #141822; }
-  .edi-steps li[data-mark="done"] .edi-smark { background: #8fe0a4; border-color: #8fe0a4; }
-  .edi-steps li[data-mark="now"] .edi-smark { border-color: var(--c); box-shadow: inset 0 0 0 3px var(--e-wall), inset 0 0 0 9px var(--c); }
-  .edi-stext { display: grid; gap: 1px; min-width: 0; }
-  .edi-stext b { font-size: 13.5px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
-  .edi-stext span { font-size: 12.5px; color: var(--e-muted); line-height: 1.35; overflow-wrap: anywhere; }
-  .edi-steps li[data-mark="now"] .edi-stext span { color: var(--c); }
-  .edi-steps li[data-mark="later"] .edi-stext b { color: var(--e-muted); font-weight: 500; }
   /* PLA-I40-6: under the route: what runs alone, what is the owner's, and the last things that happened. */
   .edi-after { order: 995; grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; min-width: 0; }
   .edi-acol { display: grid; gap: 7px; align-content: start; padding: 12px 14px; border-radius: 14px; background: rgb(255 255 255 / 0.045); min-width: 0; }
@@ -757,20 +716,6 @@
 
   /* Unused since PLA-I46-3 (the stars are still); kept as the end mark of the floor's static rules. */
   @keyframes edi-twinkle { 50% { opacity: calc(var(--dark, 1) * 0.2); } }
-  /* PLA-I46-14: Entrega's celebration, only when a leg's last step is accepted: fill 300 ms, glow and sparks 900 ms,
-     the light arrives 400 ms. Never on a load; .edi's reduce-motion rule below stills it too. */
-  .edi-leg[data-play="fill"] .edi-legbar i { animation: edi-legfill 300ms ease-out both; }
-  .edi-leg[data-play="glow"] .edi-legbar { animation: edi-legglow 900ms ease-out; }
-  .edi-leg[data-arrive] .edi-legbar { animation: edi-legarrive 400ms ease-out both; }
-  .edi-spark { position: absolute; left: 50%; top: 2px; width: 5px; height: 5px; border-radius: 50%; background: var(--e-light); pointer-events: none; animation: edi-spark 900ms ease-out forwards; }
-  @keyframes edi-legfill { from { width: var(--from, 0%); } to { width: 100%; } }
-  @keyframes edi-legglow { 0% { box-shadow: 0 0 0 0 var(--e-light); } 40% { box-shadow: 0 0 26px 5px var(--e-light); } 100% { box-shadow: 0 0 14px 0 color-mix(in srgb, var(--e-light) 50%, transparent); } }
-  @keyframes edi-legarrive { from { box-shadow: 0 0 0 0 transparent; opacity: 0.35; } to { box-shadow: 0 0 14px color-mix(in srgb, var(--e-light) 50%, transparent); opacity: 1; } }
-  @keyframes edi-spark { from { transform: translate(-50%, 0); opacity: 1; } to { transform: translate(calc(var(--dx) - 50%), var(--dy)) scale(0.2); opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) {
-    .edi-leg .edi-legbar, .edi-leg .edi-legbar i { animation: none !important; }
-    .edi-spark { display: none; }
-  }
 
   /* PLA-I46-7: the Ventana's skeleton shimmers while a capture is taken (reduce motion keeps it still). After the
      end mark on purpose: on the floor only Ahora breathes. */
@@ -1048,7 +993,7 @@
   .edi-office .edi-rooftop { padding: 0 14px; }
 
   /* the open floor */
-  .edi-bld > .edi-floor { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); gap: 10px; min-height: 0; min-width: 0; padding: 14px 18px 16px; border-radius: 22px; border: 1px solid rgb(255 255 255 / 0.07); background: linear-gradient(90deg, color-mix(in srgb, var(--c) 11%, transparent), transparent 44%), var(--e-wall); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05), 0 30px 60px -34px rgb(0 0 0 / 0.7); scroll-margin-top: 0; }
+  .edi-bld > .edi-floor { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 10px; min-height: 0; min-width: 0; padding: 14px 18px 16px; border-radius: 22px; border: 1px solid rgb(255 255 255 / 0.07); background: linear-gradient(90deg, color-mix(in srgb, var(--c) 11%, transparent), transparent 44%), var(--e-wall); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05), 0 30px 60px -34px rgb(0 0 0 / 0.7); scroll-margin-top: 0; }
   .edi-fhead { display: flex; align-items: center; gap: 11px; min-width: 0; }
   .edi-fhead .edi-fname { flex: none; max-width: 34%; font-size: 25px; }
   .edi-fhead .edi-goal { flex: 1 1 0; min-width: 0; margin: 0; padding-top: 3px; font-size: 14px; font-weight: 500; color: var(--e-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1063,19 +1008,17 @@
   .edi-fdate { color: var(--e-muted); font-size: 12.5px; white-space: nowrap; }
   .edi-fdate b { color: var(--e-fg); font-weight: 600; }
   .edi-fstatus { flex: 0 1 auto; max-width: 26%; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .edi-bld > .edi-floor > .edi-route { order: 0; padding: 9px 0 0; margin: 0; border-bottom: 0; border-top: 1px solid rgb(255 255 255 / 0.07); gap: 6px; grid-template-columns: auto minmax(0, 1fr); align-items: start; }
-  .edi-bld > .edi-floor > .edi-route .edi-legdetail { display: none; }
-  .edi-bld > .edi-floor > .edi-route .edi-rhead { flex-direction: column; gap: 3px; padding-right: 10px; }
-  .edi-fbody { display: grid; grid-template-columns: minmax(0, 1fr) clamp(272px, 24vw, 330px); grid-template-rows: minmax(0, 1fr); gap: 14px; min-height: 0; min-width: 0; }
+  .edi-fbody { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 14px; min-height: 0; min-width: 0; }
+  .edi-floor:not([data-ficha]) .edi-fbody { grid-template-columns: minmax(0, 1fr) clamp(272px, 24vw, 330px); }
   .edi-stage { container-type: size; display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
-  .edi-stage > .edi-nowb { flex: 1 1 0; min-height: 0; overflow: auto; margin: 0; padding: 16px 18px; border: 1px solid var(--e-line); border-radius: 18px; background: rgb(255 255 255 / 0.035); align-content: safe center; scrollbar-width: thin; }
-  .edi-stage > .edi-nowb[data-now="you"] { border-color: color-mix(in srgb, var(--e-you) 55%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--e-you) 14%, transparent), rgb(255 255 255 / 0.03) 58%); }
-  .edi-stage > .edi-nowb[data-now="work"] { background: linear-gradient(135deg, rgb(255 196 107 / 0.09), rgb(255 255 255 / 0.03) 58%); }
-  .edi-stage > .edi-nowb[data-now="stuck"] { border-color: rgb(255 107 138 / 0.5); background: linear-gradient(135deg, rgb(255 107 138 / 0.12), rgb(255 255 255 / 0.03) 58%); }
-  .edi-stage > .edi-nowb[data-now="back"] { background: linear-gradient(135deg, rgb(176 148 255 / 0.11), rgb(255 255 255 / 0.03) 58%); }
-  .edi-stage .edi-nsay { font-size: clamp(19px, 4.7cqh, 30px); }
+  .edi-ahora-slot > .edi-nowb { min-height: 0; max-height: 100%; overflow: auto; margin: 0; padding: 10px 16px; border: 1px solid var(--e-line); border-radius: 18px; background: rgb(255 255 255 / 0.035); align-content: safe center; scrollbar-width: thin; }
+  .edi-ahora-slot > .edi-nowb[data-now="you"] { border-color: color-mix(in srgb, var(--e-you) 55%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--e-you) 14%, transparent), rgb(255 255 255 / 0.03) 58%); }
+  .edi-ahora-slot > .edi-nowb[data-now="work"] { background: linear-gradient(135deg, rgb(255 196 107 / 0.09), rgb(255 255 255 / 0.03) 58%); }
+  .edi-ahora-slot > .edi-nowb[data-now="stuck"] { border-color: rgb(255 107 138 / 0.5); background: linear-gradient(135deg, rgb(255 107 138 / 0.12), rgb(255 255 255 / 0.03) 58%); }
+  .edi-ahora-slot > .edi-nowb[data-now="back"] { background: linear-gradient(135deg, rgb(176 148 255 / 0.11), rgb(255 255 255 / 0.03) 58%); }
+  .edi-stage .edi-nsay { font-size: 18px; line-height: 1.25; }
   .edi-stage .edi-nowb[data-side] { grid-template-columns: minmax(0, 1fr) clamp(140px, 34%, 290px); }
-  .edi-stage .edi-vframe { max-height: 34cqh; }
+  .edi-stage .edi-vframe { max-height: 16cqh; }
   .edi-team { flex: none; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 4px 10px; align-content: start; }
   .edi-team .edi-slot { position: relative; display: grid; gap: 3px; }
   .edi-team .edi-glass { height: clamp(50px, 11.5cqh, 104px); }
@@ -1086,12 +1029,120 @@
   .edi-team .edi-mark { position: static; display: block; justify-self: center; margin: 1px 0 0; width: 9px; height: 9px; }
   .edi-team .edi-bubble { max-height: 38cqh; overflow: auto; margin-top: 6px; padding: 12px 14px; }
   .edi-askbar { flex: none; }
+  /* PLA-I53-3: the floor's stage. The Ahora slot (F4 puts the one Ahora line there) takes what it needs up to a
+     third; the board takes the rest and scrolls inside itself; Pedir stays at the bottom. */
+  .edi-ahora-slot { flex: 0 1 auto; min-height: 0; max-height: clamp(140px, 32%, 220px); display: flex; flex-direction: column; }
+  .edi-stage > .sb { flex: 1 1 0; min-height: 150px; }
+  /* The corner: the teammates without a station (Research, Artist…) as small windows, and Sumar. */
+  .edi-corner { display: grid; gap: 6px; align-content: end; min-width: 0; }
+  .edi-corner-team { display: flex; flex-wrap: wrap; gap: 4px; }
+  .edi-seat, .edi-corner-team .edi-add { width: 30px; height: 30px; padding: 0; border-radius: 15px 15px 5px 5px; border: 1px solid rgb(255 255 255 / 0.14); background: #0b0d13; color: inherit; display: grid; place-items: end center; overflow: hidden; cursor: pointer; }
+  .edi-seat-glass { display: block; width: 26px; height: 22px; }
+  .edi-seat, .sb-win { --fig: #2a2f42; --cut: #0b0d13; --lap: #2a2f42; }
+  .edi-seat .edi-fig, .sb-win .edi-fig { position: static; margin: 0; width: 100%; height: 100%; display: block; }
+  .edi-seat[data-state="work"] { background: linear-gradient(180deg, #ffe3a3, #b98a2c); border-color: transparent; }
+  .edi-seat[data-state="ask"] { background: linear-gradient(180deg, #ffd0a1, #b8692a); border-color: transparent; }
+  .edi-seat[data-state="work"], .edi-seat[data-state="ask"] { --fig: #141822; --cut: #e9c27a; --lap: #141822; }
+  .edi-corner-team .edi-add { place-items: center; font-size: 15px; color: var(--e-muted); }
+  .edi-corner-team .edi-add .edi-glass { all: unset; }
+  .edi-corner-team .edi-add .edi-who { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .edi-seat:focus-visible, .edi-corner-team .edi-add:focus-visible { outline: 2px solid var(--e-fg); outline-offset: 2px; }
+
+  /* PLA-I53-3: el tablero de etapas (components/plan/stage-board.tsx). Six stations as columns, one track per open
+     initiative; the label column is 150 px and the board never squeezes under 780 px (it scrolls sideways inside). */
+  .sb { --sb-line: rgb(255 255 255 / 0.08); --sb-line2: rgb(255 255 255 / 0.14); --sb-raised: #1c2030; --sb-faint: #8d94aa; min-width: 0; min-height: 0; display: flex; border: 1px solid var(--sb-line); border-radius: 16px; background: #161926; color: var(--e-fg, #eef0f6); overflow: hidden; }
+  .sb-scroll { flex: 1; min-width: 0; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.18) transparent; }
+  .sb-grid { display: grid; grid-template-columns: 150px repeat(6, minmax(0, 1fr)); grid-auto-rows: min-content; align-content: start; min-width: 780px; }
+  .sb-row { display: contents; }
+  .sb-cell { position: relative; min-width: 0; display: flex; flex-direction: column; gap: 5px; padding: 6px 4px; border-top: 1px solid var(--sb-line); }
+  .sb-cell[data-lit] { background: linear-gradient(180deg, color-mix(in srgb, var(--lc) 9%, transparent), color-mix(in srgb, var(--lc) 4%, transparent)); }
+  .sb-eyebrow { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--sb-faint); }
+  .sb-corner { border-top: 0; justify-content: flex-end; padding: 8px 12px 8px; position: sticky; top: 0; z-index: 2; background: #161926; }
+  /* stations: an arched window, lit in the stage colour while someone works there */
+  .sb-station { position: sticky; top: 0; z-index: 2; border-top: 0; align-items: center; text-align: center; gap: 1px; padding: 6px 4px 5px; background: #161926; border-radius: 0; color: inherit; font: inherit; }
+  .sb-station[data-lit] { background: linear-gradient(180deg, color-mix(in srgb, var(--lc) 14%, #161926), color-mix(in srgb, var(--lc) 7%, #161926)); }
+  button.sb-station { border: 0; cursor: pointer; }
+  button.sb-station:hover .sb-win { transform: translateY(-2px); }
+  button.sb-station:focus-visible, .sb-card-main:focus-visible, .sb-stack:focus-visible, .sb-track:focus-visible, .sb-fc:focus-visible, .sb-mini:focus-visible, .sb-more summary:focus-visible { outline: 2px solid var(--e-fg, #eef0f6); outline-offset: 2px; }
+  .sb-win { width: 42px; height: 30px; border-radius: 28px 28px 6px 6px; background: #0b0d13; border: 1px solid var(--sb-line2); display: grid; place-items: end center; overflow: hidden; color: var(--status-done); transition: transform 160ms ease; }
+  .sb-win .sb-fig { width: 30px; height: 26px; display: block; fill: #2a2f42; }
+  .sb-win .edi-fig { width: 36px; height: 28px; }
+  .sb-door { width: 30px; height: 28px; margin-bottom: 4px; }
+  .sb-station[data-lit] .sb-win { background: linear-gradient(180deg, color-mix(in srgb, var(--lc) 85%, #fff), color-mix(in srgb, var(--lc) 55%, #141822)); border-color: transparent; box-shadow: 0 0 22px color-mix(in srgb, var(--lc) 45%, transparent); }
+  .sb-station[data-lit] .sb-win { --fig: #141822; --cut: color-mix(in srgb, var(--lc) 70%, #fff); --lap: #141822; }
+  .sb-station[data-lit] .sb-win .sb-fig { fill: #141822; }
+  .sb-sname { font-family: var(--font-display); font-weight: 700; font-size: 13px; line-height: 1.15; margin-top: 2px; }
+  .sb-sverb { max-width: 100%; color: var(--sb-faint); font-size: 11px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sb-station[data-lit] .sb-sverb { color: var(--lc); font-weight: 600; }
+  .sb-station[data-state="ghost"] .sb-sverb { color: var(--e-you-ink, #ffc58a); font-style: italic; }
+  .sb-station[data-state="back"]:not([data-lit]) .sb-win { background: linear-gradient(180deg, #d9ccff, #6f5bb8); border-color: transparent; --fig: #141822; }
+  .sb-station[data-state="back"] .sb-sverb { color: #c9b8ff; font-weight: 600; }
+  .sb-station[data-state="off"] .sb-win { background: repeating-linear-gradient(180deg, #2a2f42 0 4px, #0b0d13 4px 7px); }
+  .sb-below { grid-column: 1 / -1; display: grid; gap: 8px; padding: 0 8px 8px; }
+  .sb-below .edi-bubble { margin-top: 10px; max-height: 260px; overflow: auto; }
+  /* tracks */
+  .sb-track { align-items: stretch; gap: 2px; padding: 9px 12px; border-left: 0; border-right: 0; border-bottom: 0; background: none; color: inherit; font: inherit; text-align: left; }
+  button.sb-track { cursor: pointer; }
+  button.sb-track:hover .sb-tname { text-decoration: underline; text-underline-offset: 3px; }
+  .sb-tcode { font-family: var(--font-mono); font-size: 10.5px; color: var(--sb-faint); }
+  .sb-tname { font-family: var(--font-display); font-weight: 700; font-size: 13.5px; line-height: 1.2; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+  .sb-tsub { color: var(--sb-faint); font-size: 11.5px; }
+  .sb-bar { display: block; height: 4px; border-radius: 9px; background: var(--sb-raised); overflow: hidden; margin-top: 4px; }
+  .sb-bar i { display: block; height: 100%; background: var(--c, var(--status-done)); border-radius: 9px; }
+  /* the rail through a track's stations; an empty station shows a small node */
+  .sb-r::before { content: ""; position: absolute; left: 0; right: 0; top: 18px; border-top: 1px dashed var(--sb-line2); pointer-events: none; }
+  .sb-r[data-last]::before { right: 50%; }
+  .sb-r[data-empty]::after { content: ""; position: absolute; left: 50%; top: 15px; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: #161926; border: 1px solid var(--sb-line2); }
+  .sb-r > * { position: relative; }
+  /* a ticket card */
+  .sb-card { position: relative; display: grid; min-width: 0; background: var(--sb-raised); border: 1px solid var(--sb-line); border-radius: 10px; }
+  .sb-card:hover, .sb-card:focus-within { border-color: var(--sb-line2); }
+  .sb-card-main { display: grid; gap: 2px; width: 100%; min-width: 0; padding: 5px 7px 6px; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+  div.sb-card-main { cursor: default; }
+  .sb-card:has(.sb-card-main[aria-current]) { border-color: var(--sc); box-shadow: 0 0 0 1px var(--sc); }
+  .sb-st { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; line-height: 1.2; color: var(--sc); }
+  .sb-st i { width: 7px; height: 7px; border-radius: 50%; background: var(--sc); flex: none; }
+  .sb-card[data-live] .sb-st i { box-shadow: 0 0 0 3px color-mix(in srgb, var(--sc) 30%, transparent); }
+  .sb-tt { font-weight: 500; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .sb-mt { display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: center; color: var(--sb-faint); font-size: 11px; line-height: 1.3; }
+  .sb-key { font-family: var(--font-mono); font-size: 10.5px; }
+  .sb-tag { border: 1px solid var(--sb-line2); border-radius: 5px; padding: 0 5px; font-size: 10.5px; white-space: nowrap; }
+  .sb-tag[data-ci="ok"] { color: var(--status-done); border-color: color-mix(in srgb, var(--status-done) 40%, transparent); }
+  .sb-tag[data-ci="bad"] { color: var(--status-blocked); border-color: color-mix(in srgb, var(--status-blocked) 45%, transparent); }
+  .sb-tag[data-ci="wait"] { color: var(--status-now); border-color: color-mix(in srgb, var(--status-now) 40%, transparent); }
+  /* a card's actions: on hover and focus, always on touch */
+  .sb-acts { display: none; flex-wrap: wrap; gap: 4px; padding: 0 7px 7px; }
+  .sb-card:hover .sb-acts, .sb-card:focus-within .sb-acts { display: flex; }
+  @media (hover: none) { .sb-acts { display: flex; } }
+  .sb-mini { height: 22px; padding: 0 9px; border-radius: 99px; border: 0; font: inherit; font-size: 11px; font-weight: 650; background: rgb(255 255 255 / 0.12); color: var(--e-fg, #eef0f6); white-space: nowrap; cursor: pointer; }
+  .sb-mini:hover { background: rgb(255 255 255 / 0.2); }
+  .sb-mini:disabled { opacity: 0.45; cursor: default; }
+  .sb-mini[data-act="aceptar"] { background: #3ddc97; color: #04261a; }
+  .sb-mini[data-act="detener"] { background: color-mix(in srgb, var(--status-blocked) 22%, transparent); color: #ffc0cc; }
+  .sb-more summary { list-style: none; cursor: pointer; font-size: 11.5px; font-weight: 600; color: var(--sb-faint); padding: 2px 4px; border-radius: 6px; text-decoration: underline; text-underline-offset: 3px; }
+  .sb-more summary::-webkit-details-marker { display: none; }
+  .sb-more[open] summary { margin-bottom: 6px; }
+  .sb-more-list { display: grid; gap: 6px; }
+  /* Hecho: one dashed green stack per track */
+  .sb-stack { display: grid; gap: 1px; width: 100%; min-width: 0; padding: 6px 8px; border: 1px dashed color-mix(in srgb, var(--status-done) 40%, transparent); border-radius: 10px; background: #161926; color: var(--status-done); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+  .sb-stack:hover { border-style: solid; }
+  .sb-stack b { font-weight: 600; }
+  .sb-stack span { color: var(--sb-faint); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* completed initiatives, folded into one line */
+  .sb-folded { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 12px; border-top: 1px solid var(--sb-line); color: var(--sb-faint); font-size: 12px; }
+  .sb-fc { display: inline-flex; gap: 6px; align-items: center; max-width: 260px; padding: 2px 10px; border: 1px solid var(--sb-line); border-radius: 99px; background: none; color: inherit; font: inherit; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  button.sb-fc { cursor: pointer; }
+  button.sb-fc:hover { color: var(--e-fg, #eef0f6); }
+  .sb-fc b { font-family: var(--font-mono); font-weight: 500; font-size: 10.5px; color: var(--status-done); }
+  .sb-empty { grid-column: 1 / -1; margin: 0; padding: 16px; color: var(--sb-faint); border-top: 1px solid var(--sb-line); }
+  .sb-empty p { margin: 0; }
+  .edi-board-empty { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+  @media (prefers-reduced-motion: reduce) { .sb-win { transition: none; } }
   .edi-askbar .edi-ask-open { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .edi-askbar [data-control="pedir-abrir"] { flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; justify-content: flex-start; padding: 0 16px; border-radius: 99px; border: 1px solid var(--e-line); background: rgb(7 9 20 / 0.6); color: var(--e-muted); font-weight: 500; }
   .edi-askbar [data-control="pedir-abrir"]::after { content: "Cambio, dirección o idea para este piso"; margin-left: 10px; color: rgb(255 255 255 / 0.35); font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .edi-askbar .edi-sent { flex: none; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .edi-fcol { min-height: 0; min-width: 0; overflow: auto; display: grid; align-content: start; gap: 12px; padding: 12px; border-radius: 18px; border: 1px solid rgb(255 255 255 / 0.07); background: rgb(7 9 20 / 0.38); scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.18) transparent; }
-  .edi-fcol .edi-steps { margin: 0; }
   .edi-fcol .edi-after { display: grid; gap: 10px; }
   .edi-fcol .edi-plate-last { margin: 0; }
 
@@ -1102,7 +1153,7 @@
   }
   @media (width < 64rem) {
     .edi-fhead .edi-fstatus, .edi-fdate { display: none; }
-    .edi-fbody { grid-template-columns: minmax(0, 1fr) clamp(240px, 30vw, 300px); }
+    .edi-floor:not([data-ficha]) .edi-fbody { grid-template-columns: minmax(0, 1fr) clamp(240px, 30vw, 300px); }
   }
   /* Under 48rem the floor is one column and the page scrolls (the phone pass is PLA-I47-6). */
   @media (width < 48rem) {
@@ -1110,7 +1161,7 @@
     .edi-bld { flex: none; }
     .edi-fbody { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
     .edi-stage { container-type: normal; }
-    .edi-stage > .edi-nowb { flex: none; }
+    .edi-ahora-slot { max-height: none; }
     .edi-fcol { overflow: visible; }
   }
   /* Phone (PLA-I47-6 polishes it): one column that scrolls as a page; the rail is a strip on top. */
@@ -1128,10 +1179,9 @@
     .edi-fhead { flex-wrap: wrap; }
     .edi-fhead .edi-fname { max-width: 100%; }
     .edi-fhead .edi-goal { flex-basis: 100%; order: 5; white-space: normal; }
-    .edi-bld > .edi-floor > .edi-route { grid-template-columns: minmax(0, 1fr); }
     .edi-fbody { grid-template-rows: auto; }
     .edi-stage { container-type: normal; }
-    .edi-stage > .edi-nowb { flex: none; }
+    .edi-ahora-slot { max-height: none; }
     .edi-stage .edi-nowb[data-side] { grid-template-columns: minmax(0, 1fr); }
     .edi-team { grid-template-columns: repeat(min(var(--n), 4), minmax(0, 1fr)); }
     .edi-team .edi-glass { height: 52px; }
@@ -1140,38 +1190,10 @@
   }
 
 
-  /* PLA-I47-3: La fila, in the floor's right column. Rows act where they are read; the list scrolls inside. */
-  .edi-fila { display: grid; gap: 4px; align-content: start; min-width: 0; }
-  .edi-fila-h { display: flex; align-items: baseline; gap: 8px; margin: 0 4px 2px; font-family: var(--font-display); font-weight: 700; font-size: 15px; }
-  .edi-fila-h span { font-family: inherit; font-weight: 500; font-size: 11.5px; color: var(--e-muted); }
-  .edi-fsec { display: grid; gap: 2px; min-width: 0; }
-  .edi-fsec h3 { display: flex; gap: 7px; align-items: baseline; margin: 8px 6px 2px; }
-  .edi-fsec h3 small { font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; color: rgb(255 255 255 / 0.4); }
-  .edi-flist { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
-  .edi-frow { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; border-radius: 11px; }
-  .edi-frow:hover, .edi-frow:focus-within { background: rgb(255 255 255 / 0.055); }
-  .edi-frow-main { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 9px; align-items: center; width: 100%; min-width: 0; padding: 5px 8px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 11px; }
-  .edi-fmk { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font: 600 10.5px var(--font-mono, ui-monospace); color: var(--e-muted); box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.22); }
-  .edi-fmk[data-mk="done"], .edi-fmk[data-mk="pub"] { background: rgb(61 220 151 / 0.2); box-shadow: inset 0 0 0 1.5px #3ddc97; color: #3ddc97; }
-  .edi-fmk[data-mk="work"] { box-shadow: inset 0 0 0 2px #ffc46b; background: radial-gradient(circle, #ffc46b 34%, transparent 38%); }
-  .edi-fmk[data-mk="you"] { background: var(--e-you); box-shadow: none; color: #1b1206; }
-  .edi-fmk[data-mk="off"] { box-shadow: none; border: 1.5px dashed rgb(255 255 255 / 0.28); }
-  .edi-fmk[data-mk="order"] { box-shadow: inset 0 0 0 1.5px var(--e-you); color: var(--e-you-ink); font-family: inherit; font-weight: 700; font-size: 9.5px; }
+  /* La ficha's list rows (ficha.tsx Li): the title on two lines at most, one line under it. */
   .edi-ftx { display: grid; min-width: 0; }
   .edi-ftx b { font-weight: 600; font-size: 13px; line-height: 1.3; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
   .edi-ftx small { color: var(--e-muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .edi-frow[data-g="done"] .edi-ftx b, .edi-frow[data-g="pub"] .edi-ftx b, .edi-frow[data-g="off"] .edi-ftx b, .edi-frow[data-g="held"] .edi-ftx b { font-weight: 500; color: var(--e-muted); }
-  .edi-frow[data-g="you"] .edi-ftx small { color: var(--e-you-ink); }
-  .edi-frow-acts { display: none; gap: 4px; padding-right: 6px; }
-  .edi-frow:hover .edi-frow-acts, .edi-frow:focus-within .edi-frow-acts { display: flex; }
-  @media (hover: none) { .edi-frow-acts { display: flex; } }
-  .edi-fmini { height: 24px; padding: 0 9px; border-radius: 99px; border: 0; font-size: 11px; font-weight: 650; background: rgb(255 255 255 / 0.12); color: var(--e-fg); white-space: nowrap; cursor: pointer; }
-  .edi-fmini:hover { background: rgb(255 255 255 / 0.2); }
-  .edi-fmini:disabled { opacity: 0.45; cursor: default; }
-  .edi-fmini[data-control="fila-aceptar"] { background: #3ddc97; color: #04261a; }
-  .edi-fempty { color: rgb(255 255 255 / 0.45); font-size: 12.5px; padding: 4px 8px; margin: 0; }
-  .edi-fmore { justify-self: start; border: 0; background: none; color: var(--e-muted); font-size: 12px; font-weight: 600; padding: 4px 8px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-  @media (max-height: 770px) and (min-width: 48rem) { .edi-frow-main { padding-block: 4px; } .edi-fsec h3 { margin-top: 6px; } }
 
 
   /* PLA-I47-4: La ficha. Beside the floor from 1180 px (300-348 px wide), sliding over the floor below that, a sheet
@@ -1245,9 +1267,6 @@
   /* The side page's parts drawn inside the dark card use the app's dark tokens. */
   .edi-ficha :is(.edi-fi-member, [data-section]) { color: var(--e-fg); }
   /* A real box (display: contents dropped it from the Tab order in Chrome; found in the PLA-I47-7 browser pass). */
-  .edi-legbtn { display: grid; gap: 4px; align-content: start; width: 100%; min-width: 0; padding: 4px 6px 4px; margin: -4px -6px; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-  .edi-legbtn:hover { background: rgb(255 255 255 / 0.055); }
-  .edi-legbtn:focus-visible { outline: 2px solid var(--e-fg); outline-offset: 2px; }
   .edi-scrim { display: none; }
   @media (width < 1180px) {
     .edi-bld[data-ficha="open"] { grid-template-columns: 72px minmax(0, 1fr); }
@@ -1354,10 +1373,6 @@
     .edi:has(.edi-bld) > .edi-sky > .edi-voice .edi-vpre { flex: none; }
     .edi:has(.edi-bld) > .edi-sky > .edi-by { grid-area: by; margin-top: 2px; font-size: 12px; }
     .edi:has(.edi-bld) .edi-orb { display: none; }
-    .edi-bld .edi-route .edi-leg b { display: flex; gap: 5px; align-items: baseline; min-width: 0; }
-    .edi-bld .edi-route .edi-legcode { flex: none; white-space: nowrap; }
-    .edi-bld .edi-route .edi-legname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-    .edi-bld .edi-route .edi-legline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     /* The team: one track per teammate and a narrow one for «+»; the name on one line, the verb only when it fits. */
     .edi-team { grid-template-columns: repeat(var(--n), minmax(0, 1fr)) var(--add, 0px); gap: 4px 8px; }
     .edi-team .edi-add .edi-who { display: none; }
@@ -1373,7 +1388,7 @@
   @media (width < 40rem) {
     .edi-stage .edi-nsay { font-size: 22px; line-height: 1.2; }
   }
-  .edi-fi-tab small, .edi-fi-li em, .edi-fi-tube li, .edi-fsec h3 small, .edi-fempty, .edi-fi-empty { color: #959cb8; }
+  .edi-fi-tab small, .edi-fi-li em, .edi-fi-tube li, .edi-fi-empty { color: #959cb8; }
   .edi-fi-tube li[data-here] { color: var(--e-fg); }
 
   /* PLA-I48: Cuarto de máquinas. Each floor has two levels joined by a vertical slide: Trabajo (the v6 floor) and

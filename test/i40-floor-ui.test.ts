@@ -200,7 +200,8 @@ test("I40-4 #2: with a pending delivery the owner holds the work and the main ac
 test("I40-4 #3: Que empiece ya calls the start of that teammate; once it runs the band says Trabajando", () => {
   const s = floor(resting());
   assert.match(s, /data-now="rest"/);
-  assert.match(s, /<div class="edi-slot"[^>]*data-holding="1"[^>]*>\s*<div class="edi-win"[^>]*data-agent="taller-workia"[\s\S]*?<\/div>\s*<span class="edi-mark"/);
+  // PLA-I53-3: Taller's station carries the hold (the seat's own line says why it has not started).
+  assert.match(s, /data-agent="taller-workia"[^>]*data-holding="1"/);
   assert.match(s, /data-countdown="2026-11-13T20:52:00Z"/);
   assert.ok(text(s).includes("8:00") && text(s).includes("para arrancar"));
   assert.ok(text(s).includes("descansa · arranca 2:52 pm"), "the window's caption says why, not just not yet");
@@ -263,60 +264,13 @@ const mianovia: Json = {
   more_legs: 0,
 };
 
-test("I40-5 #1: five legs with their counts, the current one opened into named steps; the plate drops its dashes", () => {
+// PLA-I53-3: the Entrega strip (the legs and the leg's steps) is gone from the floor; the stage board took its place
+// (test/i53-board-ui.test.ts). An older server's plan strip on the plate stays.
+test("I40-5: the floor draws no Entrega; with no route the plate keeps its count", () => {
   const s = floor({ ...resting(), route: mianovia, plan: { initiative: { key: "WRK-I3", title: "Panel administrativo" }, done: 2, total: 4 } });
-  assert.equal((s.match(/class="edi-leg"/g) ?? []).length, 5);
-  assert.match(s, /data-leg="here" aria-current="step"/);
-  const t = text(s).replace(/\s+/g, " ");
-  assert.ok(t.includes("11 de 14 pasos · 2 entregables sin planear"));
-  for (const words of ["4 de 5 · pospuesto: Hosting y dominio", "completo", "2 de 4 · aquí", "sin planear"]) assert.ok(t.includes(words), words);
-  assert.deepEqual([...s.matchAll(/data-step="([a-z]+)" data-mark="([a-z]+)"/g)].map((m) => `${m[1]}:${m[2]}`), ["published:done", "published:done", "next:now", "later:later"]);
-  assert.ok(t.includes("Publicado hoy 2:35 pm") && t.includes("Después · espera el paso anterior"));
-  assert.equal(/edi-segs|pasos hechos/.test(s), false, "the route says the steps, not the plate");
-  // An older server sends no route: the plate keeps its strip and the floor draws no route.
-  const old = floor({ ...resting(), plan: { initiative: { key: "WRK-I3", title: "Panel administrativo" }, done: 2, total: 4 } });
-  assert.ok(old.includes("2 de 4 pasos hechos") && !old.includes("edi-route"));
+  assert.equal(/edi-route|edi-leg|data-steps-of/.test(s), false);
+  assert.ok(s.includes('class="dark sb"'));
   clean(s);
-});
-
-test("I40-5 #2: the step that comes next says what the band says", () => {
-  const p: Json = { ...resting(), route: mianovia };
-  const band = line(p);
-  const next = lib.stepLine(mianovia.legs[2].steps[2], p.team, NOW, TZ);
-  assert.equal(next, "Sigue · Taller arranca a las 2:52 pm");
-  assert.ok(band.say.includes("a las 2:52 pm") && band.say.includes(ficha));
-  // Other holds, and the other states.
-  const held = resting({ hold: "usage", starts_at: null, text: "x" });
-  assert.equal(lib.stepLine(mianovia.legs[2].steps[2], held.team, NOW, TZ), "Sigue · Taller: detenido por el uso");
-  assert.equal(lib.stepLine(step("WRK-9", ficha, "next"), [], NOW, TZ), "Sigue · Taller");
-  assert.equal(lib.stepLine(step("WRK-9", ficha, "delivered"), [], NOW, TZ), "Entregado · espera que lo aceptes");
-  const busy = [member("taller", { state: "running", now: { ticket: "WRK-9", title: ficha, since: "2026-11-13T20:41:00Z" } })];
-  assert.equal(lib.stepLine(step("WRK-9", ficha, "working"), busy, NOW, TZ), "En curso · Taller, desde hace 3 min");
-  assert.equal(lib.stepLine(step("WRK-9", ficha, "done", "2026-11-12T20:00:00Z"), [], NOW, TZ), "Aceptado ayer");
-  assert.equal(lib.stepLine(step("WRK-9", ficha, "published", "2026-11-02T20:00:00Z"), [], NOW, TZ), "Publicado el 2 nov");
-});
-
-test("I40-5 #1: no plan says so with Que PO lo planee; one leg; a 120-character step wraps whole", () => {
-  const none = floor(project({ route: null }));
-  assert.match(none, /data-route="empty"/);
-  assert.ok(text(none).includes("Aún no hay plan") && none.includes('data-control="planear"'));
-  assert.equal(floor(project({ route: null, paused: true, light: "paused" })).includes('data-control="planear"'), false, "a paused floor asks nothing");
-
-  const long = "Importar el inventario de la bodega desde la hoja de cálculo que la tienda ya usa, con códigos, precios y existencias";
-  assert.ok(long.length >= 115);
-  const one = floor(project({ route: { legs: [{ key: "WRK-I1", title: "Inventario", done: 0, total: 1, state: "here", note: null, steps: [step("WRK-1", long, "next")], more_steps: 3 }], more_legs: 2 } }));
-  assert.equal((one.match(/class="edi-leg"/g) ?? []).length, 1);
-  assert.ok(one.includes(long), "never clipped");
-  assert.ok(text(one).includes("+3 pasos más") && text(one).includes("+2 más"));
-});
-
-test("I40-5 #3: the legs never scroll sideways, and long text breaks", () => {
-  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  // PLA-I46-14: one row of legs on every width (Jorge, 13 Nov 2026), each column allowed to shrink.
-  assert.ok(css.includes(".edi-legs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--n, 5), minmax(0, 1fr));"));
-  assert.match(css, /\.edi-leg b \{[^}]*overflow-wrap: anywhere/);
-  assert.match(css, /\.edi-stext b \{[^}]*overflow-wrap: anywhere/);
-  assert.match(css, /\.edi-route \{[^}]*grid-column: 1 \/ -1[^}]*min-width: 0/);
 });
 
 // ---- PLA-I40-6
@@ -353,7 +307,7 @@ test("I40-6: Solo tú says what is the owner's; Pasa sin ti is not drawn; Lo úl
   const html = floor(full());
   const s = text(html).replace(/\s+/g, " ");
   assert.equal(s.includes("Pasa sin ti"), false);
-  assert.ok(html.indexOf('data-col="fila"') < html.indexOf('data-col="ultimo"') && html.indexOf('class="edi-wins edi-team"') < html.indexOf('data-col="ultimo"'), "PLA-I47-2: Lo último is in the right column, after the team");
+  assert.ok(html.indexOf('class="dark sb"') >= 0 && html.indexOf('class="dark sb"') < html.indexOf('data-col="ultimo"'), "PLA-I53-3: without La ficha, Lo último is in the right column, after the board");
   assert.ok(s.includes("Solo tú Aceptar cada entrega para que el paso siguiente arranque, y publicar."));
   const working = { ...mianovia, legs: mianovia.legs.map((l: Json) => (l.steps ? { ...l, steps: l.steps.map((x: Json) => (x.state === "next" ? { ...x, state: "working" } : x)) } : l)) };
   assert.match(lib.sinTi(full({ route: working })), /^Taller termina «Ficha de la novia y notas internas» y te lo entrega\./);

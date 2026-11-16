@@ -334,10 +334,10 @@ test("I39-5 #1: a proposal hangs under the PO's window and a question under the 
   assert.match(floor, new RegExp(`data-bubble="${proposal.id}"[^>]*data-asker="product-owner-workia"`));
   assert.match(floor, /data-bubble="q-00000000-0000-4000-8000-000000000001"[^>]*data-asker="research-workia"/);
   assert.ok(floor.includes("PO te pregunta") && floor.includes("Research te pregunta"));
-  // The bubble follows its asker's row: PO is window 0, Research window 1. PLA-I47-2: one row of the team on a Mac
-  // (no «Tú» window any more), two per row on a phone.
-  assert.match(floor, /data-bubble="m-[^"]+"[^>]*style="--o-wide:7;--o-phone:3;--nx-wide:8\.33[0-9]*%;--nx-phone:25%"/);
-  assert.match(floor, /data-asker="research-workia"[^>]*style="--o-wide:7;--o-phone:3;--nx-wide:25%;--nx-phone:75%"/);
+  // PLA-I53-3: the questions hang in one row under the board's stations; the notch points at the asker's station
+  // (PO over Por hacer, the first of six) or at the corner, where the teammates with no station sit (Research).
+  assert.match(floor, /data-bubble="m-[^"]+"[^>]*style="--nx-wide:calc\(150px \+ \(100% - 150px\) \* 0\.083[0-9]*\)"/);
+  assert.match(floor, /data-asker="research-workia"[^>]*style="--nx-wide:75px"/);
   // The plate's pointer goes to the question on this floor, and Te toca's block is gone from the page.
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
   assert.equal(page.includes("<TeToca"), false);
@@ -365,7 +365,7 @@ test("I39-5 #2: each of the eight decision kinds shows the same actions Te toca 
     // PLA-I46-10: a PR delivery is the floor's move and Ahora carries it as the evidence card, with the same two
     // exits (held here, so its Aceptar is plain), and it does not hang a second time under Taller's window.
     if (d.kind === "pr") {
-      const card = /<div id="pregunta-workia" class="edi-nowb"[\s\S]*?(?=<div class="edi-slot")/.exec(out)?.[0] ?? "";
+      const card = /<div id="pregunta-workia" class="edi-nowb"[\s\S]*?(?=<section class="dark sb")/.exec(out)?.[0] ?? "";
       assert.ok(card.includes(`data-evidence="${d.id}"`), "pr is shown in Ahora");
       assert.deepEqual([...card.matchAll(/data-ev-act="([a-z]+)"/g)].map((m) => m[1]), ["aceptar", "devolver", "frente"]);
       assert.equal(out.includes(`data-bubble="${d.id}"`), false);
@@ -732,15 +732,14 @@ test("I39-9 #2: every window is named with role, state and what it is on; the ta
     member("taller", { state: "running", now: { ticket: "WRK-3", title: "Pantalla del carrito", since: "2026-11-10T17:20:00Z" } }),
   ];
   const out = render(company({ projects: [project({ team })], decisions: [proposal] }), { acts: acts(), onOpen: noop });
-  const names = [...out.matchAll(/<button type="button" class="edi-win"[^>]*aria-label="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(names, ["PO de Workia, te espera: Te pregunta algo, ¿Qué tienda?", "Research de Workia, libre: Sin trabajo", "Taller de Workia, trabajando: Pantalla del carrito, desde hace 40 min"]);
-  // DOM order (the tab order): the PO's window, then its question, then the next window.
+  // PLA-I53-3: the seats are the board's corner (teammates with no station) and its stations, in that order.
+  const names = [...out.matchAll(/<button type="button" class="(?:edi-seat|sb-cell sb-station)"[^>]*aria-label="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(names, ["Research de Workia, libre: Sin trabajo", "PO de Workia, te espera: Te pregunta algo, ¿Qué tienda?", "Taller de Workia, trabajando: Pantalla del carrito, desde hace 40 min"]);
+  // DOM order (the tab order): the seats, then the questions under the stations, then the board's tracks.
   const po = out.indexOf('data-agent="product-owner-workia"');
   const q = out.indexOf(`data-bubble="${proposal.id}"`);
-  const next = out.indexOf('data-agent="research-workia"');
-  assert.ok(po < q && q < next, "window → its question → the next window");
-  const firstButtonInQuestion = out.indexOf("<button", q);
-  assert.ok(firstButtonInQuestion < next, "the question's controls come before the next window");
+  assert.ok(po < q, "the asker's station comes before its question");
+  assert.ok(out.indexOf('class="sb-below"') < q, "questions sit in the row under the stations");
 });
 
 test("I39-9 #3: caption, plate and question text on the night panel reach 4.5:1", () => {

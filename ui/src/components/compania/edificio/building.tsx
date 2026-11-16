@@ -25,7 +25,7 @@ import { Roof } from "./roof";
 import { EdificioSkeleton, Scene } from "./scene";
 import { Tower, openFloor } from "./tower";
 import { Facade } from "./facade";
-import type { FilaActs } from "./fila";
+import type { BoardActs } from "./floor";
 
 const firstLine = (s: string, n = 160) => {
   const one = (s.split("\n").find((l) => l.trim()) ?? "").replace(/[*_#`]/g, "").trim();
@@ -71,12 +71,11 @@ export type BuildingProps = {
   officeMore?: ReactNode;
   // PLA-31: Oficina's city (the page draws it). With it, Oficina has no sky strip, no Brief de hoy and no rows.
   city?: ReactNode;
-  // PLA-I47-3: La fila's calls (Hacer primero, Detener, Aceptar, Quitar).
-  fila?: FilaActs;
-  // PLA-I47-4: La ficha beside the floor (the page reads and draws it), and a leg opening in it.
+  // PLA-I53-3: the stage board's calls (Hacer primero, Detener, Aceptar, Quitar, and what opens in La ficha).
+  board?: BoardActs;
+  // PLA-I47-4: La ficha beside the floor (the page reads and draws it).
   ficha?: ReactNode;
   fichaOpen?: boolean;
-  onLeg?: (slug: string, key: string, el: HTMLElement) => void;
   // PLA-I47-6: a tap outside the sheet closes La ficha on a phone.
   onFichaClose?: () => void;
   // PLA-I48: the open floor's level, its switch and its Máquinas level; the floors whose app is on (rail lights).
@@ -87,7 +86,7 @@ export type BuildingProps = {
 };
 
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore, city, fila, ficha, fichaOpen, onLeg, onFichaClose, nivel, liftFor, maquinasFor, appsOn }: BuildingProps) => {
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore, city, board, ficha, fichaOpen, onFichaClose, nivel, liftFor, maquinasFor, appsOn }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
   const open = openFloor(floors, basement, piso);
@@ -172,9 +171,8 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
               timeZone={timeZone}
               nowActs={isOff ? undefined : nowActs}
               ventana={isOff ? undefined : ventanaFor?.(open)}
-              fila={isOff ? undefined : fila}
+              board={isOff ? { onTicket: board?.onTicket, onTrack: board?.onTrack, selected: board?.selected } : board}
               ficha={!!ficha}
-              onLeg={onLeg ? (key, el) => onLeg(open.slug, key, el) : undefined}
               nivel={nivel}
               lift={liftFor?.(open)}
               maquinas={maquinasFor ? (ask) => maquinasFor(open, ask) : undefined}

@@ -18,6 +18,8 @@ export type FichaRef =
   | { kind: "plan" }
   | { kind: "app" }
   | { kind: "sumar" }
+  // PLA-I53-3: the board's Sueltos track (tickets under no open initiative).
+  | { kind: "sueltos" }
   // PLA-I48-5/6: Máquinas. ?f=maq:servidor, maq:base, maq:llaves, maq:pruebas, maq:probar and maq:tabla:<name>.
   | { kind: "maq"; what: MaqWhat }
   | { kind: "maq-tabla"; name: string };
@@ -45,7 +47,7 @@ export function fichaOf(search: string): { ref: FichaRef; slug: string | null } 
     if (kind === "pr") return one(/^\d{1,7}$/.test(ref) ? { kind, n: Number(ref) } : null);
     if (kind === "doc") return one(UUID.test(ref) ? { kind, id: ref } : null);
     if (kind === "lienzo") return one(LIENZO.test(ref) ? { kind, url: ref } : null);
-    if (kind === "plan" || kind === "app" || kind === "sumar") return one({ kind });
+    if (kind === "plan" || kind === "app" || kind === "sumar" || kind === "sueltos") return one({ kind });
     if (kind === "maq") {
       if (ref.startsWith("tabla:")) return one(TABLE.test(ref.slice(6)) ? { kind: "maq-tabla", name: ref.slice(6) } : null);
       return one((MAQ_WHAT as readonly string[]).includes(ref) ? { kind: "maq", what: ref as MaqWhat } : null);

@@ -84,9 +84,8 @@ test("I47-7: the Edificio's pill has the floor's tone; the evidence card survive
 
 test("I47-7: dim text passes AA and Ahora gets its height back", () => {
   const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  assert.match(css, /\.edi-fi-tab small, \.edi-fi-li em, \.edi-fi-tube li, \.edi-fsec h3 small, \.edi-fempty, \.edi-fi-empty \{ color: #959cb8; \}/);
+  assert.match(css, /\.edi-fi-tab small, \.edi-fi-li em, \.edi-fi-tube li, \.edi-fi-empty \{ color: #959cb8; \}/);
   assert.match(css, /grid-template-areas: "voice meta" "by by"/, "the sky is one row");
-  assert.match(css, /\.edi-bld \.edi-route \.edi-legname \{ white-space: nowrap;/, "leg names on one line");
   assert.match(css, /\.edi-team \{ grid-template-columns: repeat\(var\(--n\), minmax\(0, 1fr\)\) var\(--add, 0px\);/, "a narrow track for «+»");
   const r = readFileSync(new URL("../ui/src/components/compania/edificio/resguardo.tsx", import.meta.url), "utf8");
   assert.ok(r.includes("getDerivedStateFromError") && r.includes("Reintentar"));

@@ -487,7 +487,9 @@ function renderTeToca(decisions: Json[]) {
   );
 }
 
-const outsideDetalles = (html: string) => html.replace(/<details[\s\S]*?<\/details>/g, "");
+// PLA-I53-3: the stage board's cards carry their key by the accepted Design doc of PLA-I53 (key, title, stage word);
+// everything else on the floor still keeps keys inside Detalles.
+const outsideDetalles = (html: string) => html.replace(/<section class="dark sb"[\s\S]*?<\/section>/g, "").replace(/<details[\s\S]*?<\/details>/g, "");
 
 test("I36-11 #1: the page renders no ticket key, branch name or the word sandbox outside Detalles", async () => {
   const p = await card();
