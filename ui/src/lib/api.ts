@@ -5,7 +5,7 @@ import type { Goal, GoalWrite } from "@/components/goals/model";
 import type { Usage, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
 import type { CapturesRead, PruebaRead } from "@/lib/ventana";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
-import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
+import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail, TaskRow } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -37,7 +37,7 @@ export const api = {
   // TanStack Query rejects undefined data, so the empty 204 becomes true.
   session: () => request<void>("GET", "/session").then(() => true),
   projects: () => request<ProjectSummary[]>("GET", "/projects"),
-  project: (slug: string) => request<ProjectDetail>("GET", `/projects/${encodeURIComponent(slug)}`),
+  project: (slug: string) => request<ProjectRead>("GET", `/projects/${encodeURIComponent(slug)}`),
   task: (slug: string, key: string) =>
     request<TaskDetail>("GET", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}`),
   // version is the one shown on screen; if the task moved since, the server answers STALE_VERSION.
@@ -296,6 +296,9 @@ export type Etapa = { etapa: EtapaId; qa: "queued" | "running" | null; holder: E
 export type AhoraItem = { key: string; title: string; initiative: string | null } & Pick<Etapa, "etapa" | "qa" | "holder" | "live" | "since" | "reason">;
 export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa };
 export type OpenInitiative = { key: string; title: string; status: string; done: number; total: number; tickets: ProjectTicket[] };
+// PLA-I53-2: GET /api/projects/:slug, with every ticket's stage and the board the floor reads.
+export type StagedTask = TaskRow & { etapa?: Etapa | null };
+export type ProjectRead = Omit<ProjectDetail, "tasks"> & { tasks: StagedTask[]; tablero?: Tablero; ahora?: AhoraItem[] };
 export type Tablero = { initiatives: OpenInitiative[]; loose: ProjectTicket[]; loose_done: number };
 export type OrgMoveVerb = "aceptar" | "publicar" | "responder" | "fijar" | "arrancar" | "planear" | "ver";
 export type OrgMoveAction =

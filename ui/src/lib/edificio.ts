@@ -7,6 +7,7 @@
 //   skyAt        the sky's colours for an hour; floorHue one of six fixed hues from the slug.
 import type { AskResult, Decision, OrgMember, OrgMemberState, OrgMoveAction, OrgNextMove, OrgNextStart, OrgProject, OrgRoute, OrgRouteLeg, OrgRouteStep } from "./api";
 import { obrasOf, seatOf, type Obra } from "./ahora-piso";
+import { ETAPA_WORD } from "./etapas";
 import { byLight, byRole, roleName } from "./org";
 import { pending, waitingPlan } from "./v2";
 
@@ -285,8 +286,10 @@ export function startsLine(n: OrgNextStart, now: number, timeZone?: string): str
 }
 
 export type NowState = "work" | "rest" | "you" | "stuck" | "done" | "off" | "idle" | "back";
-export const BACK_WORD = "Devuelto · arreglando";
-export const NOW_WORD: Record<NowState, string> = { back: BACK_WORD, work: "Trabajando", rest: "Pausa corta", you: "Te toca", stuck: "Atorado", done: "Plan terminado", off: "En pausa", idle: "Sin trabajo en curso" };
+// PLA-I53-5: the band's words that name a stage come from the stage map (lib/etapas.ts); the rest are the floor's own
+// states, not stages.
+export const BACK_WORD = ETAPA_WORD.devuelto;
+export const NOW_WORD: Record<NowState, string> = { back: BACK_WORD, work: "Trabajando", rest: "Pausa corta", you: ETAPA_WORD.te_toca, stuck: "Atorado", done: "Plan terminado", off: "En pausa", idle: "Sin trabajo en curso" };
 // PLA-I46-3: the band's action is the floor's move (OrgMoveAction, green), or a secondary nudge that is never the
 // owner's turn (start a resting teammate now, or past the usage guard).
 export type NowAction = OrgMoveAction | { kind: "start"; agent: string; pastGuard: boolean; label: string };

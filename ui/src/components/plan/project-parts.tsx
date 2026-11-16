@@ -17,7 +17,6 @@ import {
   LANE_STATE,
   ProgressRing,
   rise,
-  statusWord,
   TONE_TEXT,
   toneVar,
 } from "@/components/plan/visuals";
@@ -27,6 +26,9 @@ import { DecisionList, ResumeView } from "@/components/resume";
 import type { BranchEdge, Lane, StationTone } from "@/lib/lanes";
 import type { Decision, Headline, HeadlineNote, ReleasePlan, Resume } from "@/lib/types";
 import { ideaClosed, ideaFinished } from "@/lib/ahora";
+import { initiativeWord } from "@/lib/etapas";
+import type { Etapa } from "@/lib/api";
+import { StageWord } from "@/components/plan/stage-word";
 import { cn } from "@/lib/utils";
 
 // 2.11: the note beside the generated headline, for what the data cannot say. Anyone writes it
@@ -255,25 +257,26 @@ function InitiativeStatus({ lane }: { lane: Lane }) {
       style={{ background: `color-mix(in oklab, ${toneVar(state.tone)} 13%, transparent)` }}
     >
       <Glyph tone={state.tone} size={7} pulse={lane.state === "moving"} />
-      {statusWord(lane.initiative!.status)}
+      {initiativeWord(lane.initiative!.status)}
     </span>
   );
 }
 
-// In review, Merged and Released count as advanced: done in green, then the review stretch in violet.
+// PLA-I53-5: Merged and Released are landed (Hecho), as on the stage board; only In review is the violet stretch.
 function InitiativeProgress({ lane, barClassName }: { lane: Lane; barClassName?: string }) {
   const share = (n: number) => (lane.total === 0 ? 0 : (n / lane.total) * 100);
-  const inReview = lane.review.length;
-  const advanced = lane.closed + inReview;
+  const landed = lane.closed + lane.review.filter((t) => t.status !== "In review").length;
+  const inReview = lane.review.length - (landed - lane.closed);
+  const advanced = landed + inReview;
   return (
     <div className="flex items-center gap-2.5">
       <div className={cn("flex h-1.5 w-24 overflow-hidden rounded-full bg-foreground/10", barClassName)} aria-hidden>
-        <div className="h-full bg-status-done" style={{ width: `${share(lane.closed)}%` }} />
+        <div className="h-full bg-status-done" style={{ width: `${share(landed)}%` }} />
         <div className="h-full bg-status-review" style={{ width: `${share(inReview)}%` }} />
       </div>
       <span
         className="whitespace-nowrap text-muted-foreground tabular-nums"
-        title={`${lane.closed} cerrados, ${inReview} en revisión, ${lane.total} en total`}
+        title={`${landed} hechos, ${inReview} en revisión, ${lane.total} en total`}
       >
         {advanced} de {lane.total}
         {inReview > 0 && <span className="text-ink-review"> · {inReview} en revisión</span>}
@@ -286,9 +289,12 @@ function InitiativeHere({ lane, onOpen, clamp }: { lane: Lane; onOpen: Open; cla
   const here = lane.stations.find((s) => s.here)?.task;
   if (!here) return <span className="text-muted-foreground">—</span>;
   return (
-    <TicketButton taskKey={here.key} onOpen={onOpen} title={here.title} className="text-left">
-      <span className={cn("text-foreground/85 underline-offset-4 group-hover/ticket:underline", clamp)}>{here.title}</span>
-    </TicketButton>
+    <span className="grid gap-0.5">
+      <StageWord etapa={here.etapa as Etapa | null | undefined} status={here.status} />
+      <TicketButton taskKey={here.key} onOpen={onOpen} title={here.title} className="text-left">
+        <span className={cn("text-foreground/85 underline-offset-4 group-hover/ticket:underline", clamp)}>{here.title}</span>
+      </TicketButton>
+    </span>
   );
 }
 

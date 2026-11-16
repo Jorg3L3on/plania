@@ -8,7 +8,8 @@ import { Switch } from "@/components/ui/switch";
 import { TaskControls } from "@/components/task-controls";
 import { TaskRow } from "@/components/task-row";
 import { groupTasks, type TaskListFilters } from "@/lib/groups";
-import { PRIORITIES, TICKET_STATUSES, type TaskRow as Task } from "@/lib/types";
+import { PRIORITIES, TICKET_STATUSES } from "@/lib/types";
+import type { StagedTask as Task } from "@/lib/api";
 
 type Filters = TaskListFilters;
 

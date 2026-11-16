@@ -1,28 +1,23 @@
+import { statusStageTone } from "./etapas";
+
 // Status colours come from the --status-* tokens in index.css, so both themes share one map.
 // A tone is the meaning on screen: done, now, review, ready, blocked, jorge (waits on Jorge), pending (not started)
 // or idle (parked).
 
 export type Tone = "done" | "now" | "review" | "ready" | "blocked" | "jorge" | "pending" | "idle";
 
-const TONE: Record<string, Tone> = {
-  Backlog: "pending",
+// PLA-I53-5: a ticket status takes its stage's tone from lib/etapas.ts (Merged and Released are done, not review);
+// only an initiative's own statuses are listed here.
+const INITIATIVE_TONE: Record<string, Tone> = {
   Open: "pending",
   Planning: "pending",
-  Ready: "ready",
-  "In progress": "now",
   Active: "now",
-  "In review": "review",
-  Merged: "review",
-  Released: "review",
   Shipping: "review",
-  Blocked: "blocked",
-  "Needs Jorge": "jorge",
-  Done: "done",
   "On hold": "idle",
   "Won't do": "idle",
 };
 
-export const statusTone = (status: string): Tone => TONE[status] ?? "pending";
+export const statusTone = (status: string): Tone => INITIATIVE_TONE[status] ?? statusStageTone(status) ?? "pending";
 
 // Literal class names so Tailwind sees every one of them.
 const DOT: Record<Tone, string> = {

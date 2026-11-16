@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeftIcon, ListIcon, WaypointsIcon } from "lucide-react";
+import { Building2Icon, ChevronLeftIcon, ListIcon, WaypointsIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LaneGrid } from "@/components/plan/lane-grid";
+import { StageBoard } from "@/components/plan/stage-board";
 import { AhoraLine } from "@/components/plan/ahora-line";
 import { ahoraView } from "@/lib/ahora-piso";
 import {
@@ -205,6 +205,11 @@ function ProjectAhora({ slug }: { slug: string }) {
 
 export function ProjectPage() {
   const { slug = "" } = useParams();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
   const project = useQuery({ queryKey: ["project", slug], queryFn: () => api.project(slug) });
   const [searchParams, setSearchParams] = useSearchParams();
   const [fichaOpen, setFichaOpen] = useState(false);
@@ -257,8 +262,11 @@ export function ProjectPage() {
   }
 
   const initiativeLanes = derived.lanes.filter((l) => l.initiative);
-  // On hold initiatives stay in the table below, not in En paralelo.
-  const parallelLanes = derived.lanes.filter((l) => l.state !== "paused");
+  // PLA-I53-5: En paralelo is the floor's stage board, from the same server read (tablero, etapa); the completed
+  // initiatives fold into one line under it.
+  const tablero = project.data?.tablero;
+  const hasBoard = !!tablero && (tablero.initiatives.length > 0 || tablero.loose.length > 0 || tablero.loose_done > 0);
+  const folded = (tasks ?? []).filter((t) => t.kind === "initiative" && t.status === "Done").map((t) => ({ key: t.key, title: t.title }));
 
   return (
     // grid-cols-1 keeps the track at the viewport: no section can widen the page on phones.
@@ -268,6 +276,14 @@ export function ProjectPage() {
           <ChevronLeftIcon className="size-4" /> Proyectos
         </Link>
         <div className="flex flex-wrap items-center gap-3">
+          {/* PLA-I53-5: the way back to this project's floor in Compañía. */}
+          <Link
+            to={`/ceo?piso=${encodeURIComponent(slug)}`}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-full border bg-card px-3.5 text-[13px] font-medium hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            data-control="ver-piso"
+          >
+            <Building2Icon className="size-3.5" aria-hidden /> Ver el piso
+          </Link>
           <ViewToggle view={view} onChange={(v) => setParam("view", v === "lista" ? "lista" : null)} />
         </div>
       </div>
@@ -310,19 +326,21 @@ export function ProjectPage() {
             </div>
           ) : (
             <>
-              {parallelLanes.length > 0 && (
-                <section className="grid gap-3">
-                  <SectionTitle
-                    hint={
-                      <>
-                        una fila por iniciativa; cada una avanza por su cuenta
-                        <span className="hidden md:inline">, de izquierda a derecha</span>
-                      </>
-                    }
-                  >
-                    En paralelo
-                  </SectionTitle>
-                  <LaneGrid slug={slug} lanes={parallelLanes} onOpen={openTask} />
+              {hasBoard && (
+                <section className="grid min-w-0 gap-3" data-section="tablero">
+                  <SectionTitle hint="una fila por iniciativa; cada ticket en la estación de quien lo tiene, como en el piso">En paralelo</SectionTitle>
+                  <StageBoard
+                    tablero={tablero!}
+                    now={now}
+                    selected={openKey}
+                    onTicket={(t) => openTask(t.key)}
+                    onTrack={(key) => key && openTask(key)}
+                    onDone={(key) => key && openTask(key)}
+                    folded={folded}
+                    onFolded={(key) => openTask(key)}
+                    label={`Tablero de etapas de ${project.data.title}`}
+                    className="dark sb-page"
+                  />
                 </section>
               )}
 
