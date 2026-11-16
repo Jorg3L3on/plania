@@ -789,6 +789,8 @@ export function BriefCity(props: CityProps) {
     const later = rowActions.find((a) => a.id === "later");
     const dismiss = rowActions.find((a) => a.id === "dismiss");
     const paused = (l?.kind === "ticket" || l?.kind === "initiative") && l.paused && cd.open;
+    // PLA-45: «Activar corridas» on a card about something else (a PR, a ticket) says why it is the button here.
+    const runsWhy = l?.kind !== "runs" && own.some((a) => a.id === "resume_runs");
     const app = data.apps.find((a) => a.id === item.app);
     const wakeAct = pending?.kind === "wake" ? rowActions.find((a) => a.id === pending.action) : undefined;
     return (
@@ -824,7 +826,7 @@ export function BriefCity(props: CityProps) {
             </a>
           )}
         </div>
-        {paused && !pending && <p className="bc-note" data-brief="waiting-paused">{d.waitingPaused(appName(slug, app?.name, t))}</p>}
+        {paused && !runsWhy && !pending && <p className="bc-note" data-brief="waiting-paused">{d.waitingPaused(appName(slug, app?.name, t))}</p>}
         <div className="bc-you">
           {readOnly ? (
             s ? done(cd, s) : <p className="bc-note">{d.readOnly}</p>
@@ -930,6 +932,11 @@ export function BriefCity(props: CityProps) {
                       </Btn>
                     ))}
                   </div>
+                  {runsWhy && (
+                    <p className="bc-note" data-brief="runs-why">
+                      {c.runsWhy(appName(slug, app?.name, t))}
+                    </p>
+                  )}
                 </>
               )}
               <div className="bc-duo">

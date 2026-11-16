@@ -111,6 +111,8 @@ export type CityLabels = {
   nextCard: string;
   readNow: string;
   doIt: string;
+  // PLA-45: under «Activar corridas» when the card is about something else (a PR, a ticket): why that is the button.
+  runsWhy: (project: string) => string;
   giveIt: string;
   giveIdea: string;
   keepIt: string;
@@ -481,7 +483,7 @@ const en: BriefLabels = {
       publish: (c) => `This publishes ${c.from && c.from !== "sandbox" ? c.from : "the test copy"} to ${c.into ?? "main"} for ${c.project}: ${c.tickets ?? 0} ticket${c.tickets === 1 ? "" : "s"}${c.migrations?.length ? `, migrations ${c.migrations.join(", ")}` : ", no migrations"}. Prod deploys from ${c.into ?? "main"}.`,
       accept_pr: (c) => `This merges PR #${c.pr} into ${c.project}'s test copy. Nothing published changes.`,
       add_to_pr: (c) => `Plania commits the lines to ${c.path ?? "the file"} on ${c.key ?? "the ticket"}'s PR branch, then marks the step done.`,
-      resume_runs: (c) => `This turns on ${c.project}'s runs. Its bots start on the next tick and use your plan ($0).`,
+      resume_runs: (c) => `This turns on ${c.project}'s runs. Its bots start within a few minutes and use your plan ($0).`,
       fix_finding: (c) => `Plania runs the fix for ${c.code ?? "this finding"}${c.key ? ` on ${c.key}` : ""} and audits ${c.project} again.`,
     },
     yourAnswer: "Your answer",
@@ -581,6 +583,7 @@ const en: BriefLabels = {
     nextCard: "Next card",
     readNow: "Read from Plania now",
     doIt: "Do it yourself",
+    runsWhy: (p) => `${p} is paused: its bots do nothing here until you turn its runs on. Turning them on lets them pick this up.`,
     giveIt: "Hand it to",
     giveIdea: "Hand it to",
     keepIt: "Put it away",
@@ -788,7 +791,7 @@ const es: BriefLabels = {
       publish: (c) => `Esto publica ${c.from && c.from !== "sandbox" ? c.from : "la copia de prueba"} en ${c.into ?? "main"} para ${c.project}: ${c.tickets ?? 0} ticket${c.tickets === 1 ? "" : "s"}${c.migrations?.length ? `, migraciones ${c.migrations.join(", ")}` : ", sin migraciones"}. Prod se despliega desde ${c.into ?? "main"}.`,
       accept_pr: (c) => `Esto integra el PR #${c.pr} a la copia de prueba de ${c.project}. Lo publicado no cambia.`,
       add_to_pr: (c) => `Plania agrega las líneas a ${c.path ?? "el archivo"} en la rama del PR de ${c.key ?? "el ticket"} y marca el paso como hecho.`,
-      resume_runs: (c) => `Esto activa las corridas de ${c.project}. Sus bots arrancan en el siguiente tick y usan tu plan ($0).`,
+      resume_runs: (c) => `Esto activa las corridas de ${c.project}. Sus bots arrancan en unos minutos y usan tu plan ($0).`,
       fix_finding: (c) => `Plania corre la corrección de ${c.code ?? "este hallazgo"}${c.key ? ` en ${c.key}` : ""} y vuelve a auditar ${c.project}.`,
     },
     yourAnswer: "Tu respuesta",
@@ -888,6 +891,7 @@ const es: BriefLabels = {
     nextCard: "Ficha siguiente",
     readNow: "Leído de Plania ahora",
     doIt: "Hazlo tú",
+    runsWhy: (p) => `${p} está en pausa: sus bots no hacen nada aquí hasta que actives sus corridas. Al activarlas, ellos lo retoman.`,
     giveIt: "Dáselo a",
     giveIdea: "Dásela a",
     keepIt: "Guárdalo",

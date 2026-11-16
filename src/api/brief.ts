@@ -11,6 +11,7 @@ import { withDb, type Db } from "../db/client.js";
 import { briefChecks, briefRuns, docs, morningBriefs, projects, type MorningBrief } from "../db/schema.js";
 import { AUTH_PREFIX, BriefRunningError, localDateIn, runningRun, startBrief, type RunBriefDeps } from "../brief/pipeline.js";
 import { IDEA_PERSONA_DOC } from "../brief/prompts.js";
+import { plainBrief } from "../brief/plain.js";
 import { runDoctor } from "../brief/doctor.js";
 import { act, ActBody, briefState, undo, type ActError } from "../brief/act.js";
 import { MAX_CODES, PlanError, planOfBrief, planProgress, sendToPlania } from "../brief/plan.js";
@@ -38,7 +39,7 @@ type Item = { id?: unknown; status?: unknown };
 const itemsOf = (b: MorningBrief): Item[] => (Array.isArray(b.data.items) ? (b.data.items as Item[]) : []);
 const ideasOf = (b: MorningBrief): Item[] => (Array.isArray(b.data.ideas) ? (b.data.ideas as Item[]) : []);
 
-const briefOut = (b: MorningBrief) => ({ id: b.id, local_date: b.localDate, generated_at: b.generatedAt.toISOString(), trigger: b.trigger, mode: b.mode, data: b.data });
+const briefOut = (b: MorningBrief) => ({ id: b.id, local_date: b.localDate, generated_at: b.generatedAt.toISOString(), trigger: b.trigger, mode: b.mode, data: plainBrief(b.data) });
 
 /** The checked ids among this brief's items and ideas. */
 async function checksFor(db: Db, b: MorningBrief | null): Promise<string[]> {

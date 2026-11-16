@@ -1,5 +1,6 @@
 // Project page sections around the lane grid: header, initiative lines,
 // branch graph, fixed decisions and the full resume (ficha) panel.
+import { plainWords } from "@/lib/plain-words";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowRightIcon, GitBranchIcon, PencilIcon, PinIcon } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
@@ -65,7 +66,7 @@ function NoteLine({ slug, note, version }: { slug: string; note: HeadlineNote; v
   }
   return (
     <p className="flex max-w-2xl flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
-      {note.text ? <span>{note.text}</span> : <span className="italic">Sin nota.</span>}
+      {note.text ? <span>{plainWords(note.text)}</span> : <span className="italic">Sin nota.</span>}
       {note.text && note.stale && (
         <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400" title="Algo cambió desde que se escribió">
           desactualizada
@@ -83,7 +84,7 @@ function NoteLine({ slug, note, version }: { slug: string; note: HeadlineNote; v
 function HeadlineBlock({ slug, headline, version }: { slug: string; headline: Headline; version: number }) {
   return (
     <div className="mt-1 grid max-w-2xl gap-0.5">
-      {headline.generated && <p className="text-[13px] leading-snug text-foreground/85">{headline.generated}</p>}
+      {headline.generated && <p className="text-[13px] leading-snug text-foreground/85">{plainWords(headline.generated)}</p>}
       <NoteLine slug={slug} note={headline.note} version={version} />
     </div>
   );
@@ -311,7 +312,7 @@ function InitiativeName({ lane, onOpen, lines }: { lane: Lane; onOpen: Open; lin
         <span className="ml-2 font-mono text-xs text-muted-foreground">{initiative.key}</span>
       </TicketButton>
       {derived?.line && <span className="text-xs text-foreground/75">{derived.line}</span>}
-      {derived?.note && <span className="line-clamp-2 text-xs text-muted-foreground/80 italic">{derived.note}</span>}
+      {derived?.note && <span className="line-clamp-2 text-xs text-muted-foreground/80 italic">{plainWords(derived.note)}</span>}
     </span>
   );
 }

@@ -1,5 +1,6 @@
 // PLA-I33: the words and rules of Compañía como organización (ADR 31c1cead, Design 3a2c3385). Pure: the
 // pages and test/compania-org.test.ts read the same functions. Spend is tokens, never money.
+import { plainWords } from "./plain-words";
 import { statusEtapa, statusWord as ticketWord } from "./etapas";
 import type { Plumbed, Usage } from "./compania";
 import { ago, tokens, type Tone } from "./compania";
@@ -91,7 +92,7 @@ export function linkHref(link: Pick<ThreadLink, "kind" | "ref"> | OrgProduced, p
 const KIND_WORD: Record<string, string> = { ticket: "", doc: "doc", pr: "PR", idea: "idea", plan: "plan", question: "pregunta", brief_plan: "brief" };
 export const linkLabel = (link: { kind: string; ref: string; title: string }) => {
   const kind = KIND_WORD[link.kind] ?? link.kind;
-  if (link.kind === "pr") return link.title || "PR";
+  if (link.kind === "pr") return link.title ? plainWords(link.title) : "PR";
   if (link.kind === "ticket") return link.title ? `${link.ref} · ${link.title}` : link.ref;
   return `${kind} “${link.title || link.ref}”`;
 };

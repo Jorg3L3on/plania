@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
+import { plainWords } from "@/lib/plain-words";
 import { clock, tokens, type RunBrief, type Tone } from "@/lib/compania";
 import type { OrgMember, OrgProject, Thread, ThreadAction, ThreadMessage } from "@/lib/api";
 import { ACTION_EFFECT, ACTION_LABEL, MESSAGE_MAX, THREAD_PAGE, actionStateText, actionTitle, byRole, isBareLink, lightOf, linkHref, linkLabel, memberLine, needsText, roleName, usageLine, threadItems, visibleMessages, waitsOnJorge } from "@/lib/org";
@@ -95,7 +96,7 @@ export const MessageRow = ({
           {clock(message.at, timeZone)}
         </time>
       </div>
-      <p className={cn("text-sm leading-relaxed break-words whitespace-pre-line", long && !full && "line-clamp-6")}>{message.body}</p>
+      <p className={cn("text-sm leading-relaxed break-words whitespace-pre-line", long && !full && "line-clamp-6")}>{mine ? message.body : plainWords(message.body)}</p>
       {long && (
         <button type="button" className="justify-self-start text-xs text-muted-foreground hover:text-foreground" onClick={() => setFull(!full)}>
           {full ? "Ver menos" : "Ver todo"}
