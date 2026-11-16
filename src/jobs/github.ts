@@ -183,7 +183,7 @@ async function trailerKey(deps: GithubDeps, token: string, repo: string, pr: Pr)
 
 // PLA-14: a PR head's CI from its check runs and its commit statuses. failure if any is red, success if every one
 // is green, pending while any runs, and none when the head has no check run and no status at all (a repo with no
-// CI): that is not "tests running", so it never holds Aceptar. Only a change of state is written; success and
+// CI): that is not "tests running", so it never holds Aprobar. Only a change of state is written; success and
 // failure also add a ci result, and a failure on an In review ticket sends it back to Ready.
 export type CiState = "pending" | "success" | "failure" | "none";
 export function ciStateOf(runs: CheckRuns["check_runs"], statuses: NonNullable<CombinedStatus["statuses"]>): {

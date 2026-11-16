@@ -110,28 +110,46 @@ export function usageLine(u: Usage, opts: { paused: boolean }): { text: string; 
 
 export const THREAD_PAGE = 30;
 
+// PLA-43: an approve button names its effect. fusionar is a delivery with a PR (merged into the test copy, never
+// main); aceptar is one without (the ticket goes to Done). The server offers exactly one of the two.
 export const ACTION_LABEL: Record<ThreadAction, string> = {
-  aceptar: "Aceptar",
+  aceptar: "Aprobar y cerrar",
   cambios: "Pedir cambios",
   responder: "Responder",
-  fusionar: "Fusionar",
+  fusionar: "Aprobar y pasar a prueba",
 };
+// What each approve button does, in one line under the buttons.
+export const ACTION_EFFECT: Partial<Record<ThreadAction, string>> = {
+  aceptar: "La entrega pasa a Hecho y arranca el siguiente paso.",
+  fusionar: "Se integra a la copia de prueba; lo publicado no cambia. Luego arranca el siguiente paso.",
+};
+// title / aria-label: what the button approves («Aprobar y pasar a prueba: Compartir la lista»).
+export function actionTitle(a: ThreadAction, m: ThreadMessage): string {
+  if (a !== "aceptar" && a !== "fusionar") return ACTION_LABEL[a];
+  const ticket = m.links.find((l) => l.kind === "ticket" || l.kind === "idea");
+  const what = ticket?.title?.trim() || (a === "fusionar" ? "esta entrega con su PR" : "esta entrega");
+  return `${ACTION_LABEL[a]}: ${what}`;
+}
 const ACTION_DONE: Record<ThreadAction, string> = {
-  aceptar: "Aceptado",
+  aceptar: "Aprobado · cerrado",
   cambios: "Cambios pedidos",
   responder: "Respondido",
-  fusionar: "Fusionado a sandbox",
+  fusionar: "Aprobado · en la copia de prueba",
 };
-// "Aceptado · Done", "Fusionado a sandbox · 1abb07d", "Cambios pedidos · el PO despierta".
+// "Aprobado · cerrado", "Aprobado · en la copia de prueba", "Cambios pedidos · el PO despierta".
+// The server records every approve as action "aceptar"; a merge carries result.merged.
 export function actionStateText(s: ThreadActionState): string {
-  const head = ACTION_DONE[s.action] ?? s.action;
-  // The server records an object ({ticket, status} or {merged, sha}); never print it raw.
   const raw = s.result;
-  const result = typeof raw === "string" ? raw.trim() : raw && typeof raw === "object" ? String((raw as Record<string, unknown>).sha ?? (raw as Record<string, unknown>).status ?? "").slice(0, 12) : "";
+  const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  if (s.action === "fusionar" || (s.action === "aceptar" && obj?.merged)) return ACTION_DONE.fusionar;
+  if (s.action === "aceptar") return ACTION_DONE.aceptar;
+  const head = ACTION_DONE[s.action] ?? s.action;
+  // The server records an object ({ticket, status}); never print it raw.
+  const result = typeof raw === "string" ? raw.trim() : obj ? String(obj.status ?? "").slice(0, 12) : "";
   if (!result) return head;
   return result.toLowerCase().startsWith(head.toLowerCase()) ? result : `${head} · ${result}`;
 }
-// Pedir cambios and Responder need words; Aceptar and Fusionar do not.
+// Pedir cambios and Responder need words; the approve buttons do not.
 export const needsText = (a: ThreadAction) => a === "cambios" || a === "responder";
 
 // A message waits on Jorge while it offers an action nobody took yet.

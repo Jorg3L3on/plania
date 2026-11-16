@@ -1,5 +1,5 @@
 // PLA-I33: Compañía como organización (ADR 31c1cead, Design 3a2c3385). The thread with Asistente or a PO,
-// with Aceptar · Pedir cambios · Responder · Fusionar in line, and the team rows of the project page.
+// with Aprobar y cerrar / Aprobar y pasar a prueba · Pedir cambios · Responder in line, and the team rows of the project page.
 // Presentational: data and actions come in as props, so test/compania-org.test.ts renders them with fake data.
 // Spend is tokens, never money.
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -7,7 +7,7 @@ import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { clock, tokens, type RunBrief, type Tone } from "@/lib/compania";
 import type { OrgMember, OrgProject, Thread, ThreadAction, ThreadMessage } from "@/lib/api";
-import { ACTION_LABEL, MESSAGE_MAX, THREAD_PAGE, actionStateText, byRole, isBareLink, lightOf, linkHref, linkLabel, memberLine, needsText, roleName, usageLine, threadItems, visibleMessages, waitsOnJorge } from "@/lib/org";
+import { ACTION_EFFECT, ACTION_LABEL, MESSAGE_MAX, THREAD_PAGE, actionStateText, actionTitle, byRole, isBareLink, lightOf, linkHref, linkLabel, memberLine, needsText, roleName, usageLine, threadItems, visibleMessages, waitsOnJorge } from "@/lib/org";
 import { BlockError, Dot, TONE_INK, eyebrow, heading, panel, pillGhost, pillPrimary } from "@/components/compania/parts";
 
 // ---- the one-line plumbing link to Máquina
@@ -70,6 +70,8 @@ export const MessageRow = ({
   const mine = message.author.role === "jorge" || message.author.agent === "jorge";
   const waiting = waitsOnJorge(message);
   const busyHere = busy?.id === message.id;
+  // The one approve button on a message says what it does, in one line under the buttons.
+  const effect = message.actions.map((a) => ACTION_EFFECT[a]).find(Boolean);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!open || text.trim().length < 2) return;
@@ -120,6 +122,8 @@ export const MessageRow = ({
                 key={a}
                 type="button"
                 data-action={a}
+                title={actionTitle(a, message)}
+                aria-label={actionTitle(a, message)}
                 className={cn(a === "aceptar" || a === "fusionar" ? pillPrimary : pillGhost, "min-h-9 px-3 text-xs")}
                 disabled={busyHere}
                 aria-expanded={needsText(a) ? open === a : undefined}
@@ -129,6 +133,11 @@ export const MessageRow = ({
               </button>
             ))}
           </div>
+          {effect && (
+            <p className="text-xs text-muted-foreground" data-action-effect>
+              {effect}
+            </p>
+          )}
           {open && (
             <form className="flex gap-2" onSubmit={submit}>
               <input

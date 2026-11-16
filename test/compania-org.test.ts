@@ -125,10 +125,16 @@ test("I33-1 thread: Jorge and Asistente messages, the four inline buttons, their
   for (const t of ["Asistente", "Tú", "Mianovia: quiero compartir", "MIA-01 · Compartir la lista", 'doc “Campos y flujos”', "PR #12", "Dile a Asistente…", "Enviar"]) assert.ok(out.includes(t), t);
   const buttons = [...out.matchAll(/data-action="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(buttons, ["aceptar", "cambios", "fusionar", "cambios", "responder"]);
-  for (const label of ["Aceptar", "Pedir cambios", "Responder", "Fusionar"]) assert.ok(out.includes(`>${label}<`), label);
+  for (const label of ["Aprobar y cerrar", "Pedir cambios", "Responder", "Aprobar y pasar a prueba"]) assert.ok(out.includes(`>${label}<`), label);
+  // PLA-43: each approve button says what it approves and, in one line, what happens.
+  assert.ok(out.includes('aria-label="Aprobar y cerrar: Compartir la lista"'));
+  assert.ok(out.includes("La entrega pasa a Hecho y arranca el siguiente paso."));
+  assert.ok(out.includes("Se integra a la copia de prueba; lo publicado no cambia. Luego arranca el siguiente paso."));
+  assert.equal(/>Aceptar<|>Fusionar</.test(out), false);
+  assert.equal(/sandbox/i.test(out.replace(/<[^>]+>/g, " ")), false, "no «sandbox» on screen");
   // After acting, a message shows the result instead of buttons.
-  assert.ok(out.includes("Aceptado · Done"));
-  assert.ok(out.includes("Fusionado a sandbox · 1abb07d"));
+  assert.ok(out.includes("Aprobado · cerrado"));
+  assert.ok(out.includes("Aprobado · en la copia de prueba"));
   assert.ok(out.includes(">Respondido<"));
   assert.equal(count(out, /data-action-state=/g), 3);
   assert.ok(out.includes("3 te esperan"));
@@ -218,7 +224,7 @@ test("I33-2 project page: header with light, goal and Editar, plumbing line, Pau
   assert.equal(added.includes(">QA<"), false, "a template already on the team is not offered again");
   assert.ok(added.includes("Listo: qa-mianovia"));
   const thread = html(h(org.ThreadPanel, threadProps({ title: "PO", thread: poThread, project: "mianovia", placeholder: "Dile al PO…" })));
-  for (const t of ["Dile al PO…", ">Aceptar<", ">Pedir cambios<", ">Fusionar<", "2 te esperan"]) assert.ok(thread.includes(t), t);
+  for (const t of ["Dile al PO…", ">Aprobar y cerrar<", ">Pedir cambios<", ">Aprobar y pasar a prueba<", "2 te esperan"]) assert.ok(thread.includes(t), t);
   assert.ok(thread.includes('href="/ceo?doc=d-1"'));
   noMoney(bar + teamOut + thread);
 });
@@ -314,12 +320,16 @@ test("I33-4 state esperando a Jorge: Te necesita on the card, the message with b
 
 test("I33-4 state PR fusionado and pregunta respondida: the result replaces the buttons", () => {
   const merged = html(h(org.MessageRow, { message: asistenteThread.messages[5], project: null, busy: null, onAction: noop }));
-  assert.ok(merged.includes("Fusionado a sandbox · 1abb07d"));
+  assert.ok(merged.includes("Aprobado · en la copia de prueba"));
+  assert.equal(merged.includes("sandbox"), false);
   assert.equal(count(merged, /data-action=/g), 0);
   const answered = html(h(org.MessageRow, { message: asistenteThread.messages[6], project: null, busy: null, onAction: noop }));
   assert.ok(answered.includes("Respondido"));
   assert.equal(count(answered, /data-action=/g), 0);
   assert.equal(lib.actionStateText({ action: "cambios", at: "x", result: "el PO despierta" }), "Cambios pedidos · el PO despierta");
+  // The server writes every approve as "aceptar"; a merge carries result.merged.
+  assert.equal(lib.actionStateText({ action: "aceptar", at: "x", result: { merged: true, base: "sandbox", sha: "a".repeat(40) } }), "Aprobado · en la copia de prueba");
+  assert.equal(lib.actionStateText({ action: "aceptar", at: "x", result: { ticket: "MIA-1", status: "Done" } }), "Aprobado · cerrado");
 });
 
 test("I33-4 phone: the pages keep one column under 640 px and nothing sets a width wider than a phone", async () => {

@@ -112,7 +112,7 @@ export async function latestLane(db: Db, taskId: string): Promise<QaLane | null>
   return l ?? null;
 }
 
-// ---- The PO's check list (tasks.po_checklist: the plan writes it on Aceptar plan, the owner may edit it here)
+// ---- The PO's check list (tasks.po_checklist: the plan writes it on Aprobar el plan, the owner may edit it here)
 
 export async function poChecksOf(db: Db, taskId: string): Promise<PoCheck[]> {
   const [t] = await db.select({ list: tasks.poChecklist }).from(tasks).where(eq(tasks.id, taskId)).limit(1);

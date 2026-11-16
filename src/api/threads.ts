@@ -120,7 +120,7 @@ const ActionBody = z
   })
   .strict();
 
-// PLA-I32-4 (src/api/thread-actions.ts): Aceptar / Fusionar, Pedir cambios, Responder.
+// PLA-I32-4 (src/api/thread-actions.ts): Aprobar (aceptar / fusionar), Pedir cambios, Responder.
 threadRoutes.post("/:id/actions", async (c) => {
   const input = await body(c, ActionBody);
   if (input instanceof Response) return input;

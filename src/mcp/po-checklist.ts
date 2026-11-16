@@ -1,5 +1,5 @@
 // PLA-I46-11: the PO's check list on a ticket (tasks.po_checklist). The PO writes 3 things to verify when it plans a
-// leg, the owner edits them before Aceptar plan, and every step of the plan gets a copy. QA reads and ticks them:
+// leg, the owner edits them before Aprobar el plan, and every step of the plan gets a copy. QA reads and ticks them:
 //   [{ n: 1, text: "Sale el nombre de la novia", done: false, done_at: null, done_by: null }, ...]
 // get_task (full) shows it as po_checklist when the ticket has one.
 import { and, eq } from "drizzle-orm";
