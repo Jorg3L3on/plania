@@ -9,10 +9,12 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { Decision, OrgMember, OrgOrder, OrgProject, ProjectTicket, Tablero } from "@/lib/api";
 import { BACK_WORD, RECIBIRIA, caption, floorHue, hangingFor, nowLine, returnedOf, windowLabel, windowState } from "@/lib/edificio";
+import { ahoraView, litOf, seatOf } from "@/lib/ahora-piso";
 import { ACT_LABEL, actBusyKey, cardActs, OPEN_ORDER, STATIONS, type CardAct } from "@/lib/etapas";
 import { deliveryOf } from "@/lib/evidencia";
 import { byRole, roleName } from "@/lib/org";
 import { StageBoard, type StationHeadProps } from "@/components/plan/stage-board";
+import { AhoraLine } from "@/components/plan/ahora-line";
 import { After, Last } from "./after";
 import { Figure } from "./figure";
 import { Head } from "./head";
@@ -173,21 +175,28 @@ export const Floor = ({
   }
   const seated = new Set([...atStation.values()].map((m) => m.agent));
   const others = team.filter((m) => !seated.has(m.agent));
-  // PLA-I46-10: a delivery sent back: its maker's seat is violet until it comes back. PLA-I39-7: the PO's seat says
-  // «Recibiría tu pedido» while the owner types in Pedir. Otherwise a seat says what the seats' read says (caption).
-  const back = line.move ? null : returnedOf(slug, decisions ?? []);
+  // PLA-I53-4: who works now is the Ahora line's (lib/ahora-piso.ts): the line, each seat's window and caption, and
+  // the seat stations' light read the same obras, so they cannot disagree. A seat being fixed is violet («back»).
+  // An older server sends no ahora: then the band, the seats and their light read as before (PLA-I46-10: a delivery
+  // sent back makes its maker's seat violet until it comes back). PLA-I39-7: the PO's seat says «Recibiría tu
+  // pedido» while the owner types in Pedir.
+  const fresh = !!p.ahora;
+  const ahora = ahoraView(p, now, { companyPaused, timeZone });
+  const lit = litOf(ahora.obras);
+  const seat = (m: OrgMember) => (fresh ? seatOf(m, ahora.obras) : undefined);
+  const back = fresh || line.move ? null : returnedOf(slug, decisions ?? []);
   const isBack = (m: OrgMember) => !!back && windowState(m, companyPaused) !== "off" && (back.agent ? back.agent === m.agent : m.role === "taller");
   const hintOf = (m: OrgMember) => (typing && m.role === "product-owner" ? RECIBIRIA : null);
-  const seatState = (m: OrgMember) => (hintOf(m) ? "ghost" : isBack(m) ? "back" : windowState(m, companyPaused));
-  const seatLabel = (m: OrgMember) => (isBack(m) && !hintOf(m) ? `${caption(m, now, { companyPaused, timeZone }).who} de ${p.title}, devuelto: arreglando` : windowLabel(m, p.title, now, companyPaused));
+  const seatState = (m: OrgMember) => (hintOf(m) ? "ghost" : isBack(m) ? "back" : windowState(m, companyPaused, seat(m)));
+  const seatLabel = (m: OrgMember) => (isBack(m) && !hintOf(m) ? `${caption(m, now, { companyPaused, timeZone }).who} de ${p.title}, devuelto: arreglando` : windowLabel(m, p.title, now, companyPaused, seat(m)));
   const seatData = (m: OrgMember) => ({ "data-state": seatState(m), "data-agent": m.agent, "data-role": m.role, "data-holding": line.holder === m.agent ? "1" : undefined });
   const station = (s: (typeof STATIONS)[number]): StationHeadProps | null => {
     const m = atStation.get(s.id);
     if (!m) return null;
     const hint = hintOf(m);
-    const c = caption(m, now, { companyPaused, timeZone });
+    const c = caption(m, now, { companyPaused, timeZone, seat: seat(m) });
     const doing = hint ?? (isBack(m) ? BACK_WORD : c.sub ? `${c.doing} · ${c.sub}` : c.doing);
-    return { onClick: onOpen ? (el) => onOpen(m, el) : undefined, label: hint ? `${seatLabel(m)}. ${hint}` : seatLabel(m), figure: <Figure role={m.role} />, line: doing, data: seatData(m) };
+    return { onClick: onOpen ? (el) => onOpen(m, el) : undefined, label: hint ? `${seatLabel(m)}. ${hint}` : seatLabel(m), figure: <Figure role={m.role} />, line: doing, data: seatData(m), lit: fresh ? (lit[s.id] ?? null) : undefined };
   };
 
   // Questions: under the asker's station, the oldest per asker (Question lists the rest).
@@ -207,7 +216,7 @@ export const Floor = ({
       {(others.length > 0 || children) && (
         <div className="edi-corner-team">
           {others.map((m) => (
-            <button key={m.agent} type="button" className="edi-seat" {...seatData(m)} aria-label={seatLabel(m)} onClick={(e) => onOpen?.(m, e.currentTarget)} disabled={!onOpen} title={`${roleName(m.role)}: ${caption(m, now, { companyPaused, timeZone }).doing}`}>
+            <button key={m.agent} type="button" className="edi-seat" {...seatData(m)} aria-label={seatLabel(m)} onClick={(e) => onOpen?.(m, e.currentTarget)} disabled={!onOpen} title={`${roleName(m.role)}: ${caption(m, now, { companyPaused, timeZone, seat: seat(m) }).doing}`}>
               <span className="edi-seat-glass" aria-hidden>
                 <Figure role={m.role} />
               </span>
@@ -227,9 +236,22 @@ export const Floor = ({
   const trabajo = (
     <div className="edi-fbody">
       <div className="edi-stage">
-        {/* PLA-I53-3: the Ahora slot. F4 replaces this band with the one Ahora line (fed by the server's ahora). */}
+        {/* PLA-I53-4: the Ahora slot: the one Ahora line (the server's ahora), with the band's actions under it. */}
         <div className="edi-ahora-slot" data-slot="ahora">
-          <Now project={p} line={line} now={now} decisions={decisions} acts={nowActs} qacts={acts} onFijar={onFijar} onPublish={onPublish} side={ventana} anchor={dv && hanging.length === 0 ? `pregunta-${slug}` : undefined} />
+          <Now
+            project={p}
+            line={line}
+            now={now}
+            decisions={decisions}
+            acts={nowActs}
+            qacts={acts}
+            onFijar={onFijar}
+            onPublish={onPublish}
+            side={ventana}
+            anchor={dv && hanging.length === 0 ? `pregunta-${slug}` : undefined}
+            head={fresh ? <AhoraLine view={ahora} /> : undefined}
+            state={!fresh ? undefined : ahora.working ? (ahora.obras[0]?.etapa === "devuelto" ? "back" : "work") : ahora.quiet?.kind === "owner" ? "you" : ahora.quiet?.kind === "paused" ? "off" : ahora.quiet?.kind === "blocked" ? "stuck" : "idle"}
+          />
         </div>
         {(
           <StageBoard

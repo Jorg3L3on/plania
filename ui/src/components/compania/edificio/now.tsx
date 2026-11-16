@@ -110,6 +110,8 @@ export const Now = ({
   onPublish,
   side,
   anchor,
+  head,
+  state,
 }: {
   project: OrgProject;
   line: NowLine;
@@ -123,6 +125,10 @@ export const Now = ({
   side?: ReactNode;
   // PLA-I46-10: the delivery's card is where «Ver y responder» lands (no bubble hangs for it).
   anchor?: string;
+  // PLA-I53-4: the floor's Ahora line (components/plan/ahora-line.tsx) in place of the word and sentences, and the
+  // band's colour from it; the actions, the delivery's card, the plan and the countdown stay.
+  head?: ReactNode;
+  state?: string;
 }) => {
   const a = line.action;
   const ctx: MoveCtx = { decisions, acts, qacts, onFijar, onPublish };
@@ -135,18 +141,22 @@ export const Now = ({
   const idle = line.state === "idle" && !a && !!acts?.onMaquinas;
   // PLA-I46-3: only a card with a move breathes (data-breathe); the CSS stops it under reduce-motion.
   return (
-    <div id={dv ? anchor : undefined} className="edi-nowb" data-now={line.state} data-holder={line.holder ?? undefined} data-breathe={line.move ? "1" : undefined} data-side={side ? "1" : undefined} aria-live="polite">
+    <div id={dv ? anchor : undefined} className="edi-nowb" data-now={state ?? line.state} data-holder={line.holder ?? undefined} data-breathe={line.move ? "1" : undefined} data-side={side ? "1" : undefined} aria-live="polite">
       <div className="edi-ntext">
-        <p className="edi-nword" data-now-word>
-          {line.word}
-        </p>
-        <p className="edi-nsay" data-now-say>
-          {line.say}
-        </p>
-        {line.why && (
-          <p className="edi-nwhy" data-now-why>
-            {line.why}
-          </p>
+        {head ?? (
+          <>
+            <p className="edi-nword" data-now-word>
+              {line.word}
+            </p>
+            <p className="edi-nsay" data-now-say>
+              {line.say}
+            </p>
+            {line.why && (
+              <p className="edi-nwhy" data-now-why>
+                {line.why}
+              </p>
+            )}
+          </>
         )}
         {(a || plan || dv || line.note || idle) && (
           <div className="edi-nacts">

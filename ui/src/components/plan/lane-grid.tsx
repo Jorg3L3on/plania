@@ -10,6 +10,7 @@ import { Glide } from "@/components/plan/glide";
 import { DueTag } from "@/components/due";
 import { TicketButton } from "@/components/plan/ticket-button";
 import { dueText, isOverdue } from "@/lib/due";
+import { holderWord } from "@/lib/etapas";
 
 type Open = (key: string) => void;
 // slug and scope let each ticket glide between columns when it changes (glide.tsx).
@@ -75,8 +76,10 @@ function DoneCell({ lane, onOpen, ctx }: { lane: Lane; onOpen: Open; ctx: Ctx })
   );
 }
 
+// PLA-I53-4: who has it comes from the ticket's stage (the same read as the Ahora line), not from the lease alone.
 function NowRow({ task, onOpen, ctx }: { task: LaneTask; onOpen: Open; ctx: Ctx }) {
   const tone = task.status === "Blocked" ? "blocked" : waitsOnJorge(task) ? "jorge" : "now";
+  const who = task.etapa ? (task.etapa.live ? holderWord(task.etapa.holder) : null) : (task.claimed_by?.agent ?? null);
   return (
     <Glide slug={ctx.slug} taskKey={task.key} scope={ctx.scope} className="flex items-start gap-2.5">
       <Glyph tone={tone} size={9} className="mt-1.5" />
@@ -88,10 +91,10 @@ function NowRow({ task, onOpen, ctx }: { task: LaneTask; onOpen: Open; ctx: Ctx 
           </span>
         </TicketButton>
         {/* The column already says "en curso"; only blocked gets its word. */}
-        {(task.status === "Blocked" || task.claimed_by) && (
+        {(task.status === "Blocked" || who) && (
           <span className={cn("flex items-center gap-1.5 text-xs", TONE_TEXT[tone])}>
             {task.status === "Blocked" && statusWord(task.status)}
-            {task.claimed_by && <span className="text-muted-foreground">{task.status === "Blocked" && "· "}{task.claimed_by.agent}</span>}
+            {who && <span className="text-muted-foreground" data-who>{task.status === "Blocked" && "· "}{who}</span>}
           </span>
         )}
         <DueTag task={task} className="block" />

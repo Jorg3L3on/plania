@@ -1033,6 +1033,22 @@
      third; the board takes the rest and scrolls inside itself; Pedir stays at the bottom. */
   .edi-ahora-slot { flex: 0 1 auto; min-height: 0; max-height: clamp(140px, 32%, 220px); display: flex; flex-direction: column; }
   .edi-stage > .sb { flex: 1 1 0; min-height: 150px; }
+  /* PLA-I53-4: la línea de Ahora (components/plan/ahora-line.tsx), on the floor and on /p/<slug>. */
+  .ahl { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
+  .ahl-dot { flex: none; width: 10px; height: 10px; margin-top: 0.42em; border-radius: 50%; background: var(--ac); }
+  .ahl-dot[data-pulse] { animation: ahl-pulse 1.8s ease-out infinite; }
+  @keyframes ahl-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ac) 60%, transparent); } 100% { box-shadow: 0 0 0 9px transparent; } }
+  @media (prefers-reduced-motion: reduce) { .ahl-dot[data-pulse] { animation: none; } }
+  .ahl-text { display: grid; gap: 2px; min-width: 0; }
+  .ahl-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+  .ahl-say { margin: 0; font-size: 16px; line-height: 1.3; font-weight: 600; overflow-wrap: anywhere; }
+  .ahl-list { gap: 1px; }
+  .ahl-list .ahl-say + .ahl-say { font-size: 13.5px; font-weight: 500; }
+  .ahl-list .ahl-say + .ahl-say::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--ac); vertical-align: 0.08em; }
+  .ahl-more, .ahl-why { margin: 0; font-size: 13px; line-height: 1.35; color: var(--e-muted, var(--muted-foreground)); }
+  .ahl-why { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .edi-nowb .ahl-say { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-nowb .ahl { grid-column: 1; }
   /* The corner: the teammates without a station (Research, Artist…) as small windows, and Sumar. */
   .edi-corner { display: grid; gap: 6px; align-content: end; min-width: 0; }
   .edi-corner-team { display: flex; flex-wrap: wrap; gap: 4px; }

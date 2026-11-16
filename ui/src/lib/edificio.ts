@@ -6,6 +6,7 @@
 //   floorOrder   the floors: those that need the owner first, then by light; paused ones go to the basement.
 //   skyAt        the sky's colours for an hour; floorHue one of six fixed hues from the slug.
 import type { AskResult, Decision, OrgMember, OrgMemberState, OrgMoveAction, OrgNextMove, OrgNextStart, OrgProject, OrgRoute, OrgRouteLeg, OrgRouteStep } from "./api";
+import { obrasOf, seatOf, type Obra } from "./ahora-piso";
 import { byLight, byRole, roleName } from "./org";
 import { pending, waitingPlan } from "./v2";
 
@@ -18,7 +19,19 @@ const STATE: Record<OrgMemberState, WindowState> = {
   paused: "off",
 };
 // The company switch puts every blind down: nothing starts and live runs are stopped.
-export const windowState = (m: Pick<OrgMember, "state">, companyPaused = false): WindowState => (companyPaused ? "off" : (STATE[m.state] ?? "idle"));
+// PLA-I53-4: with the floor's obras (lib/ahora-piso.ts, seatOf) the window is lit only by what the Ahora line names:
+// work for a ticket being built or tested, back for a returned one being fixed. Without them (seat undefined) it reads
+// the teammate's state as before.
+export function windowState(m: Pick<OrgMember, "state">, companyPaused = false, seat?: Obra | null): WindowState {
+  if (companyPaused) return "off";
+  const own = STATE[m.state] ?? "idle";
+  if (seat === undefined) return own;
+  if (seat) return seat.etapa === "devuelto" ? "back" : "work";
+  return own === "work" ? "idle" : own;
+}
+// The one obra a teammate's window shows on its floor (null: not working now); undefined when the read has no ahora
+// (an older server), so the window reads the teammate's state as before.
+export const seatIn = (p: Pick<OrgProject, "team" | "ahora">, m: Pick<OrgMember, "agent">, companyPaused = false): Obra | null | undefined => (p.ahora ? seatOf(m, obrasOf(p, { companyPaused })) : undefined);
 
 // role → [name, verb]. Any other role gets its name and "trabaja".
 const VERB: Record<string, string> = {
@@ -66,9 +79,17 @@ const clip = (s: string, n = 90) => {
 };
 
 export type Caption = { who: string; verb: string; doing: string; sub: string };
-export function caption(m: OrgMember, now: number, opts: { companyPaused?: boolean; timeZone?: string } = {}): Caption {
-  const state = windowState(m, opts.companyPaused);
+export function caption(m: OrgMember, now: number, opts: { companyPaused?: boolean; timeZone?: string; seat?: Obra | null } = {}): Caption {
+  const state = windowState(m, opts.companyPaused, opts.seat);
   const base = { who: roleName(m.role), verb: roleVerb(m.role) };
+  // PLA-I53-4: a seat on the floor's obras says what the Ahora line says about it.
+  const seat = opts.seat;
+  if (seat && (state === "work" || state === "back"))
+    return {
+      ...base,
+      doing: seat.title ? clip(seat.title) : "Trabajando",
+      sub: [seat.etapa === "devuelto" ? "devuelto, arreglando" : seat.etapa === "en_qa" ? "probando" : "", seat.since ? since(seat.since, now) : ""].filter(Boolean).join(" · "),
+    };
   const queue = m.queue ?? [];
   const rest = queue.length > 1 ? `${queue.length - 1} más en fila` : "";
   if (state === "work")
@@ -115,9 +136,9 @@ const STATE_WORD: Record<WindowState, string> = {
   idle: "libre",
   off: "en pausa",
 };
-export const windowLabel = (m: OrgMember, project: string, now: number, companyPaused = false) => {
-  const c = caption(m, now, { companyPaused });
-  const state = windowState(m, companyPaused);
+export const windowLabel = (m: OrgMember, project: string, now: number, companyPaused = false, seat?: Obra | null) => {
+  const c = caption(m, now, { companyPaused, seat });
+  const state = windowState(m, companyPaused, seat);
   return `${c.who} de ${project}, ${STATE_WORD[state]}: ${c.doing}${c.sub ? `, ${c.sub}` : ""}`;
 };
 
@@ -339,8 +360,22 @@ export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts:
   const m = moveOf(p);
   if (m) return line("you", { say: m.texto, why: moveWhy(m, p, decisions), holder: "owner", action: m.accion, move: m });
 
+  // PLA-I53-4: with the server's ahora, who works comes from the floor's obras only (lib/ahora-piso.ts), the same
+  // source as the Ahora line, the seats and the cards; a delivery sent back that nobody fixes yet is not «arreglando».
+  if (p.ahora) {
+    const o = obrasOf(p, opts)[0];
+    const back = returnedOf(p.slug, decisions);
+    if (o) {
+      const who = roleName(o.role);
+      const ago = o.since ? since(o.since, now) : "";
+      const started = ago === "recién empezó" ? "Recién empezó." : ago ? `Trabaja ${ago}.` : "";
+      if (o.etapa === "devuelto") return line("back", { say: `${who} arregla ${q(o.title)}.`, why: started, holder: o.agent, note: back?.text || null });
+      return line("work", { say: o.title ? `${who} ${o.etapa === "en_qa" ? "prueba" : (DOES[o.role] ?? "trabaja en")} ${q(o.title)}.` : `${who} está trabajando.`, why: started, holder: o.agent });
+    }
+  }
+
   // PLA-I46-10: sent back: Taller's to fix. No button but «Ver nota»; it comes back to him with the next delivery.
-  const back = returnedOf(p.slug, decisions);
+  const back = p.ahora ? null : returnedOf(p.slug, decisions);
   if (back) {
     const qa = p.team.some((x) => x.role === "qa");
     return line("back", {
@@ -352,7 +387,7 @@ export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts:
   }
 
   const team = [...p.team].sort(byRole);
-  const working = team.find((x) => x.state === "running");
+  const working = p.ahora ? undefined : team.find((x) => x.state === "running");
   if (working) {
     const who = roleName(working.role);
     return line("work", {
