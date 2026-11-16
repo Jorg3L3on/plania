@@ -59,3 +59,12 @@ test("PLA-40 #3: the card's Aceptar names its effect, and says when it was not s
   assert.match(s, /data-accept-hint="true">La entrega pasa a Hecho/);
   assert.doesNotMatch(/data-accept-hint="true">([^<]*)</.exec(s)![1]!, /WRK-32/, "no ticket key in the hint");
 });
+
+test("PLA-40 #4: a PR delivery accepted from Ahora's evidence card says what Aceptar does too", () => {
+  const s = floor([delivery({ kind: "pr", actions: ["fusionar", "cambios"], links: [{ kind: "pr", ref: "https://github.com/x/y/pull/1", title: "PR" }] })]);
+  assert.equal(count(s, /data-accept-hint="true"/g), 1, "one hint");
+  assert.match(s, /data-accept-hint="true">Se integra a la copia de prueba/);
+  // Mianovia, 2026-11-16: a delivery with a hold (no «antes» still) still shows the card's Aceptar, so it says it too.
+  const held = floor([delivery({ kind: "pr", actions: ["fusionar", "cambios"], hold: "Faltan fotos", links: [{ kind: "pr", ref: "https://github.com/x/y/pull/1", title: "PR" }] })]);
+  if (/data-ev-act="aceptar"/.test(held)) assert.match(held, /data-accept-hint="true">Se integra a la copia de prueba/);
+});

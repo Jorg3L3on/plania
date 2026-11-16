@@ -2,10 +2,14 @@
 // per running project in floorOrder (its initial, one small window per teammate lit while it works, the delivery's
 // progress), the street, the paused projects under it, and «+» for a new floor. A tile opens its floor; ↑ ↓ move
 // between floors (Building owns the keys). The open tile is aria-current and joins its floor with a line.
-import type { CSSProperties } from "react";
+import { memo, type CSSProperties } from "react";
 import type { Decision, OrgProject } from "@/lib/api";
 import { floorHue, roofChips, seatIn, waitsOnOwner, windowState } from "@/lib/edificio";
 import { byRole } from "@/lib/org";
+import { hasProjectMark, ProjectMark } from "@/components/plania-mark";
+
+// The logo holds a hook (useId); memo keeps it an element where tests expand the tree by hand.
+const TileMark = memo(ProjectMark);
 import { Glass } from "./window";
 
 const progress = (p: OrgProject): number => {
@@ -28,7 +32,8 @@ const Tile = ({ p, open, toca, off, app, companyPaused, onPiso }: { p: OrgProjec
     aria-label={`${p.title}${toca ? ", te toca" : ""}${off ? ", en pausa" : ""}${app ? ", la app está encendida" : ""}`}
     onClick={() => onPiso?.(p.slug)}
   >
-    <b aria-hidden>{p.title.charAt(0).toUpperCase()}</b>
+    {/* PLA-41: the project's logo, as on Inicio and the brief; a project without one keeps its initial. */}
+    {hasProjectMark(p.slug) ? <TileMark slug={p.slug} className="edi-tile-mark" /> : <b aria-hidden>{p.title.charAt(0).toUpperCase()}</b>}
     {/* PLA-I48-7: a light on the tile while the floor's app is on. */}
     {app && <i className="edi-tile-app" aria-hidden />}
     {!off && (

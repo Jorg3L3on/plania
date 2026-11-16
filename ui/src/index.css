@@ -981,6 +981,9 @@
   .edi-tile-fl[data-toca]::before { content: ""; position: absolute; top: -4px; right: -4px; width: 11px; height: 11px; border-radius: 50%; background: var(--e-you); box-shadow: 0 0 0 2px var(--sky1, #070a18); }
   .edi-tile-fl.is-off { height: 29px; opacity: 0.6; grid-template-rows: 1fr; padding: 0; }
   .edi-tile-fl.is-off b { font-size: 13px; color: var(--e-muted); }
+  .edi-tile-mark { width: 24px; height: 24px; display: block; }
+  .edi-tile-fl.is-off .edi-tile-mark { width: 19px; height: 19px; }
+  .edi-tile-fl.is-off:has(.edi-tile-mark) { opacity: 0.85; }
   .edi-rail-street { flex: none; width: 72px; height: 13px; display: flex; align-items: center; }
   .edi-rail-street::before { content: ""; flex: 1; height: 1px; background: var(--e-line); }
   .edi-rail-add { flex: none; margin-top: auto; width: 34px; height: 30px; border-radius: 10px; display: grid; place-items: center; color: var(--e-muted); border: 1px solid var(--e-line); background: rgb(255 255 255 / 0.04); cursor: pointer; font-size: 15px; }

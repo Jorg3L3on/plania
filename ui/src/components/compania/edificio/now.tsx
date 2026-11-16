@@ -144,7 +144,10 @@ export const Now = ({
   const idle = line.state === "idle" && !a && !!acts?.onMaquinas;
   // PLA-40: the delivery Ahora accepts (its evidence card is here, stills included) says what Aceptar does, in a line
   // under the buttons; the button keeps the move's label, the same word the roof and the phone bar show (I46-3).
-  const accept = dv && !held && !dv.hold && a?.kind === "decision" && a.id === dv.id ? acceptWords(dv, { seen: true }) : null;
+  // Held (the move reveals the card): the evidence card's own Aceptar is that button (evidence.tsx), shown even with a
+  // hold (the hold's reason is already on the card).
+  const canAccept = !!dv && dv.actions.some((x) => x === "fusionar" || x === "aceptar");
+  const accept = canAccept && (held || (!dv!.hold && a?.kind === "decision" && a.id === dv!.id)) ? acceptWords(dv!, { seen: true }) : null;
   // PLA-I46-3: only a card with a move breathes (data-breathe); the CSS stops it under reduce-motion.
   return (
     <div id={dv ? anchor : undefined} className="edi-nowb" data-now={state ?? line.state} data-holder={line.holder ?? undefined} data-breathe={line.move ? "1" : undefined} data-side={side ? "1" : undefined} aria-live="polite">
