@@ -79,7 +79,7 @@ const Blinds = ({ v, r, acts }: { v: MaqView; r: MaquinasRead; acts: MaqActs }) 
       <div className="edi-maq-blinds" data-blinds="starting" aria-busy="true">
         <h3>Encendiendo…</h3>
         <ol className="edi-maq-steps">
-          <li>Trae sandbox</li>
+          <li>Trae la copia de prueba</li>
           <li>Instala lo que falte</li>
           <li>Arranca y espera que responda</li>
         </ol>
@@ -106,7 +106,7 @@ const Blinds = ({ v, r, acts }: { v: MaqView; r: MaquinasRead; acts: MaqActs }) 
   return (
     <div className="edi-maq-blinds" data-blinds="off">
       <h3>La app está apagada</h3>
-      <p>Se enciende la copia de prueba (sandbox) en tu Mac. Nada arranca sin tu clic.</p>
+      <p>Se enciende la copia de prueba en tu Mac. Nada arranca sin tu clic.</p>
       <div className="edi-maq-brow">
         <button type="button" className="edi-btn edi-btn-primary" onClick={() => acts.onServer?.("encender")} disabled={!!busy} data-control="maq-encender-app">
           {busy === "server:encender" ? "…" : "Encender la app"}

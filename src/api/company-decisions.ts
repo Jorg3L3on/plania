@@ -727,7 +727,7 @@ async function actOnPlan(db: Db, id: string, m: typeof threadMessages.$inferSele
 //            change, so the PO plans again; the plan is acted on.
 //   despues  stores later_at. The plan stays open (it can be accepted later) but is no longer the owner's move.
 async function actOnLegPlan(db: Db, id: string, m: typeof threadMessages.$inferSelect, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
-  if (!["empezar", "cambiar", "despues"].includes(input.action)) return refuse("INVALID_ACTION", "Aquí: Aceptar plan · Cambiar algo · Después.", 400);
+  if (!["empezar", "cambiar", "despues"].includes(input.action)) return refuse("INVALID_ACTION", "Aquí: Aprobar el plan · Cambiar algo · Después.", 400);
   const data = m.proposal!;
   const ref = await resolveThread(db, m.threadId);
   const p = ref.project!;

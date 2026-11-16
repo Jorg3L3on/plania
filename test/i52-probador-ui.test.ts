@@ -153,7 +153,7 @@ test("I52-4 helpers: what a frame shows, where the viewer opens, the state line 
   assert.equal(pb.stateLine(PROB), null);
   assert.equal(pb.stateLine({ ...PROB, state: { ...PROB.state, error: "1 de 6 fotos no salieron" } }), "Faltan fotos: 1 de 6 fotos no salieron");
   assert.equal(pb.stateLine({ ...PROB, state: { ...PROB.state, state: "tomando" } }), "Tomando las fotos de la entrega…");
-  assert.match(pb.siAceptas(null, "MIA-28")[0], /^Pasa a sandbox, tu copia de prueba\. A producción solo llega cuando tú lances\./);
+  assert.match(pb.siAceptas(null, "MIA-28")[0], /^Pasa a tu copia de prueba; lo publicado no cambia\. A producción solo llega cuando tú lances\./);
   assert.equal(pb.siAceptas(null, "MIA-28")[1], "Si no: MIA-28 espera a esta.");
 });
 
@@ -188,7 +188,7 @@ test("I52-4 layer: El Probador opens on the new screen, with views, sides, width
   assert.ok(layer.includes('src="/api/projects/demo/captures/s-d.png"'));
   assert.match(layer, /data-control="abrir-vivo">Pruébala en vivo</, "the delivery's copy is on: one click opens it signed in (PLA-I52-5)");
   assert.ok(unq(text(layer)).includes("Pruébala en 3 pasos · 0 de 3"));
-  assert.ok(unq(text(layer)).includes("Pasa a sandbox, tu copia de prueba."));
+  assert.ok(unq(text(layer)).includes("Pasa a tu copia de prueba; lo publicado no cambia."));
   assert.match(layer, /role="switch" class="edi-sw" aria-checked="true"[^>]*data-control="resaltar"/);
 });
 

@@ -100,9 +100,9 @@ export function stateText(s: DecisionState): string {
     case "aplazar":
       return "Aplazado · vuelve a la lista de pendientes";
     case "aceptar":
-      return r.already ? "Ya estaba aceptado en la copia de prueba" : r.merged ? "Aceptado en la copia de prueba" : "Aceptado";
+      return r.already ? "Ya estaba aprobado · en la copia de prueba" : r.merged ? "Aprobado · en la copia de prueba" : "Aprobado · cerrado";
     case "fusionar":
-      return "Aceptado en la copia de prueba";
+      return "Aprobado · en la copia de prueba";
     case "empezar": {
       const n = Array.isArray(r.created) ? r.created.length : 0;
       return `Empezó · ${n === 1 ? "1 paso" : `${n} pasos`} en marcha`;

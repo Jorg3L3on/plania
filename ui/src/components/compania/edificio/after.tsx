@@ -44,7 +44,7 @@ export const After = ({
         )}
         {auto?.on && auto.hold && (
           <p className="edi-autohold" data-auto-hold>
-            No se aceptó sola: {auto.hold}
+            No se aprobó sola: {auto.hold}
           </p>
         )}
         {solo}

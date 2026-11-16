@@ -202,7 +202,7 @@ test("I36-8 #1, #2: with plan approval on, the PO's plan shows in Te toca and no
   const o = (await card()).orders.find((x: Json) => x.key === order);
   assert.deepEqual([o.stage, o.plan.needs_approval, o.plan.approved], ["entendido", true, false]);
   const html = renderTeToca([row]);
-  for (const t of ["Lo entendí:", "Hecho cuando: el botón abre WhatsApp en el teléfono", "Sí, empiecen", "Cambiar algo", "Cancelar"]) assert.ok(html.includes(t), t);
+  for (const t of ["Lo entendí:", "Hecho cuando: el botón abre WhatsApp en el teléfono", "Aprobar el plan", "Se crean sus pasos y Taller empieza.", "Cambiar algo", "Cancelar"]) assert.ok(html.includes(t), t);
 
   const go = await act(row.id, { action: "empezar" });
   assert.equal(go.status, 200, await go.clone().text());
@@ -499,7 +499,7 @@ test("I36-11 #1: the page renders no ticket key, branch name or the word sandbox
   assert.equal(/\b[A-Z]{2,5}-(I\d+-)?\d+\b/.test(html), false, html.match(/\b[A-Z]{2,5}-(I\d+-)?\d+\b/)?.[0] ?? "");
   assert.equal(/sandbox|jl\/|main\b/i.test(html.replace(/<[^>]+>/g, " ")), false);
   assert.ok(renderCard(p, steerStub()).includes("data-detalles"), "the keys live in Detalles");
-  assert.equal(lib.stateText({ action: "fusionar", at: "x", result: {} }), "Aceptado en la copia de prueba");
+  assert.equal(lib.stateText({ action: "fusionar", at: "x", result: {} }), "Aprobado · en la copia de prueba");
 });
 
 test("I36-8 #5: phone at 390: the floor's box and its button fit in one column", () => {

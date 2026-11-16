@@ -49,7 +49,11 @@ const q = (s: string | null | undefined, n = 70) => (s ? `«${clip(s, n)}»` : "
 export const waitingPlan = (d: Pick<Decision, "state" | "kind" | "plan">) => d.state === null && d.kind === "plan" && !!d.plan?.later_at;
 export const pendingDecision = (d: Pick<Decision, "state" | "actions" | "kind"> & { plan?: Decision["plan"] }) => d.state === null && !waitingPlan({ ...d, plan: d.plan ?? null }) && (d.actions.length > 0 || d.kind === "release");
 // Actions a single click can take: no words and no choice.
-const ONE_CLICK: Partial<Record<DecisionAction, string>> = { aceptar: "Aceptar", fusionar: "Aceptar", empezar: "Sí, empiecen", hecho: "Ya lo hice" };
+// PLA-42: approving a delivery names its effect. With a PR it is merged into the test copy (sandbox, never main:
+// src/api/thread-actions.ts); without one its ticket is closed (Hecho). Same words as ui/src/lib/evidencia.ts acceptWords.
+const ONE_CLICK: Partial<Record<DecisionAction, string>> = { aceptar: "Aprobar y cerrar", fusionar: "Aprobar y pasar a prueba", empezar: "Aprobar el plan", hecho: "Ya lo hice" };
+export const withPr = (d: Pick<Decision, "kind"> & { links?: { kind: string }[] | null }) => d.kind === "pr" || (d.links ?? []).some((l) => l.kind === "pr");
+const oneClick = (d: Decision, a: DecisionAction) => (a === "aceptar" || a === "fusionar" ? ONE_CLICK[withPr(d) ? "fusionar" : "aceptar"]! : ONE_CLICK[a]!);
 const HOLD_ORDER = ["no_goal", "waiting_owner", "unqueued"];
 
 // PLA-I46-10: a delivery sent back to Taller (Devolver a Taller, or QA's own return) that has not come back yet.
@@ -78,10 +82,10 @@ export function nextMove(p: MoveFloor, decisions: Decision[], opts: { companyPau
       return { verbo: "publicar", texto: n === 1 ? "Publicar 1 cambio" : n > 1 ? `Publicar ${n} cambios` : "Publicar los cambios", accion: { kind: "publish", label: "Publicar" }, origen };
     }
     const first = d.actions.find((a) => ONE_CLICK[a]);
-    const accion: MoveAction = first && !d.hold ? { kind: "decision", id: d.id, action: first, label: ONE_CLICK[first]! } : { kind: "reveal", id: d.id, label: "Ver y responder" };
-    if (d.kind === "pr" || d.kind === "deliverable") return { verbo: "aceptar", texto: `Aceptar ${q(d.title)}`, accion, origen };
-    if (d.kind === "plan" && d.plan?.leg) return { verbo: "aceptar", texto: `Aceptar el plan de ${q(d.plan.leg.title)}`, accion: { kind: "decision", id: d.id, action: "empezar", label: "Aceptar plan" }, origen };
-    if (d.kind === "plan") return { verbo: "aceptar", texto: `Aceptar el plan ${q(d.title)}`, accion, origen };
+    const accion: MoveAction = first && !d.hold ? { kind: "decision", id: d.id, action: first, label: oneClick(d, first) } : { kind: "reveal", id: d.id, label: "Ver y responder" };
+    if (d.kind === "pr" || d.kind === "deliverable") return { verbo: "aceptar", texto: `Aprobar ${q(d.title)}`, accion, origen };
+    if (d.kind === "plan" && d.plan?.leg) return { verbo: "aceptar", texto: `Aprobar el plan de ${q(d.plan.leg.title)}`, accion: { kind: "decision", id: d.id, action: "empezar", label: "Aprobar el plan" }, origen };
+    if (d.kind === "plan") return { verbo: "aceptar", texto: `Aprobar el plan ${q(d.title)}`, accion, origen };
     return { verbo: "responder", texto: `Responder a ${who(d.asker?.role)}: ${q(d.title, 60)}`, accion, origen };
   }
 
@@ -104,7 +108,7 @@ export function nextMove(p: MoveFloor, decisions: Decision[], opts: { companyPau
     const n = held.next_start!;
     const origen: MoveOrigin = { kind: "hold", agent: held.agent, hold: n.hold };
     if (n.hold === "no_goal") return { verbo: "fijar", texto: "Fijar la meta del proyecto", accion: { kind: "fijar", label: "Fijar meta" }, origen };
-    if (n.hold === "waiting_owner") return { verbo: "aceptar", texto: `Aceptar la entrega antes de ${q(n.title)}`, accion: { kind: "reveal", id: null, label: "Ver la entrega" }, origen };
+    if (n.hold === "waiting_owner") return { verbo: "aceptar", texto: `Aprobar la entrega antes de ${q(n.title)}`, accion: { kind: "reveal", id: null, label: "Ver la entrega" }, origen };
     return { verbo: "arrancar", texto: `Arrancar ${q(n.title)}`, accion: { kind: "start", agent: held.agent, label: "Que empiece ya" }, origen };
   }
 

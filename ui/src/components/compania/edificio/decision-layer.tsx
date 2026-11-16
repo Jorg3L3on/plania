@@ -9,7 +9,7 @@ import { memo, useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Decision, OrgProject } from "@/lib/api";
 import { nowLine } from "@/lib/edificio";
-import { EV_WORDS, deliveryOf, layerKey, type LayerCommand, type LayerKind } from "@/lib/evidencia";
+import { EV_WORDS, acceptWords, deliveryOf, layerKey, type LayerCommand, type LayerKind } from "@/lib/evidencia";
 import { EvidenceBody } from "./evidence";
 import { closeLayer, setReturn, useLayer, useReturn } from "./evidence-store";
 import { runOf, type MoveCtx } from "./now";
@@ -116,7 +116,7 @@ const LayerCard = memo(function LayerCard({ p, d, kind, say, why, ctx, run, labe
         <div className="edi-lbody">{body}</div>
         <div className="edi-nacts edi-lacts">
           {run && (
-            <button ref={main} type="button" className="edi-nact edi-go" data-layer-main onClick={run} disabled={busy}>
+            <button ref={main} type="button" className="edi-nact edi-go" data-layer-main onClick={run} disabled={busy} title={kind === "delivery" ? acceptWords(d).aria : undefined} aria-label={kind === "delivery" ? acceptWords(d).aria : undefined}>
               {busy ? "…" : label}
               <Kbd k="A" />
             </button>

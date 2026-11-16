@@ -90,7 +90,7 @@ export const FichaServidor = ({ read, log, acts }: { read: Load<MaquinasRead>; l
             rows={[
               ["Dirección", s.url ? <code>{s.url}</code> : "Sin encender"],
               ["Comando", s.command ? <code>{s.command}</code> : "Sin configurar"],
-              ["Rama y commit", s.branch ? <code>{[s.branch, s.commit?.slice(0, 7)].filter(Boolean).join(" @ ")}</code> : "—"],
+              ["Rama y commit", s.branch ? <code>{[s.branch === "sandbox" ? "copia de prueba" : s.branch, s.commit?.slice(0, 7)].filter(Boolean).join(" @ ")}</code> : "—"],
               ["Carpeta", s.worktree ? <code title={s.worktree}>{s.worktree}</code> : "La copia de prueba de Plania"],
               ["Quién la encendió", s.started_by ?? "Nadie todavía"],
               ["Se apaga sola", "A los 20 min sin que nadie mire el piso"],

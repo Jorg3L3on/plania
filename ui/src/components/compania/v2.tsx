@@ -13,7 +13,7 @@ import type { Decision, DecisionInput } from "@/lib/api";
 import { linkHref, roleName } from "@/lib/org";
 import { checksText, ordered, releaseText, stateText, evidenceText, plainLink } from "@/lib/v2";
 import { Dot, TONE_INK, pillGhost, pillPrimary } from "@/components/compania/parts";
-import { acceptWords } from "@/lib/evidencia";
+import { APPROVE, acceptWords } from "@/lib/evidencia";
 import { FileStepBox } from "@/components/compania/file-step";
 
 const pillSmall = "min-h-9 px-3.5 text-xs";
@@ -50,7 +50,7 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
   const work = d.kind === "pr" || d.kind === "deliverable";
   const busyHere = busy?.id === d.id;
   const options = ordered(d);
-  // PLA-40: a delivery's Aceptar names what it does (sandbox or Hecho), with one line under the buttons.
+  // PLA-40, PLA-42: a delivery's Aprobar names what it does (copia de prueba or Hecho), with one line under the buttons.
   const accept = work && (d.actions.includes("fusionar") || d.actions.includes("aceptar")) ? acceptWords(d) : null;
   const label = (key: string, word: string) => (busyHere && busy?.key === key ? "…" : word);
   // A file step Plania can do itself (aplicar): the file, the lines, and one button.
@@ -201,7 +201,7 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
               ))}
             {d.actions.includes("empezar") && (
               <button type="button" data-action="empezar" className={cn(pillPrimary, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "empezar" }, "empezar")}>
-                {label("empezar", "Sí, empiecen")}
+                {label("empezar", APPROVE.plan.label)}
               </button>
             )}
             {d.actions.includes("cambiar") && (
@@ -246,10 +246,11 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
                 data-action={d.actions.includes("fusionar") ? "fusionar" : "aceptar"}
                 className={cn(pillPrimary, pillSmall)}
                 disabled={busyHere || !!d.hold}
-                title={d.hold ?? undefined}
+                title={d.hold ?? acceptWords(d).aria}
+                aria-label={acceptWords(d).aria}
                 onClick={() => onAct(d, { action: d.actions.includes("fusionar") ? "fusionar" : "aceptar" }, "aceptar")}
               >
-                {label("aceptar", accept ? accept.label : "Aceptar")}
+                {label("aceptar", (accept ?? acceptWords(d)).label)}
               </button>
             )}
             {d.hold && (d.actions.includes("fusionar") || d.actions.includes("aceptar")) && (
@@ -278,6 +279,11 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
           {accept && !d.hold && (
             <p className="text-xs text-muted-foreground" data-accept-hint>
               {accept.hint}
+            </p>
+          )}
+          {d.actions.includes("empezar") && (
+            <p className="text-xs text-muted-foreground" data-plan-hint>
+              {APPROVE.plan.hint}
             </p>
           )}
           {reply && (

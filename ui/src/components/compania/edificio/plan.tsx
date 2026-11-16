@@ -7,9 +7,10 @@
 import { memo } from "react";
 import type { Decision, OrgProject } from "@/lib/api";
 import type { QuestionActs } from "./question";
+import { APPROVE } from "@/lib/evidencia";
 import { draftOf, legPlanOf, planInput, setDraft, useDraft } from "./plan-draft";
 
-export const PLAN_WORDS = { accept: "Aceptar plan", change: "Cambiar algo", later: "Después", see: "Ver el plan", hide: "Cerrar", send: "Enviar al PO", suggested: "sugerida" } as const;
+export const PLAN_WORDS = { accept: APPROVE.plan.label, hint: APPROVE.plan.hint, change: "Cambiar algo", later: "Después", see: "Ver el plan", hide: "Cerrar", send: "Enviar al PO", suggested: "sugerida" } as const;
 
 const busyOn = (d: Decision, q?: QuestionActs) => q?.busy?.id === d.id;
 const act = (d: Decision, q: QuestionActs | undefined, action: "empezar" | "cambiar" | "despues") => {
@@ -60,6 +61,17 @@ export const PlanActs = memo(function PlanActs({ d, waiting, qacts }: { d: Decis
         {busy && qacts?.busy?.key === "plan-despues" ? "…" : PLAN_WORDS.later}
       </button>
     </>
+  );
+});
+
+// PLA-42: what Aprobar el plan does, in one line under the buttons (only while its button shows).
+export const PlanHint = memo(function PlanHint({ d, waiting }: { d: Decision; waiting: boolean }) {
+  const x = useDraft(d);
+  if (waiting && !x.open) return null;
+  return (
+    <p className="edi-nwhy" data-plan-hint>
+      {PLAN_WORDS.hint}
+    </p>
   );
 });
 

@@ -19,10 +19,10 @@ export const PROBADOR_WORDS = {
   encender: "Encender la copia",
   encendiendo: "Encendiendo la copia…",
   pasos: "Pruébala en 3 pasos",
-  siAceptas: "Si aceptas",
+  siAceptas: "Si apruebas",
   tomar: "Volver a tomar las fotos",
   abrir: "Abrir el probador",
-  nueva: "Pantalla nueva: en sandbox esta dirección no existe.",
+  nueva: "Pantalla nueva: en la copia de prueba esta dirección no existe.",
   sinFoto: "Sin foto",
 } as const;
 
@@ -36,7 +36,7 @@ export function frameOf(v: ParVista, width: Width, side: "antes" | "despues"): F
     return { kind: "still", src: s.still.image_url, alt: `${v.label}, ${side === "antes" ? "antes" : "después"}, ${width === "desktop" ? "escritorio" : "teléfono"}`, ratio };
   }
   if (side === "antes" && s.missing) return { kind: "nueva" };
-  return { kind: "none", why: s.error ?? (side === "antes" ? "Sin foto de sandbox" : "Sin foto de la entrega") };
+  return { kind: "none", why: s.error ?? (side === "antes" ? "Sin foto de la copia de prueba" : "Sin foto de la entrega") };
 }
 
 // Where the viewer opens: on a new screen first (that is what the delivery is about), else the first change.
@@ -58,7 +58,9 @@ export function stateLine(r: ProbadorRead): string | null {
 
 // What accepting does, in the owner's words. into: where an accepted delivery lands (the project's release from).
 export function siAceptas(into: string | null, waiting: string | null): string[] {
-  const out = [`Pasa a ${into ?? "sandbox"}, tu copia de prueba. A producción solo llega cuando tú lances. Se puede deshacer.`];
+  // PLA-42: the branch name (sandbox) stays off screen: it is «tu copia de prueba».
+  void into;
+  const out = [`Pasa a tu copia de prueba; lo publicado no cambia. A producción solo llega cuando tú lances. Se puede deshacer.`];
   if (waiting) out.push(`Si no: ${waiting} espera a esta.`);
   return out;
 }

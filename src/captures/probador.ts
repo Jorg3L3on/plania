@@ -118,7 +118,7 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
     await capture(db, { project: slug, checkout: info?.worktree ?? e.worktree ?? "", base_url: `http://localhost:${sb.port}`, branch: BRANCH, commit: info?.commit ?? undefined, task_key: t.key, views, side: "antes", allow_missing: true, actor }).catch(
       (err) => (antesError = `Antes: ${short(err)}`),
     );
-  } else antesError = "Sin antes: la copia de sandbox no arrancó";
+  } else antesError = "Sin antes: la copia de prueba no arrancó";
   // Después: the delivery.
   let despues: CaptureSummary | null = null;
   try {
