@@ -237,6 +237,7 @@ export type DeskLabels = {
   paused: string;
   on: string;
   none_: string;
+  testCopy: string;
   handledAt: (time: string) => string;
 };
 
@@ -474,11 +475,11 @@ const en: BriefLabels = {
     releaseReady: "Release · ready",
     releaseNotReady: (r) => `Release · not ready: ${r}`,
     reasons: { mode_command: "ships by command", no_repo: "no GitHub repo", no_github_data: "no GitHub data yet", nothing_to_ship: "nothing to ship", before_steps: "steps before", open_checks: "checks open", merged: "already merged" },
-    verbs: { answer: "Answer", step_done: "Done", add_to_pr: "Add to PR", publish: "Publish to main", accept_pr: "Accept into sandbox", request_changes: "Ask for changes", resume_runs: "Turn on runs", postpone: "Postpone", put_first: "Put first", hold: "Put on hold", fix_finding: "Fix it", close_idea: "Discard", later: "Later", dismiss: "Not relevant", give_to_po: "Give to PO", start_now: "Start now", start_building: "Start building" },
-    stamps: { answer: "Answered", step_done: "Done", add_to_pr: "Added", publish: "Published", accept_pr: "Accepted", request_changes: "Sent back", resume_runs: "Runs on", postpone: "Postponed", put_first: "First", hold: "On hold", fix_finding: "Fixed", close_idea: "Discarded", later: "Later", dismiss: "Not relevant", give_to_po: "To PO", start_now: "To Taller", start_building: "Building" },
+    verbs: { answer: "Answer", step_done: "Done", add_to_pr: "Add to PR", publish: "Publish to main", accept_pr: "Approve into the test copy", request_changes: "Ask for changes", resume_runs: "Turn on runs", postpone: "Postpone", put_first: "Put first", hold: "Put on hold", fix_finding: "Fix it", close_idea: "Discard", later: "Later", dismiss: "Not relevant", give_to_po: "Give to PO", start_now: "Start now", start_building: "Start building" },
+    stamps: { answer: "Answered", step_done: "Done", add_to_pr: "Added", publish: "Published", accept_pr: "Approved", request_changes: "Sent back", resume_runs: "Runs on", postpone: "Postponed", put_first: "First", hold: "On hold", fix_finding: "Fixed", close_idea: "Discarded", later: "Later", dismiss: "Not relevant", give_to_po: "To PO", start_now: "To Taller", start_building: "Building" },
     confirm: {
-      publish: (c) => `This merges ${c.from ?? "sandbox"} into ${c.into ?? "main"} for ${c.project}: ${c.tickets ?? 0} ticket${c.tickets === 1 ? "" : "s"}${c.migrations?.length ? `, migrations ${c.migrations.join(", ")}` : ", no migrations"}. Prod deploys from ${c.into ?? "main"}.`,
-      accept_pr: (c) => `This merges PR #${c.pr} into sandbox for ${c.project}${c.key ? ` (${c.key})` : ""}. Nothing reaches main.`,
+      publish: (c) => `This publishes ${c.from && c.from !== "sandbox" ? c.from : "the test copy"} to ${c.into ?? "main"} for ${c.project}: ${c.tickets ?? 0} ticket${c.tickets === 1 ? "" : "s"}${c.migrations?.length ? `, migrations ${c.migrations.join(", ")}` : ", no migrations"}. Prod deploys from ${c.into ?? "main"}.`,
+      accept_pr: (c) => `This merges PR #${c.pr} into ${c.project}'s test copy. Nothing published changes.`,
       add_to_pr: (c) => `Plania commits the lines to ${c.path ?? "the file"} on ${c.key ?? "the ticket"}'s PR branch, then marks the step done.`,
       resume_runs: (c) => `This turns on ${c.project}'s runs. Its bots start on the next tick and use your plan ($0).`,
       fix_finding: (c) => `Plania runs the fix for ${c.code ?? "this finding"}${c.key ? ` on ${c.key}` : ""} and audits ${c.project} again.`,
@@ -541,6 +542,7 @@ const en: BriefLabels = {
     paused: "paused",
     on: "on",
     none_: "None",
+    testCopy: "test copy",
     handledAt: (t) => `at ${t}`,
   },
   c: {
@@ -780,11 +782,11 @@ const es: BriefLabels = {
     releaseReady: "Publicación · lista",
     releaseNotReady: (r) => `Publicación · no lista: ${r}`,
     reasons: { mode_command: "se publica por comando", no_repo: "sin repo de GitHub", no_github_data: "aún sin datos de GitHub", nothing_to_ship: "nada que publicar", before_steps: "pasos antes", open_checks: "checks abiertos", merged: "ya fusionada" },
-    verbs: { answer: "Responder", step_done: "Hecho", add_to_pr: "Agregar al PR", publish: "Publicar a main", accept_pr: "Aceptar en sandbox", request_changes: "Pedir cambios", resume_runs: "Activar corridas", postpone: "Aplazar", put_first: "Hacer primero", hold: "Poner en espera", fix_finding: "Corregir", close_idea: "Descartar", later: "Después", dismiss: "No aplica", give_to_po: "Dárselo al PO", start_now: "Empezar ya", start_building: "Empezar a construir" },
-    stamps: { answer: "Respondido", step_done: "Hecho", add_to_pr: "Agregado", publish: "Publicado", accept_pr: "Aceptado", request_changes: "Devuelto", resume_runs: "Activado", postpone: "Aplazado", put_first: "Primero", hold: "En espera", fix_finding: "Corregido", close_idea: "Descartada", later: "Después", dismiss: "No aplica", give_to_po: "Al PO", start_now: "A Taller", start_building: "Construyendo" },
+    verbs: { answer: "Responder", step_done: "Hecho", add_to_pr: "Agregar al PR", publish: "Publicar a main", accept_pr: "Aprobar y pasar a prueba", request_changes: "Pedir cambios", resume_runs: "Activar corridas", postpone: "Aplazar", put_first: "Hacer primero", hold: "Poner en espera", fix_finding: "Corregir", close_idea: "Descartar", later: "Después", dismiss: "No aplica", give_to_po: "Dárselo al PO", start_now: "Empezar ya", start_building: "Empezar a construir" },
+    stamps: { answer: "Respondido", step_done: "Hecho", add_to_pr: "Agregado", publish: "Publicado", accept_pr: "Aprobado", request_changes: "Devuelto", resume_runs: "Activado", postpone: "Aplazado", put_first: "Primero", hold: "En espera", fix_finding: "Corregido", close_idea: "Descartada", later: "Después", dismiss: "No aplica", give_to_po: "Al PO", start_now: "A Taller", start_building: "Construyendo" },
     confirm: {
-      publish: (c) => `Esto fusiona ${c.from ?? "sandbox"} en ${c.into ?? "main"} para ${c.project}: ${c.tickets ?? 0} ticket${c.tickets === 1 ? "" : "s"}${c.migrations?.length ? `, migraciones ${c.migrations.join(", ")}` : ", sin migraciones"}. Prod se despliega desde ${c.into ?? "main"}.`,
-      accept_pr: (c) => `Esto fusiona el PR #${c.pr} en sandbox para ${c.project}${c.key ? ` (${c.key})` : ""}. Nada llega a main.`,
+      publish: (c) => `Esto publica ${c.from && c.from !== "sandbox" ? c.from : "la copia de prueba"} en ${c.into ?? "main"} para ${c.project}: ${c.tickets ?? 0} ticket${c.tickets === 1 ? "" : "s"}${c.migrations?.length ? `, migraciones ${c.migrations.join(", ")}` : ", sin migraciones"}. Prod se despliega desde ${c.into ?? "main"}.`,
+      accept_pr: (c) => `Esto integra el PR #${c.pr} a la copia de prueba de ${c.project}. Lo publicado no cambia.`,
       add_to_pr: (c) => `Plania agrega las líneas a ${c.path ?? "el archivo"} en la rama del PR de ${c.key ?? "el ticket"} y marca el paso como hecho.`,
       resume_runs: (c) => `Esto activa las corridas de ${c.project}. Sus bots arrancan en el siguiente tick y usan tu plan ($0).`,
       fix_finding: (c) => `Plania corre la corrección de ${c.code ?? "este hallazgo"}${c.key ? ` en ${c.key}` : ""} y vuelve a auditar ${c.project}.`,
@@ -847,6 +849,7 @@ const es: BriefLabels = {
     paused: "en pausa",
     on: "activas",
     none_: "Ninguna",
+    testCopy: "copia de prueba",
     handledAt: (t) => `a las ${t}`,
   },
   c: {
