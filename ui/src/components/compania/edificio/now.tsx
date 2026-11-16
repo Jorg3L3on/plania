@@ -7,12 +7,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Decision, OrgProject } from "@/lib/api";
 import { countdown, type NowAction, type NowLine } from "@/lib/edificio";
-import { deliveryOf } from "@/lib/evidencia";
+import { acceptWords, deliveryOf } from "@/lib/evidencia";
 import { BackNote, EvidenceActs, EvidenceBody } from "./evidence";
 import { openLayer } from "./evidence-store";
 import { PlanActs, PlanBody, floorPlan } from "./plan";
 import { planInput } from "./plan-draft";
-import { revealQuestion } from "./publish";
+import { revealDecision, revealQuestion } from "./publish";
 import type { QuestionActs } from "./question";
 
 export type NowActs = {
@@ -112,6 +112,7 @@ export const Now = ({
   anchor,
   head,
   state,
+  pointTo,
 }: {
   project: OrgProject;
   line: NowLine;
@@ -129,6 +130,8 @@ export const Now = ({
   // band's colour from it; the actions, the delivery's card, the plan and the countdown stay.
   head?: ReactNode;
   state?: string;
+  // PLA-40: the move's delivery hangs as a card on this floor, which carries the one Aceptar; Ahora points to it.
+  pointTo?: string | null;
 }) => {
   const a = line.action;
   const ctx: MoveCtx = { decisions, acts, qacts, onFijar, onPublish };
@@ -139,6 +142,9 @@ export const Now = ({
   const dv = decisions ? deliveryOf(line.move, decisions) : null;
   const held = !!dv && a?.kind === "reveal";
   const idle = line.state === "idle" && !a && !!acts?.onMaquinas;
+  // PLA-40: the delivery Ahora accepts (its evidence card is here, stills included) says what Aceptar does, in a line
+  // under the buttons; the button keeps the move's label, the same word the roof and the phone bar show (I46-3).
+  const accept = dv && !held && !dv.hold && a?.kind === "decision" && a.id === dv.id ? acceptWords(dv, { seen: true }) : null;
   // PLA-I46-3: only a card with a move breathes (data-breathe); the CSS stops it under reduce-motion.
   return (
     <div id={dv ? anchor : undefined} className="edi-nowb" data-now={state ?? line.state} data-holder={line.holder ?? undefined} data-breathe={line.move ? "1" : undefined} data-side={side ? "1" : undefined} aria-live="polite">
@@ -170,7 +176,13 @@ export const Now = ({
                 </button>
               </>
             )}
-            {a && !held && <ActButton project={p} action={a} move={!!line.move} where="ahora" ctx={ctx} />}
+            {a && !held && (pointTo && a.kind === "decision" && a.id === pointTo ? (
+              <button type="button" className="edi-nact edi-go" onClick={() => revealDecision(p.slug, pointTo)} data-now-action="ver-entrega" data-where="ahora" data-control="ahora-ver-entrega">
+                Ver la entrega ↓
+              </button>
+            ) : (
+              <ActButton project={p} action={a} move={!!line.move} where="ahora" ctx={ctx} />
+            ))}
             {dv && <EvidenceActs p={p} d={dv} qacts={qacts} held={held} />}
             {plan && <PlanActs d={plan.d} waiting={plan.waiting} qacts={qacts} />}
             {/* PLA-I46-15: the plan to accept can come to the front too. */}
@@ -181,6 +193,11 @@ export const Now = ({
             )}
             {line.note && <BackNote note={line.note} />}
           </div>
+        )}
+        {accept && (
+          <p className="edi-nwhy" data-accept-hint>
+            {accept.hint}
+          </p>
         )}
       </div>
       {plan && <PlanBody d={plan.d} waiting={plan.waiting} qacts={qacts} />}

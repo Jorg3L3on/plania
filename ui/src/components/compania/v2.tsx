@@ -13,6 +13,7 @@ import type { Decision, DecisionInput } from "@/lib/api";
 import { linkHref, roleName } from "@/lib/org";
 import { checksText, ordered, releaseText, stateText, evidenceText, plainLink } from "@/lib/v2";
 import { Dot, TONE_INK, pillGhost, pillPrimary } from "@/components/compania/parts";
+import { acceptWords } from "@/lib/evidencia";
 import { FileStepBox } from "@/components/compania/file-step";
 
 const pillSmall = "min-h-9 px-3.5 text-xs";
@@ -49,6 +50,8 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
   const work = d.kind === "pr" || d.kind === "deliverable";
   const busyHere = busy?.id === d.id;
   const options = ordered(d);
+  // PLA-40: a delivery's Aceptar names what it does (sandbox or Hecho), with one line under the buttons.
+  const accept = work && (d.actions.includes("fusionar") || d.actions.includes("aceptar")) ? acceptWords(d) : null;
   const label = (key: string, word: string) => (busyHere && busy?.key === key ? "…" : word);
   // A file step Plania can do itself (aplicar): the file, the lines, and one button.
   const fileStep = d.file_step && d.actions.includes("aplicar") ? d.file_step : null;
@@ -60,7 +63,7 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
     setText("");
   };
   return (
-    <div className="grid min-w-0 gap-1.5">
+    <div className="grid min-w-0 gap-1.5" data-decision={d.id}>
       <p className="min-w-0 text-sm break-words">
         <span className="font-semibold">{d.title}</span>
         <span className="text-xs text-muted-foreground"> · {ago(d.at, now)}</span>
@@ -246,7 +249,7 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
                 title={d.hold ?? undefined}
                 onClick={() => onAct(d, { action: d.actions.includes("fusionar") ? "fusionar" : "aceptar" }, "aceptar")}
               >
-                {label("aceptar", "Aceptar")}
+                {label("aceptar", accept ? accept.label : "Aceptar")}
               </button>
             )}
             {d.hold && (d.actions.includes("fusionar") || d.actions.includes("aceptar")) && (
@@ -272,6 +275,11 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
               </button>
             )}
           </div>
+          {accept && !d.hold && (
+            <p className="text-xs text-muted-foreground" data-accept-hint>
+              {accept.hint}
+            </p>
+          )}
           {reply && (
             <form
               className="flex gap-2"

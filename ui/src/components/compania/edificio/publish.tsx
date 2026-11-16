@@ -194,3 +194,18 @@ export function revealQuestion(slug: string): void {
   window.setTimeout(() => el.removeAttribute("data-flash"), 1600);
   el.querySelector<HTMLElement>("button, a, summary")?.focus({ preventScroll: true });
 }
+
+// PLA-40: Ahora's «Ver la entrega» lands on that delivery's own card (its bubble, or a row under «+N más», opened),
+// so the floor has one Aceptar per delivery. Falls back to the floor's first question.
+export function revealDecision(slug: string, id: string): void {
+  const row = document.querySelector<HTMLElement>(`[data-decision="${CSS.escape(id)}"]`);
+  if (!row) return revealQuestion(slug);
+  const more = row.closest("details");
+  if (more && !more.open) more.open = true;
+  const el = row.closest<HTMLElement>("[data-bubble]") ?? row;
+  const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  el.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
+  el.setAttribute("data-flash", "1");
+  window.setTimeout(() => el.removeAttribute("data-flash"), 1600);
+  (row.querySelector<HTMLElement>('[data-action="aceptar"]:not(:disabled), [data-action="fusionar"]:not(:disabled)') ?? row.querySelector<HTMLElement>("button, a"))?.focus({ preventScroll: true });
+}

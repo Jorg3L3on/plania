@@ -50,6 +50,16 @@ export const deliveryOf = (move: { origen: { kind: string; id?: string; decision
 };
 export const prOf = (d: Pick<Decision, "links">) => (d.links ?? []).find((l) => l.kind === "pr")?.ref ?? null;
 
+// PLA-40: what Aceptar does, said on the button and in one line under it. A delivery with a PR is merged into
+// sandbox (never main: src/api/thread-actions.ts); one without a PR (a doc) moves its ticket to Hecho. No key and no word sandbox on screen (PLA-I36-11): it is «la copia de prueba».
+export type AcceptWords = { label: string; hint: string };
+export function acceptWords(d: Pick<Decision, "kind" | "links" | "preview_url">, opts: { seen?: boolean } = {}): AcceptWords {
+  const pr = d.kind === "pr" || !!prOf(d);
+  const what = pr ? "Se integra a la copia de prueba (lo publicado no cambia) y el siguiente paso arranca." : "La entrega pasa a Hecho y el siguiente paso arranca.";
+  const unseen = d.preview_url || opts.seen ? "" : " Sin vista previa: la aceptas sin haberla visto.";
+  return { label: pr ? "Aceptar · a la copia de prueba" : "Aceptar · a Hecho", hint: `${what}${unseen}` };
+}
+
 export function evidenceView(read: QaRead | null | undefined, d: Pick<Decision, "evidence" | "links">): EvidenceView {
   const r = read ?? null;
   let tests: Tile;

@@ -201,6 +201,11 @@ export const Floor = ({
 
   // Questions: under the asker's station, the oldest per asker (Question lists the rest).
   const hanging = decisions && acts ? team.map((m) => ({ m, h: hangingFor(decisions, slug, m.agent, inAhora) })).filter((x) => x.h) : [];
+  // PLA-40: one Aceptar per delivery. A delivery that hangs as a card on this floor (or sits in Ahora's evidence card)
+  // is accepted there; Ahora points to the hanging card and the board's ticket card does not repeat the button.
+  const hungIds = new Set(hanging.flatMap(({ h }) => [h!.decision.id, ...h!.more.map((x) => x.id)]));
+  const pointTo = o?.kind === "decision" && o.id && hungIds.has(o.id) ? o.id : null;
+  const shownHere = (d: Decision) => hungIds.has(d.id) || d.id === dv?.id;
   const below = hanging.length > 0 && acts ? (
     <>
       {hanging.map(({ m, h }, i) => {
@@ -250,6 +255,7 @@ export const Floor = ({
             side={ventana}
             anchor={dv && hanging.length === 0 ? `pregunta-${slug}` : undefined}
             head={fresh ? <AhoraLine view={ahora} /> : undefined}
+            pointTo={pointTo}
             state={!fresh ? undefined : ahora.working ? (ahora.obras[0]?.etapa === "devuelto" ? "back" : "work") : ahora.quiet?.kind === "owner" ? "you" : ahora.quiet?.kind === "paused" ? "off" : ahora.quiet?.kind === "blocked" ? "stuck" : "idle"}
           />
         </div>
@@ -266,7 +272,7 @@ export const Floor = ({
             corner={corner}
             below={below}
             actsFor={(t) => {
-              const list = cardActs(t, { team, decisions: decisions ?? [], orders: p.orders, nextFirst: p.next_first });
+              const list = cardActs(t, { team, decisions: decisions ?? [], orders: p.orders, nextFirst: p.next_first }).filter((x) => x.kind !== "aceptar" || !shownHere(x.decision));
               return list.length ? <ActButtons slug={slug} acts={bacts} list={list} title={t.title} /> : null;
             }}
             extra={extra}
