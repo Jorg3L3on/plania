@@ -134,7 +134,7 @@ test("I46-11 #1: the PO's plan for the next leg is the floor's move, with its st
   assert.deepEqual(row.plan.checklist, LIST);
   assert.equal(row.plan.later_at, null);
   const move = (await card()).next_move;
-  assert.deepEqual([move.verbo, move.texto, move.accion], ["aceptar", "Aceptar el plan de «Ajustes finales y entrega»", { kind: "decision", id: planId, action: "empezar", label: "Aceptar plan" }]);
+  assert.deepEqual([move.verbo, move.texto, move.accion], ["aceptar", "Aprobar el plan de «Ajustes finales y entrega»", { kind: "decision", id: planId, action: "empezar", label: "Aprobar el plan" }]);
 });
 
 test("I46-11 #3: Después leaves the plan waiting; nothing starts and the floor does not ask the PO again", async () => {

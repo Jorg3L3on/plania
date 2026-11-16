@@ -501,7 +501,7 @@ const Compania = () => {
       setNowBusy(`${slug}:auto`);
       void api
         .setProjectOptions(slug, { auto_accept: on })
-        .then(() => toast(on ? "Las entregas con pruebas en verde se aceptan solas." : "Vuelves a aceptar cada entrega."))
+        .then(() => toast(on ? "Las entregas con pruebas en verde se aprueban solas, solo a la copia de prueba." : "Vuelves a aprobar cada entrega."))
         .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
         .finally(() => {
           setNowBusy(null);
@@ -512,7 +512,7 @@ const Compania = () => {
       setNowBusy(`${slug}:auto`);
       void api
         .setProjectOptions(slug, { auto_accept_invisible: on })
-        .then(() => toast(on ? "Las entregas que no cambian la pantalla se aceptan solas." : "Vuelves a aceptar también lo que no se ve."))
+        .then(() => toast(on ? "Las entregas que no cambian la pantalla se aprueban solas." : "Vuelves a aprobar también lo que no se ve."))
         .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
         .finally(() => {
           setNowBusy(null);
@@ -848,7 +848,7 @@ const Compania = () => {
         <SheetContent side="bottom" className="mx-auto max-h-[85svh] w-full max-w-xl overflow-y-auto rounded-t-[22px] bg-background">
           <SheetHeader className="pr-10">
             <SheetTitle className="font-display text-2xl font-extrabold tracking-tight">Publicar {publishTitle}</SheetTitle>
-            <SheetDescription>Lo que ya aceptaste en la copia de prueba pasa a la versión principal.</SheetDescription>
+            <SheetDescription>Lo que ya aprobaste en la copia de prueba pasa a la versión principal.</SheetDescription>
           </SheetHeader>
           <div className="px-4 pb-8">
             {publishing && publishRelease?.release && publish.isSuccess ? (

@@ -6,7 +6,7 @@
 // asks nothing; BackNote is the grey «Ver nota». Stateful pieces are memo components (the tests expand plain ones).
 import { memo, useState, type ReactNode } from "react";
 import type { Decision, OrgProject } from "@/lib/api";
-import { EV_WORDS, RETURN_REASONS, evidenceView, returnText } from "@/lib/evidencia";
+import { EV_WORDS, RETURN_REASONS, acceptWords, evidenceView, returnText } from "@/lib/evidencia";
 import { openLayer, pinsOf, setPins, setReturn, useLayer, usePins, useProbador, useQaRead, useReturn } from "./evidence-store";
 import { ProbadorSide, ProbadorStrip, ProbadorViewer } from "./probador";
 import type { NowActs } from "./now";
@@ -20,11 +20,12 @@ export const EvidenceActs = memo(function EvidenceActs({ p, d, qacts, front = tr
   const r = useReturn(d.id);
   const pr = (d.links ?? []).find((l) => l.kind === "pr")?.ref ?? null;
   const accept = d.actions.find((a) => a === "fusionar" || a === "aceptar");
+  const w = acceptWords(d, { seen: true });
   return (
     <>
       {held && qacts && accept && (
-        <button type="button" className="edi-btn" data-ev-act="aceptar" onClick={() => qacts.onAct(d, { action: accept }, `now-${accept}`)} disabled={busyOn(d, qacts)}>
-          {busyOn(d, qacts) && qacts.busy?.key === `now-${accept}` ? "…" : EV_WORDS.accept}
+        <button type="button" className="edi-btn" data-ev-act="aceptar" title={w.aria} aria-label={w.aria} onClick={() => qacts.onAct(d, { action: accept }, `now-${accept}`)} disabled={busyOn(d, qacts)}>
+          {busyOn(d, qacts) && qacts.busy?.key === `now-${accept}` ? "…" : w.label}
         </button>
       )}
       {qacts && d.actions.includes("cambios") && (
@@ -182,7 +183,7 @@ export const EvidenceBody = memo(function EvidenceBody({ p, d, acts, qacts, inLa
             Solo lo que no se ve · {invisible ? "encendido" : "apagado"}
           </button>
         )}
-        {(on || invisible) && p.auto_accept?.hold && <span data-auto-hold>No se aceptó sola: {p.auto_accept.hold}</span>}
+        {(on || invisible) && p.auto_accept?.hold && <span data-auto-hold>No se aprobó sola: {p.auto_accept.hold}</span>}
       </div>
       </EvRight>
       {sheet && <ReturnSheet d={d} qacts={qacts} where={inLayer ? "capa" : "ahora"} />}

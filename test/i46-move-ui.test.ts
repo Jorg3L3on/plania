@@ -85,7 +85,7 @@ const STATES: Record<string, { p: Json; ds: Json[] }> = {
 };
 const EXPECTED: Record<string, { verbo: string; texto: string; label: string; kind: string } | null> = {
   "plan next initiative": { verbo: "planear", texto: "Planear «Ajustes finales y entrega»", label: "Que PO lo planee", kind: "plan" },
-  "accept a delivery": { verbo: "aceptar", texto: "Aceptar «Avisos al equipo»", label: "Aceptar", kind: "decision" },
+  "accept a delivery": { verbo: "aceptar", texto: "Aprobar «Avisos al equipo»", label: "Aprobar y pasar a prueba", kind: "decision" },
   "returned to Taller": null,
   "nothing pending": null,
 };
@@ -139,7 +139,7 @@ test("I46-3 #4: the move for each state: plan next initiative, accept a delivery
   assert.equal(nextMove(project({ paused: true, light: "paused" }) as never, [delivery()] as never), null);
   assert.equal(nextMove(project() as never, [delivery()] as never, { companyPaused: true }), null);
   const release = delivery({ id: "release:mia", kind: "release", actions: [], asker: null, release: { tickets: [{ key: "a", title: "a" }] }, at: "2026-11-13T18:00:00Z" });
-  assert.equal(nextMove(project() as never, [release, delivery()] as never)!.texto, "Aceptar «Avisos al equipo»");
+  assert.equal(nextMove(project() as never, [release, delivery()] as never)!.texto, "Aprobar «Avisos al equipo»");
   assert.deepEqual(nextMove(project() as never, [release] as never)!.accion, { kind: "publish", label: "Publicar" });
   // While the PO already plans (it runs, or has the order in its queue), planning is not the owner's move.
   assert.equal(nextMove(project({ team: [member("product-owner", { state: "running" })] }) as never, []), null);

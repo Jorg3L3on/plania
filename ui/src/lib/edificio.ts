@@ -337,7 +337,7 @@ function moveWhy(m: OrgNextMove, p: OrgProject, decisions: Decision[]): string {
     const more = mine.length > 1 ? ` Hay ${mine.length - 1} más.` : "";
     const hold = d?.hold ? `${d.hold} ` : "";
     if (o.decision === "release") return `Publicar es tuyo.${more}`;
-    if (o.decision === "pr" || o.decision === "deliverable") return `${hold}Mientras no la aceptes, el paso siguiente no arranca.${more}`;
+    if (o.decision === "pr" || o.decision === "deliverable") return `${hold}Mientras no la apruebes, el paso siguiente no arranca.${more}`;
     // PLA-I46-11: a leg's plan says what the PO proposes.
     if (o.decision === "plan" && d?.plan?.leg) {
       const n = d.plan.steps.length;
@@ -346,10 +346,10 @@ function moveWhy(m: OrgNextMove, p: OrgProject, decisions: Decision[]): string {
     }
     return `${hold}El equipo espera tu respuesta para seguir.${more}`;
   }
-  if (o.kind === "hold") return o.hold === "no_goal" ? "Sin meta nadie arranca. Fíjala y sigue solo." : o.hold === "waiting_owner" ? "Mientras no la aceptes, el paso siguiente no arranca." : "Está listo para empezar y nadie lo ha despertado.";
+  if (o.kind === "hold") return o.hold === "no_goal" ? "Sin meta nadie arranca. Fíjala y sigue solo." : o.hold === "waiting_owner" ? "Mientras no la apruebes, el paso siguiente no arranca." : "Está listo para empezar y nadie lo ha despertado.";
   if (o.kind === "route") {
     const here = p.route?.legs.find((l) => l.state === "here");
-    return `${here ? `${q(here.title)} está completo. ` : ""}El PO arma los pasos y tú los aceptas.`;
+    return `${here ? `${q(here.title)} está completo. ` : ""}El PO arma los pasos y tú los apruebas.`;
   }
   return "";
 }
@@ -431,7 +431,7 @@ export function nowLine(p: OrgProject, decisions: Decision[], now: number, opts:
 
   // PLA-I46-11: a leg's plan the owner left for later waits here; nothing starts until he accepts it.
   const later = decisions.find((d) => d.project === p.slug && waitingPlan(d) && d.plan?.leg);
-  if (later) return line("rest", { word: "En pausa", say: `El plan de ${q(later.plan!.leg!.title)} te espera.`, why: "Nadie empieza hasta que lo aceptes." });
+  if (later) return line("rest", { word: "En pausa", say: `El plan de ${q(later.plan!.leg!.title)} te espera.`, why: "Nadie empieza hasta que lo apruebes." });
 
   const legs = p.route?.legs ?? [];
   const at = legs.findIndex((l) => l.state === "here");
@@ -490,17 +490,17 @@ export function sinTi(p: OrgProject): string {
     const then = steps[steps.indexOf(at) + 1];
     return `${who} ${at.state === "working" ? "termina" : (TO_DO[at.who ?? ""] ?? "hace")} ${q(at.title)} y te lo entrega.${then ? ` Después sigue ${q(then.title)}.` : ""}`;
   }
-  if (steps.some((s) => s.state === "delivered")) return "En cuanto aceptes la entrega, el equipo toma el paso siguiente.";
+  if (steps.some((s) => s.state === "delivered")) return "En cuanto apruebes la entrega, el equipo toma el paso siguiente.";
   const queued = [...p.team].sort(byRole).find((m) => m.state === "running" || m.next_start || (m.queue ?? []).length > 0);
   if (queued) return `${roleName(queued.role)} sigue con lo que tiene en fila.`;
   return "Nada en fila. Lo que pidas lo reparte el PO.";
 }
-export const SOLO_TU = "Aceptar cada entrega para que el paso siguiente arranque, y publicar.";
+export const SOLO_TU = "Aprobar cada entrega para que el paso siguiente arranque, y publicar.";
 // PLA-I40-7: with the switch on, accepting is the team's when the tests pass; publishing stays the owner's.
-export const SOLO_TU_AUTO = "Publicar. Las entregas con pruebas en verde se aceptan solas en la copia de prueba.";
-export const AUTO_LABEL = "Aceptar sola en la copia de prueba si las pruebas pasan";
+export const SOLO_TU_AUTO = "Publicar. Las entregas con pruebas en verde se aprueban solas, solo a la copia de prueba.";
+export const AUTO_LABEL = "Aprobar sola si las pruebas pasan (solo a la copia de prueba)";
 
-const DID: Record<string, string> = { aceptar: "Aceptaste", fusionar: "Aceptaste", cambios: "Pediste cambios en", elegir: "Respondiste", responder: "Respondiste", hecho: "Marcaste hecho", aplazar: "Aplazaste", empezar: "Aprobaste el plan", cambiar: "Pediste cambiar", cancelar: "Cancelaste", despues: "Dejaste para después" };
+const DID: Record<string, string> = { aceptar: "Aprobaste", fusionar: "Aprobaste", cambios: "Pediste cambios en", elegir: "Respondiste", responder: "Respondiste", hecho: "Marcaste hecho", aplazar: "Aplazaste", empezar: "Aprobaste el plan", cambiar: "Pediste cambiar", cancelar: "Cancelaste", despues: "Dejaste para después" };
 export type LastLine = { id: string; text: string; at: string; decision: Decision | null };
 // The newest three: the owner's answers (a decision's state) and what the server saw (a publish, a delivery).
 export function lastLines(p: OrgProject, decisions: Decision[], max = 3): LastLine[] {
@@ -510,7 +510,7 @@ export function lastLines(p: OrgProject, decisions: Decision[], max = 3): LastLi
       // PLA-I40-7: an accept the project's switch made says so, with the test counts it stood on.
       const auto = d.state!.result?.by === "auto";
       const counts = auto && d.evidence?.pass != null ? ` · ${d.evidence.pass} pruebas pasan` : "";
-      return { id: `d-${d.id}`, text: auto ? `Se aceptó sola ${q(d.title, 70)}${counts}` : `${DID[d.state!.action] ?? "Respondiste"} ${q(d.title, 70)}`, at: d.state!.at, decision: d };
+      return { id: `d-${d.id}`, text: auto ? `Se aprobó sola ${q(d.title, 70)}${counts}` : `${DID[d.state!.action] ?? "Respondiste"} ${q(d.title, 70)}`, at: d.state!.at, decision: d };
     });
   const seen = (p.latest ?? []).map((l, i) => ({
     id: `l-${i}-${l.at}`,

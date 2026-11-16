@@ -46,16 +46,16 @@ test("PLA-40 #1 #2: a hanging delivery has one Aceptar, on its card; Ahora point
 
 test("PLA-40 #3: the card's Aceptar names its effect, and says when it was not seen", () => {
   const doc = ev.acceptWords(delivery());
-  assert.equal(doc.label, "Aceptar · a Hecho");
+  assert.equal(doc.label, "Aprobar y cerrar");
   assert.match(doc.hint, /pasa a Hecho/);
   assert.match(doc.hint, /sin haberla visto/);
   const pr = ev.acceptWords(delivery({ links: [{ kind: "pr", ref: "https://github.com/x/y/pull/1", title: "PR" }], preview_url: "https://x.test" }));
-  assert.equal(pr.label, "Aceptar · a la copia de prueba");
-  assert.match(pr.hint, /copia de prueba \(lo publicado no cambia\)/);
+  assert.equal(pr.label, "Aprobar y pasar a prueba");
+  assert.equal(pr.hint, "Se integra a la copia de prueba; lo publicado no cambia. Luego arranca el siguiente paso.");
   assert.doesNotMatch(`${pr.label} ${pr.hint}`, /sandbox/);
   assert.doesNotMatch(pr.hint, /sin haberla visto/);
   const s = floor([delivery()]);
-  assert.match(s, /data-action="aceptar"[^>]*>Aceptar · a Hecho</);
+  assert.match(s, /data-action="aceptar"[^>]*>Aprobar y cerrar</);
   assert.match(s, /data-accept-hint="true">La entrega pasa a Hecho/);
   assert.doesNotMatch(/data-accept-hint="true">([^<]*)</.exec(s)![1]!, /WRK-32/, "no ticket key in the hint");
 });

@@ -133,22 +133,22 @@ test("I46-10: a delivery to accept is one evidence card in Ahora: tests, separat
   const d = delivery();
   store.setRead("demo", "DEM-3", d.id, READ);
   const c = company(project(), [d]);
-  assert.deepEqual(c.projects[0].next_move.accion, { kind: "decision", id: d.id, action: "fusionar", label: "Aceptar" });
+  assert.deepEqual(c.projects[0].next_move.accion, { kind: "decision", id: d.id, action: "fusionar", label: "Aprobar y pasar a prueba" });
   const s = render(c);
   const card = nowCard(s);
   assert.ok(card.includes('data-breathe="1"'), "only Ahora breathes, and it is the owner's turn");
   assert.ok(card.includes(`data-evidence="${d.id}"`));
   const t = unq(text(card));
-  for (const x of ["Aceptar «Pantalla de gracias»", "Pruebas", "14 de 14", "pasan en la entrega", "Revisión aparte", "Sin hallazgos", "otro agente, sin ver a Taller", "Check list del PO · 3 de 3", "Sale el nombre de la novia", "El botón abre WhatsApp", "Se lee bien a 390", "Capturas de la entrega"]) assert.ok(t.includes(x), x);
+  for (const x of ["Aprobar «Pantalla de gracias»", "Pruebas", "14 de 14", "pasan en la entrega", "Revisión aparte", "Sin hallazgos", "otro agente, sin ver a Taller", "Check list del PO · 3 de 3", "Sale el nombre de la novia", "El botón abre WhatsApp", "Se lee bien a 390", "Capturas de la entrega"]) assert.ok(t.includes(x), x);
   assert.equal((card.match(/<img [^>]*src="\/api\/projects\/demo\/captures\/[ab]\.png"/g) ?? []).length, 2, "the delivery's stills");
   // The three exits: green Aceptar (the move), Devolver a Taller, Ver PR (a link to the PR). «Al frente» is a view.
-  assert.match(card, /<button type="button" class="edi-nact edi-go"[^>]*data-where="ahora"[^>]*>Aceptar<\/button>/);
+  assert.match(card, /<button type="button" class="edi-nact edi-go"[^>]*data-where="ahora"[^>]*>Aprobar y pasar a prueba<\/button>/);
   assert.match(card, /data-ev-act="devolver" aria-expanded="false"[^>]*>Devolver a Taller</);
   assert.ok(card.includes(`href="${PR}"`) && card.includes(">Ver PR<"));
   assert.equal((card.match(/\bedi-go\b/g) ?? []).length, 1, "one green button on the card");
   // No second copy hanging under Taller's window; the Tú window and the phone bar carry the same Aceptar.
   assert.equal(s.includes(`data-bubble="${d.id}"`), false);
-  assert.ok(/data-where="barra"[^>]*>Aceptar</.test(s));
+  assert.ok(/data-where="barra"[^>]*>Aprobar y pasar a prueba</.test(s));
   // Aceptar runs the same thing from every surface: the floor's fusionar on that delivery.
   const calls: unknown[][] = [];
   const run = nowc.runOf(c.projects[0], c.projects[0].next_move.accion, { decisions: [d], qacts: { now: NOW, busy: null, onAct: (...a: unknown[]) => calls.push(a) } });
@@ -224,7 +224,7 @@ test("I46-10 #4: «Aceptar sola en la copia de prueba» is on the card, off by d
   store.setRead("demo", "DEM-3", d.id, READ);
   const off = nowCard(render(company(project({ auto_accept: { on: false, hold: null } }), [d])));
   assert.match(off, /<button type="button" role="switch" class="edi-sw" aria-checked="false" data-control="aceptar-sola-card">/);
-  assert.ok(text(off).includes("Aceptar sola en la copia de prueba · apagado"));
+  assert.ok(text(off).includes("Aprobar sola si las pruebas pasan (solo a la copia de prueba) · apagado"));
   // Without the owner's handler (any page that is not his) the switch is drawn but cannot be used.
   const none = nowCard(render(company(project(), [d]), { nowActs: {} }));
   assert.match(none, /role="switch" class="edi-sw" aria-checked="false" disabled=""/);
@@ -233,7 +233,7 @@ test("I46-10 #4: «Aceptar sola en la copia de prueba» is on the card, off by d
   assert.equal(s.includes('data-control="aceptar-sola"'), false);
   assert.equal((s.match(/data-control="aceptar-sola-card"/g) ?? []).length, 1);
   const on = nowCard(render(company(project({ auto_accept: { on: true, hold: "Faltan pruebas que pasen." } }), [d])));
-  assert.ok(on.includes('aria-checked="true"') && text(on).includes("· encendido") && text(on).includes("No se aceptó sola: Faltan pruebas que pasen."));
+  assert.ok(on.includes('aria-checked="true"') && text(on).includes("· encendido") && text(on).includes("No se aprobó sola: Faltan pruebas que pasen."));
   // The page's call is the screen's PUT …/options (cookie only; test/i46-decision-api.test.ts).
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
   assert.match(page, /onAuto: \(slug: string, on: boolean\)/);
@@ -248,9 +248,9 @@ test("I46-15 #1 #4: Una decisión opens for an accept-delivery and an accept-pla
   const layer = /<div class="edi-layer"[\s\S]*$/.exec(s)?.[0] ?? "";
   assert.match(layer, /data-layer="delivery"/);
   assert.match(layer, /role="dialog" aria-modal="true" aria-labelledby="layer-say-m-dev-7"/);
-  assert.ok(unq(text(layer)).includes("Una decisión · Demo") && unq(text(layer)).includes("Aceptar «Pantalla de gracias»") && text(layer).includes("14 de 14"));
+  assert.ok(unq(text(layer)).includes("Una decisión · Demo") && unq(text(layer)).includes("Aprobar «Pantalla de gracias»") && text(layer).includes("14 de 14"));
   assert.deepEqual([...layer.matchAll(/<button type="button" class="([^"]+)"[^>]*data-layer-(main|second|close)[^>]*>([^<]+)<kbd class="edi-kbd" aria-hidden="true">([^<]+)<\/kbd>/g)].map((m) => [m[3], m[4], m[1]]), [
-    ["Aceptar", "A", "edi-nact edi-go"],
+    ["Aprobar y pasar a prueba", "A", "edi-nact edi-go"],
     ["Devolver a Taller", "D", "edi-btn"],
     ["Cerrar", "Esc", "edi-btn"],
   ]);
@@ -268,7 +268,7 @@ test("I46-15 #1 #4: Una decisión opens for an accept-delivery and an accept-pla
   const pl = /<div class="edi-layer"[\s\S]*$/.exec(ps)?.[0] ?? "";
   assert.match(pl, /data-layer="plan"/);
   assert.deepEqual([...pl.matchAll(/data-layer-(?:main|second|close)[^>]*>([^<]+)<kbd class="edi-kbd" aria-hidden="true">([^<]+)</g)].map((m) => [m[1], m[2]]), [
-    ["Aceptar plan", "A"],
+    ["Aprobar el plan", "A"],
     ["Cambiar algo", "C"],
     ["Cerrar", "Esc"],
   ]);

@@ -6,6 +6,7 @@
 //   Lit       a station is lit while someone works a ticket there (live), or, for Te toca, while something waits on
 //             the owner; its colour is the stage's. The window and the cards read the same field, so they agree.
 import type { Decision, Etapa, EtapaCi, EtapaHolder, EtapaId, OrgMember, ProjectTicket, Tablero } from "./api";
+import { acceptWords } from "./evidencia";
 import { ago } from "./time";
 
 export type StationId = "por" | "taller" | "qa" | "rev" | "toca" | "hecho";
@@ -17,7 +18,7 @@ export const STATIONS: readonly Station[] = [
   { id: "taller", name: "Taller", who: "Taller", verb: "construye", on: "trabajando", role: "taller" },
   { id: "qa", name: "QA", who: "QA", verb: "prueba", on: "probando", role: "qa" },
   { id: "rev", name: "Revisión", who: "Revisor", verb: "PR y pruebas", on: "revisando", role: null },
-  { id: "toca", name: "Te toca", who: "Tú", verb: "aceptas o devuelves", on: "te espera", role: null },
+  { id: "toca", name: "Te toca", who: "Tú", verb: "apruebas o devuelves", on: "te espera", role: null },
   { id: "hecho", name: "Hecho", who: "", verb: "integrado y publicado", on: "", role: null },
 ];
 export const OPEN_STATIONS = STATIONS.filter((s) => s.id !== "hecho");
@@ -208,7 +209,10 @@ export function deliveryFor(key: string, decisions: Decision[]): Decision | null
 export const runOn = (key: string, team: OrgMember[]): string | null => team.find((m) => m.state === "running" && m.now?.ticket === key)?.now?.run_id ?? null;
 
 export type CardAct = { kind: "primero"; key: string } | { kind: "detener"; runId: string } | { kind: "aceptar"; decision: Decision; action: "fusionar" | "aceptar" } | { kind: "quitar"; key: string };
-export const ACT_LABEL: Record<CardAct["kind"], string> = { primero: "Hacer primero", detener: "Detener", aceptar: "Aceptar", quitar: "Quitar" };
+export const ACT_LABEL: Record<CardAct["kind"], string> = { primero: "Hacer primero", detener: "Detener", aceptar: "Aprobar", quitar: "Quitar" };
+// PLA-42: a delivery's Aprobar names its effect and the delivery (lib/evidencia.ts acceptWords).
+export const actLabel = (a: CardAct) => (a.kind === "aceptar" ? acceptWords(a.decision).label : ACT_LABEL[a.kind]);
+export const actAria = (a: CardAct, title: string) => (a.kind === "aceptar" ? acceptWords({ ...a.decision, title: a.decision.title || title }).aria : `${ACT_LABEL[a.kind]}: ${title}`);
 export const actBusyKey = (a: CardAct) => (a.kind === "primero" ? `next-${a.key}` : a.kind === "quitar" ? `cancel-${a.key}` : a.kind === "detener" ? a.runId : `accept-${a.decision.id}`);
 
 // Detener on a ticket a run works on; Aceptar on a delivery that waits; Hacer primero on a ticket ready to start

@@ -128,11 +128,11 @@ const nowCard = (s: string) => /<div class="edi-nowb"[\s\S]*?(?=<section class="
 test("I46-11 #1: the plan is the move, and Ahora shows its steps, questions with the suggestion marked and an editable check list", () => {
   const d = planDecision();
   const m = nextMove(project() as never, [d] as never)!;
-  assert.deepEqual([m.verbo, m.texto, m.accion], ["aceptar", "Aceptar el plan de «Pagos y envío»", { kind: "decision", id: d.id, action: "empezar", label: "Aceptar plan" }]);
+  assert.deepEqual([m.verbo, m.texto, m.accion], ["aceptar", "Aprobar el plan de «Pagos y envío»", { kind: "decision", id: d.id, action: "empezar", label: "Aprobar el plan" }]);
   const s = render(company(project(), [d]));
   const card = nowCard(s);
   assert.ok(card.includes('data-breathe="1"'), "Ahora breathes: it is the owner's turn");
-  assert.ok(unq(text(card)).includes("Aceptar el plan de «Pagos y envío»"));
+  assert.ok(unq(text(card)).includes("Aprobar el plan de «Pagos y envío»"));
   assert.ok(text(card).includes("El PO propone 2 pasos y 2 preguntas, con su respuesta sugerida ya marcada."));
   for (const t of ["2 pasos", "Pago con tarjeta", "Correo de envío", "2 preguntas", "¿Envío gratis?", "Check list del PO · la puedes editar", "Cambiar algo", "Después"]) assert.ok(unq(text(card)).includes(t), t);
   // The suggestion is marked and checked: «No» for the first, «Solo la tienda» for the second.
@@ -143,9 +143,9 @@ test("I46-11 #1: the plan is the move, and Ahora shows its steps, questions with
   assert.deepEqual([...card.matchAll(/class="edi-pfield"[^>]*value="([^"]*)"/g)].map((x) => x[1]), LIST);
   // Three exits: the green Aceptar plan, Cambiar algo, Después. PLA-I46-15: «Al frente» shows the same decision in
   // the layer; it is a view, not a fourth exit.
-  assert.deepEqual([...card.matchAll(/<button[^>]*>([^<]+)<\/button>/g)].map((x) => x[1]!).filter((l) => !/^(Sí|No|Solo|La tienda)/.test(l)), ["Aceptar plan", "Cambiar algo", "Después", "Al frente"]);
+  assert.deepEqual([...card.matchAll(/<button[^>]*>([^<]+)<\/button>/g)].map((x) => x[1]!).filter((l) => !/^(Sí|No|Solo|La tienda)/.test(l)), ["Aprobar el plan", "Cambiar algo", "Después", "Al frente"]);
   // The same button on the Tú window and in the phone bar; no second copy hanging under the PO.
-  assert.ok(/data-where="barra"[^>]*>Aceptar plan</.test(s), "phone bar");
+  assert.ok(/data-where="barra"[^>]*>Aprobar el plan</.test(s), "phone bar");
   assert.ok(!s.includes(`data-bubble="${d.id}"`), "not hung under the PO's window");
 });
 
@@ -172,7 +172,7 @@ test("I46-11 #3: Después leaves the plan waiting: a quiet line, no green button
   const s = render(company(project(), [d]));
   const card = nowCard(s);
   assert.ok(unq(text(card)).includes("El plan de «Pagos y envío» te espera."));
-  assert.ok(text(card).includes("Nadie empieza hasta que lo aceptes."));
+  assert.ok(text(card).includes("Nadie empieza hasta que lo apruebes."));
   assert.ok(card.includes(">Ver el plan<"));
   assert.ok(!/edi-go[" ]|data-breathe/.test(card), "no green button, no breathing");
   assert.ok(!card.includes("data-plan="), "the plan is closed");

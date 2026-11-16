@@ -22,7 +22,7 @@ export const returnText = (reason: string, line: string) => {
   return l ? `${reason}: ${l}` : reason;
 };
 export const EV_WORDS = {
-  accept: "Aceptar",
+  accept: "Aprobar y pasar a prueba",
   back: "Devolver a Taller",
   send: "Devolver",
   cancel: "Cancelar",
@@ -31,7 +31,7 @@ export const EV_WORDS = {
   hideNote: "Ocultar nota",
   sheet: "Devolver a Taller",
   line: "Una línea para Taller (opcional)",
-  auto: "Aceptar sola en la copia de prueba",
+  auto: "Aprobar sola si las pruebas pasan (solo a la copia de prueba)",
 } as const;
 
 // A text that did not come (an older or partial read) is an empty line, never a crash (PLA-I47-7).
@@ -50,14 +50,23 @@ export const deliveryOf = (move: { origen: { kind: string; id?: string; decision
 };
 export const prOf = (d: Pick<Decision, "links">) => (d.links ?? []).find((l) => l.kind === "pr")?.ref ?? null;
 
-// PLA-40: what Aceptar does, said on the button and in one line under it. A delivery with a PR is merged into
-// sandbox (never main: src/api/thread-actions.ts); one without a PR (a doc) moves its ticket to Hecho. No key and no word sandbox on screen (PLA-I36-11): it is «la copia de prueba».
-export type AcceptWords = { label: string; hint: string };
-export function acceptWords(d: Pick<Decision, "kind" | "links" | "preview_url">, opts: { seen?: boolean } = {}): AcceptWords {
+// PLA-40, PLA-42: what Aprobar does, said on the button and in one line under it. A delivery with a PR is merged into
+// sandbox (never main: src/api/thread-actions.ts); one without a PR (a doc) moves its ticket to Hecho. No key and no
+// word sandbox on screen (PLA-I36-11): it is «la copia de prueba». aria names the delivery (title and aria-label).
+// Same button words as the server's move (src/api/company-move.ts ONE_CLICK), so every surface says the same.
+export type AcceptWords = { label: string; hint: string; aria: string };
+export const APPROVE = {
+  pr: { label: "Aprobar y pasar a prueba", hint: "Se integra a la copia de prueba; lo publicado no cambia. Luego arranca el siguiente paso." },
+  done: { label: "Aprobar y cerrar", hint: "La entrega pasa a Hecho y arranca el siguiente paso." },
+  plan: { label: "Aprobar el plan", hint: "Se crean sus pasos y Taller empieza." },
+} as const;
+export const APPROVED = { pr: "Aprobado · en la copia de prueba", done: "Aprobado · cerrado" } as const;
+export function acceptWords(d: Pick<Decision, "kind" | "links" | "preview_url"> & { title?: string | null }, opts: { seen?: boolean } = {}): AcceptWords {
   const pr = d.kind === "pr" || !!prOf(d);
-  const what = pr ? "Se integra a la copia de prueba (lo publicado no cambia) y el siguiente paso arranca." : "La entrega pasa a Hecho y el siguiente paso arranca.";
-  const unseen = d.preview_url || opts.seen ? "" : " Sin vista previa: la aceptas sin haberla visto.";
-  return { label: pr ? "Aceptar · a la copia de prueba" : "Aceptar · a Hecho", hint: `${what}${unseen}` };
+  const w = pr ? APPROVE.pr : APPROVE.done;
+  const unseen = d.preview_url || opts.seen ? "" : " Sin vista previa: la apruebas sin haberla visto.";
+  const name = d.title ? `«${clip(d.title, 70)}»` : "la entrega";
+  return { label: w.label, hint: `${w.hint}${unseen}`, aria: `Aprobar ${name} y ${pr ? "pasar a prueba" : "cerrar"}` };
 }
 
 export function evidenceView(read: QaRead | null | undefined, d: Pick<Decision, "evidence" | "links">): EvidenceView {

@@ -136,8 +136,8 @@ test("I40-4 #1: one sentence per state: working, soon, stuck, your turn, plan fi
 
   const mine = line(resting(), [delivery()]);
   assert.deepEqual([mine.state, mine.word, mine.holder], ["you", "Te toca", "owner"], "a delivery comes before the next start");
-  assert.equal(mine.say, "Aceptar «Listado de novias con búsqueda y filtros»");
-  assert.deepEqual(mine.action, { kind: "decision", id: "pr-1", action: "aceptar", label: "Aceptar" });
+  assert.equal(mine.say, "Aprobar «Listado de novias con búsqueda y filtros»");
+  assert.deepEqual(mine.action, { kind: "decision", id: "pr-1", action: "aceptar", label: "Aprobar y pasar a prueba" });
   assert.equal(line(project(), [delivery({ hold: "Las pruebas siguen corriendo." })]).action.kind, "reveal", "a held delivery is not one click");
   const asked = line(project(), [decision()]);
   assert.deepEqual([asked.say, asked.action.kind], ["Responder a Research: «¿Qué tienda abrimos primero?»", "reveal"]);
@@ -147,7 +147,7 @@ test("I40-4 #1: one sentence per state: working, soon, stuck, your turn, plan fi
   const route = { legs: [{ key: "WRK-I1", title: "Panel administrativo", done: 4, total: 4, state: "here", note: null, steps: [] }, { key: "WRK-I2", title: "Contacto y avisos", done: 0, total: 0, state: "unplanned", note: null }], more_legs: 0 };
   const done = line(project({ route }));
   assert.deepEqual([done.state, done.say, done.action.kind, done.action.label], ["you", "Planear «Contacto y avisos»", "plan", "Que PO lo planee"]);
-  assert.equal(done.why, "«Panel administrativo» está completo. El PO arma los pasos y tú los aceptas.");
+  assert.equal(done.why, "«Panel administrativo» está completo. El PO arma los pasos y tú los apruebas.");
 
   assert.deepEqual([line(project({ paused: true, light: "paused" })).state, line(project(), [], { companyPaused: true }).say], ["off", "La compañía está en pausa."]);
   assert.deepEqual([line(project()).state, line(project()).action], ["idle", null]);
@@ -187,7 +187,7 @@ test("I40-4 #2: with a pending delivery the owner holds the work and the main ac
   const s = floor(resting(), [delivery()]);
   assert.match(s, /data-now="you" data-holder="owner"/);
   assert.equal((s.match(/class="edi-mark"/g) ?? []).length, 0, "no teammate's mark while it waits on the owner");
-  assert.match(s, /data-now-action="decision"[^>]*>Aceptar</);
+  assert.match(s, /data-now-action="decision"[^>]*>Aprobar y pasar a prueba</);
   assert.match(s, /data-pill="you"/);
   // The button runs the delivery's own accept.
   const calls: Json[] = [];
@@ -288,7 +288,7 @@ test("I40-6 #1: an answered decision is a line under Lo último, not a bubble; a
   assert.match(s, /<details class="edi-lastall" data-last-all="true"><summary>Ver todo<\/summary>/);
   const t = text(s).replace(/\s+/g, " ");
   assert.ok(t.includes("hoy 2:35 pm Publicaste 6 cambios"));
-  assert.ok(t.includes("hoy 2:24 pm Aceptaste «Listado de novias con búsqueda y filtros»"));
+  assert.ok(t.includes("hoy 2:24 pm Aprobaste «Listado de novias con búsqueda y filtros»"));
   assert.match(s, /<details class="dark edi-lastd"><summary>Ver<\/summary>/);
   assert.equal(lib.hangingFor([answered()], "workia", "taller-workia"), null);
 
@@ -299,7 +299,7 @@ test("I40-6 #1: an answered decision is a line under Lo último, not a bubble; a
   assert.ok(open.includes('data-last="answered"'));
   // Three lines at most, newest first.
   const many = lib.lastLines(full({ latest: [{ kind: "published", title: null, n: 1, at: "2026-11-13T20:35:00Z" }, { kind: "delivered", title: "Listado", n: null, at: "2026-11-13T20:21:00Z" }, { kind: "delivered", title: "Acceso", n: null, at: "2026-11-13T18:50:00Z" }] }), [answered()]);
-  assert.deepEqual(many.map((l: Json) => l.text), ["Publicaste 1 cambio", "Aceptaste «Listado de novias con búsqueda y filtros»", "El equipo entregó «Listado»"]);
+  assert.deepEqual(many.map((l: Json) => l.text), ["Publicaste 1 cambio", "Aprobaste «Listado de novias con búsqueda y filtros»", "El equipo entregó «Listado»"]);
   clean(s);
 });
 
@@ -308,7 +308,7 @@ test("I40-6: Solo tú says what is the owner's; Pasa sin ti is not drawn; Lo úl
   const s = text(html).replace(/\s+/g, " ");
   assert.equal(s.includes("Pasa sin ti"), false);
   assert.ok(html.indexOf('class="dark sb"') >= 0 && html.indexOf('class="dark sb"') < html.indexOf('data-col="ultimo"'), "PLA-I53-3: without La ficha, Lo último is in the right column, after the board");
-  assert.ok(s.includes("Solo tú Aceptar cada entrega para que el paso siguiente arranque, y publicar."));
+  assert.ok(s.includes("Solo tú Aprobar cada entrega para que el paso siguiente arranque, y publicar."));
   const working = { ...mianovia, legs: mianovia.legs.map((l: Json) => (l.steps ? { ...l, steps: l.steps.map((x: Json) => (x.state === "next" ? { ...x, state: "working" } : x)) } : l)) };
   assert.match(lib.sinTi(full({ route: working })), /^Taller termina «Ficha de la novia y notas internas» y te lo entrega\./);
   assert.equal(lib.sinTi(project({ route: null, latest: [] })), "Nada en fila. Lo que pidas lo reparte el PO.");
@@ -347,13 +347,13 @@ test("I40-7 (UI): the switch sits under Solo tú, says why a delivery was not ac
   const off = floor(full({ auto_accept: { on: false, hold: null } }), [], { nowActs: { onAuto: noop } });
   assert.match(off, /<input id="auto-workia" type="checkbox"[^>]*data-control="aceptar-sola"/);
   assert.equal(/id="auto-workia"[^>]*checked=""/.test(off), false);
-  assert.ok(text(off).includes("Aceptar sola en la copia de prueba si las pruebas pasan"));
-  assert.ok(text(off).includes("Aceptar cada entrega para que el paso siguiente arranque, y publicar."));
+  assert.ok(text(off).includes("Aprobar sola si las pruebas pasan (solo a la copia de prueba)"));
+  assert.ok(text(off).includes("Aprobar cada entrega para que el paso siguiente arranque, y publicar."));
 
   const on = floor(full({ auto_accept: { on: true, hold: "Faltan pruebas que pasen." } }), [], { nowActs: { onAuto: noop } });
   assert.match(on, /id="auto-workia"[^>]*checked=""/);
-  assert.ok(text(on).includes("No se aceptó sola: Faltan pruebas que pasen."));
-  assert.ok(text(on).includes("Publicar. Las entregas con pruebas en verde se aceptan solas en la copia de prueba."));
+  assert.ok(text(on).includes("No se aprobó sola: Faltan pruebas que pasen."));
+  assert.ok(text(on).includes("Publicar. Las entregas con pruebas en verde se aprueban solas, solo a la copia de prueba."));
 
   const calls: unknown[][] = [];
   const el = after.After({ project: full({ auto_accept: { on: false, hold: null } }), decisions: [], now: NOW, acts: { onAuto: (...a: unknown[]) => calls.push(a) } });
@@ -362,7 +362,7 @@ test("I40-7 (UI): the switch sits under Solo tú, says why a delivery was not ac
   assert.deepEqual(calls, [["workia", true]]);
 
   const auto = answered({ state: { action: "aceptar", at: "2026-11-13T20:24:00Z", result: { by: "auto" } }, evidence: { verdict: "pass", kind: "test", cite: "pnpm test", pass: 162, fail: 0, at: "2026-11-13T20:21:00Z" } });
-  assert.equal(lib.lastLines(full({ latest: [] }), [auto])[0].text, "Se aceptó sola «Listado de novias con búsqueda y filtros» · 162 pruebas pasan");
+  assert.equal(lib.lastLines(full({ latest: [] }), [auto])[0].text, "Se aprobó sola «Listado de novias con búsqueda y filtros» · 162 pruebas pasan");
   // An older server sends no auto_accept: no switch.
   assert.equal(floor(full(), [], { nowActs: { onAuto: noop } }).includes("aceptar-sola"), false);
 });

@@ -90,7 +90,7 @@ export function maqView(r: MaquinasRead): MaqView {
   if (!r.configured)
     return { ...common, state: "unconfigured", word: "Sin configurar", say: "Este piso no sabe cómo encenderse.", server: server("Sin configurar", "Falta cómo arrancarla", null), pipes: { window: "dark", base: "dark" }, window: "setup", lights: { server: "none", base: baseLight } };
   if (ph === "starting")
-    return { ...common, state: "starting", word: "Encendiendo", say: "Trae sandbox, instala y arranca.", server: server("Encendiendo…", port ? `puerto ${port}` : "buscando un puerto", null), pipes: { window: "dark", base: baseOn ? "lit" : "dark" }, window: "starting" };
+    return { ...common, state: "starting", word: "Encendiendo", say: "Trae la copia de prueba, instala y arranca.", server: server("Encendiendo…", port ? `puerto ${port}` : "buscando un puerto", null), pipes: { window: "dark", base: baseOn ? "lit" : "dark" }, window: "starting" };
   if (ph === "failed")
     return { ...common, state: "failed", word: "No arrancó", say: r.server.error ?? "La copia de prueba no arrancó.", server: server("No arrancó", r.server.error ?? "", { act: "encender", label: "Reintentar", on: false }), pipes: { window: "dark", base: baseOn ? "lit" : "dark" }, window: "failed" };
   if (LIVE.has(ph)) {

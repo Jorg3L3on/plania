@@ -66,7 +66,7 @@ const pruebas: Json = { running: null, commands: [{ name: "test", command: "npm 
 test("I48-5 #1: Servidor in its four states", () => {
   const loaded = r(h(fi.FichaServidor, { read: ok(read({ server: LIVE })), log: ok({ lines: ["▲ Next.js ready", "GET /registro 200"] }), acts: {} }));
   assert.match(loaded, /<code>http:\/\/localhost:3000<\/code>/);
-  assert.match(loaded, /<code>sandbox @ 4c4d49f<\/code>/);
+  assert.match(loaded, /<code>copia de prueba @ 4c4d49f<\/code>/);
   assert.match(loaded, /Plania, desde el piso/);
   assert.match(loaded, /data-bitacora="true">▲ Next.js ready\nGET \/registro 200</);
   assert.match(loaded, /data-control="maq-reiniciar"/);

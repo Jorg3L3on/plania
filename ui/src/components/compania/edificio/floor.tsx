@@ -10,7 +10,7 @@ import type { CSSProperties, ReactNode } from "react";
 import type { Decision, OrgMember, OrgOrder, OrgProject, ProjectTicket, Tablero } from "@/lib/api";
 import { BACK_WORD, RECIBIRIA, caption, floorHue, hangingFor, nowLine, returnedOf, windowLabel, windowState } from "@/lib/edificio";
 import { ahoraView, litOf, seatOf } from "@/lib/ahora-piso";
-import { ACT_LABEL, actBusyKey, cardActs, OPEN_ORDER, STATIONS, type CardAct } from "@/lib/etapas";
+import { actAria, actBusyKey, actLabel, cardActs, OPEN_ORDER, STATIONS, type CardAct } from "@/lib/etapas";
 import { deliveryOf } from "@/lib/evidencia";
 import { byRole, roleName } from "@/lib/org";
 import { StageBoard, type StationHeadProps } from "@/components/plan/stage-board";
@@ -49,8 +49,8 @@ const ActButtons = ({ slug, acts, list, title }: { slug: string; acts: BoardActs
   return (
     <>
       {runs.map(({ a, run }) => (
-        <button key={a.kind} type="button" className="sb-mini" data-act={a.kind} disabled={acts.busy === actBusyKey(a)} onClick={run!} aria-label={`${ACT_LABEL[a.kind]}: ${title}`} data-control={`tablero-${a.kind}`}>
-          {acts.busy === actBusyKey(a) ? "…" : ACT_LABEL[a.kind]}
+        <button key={a.kind} type="button" className="sb-mini" data-act={a.kind} disabled={acts.busy === actBusyKey(a)} onClick={run!} title={a.kind === "aceptar" ? actAria(a, title) : undefined} aria-label={actAria(a, title)} data-control={`tablero-${a.kind}`}>
+          {acts.busy === actBusyKey(a) ? "…" : actLabel(a)}
         </button>
       ))}
     </>

@@ -10,7 +10,7 @@ import { countdown, type NowAction, type NowLine } from "@/lib/edificio";
 import { acceptWords, deliveryOf } from "@/lib/evidencia";
 import { BackNote, EvidenceActs, EvidenceBody } from "./evidence";
 import { openLayer } from "./evidence-store";
-import { PlanActs, PlanBody, floorPlan } from "./plan";
+import { PlanActs, PlanBody, PlanHint, floorPlan } from "./plan";
 import { planInput } from "./plan-draft";
 import { revealDecision, revealQuestion } from "./publish";
 import type { QuestionActs } from "./question";
@@ -92,8 +92,11 @@ export const ActButton = ({ project: p, action: a, move, where, ctx, className =
   const run = runOf(p, a, ctx);
   if (!run) return null;
   const busy = busyOf(p, a, ctx);
+  // PLA-42: an approve button names the delivery it approves (title and aria-label).
+  const dv = a.kind === "decision" && (a.action === "aceptar" || a.action === "fusionar") ? ctx.decisions?.find((x) => x.id === a.id) : undefined;
+  const aria = dv ? acceptWords(dv).aria : undefined;
   return (
-    <button type="button" className={cls} onClick={run} disabled={busy || ctx.qacts?.disabled} {...data}>
+    <button type="button" className={cls} onClick={run} disabled={busy || ctx.qacts?.disabled} title={aria} aria-label={aria} {...data}>
       {busy ? "…" : a.label}
     </button>
   );
@@ -202,6 +205,7 @@ export const Now = ({
             {accept.hint}
           </p>
         )}
+        {plan && <PlanHint d={plan.d} waiting={plan.waiting} />}
       </div>
       {plan && <PlanBody d={plan.d} waiting={plan.waiting} qacts={qacts} />}
       {dv && <EvidenceBody p={p} d={dv} acts={acts} qacts={qacts} />}
