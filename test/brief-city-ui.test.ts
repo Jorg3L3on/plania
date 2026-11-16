@@ -208,7 +208,7 @@ test("PLA-I51-3: the ficha of a release shows the evidence, Hazlo tú with the f
   const out = render({ state: stateOf({ [ids[2]]: open(["publish", "later", "dismiss"], live) }) });
   const s = text(out);
   assert.match(s, /Leído de Plania ahora/);
-  assert.match(s, /sandbox → main · prod · 10 adelante/);
+  assert.match(s, /copia de prueba → main · prod · 10 adelante/);
   assert.match(out, /data-solid="true"[^>]*data-act="publish"|data-act="publish"[^>]*data-solid/);
   assert.match(s, /Hazlo tú/);
   assert.match(s, /Guárdalo Después L No aplica X/);
@@ -222,7 +222,7 @@ test("PLA-I51-3: the ficha of a release shows the evidence, Hazlo tú with the f
 test("PLA-I51-3: confirm, answer, changes, wake and failure boxes keep V2's texts", () => {
   const live = { kind: "release", pending: true, unknown: false, ready: true, reason: null, ahead: 10, tickets: ["MIC-I16-1", "MIC-I16-2"], migrations: ["0031"], before: 0, open_checks: 0, from: "sandbox", into: "main", env: "prod" };
   const st = stateOf({ [ids[2]]: open(["publish", "give_to_po"], live) });
-  assert.match(text(render({ state: st, initial: { pending: { kind: "confirm", action: "publish", target: 0 } } })), /Esto fusiona sandbox en main para MiCasa: 2 tickets, migraciones 0031\. Prod se despliega desde main\./);
+  assert.match(text(render({ state: st, initial: { pending: { kind: "confirm", action: "publish", target: 0 } } })), /Esto publica la copia de prueba en main para MiCasa: 2 tickets, migraciones 0031\. Prod se despliega desde main\./);
   const failed = render({ state: st, initial: { pending: { kind: "failed", action: "publish", target: 0, error: "X", hint: "GitHub rechazó el merge" } } });
   assert.match(text(failed), /No se pudo: GitHub rechazó el merge Nada cambió\. Intentar otra vez/);
   assert.match(failed, /role="alert"/);

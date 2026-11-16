@@ -53,6 +53,8 @@ export function evidence(l: Live | null | undefined, language: BriefLanguage): [
   const d = BRIEF_LABELS[language].d;
   const e = d.ev;
   if (!l) return [];
+  // The branch and env are called sandbox in code; on screen it is the test copy (PLA-44).
+  const name = (n: string) => (n === "sandbox" ? d.testCopy : n);
   switch (l.kind) {
     case "question":
       return [[e.asked, l.question], ...(l.options.length ? ([[e.options, l.options.join(" · ")]] as [string, string][]) : [])];
@@ -60,14 +62,14 @@ export function evidence(l: Live | null | undefined, language: BriefLanguage): [
       return [[e.step, l.text], [e.ticket, l.key], ...(l.file ? ([["File", l.file.path]] as [string, string][]) : [])];
     case "release":
       return [
-        [e.state, `${l.from} → ${l.into} · ${l.env}${l.ahead !== null ? ` · ${l.ahead} ${e.ahead.toLowerCase()}` : ""}`],
+        [e.state, `${name(l.from)} → ${name(l.into)} · ${name(l.env)}${l.ahead !== null ? ` · ${l.ahead} ${e.ahead.toLowerCase()}` : ""}`],
         [e.tickets, l.tickets.length ? l.tickets.join(" · ") : d.none_],
         [e.migrations, l.migrations.length ? l.migrations.join(" · ") : d.none_],
         ...(l.before ? ([[e.before, String(l.before)]] as [string, string][]) : []),
         ...(l.open_checks ? ([[e.checks, String(l.open_checks)]] as [string, string][]) : []),
       ];
     case "pr":
-      return [[e.pr, `#${l.number} · ${l.state}${l.base ? ` → ${l.base}` : ""}`], ...(l.ticket ? ([[e.ticket, `${l.ticket.key} · ${l.ticket.status}`]] as [string, string][]) : [])];
+      return [[e.pr, `#${l.number} · ${l.state}${l.base ? ` → ${name(l.base)}` : ""}`], ...(l.ticket ? ([[e.ticket, `${l.ticket.key} · ${l.ticket.status}`]] as [string, string][]) : [])];
     case "ticket":
     case "initiative":
       return [[e.status, `${l.key} · ${l.status}`]];
