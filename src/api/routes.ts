@@ -22,6 +22,7 @@ import { ideaWaits } from "../mcp/ideas.js";
 import { inbox } from "../mcp/inbox.js";
 import { auditCounts, fixFinding, projectAudit } from "../mcp/orden.js";
 import { gatingSql } from "../mcp/jorge-lines.js";
+import { etapaRow, projectEtapas, tableroOf } from "./etapa.js";
 import { setProject } from "../mcp/project.js";
 import { shipRelease } from "../mcp/release-ship.js";
 import { ToolError, findProject, findTask, taskFull } from "../mcp/queries.js";
@@ -172,6 +173,8 @@ api.get("/projects", async (c) => {
     return Promise.all(
       all.map(async (p) => {
         const digest = await resumeDigest(db, p);
+        // PLA-I53-2: the same stage per ticket as GET /api/projects/:slug, so both rows keep one shape.
+        const etapas = await projectEtapas(db, p);
         return {
           slug: p.slug,
           title: p.title,
@@ -181,7 +184,7 @@ api.get("/projects", async (c) => {
           next_line: nextStepLine(digest),
           open_questions: digest.open_questions.length,
           // The index draws one lane per initiative, so it needs every project's tasks.
-          tasks: allTasks.filter((t) => t.project_id === p.id).map(({ project_id: _, ...t }) => t),
+          tasks: allTasks.filter((t) => t.project_id === p.id).map(({ project_id: _, ...t }) => ({ ...t, etapa: etapaRow(etapas, t) })),
           // Inicio: the next ticket an agent can take, each environment in one line, and a week of activity.
           next_claimable: digest.next_claimable,
           envs: digest.status.envs.map((e) => ({
@@ -292,12 +295,20 @@ api.get("/projects/:slug", async (c) => {
       const p = await findProject(db, c.req.param("slug"));
       const rows = await screenTasks(db, p.id);
       const waits = await ideaWaits(db, p.id);
+      // PLA-I53-2: every ticket's stage (null on ideas, initiatives and Won't do), from the same function the floor reads.
+      const etapas = await projectEtapas(db, p);
       return {
         slug: p.slug,
         title: p.title,
         version: p.version,
         resume: await resumeDigest(db, p),
-        tasks: rows.map(({ project_id: _, ...t }) => ({ ...t, ...(t.kind === "idea" ? { waits: waits.get(t.key) ?? "" } : {}) })),
+        tasks: rows.map(({ project_id: _, ...t }) => ({
+          ...t,
+          etapa: etapaRow(etapas, t),
+          ...(t.kind === "idea" ? { waits: waits.get(t.key) ?? "" } : {}),
+        })),
+        ahora: etapas.ahora,
+        tablero: tableroOf(etapas),
         decisions: await listDecisions(db, p.id, { limit: DECISIONS_LIMIT, includeSuperseded: true, includeRetired: true }),
       };
     });
