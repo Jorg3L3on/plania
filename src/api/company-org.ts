@@ -23,6 +23,7 @@ import { ordersOf, type Order } from "./company-orders.js";
 import { nextMove, type NextMove } from "./company-move.js";
 import { loadReadiness } from "../mcp/readiness.js";
 import type { InboxItem } from "../mcp/inbox.js";
+import { projectEtapas, tableroOf, type AhoraItem, type Tablero } from "./etapa.js";
 import { byKey, ceoAgentId, planOf, readyOf, routeOf, type Route, type QueuedTicket, type ReadyLine, thisWeekOf, workOf, type NextLine, type PlanLine, type ThisWeek, type WorkLine } from "./company-plan.js";
 
 const HOUR = 3_600_000;
@@ -102,6 +103,9 @@ export type ProjectCard = {
   orders: Order[];
   // PLA-I46-3: la siguiente jugada, the one thing on this floor that is the owner's (src/api/company-move.ts).
   next_move: NextMove | null;
+  // PLA-I53-2: every open initiative with its tickets and their stage, and who works now (src/api/etapa.ts).
+  tablero: Tablero;
+  ahora: AhoraItem[];
 };
 
 export type CompanyRead = {
@@ -497,6 +501,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     fillQueues(team, upNext.queued.filter((q) => !staleKeys.has(q.key)), new Map(slugs.map((r) => [r.id, r.slug])));
     await fillNextStarts(db, p, team, { settings, capacity, now });
     const light = await lightOf(db, p, { paused, threadId: thread.id, now, ceoId, team, plan, inbox: inbox.get(p.slug) ?? [] });
+    const etapas = await projectEtapas(db, p, now);
     cards.push({
       slug: p.slug,
       title: p.title,
@@ -522,6 +527,8 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       work: await workOf(db, p),
       orders: await ordersOf(db, p, thread.id, now),
       next_move: null,
+      tablero: tableroOf(etapas),
+      ahora: etapas.ahora,
     });
   }
 

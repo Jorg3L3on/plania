@@ -154,7 +154,15 @@ export function hasUnsatisfiedBlocker(taskId: unknown) {
       select 1 from ${blockers} bl
       join ${tasks} bt on bt.id = bl.task_id
       left join ${envStates} es on es.project_id = bt.project_id and es.env = bl.spec->>'env'
-      where bl.task_id = ${taskId} and ${gatingSql("bl")} and not coalesce(case bl.type
+      where bl.task_id = ${taskId} and ${typedBlockerOpen()}
+    )
+  )`;
+}
+
+// SQL condition on a typed blocker row: it counts (gatingSql) and does not hold yet. Needs the aliases bl (blockers), bt (its
+// task) and es (env_states left-joined on bt's project and bl's env), as hasUnsatisfiedBlocker writes them.
+export function typedBlockerOpen() {
+  return sql`${gatingSql("bl")} and not coalesce(case bl.type
         when 'env' then case bl.spec->>'condition'
           when 'migration_gte' then es.migrations_applied >= (bl.spec->>'value')::int
           when 'deployed_after' then es.deployed_at > (bl.spec->>'value')::timestamptz
@@ -170,9 +178,7 @@ export function hasUnsatisfiedBlocker(taskId: unknown) {
           select 1 from ${projectMetrics} pm
           where pm.project_id = bt.project_id and pm.name = bl.spec->>'name' and pm.value >= (bl.spec->>'value')::numeric
         )
-      end, false)
-    )
-  )`;
+      end, false)`;
 }
 
 export type BlockerView =

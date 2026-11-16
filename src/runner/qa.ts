@@ -81,7 +81,7 @@ const qaActor = (agent: string | null): Actor => ({ agent: agent ?? "qa", sessio
 const qaCtx = (agent: string | null, tool: string): Ctx => ({ actor: qaActor(agent), tool });
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const short = (sha: string | null | undefined) => (sha ? sha.slice(0, 7) : "?");
-const sameCommit = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && (a.startsWith(b) || b.startsWith(a));
+export const sameCommit = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && (a.startsWith(b) || b.startsWith(a));
 
 // ---- Who and what
 
