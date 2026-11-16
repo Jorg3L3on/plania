@@ -313,6 +313,27 @@ export async function wakePoIfWaiting(tx: Q, agent: Agent, project: ProjectRef, 
     .where(and(eq(tasks.projectId, project.id), eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), eq(tasks.ownerAgent, agent.id), sql`not ${hasUnsatisfiedBlocker(tasks.id)}`))
     .orderBy(asc(tasks.createdAt));
   const next = rows.find((t) => t.key !== justRan && !t.title.includes("[PRUEBA]"));
-  if (!next) return null;
-  return queueWake(tx, project, { id: next.id, key: next.key }, { agent, taskKey: next.key, reason: "request waiting" }, "run.ended");
+  if (next) return queueWake(tx, project, { id: next.id, key: next.key }, { agent, taskKey: next.key, reason: "request waiting" }, "run.ended");
+  // PLA-I54-1: an idea the owner asked to shape (Darle forma) whose wake was coalesced waits in the buzón: no run ever
+  // took it. The PO takes the oldest one once nothing Ready waits.
+  const [idea] = await tx
+    .select({ id: tasks.id, key: tasks.key })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.projectId, project.id),
+        eq(tasks.kind, "idea"),
+        eq(tasks.origin, "jorge"),
+        eq(tasks.status, "Open"),
+        eq(tasks.stage, "idea"),
+        eq(tasks.ownerAgent, agent.id),
+        sql`${tasks.promotedTo} is null`,
+        sql`${tasks.key} <> ${justRan ?? ""}`,
+        sql`not exists (select 1 from agent_runs r where r.project_id = ${tasks.projectId} and r.task_key = ${tasks.key})`,
+      ),
+    )
+    .orderBy(asc(tasks.createdAt))
+    .limit(1);
+  if (!idea) return null;
+  return queueWake(tx, project, idea, { agent, taskKey: idea.key, reason: "pedido de Jorge para darle forma" }, "run.ended");
 }

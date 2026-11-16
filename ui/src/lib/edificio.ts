@@ -253,6 +253,8 @@ export function sayTo(m: Pick<OrgMember, "role" | "now">, text: string): Say | n
 // Where the order landed, in plain words: the PO of that project, and whether it woke.
 export function askedLine(r: AskResult, project?: string): string {
   const who = project ? `el PO de ${project}` : "el PO";
+  // PLA-I54-1: Darle forma lands in the tube, not on the board.
+  if (r.mode === "forma") return r.wake === "queued" ? `Entró al tubo como ${r.key}; ${who} le da forma ahora.` : `Entró al tubo como ${r.key}; ${who} la abre en su turno.`;
   if (r.woke?.woke) return `Le llegó a ${who} y ya está en ello.`;
   if (r.woke) return `Le llegó a ${who}; ${r.woke.reason === "busy" ? "termina lo que corre y sigue con esto" : r.woke.reason === "queued" ? "arranca en cuanto haya lugar" : "lo toma en su turno"}.`;
   return r.wake === "busy" ? `Le llegó a ${who}; lo toma al terminar lo que corre.` : r.wake === "queued" ? `Le llegó a ${who}; lo toma en su turno.` : `Le llegó a ${who}; lo ve en su próximo turno.`;

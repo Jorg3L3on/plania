@@ -183,7 +183,9 @@ export const api = {
   // PLA-I40-2: Que empiece ya for one teammate.
   startTeammate: (slug: string, agent: string, pastGuard = false) =>
     request<StartNowResult>("POST", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/start`, pastGuard ? { past_guard: true } : {}),
-  askProject: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean }) => request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, input),
+  // PLA-I54-1: mode forma (an idea in the floor's tube) or ya (the Ready ticket plus the wake). The reply's key is the
+  // new idea's or ticket's: F5 uploads the side page's pictures to it.
+  askProject: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean; mode?: AskMode }) => request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, input),
   pickNext: (slug: string, key: string) => request<{ next: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/next`, { key }),
   setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null; auto_accept?: boolean; auto_accept_invisible?: boolean }) =>
     request<{ plan_approval: boolean; preview_url: string | null }>("PUT", `/company/projects/${encodeURIComponent(slug)}/options`, input),
@@ -205,7 +207,23 @@ export const api = {
 
 export type OrderKind = "cambio" | "direccion" | "idea";
 export type StartNowResult = { started: boolean; reason: "started" | "queued" | "busy" | "idle" | "held" | "fail"; ticket: string | null; run_id: string | null; summary: string };
-export type AskResult = { key: string; title: string; po: string; wake: "queued" | "busy" | "off"; woke: { woke: boolean; reason: string; ticket: string | null; summary: string } | null };
+export type AskMode = "forma" | "ya";
+export type AskResult = { key: string; title: string; po: string; mode?: AskMode; wake: "queued" | "busy" | "off"; woke: { woke: boolean; reason: string; ticket: string | null; summary: string } | null };
+// PLA-I54-1: one of the owner's ideas taking shape, a capsule in the floor's tube (src/api/company-pedidos.ts).
+export type PedidoStop = "buzon" | "entendido" | "investigacion" | "diseno" | "plan" | "lista";
+export type PedidoState = "espera" | "trabajando" | "quieta" | "cola" | "valvula";
+export type OrgPedido = {
+  key: string;
+  title: string;
+  stop: PedidoStop;
+  state: PedidoState;
+  who: string;
+  images: number;
+  understood: string | null;
+  question: { id: string; text: string } | null;
+  guardada: boolean;
+  at: string;
+};
 export type OrgLight = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused";
 export type OrgLightReason = { text: string; action: { label: string; href: string } | null };
 // PLA-I36-3: Tus órdenes.
@@ -286,6 +304,8 @@ export type OrgProject = {
   // PLA-I53-2: every open initiative with its tickets' stage (the stage board), and who works now.
   tablero?: Tablero;
   ahora?: AhoraItem[];
+  // PLA-I54-1: the tube's capsules (absent: an older server, and the floor draws no tube).
+  pedidos?: OrgPedido[];
 };
 // PLA-I53-2: one stage per ticket, computed on the server (src/api/etapa.ts). The shapes the floor and the project
 // page both read.

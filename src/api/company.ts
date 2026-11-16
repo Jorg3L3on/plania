@@ -34,7 +34,7 @@ import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { createProjectFromTemplate } from "../runner/new-project.js";
-import { askPo, pickNext, resendRequest, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
+import { askMode, askPo, pickNext, resendRequest, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
 import { cancelOrder } from "./company-orders.js";
 import { promptDoc } from "./company-extra.js";
@@ -262,13 +262,14 @@ companyRoutes.delete("/projects/:slug", async (c) => {
 });
 
 // PLA-I30-6/7 (src/api/company-actions.ts): Pedirle al PO and Despertar ahora on the project sheet.
-const AskBody = z.object({ text: z.string().trim().min(3).max(500), kind: z.enum(["cambio", "direccion", "idea"]).optional(), now: z.boolean().optional() }).strict();
+// PLA-I54-1: {mode: forma | ya} (default forma); the text grew to 2000 for the side page's textarea.
+const AskBody = z.object({ text: z.string().trim().min(3).max(2000), kind: z.enum(["cambio", "direccion", "idea"]).optional(), now: z.boolean().optional(), mode: z.enum(["forma", "ya"]).optional() }).strict();
 
 companyRoutes.post("/projects/:slug/ask", async (c) => {
   const input = await body(c, AskBody);
   if (input instanceof Response) return input;
   try {
-    const out = await withDb((db) => askPo(db, c.req.param("slug"), input.text, { kind: input.kind, now: input.now }));
+    const out = await withDb((db) => askPo(db, c.req.param("slug"), input.text, { kind: input.kind, now: input.now, mode: askMode(input) }));
     if ("error" in out) {
       const { status, ...rest } = out;
       return c.json(rest, status);

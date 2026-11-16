@@ -20,6 +20,7 @@ import { Figure } from "./figure";
 import { Head } from "./head";
 import { Now, type NowActs } from "./now";
 import { Question, type QuestionActs } from "./question";
+import { Tubo, type TuboActs } from "./tubo";
 
 // The calls a card makes, the same routes La fila used (pickNext, stop a run, the delivery's own accept, cancel an
 // order), and what opens in La ficha.
@@ -119,6 +120,7 @@ export const Floor = ({
   nivel = "trabajo",
   lift,
   maquinas,
+  tubo,
   children,
 }: {
   project: OrgProject;
@@ -153,6 +155,8 @@ export const Floor = ({
   nivel?: "trabajo" | "maquinas";
   lift?: ReactNode;
   maquinas?: (ask: ReactNode) => ReactNode;
+  // PLA-I54-1: the tube's calls (a capsule opens in La ficha's Pedido tab; Guardadas opens the shelf).
+  tubo?: TuboActs;
   // The «+ Sumar» window.
   children?: ReactNode;
 }) => {
@@ -292,6 +296,8 @@ export const Floor = ({
             className="dark"
           />
         )}
+        {/* PLA-I54-1: the tube of the owner's ideas taking shape, under the board's stations (an older server sends none). */}
+        {p.pedidos && <Tubo slug={slug} title={p.title} pedidos={p.pedidos} acts={tubo} />}
         {ask && !down && <div className="edi-askbar">{ask}</div>}
       </div>
       {/* PLA-I47-4: with La ficha, Lo último and Solo tú live in its Resumen; without it they stay on the floor. */}

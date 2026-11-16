@@ -65,7 +65,7 @@ const legPlan = (order: string, patch: Json = {}) => ({
   ...patch,
 });
 // The order Que PO lo planee sends (company-move.ts PLAN_LEG), as the PO receives it.
-const orderFor = async (title: string) => ((await (await post("/api/company/projects/micasa/ask", { text: `Planea «${title}»: sus pasos y qué significa hecho en cada uno.` })).json()) as Json).key as string;
+const orderFor = async (title: string) => ((await (await post("/api/company/projects/micasa/ask", { text: `Planea «${title}»: sus pasos y qué significa hecho en cada uno.`, now: false })).json()) as Json).key as string;
 
 before(async () => {
   raw = await resetTestDb();

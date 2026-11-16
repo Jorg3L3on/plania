@@ -223,7 +223,7 @@ test("I36-2 #5: a PR row shows its link and whether checks are open before Fusio
 // ---- PLA-I36-3
 
 test("I36-3 #1, #2: an origin-jorge order shows on its card: enviada, entendida with the PO's line, entregada with its PR", async () => {
-  const res = await app.request("/api/company/projects/workia/ask", { method: "POST", headers: jorge(), body: JSON.stringify({ text: "Agrega un botón de WhatsApp" }) });
+  const res = await app.request("/api/company/projects/workia/ask", { method: "POST", headers: jorge(), body: JSON.stringify({ text: "Agrega un botón de WhatsApp", now: false }) });
   assert.equal(res.status, 201, await res.clone().text());
   const key = ((await res.json()) as Json).key as string;
   const order = async () => (await card("workia")).orders.find((o: Json) => o.title === "Agrega un botón de WhatsApp");
@@ -241,7 +241,7 @@ test("I36-3 #1, #2: an origin-jorge order shows on its card: enviada, entendida 
 });
 
 test("I36-3 #3: an order Ready for more than 24 h with no run is sin tomar with its age", async () => {
-  const res = await app.request("/api/company/projects/workia/ask", { method: "POST", headers: jorge(), body: JSON.stringify({ text: "Cambia el logo" }) });
+  const res = await app.request("/api/company/projects/workia/ask", { method: "POST", headers: jorge(), body: JSON.stringify({ text: "Cambia el logo", now: false }) });
   const key = ((await res.json()) as Json).key as string;
   await raw.query(`delete from agent_runs where task_key = $1`, [key]);
   await raw.query(`update tasks set status_changed_at = now() - interval '30 hours', created_at = now() - interval '30 hours' where key = $1`, [key]);
@@ -262,6 +262,6 @@ test("I36-3 #4: a choice made in Te toca shows in the trail after its row leaves
   assert.equal(choice.title, "Elegiste 1: Formulario corto");
   assert.equal(choice.state, "enviada");
   assert.equal(mia.orders.filter((o: Json) => o.title === "Formulario corto" || o.title.includes(created)).length, 0, "its ticket is not a second row");
-  for (let i = 0; i < 6; i++) await app.request("/api/company/projects/workia/ask", { method: "POST", headers: jorge(), body: JSON.stringify({ text: `Pedido ${i}` }) });
+  for (let i = 0; i < 6; i++) await app.request("/api/company/projects/workia/ask", { method: "POST", headers: jorge(), body: JSON.stringify({ text: `Pedido ${i}`, now: false }) });
   assert.equal((await card("workia")).orders.length, 5);
 });

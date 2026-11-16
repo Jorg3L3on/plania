@@ -188,7 +188,7 @@ const plan = (order: string, patch: Json = {}) => ({
 
 test("I36-8 #1, #2: with plan approval on, the PO's plan shows in Te toca and nothing is Ready for Taller until Sí, empiecen", async () => {
   assert.equal((await post("/api/company/projects/workia/options", { plan_approval: true }, "PUT")).status, 200);
-  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Pon un botón de WhatsApp", kind: "cambio" })).json()) as Json).key as string;
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Pon un botón de WhatsApp", kind: "cambio", now: false })).json()) as Json).key as string;
   const before = (await steps()).length;
   const out = (await propose(db, plan(order), PO() as never)) as Json;
   assert.equal(out.proposal.needs_approval, true);
@@ -219,7 +219,7 @@ test("I36-8 #1, #2: with plan approval on, the PO's plan shows in Te toca and no
 });
 
 test("I36-8: Cambiar algo closes the order and hands its words back to the box", async () => {
-  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega un mapa de la tienda" })).json()) as Json).key as string;
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega un mapa de la tienda", now: false })).json()) as Json).key as string;
   const out = (await propose(db, plan(order, { title: "Mapa" }), PO() as never)) as Json;
   const res = await act(`m-${out.message.id}`, { action: "cambiar" });
   assert.equal(res.status, 200);
@@ -229,7 +229,7 @@ test("I36-8: Cambiar algo closes the order and hands its words back to the box",
 
 test("I36-8 #3: with the switch off, the plan's tickets start at once and the plan is information", async () => {
   await post("/api/company/projects/workia/options", { plan_approval: false }, "PUT");
-  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega horarios" })).json()) as Json).key as string;
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega horarios", now: false })).json()) as Json).key as string;
   const before = (await steps()).length;
   const out = (await propose(db, plan(order, { title: "Horarios" }), PO() as never)) as Json;
   assert.equal(out.proposal.needs_approval, false);
@@ -240,7 +240,7 @@ test("I36-8 #3: with the switch off, the plan's tickets start at once and the pl
 });
 
 test("I36-8 #4: Cancelar closes the order and its tickets", async () => {
-  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega reseñas" })).json()) as Json).key as string;
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega reseñas", now: false })).json()) as Json).key as string;
   const out = (await propose(db, plan(order, { title: "Reseñas" }), PO() as never)) as Json;
   const made = out.proposal.created as string[];
   assert.equal(made.length, 2);
@@ -460,7 +460,7 @@ test("I36-11 #4: asking, approving a plan, stopping a run and accepting into the
   const gated = [...company.matchAll(/checkOwnerCode\(/g)].length;
   assert.equal(gated, 1, "only delete project (PLA-21 removed the limits)");
   // Exercised above without a code: ask (I36-6), Sí, empiecen (I36-8), stop (I36-9), Pedir cambios (I36-10).
-  const r = await post("/api/company/projects/workia/ask", { text: "Otra cosa pequeña" });
+  const r = await post("/api/company/projects/workia/ask", { text: "Otra cosa pequeña", now: false });
   assert.equal(r.status, 201);
 });
 
@@ -504,10 +504,11 @@ test("I36-11 #1: the page renders no ticket key, branch name or the word sandbox
 
 test("I36-8 #5: phone at 390: the floor's box and its button fit in one column", () => {
   const html = renderToStaticMarkup(
-    React.createElement(MemoryRouter, null, React.createElement(ask.AskView, { project: { slug: "workia", title: "Workia" }, text: "", setText() {}, now: false, setNow() {}, onSubmit() {} })),
+    React.createElement(MemoryRouter, null, React.createElement(ask.AskView, { project: { slug: "workia", title: "Workia" }, text: "", setText() {}, onSubmit() {} })),
   );
-  assert.ok(html.includes("Pide algo para Workia") && html.includes("Que empiece ya"));
-  assert.ok(html.includes('class="edi-ask-row"'), "input and button share one row that shrinks");
+  // PLA-I54-1: a textarea, the two modes and the button, stacked in one column.
+  assert.ok(html.includes("Pide algo para Workia") && html.includes("Darle forma"));
+  assert.ok(html.includes('class="edi-ask-text"') && html.includes('class="edi-modes"'));
 });
 
 // ---- PLA-I36-12
@@ -524,7 +525,7 @@ test("I36-12 #1-#3: a plan whose tickets the PO moved under an initiative still 
     }
     return now;
   };
-  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega un carrito" })).json()) as Json).key as string;
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega un carrito", now: false })).json()) as Json).key as string;
   const out = (await propose(db, plan(order, { title: "Carrito" }), PO() as never)) as Json;
   const moved = await moveAll(out.proposal.created as string[]);
   assert.ok(moved.every((k) => k.startsWith("WRK-I9-")), moved.join(","));
@@ -542,7 +543,7 @@ test("I36-12 #1-#3: a plan whose tickets the PO moved under an initiative still 
   await raw.query(`update tasks set status = 'Done' where key = $1`, [moved[1]]);
   assert.equal((await card()).orders.find((x: Json) => x.key === order).stage, "listo");
 
-  const other = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega cupones" })).json()) as Json).key as string;
+  const other = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega cupones", now: false })).json()) as Json).key as string;
   const second = (await propose(db, plan(other, { title: "Cupones" }), PO() as never)) as Json;
   const moved2 = await moveAll(second.proposal.created as string[]);
   assert.equal((await post(`/api/company/projects/workia/orders/${other}/cancel`)).status, 200);
@@ -554,7 +555,7 @@ test("I36-12 #1-#3: a plan whose tickets the PO moved under an initiative still 
 
 test("PLA-27: a plan that needed no approval is accepted like any delivery once its order is In review", async () => {
   await post("/api/company/projects/workia/options", { plan_approval: false }, "PUT");
-  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega contacto por WhatsApp" })).json()) as Json).key as string;
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega contacto por WhatsApp", now: false })).json()) as Json).key as string;
   const out = (await propose(db, plan(order, { title: "Contacto" }), PO() as never)) as Json;
   assert.equal(out.proposal.needs_approval, false);
   await raw.query(`update tasks set status = 'In review' where key = $1`, [order]);
@@ -572,7 +573,7 @@ test("PLA-27: a plan that needed no approval is accepted like any delivery once 
 
 test("PLA-27: a plan that waits for approval still refuses aceptar and takes Sí, empiecen", async () => {
   await post("/api/company/projects/workia/options", { plan_approval: true }, "PUT");
-  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega exportar a Excel" })).json()) as Json).key as string;
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega exportar a Excel", now: false })).json()) as Json).key as string;
   const out = (await propose(db, plan(order, { title: "Excel" }), PO() as never)) as Json;
   assert.equal(out.proposal.needs_approval, true);
   const id = `m-${out.message.id}`;
