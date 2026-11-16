@@ -13,7 +13,7 @@ import { Link } from "react-router";
 import type { HireRole, OrgMember, OrgProject, PackRef } from "@/lib/api";
 import type { ProjectSheetData } from "@/lib/compania";
 import { ago } from "@/lib/compania";
-import { caption, sayTo, windowState, type Say } from "@/lib/edificio";
+import { caption, sayTo, seatIn, windowState, type Say } from "@/lib/edificio";
 import { linkHref, roleName } from "@/lib/org";
 import { orderText, rumboText } from "@/lib/v2";
 import { MOTOR, OTRO, STATE_NOTE, firstFree, hireLabel, roleChoices, suggestedPacks, type RoleChoice } from "@/lib/sumar";
@@ -83,9 +83,9 @@ const Section = ({ title, children, data }: { title: string; children: ReactNode
 // ---- a teammate
 
 export const memberTitle = (m: OrgMember, p: OrgProject) => `${roleName(m.role)} de ${p.title}`;
-export const MemberHead = ({ m, companyPaused }: { m: OrgMember; companyPaused?: boolean }) => (
+export const MemberHead = ({ m, companyPaused, project }: { m: OrgMember; companyPaused?: boolean; project?: OrgProject }) => (
   <span className="edi-tile" aria-hidden>
-    <Glass role={m.role} state={windowState(m, companyPaused)} />
+    <Glass role={m.role} state={windowState(m, companyPaused, project ? seatIn(project, m, companyPaused) : undefined)} />
   </span>
 );
 
@@ -108,7 +108,7 @@ export const MemberPage = ({
   sent?: string | null;
   onSay: (say: Say) => void;
 }) => {
-  const c = caption(m, now);
+  const c = caption(m, now, { seat: seatIn(p, m) });
   const live = m.state === "running" && m.now?.run_id;
   const stopped = !live && m.last?.status === "stopped" && m.last.run_id;
   const href = m.produced ? linkHref(m.produced, p.slug) : null;

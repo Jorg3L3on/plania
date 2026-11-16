@@ -4,7 +4,7 @@
 // (the same button as Ahora's). Paused projects sit under the street. A row opens its floor. Hook-free.
 import type { CSSProperties, ReactNode } from "react";
 import type { Decision, OrgProject } from "@/lib/api";
-import { floorHue, floorOrder, nowLine, plateStatus, windowState } from "@/lib/edificio";
+import { floorHue, floorOrder, nowLine, plateStatus, seatIn, windowState } from "@/lib/edificio";
 import { byRole } from "@/lib/org";
 import { TONE_OF } from "./head";
 import { ActButton, type MoveCtx } from "./now";
@@ -40,8 +40,8 @@ const Row = ({ p, now, decisions, companyPaused, timeZone, ctx, onPiso }: { p: O
         </span>
         <span className="edi-fa-team" aria-hidden>
           {[...p.team].sort(byRole).map((m) => (
-            <span key={m.agent} className="edi-win" data-state={windowState(m, companyPaused)}>
-              <Glass role={m.role} state={windowState(m, companyPaused)} />
+            <span key={m.agent} className="edi-win" data-state={windowState(m, companyPaused, seatIn(p, m, companyPaused))}>
+              <Glass role={m.role} state={windowState(m, companyPaused, seatIn(p, m, companyPaused))} />
             </span>
           ))}
         </span>

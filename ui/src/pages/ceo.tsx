@@ -35,7 +35,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ApiError, api, type Decision, type DecisionInput, type OrgProject } from "@/lib/api";
 import { ceoRedirect, sheetOf, sheetSearch } from "@/lib/compania";
-import { caption, floorOrder, oficinaOf } from "@/lib/edificio";
+import { caption, floorOrder, oficinaOf, seatIn } from "@/lib/edificio";
 import { openFloor, stepFloor } from "@/components/compania/edificio/tower";
 import { Ficha, type Load } from "@/components/compania/edificio/ficha";
 import { Resguardo } from "@/components/compania/edificio/resguardo";
@@ -222,10 +222,10 @@ const Compania = () => {
       member: m ? (
         <div className="edi-fi-member" data-member={m.agent}>
           <div className="edi-fi-mhead">
-            <MemberHead m={m} companyPaused={company?.company.paused} />
+            <MemberHead m={m} project={fp} companyPaused={company?.company.paused} />
             <div>
               <h3 className="edi-fi-title">{memberTitle(m, fp)}</h3>
-              <p className="edi-fi-state-line">{caption(m, now, { companyPaused: company?.company.paused }).doing}</p>
+              <p className="edi-fi-state-line">{caption(m, now, { companyPaused: company?.company.paused, seat: seatIn(fp, m, company?.company.paused) }).doing}</p>
             </div>
           </div>
           <MemberSide key={m.agent} project={fp} member={m} now={now} steer={steer} />

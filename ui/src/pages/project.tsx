@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LaneGrid } from "@/components/plan/lane-grid";
+import { AhoraLine } from "@/components/plan/ahora-line";
+import { ahoraView } from "@/lib/ahora-piso";
 import {
   BranchGraph,
   FichaSheet,
@@ -183,6 +185,24 @@ function ProjectOrg({ slug }: { slug: string }) {
   );
 }
 
+// PLA-I53-4: the floor's Ahora line, built from the same company card the floor reads, so it says the same words.
+function ProjectAhora({ slug }: { slug: string }) {
+  const comp = useQuery({ queryKey: ["company"], queryFn: api.company, staleTime: 10_000, refetchInterval: 20_000 });
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const card = comp.data?.projects.find((p) => p.slug === slug);
+  if (!card) return null;
+  const view = ahoraView(card, now, { companyPaused: comp.data?.company.paused ?? false, timeZone: comp.data?.week.timezone });
+  return (
+    <section className="rounded-[20px] border bg-card px-5 py-4" aria-label="Ahora" data-section="ahora">
+      <AhoraLine view={view} />
+    </section>
+  );
+}
+
 export function ProjectPage() {
   const { slug = "" } = useParams();
   const project = useQuery({ queryKey: ["project", slug], queryFn: () => api.project(slug) });
@@ -271,6 +291,7 @@ export function ProjectPage() {
           <GoalsProject slug={slug} />
           {/* Questions agents asked Jorge (Needs Jorge): answer in place, with an optional line for the decision log. */}
           <QuestionsPanel slug={slug} questions={project.data.resume.open_questions} onOpen={openTask} />
+          <ProjectAhora slug={slug} />
 
           {view === "lista" ? (
             <TaskList slug={slug} tasks={project.data.tasks} openKey={openKey} onOpen={openTask} />

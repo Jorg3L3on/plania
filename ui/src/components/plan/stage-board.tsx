@@ -29,7 +29,9 @@ const CELL_MAX = 3;
 
 // What a page puts on a station: what opens from it, its accessible name, the figure in its window, the line under its
 // name when it is not lit (the floor: the teammate's own caption), and data attributes.
-export type StationHeadProps = { onClick?: (el: HTMLElement) => void; label?: string; figure?: ReactNode; line?: string | null; data?: Record<string, string | undefined> };
+// lit (PLA-I53-4): the page's own light for the station, from the same source as its Ahora line; null is unlit,
+// undefined leaves it to the cards.
+export type StationHeadProps = { onClick?: (el: HTMLElement) => void; label?: string; figure?: ReactNode; line?: string | null; data?: Record<string, string | undefined>; lit?: StageTone | null };
 export type StageBoardProps = {
   tablero: Tablero;
   now: number;
@@ -67,7 +69,8 @@ const FIG = (
   </svg>
 );
 
-const StationCell = ({ s, tone, head }: { s: Station; tone: StageTone | undefined; head: StationHeadProps | null }) => {
+const StationCell = ({ s, tone: cards, head }: { s: Station; tone: StageTone | undefined; head: StationHeadProps | null }) => {
+  const tone = head?.lit === undefined ? cards : (head.lit ?? undefined);
   const lit = !!tone;
   const style = { "--lc": tone ? TONE_VAR[tone] : "transparent" } as CSSProperties;
   const body = (

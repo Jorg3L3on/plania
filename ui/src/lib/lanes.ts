@@ -23,6 +23,8 @@ export type LaneTask = {
   held?: boolean;
   /** 2.10: the due day, YYYY-MM-DD. */
   due_on?: string | null;
+  /** PLA-I53-2: the server's stage (src/api/etapa.ts); who holds it is read from here, not from the lease. */
+  etapa?: { etapa: string; holder: { agent: string; role: string } | null; live: boolean; since: string | null } | null;
 };
 
 /**

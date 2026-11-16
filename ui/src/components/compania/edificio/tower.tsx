@@ -4,7 +4,7 @@
 // between floors (Building owns the keys). The open tile is aria-current and joins its floor with a line.
 import type { CSSProperties } from "react";
 import type { Decision, OrgProject } from "@/lib/api";
-import { floorHue, roofChips, waitsOnOwner, windowState } from "@/lib/edificio";
+import { floorHue, roofChips, seatIn, waitsOnOwner, windowState } from "@/lib/edificio";
 import { byRole } from "@/lib/org";
 import { Glass } from "./window";
 
@@ -35,7 +35,7 @@ const Tile = ({ p, open, toca, off, app, companyPaused, onPiso }: { p: OrgProjec
       <>
         <span className="edi-tile-wins" aria-hidden>
           {[...p.team].sort(byRole).map((m) => (
-            <i key={m.agent} data-s={windowState(m, companyPaused)} />
+            <i key={m.agent} data-s={windowState(m, companyPaused, seatIn(p, m, companyPaused))} />
           ))}
         </span>
         <span className="edi-tile-bar" aria-hidden>
