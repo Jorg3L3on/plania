@@ -22,7 +22,7 @@ import { ideaWaits } from "../mcp/ideas.js";
 import { inbox } from "../mcp/inbox.js";
 import { auditCounts, fixFinding, projectAudit } from "../mcp/orden.js";
 import { gatingSql } from "../mcp/jorge-lines.js";
-import { etapaRow, projectEtapas, tableroOf } from "./etapa.js";
+import { etapaRow, projectEtapas, tableroOf, zonasRow } from "./etapa.js";
 import { setProject } from "../mcp/project.js";
 import { shipRelease } from "../mcp/release-ship.js";
 import { ToolError, findProject, findTask, taskFull } from "../mcp/queries.js";
@@ -184,7 +184,7 @@ api.get("/projects", async (c) => {
           next_line: nextStepLine(digest),
           open_questions: digest.open_questions.length,
           // The index draws one lane per initiative, so it needs every project's tasks.
-          tasks: allTasks.filter((t) => t.project_id === p.id).map(({ project_id: _, ...t }) => ({ ...t, etapa: etapaRow(etapas, t) })),
+          tasks: allTasks.filter((t) => t.project_id === p.id).map(({ project_id: _, ...t }) => ({ ...t, etapa: etapaRow(etapas, t), zonas: zonasRow(etapas, t) })),
           // Inicio: the next ticket an agent can take, each environment in one line, and a week of activity.
           next_claimable: digest.next_claimable,
           envs: digest.status.envs.map((e) => ({
@@ -305,6 +305,7 @@ api.get("/projects/:slug", async (c) => {
         tasks: rows.map(({ project_id: _, ...t }) => ({
           ...t,
           etapa: etapaRow(etapas, t),
+          zonas: zonasRow(etapas, t),
           ...(t.kind === "idea" ? { waits: waits.get(t.key) ?? "" } : {}),
         })),
         ahora: etapas.ahora,

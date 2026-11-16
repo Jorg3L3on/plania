@@ -294,9 +294,13 @@ export type EtapaCi = "pending" | "success" | "failure" | "none";
 export type EtapaHolder = { agent: string; role: string };
 export type Etapa = { etapa: EtapaId; qa: "queued" | "running" | null; holder: EtapaHolder | null; live: boolean; since: string | null; ci: EtapaCi | null; reason: string | null };
 export type AhoraItem = { key: string; title: string; initiative: string | null } & Pick<Etapa, "etapa" | "qa" | "holder" | "live" | "since" | "reason">;
-export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa };
+// PLA-I53-6: zonas, what part of the app a ticket touches (from its areas); none when it has no areas.
+export type Zona = "pantalla" | "servidor" | "datos" | "docs";
+export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas?: Zona[] };
+export type DoneInitiative = { key: string; title: string; done_at: string | null };
 export type OpenInitiative = { key: string; title: string; status: string; done: number; total: number; tickets: ProjectTicket[] };
-export type Tablero = { initiatives: OpenInitiative[]; loose: ProjectTicket[]; loose_done: number };
+// PLA-I53-6: the newest landed loose ticket's title, and the completed initiatives (newest first, no tickets).
+export type Tablero = { initiatives: OpenInitiative[]; loose: ProjectTicket[]; loose_done: number; loose_done_title?: string | null; done_initiatives?: DoneInitiative[] };
 export type OrgMoveVerb = "aceptar" | "publicar" | "responder" | "fijar" | "arrancar" | "planear" | "ver";
 export type OrgMoveAction =
   | { kind: "decision"; id: string; action: DecisionAction; label: string }

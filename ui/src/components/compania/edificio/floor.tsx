@@ -248,8 +248,8 @@ export const Floor = ({
               return list.length ? <ActButtons slug={slug} acts={bacts} list={list} title={t.title} /> : null;
             }}
             extra={extra}
-            // The board's folded line of completed initiatives stays empty here: GET /api/company carries only the
-            // open ones (tablero and route alike). It fills once the read sends the closed ones.
+            // PLA-I53-6: the completed initiatives fold into one line under the board.
+            folded={p.tablero?.done_initiatives}
             empty={
               <div className="edi-board-empty" data-board="empty">
                 <p>{p.route && p.route.legs.length > 0 ? "No hay iniciativas abiertas ni trabajo suelto en este piso." : "Aún no hay plan: ninguna iniciativa abierta ni trabajo suelto."}</p>

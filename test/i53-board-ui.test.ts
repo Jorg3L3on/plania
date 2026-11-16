@@ -200,7 +200,7 @@ test("I53-3 #1 #3 #4: the floor draws the board in place of Entrega and La fila,
   assert.match(html, /data-card="DEM-I2-2"[\s\S]*?data-control="tablero-primero"/);
   // The owner's order that is not a ticket yet stands in Sueltos, Por hacer.
   assert.match(html, /data-card="o-o1"[^>]*data-etapa="pedido"[\s\S]*?Tu pedido · enviado[\s\S]*?Cambiar el color del botón/);
-  // The company read carries no closed initiative, so nothing folds under the floor's board (the board can: #1 above).
+  // This read carries no done_initiatives, so nothing folds under the floor's board (PLA-I53-6 tests the folded line).
   assert.equal(html.includes("data-folded"), false);
   for (const c of ["tablero-tarjeta", "tablero-iniciativa", "tablero-hecho"]) assert.ok(html.includes(`data-control="${c}"`), c);
   // The files are gone.

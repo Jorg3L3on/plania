@@ -147,7 +147,10 @@ export function boardOf(t: Tablero, opts: { sueltos?: boolean } = {}): Board {
   const tracks = t.initiatives.map((i) => trackOf(i.key, i.title, i.status, i.tickets, i.done, i.total));
   if (t.loose.length > 0 || t.loose_done > 0 || opts.sueltos) {
     const open = t.loose.filter((x) => !isDone(x.etapa)).length;
-    tracks.push(trackOf(null, "Sueltos", null, t.loose, t.loose_done, t.loose_done + open));
+    const sueltos = trackOf(null, "Sueltos", null, t.loose, t.loose_done, t.loose_done + open);
+    // The landed loose tickets are not in the read, only their count and the newest one's title (PLA-I53-6).
+    if (!sueltos.hecho.last && t.loose_done > 0) sueltos.hecho.last = t.loose_done_title ?? null;
+    tracks.push(sueltos);
   }
   const all = [...t.initiatives.flatMap((i) => i.tickets), ...t.loose];
   return { tracks, lit: litOf(all), tickets: all.length };
