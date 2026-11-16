@@ -198,6 +198,9 @@ async function returnToTaller(db: Db, p: Project, t0: Task, error: string): Prom
 
 export type ProbadorGate = { pending: boolean; hold: string | null };
 
+// PLA-42: an error saved before the wording fix may still say sandbox; never on screen.
+const onScreen = (e: string) => e.replace(/copia de sandbox/g, "copia de prueba").replace(/\bsandbox\b/g, "copia de prueba");
+
 // Whether a delivery waits for its pictures (pending: the floor shows no card yet) or carries a note about them.
 // Only deliveries with a muestra on a project Plania photographs; everything else is unchanged.
 export function probadorGate(p: Project | null, t: Task | null, head: string | null): ProbadorGate {
@@ -205,7 +208,7 @@ export function probadorGate(p: Project | null, t: Task | null, head: string | n
   const s = t.probador;
   if (!s || s.state === "tomando" || s.state === "fallo") return { pending: true, hold: null };
   if (head && s.commit && !head.startsWith(s.commit.slice(0, 7)) && !s.commit.startsWith(head.slice(0, 7))) return { pending: true, hold: null };
-  return { pending: false, hold: s.error ? `Faltan fotos: ${s.error}` : null };
+  return { pending: false, hold: s.error ? `Faltan fotos: ${onScreen(s.error)}` : null };
 }
 
 // ---- The read El Probador draws (GET /api/projects/:slug/probador/:key)

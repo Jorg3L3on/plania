@@ -52,8 +52,8 @@ export function stateLine(r: ProbadorRead): string | null {
   const s = r.state;
   if (!s) return null;
   if (s.state === "tomando") return "Tomando las fotos de la entrega…";
-  if (s.state === "fallo") return `No salieron las fotos: ${s.error ?? "sin detalle"}`;
-  return s.error ? `Faltan fotos: ${s.error}` : null;
+  if (s.state === "fallo") return `No salieron las fotos: ${(s.error ?? "sin detalle").replace(/\bsandbox\b/g, "copia de prueba")}`;
+  return s.error ? `Faltan fotos: ${s.error.replace(/copia de sandbox/g, "copia de prueba").replace(/\bsandbox\b/g, "copia de prueba")}` : null;
 }
 
 // What accepting does, in the owner's words. into: where an accepted delivery lands (the project's release from).
