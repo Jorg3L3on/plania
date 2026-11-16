@@ -106,7 +106,10 @@ test("I47-2: the building is the window's height, the floor has no plate column 
   // PLA-29: the building is the page; only the app's top bar (49 px) is above it.
   assert.match(css, /\.edi:has\(\.edi-bld\) \{[^}]*height: calc\(100svh - 49px/);
   assert.match(css, /\.edi-bld \{[^}]*flex: 1 1 0; min-height: 0;/);
-  assert.match(css, /\.edi-stage > \.edi-nowb \{ flex: 1 1 0; min-height: 0; overflow: auto;/, "only Ahora grows, and it scrolls inside");
+  // PLA-I53-3: the stage board is the part that grows and scrolls inside; Ahora takes what it needs, up to a cap.
+  assert.match(css, /\.edi-stage > \.sb \{ flex: 1 1 0; min-height: 150px; \}/, "the board grows");
+  assert.match(css, /\.sb-scroll \{ flex: 1; min-width: 0; min-height: 0; overflow: auto;/, "and scrolls inside");
+  assert.match(css, /\.edi-ahora-slot \{ flex: 0 1 auto; min-height: 0; max-height: clamp\(/, "Ahora is capped");
   assert.match(css, /\.edi-fcol \{ min-height: 0; min-width: 0; overflow: auto;/, "the right column scrolls inside");
   const out = render(two);
   assert.equal(/edi-plate|edi-you|data-owner/.test(out), false);

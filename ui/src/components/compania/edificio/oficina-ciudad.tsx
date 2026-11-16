@@ -11,7 +11,7 @@ import { api } from "@/lib/api";
 import { cityOf, crewCity, waitingOf, type District } from "@/lib/city";
 import { floorHue, floorOrder, nowLine, workingNow } from "@/lib/edificio";
 import { headlineOf } from "@/lib/home";
-import { legLooks } from "./route";
+import { legLooks } from "@/lib/legs";
 
 export const OficinaCiudad = ({ projects, decisions, now, timeZone, companyPaused, pre, links, onPiso, onResume, resuming }: {
   projects: OrgProject[];

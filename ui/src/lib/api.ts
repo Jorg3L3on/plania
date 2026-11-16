@@ -283,7 +283,20 @@ export type OrgProject = {
   preview_url?: string | null;
   // PLA-I46-3: la siguiente jugada (src/api/company-move.ts). Null: nothing here is the owner's; absent: older server.
   next_move?: OrgNextMove | null;
+  // PLA-I53-2: every open initiative with its tickets' stage (the stage board), and who works now.
+  tablero?: Tablero;
+  ahora?: AhoraItem[];
 };
+// PLA-I53-2: one stage per ticket, computed on the server (src/api/etapa.ts). The shapes the floor and the project
+// page both read.
+export type EtapaId = "despues" | "lista" | "en_espera" | "pospuesto" | "bloqueado" | "construyendo" | "devuelto" | "sin_dueno" | "en_qa" | "en_revision" | "te_toca" | "integrado" | "publicado" | "hecho";
+export type EtapaCi = "pending" | "success" | "failure" | "none";
+export type EtapaHolder = { agent: string; role: string };
+export type Etapa = { etapa: EtapaId; qa: "queued" | "running" | null; holder: EtapaHolder | null; live: boolean; since: string | null; ci: EtapaCi | null; reason: string | null };
+export type AhoraItem = { key: string; title: string; initiative: string | null } & Pick<Etapa, "etapa" | "qa" | "holder" | "live" | "since" | "reason">;
+export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa };
+export type OpenInitiative = { key: string; title: string; status: string; done: number; total: number; tickets: ProjectTicket[] };
+export type Tablero = { initiatives: OpenInitiative[]; loose: ProjectTicket[]; loose_done: number };
 export type OrgMoveVerb = "aceptar" | "publicar" | "responder" | "fijar" | "arrancar" | "planear" | "ver";
 export type OrgMoveAction =
   | { kind: "decision"; id: string; action: DecisionAction; label: string }

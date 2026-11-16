@@ -106,7 +106,8 @@ test("I47-4 #1: every detail kind draws, with a way back to its tab", () => {
   assert.equal((idea.match(/data-on=""/g) ?? []).length, 3, "idea, research and design lit");
   assert.match(idea, /data-here=""><i aria-hidden="true"><\/i><span>Diseño/);
   const leg = render({ kind: "leg", key: "LUM-I1" });
-  assert.ok(text(leg).includes("Arranque") && text(leg).includes("1 de 2 pasos") && leg.includes('data-steps-of="Arranque"'));
+  // PLA-I53-3: with no board in the read (an older server) a leg says its count; the board's own list is in i53-board-ui.
+  assert.ok(text(leg).includes("Arranque") && text(leg).includes("1 de 2 hechos") && text(leg).includes("todavía no trae los pasos"));
   assert.ok(text(render({ kind: "leg", key: "LUM-I9" })).includes("ya no está"));
   const pr = render({ kind: "pr", n: 7 }, { rows: ok(rowsData) });
   assert.ok(text(pr).includes("Fusionado · pruebas en verde") && pr.includes('href="https://github.com/demo/lumen/pull/7"') && pr.includes('data-control="ficha-pr-paso"') && text(pr).includes("← PRs"));

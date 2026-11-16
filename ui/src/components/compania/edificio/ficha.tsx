@@ -4,12 +4,12 @@
 // already draws elsewhere (a teammate, the plan, Sumar, the app, Solo tú, Lo último) as slots.
 import type { CSSProperties, ReactNode } from "react";
 import Markdown from "react-markdown";
-import type { FichaDoc, FichaIdea, FichaPr, OrgFicha, OrgProject, ProjectDocBody } from "@/lib/api";
+import type { FichaDoc, FichaIdea, FichaPr, OrgFicha, OrgProject, ProjectDocBody, ProjectTicket } from "@/lib/api";
 import { floorHue } from "@/lib/edificio";
 import { FICHA_TABS, TAB_WORD, tabOf, type FichaRef, type FichaTab } from "@/lib/ficha";
 import type { TaskDetail } from "@/lib/types";
 import { rumboText } from "@/lib/v2";
-import { Steps } from "./route";
+import { columnOf, isDone, wordOf, whoLine, ciWord, STATIONS } from "@/lib/etapas";
 
 export type Load<T> = { status: "idle" | "loading" | "error" | "ok"; data?: T; retry?: () => void };
 export type FichaSlots = { member?: ReactNode; plan?: ReactNode; sumar?: ReactNode; app?: ReactNode; solo?: ReactNode; last?: ReactNode; maq?: ReactNode };
@@ -243,12 +243,52 @@ const TaskBody = ({ t, onRef, timeZone }: { t: TaskDetail; onRef: (r: FichaRef) 
   </>
 );
 
+// PLA-I53-3: a ticket's stage as the board says it: the word, who has it and since when, the PR checks, the why.
+const ticketOf = (p: OrgProject, key: string): ProjectTicket | null =>
+  p.tablero ? ([...p.tablero.initiatives.flatMap((i) => i.tickets), ...p.tablero.loose].find((x) => x.key === key) ?? null) : null;
+const StageLine = ({ p, k, fallback, now }: { p: OrgProject; k: string; fallback: string; now: number }) => {
+  const t = ticketOf(p, k);
+  if (!t) return <>{fallback}</>;
+  const e = t.etapa;
+  const station = STATIONS.find((s) => s.id === columnOf(e))?.name;
+  const bits = [whoLine(e, now), ciWord(e.ci)].filter(Boolean).join(" · ");
+  return (
+    <span data-fi-etapa={e.etapa}>
+      <b>{wordOf(e)}</b>
+      {station && ` · ${station}`}
+      {bits && ` · ${bits}`}
+      {e.reason && <span className="edi-fi-why">{e.reason}</span>}
+    </span>
+  );
+};
+// Open tickets first (in the board's order), then the done ones newest first: every one opens its own detail.
+const TicketLists = ({ tickets, now, onRef }: { tickets: ProjectTicket[]; now: number; onRef: (r: FichaRef) => void }) => {
+  const open = tickets.filter((t) => !isDone(t.etapa));
+  const done = tickets.filter((t) => isDone(t.etapa)).sort((a, b) => Date.parse(b.etapa.since ?? "0") - Date.parse(a.etapa.since ?? "0"));
+  const row = (t: ProjectTicket) => <Li key={t.key} data={t.key} title={t.title} sub={[t.key, wordOf(t.etapa), whoLine(t.etapa, now)].filter(Boolean).join(" · ")} onClick={() => onRef({ kind: "step", key: t.key })} />;
+  return (
+    <>
+      {open.length > 0 && (
+        <Sec title="Abiertos" data="abiertos">
+          <ul className="edi-fi-lis">{open.map(row)}</ul>
+        </Sec>
+      )}
+      {done.length > 0 && (
+        <Sec title={`Hechos · ${done.length}`} data="hechos">
+          <ul className="edi-fi-lis">{done.map(row)}</ul>
+        </Sec>
+      )}
+      {open.length === 0 && done.length === 0 && <Empty>Todavía no tiene pasos.</Empty>}
+    </>
+  );
+};
+
 const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone }: { p: OrgProject; r: Exclude<FichaRef, { kind: "tab" }>; rows: Load<OrgFicha>; task: Load<TaskDetail>; doc: Load<ProjectDocBody>; onRef: (r: FichaRef) => void; slots: FichaSlots; now: number; timeZone?: string }) => {
   switch (r.kind) {
     case "step":
       return whenLoaded(task, "el paso", (t) => (
         <>
-          <Title eyebrow="Paso" title={t.title} state={t.status} />
+          <Title eyebrow={`Paso · ${t.key}`} title={t.title} state={<StageLine p={p} k={t.key} fallback={t.status} now={now} />} />
           <TaskBody t={t} onRef={onRef} timeZone={timeZone} />
         </>
       ));
@@ -272,12 +312,33 @@ const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone }: { p: Org
         );
       });
     case "leg": {
+      // PLA-I53-3: an open initiative lists its tickets by stage from the board's read; a completed one says so.
+      const ini = p.tablero?.initiatives.find((i) => i.key === r.key);
       const leg = p.route?.legs.find((l) => l.key === r.key);
-      if (!leg) return <Empty>Esa entrega ya no está en la ruta.</Empty>;
+      if (ini)
+        return (
+          <>
+            <Title eyebrow={`Iniciativa · ${ini.key}`} title={ini.title} state={`${ini.done} de ${ini.total} hechos${ini.status === "On hold" ? " · en pausa" : ""}`} />
+            <TicketLists tickets={ini.tickets} now={now} onRef={onRef} />
+          </>
+        );
+      if (!leg) return <Empty>Esa iniciativa ya no está en el plan.</Empty>;
+      const complete = leg.state === "done" || (leg.total > 0 && leg.done === leg.total);
       return (
         <>
-          <Title eyebrow="Entrega" title={leg.title} state={`${leg.done} de ${leg.total} pasos${leg.note ? ` · ${leg.note}` : ""}`} />
-          {leg.state === "here" ? <Steps project={p} now={now} timeZone={timeZone} /> : <Empty>Los pasos se ven cuando es la entrega en curso.</Empty>}
+          <Title eyebrow={`Iniciativa · ${leg.key}`} title={leg.title} state={`${complete ? "Completa · " : ""}${leg.done} de ${leg.total} hechos`} />
+          <Empty>{complete ? "Está completa: sus pasos ya no están en el tablero." : "Este piso todavía no trae los pasos de esta iniciativa."}</Empty>
+        </>
+      );
+    }
+    case "sueltos": {
+      const t = p.tablero;
+      if (!t) return <Empty>Este piso todavía no trae su tablero.</Empty>;
+      return (
+        <>
+          <Title eyebrow="Sueltos" title="Trabajo sin iniciativa" state={`${t.loose.length} abiertos · ${t.loose_done} hechos`} />
+          <TicketLists tickets={t.loose} now={now} onRef={onRef} />
+          {t.loose_done > 0 && <Empty>{t.loose_done === 1 ? "1 suelto hecho." : `${t.loose_done} sueltos hechos.`}</Empty>}
         </>
       );
     }

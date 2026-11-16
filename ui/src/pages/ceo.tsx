@@ -737,17 +737,15 @@ const Compania = () => {
               ) : undefined
             }
             piso={shownPiso}
-            // PLA-I47-3: La fila acts through the routes the side page already used; a row opens the plan (La ficha, PLA-I47-4).
-            fila={{
+            // PLA-I53-3: the stage board acts through the routes La fila used; a card, a track or a Hecho stack opens in La ficha.
+            board={{
               onPickNext: steer.onPickNext,
               onStop: (id) => steer.onRun("stop", id),
-              onAccept: (d, action) => act.mutate({ d, input: { action }, key: `fila-${action}` }),
+              onAccept: (d, action) => act.mutate({ d, input: { action }, key: `tablero-${action}` }),
               onCancel: steer.onCancelOrder,
-              onRow: (slug, row, el) => {
-                const here = company.projects.find((x) => x.slug === slug)?.route?.legs.find((l) => l.state === "here");
-                if (row.key && /^[A-Z][A-Z0-9]*-/.test(row.key)) showFicha({ kind: "step", key: row.key }, el, slug);
-                else if (here) showFicha({ kind: "leg", key: here.key }, el, slug);
-              },
+              onTicket: (slug, t, el) => showFicha({ kind: "step", key: t.key }, el, slug),
+              onTrack: (slug, key, el) => showFicha(key ? { kind: "leg", key } : { kind: "sueltos" }, el, slug),
+              selected: fichaAt?.ref.kind === "step" ? fichaAt.ref.key : null,
               busy: steer.busy,
             }}
             onPiso={onPiso}
@@ -755,7 +753,6 @@ const Compania = () => {
               setAdded(null);
               showFicha({ kind: "sumar" }, el, slug);
             }}
-            onLeg={(slug, key, el) => showFicha({ kind: "leg", key }, el, slug)}
             fichaOpen={fichaOpen}
             onFichaClose={closeFicha}
             nivel={nivel}

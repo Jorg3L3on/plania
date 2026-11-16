@@ -428,7 +428,7 @@ export function skyLine(projects: OrgProject[], decisions: Decision[], base: str
   return `Te toca: ${texto}${more}${/[.!?…]\s*$/.test(texto + more) ? "" : "."}`;
 }
 
-// ---- the route (PLA-I40-5): the delivery as legs, the current one with its named steps
+// ---- dates (PLA-I40-5)
 
 const DAY_MS = 86_400_000;
 const dayKey = (t: number, timeZone?: string) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date(t));
@@ -438,40 +438,6 @@ export function whenWord(iso: string, now: number, timeZone?: string): string {
   if (dayKey(t, timeZone) === dayKey(now, timeZone)) return `hoy ${clockAt(t, timeZone)}`;
   if (dayKey(t, timeZone) === dayKey(now - DAY_MS, timeZone)) return "ayer";
   return `el ${new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone }).format(new Date(t)).replace(".", "")}`;
-}
-export function legLine(l: OrgRouteLeg): string {
-  if (l.state === "unplanned") return "sin planear";
-  if (l.state === "done") return "completo";
-  const count = `${l.done} de ${l.total}`;
-  if (l.state === "here") return `${count} · aquí`;
-  return l.note ? `${count} · ${l.note.charAt(0).toLowerCase()}${l.note.slice(1)}` : count;
-}
-export function routeCount(r: OrgRoute): string {
-  const done = r.legs.reduce((n, l) => n + l.done, 0);
-  const total = r.legs.reduce((n, l) => n + l.total, 0);
-  const open = r.legs.filter((l) => l.state === "unplanned").length;
-  const steps = total === 0 ? "Aún no hay pasos" : `${done} de ${total} ${total === 1 ? "paso" : "pasos"}`;
-  return [steps, open ? (open === 1 ? "1 entregable sin planear" : `${open} entregables sin planear`) : "", r.more_legs ? `+${r.more_legs} más` : ""].filter(Boolean).join(" · ");
-}
-export type StepMark = "done" | "now" | "later";
-export const stepMark = (s: OrgRouteStep): StepMark => (s.state === "done" || s.state === "published" ? "done" : s.state === "later" ? "later" : "now");
-// One line of state per step. The step that comes next reads from the same next_start the band reads.
-export function stepLine(s: OrgRouteStep, team: OrgMember[], now: number, timeZone?: string): string {
-  const who = s.who ? roleName(s.who) : "El equipo";
-  if (s.state === "published") return s.at ? `Publicado ${whenWord(s.at, now, timeZone)}` : "Publicado";
-  if (s.state === "done") return s.at ? `Aceptado ${whenWord(s.at, now, timeZone)}` : "Aceptado";
-  if (s.state === "delivered") return "Entregado · espera que lo aceptes";
-  if (s.state === "working") {
-    const m = team.find((x) => x.state === "running" && x.now?.ticket === s.key);
-    return m?.now ? `En curso · ${who}, ${since(m.now.since, now)}` : `En curso · ${who}`;
-  }
-  if (s.state === "next") {
-    const n = team.find((x) => x.next_start?.key === s.key)?.next_start;
-    if (!n) return `Sigue · ${who}`;
-    const at = n.starts_at && Date.parse(n.starts_at) > now ? clockAt(n.starts_at, timeZone) : null;
-    return n.hold === "rest" && at ? `Sigue · ${who} arranca a las ${at}` : `Sigue · ${who}: ${startsLine(n, now, timeZone)}`;
-  }
-  return "Después · espera el paso anterior";
 }
 
 // ---- under the route (PLA-I40-6): what runs without the owner, what only he does, and the last things that happened
