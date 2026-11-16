@@ -1,5 +1,6 @@
 // PLA-I33: the words and rules of Compañía como organización (ADR 31c1cead, Design 3a2c3385). Pure: the
 // pages and test/compania-org.test.ts read the same functions. Spend is tokens, never money.
+import { statusEtapa, statusWord as ticketWord } from "./etapas";
 import type { Plumbed, Usage } from "./compania";
 import { ago, tokens, type Tone } from "./compania";
 import type { MachinePlumbing, OrgLight, OrgMember, OrgMemberState, OrgPlumbing, OrgProduced, ThreadAction, ThreadActionState, ThreadLink, ThreadMessage } from "./api";
@@ -49,19 +50,9 @@ export const byRole = (a: OrgMember, b: OrgMember) => rank(a.role) - rank(b.role
 // ---- one role row: what it does now and since when, or what it did last and when
 
 export const STILL_MS = 48 * 3_600_000;
-const STATUS_WORD: Record<string, string> = {
-  Done: "hecho",
-  "In review": "en revisión",
-  Merged: "fusionado",
-  Released: "publicado",
-  Ready: "listo",
-  Blocked: "bloqueado",
-  ok: "ok",
-  fail: "falló",
-  skipped: "omitida",
-  stopped: "detenida",
-};
-export const statusWord = (s: string) => STATUS_WORD[s] ?? s;
+// A run's own outcome; a ticket status reads the stage map (lib/etapas.ts, PLA-I53-5).
+const RUN_WORD: Record<string, string> = { ok: "ok", fail: "falló", skipped: "omitida", stopped: "detenida" };
+export const statusWord = (s: string) => RUN_WORD[s] ?? (statusEtapa(s) ? ticketWord(s).toLowerCase() : s);
 
 export const MEMBER_STATE: Record<OrgMemberState, { word: string; tone: Tone }> = {
   running: { word: "trabajando", tone: "ok" },

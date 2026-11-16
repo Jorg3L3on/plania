@@ -38,7 +38,9 @@ const COLUMN: Record<EtapaId, StationId> = {
   publicado: "hecho",
   hecho: "hecho",
 };
-const TONE: Record<EtapaId, StageTone> = {
+// PLA-I53-5: the app's one map of stage to word and tone. Every other status word (the Lista view, Líneas de trabajo,
+// the seats' last ticket, the floor's band) reads it through statusEtapa / statusWord below.
+export const ETAPA_TONE: Record<EtapaId, StageTone> = {
   despues: "pending",
   lista: "ready",
   en_espera: "pending",
@@ -54,7 +56,7 @@ const TONE: Record<EtapaId, StageTone> = {
   publicado: "done",
   hecho: "done",
 };
-const WORD: Record<EtapaId, string> = {
+export const ETAPA_WORD: Record<EtapaId, string> = {
   despues: "Después",
   lista: "Lista para empezar",
   en_espera: "En espera",
@@ -71,17 +73,44 @@ const WORD: Record<EtapaId, string> = {
   hecho: "Hecho",
 };
 
-export const columnOf = (e: Etapa): StationId => COLUMN[e.etapa] ?? "por";
+export const columnOf = (e: Pick<Etapa, "etapa">): StationId => COLUMN[e.etapa] ?? "por";
 export function toneOf(e: Etapa): StageTone {
   if (e.etapa === "en_qa" && e.qa !== "running") return "pending";
-  return TONE[e.etapa] ?? "pending";
+  return ETAPA_TONE[e.etapa] ?? "pending";
 }
 // The word on the card. Devuelto says «arreglando» only while someone is on it; QA says whether it runs or waits.
 export function wordOf(e: Etapa): string {
   if (e.etapa === "en_qa") return e.qa === "running" ? "En QA · probando" : "En QA · en cola";
   if (e.etapa === "devuelto" && !e.live) return "Devuelto · espera arreglo";
-  return WORD[e.etapa] ?? e.etapa;
+  return ETAPA_WORD[e.etapa] ?? e.etapa;
 }
+
+// A stored status read as a stage, where only the status is known (no lease, run, QA or PR facts): the coarse stage
+// of a ticket in that status. Won't do has none.
+const STATUS_ETAPA: Record<string, EtapaId> = {
+  Backlog: "despues",
+  Ready: "lista",
+  "In progress": "construyendo",
+  "In review": "en_revision",
+  Merged: "integrado",
+  Released: "publicado",
+  Blocked: "bloqueado",
+  "Needs Jorge": "te_toca",
+  Done: "hecho",
+};
+export const statusEtapa = (status: string): EtapaId | null => STATUS_ETAPA[status] ?? null;
+// An initiative's own status is not a stage: these are its words.
+const INITIATIVE_WORD: Record<string, string> = { Planning: "Planeando", Active: "Activa", Shipping: "Saliendo", "On hold": "En pausa", Done: "Hecha", "Won't do": "Descartada" };
+export const initiativeWord = (status: string) => INITIATIVE_WORD[status] ?? status;
+// A ticket status in words, from the stage map: «En revisión», «Integrado», «Te toca»… Won't do is «Descartado».
+export function statusWord(status: string): string {
+  const e = statusEtapa(status);
+  return e ? ETAPA_WORD[e] : status === "Won't do" ? "Descartado" : status;
+}
+export const statusStageTone = (status: string): StageTone | null => {
+  const e = statusEtapa(status);
+  return e ? ETAPA_TONE[e] : null;
+};
 export const isDone = (e: Etapa) => columnOf(e) === "hecho";
 
 const ROLE_WORD: Record<string, string> = { "product-owner": "PO", taller: "Taller", qa: "QA", research: "Research", artist: "Artist", ceo: "Tú", copy: "Copy", asistente: "Asistente" };

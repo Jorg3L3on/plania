@@ -5,7 +5,7 @@
 //   #3  nobody working: each of the five reasons in its case, in the order the ticket gives
 //   #4  the project page builds the same line from the same card (same text)
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -168,6 +168,6 @@ test("I53-4 #4: /p/<slug> draws the same line from the same card", () => {
   const src = readFileSync(new URL("../ui/src/pages/project.tsx", import.meta.url), "utf8");
   assert.match(src, /<AhoraLine view=\{view\} \/>/);
   assert.match(src, /ahoraView\(card, now/);
-  const grid = readFileSync(new URL("../ui/src/components/plan/lane-grid.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(grid, /task\.claimed_by\.agent/, "NowRow no longer names the lease alone");
+  // PLA-I53-5 removed the lease-only NowRow with the whole lane grid.
+  assert.equal(existsSync(new URL("../ui/src/components/plan/lane-grid.tsx", import.meta.url)), false, "no lease-only NowRow left");
 });

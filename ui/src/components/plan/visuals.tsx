@@ -38,24 +38,7 @@ const TONE_VAR: Record<StationTone, string> = {
 };
 export const toneVar = (tone: StationTone) => TONE_VAR[tone];
 
-// Spanish words for statuses on the redesigned screen; the side panel keeps the stored values.
-const WORD: Record<string, string> = {
-  Backlog: "pendiente",
-  Ready: "listo",
-  "In progress": "en curso",
-  "In review": "en revisión",
-  Merged: "integrado",
-  Released: "desplegado",
-  Blocked: "bloqueado",
-  "Needs Jorge": "te espera",
-  Done: "hecho",
-  "Won't do": "descartado",
-  Planning: "planeando",
-  Active: "activa",
-  Shipping: "saliendo",
-  "On hold": "en pausa",
-};
-export const statusWord = (status: string) => WORD[status] ?? status.toLowerCase();
+// PLA-I53-5: the words for a ticket's stage or status live in lib/etapas.ts (ETAPA_WORD), the app's one map.
 
 export const LANE_STATE: Record<LaneState, { word: string; tone: StationTone }> = {
   moving: { word: "en marcha", tone: "now" },

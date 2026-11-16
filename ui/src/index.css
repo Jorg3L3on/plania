@@ -1068,6 +1068,8 @@
      initiative; the label column is 150 px and the board never squeezes under 780 px (it scrolls sideways inside). */
   .sb { --sb-line: rgb(255 255 255 / 0.08); --sb-line2: rgb(255 255 255 / 0.14); --sb-raised: #1c2030; --sb-faint: #8d94aa; min-width: 0; min-height: 0; display: flex; border: 1px solid var(--sb-line); border-radius: 16px; background: #161926; color: var(--e-fg, #eef0f6); overflow: hidden; }
   .sb-scroll { flex: 1; min-width: 0; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.18) transparent; }
+  /* PLA-I53-5: on /p/<slug> the board scrolls inside itself past this height, as on the floor. */
+  .sb.sb-page { max-height: min(680px, 78vh); }
   .sb-grid { display: grid; grid-template-columns: 150px repeat(6, minmax(0, 1fr)); grid-auto-rows: min-content; align-content: start; min-width: 780px; }
   .sb-row { display: contents; }
   .sb-cell { position: relative; min-width: 0; display: flex; flex-direction: column; gap: 5px; padding: 6px 4px; border-top: 1px solid var(--sb-line); }

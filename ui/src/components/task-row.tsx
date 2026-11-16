@@ -10,8 +10,9 @@ import { api } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import { localTime } from "@/lib/time";
 import { priorityTone, statusDot } from "@/lib/status";
-import type { TaskRow as Task } from "@/lib/types";
+import type { StagedTask as Task } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { StageWord } from "@/components/plan/stage-word";
 
 export function StatusLabel({ status }: { status: string }) {
   return (
@@ -114,6 +115,7 @@ export function TaskRow({
           {/* Inside a project every key shares its prefix, so ticket codes read like initiative codes.
               Only initiatives show theirs; tickets are known by title (the side panel still shows the key). */}
           {(task.kind === "initiative" || task.kind === "idea") && <span className="font-mono text-xs text-muted-foreground">{task.key}</span>}
+          {task.kind === "ticket" && <StageWord etapa={task.etapa} status={task.status} />}
           <DueTag task={task} />
         </div>
         {task.summary && <p className="text-sm text-muted-foreground">{task.summary}</p>}
