@@ -35,6 +35,7 @@ import { roleOf } from "../runner/limits.js";
 import { qaAgentOf, qaTicket, sameCommit } from "../runner/qa.js";
 import { JORGE } from "../runner/threads.js";
 import { byKey } from "./company-plan.js";
+import { zonasOf, type Zona } from "./zonas.js";
 
 export const ETAPAS = ["despues", "lista", "en_espera", "pospuesto", "bloqueado", "construyendo", "devuelto", "sin_dueno", "en_qa", "en_revision", "te_toca", "integrado", "publicado", "hecho"] as const;
 export type EtapaId = (typeof ETAPAS)[number];
@@ -163,7 +164,10 @@ export const isAhora = (e: Etapa | null) => !!e && (e.etapa === "construyendo" |
 
 export type AhoraItem = { key: string; title: string; initiative: string | null } & Pick<Etapa, "etapa" | "qa" | "holder" | "live" | "since" | "reason">;
 
-export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa };
+// zonas (PLA-I53-6): what part of the app the ticket touches, from its areas (src/api/zonas.ts); [] with no areas.
+export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas: Zona[] };
+// A completed initiative (Done), for the board's folded line: no tickets.
+export type DoneInitiative = { key: string; title: string; done_at: string | null };
 export type OpenInitiative = { key: string; title: string; status: string; done: number; total: number; tickets: ProjectTicket[] };
 export type ProjectEtapas = {
   // Every ticket of the project but Won't do, by key.
@@ -173,16 +177,22 @@ export type ProjectEtapas = {
   // Open tickets under no initiative (and under a closed one); the landed ones are only counted (loose_done).
   loose: ProjectTicket[];
   loose_done: number;
+  // PLA-I53-6: the newest landed loose ticket's title (the Sueltos Hecho stack shows it), and the completed
+  // initiatives, newest first.
+  loose_done_title: string | null;
+  done_initiatives: DoneInitiative[];
   ahora: AhoraItem[];
 };
 
 // A screen row's etapa: the ticket's stage, null on ideas, initiatives and Won't do.
 export const etapaRow = (e: ProjectEtapas, t: { kind: string; key: string }): Etapa | null => (t.kind === "ticket" ? (e.byTicket.get(t.key)?.etapa ?? null) : null);
+// A screen row's zonas: the ticket's zone tags, [] on ideas, initiatives and Won't do.
+export const zonasRow = (e: ProjectEtapas, t: { kind: string; key: string }): Zona[] => (t.kind === "ticket" ? (e.byTicket.get(t.key)?.zonas ?? []) : []);
 
 // The board as both reads serve it: the open initiatives with their tickets, the loose ones, and how many loose
-// tickets already landed.
-export type Tablero = { initiatives: OpenInitiative[]; loose: ProjectTicket[]; loose_done: number };
-export const tableroOf = (e: ProjectEtapas): Tablero => ({ initiatives: e.initiatives, loose: e.loose, loose_done: e.loose_done });
+// tickets already landed. PLA-I53-6 adds the newest landed loose ticket's title and the completed initiatives.
+export type Tablero = { initiatives: OpenInitiative[]; loose: ProjectTicket[]; loose_done: number; loose_done_title: string | null; done_initiatives: DoneInitiative[] };
+export const tableroOf = (e: ProjectEtapas): Tablero => ({ initiatives: e.initiatives, loose: e.loose, loose_done: e.loose_done, loose_done_title: e.loose_done_title, done_initiatives: e.done_initiatives });
 
 // ahora's order: building first, then QA, then sent back; the oldest since first in each.
 const AHORA_ORDER: Record<string, number> = { construyendo: 0, en_qa: 1, devuelto: 2 };
@@ -206,7 +216,13 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
   const open = initiatives.filter((t) => OPEN_INITIATIVE.includes(t.status)).sort(byKey);
   const here = open.filter((t) => t.status === "Active").at(-1) ?? null;
   const ids = tickets.map((t) => t.id);
-  const empty: ProjectEtapas = { byTicket: new Map(), initiatives: open.map((i) => ({ key: i.key, title: i.title, status: i.status, done: 0, total: 0, tickets: [] })), loose: [], loose_done: 0, ahora: [] };
+  // When a task landed: resolved_at, else the last status change.
+  const landedAt = (t: (typeof all)[number]) => (t.resolvedAt ?? t.statusChangedAt ?? t.updatedAt)?.getTime() ?? 0;
+  const done_initiatives: DoneInitiative[] = initiatives
+    .filter((i) => i.status === "Done")
+    .sort((a, b) => landedAt(b) - landedAt(a) || a.key.localeCompare(b.key))
+    .map((i) => ({ key: i.key, title: i.title, done_at: iso(i.resolvedAt ?? i.statusChangedAt) }));
+  const empty: ProjectEtapas = { byTicket: new Map(), initiatives: open.map((i) => ({ key: i.key, title: i.title, status: i.status, done: 0, total: 0, tickets: [] })), loose: [], loose_done: 0, loose_done_title: null, done_initiatives, ahora: [] };
   if (ids.length === 0) return empty;
   const idList = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
 
@@ -310,13 +326,14 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
       delivery: d ? { returned: action === "cambios", open: !action, at: date(d.at)! } : null,
     };
     const etapa = etapaOf(facts, now);
-    if (etapa) byTicket.set(t.key, { key: t.key, title: t.title, status: t.status, phase: t.phase ?? null, parent_key: parent?.key ?? null, etapa });
+    if (etapa) byTicket.set(t.key, { key: t.key, title: t.title, status: t.status, phase: t.phase ?? null, parent_key: parent?.key ?? null, etapa, zonas: zonasOf(t.areas) });
   }
 
   const keyNo = (k: string) => Number(/(\d+)$/.exec(k)?.[1] ?? Number.MAX_SAFE_INTEGER);
   const sorted = [...byTicket.values()].sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || keyNo(a.key) - keyNo(b.key) || a.key.localeCompare(b.key));
   const openIds = new Set(open.map((i) => i.id));
   const ticketParent = new Map(tickets.map((t) => [t.key, t.parentId]));
+  const looseLanded = tickets.filter((t) => !openIds.has(t.parentId ?? "") && DONE.includes(t.status)).sort((a, b) => landedAt(b) - landedAt(a) || a.key.localeCompare(b.key));
   return {
     byTicket,
     initiatives: open.map((i) => {
@@ -324,7 +341,9 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
       return { key: i.key, title: i.title, status: i.status, done: mine.filter((t) => DONE.includes(t.status)).length, total: mine.length, tickets: mine };
     }),
     loose: sorted.filter((t) => !openIds.has(ticketParent.get(t.key) ?? "") && !DONE.includes(t.status)),
-    loose_done: sorted.filter((t) => !openIds.has(ticketParent.get(t.key) ?? "") && DONE.includes(t.status)).length,
+    loose_done: looseLanded.length,
+    loose_done_title: looseLanded[0]?.title ?? null,
+    done_initiatives,
     ahora: ahoraOf(sorted),
   };
 }
