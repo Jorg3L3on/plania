@@ -509,3 +509,53 @@ export type UsageWeek = { week: string; starts_at: string; used: number; input: 
 export type UsageSummary = { label: "reportado"; totals: UsageTotal[]; screen?: UsageWeek };
 
 export const isUnauthorized = (e: unknown) => e instanceof ApiError && e.status === 401;
+
+// ---- PLA-I54-2: pictures on a request (src/api/pedido-images.ts). Screen cookie only.
+// Errors come back as ApiError with detail.message in Spanish, ready to show (e.g. "La imagen pesa más de 5 MB.").
+export type PedidoImage = {
+  id: string;
+  url: string; // the bytes, behind the session
+  mime: "image/png" | "image/jpeg" | "image/webp";
+  bytes: number;
+  width: number | null;
+  height: number | null;
+  created_at: string;
+};
+export const PEDIDO_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+export const PEDIDO_IMAGE_MAX = 6;
+const pedidoImagesPath = (slug: string, key: string) => `/company/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/images`;
+
+export const listPedidoImages = (slug: string, key: string) =>
+  request<{ images: PedidoImage[] }>("GET", pedidoImagesPath(slug, key)).then((r) => r.images);
+
+// One picture per call, sent as its raw bytes (the server reads the type from them, not from the name).
+export async function uploadPedidoImage(slug: string, key: string, file: Blob): Promise<PedidoImage> {
+  const res = await fetch(`/api${pedidoImagesPath(slug, key)}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  if (!res.ok) {
+    const { error, ...detail } = (await res.json().catch(() => ({}))) as { error?: string } & Record<string, unknown>;
+    throw new ApiError(res.status, error ?? `HTTP_${res.status}`, detail);
+  }
+  return ((await res.json()) as { image: PedidoImage }).image;
+}
+
+// Several pictures in order; stops at the first refusal and says which ones made it.
+export async function uploadPedidoImages(slug: string, key: string, files: Blob[]): Promise<{ images: PedidoImage[]; error: ApiError | null }> {
+  const images: PedidoImage[] = [];
+  for (const f of files) {
+    try {
+      images.push(await uploadPedidoImage(slug, key, f));
+    } catch (e) {
+      if (e instanceof ApiError) return { images, error: e };
+      throw e;
+    }
+  }
+  return { images, error: null };
+}
+
+export const deletePedidoImage = (slug: string, key: string, id: string) =>
+  request<{ deleted: true }>("DELETE", `${pedidoImagesPath(slug, key)}/${encodeURIComponent(id)}`);

@@ -50,6 +50,7 @@ import { childEnv, defaultKill, defaultProbePid, defaultSpawn, supervise, type E
 import { StreamReader, parseStream, parseUsageText, totalOf, type PlanWindowReading } from "./stream.js";
 import { clearPacks, packLines, packsInDiff, packsOf, writePacks } from "./packs.js";
 import { branchFor, checkBase, defaultGit, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreeRoot, type GitFn } from "./worktree.js";
+import { taskImagePaths } from "../pedidos/images.js";
 
 export type ReadyWork = {
   project: string;
@@ -420,6 +421,8 @@ export function userPrompt(input: {
   reason?: string | null;
   // PLA-I46-12: the skill packs this role carries, their one line and where the body was written.
   packs?: { name: string; when: string; file: string }[];
+  // PLA-I54-2: absolute paths of the pictures Jorge attached to the request (src/pedidos/images.ts).
+  images?: string[];
 }): string {
   const company = input.role === "asistente";
   const lines = [
@@ -441,6 +444,9 @@ export function userPrompt(input: {
     lines.push(`Workspace: ${input.workspace.path}${input.workspace.branch ? ` on branch ${input.workspace.branch}` : ""}, base sandbox.`);
   }
   lines.push(...packLines(input.packs ?? []));
+  if (input.images?.length) {
+    lines.push("Pictures Jorge attached to this request (open each one with the Read tool before you answer):", ...input.images.map((p) => `- ${p}`));
+  }
   // PLA-I49-6: an idea (PREFIX-IDEA<n>) is not a ticket and start refuses it. Research and Artist woken on an idea's
   // stage work on the idea itself: read it, write the stage doc on it, move its stage.
   const idea = !!input.task && /-IDEA\d+$/.test(input.task.key);
@@ -606,6 +612,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     sessionId: planiaSession,
     reason: run.summary.startsWith(EVENT_SUMMARY) ? run.summary.slice(EVENT_SUMMARY.length).trim() || null : null,
     packs,
+    images: ctx.task ? await taskImagePaths(db, project.id, ctx.task.key).catch(() => []) : [],
   });
   const args = claudeArgs({ prompt, settingsPath, mcpConfigPath, systemPromptPath, maxTurns: settings.maxTurns, resume, model: qa?.model ?? null });
   const command = claudeCommand(ctx.agent.adapterConfig, env);

@@ -40,6 +40,7 @@ import { dashboardRoutes } from "./dashboard.js";
 import { usageRoutes } from "./usage.js";
 import { templateRoutes } from "./templates.js";
 import { companyRoutes } from "./company.js";
+import { pedidoImageRoutes } from "./pedido-images.js";
 import { plumbing } from "./company-org.js";
 import { threadRoutes } from "./threads.js";
 import { captureRoutes } from "./captures.js";
@@ -149,6 +150,8 @@ api.post("/delegated/reviewed", async (c) => {
 
 // PLA-I29: runner limits and kill switches. Mounted here, before the session check, so a Bearer
 // is told 403 (not 401): the cookie alone opens it (src/api/company.ts checks both).
+// PLA-I54-2: pictures on a request (src/api/pedido-images.ts), cookie only, the same way.
+api.route("/company", pedidoImageRoutes);
 api.route("/company", companyRoutes);
 // PLA-I32-3: the threads, the same way (src/api/threads.ts).
 api.route("/threads", threadRoutes);
