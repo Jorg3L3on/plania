@@ -190,6 +190,8 @@ test("I32-3 #3: a runner's finish leaves a line with links in its project thread
   assert.deepEqual(last.author, { agent: "taller-micasa", role: "taller" });
   assert.match(last.body, new RegExp(`${created.key} queda En revisión`));
   assert.match(last.body, /pnpm build ok/);
+  // PLA-43: the line names the button it will get.
+  assert.match(last.body, /Necesito: que lo revises \(Aprobar y pasar a prueba o Pedir cambios\)\./);
   assert.deepEqual(last.links.map((l) => [l.kind, l.ref]), [["ticket", created.key], ["pr", "https://github.com/example/micasa/pull/7"]]);
   assert.deepEqual(last.actions, ["fusionar", "cambios"], "a code ticket In review with a PR can be merged or sent back");
 

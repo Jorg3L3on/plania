@@ -15,6 +15,9 @@ import { roleOf } from "../runner/limits.js";
 import { assertThreadAccess, checkLinks, lastLineFor, messageView, postMessage, projectThread, readThread, resolveThread } from "../runner/threads.js";
 import type { Ctx } from "./tx.js";
 
+// A code ticket with a PR is approved into the test copy; anything else is approved and closed (src/runner/threads.ts).
+const CODE_WORK = new Set(["code", "bug", "debt"]);
+
 type WriteCtx = (
   tool: string,
   input: { actor: { agent?: string; session_id: string; machine?: string; model?: string }; request_id?: string; verbose?: boolean },
@@ -68,7 +71,7 @@ export async function closingLine(db: Db, ctx: Ctx, c: Closing): Promise<string 
 
   const cite = (c.cite ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
   const head = c.via === "finish" ? `${t.key} queda En revisión: ${t.title}.` : `${t.key}: evidencia ${c.verdict ?? ""} registrada.`.replace(/\s+\./, ".");
-  const body = [head, cite ? `Hice: ${cite}` : null, c.via === "finish" ? "Necesito: que lo revises (Aceptar o Pedir cambios)." : null].filter(Boolean).join("\n");
+  const body = [head, cite ? `Hice: ${cite}` : null, c.via === "finish" ? `Necesito: que lo revises (${pr && CODE_WORK.has(t.workType ?? "code") ? "Aprobar y pasar a prueba" : "Aprobar y cerrar"} o Pedir cambios).` : null].filter(Boolean).join("\n");
   const msg = await postMessage(db, { thread, project }, { author: { agent: agent.slug, role: roleOf(agent) ?? agent.role }, body, links }, { ...ctx, requestId: undefined, tool: "thread.closing_line" });
   return msg.id;
 }
@@ -116,7 +119,7 @@ export const registerThreadTools = (
       description: [
         "Write a message in a thread Jorge reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from him.",
         "Asistente may post in every thread; any other agent only in its own project's thread (THREAD_FORBIDDEN otherwise).",
-        "links (up to 10) point at what the message talks about: {kind ticket|doc|pr|idea|question, ref (key, doc id, PR url, question id), title}. A ticket In review gets Aceptar and Pedir cambios on screen; a question link gets Responder.",
+        "links (up to 10) point at what the message talks about: {kind ticket|doc|pr|idea|question, ref (key, doc id, PR url, question id), title}. A ticket In review gets «Aprobar y pasar a prueba» (with a PR) or «Aprobar y cerrar» (without one) and «Pedir cambios» on screen; a question link gets Responder.",
         "body: plain Spanish, up to 4000 characters. You are the author (your roster slug and role).",
       ].join(" "),
       inputSchema: {

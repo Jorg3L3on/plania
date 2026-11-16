@@ -8,7 +8,7 @@
 //                shows as information.
 //   PLA-I46-11, a plan for a leg (leg: the initiative's key, or found from the order's «title»): at most 4 steps,
 //                up to 3 closed questions {text, options (2 to 4), suggested (0-based)}, and the check list (exactly
-//                3 things to verify). It always waits for the owner (Aceptar plan / Cambiar algo / Después on the
+//                3 things to verify). It always waits for the owner (Aprobar el plan / Cambiar algo / Después on the
 //                floor), whatever the project's switch says; accepting makes the steps under that initiative, each
 //                with the check list (tasks.po_checklist) for QA. A leg that is On hold (postponed) is refused.
 // The message body is a prose copy (numbered options), so an older screen still reads it through parseProposal.
@@ -194,7 +194,7 @@ export const POSTPONED = ["On hold"];
 async function parkOrder(db: Db, slug: string, key: string, ctx: Ctx) {
   const [o] = await db.select({ status: tasks.status, version: tasks.version }).from(tasks).innerJoin(projects, eq(projects.id, tasks.projectId)).where(and(eq(projects.slug, slug), eq(tasks.key, key))).limit(1);
   if (!o || !["Ready", "In progress"].includes(o.status)) return;
-  await setTask(db, { project: slug, key, status: "Backlog", version: o.version, note: "Plan propuesto: espera «Aceptar plan» en el piso." } as never, ctx);
+  await setTask(db, { project: slug, key, status: "Backlog", version: o.version, note: "Plan propuesto: espera «Aprobar el plan» en el piso." } as never, ctx);
 }
 
 export async function propose(db: Db, input: ProposeInput, ctx: Ctx) {
@@ -220,7 +220,7 @@ export async function propose(db: Db, input: ProposeInput, ctx: Ctx) {
   }
   const msg = await postMessage(db, ref, { author: { agent: agent.slug, role }, body: proposalBody(data), links: data.links.slice(0, 10), proposal: data }, ctx);
   // PLA-I46-11: a leg plan is the whole answer to its order. The order is parked in Backlog so it neither wakes the
-  // PO again nor reads as a delivery; the plan waits on the floor, and Aceptar plan closes the order.
+  // PO again nor reads as a delivery; the plan waits on the floor, and Aprobar el plan closes the order.
   if (isLegPlan(data)) await parkOrder(db, p.slug, data.order!, ctx);
   return { thread: ref.thread.id, message: await messageView(db, msg, p.id), proposal: data };
 }
@@ -240,7 +240,7 @@ export const registerProposalTools = (
         "Post a proposal as data in your project's thread; Jorge decides it in Te toca. Only the project's PO.",
         "kind choice: title, 2 to 6 options {label, effect (what changes), cost {tickets, days, tokens, delays}, recommended}, recommended_reason, combinable (sets of option numbers that may go together, e.g. [[1, 2]]; omit when they exclude each other). It stays in Te toca until answered, even if you write again.",
         "kind plan: the answer to one of Jorge's orders. order (the order ticket's key), understood (one line, plain words), steps [{title, done_when, work_type code|ops|research|bug|debt}], cost. When the project approves plans, do not create tickets: Plania makes one Ready ticket per step when someone presses \"Sí, empiecen\". Otherwise the tickets are made now.",
-        "Plan for a leg of the route (the order says «Planea «<title>»»): also pass leg (that initiative's key; found from the title when omitted), at most 4 steps, questions (up to 3 closed ones: {text, options 2 to 4 short answers, suggested: index of the one you recommend}) and checklist (exactly 3 short things QA verifies on every step). It always waits for the owner's Aceptar plan; then the steps are made under that initiative. A postponed (On hold) leg is refused: never plan it to start it.",
+        "Plan for a leg of the route (the order says «Planea «<title>»»): also pass leg (that initiative's key; found from the title when omitted), at most 4 steps, questions (up to 3 closed ones: {text, options 2 to 4 short answers, suggested: index of the one you recommend}) and checklist (exactly 3 short things QA verifies on every step). It always waits for the owner's «Aprobar el plan»; then the steps are made under that initiative. A postponed (On hold) leg is refused: never plan it to start it.",
         "No keys, branch names or the word sandbox in title, labels or understood: anyone at the Mac reads them.",
       ].join(" "),
       inputSchema: {

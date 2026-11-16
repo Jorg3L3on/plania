@@ -106,7 +106,7 @@ const DecisionBody = z
     // aplicar: the file and the lines the owner reviewed (a file step).
     path: z.string().trim().min(1).max(300).optional(),
     lines: z.string().min(1).max(20000).optional(),
-    // PLA-I46-11, Aceptar plan: the answer kept for each question (0-based) and the check list as the owner left it.
+    // PLA-I46-11, Aprobar el plan: the answer kept for each question (0-based) and the check list as the owner left it.
     answers: z.array(z.number().int().min(0).max(3)).max(3).optional(),
     checklist: z.array(z.string().max(200)).max(3).optional(),
   })
