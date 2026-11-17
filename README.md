@@ -610,6 +610,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `FOOTPRINT_HELD` | 409 | another live session declared this footprint, or releasing one you did not declare (detail: holder, purpose) |
 | `HANDOFF_HELD` | 409 | the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note) |
 | `HOP_CAP` | 409 | assign would pass 3 hops (detail: hops, cap). The owner stays and a limpieza inbox item is posted |
+| `PEDIDO_SIN_ORDEN` | 409 | an idea the owner asked for on screen (origin jorge) gets promoted_to only after his «Constrúyelo» on the Pedido tab |
 | `IDEA_CLOSED` | 409 | a Done or Won't do idea does not change stage or promoted_to (detail: status) |
 | `INITIATIVE_CHILDREN_OPEN` | 409 | an initiative cannot be Done or Won't do while a ticket of it is in another state (detail: open) |
 | `INVALID_STAGE_MOVE` | 409 | set_task stage is not one step along idea → research → design → planning → ready, or a step back without a note (detail: from, to) |

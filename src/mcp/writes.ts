@@ -551,6 +551,11 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
   if (input.promoted_to !== undefined) {
     if (t.kind !== "idea") throw new ToolError("FIELD_NOT_ALLOWED", { field: "promoted_to", kind: t.kind });
     if (t.status === "Done" || t.status === "Won't do") throw new ToolError("IDEA_CLOSED", { status: t.status });
+    // PLA-I54-4: the owner's request (Darle forma) passes the valve only on his «Constrúyelo» (event pedido.construir).
+    if (input.promoted_to !== null && t.origin === "jorge" && !t.promotedTo) {
+      const [order] = await tx.execute<{ id: number }>(sql`select id from events where task_id = ${t.id} and type = 'pedido.construir' limit 1`).then((r) => r.rows);
+      if (!order) throw new ToolError("PEDIDO_SIN_ORDEN", { hint: "Jorge has not said «Constrúyelo» on this request; it stays in its stop" });
+    }
     patch.promotedTo = input.promoted_to === null ? null : await promotedTarget(tx, p.id, t, input.promoted_to);
   }
 

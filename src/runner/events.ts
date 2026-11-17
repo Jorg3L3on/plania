@@ -314,6 +314,25 @@ export async function wakePoIfWaiting(tx: Q, agent: Agent, project: ProjectRef, 
     .orderBy(asc(tasks.createdAt));
   const next = rows.find((t) => t.key !== justRan && !t.title.includes("[PRUEBA]"));
   if (next) return queueWake(tx, project, { id: next.id, key: next.key }, { agent, taskKey: next.key, reason: "request waiting" }, "run.ended");
+  // PLA-I54-4: an owner's «Constrúyelo» whose wake was coalesced: the idea still waits for its promoted_to.
+  const [built] = await tx
+    .select({ id: tasks.id, key: tasks.key })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.projectId, project.id),
+        eq(tasks.kind, "idea"),
+        eq(tasks.origin, "jorge"),
+        eq(tasks.status, "Open"),
+        eq(tasks.ownerAgent, agent.id),
+        sql`${tasks.promotedTo} is null`,
+        sql`${tasks.key} <> ${justRan ?? ""}`,
+        sql`exists (select 1 from events e where e.task_id = ${tasks.id} and e.type = 'pedido.construir')`,
+      ),
+    )
+    .orderBy(asc(tasks.createdAt))
+    .limit(1);
+  if (built) return queueWake(tx, project, built, { agent, taskKey: built.key, reason: "Jorge dijo «Constrúyelo» en esta idea: termina los docs de las etapas que faltan, crea la iniciativa y sus tickets directamente, sin preguntar, y pon promoted_to en la idea" }, "run.ended");
   // PLA-I54-1: an idea the owner asked to shape (Darle forma) whose wake was coalesced waits in the buzón: no run ever
   // took it. The PO takes the oldest one once nothing Ready waits.
   const [idea] = await tx

@@ -320,7 +320,7 @@ const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone, pedido, pe
   switch (r.kind) {
     // PLA-I54-3: one request of the owner's, and the shelf.
     case "pedido":
-      return whenLoaded(pedido ?? { status: "loading" }, "el pedido", (d) => <PedidoTab d={d} now={now} timeZone={timeZone} acts={{ ...pedidoActs, onDoc: (id) => onRef({ kind: "doc", id }) }} slots={pedidoSlots} />);
+      return whenLoaded(pedido ?? { status: "loading" }, "el pedido", (d) => <PedidoTab d={d} now={now} timeZone={timeZone} acts={{ ...pedidoActs, onDoc: (id) => onRef({ kind: "doc", id }), onTrack: (key) => onRef({ kind: "leg", key }) }} slots={pedidoSlots} />);
     case "guardadas":
       return <PedidoList p={p} onRef={onRef} shelf />;
     case "step":
