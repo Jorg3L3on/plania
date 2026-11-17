@@ -27,7 +27,8 @@
 //   GET  /api/company/projects/:slug/team/:agent/packs    → {project, agent, packs: [{slug, name, when, doc_id}]}
 //   PUT  /api/company/projects/:slug/team/:agent/packs    {packs: [slug]} replaces the list → same shape
 //        404 PROJECT_NOT_FOUND | AGENT_NOT_FOUND; 400 UNKNOWN_PACK {packs} | TOO_MANY_PACKS
-//   POST /api/company/projects/:slug/team                 {template, packs?} sets the new member's packs too
+//   POST /api/company/projects/:slug/team                 {template, packs?, motor?} sets the new member's packs (and PLA-I59-2 motor) too
+//   PUT  /api/company/motores  {project, seats?, company?}  PLA-I59-2: the Motores console's save (src/api/company-motores.ts)
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { z } from "zod";
@@ -43,6 +44,8 @@ import { construirPedido, descartarPedido, guardarPedido, pedidoDetail, restaura
 import { promptDoc } from "./company-extra.js";
 import { fichaRead, projectDocRead } from "./company-ficha.js";
 import { addTeamMember, companyRead, projectRead } from "./company-org.js";
+import { setMotores } from "./company-motores.js";
+import { checkMotor } from "../mcp/team.js";
 import { actOnDecision } from "./company-decisions.js";
 import { setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner/company.js";
 import { EFFORTS, MODEL_HINT, isModel } from "../runner/motor.js";
@@ -132,7 +135,9 @@ companyRoutes.post("/decisions/:id", async (c) => {
 });
 
 const PackSlugs = z.array(z.string().trim().min(1).max(40)).max(MAX_PACKS);
-const TeamBody = z.object({ template: z.string().min(1).max(40), packs: PackSlugs.optional() }).strict();
+const MotorBody = z.object({ model: z.string().max(80).nullable().optional(), effort: z.string().max(20).nullable().optional() }).strict();
+// PLA-I59-2: Sumar may give the new seat its own motor (absent: it inherits the company default).
+const TeamBody = z.object({ template: z.string().min(1).max(40), packs: PackSlugs.optional(), motor: MotorBody.optional() }).strict();
 
 companyRoutes.post("/projects/:slug/team", async (c) => {
   const input = await body(c, TeamBody);
@@ -145,8 +150,25 @@ companyRoutes.post("/projects/:slug/team", async (c) => {
       const unknown = input.packs.filter((s) => !known.has(s));
       if (unknown.length) return { error: "UNKNOWN_PACK" as const, status: 400 as const, hint: `no pack doc for ${unknown.join(", ")}`, packs: unknown };
     }
-    const made = await addTeamMember(db, slug, input.template.trim());
-    if ("error" in made || !input.packs?.length) return made;
+    // PLA-I59-2: a bad motor is refused before anyone is hired, too.
+    if (input.motor) {
+      try {
+        checkMotor("motor", input.motor);
+      } catch (e) {
+        if (e instanceof ToolError) return { error: "INVALID_FILTER" as const, status: 400 as const, field: String(e.detail.field ?? ""), hint: String(e.detail.hint ?? "") };
+        throw e;
+      }
+    }
+    const hired = await addTeamMember(db, slug, input.template.trim());
+    if ("error" in hired) return hired;
+    let made = hired;
+    if (input.motor) {
+      const set = await setMotores(db, { project: slug, seats: [{ agent: hired.agent.agent, motor: input.motor }] });
+      if ("error" in set) return set;
+      const team = (await projectRead(db, slug)).team;
+      made = { agent: team.find((m) => m.agent === hired.agent.agent)!, team };
+    }
+    if (!input.packs?.length) return made;
     const set = await setRolePacks(db, slug, made.agent.agent, input.packs);
     if ("error" in set) return set;
     const slugs = set.packs.map((x) => x.slug);
@@ -158,6 +180,26 @@ companyRoutes.post("/projects/:slug/team", async (c) => {
     return c.json(rest, status);
   }
   return c.json(out, 201);
+});
+
+// PLA-I59-2 (Motores): one save for the console (several seats and the company default, all or nothing).
+const MotoresBody = z
+  .object({
+    project: z.string().min(1).max(60),
+    seats: z.array(z.object({ agent: z.string().min(1).max(60), motor: MotorBody.nullable().optional(), consulta_motor: MotorBody.nullable().optional() }).strict()).max(20).optional(),
+    company: MotorBody.optional(),
+  })
+  .strict();
+
+companyRoutes.put("/motores", async (c) => {
+  const input = await body(c, MotoresBody);
+  if (input instanceof Response) return input;
+  const out = await withDb((db) => setMotores(db, input));
+  if ("error" in out) {
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  return c.json(out);
 });
 
 companyRoutes.get("/packs", async (c) => c.json({ packs: (await withDb((db) => listPacks(db))).map(packRef) }));
