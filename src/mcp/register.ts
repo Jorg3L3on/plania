@@ -660,7 +660,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       const out = await finish(db, input as never, ctx);
       // PLA-I32-3: a runner's finish leaves its line in the project thread (best effort, after the commit).
       const i = input as { project: string; key: string; result?: { cite?: string; verdict?: string }; pr_url?: string };
-      await closingLine(db, ctx, { project: i.project, key: i.key, via: "finish", cite: i.result?.cite, verdict: i.result?.verdict, prUrl: i.pr_url }).catch(() => null);
+      await closingLine(db, ctx, { project: i.project, key: i.key, via: "finish", cite: i.result?.cite, verdict: i.result?.verdict, prUrl: i.pr_url }).catch((e) => (console.log(`[thread] closing line of ${i.project}/${i.key} failed: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`), null));
       // PLA-I52-2/3: a delivery with a muestra warms its own copy and gets its pairs for El Probador (background).
       if (warmOn()) afterFinish(db, i.project, i.key);
       return out;
@@ -741,7 +741,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     writeHandler("add_result", async (input, ctx) => {
       const out = await addResult(db, input, ctx);
       const i = input as { project: string; key: string; cite?: string; verdict?: string };
-      await closingLine(db, ctx, { project: i.project, key: i.key, via: "add_result", cite: i.cite, verdict: i.verdict }).catch(() => null);
+      await closingLine(db, ctx, { project: i.project, key: i.key, via: "add_result", cite: i.cite, verdict: i.verdict }).catch((e) => (console.log(`[thread] closing line of ${i.project}/${i.key} failed: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`), null));
       return out;
     }),
   );
@@ -1054,7 +1054,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "audit",
     {
       description: [
-        "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
+        "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, REVIEW_NOBODYS_TURN, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
         "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, WONT_DO_WITHOUT_EVIDENCE, and the footprint codes.",
         "CLAIMABLE_BUT_GATED is the previous name of CLAIMABLE_BUT_WAITING, kept as an alias for one release.",
         "Each finding has key, detail and fix_hint. It also runs every ten minutes; get_resume.status.audit_findings is the last count.",
