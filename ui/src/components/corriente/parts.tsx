@@ -75,3 +75,13 @@ export const ReadError = ({ what, onRetry }: { what: string; onRetry: () => void
     </Btn>
   </div>
 );
+
+/** A switch: 44px tall, the state said in words beside it (never by colour alone). */
+export const Switch = ({ on, label, onChange, disabled, ...rest }: { on: boolean; label: string; onChange: (on: boolean) => void; disabled?: boolean } & Omit<React.HTMLAttributes<HTMLButtonElement>, "onChange">) => (
+  <button type="button" role="switch" aria-checked={on} className="cor-switch" onClick={() => onChange(!on)} disabled={disabled} {...rest}>
+    <i aria-hidden />
+    <span>
+      {label} · {on ? "encendido" : "apagado"}
+    </span>
+  </button>
+);
