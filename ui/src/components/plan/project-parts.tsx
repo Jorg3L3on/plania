@@ -264,22 +264,32 @@ function InitiativeStatus({ lane }: { lane: Lane }) {
 }
 
 // PLA-I53-5: Merged and Released are landed (Hecho), as on the stage board; only In review is the violet stretch.
+// PLA-I56-2: landed is not closed. Done is solid green; Merged and Released (shipped, not closed) are green at half
+// strength, so a full solid bar always means every ticket is Done. The words say what is left.
 function InitiativeProgress({ lane, barClassName }: { lane: Lane; barClassName?: string }) {
   const share = (n: number) => (lane.total === 0 ? 0 : (n / lane.total) * 100);
-  const landed = lane.closed + lane.review.filter((t) => t.status !== "In review").length;
-  const inReview = lane.review.length - (landed - lane.closed);
+  const merged = lane.review.filter((t) => t.status === "Merged").length;
+  const released = lane.review.filter((t) => t.status === "Released").length;
+  const shipped = merged + released;
+  const landed = lane.closed + shipped;
+  const inReview = lane.review.length - shipped;
   const advanced = landed + inReview;
+  const ready = lane.total > 0 && lane.closed === lane.total;
   return (
     <div className="flex items-center gap-2.5">
       <div className={cn("flex h-1.5 w-24 overflow-hidden rounded-full bg-foreground/10", barClassName)} aria-hidden>
-        <div className="h-full bg-status-done" style={{ width: `${share(landed)}%` }} />
+        <div className="h-full bg-status-done" style={{ width: `${share(lane.closed)}%` }} />
+        <div className="h-full bg-status-done/45" data-shipped="" style={{ width: `${share(shipped)}%` }} />
         <div className="h-full bg-status-review" style={{ width: `${share(inReview)}%` }} />
       </div>
       <span
         className="whitespace-nowrap text-muted-foreground tabular-nums"
-        title={`${landed} hechos, ${inReview} en revisión, ${lane.total} en total`}
+        title={`${lane.closed} cerrados, ${shipped} entregados sin cerrar, ${inReview} en revisión, ${lane.total} en total`}
       >
         {advanced} de {lane.total}
+        {ready && lane.initiative && <span className="text-ink-done"> · lista para cerrar</span>}
+        {merged > 0 && <span> · {merged} por lanzar</span>}
+        {released > 0 && <span> · {released} por cerrar</span>}
         {inReview > 0 && <span className="text-ink-review"> · {inReview} en revisión</span>}
       </span>
     </div>

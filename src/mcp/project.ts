@@ -15,7 +15,7 @@ import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 // additions to the protocol) and the headline (one line on where it stands, ≤ 280 chars).
 // Replaced with the version you read; rules_version moves with the rules, headline_version with the headline.
 
-const SETTING_KEYS = ["release_target", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel", "release", "team", "capture", "qa", "maquinas"] as const;
+const SETTING_KEYS = ["release_target", "release_on", "auto_done", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel", "release", "team", "capture", "qa", "maquinas"] as const;
 
 // settings merge key by key; null removes one. Secrets never: integrations name env vars.
 function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>): ProjectSettings {
@@ -25,6 +25,8 @@ function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>)
     if (v === null) delete next[k];
     else next[k] = v;
   }
+  if (next.release_on !== undefined && !["env", "branch"].includes(String(next.release_on))) throw new ToolError("INVALID_FILTER", { field: "settings.release_on", allowed: ["env", "branch"] });
+  if (next.auto_done !== undefined && typeof next.auto_done !== "boolean") throw new ToolError("INVALID_FILTER", { field: "settings.auto_done", allowed: [true, false] });
   if (next.claim_from !== undefined && !["backlog", "ready"].includes(String(next.claim_from))) throw new ToolError("INVALID_FILTER", { field: "settings.claim_from", allowed: ["backlog", "ready"] });
   if (next.branch_pattern !== undefined) {
     try {

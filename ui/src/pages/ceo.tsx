@@ -370,6 +370,28 @@ const Compania = () => {
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [company, decisions, shownPiso, fichaOpen, fref.kind, fslug, zoomOut, nivel, location.search]);
+  // PLA-I56-2: Cerrar iniciativa from the ventanal. The server accepts it only when every step is Done (the read
+  // says can_close); a refusal names what is still open.
+  const cerrar = useMutation({
+    mutationFn: (v: { slug: string; key: string; version: number }) => api.patchTask(v.slug, v.key, { status: "Done", version: v.version }),
+    onSuccess: (_r, v) => {
+      toast("Iniciativa cerrada: ya está en Completas.");
+      void client.invalidateQueries({ queryKey: ["company"] });
+      void client.invalidateQueries({ queryKey: ["company-project", v.slug] });
+      void client.invalidateQueries({ queryKey: ["project", v.slug] });
+    },
+    onError: (e) => {
+      const open = e instanceof ApiError && Array.isArray(e.detail?.open) ? (e.detail.open as string[]) : [];
+      toast.error(
+        e instanceof ApiError && e.code === "INITIATIVE_CHILDREN_OPEN"
+          ? `Todavía no se puede cerrar: ${open.length === 1 ? "queda 1 paso abierto" : `quedan ${open.length} pasos abiertos`}${open.length ? ` (${open.join(", ")})` : ""}.`
+          : e instanceof ApiError && e.code === "STALE_VERSION"
+            ? "Cambió mientras la veías. Ya está al día: vuelve a intentarlo."
+            : "No se pudo cerrar la iniciativa.",
+      );
+      void client.invalidateQueries({ queryKey: ["company"] });
+    },
+  });
   const act = useMutation({
     mutationFn: (v: { d: Decision; input: DecisionInput; key: string }) => api.actDecision(v.d.id, v.input),
     onMutate: (v) => {
@@ -795,6 +817,7 @@ const Compania = () => {
                   slots={{ ...fichaSlots(fichaProject), board: parts.board, tubo: parts.tubo }}
                   pedido={loadOf(fichaPedido, !!pedidoKey)}
                   pedidoActs={pedidoActs}
+                  cerrar={{ onCerrar: (slug, key, version) => cerrar.mutate({ slug, key, version }), busy: cerrar.isPending ? (cerrar.variables?.key ?? null) : null }}
                 />
                 </Resguardo>
               ) : (

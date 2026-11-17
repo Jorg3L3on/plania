@@ -36,7 +36,8 @@ const TICKET_MOVES: Record<string, string[]> = {
 const SYSTEM_MOVES: Record<string, string[]> = {
   "In review": ["Merged", "Ready"],
   Merged: ["Released"],
-  Released: ["Merged"],
+  // PLA-I56-1: a released code ticket with nothing left open closes by the rule (jobs/github.ts closeReleased).
+  Released: ["Merged", "Done"],
 };
 
 const INITIATIVE_MOVES: Record<string, string[]> = {

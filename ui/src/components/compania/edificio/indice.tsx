@@ -9,7 +9,7 @@
 // night ones, as on the board.
 import type { CSSProperties, ReactNode } from "react";
 import type { OrgMember, OrgProject } from "@/lib/api";
-import { OPEN_STATIONS, toneOf, trackLine, trackPct, type StageTone, type Track } from "@/lib/etapas";
+import { closedPct, OPEN_STATIONS, toneOf, trackLine, trackPct, type StageTone, type Track } from "@/lib/etapas";
 import type { FichaRef } from "@/lib/ficha";
 import { roleName } from "@/lib/org";
 import { TONE_VAR } from "@/components/plan/stage-board";
@@ -23,10 +23,18 @@ const BEADS_MAX = 28;
 // The completed initiatives shown as chips; the rest fold behind «+ n más».
 const DONE_MAX = 3;
 
-// A bead per step: the done ones first, then the open ones from the nearest to done (Te toca) back to Por hacer.
-export function beadsOf(tr: Track): StageTone[] {
+// PLA-I56-2: a landed step that is not closed yet (merged or released, not Done) is «shipped»: the done colour at
+// half strength, so a full row of solid beads always means every step is Done.
+export type BeadTone = StageTone | "shipped";
+const beadVar = (tone: BeadTone) => TONE_VAR[tone === "shipped" ? "done" : tone];
+
+// A bead per step: the closed ones first, then the shipped ones, then the open ones from the nearest to done (Te toca)
+// back to Por hacer.
+export function beadsOf(tr: Track): BeadTone[] {
   const open = [...OPEN_STATIONS].reverse().flatMap((s) => tr.cells[s.id as keyof Track["cells"]].map((t) => toneOf(t.etapa)));
-  return [...Array.from({ length: Math.max(0, tr.total - open.length) }, () => "done" as StageTone), ...open];
+  const landed = Math.max(0, tr.total - open.length);
+  const closed = Math.min(tr.closed, landed);
+  return [...Array.from({ length: closed }, () => "done" as BeadTone), ...Array.from({ length: landed - closed }, () => "shipped" as BeadTone), ...open];
 }
 
 const one = (n: number, a: string, b: string) => `${n} ${n === 1 ? a : b}`;
@@ -126,7 +134,7 @@ export const Indice = ({
               {/* The short code (I2): the floor already says whose it is; the full key is in the title. */}
               <span className="edi-ix-code">{tr.key ? tr.key.replace(/^[A-Z0-9]+-/, "") : "·"}</span>
               <span className="edi-ix-name">{tr.title}</span>
-              <span className="edi-ix-ct" data-toca={toca || undefined}>
+              <span className="edi-ix-ct" data-toca={toca || undefined} data-cerrar={tr.canClose || undefined}>
                 {trackLine(tr).replace(" · sin iniciativa", "")}
                 {toca > 0 && ` · te toca ${toca}`}
               </span>
@@ -134,12 +142,13 @@ export const Indice = ({
                 <span className="edi-ix-beads" data-beads="none" aria-hidden />
               ) : beads.length > BEADS_MAX ? (
                 <span className="edi-ix-beads" data-beads="bar" aria-hidden>
-                  <i style={{ flex: `0 0 ${trackPct(tr)}%`, "--bc": TONE_VAR.done } as CSSProperties} />
+                  <i style={{ flex: `0 0 ${closedPct(tr)}%`, "--bc": TONE_VAR.done } as CSSProperties} />
+                  {trackPct(tr) > closedPct(tr) && <i data-tone="shipped" style={{ flex: `0 0 ${trackPct(tr) - closedPct(tr)}%`, "--bc": TONE_VAR.done } as CSSProperties} />}
                 </span>
               ) : (
                 <span className="edi-ix-beads" data-beads={beads.length} aria-hidden>
                   {beads.map((tone, i) => (
-                    <i key={i} data-tone={tone} style={{ "--bc": TONE_VAR[tone] } as CSSProperties} />
+                    <i key={i} data-tone={tone} style={{ "--bc": beadVar(tone) } as CSSProperties} />
                   ))}
                 </span>
               )}
