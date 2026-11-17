@@ -1060,6 +1060,8 @@
   .ahl-list .ahl-say + .ahl-say::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--ac); vertical-align: 0.08em; }
   .ahl-more, .ahl-why { margin: 0; font-size: 13px; line-height: 1.35; color: var(--e-muted, var(--muted-foreground)); }
   .ahl-why { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  /* PLA-47: the quiet line names what waits for later and why: room for it whole. */
+  .ahl[data-reason="nothing_ready"] .ahl-why { display: block; -webkit-line-clamp: unset; overflow: visible; }
   .edi-nowb .ahl-say { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .edi-nowb .ahl { grid-column: 1; }
   /* The corner: the teammates without a station (Research, Artist…) as small windows, and Sumar. */

@@ -154,7 +154,12 @@ export function etapaOf(f: EtapaFacts, now: Date): Etapa | null {
     if (f.waitsOn.length > 0) return make("en_espera", { reason: `Espera a ${quoted(f.waitsOn[0]!)}` });
     return make("lista");
   }
-  if (f.status === "Backlog") return f.postponed ? make("pospuesto", { reason: "Pospuesto a propósito." }) : make("despues");
+  // PLA-47: a ticket left for later says why it waits, so the floor can name what is next.
+  if (f.status === "Backlog") {
+    // A postponed step that waits on another says so: that is what is next, not the postponing.
+    if (f.postponed) return make("pospuesto", { reason: f.waitsOn.length > 0 ? `Espera a ${quoted(f.waitsOn[0]!)}` : "Pospuesto a propósito." });
+    return make("despues", { reason: f.waitsOn.length > 0 ? `Espera a ${quoted(f.waitsOn[0]!)}` : "Está en Backlog: nadie la pasó a Lista." });
+  }
   // An unknown status reads as not started.
   return make("despues");
 }

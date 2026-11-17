@@ -33,6 +33,10 @@ const of = (patch: Partial<Facts>) => etapaOf(base(patch), NOW)!;
 describe("etapaOf: one stage per status", () => {
   test("despues: Backlog outside the leg in course", () => {
     assert.equal(of({ status: "Backlog" }).etapa, "despues");
+    // PLA-47: and says why it waits.
+    assert.equal(of({ status: "Backlog" }).reason, "Está en Backlog: nadie la pasó a Lista.");
+    assert.equal(of({ status: "Backlog", waitsOn: ["Hosting"] }).reason, "Espera a «Hosting»");
+    assert.equal(of({ status: "Backlog", postponed: true, waitsOn: ["Hosting"] }).reason, "Espera a «Hosting»");
   });
   test("pospuesto: Backlog in the leg in course (or under an On hold initiative)", () => {
     const e = of({ status: "Backlog", postponed: true });

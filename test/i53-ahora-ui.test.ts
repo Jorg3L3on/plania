@@ -136,6 +136,19 @@ test("I53-4 #3: nothing Ready", () => {
   assert.deepEqual(lib.quietReason(facts({ later: 3, paused: "project" })), { kind: "nothing_ready", text: "Nada está listo para empezar. Quedan 3 para después." });
   assert.equal(lib.quietReason(facts()).kind, "nothing_ready");
 });
+test("PLA-47: nothing Ready names what waits for later and why", () => {
+  const laterOnes = [
+    { title: "Hosting, dominio y despliegue", reason: "Está en Backlog: nadie la pasó a Lista." },
+    { title: "Puesta en marcha", reason: "Espera a «Hosting, dominio y despliegue»" },
+    { title: "Otra", reason: null },
+  ];
+  assert.deepEqual(lib.quietReason(facts({ later: 2, laterOnes: laterOnes.slice(0, 2) })), {
+    kind: "nothing_ready",
+    text: "Nada está listo para empezar. Quedan 2 para después: «Hosting, dominio y despliegue» (está en Backlog: nadie la pasó a Lista); «Puesta en marcha» (espera a «Hosting, dominio y despliegue»).",
+  });
+  assert.equal(lib.quietReason(facts({ later: 3, laterOnes })).text.endsWith("y 1 más."), true);
+  assert.equal(lib.quietReason(facts({ later: 1, laterOnes: [{ title: "Otra", reason: null }] })).text, "Nada está listo para empezar. Queda 1 para después: «Otra».");
+});
 test("I53-4 #3: the project is paused", () => {
   assert.deepEqual(lib.quietReason(facts({ ready: ["Alta"], paused: "project", queued: { who: "Taller", at: null } })), { kind: "paused", text: "El proyecto está en pausa: nada arranca hasta que lo reanudes." });
   assert.equal(lib.quietReason(facts({ ready: ["Alta"], paused: "company" })).text, "La compañía está en pausa: nada arranca hasta que la reanudes.");

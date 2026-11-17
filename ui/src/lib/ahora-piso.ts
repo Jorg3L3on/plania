@@ -108,6 +108,8 @@ export type QuietFacts = {
   // Tickets Ready to start, and how many are left for later.
   ready: string[];
   later: number;
+  // PLA-47: the tickets left for later, by title, and why each waits (the server's reason; an older server sends none).
+  laterOnes?: { title: string; reason: string | null }[];
   paused: "company" | "project" | null;
   // The teammate who takes the next Ready ticket, when, and what holds the runner back, if it said.
   queued: { who: string; at: string | null; hold?: string | null } | null;
@@ -126,8 +128,14 @@ export function quietReason(f: QuietFacts): Quiet {
     const b = f.blocked[0]!;
     return { kind: "blocked", text: `Todo está bloqueado: ${q(b.title)}${b.reason ? ` (${b.reason.replace(/[.\s]+$/, "")})` : ""}${more(f.blocked.length - 1)}.` };
   }
-  if (f.ready.length === 0)
-    return { kind: "nothing_ready", text: `Nada está listo para empezar.${f.later > 0 ? ` ${f.later === 1 ? "Queda 1 para después" : `Quedan ${f.later} para después`}.` : " Pide algo con Pedir y el PO lo reparte."}` };
+  if (f.ready.length === 0) {
+    if (f.later === 0) return { kind: "nothing_ready", text: "Nada está listo para empezar. Pide algo con Pedir y el PO lo reparte." };
+    const head = f.later === 1 ? "Queda 1 para después" : `Quedan ${f.later} para después`;
+    // PLA-47: name up to two of them and why each waits, so the owner sees what is next without opening the board.
+    const named = (f.laterOnes ?? []).slice(0, 2).map((t) => `${q(t.title)}${t.reason ? ` (${t.reason.replace(/[.\s]+$/, "").replace(/^./, (c) => c.toLowerCase())})` : ""}`);
+    const list = named.length ? `: ${named.join("; ")}${more(f.later - named.length)}` : "";
+    return { kind: "nothing_ready", text: `Nada está listo para empezar. ${head}${list}.` };
+  }
   if (f.paused) return { kind: "paused", text: f.paused === "company" ? "La compañía está en pausa: nada arranca hasta que la reanudes." : "El proyecto está en pausa: nada arranca hasta que lo reanudes." };
   const who = f.queued?.who ?? "El equipo";
   const rest = f.ready.length - 1;
@@ -160,6 +168,7 @@ export function quietFacts(p: Pick<OrgProject, "team" | "tablero" | "next_move" 
     blocked: of(["bloqueado", "en_espera"]).map((t) => ({ title: t.title, reason: t.etapa.reason })),
     ready: ready.map((t) => t.title),
     later: of(["despues", "pospuesto"]).length,
+    laterOnes: of(["despues", "pospuesto"]).map((t) => ({ title: t.title, reason: t.etapa.reason })),
     paused: opts.companyPaused ? "company" : p.paused || p.light === "paused" ? "project" : null,
     queued: next ? { who: roleName(next.role), at: ns?.starts_at && Date.parse(ns.starts_at) > now ? clockAt(ns.starts_at, opts.timeZone) : null, hold: ns?.hold ?? null } : null,
   };
