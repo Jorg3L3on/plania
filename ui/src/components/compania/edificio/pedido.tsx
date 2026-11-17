@@ -6,14 +6,16 @@
 // says «Pasando la válvula…»), and a promoted request points to its initiative on the board. The pictures' slots (the trail's thumbnails, the note box's picker) are
 // marked data-slot for F5.
 // PedidoView is pure (tests call its handlers); PedidoTab holds what is typed and which sub-tab is open.
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { OrgPedido, PedidoDetail, PedidoTrailItem } from "@/lib/api";
+import { ImageDrop, Thumbs } from "./image-drop";
 import { roleName } from "@/lib/org";
 import { PEDIDO_TONE, pedidoWord, stopName } from "./tubo";
 
 export type PedidoActs = {
   onAnswer?: (questionId: string, text: string) => void;
-  onNote?: (text: string) => void;
+  // PLA-I54-5: files are the note box's pictures, stored after the note so they hang under it in the trail.
+  onNote?: (text: string, files?: File[]) => void;
   onGuardar?: () => void;
   onRestaurar?: () => void;
   onDescartar?: () => void;
@@ -71,9 +73,27 @@ export type PedidoViewProps = {
   setNote: (s: string) => void;
   confirmDrop: boolean;
   setConfirmDrop: (b: boolean) => void;
+  // PLA-I54-5: pictures chosen in the note box (they can go alone), and the box they are pasted into.
+  pending?: number;
+  noteRef?: RefObject<HTMLTextAreaElement | null>;
 };
 
-export const PedidoView = ({ d, now, timeZone, acts, slots = {}, sub, setSub, answer, setAnswer, note, setNote, confirmDrop, setConfirmDrop }: PedidoViewProps) => {
+// PLA-I54-5: each picture hangs under the owner's trail item it was sent with: the last one of his at or before the
+// picture's time (pictures go up right after the request or the note), else the first item.
+export function picturesByItem(trail: readonly PedidoTrailItem[], pictures: PedidoDetail["pictures"]): Map<number, PedidoDetail["pictures"]> {
+  const out = new Map<number, PedidoDetail["pictures"]>();
+  for (const pic of pictures) {
+    let at = 0;
+    trail.forEach((e, i) => {
+      if (e.who === "jorge" && Date.parse(e.at) <= Date.parse(pic.at) && Date.parse(e.at) >= Date.parse(trail[at]!.at)) at = i;
+    });
+    out.set(at, [...(out.get(at) ?? []), pic]);
+  }
+  return out;
+}
+export const imageNote = (n: number) => (n === 1 ? "Añadí una imagen." : `Añadí ${n} imágenes.`);
+
+export const PedidoView = ({ d, now, timeZone, acts, slots = {}, sub, setSub, answer, setAnswer, note, setNote, confirmDrop, setConfirmDrop, pending = 0, noteRef }: PedidoViewProps) => {
   const up = !!d.promoted_to;
   const closed = d.status !== "Open";
   const where = up ? "En el tablero" : closed ? "Descartada" : d.guardada ? "Guardada" : stopName(d.stop);
@@ -198,14 +218,14 @@ export const PedidoView = ({ d, now, timeZone, acts, slots = {}, sub, setSub, an
               className="edi-pd-row"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (note.trim().length >= 2 && !busy("note")) acts.onNote?.(note.trim());
+                if ((note.trim().length >= 2 || pending > 0) && !busy("note")) acts.onNote?.(note.trim().length >= 2 ? note.trim() : imageNote(pending));
               }}
             >
               <label htmlFor={`pd-nota-${d.key}`} className="edi-sr">
                 Añade algo a esta idea
               </label>
-              <textarea id={`pd-nota-${d.key}`} rows={1} placeholder="Añade algo a esta idea…" value={note} maxLength={1000} onChange={(e) => setNote(e.target.value)} />
-              <button type="submit" className="edi-btn" disabled={note.trim().length < 2 || busy("note")} data-control="pedido-nota">
+              <textarea id={`pd-nota-${d.key}`} ref={noteRef} rows={1} placeholder="Añade algo o pega una imagen…" value={note} maxLength={1000} onChange={(e) => setNote(e.target.value)} />
+              <button type="submit" className="edi-btn" disabled={(note.trim().length < 2 && pending === 0) || busy("note")} data-control="pedido-nota">
                 {busy("note") ? "…" : "Añadir"}
               </button>
             </form>
@@ -260,10 +280,14 @@ export const PedidoTab = (props: { d: PedidoDetail; now: number; timeZone?: stri
   const [note, setNote] = useState("");
   const [confirmDrop, setConfirmDrop] = useState(false);
   const [trailN, setTrailN] = useState(props.d.trail.length);
+  // PLA-I54-5: the note box's pictures. They go up after the note, so they hang under it in the trail.
+  const noteRef = useRef<HTMLTextAreaElement>(null);
+  const [files, setFiles] = useState<File[]>([]);
   useEffect(() => {
     setAnswer("");
     setNote("");
     setConfirmDrop(false);
+    setFiles([]);
   }, [props.d.key]);
   // What was sent shows in the trail on the next read: clear the box then.
   useEffect(() => {
@@ -274,5 +298,21 @@ export const PedidoTab = (props: { d: PedidoDetail; now: number; timeZone?: stri
     setTrailN(props.d.trail.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.d.trail.length]);
-  return <PedidoView {...props} sub={sub} setSub={setSub} answer={answer} setAnswer={setAnswer} note={note} setNote={setNote} confirmDrop={confirmDrop} setConfirmDrop={setConfirmDrop} />;
+  const d = props.d;
+  const byItem = picturesByItem(d.trail, d.pictures ?? []);
+  const acts: PedidoActs = {
+    ...props.acts,
+    onNote: props.acts.onNote
+      ? (text) => {
+          props.acts.onNote!(text, files);
+          setFiles([]);
+        }
+      : undefined,
+  };
+  const slots: PedidoSlots = {
+    trailImages: (_e, i) => (byItem.get(i)?.length ? <Thumbs images={byItem.get(i)!} /> : null),
+    noteImages: props.acts.onNote ? <ImageDrop files={files} onChange={setFiles} textarea={noteRef} stored={(d.pictures ?? []).length} disabled={props.acts.busy === "note"} /> : undefined,
+    ...props.slots,
+  };
+  return <PedidoView {...props} acts={acts} slots={slots} pending={files.length} noteRef={noteRef} sub={sub} setSub={setSub} answer={answer} setAnswer={setAnswer} note={note} setNote={setNote} confirmDrop={confirmDrop} setConfirmDrop={setConfirmDrop} />;
 };

@@ -8,10 +8,12 @@
 //   POST /api/company/projects/:slug/pedidos/:key/construir   PLA-I54-4: «Constrúyelo» (the order, then the PO's wake)
 // The note box uses POST …/tasks/:key/note (company-runs.ts: the PO reads it on its next run) and the answer box the
 // screen's answer route (POST /api/projects/:slug/questions/:id/answer, which wakes the PO that asked).
-// PLA-I54-5: images join the trail and the note box; the detail's pictures is [] until F5 fills it.
+// PLA-I54-5: the detail's pictures come from task_images (src/pedidos/images.ts); the tab hangs each under the
+// owner's trail item it was sent with.
 import { and, asc, desc, eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { agents, docs, events, projects, questions, tasks, type Actor, type Task } from "../db/schema.js";
+import { listTaskImages } from "../pedidos/images.js";
 import { findProject } from "../mcp/queries.js";
 import { webCtx, writeTx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
@@ -39,7 +41,7 @@ export type PedidoDetail = Pedido & {
   question_options: string[];
   trail: TrailItem[];
   ficha: FichaIdea;
-  // PLA-I54-5: the request's pictures (thumbnails in the trail). Empty until F5 fills it from task_images.
+  // PLA-I54-5: the request's pictures (thumbnails in the trail), oldest first.
   pictures: { id: string; url: string; at: string }[];
 };
 type Refusal = { error: string; status: 404 | 409; hint: string };
@@ -164,7 +166,7 @@ export async function pedidoDetail(db: Db, slug: string, key: string): Promise<P
     question_options: q?.options ?? [],
     trail: await trailOf(db, t),
     ficha: fichaOf(list),
-    pictures: [],
+    pictures: (await listTaskImages(db, slug, key)).map((i) => ({ id: i.id, url: i.url, at: i.created_at })),
   };
 }
 
