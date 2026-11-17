@@ -146,6 +146,28 @@ async function gh(deps: GithubDeps, token: string, path: string, etag?: string) 
   return { status: 200 as const, data: await res.json(), etag: res.headers.get("etag") ?? undefined };
 }
 
+// PLA-46: the whole branch list, page by page. GitHub pages at 100; plania had 110 branches, and every one past
+// page 1 (main and sandbox among them) kept its old head for good. complete is false when a page failed or the cap
+// was hit: the heads read still count, but nothing is marked deleted from a partial read.
+const BRANCH_PAGE = 100;
+const BRANCH_PAGES_MAX = 20;
+export async function remoteBranches(deps: GithubDeps, token: string, repo: string): Promise<{ heads: Map<string, string>; complete: boolean }> {
+  const heads = new Map<string, string>();
+  for (let page = 1; page <= BRANCH_PAGES_MAX; page++) {
+    let r: Awaited<ReturnType<typeof gh>>;
+    try {
+      r = await gh(deps, token, `/repos/${repo}/branches?per_page=${BRANCH_PAGE}&page=${page}`);
+    } catch {
+      return { heads, complete: false };
+    }
+    if (r.status !== 200) return { heads, complete: false };
+    const list = r.data as Branch[];
+    for (const b of list) heads.set(b.name, b.commit.sha);
+    if (list.length < BRANCH_PAGE) return { heads, complete: true };
+  }
+  return { heads, complete: false };
+}
+
 async function cursorOf(db: Db, projectId: string): Promise<Record<string, unknown>> {
   const [row] = await db.select().from(pollState).where(and(eq(pollState.projectId, projectId), eq(pollState.source, "github")));
   return row?.cursor ?? {};
@@ -411,16 +433,16 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
     }
     const known = await db.select().from(branches).where(eq(branches.projectId, p.id));
     if (known.length) {
-      const list = await gh(deps, token, `/repos/${cfg.repo}/branches?per_page=100`, cursor.branches_etag as string | undefined);
-      if (list.status === 200) {
-        cursor.branches_etag = list.etag;
-        const remote = new Map((list.data as Branch[]).map((b) => [b.name, b.commit.sha]));
+      // PLA-46: every page, not only the first hundred (the old single-page etag is dropped).
+      delete cursor.branches_etag;
+      const { heads: remote, complete } = await remoteBranches(deps, token, cfg.repo);
+      if (remote.size > 0 || complete) {
         for (const b of known) {
           const sha = remote.get(b.name);
           if (sha && sha !== b.headSha) {
             await touchBranch(db, p.id, b.name, { headSha: sha, headAt: deps.now ?? new Date(), deletedAt: null });
             summary.branches!++;
-          } else if (!sha && !b.deletedAt && (b.headSha || b.prNumber)) {
+          } else if (!sha && complete && !b.deletedAt && (b.headSha || b.prNumber)) {
             await touchBranch(db, p.id, b.name, { deletedAt: deps.now ?? new Date() });
             await writeTx(db, p, systemCtx(`gh:${cfg.repo}:branch_deleted:${b.name}`, "jobs.github"), async (_tx, emit) => {
               await emit("branch.deleted", null, { branch: b.name });
