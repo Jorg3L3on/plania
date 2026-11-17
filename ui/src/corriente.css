@@ -233,3 +233,69 @@ button.cor-row { width: 100%; text-align: left; background: transparent; border-
   .cor-cols, .cor-lanes { min-width: 1040px; }
   .cor-pedir { flex-wrap: wrap; }
 }
+
+/* PLA-I62-3: the strip, the project's row and Ahora (board B1). */
+.cor-strip { position: relative; display: flex; align-items: center; gap: 8px; padding: 6px 32px; border-bottom: 1px solid var(--cor-line); }
+.cor-strip-back { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px 0 0; font-size: 13.5px; color: var(--cor-body); flex: none; }
+.cor-strip-back:hover { color: #fff; }
+.cor-chips { flex: 1 1 600px; min-width: 0; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 6px; }
+.cor-chip { display: flex; flex-direction: column; justify-content: center; gap: 6px; min-height: 44px; min-width: 0; padding: 7px 12px; border-radius: 10px; border: 1px solid transparent; }
+.cor-chip:hover { background: rgba(255, 255, 255, 0.03); }
+.cor-chip[aria-current="page"] { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.14); }
+.cor-chip-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; font-weight: 500; color: var(--cor-body); }
+.cor-chip[aria-current="page"] .cor-chip-name { color: var(--cor-text); }
+.cor-mini { position: relative; display: grid; grid-template-columns: repeat(7, 1fr); align-items: center; width: 100%; height: 10px; }
+.cor-mini::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(139, 92, 246, 0.35); }
+.cor-mini::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; background: linear-gradient(90deg, transparent, rgba(196, 181, 253, 0.95), transparent) no-repeat; background-size: 30% 100%; animation: cor-flow var(--cor-speed, 6s) linear infinite; animation-delay: var(--cor-delay, 0s); }
+.cor-chip.quiet .cor-mini::after { opacity: 0.35; animation-duration: 14s; }
+.cor-mini.off::after { display: none; }
+.cor-mini.off::before { background: rgba(255, 255, 255, 0.08); }
+.cor-mini .t { position: relative; z-index: 1; justify-self: center; width: 4px; height: 4px; border-radius: 50%; background: #3a3550; }
+.cor-mini .t.on { background: var(--cor-violet-2); }
+.cor-mini .t.ag { width: 7px; height: 7px; background: #fff; box-shadow: 0 0 10px 3px rgba(139, 92, 246, 0.9); }
+.cor-mini .t.yo { width: 6px; height: 6px; border-radius: 1px; transform: rotate(45deg); background: var(--cor-bg); border: 1.5px solid var(--cor-amber); box-shadow: 0 0 10px 2px rgba(255, 180, 84, 0.6); }
+.cor-strip > .cor-btn { margin-left: 8px; flex: none; }
+
+.cor-pbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 0 28px; padding: 0 32px; border-bottom: 1px solid var(--cor-line); }
+.cor-pname { display: flex; align-items: center; gap: 10px; min-height: 52px; font-size: 19px; font-weight: 600; letter-spacing: -0.02em; }
+.cor-pbar .cor-tabs { gap: 0 20px; }
+.cor-pbar .cor-tabs.side { margin-left: auto; gap: 0 18px; }
+.cor-pbar .cor-tabs.side .cor-tab { font-size: 13px; }
+.cor-tab.tall { min-height: 52px; margin-bottom: -1px; }
+
+.cor-project { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.cor-pbody { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 20px 32px 24px; }
+.cor-ahora { display: flex; flex-wrap: wrap; gap: 36px; }
+.cor-ahora-main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.cor-ahora-side { flex: 1 1 300px; max-width: 300px; min-width: 260px; display: flex; flex-direction: column; gap: 22px; }
+.cor-youcard { display: flex; flex-wrap: wrap; gap: 22px; padding: 20px; box-shadow: 0 0 60px -20px rgba(255, 180, 84, 0.35); }
+.cor-youcard-text { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.cor-youcard .cor-h2 { font-size: 23px; }
+.cor-why { max-width: 60ch; }
+.cor-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.cor-statecard { display: flex; flex-direction: column; gap: 8px; padding: 20px; }
+.cor-ajuste { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--cor-line); }
+.cor-ajuste-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.cor-ajuste-row .cor-input { flex: 1 1 240px; }
+.cor-sec { display: flex; flex-direction: column; gap: 8px; }
+.cor-sec-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cor-run { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 10px 16px; border-radius: 12px; }
+.cor-run-text { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.cor-run-line { display: flex; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.cor-run-who { font-size: 15px; font-weight: 500; display: inline-flex; align-items: center; min-height: 44px; margin: -10px 0; }
+.cor-run-who:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+.cor-prow { gap: 16px; padding: 0 12px; border-radius: 8px; border-bottom-color: rgba(255, 255, 255, 0.06); }
+.cor-prow .cor-key { width: 92px; flex: none; }
+.cor-prow-title { flex: 1; font-size: 14px; }
+.cor-side-sec { display: flex; flex-direction: column; }
+.cor-side-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cor-side-head .cor-btn.link { font-size: 13px; }
+.cor-meta-goal { padding: 10px 0 12px; font-size: 15px; font-weight: 500; line-height: 1.35; border-bottom: 1px solid var(--cor-line); }
+.cor-kv > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; border-bottom: 1px solid var(--cor-line); font-size: 13.5px; color: var(--cor-body); }
+.cor-kv dd { font-size: 11.5px; color: var(--cor-text); text-transform: uppercase; text-align: right; }
+.cor-ojo { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--cor-line); font-size: 13.5px; color: var(--cor-body); }
+.cor-ojo ul { display: flex; flex-direction: column; gap: 6px; }
+.cor-team .cor-row { justify-content: space-between; padding: 0; font-size: 14px; }
+.cor-team .cor-row:hover { background: transparent; color: #fff; }
+.cor-side-foot { display: flex; flex-direction: column; gap: 6px; }
+.cor-side-foot .cor-btn.link { justify-content: flex-start; color: var(--cor-text); font-size: 13.5px; }
