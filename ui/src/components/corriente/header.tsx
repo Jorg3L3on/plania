@@ -15,6 +15,8 @@ export type HeadProps = {
   pedirTo: string;
   /** Where «N te esperan» goes. */
   tocaTo: string;
+  /** On the Pedir page the button closes it instead (back to where he was). */
+  closeTo?: string;
 };
 
 const Tab = ({ to, on, children }: { to: string; on: boolean; children: React.ReactNode }) => (
@@ -23,7 +25,7 @@ const Tab = ({ to, on, children }: { to: string; on: boolean; children: React.Re
   </Link>
 );
 
-export const Head = ({ view, waiting, asistenteUnread = 0, now, timeZone, pedirTo, tocaTo }: HeadProps) => (
+export const Head = ({ view, waiting, asistenteUnread = 0, now, timeZone, pedirTo, tocaTo, closeTo }: HeadProps) => (
   <header className="cor-head" data-cor-head>
     <nav className="cor-head-left" aria-label="Compañía">
       <span className="cor-head-name">Compañía</span>
@@ -58,9 +60,15 @@ export const Head = ({ view, waiting, asistenteUnread = 0, now, timeZone, pedirT
           {waiting === 1 ? "1 te espera" : `${waiting} te esperan`}
         </Link>
       )}
-      <Link to={pedirTo} className="cor-btn secondary" data-pedir>
-        Pedir
-      </Link>
+      {closeTo ? (
+        <Link to={closeTo} className="cor-btn secondary" data-control="cerrar-pedir">
+          Cerrar
+        </Link>
+      ) : (
+        <Link to={pedirTo} className="cor-btn secondary" data-pedir>
+          Pedir
+        </Link>
+      )}
     </div>
   </header>
 );

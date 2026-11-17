@@ -115,6 +115,18 @@ export function useCorrienteActs() {
     pickNext: (slug: string, key: string) => run(`next-${key}`, () => api.pickNext(slug, key)),
     note: (slug: string, key: string, text: string) => run(`note-${key}`, () => api.noteTask(slug, key, text), () => "Se lo dijiste; lo lee en su siguiente paso"),
     resume: (slug: string) => run(`${slug}:resume`, () => api.setProjectPaused(slug, false)),
+    // PLA-I54-3/4, PLA-I61: a request or idea (Guardar, Restaurar, Descartar, Constrúyelo), its question, a wake.
+    pedido: (slug: string, key: string, action: "guardar" | "restaurar" | "descartar" | "construir") =>
+      run(`pedido-${key}:${action}`, async () => {
+        await api.pedidoAct(slug, key, action);
+        void client.invalidateQueries({ queryKey: ["idea", slug, key] });
+      }),
+    answerQuestion: (slug: string, key: string, questionId: string, text: string) =>
+      run(`pedido-${key}:answer`, async () => {
+        await api.answer(slug, questionId, text);
+        void client.invalidateQueries({ queryKey: ["idea", slug, key] });
+      }),
+    despertar: (slug: string, key: string) => run(`pedido-${key}:despertar`, () => api.ideaDespertar(slug, key)),
     pause: (slug: string) => run(`${slug}:pause`, () => api.setProjectPaused(slug, true)),
   };
 }
