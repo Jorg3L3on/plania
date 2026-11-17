@@ -764,7 +764,12 @@ export type Handoff = { to: string; note: string; head_sha?: string; from: Actor
 export type DeploySource = { provider: string; deployment_id: string; url?: string };
 
 // projects.settings (set_project settings, merged). Secrets never: integrations name env vars.
+// PLA-I60: the project's run limits, set in Motores. Missing keys are the defaults (1, 1, 1, true).
+export type ProjectRunnerSettings = { max_concurrent?: number; consulta_slots?: number; max_per_agent?: number; serialize_areas?: boolean };
+
 export type ProjectSettings = {
+  // PLA-I60: «Agentes a la vez», «Preguntas a la vez», «Por agente» (Motores) and same-files serialization.
+  runner?: ProjectRunnerSettings;
   release_target?: string; // the env a Released ticket must reach (default prod)
   // PLA-I56-1: what "released" means. env: release_target runs the merge commit (a deploy). branch: the release
   // branch (release.into, default main) contains it. Unset: env with Vercel or a commit recorded for release_target, else branch.
@@ -858,6 +863,8 @@ export const agents = pgTable(
     motorEffort: text("motor_effort"),
     consultaModel: text("consulta_model"),
     consultaEffort: text("consulta_effort"),
+    // PLA-I60 (0060): this seat's own «a la vez» (null: the project's «por agente»).
+    maxParallel: integer("max_parallel"),
     ...timestamps,
   },
   (t) => [
@@ -873,6 +880,7 @@ export const agents = pgTable(
     check("agents_consulta_model_check", sql`${t.consultaModel} is null or ${t.consultaModel} ~ '^(haiku|sonnet|opus|fable|claude-[a-z0-9.-]{3,60}(\\[1m\\])?)$'`),
     check("agents_motor_effort_check", sql`${t.motorEffort} is null or ${t.motorEffort} in ('low', 'medium', 'high', 'xhigh', 'max')`),
     check("agents_consulta_effort_check", sql`${t.consultaEffort} is null or ${t.consultaEffort} in ('low', 'medium', 'high', 'xhigh', 'max')`),
+    check("agents_max_parallel_check", sql`${t.maxParallel} is null or ${t.maxParallel} between 1 and 50`),
   ],
 );
 
@@ -1040,8 +1048,14 @@ export const runnerSettings = pgTable(
     // PLA-I59-1: the company's default motor (null: the CLI's own default). Migration 0058.
     defaultModel: text("default_model"),
     defaultEffort: text("default_effort"),
+    // PLA-I60 (0060): max_concurrent is the company ceiling; these pace and protect the machine.
+    maxStartsPerMinute: integer("max_starts_per_minute").notNull().default(6),
+    estPctPerRun: integer("est_pct_per_run").notNull().default(3),
+    minFreeMb: integer("min_free_mb").notNull().default(1500),
+    minFreeDiskGb: integer("min_free_disk_gb").notNull().default(10),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
+  // runner_settings_ranges (0039, widened in 0060: max_concurrent up to 500) lives in the migrations only.
   (t) => [check("runner_settings_singleton", sql`${t.id} = 1`)],
 );
 
@@ -1088,17 +1102,77 @@ export const agentRuns = pgTable(
     // PLA-I59-1: the --model and --effort this run was started with (null: the flag was not passed).
     requestedModel: text("requested_model"),
     requestedEffort: text("requested_effort"),
+    // PLA-I60 (migration 0060): what the run is about and why, as columns (summary is display text only).
+    workKey: text("work_key").notNull().default("general"),
+    trigger: text("trigger").$type<RunTrigger>().notNull().default("owner"),
+    lane: text("lane").$type<RunLane>().notNull().default("work"),
+    reason: text("reason"),
+    absorbed: text("absorbed"),
+    heldCode: text("held_code"),
+    heldDetail: jsonb("held_detail").$type<Record<string, unknown>>(),
+    workerId: text("worker_id"),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    stopRequested: text("stop_requested"),
+    notBefore: timestamp("not_before", { withTimezone: true }),
+    planWeight: real("plan_weight"),
   },
   (t) => [
     index("agent_runs_status_idx").on(t.status, t.queuedAt),
+    uniqueIndex("agent_runs_active_work_unique").on(t.agentId, t.projectId, t.workKey).where(sql`${t.status} in ('queued', 'starting', 'running')`),
+    index("agent_runs_live_project_idx").on(t.projectId, t.lane).where(sql`${t.status} in ('starting', 'running')`),
+    index("agent_runs_live_worker_idx").on(t.workerId).where(sql`${t.status} in ('starting', 'running')`),
+    check("agent_runs_trigger_check", sql`${t.trigger} in ('event', 'owner', 'cadence', 'consulta', 'retry', 'qa', 'brief')`),
+    check("agent_runs_lane_check", sql`${t.lane} in ('work', 'consulta')`),
+    check("agent_runs_work_key_check", sql`char_length(${t.workKey}) between 1 and 200`),
     index("agent_runs_agent_idx").on(t.agentId, t.queuedAt),
     index("agent_runs_project_idx").on(t.projectId, t.startedAt),
-    check("agent_runs_status_check", sql`${t.status} in ('queued', 'running', 'ok', 'fail', 'skipped', 'stopped')`),
+    check("agent_runs_status_check", sql`${t.status} in ('queued', 'starting', 'running', 'ok', 'fail', 'skipped', 'stopped')`),
     check("agent_runs_summary_check", sql`char_length(${t.summary}) <= 500`),
   ],
 );
 
 export type AgentRun = typeof agentRuns.$inferSelect;
+export const RUN_TRIGGERS = ["event", "owner", "cadence", "consulta", "retry", "qa", "brief"] as const;
+export type RunTrigger = (typeof RUN_TRIGGERS)[number];
+export type RunLane = "work" | "consulta";
+
+// PLA-I60-2: one live run per lock key (a folder, a branch, a ticket).
+export const runLocks = pgTable(
+  "run_locks",
+  {
+    lockKey: text("lock_key").primaryKey(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "cascade" }),
+    acquiredAt: timestamp("acquired_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("run_locks_run_idx").on(t.runId)],
+);
+
+// PLA-I60-3: a process that spawns and supervises runs.
+export const runnerWorkers = pgTable("runner_workers", {
+  id: text("id").primaryKey(),
+  machine: text("machine").notNull(),
+  capacity: integer("capacity").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  seenAt: timestamp("seen_at", { withTimezone: true }).notNull().defaultNow(),
+  version: text("version"),
+  draining: boolean("draining").notNull().default(false),
+});
+
+// PLA-I60-2: slots held for something that is not an agent run (the Morning brief).
+export const runnerReservations = pgTable(
+  "runner_reservations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    label: text("label").notNull(),
+    slots: integer("slots").notNull().default(1),
+    holder: text("holder"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [check("runner_reservations_slots_check", sql`${t.slots} between 1 and 50`)],
+);
 
 export const agentSessions = pgTable(
   "agent_sessions",
@@ -1113,8 +1187,10 @@ export const agentSessions = pgTable(
     cwd: text("cwd").notNull(),
     runs: integer("runs").notNull().default(1),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // PLA-I60-1: one resumable session per work item.
+    workKey: text("work_key").notNull().default("general"),
   },
-  (t) => [primaryKey({ columns: [t.agentId, t.projectId] })],
+  (t) => [primaryKey({ columns: [t.agentId, t.projectId, t.workKey] })],
 );
 
 export const PLAN_SOURCES = ["stream", "usage_probe"] as const;

@@ -130,28 +130,23 @@ test("I40-6 #2: a request Ready for 61 minutes with no run is flagged and leaves
   assert.deepEqual((await card("micasa")).stale_requests, [], "a queued run means someone will take it");
 });
 
-test("I40-6 #3: a PO whose run ends well with another request waiting gets one new queued wake, never for the ticket it ran", async () => {
+test("I40-6 #3 (PLA-I60): two requests to a busy PO are two queued runs; the PO's cap starts one, then the other; no loop on a ticket it ran", async () => {
   const f = fakes();
   const first = await request("Arma el plan del catálogo");
   const second = await request("Y revisa los textos de la portada");
-  assert.deepEqual((await queuedFor("po-micasa")).map((r) => r.task_key), [first], "the second request was coalesced: nothing would wake the PO for it");
+  assert.deepEqual((await queuedFor("po-micasa")).map((r) => r.task_key).sort(), [first, second].sort(), "each request is a work item of its own");
 
-  assert.equal((await runner.drainQueue(db, new Date(), f.deps as never)).started, 1);
+  assert.equal((await runner.drainQueue(db, new Date(), f.deps as never)).started, 1, "the PO's cap (1) starts one");
   f.spawned[0]!.finish();
   await runner.waitForAllRuns();
-  const next = await queuedFor("po-micasa");
-  assert.deepEqual(next.map((r) => r.task_key), [second]);
-  assert.match(next[0]!.summary, /request waiting/);
-  const woke = (await raw.query(`select payload from events where type = 'wake.queued' and task_key = $1`, [second])).rows;
-  assert.equal(woke.length, 1);
-  assert.equal(woke[0].payload.from_event, "run.ended");
-
-  // That run ends too. Only the ticket it just ran is still Ready besides the first: the first is not its own.
-  await raw.query(`update tasks set status = 'Done' where key = $1`, [first]);
+  assert.equal((await queuedFor("po-micasa")).length, 1);
   assert.equal((await runner.drainQueue(db, new Date(), f.deps as never)).started, 1);
   f.spawned[1]!.finish();
   await runner.waitForAllRuns();
-  assert.deepEqual(await queuedFor("po-micasa"), [], "no loop on the ticket it just ran");
+  // Both tickets it ran are still Ready: wakePoIfWaiting never queues the ticket a run just ran; the other one is
+  // queued at most once more (it has no active run).
+  const left = await queuedFor("po-micasa");
+  assert.ok(left.length <= 1, JSON.stringify(left));
 });
 
 test("I40-6 #4: Reenviar queues the PO's wake again and the warning goes; Cerrar closes the request", async () => {

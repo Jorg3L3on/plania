@@ -47,7 +47,8 @@ export async function requestVerify(db: Db, t: Task, head: string | null, branch
   let wake = "none";
   await writeTx(db, p, { ...webCtx, tool: "screen.decision_verify" }, async (tx, emit) => {
     const out = await enqueueWake(tx, { agent: owner, project: { id: p.id, slug: p.slug }, taskKey: t.key, reason: verifyReason(t, head, branch) });
-    wake = out.kind === "queued" ? "queued" : out.reason;
+    // PLA-I60: a run already on this ticket takes the request too (its reason, or one retry after it ends).
+    wake = out.kind === "queued" || out.reason === "coalesced" ? "queued" : out.reason;
     await emit("note", { id: t.id, key: t.key }, { text: `Jorge pidió volver a correr las pruebas en el último commit${head ? ` (${head.slice(0, 7)})` : ""}.` });
   });
   if (wake !== "queued") {

@@ -14,6 +14,8 @@ import { isScreenActor, iso, type Q } from "./tx.js";
 
 // 2.11: id names what a one-click fix acts on (a decision id, an env, a branch, a worktree path) and
 // command is the shell line Jorge copies, when the fix is one (src/mcp/orden.ts).
+import { checkRunnerInvariants } from "../runner/invariants.js";
+
 export type Finding = { code: string; key: string | null; detail: string; fix_hint: string; id?: string; command?: string; level?: "info" | "warn" };
 
 /** Scope says the ticket must wait, and nothing typed holds it. */
@@ -326,6 +328,12 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   }
   // What this project's agents left running on the Mac (stale servers and databases, merged worktrees).
   out.push(...(await footprintFindings(db, { projectId: p.id })));
+  // PLA-I60-6: the runner's rules (one active run per work item, caps, lock keys), reported on Plania's own project.
+  if (p.slug === (process.env.PLANIA_HOME_PROJECT || "plania")) {
+    for (const v of await checkRunnerInvariants(db).catch(() => [])) {
+      out.push({ code: "RUNNER_INVARIANT", key: null, detail: `${v.code}: ${v.detail}`, fix_hint: "a runner rule was broken: read PLA-I60's spec, section 5, and the run rows named here" });
+    }
+  }
   return out;
 }
 

@@ -465,7 +465,7 @@ async function driveReview(db: Db, lane: QaLane, p: Project, t: Task, qa: Agent,
       if (lane.hold !== ok.summary) await db.update(qaLanes).set({ hold: cut(ok.summary, 300) }).where(eq(qaLanes.id, lane.id));
       return "held";
     }
-    const out = await enqueueWake(db, { agent: qa, project: { id: p.id, slug: p.slug }, taskKey: t.key, reason: `${QA_REASON} ${lane.id}`, now });
+    const out = await enqueueWake(db, { agent: qa, project: { id: p.id, slug: p.slug }, taskKey: t.key, reason: `${QA_REASON} ${lane.id}`, now, trigger: "qa" });
     if (out.kind !== "queued") {
       await db.update(qaLanes).set({ hold: cut(out.reason, 300) }).where(eq(qaLanes.id, lane.id));
       return "held";

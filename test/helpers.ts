@@ -29,6 +29,8 @@ export function useTestEnv(): void {
   process.env.PLANIA_CI_TOKEN = TEST_CI_TOKEN;
   process.env.SESSION_SECRET = "test-session-secret-that-is-at-least-32-bytes";
   process.env.PLANIA_JOBS = "0";
+  // PLA-I60-2: admission's free-memory and disk floor reads this Mac; tests that check it pass deps.machine.
+  process.env.PLANIA_MACHINE_CHECK = "0";
 }
 
 // Drops and recreates this checkout's test database, applies every migration, inserts the four projects.

@@ -1988,6 +1988,103 @@
   .edi-mtr-foot > span[role="status"] { flex: 1 1 260px; min-width: 0; }
   .edi-mtr-acts { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; }
   .edi-mtr-save:not(:disabled) { background: var(--e-fg); color: #141822; border-color: transparent; }
+  /* PLA-I60-5: «a la vez» in Motores. Windows like the building's: lit while a run is live. */
+  .edi-mtr { position: relative; }
+  .edi-mtr-strips[data-par] { height: 342px; }
+  .edi-mtr-strips[data-par] .edi-mtr-knob { height: 54px; }
+  .edi-mtr-strips[data-par] .edi-mtr-who .edi-seat { width: 36px; height: 28px; }
+  .edi-mtr-strips[data-par] .edi-mtr-strip { grid-template-rows: auto auto auto auto minmax(44px, 1fr) auto auto; }
+  .edi-mtr-strips[data-par] .edi-mtr-strip[data-floor] { grid-template-rows: auto auto minmax(0, 1fr) auto auto; }
+  .edi-mtr-who small[data-on] { color: #ffd98a; }
+  .edi-par { position: relative; width: 100%; display: grid; gap: 4px; justify-items: center; padding-top: 6px; border-top: 1px dashed rgb(255 255 255 / 0.1); }
+  .edi-par-h { display: flex; width: 100%; justify-content: space-between; align-items: baseline; font: 500 9.5px var(--font-mono); color: #8d94aa; text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; }
+  .edi-par-inh { border: 0; background: none; padding: 0; text-transform: none; letter-spacing: 0; font: 500 10px var(--font-sans); color: #ffc7d8; }
+  button.edi-par-inh { color: #bfe6ff; cursor: pointer; }
+  .edi-par[data-sub] .edi-par-inh { color: #8d94aa; }
+  .edi-par-wins { position: relative; display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; min-height: 22px; max-width: 96px; }
+  .edi-par-win { width: 18px; height: 22px; padding: 0; border-radius: 9px 9px 3px 3px; border: 1px solid rgb(255 255 255 / 0.2); background: #0b0d13; display: grid; place-items: end center; overflow: hidden; --fig: #232839; --cut: #0b0d13; --lap: #232839; }
+  .edi-par-win .edi-fig { width: 16px; height: 14px; display: block; position: static; margin: 0; }
+  .edi-par-win[data-on] { background: linear-gradient(180deg, #ffe3a3, #b98a2c); border-color: transparent; box-shadow: 0 0 10px rgb(255 193 69 / 0.4); --fig: #141822; --cut: #e9c27a; --lap: #141822; cursor: pointer; }
+  .edi-par-win[data-over] { background: repeating-linear-gradient(135deg, #b98a2c 0 3px, #6e5420 3px 6px); }
+  .edi-par-win[data-ghost] { border-style: dashed; border-color: rgb(255 193 69 / 0.7); background: rgb(255 193 69 / 0.12); }
+  .edi-par-win:focus-visible { outline: 2px solid var(--e-fg); outline-offset: 2px; }
+  .edi-par-q { position: absolute; right: -6px; top: -9px; z-index: 1; font: 600 9px var(--font-mono); color: #ffd98a; background: rgb(255 193 69 / 0.16); border-radius: 99px; padding: 1px 5px; }
+  .edi-par-step { display: inline-flex; align-items: center; border-radius: 99px; border: 1px solid var(--e-rail); overflow: hidden; }
+  .edi-par-step button { width: 24px; height: 21px; border: 0; background: transparent; color: var(--e-fg); font: 600 14px/1 var(--font-sans); cursor: pointer; padding: 0; }
+  .edi-par-step button:hover:not(:disabled) { background: rgb(255 255 255 / 0.08); }
+  .edi-par-step button:disabled { color: #4b526d; cursor: default; }
+  .edi-par-step output { min-width: 18px; text-align: center; font: 600 12.5px var(--font-mono); }
+  .edi-par-link { border: 0; background: rgb(255 193 69 / 0.14); color: #ffd98a; border-radius: 99px; padding: 3px 9px; font: 600 11px var(--font-sans); cursor: pointer; }
+  .edi-par-link:hover { background: rgb(255 193 69 / 0.24); }
+  .edi-par-cola { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 0 11px; border-radius: 99px; border: 1px solid rgb(255 193 69 / 0.4); background: rgb(255 193 69 / 0.08); color: #ffd98a; font: 600 12.5px var(--font-sans); cursor: pointer; white-space: nowrap; }
+  .edi-par-cola b { font: 600 12px var(--font-mono); background: rgb(255 193 69 / 0.2); border-radius: 99px; padding: 0 6px; color: #ffe7b0; }
+  .edi-par-cola[data-empty] { border-color: var(--e-line); background: transparent; color: #8d94aa; }
+  /* ① plan meter */
+  .edi-plan { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 28px; padding: 3px 12px; border-radius: 11px; border: 1px solid rgb(61 220 151 / 0.2); background: #07120d; color: #c9f6dc; font: 500 11.5px/1.2 var(--font-mono); }
+  .edi-plan b { color: #eafff2; font-weight: 600; }
+  .edi-plan-bar { position: relative; height: 10px; border-radius: 5px; background: #12261b; }
+  .edi-plan-now { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; background: linear-gradient(90deg, #2fae75, #3ddc97); }
+  .edi-plan-add { position: absolute; top: 0; bottom: 0; border-radius: 0 5px 5px 0; background: repeating-linear-gradient(135deg, rgb(61 220 151 / 0.55) 0 4px, rgb(61 220 151 / 0.18) 4px 8px); }
+  .edi-plan-add[data-over] { background: repeating-linear-gradient(135deg, rgb(255 159 67 / 0.7) 0 4px, rgb(255 159 67 / 0.25) 4px 8px); }
+  .edi-plan-guard { position: absolute; top: -4px; bottom: -4px; width: 2px; border-radius: 1px; background: #ffb86b; }
+  .edi-plan-est { color: #8fd4b0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* ④ the floor strip */
+  /* The project's strip stays in view with Compañía while the seats scroll under both (a mixer's master section). */
+  .edi-mtr-strip[data-floor] { position: sticky; right: 128px; z-index: 1; width: 118px; margin-left: 8px; background: linear-gradient(180deg, #33192a, #1d1324); border-color: rgb(255 107 154 / 0.32); box-shadow: -14px 0 18px -6px #0b0e1d; }
+  .edi-mtr-strip[data-floor]::before { content: ""; position: absolute; left: -8px; top: 14px; bottom: 14px; width: 1px; background: rgb(255 255 255 / 0.12); }
+  .edi-mtr-own[data-floor] { background: rgb(255 107 154 / 0.16); color: #ffc7d8; }
+  .edi-floor-mark { width: 32px; height: 32px; border-radius: 50%; background: #ff6b9a; color: #2a0b16; display: grid; place-items: center; font: 800 15px var(--font-display); }
+  .edi-floor-meter { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; justify-items: center; gap: 6px; width: 100%; min-height: 0; }
+  .edi-floor-big { font: 700 26px/1 var(--font-display); letter-spacing: -0.02em; }
+  .edi-floor-big small { font: 500 12px var(--font-mono); color: #8d94aa; margin-left: 3px; }
+  .edi-floor-cells { display: flex; flex-direction: column-reverse; gap: 4px; width: 52px; height: 100%; min-height: 0; overflow: hidden; }
+  .edi-floor-cells i { flex: 1 1 0; max-height: 56px; min-height: 6px; border-radius: 3px; background: #2a1f33; border: 1px solid rgb(255 255 255 / 0.06); }
+  .edi-floor-cells i[data-on] { background: linear-gradient(90deg, #ff8fb4, #ff6b9a); border-color: transparent; box-shadow: 0 0 8px rgb(255 107 154 / 0.45); }
+  .edi-floor-cells i[data-over] { background: repeating-linear-gradient(135deg, #ff6b9a 0 3px, #6b2440 3px 6px); }
+  /* ⑦ the Mac row on Compañía */
+  .edi-mac small { font-size: 9.5px; color: #8d94aa; text-align: center; line-height: 1.25; }
+  .edi-mac-bar { display: flex; gap: 2px; width: 100%; justify-content: center; }
+  .edi-mac-bar i { flex: 1 1 0; max-width: 14px; height: 7px; border-radius: 2px; background: #2c2747; }
+  .edi-mac-bar i[data-on] { background: #b094ff; box-shadow: 0 0 6px rgb(176 148 255 / 0.5); }
+  .edi-mac-bar i[data-other] { background: #6d5bb8; }
+  /* ⑤ the queue and the run card */
+  .edi-cola { position: absolute; right: 0; bottom: 48px; z-index: 5; width: min(440px, 100%); max-height: calc(100% - 60px); overflow: auto; border-radius: 18px; border: 1px solid rgb(255 193 69 / 0.35); background: linear-gradient(180deg, #1a1a2a, #12142a); box-shadow: 0 24px 60px -20px rgb(0 0 0 / 0.9); padding: 14px 16px 16px; display: grid; gap: 10px; }
+  .edi-cola-h { display: flex; align-items: flex-start; gap: 10px; }
+  .edi-cola-h h5 { margin: 0; font: italic 400 22px var(--font-voice); }
+  .edi-cola-h p { margin: 2px 0 0; color: var(--e-muted); font-size: 12px; }
+  .edi-cola-h .edi-btn { margin-left: auto; }
+  .edi-cola-empty, .edi-cola-f { margin: 0; color: #8d94aa; font-size: 12px; }
+  .edi-cola-i { display: grid; grid-template-columns: 34px 1fr; gap: 3px 10px; padding: 10px; border-radius: 13px; background: rgb(255 255 255 / 0.04); border: 1px solid rgb(255 255 255 / 0.06); }
+  .edi-cola-i .edi-seat { grid-row: span 3; width: 34px; height: 28px; cursor: default; }
+  .edi-cola-i b { font-size: 13px; font-weight: 600; }
+  .edi-cola-i small { color: #8d94aa; font-size: 11.5px; }
+  .edi-cola-why { display: block; font-size: 12px; line-height: 1.6; color: #ffd98a; }
+  .edi-cola-why::before { content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 7px 1px 0; border-radius: 50%; background: #ffc145; }
+  .edi-cola-fix { margin-left: 8px; }
+  .edi-cola-why[data-ok] { color: #a5f0c8; }
+  .edi-cola-why[data-ok]::before { background: #3ddc97; }
+  .edi-cola-fix { border: 1px solid rgb(255 255 255 / 0.18); background: rgb(255 255 255 / 0.06); color: var(--e-fg); border-radius: 99px; padding: 3px 10px; font: 600 11.5px var(--font-sans); cursor: pointer; }
+  .edi-cola-fix:hover { background: rgb(255 255 255 / 0.12); }
+  .edi-runcard { position: absolute; z-index: 6; width: 240px; border-radius: 14px; border: 1px solid rgb(255 193 69 / 0.4); background: #161a30; box-shadow: 0 18px 40px -12px rgb(0 0 0 / 0.9); padding: 11px 12px; display: grid; gap: 6px; font-size: 12px; }
+  .edi-runcard b { font-size: 13px; }
+  .edi-runcard small { color: #8d94aa; }
+  .edi-runcard .edi-mtr-acts .edi-btn { min-height: 28px; padding: 0 11px; font-size: 12px; }
+  /* One screen at 100 % on a short window (1280 × 720): the lit windows say who works, so each seat drops its
+     status line and its week bar; the gaps tighten. */
+  @media (max-height: 760px) {
+    .edi-mtr { gap: 6px; }
+    .edi-mtr-title h4 { font-size: 22px; }
+    .edi-mtr-strips[data-par] { height: 288px; padding: 6px; }
+    .edi-mtr-strips[data-par] .edi-mtr-strip { grid-template-rows: auto auto auto auto minmax(40px, 1fr) auto; padding: 6px; }
+    .edi-mtr-strips[data-par] .edi-mtr-who small, .edi-mtr-strips[data-par] .edi-mtr-use { display: none; }
+    .edi-mtr-strips[data-par] .edi-mtr-strip[data-floor] .edi-mtr-who small, .edi-mtr-strips[data-par] .edi-mtr-strip[data-master] .edi-mtr-who small { display: none; }
+    .edi-mtr-strips[data-par] .edi-mtr-knob { height: 48px; }
+    .edi-mtr-strips[data-par] .edi-mtr-dial { top: 29px; width: 34px; height: 34px; margin: -17px 0 0 -17px; }
+    .edi-mtr-strips[data-par] .edi-mtr-lbl[data-pos="haiku"], .edi-mtr-strips[data-par] .edi-mtr-lbl[data-pos="fable"] { top: 32px; }
+    .edi-mtr-strips[data-par] .edi-floor-big { font-size: 22px; }
+    .edi-mtr-strips[data-par] .edi-mac small { display: none; }
+  }
+
   .edi-mtr-save:not(:disabled):hover { background: #d9dcea; }
   .edi-mtr-card { position: relative; display: grid; gap: 11px; padding: 13px 14px 14px; border-radius: 16px; background: linear-gradient(180deg, #1b2038, #141832); border: 1px solid color-mix(in srgb, var(--kc) 35%, transparent); }
   .edi-mtr-card-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }

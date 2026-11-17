@@ -5,12 +5,13 @@
 // Summaries never carry paths, env values, tokens or money.
 import { resolveMotor } from "./motor.js";
 import { execFile } from "node:child_process";
+import pg from "pg";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import type { Db } from "../db/client.js";
+import { makeDb, type Db } from "../db/client.js";
 import {
   agentRuns,
   agentSessions,
@@ -19,20 +20,47 @@ import {
   events,
   goals,
   heartbeatRuns,
+  machineState,
   projects,
+  runLocks,
+  runnerReservations,
+  runnerWorkers,
   tasks,
   type Agent,
   type AgentRun,
   type AdapterConfig,
+  type RunTrigger,
   type Project,
 } from "../db/schema.js";
 import { registerFootprint, releaseFootprint } from "../mcp/footprint.js";
-import { SYSTEM_ACTOR, WEB_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
+import { SYSTEM_ACTOR, WEB_ACTOR, writeTx, type Ctx, type Q } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
 import { CONSULTA_DENY_RULES, QA_DENY_RULES, denySettings } from "./deny.js";
-import { consultaById, consultaIdOf, consultaPrompt } from "../pedidos/consultas.js";
+import { consultaById, consultaPrompt } from "../pedidos/consultas.js";
+import { ACTIVE_STATUSES, QUEUE_CHANNEL, activeRunOn, consultaIdOfRun, insertRun, notifyQueue, setQueueKick, workKeyOf } from "./queue.js";
+import { runSession } from "./run-session.js";
+import {
+  ADMIT_LOCK,
+  agentCapOf,
+  availableMemoryMb,
+  bump,
+  freeDiskGb,
+  lockKeysOf,
+  planWeight,
+  projectLimits,
+  readCounters,
+  reapLostStarts,
+  reapLostWorkers,
+  releaseLocks,
+  takeLocks,
+  workerCapacity,
+  workerId,
+  type HeldCode,
+  type MachineFacts,
+} from "./admission.js";
+import { areasOverlap } from "../mcp/writes.js";
 import { PREGUNTA_MARK } from "../captures/preguntas.js";
-import { EVENT_SUMMARY, wakePoIfWaiting } from "./events.js";
+import { EVENT_SUMMARY, enqueueWake, wakePoIfWaiting } from "./events.js";
 import { capacityFacts, capacityHold, agentFacts, agentHold, projectGoal } from "./hold.js";
 
 export { projectGoal };
@@ -48,10 +76,26 @@ import {
   roleOf,
   type RunnerRole,
 } from "./limits.js";
-import { childEnv, defaultKill, defaultProbePid, defaultSpawn, supervise, type ExitInfo, type KillFn, type ProbePid, type SpawnFn, type Supervised } from "./process.js";
+import {
+  attachDetached,
+  childEnv,
+  defaultKill,
+  defaultProbePid,
+  defaultSpawn,
+  exitPathOf,
+  isWrapperOf,
+  supervise,
+  superviseDetached,
+  type DetachedSpawn,
+  type ExitInfo,
+  type KillFn,
+  type ProbePid,
+  type SpawnFn,
+  type Supervised,
+} from "./process.js";
 import { StreamReader, parseStream, parseUsageText, totalOf, type PlanWindowReading } from "./stream.js";
 import { clearPacks, packLines, packsInDiff, packsOf, writePacks } from "./packs.js";
-import { branchFor, checkBase, defaultGit, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreeRoot, type GitFn } from "./worktree.js";
+import { branchFor, checkBase, defaultGit, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreePathFor, worktreeRoot, carefulGit, resetGitThrottleForTests, type GitFn } from "./worktree.js";
 import { taskImagePaths } from "../pedidos/images.js";
 
 export type ReadyWork = {
@@ -80,6 +124,13 @@ export type RunnerDeps = {
   liveFlushMs?: number;
   // false skips register_footprint for created worktrees (tests without a machine row).
   footprints?: boolean;
+  // PLA-I60-2: free memory and disk (tests pass fixed numbers).
+  machine?: () => Promise<MachineFacts> | MachineFacts;
+  // PLA-I60-3: start runs through wrapper.mjs (default when spawn is not injected), and how to spawn it.
+  detached?: boolean;
+  spawnDetached?: DetachedSpawn;
+  pollMs?: number;
+  probeWrapper?: (pid: number, runId: string) => Promise<boolean>;
 };
 
 export type WakeOutcome =
@@ -111,14 +162,26 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
 let reservation: { label: string; since: Date } | null = null;
 
 // True when this call took the reservation; false when one is already up (its holder releases it).
+// PLA-I60-2: the reservation holds one slot of the ceiling (not the whole runner). It is also written to
+// runner_reservations so admission in another process counts it; this process counts its own at once.
 export function reserveSlot(label: string): boolean {
   if (reservation) return false;
   reservation = { label: label.slice(0, 80), since: new Date() };
+  const holder = `${workerId()}:${reservation.since.getTime()}`;
+  reservationHolder = holder;
+  void makeDb()
+    .db.insert(runnerReservations)
+    .values({ label: reservation.label, slots: 1, holder, expiresAt: new Date(Date.now() + 3 * 60 * MINUTE) })
+    .catch(() => undefined);
   return true;
 }
 
+let reservationHolder: string | null = null;
 export function releaseReservation(): void {
   reservation = null;
+  const holder = reservationHolder;
+  reservationHolder = null;
+  if (holder) void makeDb().db.delete(runnerReservations).where(eq(runnerReservations.holder, holder)).catch(() => undefined);
 }
 
 export const slotReservation = (): { label: string; since: Date } | null => (reservation ? { ...reservation } : null);
@@ -144,6 +207,7 @@ export function resetRunnerForTests(): void {
   reservation = null;
   lastProbeAt = 0;
   chain = Promise.resolve();
+  resetGitThrottleForTests();
 }
 
 const home = (env: NodeJS.ProcessEnv) => env.HOME || homedir();
@@ -173,7 +237,7 @@ type WakeContext = {
 
 // PLA-I32-5: an agent's project is its team's (project_id); Asistente's is its home project (where its runs
 // are recorded). Rows from before 0041: a capability that names a project, else po-<project>.
-async function projectOfAgent(db: Db, agent: Agent): Promise<Project | null> {
+async function projectOfAgent(db: Q, agent: Agent): Promise<Project | null> {
   if (agent.projectId) return (await db.select().from(projects).where(eq(projects.id, agent.projectId)).limit(1))[0] ?? null;
   if (roleOf(agent) === "asistente") return asistenteHome(db, process.env);
   const names = [...agent.capabilities, ...(agent.slug.startsWith("po-") ? [agent.slug.slice(3)] : [])];
@@ -182,7 +246,7 @@ async function projectOfAgent(db: Db, agent: Agent): Promise<Project | null> {
   return row ?? null;
 }
 
-async function taskBranchInfo(db: Db, projectId: string, key: string): Promise<{ branch: string | null; base: string | null }> {
+async function taskBranchInfo(db: Q, projectId: string, key: string): Promise<{ branch: string | null; base: string | null }> {
   const rows = await db.execute<{ branch: string | null; base: string | null }>(sql`
     select t.branch as branch, coalesce(t.base_branch, p.base_branch) as base
     from tasks t left join tasks p on p.id = t.parent_id
@@ -190,7 +254,7 @@ async function taskBranchInfo(db: Db, projectId: string, key: string): Promise<{
   return rows.rows[0] ?? { branch: null, base: null };
 }
 
-async function loadContext(db: Db, agent: Agent, task: ReadyWork | null): Promise<WakeContext> {
+async function loadContext(db: Q, agent: Agent, task: ReadyWork | null): Promise<WakeContext> {
   const role = roleOf(agent);
   let project: Project | null = null;
   if (task) project = (await db.select().from(projects).where(eq(projects.slug, task.project)).limit(1))[0] ?? null;
@@ -214,14 +278,18 @@ async function probeIfUnknown(db: Db, deps: RunnerDeps, now: Date): Promise<void
 
 // PLA-I40-2: skipRest and pastGuard are the owner's "start now" from the screen, for one run: the rest between
 // runs is not counted, and the plan guard reads as with the override on. Every other check stands.
-async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, opts: { fromQueue?: string; skipRest?: boolean; pastGuard?: boolean; consulta?: boolean } = {}): Promise<Preflight> {
+// noCap (PLA-I60-2): admission checks the plan and the caps itself, inside its transaction.
+async function preflight(db: Q, ctx: WakeContext, now: Date, deps: RunnerDeps, opts: { fromQueue?: string; skipRest?: boolean; pastGuard?: boolean; consulta?: boolean; trigger?: RunTrigger; noCap?: boolean } = {}): Promise<Preflight> {
   const settings = await loadSettings(db);
   const { agent, role, project, task } = ctx;
   if (!project) return { ok: false, kind: "skipped", summary: "skipped: no project" };
   // PLA-I40-1: the switches, the rest and the goal are one verdict (hold.ts), the same one the screen reads.
   const facts = role || settings.companyPaused ? await agentFacts(db, { agent, role, project, settings, now }) : null;
   // PLA-I57-1: the owner's question is answered between runs, and needs no project goal.
-  const own = facts ? agentHold(opts.skipRest || opts.consulta ? { ...facts, cooldownMinutes: 0 } : facts) : null;
+  // PLA-I60-4: the rest paces only the agent's own periodic wakes (trigger cadence). Events, the owner's asks,
+  // questions, retries, QA and the brief never wait for it.
+  const rests = (opts.trigger ?? "cadence") === "cadence" && !opts.skipRest && !opts.consulta;
+  const own = facts ? agentHold(rests ? facts : { ...facts, cooldownMinutes: 0 }) : null;
   if (own?.scope === "company") return { ok: false, kind: "skipped", summary: "skipped: company paused" };
   if (!role) return { ok: false, kind: "skipped", summary: "skipped: no runner role" };
   if (own?.code === "paused") return { ok: false, kind: "skipped", summary: `skipped: project ${project.slug} paused` };
@@ -234,12 +302,13 @@ async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, 
     if (!base.ok) return { ok: false, kind: "fail", summary: "fail: base not allowed" };
   }
 
+  if (opts.noCap) return { ok: true };
   const guard = opts.pastGuard ? { ...settings, guardOverride: true } : settings;
   // PLA-50: a question counts against its own lane, not the general cap.
   const lane = opts.consulta ? "consulta" : "work";
   let capacity = await capacityFacts(db, guard, now, lane);
   if (capacity.plan.state === "unknown") {
-    await probeIfUnknown(db, deps, now);
+    await probeIfUnknown(db as Db, deps, now);
     capacity = await capacityFacts(db, guard, now, lane);
   }
   const full = capacityHold(capacity);
@@ -252,40 +321,41 @@ async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, 
 
 // ---- Wake
 
+function outcomeOf(r: AdmitResult, runId: string, taskKey: string | null): WakeOutcome {
+  const o = r.outcomes.get(runId);
+  if (!o) return { kind: "queued", runId, summary: "queued", taskKey };
+  if (o.kind === "started") return o.outcome;
+  if (o.kind === "held") return { kind: "queued", runId, summary: o.summary, taskKey };
+  return { kind: o.status, summary: o.summary, taskKey, recorded: true };
+}
+
 export async function wakeClaude(
   db: Db,
-  input: { agent: Agent; task: ReadyWork | null; now: Date },
+  input: { agent: Agent; task: ReadyWork | null; now: Date; trigger?: RunTrigger },
   deps: RunnerDeps = {},
 ): Promise<WakeOutcome> {
   return serial(async () => {
     const ctx = await loadContext(db, input.agent, input.task);
     const taskKey = input.task?.key ?? null;
-    // Coalescing: a wake while this agent has a live or queued run writes nothing.
-    const [busy] = await db
-      .select({ id: agentRuns.id })
-      .from(agentRuns)
-      .where(and(eq(agentRuns.agentId, input.agent.id), inArray(agentRuns.status, ["queued", "running"])))
-      .limit(1);
-    if (busy) return { kind: "coalesced", summary: "coalesced" };
+    // Coalescing (PLA-I60-1): a wake for work this agent already has queued or live writes nothing.
+    if (ctx.project && (await activeRunOn(db, input.agent.id, ctx.project.id, workKeyOf(taskKey)))) return { kind: "coalesced", summary: "coalesced" };
 
-    const pre = await preflight(db, ctx, input.now, deps);
+    const pre = await preflight(db, ctx, input.now, deps, { trigger: input.trigger ?? "cadence" });
     if (!pre.ok && pre.kind !== "cap") return { kind: pre.kind, summary: pre.summary, taskKey };
     const settings = await loadSettings(db);
-    const [row] = await db
-      .insert(agentRuns)
-      .values({
-        agentId: input.agent.id,
-        projectId: ctx.project!.id,
-        taskKey,
-        role: ctx.role!,
-        status: "queued",
-        summary: pre.ok ? "starting" : pre.summary,
-        queuedAt: input.now,
-        reserveTokens: settings.reserveTokens,
-      })
-      .returning();
-    if (!pre.ok) return { kind: "queued", runId: row!.id, summary: pre.summary, taskKey };
-    return start(db, row!, ctx, deps);
+    const out = await insertRun(db, {
+      agent: input.agent,
+      project: ctx.project!,
+      role: ctx.role!,
+      taskKey,
+      trigger: input.trigger ?? "cadence",
+      summary: pre.ok ? "starting" : pre.summary,
+      queuedAt: input.now,
+      reserveTokens: settings.reserveTokens,
+    });
+    if (out.kind === "coalesced") return { kind: "coalesced", summary: "coalesced" };
+    // PLA-I60-2: it starts through admission like every run (caps, lock keys, plan projection).
+    return outcomeOf(await admit(db, input.now, deps, { only: out.run.id }), out.run.id, taskKey);
   });
 }
 
@@ -304,40 +374,43 @@ export async function startNow(
   deps: RunnerDeps = {},
 ): Promise<ForcedStart> {
   return serial(async () => {
+    // PLA-I60-1: an agent may have several runs, one per work item. With a task given, that task's run is the one;
+    // without, the oldest queued run.
     const mine = await db
       .select()
       .from(agentRuns)
-      .where(and(eq(agentRuns.agentId, input.agent.id), inArray(agentRuns.status, ["queued", "running"])))
+      .where(and(eq(agentRuns.agentId, input.agent.id), inArray(agentRuns.status, [...ACTIVE_STATUSES])))
       .orderBy(asc(agentRuns.queuedAt));
-    if (mine.some((r) => r.status === "running")) return { kind: "busy" };
-    const queued = mine[0] ?? null;
+    const onTask = input.task ? mine.filter((r) => r.workKey === workKeyOf(input.task!.key)) : mine;
+    if (input.task ? onTask.some((r) => r.status !== "queued") : mine.length > 0 && mine.every((r) => r.status !== "queued")) return { kind: "busy" };
+    const queued = onTask.find((r) => r.status === "queued") ?? null;
     if (!queued && !input.task) return { kind: "idle" };
     const task = queued ? (queued.taskKey ? await readyWorkOf(db, queued.projectId, queued.taskKey) : null) : input.task;
     const ctx = await loadContext(db, input.agent, task);
     if (!ctx.project && queued) ctx.project = (await db.select().from(projects).where(eq(projects.id, queued.projectId)).limit(1))[0] ?? null;
-    const pre = await preflight(db, ctx, input.now, deps, { skipRest: true, pastGuard: input.pastGuard, consulta: !!(queued && consultaIdOf(queued.summary)) });
+    const pre = await preflight(db, ctx, input.now, deps, { skipRest: true, pastGuard: input.pastGuard, consulta: queued?.lane === "consulta" });
     if (!pre.ok && pre.kind !== "cap") return { kind: "held", summary: pre.summary };
-    const run =
-      queued ??
-      (
-        await db
-          .insert(agentRuns)
-          .values({
-            agentId: input.agent.id,
-            projectId: ctx.project!.id,
-            taskKey: task?.key ?? null,
-            role: ctx.role!,
-            status: "queued",
-            // PLA-I49-5: a reason rides in the summary the way an event wake's does, so the prompt says why.
-            summary: input.reason ? `${EVENT_SUMMARY} ${input.reason}`.slice(0, 500) : pre.ok ? "starting" : "queued: cap reached",
-            queuedAt: input.now,
-            reserveTokens: (await loadSettings(db)).reserveTokens,
-          })
-          .returning()
-      )[0]!;
-    if (!pre.ok) return { kind: "queued", runId: run.id, taskKey: run.taskKey, summary: "queued: cap reached" };
-    const out = await start(db, run, ctx, deps);
-    if (out.kind !== "started") return { kind: "fail", summary: out.summary };
+    let run = queued;
+    if (!run) {
+      const out = await insertRun(db, {
+        agent: input.agent,
+        project: ctx.project!,
+        role: ctx.role!,
+        taskKey: task?.key ?? null,
+        trigger: "owner",
+        // PLA-I49-5: the reason goes to the prompt; the summary is display text.
+        reason: input.reason ?? null,
+        summary: input.reason ? `${EVENT_SUMMARY} ${input.reason}` : pre.ok ? "starting" : "queued: cap reached",
+        queuedAt: input.now,
+        reserveTokens: (await loadSettings(db)).reserveTokens,
+      });
+      if (out.kind === "coalesced") return { kind: "busy" };
+      run = out.run;
+    }
+    const admitted = outcomeOf(await admit(db, input.now, deps, { only: run.id, skipRest: true, pastGuard: input.pastGuard }), run.id, run.taskKey);
+    if (admitted.kind === "queued") return { kind: "queued", runId: run.id, taskKey: run.taskKey, summary: admitted.summary };
+    if (admitted.kind !== "started") return { kind: "fail", summary: admitted.summary };
+    const out = admitted;
     await db.insert(events).values({
       projectId: ctx.project!.id,
       taskKey: run.taskKey,
@@ -354,51 +427,353 @@ export async function startNow(
 export async function canStart(db: Db, agent: Agent, projectId: string, taskKey: string, now: Date, deps: RunnerDeps = {}): Promise<{ ok: boolean; summary: string }> {
   const task = await readyWorkOf(db, projectId, taskKey);
   if (!task) return { ok: false, summary: "skipped: no such ticket" };
-  const pre = await preflight(db, await loadContext(db, agent, task), now, deps);
+  const pre = await preflight(db, await loadContext(db, agent, task), now, deps, { trigger: "retry" });
   if (pre.ok) return { ok: true, summary: "" };
   return { ok: pre.kind === "cap" || pre.summary === "skipped: cooldown", summary: pre.summary };
 }
 
-// Queued runs, oldest first, while there is a free slot. A run whose checks now say no is dropped
-// (skipped, with the reason); the cadence queues it again later.
-export async function drainQueue(db: Db, now: Date, deps: RunnerDeps = {}): Promise<{ started: number; dropped: number }> {
-  return serial(async () => {
-    const out = { started: 0, dropped: 0 };
-    // PLA-I41-3: queued runs stay queued while a reservation is up.
-    if (reservation) return out;
-    const queued = await db.select().from(agentRuns).where(eq(agentRuns.status, "queued")).orderBy(asc(agentRuns.queuedAt));
-    // PLA-50: two lanes (work and the owner's questions). A full lane stops only its own runs; the other keeps going.
-    const full = new Set<"work" | "consulta">();
-    for (const run of queued) {
-      const lane = consultaIdOf(run.summary) ? "consulta" : "work";
-      if (full.has(lane)) continue;
-      const [agent] = await db.select().from(agents).where(eq(agents.id, run.agentId)).limit(1);
+// ---- Admission (PLA-I60-2)
+//
+// Queued runs start here, from any process: one short transaction under ADMIT_LOCK decides which runs start
+// (status starting, their lock keys taken, worker and lease set); the processes spawn after it commits. Checks, in
+// order: the run's own verdict (switches, goal, base branch, the rest for cadence runs), the company ceiling minus
+// reserved slots, this worker's capacity and the Mac's free memory and disk, the start rate, the plan guard (a
+// stopped plan ends the run as before; a projection that would cross the guard holds it), the project's lane cap,
+// the agent's cap, the lock keys, and overlapping areas for code runs. A run that waits keeps a held_code the screen
+// reads. `only` admits one run (a wake or the owner's «Que empiece ya»); skipRest and pastGuard apply to it alone.
+export type AdmitOptions = { only?: string; skipRest?: boolean; pastGuard?: boolean };
+export type AdmitResult = {
+  // How long the admission transaction held ADMIT_LOCK (the load test's number).
+  txMs?: number;
+  // How long it waited for another admitter to let go of the lock.
+  waitMs?: number;
+  started: number;
+  dropped: number;
+  outcomes: Map<string, { kind: "started"; outcome: WakeOutcome } | { kind: "held"; code: HeldCode; summary: string } | { kind: "ended"; status: "skipped" | "fail"; summary: string }>;
+};
+
+const HOLD_SUMMARY: Record<HeldCode, string> = {
+  project_cap: "queued: project cap reached",
+  agent_cap: "queued: agent cap reached",
+  ceiling: "queued: cap reached",
+  machine: "queued: machine is low on memory or disk",
+  start_rate: "queued: start rate",
+  plan: "queued: plan projection over the guard",
+  rest: "queued: cooldown",
+  lock: "queued: same branch or ticket is busy",
+  areas: "queued: same files are busy",
+};
+
+async function machineFacts(deps: RunnerDeps, env: NodeJS.ProcessEnv): Promise<MachineFacts> {
+  if (deps.machine) return deps.machine();
+  // Tests turn the real memory and disk reading off (helpers.ts); a test that needs it passes deps.machine.
+  if (process.env.PLANIA_MACHINE_CHECK === "0") return { freeMb: Number.POSITIVE_INFINITY, freeDiskGb: Number.POSITIVE_INFINITY };
+  return { freeMb: await availableMemoryMb(), freeDiskGb: await freeDiskGb(rootOf(deps, env)) };
+}
+
+export async function admit(db: Db, now: Date, deps: RunnerDeps = {}, opts: AdmitOptions = {}): Promise<AdmitResult> {
+  const env = deps.env ?? process.env;
+  const result: AdmitResult = { started: 0, dropped: 0, outcomes: new Map() };
+  const settings = await loadSettings(db);
+  // The free /usage probe runs outside the transaction.
+  if (planView(await lastReading(db), settings.planGuardPct, now, settings.guardOverride).state === "unknown") await probeIfUnknown(db, deps, now);
+  const machine = await machineFacts(deps, env);
+  const worker = workerId(env);
+  const capacity = workerCapacity(env);
+  const minFreeMb = env.PLANIA_MIN_FREE_MB !== undefined ? Number(env.PLANIA_MIN_FREE_MB) : settings.minFreeMb;
+  const root = rootOf(deps, env);
+
+  type Admitted = { run: AgentRun; ctx: WakeContext };
+  const txStart = performance.now();
+  let lockedAt = txStart;
+  const admitted: Admitted[] = await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(${ADMIT_LOCK})`);
+    lockedAt = performance.now();
+    await reapLostStarts(tx, now);
+    await reapLostWorkers(tx, worker, now);
+    await tx.delete(runnerReservations).where(sql`${runnerReservations.expiresAt} <= ${now.toISOString()}::timestamptz`);
+    const c = await readCounters(tx, now, reservation ? 1 : 0);
+    const reading = await lastReading(tx);
+    const queued = await tx
+      .select({ run: agentRuns, priority: tasks.priority, slug: projects.slug })
+      .from(agentRuns)
+      .innerJoin(projects, eq(projects.id, agentRuns.projectId))
+      .leftJoin(tasks, and(eq(tasks.projectId, agentRuns.projectId), eq(tasks.key, agentRuns.taskKey)))
+      .where(and(eq(agentRuns.status, "queued"), opts.only ? eq(agentRuns.id, opts.only) : sql`true`, sql`(${agentRuns.notBefore} is null or ${agentRuns.notBefore} <= ${now.toISOString()}::timestamptz)`))
+      .orderBy(
+        sql`(${agentRuns.lane} = 'consulta') desc`,
+        sql`(${agentRuns.trigger} = 'owner') desc`,
+        sql`coalesce(array_position(array['P0','P1','P2','P3'], ${tasks.priority}), 9)`,
+        asc(agentRuns.queuedAt),
+      )
+      .limit(1000);
+    // Round-robin over projects, starting after the one admitted last, so a busy project never starves the others.
+    const [rr] = await tx.select().from(machineState).where(eq(machineState.key, "runner.rr")).limit(1);
+    const lastProject = (rr?.value as { project?: string } | undefined)?.project ?? "";
+    const byProject = new Map<string, typeof queued>();
+    for (const q of queued) byProject.set(q.slug, [...(byProject.get(q.slug) ?? []), q]);
+    // Projects in the order of their first candidate (oldest, most urgent work first); the project admitted last
+    // goes to the end, so the next admission serves the others first.
+    const order = [...byProject.keys()];
+    const rotated = order.includes(lastProject) ? [...order.filter((x) => x !== lastProject), lastProject] : order;
+    const ordered: typeof queued = [];
+    for (let round = 0; ordered.length < queued.length; round++) for (const slug of rotated) { const q = byProject.get(slug)![round]; if (q) ordered.push(q); }
+
+    const out: Admitted[] = [];
+    const hold = async (run: AgentRun, code: HeldCode, detail: Record<string, unknown>) => {
+      result.outcomes.set(run.id, { kind: "held", code, summary: HOLD_SUMMARY[code] });
+      // Written when the reason changes (the numbers in it move every pass; the screen reads live counts anyway).
+      if (run.heldCode !== code) await tx.update(agentRuns).set({ heldCode: code, heldDetail: detail }).where(eq(agentRuns.id, run.id));
+    };
+    const holdRest = async (from: number, code: HeldCode, detail: Record<string, unknown>, lane?: string) => {
+      const rest = ordered.slice(from).filter((q) => (!lane || q.run.lane === lane) && !result.outcomes.has(q.run.id));
+      for (const q of rest) result.outcomes.set(q.run.id, { kind: "held", code, summary: HOLD_SUMMARY[code] });
+      const ids = rest.filter((q) => q.run.heldCode !== code).map((q) => q.run.id);
+      if (ids.length) await tx.update(agentRuns).set({ heldCode: code, heldDetail: detail }).where(inArray(agentRuns.id, ids));
+    };
+    const stopped = new Set<string>(); // lanes a plan projection stopped
+    let lastAdmitted: string | null = null;
+
+    const agentIds = [...new Set(ordered.map((q) => q.run.agentId))];
+    const agentById = new Map((agentIds.length ? await tx.select().from(agents).where(inArray(agents.id, agentIds)) : []).map((a) => [a.id, a]));
+    const projectIds = [...new Set(ordered.map((q) => q.run.projectId))];
+    const projectById = new Map((projectIds.length ? await tx.select().from(projects).where(inArray(projects.id, projectIds)) : []).map((p) => [p.id, p]));
+    for (const [n, q] of ordered.entries()) {
+      const run = q.run;
+      if (result.outcomes.has(run.id) || stopped.has(run.lane)) continue;
+      // A full ceiling (or a slot reserved for the Morning brief) leaves the work queue as it is. The ceiling counts
+      // work runs; questions have their own slots per project (PLA-50) and wait only while the brief holds its slot.
+      const ceiling = settings.maxConcurrent - c.reserved;
+      if (run.lane === "work" && c.work >= ceiling) {
+        await holdRest(n, "ceiling", { running: c.work, cap: settings.maxConcurrent, reserved: c.reserved }, "work");
+        // PLA-I41-3: the wake says the Morning brief holds the slot.
+        if (c.reserved > 0) for (const id of ordered.slice(n).filter((x) => x.run.lane === "work").map((x) => x.run.id)) result.outcomes.set(id, { kind: "held", code: "ceiling", summary: `queued: slot reserved (${reservation?.label ?? "reserved"})` });
+        stopped.add("work");
+        continue;
+      }
+      if (run.lane === "consulta" && c.reserved > 0) {
+        await hold(run, "ceiling", { running: c.work, cap: settings.maxConcurrent, reserved: c.reserved });
+        result.outcomes.set(run.id, { kind: "held", code: "ceiling", summary: `queued: slot reserved (${reservation?.label ?? "reserved"})` });
+        continue;
+      }
+      // The caps first: they need no query, and most of a long queue waits on them (load test, PLA-I60-6).
+      const agent = agentById.get(run.agentId);
       if (!agent) continue;
-      const task = run.taskKey ? await readyWorkOf(db, run.projectId, run.taskKey) : null;
-      const ctx = await loadContext(db, agent, task);
-      if (!ctx.project) ctx.project = (await db.select().from(projects).where(eq(projects.id, run.projectId)).limit(1))[0] ?? null;
-      const pre = await preflight(db, ctx, now, deps, { fromQueue: run.id, consulta: lane === "consulta" });
-      if (!pre.ok && pre.kind === "cap") {
-        full.add(lane);
-        if (full.size === 2) break;
+      {
+        const lim = projectLimits(projectById.get(run.projectId)?.settings?.runner);
+        if (run.lane === "consulta" || agent.projectId) {
+          const used = c.byProjectLane.get(`${run.projectId}:${run.lane}`) ?? 0;
+          const cap = run.lane === "consulta" ? lim.consultaSlots : lim.maxConcurrent;
+          if (used >= cap) {
+            await hold(run, "project_cap", { running: used, cap, lane: run.lane });
+            continue;
+          }
+        }
+        if (run.lane === "work") {
+          const used = c.byAgent.get(agent.id) ?? 0;
+          const cap = agentCapOf(agent, lim);
+          if (used >= cap) {
+            await hold(run, "agent_cap", { running: used, cap });
+            continue;
+          }
+        }
+      }
+      const task = run.taskKey ? await readyWorkOf(tx, run.projectId, run.taskKey) : null;
+      const ctx = await loadContext(tx, agent, task);
+      if (!ctx.project) ctx.project = (await tx.select().from(projects).where(eq(projects.id, run.projectId)).limit(1))[0] ?? null;
+      const mine = opts.only === run.id;
+      const pre = await preflight(tx, ctx, now, deps, { fromQueue: run.id, consulta: run.lane === "consulta", trigger: run.trigger, skipRest: mine && opts.skipRest, noCap: true });
+      if (!pre.ok && pre.summary === "skipped: cooldown") {
+        await hold(run, "rest", {});
         continue;
       }
-      // PLA-I31-1: an event wake inside the agent's cooldown waits for it to end instead of being
-      // dropped, so events that arrive during the cooldown coalesce into this one run.
-      if (!pre.ok && pre.summary === "skipped: cooldown" && run.summary.startsWith(EVENT_SUMMARY)) continue;
       if (!pre.ok) {
-        await endWithoutProcess(db, run, pre.kind === "fail" ? "fail" : "skipped", pre.summary, now);
-        out.dropped += 1;
+        await endWithoutProcess(tx, run, pre.kind === "fail" ? "fail" : "skipped", pre.summary, now);
+        result.outcomes.set(run.id, { kind: "ended", status: pre.kind === "fail" ? "fail" : "skipped", summary: pre.summary });
+        result.dropped += 1;
         continue;
       }
-      await start(db, run, ctx, deps);
-      out.started += 1;
+      // The plan: a stopped (or unknown) plan ends the run as it always did; requeueHeld queues it again later.
+      const view = planView(reading, settings.planGuardPct, now, settings.guardOverride || (mine && !!opts.pastGuard));
+      if (view.state === "unknown" || view.state === "stopped") {
+        const summary = planGuardSummary(view);
+        await endWithoutProcess(tx, run, "skipped", summary, now);
+        result.outcomes.set(run.id, { kind: "ended", status: "skipped", summary });
+        result.dropped += 1;
+        continue;
+      }
+
+      const onWorker = c.byWorker.get(worker) ?? 0;
+      if (onWorker >= capacity || (onWorker > 0 && (machine.freeMb < minFreeMb || machine.freeDiskGb < settings.minFreeDiskGb))) {
+        await holdRest(n, "machine", { free_mb: Math.round(machine.freeMb), free_disk_gb: Math.round(machine.freeDiskGb), running: onWorker, capacity });
+        break;
+      }
+      if (c.startsLastMinute >= settings.maxStartsPerMinute) {
+        await holdRest(n, "start_rate", { per_minute: settings.maxStartsPerMinute });
+        break;
+      }
+      const motor = await motorOfRun(tx, agent, run);
+      const weight = planWeight(motor.model, motor.effort, settings.estPctPerRun);
+      if (!view.override && view.five_hour_pct != null) {
+        const projected = view.five_hour_pct + c.weightSince(reading?.at ?? null) + weight;
+        if (projected >= view.guard_pct) {
+          await holdRest(n, "plan", { pct: view.five_hour_pct, projected: Math.round(projected), guard: view.guard_pct });
+          stopped.add("work");
+          stopped.add("consulta");
+          continue;
+        }
+      }
+      const limits = projectLimits(ctx.project?.settings?.runner);
+      const team = !!agent.projectId;
+      const project = ctx.project!;
+      const branch = task ? ctx.taskRow?.branch?.trim() || branchFor(task.key) : null;
+      const cwd = run.lane === "consulta" ? null : task ? safePath(() => worktreePathFor(root, project.slug, task.key)) : scratchPathFor(root, project.slug, agent.slug);
+      const keys = lockKeysOf({ projectId: project.id, taskKey: run.taskKey, branch: run.lane === "consulta" ? null : branch, cwd });
+      const taken = await takeLocks(tx, run.id, run.lane === "consulta" ? keys.filter((k) => !k.startsWith("task:")) : keys);
+      if (!taken.ok) {
+        await hold(run, "lock", { keys: taken.held });
+        continue;
+      }
+      if (limits.serializeAreas && ctx.role === "taller" && task && (await areasClash(tx, project.id, task.key))) {
+        await releaseLocks(tx, run.id);
+        await hold(run, "areas", {});
+        continue;
+      }
+      const [updated] = await tx
+        .update(agentRuns)
+        .set({ status: "starting", workerId: worker, leaseUntil: new Date(now.getTime() + 2 * MINUTE), startedAt: now, heldCode: null, heldDetail: null, planWeight: weight })
+        .where(and(eq(agentRuns.id, run.id), eq(agentRuns.status, "queued")))
+        .returning();
+      if (!updated) {
+        await releaseLocks(tx, run.id);
+        continue;
+      }
+      bump(c, { projectId: run.projectId, lane: run.lane, agentId: agent.id, team, weight }, worker, now);
+      out.push({ run: updated, ctx });
+      lastAdmitted = q.slug;
+    }
+    if (lastAdmitted) {
+      await tx
+        .insert(machineState)
+        .values({ key: "runner.rr", value: { project: lastAdmitted } })
+        .onConflictDoUpdate({ target: machineState.key, set: { value: { project: lastAdmitted }, updatedAt: sql`now()` } });
     }
     return out;
   });
+
+  result.txMs = performance.now() - lockedAt;
+  result.waitMs = lockedAt - txStart;
+  // Spawn outside the transaction, concurrently; git on one repo is serialized by its own lock (start).
+  await Promise.all(
+    admitted.map(async ({ run, ctx }) => {
+      const outcome = await start(db, run, ctx, deps).catch(async (e: unknown) => {
+        const summary = `fail: start (${String((e as Error)?.message ?? e).slice(0, 80)})`;
+        await endWithoutProcess(db, run, "fail", summary, new Date());
+        return { kind: "fail", summary, taskKey: run.taskKey, recorded: true } as WakeOutcome;
+      });
+      result.outcomes.set(run.id, outcome.kind === "started" ? { kind: "started", outcome } : { kind: "ended", status: outcome.kind === "skipped" ? "skipped" : "fail", summary: outcome.summary });
+      if (outcome.kind === "started") result.started += 1;
+    }),
+  );
+  return result;
 }
 
-async function readyWorkOf(db: Db, projectId: string, key: string): Promise<ReadyWork | null> {
+async function withRepoLock<T>(db: Db, repo: string, fn: () => Promise<T>): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`git:${repo}`}))`);
+    return fn();
+  });
+}
+
+const safePath = (fn: () => string): string | null => {
+  try {
+    return fn();
+  } catch {
+    return null;
+  }
+};
+
+// A code run waits while a live code run in the same project lists areas that overlap its ticket's.
+async function areasClash(tx: Q, projectId: string, key: string): Promise<boolean> {
+  const [mine] = await tx.select({ areas: tasks.areas }).from(tasks).where(and(eq(tasks.projectId, projectId), eq(tasks.key, key))).limit(1);
+  const a = mine?.areas ?? [];
+  if (a.length === 0) return false;
+  const others = await tx
+    .select({ areas: tasks.areas })
+    .from(agentRuns)
+    .innerJoin(tasks, and(eq(tasks.projectId, agentRuns.projectId), eq(tasks.key, agentRuns.taskKey)))
+    .where(and(eq(agentRuns.projectId, projectId), inArray(agentRuns.status, ["starting", "running"]), eq(agentRuns.role, "taller"), sql`${agentRuns.taskKey} <> ${key}`));
+  return others.some((o) => (o.areas ?? []).some((x) => a.some((y) => areasOverlap(x, y))));
+}
+
+// The motor a run would start with (for its plan weight).
+async function motorOfRun(tx: Q, agent: Agent, run: AgentRun): Promise<{ model: string | null; effort: string | null }> {
+  const settings = await loadSettings(tx);
+  const m = resolveMotor({
+    consulta: run.lane === "consulta",
+    seat: { model: agent.motorModel, effort: agent.motorEffort, consultaModel: agent.consultaModel, consultaEffort: agent.consultaEffort },
+    company: { model: settings.defaultModel, effort: settings.defaultEffort },
+  });
+  return { model: m.model, effort: m.effort };
+}
+
+// PLA-I60-2: admission a moment after something is queued or finishes, instead of at the next heartbeat tick. Every
+// insertRun and finishRun sends NOTIFY plania_runs on commit; this process LISTENs and admits (debounced). The heartbeat
+// job still drains every minute as the fallback. Only the server with jobs on starts this.
+let admitTimer: NodeJS.Timeout | null = null;
+export function startAdmissionLoop(db: Db, deps: RunnerDeps = {}, log: (line: string) => void = () => {}): () => void {
+  const soon = () => {
+    if (admitTimer) return;
+    admitTimer = setTimeout(() => {
+      admitTimer = null;
+      void drainQueue(db, new Date(), deps).then(
+        (r) => r.started && log(`[runner] admitted ${r.started}`),
+        (e: unknown) => log(`[runner] admit failed: ${e instanceof Error ? e.message : String(e)}`),
+      );
+    }, 250);
+  };
+  setQueueKick(soon);
+  const timers = [
+    setInterval(() => void renewWorker(db, deps.env ?? process.env).catch(() => undefined), 30_000),
+    setInterval(() => void actOnStopRequests(db).catch(() => undefined), 5_000),
+  ];
+  void renewWorker(db, deps.env ?? process.env).catch(() => undefined);
+  let client: pg.Client | null = null;
+  let stopped = false;
+  const listen = async () => {
+    if (stopped) return;
+    try {
+      client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+      client.on("notification", soon);
+      client.on("error", () => {
+        client = null;
+        setTimeout(() => void listen(), 5_000);
+      });
+      await client.connect();
+      await client.query(`LISTEN ${QUEUE_CHANNEL}`);
+    } catch {
+      client = null;
+      setTimeout(() => void listen(), 5_000);
+    }
+  };
+  void listen();
+  return () => {
+    stopped = true;
+    timers.forEach((t) => clearInterval(t));
+    setQueueKick(() => {});
+    void client?.end().catch(() => undefined);
+  };
+}
+
+// Queued runs, through admission. Kept under its old name for the heartbeat job and the tests.
+export async function drainQueue(db: Db, now: Date, deps: RunnerDeps = {}): Promise<{ started: number; dropped: number }> {
+  return serial(async () => {
+    const r = await admit(db, now, deps);
+    return { started: r.started, dropped: r.dropped };
+  });
+}
+
+async function readyWorkOf(db: Q, projectId: string, key: string): Promise<ReadyWork | null> {
   const [row] = await db
     .select({ project: projects.slug, key: tasks.key, title: tasks.title, priority: tasks.priority, workType: tasks.workType, ownerAgent: tasks.ownerAgent })
     .from(tasks)
@@ -408,8 +783,11 @@ async function readyWorkOf(db: Db, projectId: string, key: string): Promise<Read
   return row ?? null;
 }
 
-async function endWithoutProcess(db: Db, run: AgentRun, status: "skipped" | "fail", summary: string, now: Date): Promise<void> {
-  await db.update(agentRuns).set({ status, summary: summary.slice(0, 500), endedAt: now }).where(eq(agentRuns.id, run.id));
+async function endWithoutProcess(db: Q, run: AgentRun, status: "skipped" | "fail", summary: string, now: Date): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.update(agentRuns).set({ status, summary: summary.slice(0, 500), endedAt: now, heldCode: null }).where(eq(agentRuns.id, run.id));
+    await releaseLocks(tx, run.id);
+  });
   await db.insert(heartbeatRuns).values({
     agentId: run.agentId,
     startedAt: run.queuedAt,
@@ -527,6 +905,22 @@ export const mcpConfig = (url: string) => ({
   mcpServers: { plania: { type: "http", url, headers: { Authorization: "Bearer ${PLANIA_RUNNER_TOKEN}" } } },
 });
 
+// The stream's running totals reach agent_runs every few seconds while the run is live.
+function liveFlusher(db: Db, runId: string, reader: StreamReader, every: number): (chunk: string) => void {
+  let last = 0;
+  return (chunk) => {
+    reader.feed(chunk);
+    if (Date.now() - last < every) return;
+    last = Date.now();
+    const t = reader.liveTokens;
+    void db
+      .update(agentRuns)
+      .set({ turns: reader.liveTurns, inputTokens: t.input, outputTokens: t.output, cacheReadTokens: t.cacheRead, cacheCreateTokens: t.cacheCreate, tokensTotal: totalOf(t) })
+      .where(and(eq(agentRuns.id, runId), eq(agentRuns.status, "running")))
+      .catch(() => undefined);
+  };
+}
+
 async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps): Promise<WakeOutcome> {
   const env = deps.env ?? process.env;
   const project = ctx.project!;
@@ -542,7 +936,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const settings = await loadSettings(db);
   const root = rootOf(deps, env);
   // PLA-I57-1: a question from Preguntar. Read-only, in the project's own checkout, fresh session, no packs.
-  const consultaId = consultaIdOf(run.summary);
+  const consultaId = consultaIdOfRun(run);
   const consulta = consultaId ? await consultaById(db, consultaId) : null;
 
   // Where the run works: the ticket's worktree, or a scratch folder for a PO with no ticket.
@@ -552,7 +946,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   if (ctx.task) {
     const repo = repoPathOf(project.slug, project.settings, env);
     const wanted = ctx.taskRow?.branch?.trim() || branchFor(ctx.task.key);
-    const made = await ensureWorktree({ repo, root, project: project.slug, key: ctx.task.key, branch: wanted }, deps.git ?? defaultGit);
+    // PLA-I60-2: one git writer per repo across processes (a Postgres advisory lock), with lock errors retried.
+    const made = await withRepoLock(db, repo, () => ensureWorktree({ repo, root, project: project.slug, key: ctx.task!.key, branch: wanted }, carefulGit(deps.git ?? defaultGit)));
     if (!made.ok) {
       if (made.summary === "fail: no repo" && role !== "taller") {
         cwd = scratchPathFor(root, project.slug, ctx.agent.slug);
@@ -588,7 +983,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const [session] = await db
     .select()
     .from(agentSessions)
-    .where(and(eq(agentSessions.agentId, ctx.agent.id), eq(agentSessions.projectId, project.id)))
+    .where(and(eq(agentSessions.agentId, ctx.agent.id), eq(agentSessions.projectId, project.id), eq(agentSessions.workKey, run.workKey)))
     .limit(1);
   // PLA-I46-9: a QA run is always a fresh session, so its review has not seen anyone's earlier reasoning.
   const qa = role === "qa" ? await qaBriefFor(db, run.id, cwd) : null;
@@ -608,7 +1003,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   }
   const settingsPath = path.join(tmp, "settings.json");
   // PLA-I52-6: a run that answers the owner's question about a delivery reads only, like QA.
-  const asks = run.summary.includes(PREGUNTA_MARK);
+  const asks = (run.reason ?? "").includes(PREGUNTA_MARK);
   if (asks) {
     const h = await (deps.git ?? defaultGit)(["rev-parse", "HEAD"], cwd).catch(() => null);
     askHeads.set(run.id, h && h.code === 0 ? h.stdout.trim() : null);
@@ -621,7 +1016,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const packs = consulta ? [] : writePacks(cwd, await packsOf(db, ctx.agent, env));
 
   const goal = await projectGoal(db, project.id);
-  const planiaSession = `run-${run.id.slice(0, 8)}`;
+  const planiaSession = runSession(run.id);
   const prompt = consulta
     ? consultaPrompt({ agent: ctx.agent.name, project: { slug: project.slug, title: project.title }, consulta, cwd, sessionId: planiaSession })
     : qa?.prompt ?? userPrompt({
@@ -632,7 +1027,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     task: ctx.task ? { key: ctx.task.key, title: ctx.task.title } : null,
     workspace: { path: cwd, branch },
     sessionId: planiaSession,
-    reason: run.summary.startsWith(EVENT_SUMMARY) ? run.summary.slice(EVENT_SUMMARY.length).trim() || null : null,
+    reason: run.reason?.trim() || null,
     packs,
     images: ctx.task ? await taskImagePaths(db, project.id, ctx.task.key).catch(() => []) : [],
   });
@@ -649,14 +1044,15 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const logPath = path.join(logDirOf(deps, env), `${stamp}-${ctx.agent.slug}-${run.id.slice(0, 8)}.jsonl`);
   const startedAt = new Date();
 
-  let lastFlush = 0;
-  const flushEvery = deps.liveFlushMs ?? 5_000;
   // Plan readings are written as they stream; the run's end waits for them, so the next wake reads them.
   const readings: Promise<unknown>[] = [];
   const reader = new StreamReader((reading) => {
     readings.push(recordReading(db, { ...reading, source: "stream", runId: run.id }).catch(() => undefined));
   });
-  const proc = supervise({
+  const onStdout = liveFlusher(db, run.id, reader, deps.liveFlushMs ?? 5_000);
+  // PLA-I60-3: the real runner starts the run through wrapper.mjs, detached, so it outlives a server restart. Tests
+  // that inject spawn keep the piped child.
+  const supervised = {
     command,
     args,
     cwd,
@@ -664,20 +1060,12 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     logPath,
     timeoutMs: deps.timeoutMs ?? settings.timeoutMinutes * MINUTE,
     graceMs: deps.graceMs ?? 30_000,
-    spawn: deps.spawn ?? defaultSpawn,
     kill: deps.kill ?? defaultKill,
-    onStdout: (chunk) => {
-      reader.feed(chunk);
-      if (Date.now() - lastFlush < flushEvery) return;
-      lastFlush = Date.now();
-      const t = reader.liveTokens;
-      void db
-        .update(agentRuns)
-        .set({ turns: reader.liveTurns, inputTokens: t.input, outputTokens: t.output, cacheReadTokens: t.cacheRead, cacheCreateTokens: t.cacheCreate, tokensTotal: totalOf(t) })
-        .where(and(eq(agentRuns.id, run.id), eq(agentRuns.status, "running")))
-        .catch(() => undefined);
-    },
-  });
+    onStdout,
+  };
+  const proc = (deps.detached ?? !deps.spawn)
+    ? superviseDetached({ ...supervised, runId: run.id, spawnDetached: deps.spawnDetached, pollMs: deps.pollMs })
+    : supervise({ ...supervised, spawn: deps.spawn ?? defaultSpawn });
 
   await db
     .update(agentRuns)
@@ -810,7 +1198,7 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
   if (exit.timedOut && status !== "ok") summary = `${summary} after timeout`.slice(0, 500);
 
   // PLA-I46-12: a skill pack never reaches the app repo. One in the branch diff (or staged) fails the run.
-  const consultaRun = !!consultaIdOf(run.summary);
+  const consultaRun = run.lane === "consulta";
   const leaked = consultaRun ? [] : await packsInDiff(input.cwd, deps.git ?? defaultGit).catch(() => [] as string[]);
   if (leaked.length > 0) {
     status = "fail";
@@ -818,18 +1206,9 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
   }
 
   const sessionId = result?.sessionId ?? reader.sessionId;
-  // PLA-I57-1: a question's run never replaces the PO's own session (it ran elsewhere, with a different prompt).
-  if (sessionId && !consultaRun) {
-    await db
-      .insert(agentSessions)
-      .values({ agentId: agent.id, projectId: project.id, claudeSessionId: sessionId, cwd: input.cwd, runs: 1 })
-      .onConflictDoUpdate({
-        target: [agentSessions.agentId, agentSessions.projectId],
-        set: { claudeSessionId: sessionId, cwd: input.cwd, runs: sql`${agentSessions.runs} + 1`, updatedAt: sql`now()` },
-      });
-  }
-
-  await db
+  // PLA-I60-6: the end and the lock release in one transaction (the load test saw a finished run holding keys).
+  const finished = await db.transaction(async (tx) => {
+    const rows = await tx
     .update(agentRuns)
     .set({
       status,
@@ -846,7 +1225,24 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
       exitCode: exit.code,
       stopReason: input.stopReason,
     })
-    .where(eq(agentRuns.id, run.id));
+    .where(and(eq(agentRuns.id, run.id), inArray(agentRuns.status, ["starting", "running"])))
+    .returning({ id: agentRuns.id, absorbed: agentRuns.absorbed });
+    if (rows.length) await releaseLocks(tx, run.id);
+    return rows;
+  });
+  // PLA-I60-3: finishing is idempotent: a run another path already finished writes nothing more.
+  if (finished.length === 0) return;
+
+  // PLA-I57-1: a question's run never replaces the PO's own session (it ran elsewhere, with a different prompt).
+  if (sessionId && !consultaRun) {
+    await db
+      .insert(agentSessions)
+      .values({ agentId: agent.id, projectId: project.id, workKey: run.workKey, claudeSessionId: sessionId, cwd: input.cwd, runs: 1 })
+      .onConflictDoUpdate({
+        target: [agentSessions.agentId, agentSessions.projectId, agentSessions.workKey],
+        set: { claudeSessionId: sessionId, cwd: input.cwd, runs: sql`${agentSessions.runs} + 1`, updatedAt: sql`now()` },
+      });
+  }
 
   await db.insert(heartbeatRuns).values({
     agentId: agent.id,
@@ -859,6 +1255,19 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
   });
   // PLA-I40-6: a PO that ends well with another request waiting gets one wake for it.
   if (status === "ok") await wakePoIfWaiting(db, agent, { id: project.id, slug: project.slug }, run.taskKey, deps.env ?? process.env).catch(() => null);
+  // PLA-I60-1: wakes that arrived for this work while it ran get one more run (a stopped run's work is the owner's call).
+  const absorbed = finished[0]!.absorbed?.trim();
+  if (absorbed && status !== "stopped") {
+    await enqueueWake(db, {
+      agent,
+      project: { id: project.id, slug: project.slug },
+      taskKey: run.taskKey,
+      consultaId: consultaIdOfRun(run),
+      reason: `events while you worked: ${absorbed}`.slice(0, 2000),
+      trigger: "retry",
+    }).catch(() => null);
+  }
+  await notifyQueue(db);
 }
 
 // ---- Stop live runs (kill switches)
@@ -878,7 +1287,16 @@ export function stopLive(filter: (run: { agentId: string; projectId: string; rol
 // PLA-I36-9: stop one run (Detener on Compañía), not its project. false when it is not live in this process.
 export function stopRun(runId: string, reason = "detenido desde Compañía"): boolean {
   const run = live.get(runId);
-  if (!run || run.stopReason) return false;
+  // PLA-I60-3: a run another process supervises is stopped by that process (stop_requested, actOnStopRequests).
+  if (!run) {
+    void makeDb()
+      .db.update(agentRuns)
+      .set({ stopRequested: reason.slice(0, 200) })
+      .where(and(eq(agentRuns.id, runId), inArray(agentRuns.status, ["starting", "running"])))
+      .catch(() => undefined);
+    return false;
+  }
+  if (run.stopReason) return false;
   run.stopReason = reason;
   run.proc.stop(reason);
   return true;
@@ -897,19 +1315,34 @@ export async function enforceLive(db: Db, _now: Date): Promise<number> {
   return n;
 }
 
-// ---- Server start: orphans
-
-// Runs marked running that this process does not supervise were left by an earlier server.
-// Their process group gets SIGINT, then SIGKILL; the row ends as fail: orphaned. Tokens come from
-// the log's result event when it has one; otherwise the usage is unknown (shown, never blocking).
-// until Jorge acknowledges it on screen (or the week resets).
+// ---- Server start: runs left by an earlier server (PLA-I60-3)
+//
+// A run this worker started through wrapper.mjs keeps going while the server restarts. At boot, each live row of
+// this worker (or with no worker, from before 0060):
+//   the wrapper wrote its exit file    finish it from the log and that file
+//   the wrapper is still alive         attach to it: tail the log from the start, finish when it ends
+//   neither                            the old rule: its process group gets SIGINT then SIGKILL, and the row ends
+//                                      as fail: orphaned (tokens from the log's result event when there is one)
+// Rows of another worker are that worker's. Queued rows stay queued: admission takes them as it always would.
 export async function sweepOrphans(db: Db, deps: RunnerDeps = {}): Promise<number> {
-  const rows = await db.select().from(agentRuns).where(eq(agentRuns.status, "running"));
+  const env = deps.env ?? process.env;
+  const me = workerId(env);
+  const rows = await db.select().from(agentRuns).where(inArray(agentRuns.status, ["starting", "running"]));
   const kill = deps.kill ?? defaultKill;
   const probe = deps.probePid ?? defaultProbePid;
+  const probeWrapper = deps.probeWrapper ?? isWrapperOf;
+  const settings = await loadSettings(db);
   let n = 0;
   for (const run of rows) {
     if (live.has(run.id)) continue;
+    if (run.workerId && run.workerId !== me) continue;
+    const exitFile = run.logPath ? exitPathOf(run.logPath) : null;
+    if (run.status === "running" && run.logPath && exitFile && (existsSync(exitFile) || (run.pid && (await probeWrapper(run.pid, run.id))))) {
+      if (await reattach(db, run, deps, settings.timeoutMinutes * MINUTE)) {
+        n += 1;
+        continue;
+      }
+    }
     if (run.pid && (await probe(run.pid))) {
       kill(run.pid, "SIGINT");
       await new Promise((r) => setTimeout(r, deps.graceMs ?? 5_000));
@@ -933,10 +1366,11 @@ export async function sweepOrphans(db: Db, deps: RunnerDeps = {}): Promise<numbe
         })
       : (parsed?.liveTokens ?? { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 });
     const known = !!result?.hasModelUsage;
-    const summary = known ? "fail: orphaned (result kept)" : "fail: orphaned (usage unknown)";
+    const summary = run.status === "starting" ? "fail: start lost" : known ? "fail: orphaned (result kept)" : "fail: orphaned (usage unknown)";
     // PLA-I46-12: the dead run's packs leave its folder too.
     if (run.cwd && existsSync(run.cwd)) clearPacks(run.cwd);
-    await db
+    const ended = await db.transaction(async (tx) => {
+      const rows = await tx
       .update(agentRuns)
       .set({
         status: "fail",
@@ -950,7 +1384,12 @@ export async function sweepOrphans(db: Db, deps: RunnerDeps = {}): Promise<numbe
         tokensTotal: totalOf(tokens),
         stopReason: "orphaned",
       })
-      .where(eq(agentRuns.id, run.id));
+      .where(and(eq(agentRuns.id, run.id), inArray(agentRuns.status, ["starting", "running"])))
+      .returning({ id: agentRuns.id });
+      if (rows.length) await releaseLocks(tx, run.id);
+      return rows;
+    });
+    if (ended.length === 0) continue;
     await db.insert(heartbeatRuns).values({
       agentId: run.agentId,
       startedAt: run.startedAt ?? run.queuedAt,
@@ -962,11 +1401,52 @@ export async function sweepOrphans(db: Db, deps: RunnerDeps = {}): Promise<numbe
     });
     n += 1;
   }
-  // Queued rows from an earlier server are dropped too: the cadence queues them again.
+  return n;
+}
+
+// Follow a run found live (or already ended) after a restart, and finish it like any other.
+async function reattach(db: Db, run: AgentRun, deps: RunnerDeps, timeoutMs: number): Promise<boolean> {
+  const [agent] = await db.select().from(agents).where(eq(agents.id, run.agentId)).limit(1);
+  const [project] = await db.select().from(projects).where(eq(projects.id, run.projectId)).limit(1);
+  if (!agent || !project || !run.logPath) return false;
+  const reader = new StreamReader((reading) => {
+    void recordReading(db, { ...reading, source: "stream", runId: run.id }).catch(() => undefined);
+  });
+  const left = Math.max(60_000, timeoutMs - (Date.now() - (run.startedAt ?? run.queuedAt).getTime()));
+  const proc = attachDetached({ pid: run.pid, logPath: run.logPath, timeoutMs: left, graceMs: deps.graceMs ?? 30_000, pollMs: deps.pollMs, onStdout: liveFlusher(db, run.id, reader, deps.liveFlushMs ?? 5_000), kill: deps.kill ?? defaultKill });
+  const cwd = run.cwd ?? "";
+  const entry: LiveRun = { runId: run.id, agentId: agent.id, projectId: project.id, role: run.role, proc, finished: Promise.resolve(), stopReason: run.stopRequested };
+  entry.finished = proc.done
+    .then((exit) => finishRun(db, { run, agent, project, reader, exit, stopReason: entry.stopReason, cwd }, deps))
+    .catch(() => undefined)
+    .finally(() => {
+      live.delete(run.id);
+      rmSync(path.join(tmpDirOf(deps), run.id), { recursive: true, force: true });
+      if (run.lane !== "consulta" && cwd && existsSync(cwd)) clearPacks(cwd);
+    });
+  live.set(run.id, entry);
+  await db.update(agentRuns).set({ workerId: workerId(deps.env ?? process.env), leaseUntil: new Date(Date.now() + 2 * MINUTE) }).where(eq(agentRuns.id, run.id));
+  return true;
+}
+
+// PLA-I60-3: every 30 s this worker says it is alive and renews the lease of each live run it supervises; every
+// few seconds it acts on stops asked from any process (stop_requested). Lost workers are reaped in admission.
+export async function renewWorker(db: Db, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const me = workerId(env);
   await db
-    .update(agentRuns)
-    .set({ status: "skipped", summary: "skipped: server restarted", endedAt: new Date() })
-    .where(eq(agentRuns.status, "queued"));
+    .insert(runnerWorkers)
+    .values({ id: me, machine: hostname(), capacity: workerCapacity(env), seenAt: new Date() })
+    .onConflictDoUpdate({ target: runnerWorkers.id, set: { capacity: workerCapacity(env), seenAt: new Date(), machine: hostname() } });
+  const ids = [...live.keys()];
+  if (ids.length) await db.update(agentRuns).set({ leaseUntil: new Date(Date.now() + 2 * MINUTE), workerId: me }).where(and(inArray(agentRuns.id, ids), inArray(agentRuns.status, ["starting", "running"])));
+}
+
+export async function actOnStopRequests(db: Db): Promise<number> {
+  const ids = [...live.keys()];
+  if (ids.length === 0) return 0;
+  const rows = await db.select({ id: agentRuns.id, why: agentRuns.stopRequested }).from(agentRuns).where(and(inArray(agentRuns.id, ids), sql`${agentRuns.stopRequested} is not null`));
+  let n = 0;
+  for (const r of rows) if (stopRun(r.id, r.why ?? "detenido")) n += 1;
   return n;
 }
 
@@ -989,7 +1469,12 @@ export async function cleanupWorktrees(db: Db, deps: RunnerDeps = {}): Promise<n
     if (!existsSync(row.path)) continue;
     const repo = repoPathOf(row.slug, row.settings, env);
     clearPacks(row.path);
-    if (!(await removeWorktree({ repo, path: row.path }, deps.git ?? defaultGit))) continue;
+    // PLA-I60-2: under the repo's git lock, and never while a run holds this folder.
+    const removed = await withRepoLock(db, repo, async () => {
+      const [busy] = await db.select({ k: runLocks.lockKey }).from(runLocks).where(eq(runLocks.lockKey, `cwd:${row.path}`)).limit(1);
+      return busy ? false : removeWorktree({ repo, path: row.path }, carefulGit(deps.git ?? defaultGit));
+    });
+    if (!removed) continue;
     if (deps.footprints !== false) {
       await releaseFootprint(db, { project: row.slug, kind: "worktree", locator: row.path }, { ...sysCtx("runner.worktree"), actor: { ...sysCtx("runner.worktree").actor, session_id: `runner-cleanup` } }).catch(
         () => undefined,
@@ -999,6 +1484,27 @@ export async function cleanupWorktrees(db: Db, deps: RunnerDeps = {}): Promise<n
   }
   return n;
 }
+
+// ---- PLA-I60-6: run logs (and their exit files) older than 14 days go, except the newest 500.
+export function pruneRunLogs(dir: string, now = new Date(), keep = 500, days = 14): number {
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
+  } catch {
+    return 0;
+  }
+  const files = names.map((f) => ({ f, at: statSync(path.join(dir, f)).mtimeMs })).sort((a, b) => b.at - a.at);
+  const cutoff = now.getTime() - days * 24 * 60 * MINUTE;
+  let n = 0;
+  for (const { f, at } of files.slice(keep)) {
+    if (at >= cutoff) continue;
+    rmSync(path.join(dir, f), { force: true });
+    rmSync(path.join(dir, `${f}.exit.json`), { force: true });
+    n += 1;
+  }
+  return n;
+}
+export const runLogDir = (deps: RunnerDeps = {}): string => logDirOf(deps, deps.env ?? process.env);
 
 // ---- The free /usage probe
 

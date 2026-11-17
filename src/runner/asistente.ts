@@ -262,20 +262,14 @@ export async function queueAsistente(db: Db, home: Project, reason: string, env:
   const agent = await asistenteAgent(db);
   if (!agent) return null;
   return writeTx(db, home, { actor: { ...ASISTENTE_ACTOR, machine: hostname() }, tool: "jobs.asistente.queue" }, async (tx, emit) => {
-    const out = await enqueueWake(tx, { agent, project: home, taskKey: null, reason, now });
+    const out = await enqueueWake(tx, { agent, project: home, taskKey: null, reason, now, trigger: "event" });
     if (out.kind === "queued") {
       await emit("wake.queued", null, { agent: out.agent, role: out.role, reason, run_id: out.runId, from_event: "asistente.job" });
       return out.runId;
     }
+    // PLA-I60-1: a coalesced wake already added its reason to the run it joined (insertRun).
     if (out.reason !== "coalesced") return null;
-    const [queued] = await tx
-      .select({ id: agentRuns.id, summary: agentRuns.summary })
-      .from(agentRuns)
-      .where(and(eq(agentRuns.agentId, agent.id), eq(agentRuns.status, "queued")))
-      .limit(1);
-    if (!queued) return null;
-    await tx.update(agentRuns).set({ summary: `${queued.summary}; ${reason}`.slice(0, 500) }).where(eq(agentRuns.id, queued.id));
-    return queued.id;
+    return out.existingRunId ?? null;
   });
 }
 
@@ -345,7 +339,7 @@ export async function idleProposals(db: Db, env: NodeJS.ProcessEnv, now: Date): 
       .limit(1);
     if (recent) continue;
     const queued = await writeTx(db, p, actorCtx("jobs.asistente.propose"), async (tx, emit) => {
-      const out = await enqueueWake(tx, { agent: po, project: p, taskKey: null, reason: "idle with a goal: propose 2-3 ideas in the project thread and ask Jorge to pick one", now });
+      const out = await enqueueWake(tx, { agent: po, project: p, taskKey: null, reason: "idle with a goal: propose 2-3 ideas in the project thread and ask Jorge to pick one", now, trigger: "cadence" });
       if (out.kind !== "queued") return false;
       await emit("po.propose_queued", null, { agent: po.slug, run_id: out.runId });
       return true;

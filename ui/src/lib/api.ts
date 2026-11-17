@@ -164,7 +164,7 @@ export const api = {
   addToTeam: (slug: string, template: string, packs?: string[], motor?: MotorPatch) =>
     request<{ agent: OrgMember; team: OrgMember[]; packs?: PackRef[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, { template, ...(packs?.length ? { packs } : {}), ...(motor ? { motor } : {}) }),
   // PLA-I59-2 (Motores): the console's one save (several seats and the company default, all or nothing).
-  saveMotores: (input: MotoresSave) => request<{ changed: string[]; company: boolean }>("PUT", "/company/motores", input),
+  saveMotores: (input: MotoresSave) => request<{ changed: string[]; company: boolean; floor?: boolean }>("PUT", "/company/motores", input),
   // PLA-I46-12: the skill packs (Plania docs `Pack: <name>`).
   packs: () => request<{ packs: PackRef[] }>("GET", "/company/packs"),
   actDecision: (id: string, input: DecisionInput) => request<DecisionResult>("POST", `/company/decisions/${encodeURIComponent(id)}`, input),
@@ -326,11 +326,23 @@ export type OrgMember = {
 export type MotorView = { model: string | null; effort: string | null; own_model: boolean; own_effort: boolean };
 // A part null clears it (the seat inherits again); the whole patch null clears both.
 export type MotorPatch = { model?: string | null; effort?: string | null };
-export type MotoresSave = { project: string; seats?: { agent: string; motor?: MotorPatch | null; consulta_motor?: MotorPatch | null }[]; company?: MotorPatch };
+// PLA-I60-5: the same save carries «a la vez»: per seat (max_parallel, null: del piso), the project's floor and the
+// company's «Tope de la Mac».
+export type MotoresSave = {
+  project: string;
+  seats?: { agent: string; motor?: MotorPatch | null; consulta_motor?: MotorPatch | null; max_parallel?: number | null }[];
+  floor?: { max_concurrent?: number; max_per_agent?: number; consulta_slots?: number };
+  company?: MotorPatch & { max_concurrent?: number };
+};
+// PLA-I60-5: what Motores shows about «a la vez» (types live with the pure logic, lib/a-la-vez.ts).
+export type { RunnerHeld, RunnerLive, RunnerQueued, RunnerSeat, RunnerView } from "./a-la-vez";
+import type { RunnerView } from "./a-la-vez";
 export type OrgNextHold = "rest" | "usage" | "slot" | "paused" | "no_goal" | "waiting_owner" | "waiting_step" | "unqueued" | "soon";
 export type OrgNextStart = { key: string | null; title: string | null; hold: OrgNextHold; starts_at: string | null; text: string };
 export type OrgThreadRef = { id: string; unread: number; last: { at: string; author_role: string; body: string } | null };
 export type OrgProject = {
+  // PLA-I60-5: «a la vez» (absent on older servers: Motores then shows the model and effort only).
+  runner?: RunnerView;
   slug: string;
   title: string;
   paused: boolean;

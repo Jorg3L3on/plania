@@ -359,17 +359,11 @@ test("PLA-14 #2, #3: a repo with no CI says so and Aceptar opens with a pass on 
   // Held only by the stale pass: the card offers asking the ticket's owner to run the checks again.
   assert.ok(d.actions.includes("verificar"));
   assert.match(html, /data-action="verificar"[^>]*>Que (el )?PO vuelva a probar/);
-  // Its owner (the PO here) busy with another run: refused, with the reason.
+  // PLA-I60: its owner (the PO here) busy with another run no longer refuses: the check is a work item of its own.
   await raw.query(`update agent_runs set status = 'running' where id = (select id from agent_runs order by queued_at desc limit 1)`);
-  const busyOwner = (await raw.query(`select count(*)::int as n from agent_runs where status in ('queued', 'running') and agent_id = (select id from agents where slug = $1)`, [po])).rows[0].n;
-  if (busyOwner > 0) {
-    const refused = (await (await act(d.id, { action: "verificar" })).json()) as Json;
-    assert.equal(refused.error, "NOT_WOKEN");
-    assert.match(refused.hint, /^El PO está en otra corrida/);
-    await raw.query(`update agent_runs set status = 'ok', ended_at = now() where status in ('queued', 'running') and agent_id = (select id from agents where slug = $1)`, [po]);
-  }
   const asked = await act(d.id, { action: "verificar" });
   assert.equal(asked.status, 200, await asked.clone().text());
+  await raw.query(`update agent_runs set status = 'ok', ended_at = now() where status = 'running' and agent_id = (select id from agents where slug = $1)`, [po]);
   const run = (await raw.query(`select status, task_key from agent_runs where task_key = $1 order by queued_at desc limit 1`, [t.key])).rows[0];
   assert.deepEqual(run, { status: "queued", task_key: t.key }, "the owner wakes on that ticket");
   const note = (await raw.query(`select payload->>'text' as text from events where task_key = $1 and type = 'note' order by id desc limit 1`, [t.key])).rows[0];

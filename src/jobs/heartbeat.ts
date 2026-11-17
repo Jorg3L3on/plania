@@ -1,12 +1,14 @@
 import { retryConsultas } from "../pedidos/consultas.js";
+import { sweepStalledIdeas } from "../runner/stalled.js";
 import { and, desc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { ADAPTERS, agents, heartbeatRuns, projects, tasks, type AdapterConfig, type AdapterName } from "../db/schema.js";
+import { ADAPTERS, agents, heartbeatRuns, machineState, projects, tasks, type AdapterConfig, type AdapterName, type RunTrigger } from "../db/schema.js";
 import { spawn, type SpawnDeps, type SpawnTask } from "../adapters/index.js";
 import { requeueHeld, sweepFailedRuns, sweepStoppedRuns } from "../runner/failed.js";
 import { sweepAutoAccept } from "../api/auto-accept.js";
 import { sweepQa } from "../runner/qa.js";
-import { cleanupWorktrees, drainQueue, enforceLive, slotReservation, wakeClaude, type RunnerDeps } from "../runner/runner.js";
+import { cleanupWorktrees, drainQueue, enforceLive, pruneRunLogs, runLogDir, slotReservation, wakeClaude, type RunnerDeps } from "../runner/runner.js";
+import { writeLockStats } from "../mcp/tx.js";
 import { ToolError } from "../mcp/errors.js";
 import { iso } from "../mcp/tx.js";
 import type { Job } from "./index.js";
@@ -182,7 +184,7 @@ const explicitTask = async (db: Db, agentId: string, taskKey: string): Promise<R
   };
 };
 
-export const wakeAgent = async (db: Db, input: { agent: string; taskKey?: string; dryRun?: boolean; now?: Date }, deps?: HeartbeatDeps): Promise<WakeResult> => {
+export const wakeAgent = async (db: Db, input: { agent: string; taskKey?: string; dryRun?: boolean; now?: Date; trigger?: RunTrigger }, deps?: HeartbeatDeps): Promise<WakeResult> => {
   const slug = checkSlug(input.agent);
   const now = input.now ?? new Date();
   const [row] = await db.select().from(agents).where(eq(agents.slug, slug)).limit(1);
@@ -223,7 +225,7 @@ export const wakeAgent = async (db: Db, input: { agent: string; taskKey?: string
   // PLA-I29: claude_code wakes go through the runner (limits, worktree, supervised process).
   // A started run writes its heartbeat_runs row when it ends; a skip or a fail writes it now.
   if (spawnAgent.adapter === "claude_code") {
-    const outcome = await wakeClaude(db, { agent: row, task, now }, deps?.runner);
+    const outcome = await wakeClaude(db, { agent: row, task, now, trigger: input.trigger ?? "owner" }, deps?.runner);
     if (outcome.kind === "coalesced") return { woke: false, reason: "coalesced", run: null };
     if (outcome.kind === "queued") {
       return { woke: false, reason: "queued", run: { agent: row.slug, started_at: iso(now)!, ended_at: null, status: "queued", adapter: "claude_code", summary: outcome.summary, task_key: outcome.taskKey } };
@@ -302,8 +304,17 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
   const qa = await sweepQa(db, now, { runner: deps?.runner, env: deps?.runner?.env, worktreeRoot: deps?.runner?.worktreeRoot, git: deps?.runner?.git }).catch(() => null);
   // PLA-I57-1: a question whose PO was busy gets queued again now that it may be free.
   await retryConsultas(db, now).catch(() => 0);
+  // PLA-I60-4: an idea in a stage nobody has worked on since it got there gets one retry run.
+  const stalled = await sweepStalledIdeas(db, now).catch(() => 0);
   const drained = await drainQueue(db, now, deps?.runner);
   const cleaned = await cleanupWorktrees(db, deps?.runner);
+  // PLA-I60-6: run-log retention, and the write lock's timings kept for Máquina's diagnostics.
+  const pruned = pruneRunLogs(runLogDir(deps?.runner ?? {}), now);
+  await db
+    .insert(machineState)
+    .values({ key: "runner.writelock", value: writeLockStats() })
+    .onConflictDoUpdate({ target: machineState.key, set: { value: writeLockStats(), updatedAt: sql`now()` } })
+    .catch(() => undefined);
   const counts = {
     woken: 0,
     skipped: 0,
@@ -314,10 +325,12 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
     started_from_queue: drained.started,
     dropped_from_queue: drained.dropped,
     worktrees_removed: cleaned,
+    logs_pruned: pruned,
     retried_after_fail: failed.retried,
     handed_to_jorge: failed.held,
     freed_after_stop: freed.freed,
     requeued_held: held.requeued,
+    stalled_ideas: stalled,
     qa_opened: qa?.opened ?? 0,
     qa_started: qa?.started ?? 0,
     qa_concluded: qa?.concluded ?? 0,
@@ -331,7 +344,7 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
   const roster = await db.select({ slug: agents.slug, minutes: agents.heartbeatMinutes }).from(agents);
   for (const row of roster) {
     if (row.minutes == null) continue;
-    const result = await wakeAgent(db, { agent: row.slug, now }, deps);
+    const result = await wakeAgent(db, { agent: row.slug, now, trigger: "cadence" }, deps);
     if (!result.run || result.reason === "coalesced") {
       counts.held += 1;
       continue;

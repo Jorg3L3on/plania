@@ -171,8 +171,8 @@ async function runsOf(slug: string): Promise<{ status: string; summary: string; 
     )
   ).rows;
 }
-const wake = (slug: string, deps: unknown, taskKey?: string) =>
-  wakeAgent(db, { agent: slug, taskKey, now: new Date() }, { runner: deps as never });
+const wake = (slug: string, deps: unknown, taskKey?: string, trigger?: "cadence" | "owner") =>
+  wakeAgent(db, { agent: slug, taskKey, now: new Date(), trigger }, { runner: deps as never });
 
 before(async () => {
   raw = await resetTestDb();
@@ -645,14 +645,14 @@ test("I29-7 #2: a rate_limit_event allowed_warning makes the next wake 'skipped:
   await runner.waitForAllRuns();
 });
 
-test("I29-7 #3: a wake inside the cooldown is 'skipped: cooldown'", async () => {
+test("I29-7 #3: a periodic wake inside the cooldown is 'skipped: cooldown' (PLA-I60: the rest paces cadence runs only)", async () => {
   const f = fakes();
   await raw.query(`update runner_settings set cooldown_minutes = 30`);
   await ready("micasa", "RUN-CD");
-  await wake("taller", f.deps, "RUN-CD");
+  await wake("taller", f.deps, "RUN-CD", "cadence");
   f.spawned[0]!.child.exit(143);
   await runner.waitForAllRuns();
-  const next = await wake("taller", f.deps, "RUN-CD");
+  const next = await wake("taller", f.deps, "RUN-CD", "cadence");
   assert.equal(next.run!.status, "skipped");
   assert.equal(next.run!.summary, "skipped: cooldown");
   assert.equal(f.spawned.length, 1);

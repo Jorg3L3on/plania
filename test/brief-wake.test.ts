@@ -170,15 +170,16 @@ test("check 2: Give to PO creates exactly one Ready PO ticket, origin jorge, and
   assert.match((await state())[I.give]!.line, /po-workia failed: Ran out of turns/);
 });
 
-test("coalesced: Give to PO while the PO is busy still makes the ticket; the wake comes after the current run", async () => {
+test("busy PO (PLA-I60): Give to PO while the PO is busy makes the ticket and queues its own run; the seat's cap decides when it starts", async () => {
   // po-workia still has a run on the earlier order: mark it running.
   await raw.query(`update agent_runs set status = 'running' where agent_id = (select id from agents where slug = 'po-workia')`);
   const a = await act(I.cross, "give_to_po");
   assert.equal(a.body.status, "done", JSON.stringify(a.body));
   const key = a.body.state.line.match(/WRK-\d+/)?.[0];
-  assert.equal((await raw.query(`select status from tasks where key = $1`, [key])).rows[0].status, "Ready", "the order waits Ready; wakePoIfWaiting takes it after the run");
-  assert.equal((await runsOf("po-workia")).filter((r) => r.task_key === key).length, 0);
-  assert.match(a.body.state.line, new RegExp(`${key}: Ready`));
+  assert.equal((await raw.query(`select status from tasks where key = $1`, [key])).rows[0].status, "Ready", "the order waits Ready until the PO's run on it starts");
+  const mine = (await runsOf("po-workia")).filter((r) => r.task_key === key);
+  assert.deepEqual(mine.map((r) => r.status), ["queued"], "a work item of its own: queued, not coalesced into the running one");
+  assert.match(a.body.state.line, new RegExp(`${key} · po-workia queued`));
   await raw.query(`update agent_runs set status = 'ok' where agent_id = (select id from agents where slug = 'po-workia')`);
 });
 

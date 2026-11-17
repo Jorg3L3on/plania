@@ -3,8 +3,8 @@
 //   agentHold      the switches, the agent's rest between runs, a product owner without a goal
 //   capacityHold  the plan guard, then the cap on runs at once
 // The order is preflight's. Nothing here writes, and the screen's facts never probe usage.
-import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { agentRuns, consultas, goals, type Agent, type Project, type RunnerSettings } from "../db/schema.js";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { agentRuns, goals, type Agent, type Project, type RunnerSettings } from "../db/schema.js";
 import type { Q } from "../mcp/tx.js";
 import { lastReading, planView, type PlanView, type RunnerRole } from "./limits.js";
 
@@ -68,11 +68,10 @@ export const CONSULTA_SLOTS = 1;
 export type Lane = "work" | "consulta";
 
 export async function runningCount(db: Q, lane: Lane = "work"): Promise<number> {
-  const isConsulta = sql`exists (select 1 from ${consultas} c where c.run_id = ${agentRuns.id})`;
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(agentRuns)
-    .where(and(eq(agentRuns.status, "running"), lane === "consulta" ? isConsulta : sql`not ${isConsulta}`));
+    .where(and(inArray(agentRuns.status, ["starting", "running"]), eq(agentRuns.lane, lane)));
   return row?.n ?? 0;
 }
 
@@ -86,7 +85,8 @@ export async function agentFacts(
     const [last] = await db
       .select({ endedAt: agentRuns.endedAt })
       .from(agentRuns)
-      .where(and(eq(agentRuns.agentId, agent.id), sql`${agentRuns.endedAt} is not null`, sql`${agentRuns.status} <> 'skipped'`))
+      // PLA-I60-4: only the agent's own periodic runs start its rest.
+      .where(and(eq(agentRuns.agentId, agent.id), eq(agentRuns.trigger, "cadence"), sql`${agentRuns.endedAt} is not null`, sql`${agentRuns.status} <> 'skipped'`))
       .orderBy(desc(agentRuns.endedAt))
       .limit(1);
     lastEndedAt = last?.endedAt ?? null;

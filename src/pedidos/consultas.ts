@@ -16,6 +16,7 @@ import { agentRuns, agents, consultas, projects, type Agent, type Consulta, type
 import { ToolError } from "../mcp/errors.js";
 import { PREGUNTA_MARK } from "../captures/preguntas.js";
 import { enqueueWake } from "../runner/events.js";
+import { isSessionOf } from "../runner/run-session.js";
 
 export const CONSULTA_RE = /\[consulta ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/;
 export const consultaIdOf = (summary: string | null | undefined): string | null => CONSULTA_RE.exec(summary ?? "")?.[1] ?? null;
@@ -25,7 +26,7 @@ const RETRY_HOURS = 6;
 export type ConsultaWake = "queued" | "busy" | "off";
 
 async function queue(db: Db, c: Pick<Consulta, "id">, po: Agent, project: { id: string; slug: string }): Promise<ConsultaWake> {
-  const w = await enqueueWake(db, { agent: po, project, taskKey: null, reason: consultaReason(c.id) });
+  const w = await enqueueWake(db, { agent: po, project, taskKey: null, reason: consultaReason(c.id), trigger: "consulta", consultaId: c.id });
   if (w.kind === "queued") {
     await db.update(consultas).set({ runId: w.runId }).where(eq(consultas.id, c.id));
     return "queued";
@@ -94,7 +95,7 @@ export async function answerConsulta(db: Db, input: AnswerInput, who: { agent: s
   const [c] = await db.select().from(consultas).where(and(eq(consultas.id, input.id), eq(consultas.projectId, p.id))).limit(1);
   if (!c) throw new ToolError("CONSULTA_NOT_FOUND", { consulta: input.id });
   const [po] = c.agentId ? await db.select({ slug: agents.slug, name: agents.name }).from(agents).where(eq(agents.id, c.agentId)).limit(1) : [];
-  const ownRun = !!c.runId && who.session_id === `run-${c.runId.slice(0, 8)}`;
+  const ownRun = !!c.runId && isSessionOf(who.session_id, c.runId);
   if (!po || !(ownRun || po.slug === agentSlug || po.name === agentSlug)) throw new ToolError("CONSULTA_FORBIDDEN", { consulta: input.id, agent: agentSlug });
   const short = clean(input.short, 600);
   if (!short) throw new ToolError("INVALID_FILTER", { field: "short", hint: "the answer is empty" });

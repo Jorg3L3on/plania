@@ -189,7 +189,7 @@ test("I54-1 #3: the company payload lists each project's pedidos with stop and s
   assert.deepEqual(((await card()).pedidos as Json[]).map((x) => x.key), [a, c]);
 });
 
-test("I54-1 #4: a Darle forma whose wake was coalesced is taken when the PO's run ends", async () => {
+test("I54-1 #4 (PLA-I60): a Darle forma while the PO is busy is queued on its own and starts when the PO's slot frees", async () => {
   const f = fakes();
   const first = (await ask({ text: "Arma el plan del catálogo", mode: "ya" })).key as string;
   await runner.waitForAllRuns();
@@ -197,11 +197,11 @@ test("I54-1 #4: a Darle forma whose wake was coalesced is taken when the PO's ru
   await raw.query(`update tasks set status = 'Done' where key = $1`, [first]);
   const busy = (await ask({ text: "Primero esto, que corre" })).key as string;
   const idea = (await ask({ text: "Y luego esta idea" })).key as string;
-  assert.deepEqual((await queuedFor("po-micasa")).map((r) => r.task_key), [busy], "the second was coalesced");
-  assert.equal((await runner.drainQueue(db, new Date(), f.deps as never)).started, 1);
+  assert.deepEqual((await queuedFor("po-micasa")).map((r) => r.task_key).sort(), [busy, idea].sort(), "each is a work item of its own");
+  assert.equal((await runner.drainQueue(db, new Date(), f.deps as never)).started, 1, "the PO's cap (1) starts one");
   f.spawned[0]!.finish();
   await runner.waitForAllRuns();
-  const next = await queuedFor("po-micasa");
-  assert.deepEqual(next.map((r) => r.task_key), [idea]);
-  assert.match(next[0]!.summary, /darle forma/);
+  assert.equal((await runner.drainQueue(db, new Date(), f.deps as never)).started, 1, "the other starts when the slot frees");
+  f.spawned[1]!.finish();
+  await runner.waitForAllRuns();
 });

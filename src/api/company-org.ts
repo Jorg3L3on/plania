@@ -10,6 +10,7 @@ import type { Db } from "../db/client.js";
 import { agentRuns, agents, docs, events, projects, questions, taskBlockers, tasks, threadMessages, type Actor, type Agent, type Project, type RunnerSettings } from "../db/schema.js";
 import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
 import { resolveMotor } from "../runner/motor.js";
+import { runnerView, type RunnerView } from "./company-runner.js";
 import { capacityFacts, agentFacts, holdOf, type CapacityFacts } from "../runner/hold.js";
 import { projectSheet, type ProjectSheet, type RunBrief } from "./company-extra.js";
 import { agentOfActor, asistenteAgent } from "../runner/events.js";
@@ -78,6 +79,7 @@ const QUEUE_MAX = 3;
 export type ThreadLine = { id: string; unread: number; last: { at: string; author_role: string; body: string } | null };
 
 export type ProjectCard = {
+  runner?: RunnerView;
   slug: string;
   title: string;
   paused: boolean;
@@ -555,6 +557,8 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       slug: p.slug,
       title: p.title,
       paused: p.runsPaused,
+      // PLA-I60-5: «a la vez» in Motores.
+      runner: await runnerView(db, p, now),
       light: light.light,
       light_reason: light.reason,
       goal: goal?.title ?? null,

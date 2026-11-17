@@ -178,16 +178,13 @@ test("I57-1 #3: answer_consulta takes the PO's (or its run's) answer and refuses
   assert.match(scope, /src\/db\/listado\.ts:20/);
 });
 
-test("I57-1 #4: a busy PO gets the question queued again once it is free", async () => {
+test("I57-1 #4 (PLA-I60): a busy PO still gets the question queued at once: a question is a work item of its own", async () => {
   const po = await id("agents", "po-micasa");
-  await raw.query(`insert into agent_runs (agent_id, project_id, role, status, summary) values ($1, $2, 'product-owner', 'running', 'running')`, [po, await id("projects", "micasa")]);
+  await raw.query(`insert into agent_runs (agent_id, project_id, role, status, summary, work_key) values ($1, $2, 'product-owner', 'running', 'running', 'general')`, [po, await id("projects", "micasa")]);
   const out = await ask({ text: "¿Cuántas sucursales hay?", mode: "pregunta" });
-  assert.equal(out.wake, "busy");
-  assert.equal((await list())[0]!.state, "cola");
-  assert.equal(await consultas.retryConsultas(db), 0, "still busy");
-  await raw.query(`update agent_runs set status = 'ok', ended_at = now() where status = 'running'`);
-  assert.equal(await consultas.retryConsultas(db), 1);
+  assert.equal(out.wake, "queued");
   assert.equal((await list())[0]!.state, "leyendo");
+  assert.equal(await consultas.retryConsultas(db), 0, "nothing to retry: it already has its run");
 });
 
 test("I57-1 #5: the deny rules for a question cover QA's and the shell writes", () => {
@@ -198,7 +195,7 @@ test("I57-1 #5: the deny rules for a question cover QA's and the shell writes", 
 
 const busyRun = async (slug: string, opts: { consulta?: boolean } = {}) => {
   const agent = await id("agents", slug);
-  const row = (await raw.query(`insert into agent_runs (agent_id, project_id, role, status, summary, started_at) values ($1, $2, 'taller', 'running', 'running', now()) returning id`, [agent, await id("projects", "micasa")])).rows[0];
+  const row = (await raw.query(`insert into agent_runs (agent_id, project_id, role, status, summary, started_at, lane, work_key) values ($1, $2, 'taller', 'running', 'running', now(), $3, $4) returning id`, [agent, await id("projects", "micasa"), opts.consulta ? "consulta" : "work", opts.consulta ? `consulta:${crypto.randomUUID()}` : "general"])).rows[0];
   if (opts.consulta) await raw.query(`insert into consultas (project_id, agent_id, text, run_id) values ($1, $2, 'otra', $3)`, [await id("projects", "micasa"), agent, row.id]);
   return row.id as string;
 };

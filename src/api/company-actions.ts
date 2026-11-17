@@ -20,6 +20,7 @@ import { answerNote, askConsulta } from "../pedidos/consultas.js";
 import { eventWakesEnabled, queueWake } from "../runner/events.js";
 import { loadSettings, roleOf } from "../runner/limits.js";
 import { startNow } from "../runner/runner.js";
+import { ACTIVE_STATUSES, workKeyOf } from "../runner/queue.js";
 import { teamOf } from "../runner/team.js";
 
 export type ActionRefusal = { error: "PROJECT_NOT_FOUND" | "PROJECT_PAUSED" | "COMPANY_PAUSED" | "NO_PO"; status: 404 | 409; hint: string };
@@ -95,10 +96,12 @@ export async function createPoTicket(
     },
     { actor: WEB_ACTOR, human: true, tool: "company.ask" },
   )) as { key: string };
+  // PLA-I60-1: the event hook queued a run on this ticket's work key unless the PO already had one there.
   const [run] = await db
     .select({ id: agentRuns.id, taskKey: agentRuns.taskKey })
     .from(agentRuns)
-    .where(and(eq(agentRuns.agentId, po.id), inArray(agentRuns.status, ["queued", "running"])))
+    .where(and(eq(agentRuns.agentId, po.id), inArray(agentRuns.status, [...ACTIVE_STATUSES])))
+    .orderBy(sql`(${agentRuns.workKey} = ${workKeyOf(out.key)}) desc`)
     .limit(1);
   const wake = !eventWakesEnabled() ? "off" : run?.taskKey === out.key ? "queued" : run ? "busy" : "off";
   return { key: out.key, title: firstLine(sentence), wake };

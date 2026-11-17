@@ -13,7 +13,9 @@ function sharedDb(): { pool: pg.Pool; db: Db } {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set");
   // allowExitOnIdle: idle connections never keep a finished script or test process alive.
-  const pool = new pg.Pool({ connectionString: url, max: 10, idleTimeoutMillis: 30_000, allowExitOnIdle: true });
+  // PLA-I60-6: many runs call MCP at once; the pool is sized by PLANIA_DB_POOL (default 20).
+  const max = Number(process.env.PLANIA_DB_POOL) > 0 ? Number(process.env.PLANIA_DB_POOL) : 20;
+  const pool = new pg.Pool({ connectionString: url, max, idleTimeoutMillis: 30_000, allowExitOnIdle: true });
   // An idle client that loses its connection (Postgres restart, a test dropping its database)
   // is removed by the pool; without a listener the error would crash the process.
   pool.on("error", (err) => console.error("[db] idle client error:", err.message));
