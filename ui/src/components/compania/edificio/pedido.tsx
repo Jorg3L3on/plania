@@ -2,7 +2,8 @@
 // stop, the line that says who has it, the PO's open question with an answer box (the screen's answer route),
 // Recorrido (the idea's events, docs and questions) and Ficha de la idea (Problema, Tamaño, Solución, Riesgos, Fuera,
 // «Pendiente» where empty), a note box (the PO reads it on its next run), Guardar / Volver al tubo, and Descartar
-// (two clicks). PLA-I54-4 adds «Constrúyelo». The pictures' slots (the trail's thumbnails, the note box's picker) are
+// (two clicks). PLA-I54-4: «Constrúyelo» (the primary button, from any stop; while the PO promotes it the button
+// says «Pasando la válvula…»), and a promoted request points to its initiative on the board. The pictures' slots (the trail's thumbnails, the note box's picker) are
 // marked data-slot for F5.
 // PedidoView is pure (tests call its handlers); PedidoTab holds what is typed and which sub-tab is open.
 import { useEffect, useState, type ReactNode } from "react";
@@ -19,6 +20,8 @@ export type PedidoActs = {
   // PLA-I54-4.
   onConstruir?: () => void;
   onDoc?: (id: string) => void;
+  // A promoted request: its initiative on the board, opened in La ficha.
+  onTrack?: (key: string) => void;
   // The key of the action running ("answer", "note", "guardar", "restaurar", "descartar", "construir").
   busy?: string | null;
 };
@@ -182,6 +185,13 @@ export const PedidoView = ({ d, now, timeZone, acts, slots = {}, sub, setSub, an
         )}
       </div>
       <div className="edi-pd-foot">
+        {up && acts.onTrack && (
+          <div className="edi-pd-acts">
+            <button type="button" className="edi-btn" onClick={() => acts.onTrack!(d.promoted_to!)} data-control="pedido-iniciativa">
+              Ver {d.promoted_to} en el tablero
+            </button>
+          </div>
+        )}
         {up || closed ? null : (
           <>
             <form

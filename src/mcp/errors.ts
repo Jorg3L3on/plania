@@ -81,6 +81,7 @@ export const ERRORS = {
   INVALID_TRANSITION: [409, "the status change is not allowed from the current status (detail: from, to, hint)"],
   INVALID_STAGE_MOVE: [409, "set_task stage is not one step along idea → research → design → planning → ready, or a step back without a note (detail: from, to)"],
   STAGE_REQUIREMENTS_MISSING: [409, "moving an idea forward without that stage's doc or its headings (detail: doc, missing)"],
+  PEDIDO_SIN_ORDEN: [409, "an idea the owner asked for on screen (origin jorge) gets promoted_to only after his «Constrúyelo» on the Pedido tab"],
   IDEA_CLOSED: [409, "a Done or Won't do idea does not change stage or promoted_to (detail: status)"],
   KEY_EXISTS: [409, "create with a key that exists (or is an alias of one); creates are not idempotent without request_id"],
   KEY_BELOW_COUNTER: [409, "an explicit key with a number already issued for that scope (detail: next); omit key to get the next one"],

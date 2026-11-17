@@ -167,3 +167,24 @@ test("I54-3: the Pedido tab lists what takes shape; the shelf lists the saved on
   assert.match(text(shelf), /Sin conexión Guardada · Investigación/);
   assert.match(text(draw({ kind: "pedido", key: "DEM-IDEA5" })), /← Pedido/);
 });
+
+test("I54-4: Constrúyelo is the tab's main button from any stop; while the PO promotes it, it says so and waits", () => {
+  const calls: string[] = [];
+  const acts = { onConstruir: () => calls.push("construir"), onGuardar: noop };
+  for (const stop of ["buzon", "lista"]) {
+    const b = byControl(view(detail({ stop, state: "quieta", question: null }), { acts }), "pedido-construir")[0]!;
+    assert.match(String(b.props.className), /edi-btn-primary/);
+    b.props.onClick();
+  }
+  assert.deepEqual(calls, ["construir", "construir"]);
+  const passing = view(detail({ state: "valvula", question: null }), { acts });
+  const b = byControl(passing, "pedido-construir")[0]!;
+  assert.equal(b.props.disabled, true);
+  assert.match(text(renderToStaticMarkup(passing)), /Pasando la válvula… .*Pasando la válvula: el PO termina lo que falta y crea la iniciativa\.|Pasando la válvula: el PO termina lo que falta y crea la iniciativa\.[^]*Pasando la válvula…/);
+  assert.equal(byControl(passing, "pedido-guardar")[0]!.props.disabled, true);
+  assert.equal(byControl(passing, "pedido-descartar")[0]!.props.disabled, true);
+  // A saved one offers Volver al tubo instead.
+  assert.equal(byControl(view(detail({ guardada: true }), { acts }), "pedido-construir").length, 0);
+  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes('onConstruir: () => pedidoDo("construir", () => api.pedidoAct(fslug, pedidoKey, "construir"))'));
+});

@@ -5,16 +5,18 @@
 //   POST /api/company/projects/:slug/pedidos/:key/guardar      off the tube, listed under Guardadas (an event)
 //   POST /api/company/projects/:slug/pedidos/:key/restaurar    back to its stop
 //   POST /api/company/projects/:slug/pedidos/:key/descartar {reason?}   Won't do, with the reason as its note
+//   POST /api/company/projects/:slug/pedidos/:key/construir   PLA-I54-4: «Constrúyelo» (the order, then the PO's wake)
 // The note box uses POST …/tasks/:key/note (company-runs.ts: the PO reads it on its next run) and the answer box the
 // screen's answer route (POST /api/projects/:slug/questions/:id/answer, which wakes the PO that asked).
 // PLA-I54-5: images join the trail and the note box; the detail's pictures is [] until F5 fills it.
 import { and, asc, desc, eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { docs, events, projects, questions, tasks, type Actor, type Task } from "../db/schema.js";
+import { agents, docs, events, projects, questions, tasks, type Actor, type Task } from "../db/schema.js";
 import { findProject } from "../mcp/queries.js";
 import { webCtx, writeTx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
-import { agentOfActor } from "../runner/events.js";
+import { agentOfActor, eventWakesEnabled, queueWake } from "../runner/events.js";
+import { projectPo } from "./company-actions.js";
 import { roleOf } from "../runner/limits.js";
 import { CONSTRUIR, GUARDADA, RESTAURADA, pedidoOf, type Pedido } from "./company-pedidos.js";
 
@@ -82,6 +84,7 @@ const ASKED = /\(Darle forma\): "([\s\S]*)"\n/;
 export const askedText = (scope: string, title: string) => ASKED.exec(scope)?.[1] ?? title;
 const UNDERSTOOD = /^\s*entend[ií]\s*[:：-]/i;
 const SCREEN_NOTE = /^De Compañía:\s*/;
+const BUILD_NOTE = /^Constrúyelo \(orden de Jorge/;
 const DROPPED = /^Descartada por Jorge desde Compañía(?::\s*([\s\S]+)|\.)$/;
 
 async function whoOf(db: Db, actor: Actor | null | undefined, cache: Map<string, string>): Promise<string> {
@@ -115,7 +118,8 @@ async function trailOf(db: Db, t: Task): Promise<TrailItem[]> {
         const prev = out.findLast((x) => x.kind === "descartada");
         if (prev) prev.text = line;
         else push("descartada", line);
-      } else push(UNDERSTOOD.test(text) ? "entendi" : "nota", text.replace(SCREEN_NOTE, ""));
+      } else if (BUILD_NOTE.test(text)) continue;
+      else push(UNDERSTOOD.test(text) ? "entendi" : "nota", text.replace(SCREEN_NOTE, ""));
     } else if (e.type === "question.asked") push("pregunta", `Preguntó: ${String(p.question ?? "")}`);
     else if (e.type === "question.answered") push("respuesta", String(p.answer ?? ""));
     else if (e.type === "doc.put") push("doc", Number(p.version ?? 1) > 1 ? `Actualizó «${String(p.title)}».` : `Escribió «${String(p.title)}».`, { doc: { id: String(p.doc_id), title: String(p.title) } });
@@ -195,4 +199,31 @@ export async function openPedido(db: Db, slug: string, key: string): Promise<{ p
   const found = await ideaOf(db, slug, key);
   if ("error" in found) return found;
   return open(found.t) ?? found;
+}
+
+// PLA-I54-4: «Constrúyelo», from any stop. The order is an event on the idea (the only thing that lets promoted_to be set
+// on an owner's request: writes.ts PEDIDO_SIN_ORDEN) and a note the PO reads; the PO wakes on the idea with the promote
+// instruction. While it runs the capsule says «Pasando la válvula»; once promoted_to is set the idea leaves the tube and
+// its initiative is a track on the board. Nothing else promotes it: an idea at Lista waits for this.
+export const BUILD_NOTE_TEXT =
+  "Constrúyelo (orden de Jorge desde Compañía): termina los docs de las etapas que faltan, luego crea la iniciativa y sus tickets directamente, sin preguntar, y pon promoted_to en esta idea con la clave de la iniciativa.";
+export const BUILD_REASON = "Jorge dijo «Constrúyelo» en esta idea: termina los docs de las etapas que faltan, crea la iniciativa y sus tickets directamente, sin preguntar, y pon promoted_to en la idea";
+
+export async function construirPedido(db: Db, slug: string, key: string): Promise<{ key: string; state: "valvula"; wake: "queued" | "busy" | "off" } | Refusal> {
+  const found = await openPedido(db, slug, key);
+  if ("error" in found) return found;
+  const now = await pedidoOf(db, found.project.id, found.t);
+  if (now.state === "valvula") return { error: "ALREADY_ORDERED", status: 409, hint: "Ya dijiste «Constrúyelo»: está pasando la válvula." };
+  if (now.guardada) return { error: "SAVED", status: 409, hint: "Está en Guardadas: sácala primero." };
+  const [owner] = found.t.ownerAgent ? await db.select().from(agents).where(eq(agents.id, found.t.ownerAgent)).limit(1) : [];
+  const po = owner ?? (await projectPo(db, found.project));
+  const p = await findProject(db, slug);
+  const t = { id: found.t.id, key: found.t.key };
+  return writeTx(db, p, { ...webCtx, tool: "company.pedido" }, async (tx, emit) => {
+    await emit(CONSTRUIR, t, { stage: found.t.stage });
+    await emit("note", t, { text: BUILD_NOTE_TEXT });
+    if (!eventWakesEnabled() || !po) return { key, state: "valvula" as const, wake: "off" as const };
+    const w = await queueWake(tx, p, t, { agent: po, taskKey: key, reason: BUILD_REASON }, CONSTRUIR);
+    return { key, state: "valvula" as const, wake: w.kind === "queued" ? ("queued" as const) : ("busy" as const) };
+  });
 }

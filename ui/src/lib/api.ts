@@ -193,7 +193,7 @@ export const api = {
   resumeRun: (id: string) => request<{ woke: boolean; reason: string; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/resume`),
   // PLA-I54-3: the Pedido tab (a note uses noteTask, an answer the screen's answer route).
   pedido: (slug: string, key: string) => request<PedidoDetail>("GET", `/company/projects/${encodeURIComponent(slug)}/pedidos/${encodeURIComponent(key)}`),
-  pedidoAct: (slug: string, key: string, action: "guardar" | "restaurar" | "descartar", reason?: string) =>
+  pedidoAct: (slug: string, key: string, action: "guardar" | "restaurar" | "descartar" | "construir", reason?: string) =>
     request<{ key: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/pedidos/${encodeURIComponent(key)}/${action}`, reason ? { reason } : {}),
   noteTask: (slug: string, key: string, text: string) => request<{ noted: true }>("POST", `/company/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/note`, { text }),
   resendRequest: (slug: string, key: string) => request<{ key: string; wake: "queued" | "busy" | "off" }>("POST", `/company/projects/${encodeURIComponent(slug)}/requests/${encodeURIComponent(key)}/resend`),

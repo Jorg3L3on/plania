@@ -474,6 +474,8 @@ const Compania = () => {
         onGuardar: () => pedidoDo("guardar", () => api.pedidoAct(fslug, pedidoKey, "guardar")),
         onRestaurar: () => pedidoDo("restaurar", () => api.pedidoAct(fslug, pedidoKey, "restaurar")),
         onDescartar: () => pedidoDo("descartar", () => api.pedidoAct(fslug, pedidoKey, "descartar")),
+        // PLA-I54-4: «Constrúyelo».
+        onConstruir: () => pedidoDo("construir", () => api.pedidoAct(fslug, pedidoKey, "construir")),
         busy: pedidoBusy,
       }
     : undefined;
