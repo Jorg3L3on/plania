@@ -381,3 +381,27 @@ test("I62-6: the team's headline and the seats' lines", () => {
   assert.equal(equipo.teamHeadline([], true).now, "El equipo está en pausa.");
   assert.equal(equipo.ROLE_LINE.taller, "Construye lo que está en el plan");
 });
+
+// ---- PLA-I62-7: Ideas, Idea abierta, Diseño, PRs, Docs
+const ideaMod = await load("components/corriente/idea.tsx");
+const listas = await load("components/corriente/listas.tsx");
+
+test("I62-7: an idea opens on the newest delivery not seen; each stop says where it stands", () => {
+  const st = (stop: string, state: string, over: Record<string, unknown> = {}) => ({ stop, state, by: "artist", at: "2026-11-17T20:00:00Z", delivered: true, doc: null, seen: true, answer: null, ...over });
+  const d = { stop: "plan", stops: [st("buzon", "done"), st("entendido", "done"), st("investigacion", "done"), st("diseno", "done", { seen: false }), st("plan", "here", { delivered: false }), st("lista", "todo", { delivered: false })] };
+  assert.equal(ideaMod.firstStop(d), "diseno");
+  assert.equal(ideaMod.firstStop({ ...d, stops: d.stops.map((x: Record<string, unknown>) => ({ ...x, seen: true })) }), "plan");
+  const base = { quiet_since: null, state: "quieta", queued: null };
+  assert.deepEqual(ideaMod.stopLine(st("diseno", "done", { seen: false }), base), { text: "Artist · sin ver", tone: "new" });
+  assert.deepEqual(ideaMod.stopLine(st("investigacion", "done", { by: "research", answer: { verdict: "ok" } }), base), { text: "Research · te gustó", tone: "ok" });
+  assert.deepEqual(ideaMod.stopLine(st("lista", "here", { delivered: false }), base), { text: "Espera «Constrúyelo»", tone: "you" });
+  assert.deepEqual(ideaMod.stopLine(st("plan", "here", { delivered: false, by: "product-owner" }), { ...base, state: "trabajando" }), { text: "PO la trabaja", tone: "live" });
+});
+
+test("I62-7: ideas group by what they need from the owner", () => {
+  const fi = (key: string, stage: string, over: Record<string, unknown> = {}) => ({ key, title: key, stage, waits: null, updated_at: "x", docs: {}, unseen: 0, ...over });
+  const rows = listas.ideaRows([fi("A", "design", { unseen: 2 }), fi("B", "research", { waits: "Doc Research" }), fi("C", "ready")], [{ key: "C", title: "C", stop: "lista", state: "quieta", who: "product-owner", images: 0, understood: null, question: null, guardada: false, at: "x" }, { key: "D", title: "D", stop: "diseno", state: "quieta", who: "artist", images: 0, understood: null, question: null, guardada: true, at: "x" }]);
+  assert.deepEqual(rows.map((r: { key: string; group: string }) => `${r.key}:${r.group}`), ["A:nuevo", "B:avanza", "C:lista", "D:guardada"]);
+  assert.equal(rows[1].who, "Falta el doc Research");
+  assert.equal(rows[0].stop, "diseno");
+});
