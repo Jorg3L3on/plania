@@ -372,6 +372,13 @@
       "when": 1795161600000,
       "tag": "0055_probador_cambio",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1795248000000,
+      "tag": "0056_task_images",
+      "breakpoints": true
     }
   ]
 }
