@@ -144,7 +144,9 @@ test("I47-4 #1: the address parses every ?f= kind, round-trips, and the old link
   assert.deepEqual(lib.fichaOf("?m=lumen:taller-lumen"), { ref: { kind: "member", agent: "taller-lumen" }, slug: "lumen" });
   assert.deepEqual(lib.fichaOf("?plan=lumen"), { ref: { kind: "plan" }, slug: "lumen" });
   assert.deepEqual(lib.fichaOf("?add=lumen"), { ref: { kind: "sumar" }, slug: "lumen" });
-  assert.equal(lib.fichaSearch("lumen", { kind: "tab", tab: "resumen" }), "?piso=lumen", "Resumen is the default: no ?f=");
+  // PLA-I55-1: no ?f= is the ventanal's home tab, so Resumen is named like every other tab.
+  assert.equal(lib.fichaSearch("lumen", { kind: "tab", tab: "resumen" }), "?piso=lumen&f=tab%3Aresumen");
+  assert.equal(lib.fichaSearch("lumen", null), "?piso=lumen");
 });
 
 test("I47-4 #2 / #4: Esc goes from a detail to its tab, then closes; reads follow the open view; the page wires both", () => {

@@ -58,14 +58,18 @@ const project = (patch: Json = {}): Json => ({
   ...patch,
 });
 const floorHtml = (p: Json, extra: Json = {}) =>
-  renderToStaticMarkup(h(MemoryRouter, null, h(floorUi.Floor, { project: p, now: NOW, timeZone: TZ, decisions: [], ficha: true, ask: h("button", { "data-control": "pedir-abrir" }, "Pedir"), ...extra })));
+  renderToStaticMarkup(h(MemoryRouter, null, h(floorUi.Floor, { project: p, now: NOW, timeZone: TZ, decisions: [], ventanal: (parts: Json) => h(React.Fragment, null, parts.home.body, parts.board, parts.tubo), ask: h("button", { "data-control": "pedir-abrir" }, "Pedir"), ...extra })));
 
 test("I54-1 #3: the tube sits between the board and Pedir, each capsule under its stop, coloured by state, with the valve", () => {
   const html = floorHtml(project(), { tubo: { onOpen: noop, onGuardadas: noop } });
-  const board = html.indexOf('class="dark sb"');
+  // PLA-I55-1: the tube is a part of the ventanal (the Pedido tab draws it); the index carries it in small.
   const tube = html.indexOf('class="tubo"');
+  const idx = html.indexOf('class="edi-idx"');
   const pedir = html.indexOf('class="edi-askbar"');
-  assert.ok(board > 0 && tube > board && pedir > tube, "board, then tube, then Pedir");
+  assert.ok(tube > 0 && idx > tube && pedir > idx, "the ventanal (tube), then the index, then Pedir");
+  assert.match(html, /data-control="indice-ideas" data-live="4"/);
+  assert.equal((html.match(/class="edi-ix-tube"[\s\S]*?<\/span>/)?.[0].match(/<i /g) ?? []).length, 4, "a dot per idea taking shape");
+  assert.match(text(html), /Ideas tomando forma · 4/);
   assert.match(html, /aria-label="Pedidos de Demo"/);
   // The six stops in the board's order, and the valve.
   assert.deepEqual([...html.matchAll(/data-stop="([a-z]+)"/g)].map((m) => m[1]), ["buzon", "entendido", "investigacion", "diseno", "plan", "lista"]);

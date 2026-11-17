@@ -94,11 +94,12 @@ const project = (patch: Json = {}): Json => ({
 });
 
 test("I53-6: the floor folds the read's completed initiatives under its board; each opens La ficha", () => {
-  const html = renderToStaticMarkup(h(MemoryRouter, null, h(floorUi.Floor, { project: project(), now: NOW, timeZone: TZ, decisions: [], board: { onTrack: noop, onTicket: noop }, ficha: true, onOpen: noop })));
-  assert.match(html, /data-folded="6"/);
+  const html = renderToStaticMarkup(h(MemoryRouter, null, h(floorUi.Floor, { project: project(), now: NOW, timeZone: TZ, decisions: [], board: { onTrack: noop, onTicket: noop }, foco: { kind: "leg", key: project().tablero.initiatives[0].key }, ventanal: (parts: Json) => h(React.Fragment, null, parts.home.body, parts.board, parts.tubo), onOpen: noop })));
+  // PLA-I55-1: the completed ones are chips in the index, under the open initiatives.
+  assert.match(html, /class="edi-ix-done" data-folded="6"/);
   assert.match(html, /<b>✓ DEM-I1<\/b>Alta/);
   assert.match(html, /data-zonas="pantalla servidor"/);
-  const none = renderToStaticMarkup(h(MemoryRouter, null, h(floorUi.Floor, { project: project({ tablero: tablero({ done_initiatives: [] }) }), now: NOW, timeZone: TZ, decisions: [], board: {}, ficha: true, onOpen: noop })));
+  const none = renderToStaticMarkup(h(MemoryRouter, null, h(floorUi.Floor, { project: project({ tablero: tablero({ done_initiatives: [] }) }), now: NOW, timeZone: TZ, decisions: [], board: {}, onOpen: noop })));
   assert.equal(none.includes("data-folded"), false);
 });
 

@@ -98,7 +98,8 @@ export function fichaSearch(slug: string | null, ref: FichaRef | null, nivel?: "
   const q = new URLSearchParams();
   if (slug) q.set("piso", slug);
   if (nivel === "maquinas") q.set("nivel", "maquinas");
-  if (ref && !(ref.kind === "tab" && ref.tab === "resumen")) q.set("f", fichaParam(ref));
+  // PLA-I55-1: Resumen is named too; an address with no ?f= is the ventanal's home tab (Te toca / Ahora).
+  if (ref) q.set("f", fichaParam(ref));
   const s = q.toString();
   return s ? `?${s}` : "";
 }
@@ -114,7 +115,7 @@ export function tabOf(ref: FichaRef): FichaTab {
   return "resumen";
 }
 
-// Esc: a detail goes back to its tab; a tab closes the ficha.
+// Esc: a detail goes back to its tab; a tab closes the ficha (PLA-I55-1: back to the ventanal's home tab).
 export function escStep(ref: FichaRef): FichaRef | "close" {
   return ref.kind === "tab" ? "close" : { kind: "tab", tab: tabOf(ref) };
 }

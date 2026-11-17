@@ -123,7 +123,7 @@ const render = (c: Json, onAct: (...a: unknown[]) => void = noop) =>
       askFor: () => h("div", null, "Pedir"),
     }),
   );
-const nowCard = (s: string) => /<div class="edi-nowb"[\s\S]*?(?=<section class="dark sb")/.exec(s)?.[0] ?? "";
+const nowCard = (s: string) => /<div class="edi-nowb"[\s\S]*?(?=<div class="edi-home-q"|<div class="edi-fcol"|<nav class="edi-idx")/.exec(s)?.[0] ?? "";
 
 test("I46-11 #1: the plan is the move, and Ahora shows its steps, questions with the suggestion marked and an editable check list", () => {
   const d = planDecision();

@@ -182,27 +182,33 @@ const project = (patch: Json = {}): Json => ({
   ...patch,
 });
 const floorHtml = (p: Json, extra: Json = {}) =>
-  renderToStaticMarkup(h(MemoryRouter, null, h(floorUi.Floor, { project: p, now: NOW, timeZone: TZ, decisions: [decision("DEM-I2-12")], board: { onPickNext: noop, onStop: noop, onAccept: noop, onCancel: noop, onTicket: noop, onTrack: noop }, ficha: true, onOpen: noop, ...extra })));
+  renderToStaticMarkup(h(MemoryRouter, null, h(floorUi.Floor, { project: p, now: NOW, timeZone: TZ, decisions: [decision("DEM-I2-12")], board: { onPickNext: noop, onStop: noop, onAccept: noop, onCancel: noop, onTicket: noop, onTrack: noop }, foco: { kind: "leg", key: "DEM-I2" }, ventanal: (parts: Json) => h(React.Fragment, null, parts.home.body, parts.board, parts.tubo), onOpen: noop, ...extra })));
 
+// PLA-I55-1: the floor no longer draws the whole board. The index lists the initiatives; the open one's own board (one
+// track, the same stations, cards and calls) is a part the floor hands the ventanal.
 test("I53-3 #1 #3 #4: the floor draws the board in place of Entrega and La fila, with the seats at their stations", () => {
   const html = floorHtml(project());
   assert.equal(/edi-route|edi-leg\b|data-fila|edi-frow|data-steps-of/.test(html), false, "no Entrega, no La fila");
   assert.match(html, /data-slot="ahora"/, "the place for the Ahora line, above the board");
-  assert.ok(html.indexOf('data-slot="ahora"') < html.indexOf('class="dark sb"'));
-  // Seats: PO, Taller and QA over their stations, Research in the corner; each opens the teammate.
+  assert.ok(html.indexOf('data-slot="ahora"') < html.indexOf('class="dark sb-one sb"'));
+  assert.equal((html.match(/class="sb-row"/g) ?? []).length, 1, "only the open initiative's track");
+  // Seats: PO, Taller and QA over their stations; everyone (Research too) is a window in the index.
   assert.match(html, /data-station="por"[^>]*data-agent="product-owner-demo"/);
   assert.match(html, /data-station="taller"[^>]*data-agent="taller-demo"/);
   assert.match(html, /data-station="qa"[^>]*data-agent="qa-demo"/);
-  assert.match(html, /class="edi-seat"[^>]*data-agent="research-demo"/);
+  assert.match(html, /class="edi-ix-mate"[^>]*data-agent="research-demo"/);
+  assert.match(html, /class="edi-ix-ini" aria-pressed="true"[^>]*data-track="DEM-I2"/, "the open initiative is pressed in the index");
   // The actions on their cards.
   assert.match(html, /data-card="DEM-I2-6"[\s\S]*?data-control="tablero-detener"/);
   assert.match(html, /data-card="DEM-I2-12"[\s\S]*?data-control="tablero-aceptar"/);
   assert.match(html, /data-card="DEM-I2-2"[\s\S]*?data-control="tablero-primero"/);
   // The owner's order that is not a ticket yet stands in Sueltos, Por hacer.
-  assert.match(html, /data-card="o-o1"[^>]*data-etapa="pedido"[\s\S]*?Tu pedido · enviado[\s\S]*?Cambiar el color del botón/);
+  const sueltos = floorHtml(project(), { foco: { kind: "sueltos" } });
+  assert.match(sueltos, /class="edi-ix-ini" aria-pressed="true"[^>]*data-track="sueltos"/);
+  assert.match(sueltos, /data-card="o-o1"[^>]*data-etapa="pedido"[\s\S]*?Tu pedido · enviado[\s\S]*?Cambiar el color del botón/);
   // This read carries no done_initiatives, so nothing folds under the floor's board (PLA-I53-6 tests the folded line).
   assert.equal(html.includes("data-folded"), false);
-  for (const c of ["tablero-tarjeta", "tablero-iniciativa", "tablero-hecho"]) assert.ok(html.includes(`data-control="${c}"`), c);
+  for (const c of ["tablero-tarjeta", "indice-iniciativa", "indice-equipo", "tablero-hecho"]) assert.ok(html.includes(`data-control="${c}"`), c);
   // The files are gone.
   for (const f of ["components/compania/edificio/route.tsx", "components/compania/edificio/fila.tsx", "lib/fila.ts"]) assert.equal(existsSync(new URL(`../ui/src/${f}`, import.meta.url)), false, f);
 });

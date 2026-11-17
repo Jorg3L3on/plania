@@ -2,6 +2,9 @@
 // the detail of whatever was clicked in their place, with a way back. Presentational and hook-free: the page reads
 // (only what the open view needs: lib/ficha.ts needsRows, needsTask) and passes the reads in as loads, and what it
 // already draws elsewhere (a teammate, the plan, Sumar, the app, Solo tú, Lo último) as slots.
+// PLA-I55-1 (El ventanal): the card now lives inside the floor as its big window. A first tab (home: «Te toca» while
+// something waits on the owner, else «Ahora») holds the floor's Ahora band and questions; an initiative and Sueltos
+// show their own stage board (slots.board) over their done steps; the Pedido tab shows the tube (slots.tubo).
 import type { CSSProperties, ReactNode } from "react";
 import Markdown from "react-markdown";
 import type { FichaDoc, FichaIdea, FichaPr, OrgFicha, OrgProject, PedidoDetail, ProjectDocBody, ProjectTicket } from "@/lib/api";
@@ -15,7 +18,8 @@ import { columnOf, isDone, wordOf, whoLine, ciWord, STATIONS } from "@/lib/etapa
 import { ZonaTags } from "@/components/plan/zona-tags";
 
 export type Load<T> = { status: "idle" | "loading" | "error" | "ok"; data?: T; retry?: () => void };
-export type FichaSlots = { member?: ReactNode; plan?: ReactNode; sumar?: ReactNode; app?: ReactNode; solo?: ReactNode; last?: ReactNode; maq?: ReactNode };
+export type FichaSlots = { member?: ReactNode; plan?: ReactNode; sumar?: ReactNode; app?: ReactNode; solo?: ReactNode; last?: ReactNode; maq?: ReactNode; board?: ReactNode; tubo?: ReactNode };
+export type FichaHome = { word: string; tone: "you" | "now"; count: number; body: ReactNode };
 
 const STAGES = ["idea", "research", "design", "planning", "ready"] as const;
 const STAGE_WORD: Record<string, string> = { idea: "Idea", research: "Investigación", design: "Diseño", planning: "Planeación", ready: "Lista" };
@@ -134,14 +138,16 @@ const Resumen = ({ p, onRef, slots }: { p: OrgProject; onRef: (r: FichaRef) => v
 };
 
 // PLA-I54-3: the Pedido tab: the requests taking shape (the tube's capsules) and the shelf. A row opens the request.
-const PedidoList = ({ p, onRef, shelf }: { p: OrgProject; onRef: (r: FichaRef) => void; shelf?: boolean }) => {
+const PedidoList = ({ p, onRef, shelf, tubo }: { p: OrgProject; onRef: (r: FichaRef) => void; shelf?: boolean; tubo?: ReactNode }) => {
   const all = p.pedidos ?? [];
   const list = all.filter((x) => !!x.guardada === !!shelf);
   const saved = all.filter((x) => x.guardada).length;
   return (
     <>
       {shelf && <Title eyebrow="Pedidos" title="Guardadas" state="Ideas que apartaste. No se pierden y nadie las trabaja." />}
-      {list.length === 0 ? (
+      {!shelf && tubo && list.length > 0 ? (
+        tubo
+      ) : list.length === 0 ? (
         <Empty>{shelf ? "Ninguna guardada." : "Ningún pedido tomando forma. Pide algo con «Darle forma» y toca su cápsula en el tubo."}</Empty>
       ) : (
         <ul className="edi-fi-lis" data-fi-list={shelf ? "guardadas" : "pedido"}>
@@ -294,13 +300,15 @@ const StageLine = ({ p, k, fallback, now }: { p: OrgProject; k: string; fallback
   );
 };
 // Open tickets first (in the board's order), then the done ones newest first: every one opens its own detail.
-const TicketLists = ({ tickets, now, onRef }: { tickets: ProjectTicket[]; now: number; onRef: (r: FichaRef) => void }) => {
+// With the track's own board above (slots.board) the open ones are its cards, so only the done ones are listed.
+const TicketLists = ({ tickets, now, onRef, board }: { tickets: ProjectTicket[]; now: number; onRef: (r: FichaRef) => void; board?: ReactNode }) => {
   const open = tickets.filter((t) => !isDone(t.etapa));
   const done = tickets.filter((t) => isDone(t.etapa)).sort((a, b) => Date.parse(b.etapa.since ?? "0") - Date.parse(a.etapa.since ?? "0"));
   const row = (t: ProjectTicket) => <Li key={t.key} data={t.key} title={t.title} sub={[t.key, wordOf(t.etapa), whoLine(t.etapa, now)].filter(Boolean).join(" · ")} onClick={() => onRef({ kind: "step", key: t.key })} />;
   return (
     <>
-      {open.length > 0 && (
+      {board}
+      {!board && open.length > 0 && (
         <Sec title="Abiertos" data="abiertos">
           <ul className="edi-fi-lis">{open.map(row)}</ul>
         </Sec>
@@ -357,7 +365,7 @@ const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone, pedido, pe
         return (
           <>
             <Title eyebrow={`Iniciativa · ${ini.key}`} title={ini.title} state={`${ini.done} de ${ini.total} hechos${ini.status === "On hold" ? " · en pausa" : ""}`} />
-            <TicketLists tickets={ini.tickets} now={now} onRef={onRef} />
+            <TicketLists tickets={ini.tickets} now={now} onRef={onRef} board={slots.board} />
           </>
         );
       const closed = p.tablero?.done_initiatives?.find((i) => i.key === r.key);
@@ -383,7 +391,7 @@ const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone, pedido, pe
       return (
         <>
           <Title eyebrow="Sueltos" title="Trabajo sin iniciativa" state={`${t.loose.length} abiertos · ${t.loose_done} hechos`} />
-          <TicketLists tickets={t.loose} now={now} onRef={onRef} />
+          <TicketLists tickets={t.loose} now={now} onRef={onRef} board={slots.board} />
           {t.loose_done > 0 && <Empty>{`${t.loose_done === 1 ? "1 suelto hecho" : `${t.loose_done} sueltos hechos`}${t.loose_done_title ? `; el último: «${t.loose_done_title}»` : ""}.`}</Empty>}
         </>
       );
@@ -493,7 +501,14 @@ export const Ficha = ({
   pedido,
   pedidoActs,
   pedidoSlots,
+  home,
+  homeOn = false,
+  onHome,
 }: PedidoProps & {
+  // PLA-I55-1: the first tab (the floor's Ahora band and questions), whether it is the one shown, and going back to it.
+  home?: FichaHome;
+  homeOn?: boolean;
+  onHome?: () => void;
   project: OrgProject;
   fref: FichaRef;
   rows: Load<OrgFicha>;
@@ -506,37 +521,52 @@ export const Ficha = ({
   onClose: () => void;
 }) => {
   const tab = tabOf(fref);
+  const atHome = !!home && homeOn;
   const counts = rows.status === "ok" && rows.data ? rows.data.counts : null;
   const live = (p.pedidos ?? []).filter((x) => !x.guardada).length;
   const n: Partial<Record<FichaTab, number>> = { ...(counts ? { ideas: counts.ideas, diseno: counts.designs, prs: counts.prs, docs: counts.docs } : {}), ...(live ? { pedido: live } : {}) };
   return (
     // dark: the parts it borrows from the app (a teammate, the plan, Sumar) use the app's tokens; the card is a night
     // panel in both themes, like the question bubbles (PLA-I47-7).
-    <aside className="dark edi-ficha" aria-label={`Ficha de ${p.title}`} data-ficha={fref.kind === "tab" ? fref.tab : fref.kind} style={{ "--c": floorHue(p.slug) } as CSSProperties}>
+    <section className="dark edi-ficha" aria-label={`Ficha de ${p.title}`} data-ficha={atHome ? "inicio" : fref.kind === "tab" ? fref.tab : fref.kind} data-tone={atHome ? home.tone : undefined} style={{ "--c": floorHue(p.slug) } as CSSProperties}>
       <div className="edi-fi-top">
         <div className="edi-fi-tabs" role="tablist" aria-label="Ficha">
+          {home && (
+            <button type="button" role="tab" className="edi-fi-tab edi-fi-home" data-tone={home.tone} aria-selected={atHome} onClick={onHome} data-control="ficha-tab-inicio">
+              <i aria-hidden />
+              {home.word}
+              {home.count > 1 && <small>{home.count}</small>}
+            </button>
+          )}
           {FICHA_TABS.map((t, i) => (
-            <button key={t} type="button" role="tab" className="edi-fi-tab" aria-selected={t === tab} onClick={() => onRef({ kind: "tab", tab: t })} data-control={`ficha-tab-${t}`} aria-keyshortcuts={String(i + 1)}>
+            <button key={t} type="button" role="tab" className="edi-fi-tab" aria-selected={!atHome && t === tab} onClick={() => onRef({ kind: "tab", tab: t })} data-control={`ficha-tab-${t}`} aria-keyshortcuts={String(i + 1)}>
               {TAB_WORD[t]}
               {n[t] !== undefined && <small>{n[t]}</small>}
             </button>
           ))}
         </div>
-        <button type="button" className="edi-fi-x" onClick={onClose} aria-label="Cerrar la ficha" aria-keyshortcuts="I" data-control="ficha-cerrar">
-          ✕
-        </button>
+        {!atHome && (
+          <button type="button" className="edi-fi-x" onClick={onClose} aria-label={home ? `Cerrar y volver a ${home.word}` : "Cerrar la ficha"} aria-keyshortcuts="I" data-control="ficha-cerrar">
+            ✕
+          </button>
+        )}
       </div>
-      <div className="edi-fi-s" role="tabpanel">
-        {fref.kind !== "tab" && (
+      <div className="edi-fi-s" role="tabpanel" data-panel={atHome ? "inicio" : undefined}>
+        {atHome && home.body}
+        {/* Lo último closes the home tab: on a quiet floor it is what there is to read. */}
+        {atHome && slots.last}
+        {!atHome && fref.kind !== "tab" && (
           <button type="button" className="edi-fi-back" onClick={() => onRef({ kind: "tab", tab })} data-control="ficha-volver">
             ← {TAB_WORD[tab]}
           </button>
         )}
-        {fref.kind === "tab" ? (
+        {/* A tab's sections are h4: the tab's own name is their heading (read aloud, not drawn twice). */}
+        {!atHome && fref.kind === "tab" && <h3 className="sr-only">{TAB_WORD[fref.tab]}</h3>}
+        {atHome ? null : fref.kind === "tab" ? (
           fref.tab === "resumen" ? (
             <Resumen p={p} onRef={onRef} slots={slots} />
           ) : fref.tab === "pedido" ? (
-            <PedidoList p={p} onRef={onRef} />
+            <PedidoList p={p} onRef={onRef} tubo={slots.tubo} />
           ) : (
             <ListTab tab={fref.tab} rows={rows} onRef={onRef} timeZone={timeZone} />
           )
@@ -544,6 +574,6 @@ export const Ficha = ({
           <Detail p={p} r={fref} rows={rows} task={task} doc={doc} onRef={onRef} slots={slots} now={now} timeZone={timeZone} pedido={pedido} pedidoActs={pedidoActs} pedidoSlots={pedidoSlots} />
         )}
       </div>
-    </aside>
+    </section>
   );
 };

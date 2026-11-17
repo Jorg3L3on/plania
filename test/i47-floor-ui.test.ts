@@ -106,11 +106,12 @@ test("I47-2: the building is the window's height, the floor has no plate column 
   // PLA-29: the building is the page; only the app's top bar (49 px) is above it.
   assert.match(css, /\.edi:has\(\.edi-bld\) \{[^}]*height: calc\(100svh - 49px/);
   assert.match(css, /\.edi-bld \{[^}]*flex: 1 1 0; min-height: 0;/);
-  // PLA-I53-3: the stage board is the part that grows and scrolls inside; Ahora takes what it needs, up to a cap.
-  assert.match(css, /\.edi-stage > \.sb \{ flex: 1 1 0; min-height: 150px; \}/, "the board grows");
-  assert.match(css, /\.sb-scroll \{ flex: 1; min-width: 0; min-height: 0; overflow: auto;/, "and scrolls inside");
-  assert.match(css, /\.edi-ahora-slot \{ flex: 0 1 auto; min-height: 0; max-height: clamp\(/, "Ahora is capped");
-  assert.match(css, /\.edi-fcol \{ min-height: 0; min-width: 0; overflow: auto;/, "the right column scrolls inside");
+  // PLA-I55-1: the floor is the ventanal and the index over Pedir; each scrolls inside itself, and Ahora has no cap.
+  assert.match(css, /\.edi-fbody \{ display: grid; grid-template-columns: minmax\(0, 1\.62fr\) minmax\(280px, 1fr\); grid-template-rows: minmax\(0, 1fr\) auto;/, "two columns over Pedir");
+  assert.match(css, /\.edi-fi-s \{ min-height: 0; overflow-y: auto;/, "the ventanal scrolls inside");
+  assert.match(css, /\.edi-idx \{[^}]*overflow-y: auto;/, "and so does the index");
+  assert.doesNotMatch(css, /\.edi-ahora-slot \{[^}]*max-height/, "Ahora is not capped");
+  assert.match(css, /\.sb-scroll \{ flex: 1; min-width: 0; min-height: 0; overflow: auto;/, "a board scrolls inside");
   const out = render(two);
   assert.equal(/edi-plate|edi-you|data-owner/.test(out), false);
 });
