@@ -321,3 +321,29 @@ test("I62-4: every kind draws /ceo's actions with one white button", () => {
   assert.match(doneCard.out, /class="cor-state ok"/);
   assert.ok(!/cor-btn primary/.test(doneCard.out), "an answered card has no button");
 });
+
+// ---- PLA-I62-5: Pedir, Pedidos, Asistente
+const pedidos = await load("components/corriente/pedidos.tsx");
+const images = await load("components/corriente/images.tsx");
+
+test("I62-5: a request's line, who it waits on, and the tab's headline", () => {
+  const x = (stop: string, state: string, over: Record<string, unknown> = {}) => ({ key: "K", title: "t", stop, state, who: "product-owner", guardada: false, at: new Date(Date.now() - 26 * 3_600_000).toISOString(), ...over });
+  assert.deepEqual(pedidos.pedidoState(x("lista", "quieta"), Date.now()), { text: "Te espera · lista para construir", tone: "amber" });
+  assert.deepEqual(pedidos.pedidoState(x("entendido", "espera"), Date.now()), { text: "Te espera · confirma lo entendido", tone: "amber" });
+  assert.deepEqual(pedidos.pedidoState(x("investigacion", "trabajando", { who: "research" }), Date.now()), { text: "Research la trabaja", tone: "live" });
+  assert.equal(pedidos.pedidoState(x("buzon", "cola"), Date.now()).text, "En el buzón · 26 h sin tomar");
+  assert.equal(pedidos.waitsOnYou(x("lista", "quieta", { guardada: true })), false);
+  assert.deepEqual(pedidos.pedidosHeadline([x("lista", "quieta"), x("entendido", "espera"), x("buzon", "cola"), x("plan", "quieta", { guardada: true })]), { now: "Tres pedidos tomando forma.", you: "Dos te esperan." });
+  assert.deepEqual(pedidos.pedidosHeadline([]), { now: "Ningún pedido tomando forma.", you: null });
+});
+
+test("I62-5: pictures: type, size and the limit of six, said once", () => {
+  const f = (type: string, size = 10) => ({ type, size, name: "x" }) as unknown as File;
+  const png = f("image/png");
+  assert.deepEqual(images.pickImages([png, f("image/gif")], [], 6), { files: [png], error: "Solo se aceptan imágenes PNG, JPEG o WebP." });
+  assert.equal(images.pickImages([f("image/png", 6 * 1024 * 1024)], [], 6).error, "Esa imagen pesa más de 5 MB.");
+  const six = Array.from({ length: 6 }, () => f("image/png"));
+  assert.match(images.pickImages([f("image/webp")], six, 6).error, /hasta 6 imágenes/);
+  assert.equal(stream.projectOfKey("MIA-IDEA9", [summary("mianovia", [ticket("MIA-1", "Done")]), summary("filmia", [ticket("FIL-1", "Done")])]), "mianovia");
+  assert.equal(stream.projectOfKey("ZZZ-1", []), null);
+});

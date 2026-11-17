@@ -196,3 +196,12 @@ export function lanesOf(projects: OrgProject[], summaries: ProjectSummary[] | un
   const lanes = projects.map((p) => laneOf(p, bySlug.get(p.slug), decisions, companyPaused));
   return lanes.sort((a, b) => Number(a.paused) - Number(b.paused) || a.title.localeCompare(b.title, "es"));
 }
+
+/** The project a key belongs to: the one whose tasks hold it, else the one whose keys share its prefix. */
+export function projectOfKey(key: string, summaries: ProjectSummary[] | undefined): string | null {
+  const all = summaries ?? [];
+  const exact = all.find((s) => s.tasks.some((t) => t.key === key));
+  if (exact) return exact.slug;
+  const prefix = key.split("-")[0];
+  return all.find((s) => s.tasks.some((t) => t.key.split("-")[0] === prefix))?.slug ?? null;
+}

@@ -11,6 +11,9 @@ import { useCorrienteActs, SLEEPY } from "@/components/corriente/acts";
 import { Ahora, type AhoraLinks } from "@/components/corriente/ahora";
 import { Entrega } from "@/components/corriente/entrega";
 import { TeToca } from "@/components/corriente/tetoca";
+import { Pedir } from "@/components/corriente/pedir";
+import { Pedidos } from "@/components/corriente/pedidos";
+import { Asistente } from "@/components/corriente/asistente";
 import type { PendLinks } from "@/components/corriente/pendiente";
 import { Head } from "@/components/corriente/header";
 import { Btn, NotYet, ReadError } from "@/components/corriente/parts";
@@ -22,7 +25,7 @@ import { GoalDialog } from "@/components/goals/goal-dialog";
 import type { Goal } from "@/components/goals/model";
 import { ApiError, api, type OrgProject } from "@/lib/api";
 import { WORK_TABS, atOf, hrefOf, isBuilt, legacyHref, linkTo, type AskInput, type At, type Tab } from "@/lib/corriente";
-import { CLOSED, headlineOf, lanesOf, totalsOf } from "@/lib/corriente-stream";
+import { CLOSED, headlineOf, lanesOf, projectOfKey, totalsOf } from "@/lib/corriente-stream";
 import { pending } from "@/lib/v2";
 import { useMinute } from "@/pages/ceo";
 
@@ -179,6 +182,24 @@ export const CorrientePage = () => {
         );
       return <Entrega p={p} d={d} acts={acts} back={linkTo({ slug: p.slug })} />;
     }
+    if (at.tab === "pedidos")
+      return (
+        <Pedidos
+          p={p}
+          decisions={decisions}
+          now={now}
+          timeZone={timeZone}
+          open={at.ver?.kind === "pedido" ? at.ver.key : null}
+          guardadas={at.ver?.kind === "guardadas"}
+          acts={acts}
+          links={{
+            open: (key) => linkTo({ slug: p.slug, tab: "pedidos", ver: key ? { kind: "pedido", key } : null }),
+            guardadas: linkTo({ slug: p.slug, ver: { kind: "guardadas" } }),
+            pedir: pedirTo(p.slug),
+            idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }),
+          }}
+        />
+      );
     if (at.tab === "ahora") return <Ahora p={p} decisions={decisions} now={now} timeZone={timeZone} companyPaused={paused} totals={totals} acts={acts} links={ahoraLinks(p.slug)} onFijar={setFijar} />;
     return <NotYet what="Esto" to={legacyHref(at)} />;
   };
@@ -231,7 +252,25 @@ export const CorrientePage = () => {
           askTo={pedirTo(null)}
         />
       );
-    return <NotYet what={at.view === "asistente" ? "Asistente" : "Pedir"} to={legacyHref(at)} />;
+    if (at.view === "pedir")
+      return <Pedir projects={company.projects} initial={new URLSearchParams(location.search).get("p")} disabled={paused} onAsk={ask} onPictures={refresh} asistenteTo={hrefOf({ view: "asistente" })} pedidosTo={(slug) => linkTo({ slug, tab: "pedidos" })} />;
+    if (at.view === "asistente")
+      return (
+        <Asistente
+          threadId={company.asistente.thread_id}
+          unread={company.asistente.unread ?? 0}
+          waiting={company.asistente.state === "waiting_jorge"}
+          timeZone={timeZone}
+          invalidate={[["company"]]}
+          pedirTo={pedirTo(null)}
+          workTo={(kind, ref) => {
+            const slug = projectOfKey(ref, summaries.data);
+            if (!slug) return null;
+            return kind === "idea" ? linkTo({ slug, ver: { kind: "pedido", key: ref } }) : linkTo({ slug, ver: { kind: "paso", key: ref } });
+          }}
+        />
+      );
+    return <NotYet what="Esto" to={legacyHref(at)} />;
   };
 
   return (
@@ -240,7 +279,7 @@ export const CorrientePage = () => {
       {at.slug && company ? (
         <Strip lanes={lanes} open={at.slug} href={(slug) => linkTo({ slug, tab: at.tab })} back={hrefOf({ view: "corriente" })} pedirTo={pedirTo(at.slug)} />
       ) : (
-        <Head view={at.slug ? null : at.view} waiting={waiting} asistenteUnread={company?.asistente.unread ?? 0} now={now} timeZone={timeZone} pedirTo={pedirTo(null)} tocaTo={linkTo({ view: "tetoca" })} />
+        <Head view={at.slug ? null : at.view} waiting={waiting} asistenteUnread={company?.asistente.unread ?? 0} now={now} timeZone={timeZone} pedirTo={pedirTo(null)} tocaTo={linkTo({ view: "tetoca" })} closeTo={at.view === "pedir" ? hrefOf({ view: "corriente" }) : undefined} />
       )}
       {paused && (
         <div className="cor-notice amber" role="status" data-banner="paused">
