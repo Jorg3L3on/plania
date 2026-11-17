@@ -234,10 +234,12 @@ async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, 
   }
 
   const guard = opts.pastGuard ? { ...settings, guardOverride: true } : settings;
-  let capacity = await capacityFacts(db, guard, now);
+  // PLA-50: a question counts against its own lane, not the general cap.
+  const lane = opts.consulta ? "consulta" : "work";
+  let capacity = await capacityFacts(db, guard, now, lane);
   if (capacity.plan.state === "unknown") {
     await probeIfUnknown(db, deps, now);
-    capacity = await capacityFacts(db, guard, now);
+    capacity = await capacityFacts(db, guard, now, lane);
   }
   const full = capacityHold(capacity);
   if (full?.code === "usage") return { ok: false, kind: "skipped", summary: planGuardSummary(capacity.plan) };
@@ -312,7 +314,7 @@ export async function startNow(
     const task = queued ? (queued.taskKey ? await readyWorkOf(db, queued.projectId, queued.taskKey) : null) : input.task;
     const ctx = await loadContext(db, input.agent, task);
     if (!ctx.project && queued) ctx.project = (await db.select().from(projects).where(eq(projects.id, queued.projectId)).limit(1))[0] ?? null;
-    const pre = await preflight(db, ctx, input.now, deps, { skipRest: true, pastGuard: input.pastGuard });
+    const pre = await preflight(db, ctx, input.now, deps, { skipRest: true, pastGuard: input.pastGuard, consulta: !!(queued && consultaIdOf(queued.summary)) });
     if (!pre.ok && pre.kind !== "cap") return { kind: "held", summary: pre.summary };
     const run =
       queued ??
@@ -364,14 +366,22 @@ export async function drainQueue(db: Db, now: Date, deps: RunnerDeps = {}): Prom
     // PLA-I41-3: queued runs stay queued while a reservation is up.
     if (reservation) return out;
     const queued = await db.select().from(agentRuns).where(eq(agentRuns.status, "queued")).orderBy(asc(agentRuns.queuedAt));
+    // PLA-50: two lanes (work and the owner's questions). A full lane stops only its own runs; the other keeps going.
+    const full = new Set<"work" | "consulta">();
     for (const run of queued) {
+      const lane = consultaIdOf(run.summary) ? "consulta" : "work";
+      if (full.has(lane)) continue;
       const [agent] = await db.select().from(agents).where(eq(agents.id, run.agentId)).limit(1);
       if (!agent) continue;
       const task = run.taskKey ? await readyWorkOf(db, run.projectId, run.taskKey) : null;
       const ctx = await loadContext(db, agent, task);
       if (!ctx.project) ctx.project = (await db.select().from(projects).where(eq(projects.id, run.projectId)).limit(1))[0] ?? null;
-      const pre = await preflight(db, ctx, now, deps, { fromQueue: run.id, consulta: !!consultaIdOf(run.summary) });
-      if (!pre.ok && pre.kind === "cap") break;
+      const pre = await preflight(db, ctx, now, deps, { fromQueue: run.id, consulta: lane === "consulta" });
+      if (!pre.ok && pre.kind === "cap") {
+        full.add(lane);
+        if (full.size === 2) break;
+        continue;
+      }
       // PLA-I31-1: an event wake inside the agent's cooldown waits for it to end instead of being
       // dropped, so events that arrive during the cooldown coalesce into this one run.
       if (!pre.ok && pre.summary === "skipped: cooldown" && run.summary.startsWith(EVENT_SUMMARY)) continue;

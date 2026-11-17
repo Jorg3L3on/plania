@@ -193,3 +193,50 @@ test("I57-1 #4: a busy PO gets the question queued again once it is free", async
 test("I57-1 #5: the deny rules for a question cover QA's and the shell writes", () => {
   for (const r of ["NotebookEdit", "Bash(git push*)", "Bash(mv*)", "Bash(npx*)", "mcp__plania__thread_post"]) assert.ok(CONSULTA_DENY_RULES.includes(r), r);
 });
+
+// ---- PLA-50: questions have a lane of their own
+
+const busyRun = async (slug: string, opts: { consulta?: boolean } = {}) => {
+  const agent = await id("agents", slug);
+  const row = (await raw.query(`insert into agent_runs (agent_id, project_id, role, status, summary, started_at) values ($1, $2, 'taller', 'running', 'running', now()) returning id`, [agent, await id("projects", "micasa")])).rows[0];
+  if (opts.consulta) await raw.query(`insert into consultas (project_id, agent_id, text, run_id) values ($1, $2, 'otra', $3)`, [await id("projects", "micasa"), agent, row.id]);
+  return row.id as string;
+};
+
+test("PLA-50 #1: a queued question starts while a normal run holds the only general slot", async () => {
+  await raw.query(`update runner_settings set max_concurrent = 1`);
+  await busyRun("taller-micasa");
+  const out = await ask({ text: "¿Hay forma de administrar usuarios del panel?", mode: "pregunta" });
+  assert.equal(out.wake, "queued");
+  const f = fakes();
+  const d = await runner.drainQueue(db, new Date(), f.deps as never);
+  assert.equal(d.started, 1, JSON.stringify((await raw.query(`select status, summary from agent_runs`)).rows));
+  assert.equal(f.spawned.length, 1);
+  f.spawned[0]!.finish();
+  await runner.waitForAllRuns();
+});
+
+test("PLA-50 #2: a running question does not take the general slot: a normal run still starts", async () => {
+  await raw.query(`update runner_settings set max_concurrent = 1`);
+  await busyRun("asistente", { consulta: true });
+  const hold = await import("../src/runner/hold.js");
+  assert.equal(await hold.runningCount(db), 0, "the question is not counted as work");
+  assert.equal(await hold.runningCount(db, "consulta"), 1);
+  const settings = (await raw.query(`select * from runner_settings`)).rows[0];
+  const cap = await hold.capacityFacts(db, { ...settings, maxConcurrent: 1, planGuardPct: 70, guardOverride: false } as never, new Date());
+  assert.equal(hold.capacityHold(cap), null, "the general lane is free");
+});
+
+test("PLA-50 #3: a second question waits (queued, not dropped) while one question runs", async () => {
+  await raw.query(`update runner_settings set max_concurrent = 1`);
+  await busyRun("asistente", { consulta: true });
+  const out = await ask({ text: "¿Dónde se guarda el teléfono?", mode: "pregunta" });
+  assert.equal(out.wake, "queued");
+  const f = fakes();
+  const d = await runner.drainQueue(db, new Date(), f.deps as never);
+  assert.equal(d.started, 0);
+  assert.equal(f.spawned.length, 0);
+  assert.equal((await list())[0]!.state, "leyendo", "still queued, not dropped");
+  const queued = (await raw.query(`select status from agent_runs r join consultas c on c.run_id = r.id where c.id = $1`, [out.consulta])).rows[0];
+  assert.equal(queued.status, "queued");
+});
