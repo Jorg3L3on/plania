@@ -20,6 +20,7 @@ import { companyState, type CompanyState, type RunView } from "../runner/company
 import { autoAcceptOf, type AutoAccept } from "./auto-accept.js";
 import { decisionsRead, inboxByProject, type Decision } from "./company-decisions.js";
 import { ordersOf, type Order } from "./company-orders.js";
+import { pedidosOf, type Pedido } from "./company-pedidos.js";
 import { nextMove, type NextMove } from "./company-move.js";
 import { loadReadiness } from "../mcp/readiness.js";
 import type { InboxItem } from "../mcp/inbox.js";
@@ -106,6 +107,8 @@ export type ProjectCard = {
   // PLA-I53-2: every open initiative with its tickets and their stage, and who works now (src/api/etapa.ts).
   tablero: Tablero;
   ahora: AhoraItem[];
+  // PLA-I54-1: the owner's ideas taking shape (the floor's tube), src/api/company-pedidos.ts.
+  pedidos: Pedido[];
 };
 
 export type CompanyRead = {
@@ -529,6 +532,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       next_move: null,
       tablero: tableroOf(etapas),
       ahora: etapas.ahora,
+      pedidos: await pedidosOf(db, p.id),
     });
   }
 

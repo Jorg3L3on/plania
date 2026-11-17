@@ -48,7 +48,7 @@ export type Order = {
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const oneLine = (s: string, n = 140) => cut(s.replace(/\s+/g, " ").trim(), n);
 
-async function understoodOf(db: Db, t: Task): Promise<string | null> {
+export async function understoodOf(db: Db, t: Pick<Task, "id">): Promise<string | null> {
   const rows = await db
     .select({ payload: events.payload })
     .from(events)

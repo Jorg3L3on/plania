@@ -20,7 +20,8 @@ let closeDb: () => Promise<void>;
 const A = { actor: { agent: "test-agent", session_id: "s-i30-sheet" } };
 const jorge = () => ({ Cookie: `${SESSION_COOKIE}=${createSession()}`, "Content-Type": "application/json" });
 const ask = (slug: string, body: unknown, headers: Record<string, string> = jorge()) =>
-  app.request(`/api/company/projects/${slug}/ask`, { method: "POST", headers, body: JSON.stringify(body) });
+  // PLA-I54-1: a body with neither mode nor now is Darle forma; these tests are about the ticket, so they say so.
+  app.request(`/api/company/projects/${slug}/ask`, { method: "POST", headers, body: JSON.stringify(body && typeof body === "object" && !("mode" in body) && !("now" in body) ? { ...body, now: false } : body) });
 const wake = (slug: string, headers: Record<string, string> = jorge()) => app.request(`/api/company/projects/${slug}/wake`, { method: "POST", headers });
 const runsOf = async (slug: string) =>
   (await raw.query(`select r.status, r.task_key from agent_runs r join agents a on a.id = r.agent_id where a.slug = $1 order by r.queued_at`, [slug])).rows;

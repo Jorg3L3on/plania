@@ -631,22 +631,22 @@ test("I46-13 #3: the sheet works at 390: role chips in two columns, rows wrap, t
 
 const ask = await load("components/compania/edificio/ask.tsx");
 const fab = await load("components/compania/edificio/asistente.tsx");
-const askView = (patch: Json = {}) => h(ask.AskView, { project: project(), text: "", setText: noop, now: false, setNow: noop, onSubmit: noop, ...patch });
+const askView = (patch: Json = {}) => h(ask.AskView, { project: project(), text: "", setText: noop, onSubmit: noop, ...patch });
 
-test("I39-7 #1: a floor has one box and one send button; sending posts the text, with Que empiece ya also now: true; the plate confirms", () => {
-  const out = render(company(), { askFor: (p: Json) => h(ask.AskView, { project: p, text: "", setText: noop, now: false, setNow: noop, onSubmit: noop }) });
+test("I39-7 #1: a floor has one box and one send button; sending posts the text with its mode (PLA-I54-1); the plate confirms", () => {
+  const out = render(company(), { askFor: (p: Json) => h(ask.AskView, { project: p, text: "", setText: noop, onSubmit: noop }) });
   const floor = out.slice(out.indexOf('data-floor="workia"'));
-  assert.equal((floor.match(/<input[^>]*type="text"/g) ?? []).length, 1);
+  assert.equal((floor.match(/<textarea/g) ?? []).length, 1);
   assert.equal((floor.match(/data-control="pedir"/g) ?? []).length, 1);
-  assert.ok(floor.includes("Pide algo para Workia") && floor.includes("Que empiece ya"));
+  assert.ok(floor.includes("Pide algo para Workia") && floor.includes("Darle forma") && !floor.includes("Que empiece ya"));
   assert.equal(/data-kind="(cambio|direccion|idea)"/.test(floor), false, "no kind picker");
   const sent: Json[] = [];
-  const view = expand(askView({ text: "  un botón de WhatsApp  ", now: true, onSubmit: (i: Json) => sent.push(i) }));
+  const view = expand(askView({ text: "  un botón de WhatsApp  ", mode: "ya", onSubmit: (i: Json) => sent.push(i) }));
   findAll(view, (el) => el.type === "form")[0]!.props.onSubmit({ preventDefault: noop });
-  assert.deepEqual(sent, [{ text: "un botón de WhatsApp", now: true }]);
+  assert.deepEqual(sent, [{ text: "un botón de WhatsApp", mode: "ya" }]);
   const later: Json[] = [];
   findAll(expand(askView({ text: "otra cosa", onSubmit: (i: Json) => later.push(i) })), (el) => el.type === "form")[0]!.props.onSubmit({ preventDefault: noop });
-  assert.deepEqual(later, [{ text: "otra cosa", now: false }]);
+  assert.deepEqual(later, [{ text: "otra cosa", mode: "forma" }]);
   // Too short: nothing is sent.
   const none: Json[] = [];
   findAll(expand(askView({ text: "ok", onSubmit: (i: Json) => none.push(i) })), (el) => el.type === "form")[0]!.props.onSubmit({ preventDefault: noop });
@@ -658,7 +658,7 @@ test("I39-7 #1: a floor has one box and one send button; sending posts the text,
   assert.ok(confirmed.includes("data-sent") && confirmed.includes("lo toma en su turno"));
   clean(confirmed);
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("steer.onAsk(slug, { text: input.text, now: input.now })") && page.includes("api.askProject(slug, input)"));
+  assert.ok(page.includes("steer.onAsk(slug, { text: input.text, mode: input.mode })") && page.includes("api.askProject(slug, input)"));
 });
 
 test("I39-7 #2: while the box has text the PO's window says Recibiría tu pedido; clearing it removes the line", () => {

@@ -4,6 +4,7 @@
 //   POST /api/company/projects/:slug/wake         Despertar ahora: one wake of po-<slug> through wakeAgent,
 //        only when the PO has Ready work in this project; otherwise {woke: false, reason: "idle"} and no run.
 // Both refuse a paused project or company, and a project without a runner PO, with 409 and a reason.
+// PLA-I54-1: ask takes {mode: forma | ya}: forma (default) is an idea the PO shapes in the floor's tube; ya is below.
 // PLA-I36-6/8: ask takes {kind: cambio | direccion | idea, now}; now wakes the PO at once (only when it has
 //   Ready work, which the new ticket is). The ticket's scope asks the PO for a plan through `propose`.
 //   POST /api/company/projects/:slug/next {key}       Cambiar lo siguiente: that Ready ticket goes first.
@@ -14,6 +15,7 @@ import { agentRuns, agents, projects, tasks, type Agent } from "../db/schema.js"
 import { loadReady, pickReady, wakeAgent, type HeartbeatDeps } from "../jobs/heartbeat.js";
 import { WEB_ACTOR } from "../mcp/tx.js";
 import { createTask } from "../mcp/writes.js";
+import { createPoIdea } from "./company-pedidos.js";
 import { eventWakesEnabled, queueWake } from "../runner/events.js";
 import { loadSettings, roleOf } from "../runner/limits.js";
 import { startNow } from "../runner/runner.js";
@@ -52,7 +54,8 @@ export const firstLine = (text: string) => {
 
 export type OrderKind = "cambio" | "direccion" | "idea";
 const KIND_WORD: Record<OrderKind, string> = { cambio: "un cambio", direccion: "una dirección", idea: "una idea" };
-export type AskResult = { key: string; title: string; po: string; wake: "queued" | "busy" | "off"; woke: WakeOutcome | null };
+// PLA-I54-1: mode forma makes an idea for the PO to shape (company-pedidos.ts); ya is the Ready ticket plus the wake.
+export type AskResult = { key: string; title: string; po: string; mode: "forma" | "ya"; wake: "queued" | "busy" | "off"; woke: WakeOutcome | null };
 
 // A Ready ticket owned by the project's PO, origin jorge; the event hook queues the PO's wake in the same
 // write. wake says what happened: queued (on this ticket), busy (the PO already has a run), off (no wakes).
@@ -98,12 +101,21 @@ export async function createPoTicket(
   return { key: out.key, title: firstLine(sentence), wake };
 }
 
-export async function askPo(db: Db, slug: string, text: string, opts: { kind?: OrderKind; now?: boolean } = {}, deps?: HeartbeatDeps): Promise<AskResult | ActionRefusal> {
+// PLA-I54-1: mode forma creates an idea and wakes the PO on it (company-pedidos.ts); ya is the ticket with the wake at
+// once (what «Que empiece ya» did). Without a mode it is the ticket as before, woken only with now. On the route a body
+// with neither mode nor now (the new side page always sends a mode) is forma; an old client's {now} keeps its ticket.
+export const askMode = (input: { mode?: "forma" | "ya"; now?: boolean }): "forma" | "ya" | undefined => input.mode ?? (input.now === undefined ? "forma" : undefined);
+
+export async function askPo(db: Db, slug: string, text: string, opts: { kind?: OrderKind; now?: boolean; mode?: "forma" | "ya" } = {}, deps?: HeartbeatDeps): Promise<AskResult | ActionRefusal> {
   const g = await guard(db, slug);
   if ("error" in g) return g;
+  if (opts.mode === "forma") {
+    const made = await createPoIdea(db, g.project.slug, g.po, text);
+    return { key: made.key, title: made.title, po: g.po.slug, mode: "forma", wake: made.wake, woke: null };
+  }
   const made = await createPoTicket(db, g.project, g.po, text, "Compañía", opts.kind ?? null);
-  const woke = opts.now ? await wakePo(db, slug, deps) : null;
-  return { key: made.key, title: made.title, po: g.po.slug, wake: made.wake, woke: woke && !("error" in woke) ? woke : null };
+  const woke = opts.now || opts.mode === "ya" ? await wakePo(db, slug, deps) : null;
+  return { key: made.key, title: made.title, po: g.po.slug, mode: "ya", wake: made.wake, woke: woke && !("error" in woke) ? woke : null };
 }
 
 // PLA-I36-6: Cambiar lo siguiente. The ticket must be Ready in this project.

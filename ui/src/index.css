@@ -1138,6 +1138,48 @@
   .sb-acts { display: none; flex-wrap: wrap; gap: 4px; padding: 0 7px 7px; }
   .sb-card:hover .sb-acts, .sb-card:focus-within .sb-acts { display: flex; }
   @media (hover: none) { .sb-acts { display: flex; } }
+  /* PLA-I54-1: el tubo de pedidos (edificio/tubo.tsx). The board's grid (150 px label + six columns, never under 780 px)
+     so each stop sits under its station; a rail through the stop names, a valve at its end. It takes what it needs up to
+     a third of the stage and scrolls inside itself; with no capsule it folds to one line. */
+  .tubo { --sb-line: rgb(255 255 255 / 0.08); --sb-line2: rgb(255 255 255 / 0.14); --sb-raised: #1c2030; --sb-faint: #8d94aa; flex: 0 1 auto; min-height: 0; max-height: 34%; display: flex; border: 1px solid var(--sb-line); border-radius: 16px; background: #111526; color: var(--e-fg, #eef0f6); overflow: hidden; }
+  .tubo[data-tubo="folded"] { flex: none; }
+  .tubo-scroll { flex: 1; min-width: 0; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.18) transparent; }
+  .tubo-grid { position: relative; display: grid; grid-template-columns: 150px repeat(6, minmax(0, 1fr)); align-items: start; min-width: 780px; padding: 6px 0 8px; }
+  .tubo-grid::before { content: ""; position: absolute; left: 154px; right: 6px; top: 6px; height: 20px; border-radius: 99px; background: rgb(94 200 255 / 0.05); border: 1px solid rgb(94 200 255 / 0.2); pointer-events: none; }
+  .tubo-label { display: flex; flex-direction: column; gap: 1px; padding: 0 12px; min-width: 0; }
+  .tubo-label b { font-family: var(--font-display); font-weight: 700; font-size: 13.5px; line-height: 1.2; }
+  .tubo-link { align-self: flex-start; min-height: 24px; border: 0; background: none; padding: 0; color: var(--sb-faint); font: inherit; font-size: 11.5px; text-decoration: underline; text-underline-offset: 3px; text-align: left; white-space: nowrap; }
+  button.tubo-link { cursor: pointer; }
+  button.tubo-link:hover { color: var(--e-fg, #eef0f6); }
+  .tubo-stop { position: relative; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 0 4px; }
+  .tubo-sname { position: relative; height: 22px; display: grid; place-items: center; font-family: var(--font-mono); font-weight: 500; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .tubo-sline { text-align: center; color: var(--sb-faint); font-size: 11px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tubo-sline[data-last] { color: var(--status-jorge); font-weight: 600; }
+  .tubo-cap { border-radius: 13px; }
+  .tubo-cap .sb-st { white-space: nowrap; overflow: hidden; }
+  /* A short window (1280×720): the stops lose their one-line hint and a capsule's title takes one line. */
+  @media (max-height: 760px) { .tubo-sline { display: none; } .tubo-cap .sb-tt { -webkit-line-clamp: 1; } }
+  .tubo-cap .sb-card-main { border-radius: 13px; }
+  .tubo-cap .sb-st i { width: 9px; height: 9px; box-shadow: 0 0 0 2px var(--sb-raised), 0 0 0 3px var(--sc); }
+  .tubo-cap[data-live] .sb-st i { animation: tubo-live 1.8s ease-out infinite; }
+  @keyframes tubo-live { 0% { box-shadow: 0 0 0 2px var(--sb-raised), 0 0 0 3px var(--sc); } 100% { box-shadow: 0 0 0 2px var(--sb-raised), 0 0 0 8px transparent; } }
+  @media (prefers-reduced-motion: reduce) { .tubo-cap[data-live] .sb-st i { animation: none; } }
+  .tubo-valve { position: absolute; right: 4px; top: 0; width: 12px; height: 32px; border-radius: 4px; background: var(--status-jorge); z-index: 1; pointer-events: none; }
+  .tubo-valve::after { content: ""; position: absolute; left: -5px; right: -5px; top: 13px; height: 6px; border-radius: 3px; background: var(--status-jorge); }
+  .tubo-fold { display: flex; align-items: center; gap: 12px; margin: 0; padding: 4px 12px; min-height: 32px; min-width: 0; font-size: 12.5px; color: var(--sb-faint); white-space: nowrap; }
+  .tubo-fold > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .tubo-fold .tubo-link { align-self: center; margin-left: auto; }
+  /* PLA-I54-1: Pedir's side page: the textarea, the pictures' slot (F5) and the two modes. */
+  .edi-ask-text { width: 100%; min-height: 110px; resize: vertical; font: inherit; font-size: 14px; line-height: 1.4; padding: 10px 12px; border-radius: 12px; color: var(--e-fg); background: var(--background, #0b0d13); border: 1px solid var(--e-line); }
+  .edi-ask-text::placeholder { color: var(--e-muted); }
+  .edi-ask-imgs:empty { display: none; }
+  .edi-modes { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+  .edi-mode { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 9px; padding: 9px 11px; border: 1px solid var(--e-line); border-radius: 12px; cursor: pointer; }
+  .edi-mode:has(input:checked) { border-color: color-mix(in srgb, var(--e-fg) 45%, transparent); background: color-mix(in srgb, var(--e-fg) 6%, transparent); }
+  .edi-mode:has(input:focus-visible) { outline: 2px solid var(--e-fg); outline-offset: 2px; }
+  .edi-mode input { grid-row: span 2; width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--e-you); }
+  .edi-mode b { font-weight: 600; }
+  .edi-mode span { grid-column: 2; color: var(--e-muted); font-size: 12.5px; line-height: 1.35; }
   .sb-mini { height: 22px; padding: 0 9px; border-radius: 99px; border: 0; font: inherit; font-size: 11px; font-weight: 650; background: rgb(255 255 255 / 0.12); color: var(--e-fg, #eef0f6); white-space: nowrap; cursor: pointer; }
   .sb-mini:hover { background: rgb(255 255 255 / 0.2); }
   .sb-mini:disabled { opacity: 0.45; cursor: default; }

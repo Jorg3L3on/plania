@@ -26,6 +26,7 @@ import { EdificioSkeleton, Scene } from "./scene";
 import { Tower, openFloor } from "./tower";
 import { Facade } from "./facade";
 import type { BoardActs } from "./floor";
+import type { TuboActs } from "./tubo";
 
 const firstLine = (s: string, n = 160) => {
   const one = (s.split("\n").find((l) => l.trim()) ?? "").replace(/[*_#`]/g, "").trim();
@@ -73,6 +74,8 @@ export type BuildingProps = {
   city?: ReactNode;
   // PLA-I53-3: the stage board's calls (Hacer primero, Detener, Aceptar, Quitar, and what opens in La ficha).
   board?: BoardActs;
+  // PLA-I54-1: the tube's calls.
+  tubo?: TuboActs;
   // PLA-I47-4: La ficha beside the floor (the page reads and draws it).
   ficha?: ReactNode;
   fichaOpen?: boolean;
@@ -86,7 +89,7 @@ export type BuildingProps = {
 };
 
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore, city, board, ficha, fichaOpen, onFichaClose, nivel, liftFor, maquinasFor, appsOn }: BuildingProps) => {
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore, city, board, tubo, ficha, fichaOpen, onFichaClose, nivel, liftFor, maquinasFor, appsOn }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
   const open = openFloor(floors, basement, piso);
@@ -172,6 +175,7 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
               nowActs={isOff ? undefined : nowActs}
               ventana={isOff ? undefined : ventanaFor?.(open)}
               board={isOff ? { onTicket: board?.onTicket, onTrack: board?.onTrack, selected: board?.selected } : board}
+              tubo={tubo}
               ficha={!!ficha}
               nivel={nivel}
               lift={liftFor?.(open)}

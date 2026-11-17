@@ -557,7 +557,7 @@ const Compania = () => {
     onPlan: (slug: string, text: string) => {
       setNowBusy(`${slug}:plan`);
       void api
-        .askProject(slug, { text, now: true })
+        .askProject(slug, { text, mode: "ya" })
         .then(() => toast("Se lo pediste al PO."))
         .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
         .finally(() => {
@@ -721,7 +721,7 @@ const Compania = () => {
                 prefill={prefill[p.slug]}
                 disabled={company.company.paused}
                 wide={wide}
-                onAsk={(slug, input) => steer.onAsk(slug, { text: input.text, now: input.now })}
+                onAsk={(slug, input) => steer.onAsk(slug, { text: input.text, mode: input.mode })}
                 onTyping={(slug, on) => setTyping((t) => (!!t[slug] === on ? t : { ...t, [slug]: on }))}
               />
             )}
@@ -747,6 +747,11 @@ const Compania = () => {
               onTrack: (slug, key, el) => showFicha(key ? { kind: "leg", key } : { kind: "sueltos" }, el, slug),
               selected: fichaAt?.ref.kind === "step" ? fichaAt.ref.key : null,
               busy: steer.busy,
+            }}
+            // PLA-I54-1: a capsule in the tube opens the idea in La ficha (PLA-I54-3 gives it its Pedido tab).
+            tubo={{
+              onOpen: (slug, key, el) => showFicha({ kind: "idea", key }, el, slug),
+              onGuardadas: (slug, el) => showFicha({ kind: "tab", tab: "ideas" }, el, slug),
             }}
             onPiso={onPiso}
             onAdd={(slug, el) => {
