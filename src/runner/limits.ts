@@ -121,6 +121,10 @@ export async function lastReading(db: Q): Promise<PlanReading | null> {
   return row ?? null;
 }
 
+// PLA-56: a "rejected" reading speaks for its five-hour window: until its reset, or READING_TTL_MS with no reset.
+export const rejectedStillHolds = (reading: PlanReading, now: Date): boolean =>
+  reading.fiveHourResetsAt != null ? reading.fiveHourResetsAt.getTime() > now.getTime() : now.getTime() - reading.at.getTime() <= READING_TTL_MS;
+
 export function planView(reading: PlanReading | null, guardPct: number, now: Date, override = false): PlanView {
   const base = {
     five_hour_pct: reading?.fiveHourPct ?? null,
@@ -134,7 +138,9 @@ export function planView(reading: PlanReading | null, guardPct: number, now: Dat
     override,
   };
   // PLA-25: with the switch on only a real "rejected" stops (the run would fail anyway).
-  if (override) return { ...base, state: reading?.status === "rejected" ? "stopped" : "ok" };
+  // PLA-56: and only while it is still true: its five-hour reset is ahead, or (with no reset time) it is fresh.
+  // An old "rejected" stopped every run for hours after its reset, and with no run no new reading ever came.
+  if (override) return { ...base, state: reading?.status === "rejected" && rejectedStillHolds(reading, now) ? "stopped" : "ok" };
   if (!reading) return { ...base, state: "unknown" };
   const stale =
     now.getTime() - reading.at.getTime() > READING_TTL_MS ||

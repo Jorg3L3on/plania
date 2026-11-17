@@ -746,6 +746,31 @@ test("PLA-21: a run a budget stopped before PLA-21 frees its ticket with a note 
   assert.deepEqual(await sweepStoppedRuns(db), { freed: 0 });
 });
 
+test("PLA-56: with the override on, a plan-guard skip is queued again once the «rejected» window has reset", async () => {
+  await backlog("PG-A1", { status: "Ready" });
+  await raw.query(`delete from agent_runs`);
+  await raw.query(
+    `insert into agent_runs (agent_id, project_id, task_key, role, status, summary, trigger, queued_at, ended_at)
+     values ($1, $2, 'PG-A1', 'taller', 'skipped', 'skipped: plan guard (status rejected, resetsAt x)', 'event', now() - interval '20 minutes', now() - interval '20 minutes')`,
+    [await id("agents", "taller"), await id("projects", "micasa")],
+  );
+  await raw.query(`update runner_settings set guard_override = true`);
+  try {
+    // The window is still closed: nothing.
+    await raw.query(`delete from plan_readings`);
+    await raw.query(`insert into plan_readings (at, source, status, five_hour_pct, five_hour_resets_at) values (now() - interval '1 hour', 'stream', 'rejected', 100, now() + interval '1 hour')`);
+    assert.deepEqual(await requeueHeld(db), { requeued: 0 });
+    // The last reading is the morning's, its reset long past (MIA-I7-2, 2026-11-17): queued again, once.
+    await raw.query(`delete from plan_readings`);
+    await raw.query(`insert into plan_readings (at, source, status, five_hour_pct, five_hour_resets_at) values (now() - interval '10 hours', 'stream', 'rejected', 100, now() - interval '8 hours')`);
+    assert.deepEqual(await requeueHeld(db), { requeued: 1 });
+    assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key, x.summary]), [["taller", "PG-A1", "queued: event plan has room again"]]);
+    assert.deepEqual(await requeueHeld(db), { requeued: 0 }, "once");
+  } finally {
+    await raw.query(`update runner_settings set guard_override = false`);
+  }
+});
+
 test("PLA-18: a switch stop frees the ticket and the work is queued again on resume; Jorge's Detener is not", async () => {
   await backlog("BS-C1");
   await stoppedRunHolding("BS-C1", "project micasa paused");
