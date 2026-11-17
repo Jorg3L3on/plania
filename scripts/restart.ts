@@ -1,4 +1,4 @@
-// PLA-53: pnpm restart — restarts the Plania server (launchd, com.plania.server) only when nothing it would kill is
+// PLA-53: pnpm server:restart — restarts the Plania server (launchd, com.plania.server) only when nothing it would kill is
 // in flight. --check lists and exits (1 when something is in flight); --force restarts anyway.
 import { execFileSync } from "node:child_process";
 import { userInfo } from "node:os";
