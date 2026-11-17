@@ -5,7 +5,7 @@
 // save (lib/motores.ts saveOf). Changes apply from each seat's next run; a live run keeps its flags.
 import { useMemo, useState, type CSSProperties } from "react";
 import { api, type MotoresSave, type OrgMember, type OrgProject, type RunnerLive, type RunnerView } from "@/lib/api";
-import { MAX, countsOf, heldText, pendingCounts, previewAdmission, seatCap, sinceText, withCounts, type Counts, type Verdict } from "@/lib/a-la-vez";
+import { MAX, countsOf, heldText, pendingCounts, previewAdmission, queueLabel, seatCap, sinceText, withCounts, type Counts, type Verdict } from "@/lib/a-la-vez";
 import {
   AUTO_COLOR,
   EFFORTS,
@@ -313,7 +313,7 @@ export const MotoresConsole = ({ project: p, def, onSave }: { project: OrgProjec
           {draft.strips.map((s) => (
             <StripView key={s.key} d={draft} s={s} m={team.find((m) => m.agent === s.agent)} par={parOf(s)} onChange={(x) => set({ ...draft, strips: draft.strips.map((y) => (y.key === x.key ? x : y)) })} />
           ))}
-          {r && counts && <FloorStrip p={p} r={r} counts={counts} waiting={waiting.length} onCounts={setCounts} onCola={() => setColaOpen((o) => !o)} />}
+          {r && counts && <FloorStrip p={p} r={r} counts={counts} starts={starts.length} onCounts={setCounts} onCola={() => setColaOpen((o) => !o)} />}
           <div className="edi-mtr-strip" data-strip="compania" data-master="1" data-own="1">
             <div className="edi-mtr-who">
               <span className="edi-mtr-tower" aria-hidden>
@@ -372,8 +372,8 @@ export const MotoresConsole = ({ project: p, def, onSave }: { project: OrgProjec
                 : "Todo guardado. Uso de la semana: tokens de entrada + salida de cada puesto en este proyecto.")}
         </span>
         {r && (
-          <button type="button" className="edi-par-cola" data-empty={waiting.length ? undefined : "1"} onClick={() => setColaOpen((o) => !o)} aria-expanded={colaOpen} data-control="motor-cola">
-            En cola <b>{waiting.length}</b>
+          <button type="button" className="edi-par-cola" data-empty={r.queue.length ? undefined : "1"} onClick={() => setColaOpen((o) => !o)} aria-expanded={colaOpen} data-control="motor-cola">
+            En cola <b>{r.queue.length}</b>
           </button>
         )}
         <span className="edi-mtr-acts">
@@ -424,7 +424,7 @@ const PlanMeter = ({ r, add }: { r: RunnerView; add: number }) => {
 };
 
 // ④ The project's own strip: «Agentes a la vez» and «Por agente» (what the seats inherit).
-const FloorStrip = ({ p, r, counts, waiting, onCounts, onCola }: { p: OrgProject; r: RunnerView; counts: Counts; waiting: number; onCounts: (c: Counts) => void; onCola: () => void }) => {
+const FloorStrip = ({ p, r, counts, starts, onCounts, onCola }: { p: OrgProject; r: RunnerView; counts: Counts; starts: number; onCounts: (c: Counts) => void; onCola: () => void }) => {
   const cells = Math.max(counts.floor.max_concurrent, r.live.work);
   return (
     <div className="edi-mtr-strip" data-strip="piso" data-floor="1">
@@ -457,7 +457,7 @@ const FloorStrip = ({ p, r, counts, waiting, onCounts, onCola }: { p: OrgProject
         <Stepper id="motor-por-agente" value={counts.floor.max_per_agent} min={1} max={MAX.perAgent} label="Por agente" onPick={(v) => onCounts({ ...counts, floor: { ...counts.floor, max_per_agent: v } })} />
       </div>
       <button type="button" className="edi-par-link" onClick={onCola} data-control="motor-piso-cola">
-        {waiting ? `${waiting} en cola ›` : "Cola vacía"}
+        {r.queue.length ? `${queueLabel(r.queue.length, starts)} ›` : queueLabel(0, 0)}
       </button>
     </div>
   );

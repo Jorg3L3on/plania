@@ -548,6 +548,39 @@ test("I60-4 #3: a question run does not start the PO's rest; an event run starts
 // ---- T5: the screen's preview of admission
 
 const alv = await import("../ui/src/lib/a-la-vez.js");
+
+test("PLA-57: the queue link counts what is really queued; «Cola vacía» only when nothing is", () => {
+  // Seen 2026-11-17: Mianovia raised from 1 to 8 while the PO's run still carried the old project_cap hold.
+  const team = [{ agent: "po-mia", role: "product-owner" }, { agent: "taller-mia", role: "taller" }] as never;
+  const view = (held: string) =>
+    ({
+      limits: { max_concurrent: 8, consulta_slots: 4, max_per_agent: 6, serialize_areas: true },
+      live: { work: 1, consulta: 0 },
+      ceiling: { max: 12, live: 1, live_other_projects: 0, reserved: 0, capacity: 12 },
+      plan: { pct: 22, guard: 70, state: "ok", override: true, est_pct: 3, live_weight: 0 },
+      queue: [{ run_id: "q", agent: "po-mia", lane: "work", ticket: "MIA-IDEA2", title: "Idea", kind: "idea", waited_min: 7, held_code: held, held_detail: held === "machine" ? { free_mb: 1195, free_disk_gb: 9, running: 1, capacity: 12 } : null, weight: 3 }],
+      seats: [
+        { agent: "po-mia", max_parallel: null, cap: 6, live: [], queued: 1 },
+        { agent: "taller-mia", max_parallel: null, cap: 6, live: [{ run_id: "l" }], queued: 0 },
+      ],
+    }) as never;
+  const startsOf = (held: string) => {
+    const r = view(held);
+    return alv.previewAdmission(r, alv.countsOf(r, team)!, team, "Mianovia").verdicts.filter((v) => v.starts).length;
+  };
+  // The preview thinks the stale project_cap run fits: before, the link read «Cola vacía».
+  assert.equal(startsOf("project_cap"), 1);
+  assert.equal(alv.queueLabel(1, startsOf("project_cap")), "1 en cola · 1 arranca");
+  assert.equal(alv.queueLabel(1, startsOf("machine")), "1 en cola");
+  assert.equal(alv.queueLabel(0, 0), "Cola vacía");
+  assert.equal(alv.queueLabel(3, 2), "3 en cola · 2 arrancan");
+  // The screen passes the server's queue, not the preview's waiting list.
+  const src = readFileSync(path.join(import.meta.dirname, "../ui/src/components/compania/edificio/motores.tsx"), "utf8");
+  assert.match(src, /queueLabel\(r\.queue\.length, starts\)/);
+  assert.match(src, /En cola <b>\{r\.queue\.length\}<\/b>/);
+  assert.doesNotMatch(src, /waiting \? `\$\{waiting\} en cola/);
+});
+
 test("I60-5 #1: the preview says what Guardar would start and offers the number that unblocks the rest", () => {
   const team = [{ agent: "po-x", role: "product-owner" }, { agent: "taller-x", role: "taller" }] as never;
   const r = {
