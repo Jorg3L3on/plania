@@ -16,6 +16,8 @@ import { Pedidos } from "@/components/corriente/pedidos";
 import { Asistente } from "@/components/corriente/asistente";
 import { Board, Paso, type BoardLinks } from "@/components/corriente/tablero";
 import { Equipo } from "@/components/corriente/equipo";
+import { Idea } from "@/components/corriente/idea";
+import { Disenos, Docs, Ideas, Prs } from "@/components/corriente/listas";
 import type { PendLinks } from "@/components/corriente/pendiente";
 import { Head } from "@/components/corriente/header";
 import { Btn, NotYet, ReadError } from "@/components/corriente/parts";
@@ -208,6 +210,13 @@ export const CorrientePage = () => {
           motorDefault={company?.motor_default}
         />
       );
+    if (at.ver?.kind === "idea")
+      return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} links={{ back: linkTo({ slug: p.slug, tab: "ideas" }), doc: (id) => linkTo({ slug: p.slug, ver: { kind: "doc", id } }), track: (key) => linkTo({ slug: p.slug, ver: { kind: "iniciativa", key } }) }} />;
+    if (at.tab === "ideas") return <Ideas p={p} acts={acts} links={{ idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }), pedir: pedirTo(p.slug) }} />;
+    if (at.tab === "diseno") return <Disenos p={p} links={{ idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }) }} />;
+    if (at.tab === "prs")
+      return <Prs p={p} decisions={decisions} open={at.ver?.kind === "pr" ? at.ver.n : null} links={{ pr: (n) => linkTo({ slug: p.slug, ver: { kind: "pr", n } }), paso: (key) => linkTo({ slug: p.slug, ver: { kind: "paso", key } }), entrega: (d) => linkTo({ slug: p.slug, ver: { kind: "entrega", id: d.id } }) }} />;
+    if (at.tab === "docs") return <Docs p={p} open={at.ver?.kind === "doc" ? at.ver.id : null} links={{ doc: (id) => linkTo({ slug: p.slug, ver: { kind: "doc", id } }), iniciativa: (key) => linkTo({ slug: p.slug, ver: { kind: "iniciativa", key } }) }} />;
     if (at.tab === "pedidos")
       return (
         <Pedidos

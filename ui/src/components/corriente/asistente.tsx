@@ -124,7 +124,7 @@ export const Asistente = ({ threadId, unread, waiting, timeZone, workTo, pedirTo
         {t.error && !t.thread ? (
           <ReadError what="la conversación" onRetry={t.onRetry} />
         ) : (
-          <ol className="cor-msgs" ref={list} aria-busy={t.loading || undefined}>
+          <ol className="cor-msgs" ref={list} aria-busy={t.loading || undefined} tabIndex={0} aria-label="Mensajes">
             {hidden > 0 && (
               <li>
                 <Btn kind="link" onClick={t.onMore}>

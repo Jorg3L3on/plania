@@ -166,7 +166,7 @@ export const Stream = ({
           ))}
         </div>
       </div>
-      <div className="cor-lanes" data-lanes={lanes.length}>
+      <div className="cor-lanes" data-lanes={lanes.length} tabIndex={-1}>
         {lanes.length === 0 ? (
           <p className="cor-empty cor-text">Todavía no hay proyectos.</p>
         ) : (

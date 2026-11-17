@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ApiError, api, type Decision, type DecisionInput } from "@/lib/api";
+import { ApiError, api, uploadPedidoImages, type Decision, type DecisionInput, type IdeaAnswerInput, type PedidoStop } from "@/lib/api";
 
 export const SLEEPY = "No se pudo. Si la Mac está dormida, intenta al despertar.";
 
@@ -126,7 +126,27 @@ export function useCorrienteActs() {
         await api.answer(slug, questionId, text);
         void client.invalidateQueries({ queryKey: ["idea", slug, key] });
       }),
-    despertar: (slug: string, key: string) => run(`pedido-${key}:despertar`, () => api.ideaDespertar(slug, key)),
+    despertar: (slug: string, key: string) =>
+      run(`pedido-${key}:despertar`, async () => {
+        await api.ideaDespertar(slug, key);
+        void client.invalidateQueries({ queryKey: ["idea", slug, key] });
+      }),
+    // PLA-I61: an answer to a stop (Me gusta, notes, an option, Deshacer), a note with its pictures, and «seen».
+    respuesta: (slug: string, key: string, input: IdeaAnswerInput) =>
+      run(`pedido-${key}:respuesta`, async () => {
+        await api.ideaRespuesta(slug, key, input);
+        void client.invalidateQueries({ queryKey: ["idea", slug, key] });
+      }),
+    notePedido: (slug: string, key: string, text: string, files: File[]) =>
+      run(`pedido-${key}:note`, async () => {
+        await api.noteTask(slug, key, text);
+        if (files.length) {
+          const r = await uploadPedidoImages(slug, key, files);
+          if (r.error) toast.error(typeof r.error.detail.message === "string" ? r.error.detail.message : "Una imagen no subió.");
+        }
+        void client.invalidateQueries({ queryKey: ["idea", slug, key] });
+      }),
+    visto: (slug: string, key: string, stop: PedidoStop) => void api.ideaVisto(slug, key, stop).then(() => client.invalidateQueries({ queryKey: ["idea", slug, key] }), () => undefined),
     pause: (slug: string) => run(`${slug}:pause`, () => api.setProjectPaused(slug, true)),
   };
 }
