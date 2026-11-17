@@ -162,6 +162,26 @@ describe("Pruebas", () => {
     await pruebas.pruebasDone("zigzag");
     assert.equal(execs.length, 2, "only the first run ran");
   });
+
+  test("PLA-53: a run a restart cut reads as interrupted, once", async () => {
+    // What an earlier server left: the marker of a run, and no run behind it.
+    await raw.query(`insert into machine_state (key, value) values ('maquinas:pruebas:zigzag:corriendo', $1::jsonb) on conflict (key) do update set value = excluded.value`, [
+      JSON.stringify({ started_at: new Date(Date.now() - 60_000).toISOString(), step: "test", server_pid: 999_999 }),
+    ]);
+    const r1 = (await call("GET", "/api/projects/zigzag/maquinas/pruebas")).body;
+    assert.equal(r1.running, null);
+    assert.equal(r1.last.ok, false);
+    assert.deepEqual(r1.last.steps.map((s: Json) => [s.name, s.tail[0]]), [["test", pruebas.INTERRUPTED]]);
+    assert.equal((await raw.query(`select 1 from machine_state where key = 'maquinas:pruebas:zigzag:corriendo'`)).rowCount, 0, "the marker is gone");
+    const r2 = (await call("GET", "/api/projects/zigzag/maquinas/pruebas")).body;
+    assert.equal(r2.last.ended_at, r1.last.ended_at, "recorded once");
+    // A run that ends on its own leaves no marker.
+    gate = null;
+    await call("POST", "/api/projects/zigzag/maquinas/pruebas");
+    await pruebas.pruebasDone("zigzag");
+    assert.equal((await raw.query(`select 1 from machine_state where key = 'maquinas:pruebas:zigzag:corriendo'`)).rowCount, 0);
+    assert.notEqual((await call("GET", "/api/projects/zigzag/maquinas/pruebas")).body.last.steps[0].tail[0], pruebas.INTERRUPTED);
+  });
 });
 
 describe("Cómo probarla", () => {

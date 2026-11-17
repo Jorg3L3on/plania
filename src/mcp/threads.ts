@@ -9,7 +9,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
-import { LINK_KINDS, agentRuns, docs, projects, tasks, type ThreadLink } from "../db/schema.js";
+import { LINK_KINDS, agentRuns, agents, docs, projects, tasks, type ThreadLink } from "../db/schema.js";
 import { agentOfActor } from "../runner/events.js";
 import { roleOf } from "../runner/limits.js";
 import { assertThreadAccess, checkLinks, lastLineFor, messageView, postMessage, projectThread, readThread, resolveThread } from "../runner/threads.js";
@@ -48,20 +48,30 @@ export type Closing = { project: string; key: string; via: "finish" | "add_resul
 
 export async function closingLine(db: Db, ctx: Ctx, c: Closing): Promise<string | null> {
   const m = RUN_SESSION.exec(ctx.actor.session_id ?? "");
-  if (!m) return null;
-  const [run] = await db
-    .select({ id: agentRuns.id, startedAt: agentRuns.startedAt, queuedAt: agentRuns.queuedAt })
-    .from(agentRuns)
-    .where(sql`${agentRuns.id}::text like ${`${m[1]}%`}`)
-    .limit(1);
-  const agent = await agentOfActor(db, ctx.actor);
-  if (!run || !agent) return null;
+  // PLA-53: a finish from a session that is not a runner leaves the delivery line too; without it the ticket sat In
+  // review with no card and nobody's turn. Its add_result stays silent (a session adds many).
+  if (!m && c.via !== "finish") return null;
+  const [run] = m
+    ? await db
+        .select({ id: agentRuns.id, startedAt: agentRuns.startedAt, queuedAt: agentRuns.queuedAt })
+        .from(agentRuns)
+        .where(sql`${agentRuns.id}::text like ${`${m[1]}%`}`)
+        .limit(1)
+    : [];
+  const rosterAgent = await agentOfActor(db, ctx.actor);
+  if (m && (!run || !rosterAgent)) return null;
   const [project] = await db.select().from(projects).where(eq(projects.slug, c.project)).limit(1);
   if (!project) return null;
   const [t] = await db.select().from(tasks).where(and(eq(tasks.projectId, project.id), eq(tasks.key, c.key))).limit(1);
   if (!t) return null;
+  // Who signs it: the session's roster agent, else the ticket's owner agent, else the session by its own name.
+  const [owner] = !rosterAgent && t.ownerAgent ? await db.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1) : [];
+  const signer = rosterAgent ?? owner ?? null;
+  const agent = signer
+    ? { slug: signer.slug, role: roleOf(signer) ?? signer.role }
+    : { slug: (ctx.actor.agent ?? "sesion").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "sesion", role: "sesion" };
   const thread = await projectThread(db, project.id);
-  if (c.via === "add_result" && (await lastLineFor(db, thread.id, agent.slug, t.key, run.startedAt ?? run.queuedAt))) return null;
+  if (c.via === "add_result" && run && (await lastLineFor(db, thread.id, agent.slug, t.key, run.startedAt ?? run.queuedAt))) return null;
 
   const links: ThreadLink[] = [{ kind: t.kind === "idea" ? "idea" : "ticket", ref: t.key, title: t.title.slice(0, 200) }];
   const pr = c.prUrl?.trim() || t.prUrl;
@@ -72,7 +82,7 @@ export async function closingLine(db: Db, ctx: Ctx, c: Closing): Promise<string 
   const cite = (c.cite ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
   const head = c.via === "finish" ? `${t.key} queda En revisión: ${t.title}.` : `${t.key}: evidencia ${c.verdict ?? ""} registrada.`.replace(/\s+\./, ".");
   const body = [head, cite ? `Hice: ${cite}` : null, c.via === "finish" ? `Necesito: que lo revises (${pr && CODE_WORK.has(t.workType ?? "code") ? "Aprobar y pasar a prueba" : "Aprobar y cerrar"} o Pedir cambios).` : null].filter(Boolean).join("\n");
-  const msg = await postMessage(db, { thread, project }, { author: { agent: agent.slug, role: roleOf(agent) ?? agent.role }, body, links }, { ...ctx, requestId: undefined, tool: "thread.closing_line" });
+  const msg = await postMessage(db, { thread, project }, { author: { agent: agent.slug, role: agent.role }, body, links }, { ...ctx, requestId: undefined, tool: "thread.closing_line" });
   return msg.id;
 }
 
