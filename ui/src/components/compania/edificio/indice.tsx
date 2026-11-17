@@ -62,6 +62,8 @@ export const Indice = ({
   const pedidos = p.pedidos;
   const live = (pedidos ?? []).filter((x) => !x.guardada);
   const waits = live.filter((x) => x.state === "espera").length;
+  // PLA-I61-6: what the team delivered that he has not opened.
+  const unseen = live.reduce((n, x) => n + (x.unseen ?? 0), 0);
   const ideasOn = !!foco && ((foco.kind === "tab" && foco.tab === "pedido") || foco.kind === "pedido" || foco.kind === "guardadas");
   // Dots sit at their stop; several at one stop spread a little so each one shows.
   const dots = STOPS.flatMap((s, i) => {
@@ -159,10 +161,18 @@ export const Indice = ({
         <section className="dark edi-ix" data-ix="ideas" aria-label="Ideas tomando forma">
           <button type="button" className="edi-ix-ideas" aria-pressed={ideasOn} onClick={(e) => onIdeas?.(e.currentTarget)} disabled={!onIdeas} data-control="indice-ideas" data-live={live.length}>
             <b>{live.length > 0 ? `Ideas tomando forma · ${live.length}` : "Ideas: nada tomando forma"}</b>
-            {waits > 0 && <span className="edi-ix-ct" data-toca={waits}>{one(waits, "te espera", "te esperan")}</span>}
+            {waits > 0 ? (
+              <span className="edi-ix-ct" data-toca={waits}>{one(waits, "te espera", "te esperan")}</span>
+            ) : (
+              unseen > 0 && (
+                <span className="edi-ix-ct" data-unseen={unseen}>
+                  {unseen} sin ver
+                </span>
+              )
+            )}
             <span className="edi-ix-tube" aria-hidden>
               {dots.map(({ x, left }) => (
-                <i key={x.key} data-state={x.state} style={{ left: `${left}%`, "--sc": PEDIDO_TONE[x.state] } as CSSProperties} />
+                <i key={x.key} data-state={x.state} data-unseen={x.unseen ? "" : undefined} style={{ left: `${left}%`, "--sc": PEDIDO_TONE[x.state] } as CSSProperties} />
               ))}
             </span>
           </button>

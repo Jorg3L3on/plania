@@ -238,3 +238,20 @@ test("I61-3: numbered options read bold titles, plain ones and long lists whole"
   ]);
   assert.deepEqual(numbered(null), []);
 });
+
+test("I61-6: each request counts the deliveries he has not opened and names the newest; Lista is not one", async () => {
+  const key = await toPlan("Panel de citas por sucursal");
+  const tube = async () => ((await get("/api/company")).body.projects as Json[]).find((p) => p.slug === "micasa")!.pedidos.find((x: Json) => x.key === key);
+  let t = await tube();
+  assert.deepEqual([t.unseen, t.unseen_stop], [3, "diseno"]);
+  await post(`/api/company/projects/micasa/ideas/${key}/visto`, { stop: "diseno" });
+  t = await tube();
+  assert.deepEqual([t.unseen, t.unseen_stop], [2, "investigacion"]);
+  await docsMod.attachDoc(db, { project: "micasa", key, title: "Plan", markdown: "## Steps\n1. Uno\n## Done when\nx\n## Risks\ny" }, RUN("po"));
+  await writes.setTask(db, { project: "micasa", key, stage: "ready", version: await versionOf(key) } as never, RUN("po"));
+  t = await tube();
+  assert.deepEqual([t.unseen, t.unseen_stop], [3, "plan"]);
+  const d = await detail(key);
+  assert.equal(d.unseen, 3, "the idea view agrees, and Lista is not counted");
+  assert.equal(d.stops.find((s: Json) => s.stop === "lista").seen, true);
+});

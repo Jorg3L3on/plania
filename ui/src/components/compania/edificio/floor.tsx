@@ -31,6 +31,10 @@ import { Timbre } from "./equipo";
 
 // PLA-I55-1: what the floor hands the page for the ventanal. home is the first tab (Te toca while something waits on
 // the owner, else Ahora); board is the open initiative's (or Sueltos') own stage board; tubo is the tube in full.
+// PLA-I61-6: who left the newest unseen delivery, and what it is.
+const MIRAR_WHO: Record<string, string> = { entendido: "El PO", investigacion: "Research", diseno: "Artist", plan: "El PO" };
+const MIRAR_WHAT: Record<string, string> = { entendido: "escribió lo que entendió", investigacion: "terminó la investigación", diseno: "dejó el diseño", plan: "armó el plan" };
+
 export type VentanalParts = {
   home: { word: string; tone: "you" | "now"; count: number; body: ReactNode };
   board?: ReactNode;
@@ -242,8 +246,31 @@ export const Floor = ({
   // questions that used to hang under the board.
   const mine = hungIds.size + (dv && !hungIds.has(dv.id) ? 1 : 0);
   const yours = !!line.move || mine > 0;
+  // PLA-I61-6: Para mirar: requests whose newest delivery he has not opened, each one a click from its view.
+  const toLook = (p.pedidos ?? []).filter((x) => !x.guardada && (x.unseen ?? 0) > 0);
+  const paraMirar = toLook.length ? (
+    <section className="edi-mirar" aria-label="Para mirar">
+      <p className="edi-eyebrow">Para mirar · {toLook.reduce((n, x) => n + (x.unseen ?? 0), 0)}</p>
+      <ul>
+        {toLook.slice(0, 3).map((x) => (
+          <li key={x.key}>
+            <span>
+              <b>{MIRAR_WHO[x.unseen_stop ?? "entendido"]}</b> {MIRAR_WHAT[x.unseen_stop ?? "entendido"]} de «{x.title}»
+              {(x.unseen ?? 0) > 1 && <small> · {x.unseen} entregas sin ver</small>}
+            </span>
+            {tubo?.onOpen && (
+              <button type="button" className="edi-btn" onClick={(e) => tubo.onOpen!(slug, x.key, e.currentTarget)} data-control="ahora-mirar">
+                Mirar
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  ) : null;
   const home = (
     <div className="edi-home" data-home={yours ? "you" : "now"}>
+      {paraMirar}
       {/* PLA-I53-4: the Ahora slot: the one Ahora line (the server's ahora), with the band's actions under it. */}
       <div className="edi-ahora-slot" data-slot="ahora">
         <Now

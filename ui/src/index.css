@@ -2512,3 +2512,16 @@
     .ia-foot { grid-template-columns: minmax(0, 1fr); }
   }
 }
+
+/* PLA-I61-6: what the team left that the owner has not opened: Para mirar in Ahora, a ring on the small tube. */
+@layer components {
+  .edi-mirar { display: grid; gap: 6px; margin-bottom: 10px; padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--c, #ff6f9f) 9%, #141933); border: 1px solid color-mix(in srgb, var(--c, #ff6f9f) 40%, transparent); }
+  .edi-mirar .edi-eyebrow { color: #ffd1e1; }
+  .edi-mirar ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+  .edi-mirar li { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 13px; line-height: 1.35; }
+  .edi-mirar li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .edi-mirar li small { color: var(--e-muted); }
+  .edi-mirar .edi-btn { flex: none; min-height: 32px; }
+  .edi-ix-ct[data-unseen] { color: #ffd1e1; font-weight: 600; }
+  .edi-ix-tube i[data-unseen] { box-shadow: 0 0 0 2px #111630, 0 0 0 4px var(--c, #ff6f9f); }
+}
