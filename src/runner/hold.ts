@@ -4,7 +4,7 @@
 //   capacityHold  the plan guard, then the cap on runs at once
 // The order is preflight's. Nothing here writes, and the screen's facts never probe usage.
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { agentRuns, goals, type Agent, type Project, type RunnerSettings } from "../db/schema.js";
+import { agentRuns, consultas, goals, type Agent, type Project, type RunnerSettings } from "../db/schema.js";
 import type { Q } from "../mcp/tx.js";
 import { lastReading, planView, type PlanView, type RunnerRole } from "./limits.js";
 
@@ -60,8 +60,19 @@ export async function projectGoal(db: Q, projectId: string): Promise<{ title: st
   return row ?? null;
 }
 
-export async function runningCount(db: Q): Promise<number> {
-  const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(agentRuns).where(eq(agentRuns.status, "running"));
+// PLA-50: the owner's questions (consultas) have a lane of their own. A run is a question's when its id is some
+// consulta's run_id. The general cap (max_concurrent) counts every other running run; the question lane counts only
+// question runs, CONSULTA_SLOTS at a time. So a question never waits behind a long Artist or Taller run, and a
+// question never takes the slot real work needs.
+export const CONSULTA_SLOTS = 1;
+export type Lane = "work" | "consulta";
+
+export async function runningCount(db: Q, lane: Lane = "work"): Promise<number> {
+  const isConsulta = sql`exists (select 1 from ${consultas} c where c.run_id = ${agentRuns.id})`;
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.status, "running"), lane === "consulta" ? isConsulta : sql`not ${isConsulta}`));
   return row?.n ?? 0;
 }
 
@@ -92,11 +103,11 @@ export async function agentFacts(
 }
 
 // The last reading as it stands: preflight probes when it is unknown, the screen does not.
-export async function capacityFacts(db: Q, settings: RunnerSettings, now: Date): Promise<CapacityFacts> {
+export async function capacityFacts(db: Q, settings: RunnerSettings, now: Date, lane: Lane = "work"): Promise<CapacityFacts> {
   return {
     plan: planView(await lastReading(db), settings.planGuardPct, now, settings.guardOverride),
-    running: await runningCount(db),
-    maxConcurrent: settings.maxConcurrent,
+    running: await runningCount(db, lane),
+    maxConcurrent: lane === "consulta" ? CONSULTA_SLOTS : settings.maxConcurrent,
     now,
   };
 }
