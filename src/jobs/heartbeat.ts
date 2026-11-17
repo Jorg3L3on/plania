@@ -5,6 +5,7 @@ import type { Db } from "../db/client.js";
 import { ADAPTERS, agents, heartbeatRuns, machineState, projects, tasks, type AdapterConfig, type AdapterName, type RunTrigger } from "../db/schema.js";
 import { spawn, type SpawnDeps, type SpawnTask } from "../adapters/index.js";
 import { requeueHeld, sweepFailedRuns, sweepStoppedRuns } from "../runner/failed.js";
+import { sweepTouched } from "../runner/touched.js";
 import { sweepAutoAccept } from "../api/auto-accept.js";
 import { sweepQa } from "../runner/qa.js";
 import { cleanupWorktrees, drainQueue, enforceLive, pruneRunLogs, runLogDir, slotReservation, wakeClaude, type RunnerDeps } from "../runner/runner.js";
@@ -311,6 +312,8 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
   await retryConsultas(db, now).catch(() => 0);
   // PLA-I60-4: an idea in a stage nobody has worked on since it got there gets one retry run.
   const stalled = await sweepStalledIdeas(db, now).catch(() => 0);
+  // PLA-58: what each live Taller run really changed joins its ticket's areas, before the drain admits anything.
+  const touched = await sweepTouched(db, { git: deps?.runner?.git }).catch(logged("touched sweep"));
   const drained = await drainQueue(db, now, deps?.runner);
   const cleaned = await cleanupWorktrees(db, deps?.runner);
   // PLA-I60-6: run-log retention, and the write lock's timings kept for Máquina's diagnostics.
@@ -341,6 +344,7 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
     qa_concluded: qa?.concluded ?? 0,
     fotos_restarted: fotos?.restarted ?? 0,
     fotos_opened: fotos?.opened ?? 0,
+    areas_touched: touched?.grown ?? 0,
     reserved: 0,
   };
   // PLA-I41-3: while the Morning brief holds the slot, no agent is woken (cadences stay due for the next tick).
