@@ -110,6 +110,7 @@ export const CONSULTA_DENY_RULES: readonly string[] = [
   "mcp__plania__ask",
   "mcp__plania__create_task",
   "mcp__plania__attach_doc",
+  "mcp__plania__attach_frames",
 ];
 
 export const denySettings = (extra: readonly string[] = []): DenySettings => ({ permissions: { deny: [...DENY_RULES, ...extra] } });

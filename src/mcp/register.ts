@@ -33,6 +33,7 @@ import { runBatch } from "./batch.js";
 import { WORK_TYPES } from "./lifecycle.js";
 import { setCheck } from "./checks.js";
 import { attachDoc, getDoc } from "./docs.js";
+import { MAX_FRAMES, attachFrames } from "../pedidos/frames.js";
 import { REVIEW_EVIDENCE, RESULT_KINDS, VERDICTS, addResult, validateEvidence } from "./evidence.js";
 import { checkSizes } from "./limits.js";
 import type { Ctx } from "./tx.js";
@@ -765,6 +766,40 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       annotations: write,
     },
     writeHandler("attach_doc", (input, ctx) => attachDoc(db, input, ctx)),
+  );
+
+  // PLA-I61-2 (La idea abierta): Artist's frames, so the owner sees the design on the screen.
+  server.registerTool(
+    "attach_frames",
+    {
+      description: [
+        "Artist: put the design's frames on an idea so the owner sees them on the screen (the idea's Diseño stop and its review table).",
+        "One image per frame (PNG, JPEG or WebP, 5 MB each, up to 40), each with a short id (T, A1, B3), a name, an optional group, what it does (hace) and why (porque), in the order to show them.",
+        "path is a file inside the canvases folder on this Mac (PLANIA_CANVASES_ROOT, by default ~/Developer/design-canvases); anything else is FRAME_INVALID.",
+        "A new call replaces the idea's whole set. Write the Design doc with attach_doc as before.",
+      ].join(" "),
+      inputSchema: {
+        project,
+        actor,
+        request_id,
+        key,
+        frames: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(16),
+              name: z.string().min(1).max(120),
+              group: z.string().max(80).optional(),
+              hace: z.string().max(400).optional(),
+              porque: z.string().max(400).optional(),
+              path: z.string().min(1).max(500),
+            }),
+          )
+          .min(1)
+          .max(MAX_FRAMES),
+      },
+      annotations: write,
+    },
+    writeHandler("attach_frames", (input, ctx) => attachFrames(db, input, ctx)),
   );
 
   server.registerTool(
