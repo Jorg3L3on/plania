@@ -677,6 +677,39 @@ test("PLA-18: a switch stop frees the ticket and the work is queued again on res
   assert.deepEqual(await wakes(), []);
 });
 
+// A PO wake on an idea that a server restart dropped while it waited in the queue.
+async function droppedIdeaWake(key: string, agent = "housi"): Promise<void> {
+  await raw.query(
+    `insert into agent_runs (agent_id, project_id, task_key, role, status, summary, queued_at, ended_at)
+     values ($1, $2, $3, 'product-owner', 'skipped', 'skipped: server restarted', now() - interval '10 minutes', now() - interval '1 minute')`,
+    [await id("agents", agent), await id("projects", "micasa"), key],
+  );
+}
+
+test("PLA-48: an open idea whose wake a restart dropped is queued again once, for the same agent", async () => {
+  const { key } = (await writes.createTask(db, { project: "micasa", kind: "idea", title: "Darle forma" } as never, ctx)) as { key: string };
+  await raw.query(`delete from agent_runs`);
+  await droppedIdeaWake(key);
+
+  assert.deepEqual(await requeueHeld(db), { requeued: 1 });
+  assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key, x.summary]), [["housi", key, "queued: event server restarted"]]);
+  assert.equal((await eventsOf(key, "wake.queued"))[0].from_event, "run.held");
+  assert.deepEqual(await requeueHeld(db), { requeued: 0 }, "the queued run is now the newest");
+});
+
+test("PLA-48: a promoted or closed idea is not queued again", async () => {
+  const { key: promoted } = (await writes.createTask(db, { project: "micasa", kind: "idea", title: "Ya promovida" } as never, ctx)) as { key: string };
+  const { key: closed } = (await writes.createTask(db, { project: "micasa", kind: "idea", title: "Cerrada" } as never, ctx)) as { key: string };
+  await raw.query(`update tasks set promoted_to = 'MC-I9' where key = $1`, [promoted]);
+  await raw.query(`update tasks set status = 'Done' where key = $1`, [closed]);
+  await raw.query(`delete from agent_runs`);
+  await droppedIdeaWake(promoted);
+  await droppedIdeaWake(closed);
+
+  assert.deepEqual(await requeueHeld(db), { requeued: 0 });
+  assert.deepEqual(await wakes(), []);
+});
+
 test("PLA-21: a heavy week no longer drops a queued wake", async () => {
   await raw.query(
     `insert into agent_runs (agent_id, project_id, task_key, role, status, summary, tokens_total, queued_at, started_at, ended_at)
