@@ -322,7 +322,63 @@ export async function promoteUnblocked(tx: Q, emit: Emit, projectId: string): Pr
     await emit("task.status", u, { from: "Blocked", to: "Ready" }, SYSTEM_ACTOR);
     promoted.push(u.key);
   }
+  promoted.push(...(await promoteChained(tx, emit, projectId)));
   return promoted;
+}
+
+// PLA-54: the steps of a plan wait in Backlog on the step before (a PO's plan is never filed Ready), and the
+// landing wake (PLA-15) only looks at Ready tickets, so step 2 waited forever once step 1 landed. A step goes
+// to Ready by the server when it was filed in Backlog and never moved since (one someone put back in Backlog
+// stays put), its initiative is building (Active or Shipping), it waits on at least one ticket, every ticket it
+// waits on has landed (Merged, Released or Done: its code is in the branch), and no other blocker holds.
+// The move to Ready wakes Taller like any move (src/runner/events.ts).
+const CHAIN_LANDED = ["Merged", "Released", "Done"];
+// tasks: the candidates (any projects). Returns each one that should move, with the keys it waited on in key order.
+async function chainedReady(r: Reader, candidates: Task[], now: Date): Promise<{ task: Task; waited: string[] }[]> {
+  const steps = candidates.filter((t) => t.kind === "ticket" && t.status === "Backlog" && t.statusChangedAt === null && t.parentId !== null);
+  if (!steps.length) return [];
+  const parents = new Map((await r.find("tasks", { id: [...new Set(steps.map((t) => t.parentId!))] })).map((i) => [i.id, i]));
+  const building = steps.filter((t) => ["Active", "Shipping"].includes(parents.get(t.parentId!)?.status ?? ""));
+  if (!building.length) return [];
+  const links = await r.find("taskBlockers", { taskId: building.map((t) => t.id) });
+  const blockerTask = new Map((links.length ? await r.find("tasks", { id: [...new Set(links.map((l) => l.blockerId))] }, { orderBy: [{ column: "key" }] }) : []).map((b) => [b.id, b]));
+  const out: { task: Task; waited: string[] }[] = [];
+  const unsatisfied = new Map<string, Set<string>>();
+  for (const t of building) {
+    const on = links.filter((l) => l.taskId === t.id).map((l) => blockerTask.get(l.blockerId));
+    if (!on.length || on.some((b) => !b || !CHAIN_LANDED.includes(b.status))) continue;
+    if (!unsatisfied.has(t.projectId)) {
+      unsatisfied.set(t.projectId, await blockedTaskIds(r, t.projectId, building.filter((x) => x.projectId === t.projectId).map((x) => x.id), now));
+    }
+    if (unsatisfied.get(t.projectId)!.has(t.id)) continue;
+    // blockerTask is in key order, so the keys come out sorted.
+    const mine = new Set(on.map((b) => b!.id));
+    out.push({ task: t, waited: [...blockerTask.values()].filter((b) => mine.has(b.id)).map((b) => b.key) });
+  }
+  return out;
+}
+
+export async function promoteChained(tx: Q, emit: Emit, projectId: string): Promise<string[]> {
+  const uow = uowOf(tx);
+  const promoted: string[] = [];
+  for (const { task, waited } of await chainedReady(uow, await uow.find("tasks", { projectId, status: "Backlog" }), uow.now)) {
+    const cur = await uow.get("tasks", { id: task.id });
+    if (!cur || cur.status !== "Backlog") continue;
+    const [u] = await uow.update("tasks", { id: task.id, status: "Backlog" }, { status: "Ready", statusChangedAt: uow.now, version: cur.version + 1, updatedAt: uow.now });
+    if (!u) continue;
+    await emit("task.status", u, { from: "Backlog", to: "Ready", unblocked_by: waited }, SYSTEM_ACTOR);
+    await emit("note", u, { text: `Pasa a Lista sola: ${waited.join(", ")} ya entró (PLA-54).` }, SYSTEM_ACTOR);
+    promoted.push(u.key);
+  }
+  return promoted;
+}
+
+// Projects with a chain step that should already be Ready: what the blockers job sweeps (a step whose blocker
+// landed before PLA-54, or through a write that did not run promoteUnblocked).
+export async function projectsWithChainedReady(tx: Q, now = new Date()): Promise<{ projectId: string; slug: string }[]> {
+  const r = readerOf(tx);
+  const ids = [...new Set((await chainedReady(r, await r.find("tasks", { status: "Backlog" }), now)).map((c) => c.task.projectId))];
+  return ids.length ? (await r.find("projects", { id: ids })).map((p) => ({ projectId: p.id, slug: p.slug })) : [];
 }
 
 // A row id as Postgres prints it. Ids were matched as text, so only this canonical lowercase form names

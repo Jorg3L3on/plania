@@ -108,6 +108,8 @@ async function poOf(tx: Q, project: ProjectRef): Promise<Agent | null> {
 // take (its own, or unowned Taller work; never [PRUEBA]), with every ticket it waits on landed too (a
 // blocker still In review holds by the blocker rule, but its code is not in the branch yet) and every
 // other blocker holding. Several freed at once: the project's next_first, then priority, phase, key.
+// PLA-54: steps filed in Backlog (every PO plan) are not seen here: promoteChained (src/mcp/blockers.ts) moves
+// them to Ready after this landing, and that move wakes Taller with reason "unblocked by <key>".
 export async function freedBy(tx: Q, project: ProjectRef, landedId: string, taller: Agent | null): Promise<string | null> {
   if (!taller) return null;
   const r = readerOf(tx);
@@ -209,7 +211,9 @@ async function targetOf(
     const taller = await serviceAgent(tx, "taller", project);
     if (t.ownerAgent && t.ownerAgent !== taller?.id) return null;
     if (!t.ownerAgent && !(t.workType && TALLER_WORK.has(t.workType))) return null;
-    return { agent: taller, taskKey: task.key, reason: runnerLeaseExpired ? "lease expired" : "ticket ready" };
+    // PLA-54: a chain step the server moved to Ready says which landing freed it.
+    const freed = Array.isArray(payload.unblocked_by) && payload.unblocked_by.length ? `unblocked by ${payload.unblocked_by.join(", ")}` : null;
+    return { agent: taller, taskKey: task.key, reason: runnerLeaseExpired ? "lease expired" : (freed ?? "ticket ready") };
   }
   // PLA-15: a ticket lands once (In review → Merged; Merged → Released → Done after it is not a landing).
   if (type === "task.status" && LANDED.has(String(payload.to)) && !LANDED.has(String(payload.from))) {

@@ -303,12 +303,15 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
     if (!prBy.has(pr.taskId!)) prBy.set(pr.taskId!, pr);
   }
   // The unfinished tickets each one waits on, by phase (none last), then key.
+  const statusById = new Map(tickets.map((t) => [t.id, t.status]));
   const links = await r.find("taskBlockers", { taskId: ids });
   const blockerTask = new Map((links.length ? await r.find("tasks", { id: [...new Set(links.map((l) => l.blockerId))] }) : []).map((b) => [b.id, b]));
   const waits = links
     .flatMap((l) => {
       const b = blockerTask.get(l.blockerId);
-      return b && !(SETTLED_STATUSES as readonly string[]).includes(b.status) ? [{ taskId: l.taskId, b }] : [];
+      // PLA-54: a Backlog step moves to Lista once the step before lands, so an In review blocker still holds it.
+      const holds = b && (!(SETTLED_STATUSES as readonly string[]).includes(b.status) || (b.status === "In review" && statusById.get(l.taskId) === "Backlog"));
+      return b && holds ? [{ taskId: l.taskId, b }] : [];
     })
     .sort((x, y) => nullsLast(x.b.phase, y.b.phase) || textOrder(x.b.key, y.b.key));
   // The open typed blockers, oldest first: gating, and their condition does not hold.
@@ -364,7 +367,11 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
       waitsOn: waitBy.get(t.id) ?? [],
       held: heldBy.get(t.id) ?? null,
       blockedNote: t.blockedNote ?? null,
-      postponed: !!parent && ((parent.id === here?.id && t.status === "Backlog") || (parent.status === "On hold" && (t.status === "Backlog" || t.status === "Ready"))),
+      // PLA-54: a step filed in Backlog that never moved is waiting its turn in the chain, not postponed; only one
+      // someone put back in Backlog (its status moved), or under an On hold initiative, is postponed on purpose.
+      postponed:
+        !!parent &&
+        ((parent.id === here?.id && t.status === "Backlog" && t.statusChangedAt !== null) || (parent.status === "On hold" && (t.status === "Backlog" || t.status === "Ready"))),
       delivery: d ? { returned: action === "cambios", open: !action, at: d.at } : null,
       photos: !!pr && probadorGate(p, t, pr.headSha ?? null).pending,
     };
