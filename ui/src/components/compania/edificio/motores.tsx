@@ -349,7 +349,8 @@ export const MotorCard = ({ project: p, member: m, def, onSave, onAll }: { proje
 
 // ---- the Equipo chip (①)
 
-export const EngineChip = ({ m }: { m: OrgMember }) => {
+// wide (La sala): the model's name and effort word instead of the letter.
+export const EngineChip = ({ m, wide = false }: { m: OrgMember; wide?: boolean }) => {
   const v = m.motor;
   if (!v) return null;
   const info = modelInfo(v.model);
@@ -357,7 +358,7 @@ export const EngineChip = ({ m }: { m: OrgMember }) => {
   const own = v.own_model || v.own_effort;
   return (
     <span className="edi-mtr-chip" data-own={own ? "1" : "0"} style={{ "--kc": info?.color ?? AUTO_COLOR } as CSSProperties} title={`${motorLine(v.model, v.effort)}${own ? "" : " (de la compañía)"}`} aria-hidden>
-      {info?.letter ?? "·"}
+      {wide ? motorLine(v.model, v.effort) : (info?.letter ?? "·")}
       <span>
         {EFFORTS.map((e, i) => (
           <i key={e} data-on={i < level ? "1" : undefined} />

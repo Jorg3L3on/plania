@@ -176,7 +176,7 @@ export const Timbre = ({
                 </span>
               </span>
               <small>{v.line}</small>
-              <EngineChip m={m} />
+              <EngineChip m={m} wide />
             </button>
           ))}
           {children}
