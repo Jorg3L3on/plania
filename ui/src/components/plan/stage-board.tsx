@@ -16,7 +16,7 @@ import { ZonaTags } from "@/components/plan/zona-tags";
 import { boardOf, ciTone, ciWord, OPEN_STATIONS, STATIONS, stationLine, toneOf, trackLine, trackPct, whoLine, wordOf, type Station, type StationId, type StageTone, type Track } from "@/lib/etapas";
 
 // The stage colours, from the app's status tokens. «pending» text uses the idle grey so it can be read on the card.
-const TONE_VAR: Record<StageTone, string> = {
+export const TONE_VAR: Record<StageTone, string> = {
   pending: "var(--status-idle)",
   ready: "var(--status-ready)",
   blocked: "var(--status-blocked)",

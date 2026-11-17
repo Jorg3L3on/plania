@@ -187,19 +187,11 @@ const Compania = () => {
     navigate({ pathname: "/ceo", search: q.toString() ? `?${q.toString().replace("edificio=", "edificio")}` : "" });
   };
   // PLA-I47-4: La ficha. ?f=<kind>:<ref> is what it shows (the old ?m=, ?plan=, ?add= links still land there); the
-  // project is the open floor. Open by default from 1180 px (closing it is remembered in this browser); narrower,
-  // it slides over (a sheet on a phone) only while the address names something.
+  // project is the open floor. PLA-I55-1: it is the floor's ventanal now, always there; with no ?f= it shows its
+  // home tab (Te toca / Ahora), so "open" means the address names something.
   const fichaAt = fichaOf(location.search);
   const fref: FichaRef = fichaAt?.ref ?? { kind: "tab", tab: "resumen" };
-  const wideFicha = useMedia("(min-width: 1180px)");
-  const [fichaHidden, setFichaHidden] = useState(() => {
-    try {
-      return window.localStorage.getItem("edi-ficha") === "closed";
-    } catch {
-      return false;
-    }
-  });
-  const fichaOpen = !!fichaAt || (wideFicha && !fichaHidden);
+  const fichaOpen = !!fichaAt;
   const [added, setAdded] = useState<string | null>(null);
   // PLA-I39-7: floors whose ask box has text: their PO's window says "Recibiría tu pedido".
   const [typing, setTyping] = useState<Record<string, boolean>>({});
@@ -308,29 +300,11 @@ const Compania = () => {
   };
   const setNivel = (n: Nivel, r: FichaRef | null = fichaAt?.ref ?? null) => navigate({ pathname: "/ceo", search: fichaSearch(fslug || null, r, n) }, { replace: true });
   const closeFicha = () => {
-    if (wideFicha) {
-      setFichaHidden(true);
-      try {
-        window.localStorage.setItem("edi-ficha", "closed");
-      } catch {
-        /* the browser keeps nothing: it opens again next time */
-      }
-    }
     navigate({ pathname: "/ceo", search: fichaSearch(fslug || null, null, nivel) }, { replace: true });
     const back = opener.current;
     if (back?.isConnected) window.setTimeout(() => back.focus(), 0);
   };
-  const showFicha = (r: FichaRef, el?: HTMLElement | null, slug?: string) => {
-    if (fichaHidden) {
-      setFichaHidden(false);
-      try {
-        window.localStorage.removeItem("edi-ficha");
-      } catch {
-        /* nothing kept */
-      }
-    }
-    setFicha(r, el, slug);
-  };
+  const showFicha = (r: FichaRef, el?: HTMLElement | null, slug?: string) => setFicha(r, el, slug);
   // PLA-I48: the open floor's Máquinas (its room, its switch's lights, and La ficha's Máquinas kinds).
   const maq = useMaquinasRoom({
     slug: fslug || null,
@@ -350,7 +324,7 @@ const Compania = () => {
         setZoom(false, fslug || piso);
         return;
       }
-      if (e.key === "Escape" && !(fichaOpen && (fichaAt || wideFicha))) {
+      if (e.key === "Escape" && !fichaOpen) {
         e.preventDefault();
         setZoom(true, fslug || piso);
         return;
@@ -380,7 +354,7 @@ const Compania = () => {
       if (e.key === "i" || e.key === "I") {
         e.preventDefault();
         if (fichaOpen) closeFicha();
-        else showFicha(fref);
+        else showFicha({ kind: "tab", tab: "resumen" });
         return;
       }
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
@@ -796,13 +770,13 @@ const Compania = () => {
               setAdded(null);
               showFicha({ kind: "sumar" }, el, slug);
             }}
-            fichaOpen={fichaOpen}
-            onFichaClose={closeFicha}
+            foco={fichaAt?.ref ?? null}
+            onFoco={(slug, r, el) => showFicha(r, el, slug)}
             nivel={nivel}
             liftFor={() => <NivelSwitch nivel={nivel} lights={maq.lights} onNivel={(n) => setNivel(n)} />}
             maquinasFor={(_p, ask) => maq.room(ask)}
             appsOn={appsOn}
-            ficha={
+            ventanal={(parts) =>
               fichaProject ? (
                 <Resguardo what="la ficha">
                 <Ficha
@@ -815,12 +789,17 @@ const Compania = () => {
                   timeZone={timeZone}
                   onRef={(r) => setFicha(r)}
                   onClose={closeFicha}
-                  slots={fichaSlots(fichaProject)}
+                  home={parts.home}
+                  homeOn={!fichaAt}
+                  onHome={closeFicha}
+                  slots={{ ...fichaSlots(fichaProject), board: parts.board, tubo: parts.tubo }}
                   pedido={loadOf(fichaPedido, !!pedidoKey)}
                   pedidoActs={pedidoActs}
                 />
                 </Resguardo>
-              ) : undefined
+              ) : (
+                parts.home.body
+              )
             }
           />
           </Resguardo>

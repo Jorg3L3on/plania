@@ -200,7 +200,7 @@ test("I40-4 #2: with a pending delivery the owner holds the work and the main ac
 test("I40-4 #3: Que empiece ya calls the start of that teammate; once it runs the band says Trabajando", () => {
   const s = floor(resting());
   assert.match(s, /data-now="rest"/);
-  // PLA-I53-3: Taller's station carries the hold (the seat's own line says why it has not started).
+  // PLA-I55-1: Taller's window in the index carries the hold (its own line says why it has not started).
   assert.match(s, /data-agent="taller-workia"[^>]*data-holding="1"/);
   assert.match(s, /data-countdown="2026-11-13T20:52:00Z"/);
   assert.ok(text(s).includes("8:00") && text(s).includes("para arrancar"));
@@ -269,7 +269,8 @@ const mianovia: Json = {
 test("I40-5: the floor draws no Entrega; with no route the plate keeps its count", () => {
   const s = floor({ ...resting(), route: mianovia, plan: { initiative: { key: "WRK-I3", title: "Panel administrativo" }, done: 2, total: 4 } });
   assert.equal(/edi-route|edi-leg|data-steps-of/.test(s), false);
-  assert.ok(s.includes('class="dark sb"'));
+  // PLA-I55-1: nor the whole stage board: the index lists the initiatives, one line each.
+  assert.ok(s.includes('class="edi-idx"') && !s.includes('class="dark sb"'));
   clean(s);
 });
 
@@ -307,7 +308,7 @@ test("I40-6: Solo tú says what is the owner's; Pasa sin ti is not drawn; Lo úl
   const html = floor(full());
   const s = text(html).replace(/\s+/g, " ");
   assert.equal(s.includes("Pasa sin ti"), false);
-  assert.ok(html.indexOf('class="dark sb"') >= 0 && html.indexOf('class="dark sb"') < html.indexOf('data-col="ultimo"'), "PLA-I53-3: without La ficha, Lo último is in the right column, after the board");
+  assert.ok(html.indexOf('data-slot="ahora"') < html.indexOf('data-col="ultimo"') && html.indexOf('data-col="ultimo"') < html.indexOf('class="edi-idx"'), "PLA-I55-1: without La ficha, Lo último stays on the floor, under Ahora and before the index");
   assert.ok(s.includes("Solo tú Aprobar cada entrega para que el paso siguiente arranque, y publicar."));
   const working = { ...mianovia, legs: mianovia.legs.map((l: Json) => (l.steps ? { ...l, steps: l.steps.map((x: Json) => (x.state === "next" ? { ...x, state: "working" } : x)) } : l)) };
   assert.match(lib.sinTi(full({ route: working })), /^Taller termina «Ficha de la novia y notas internas» y te lo entrega\./);

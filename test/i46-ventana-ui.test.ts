@@ -201,13 +201,13 @@ const floor = (ventanaFor?: (p: Json) => React.ReactNode) => {
 
 test("the Mianovia floor shows the desktop and phone stills inside Ahora, beside its text", () => {
   const m = floor(() => h(ui.Ventana, { view: view(read(PAGES())), title: "Mianovia", onAct: () => {} }));
-  const nowb = /<div class="edi-nowb"[^>]*data-side="1"[^>]*>([\s\S]*?)<\/section>/.exec(m);
+  const nowb = /<div class="edi-nowb"[^>]*data-side="1"[^>]*>([\s\S]*?)<nav class="edi-idx"/.exec(m);
   assert.ok(nowb, "Ahora carries the Ventana as its side");
   assert.ok(nowb[1]!.indexOf("edi-ntext") < nowb[1]!.indexOf("edi-vent"), "text first, then the Ventana");
   assert.match(nowb[1]!, /formulario-desktop\.png/);
   assert.match(nowb[1]!, /formulario-phone\.png/);
   // Without a Ventana (a floor with no capture settings) Ahora is as before.
-  assert.doesNotMatch(floor(), /data-side|edi-vent/);
+  assert.doesNotMatch(floor(), /data-side|class="edi-vent"/);
 });
 
 test("CSS: side by side on desktop, stacked under Ahora's text at 390, nothing wider than its column, the shimmer stops with reduced motion", () => {

@@ -35,13 +35,12 @@ test("I47-6: under 40rem the floor stacks into one column and the page scrolls; 
   assert.match(narrow, /\.edi-fbody \{ grid-template-columns: minmax\(0, 1fr\); grid-template-rows: auto; \}/, "Ahora, Equipo and Pedir, then La fila under them");
 });
 
-test("I47-6: La ficha is a bottom sheet with a backdrop that closes it; the phone bar keeps the move", () => {
+// PLA-I55-1: La ficha is the floor's ventanal: on a phone it is in the page's flow, with no sheet and no backdrop.
+test("I47-6: La ficha is in the page's flow on a phone (no sheet, no backdrop); the phone bar keeps the move", () => {
   const phone = blocks("width < 40rem");
-  // PLA-I47-7: above the app's tab bar, and the phone bar steps aside while the sheet is open.
-  assert.match(phone, /\.edi-bld > \.edi-ficha \{ top: auto; left: 0; right: 0; bottom: calc\(4\.5rem \+ env\(safe-area-inset-bottom, 0px\)\); width: auto; height: min\(72dvh, 600px\);/);
-  assert.match(phone, /\.edi:has\(\.edi-bld\[data-ficha="open"\]\) \.edi-pbar \{ display: none; \}/);
-  assert.match(phone, /\.edi-bld\[data-ficha="open"\] > \.edi-scrim:not\(\[hidden\]\) \{ display: block; position: fixed;/);
+  assert.doesNotMatch(css, /\.edi-bld > \.edi-ficha|edi-scrim|data-ficha="open"/);
+  assert.match(blocks("width < 48rem"), /\.edi-fi-s \{ overflow: visible; \}/, "it grows with its content; the page scrolls");
   const b = readFileSync(new URL("../ui/src/components/compania/edificio/building.tsx", import.meta.url), "utf8");
-  assert.ok(b.includes("onClick={onFichaClose}") && b.includes("<PhoneBar"), "the backdrop closes La ficha; the phone bar stays");
+  assert.ok(!b.includes("onFichaClose") && b.includes("<PhoneBar"), "the phone bar stays");
   assert.match(phone, /\.edi-nowb \.edi-go\[data-move\], \.edi-tu-go \{ display: none !important; \}/, "the bar carries Ahora's button at 390");
 });

@@ -1011,17 +1011,26 @@
   .edi-fdate { color: var(--e-muted); font-size: 12.5px; white-space: nowrap; }
   .edi-fdate b { color: var(--e-fg); font-weight: 600; }
   .edi-fstatus { flex: 0 1 auto; max-width: 26%; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .edi-fbody { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 14px; min-height: 0; min-width: 0; }
-  .edi-floor:not([data-ficha]) .edi-fbody { grid-template-columns: minmax(0, 1fr) clamp(272px, 24vw, 330px); }
-  .edi-stage { container-type: size; display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
-  .edi-ahora-slot > .edi-nowb { min-height: 0; max-height: 100%; overflow: auto; margin: 0; padding: 10px 16px; border: 1px solid var(--e-line); border-radius: 18px; background: rgb(255 255 255 / 0.035); align-content: safe center; scrollbar-width: thin; }
-  .edi-ahora-slot > .edi-nowb[data-now="you"] { border-color: color-mix(in srgb, var(--e-you) 55%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--e-you) 14%, transparent), rgb(255 255 255 / 0.03) 58%); }
-  .edi-ahora-slot > .edi-nowb[data-now="work"] { background: linear-gradient(135deg, rgb(255 196 107 / 0.09), rgb(255 255 255 / 0.03) 58%); }
-  .edi-ahora-slot > .edi-nowb[data-now="stuck"] { border-color: rgb(255 107 138 / 0.5); background: linear-gradient(135deg, rgb(255 107 138 / 0.12), rgb(255 255 255 / 0.03) 58%); }
-  .edi-ahora-slot > .edi-nowb[data-now="back"] { background: linear-gradient(135deg, rgb(176 148 255 / 0.11), rgb(255 255 255 / 0.03) 58%); }
-  .edi-stage .edi-nsay { font-size: 18px; line-height: 1.25; }
-  .edi-stage .edi-nowb[data-side] { grid-template-columns: minmax(0, 1fr) clamp(140px, 34%, 290px); }
-  .edi-stage .edi-vframe { max-height: 16cqh; }
+  /* PLA-I55-1 (El ventanal): the Trabajo level is two columns over Pedir. Left, el ventanal: La ficha with the floor's
+     Ahora band and questions as its first tab. Right, the index: the team, one line per initiative, the ideas. */
+  .edi-fbody { display: grid; grid-template-columns: minmax(0, 1.62fr) minmax(280px, 1fr); grid-template-rows: minmax(0, 1fr) auto; gap: 10px 12px; min-height: 0; min-width: 0; }
+  .edi-fbody > .edi-askbar { grid-column: 1 / -1; }
+  .edi-ventanal { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; min-width: 0; }
+  .edi-ventanal[data-vent="home"] { overflow: auto; align-content: start; padding: 14px 16px; border-radius: 18px; border: 1px solid var(--e-line); background: rgb(255 255 255 / 0.035); scrollbar-width: thin; }
+  .edi-home { display: grid; gap: 14px; min-width: 0; align-content: start; }
+  .edi-home .edi-nowb, .edi-home .edi-nowb[data-breathe] { grid-template-columns: minmax(0, 1fr); padding: 0; margin: 0; border: 0; border-radius: 0; background: none; animation: none; }
+  .edi-home .edi-nowb .ahl-say:first-child { white-space: normal; }
+  .edi-home-q { display: grid; gap: 12px; min-width: 0; }
+  .edi-home-q .edi-bubble { margin-top: 0; }
+  .edi-home-q .edi-bubble::before { display: none; }
+  .edi-ahora-slot > .edi-nowb { min-height: 0; margin: 0; padding: 0; border: 0; align-content: start; }
+  .edi-home .edi-nsay { font-size: 20px; line-height: 1.25; }
+  .edi-home .edi-nowb[data-side] { grid-template-columns: minmax(0, 1fr) clamp(160px, 36%, 320px); }
+  /* With a delivery to accept, the line keeps its first sentence: who else works is in the index's Equipo. */
+  .edi-home .edi-nowb:has(.edi-ev) .ahl-list .ahl-say + .ahl-say, .edi-home .edi-nowb:has(.edi-ev) .ahl-more { display: none; }
+  /* A floor whose app has nothing to show keeps no empty column for it. */
+  .edi-home .edi-nowb[data-side]:not(:has(.edi-vent)) { grid-template-columns: minmax(0, 1fr); }
+  .edi-home .edi-vframe { max-height: 220px; }
   .edi-team { flex: none; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 4px 10px; align-content: start; }
   .edi-team .edi-slot { position: relative; display: grid; gap: 3px; }
   .edi-team .edi-glass { height: clamp(50px, 11.5cqh, 104px); }
@@ -1032,10 +1041,8 @@
   .edi-team .edi-mark { position: static; display: block; justify-self: center; margin: 1px 0 0; width: 9px; height: 9px; }
   .edi-team .edi-bubble { max-height: 38cqh; overflow: auto; margin-top: 6px; padding: 12px 14px; }
   .edi-askbar { flex: none; }
-  /* PLA-I53-3: the floor's stage. The Ahora slot (F4 puts the one Ahora line there) takes what it needs up to a
-     third; the board takes the rest and scrolls inside itself; Pedir stays at the bottom. */
-  .edi-ahora-slot { flex: 0 1 auto; min-height: 0; max-height: clamp(140px, 32%, 220px); display: flex; flex-direction: column; }
-  .edi-stage > .sb { flex: 1 1 0; min-height: 150px; }
+  /* The Ahora slot has no height cap any more: a delivery's evidence shows whole, and the ventanal scrolls as one. */
+  .edi-ahora-slot { min-width: 0; }
   /* PLA-I53-4: la línea de Ahora (components/plan/ahora-line.tsx), on the floor and on /p/<slug>. */
   .ahl { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
   .ahl-dot { flex: none; width: 10px; height: 10px; margin-top: 0.42em; border-radius: 50%; background: var(--ac); }
@@ -1260,27 +1267,22 @@
   .edi-askbar [data-control="pedir-abrir"] { flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; justify-content: flex-start; padding: 0 16px; border-radius: 99px; border: 1px solid var(--e-line); background: rgb(7 9 20 / 0.6); color: var(--e-muted); font-weight: 500; }
   .edi-askbar [data-control="pedir-abrir"]::after { content: "Cambio, dirección o idea para este piso"; margin-left: 10px; color: rgb(255 255 255 / 0.35); font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .edi-askbar .edi-sent { flex: none; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .edi-fcol { min-height: 0; min-width: 0; overflow: auto; display: grid; align-content: start; gap: 12px; padding: 12px; border-radius: 18px; border: 1px solid rgb(255 255 255 / 0.07); background: rgb(7 9 20 / 0.38); scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.18) transparent; }
+  .edi-fcol { min-width: 0; display: grid; align-content: start; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--e-line); }
   .edi-fcol .edi-after { display: grid; gap: 10px; }
   .edi-fcol .edi-plate-last { margin: 0; }
 
   @media (max-height: 690px) and (min-width: 48rem) {
     .edi-bld > .edi-floor { padding: 10px 16px 12px; gap: 8px; }
-    .edi-stage { gap: 8px; }
     .edi-team .edi-do { -webkit-line-clamp: 1; }
   }
   @media (width < 64rem) {
     .edi-fhead .edi-fstatus, .edi-fdate { display: none; }
-    .edi-floor:not([data-ficha]) .edi-fbody { grid-template-columns: minmax(0, 1fr) clamp(240px, 30vw, 300px); }
   }
   /* Under 48rem the floor is one column and the page scrolls (the phone pass is PLA-I47-6). */
   @media (width < 48rem) {
     .edi:has(.edi-bld) { height: auto; min-height: 0; }
     .edi-bld { flex: none; }
     .edi-fbody { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
-    .edi-stage { container-type: normal; }
-    .edi-ahora-slot { max-height: none; }
-    .edi-fcol { overflow: visible; }
   }
   /* Phone (PLA-I47-6 polishes it): one column that scrolls as a page; the rail is a strip on top. */
   @media (width < 40rem) {
@@ -1298,13 +1300,10 @@
     .edi-fhead .edi-fname { max-width: 100%; }
     .edi-fhead .edi-goal { flex-basis: 100%; order: 5; white-space: normal; }
     .edi-fbody { grid-template-rows: auto; }
-    .edi-stage { container-type: normal; }
-    .edi-ahora-slot { max-height: none; }
-    .edi-stage .edi-nowb[data-side] { grid-template-columns: minmax(0, 1fr); }
+    .edi-home .edi-nowb[data-side] { grid-template-columns: minmax(0, 1fr); }
     .edi-team { grid-template-columns: repeat(min(var(--n), 4), minmax(0, 1fr)); }
     .edi-team .edi-glass { height: 52px; }
     .edi-askbar [data-control="pedir-abrir"]::after { display: none; }
-    .edi-fcol { overflow: visible; }
   }
 
 
@@ -1314,20 +1313,85 @@
   .edi-ftx small { color: var(--e-muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 
-  /* PLA-I47-4: La ficha. Beside the floor from 1180 px (300-348 px wide), sliding over the floor below that, a sheet
-     from the bottom on a phone. It scrolls inside itself; the page never grows. */
-  .edi-bld[data-ficha="open"] { grid-template-columns: 72px minmax(0, 1fr) clamp(300px, 24vw, 348px); }
-  .edi-bld[data-ficha="closed"] > .edi-ficha { display: none; }
-  .edi-ficha { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; border-radius: 22px; border: 1px solid rgb(255 255 255 / 0.07); background: #1f2442; color: var(--e-fg); }
+  /* PLA-I47-4: La ficha. PLA-I55-1: it is the floor's ventanal (inside .edi-ventanal), no longer a third column, a
+     slide-over or a phone sheet. It scrolls inside itself; the page never grows. */
+  .edi-ficha { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; border-radius: 18px; border: 1px solid rgb(255 255 255 / 0.09); background: #1a1f3a; color: var(--e-fg); }
+  .edi-ficha[data-tone="you"] { border-color: color-mix(in srgb, var(--e-you) 55%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--e-you) 11%, #1a1f3a), #1a1f3a 55%); }
+  .edi-fi-home { display: inline-flex; align-items: center; gap: 6px; }
+  .edi-fi-home i { width: 8px; height: 8px; border-radius: 50%; background: var(--status-now, #ffc145); }
+  .edi-fi-home[data-tone="you"] i { background: var(--e-you); }
+  .edi-fi-home[data-tone="you"][aria-selected="true"] { border-color: var(--e-you); }
+  .edi-fi-home + .edi-fi-tab { margin-left: 8px; }
+  /* One initiative's own board inside the ventanal: no label column (the title is above it), so six roomy columns. */
+  .sb-one .sb-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); min-width: 560px; }
+  .sb-one .sb-corner, .sb-one .sb-track { display: none; }
+  .sb-one .sb-tt { -webkit-line-clamp: 3; }
+  /* The tube inside the ventanal: no label column (the tab says what it is; Guardadas is the button under it). */
+  .edi-ficha .tubo { max-height: none; }
+  .edi-ficha .tubo-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); min-width: 540px; }
+  .edi-ficha .tubo-grid::before { left: 6px; }
+  .edi-ficha .tubo-label { display: none; }
+  .edi-ficha .tubo-cap .sb-tt { -webkit-line-clamp: 3; }
+  /* The Máquinas level keeps La ficha as a side column, only while the address names something. */
+  .edi-level[data-level="maquinas"][data-side] { grid-template-columns: minmax(0, 1fr) clamp(300px, 26vw, 360px); gap: 12px; }
+  .edi-maq-side { display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; min-width: 0; }
+
+  /* PLA-I55-1: el índice (indice.tsx). */
+  .edi-idx { display: flex; flex-direction: column; gap: 9px; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.18) transparent; --sb-line: rgb(255 255 255 / 0.08); --sb-line2: rgb(255 255 255 / 0.14); --sb-raised: #1c2030; --sb-faint: #8d94aa; }
+  .edi-ix { flex: none; display: grid; gap: 5px; min-width: 0; padding: 9px 10px 10px; border-radius: 16px; border: 1px solid rgb(255 255 255 / 0.07); background: rgb(7 9 20 / 0.38); }
+  .edi-ix-head { display: flex; align-items: baseline; gap: 8px; padding: 0 2px; min-width: 0; }
+  .edi-ix-head h3 { margin: 0; font-weight: 400; }
+  .edi-ix-head small { margin-left: auto; color: var(--e-muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .edi-ix-team { display: grid; grid-template-columns: repeat(auto-fit, minmax(56px, 1fr)); gap: 2px; }
+  .edi-ix-mate { display: grid; justify-items: center; gap: 2px; min-width: 0; padding: 5px 1px 4px; border-radius: 11px; border: 1px solid transparent; background: none; color: inherit; font: inherit; cursor: pointer; }
+  .edi-ix-mate:disabled { cursor: default; }
+  .edi-ix-mate .edi-seat { width: 40px; height: 32px; border-radius: 22px 22px 6px 6px; cursor: inherit; }
+  .edi-ix-mate .edi-seat-glass { width: 30px; height: 25px; }
+  .edi-ix-mate b { font-size: 11.5px; font-weight: 600; line-height: 1.15; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-ix-mate small { max-width: 100%; font-size: 10.5px; line-height: 1.2; color: var(--e-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-ix-mate[data-state="work"] small { color: var(--status-now, #ffc145); }
+  .edi-ix-mate[data-state="ask"] small, .edi-ix-mate[data-state="ghost"] small { color: var(--e-you-ink); }
+  .edi-ix-mate[data-state="back"] small { color: var(--status-review, #b094ff); }
+  .edi-ix-team .edi-add { display: grid; justify-items: center; align-content: start; gap: 2px; min-width: 0; padding: 5px 1px 4px; border: 1px solid transparent; border-radius: 11px; background: none; color: var(--e-muted); font: inherit; cursor: pointer; }
+  .edi-ix-team .edi-add .edi-glass { all: unset; display: grid; place-items: center; width: 40px; height: 32px; border-radius: 22px 22px 6px 6px; box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.2); font-size: 18px; }
+  .edi-ix-team .edi-add .edi-who { margin: 0; font-size: 11.5px; }
+  .edi-ix-team .edi-add .edi-who b { font-weight: 600; }
+  .edi-ix-ini { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 3px 8px; align-items: baseline; width: 100%; padding: 5px 8px 6px; border-radius: 11px; border: 1px solid transparent; background: none; color: inherit; font: inherit; text-align: left; }
+  button.edi-ix-ini { cursor: pointer; }
+  .edi-ix-code { font-family: var(--font-mono); font-size: 10.5px; color: var(--e-muted); }
+  .edi-ix-name { font-family: var(--font-display); font-weight: 700; font-size: 13px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-ix-ct { font-size: 11.5px; color: var(--e-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .edi-ix-ct[data-toca] { color: var(--e-you-ink); font-weight: 600; }
+  .edi-ix-beads { grid-column: 2 / 4; display: flex; gap: 3px; height: 5px; border-radius: 3px; min-width: 0; }
+  .edi-ix-beads i { flex: 1 1 0; min-width: 0; border-radius: 3px; background: var(--bc, #4a5068); }
+  .edi-ix-beads i[data-tone="pending"] { background: #4a5068; }
+  .edi-ix-beads[data-beads="bar"] { background: #4a5068; }
+  .edi-ix-beads[data-beads="none"] { height: 0; margin: 2px 0; border-top: 1.5px dashed #4a5068; border-radius: 0; }
+  .edi-ix-done { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 3px 4px 0; font-size: 12px; }
+  .edi-ix-ideas { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 8px; align-items: center; width: 100%; padding: 5px 8px 8px; border-radius: 11px; border: 1px solid transparent; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .edi-ix-ideas:disabled { cursor: default; }
+  .edi-ix-ideas b { font-family: var(--font-display); font-weight: 700; font-size: 13px; line-height: 1.2; }
+  .edi-ix-tube { grid-column: 1 / -1; position: relative; height: 14px; border-radius: 99px; background: rgb(94 200 255 / 0.07); border: 1px solid rgb(94 200 255 / 0.28); }
+  .edi-ix-ideas[data-live="0"] .edi-ix-tube { display: none; }
+  .edi-ix-tube i { position: absolute; top: 2px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--sc); box-shadow: 0 0 0 2px #111630; }
+  @media (max-height: 760px) and (min-width: 48rem) {
+    .edi-idx { gap: 7px; }
+    .edi-ix { gap: 3px; padding: 7px 10px 8px; }
+    .edi-ix-ini { padding: 4px 8px 5px; }
+  }
+  @media (hover: hover) { .edi-ix-mate:not(:disabled):hover, button.edi-ix-ini:hover, .edi-ix-ideas:not(:disabled):hover, .edi-ix-team .edi-add:hover { background: rgb(255 255 255 / 0.055); } }
+  .edi-ix-mate[aria-pressed="true"], .edi-ix-ini[aria-pressed="true"], .edi-ix-ideas[aria-pressed="true"] { border-color: var(--c); background: color-mix(in srgb, var(--c) 11%, transparent); }
+  .edi-ix .sb-fc[aria-pressed="true"] { border-color: var(--c); }
+  .edi-ix-mate:focus-visible, .edi-ix-ini:focus-visible, .edi-ix-ideas:focus-visible, .edi-ix-team .edi-add:focus-visible { outline: 2px solid var(--e-fg); outline-offset: 2px; }
   .edi-fi-top { display: flex; align-items: flex-end; gap: 4px; padding: 8px 8px 0 10px; border-bottom: 1px solid rgb(255 255 255 / 0.07); }
   .edi-fi-tabs { display: flex; gap: 1px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-  .edi-fi-tab { padding: 7px 6px 9px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--e-muted); font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+  .edi-fi-tab { padding: 7px 8px 9px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--e-muted); font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; }
   .edi-fi-tab:hover { color: var(--e-fg); }
   .edi-fi-tab[aria-selected="true"] { color: var(--e-fg); border-color: var(--c); }
   .edi-fi-tab small { margin-left: 3px; font: 500 10.5px var(--font-mono, ui-monospace); color: rgb(255 255 255 / 0.45); }
   .edi-fi-x { margin-bottom: 6px; width: 30px; height: 28px; border-radius: 9px; border: 1px solid var(--e-line); background: rgb(255 255 255 / 0.04); color: var(--e-muted); cursor: pointer; }
   .edi-fi-x:hover { color: var(--e-fg); }
-  .edi-fi-s { min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 14px 16px 20px; display: grid; gap: 16px; align-content: start; scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.18) transparent; }
+  .edi-fi-s { min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 14px 16px 20px; display: grid; grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content; gap: 16px; align-content: start; scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.18) transparent; }
   .edi-fi-back { justify-self: start; border: 0; background: none; color: var(--e-muted); font: inherit; font-size: 12px; font-weight: 600; padding: 0; cursor: pointer; }
   .edi-fi-back:hover { color: var(--e-fg); }
   .edi-fi-head { display: grid; gap: 4px; }
@@ -1384,19 +1448,19 @@
   .edi-fi-member, .edi-fi-slot { display: grid; gap: 16px; min-width: 0; }
   /* The side page's parts drawn inside the dark card use the app's dark tokens. */
   .edi-ficha :is(.edi-fi-member, [data-section]) { color: var(--e-fg); }
-  /* A real box (display: contents dropped it from the Tab order in Chrome; found in the PLA-I47-7 browser pass). */
-  .edi-scrim { display: none; }
-  @media (width < 1180px) {
-    .edi-bld[data-ficha="open"] { grid-template-columns: 72px minmax(0, 1fr); }
-    .edi-bld > .edi-ficha { position: fixed; z-index: 40; top: calc(60px + env(safe-area-inset-top, 0px)); right: max(12px, env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); width: min(360px, calc(100vw - 24px)); box-shadow: -24px 0 70px rgb(0 0 0 / 0.55); }
+  @media (width < 64rem) {
+    .edi-fbody { grid-template-columns: minmax(0, 1.25fr) minmax(236px, 1fr); }
+    .edi-home .edi-nowb[data-side] { grid-template-columns: minmax(0, 1fr); }
+    .edi-level[data-level="maquinas"][data-side] { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); position: relative; }
+    .edi-maq-side { position: absolute; z-index: 5; inset: 0 0 0 auto; width: min(360px, 100%); box-shadow: -24px 0 70px rgb(0 0 0 / 0.55); border-radius: 18px; }
   }
-  @media (width < 40rem) {
-    .edi-bld[data-ficha="open"] { grid-template-columns: minmax(0, 1fr); }
-    /* The sheet sits above the app's tab bar (4.5rem); the phone bar steps aside while it is open. The building is its
-       own stacking layer, so the sheet cannot climb over them with z-index (found in the PLA-I47-7 browser pass). */
-    .edi-bld > .edi-ficha { top: auto; left: 0; right: 0; bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)); width: auto; height: min(72dvh, 600px); border-radius: 22px 22px 0 0; }
-    .edi:has(.edi-bld[data-ficha="open"]) .edi-pbar { display: none; }
-    .edi-bld[data-ficha="open"] > .edi-scrim:not([hidden]) { display: block; position: fixed; inset: 0; z-index: 39; background: rgb(4 6 14 / 0.6); }
+  @media (width < 48rem) {
+    .edi-fbody { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
+    .edi-ventanal[data-vent="home"] { overflow: visible; }
+    .edi-idx { overflow: visible; }
+    .edi-fi-s { overflow: visible; }
+    .edi-maq-side { position: static; width: auto; box-shadow: none; }
+    .edi-level[data-level="maquinas"][data-side] { grid-template-rows: auto; }
   }
 
 
@@ -1504,7 +1568,7 @@
     .edi-team .edi-who i { display: none; }
   }
   @media (width < 40rem) {
-    .edi-stage .edi-nsay { font-size: 22px; line-height: 1.2; }
+    .edi-home .edi-nsay { font-size: 22px; line-height: 1.2; }
   }
   .edi-fi-tab small, .edi-fi-li em, .edi-fi-tube li, .edi-fi-empty { color: #959cb8; }
   .edi-fi-tube li[data-here] { color: var(--e-fg); }

@@ -79,5 +79,5 @@ test("I48-7: on a phone the levels stack, only the shown one is drawn, and La fi
   assert.ok(phone.includes(".edi-level[inert] { display: none; }"));
   assert.ok(phone.includes(".edi-maq { height: auto; grid-template-columns: minmax(0, 1fr);"));
   assert.ok(phone.includes(".edi-maq-url code { flex-basis: 100%; order: 5; }"), "the address wraps instead of pushing sideways");
-  assert.ok(css.includes(".edi-bld > .edi-ficha { top: auto; left: 0; right: 0; bottom:"), "v6's bottom sheet is untouched");
+  assert.ok(!css.includes(".edi-bld > .edi-ficha"), "PLA-I55-1: La ficha is in the page's flow on a phone, not a sheet");
 });

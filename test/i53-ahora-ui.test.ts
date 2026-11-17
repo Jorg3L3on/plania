@@ -52,9 +52,9 @@ const card = (tickets: Json[], patch: Json = {}): Json => ({
   ...patch,
 });
 const floorHtml = (p: Json) =>
-  renderToStaticMarkup(h(MemoryRouter, null, h(floorUi.Floor, { project: p, now: NOW, timeZone: TZ, decisions: [], board: { onTicket: noop, onTrack: noop }, ficha: true, onOpen: noop })));
+  renderToStaticMarkup(h(MemoryRouter, null, h(floorUi.Floor, { project: p, now: NOW, timeZone: TZ, decisions: [], board: { onTicket: noop, onTrack: noop }, foco: { kind: "leg", key: "DEM-I2" }, ventanal: (parts: Json) => h(React.Fragment, null, parts.home.body, parts.board, parts.tubo), onOpen: noop })));
 const lineHtml = (p: Json, opts: Json = {}) => renderToStaticMarkup(h(lineUi.AhoraLine, { view: lib.ahoraView(p, NOW, { timeZone: TZ, ...opts }) }));
-const slot = (html: string) => html.slice(html.indexOf('data-slot="ahora"'), html.indexOf('class="dark sb"'));
+const slot = (html: string) => html.slice(html.indexOf('data-slot="ahora"'), html.indexOf('class="dark sb-one sb"'));
 const stationOf = (html: string, id: string) => html.match(new RegExp(`<(?:button|div)[^>]*data-station="${id}"[^>]*>[\\s\\S]*?</(?:button|div)>`))?.[0] ?? "";
 
 test("I53-4 #1: a running run names the same agent and stage in the line, the seat and the card", () => {

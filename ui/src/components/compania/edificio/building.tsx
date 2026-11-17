@@ -25,7 +25,8 @@ import { Roof } from "./roof";
 import { EdificioSkeleton, Scene } from "./scene";
 import { Tower, openFloor } from "./tower";
 import { Facade } from "./facade";
-import type { BoardActs } from "./floor";
+import type { BoardActs, VentanalParts } from "./floor";
+import type { FichaRef } from "@/lib/ficha";
 import type { TuboActs } from "./tubo";
 
 const firstLine = (s: string, n = 160) => {
@@ -76,11 +77,11 @@ export type BuildingProps = {
   board?: BoardActs;
   // PLA-I54-1: the tube's calls.
   tubo?: TuboActs;
-  // PLA-I47-4: La ficha beside the floor (the page reads and draws it).
-  ficha?: ReactNode;
-  fichaOpen?: boolean;
-  // PLA-I47-6: a tap outside the sheet closes La ficha on a phone.
-  onFichaClose?: () => void;
+  // PLA-I55-1: La ficha is the open floor's ventanal: the page draws it from the floor's parts. foco is what the
+  // address names (null: the home tab); onFoco opens what the index names (the Pedido tab).
+  ventanal?: (parts: VentanalParts) => ReactNode;
+  foco?: FichaRef | null;
+  onFoco?: (slug: string, r: FichaRef, el: HTMLElement) => void;
   // PLA-I48: the open floor's level, its switch and its Máquinas level; the floors whose app is on (rail lights).
   nivel?: "trabajo" | "maquinas";
   liftFor?: (p: OrgProject) => ReactNode;
@@ -89,7 +90,7 @@ export type BuildingProps = {
 };
 
 
-export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore, city, board, tubo, ficha, fichaOpen, onFichaClose, nivel, liftFor, maquinasFor, appsOn }: BuildingProps) => {
+export const Building = ({ company, decisions, now, timeZone, hello, day, meta, onNew, onOpen, onChip, onFijar, onPlan, onResume, resuming, acts, roofOpen, onAdd, askFor, typing, onPublish, nowActs, ventanaFor, piso, onPiso, office, onOffice, officeMore, city, board, tubo, ventanal, foco, onFoco, nivel, liftFor, maquinasFor, appsOn }: BuildingProps) => {
   const { floors, basement } = floorOrder(company.projects, decisions);
   const paused = company.company.paused;
   const open = openFloor(floors, basement, piso);
@@ -129,7 +130,7 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
           </div>
         </div>
       ) : (
-        <div className="edi-bld" data-open={open?.slug} data-zoom={office ? "out" : "in"} data-ficha={ficha && !office ? (fichaOpen ? "open" : "closed") : undefined}>
+        <div className="edi-bld" data-open={open?.slug} data-zoom={office ? "out" : "in"}>
           <Tower floors={floors} basement={basement} decisions={decisions} projects={company.projects} appsOn={appsOn} open={office ? null : (open?.slug ?? null)} officeOpen={!!office} companyPaused={paused} onPiso={onPiso} onOffice={onOffice} onNew={onNew} />
           {/* Tu oficina: what waits on the owner across floors, over the floor while open. */}
           {!office && (
@@ -176,7 +177,9 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
               ventana={isOff ? undefined : ventanaFor?.(open)}
               board={isOff ? { onTicket: board?.onTicket, onTrack: board?.onTrack, selected: board?.selected } : board}
               tubo={tubo}
-              ficha={!!ficha}
+              ventanal={ventanal}
+              foco={foco}
+              onFoco={onFoco ? (r, el) => onFoco(open.slug, r, el) : undefined}
               nivel={nivel}
               lift={liftFor?.(open)}
               maquinas={maquinasFor ? (ask) => maquinasFor(open, ask) : undefined}
@@ -199,12 +202,6 @@ export const Building = ({ company, decisions, now, timeZone, hello, day, meta, 
                 </button>
               ) : null}
             </Floor>
-          )}
-          {ficha && !office && (
-            <>
-              <div className="edi-scrim" aria-hidden hidden={!fichaOpen} onClick={onFichaClose} />
-              {ficha}
-            </>
           )}
         </div>
       )}

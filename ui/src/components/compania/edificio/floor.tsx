@@ -6,21 +6,35 @@
 // and La fila: the teammates' windows are its stations (PO over Por hacer, Taller, QA), the others sit in its corner
 // with Sumar, their questions hang under the stations, and each card carries what La fila let the owner do (Detener,
 // Hacer primero, Aceptar, Quitar). A card, a track or a Hecho stack opens in La ficha.
+// PLA-I55-1 (El ventanal): the Trabajo level stops stacking those bands. It is two columns over Pedir: el ventanal
+// (La ficha, drawn by the page with this floor's parts: the Ahora band and the questions as its first tab, one
+// initiative's own stage board, the tube) and an index (indice.tsx: the team, one line per initiative, the ideas).
+// A click in the index opens that thing in the ventanal.
 import type { CSSProperties, ReactNode } from "react";
 import type { Decision, OrgMember, OrgOrder, OrgProject, ProjectTicket, Tablero } from "@/lib/api";
 import { BACK_WORD, RECIBIRIA, caption, floorHue, hangingFor, nowLine, returnedOf, windowLabel, windowState } from "@/lib/edificio";
 import { ahoraView, litOf, seatOf } from "@/lib/ahora-piso";
-import { actAria, actBusyKey, actLabel, cardActs, OPEN_ORDER, STATIONS, type CardAct } from "@/lib/etapas";
+import { actAria, actBusyKey, actLabel, boardOf, cardActs, OPEN_ORDER, STATIONS, type CardAct } from "@/lib/etapas";
+import type { FichaRef } from "@/lib/ficha";
 import { deliveryOf } from "@/lib/evidencia";
-import { byRole, roleName } from "@/lib/org";
+import { byRole } from "@/lib/org";
 import { StageBoard, type StationHeadProps } from "@/components/plan/stage-board";
 import { AhoraLine } from "@/components/plan/ahora-line";
-import { After, Last } from "./after";
 import { Figure } from "./figure";
+import { After, Last } from "./after";
 import { Head } from "./head";
 import { Now, type NowActs } from "./now";
 import { Question, type QuestionActs } from "./question";
 import { Tubo, type TuboActs } from "./tubo";
+import { Indice } from "./indice";
+
+// PLA-I55-1: what the floor hands the page for the ventanal. home is the first tab (Te toca while something waits on
+// the owner, else Ahora); board is the open initiative's (or Sueltos') own stage board; tubo is the tube in full.
+export type VentanalParts = {
+  home: { word: string; tone: "you" | "now"; count: number; body: ReactNode };
+  board?: ReactNode;
+  tubo?: ReactNode;
+};
 
 // The calls a card makes, the same routes La fila used (pickNext, stop a run, the delivery's own accept, cancel an
 // order), and what opens in La ficha.
@@ -93,11 +107,6 @@ export const PLAN_ASK = "Arma el plan del proyecto: los entregables y los pasos 
 // An older server sends no stages: the board still stands (stations, seats, questions) with no tracks.
 const NO_BOARD: Tablero = { initiatives: [], loose: [], loose_done: 0 };
 
-// Where a question's notch points: the centre of its asker's station, or the corner for a teammate with none.
-const LABEL_COL = 150;
-const notchAt = (station: number | null): CSSProperties =>
-  ({ "--nx-wide": station === null ? `${LABEL_COL / 2}px` : `calc(${LABEL_COL}px + (100% - ${LABEL_COL}px) * ${(station + 0.5) / STATIONS.length})` }) as CSSProperties;
-
 export const Floor = ({
   project: p,
   now,
@@ -116,7 +125,9 @@ export const Floor = ({
   solo,
   ventana,
   board,
-  ficha,
+  ventanal,
+  foco = null,
+  onFoco,
   nivel = "trabajo",
   lift,
   maquinas,
@@ -148,8 +159,11 @@ export const Floor = ({
   ventana?: ReactNode;
   // PLA-I53-3: the stage board's calls (Detener, Hacer primero, Aceptar, Quitar, and what opens in La ficha).
   board?: BoardActs;
-  // PLA-I47-4: La ficha is on screen (it carries Lo último and Solo tú).
-  ficha?: boolean;
+  // PLA-I55-1: el ventanal. The page draws La ficha from this floor's parts; foco is what the address names (null:
+  // the home tab); onFoco opens something the index names that has no call of its own (the Pedido tab).
+  ventanal?: (parts: VentanalParts) => ReactNode;
+  foco?: FichaRef | null;
+  onFoco?: (r: FichaRef, el: HTMLElement) => void;
   // PLA-I48-4: the floor's two levels. lift is the switch in the Encabezado; maquinas draws the Máquinas level with
   // the Pedir bar (which lives in whichever level is shown). The inactive level is inert: no focus, no clicks.
   nivel?: "trabajo" | "maquinas";
@@ -167,7 +181,6 @@ export const Floor = ({
   // PLA-I46-10: so does a delivery to accept: its evidence card is in Ahora, so it does not hang under Taller.
   const dv = deliveryOf(line.move, decisions ?? []);
   const inAhora = o?.kind === "decision" && (decisions?.find((d) => d.id === o.id)?.plan?.leg || dv) ? o.id : null;
-  const down = !!maquinas && nivel === "maquinas";
   const slug = p.slug;
   const bacts = board ?? {};
 
@@ -177,8 +190,6 @@ export const Floor = ({
     const m = s.role ? team.find((x) => x.role === s.role) : undefined;
     if (m) atStation.set(s.id, m);
   }
-  const seated = new Set([...atStation.values()].map((m) => m.agent));
-  const others = team.filter((m) => !seated.has(m.agent));
   // PLA-I53-4: who works now is the Ahora line's (lib/ahora-piso.ts): the line, each seat's window and caption, and
   // the seat stations' light read the same obras, so they cannot disagree. A seat being fixed is violet («back»).
   // An older server sends no ahora: then the band, the seats and their light read as before (PLA-I46-10: a delivery
@@ -212,113 +223,141 @@ export const Floor = ({
   const shownHere = (d: Decision) => hungIds.has(d.id) || d.id === dv?.id;
   const below = hanging.length > 0 && acts ? (
     <>
-      {hanging.map(({ m, h }, i) => {
-        const at = STATIONS.findIndex((s) => atStation.get(s.id)?.agent === m.agent);
-        return <Question key={m.agent} hanging={h!} role={m.role} anchor={i === 0 ? `pregunta-${slug}` : undefined} style={notchAt(at < 0 ? null : at)} acts={acts} />;
-      })}
+      {hanging.map(({ m, h }, i) => (
+        <Question key={m.agent} hanging={h!} role={m.role} anchor={i === 0 ? `pregunta-${slug}` : undefined} acts={acts} />
+      ))}
     </>
   ) : undefined;
-
-  const corner = (
-    <div className="edi-corner" data-team={team.length}>
-      <span className="sb-eyebrow">Iniciativa</span>
-      {(others.length > 0 || children) && (
-        <div className="edi-corner-team">
-          {others.map((m) => (
-            <button key={m.agent} type="button" className="edi-seat" {...seatData(m)} aria-label={seatLabel(m)} onClick={(e) => onOpen?.(m, e.currentTarget)} disabled={!onOpen} title={`${roleName(m.role)}: ${caption(m, now, { companyPaused, timeZone, seat: seat(m) }).doing}`}>
-              <span className="edi-seat-glass" aria-hidden>
-                <Figure role={m.role} />
-              </span>
-            </button>
-          ))}
-          {children}
-        </div>
-      )}
-    </div>
-  );
 
   const orders = (p.orders ?? []).filter((x) => !x.key && x.stage !== "cancelada" && (x.state === "en_curso" || OPEN_ORDER.has(x.state)));
   const extra = orders.length
     ? { por: orders.filter((x) => x.state !== "en_curso").map((x) => <OrderCard key={x.id} slug={slug} o={x} acts={bacts} />), taller: orders.filter((x) => x.state === "en_curso").map((x) => <OrderCard key={x.id} slug={slug} o={x} acts={bacts} />) }
     : undefined;
+  const tablero = p.tablero ?? NO_BOARD;
+  // The index lists what the board listed as tracks (Sueltos too while an order of the owner's is not a ticket yet).
+  const tracks = boardOf(tablero, { sueltos: orders.length > 0 }).tracks;
 
-  const trabajo = (
-    <div className="edi-fbody">
-      <div className="edi-stage">
-        {/* PLA-I53-4: the Ahora slot: the one Ahora line (the server's ahora), with the band's actions under it. */}
-        <div className="edi-ahora-slot" data-slot="ahora">
-          <Now
-            project={p}
-            line={line}
-            now={now}
-            decisions={decisions}
-            acts={nowActs}
-            qacts={acts}
-            onFijar={onFijar}
-            onPublish={onPublish}
-            side={ventana}
-            anchor={dv && hanging.length === 0 ? `pregunta-${slug}` : undefined}
-            head={fresh ? <AhoraLine view={ahora} /> : undefined}
-            pointTo={pointTo}
-            state={!fresh ? undefined : ahora.working ? (ahora.obras[0]?.etapa === "devuelto" ? "back" : "work") : ahora.quiet?.kind === "owner" ? "you" : ahora.quiet?.kind === "paused" ? "off" : ahora.quiet?.kind === "blocked" ? "stuck" : "idle"}
-          />
-        </div>
-        {(
-          <StageBoard
-            tablero={p.tablero ?? NO_BOARD}
-            now={now}
-            selected={bacts.selected}
-            onTicket={bacts.onTicket ? (t, el) => bacts.onTicket!(slug, t, el) : undefined}
-            onTrack={bacts.onTrack ? (key, el) => bacts.onTrack!(slug, key, el) : undefined}
-            onDone={bacts.onTrack ? (key, el) => bacts.onTrack!(slug, key, el) : undefined}
-            onFolded={bacts.onTrack ? (key, el) => bacts.onTrack!(slug, key, el) : undefined}
-            station={station}
-            corner={corner}
-            below={below}
-            actsFor={(t) => {
-              const list = cardActs(t, { team, decisions: decisions ?? [], orders: p.orders, nextFirst: p.next_first }).filter((x) => x.kind !== "aceptar" || !shownHere(x.decision));
-              return list.length ? <ActButtons slug={slug} acts={bacts} list={list} title={t.title} /> : null;
-            }}
-            extra={extra}
-            // PLA-I53-6: the completed initiatives fold into one line under the board.
-            folded={p.tablero?.done_initiatives}
-            empty={
-              <div className="edi-board-empty" data-board="empty">
-                <p>{p.route && p.route.legs.length > 0 ? "No hay iniciativas abiertas ni trabajo suelto en este piso." : "Aún no hay plan: ninguna iniciativa abierta ni trabajo suelto."}</p>
-                {nowActs?.onPlan && !p.paused && !(p.route && p.route.legs.length > 0) && (
-                  <button type="button" className="edi-btn" onClick={() => nowActs.onPlan!(slug, PLAN_ASK)} disabled={nowActs.busy === `${slug}:plan`} data-control="planear">
-                    Que PO lo planee
-                  </button>
-                )}
-              </div>
-            }
-            label={`Tablero de etapas de ${p.title}`}
-            className="dark"
-          />
-        )}
-        {/* PLA-I54-1: the tube of the owner's ideas taking shape, under the board's stations (an older server sends none). */}
-        {p.pedidos && <Tubo slug={slug} title={p.title} pedidos={p.pedidos} acts={tubo} />}
-        {ask && !down && <div className="edi-askbar">{ask}</div>}
+  // The first tab of the ventanal: the Ahora band with no height cap (a delivery's evidence shows whole), then the
+  // questions that used to hang under the board.
+  const mine = hungIds.size + (dv && !hungIds.has(dv.id) ? 1 : 0);
+  const yours = !!line.move || mine > 0;
+  const home = (
+    <div className="edi-home" data-home={yours ? "you" : "now"}>
+      {/* PLA-I53-4: the Ahora slot: the one Ahora line (the server's ahora), with the band's actions under it. */}
+      <div className="edi-ahora-slot" data-slot="ahora">
+        <Now
+          project={p}
+          line={line}
+          now={now}
+          decisions={decisions}
+          acts={nowActs}
+          qacts={acts}
+          onFijar={onFijar}
+          onPublish={onPublish}
+          side={ventana}
+          anchor={dv && hanging.length === 0 ? `pregunta-${slug}` : undefined}
+          head={fresh ? <AhoraLine view={ahora} /> : undefined}
+          pointTo={pointTo}
+          state={!fresh ? undefined : ahora.working ? (ahora.obras[0]?.etapa === "devuelto" ? "back" : "work") : ahora.quiet?.kind === "owner" ? "you" : ahora.quiet?.kind === "paused" ? "off" : ahora.quiet?.kind === "blocked" ? "stuck" : "idle"}
+        />
       </div>
-      {/* PLA-I47-4: with La ficha, Lo último and Solo tú live in its Resumen; without it they stay on the floor. */}
-      {!ficha && (
+      {below && <div className="edi-home-q">{below}</div>}
+    </div>
+  );
+
+  // One initiative's own board (or Sueltos'), while the address names it: the same stations, cards and calls, with
+  // only that track, so its cards have room.
+  const ini = foco?.kind === "leg" ? tablero.initiatives.find((i) => i.key === foco.key) : undefined;
+  const sub: Tablero | null = ini ? { ...tablero, initiatives: [ini], loose: [], loose_done: 0, done_initiatives: undefined } : foco?.kind === "sueltos" ? { ...tablero, initiatives: [], done_initiatives: undefined } : null;
+  const oneBoard = sub ? (
+    <StageBoard
+      tablero={sub}
+      now={now}
+      selected={bacts.selected}
+      onTicket={bacts.onTicket ? (t, el) => bacts.onTicket!(slug, t, el) : undefined}
+      // The Hecho stack: the done steps are listed right under this board.
+      onDone={(_key, el) => el.closest(".edi-fi-s")?.querySelector('[data-fi-sec="hechos"]')?.scrollIntoView({ block: "start" })}
+      station={station}
+      actsFor={(t) => {
+        const list = cardActs(t, { team, decisions: decisions ?? [], orders: p.orders, nextFirst: p.next_first }).filter((x) => x.kind !== "aceptar" || !shownHere(x.decision));
+        return list.length ? <ActButtons slug={slug} acts={bacts} list={list} title={t.title} /> : null;
+      }}
+      extra={ini ? undefined : extra}
+      label={`Tablero de etapas de ${ini ? ini.title : "Sueltos"}`}
+      className="dark sb-one"
+    />
+  ) : undefined;
+
+  const parts: VentanalParts = {
+    home: { word: yours ? "Te toca" : "Ahora", tone: yours ? "you" : "now", count: mine, body: home },
+    board: oneBoard,
+    // PLA-I54-1: the tube of the owner's ideas taking shape (an older server sends none).
+    tubo: p.pedidos ? <Tubo slug={slug} title={p.title} pedidos={p.pedidos} acts={tubo} /> : undefined,
+  };
+  const down = !!maquinas && nivel === "maquinas";
+  // On the Máquinas level La ficha is a side column there, so this level keeps only its home (never the ficha twice).
+  // Without a page drawing La ficha (whose Resumen carries them), Lo último and Solo tú stay on the floor, under Ahora.
+  const vent =
+    ventanal && !down ? (
+      ventanal(parts)
+    ) : ventanal ? (
+      home
+    ) : (
+      <>
+        {home}
         <div className="edi-fcol">
           <Last project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={nowActs} qacts={acts} />
           <After project={p} decisions={decisions ?? []} now={now} timeZone={timeZone} acts={nowActs} qacts={acts} solo={solo} hideAuto={!!dv} />
         </div>
-      )}
+      </>
+    );
+
+  const trabajo = (
+    <div className="edi-fbody" data-ventanal={foco && !down ? foco.kind : "home"}>
+      <div className="edi-ventanal" data-vent={ventanal && !down ? "ficha" : "home"}>
+        {vent}
+      </div>
+      <Indice
+        project={p}
+        team={team}
+        tracks={tracks}
+        foco={down ? null : foco}
+        seat={(m) => {
+          const hint = hintOf(m);
+          const c = caption(m, now, { companyPaused, timeZone, seat: seat(m) });
+          return { data: seatData(m), state: seatState(m), label: hint ? `${seatLabel(m)}. ${hint}` : seatLabel(m), line: hint ?? (isBack(m) ? BACK_WORD : c.sub ? `${c.doing} · ${c.sub}` : c.doing) };
+        }}
+        onMember={onOpen}
+        onTrack={bacts.onTrack ? (key, el) => bacts.onTrack!(slug, key, el) : undefined}
+        onIdeas={onFoco ? (el) => onFoco({ kind: "tab", tab: "pedido" }, el) : undefined}
+        empty={
+          <div className="edi-board-empty" data-board="empty">
+            <p>{p.route && p.route.legs.length > 0 ? "No hay iniciativas abiertas ni trabajo suelto en este piso." : "Aún no hay plan: ninguna iniciativa abierta ni trabajo suelto."}</p>
+            {nowActs?.onPlan && !p.paused && !(p.route && p.route.legs.length > 0) && (
+              <button type="button" className="edi-btn" onClick={() => nowActs.onPlan!(slug, PLAN_ASK)} disabled={nowActs.busy === `${slug}:plan`} data-control="planear">
+                Que PO lo planee
+              </button>
+            )}
+          </div>
+        }
+      >
+        {children}
+      </Indice>
+      {ask && !down && <div className="edi-askbar">{ask}</div>}
     </div>
   );
   return (
-    <article id={`piso-${p.slug}`} tabIndex={-1} className="edi-floor" data-floor={slug} data-nivel={maquinas ? nivel : undefined} data-light={p.light} data-move={line.move ? line.move.verbo : undefined} data-ficha={ficha ? "1" : undefined} style={{ "--c": floorHue(slug) } as CSSProperties} aria-label={p.title}>
+    <article id={`piso-${p.slug}`} tabIndex={-1} className="edi-floor" data-floor={slug} data-nivel={maquinas ? nivel : undefined} data-light={p.light} data-move={line.move ? line.move.verbo : undefined} style={{ "--c": floorHue(slug) } as CSSProperties} aria-label={p.title}>
       <Head project={p} line={line} onFijar={onFijar} onPlan={onPlan} extra={resume} lift={lift} />
       {maquinas ? (
         <div className="edi-levels" data-nivel={nivel}>
           <div className="edi-level" data-level="trabajo" inert={down} aria-hidden={down || undefined}>
             {trabajo}
           </div>
-          <div className="edi-level" data-level="maquinas" inert={!down} aria-hidden={!down || undefined}>
+          <div className="edi-level" data-level="maquinas" data-side={down && foco && ventanal ? "1" : undefined} inert={!down} aria-hidden={!down || undefined}>
             {maquinas(down ? ask : null)}
+            {/* PLA-I55-1: down here La ficha stays a side column, only while the address names something. */}
+            {down && foco && ventanal && <div className="edi-maq-side">{ventanal(parts)}</div>}
           </div>
         </div>
       ) : (

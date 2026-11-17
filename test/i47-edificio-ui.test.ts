@@ -79,7 +79,7 @@ test("I47-5 #1: one row per running project in the tower's order, the move only 
 
 test("I47-5: Building zooms out with office (?edificio): no floor, no ficha, the roof on top; zoomed in it draws one floor", () => {
   const company = { company: { paused: false }, week: { starts_at: "2026-11-09T06:00:00Z", resets_at: "2026-11-16T06:00:00Z", timezone: TZ }, asistente: { thread_id: "t", usage: { used: 0 }, last_run: null, state: "idle", unread: 0 }, projects, plumbing: { spend: 0, running: 0, paused: false }, decisions: [], inbox: { decisiones: 0, pasos: 0 } };
-  const render = (extra: Json) => renderToStaticMarkup(h(MemoryRouter, null, h(building.Building, { company, decisions: [], now: NOW, timeZone: TZ, hello: "Hola", day: "Martes", onNew: () => {}, ficha: h("aside", { className: "edi-ficha" }), fichaOpen: true, ...extra })));
+  const render = (extra: Json) => renderToStaticMarkup(h(MemoryRouter, null, h(building.Building, { company, decisions: [], now: NOW, timeZone: TZ, hello: "Hola", day: "Martes", onNew: () => {}, ventanal: () => h("section", { className: "edi-ficha" }), ...extra })));
   const out = render({ office: true });
   assert.ok(out.includes('data-zoom="out"') && out.includes("data-facade=") && out.includes("data-roof"));
   assert.equal(/<article [^>]*class="edi-floor"/.test(out) || out.includes('class="edi-ficha"'), false);

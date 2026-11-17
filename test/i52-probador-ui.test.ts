@@ -122,7 +122,7 @@ const render = (c: Json, extra: Json = {}) =>
       askFor: () => h("div", null, "Pedir"),
     }),
   );
-const nowCard = (s: string) => /<div(?: id="[^"]+")? class="edi-nowb"[\s\S]*?(?=<section class="dark sb")/.exec(s)?.[0] ?? "";
+const nowCard = (s: string) => /<div(?: id="[^"]+")? class="edi-nowb"[\s\S]*?(?=<div class="edi-home-q"|<div class="edi-fcol"|<nav class="edi-idx")/.exec(s)?.[0] ?? "";
 const floorOf = (s: string) => s.slice(s.indexOf('data-floor="demo"'), s.indexOf("edi-street"));
 
 

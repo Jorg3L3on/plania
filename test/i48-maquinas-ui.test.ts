@@ -213,7 +213,7 @@ test("I48-4 #2: without Máquinas the floor's markup is v6's", () => {
   const out = floor("trabajo", { liftFor: undefined, maquinasFor: undefined });
   assert.ok(!out.includes("edi-levels"));
   assert.ok(!out.includes("edi-maq"));
-  assert.match(out, /<div class="edi-fbody">/);
+  assert.match(out, /<div class="edi-fbody" data-ventanal="home">/);
 });
 
 test("I48-4: the page wires ?nivel=, the M key and the switch; the CSS slides the levels and keeps no new tokens", () => {
