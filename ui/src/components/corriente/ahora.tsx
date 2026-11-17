@@ -30,6 +30,7 @@ export type AhoraLinks = {
   equipo: string;
   miembro: (agent: string) => string;
   publicar: string;
+  pausar: string;
   pagina: string;
   /** The server's in-page links (#te-toca, #publicar). */
   hash: (href: string) => string;
@@ -359,6 +360,11 @@ export const Ahora = ({
         <TeamLines p={p} links={links} companyPaused={companyPaused} />
         <div className="cor-side-foot">
           {totals && <span className="cor-cap">{`${totals.open} abiertos · ${totals.done} hechos`.toUpperCase()}</span>}
+          {!p.paused && (
+            <Link className="cor-btn link" to={links.pausar} data-control="pausar" style={{ color: "var(--cor-body)" }}>
+              Pausar el proyecto
+            </Link>
+          )}
           <Link className="cor-btn link" to={links.pagina} data-control="pagina">
             Abrir la página del proyecto
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

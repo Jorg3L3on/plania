@@ -1,11 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { StopBody } from "@/components/compania/parts";
-import { PlumbingMissing, PlumbingSection } from "@/components/compania/plumbing";
-import { LimitForm, OWNER_CODE_WORDS, OwnerCodeRow, limitTitle, type LimitTarget } from "@/components/compania/sheets";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import type { MachinePlumbing } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { PlumbingMissing } from "@/components/compania/plumbing";
+import { Head } from "@/components/corriente/header";
+import { Plomeria } from "@/components/corriente/plomeria";
+import { hrefOf, linkTo } from "@/lib/corriente";
+import { pending } from "@/lib/v2";
 import { BoxIcon, CableIcon, CogIcon, DatabaseIcon, GitBranchIcon, GlobeIcon, HardDriveIcon, LayersIcon, ServerIcon } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent } from "react";
 import { Link, useSearchParams } from "react-router";
@@ -14,7 +12,7 @@ import { CopyCommand } from "@/components/copy-command";
 import { Skeleton } from "@/components/ui/skeleton";
 import { hasProjectMark, ProjectMark } from "@/components/plania-mark";
 import { Kicker, accentInk, projectAccent } from "@/components/plan/visuals";
-import { ApiError, api } from "@/lib/api";
+import { api } from "@/lib/api";
 import { SOURCE_WORD, STATE_WORD, ageSource, formatKb, groupItems, isPrimary, nameOf, sizeOf, whyLine, type Group, type TicketNode } from "@/lib/machine";
 import { ago, span } from "@/lib/time";
 import type { FootprintItem, FootprintKind, FootprintState, MachineBackup } from "@/lib/types";
@@ -308,117 +306,6 @@ function useMachine() {
   return useQuery({ queryKey: ["machine"], queryFn: api.machinePlumbing, staleTime: 15_000, refetchInterval: 20_000 });
 }
 
-type StopScope = { kind: "company" } | { kind: "project"; slug: string; title: string };
-
-// PLA-I33-3: week tokens, plan guard, switches, En marcha and the run log, with their Jorge-only writes
-// (the PLA-I30 routes under /api/company, cookie session only).
-function Plumbing({ plumbing, nowMs }: { plumbing: MachinePlumbing; nowMs: number }) {
-  const client = useQueryClient();
-  const [stop, setStop] = useState<StopScope | null>(null);
-  const [limit, setLimit] = useState<LimitTarget | null>(null);
-  const canEdit = plumbing.viewer?.can_edit_limits ?? true;
-  // PLA-I36-11: the owner's code.
-  const owner = useQuery({ queryKey: ["owner-code"], queryFn: api.ownerCode, staleTime: 60_000 });
-  const enrol = useMutation({
-    mutationFn: api.enrolOwnerCode,
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["owner-code"] }),
-  });
-  const refresh = () => {
-    void client.invalidateQueries({ queryKey: ["machine"] });
-    void client.invalidateQueries({ queryKey: ["company"] });
-  };
-  const titles = new Map(plumbing.usage.projects.map((p) => [p.slug, p.title]));
-  const companySwitch = useMutation({
-    mutationFn: (paused: boolean) => api.setCompanyPaused(paused),
-    onSuccess: (r) => {
-      toast(r.paused ? `Compañía detenida${r.stopped ? ` · ${r.stopped} corridas cerrándose` : ""}` : "Compañía en marcha");
-      setStop(null);
-      refresh();
-    },
-    onError: () => toast.error("No se pudo cambiar el interruptor"),
-  });
-  const projectSwitch = useMutation({
-    mutationFn: ({ slug, paused }: { slug: string; paused: boolean }) => api.setProjectPaused(slug, paused),
-    onSuccess: (r) => {
-      toast(r.paused ? `${titles.get(r.project) ?? r.project} en pausa` : `${titles.get(r.project) ?? r.project} reanudado`);
-      setStop(null);
-      refresh();
-    },
-    onError: () => toast.error("No se pudo cambiar el interruptor del proyecto"),
-  });
-  const saveLimit = useMutation({
-    mutationFn: async ({ value }: { value: number }) => api.setRunnerSettings({ plan_guard_pct: value }),
-    onSuccess: () => {
-      toast("Guardado");
-      setLimit(null);
-      refresh();
-    },
-    onError: () => toast.error("No se pudo guardar"),
-  });
-  const saveOverride = useMutation({
-    mutationFn: async (on: boolean) => api.setRunnerSettings({ guard_override: on }),
-    onSuccess: (_r, on) => {
-      toast(on ? "Límite del plan ignorado" : "Guardia del plan activa");
-      refresh();
-    },
-    onError: () => toast.error("No se pudo guardar"),
-  });
-  return (
-    <>
-      <OwnerCodeRow
-        enrolled={owner.data?.enrolled ?? null}
-        busy={enrol.isPending}
-        secret={enrol.data ?? null}
-        error={enrol.error instanceof ApiError ? (enrol.error.code === "INVALID_PASSWORD" ? "Contraseña incorrecta." : (OWNER_CODE_WORDS[enrol.error.code] ?? `No se pudo (${enrol.error.code}).`)) : null}
-        onEnrol={(input) => enrol.mutate(input)}
-      />
-      <PlumbingSection
-        plumbing={plumbing}
-        now={nowMs}
-        canEdit={canEdit}
-        onMoveGuard={() => setLimit({ kind: "guard", current: plumbing.plan.guard_pct })}
-        onToggleOverride={(on) => saveOverride.mutate(on)}
-        onStopCompany={() => setStop({ kind: "company" })}
-        onResumeCompany={() => companySwitch.mutate(false)}
-        onPauseProject={(p) => setStop({ kind: "project", slug: p.slug, title: p.title })}
-        onResumeProject={(p) => projectSwitch.mutate({ slug: p.slug, paused: false })}
-      />
-      {/* 5i: stop the company or pause a project */}
-      <Sheet open={stop !== null} onOpenChange={(open) => !open && setStop(null)}>
-        <SheetContent side="bottom" className="mx-auto max-h-[85svh] w-full max-w-xl overflow-y-auto rounded-t-[22px] bg-background">
-          <SheetHeader className="pr-10">
-            <SheetTitle className="font-display text-2xl font-extrabold tracking-tight">
-              {stop?.kind === "project" ? `¿Pausar ${stop.title}?` : "¿Detener la compañía?"}
-            </SheetTitle>
-            <SheetDescription>Se puede deshacer: reanudas cuando quieras.</SheetDescription>
-          </SheetHeader>
-          <div className="px-4 pb-8">
-            {stop && (
-              <StopBody
-                scope={stop}
-                runs={plumbing.runs.live}
-                projectTitle={(slug) => titles.get(slug) ?? slug}
-                busy={companySwitch.isPending || projectSwitch.isPending}
-                onCancel={() => setStop(null)}
-                onConfirm={() => (stop.kind === "company" ? companySwitch.mutate(true) : projectSwitch.mutate({ slug: stop.slug, paused: true }))}
-              />
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
-      <Dialog open={limit !== null} onOpenChange={(open) => !open && setLimit(null)}>
-        <DialogContent className="bg-background sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-display text-xl font-extrabold tracking-tight">{limit ? limitTitle(limit) : ""}</DialogTitle>
-            <DialogDescription>Solo tú mueves la guardia. Los agentes no pueden.</DialogDescription>
-          </DialogHeader>
-          {limit && <LimitForm target={limit} busy={saveLimit.isPending} onCancel={() => setLimit(null)} onSave={(value) => saveLimit.mutate({ value })} />}
-        </DialogContent>
-      </Dialog>
-    </>
-  );
-}
-
 export function MachinePage() {
   const machine = useMachine();
   // En marcha's clocks tick by the second only while something runs.
@@ -436,8 +323,40 @@ export function MachinePage() {
   const gone = inTab.filter((i) => i.state === "gone").length;
   const groups = useMemo(() => groupItems(showGone ? inTab : inTab.filter((i) => i.state !== "gone")), [inTab, showGone]);
 
+  // PLA-I62-8: Plomería in La corriente's look (board D3); what runs on the Mac stays below, behind «Ver qué corre».
+  const company = useQuery({ queryKey: ["company"], queryFn: api.company, staleTime: 10_000, refetchInterval: 20_000 });
+  const [inventory, setInventory] = useState(() => params.has("tab"));
+  const t = machine.data?.totals;
+  const macLine = t ? `${t.servers === 1 ? "1 servidor" : `${t.servers} servidores`} · ${t.databases === 1 ? "1 base" : `${t.databases} bases`} · ${formatKb(t.worktree_kb)} en copias de trabajo${machine.data?.backup?.at ? ` · respaldo ${ago(machine.data.backup.at, nowMs)}` : ""}` : "…";
   return (
     <div className="grid gap-8">
+      <div className={`cor ${inventory ? "grow" : ""}`} data-corriente="plomeria">
+        <span className="cor-aura" aria-hidden />
+        <Head
+          view="plomeria"
+          waiting={(company.data?.decisions ?? []).filter(pending).length}
+          asistenteUnread={company.data?.asistente.unread ?? 0}
+          now={nowMs}
+          timeZone={company.data?.week.timezone}
+          pedirTo={hrefOf({ view: "pedir" })}
+          tocaTo={linkTo({ view: "tetoca" })}
+        />
+        <div className="cor-main">
+          {machine.data?.plumbing ? (
+            <Plomeria plumbing={machine.data.plumbing} inventory={inventory} onInventory={() => setInventory((x) => !x)} macLine={macLine} />
+          ) : machine.data ? (
+            <div style={{ padding: "22px 32px" }}>
+              <PlumbingMissing />
+            </div>
+          ) : machine.isError ? (
+            <p className="cor-text" style={{ padding: "22px 32px" }}>No se pudo cargar la plomería.</p>
+          ) : (
+            <div className="cor-skel" style={{ margin: "22px 32px", flex: 1 }} aria-busy="true" />
+          )}
+        </div>
+      </div>
+      {inventory && (
+      <div className="mx-auto grid w-full max-w-[1480px] gap-8 gutter pb-10">
       <header className="flex animate-rise flex-wrap items-end justify-between gap-6">
         <div className="grid gap-2.5">
           <Kicker className="text-muted-foreground">Máquina</Kicker>
@@ -447,8 +366,6 @@ export function MachinePage() {
         </div>
         {machine.data && <Totals machine={machine.data} />}
       </header>
-
-      {machine.data && (machine.data.plumbing ? <Plumbing plumbing={machine.data.plumbing} nowMs={nowMs} /> : <PlumbingMissing />)}
 
       {machine.data && <Findings findings={machine.data.findings ?? []} />}
 
@@ -486,6 +403,8 @@ export function MachinePage() {
             )}
           </div>
         </div>
+      )}
+      </div>
       )}
     </div>
   );

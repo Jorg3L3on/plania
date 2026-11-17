@@ -109,6 +109,7 @@ const Thread = ({ c, po, onPedirlo, onMore, busy }: { c: ConsultaView; po: strin
 export const Pedir = ({
   projects,
   initial,
+  initialText,
   disabled,
   onAsk,
   onPictures,
@@ -117,6 +118,8 @@ export const Pedir = ({
 }: {
   projects: OrgProject[];
   initial: string | null;
+  /** Words handed over from elsewhere (Máquinas' «Algo falló»). */
+  initialText?: string | null;
   disabled?: boolean;
   onAsk: (slug: string, input: AskInput) => Promise<AskResult>;
   onPictures: () => void;
@@ -126,7 +129,7 @@ export const Pedir = ({
   const live = projects.filter((p) => !p.paused && p.light !== "paused");
   const [slug, setSlug] = useState(initial && live.some((p) => p.slug === initial) ? initial : (live[0]?.slug ?? ""));
   const p = live.find((x) => x.slug === slug) ?? null;
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText ?? "");
   const [mode, setMode] = useState<AskMode>("forma");
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);

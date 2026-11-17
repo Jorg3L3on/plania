@@ -405,3 +405,19 @@ test("I62-7: ideas group by what they need from the owner", () => {
   assert.equal(rows[1].who, "Falta el doc Research");
   assert.equal(rows[0].stop, "diseno");
 });
+
+// ---- PLA-I62-8: Motores, Máquinas, Plomería, the sheets
+const plomeria = await load("components/corriente/plomeria.tsx");
+
+test("I62-8: the sheets open from the address; Plomería's headline says how the company runs", () => {
+  assert.deepEqual(page.hojaOf("?hoja=pausar:filmia"), { kind: "pausar", slug: "filmia" });
+  assert.deepEqual(page.hojaOf("?proyecto=filmia&hoja=meta"), { kind: "meta", slug: "filmia" });
+  assert.deepEqual(page.hojaOf("?nuevo"), { kind: "nuevo", slug: null });
+  assert.equal(page.hojaOf("?hoja=borrar:filmia"), null);
+  const pl = (over: Record<string, unknown> = {}) => ({ company: { paused: false, paused_at: null }, plan: { five_hour_pct: 20, guard_pct: 70, override: false }, usage: { asistente: { used: 0 }, projects: [{ slug: "a", title: "A", paused: false, usage: { used: 0 } }, { slug: "b", title: "B", paused: true, usage: { used: 0 } }] }, ...over });
+  assert.equal(plomeria.plumbingHead(pl()).title, "La compañía está en marcha.");
+  assert.equal(plomeria.plumbingHead(pl({ company: { paused: true, paused_at: null } })).tone, "stop");
+  assert.equal(plomeria.plumbingHead(pl({ plan: { five_hour_pct: 20, guard_pct: 70, override: true } })).title, "La compañía trabaja sin el freno del plan.");
+  assert.match(plomeria.plumbingHead(pl({ plan: { five_hour_pct: 80, guard_pct: 70, override: false } })).sub, /80% y el freno está en 70%/);
+  assert.equal(plomeria.weekParts({ usage: { week: { used: 584710, cache_read: 5, cache_create: 2 }, asistente: { used: 0 }, projects: [] } }).main, 584710);
+});

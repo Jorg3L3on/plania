@@ -116,6 +116,7 @@ export const Stream = ({
   lanes,
   links,
   onResume,
+  onNew,
   resuming,
   pedir,
 }: {
@@ -124,6 +125,7 @@ export const Stream = ({
   lanes: Lane[];
   links: StreamLinks;
   onResume: (slug: string) => void;
+  onNew?: () => void;
   resuming: string | null;
   pedir: ReactNode;
 }) => (
@@ -175,6 +177,13 @@ export const Stream = ({
               <StreamLane lane={l} i={i} links={links} onResume={onResume} resuming={resuming} />
             </Fragment>
           ))
+        )}
+        {onNew && (
+          <div className="cor-newproj">
+            <Btn kind="quiet" small onClick={onNew} data-control="nuevo-proyecto">
+              + Nuevo proyecto
+            </Btn>
+          </div>
         )}
       </div>
     </section>
