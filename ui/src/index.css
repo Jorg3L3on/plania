@@ -1169,6 +1169,56 @@
   .tubo-fold { display: flex; align-items: center; gap: 12px; margin: 0; padding: 4px 12px; min-height: 32px; min-width: 0; font-size: 12.5px; color: var(--sb-faint); white-space: nowrap; }
   .tubo-fold > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .tubo-fold .tubo-link { align-self: center; margin-left: auto; }
+  /* PLA-I54-3: La ficha's Pedido tab (edificio/pedido.tsx). The trail scrolls inside; the note box and the actions
+     stay at the bottom of the card. */
+  /* La ficha's column never grows past its track: an input's own width must not push the card wider. With six tabs
+     (Pedido is new) each tab is a little narrower so all fit at 1280. */
+  .edi-ficha { grid-template-columns: minmax(0, 1fr); }
+  .edi-fi-tabs .edi-fi-tab { padding-left: 4px; padding-right: 4px; }
+  .edi-pd-row > input { width: 0; }
+  .edi-pd { display: grid; gap: 9px; min-width: 0; }
+  .edi-pd-kv { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .edi-pd-key { font-family: var(--font-mono); font-size: 11.5px; color: var(--e-muted); }
+  .edi-pd-chip { font-size: 11.5px; font-weight: 500; border: 1px solid rgb(255 255 255 / 0.16); border-radius: 99px; padding: 2px 8px; color: var(--e-muted); }
+  .edi-pd-chip[data-where] { color: var(--e-fg); }
+  .edi-pd-state { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--sc); }
+  .edi-pd-state i { width: 8px; height: 8px; border-radius: 50%; background: var(--sc); }
+  .edi-pd-title { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 17px; line-height: 1.2; overflow-wrap: anywhere; }
+  .edi-pd-line { margin: 0; font-size: 13px; color: var(--e-muted); }
+  .edi-pd-ask { display: grid; gap: 7px; padding: 10px 11px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--e-you) 55%, transparent); background: color-mix(in srgb, var(--e-you) 10%, transparent); font-size: 13px; }
+  .edi-pd-ask > b { color: var(--e-you-ink); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+  .edi-pd-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .edi-pd-opts .edi-btn { min-height: 32px; font-size: 12.5px; }
+  .edi-pd-row { display: flex; gap: 6px; min-width: 0; }
+  .edi-pd-row > input, .edi-pd-row > textarea { flex: 1; min-width: 0; min-height: 36px; padding: 8px 11px; border-radius: 12px; border: 1px solid rgb(255 255 255 / 0.16); background: #141831; color: var(--e-fg); font: inherit; font-size: 13px; resize: vertical; }
+  .edi-pd-row > input::placeholder, .edi-pd-row > textarea::placeholder { color: rgb(255 255 255 / 0.5); }
+  .edi-pd-tabs { display: flex; gap: 14px; border-bottom: 1px solid rgb(255 255 255 / 0.1); }
+  .edi-pd-tabs button { border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 4px 0 6px; background: none; color: var(--e-muted); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; }
+  .edi-pd-tabs button[aria-selected="true"] { color: var(--e-fg); border-color: var(--c); }
+  .edi-pd-tabs button:focus-visible, .edi-pd-scroll:focus-visible, .edi-pd-doc:focus-visible { outline: 2px solid var(--e-fg); outline-offset: 2px; }
+  .edi-pd-scroll { max-height: min(46vh, 380px); overflow: auto; padding-right: 4px; scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.18) transparent; }
+  .edi-pd-trail { list-style: none; margin: 0; padding: 0; }
+  .edi-pd-trail li { position: relative; display: grid; grid-template-columns: 48px 12px minmax(0, 1fr); gap: 0 8px; padding-bottom: 11px; font-size: 13px; overflow-wrap: anywhere; }
+  .edi-pd-trail time { padding-top: 2px; font-family: var(--font-mono); font-size: 11px; color: var(--e-muted); }
+  .edi-pd-trail li > i { position: relative; z-index: 1; width: 9px; height: 9px; margin: 5px auto 0; border-radius: 99px; background: #6b7290; }
+  .edi-pd-trail li[data-me] > i { background: var(--e-fg); }
+  .edi-pd-trail li::before { content: ""; position: absolute; left: 61.5px; top: 8px; bottom: -6px; width: 1px; background: rgb(255 255 255 / 0.14); }
+  .edi-pd-trail li:last-child::before { display: none; }
+  .edi-pd-doc { display: inline-block; margin-top: 4px; padding: 1px 6px; border: 1px solid rgb(255 255 255 / 0.16); border-radius: 6px; background: none; color: #8fd6ff; font-family: var(--font-mono); font-size: 11px; cursor: pointer; }
+  .edi-pd-thumbs:empty { display: none; }
+  .edi-pd-thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .edi-pd-pitch { display: grid; gap: 9px; margin: 0; font-size: 13px; }
+  .edi-pd-pitch div { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 8px; }
+  .edi-pd-pitch dt { padding-top: 1px; color: var(--e-muted); font-size: 12px; }
+  .edi-pd-pitch dd { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+  .edi-pd-pitch dd[data-todo] { color: #8d94aa; font-style: italic; }
+  .edi-pd-sub { margin: 10px 0 0; color: var(--e-muted); font-size: 12.5px; }
+  .edi-pd-foot { display: grid; gap: 8px; padding-top: 9px; border-top: 1px solid rgb(255 255 255 / 0.1); }
+  .edi-pd-foot:empty { display: none; }
+  .edi-pd-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .edi-pd-acts .edi-btn-primary { flex: 1; }
+  .edi-pd-drop { color: #ffc0cc; border-color: transparent; }
+  .edi-pd-drop[data-confirm] { border-color: #ff6b8a; background: rgb(255 107 138 / 0.12); }
   /* PLA-I54-1: Pedir's side page: the textarea, the pictures' slot (F5) and the two modes. */
   .edi-ask-text { width: 100%; min-height: 110px; resize: vertical; font: inherit; font-size: 14px; line-height: 1.4; padding: 10px 12px; border-radius: 12px; color: var(--e-fg); background: var(--background, #0b0d13); border: 1px solid var(--e-line); }
   .edi-ask-text::placeholder { color: var(--e-muted); }

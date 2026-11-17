@@ -2,14 +2,18 @@
 // whatever was clicked; ?f=<kind>:<ref> carries it so a link reopens it. The old side-page links still land:
 // ?m=<slug>:<agent> is a teammate, ?plan=<slug> the plan, ?add=<slug> adding someone (sheetOf keeps reading them for
 // the floor they name). Pure; the page owns the navigation.
-export const FICHA_TABS = ["resumen", "ideas", "diseno", "prs", "docs"] as const;
+// PLA-I54-3: Pedido, the owner's requests taking shape (a capsule in the tube opens there).
+export const FICHA_TABS = ["resumen", "pedido", "ideas", "diseno", "prs", "docs"] as const;
 export type FichaTab = (typeof FICHA_TABS)[number];
-export const TAB_WORD: Record<FichaTab, string> = { resumen: "Resumen", ideas: "Ideas", diseno: "Diseño", prs: "PRs", docs: "Docs" };
+export const TAB_WORD: Record<FichaTab, string> = { resumen: "Resumen", pedido: "Pedido", ideas: "Ideas", diseno: "Diseño", prs: "PRs", docs: "Docs" };
 
 export type FichaRef =
   | { kind: "tab"; tab: FichaTab }
   | { kind: "step"; key: string }
   | { kind: "idea"; key: string }
+  // PLA-I54-3: one request of the owner's (?f=pedido:<key>) and the shelf of saved ones (?f=guardadas).
+  | { kind: "pedido"; key: string }
+  | { kind: "guardadas" }
   | { kind: "leg"; key: string }
   | { kind: "member"; agent: string }
   | { kind: "pr"; n: number }
@@ -42,12 +46,12 @@ export function fichaOf(search: string): { ref: FichaRef; slug: string | null } 
     const ref = at < 0 ? "" : f.slice(at + 1);
     const one = (r: FichaRef | null) => (r ? { ref: r, slug: null } : null);
     if (kind === "tab") return one((FICHA_TABS as readonly string[]).includes(ref) ? { kind: "tab", tab: ref as FichaTab } : null);
-    if (kind === "step" || kind === "idea" || kind === "leg") return one(KEY.test(ref) ? { kind, key: ref } : null);
+    if (kind === "step" || kind === "idea" || kind === "leg" || kind === "pedido") return one(KEY.test(ref) ? { kind, key: ref } : null);
     if (kind === "member") return one(ref ? { kind, agent: ref } : null);
     if (kind === "pr") return one(/^\d{1,7}$/.test(ref) ? { kind, n: Number(ref) } : null);
     if (kind === "doc") return one(UUID.test(ref) ? { kind, id: ref } : null);
     if (kind === "lienzo") return one(LIENZO.test(ref) ? { kind, url: ref } : null);
-    if (kind === "plan" || kind === "app" || kind === "sumar" || kind === "sueltos") return one({ kind });
+    if (kind === "plan" || kind === "app" || kind === "sumar" || kind === "sueltos" || kind === "guardadas") return one({ kind });
     if (kind === "maq") {
       if (ref.startsWith("tabla:")) return one(TABLE.test(ref.slice(6)) ? { kind: "maq-tabla", name: ref.slice(6) } : null);
       return one((MAQ_WHAT as readonly string[]).includes(ref) ? { kind: "maq", what: ref as MaqWhat } : null);
@@ -70,6 +74,7 @@ export function fichaParam(ref: FichaRef): string {
     case "step":
     case "idea":
     case "leg":
+    case "pedido":
       return `${ref.kind}:${ref.key}`;
     case "member":
       return `member:${ref.agent}`;
@@ -102,6 +107,7 @@ export function fichaSearch(slug: string | null, ref: FichaRef | null, nivel?: "
 export function tabOf(ref: FichaRef): FichaTab {
   if (ref.kind === "tab") return ref.tab;
   if (ref.kind === "idea") return "ideas";
+  if (ref.kind === "pedido" || ref.kind === "guardadas") return "pedido";
   if (ref.kind === "lienzo") return "diseno";
   if (ref.kind === "pr") return "prs";
   if (ref.kind === "doc") return "docs";
@@ -114,6 +120,6 @@ export function escStep(ref: FichaRef): FichaRef | "close" {
 }
 
 // Which reads a view needs: the ficha rows only for the four list tabs and their details (never for Resumen).
-export const needsRows = (ref: FichaRef) => ref.kind === "idea" || ref.kind === "pr" || ref.kind === "lienzo" || ref.kind === "doc" || (ref.kind === "tab" && ref.tab !== "resumen");
+export const needsRows = (ref: FichaRef) => ref.kind === "idea" || ref.kind === "pr" || ref.kind === "lienzo" || ref.kind === "doc" || (ref.kind === "tab" && ref.tab !== "resumen" && ref.tab !== "pedido");
 export const isMaq = (ref: FichaRef) => ref.kind === "maq" || ref.kind === "maq-tabla";
 export const needsTask = (ref: FichaRef): string | null => (ref.kind === "step" || ref.kind === "idea" ? ref.key : null);
