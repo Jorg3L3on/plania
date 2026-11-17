@@ -14,6 +14,8 @@ import { TeToca } from "@/components/corriente/tetoca";
 import { Pedir } from "@/components/corriente/pedir";
 import { Pedidos } from "@/components/corriente/pedidos";
 import { Asistente } from "@/components/corriente/asistente";
+import { Board, Paso, type BoardLinks } from "@/components/corriente/tablero";
+import { Equipo } from "@/components/corriente/equipo";
 import type { PendLinks } from "@/components/corriente/pendiente";
 import { Head } from "@/components/corriente/header";
 import { Btn, NotYet, ReadError } from "@/components/corriente/parts";
@@ -182,6 +184,30 @@ export const CorrientePage = () => {
         );
       return <Entrega p={p} d={d} acts={acts} back={linkTo({ slug: p.slug })} />;
     }
+    const boardLinks: BoardLinks = {
+      paso: (key) => linkTo({ slug: p.slug, ver: { kind: "paso", key } }),
+      iniciativa: (key) => linkTo({ slug: p.slug, ver: { kind: "iniciativa", key } }),
+      entrega: (d) => linkTo({ slug: p.slug, ver: { kind: "entrega", id: d.id } }),
+      sueltos: linkTo({ slug: p.slug, tab: "tablero" }),
+      doc: (id) => linkTo({ slug: p.slug, ver: { kind: "doc", id } }),
+    };
+    if (at.ver?.kind === "paso" || at.ver?.kind === "iniciativa") return <Paso p={p} k={at.ver.key} links={boardLinks} back={linkTo({ slug: p.slug, tab: "tablero" })} />;
+    if (at.tab === "tablero")
+      return <Board p={p} decisions={decisions} acts={acts} links={boardLinks} now={now} chosenKey={new URLSearchParams(location.search).get("elegida")} onChoose={(k) => navigate(hrefOf({ slug: p.slug, tab: "tablero", extra: k ? { elegida: k } : {} }), { replace: true })} />;
+    if (at.tab === "equipo")
+      return (
+        <Equipo
+          p={p}
+          now={now}
+          timeZone={timeZone}
+          companyPaused={paused}
+          acts={acts}
+          focus={at.ver?.kind === "miembro" ? at.ver.agent : at.ver?.kind === "sumar" ? "sumar" : null}
+          motorTo={linkTo({ slug: p.slug, tab: "motores" })}
+          sumarTo={linkTo({ slug: p.slug, ver: { kind: "sumar" } })}
+          motorDefault={company?.motor_default}
+        />
+      );
     if (at.tab === "pedidos")
       return (
         <Pedidos

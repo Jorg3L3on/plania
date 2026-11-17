@@ -347,3 +347,37 @@ test("I62-5: pictures: type, size and the limit of six, said once", () => {
   assert.equal(stream.projectOfKey("MIA-IDEA9", [summary("mianovia", [ticket("MIA-1", "Done")]), summary("filmia", [ticket("FIL-1", "Done")])]), "mianovia");
   assert.equal(stream.projectOfKey("ZZZ-1", []), null);
 });
+
+// ---- PLA-I62-6: Tablero, Paso, Equipo
+const tablero = await load("components/corriente/tablero.tsx");
+const equipo = await load("components/corriente/equipo.tsx");
+
+test("I62-6: the board: stations, inline Detener and Hacer primero, the chosen card's bar, Cerrar iniciativa", () => {
+  const { acts } = fakeActs();
+  const tkL = (k: string, e: string, live = false) => ({ ...tk(k, e), etapa: { ...etapa(e), live } });
+  const p = project("filmia", {
+    team: [{ ...member("taller-filmia", "taller", "running", { ticket: "FIL-2", title: "x" }), now: { ticket: "FIL-2", since: "2026-11-17T20:00:00Z", run_id: "r1" } }],
+    tablero: { initiatives: [{ key: "FIL-I1", title: "Primera", status: "Active", done: 1, total: 4, tickets: [tkL("FIL-1", "lista"), tkL("FIL-2", "construyendo", true), tkL("FIL-3", "te_toca")] }, { key: "FIL-I9", title: "Lista", status: "Active", done: 2, total: 2, closed: 2, can_close: true, version: 3, tickets: [] }], loose: [], loose_done: 0 },
+    next_first: null,
+  });
+  const d = { ...decision("d3", "filmia", "deliverable", "FIL-3") };
+  const links = { paso: (k: string) => `/paso/${k}`, iniciativa: (k: string) => `/ini/${k}`, entrega: (x: { id: string }) => `/e/${x.id}`, sueltos: "/s", doc: (id: string) => `/doc/${id}` };
+  const out = html(h(tablero.Board, { p, decisions: [d], acts, links, now: Date.parse("2026-11-17T20:12:00Z"), chosenKey: null, onChoose: () => {} }));
+  for (const s of ["Por hacer", "Taller", "QA", "Revisión", "Te toca", "Hecho"]) assert.ok(out.includes(`>${s}<`), s);
+  assert.match(out, /data-card="FIL-2"[\s\S]*?>Detener</);
+  assert.match(out, /data-card="FIL-1"[\s\S]*?>Hacer primero</);
+  assert.match(out, /data-bar="FIL-3"/, "the te toca card is chosen by default");
+  assert.equal((out.match(/cor-btn primary/g) ?? []).length, 1);
+  assert.match(out, /data-control="tablero-aceptar"[^>]*>Aceptar</);
+  assert.match(out, /href="\/e\/d3"[^>]*>Ver la entrega/);
+  assert.match(out, /data-close="FIL-I9"[\s\S]*?Cerrar iniciativa/);
+  const empty = html(h(tablero.Board, { p: project("w", { tablero: { initiatives: [], loose: [], loose_done: 0 } }), decisions: [], acts, links, now: 0, chosenKey: null, onChoose: () => {} }));
+  assert.match(empty, /data-board="empty"[\s\S]*?Arma el plan/);
+});
+
+test("I62-6: the team's headline and the seats' lines", () => {
+  assert.deepEqual(equipo.teamHeadline([member("a", "taller", "running"), member("b", "product-owner"), member("c", "research"), member("d", "artist")], false), { now: "Uno trabajando.", rest: "Tres libres." });
+  assert.deepEqual(equipo.teamHeadline([member("b", "product-owner")], false), { now: "Nadie trabajando.", rest: "Uno libre." });
+  assert.equal(equipo.teamHeadline([], true).now, "El equipo está en pausa.");
+  assert.equal(equipo.ROLE_LINE.taller, "Construye lo que está en el plan");
+});
