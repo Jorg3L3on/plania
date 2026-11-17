@@ -259,8 +259,11 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
   ).rows as Row[];
   const waits = (
     await db.execute(sql`
-      select tb.task_id, b.title from ${taskBlockers} tb join ${tasks} b on b.id = tb.blocker_id
-      where tb.task_id in (${idList}) and b.status not in (${sql.join(SETTLED_STATUSES.map((s) => sql`${s}`), sql`, `)})
+      select tb.task_id, b.title from ${taskBlockers} tb join ${tasks} b on b.id = tb.blocker_id join ${tasks} w on w.id = tb.task_id
+      where tb.task_id in (${idList})
+        and (b.status not in (${sql.join(SETTLED_STATUSES.map((s) => sql`${s}`), sql`, `)})
+          -- PLA-54: a Backlog step moves to Lista once the step before lands, so an In review blocker still holds it.
+          or (w.status = 'Backlog' and b.status = 'In review'))
       order by b.phase nulls last, b.key`)
   ).rows as Row[];
   const typed = (
@@ -335,7 +338,11 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
       waitsOn: waitBy.get(t.id) ?? [],
       held: heldBy.get(t.id) ?? null,
       blockedNote: t.blockedNote ?? null,
-      postponed: !!parent && ((parent.id === here?.id && t.status === "Backlog") || (parent.status === "On hold" && (t.status === "Backlog" || t.status === "Ready"))),
+      // PLA-54: a step filed in Backlog that never moved is waiting its turn in the chain, not postponed; only one
+      // someone put back in Backlog (its status moved), or under an On hold initiative, is postponed on purpose.
+      postponed:
+        !!parent &&
+        ((parent.id === here?.id && t.status === "Backlog" && t.statusChangedAt !== null) || (parent.status === "On hold" && (t.status === "Backlog" || t.status === "Ready"))),
       delivery: d ? { returned: action === "cambios", open: !action, at: date(d.at)! } : null,
       photos: !!pr && probadorGate(p, t, (pr.head_sha as string | null) ?? null).pending,
     };

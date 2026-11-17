@@ -472,6 +472,89 @@ test("PLA-15: several tickets freed at once: Jorge's pick first, then priority; 
   assert.deepEqual((await wakes()).map((x) => x.task_key), ["LD-H3", "LD-I2"]);
 });
 
+// ---- PLA-54: a PO's plan files its steps in Backlog; the landing of step N moves step N+1 to Ready and wakes Taller.
+
+const { promoteDue } = await import("../src/jobs/blockers.js");
+const leg = async (status: string): Promise<string> => {
+  const i = await writes.createTask(db, { project: "micasa", kind: "initiative", title: `Tramo ${status}`, scope: "PRD" } as never, ctx);
+  await raw.query(`update tasks set status = $2 where key = $1`, [i.key, status]);
+  return i.key;
+};
+const statusOf = async (key: string) => (await raw.query(`select status from tasks where key = $1`, [key])).rows[0].status as string;
+
+test("PLA-54 #1: landing step 1 of a Backlog chain moves step 2 to Ready and queues one Taller wake; step 3 waits", async () => {
+  const i = await leg("Active");
+  await backlog("CH-A1", { parent_key: i, phase: 1, status: "Ready" });
+  await backlog("CH-A2", { parent_key: i, phase: 2, blocked_by: ["CH-A1"] });
+  await backlog("CH-A3", { parent_key: i, phase: 3, blocked_by: ["CH-A2"] });
+  await raw.query(`delete from agent_runs`);
+
+  await land("CH-A1");
+  assert.equal(await statusOf("CH-A2"), "Ready");
+  assert.equal(await statusOf("CH-A3"), "Backlog");
+  assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key, x.summary]), [["taller", "CH-A2", "queued: event unblocked by CH-A1"]]);
+  const moved = (await raw.query(`select actor, payload from events where task_key = 'CH-A2' and type = 'task.status' order by id`)).rows;
+  assert.deepEqual(moved.map((e) => [e.actor.session_id, e.payload.from, e.payload.to, e.payload.unblocked_by]), [["system", "Backlog", "Ready", ["CH-A1"]]]);
+
+  // Merged → Released → Done is the same landing: nothing new.
+  await raw.query(`delete from agent_runs`);
+  await move("CH-A1", "Released");
+  await move("CH-A1", "Done");
+  assert.deepEqual(await wakes(), []);
+  assert.equal(await statusOf("CH-A3"), "Backlog");
+});
+
+test("PLA-54 #2: a step put back in Backlog, under a Planning or On hold initiative, or behind an In review step stays put", async () => {
+  // Put back in Backlog by someone: postponed on purpose.
+  const active = await leg("Active");
+  await backlog("CH-B1", { parent_key: active, status: "Ready" });
+  await backlog("CH-B2", { parent_key: active, blocked_by: ["CH-B1"] });
+  await toReady("CH-B2");
+  await move("CH-B2", "Backlog");
+  // Behind a step that is only In review: its code is not in the branch yet.
+  await backlog("CH-C1", { parent_key: active, status: "Ready" });
+  await backlog("CH-C2", { parent_key: active, blocked_by: ["CH-C1"] });
+  await raw.query(`update tasks set status = 'In review' where key = 'CH-C1'`);
+  // An initiative not building: Planning, On hold.
+  const planning = await leg("Planning");
+  await backlog("CH-D1", { parent_key: planning, status: "Ready" });
+  await backlog("CH-D2", { parent_key: planning, blocked_by: ["CH-D1"] });
+  const held = await leg("On hold");
+  await backlog("CH-E1", { parent_key: held, status: "Ready" });
+  await backlog("CH-E2", { parent_key: held, blocked_by: ["CH-E1"] });
+  // A loose ticket (no initiative) and one with another blocker still open.
+  await backlog("CH-F1", { status: "Ready" });
+  await backlog("CH-F2", { blocked_by: ["CH-F1"] });
+  await backlog("CH-G1", { parent_key: active, status: "Ready" });
+  await backlog("CH-G2", { parent_key: active, blocked_by: ["CH-G1", { human_action: { text: "Crear la llave" } }] });
+
+  await raw.query(`delete from agent_runs`); // the setup's own move of CH-B2 to Ready
+  for (const k of ["CH-B1", "CH-D1", "CH-E1", "CH-F1", "CH-G1"]) await land(k);
+  assert.equal(await promoteDue(db), 0, "the sweep finds nothing either");
+  for (const k of ["CH-B2", "CH-C2", "CH-D2", "CH-E2", "CH-F2", "CH-G2"]) assert.equal(await statusOf(k), "Backlog", k);
+  assert.deepEqual(await wakes(), []);
+
+  // The On hold initiative resumes: its step whose blocker landed moves then.
+  await raw.query(`update tasks set status = 'Active' where key = $1`, [held]);
+  await land("CH-C1");
+  assert.equal(await statusOf("CH-C2"), "Ready");
+  assert.equal(await statusOf("CH-E2"), "Ready");
+});
+
+test("PLA-54 #3: the blockers job sweeps a chain step whose blocker landed before the fix", async () => {
+  const i = await leg("Active");
+  await backlog("CH-H1", { parent_key: i, status: "Ready" });
+  await backlog("CH-H2", { parent_key: i, blocked_by: ["CH-H1"] });
+  await raw.query(`update tasks set status = 'Done' where key = 'CH-H1'`);
+  await raw.query(`delete from agent_runs`);
+  assert.equal(await statusOf("CH-H2"), "Backlog");
+
+  assert.equal(await promoteDue(db), 1);
+  assert.equal(await statusOf("CH-H2"), "Ready");
+  assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key, x.summary]), [["taller", "CH-H2", "queued: event unblocked by CH-H1"]]);
+  assert.equal(await promoteDue(db), 0, "once");
+});
+
 // ---- PLA-16: a run that failed holding its ticket is retried once; a second failure in a row goes to Jorge.
 
 const { sweepFailedRuns, failureWords } = await import("../src/runner/failed.js");

@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
-import { blockers, envCommits, envStates, projectMetrics, taskAliases, taskBlockers, tasks, type Actor, type Task } from "../db/schema.js";
+import { blockers, envCommits, envStates, projectMetrics, projects, taskAliases, taskBlockers, tasks, type Actor, type Task } from "../db/schema.js";
 import { ToolError } from "./errors.js";
 import { gatingSql, isGating } from "./jorge-lines.js";
 import { SYSTEM_ACTOR, iso, type Emit, type Q } from "./tx.js";
@@ -278,7 +278,57 @@ export async function promoteUnblocked(tx: Q, emit: Emit, projectId: string): Pr
     await emit("task.status", u, { from: "Blocked", to: "Ready" }, SYSTEM_ACTOR);
     promoted.push(u.key);
   }
+  promoted.push(...(await promoteChained(tx, emit, projectId)));
   return promoted;
+}
+
+// PLA-54: the steps of a plan wait in Backlog on the step before (a PO's plan is never filed Ready), and the
+// landing wake (PLA-15) only looks at Ready tickets, so step 2 waited forever once step 1 landed. A step goes
+// to Ready by the server when it was filed in Backlog and never moved since (one someone put back in Backlog
+// stays put), its initiative is building (Active or Shipping), it waits on at least one ticket, every ticket it
+// waits on has landed (Merged, Released or Done: its code is in the branch), and no other blocker holds.
+// The move to Ready wakes Taller like any move (src/runner/events.ts).
+const chainedReady = sql`(${tasks.kind} = 'ticket' and ${tasks.status} = 'Backlog' and ${tasks.statusChangedAt} is null
+  and exists (select 1 from ${tasks} i where i.id = ${tasks.parentId} and i.status in ('Active', 'Shipping'))
+  and exists (select 1 from ${taskBlockers} tb where tb.task_id = ${tasks.id})
+  and not exists (
+    select 1 from ${taskBlockers} tb join ${tasks} b on b.id = tb.blocker_id
+    where tb.task_id = ${tasks.id} and b.status not in ('Merged', 'Released', 'Done')
+  )
+  and not ${hasUnsatisfiedBlocker(tasks.id)})`;
+
+export async function promoteChained(tx: Q, emit: Emit, projectId: string): Promise<string[]> {
+  const rows = await tx.select({ id: tasks.id, key: tasks.key }).from(tasks).where(and(eq(tasks.projectId, projectId), chainedReady));
+  const promoted: string[] = [];
+  for (const r of rows) {
+    const [u] = await tx
+      .update(tasks)
+      .set({ status: "Ready", statusChangedAt: sql`now()`, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
+      .where(and(eq(tasks.id, r.id), eq(tasks.status, "Backlog")))
+      .returning({ id: tasks.id, key: tasks.key });
+    if (!u) continue;
+    const waited = await tx
+      .select({ key: tasks.key })
+      .from(taskBlockers)
+      .innerJoin(tasks, eq(tasks.id, taskBlockers.blockerId))
+      .where(eq(taskBlockers.taskId, r.id))
+      .orderBy(asc(tasks.key));
+    const keys = waited.map((b) => b.key);
+    await emit("task.status", u, { from: "Backlog", to: "Ready", unblocked_by: keys }, SYSTEM_ACTOR);
+    await emit("note", u, { text: `Pasa a Lista sola: ${keys.join(", ")} ya entró (PLA-54).` }, SYSTEM_ACTOR);
+    promoted.push(u.key);
+  }
+  return promoted;
+}
+
+// Projects with a chain step that should already be Ready: what the blockers job sweeps (a step whose blocker
+// landed before PLA-54, or through a write that did not run promoteUnblocked).
+export async function projectsWithChainedReady(tx: Q): Promise<{ projectId: string; slug: string }[]> {
+  return tx
+    .selectDistinct({ projectId: tasks.projectId, slug: projects.slug })
+    .from(tasks)
+    .innerJoin(projects, eq(projects.id, tasks.projectId))
+    .where(chainedReady);
 }
 
 // Jorge resolves a human action (the inbox); the ticket may move to Ready right away.
