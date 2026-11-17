@@ -587,7 +587,7 @@ test("I46-13 #1: the + window opens the Sumar sheet; it adds the role with its p
   const after = render(company({ projects: [project({ team: [...project().team, member("qa", { packs: ["pruebas-primero"] })] })] }), { onAdd: noop });
   assert.ok(after.includes('data-agent="qa-workia"') && after.includes('data-prop="magnifier"'));
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("api.addToTeam(v.slug, v.template, v.packs)") && page.includes("api.packs()") && page.includes('invalidateQueries({ queryKey: ["company"] })'));
+  assert.ok(page.includes("api.addToTeam(v.slug, v.template, v.packs, v.motor)") && page.includes("api.packs()") && page.includes('invalidateQueries({ queryKey: ["company"] })'));
 });
 
 test("I46-13 #2: role states, Otro, and the packs a role suggests", () => {
