@@ -760,7 +760,7 @@ const Compania = () => {
             )}
             typing={typing}
             nowActs={nowActs}
-            ventanaFor={(p) => <VentanaLive slug={p.slug} title={p.title} timeZone={timeZone} />}
+            // PLA-47: no Ventana a la app beside Ahora on the Trabajo level (Jorge, 2026-11-16).
             // PLA-I42-5: Brief de hoy, the Morning brief's 0-token lines; PLA-I47-2: inside Tu oficina, not above the floor.
             office={zoomOut}
             onOffice={() => setZoom(!zoomOut, fichaProject?.slug ?? piso)}
