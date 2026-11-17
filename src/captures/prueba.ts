@@ -296,9 +296,17 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   }
   if (copies.get(c.id) !== c || c.stopping) return;
 
-  const port = await pickPort(db, s.port);
+  // PLA-52: one copy picks at a time, and holds its port before the next one looks: El Probador starts the test copy
+  // and the delivery's copy together, and both took the same free port (the second one died at start).
+  const picking = portLock.then(async () => {
+    const n = await pickPort(db, s.port);
+    if (n && copies.get(c.id) === c && !c.stopping) c.port = n;
+    return n;
+  });
+  portLock = picking.catch(() => null);
+  const port = await picking;
   if (!port) return fail(db, c, `No hay un puerto libre entre ${s.port} y ${s.port + PORT_SPAN - 1}`);
-  c.port = port;
+  if (copies.get(c.id) !== c || c.stopping) return;
   const command = s.start_command.replaceAll("{port}", String(port));
   c.command = command;
   let child: ChildLike;
@@ -414,6 +422,8 @@ export function installCommand(wt: string, s: Pick<CaptureSettings, "install_com
   if (found) h.update(readFileSync(path.join(wt, found[0])));
   return { command, hash: h.digest("hex") };
 }
+
+let portLock: Promise<unknown> = Promise.resolve();
 
 // The first port from base up that no copy, no registered server and nothing listening holds.
 export async function pickPort(db: Db, base: number): Promise<number | null> {
