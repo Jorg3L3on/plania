@@ -230,3 +230,27 @@ export function clockLine(now: number, timeZone?: string): string {
   const time = new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(d);
   return `${day} · ${time}`.toUpperCase();
 }
+
+// ---- which parts La corriente draws already (each phase of PLA-I62 adds its own); the rest link to the building.
+export const BUILT: { views: View[]; tabs: Tab[]; vers: Ver["kind"][] } = {
+  views: ["corriente", "piezas"],
+  tabs: [],
+  vers: [],
+};
+export function isBuilt(at: Partial<At>): boolean {
+  if (!at.slug) return BUILT.views.includes(at.view ?? "corriente");
+  if (at.ver) return BUILT.vers.includes(at.ver.kind);
+  return BUILT.tabs.includes(at.tab ?? "ahora");
+}
+/** The address for a place: La corriente's when it is drawn here, else its place in the building. */
+export const linkTo = (at: Partial<At>): string => (isBuilt(at) ? hrefOf(at) : legacyHref(at));
+
+// ---- asking (the same words and limit as the building's ask box)
+export type AskMode = "forma" | "ya" | "pregunta";
+export type AskInput = { text: string; mode: AskMode; consulta?: string };
+export const ASK_MAX = 2000;
+export const MODES: { id: AskMode; name: string; line: string }[] = [
+  { id: "forma", name: "Darle forma", line: "Entra como idea. El PO la entiende, pregunta y la avanza. Nadie escribe código hasta que digas «Constrúyelo»." },
+  { id: "ya", name: "Hacerlo ya", line: "Un cambio pequeño y claro. Sube directo al tablero." },
+  { id: "pregunta", name: "Preguntar", line: "Solo quieres saber algo. El PO lee el código y te contesta. No crea idea ni paso." },
+];
