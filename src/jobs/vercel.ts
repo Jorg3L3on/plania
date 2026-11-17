@@ -3,7 +3,7 @@ import type { Db } from "../db/client.js";
 import { pollState, projects, type Project } from "../db/schema.js";
 import { setEnv } from "../mcp/env.js";
 import { SYSTEM_ACTOR } from "../mcp/tx.js";
-import { releaseMerged, type Fetch } from "./github.js";
+import { closeReleased, releaseMerged, type Fetch } from "./github.js";
 import type { Job } from "./index.js";
 
 // The Vercel poller (R-20, R-21, R-22-lite): every minute, the latest READY deployments of the
@@ -69,6 +69,7 @@ export async function pollVercelProject(db: Db, p: Project, deps: VercelDeps): P
     }
     cursor.last_created = newest;
     summary.released = await releaseMerged(db, p);
+    summary.closed = await closeReleased(db, p);
     await save(null);
   } catch (e) {
     await save(e instanceof Error ? e.message : String(e));

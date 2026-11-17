@@ -41,9 +41,9 @@ test("where an agent may set Done depends on the work type", () => {
   assert.deepEqual(doneFrom("decision-needed"), ["Backlog", "In progress", "Ready"]);
 });
 
-test("the pollers (via system) make only the merge and release moves", () => {
+test("the pollers (via system) make only the merge and release moves, and close a released ticket (PLA-I56-1)", () => {
   assert.deepEqual(allowed("ticket", TICKET_STATUSES, { via: "system" }), [
-    "In review → Merged", "In review → Ready", "Merged → Released", "Released → Merged",
+    "In review → Merged", "In review → Ready", "Merged → Released", "Released → Done", "Released → Merged",
   ]);
 });
 

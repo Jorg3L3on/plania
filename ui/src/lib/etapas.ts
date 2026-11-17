@@ -138,13 +138,20 @@ export type Track = {
   cells: TrackCells;
   // Hecho folds into one stack: how many, and the newest one's title when the read carries it.
   hecho: { count: number; last: string | null; tickets: ProjectTicket[] };
+  // PLA-I56-2: of the landed (done), how many are closed (Done); the rest shipped and wait: Merged on the test copy
+  // (por lanzar), Released and held by a check (por cerrar). canClose: every ticket is Done, Cerrar is accepted.
+  closed: number;
+  shipped: { merged: number; released: number };
+  canClose: boolean;
+  version: number | null;
 };
 export type Board = { tracks: Track[]; lit: Partial<Record<StationId, StageTone>>; tickets: number };
 
 const emptyCells = (): TrackCells => ({ por: [], taller: [], qa: [], rev: [], toca: [] });
 const newestFirst = (a: ProjectTicket, b: ProjectTicket) => Date.parse(b.etapa.since ?? "0") - Date.parse(a.etapa.since ?? "0");
 
-function trackOf(key: string | null, title: string, status: string | null, tickets: ProjectTicket[], done: number, total: number): Track {
+type CloseFacts = { closed?: number; can_close?: boolean; version?: number };
+function trackOf(key: string | null, title: string, status: string | null, tickets: ProjectTicket[], done: number, total: number, close: CloseFacts = {}): Track {
   const cells = emptyCells();
   const landed: ProjectTicket[] = [];
   for (const t of tickets) {
@@ -153,7 +160,22 @@ function trackOf(key: string | null, title: string, status: string | null, ticke
     else cells[col].push(t);
   }
   landed.sort(newestFirst);
-  return { key, title, status, done, total, cells, hecho: { count: Math.max(done, landed.length), last: landed[0]?.title ?? null, tickets: landed } };
+  // An older read without closed: landed counts as closed, as before.
+  const split = close.closed !== undefined;
+  const shipped = split ? { merged: landed.filter((t) => t.status === "Merged").length, released: landed.filter((t) => t.status === "Released").length } : { merged: 0, released: 0 };
+  return {
+    key,
+    title,
+    status,
+    done,
+    total,
+    cells,
+    hecho: { count: Math.max(done, landed.length), last: landed[0]?.title ?? null, tickets: landed },
+    closed: split ? Math.min(close.closed!, done) : done,
+    shipped,
+    canClose: !!close.can_close && !!key && total > 0,
+    version: close.version ?? null,
+  };
 }
 
 // Which windows are lit, and in what colour: QA or Taller at work (now), a returned ticket being fixed (review), an
@@ -174,7 +196,7 @@ export function litOf(tickets: ProjectTicket[]): Partial<Record<StationId, Stage
 
 // sueltos: draw the Sueltos track even when it holds no ticket (the page has cards of its own to put there).
 export function boardOf(t: Tablero, opts: { sueltos?: boolean } = {}): Board {
-  const tracks = t.initiatives.map((i) => trackOf(i.key, i.title, i.status, i.tickets, i.done, i.total));
+  const tracks = t.initiatives.map((i) => trackOf(i.key, i.title, i.status, i.tickets, i.done, i.total, { closed: i.closed, can_close: i.can_close, version: i.version }));
   if (t.loose.length > 0 || t.loose_done > 0 || opts.sueltos) {
     const open = t.loose.filter((x) => !isDone(x.etapa)).length;
     const sueltos = trackOf(null, "Sueltos", null, t.loose, t.loose_done, t.loose_done + open);
@@ -186,11 +208,23 @@ export function boardOf(t: Tablero, opts: { sueltos?: boolean } = {}): Board {
   return { tracks, lit: litOf(all), tickets: all.length };
 }
 
-// «2 de 5», «2 de 5 · en pausa», «sin iniciativa».
+// PLA-I56-2: what is left between landed and closed, in words: «lista para cerrar» once every step is Done,
+// else «2 por lanzar» (merged on the test copy) and «1 por cerrar» (released, held by a check). null: nothing.
+export function closeLine(tr: Track): string | null {
+  if (!tr.key) return null;
+  if (tr.canClose) return "lista para cerrar";
+  const parts = [tr.shipped.merged ? `${tr.shipped.merged} por lanzar` : null, tr.shipped.released ? `${tr.shipped.released} por cerrar` : null].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+// «2 de 5», «2 de 5 · en pausa», «4 de 4 · lista para cerrar», «4 de 4 · 3 por lanzar», «sin iniciativa».
 export function trackLine(tr: Track): string {
   if (!tr.key) return tr.total > 0 ? `${tr.done} de ${tr.total} · sin iniciativa` : "sin iniciativa";
-  return tr.status === "On hold" ? `${tr.done} de ${tr.total} · en pausa` : `${tr.done} de ${tr.total}`;
+  const close = closeLine(tr);
+  return [`${tr.done} de ${tr.total}`, tr.status === "On hold" ? "en pausa" : null, close].filter(Boolean).join(" · ");
 }
+// PLA-I56-2: the share that is closed (Done), apart from trackPct (landed).
+export const closedPct = (tr: Track) => (tr.total > 0 ? Math.round((100 * tr.closed) / tr.total) : 0);
 export const trackPct = (tr: Track) => (tr.total > 0 ? Math.round((100 * tr.done) / tr.total) : 0);
 
 // The verb line under a station: «Taller · trabajando» while lit, else «Taller construye».

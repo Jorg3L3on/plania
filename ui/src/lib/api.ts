@@ -343,7 +343,9 @@ export type AhoraItem = { key: string; title: string; initiative: string | null 
 export type Zona = "pantalla" | "servidor" | "datos" | "docs";
 export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas?: Zona[] };
 export type DoneInitiative = { key: string; title: string; done_at: string | null };
-export type OpenInitiative = { key: string; title: string; status: string; done: number; total: number; tickets: ProjectTicket[] };
+// PLA-I56-1: done counts landed tickets (Merged, Released, Done); closed only Done; can_close when every ticket is Done.
+// An older server sends none of the three (then landed counts as closed, and there is no Cerrar).
+export type OpenInitiative = { key: string; title: string; status: string; done: number; total: number; closed?: number; can_close?: boolean; version?: number; tickets: ProjectTicket[] };
 // PLA-I53-2: GET /api/projects/:slug, with every ticket's stage and the board the floor reads.
 export type StagedTask = TaskRow & { etapa?: Etapa | null };
 export type ProjectRead = Omit<ProjectDetail, "tasks"> & { tasks: StagedTask[]; tablero?: Tablero; ahora?: AhoraItem[] };

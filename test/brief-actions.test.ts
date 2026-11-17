@@ -69,7 +69,10 @@ const fetch = async (url: string) => {
   const ok = (data: unknown) => ({ status: 200, headers: { get: () => null }, json: async () => data });
   if (path.startsWith(`/repos/${REPO}/pulls?`)) return ok([]);
   if (path.startsWith(`/repos/${REPO}/branches`)) return ok([{ name: "sandbox", commit: { sha: SANDBOX } }, { name: "main", commit: { sha: MAIN } }]);
-  if (path.startsWith(`/repos/${REPO}/compare/`)) return ok({ status: "ahead", ahead_by: 2, commits: [{ sha: "c1c1c1c1" }, { sha: SANDBOX }] });
+  // main...sandbox is the release compare; merge...main (PLA-I56-1, does main contain a merge) is behind: the merges
+  // are on sandbox only.
+  if (path.startsWith(`/repos/${REPO}/compare/${MAIN}...`)) return ok({ status: "ahead", ahead_by: 2, commits: [{ sha: "c1c1c1c1" }, { sha: SANDBOX }] });
+  if (path.startsWith(`/repos/${REPO}/compare/`)) return ok({ status: "behind", ahead_by: 0, behind_by: 2, commits: [] });
   return { status: 404, headers: { get: () => null }, json: async () => ({}) };
 };
 

@@ -13,7 +13,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { ProjectTicket, Tablero } from "@/lib/api";
 import { ZonaTags } from "@/components/plan/zona-tags";
-import { boardOf, ciTone, ciWord, OPEN_STATIONS, STATIONS, stationLine, toneOf, trackLine, trackPct, whoLine, wordOf, type Station, type StationId, type StageTone, type Track } from "@/lib/etapas";
+import { boardOf, ciTone, ciWord, closedPct, OPEN_STATIONS, STATIONS, stationLine, toneOf, trackLine, trackPct, whoLine, wordOf, type Station, type StationId, type StageTone, type Track } from "@/lib/etapas";
 
 // The stage colours, from the app's status tokens. «pending» text uses the idle grey so it can be read on the card.
 export const TONE_VAR: Record<StageTone, string> = {
@@ -159,8 +159,10 @@ const TrackLabel = ({ tr, onTrack }: { tr: Track; onTrack?: StageBoardProps["onT
       {tr.key && <span className="sb-tcode">{tr.key}</span>}
       <span className="sb-tname">{tr.title}</span>
       <span className="sb-tsub">{trackLine(tr)}</span>
+      {/* PLA-I56-2: solid for closed steps, half strength for landed ones not closed yet. */}
       <span className="sb-bar" aria-hidden>
-        <i style={{ width: `${trackPct(tr)}%` }} />
+        <i style={{ width: `${closedPct(tr)}%` }} />
+        {trackPct(tr) > closedPct(tr) && <i data-shipped="" style={{ width: `${trackPct(tr) - closedPct(tr)}%` }} />}
       </span>
     </>
   );

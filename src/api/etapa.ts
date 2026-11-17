@@ -168,7 +168,9 @@ export type AhoraItem = { key: string; title: string; initiative: string | null 
 export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas: Zona[] };
 // A completed initiative (Done), for the board's folded line: no tickets.
 export type DoneInitiative = { key: string; title: string; done_at: string | null };
-export type OpenInitiative = { key: string; title: string; status: string; done: number; total: number; tickets: ProjectTicket[] };
+// PLA-I56-1: done counts landed tickets (Merged, Released, Done); closed only Done. can_close: every ticket is Done,
+// so the owner's Cerrar is accepted (the server refuses an initiative with an open ticket). version for that write.
+export type OpenInitiative = { key: string; title: string; status: string; done: number; total: number; closed: number; can_close: boolean; version: number; tickets: ProjectTicket[] };
 export type ProjectEtapas = {
   // Every ticket of the project but Won't do, by key.
   byTicket: Map<string, ProjectTicket>;
@@ -222,7 +224,7 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
     .filter((i) => i.status === "Done")
     .sort((a, b) => landedAt(b) - landedAt(a) || a.key.localeCompare(b.key))
     .map((i) => ({ key: i.key, title: i.title, done_at: iso(i.resolvedAt ?? i.statusChangedAt) }));
-  const empty: ProjectEtapas = { byTicket: new Map(), initiatives: open.map((i) => ({ key: i.key, title: i.title, status: i.status, done: 0, total: 0, tickets: [] })), loose: [], loose_done: 0, loose_done_title: null, done_initiatives, ahora: [] };
+  const empty: ProjectEtapas = { byTicket: new Map(), initiatives: open.map((i) => ({ key: i.key, title: i.title, status: i.status, done: 0, total: 0, closed: 0, can_close: false, version: i.version, tickets: [] })), loose: [], loose_done: 0, loose_done_title: null, done_initiatives, ahora: [] };
   if (ids.length === 0) return empty;
   const idList = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
 
@@ -338,7 +340,8 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
     byTicket,
     initiatives: open.map((i) => {
       const mine = sorted.filter((t) => ticketParent.get(t.key) === i.id);
-      return { key: i.key, title: i.title, status: i.status, done: mine.filter((t) => DONE.includes(t.status)).length, total: mine.length, tickets: mine };
+      const closed = mine.filter((t) => t.status === "Done").length;
+      return { key: i.key, title: i.title, status: i.status, done: mine.filter((t) => DONE.includes(t.status)).length, total: mine.length, closed, can_close: mine.length > 0 && closed === mine.length, version: i.version, tickets: mine };
     }),
     loose: sorted.filter((t) => !openIds.has(ticketParent.get(t.key) ?? "") && !DONE.includes(t.status)),
     loose_done: looseLanded.length,

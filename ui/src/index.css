@@ -527,6 +527,9 @@
   .edi-btn:disabled { opacity: 0.45; cursor: default; }
   .edi-btn-primary { background: var(--e-fg); color: #12152a; border-color: var(--e-fg); }
   .edi-btn-primary:hover { background: #fff; }
+  /* PLA-I56-2: Cerrar iniciativa, under the title of a ready initiative. */
+  .edi-fi-cerrar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 14px; border-radius: 14px; background: color-mix(in oklab, var(--status-done) 14%, transparent); }
+  .edi-fi-cerrar p { margin: 0; flex: 1 1 220px; font-size: 13px; color: var(--e-fg); }
   .edi-ghost-line { display: block; height: 28px; width: min(420px, 70%); border-radius: 8px; background: rgb(255 255 255 / 0.06); }
   .edi-empty { display: grid; justify-items: start; gap: 10px; padding: 28px; }
   .edi-empty p { font-size: 14px; color: var(--e-muted); max-width: 52ch; }
@@ -1115,8 +1118,9 @@
   .sb-tcode { font-family: var(--font-mono); font-size: 10.5px; color: var(--sb-faint); }
   .sb-tname { font-family: var(--font-display); font-weight: 700; font-size: 13.5px; line-height: 1.2; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
   .sb-tsub { color: var(--sb-faint); font-size: 11.5px; }
-  .sb-bar { display: block; height: 4px; border-radius: 9px; background: var(--sb-raised); overflow: hidden; margin-top: 4px; }
-  .sb-bar i { display: block; height: 100%; background: var(--c, var(--status-done)); border-radius: 9px; }
+  .sb-bar { display: flex; height: 4px; border-radius: 9px; background: var(--sb-raised); overflow: hidden; margin-top: 4px; }
+  .sb-bar i { display: block; flex: none; height: 100%; background: var(--c, var(--status-done)); border-radius: 9px; }
+  .sb-bar i[data-shipped] { background: color-mix(in oklab, var(--c, var(--status-done)) 45%, transparent); border-radius: 0 9px 9px 0; }
   /* the rail through a track's stations; an empty station shows a small node */
   .sb-r::before { content: ""; position: absolute; left: 0; right: 0; top: 18px; border-top: 1px dashed var(--sb-line2); pointer-events: none; }
   .sb-r[data-last]::before { right: 50%; }
@@ -1362,9 +1366,12 @@
   .edi-ix-name { font-family: var(--font-display); font-weight: 700; font-size: 13px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .edi-ix-ct { font-size: 11.5px; color: var(--e-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
   .edi-ix-ct[data-toca] { color: var(--e-you-ink); font-weight: 600; }
+  .edi-ix-ct[data-cerrar] { color: var(--status-done); font-weight: 600; }
   .edi-ix-beads { grid-column: 2 / 4; display: flex; gap: 3px; height: 5px; border-radius: 3px; min-width: 0; }
   .edi-ix-beads i { flex: 1 1 0; min-width: 0; border-radius: 3px; background: var(--bc, #4a5068); }
   .edi-ix-beads i[data-tone="pending"] { background: #4a5068; }
+  /* PLA-I56-2: landed, not closed (merged or released, not Done): the done colour at half strength. */
+  .edi-ix-beads i[data-tone="shipped"] { background: color-mix(in oklab, var(--bc) 45%, transparent); }
   .edi-ix-beads[data-beads="bar"] { background: #4a5068; }
   .edi-ix-beads[data-beads="none"] { height: 0; margin: 2px 0; border-top: 1.5px dashed #4a5068; border-radius: 0; }
   .edi-ix-done { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 3px 4px 0; font-size: 12px; }

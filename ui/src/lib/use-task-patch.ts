@@ -20,8 +20,12 @@ const MESSAGES: Record<string, string> = {
   HUMAN_ONLY: "Won't do y reabrir piden un motivo.",
 };
 
-const describe = (e: unknown) =>
-  (e instanceof ApiError && MESSAGES[e.code]) || "No se pudo guardar el cambio.";
+// PLA-I56-2: a refused initiative Done names the tickets still open.
+const describe = (e: unknown) => {
+  if (e instanceof ApiError && e.code === "INITIATIVE_CHILDREN_OPEN" && Array.isArray(e.detail?.open) && e.detail.open.length)
+    return `La iniciativa tiene tickets abiertos: ${(e.detail.open as string[]).join(", ")}. Ciérralos primero.`;
+  return (e instanceof ApiError && MESSAGES[e.code]) || "No se pudo guardar el cambio.";
+};
 
 // Status and priority changes: applied to the cache at once, rolled back if the server refuses.
 // Each carries the version on screen, so a change an agent made meanwhile is never overwritten.

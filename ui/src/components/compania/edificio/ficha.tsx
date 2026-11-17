@@ -7,7 +7,7 @@
 // show their own stage board (slots.board) over their done steps; the Pedido tab shows the tube (slots.tubo).
 import type { CSSProperties, ReactNode } from "react";
 import Markdown from "react-markdown";
-import type { FichaDoc, FichaIdea, FichaPr, OrgFicha, OrgProject, PedidoDetail, ProjectDocBody, ProjectTicket } from "@/lib/api";
+import type { FichaDoc, FichaIdea, FichaPr, OpenInitiative, OrgFicha, OrgProject, PedidoDetail, ProjectDocBody, ProjectTicket } from "@/lib/api";
 import { PedidoTab, type PedidoActs, type PedidoSlots } from "./pedido";
 import { pedidoWord, stopName } from "./tubo";
 import { floorHue } from "@/lib/edificio";
@@ -324,7 +324,28 @@ const TicketLists = ({ tickets, now, onRef, board }: { tickets: ProjectTicket[];
 };
 
 type PedidoProps = { pedido?: Load<PedidoDetail>; pedidoActs?: PedidoActs; pedidoSlots?: PedidoSlots };
-const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone, pedido, pedidoActs, pedidoSlots }: { p: OrgProject; r: Exclude<FichaRef, { kind: "tab" }>; rows: Load<OrgFicha>; task: Load<TaskDetail>; doc: Load<ProjectDocBody>; onRef: (r: FichaRef) => void; slots: FichaSlots; now: number; timeZone?: string } & PedidoProps) => {
+// PLA-I56-2: closing an initiative whose every step is Done (the owner's call; the server accepts it then).
+export type CerrarActs = { onCerrar: (slug: string, key: string, version: number) => void; busy: string | null };
+
+// PLA-I56-2: the initiative's own line and what still holds it. An older read (no closed) says only its count.
+function legClose(ini: OpenInitiative): { line: string; left: string | null; ready: boolean } {
+  const base = `${ini.done} de ${ini.total} hechos${ini.status === "On hold" ? " · en pausa" : ""}`;
+  if (ini.closed === undefined) return { line: base, left: null, ready: false };
+  const ready = !!ini.can_close && ini.total > 0;
+  if (ready) return { line: `${base} · lista para cerrar`, left: null, ready };
+  const merged = ini.tickets.filter((t) => t.status === "Merged").length;
+  const released = ini.tickets.filter((t) => t.status === "Released").length;
+  const open = ini.total - ini.done;
+  const parts = [
+    open ? `${open} ${open === 1 ? "paso sin terminar" : "pasos sin terminar"}` : null,
+    merged ? `${merged} por lanzar (en la copia de prueba, aún no publicados)` : null,
+    released ? `${released} por cerrar (publicados, con un punto del Hecho cuando abierto)` : null,
+  ].filter(Boolean);
+  const line = [base, merged ? `${merged} por lanzar` : null, released ? `${released} por cerrar` : null].filter(Boolean).join(" · ");
+  return { line, left: ini.total > 0 && parts.length ? `Podrás cerrarla cuando todos sus pasos estén hechos. Falta: ${parts.join("; ")}.` : null, ready };
+}
+
+const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone, pedido, pedidoActs, pedidoSlots, cerrar }: { p: OrgProject; r: Exclude<FichaRef, { kind: "tab" }>; rows: Load<OrgFicha>; task: Load<TaskDetail>; doc: Load<ProjectDocBody>; onRef: (r: FichaRef) => void; slots: FichaSlots; now: number; timeZone?: string; cerrar?: CerrarActs } & PedidoProps) => {
   switch (r.kind) {
     // PLA-I54-3: one request of the owner's, and the shelf.
     case "pedido":
@@ -361,13 +382,24 @@ const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone, pedido, pe
       // PLA-I53-3: an open initiative lists its tickets by stage from the board's read; a completed one says so.
       const ini = p.tablero?.initiatives.find((i) => i.key === r.key);
       const leg = p.route?.legs.find((l) => l.key === r.key);
-      if (ini)
+      if (ini) {
+        const c = legClose(ini);
         return (
           <>
-            <Title eyebrow={`Iniciativa · ${ini.key}`} title={ini.title} state={`${ini.done} de ${ini.total} hechos${ini.status === "On hold" ? " · en pausa" : ""}`} />
+            <Title eyebrow={`Iniciativa · ${ini.key}`} title={ini.title} state={c.line} />
+            {c.ready && cerrar && ini.version !== undefined && (
+              <div className="edi-fi-acts edi-fi-cerrar" data-cerrar="">
+                <p>Todos sus pasos están hechos. Cerrarla la pasa a Completas.</p>
+                <button type="button" className="edi-btn edi-btn-primary" onClick={() => cerrar.onCerrar(p.slug, ini.key, ini.version!)} disabled={cerrar.busy === ini.key} aria-busy={cerrar.busy === ini.key || undefined} data-control="ficha-cerrar-iniciativa">
+                  {cerrar.busy === ini.key ? "Cerrando…" : "Cerrar iniciativa"}
+                </button>
+              </div>
+            )}
+            {c.left && <p className="edi-fi-empty" data-cerrar-falta="">{c.left}</p>}
             <TicketLists tickets={ini.tickets} now={now} onRef={onRef} board={slots.board} />
           </>
         );
+      }
       const closed = p.tablero?.done_initiatives?.find((i) => i.key === r.key);
       if (!leg && closed)
         return (
@@ -504,7 +536,10 @@ export const Ficha = ({
   home,
   homeOn = false,
   onHome,
+  cerrar,
 }: PedidoProps & {
+  // PLA-I56-2: Cerrar iniciativa on a ready initiative (absent: no button).
+  cerrar?: CerrarActs;
   // PLA-I55-1: the first tab (the floor's Ahora band and questions), whether it is the one shown, and going back to it.
   home?: FichaHome;
   homeOn?: boolean;
@@ -571,7 +606,7 @@ export const Ficha = ({
             <ListTab tab={fref.tab} rows={rows} onRef={onRef} timeZone={timeZone} />
           )
         ) : (
-          <Detail p={p} r={fref} rows={rows} task={task} doc={doc} onRef={onRef} slots={slots} now={now} timeZone={timeZone} pedido={pedido} pedidoActs={pedidoActs} pedidoSlots={pedidoSlots} />
+          <Detail p={p} r={fref} rows={rows} task={task} doc={doc} onRef={onRef} slots={slots} now={now} timeZone={timeZone} pedido={pedido} pedidoActs={pedidoActs} pedidoSlots={pedidoSlots} cerrar={cerrar} />
         )}
       </div>
     </section>

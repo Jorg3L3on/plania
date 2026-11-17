@@ -1,9 +1,9 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { runInGroup, type GroupRun } from "./gh-process.js";
 import { oneLine, readTokenFile } from "./gh-token.js";
 import { commandPath } from "./machine/run.js";
-import { branches, pollState, projects, pullRequests, tasks, type Project, type Task } from "../db/schema.js";
+import { branches, checks, pollState, projects, pullRequests, questions, tasks, type Project, type Task } from "../db/schema.js";
 import { DRIFT_STATUSES } from "../mcp/audit.js";
 import { touchBranch } from "../mcp/branches.js";
 import { addResult } from "../mcp/evidence.js";
@@ -401,11 +401,13 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
       await pollCi(db, p, deps, token, { number: row.number, url: row.url, sha: row.headSha, ref: row.headBranch }, task, false, summary);
     }
 
-    // 3. Branch heads and deletions for the branches the project knows (the release's two included).
+    // 3. Branch heads and deletions for the branches the project knows (the release's two included, and
+    // PLA-I56-1 the release branch of a project that may release by branch).
     const release = p.settings.release;
-    if (release) {
+    const wanted = [...(release ? [release.from, release.into] : []), ...(mayReleaseByBranch(p) ? [releaseBranchOf(p)] : [])];
+    if (wanted.length) {
       const have = new Set((await db.select({ name: branches.name }).from(branches).where(eq(branches.projectId, p.id))).map((b) => b.name));
-      for (const name of [release.from, release.into]) if (!have.has(name)) await touchBranch(db, p.id, name, {});
+      for (const name of new Set(wanted)) if (!have.has(name)) await touchBranch(db, p.id, name, {});
     }
     const known = await db.select().from(branches).where(eq(branches.projectId, p.id));
     if (known.length) {
@@ -448,6 +450,8 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
       cursor.compare = { ...cache, [cacheKey]: contains };
       return contains;
     });
+    // PLA-I56-1: released code tickets with nothing left open close by the rule.
+    summary.closed = await closeReleased(db, p);
     await saveCursor(db, p.id, cursor, null);
   } catch (e) {
     await saveCursor(db, p.id, cursor, e instanceof Error ? e.message : String(e));
@@ -549,37 +553,88 @@ export async function flagStatusDrift(db: Db, p: Project, repo: string): Promise
   return seen.size;
 }
 
-// Merged → Released once the release target env runs a commit that contains the merge commit:
-// the env's commit is the merge commit, env_commits lists it, or contains() says so (GitHub compare).
-export async function releaseMerged(db: Db, p: Project, contains?: (mergeSha: string, envSha: string) => Promise<boolean>): Promise<number> {
+// PLA-I56-1: what "released" means for a project. env: the release target env runs the merge commit (a
+// deploy the pollers see). branch: the release branch contains it, for a project with no deploy (local
+// apps, libraries). settings.release_on says it; unset, a project with a deploy integration (Vercel) or
+// with a commit recorded for its release env is env, any other is branch.
+export const releaseBranchOf = (p: Pick<Project, "settings">): string => p.settings.release?.into ?? "main";
+export const mayReleaseByBranch = (p: Pick<Project, "settings">): boolean => p.settings.release_on === "branch" || (p.settings.release_on === undefined && !p.settings.vercel);
+
+// Merged → Released once the release target contains the merge commit. env mode: the env's commit is
+// the merge commit, env_commits lists it, or contains() says so (GitHub compare). branch mode: the
+// release branch head is the merge commit or contains() says so.
+export async function releaseMerged(db: Db, p: Project, contains?: (mergeSha: string, targetSha: string) => Promise<boolean>): Promise<number> {
   const env = p.settings.release_target ?? "prod";
   const [state] = await db.execute<{ commit: string | null }>(sql`select commit from env_states where project_id = ${p.id} and env = ${env}`).then((r) => r.rows);
-  if (!state?.commit) return 0;
+  const byBranch = p.settings.release_on === "branch" || (mayReleaseByBranch(p) && !state?.commit);
+  let target: { label: string; commit: string };
+  if (byBranch) {
+    const name = releaseBranchOf(p);
+    const [b] = await db
+      .select({ headSha: branches.headSha, deletedAt: branches.deletedAt })
+      .from(branches)
+      .where(and(eq(branches.projectId, p.id), eq(branches.name, name)))
+      .limit(1);
+    if (!b?.headSha || b.deletedAt) return 0;
+    target = { label: name, commit: b.headSha };
+  } else {
+    if (!state?.commit) return 0;
+    target = { label: env, commit: state.commit };
+  }
   const merged = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.status, "Merged")));
   let released = 0;
   for (const t of merged) {
     const pr = await prRowOf(db, t);
     const merge = pr?.mergedAt ? pr.mergeSha : null;
     if (!merge) continue;
-    const [known] = await db
-      .execute<{ sha: string }>(sql`select sha from env_commits where project_id = ${p.id} and env = ${env} and (sha like ${merge} || '%' or ${merge} like sha || '%') limit 1`)
-      .then((r) => r.rows);
-    let ok = !!known || state.commit.startsWith(merge) || merge.startsWith(state.commit);
-    if (!ok && contains) ok = await contains(merge, state.commit);
+    const [known] = byBranch
+      ? []
+      : await db
+          .execute<{ sha: string }>(sql`select sha from env_commits where project_id = ${p.id} and env = ${env} and (sha like ${merge} || '%' or ${merge} like sha || '%') limit 1`)
+          .then((r) => r.rows);
+    let ok = !!known || target.commit.startsWith(merge) || merge.startsWith(target.commit);
+    if (!ok && contains) ok = await contains(merge, target.commit);
     if (!ok) continue;
-    const sys = { actor: { ...SYSTEM_ACTOR, machine: "poller" }, system: true, requestId: `release:${t.key}:${env}:${state.commit}`, tool: "jobs.release" };
-    await setTask(
-      db,
-      { project: p.slug, key: t.key, status: "Released", note: `${env} runs ${state.commit.slice(0, 7)}, which contains the merge commit ${merge.slice(0, 7)}` },
-      sys,
-    );
+    const sys = { actor: { ...SYSTEM_ACTOR, machine: "poller" }, system: true, requestId: `release:${t.key}:${target.label}:${target.commit}`, tool: "jobs.release" };
+    const note = byBranch
+      ? `${target.label} (${target.commit.slice(0, 7)}) contains the merge commit ${merge.slice(0, 7)}; with no deploy, on ${target.label} counts as released`
+      : `${env} runs ${target.commit.slice(0, 7)}, which contains the merge commit ${merge.slice(0, 7)}`;
+    await setTask(db, { project: p.slug, key: t.key, status: "Released", note }, sys);
     await writeTx(db, p, { ...sys, requestId: `${sys.requestId}:record` }, async (tx, emit) => {
-      await recordRelease(tx, p, env, t.key);
-      await emit("release.recorded", { id: t.id, key: t.key }, { env, commit: state.commit });
+      if (!byBranch) await recordRelease(tx, p, env, t.key);
+      await emit("release.recorded", { id: t.id, key: t.key }, byBranch ? { branch: target.label, commit: target.commit } : { env, commit: target.commit });
     });
     released++;
   }
   return released;
+}
+
+// PLA-I56-1: Released → Done by the rule. A code, bug or debt ticket that is released with every check
+// done or waived and no open question has nothing left; closing it was a chore nobody was woken for.
+// settings.auto_done false turns it off. Ops and research tickets keep their owners.
+const AUTO_DONE_TYPES = ["code", "bug", "debt"];
+export async function closeReleased(db: Db, p: Project): Promise<number> {
+  if (p.settings.auto_done === false) return 0;
+  const released = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket"), eq(tasks.status, "Released")))
+    .orderBy(tasks.key);
+  let closed = 0;
+  for (const t of released) {
+    if (!AUTO_DONE_TYPES.includes(t.workType ?? "code")) continue;
+    const [open] = await db.select({ n: checks.n }).from(checks).where(and(eq(checks.taskId, t.id), eq(checks.done, false), isNull(checks.waivedAt))).limit(1);
+    if (open) continue;
+    const [asked] = await db.select({ id: questions.id }).from(questions).where(and(eq(questions.taskId, t.id), isNull(questions.answeredAt))).limit(1);
+    if (asked) continue;
+    await setTask(
+      db,
+      { project: p.slug, key: t.key, status: "Done", note: "Released with every check closed and no open question: closed by the rule (settings.auto_done)." },
+      { actor: { ...SYSTEM_ACTOR, machine: "poller" }, system: true, requestId: `auto-done:${t.key}:${t.version}`, tool: "jobs.release" },
+    );
+    closed++;
+  }
+  return closed;
 }
 
 export async function pollGithub(db: Db, deps: GithubDeps): Promise<Record<string, number>> {

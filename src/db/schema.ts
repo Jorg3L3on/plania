@@ -766,6 +766,12 @@ export type DeploySource = { provider: string; deployment_id: string; url?: stri
 // projects.settings (set_project settings, merged). Secrets never: integrations name env vars.
 export type ProjectSettings = {
   release_target?: string; // the env a Released ticket must reach (default prod)
+  // PLA-I56-1: what "released" means. env: release_target runs the merge commit (a deploy). branch: the release
+  // branch (release.into, default main) contains it. Unset: env with Vercel or a commit recorded for release_target, else branch.
+  release_on?: "env" | "branch";
+  // PLA-I56-1: a released code, bug or debt ticket with every check closed and no open question moves to Done by
+  // the rule. On unless false.
+  auto_done?: boolean;
   branch_pattern?: string; // regex every branch name must match
   claim_from?: "backlog" | "ready"; // what get_next offers (default backlog)
   resources?: Record<string, { needs_approval?: boolean; ttl_max?: number }>; // by name glob
