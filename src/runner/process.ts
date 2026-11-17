@@ -152,3 +152,139 @@ export function supervise(opts: SuperviseOptions): Supervised {
 
   return { pid, done, stop };
 }
+
+// ---- PLA-I60-3: runs that outlive the server
+//
+// superviseDetached starts the run through wrapper.mjs (detached, stdio ignored, unref'd): the wrapper owns the
+// command and writes its log and exit file. This side tails the log from a byte offset (onStdout gets the same text
+// it did through the pipe) and finishes when the exit file appears, or when the wrapper is gone without one.
+// attachDetached does the same for a run found live after a restart (from offset 0, so the reader sees it all).
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+export const WRAPPER_PATH = fileURLToPath(new URL("./wrapper.mjs", import.meta.url));
+export const exitPathOf = (logPath: string): string => `${logPath}.exit.json`;
+
+export type DetachedSpawn = (command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; detached: true; stdio: "ignore" }) => { pid?: number; unref?: () => void; on?: (event: "error", fn: (err: Error) => void) => unknown };
+const defaultDetachedSpawn: DetachedSpawn = (command, args, options) => nodeSpawn(command, args, options);
+
+const isAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+};
+
+type Tail = { pid: number | null; logPath: string; exitPath: string; timeoutMs: number; graceMs: number; pollMs?: number; onStdout?: (chunk: string) => void; kill?: KillFn; alive?: (pid: number) => boolean };
+
+function follow(t: Tail): Supervised {
+  const killFn = t.kill ?? defaultKill;
+  const alive = t.alive ?? isAlive;
+  const timers: NodeJS.Timeout[] = [];
+  let offset = 0;
+  let exited = false;
+  let stopping: string | null = null;
+  let timedOut = false;
+  let goneTicks = 0;
+  const readNew = () => {
+    if (!existsSync(t.logPath)) return;
+    const size = statSync(t.logPath).size;
+    if (size <= offset) return;
+    const fd = openSync(t.logPath, "r");
+    try {
+      const buf = Buffer.alloc(size - offset);
+      const n = readSync(fd, buf, 0, buf.length, offset);
+      offset += n;
+      // Only whole lines go to the reader; a partial line waits for the next read.
+      const text = buf.subarray(0, n).toString("utf8");
+      const cut = text.lastIndexOf("\n");
+      if (cut < 0) {
+        offset -= n;
+        return;
+      }
+      offset -= Buffer.byteLength(text.slice(cut + 1), "utf8");
+      t.onStdout?.(text.slice(0, cut + 1));
+    } finally {
+      closeSync(fd);
+    }
+  };
+  const stop = (reason: string) => {
+    if (exited || stopping || t.pid == null) return;
+    stopping = reason;
+    killFn(t.pid, "SIGINT");
+    timers.push(
+      setTimeout(() => {
+        if (exited) return;
+        killFn(t.pid!, "SIGTERM");
+        timers.push(setTimeout(() => !exited && killFn(t.pid!, "SIGKILL"), t.graceMs));
+      }, t.graceMs),
+    );
+  };
+  const done = new Promise<ExitInfo>((resolve) => {
+    const tick = () => {
+      if (exited) return;
+      readNew();
+      let info: { code?: number | null; signal?: NodeJS.Signals | null } | null = null;
+      if (existsSync(t.exitPath)) {
+        try {
+          info = JSON.parse(readFileSync(t.exitPath, "utf8"));
+        } catch {
+          info = null;
+        }
+      } else if (t.pid == null || !alive(t.pid)) {
+        // Gone without an exit file (SIGKILL): give the file system two more looks, then call it.
+        goneTicks += 1;
+        if (goneTicks >= 3) info = { code: null, signal: null };
+      }
+      if (info) {
+        readNew();
+        exited = true;
+        timers.splice(0).forEach((x) => clearTimeout(x));
+        resolve({ code: info.code ?? null, signal: info.signal ?? null, timedOut, stoppedBy: stopping });
+        return;
+      }
+      timers.push(setTimeout(tick, t.pollMs ?? 500));
+    };
+    tick();
+  });
+  if (t.timeoutMs > 0)
+    timers.push(
+      setTimeout(() => {
+        timedOut = true;
+        stop("timeout");
+      }, t.timeoutMs),
+    );
+  return { pid: t.pid, done, stop };
+}
+
+export function superviseDetached(opts: SuperviseOptions & { runId: string; wrapperPath?: string; spawnDetached?: DetachedSpawn; pollMs?: number }): Supervised {
+  if (!opts.logPath) throw new Error("a detached run needs a log path");
+  mkdirSync(path.dirname(opts.logPath), { recursive: true });
+  const exitPath = exitPathOf(opts.logPath);
+  const spawnFn = opts.spawnDetached ?? defaultDetachedSpawn;
+  const child = spawnFn(process.execPath, [opts.wrapperPath ?? WRAPPER_PATH, opts.runId, opts.logPath, exitPath, "--", opts.command, ...opts.args], {
+    cwd: opts.cwd,
+    env: opts.env,
+    detached: true,
+    stdio: "ignore",
+  });
+  // A spawn that fails (no such cwd or binary) has no pid: follow() ends it as gone, with no exit file.
+  child.on?.("error", () => undefined);
+  child.unref?.();
+  return follow({ pid: typeof child.pid === "number" ? child.pid : null, logPath: opts.logPath, exitPath, timeoutMs: opts.timeoutMs, graceMs: opts.graceMs, pollMs: opts.pollMs, onStdout: opts.onStdout, kill: opts.kill });
+}
+
+export function attachDetached(input: { pid: number | null; logPath: string; timeoutMs: number; graceMs: number; pollMs?: number; onStdout?: (chunk: string) => void; kill?: KillFn; alive?: (pid: number) => boolean }): Supervised {
+  return follow({ ...input, exitPath: exitPathOf(input.logPath) });
+}
+
+// True when pid is a wrapper for this run (guards against a reused pid after a reboot).
+export const isWrapperOf = (pid: number, runId: string): Promise<boolean> =>
+  new Promise((resolve) => {
+    execFile("ps", ["-o", "command=", "-p", String(pid)], { timeout: 5_000 }, (err, stdout) => {
+      if (err) return resolve(false);
+      resolve(stdout.includes("wrapper.mjs") && stdout.includes(runId));
+    });
+  });

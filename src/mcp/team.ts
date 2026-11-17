@@ -1,3 +1,4 @@
+import { EFFORT_HINT, MODEL_HINT, cleanEffort, cleanModel } from "../runner/motor.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -84,6 +85,9 @@ export type AgentView = AgentRef & {
   last_check_in_at: string | null;
   note: string;
   tokens: { name: string; prefix: string; machine: string | null }[];
+  // PLA-I59-1: this seat's own motor (null fields inherit the company default) and its Preguntar motor.
+  motor: { model: string | null; effort: string | null };
+  consulta_motor: { model: string | null; effort: string | null };
 };
 
 type TokenRow = { name: string; agent: string; prefix: string; machine: string | null };
@@ -220,6 +224,8 @@ function viewOf(row: Agent, byId: Map<string, Agent>, tokens: TokenRow[], status
     status,
     note: row.note,
     tokens: tokensFor(row, tokens),
+    motor: { model: row.motorModel, effort: row.motorEffort },
+    consulta_motor: { model: row.consultaModel, effort: row.consultaEffort },
   };
 }
 
@@ -261,7 +267,30 @@ export type SetAgentInput = {
   heartbeat_minutes?: number | null;
   status?: string;
   note?: string;
+  // PLA-I59-1: model and effort; a null field (or the whole object null) clears it back to inherit.
+  motor?: MotorPatch | null;
+  consulta_motor?: MotorPatch | null;
 };
+
+export type MotorPatch = { model?: string | null; effort?: string | null };
+
+// PLA-I59-1: a motor patch into column values. undefined leaves a column alone; null clears it.
+export function checkMotor(field: string, value: MotorPatch | null | undefined): { model?: string | null; effort?: string | null } {
+  if (value === undefined) return {};
+  if (value === null) return { model: null, effort: null };
+  const model = cleanModel(value.model);
+  if (value.model !== undefined && model === undefined) throw new ToolError("INVALID_FILTER", { field: `${field}.model`, hint: MODEL_HINT });
+  const effort = cleanEffort(value.effort);
+  if (value.effort !== undefined && effort === undefined) throw new ToolError("INVALID_FILTER", { field: `${field}.effort`, hint: EFFORT_HINT });
+  return { ...(value.model !== undefined ? { model } : {}), ...(value.effort !== undefined ? { effort } : {}) };
+}
+
+export const motorColumns = (seat: { model?: string | null; effort?: string | null }, ask: { model?: string | null; effort?: string | null }) => ({
+  ...(seat.model !== undefined ? { motorModel: seat.model } : {}),
+  ...(seat.effort !== undefined ? { motorEffort: seat.effort } : {}),
+  ...(ask.model !== undefined ? { consultaModel: ask.model } : {}),
+  ...(ask.effort !== undefined ? { consultaEffort: ask.effort } : {}),
+});
 
 export async function setAgent(db: Db, input: SetAgentInput): Promise<AgentView> {
   const slug = checkSlug(input.slug);
@@ -272,6 +301,7 @@ export async function setAgent(db: Db, input: SetAgentInput): Promise<AgentView>
   const adapter = input.adapter === undefined ? undefined : checkAdapter(input.adapter);
   const adapterConfig = checkAdapterConfig(input.adapter_config);
   const heartbeatMinutes = checkHeartbeatMinutes(input.heartbeat_minutes);
+  const motor = motorColumns(checkMotor("motor", input.motor), checkMotor("consulta_motor", input.consulta_motor));
   const name = input.name?.trim();
   const role = input.role?.trim();
   if (input.name !== undefined && !name) throw new ToolError("INVALID_FILTER", { field: "name" });
@@ -309,6 +339,7 @@ export async function setAgent(db: Db, input: SetAgentInput): Promise<AgentView>
         heartbeatMinutes: heartbeatMinutes ?? null,
         status: status ?? "idle",
         note: input.note ?? "",
+        ...motor,
       });
     } else {
       const [updated] = await uow.update(
@@ -327,6 +358,7 @@ export async function setAgent(db: Db, input: SetAgentInput): Promise<AgentView>
           ...(heartbeatMinutes !== undefined ? { heartbeatMinutes } : {}),
           ...(status !== undefined ? { status } : {}),
           ...(input.note !== undefined ? { note: input.note } : {}),
+          ...motor,
           updatedAt: uow.now,
         },
       );
@@ -438,6 +470,18 @@ export function registerTeamTools(
         heartbeat_minutes: z.number().int().nullable().optional().describe("Minutes between wakes. Null skips the job"),
         status: z.enum(AGENT_STATUSES).optional(),
         note: z.string().optional(),
+        motor: z
+          .object({ model: z.string().max(80).nullable().optional(), effort: z.string().max(20).nullable().optional() })
+          .strict()
+          .nullable()
+          .optional()
+          .describe("PLA-I59 Motores: the model (haiku, sonnet, opus, fable or a full claude-* id) and effort (low, medium, high, xhigh, max) this seat runs on. A null field, or null, clears it: the seat inherits the company default"),
+        consulta_motor: z
+          .object({ model: z.string().max(80).nullable().optional(), effort: z.string().max(20).nullable().optional() })
+          .strict()
+          .nullable()
+          .optional()
+          .describe("A PO's Preguntar runs: same shape as motor; null inherits the seat's motor"),
       },
       annotations: write,
     },

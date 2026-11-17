@@ -15,6 +15,7 @@ const SQL_DEFAULTS: Record<string, Fill> = {
   "now()": (now) => now,
   "gen_random_uuid()": () => randomUUID(),
   "'{}'::text[]": () => [],
+  "'[]'::jsonb": () => [],
 };
 
 // How one column is completed: a value, "store" when the adapter numbers it (an identity column), or

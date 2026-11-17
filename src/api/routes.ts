@@ -19,6 +19,7 @@ import { ideaWaits } from "../mcp/ideas.js";
 import { inbox } from "../mcp/inbox.js";
 import { auditCounts, fixFinding, projectAudit } from "../mcp/orden.js";
 import { isGating } from "../mcp/jorge-lines.js";
+import { etapaRow, projectEtapas, tableroOf, zonasRow } from "./etapa.js";
 import { setProject } from "../mcp/project.js";
 import { shipRelease } from "../mcp/release-ship.js";
 import { ToolError, findProject, findTask, taskFull } from "../mcp/queries.js";
@@ -38,8 +39,13 @@ import { dashboardRoutes } from "./dashboard.js";
 import { usageRoutes } from "./usage.js";
 import { templateRoutes } from "./templates.js";
 import { companyRoutes } from "./company.js";
+import { pedidoImageRoutes } from "./pedido-images.js";
 import { plumbing } from "./company-org.js";
 import { threadRoutes } from "./threads.js";
+import { captureRoutes } from "./captures.js";
+import { maquinasRoutes, tableroRoutes } from "./maquinas.js";
+import { qaRoutes } from "./qa.js";
+import { briefApi } from "./brief.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
 // the MCP Bearer never opens it and the cookie never opens /mcp.
@@ -139,6 +145,8 @@ api.post("/delegated/reviewed", async (c) => {
 
 // PLA-I29: runner limits and kill switches. Mounted here, before the session check, so a Bearer
 // is told 403 (not 401): the cookie alone opens it (src/api/company.ts checks both).
+// PLA-I54-2: pictures on a request (src/api/pedido-images.ts), cookie only, the same way.
+api.route("/company", pedidoImageRoutes);
 api.route("/company", companyRoutes);
 // PLA-I32-3: the threads, the same way (src/api/threads.ts).
 api.route("/threads", threadRoutes);
@@ -163,6 +171,8 @@ api.get("/projects", async (c) => {
     return Promise.all(
       all.map(async (p) => {
         const digest = await resumeDigest(db, p);
+        // PLA-I53-2: the same stage per ticket as GET /api/projects/:slug, so both rows keep one shape.
+        const etapas = await projectEtapas(db, p);
         return {
           slug: p.slug,
           title: p.title,
@@ -172,7 +182,7 @@ api.get("/projects", async (c) => {
           next_line: nextStepLine(digest),
           open_questions: digest.open_questions.length,
           // The index draws one lane per initiative, so it needs every project's tasks.
-          tasks: allTasks.filter((t) => t.project_id === p.id).map(({ project_id: _, ...t }) => t),
+          tasks: allTasks.filter((t) => t.project_id === p.id).map(({ project_id: _, ...t }) => ({ ...t, etapa: etapaRow(etapas, t), zonas: zonasRow(etapas, t) })),
           // Inicio: the next ticket an agent can take, each environment in one line, and a week of activity.
           next_claimable: digest.next_claimable,
           envs: digest.status.envs.map((e) => ({
@@ -299,12 +309,21 @@ api.get("/projects/:slug", async (c) => {
       const p = await findProject(db, c.req.param("slug"));
       const rows = await screenTasks(db, p.id);
       const waits = await ideaWaits(db, p.id);
+      // PLA-I53-2: every ticket's stage (null on ideas, initiatives and Won't do), from the same function the floor reads.
+      const etapas = await projectEtapas(db, p);
       return {
         slug: p.slug,
         title: p.title,
         version: p.version,
         resume: await resumeDigest(db, p),
-        tasks: rows.map(({ project_id: _, ...t }) => ({ ...t, ...(t.kind === "idea" ? { waits: waits.get(t.key) ?? "" } : {}) })),
+        tasks: rows.map(({ project_id: _, ...t }) => ({
+          ...t,
+          etapa: etapaRow(etapas, t),
+          zonas: zonasRow(etapas, t),
+          ...(t.kind === "idea" ? { waits: waits.get(t.key) ?? "" } : {}),
+        })),
+        ahora: etapas.ahora,
+        tablero: tableroOf(etapas),
         decisions: await listDecisions(db, p.id, { limit: DECISIONS_LIMIT, includeSuperseded: true, includeRetired: true }),
       };
     });
@@ -656,6 +675,15 @@ api.route("/delegation", delegationRoutes);
 api.route("/dashboard", dashboardRoutes);
 api.route("/usage", usageRoutes);
 api.route("/templates", templateRoutes);
+// PLA-I46-6: stills of the running app (src/api/captures.ts).
+api.route("/projects", captureRoutes);
+// PLA-I48: Máquinas, the floor's second level, and the building's tablero (src/api/maquinas.ts).
+api.route("/projects", maquinasRoutes);
+api.route("/maquinas", tableroRoutes);
+// PLA-I46-9: a delivery's QA evidence and the PO's check list (src/api/qa.ts).
+api.route("/projects", qaRoutes);
+// PLA-I41-6: the Morning brief (spec §7.3).
+api.route("/brief", briefApi);
 
 // Mounted sub-apps do not use their own notFound, so claim unknown API paths explicitly.
 api.all("*", (c) => c.json({ error: "NOT_FOUND" }, 404));

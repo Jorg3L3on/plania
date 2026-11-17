@@ -28,6 +28,10 @@ export type RunResult = {
   sessionId: string | null;
   models: ModelTokens[];
   hasModelUsage: boolean;
+  // PLA-I41-3: with --json-schema the result event carries the validated object as structured_output
+  // (confirmed on CLI 2.1.302; result holds the same JSON as a string). undefined when absent.
+  structuredOutput: unknown;
+  resultText: string | null;
 };
 
 const num = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : 0);
@@ -152,6 +156,8 @@ export class StreamReader {
         sessionId: sid,
         models: parseModelUsage(usage),
         hasModelUsage: !!usage && typeof usage === "object" && Object.keys(usage as object).length > 0,
+        structuredOutput: "structured_output" in event ? event.structured_output : undefined,
+        resultText: typeof event.result === "string" ? event.result : null,
       };
     }
   }

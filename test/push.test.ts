@@ -291,7 +291,7 @@ describe("the session cookie behind tailscale serve", () => {
   const login = (url: string, headers: Record<string, string> = {}) =>
     app.request(url, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify({ password: "test-password-123" }) });
 
-  test("Secure over HTTPS, behind X-Forwarded-Proto https, and on loopback; not on plain http elsewhere", async () => {
+  test("Secure over HTTPS and behind X-Forwarded-Proto https; not on plain http, loopback included (Safari)", async () => {
     const secure = async (url: string, headers?: Record<string, string>) => {
       const res = await login(url, headers);
       assert.equal(res.status, 204, url);
@@ -300,8 +300,8 @@ describe("the session cookie behind tailscale serve", () => {
     // What tailscale serve sends: the backend host, the tailnet name in X-Forwarded-Host, https in X-Forwarded-Proto.
     assert.equal(await secure("http://127.0.0.1:3737/api/login", { "X-Forwarded-Proto": "https", "X-Forwarded-Host": "mac.tail1234.ts.net" }), true);
     assert.equal(await secure("http://mac.tail1234.ts.net/api/login", { "X-Forwarded-Proto": "https" }), true);
-    assert.equal(await secure("http://localhost:3737/api/login"), true);
-    assert.equal(await secure("http://127.0.0.1:3737/api/login"), true);
+    assert.equal(await secure("http://localhost:3737/api/login"), false);
+    assert.equal(await secure("http://127.0.0.1:3737/api/login"), false);
     assert.equal(await secure("https://plania.example/api/login"), true);
     assert.equal(await secure("http://plania.example/api/login"), false);
     assert.equal(await secure("http://127.0.0.1:3737/api/login", { "X-Forwarded-Proto": "http" }), false);
@@ -309,11 +309,12 @@ describe("the session cookie behind tailscale serve", () => {
     assert.match(out.headers.get("set-cookie") ?? "", /Max-Age=0.*Secure|Secure.*Max-Age=0/);
   });
 
-  test("isSecureRequest reads the first X-Forwarded-Proto value and loopback names", () => {
+  test("isSecureRequest reads the first X-Forwarded-Proto value; plain-http loopback is not secure", () => {
     const r = (url: string, h: Record<string, string> = {}) => new Request(url, { headers: h });
     assert.equal(isSecureRequest(r("http://127.0.0.1/", { "X-Forwarded-Proto": "https, http" })), true);
-    assert.equal(isSecureRequest(r("http://[::1]:3737/")), true);
-    assert.equal(isSecureRequest(r("http://plania.localhost:3737/")), true);
+    assert.equal(isSecureRequest(r("http://[::1]:3737/")), false);
+    assert.equal(isSecureRequest(r("http://plania.localhost:3737/")), false);
+    assert.equal(isSecureRequest(r("https://plania.localhost/")), true);
     assert.equal(isSecureRequest(r("http://10.0.0.5:3737/")), false);
   });
 });

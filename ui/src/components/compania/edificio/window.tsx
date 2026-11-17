@@ -4,7 +4,8 @@
 // PLA-I39-6: a window opens its teammate in the side page (onOpen). PLA-I39-7: hint replaces the caption while the
 // owner types in the floor's box ("Recibiría tu pedido").
 import type { OrgMember } from "@/lib/api";
-import { caption, windowLabel, windowState, type WindowState } from "@/lib/edificio";
+import type { Obra } from "@/lib/ahora-piso";
+import { BACK_WORD, caption, windowLabel, windowState, type WindowState } from "@/lib/edificio";
 import { Figure } from "./figure";
 
 export const Glass = ({ role, state }: { role: string; state: WindowState | "ghost" }) => (
@@ -21,20 +22,31 @@ export const Window = ({
   now,
   companyPaused,
   hint,
+  timeZone,
   onOpen,
+  back,
+  seat,
 }: {
   member: OrgMember;
   project: string;
   now: number;
   companyPaused?: boolean;
   hint?: string | null;
+  timeZone?: string;
   onOpen?: (m: OrgMember, el: HTMLElement) => void;
+  // PLA-I46-10: the delivery this teammate made went back to it: violet, «Devuelto · arreglando».
+  back?: boolean;
+  // PLA-I53-4: the floor's obra for this teammate (lib/ahora-piso.ts seatOf): with it the window and its caption say
+  // what the Ahora line says, and back is ignored.
+  seat?: Obra | null;
 }) => {
-  const state = hint ? "ghost" : windowState(m, companyPaused);
-  const c = caption(m, now, { companyPaused });
-  const doing = hint ?? c.doing;
-  const sub = hint ? "" : c.sub;
-  const label = windowLabel(m, project, now, companyPaused);
+  const off = windowState(m, companyPaused, seat) === "off";
+  const isBack = seat === undefined && !!back && !off && !hint;
+  const state = hint ? "ghost" : isBack ? "back" : windowState(m, companyPaused, seat);
+  const c = caption(m, now, { companyPaused, timeZone, seat });
+  const doing = hint ?? (isBack ? BACK_WORD : c.doing);
+  const sub = hint ? "" : isBack ? (m.state === "running" ? "trabajando en el arreglo" : "") : c.sub;
+  const label = isBack ? `${c.who} de ${project}, devuelto: arreglando` : windowLabel(m, project, now, companyPaused, seat);
   const body = (
     <>
       <span className="edi-glass">

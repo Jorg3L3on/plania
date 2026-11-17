@@ -10,7 +10,9 @@
 //   question     an open question (with its options when it has them): elegir {option} or responder {text}
 //                answers it. Questions of paused projects show only when human_only.
 // PLA-I36-2: Te toca holds everything Bandeja calls a paso, and a row carries its evidence.
-//   step         a human_action a ticket is blocked on: hecho {note?} resolves it (as Bandeja does).
+//   step         a human_action a ticket is blocked on: hecho {note?} resolves it (as Bandeja does). A step that
+//                asks for lines in a file (file_step, src/api/file-step.ts) also takes aplicar {path, lines}: Plania
+//                commits them to the ticket's PR and resolves it.
 //   release      a project's release step (from → into): commits ahead, the tickets it ships, open checks.
 //                Publishing stays behind the owner's code (PLA-I36-11): the row opens it in Bandeja.
 //   Every row carries links (doc, PR, ticket of its message or ticket), body (the full message, for a
@@ -19,8 +21,8 @@
 // ALREADY_ACTED: a message's action_state is claimed before anything is posted, a ticket must still be Ready,
 // a question still open.
 import type { Db } from "../db/client.js";
-import type { ActionState, Actor, Agent, Project, ProposalData, Task, ThreadLink, ThreadMessage } from "../db/schema.js";
-import { costText, makeSteps } from "../mcp/proposals.js";
+import type { ActionState, Actor, Agent, PlanQuestion, Project, ProposalData, Task, ThreadLink, ThreadMessage } from "../db/schema.js";
+import { POSTPONED, checkChecklist, costText, isLegPlan, makeSteps } from "../mcp/proposals.js";
 import { inboxFor, type InboxItem } from "../mcp/inbox.js";
 import { resolveHumanAction } from "../mcp/blockers.js";
 import { writeTx } from "../mcp/tx.js";
@@ -38,17 +40,35 @@ import { storeOf, readerOf } from "../store/port.js";
 import { ceoAgentId } from "./company-plan.js";
 import { threadAction } from "./thread-actions.js";
 import { jorgePosts } from "./threads.js";
+import { applyFileStep, fileStepOf, stepOf, type FileStep } from "./file-step.js";
+import { requestVerify, verifyingOf, whoWord, type Verifying } from "./verify.js";
+import { qaGate } from "../runner/qa.js";
+import { probadorGate, releaseReel, type ReelItem } from "../captures/probador.js";
+import { cleanMarcas, marcasText } from "../captures/preguntas.js";
 
 const HOUR = 3_600_000;
 const KEEP_ACTED = 24 * HOUR;
 const RANK: Record<DecisionKind, number> = { plan: 0, proposal: 1, question: 2, pr: 3, deliverable: 4, step: 5, action: 6, release: 7 };
 
 export type DecisionKind = "proposal" | "plan" | "action" | "question" | "deliverable" | "pr" | "step" | "release";
-export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar";
+export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar";
 // PLA-I36-7: a structured option also says what it changes and what it costs (cost as words).
 export type DecisionOption = { n: number; label: string; recommended: boolean; effect?: string; cost?: string };
 // PLA-I36-8: a PO's plan for an order.
-export type DecisionPlan = { order: string; understood: string; steps: { title: string; done_when: string }[]; cost: string; needs_approval: boolean; created: string[] };
+// PLA-I46-11: a plan for a leg also names the leg, its closed questions (suggested marked), the PO's check list,
+// and later_at once the owner said Después (it waits, nothing starts, and it is no longer his move).
+export type DecisionPlan = {
+  order: string;
+  understood: string;
+  steps: { title: string; done_when: string }[];
+  cost: string;
+  needs_approval: boolean;
+  created: string[];
+  leg?: { key: string; title: string } | null;
+  questions?: PlanQuestion[];
+  checklist?: string[];
+  later_at?: string | null;
+};
 // PLA-I36-10: the latest result of the work, how many files changed, and whether accepting is held.
 export type DecisionEvidence = { verdict: string; kind: string; cite: string; pass: number | null; fail: number | null; at: string };
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
@@ -57,7 +77,7 @@ export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 // PLA-I39-1: who asked, so the screen hangs the decision under that teammate's window. Null: nobody on a team.
 export type DecisionAsker = { agent: string; role: string };
-export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number };
+export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[] };
 export type Decision = {
   id: string;
   project: string | null;
@@ -83,6 +103,12 @@ export type Decision = {
   preview_url: string | null;
   hold: string | null;
   asker: DecisionAsker | null;
+  // A step that asks for lines in a file: what, where, and that Plania can do it.
+  file_step: FileStep | null;
+  // The owner's run on this ticket while it is queued or running (e.g. re-running its checks): the card says so.
+  verify: Verifying | null;
+  // PLA-I52-7: the kind of change a delivery is (from its diff at finish), so the card shapes its proof.
+  cambio?: "se_ve" | "se_comporta" | "no_se_ve" | null;
 };
 
 // ---- parsing a PO's proposal
@@ -147,6 +173,8 @@ export function parseProposal(body: string): Proposal | null {
 const firstLine = (s: string, n = 140) => cut(clean(s.trim().split("\n").find((l) => l.trim()) ?? ""), n);
 const stateOf = (s: ActionState | null | undefined): DecisionState | null => (s ? { action: s.action, at: s.at, result: s.result ?? {} } : null);
 const NO_EVIDENCE = {
+  file_step: null as FileStep | null,
+  verify: null as Verifying | null,
   links: [] as DecisionLink[],
   body: null,
   checks: null,
@@ -182,7 +210,7 @@ async function evidenceOf(db: Db, t: Task | null, prUrl: string | null): Promise
 }
 
 // PLA-14: with no CI on the repo, Aceptar needs the ticket's own pass on the PR's current head (not stale_for_head).
-async function passOnHead(db: Db, t: Task | null, head: string | null, branch: string | null): Promise<boolean> {
+export async function passOnHead(db: Db, t: Task | null, head: string | null, branch: string | null): Promise<boolean> {
   if (!t) return false;
   const passes = await readerOf(db).find("results", { taskId: t.id, verdict: "pass" }, { orderBy: [{ column: "createdAt", desc: true }] });
   for (const r of passes) {
@@ -204,8 +232,14 @@ async function workEvidence(db: Db, p: Project | null, t: Task | null, prUrl: st
   const url = prUrl ?? t?.prUrl ?? null;
   const newest = url || t ? await newestPr(db, t, url) : undefined;
   const pr = newest ? { files: newest.changedFiles, head: newest.headSha, branch: newest.headBranch } : undefined;
+  const verify = await verifyingOf(db, t);
+  // No CI and the pass on record is on an older commit: the owner can be asked to run the checks again (verificar).
+  const stale = checks?.ci === "none" && !!t && !(await passOnHead(db, t, pr?.head ?? null, pr?.branch ?? null));
+  const who = whoWord(verify?.role);
   const hold =
-    checks?.ci === "failure"
+    stale && verify
+      ? `${who} ${verify.state === "running" ? "está corriendo" : "va a correr"} las pruebas en el último commit.`
+      : checks?.ci === "failure"
       ? "Las pruebas fallan."
       : checks && checks.open > 0
         ? `${checks.open === 1 ? "Falta 1 check" : `Faltan ${checks.open} checks`}.`
@@ -213,10 +247,10 @@ async function workEvidence(db: Db, p: Project | null, t: Task | null, prUrl: st
           ? "La última prueba falló."
           : checks?.ci === "pending"
             ? "Las pruebas siguen corriendo."
-            : checks?.ci === "none" && !(await passOnHead(db, t, pr?.head ?? null, pr?.branch ?? null))
+            : stale
               ? "Este repo no tiene CI y falta una prueba que pase en el último commit."
               : null;
-  return { checks, release: null, combinable: [] as number[][], recommended_reason: null, plan: null, evidence, files: pr?.files ?? null, preview_url: p?.settings.preview_url ?? null, hold };
+  return { checks, release: null, combinable: [] as number[][], recommended_reason: null, plan: null, evidence, files: pr?.files ?? null, preview_url: p?.settings.preview_url ?? null, hold, verify, stale, head: pr?.head ?? null, headBranch: pr?.branch ?? null };
 }
 
 async function ticketByKey(db: Db, projectId: string | null | undefined, key: string | null | undefined): Promise<Task | null> {
@@ -247,6 +281,11 @@ async function ownerAsker(db: Db, p: Project | null | undefined, t: Task | null,
   return onTeam(await agentById(db, t?.ownerAgent), p) ?? (author ? onTeam(await agentBySlug(db, author), p) : null);
 }
 
+const legRef = async (db: Db, projectId: string, key: string) => {
+  const t = await readerOf(db).get("tasks", { projectId, key });
+  return t ? { key: t.key, title: t.title } : { key, title: key };
+};
+
 const optionsOf = (p: ProposalData): DecisionOption[] =>
   p.options.map((o) => ({ n: o.n, label: o.label, recommended: o.recommended, effect: o.effect || undefined, cost: costText(o.cost) || undefined }));
 
@@ -273,7 +312,7 @@ async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>)
         title: data.title,
         kind: plan ? "plan" : "proposal",
         options: plan ? null : optionsOf(data),
-        actions: m.actionState ? [] : plan ? ["empezar", "cambiar", "cancelar"] : ["elegir", "responder"],
+        actions: m.actionState ? [] : plan ? (isLegPlan(data) ? ["empezar", "cambiar", "despues"] : ["empezar", "cambiar", "cancelar"]) : ["elegir", "responder"],
         state: stateOf(m.actionState),
         at: m.at.toISOString(),
         ref: null,
@@ -283,7 +322,15 @@ async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>)
         combinable: data.combinable,
         recommended_reason: data.recommended_reason,
         plan: plan
-          ? { order: data.order!, understood: data.understood ?? "", steps: data.steps.map((x) => ({ title: x.title, done_when: x.done_when })), cost: costText(data.cost), needs_approval: data.needs_approval, created: data.created }
+          ? {
+              order: data.order!,
+              understood: data.understood ?? "",
+              steps: data.steps.map((x) => ({ title: x.title, done_when: x.done_when })),
+              cost: costText(data.cost),
+              needs_approval: data.needs_approval,
+              created: data.created,
+              ...(isLegPlan(data) ? { leg: await legRef(db, p.id, data.leg!), questions: data.questions ?? [], checklist: data.checklist ?? [], later_at: data.later_at ?? null } : {}),
+            }
           : null,
         asker: await authorOf(db, m),
       });
@@ -320,41 +367,66 @@ async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>)
 
 async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, skip: Set<string>): Promise<Decision[]> {
   const out: Decision[] = [];
-  // The newest 200 messages, in any thread, not Jorge's and without a question, that link a ticket or an idea and
-  // nobody acted on (or acted on within the window). Postgres orders them all; the filter runs here.
+  // Messages in any thread, not Jorge's and without a question, that link a ticket or an idea, newest first.
   const r = readerOf(db);
   const threadProject = new Map((await r.find("threads")).map((th) => [th.id, th.projectId]));
-  const rows: { m: ThreadMessage; projectId: string | null }[] = [];
-  for (const m of await r.find("threadMessages", { questionId: null }, { orderBy: [{ column: "at", desc: true }] })) {
-    if (rows.length === 200) break;
-    if (m.authorAgent === JORGE.agent || !threadProject.has(m.threadId)) continue;
-    if (!m.links.some((l) => l.kind === "ticket" || l.kind === "idea")) continue;
-    if (m.actionState && !(Date.parse(m.actionState.at) >= since.getTime())) continue;
-    rows.push({ m, projectId: threadProject.get(m.threadId)! });
-  }
+  const linked = (await r.find("threadMessages", { questionId: null }, { orderBy: [{ column: "at", desc: true }] })).filter(
+    (m) => m.authorAgent !== JORGE.agent && threadProject.has(m.threadId) && m.links.some((l) => l.kind === "ticket" || l.kind === "idea"),
+  );
+  // PLA-53: an open message can only be acted on while its ticket is In review, and those are read whole: a delivery
+  // nobody answered is never pushed out of the window by newer messages. What he already acted on stays windowed.
+  const inReview = await r.find("tasks", { status: "In review" });
+  const reviewed = (ref: string, projectId: string | null) => inReview.some((t) => t.key === ref && (projectId === null || t.projectId === projectId));
+  const withProject = (m: ThreadMessage) => ({ m, projectId: threadProject.get(m.threadId)! });
+  const open = linked
+    .filter((m) => !m.actionState && m.links.some((l) => (l.kind === "ticket" || l.kind === "idea") && reviewed(l.ref, threadProject.get(m.threadId)!)))
+    .slice(0, 1000)
+    .map(withProject);
+  const acted = linked
+    .filter((m) => !!m.actionState && Date.parse(m.actionState.at) >= since.getTime())
+    .slice(0, 200)
+    .map(withProject);
+  const rows = [...open, ...acted].sort((a, b) => b.m.at.getTime() - a.m.at.getTime());
+  // One card per ticket: rows come newest first, so an open message whose ticket already has a card (a newer
+  // delivery, or one already accepted or sent back) is the same delivery said again and is left out.
+  const carded = new Set<string>();
   for (const { m, projectId } of rows) {
     if (skip.has(m.id)) continue;
     const p = projectId ? slugById.get(projectId) : undefined;
+    const link = m.links.find((l) => l.kind === "ticket" || l.kind === "idea");
+    const card = link ? `${projectId ?? ""}/${link.ref}` : null;
+    if (!m.actionState && card && carded.has(card)) continue;
     let actions: MessageAction[] = [];
     if (!m.actionState) {
       actions = await actionsFor(db, m, projectId ?? null);
       if (actions.length === 0) continue;
     } else if (!["aceptar", "cambios"].includes(m.actionState.action)) continue;
-    const link = m.links.find((l) => l.kind === "ticket" || l.kind === "idea");
+    if (card) carded.add(card);
     const pr = m.actionState ? m.links.some((l) => l.kind === "pr") || !!m.actionState.result?.merged : actions.includes("fusionar");
     const ticket = link?.kind === "ticket" ? await ticketByKey(db, projectId, link.ref) : null;
+    const { stale, head, headBranch: _branch, ...ev } = await workEvidence(db, p ?? null, ticket, m.links.find((l) => l.kind === "pr")?.ref ?? null);
+    // PLA-I46-9: a code delivery on a project with QA waits for its QA pass before it is the owner's turn.
+    const qa = !m.actionState && pr ? await qaGate(db, p ?? null, ticket, head) : null;
+    if (qa?.pending) continue;
+    // PLA-I52-3: nor before its pictures exist (El Probador); a delivery without a muestra is unchanged.
+    const shots = !m.actionState && pr ? probadorGate(p ?? null, ticket, head) : null;
+    if (shots?.pending) continue;
     out.push({
+      file_step: null,
       id: `m-${m.id}`,
       project: p?.slug ?? null,
       title: link?.title || firstLine(m.body),
       kind: pr ? "pr" : "deliverable",
       options: null,
-      actions: actions as DecisionAction[],
+      // Held only because the pass is on an older commit: offer asking the owner to run the checks again.
+      actions: [...(actions as DecisionAction[]), ...(!m.actionState && stale && !ev.verify && ticket?.ownerAgent ? (["verificar"] as DecisionAction[]) : [])],
       state: stateOf(m.actionState),
       at: m.at.toISOString(),
       ref: link?.ref ?? null,
       detail: firstLine(m.body, 200),
-      ...(await workEvidence(db, p ?? null, ticket, m.links.find((l) => l.kind === "pr")?.ref ?? null)),
+      ...ev,
+      hold: ev.hold ?? qa?.hold ?? shots?.hold ?? null,
+      cambio: (ticket?.cambio as Decision["cambio"]) ?? null,
       links: linksOf(m.links),
       body: m.body,
       asker: await ownerAsker(db, p, ticket, m.authorAgent),
@@ -431,14 +503,17 @@ async function pasoRows(db: Db, all: Project[], inbox: Map<string, InboxItem[]>,
       if (it.kind === "human_action") {
         if (it.key && ceoTickets.has(`${p.slug}/${it.key}`)) continue;
         const t = await ticketByKey(db, p.id, it.key);
+        const step = await stepOf(db, it.id);
+        const file = step ? fileStepOf(step.spec, String(step.spec.text ?? it.why), it.pr_url ?? null) : null;
         out.push({
           ...NO_EVIDENCE,
+          file_step: file,
           id: `b-${it.id}`,
           project: p.slug,
           title: firstLine(it.why, 200),
           kind: "step",
           options: null,
-          actions: ["hecho"],
+          actions: file ? ["aplicar", "hecho"] : ["hecho"],
           state: null,
           at: it.waiting_since,
           ref: it.key,
@@ -475,6 +550,7 @@ async function pasoRows(db: Db, all: Project[], inbox: Map<string, InboxItem[]>,
             tickets: plan.tickets.map((t) => ({ key: t.key, title: t.title })),
             open_checks: plan.open_checks,
             before: plan.before.length,
+            ...(await releaseReel(db, p.id, p.slug, plan.tickets).then((reel) => (reel.length ? { reel } : {}))),
           },
         });
       }
@@ -512,7 +588,7 @@ export async function decisionsRead(db: Db, now = new Date(), inboxed?: Map<stri
 
 // ---- acting
 
-export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string };
+export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string; answers?: number[]; checklist?: string[]; marcas?: unknown };
 export type DecisionRefusal = { error: string; status: 400 | 404 | 409; hint: string; [k: string]: unknown };
 export type DecisionDone = { ok: true; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
 
@@ -545,7 +621,11 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
   if (!m) return refuse("DECISION_NOT_FOUND", "Esa decisión ya no está.", 404);
   if (m.actionState) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.", 409, { state: stateOf(m.actionState) });
   const ref = await resolveThread(db, m.threadId);
-  if (m.proposal?.kind === "plan") return actOnPlan(db, id, m, input);
+  if (input.action === "verificar") return verifyMessage(db, id, m, ref.project?.id ?? null);
+  // PLA-27: only a plan that waits for "Sí, empiecen" is acted on as a plan. One that needed no approval is
+  // information: its message shows as a delivery of the order's ticket, and is accepted or sent back like one.
+  if (m.proposal?.kind === "plan" && isLegPlan(m.proposal)) return actOnLegPlan(db, id, m, input);
+  if (m.proposal?.kind === "plan" && (m.proposal.needs_approval || ["empezar", "cambiar", "cancelar"].includes(input.action))) return actOnPlan(db, id, m, input);
   const proposal = m.proposal?.kind === "choice" ? { title: m.proposal.title, options: optionsOf(m.proposal), note: null } : m.authorRole === "product-owner" ? parseProposal(m.body) : null;
 
   if (proposal && (input.action === "elegir" || input.action === "responder")) {
@@ -583,7 +663,15 @@ async function actOnMessage(db: Db, id: string, msgId: string, input: DecisionIn
   }
 
   if (!["aceptar", "fusionar", "cambios", "responder"].includes(input.action)) return refuse("INVALID_ACTION", "Esa acción no aplica aquí.", 400);
-  const out = await threadAction(db, ref, { message_id: m.id, action: input.action as "aceptar" | "fusionar" | "cambios" | "responder", text: input.text });
+  // PLA-I52-6: a return from El Probador carries the owner's pins, each with a crop of the picture.
+  let text = input.text;
+  const marcas = input.action === "cambios" ? cleanMarcas(input.marcas) : [];
+  const ticketRef = m.links.find((l) => l.kind === "ticket")?.ref;
+  if (marcas.length && ref.project && ticketRef) {
+    const extra = await marcasText(db, ref.project.slug, ticketRef, marcas);
+    text = [text?.trim() || "Otra cosa", extra.text].filter(Boolean).join("\n\n");
+  }
+  const out = await threadAction(db, ref, { message_id: m.id, action: input.action as "aceptar" | "fusionar" | "cambios" | "responder", text });
   if ("error" in out) return { ...out, status: out.status } as DecisionRefusal;
   return after(db, id, stateOf(out.action_state)!);
 }
@@ -624,6 +712,90 @@ async function actOnPlan(db: Db, id: string, m: ThreadMessage, input: DecisionIn
   const state = { action: input.action, at, result };
   await setActionState(db, ref, m.id, { actionState: state as unknown as ActionState });
   return after(db, id, state);
+}
+
+// PLA-I46-11: a plan for a leg. Three exits, the screen's Aceptar plan / Cambiar algo / Después.
+//   empezar  with answers (0-based, one per question; the suggestion when left out) and the check list as the owner
+//            edited it (3 lines). Makes the steps under the leg (phase 1..n, Ready, po_checklist on each), sets a
+//            Planning leg Active so the route stands on it, and closes the order (the PO parked it in
+//            Backlog when it proposed; its reason names the steps). Existing tickets are not touched:
+//            what was put off (Backlog, an On hold leg) stays put off.
+//   cambiar  text: what to change. Closes this order and sends a new one to the PO with the leg's title and the
+//            change, so the PO plans again; the plan is acted on.
+//   despues  stores later_at. The plan stays open (it can be accepted later) but is no longer the owner's move.
+async function actOnLegPlan(db: Db, id: string, m: ThreadMessage, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
+  if (!["empezar", "cambiar", "despues"].includes(input.action)) return refuse("INVALID_ACTION", "Aquí: Aprobar el plan · Cambiar algo · Después.", 400);
+  const data = m.proposal!;
+  const ref = await resolveThread(db, m.threadId);
+  const p = ref.project!;
+  const ctx = { ...webCtx, tool: `screen.plan_${input.action}` };
+  if (input.action === "despues") {
+    const later = new Date().toISOString();
+    // Only while nobody acted on the plan yet.
+    const done = await setActionState(db, ref, m.id, { proposal: { ...data, later_at: later } }, true);
+    if (!done) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.");
+    return after(db, id, { action: "despues", at: later, result: { later_at: later, leg: data.leg } });
+  }
+
+  const leg = await readerOf(db).get("tasks", { projectId: p.id, key: data.leg! });
+  if (!leg) return refuse("TASK_NOT_FOUND", "Ese entregable ya no está.", 404);
+  let answers: number[] = [];
+  let list: string[] = [];
+  let text = "";
+  if (input.action === "empezar") {
+    if (POSTPONED.includes(leg.status)) return refuse("LEG_POSTPONED", "Ese entregable está pospuesto a propósito.", 409, { key: leg.key, status: leg.status });
+    const qs = data.questions ?? [];
+    answers = qs.map((q, i) => input.answers?.[i] ?? q.suggested);
+    if (answers.some((a, i) => !Number.isInteger(a) || a < 0 || a >= qs[i]!.options.length)) return refuse("INVALID_OPTION", "Esa respuesta no está entre las opciones.", 400);
+    try {
+      list = checkChecklist(input.checklist ?? data.checklist);
+    } catch {
+      return refuse("CHECKLIST_REQUIRED", "La check list lleva 3 cosas a verificar.", 400);
+    }
+  } else {
+    text = input.text?.trim() ?? "";
+    if (!text) return refuse("TEXT_REQUIRED", "Escribe qué cambiar.", 409);
+  }
+  const at = new Date().toISOString();
+  const claimed = await setActionState(db, ref, m.id, { actionState: { action: input.action, at, result: {} } as unknown as ActionState }, true);
+  if (!claimed) return refuse("ALREADY_ACTED", "Ya actuaste sobre esto.");
+  const order = await readerOf(db).get("tasks", { projectId: p.id, key: data.order! });
+  let result: Record<string, unknown>;
+  let extra: Partial<DecisionDone> = {};
+  try {
+    if (input.action === "empezar") {
+      const kept: ProposalData = { ...data, answers, checklist: list, later_at: null };
+      const created = await makeSteps(db, p.slug, kept, ctx);
+      await setActionState(db, ref, m.id, { proposal: { ...kept, created } });
+      // The route stands on this leg now, unless another Active leg still has open steps (then it waits its turn).
+      const r = readerOf(db);
+      const otherLegs = (await r.find("tasks", { projectId: p.id, kind: "initiative", status: "Active" })).filter((i) => i.id !== leg.id);
+      const busy = otherLegs.length
+        ? (await r.find("tasks", { parentId: otherLegs.map((i) => i.id), kind: "ticket" })).filter((t) => !["Done", "Merged", "Released", "Won't do", "Backlog"].includes(t.status)).length
+        : 0;
+      if (leg.status === "Planning" && busy === 0) await setTask(db, { project: p.slug, key: leg.key, status: "Active", version: leg.version, note: `Plan aceptado: ${created.join(", ")}.` } as never, ctx);
+      // The order was parked when the PO proposed; the accepted plan is its answer, so it closes here.
+      if (order && !["Done", "Won't do"].includes(order.status)) {
+        await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: `Respondido con el plan aceptado: ${created.join(", ")}.` } as never, ctx);
+      }
+      await postMessage(db, ref, { author: JORGE, body: "Plan aceptado." }, ctx);
+      result = { created, leg: leg.key, answers, checklist: list };
+    } else {
+      if (order && !["Done", "Won't do"].includes(order.status)) {
+        await setTask(db, { project: p.slug, key: order.key, status: "Won't do", version: order.version, reason: "Jorge cambia el plan: va otro pedido al PO." } as never, ctx);
+      }
+      const posted = await jorgePosts(db, ref, `Planea «${leg.title}» otra vez. Cambia esto: ${text}`);
+      result = { leg: leg.key, change: text, order: posted.created?.key ?? null };
+      extra = { created: posted.created, wake: posted.wake };
+    }
+  } catch (e) {
+    await setActionState(db, ref, m.id, { actionState: null });
+    if (e instanceof ToolError) return refuse(e.code, "Plania no dejó hacerlo.", 409, e.detail);
+    throw e;
+  }
+  const state = { action: input.action, at, result };
+  await setActionState(db, ref, m.id, { actionState: state as unknown as ActionState });
+  return after(db, id, state, extra);
 }
 
 // The words Jorge typed, from the order's scope (`Pedido de Jorge desde …: "texto"`), else its title.
@@ -682,6 +854,7 @@ async function actOnQuestion(db: Db, id: string, qid: string, input: DecisionInp
 
 // PLA-I36-2: a manual step, marked done as Bandeja does (the ticket may go back to Ready at once).
 async function actOnStep(db: Db, id: string, blockerId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
+  if (input.action === "aplicar") return applyStep(db, blockerId, input);
   if (input.action !== "hecho") return refuse("INVALID_ACTION", "Aquí: Hecho.", 400);
   const r = readerOf(db);
   const b = await r.get("blockers", { id: blockerId, type: "human_action" });
@@ -698,6 +871,50 @@ async function actOnStep(db: Db, id: string, blockerId: string, input: DecisionI
   }
   const state = { action: "hecho", at: new Date().toISOString(), result: {} };
   return { ok: true, state, decision: null };
+}
+
+// Volver a probar (src/api/verify.ts): the delivery stays as it is; its ticket's owner wakes to run the checks on the head.
+async function verifyMessage(db: Db, id: string, m: ThreadMessage, projectId: string | null): Promise<DecisionDone | DecisionRefusal> {
+  const link = m.links.find((l) => l.kind === "ticket");
+  const t = link && projectId ? await ticketByKey(db, projectId, link.ref) : null;
+  if (!t) return refuse("NO_TICKET", "El mensaje no enlaza un ticket.", 409);
+  const prUrl = m.links.find((l) => l.kind === "pr")?.ref ?? t.prUrl;
+  const pr = await newestPr(db, t, prUrl);
+  const out = await requestVerify(db, t, pr?.headSha ?? null, pr?.headBranch ?? t.branch);
+  if ("error" in out) return refuse(out.error, out.hint);
+  return after(db, id, { action: "verificar", at: new Date().toISOString(), result: { ticket: t.key, wake: out.wake, role: out.role } });
+}
+
+// The file step: commit the lines to the ticket's PR, then resolve the step with a note that says where they went.
+async function applyStep(db: Db, blockerId: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {
+  const step = await stepOf(db, blockerId);
+  if (!step) return refuse("DECISION_NOT_FOUND", "Ese paso ya no está.", 404);
+  const open = await readerOf(db).get("blockers", { id: blockerId });
+  if (open?.satisfiedAt) return refuse("ALREADY_ACTED", "Ese paso ya está hecho.");
+  const draft = fileStepOf(step.spec, String(step.spec.text ?? ""), step.t.prUrl);
+  const path = input.path?.trim() || draft?.path;
+  const lines = input.lines ?? draft?.lines;
+  if (!path || !lines?.trim()) return refuse("FILE_EMPTY", "Falta el archivo o las líneas.", 400);
+  const done = await applyFileStep(db, step.t, { path, lines, pr_url: draft?.pr_url ?? step.t.prUrl });
+  if ("error" in done) return refuse(done.error, done.hint);
+  const p = await readerOf(db).get("projects", { id: step.t.projectId });
+  const note = done.added
+    ? `Plania agregó ${done.added} ${done.added === 1 ? "línea" : "líneas"} a ${done.path} en ${done.branch}${done.commit ? ` (${done.commit.slice(0, 7)})` : ""}.`
+    : `${done.path} en ${done.branch} ya tenía esas líneas.`;
+  try {
+    await writeTx(db, p!, { ...webCtx, tool: "screen.decision_file" }, (tx, emit) => resolveHumanAction(tx, emit, p!.id, blockerId, webCtx.actor, note));
+  } catch (e) {
+    if (e instanceof ToolError) return refuse(e.code, "Se agregó al PR, pero Plania no dejó marcar el paso; márcalo con Hecho.", 409, e.detail);
+    throw e;
+  }
+  // A new commit on a delivery whose repo has no CI makes its pass stale: ask its owner to run the checks again now.
+  let verify: string | null = null;
+  if (done.commit && step.t.status === "In review" && (await evidenceOf(db, step.t, done.pr_url))?.ci === "none") {
+    const fresh = (await readerOf(db).get("tasks", { id: step.t.id })) ?? step.t;
+    const out = await requestVerify(db, fresh, done.commit, done.branch);
+    verify = "error" in out ? out.hint : (out.role ?? "owner");
+  }
+  return { ok: true, state: { action: "aplicar", at: new Date().toISOString(), result: { ...done, verify } }, decision: null };
 }
 
 export async function actOnDecision(db: Db, id: string, input: DecisionInput): Promise<DecisionDone | DecisionRefusal> {

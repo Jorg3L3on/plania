@@ -1,0 +1,476 @@
+// PLA-I41-5: the Morning brief pipeline (spec §4, §5 "Lock, waiting and logs", §11).
+// startBrief(db, opts) takes the single-run lock (held by this process for the whole run; the store is open in one
+// process) and writes a brief_runs row (waiting). A second trigger while one holds the lock
+// gets BriefRunningError (409 BRIEF_RUNNING with the run id). The run then: reserves the runner slot and waits, with
+// no time cutoff, until no run is live (the caller's AbortSignal is the fallback_at ceiling) -> running -> facts ->
+// pass A -> pass B -> merge -> store the morning_briefs row -> the 0-token "Brief de hoy" projection (asistente.brief
+// event, so GET /api/company keeps working) -> prune checks unseen for 30 days -> ok / partial / fallback; a crash
+// is fail. Stale rows (a run that died with the server) are marked fail by markStaleRuns.
+//
+// The 07:00 schedule, the fallback_at timer and waiting out the plan guard are in schedule.ts (PLA-I41-6).
+import { randomUUID } from "node:crypto";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
+import path from "node:path";
+import type { Db } from "../db/client.js";
+import type { BriefPassRecord, BriefRunStatus } from "../db/schema.js";
+import { writeTx } from "../mcp/tx.js";
+import { buildBrief as defaultBuildBrief, ASISTENTE_ACTOR } from "../runner/asistente.js";
+import { liveRuns as defaultLiveRuns, releaseReservation, reserveSlot, settleRunner } from "../runner/runner.js";
+import { loadSettings, writeVia } from "../runner/limits.js";
+import { asistenteHome } from "../runner/threads.js";
+import { readerOf } from "../store/port.js";
+import { gte, lt, lte, type NewRow } from "../store/types.js";
+import { BRIEF_AGENT, spawnPass as defaultSpawnPass, type BriefPass, type PassOutcome, type SpawnPassDeps, type SpawnPassInput } from "./claude.js";
+import { setAsideItems } from "./act.js";
+import { actedIdeaIds, actedTargetKeys, ideaSeen, ideasInMotion } from "./ideas.js";
+
+/** Plania ideas whose sketch or research came back and no brief row has acted on yet. */
+async function readyIdeas(db: Db, slugs: string[]) {
+  const done = await actedTargetKeys(db);
+  return (await ideasInMotion(db, slugs)).filter((i) => (i.next === "sketch_ready" || i.next === "research_ready") && !done.has(i.key));
+}
+import { briefWindow, buildFacts, type Facts } from "./facts.js";
+import { mergeBrief, projectionLines, type OpenIdea, type PassResult, type WaitingPaused } from "./merge.js";
+import { loadPassPrompts, readSchemaText, type SystemVars } from "./prompts.js";
+import { loadBriefProjects, loadBriefSettings, resolveBriefSettings } from "./settings.js";
+import { BriefPassOutput, Idea, IdeasPassOutput, type BriefData } from "./types.js";
+
+export const LOCK_KEY = "morning_brief";
+export const CHECK_KEEP_DAYS = 30;
+const MINUTE = 60_000;
+const DAY = 24 * 3600_000;
+
+export type BriefTrigger = "schedule" | "manual" | "cli";
+
+export class BriefRunningError extends Error {
+  readonly code = "BRIEF_RUNNING";
+  constructor(readonly runId: string | null) {
+    super(runId ? `a Morning brief is already running (${runId})` : "a Morning brief is already running");
+    this.name = "BriefRunningError";
+  }
+}
+
+export type RunBriefOptions = {
+  trigger: BriefTrigger;
+  // Which Claude passes run. Default both (pass B only when ideas_enabled).
+  passes?: BriefPass[];
+  // Store a facts-only brief right away with this plain reason (no Claude run).
+  factsOnly?: string;
+  // Aborted = the fallback_at ceiling: stop waiting (or the pass) and store a facts-only brief.
+  signal?: AbortSignal;
+  // The text after "because" when the signal fires, e.g. "a build was still running". Default from the state.
+  ceilingLabel?: string;
+};
+
+export type RunBriefDeps = {
+  env?: NodeJS.ProcessEnv;
+  now?: () => Date;
+  spawnPass?: <T>(db: Db, input: SpawnPassInput<T>, deps?: SpawnPassDeps) => Promise<PassOutcome<T>>;
+  spawnDeps?: SpawnPassDeps;
+  buildBrief?: (db: Db, now: Date) => Promise<string[]>;
+  liveRuns?: () => unknown[];
+  pollMs?: number;
+  // Parent of the per-run folder that holds facts.json (0700 folder, 0600 file). Default <tmpdir>/plania-brief.
+  tmpDir?: string;
+  // Where pass tokens are reported (reportTokens needs an existing task key). Default PLANIA_BRIEF_TASK_KEY; none skips.
+  usageTaskKey?: string | null;
+};
+
+export type RunBriefResult = { runId: string; status: BriefRunStatus; briefId: string | null; mode: BriefData["mode"] | null; summary: string };
+
+// ---- Time in the brief's zone
+
+/** ISO 8601 with the zone's offset, e.g. "2026-11-13T07:04:12-06:00". */
+export function isoInZone(d: Date, tz: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  const local = Date.UTC(+get("year"), +get("month") - 1, +get("day"), +get("hour") % 24, +get("minute"), +get("second"));
+  const off = Math.round((local - Math.floor(d.getTime() / 1000) * 1000) / MINUTE);
+  const sign = off < 0 ? "-" : "+";
+  const abs = Math.abs(off);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${get("year")}-${get("month")}-${get("day")}T${pad(+get("hour") % 24)}:${get("minute")}:${get("second")}${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+}
+export const localDateIn = (d: Date, tz: string): string => isoInZone(d, tz).slice(0, 10);
+
+// ---- Lock
+
+// The store is open in one process (the server), so the lock is this process's: taken without waiting, held for the
+// whole run, and gone with the process (a crash frees it). Its key is LOCK_KEY.
+const held = new Set<string>();
+function tryLock(): boolean {
+  if (held.has(LOCK_KEY)) return false;
+  held.add(LOCK_KEY);
+  return true;
+}
+function unlock(): void {
+  held.delete(LOCK_KEY);
+}
+
+/** The live run's id, for the 409. */
+export async function runningRun(db: Db): Promise<{ id: string; status: BriefRunStatus; started_at: Date } | null> {
+  const [row] = await readerOf(db).find("briefRuns", { status: ["waiting", "running"] }, { orderBy: [{ column: "startedAt", desc: true }], limit: 1 });
+  return row ? { id: row.id, status: row.status, started_at: row.startedAt } : null;
+}
+
+/**
+ * §5: a running row older than the pass timeouts + 5 min is marked fail. When nobody holds the lock, every waiting or
+ * running row is left over from a server that stopped mid-run and is marked fail too. Returns how many it marked.
+ */
+export async function markStaleRuns(db: Db, now: Date = new Date(), timeouts?: { brief: number; ideas: number }): Promise<number> {
+  const t = timeouts ?? (await loadBriefSettings(db)).pass_timeouts;
+  const cutoff = new Date(now.getTime() - (t.brief + t.ideas + 5) * MINUTE);
+  const lock = tryLock();
+  try {
+    const where = lock ? { status: ["waiting", "running"] as BriefRunStatus[] } : { status: "running" as const, startedAt: lt(cutoff) };
+    const rows = await writeVia(db, (uow) => uow.update("briefRuns", where, { status: "fail", endedAt: now, summary: "did not finish: stale run (the server stopped or the run hung)" }));
+    return rows.length;
+  } finally {
+    if (lock) unlock();
+  }
+}
+
+// ---- Checks
+
+/** The ids of a brief's items and ideas. */
+function briefIds(data: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  for (const list of [data.items, data.ideas]) {
+    if (!Array.isArray(list)) continue;
+    for (const x of list) {
+      const id = x && typeof x === "object" ? (x as { id?: unknown }).id : undefined;
+      if (typeof id === "string") out.push(id);
+    }
+  }
+  return out;
+}
+
+/** Deletes checks whose id is in no brief of the last 30 days (and that are older than that themselves). */
+export async function pruneChecks(db: Db, now: Date = new Date(), days = CHECK_KEEP_DAYS): Promise<number> {
+  const cutoff = new Date(now.getTime() - days * DAY);
+  return writeVia(db, async (uow) => {
+    const recent = new Set((await uow.find("morningBriefs", { generatedAt: gte(cutoff) })).flatMap((b) => briefIds(b.data)));
+    const old = (await uow.find("briefChecks", { checkedAt: lt(cutoff) })).filter((c) => !recent.has(c.itemId));
+    if (!old.length) return 0;
+    return (await uow.delete("briefChecks", { itemId: old.map((c) => c.itemId) })).length;
+  });
+}
+
+// ---- What the merge needs from the store
+
+const IDEA_KEY = /-IDEA\d+$/i;
+
+async function openIdeas(db: Db, slugs: string[]): Promise<OpenIdea[]> {
+  if (!slugs.length) return [];
+  const r = readerOf(db);
+  const ps = await r.find("projects", { slug: slugs });
+  if (!ps.length) return [];
+  const slugOf = new Map(ps.map((p) => [p.id, p.slug]));
+  const rows = await r.find("tasks", { projectId: ps.map((p) => p.id), kind: "idea", status: "Open", promotedTo: null }, { orderBy: [{ column: "createdAt", desc: true }] });
+  return rows.filter((t) => IDEA_KEY.test(t.key)).map((t) => ({ app: slugOf.get(t.projectId)!, key: t.key, title: t.title, summary: t.summary || null }));
+}
+
+/**
+ * The ideas of the newest brief that has Claude's ideas, minus the ones the owner checked: an earlier local date's, or
+ * (PLA-33) the same day's morning brief when a rerun's ideas pass failed.
+ */
+async function yesterdayIdeas(db: Db, today: string): Promise<Idea[]> {
+  const rows = await readerOf(db).find("morningBriefs", { localDate: lte(today) }, { orderBy: [{ column: "localDate", desc: true }, { column: "generatedAt", desc: true }], limit: 12 });
+  const claudeIdeas = (d: Record<string, unknown>) => Array.isArray(d.sources) && (d.sources as { name?: string; ok?: boolean }[]).some((x) => x.name === "claude_ideas" && x.ok);
+  const prev = rows.find((r) => (r.localDate < today ? true : claudeIdeas(r.data)));
+  const raw = Array.isArray(prev?.data?.ideas) ? (prev!.data.ideas as unknown[]) : [];
+  const ideas = raw.flatMap((r) => {
+    const p = Idea.safeParse(r);
+    return p.success ? [p.data] : [];
+  });
+  if (!ideas.length) return [];
+  const checked = await readerOf(db).find("briefChecks", { itemId: ideas.map((i) => i.id) });
+  const seen = new Set(checked.map((r) => r.itemId));
+  return ideas.filter((i) => !seen.has(i.id));
+}
+
+/** D7: Send to Plania targets waiting because their project's runs are paused (still paused per the facts). */
+async function waitingPaused(db: Db, facts: Facts | null): Promise<WaitingPaused[]> {
+  const rows = await readerOf(db).find("briefPlanRequests", { status: "open" });
+  const stillPaused = (slug: string) => {
+    const p = facts?.projects.find((x) => x.slug === slug);
+    return p ? p.runs_paused : true;
+  };
+  return rows.flatMap((r) => r.targets.filter((t) => t.state === "waiting_paused" && stillPaused(t.slug)).map((t) => ({ slug: t.slug, codes: t.codes })));
+}
+
+/** Ticket keys named in the items that are settled (Done, Won't do). */
+async function settledKeys(db: Db, items: unknown[]): Promise<Set<string>> {
+  const keys = new Set<string>();
+  for (const i of items) {
+    const ref = (i as { ref?: unknown })?.ref;
+    if (typeof ref === "string") for (const k of ref.toUpperCase().match(/\b[A-Z][A-Z0-9]*-[A-Z0-9-]*[0-9]\b/g) ?? []) keys.add(k);
+  }
+  if (!keys.size) return new Set();
+  const rows = await readerOf(db).find("tasks", { key: [...keys], status: ["Done", "Won't do"] });
+  return new Set(rows.map((r) => r.key.toUpperCase()));
+}
+
+// ---- Brief de hoy
+
+/** The 0-token "Brief de hoy" on Compañía: an asistente.brief event that GET /api/company already reads. */
+export async function writeProjection(db: Db, brief: { id: string; localDate: string; data: BriefData }, env: NodeJS.ProcessEnv = process.env): Promise<string[]> {
+  const home = await asistenteHome(db, env);
+  const lines = projectionLines(brief.data);
+  if (!home) return lines;
+  const ctx = { actor: { ...ASISTENTE_ACTOR, session_id: BRIEF_AGENT, machine: hostname() }, tool: "brief.projection", requestId: `morning_brief:projection:${brief.id}` };
+  await writeTx(db, home, ctx, async (_tx, emit) => {
+    await emit("asistente.brief", null, {
+      date: brief.localDate,
+      lines,
+      generated_at: brief.data.generatedAt,
+      source: "morning_brief",
+      brief_id: brief.id,
+      mode: brief.data.mode,
+      link: "/brief",
+    });
+  });
+  return lines;
+}
+
+// ---- The run
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    if (signal?.aborted) return resolve();
+    const t = setTimeout(done, ms);
+    function done() {
+      clearTimeout(t);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    }
+    signal?.addEventListener("abort", done, { once: true });
+  });
+
+const passRecord = (o: PassOutcome<unknown>): BriefPassRecord => {
+  const log_file = o.logPath ? path.basename(o.logPath) : undefined;
+  return o.ok ? { status: "ok", turns: o.turns, tokens: o.tokens.total, ...(log_file ? { log_file } : {}) } : { status: o.reason, ...(log_file ? { log_file } : {}) };
+};
+
+// Reasons that mean Claude could not run at all: the brief is facts only, not partial (§11).
+const FACTS_ONLY_REASONS = new Set(["no_token", "plan_guard", "aborted", "auth"]);
+
+/**
+ * Takes the lock and writes the waiting row, then runs in the background. Throws BriefRunningError when a run holds
+ * the lock. `done` never rejects: a crash is stored as status fail.
+ */
+export async function startBrief(db: Db, opts: RunBriefOptions, deps: RunBriefDeps = {}): Promise<{ runId: string; done: Promise<RunBriefResult> }> {
+  if (!tryLock()) throw new BriefRunningError((await runningRun(db))?.id ?? null);
+  const now = deps.now ?? (() => new Date());
+  try {
+    // We hold the lock, so any waiting or running row is left from a run that died with its server.
+    const runId = await writeVia(db, async (uow) => {
+      await uow.update("briefRuns", { status: ["waiting", "running"] }, { status: "fail", endedAt: now(), summary: "did not finish: stale run (the server stopped or the run hung)" });
+      return (await uow.insert("briefRuns", { trigger: opts.trigger, status: "waiting", startedAt: now() })).id;
+    });
+    const done = execute(db, runId, opts, deps)
+      .catch(async (err: unknown) => {
+        const summary = `fail: ${err instanceof Error ? err.message : String(err)}`.replace(/\/Users\/[^\s/]+/g, "~").slice(0, 300);
+        await writeVia(db, (uow) => uow.update("briefRuns", { id: runId }, { status: "fail", endedAt: now(), summary })).catch(() => undefined);
+        return { runId, status: "fail" as const, briefId: null, mode: null, summary };
+      })
+      .finally(() => unlock());
+    return { runId, done };
+  } catch (err) {
+    unlock();
+    throw err;
+  }
+}
+
+/** startBrief and wait for the end. */
+export async function runBrief(db: Db, opts: RunBriefOptions, deps: RunBriefDeps = {}): Promise<RunBriefResult> {
+  return (await startBrief(db, opts, deps)).done;
+}
+
+async function execute(db: Db, runId: string, opts: RunBriefOptions, deps: RunBriefDeps): Promise<RunBriefResult> {
+  const env = deps.env ?? deps.spawnDeps?.env ?? process.env;
+  const now = deps.now ?? (() => new Date());
+  const spawn = deps.spawnPass ?? defaultSpawnPass;
+  const live = deps.liveRuns ?? deps.spawnDeps?.liveRuns ?? defaultLiveRuns;
+  const stored = await loadBriefSettings(db);
+  const s = resolveBriefSettings(stored, env);
+  const bps = await loadBriefProjects(db, stored);
+  const included = bps.filter((p) => p.include);
+
+  const wanted = new Set<BriefPass>(opts.passes ?? ["brief", "ideas"]);
+  if (!s.ideas_enabled || !included.some((p) => p.include_ideas)) wanted.delete("ideas");
+  let factsOnly: string | null = opts.factsOnly ?? null;
+  const passes: Record<string, BriefPassRecord> = {};
+  const setRun = (patch: Partial<NewRow<"briefRuns">>) => writeVia(db, (uow) => uow.update("briefRuns", { id: runId }, patch));
+
+  // Hold the slot from before pass A to after pass B, and wait (no cutoff) until no run is live.
+  const claude = !factsOnly && wanted.size > 0;
+  const mine = claude ? reserveSlot(`${BRIEF_AGENT}`) : false;
+  const dir = path.join(deps.tmpDir ?? path.join(tmpdir(), "plania-brief"), `${runId.replace(/-/g, "").slice(0, 8)}-${randomUUID().slice(0, 8)}`);
+  try {
+    if (claude) {
+      await settleRunner();
+      // PLA-I60-2: the brief needs its one reserved slot of the ceiling, not a quiet machine.
+      const ceiling = Math.max(1, (await loadSettings(db)).maxConcurrent);
+      while (live().length >= ceiling && !opts.signal?.aborted) await sleep(deps.pollMs ?? 5_000, opts.signal);
+      if (opts.signal?.aborted) factsOnly = ceilingText(s.language, stored.fallback_at, opts.ceilingLabel ?? (live().length >= ceiling ? "a build was still running" : "Claude was not free"));
+    }
+    await setRun({ status: "running", startedAt: now() });
+
+    // 1. Facts (0 tokens).
+    const at = now();
+    const [last] = await readerOf(db).find("morningBriefs", {}, { orderBy: [{ column: "generatedAt", desc: true }], limit: 1 });
+    const window = briefWindow(last?.generatedAt ?? null, at);
+    const facts = await buildFacts(db, window, { settings: stored, env });
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const factsPath = path.join(dir, "facts.json");
+    writeFileSync(factsPath, JSON.stringify(facts, null, 1), { mode: 0o600 });
+
+    const localDate = localDateIn(at, s.timezone);
+    const repoDirs = facts.projects.filter((p) => bps.find((b) => b.slug === p.slug)?.include_ideas && p.repo_path).map((p) => p.repo_path);
+    const promptProjects = (ideasOnly: boolean): SystemVars["projects"] =>
+      facts.projects
+        .filter((p) => !ideasOnly || bps.find((b) => b.slug === p.slug)?.include_ideas)
+        .map((p) => ({ id: p.slug, name: p.name, keyPrefix: p.key_prefix, repoPath: p.repo_path || null, githubRepo: p.github_repo }));
+    const vars = (ideasOnly: boolean) => ({
+      ownerName: s.owner_name,
+      language: s.language,
+      timezone: s.timezone,
+      timezoneLabel: s.timezone_label,
+      hiddenRefs: s.hidden_refs,
+      projects: promptProjects(ideasOnly),
+      localDate,
+      windowStart: isoInZone(window.from, s.timezone),
+      now: isoInZone(at, s.timezone),
+      factsPath,
+      maxItemsPerApp: s.max_items_per_app,
+      ideasPerProject: s.ideas_per_project,
+    });
+    const taskKey = deps.usageTaskKey !== undefined ? deps.usageTaskKey : env.PLANIA_BRIEF_TASK_KEY?.trim() || null;
+    const home = await asistenteHome(db, env);
+    const usage = taskKey && home ? { project: home.slug, taskKey } : null;
+    const run = async <T>(pass: BriefPass, schema: SpawnPassInput<T>["schema"]): Promise<PassOutcome<T>> => {
+      const p = await loadPassPrompts(db, pass, vars(pass === "ideas"), env);
+      const out = await spawn<T>(
+        db,
+        {
+          pass,
+          date: localDate,
+          runId,
+          prompt: p.prompt,
+          systemPrompt: p.system,
+          jsonSchema: readSchemaText(pass),
+          schema,
+          repoDirs: pass === "ideas" ? repoDirs : [],
+          githubMode: s.github_mode,
+          model: s.model,
+          usage,
+          signal: opts.signal,
+        },
+        { ...deps.spawnDeps, env, timeoutMs: deps.spawnDeps?.timeoutMs ?? s.pass_timeouts[pass] * MINUTE },
+      );
+      passes[pass] = passRecord(out as PassOutcome<unknown>);
+      await setRun({ passes: { ...passes } });
+      return out;
+    };
+
+    // 2-3. Pass A, then pass B (never in parallel). When Claude cannot run at all, pass B is not tried.
+    let brief: PassResult<{ items: unknown[] }> = null;
+    let ideas: PassResult<{ ideas: unknown[] }> = null;
+    let authText: string | null = null;
+    if (!factsOnly && wanted.has("brief")) {
+      const a = await run("brief", BriefPassOutput);
+      if (a.ok) brief = { ok: true, data: a.data };
+      else if (a.reason === "auth") {
+        authText = a.summary;
+        factsOnly = signInText(s.language, a.summary);
+      } else if (FACTS_ONLY_REASONS.has(a.reason)) factsOnly = a.reason === "aborted" ? ceilingText(s.language, stored.fallback_at, opts.ceilingLabel ?? "the run was stopped") : a.summary;
+      else brief = { ok: false, summary: a.summary };
+    }
+    if (!factsOnly && wanted.has("ideas")) {
+      const b = await run("ideas", IdeasPassOutput);
+      if (b.ok) ideas = { ok: true, data: b.data };
+      else ideas = { ok: false, summary: b.summary };
+    }
+
+    // PLA-33: Claude could not sign in. When today already has a brief made by Claude's passes, keep it: no new row,
+    // the run ends failed with the plain reason (GET /latest returns it as last_run).
+    if (authText !== null) {
+      const kept = await readerOf(db).get("morningBriefs", { localDate, mode: ["full", "partial"] });
+      if (kept) {
+        const summary = `${AUTH_PREFIX}${authText}`.slice(0, 300);
+        await setRun({ status: "fail", endedAt: now(), passes: { ...passes }, summary });
+        return { runId, status: "fail", briefId: null, mode: null, summary };
+      }
+    }
+
+    // 4. Merge.
+    const serverLines = factsOnly ? await (deps.buildBrief ?? defaultBuildBrief)(db, at).catch(() => []) : [];
+    const data = mergeBrief({
+      settings: s,
+      projects: bps,
+      facts,
+      generatedAt: isoInZone(at, s.timezone),
+      window: { from: isoInZone(window.from, s.timezone), to: isoInZone(window.to, s.timezone) },
+      brief,
+      ideas,
+      factsOnly,
+      serverLines,
+      openIdeas: await openIdeas(db, included.filter((p) => p.include_ideas).map((p) => p.slug)),
+      yesterdayIdeas: await yesterdayIdeas(db, localDate),
+      waitingPaused: await waitingPaused(db, facts),
+      settledKeys: await settledKeys(db, brief?.ok ? brief.data.items : []),
+      setAside: await setAsideItems(db, localDate),
+      actedIdeas: await actedIdeaIds(db),
+      ideaSeen: await ideaSeen(db, localDate),
+      ideasReady: await readyIdeas(db, included.map((p) => p.slug)),
+    });
+
+    // 5. Store, project, prune.
+    const row = await writeVia(db, (uow) =>
+      uow.insert("morningBriefs", { localDate, generatedAt: at, trigger: opts.trigger, mode: data.mode, data: data as unknown as Record<string, unknown>, runId }),
+    );
+    await writeProjection(db, { id: row.id, localDate, data }, env);
+    await pruneChecks(db, at);
+
+    const status: BriefRunStatus = data.mode === "full" ? "ok" : data.mode === "partial" ? "partial" : "fallback";
+    const summary = runSummary(data, factsOnly, authText, brief, ideas);
+    await setRun({ status, endedAt: now(), passes: { ...passes }, summary });
+    return { runId, status, briefId: row.id, mode: data.mode, summary };
+  } finally {
+    if (mine) releaseReservation();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** Run summaries that start with this are sign-in failures (the page words them in the brief's language). */
+export const AUTH_PREFIX = "sign-in: ";
+
+export function signInText(lang: string, detail: string): string {
+  return lang === "es"
+    ? `Claude no pudo iniciar sesión (${detail}). Corre \`claude\` en la Mac, escribe /login y pulsa Generar ahora.`
+    : `Claude could not sign in (${detail}). Run \`claude\` on the Mac, type /login, then press Generate now.`;
+}
+
+export function ceilingText(lang: string, fallbackAt: string, because: string): string {
+  return lang === "es"
+    ? `El brief completo no corrió antes de las ${fallbackAt} porque ${because}. Pulsa Generar ahora cuando esté libre.`
+    : `The full brief didn't run by ${fallbackAt} because ${because}. Press Generate now when it's free.`;
+}
+
+function runSummary(data: BriefData, factsOnly: string | null, authText: string | null, brief: PassResult<unknown>, ideas: PassResult<unknown>): string {
+  const counts = `${data.items.length} items, ${data.ideas.length} ideas`;
+  if (factsOnly) return (authText ? `${AUTH_PREFIX}${authText}; facts only` : `facts only: ${factsOnly}`).slice(0, 300);
+  const failed = [brief && !brief.ok ? `brief: ${brief.summary}` : "", ideas && !ideas.ok ? `ideas: ${ideas.summary}` : ""].filter(Boolean).join("; ");
+  return (failed ? `${data.mode} (${counts}); ${failed}` : `${data.mode} (${counts})`).slice(0, 300);
+}

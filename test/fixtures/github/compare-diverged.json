@@ -1,0 +1,16 @@
+{
+  "url": "https://api.github.com/repos/Jorg3L3on/zigzag/compare/0bbbbbb222222222222222222222222222222222...5aaaaaa111111111111111111111111111111111",
+  "html_url": "https://github.com/Jorg3L3on/zigzag/compare/0bbbbbb222222222222222222222222222222222...5aaaaaa111111111111111111111111111111111",
+  "base_commit": { "sha": "0bbbbbb222222222222222222222222222222222" },
+  "merge_base_commit": { "sha": "9dddddd444444444444444444444444444444444" },
+  "status": "diverged",
+  "ahead_by": 3,
+  "behind_by": 44,
+  "total_commits": 3,
+  "commits": [
+    { "sha": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1", "commit": { "message": "Badge" } },
+    { "sha": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2", "commit": { "message": "Actions" } },
+    { "sha": "5aaaaaa111111111111111111111111111111111", "commit": { "message": "Merge pull request #600" } }
+  ],
+  "files": []
+}

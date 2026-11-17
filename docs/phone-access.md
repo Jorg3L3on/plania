@@ -105,3 +105,12 @@ turn the switch on again there. On iPhone, if notifications stop, check Settings
   restarted since they were added.
 - Login loops on the phone: you opened `http://` instead of the `https://…ts.net` URL.
 - `tailscale serve status` shows nothing after a reboot: the command ran without `--bg`; run it again with it.
+
+## El Probador's live copy (PLA-I52-5)
+
+«Pruébala en vivo» on a delivery opens the delivery's own copy, already signed in as the project's test user.
+Plania serves it through a small proxy on a loopback port (never the LAN; any other peer gets 403). When the Mac
+has Tailscale, Plania also runs `tailscale serve --bg --https=<that port> http://127.0.0.1:<that port>` so the
+phone opens it at `https://<mac-name>.<tailnet>.ts.net:<port>`, and turns that entry off when the copy stops
+(after 20 minutes unused, or when a newer delivery replaces it). Without Tailscale the card says so and the link
+opens on the Mac only. `PLANIA_TAILSCALE_BIN` points at the CLI when it is not in the usual places.

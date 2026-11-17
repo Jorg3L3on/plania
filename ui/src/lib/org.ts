@@ -1,5 +1,7 @@
 // PLA-I33: the words and rules of Compañía como organización (ADR 31c1cead, Design 3a2c3385). Pure: the
 // pages and test/compania-org.test.ts read the same functions. Spend is tokens, never money.
+import { plainWords } from "./plain-words";
+import { statusEtapa, statusWord as ticketWord } from "./etapas";
 import type { Plumbed, Usage } from "./compania";
 import { ago, tokens, type Tone } from "./compania";
 import type { MachinePlumbing, OrgLight, OrgMember, OrgMemberState, OrgPlumbing, OrgProduced, ThreadAction, ThreadActionState, ThreadLink, ThreadMessage } from "./api";
@@ -32,13 +34,14 @@ const ROLE_WORDS: Record<string, string> = {
   taller: "Taller",
   qa: "QA",
   copy: "Copy",
+  seguridad: "Seguridad",
   marketing: "Marketing",
   data: "Data",
   asistente: "Asistente",
   jorge: "Jorge",
 };
 export const roleName = (role: string) => ROLE_WORDS[role] ?? role.charAt(0).toUpperCase() + role.slice(1);
-const ROLE_ORDER = ["product-owner", "po", "research", "artist", "taller", "qa", "copy", "marketing", "data"];
+const ROLE_ORDER = ["product-owner", "po", "research", "artist", "taller", "qa", "copy", "seguridad", "marketing", "data"];
 const rank = (role: string) => {
   const i = ROLE_ORDER.indexOf(role);
   return i === -1 ? ROLE_ORDER.length : i;
@@ -48,19 +51,9 @@ export const byRole = (a: OrgMember, b: OrgMember) => rank(a.role) - rank(b.role
 // ---- one role row: what it does now and since when, or what it did last and when
 
 export const STILL_MS = 48 * 3_600_000;
-const STATUS_WORD: Record<string, string> = {
-  Done: "hecho",
-  "In review": "en revisión",
-  Merged: "fusionado",
-  Released: "publicado",
-  Ready: "listo",
-  Blocked: "bloqueado",
-  ok: "ok",
-  fail: "falló",
-  skipped: "omitida",
-  stopped: "detenida",
-};
-export const statusWord = (s: string) => STATUS_WORD[s] ?? s;
+// A run's own outcome; a ticket status reads the stage map (lib/etapas.ts, PLA-I53-5).
+const RUN_WORD: Record<string, string> = { ok: "ok", fail: "falló", skipped: "omitida", stopped: "detenida" };
+export const statusWord = (s: string) => RUN_WORD[s] ?? (statusEtapa(s) ? ticketWord(s).toLowerCase() : s);
 
 export const MEMBER_STATE: Record<OrgMemberState, { word: string; tone: Tone }> = {
   running: { word: "trabajando", tone: "ok" },
@@ -92,12 +85,14 @@ export function linkHref(link: Pick<ThreadLink, "kind" | "ref"> | OrgProduced, p
   if (link.kind === "pr") return /^https?:\/\//.test(link.ref) ? link.ref : null;
   if (link.kind === "doc" || link.kind === "plan") return `/ceo?doc=${encodeURIComponent(link.ref)}`;
   if (link.kind === "question") return project ? `/p/${encodeURIComponent(project)}` : "/inbox";
+  // PLA-I43-1: a Send to Plania message links its request; the progress lives on /brief.
+  if (link.kind === "brief_plan") return "/brief";
   return project ? `/p/${encodeURIComponent(project)}?task=${encodeURIComponent(link.ref)}` : null;
 }
-const KIND_WORD: Record<string, string> = { ticket: "", doc: "doc", pr: "PR", idea: "idea", plan: "plan", question: "pregunta" };
+const KIND_WORD: Record<string, string> = { ticket: "", doc: "doc", pr: "PR", idea: "idea", plan: "plan", question: "pregunta", brief_plan: "brief" };
 export const linkLabel = (link: { kind: string; ref: string; title: string }) => {
   const kind = KIND_WORD[link.kind] ?? link.kind;
-  if (link.kind === "pr") return link.title || "PR";
+  if (link.kind === "pr") return link.title ? plainWords(link.title) : "PR";
   if (link.kind === "ticket") return link.title ? `${link.ref} · ${link.title}` : link.ref;
   return `${kind} “${link.title || link.ref}”`;
 };
@@ -116,28 +111,46 @@ export function usageLine(u: Usage, opts: { paused: boolean }): { text: string; 
 
 export const THREAD_PAGE = 30;
 
+// PLA-43: an approve button names its effect. fusionar is a delivery with a PR (merged into the test copy, never
+// main); aceptar is one without (the ticket goes to Done). The server offers exactly one of the two.
 export const ACTION_LABEL: Record<ThreadAction, string> = {
-  aceptar: "Aceptar",
+  aceptar: "Aprobar y cerrar",
   cambios: "Pedir cambios",
   responder: "Responder",
-  fusionar: "Fusionar",
+  fusionar: "Aprobar y pasar a prueba",
 };
+// What each approve button does, in one line under the buttons.
+export const ACTION_EFFECT: Partial<Record<ThreadAction, string>> = {
+  aceptar: "La entrega pasa a Hecho y arranca el siguiente paso.",
+  fusionar: "Se integra a la copia de prueba; lo publicado no cambia. Luego arranca el siguiente paso.",
+};
+// title / aria-label: what the button approves («Aprobar y pasar a prueba: Compartir la lista»).
+export function actionTitle(a: ThreadAction, m: ThreadMessage): string {
+  if (a !== "aceptar" && a !== "fusionar") return ACTION_LABEL[a];
+  const ticket = m.links.find((l) => l.kind === "ticket" || l.kind === "idea");
+  const what = ticket?.title?.trim() || (a === "fusionar" ? "esta entrega con su PR" : "esta entrega");
+  return `${ACTION_LABEL[a]}: ${what}`;
+}
 const ACTION_DONE: Record<ThreadAction, string> = {
-  aceptar: "Aceptado",
+  aceptar: "Aprobado · cerrado",
   cambios: "Cambios pedidos",
   responder: "Respondido",
-  fusionar: "Fusionado a sandbox",
+  fusionar: "Aprobado · en la copia de prueba",
 };
-// "Aceptado · Done", "Fusionado a sandbox · 1abb07d", "Cambios pedidos · el PO despierta".
+// "Aprobado · cerrado", "Aprobado · en la copia de prueba", "Cambios pedidos · el PO despierta".
+// The server records every approve as action "aceptar"; a merge carries result.merged.
 export function actionStateText(s: ThreadActionState): string {
-  const head = ACTION_DONE[s.action] ?? s.action;
-  // The server records an object ({ticket, status} or {merged, sha}); never print it raw.
   const raw = s.result;
-  const result = typeof raw === "string" ? raw.trim() : raw && typeof raw === "object" ? String((raw as Record<string, unknown>).sha ?? (raw as Record<string, unknown>).status ?? "").slice(0, 12) : "";
+  const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  if (s.action === "fusionar" || (s.action === "aceptar" && obj?.merged)) return ACTION_DONE.fusionar;
+  if (s.action === "aceptar") return ACTION_DONE.aceptar;
+  const head = ACTION_DONE[s.action] ?? s.action;
+  // The server records an object ({ticket, status}); never print it raw.
+  const result = typeof raw === "string" ? raw.trim() : obj ? String(obj.status ?? "").slice(0, 12) : "";
   if (!result) return head;
   return result.toLowerCase().startsWith(head.toLowerCase()) ? result : `${head} · ${result}`;
 }
-// Pedir cambios and Responder need words; Aceptar and Fusionar do not.
+// Pedir cambios and Responder need words; the approve buttons do not.
 export const needsText = (a: ThreadAction) => a === "cambios" || a === "responder";
 
 // A message waits on Jorge while it offers an action nobody took yet.

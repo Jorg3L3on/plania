@@ -57,7 +57,7 @@ type Review = { id: number; state: string; submitted_at?: string | null };
 // Reviews that ask Taller for something. An approval needs no wake.
 const REVIEW_WAKES = ["CHANGES_REQUESTED", "COMMENTED"];
 type Branch = { name: string; commit: { sha: string } };
-type Compare = { status: "ahead" | "behind" | "identical" | "diverged"; ahead_by?: number; commits?: { sha: string }[] };
+type Compare = { status: "ahead" | "behind" | "identical" | "diverged"; ahead_by?: number; behind_by?: number; commits?: { sha: string }[] };
 
 export type GithubDeps = {
   fetch: Fetch;
@@ -153,6 +153,28 @@ const write = (db: Db, projectId: string, fn: (uow: UnitOfWork) => Promise<unkno
 const branchSeen = (db: Db, projectId: string, name: string, patch: Parameters<typeof touchBranch>[3]) =>
   write(db, projectId, (uow) => touchBranch(uow.sql, projectId, name, patch));
 
+// PLA-46: the whole branch list, page by page. GitHub pages at 100; plania had 110 branches, and every one past
+// page 1 (main and sandbox among them) kept its old head for good. complete is false when a page failed or the cap
+// was hit: the heads read still count, but nothing is marked deleted from a partial read.
+const BRANCH_PAGE = 100;
+const BRANCH_PAGES_MAX = 20;
+export async function remoteBranches(deps: GithubDeps, token: string, repo: string): Promise<{ heads: Map<string, string>; complete: boolean }> {
+  const heads = new Map<string, string>();
+  for (let page = 1; page <= BRANCH_PAGES_MAX; page++) {
+    let r: Awaited<ReturnType<typeof gh>>;
+    try {
+      r = await gh(deps, token, `/repos/${repo}/branches?per_page=${BRANCH_PAGE}&page=${page}`);
+    } catch {
+      return { heads, complete: false };
+    }
+    if (r.status !== 200) return { heads, complete: false };
+    const list = r.data as Branch[];
+    for (const b of list) heads.set(b.name, b.commit.sha);
+    if (list.length < BRANCH_PAGE) return { heads, complete: true };
+  }
+  return { heads, complete: false };
+}
+
 async function cursorOf(db: Db, projectId: string): Promise<Record<string, unknown>> {
   const row = await readerOf(db).get("pollState", { projectId, source: "github" });
   return row?.cursor ?? {};
@@ -192,7 +214,7 @@ async function trailerKey(deps: GithubDeps, token: string, repo: string, pr: Pr)
 
 // PLA-14: a PR head's CI from its check runs and its commit statuses. failure if any is red, success if every one
 // is green, pending while any runs, and none when the head has no check run and no status at all (a repo with no
-// CI): that is not "tests running", so it never holds Aceptar. Only a change of state is written; success and
+// CI): that is not "tests running", so it never holds Aprobar. Only a change of state is written; success and
 // failure also add a ci result, and a failure on an In review ticket sends it back to Ready.
 export type CiState = "pending" | "success" | "failure" | "none";
 export function ciStateOf(runs: CheckRuns["check_runs"], statuses: NonNullable<CombinedStatus["statuses"]>): {
@@ -388,24 +410,26 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
       await pollCi(db, p, deps, token, { number: row.number, url: row.url, sha: row.headSha, ref: row.headBranch }, task, false, summary);
     }
 
-    // 3. Branch heads and deletions for the branches the project knows (the release's two included).
+    // 3. Branch heads and deletions for the branches the project knows (the release's two included, and
+    // PLA-I56-1 the release branch of a project that may release by branch).
     const release = p.settings.release;
-    if (release) {
+    const wanted = [...(release ? [release.from, release.into] : []), ...(mayReleaseByBranch(p) ? [releaseBranchOf(p)] : [])];
+    if (wanted.length) {
       const have = new Set((await readerOf(db).find("branches", { projectId: p.id })).map((b) => b.name));
-      for (const name of [release.from, release.into]) if (!have.has(name)) await branchSeen(db, p.id, name, {});
+      for (const name of new Set(wanted)) if (!have.has(name)) await branchSeen(db, p.id, name, {});
     }
     const known = await readerOf(db).find("branches", { projectId: p.id });
     if (known.length) {
-      const list = await gh(deps, token, `/repos/${cfg.repo}/branches?per_page=100`, cursor.branches_etag as string | undefined);
-      if (list.status === 200) {
-        cursor.branches_etag = list.etag;
-        const remote = new Map((list.data as Branch[]).map((b) => [b.name, b.commit.sha]));
+      // PLA-46: every page, not only the first hundred (the old single-page etag is dropped).
+      delete cursor.branches_etag;
+      const { heads: remote, complete } = await remoteBranches(deps, token, cfg.repo);
+      if (remote.size > 0 || complete) {
         for (const b of known) {
           const sha = remote.get(b.name);
           if (sha && sha !== b.headSha) {
             await branchSeen(db, p.id, b.name, { headSha: sha, headAt: deps.now ?? new Date(), deletedAt: null });
             summary.branches!++;
-          } else if (!sha && !b.deletedAt && (b.headSha || b.prNumber)) {
+          } else if (!sha && complete && !b.deletedAt && (b.headSha || b.prNumber)) {
             await branchSeen(db, p.id, b.name, { deletedAt: deps.now ?? new Date() });
             await writeTx(db, p, systemCtx(`gh:${cfg.repo}:branch_deleted:${b.name}`, "jobs.github"), async (_tx, emit) => {
               await emit("branch.deleted", null, { branch: b.name });
@@ -435,6 +459,8 @@ export async function pollGithubProject(db: Db, p: Project, deps: GithubDeps): P
       cursor.compare = { ...cache, [cacheKey]: contains };
       return contains;
     });
+    // PLA-I56-1: released code tickets with nothing left open close by the rule.
+    summary.closed = await closeReleased(db, p);
     await saveCursor(db, p.id, cursor, null);
   } catch (e) {
     await saveCursor(db, p.id, cursor, e instanceof Error ? e.message : String(e));
@@ -453,7 +479,7 @@ async function pollRelease(db: Db, p: Project, deps: GithubDeps, token: string, 
   const key = compareKey(fromHead, intoHead);
   if (prev?.key === key) return 0;
   let next: ReleaseCompare;
-  if (fromHead === intoHead) next = { key, from_head: fromHead, into_head: intoHead, ahead: 0, contains: true, commits: [] };
+  if (fromHead === intoHead) next = { key, from_head: fromHead, into_head: intoHead, ahead: 0, behind_by: 0, status: "identical", contains: true, commits: [] };
   else {
     const res = await gh(deps, token, `/repos/${repo}/compare/${intoHead}...${fromHead}`);
     if (res.status !== 200) return 0;
@@ -463,6 +489,10 @@ async function pollRelease(db: Db, p: Project, deps: GithubDeps, token: string, 
       from_head: fromHead,
       into_head: intoHead,
       ahead: c.ahead_by ?? 0,
+      // PLA-I41-7: kept from the same response, so the brief can tell a diverged into (main has
+      // commits from lacks) from a plain ahead. No extra request.
+      behind_by: c.behind_by ?? 0,
+      status: c.status,
       contains: c.status === "behind" || c.status === "identical",
       commits: (c.commits ?? []).slice(-50).map((x) => x.sha.slice(0, 7)),
     };
@@ -525,38 +555,78 @@ export async function flagStatusDrift(db: Db, p: Project, repo: string): Promise
   return seen.size;
 }
 
-// Merged → Released once the release target env runs a commit that contains the merge commit:
-// the env's commit is the merge commit, env_commits lists it, or contains() says so (GitHub compare).
-export async function releaseMerged(db: Db, p: Project, contains?: (mergeSha: string, envSha: string) => Promise<boolean>): Promise<number> {
+// PLA-I56-1: what "released" means for a project. env: the release target env runs the merge commit (a
+// deploy the pollers see). branch: the release branch contains it, for a project with no deploy (local
+// apps, libraries). settings.release_on says it; unset, a project with a deploy integration (Vercel) or
+// with a commit recorded for its release env is env, any other is branch.
+export const releaseBranchOf = (p: Pick<Project, "settings">): string => p.settings.release?.into ?? "main";
+export const mayReleaseByBranch = (p: Pick<Project, "settings">): boolean => p.settings.release_on === "branch" || (p.settings.release_on === undefined && !p.settings.vercel);
+
+// Merged → Released once the release target contains the merge commit. env mode: the env's commit is
+// the merge commit, env_commits lists it, or contains() says so (GitHub compare). branch mode: the
+// release branch head is the merge commit or contains() says so.
+export async function releaseMerged(db: Db, p: Project, contains?: (mergeSha: string, targetSha: string) => Promise<boolean>): Promise<number> {
   const env = p.settings.release_target ?? "prod";
   const store = readerOf(db);
   const state = await store.get("envStates", { projectId: p.id, env });
-  if (!state?.commit) return 0;
-  const envCommit = state.commit;
+  const byBranch = p.settings.release_on === "branch" || (mayReleaseByBranch(p) && !state?.commit);
+  let target: { label: string; commit: string };
+  if (byBranch) {
+    const name = releaseBranchOf(p);
+    const b = await store.get("branches", { projectId: p.id, name });
+    if (!b?.headSha || b.deletedAt) return 0;
+    target = { label: name, commit: b.headSha };
+  } else {
+    if (!state?.commit) return 0;
+    target = { label: env, commit: state.commit };
+  }
   const merged = await store.find("tasks", { projectId: p.id, status: "Merged" });
   let released = 0;
   for (const t of merged) {
     const pr = await prRowOf(db, t);
     const merge = pr?.mergedAt ? pr.mergeSha : null;
     if (!merge) continue;
-    // One sha a prefix of the other, either way (both are hex, so this is the old pair of LIKEs).
-    const known = (await store.find("envCommits", { projectId: p.id, env })).some((c) => c.sha.startsWith(merge) || merge.startsWith(c.sha));
-    let ok = known || envCommit.startsWith(merge) || merge.startsWith(envCommit);
-    if (!ok && contains) ok = await contains(merge, envCommit);
+    // One sha a prefix of the other, either way (both are hex, so this is the old pair of LIKEs). Branch mode
+    // reads no env commits.
+    const known = !byBranch && (await store.find("envCommits", { projectId: p.id, env })).some((c) => c.sha.startsWith(merge) || merge.startsWith(c.sha));
+    let ok = known || target.commit.startsWith(merge) || merge.startsWith(target.commit);
+    if (!ok && contains) ok = await contains(merge, target.commit);
     if (!ok) continue;
-    const sys = { actor: { ...SYSTEM_ACTOR, machine: "poller" }, system: true, requestId: `release:${t.key}:${env}:${envCommit}`, tool: "jobs.release" };
-    await setTask(
-      db,
-      { project: p.slug, key: t.key, status: "Released", note: `${env} runs ${envCommit.slice(0, 7)}, which contains the merge commit ${merge.slice(0, 7)}` },
-      sys,
-    );
+    const sys = { actor: { ...SYSTEM_ACTOR, machine: "poller" }, system: true, requestId: `release:${t.key}:${target.label}:${target.commit}`, tool: "jobs.release" };
+    const note = byBranch
+      ? `${target.label} (${target.commit.slice(0, 7)}) contains the merge commit ${merge.slice(0, 7)}; with no deploy, on ${target.label} counts as released`
+      : `${env} runs ${target.commit.slice(0, 7)}, which contains the merge commit ${merge.slice(0, 7)}`;
+    await setTask(db, { project: p.slug, key: t.key, status: "Released", note }, sys);
     await writeTx(db, p, { ...sys, requestId: `${sys.requestId}:record` }, async (tx, emit) => {
-      await recordRelease(tx, p, env, t.key);
-      await emit("release.recorded", { id: t.id, key: t.key }, { env, commit: envCommit });
+      if (!byBranch) await recordRelease(tx, p, env, t.key);
+      await emit("release.recorded", { id: t.id, key: t.key }, byBranch ? { branch: target.label, commit: target.commit } : { env, commit: target.commit });
     });
     released++;
   }
   return released;
+}
+
+// PLA-I56-1: Released → Done by the rule. A code, bug or debt ticket that is released with every check
+// done or waived and no open question has nothing left; closing it was a chore nobody was woken for.
+// settings.auto_done false turns it off. Ops and research tickets keep their owners.
+const AUTO_DONE_TYPES = ["code", "bug", "debt"];
+export async function closeReleased(db: Db, p: Project): Promise<number> {
+  if (p.settings.auto_done === false) return 0;
+  const store = readerOf(db);
+  const released = await store.find("tasks", { projectId: p.id, kind: "ticket", status: "Released" }, { orderBy: [{ column: "key" }] });
+  let closed = 0;
+  for (const t of released) {
+    if (!AUTO_DONE_TYPES.includes(t.workType ?? "code")) continue;
+    if (await store.get("checks", { taskId: t.id, done: false, waivedAt: null })) continue;
+    if (await store.get("questions", { taskId: t.id, answeredAt: null })) continue;
+    await setTask(
+      db,
+      { project: p.slug, key: t.key, status: "Done", note: "Released with every check closed and no open question: closed by the rule (settings.auto_done)." },
+      { actor: { ...SYSTEM_ACTOR, machine: "poller" }, system: true, requestId: `auto-done:${t.key}:${t.version}`, tool: "jobs.release" },
+    );
+    closed++;
+  }
+  return closed;
 }
 
 export async function pollGithub(db: Db, deps: GithubDeps): Promise<Record<string, number>> {

@@ -5,6 +5,7 @@
 // Cancelar; a step Hecho; a release goes to Bandeja. Keys live behind Detalles. Presentational: data and actions come
 // in as props (test/edificio-ui.test.ts, test/compania-v2.test.ts and test/i36-ui.test.ts render it with fake data).
 import { useState, type FormEvent } from "react";
+import { Loader2Icon } from "lucide-react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { ago } from "@/lib/compania";
@@ -12,6 +13,8 @@ import type { Decision, DecisionInput } from "@/lib/api";
 import { linkHref, roleName } from "@/lib/org";
 import { checksText, ordered, releaseText, stateText, evidenceText, plainLink } from "@/lib/v2";
 import { Dot, TONE_INK, pillGhost, pillPrimary } from "@/components/compania/parts";
+import { APPROVE, acceptWords } from "@/lib/evidencia";
+import { FileStepBox } from "@/components/compania/file-step";
 
 const pillSmall = "min-h-9 px-3.5 text-xs";
 
@@ -47,7 +50,11 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
   const work = d.kind === "pr" || d.kind === "deliverable";
   const busyHere = busy?.id === d.id;
   const options = ordered(d);
+  // PLA-40, PLA-42: a delivery's Aprobar names what it does (copia de prueba or Hecho), with one line under the buttons.
+  const accept = work && (d.actions.includes("fusionar") || d.actions.includes("aceptar")) ? acceptWords(d) : null;
   const label = (key: string, word: string) => (busyHere && busy?.key === key ? "…" : word);
+  // A file step Plania can do itself (aplicar): the file, the lines, and one button.
+  const fileStep = d.file_step && d.actions.includes("aplicar") ? d.file_step : null;
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (text.trim().length < 2) return;
@@ -56,7 +63,7 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
     setText("");
   };
   return (
-    <div className="grid min-w-0 gap-1.5">
+    <div className="grid min-w-0 gap-1.5" data-decision={d.id}>
       <p className="min-w-0 text-sm break-words">
         <span className="font-semibold">{d.title}</span>
         <span className="text-xs text-muted-foreground"> · {ago(d.at, now)}</span>
@@ -140,6 +147,14 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
         </p>
       ) : (
         <>
+          {fileStep && (
+            <FileStepBox
+              d={{ ...d, file_step: fileStep }}
+              busy={busyHere && busy?.key === "aplicar"}
+              disabled={busyHere && busy?.key !== "aplicar"}
+              onApply={(input) => onAct(d, input, "aplicar")}
+            />
+          )}
           {options.length > 0 && (
             <ol className="grid gap-1" data-options={options.length}>
               {options.map((o) => (
@@ -186,7 +201,7 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
               ))}
             {d.actions.includes("empezar") && (
               <button type="button" data-action="empezar" className={cn(pillPrimary, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "empezar" }, "empezar")}>
-                {label("empezar", "Sí, empiecen")}
+                {label("empezar", APPROVE.plan.label)}
               </button>
             )}
             {d.actions.includes("cambiar") && (
@@ -210,8 +225,14 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
                 </Link>
               ))}
             {d.actions.includes("hecho") && (
-              <button type="button" data-action="hecho" className={cn(pillPrimary, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "hecho" }, "hecho")}>
-                {label("hecho", "Hecho")}
+              <button
+                type="button"
+                data-action="hecho"
+                className={cn(fileStep ? pillGhost : pillPrimary, pillSmall)}
+                disabled={busyHere}
+                onClick={() => onAct(d, { action: "hecho" }, "hecho")}
+              >
+                {label("hecho", fileStep ? "Ya lo hice yo" : "Hecho")}
               </button>
             )}
             {d.actions.includes("aplazar") && (
@@ -225,16 +246,24 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
                 data-action={d.actions.includes("fusionar") ? "fusionar" : "aceptar"}
                 className={cn(pillPrimary, pillSmall)}
                 disabled={busyHere || !!d.hold}
-                title={d.hold ?? undefined}
+                title={d.hold ?? acceptWords(d).aria}
+                aria-label={acceptWords(d).aria}
                 onClick={() => onAct(d, { action: d.actions.includes("fusionar") ? "fusionar" : "aceptar" }, "aceptar")}
               >
-                {label("aceptar", "Aceptar")}
+                {label("aceptar", (accept ?? acceptWords(d)).label)}
               </button>
             )}
             {d.hold && (d.actions.includes("fusionar") || d.actions.includes("aceptar")) && (
-              <span className="text-xs font-semibold text-ink-blocked" data-hold>
+              <span className={cn("inline-flex items-center gap-1.5 text-xs font-semibold", d.verify ? "text-foreground" : "text-ink-blocked")} data-hold role={d.verify ? "status" : undefined}>
+                {d.verify && <Loader2Icon className="size-3.5 shrink-0 animate-spin" aria-hidden />}
                 {d.hold}
+                {d.verify && <span className="font-normal text-muted-foreground">· {ago(d.verify.since, now)}</span>}
               </span>
+            )}
+            {d.actions.includes("verificar") && (
+              <button type="button" data-action="verificar" className={cn(pillGhost, pillSmall)} disabled={busyHere} onClick={() => onAct(d, { action: "verificar" }, "verificar")}>
+                {label("verificar", `Que ${d.asker ? roleName(d.asker.role) : "su dueño"} vuelva a probar`)}
+              </button>
             )}
             {d.actions.includes("cambios") && (
               <button type="button" data-action="cambios" className={cn(pillGhost, pillSmall)} disabled={busyHere} aria-expanded={reply} onClick={() => setReply(!reply)}>
@@ -247,6 +276,16 @@ export const DecisionView = ({ d, now, busy, error, onAct, onPublish, ui }: Deci
               </button>
             )}
           </div>
+          {accept && !d.hold && (
+            <p className="text-xs text-muted-foreground" data-accept-hint>
+              {accept.hint}
+            </p>
+          )}
+          {d.actions.includes("empezar") && (
+            <p className="text-xs text-muted-foreground" data-plan-hint>
+              {APPROVE.plan.hint}
+            </p>
+          )}
           {reply && (
             <form
               className="flex gap-2"

@@ -1,6 +1,6 @@
 // Plania's data is reached through the store port only. Outside src/store/ and src/db/, no .ts file under src/ or
-// scripts/ may import drizzle-orm (a type-only import aside), pg, or a table of src/db/schema.ts. The one exception
-// is listed in ALLOWED; the test fails when a file off the list offends and when a listed file no longer does.
+// scripts/ may import drizzle-orm (a type-only import aside), pg, or a table of src/db/schema.ts. The exceptions
+// are listed in ALLOWED; the test fails when a file off the list offends and when a listed file no longer does.
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -12,6 +12,7 @@ import * as schema from "../src/db/schema.js";
 // One entry per file that still offends, with what is left. Delete the entry in the change that converts the file.
 const ALLOWED: Record<string, string> = {
   "src/jobs/machine/collect.ts": "a pg client that lists the machine's Postgres databases (inventory, not plania's data)",
+  "src/maquinas/reader.ts": "a pg client that reads a project's own local dev database (not plania's data)",
 };
 
 const ROOT = path.resolve(import.meta.dirname, "..");

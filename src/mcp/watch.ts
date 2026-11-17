@@ -167,7 +167,14 @@ export async function getRunning(db: Q, now = new Date()) {
       footprint: foot.filter((f) => f.taskId === t.id && f.state !== "gone").map(({ taskId: _, ...f }) => f),
     };
   });
-  return { running, as_of: now.toISOString() };
+  // PLA-I60-5: live runner runs per project (an agent may run several work items at once), by project slug, then
+  // by start (the store's sort, nulls last; the stable sort by the project's place keeps it).
+  const agentSlug = new Map((await r.find("agents")).map((a) => [a.id, a.slug]));
+  const live = (await r.find("agentRuns", { status: ["starting", "running"] }, { orderBy: [{ column: "startedAt" }] }))
+    .filter((x) => place.has(x.projectId) && agentSlug.has(x.agentId))
+    .sort((a, b) => place.get(a.projectId)! - place.get(b.projectId)!);
+  const runs = live.map((x) => ({ run_id: x.id, project: slugOf.get(x.projectId)!, agent: agentSlug.get(x.agentId)!, work_key: x.workKey, lane: x.lane, status: x.status, started_at: iso(x.startedAt) }));
+  return { running, runs, as_of: now.toISOString() };
 }
 
 // ---- get_digest

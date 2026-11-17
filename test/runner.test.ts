@@ -160,7 +160,7 @@ async function usedTokens(project: string, tokens: number, role = "research"): P
   const [agent, projectRow] = [await agentId("research"), await projectId(project)];
   const minuteAgo = new Date(Date.now() - 60_000);
   await store.fix((uow) =>
-    uow.insert("agentRuns", { agentId: agent, projectId: projectRow, role, status: "ok", startedAt: minuteAgo, endedAt: minuteAgo, tokensTotal: tokens, queuedAt: minuteAgo }),
+    uow.insert("agentRuns", { agentId: agent, projectId: projectRow, role, status: "ok", startedAt: minuteAgo, endedAt: minuteAgo, inputTokens: tokens, tokensTotal: tokens, queuedAt: minuteAgo }),
   );
 }
 // The one runner_settings row (the migration seeds it on Postgres; on devva the first fix makes it).
@@ -210,8 +210,8 @@ async function runsOf(slug: string): Promise<{ status: string; summary: string; 
   const runs = await store.find("heartbeatRuns", { agentId: agent.id }, { orderBy: [{ column: "startedAt" }, { column: "id" }] });
   return runs.map((r) => ({ status: r.status, summary: r.summary, task_key: r.taskKey }));
 }
-const wake = (slug: string, deps: unknown, taskKey?: string) =>
-  wakeAgent(db, { agent: slug, taskKey, now: new Date() }, { runner: deps as never });
+const wake = (slug: string, deps: unknown, taskKey?: string, trigger?: "cadence" | "owner") =>
+  wakeAgent(db, { agent: slug, taskKey, now: new Date(), trigger }, { runner: deps as never });
 
 before(async () => {
   store = await resetTestStore();
@@ -551,7 +551,8 @@ test("PLA-21 #1: however many tokens a project used this week, a new run starts 
   await runner.waitForAllRuns();
   const state = await companyState(db);
   const micasa = state.projects.find((p) => p.slug === "micasa")!;
-  assert.deepEqual(micasa.usage, { used: 50_001_000 });
+  // PLA-I46-5: used is input + output; the parts travel with it.
+  assert.deepEqual(micasa.usage, { used: 50_001_000, input: 50_001_000, output: 0, cache_read: 0, cache_create: 0 });
   assert.equal("budget" in micasa, false);
 });
 
@@ -688,14 +689,14 @@ test("I29-7 #2: a rate_limit_event allowed_warning makes the next wake 'skipped:
   await runner.waitForAllRuns();
 });
 
-test("I29-7 #3: a wake inside the cooldown is 'skipped: cooldown'", async () => {
+test("I29-7 #3: a periodic wake inside the cooldown is 'skipped: cooldown' (PLA-I60: the rest paces cadence runs only)", async () => {
   const f = fakes();
   await settings({ cooldownMinutes: 30 });
   await ready("micasa", "RUN-CD");
-  await wake("taller", f.deps, "RUN-CD");
+  await wake("taller", f.deps, "RUN-CD", "cadence");
   f.spawned[0]!.child.exit(143);
   await runner.waitForAllRuns();
-  const next = await wake("taller", f.deps, "RUN-CD");
+  const next = await wake("taller", f.deps, "RUN-CD", "cadence");
   assert.equal(next.run!.status, "skipped");
   assert.equal(next.run!.summary, "skipped: cooldown");
   assert.equal(f.spawned.length, 1);
@@ -784,7 +785,7 @@ test("I29-8 #3: resuming the company leaves a self-paused project paused; new pr
   assert.equal(state.company.paused, false);
   assert.equal(state.projects.find((p) => p.slug === "micasa")!.paused, true);
   assert.equal(state.projects.find((p) => p.slug === "workia")!.paused, false);
-  assert.deepEqual(Object.keys(state).sort(), ["asistente", "company", "decisions", "inbox", "plumbing", "projects", "week"]);
+  assert.deepEqual(Object.keys(state).sort(), ["asistente", "brief", "company", "decisions", "inbox", "motor_default", "plumbing", "projects", "week"]);
   assert.deepEqual(Object.keys(state.projects[0]!.usage).sort(), ["last_week", "used"]);
   assert.equal(state.week.timezone, "America/Mexico_City");
   const machine = (await (await app.request("/api/machine", { headers: cookie })).json()) as { plumbing: Awaited<ReturnType<typeof companyState>> & { usage: unknown; log: unknown } };
@@ -795,4 +796,87 @@ test("I29-8 #3: resuming the company leaves a self-paused project paused; new pr
   // A project created now starts paused (the column default PLA-I31-3 relies on).
   await store.fix((uow) => uow.insert("projects", { slug: "nuevo", title: "Nuevo", keyPrefix: "NUE" }));
   assert.equal((await store.get("projects", { slug: "nuevo" }))!.runsPaused, true);
+});
+
+// ---- PLA-I59-1 (Motores)
+
+test("I59-1: a seat with motor sonnet/high runs with --model sonnet --effort high and the run records them", async () => {
+  const f = fakes();
+  await store.fix((uow) => uow.update("agents", { slug: "taller" }, { motorModel: "sonnet", motorEffort: "high" }));
+  try {
+    await ready("micasa", "RUN-MOTOR");
+    const res = await wake("taller", f.deps, "RUN-MOTOR");
+    assert.equal(res.reason, "ok");
+    const { args } = f.spawned[0]!;
+    assert.deepEqual(args.slice(args.indexOf("--model"), args.indexOf("--model") + 2), ["--model", "sonnet"]);
+    assert.deepEqual(args.slice(args.indexOf("--effort"), args.indexOf("--effort") + 2), ["--effort", "high"]);
+    assert.deepEqual(await lastRequested(), { requested_model: "sonnet", requested_effort: "high" });
+    f.spawned[0]!.child.write([resultEvent({ "claude-sonnet-5-5": OPUS })]);
+    f.spawned[0]!.child.exit(0);
+    await runner.waitForAllRuns();
+  } finally {
+    await store.fix((uow) => uow.update("agents", { slug: "taller" }, { motorModel: null, motorEffort: null }));
+  }
+});
+
+// The motor the newest run asked for.
+async function lastRequested(): Promise<{ requested_model: string | null; requested_effort: string | null }> {
+  const [row] = await store.find("agentRuns", {}, { orderBy: [{ column: "queuedAt", desc: true }], limit: 1 });
+  return { requested_model: row!.requestedModel, requested_effort: row!.requestedEffort };
+}
+
+test("I59-1: the company default reaches a seat with nothing of its own; with nothing set, neither flag is passed", async () => {
+  const f = fakes();
+  await settings({ defaultModel: "opus", defaultEffort: "medium" });
+  try {
+    await ready("micasa", "RUN-MOTOR-CO");
+    await wake("taller", f.deps, "RUN-MOTOR-CO");
+    const a = f.spawned[0]!.args;
+    assert.equal(a[a.indexOf("--model") + 1], "opus");
+    assert.equal(a[a.indexOf("--effort") + 1], "medium");
+    f.spawned[0]!.child.write([resultEvent({ "claude-opus-5-5": OPUS })]);
+    f.spawned[0]!.child.exit(0);
+    await runner.waitForAllRuns();
+  } finally {
+    await settings({ defaultModel: null, defaultEffort: null });
+  }
+  const g = fakes();
+  await ready("micasa", "RUN-MOTOR-NONE");
+  await wake("taller", g.deps, "RUN-MOTOR-NONE");
+  assert.equal(g.spawned[0]!.args.includes("--model"), false);
+  assert.equal(g.spawned[0]!.args.includes("--effort"), false);
+  assert.deepEqual(await lastRequested(), { requested_model: null, requested_effort: null });
+  g.spawned[0]!.child.write([resultEvent({ "claude-opus-5-5": OPUS })]);
+  g.spawned[0]!.child.exit(0);
+  await runner.waitForAllRuns();
+});
+
+test("I59-1: set_agent stores, refuses with field + hint, and clears a motor; list_agents shows it; the seed still repairs it", async () => {
+  const { setAgent, listAgents } = await import("../src/mcp/team.js");
+  const v = await setAgent(db, { slug: "research", motor: { model: "Sonnet", effort: "high" }, consulta_motor: { model: "haiku" } });
+  assert.deepEqual(v.motor, { model: "sonnet", effort: "high" });
+  assert.deepEqual(v.consulta_motor, { model: "haiku", effort: null });
+  await assert.rejects(() => setAgent(db, { slug: "research", motor: { model: "gpt-4" } }), (e: { code?: string; detail?: { field?: string; hint?: string } }) => e.code === "INVALID_FILTER" && e.detail?.field === "motor.model" && !!e.detail?.hint);
+  await assert.rejects(() => setAgent(db, { slug: "research", motor: { effort: "ultra" } }), (e: { detail?: { field?: string } }) => e.detail?.field === "motor.effort");
+  const listed = (await listAgents(db)).agents.find((a) => a.slug === "research")!;
+  assert.deepEqual(listed.motor, { model: "sonnet", effort: "high" });
+  // The org seed's repair only looks at adapter fields: a seat with a motor and a blank adapter is still repaired.
+  const { untouchedAdapter } = await import("../src/runner/team.js");
+  const row = (await store.get("agents", { slug: "research" }))!;
+  assert.equal(untouchedAdapter({ ...row, adapter: "none", status: "idle", kind: "bot", wakeUrl: null } as never), true);
+  const cleared = await setAgent(db, { slug: "research", motor: null, consulta_motor: { model: null } });
+  assert.deepEqual(cleared.motor, { model: null, effort: null });
+  assert.deepEqual(cleared.consulta_motor, { model: null, effort: null });
+});
+
+test("I59-1: PUT /settings takes the company default and refuses a bad model", async () => {
+  const token = createSession();
+  const put = (body: unknown) => app.request("/api/company/settings", { method: "PUT", headers: { cookie: `${SESSION_COOKIE}=${token}`, "content-type": "application/json", origin: "http://localhost" }, body: JSON.stringify(body) });
+  const ok = await put({ default_model: "fable", default_effort: "low" });
+  assert.equal(ok.status, 200, await ok.clone().text());
+  const s = (await ok.json()) as { default_model: string; default_effort: string };
+  assert.deepEqual([s.default_model, s.default_effort], ["fable", "low"]);
+  assert.equal((await put({ default_model: "gpt-4" })).status, 400);
+  const cleared = (await (await put({ default_model: null, default_effort: null })).json()) as { default_model: null };
+  assert.equal(cleared.default_model, null);
 });

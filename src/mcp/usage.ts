@@ -7,6 +7,7 @@ import { readerOf, uowOf } from "../store/port.js";
 import { ToolError } from "./errors.js";
 import { findProject, requireTask } from "./queries.js";
 import { iso, writeTx, type Ctx } from "./tx.js";
+import { weekBounds, weekUsage } from "../runner/limits.js";
 
 // PLA-I25: agents report how many tokens a task run used. Plania sums them per agent,
 // project and week and shows the word «reportado». The numbers are not a cap.
@@ -22,11 +23,18 @@ export type UsageTotal = {
   week: string;
   input: number;
   output: number;
+  // PLA-I46-5: cache tokens on their own, never inside input or output.
+  cache_read: number;
+  cache_create: number;
 };
+
+// PLA-I46-5: the week as Máquina shows it, from the runner's own runs: used is input + output; cache apart.
+export type UsageWeek = { week: string; starts_at: string; used: number; input: number; output: number; cache_read: number; cache_create: number };
 
 export type UsageSummary = {
   label: typeof USAGE_LABEL;
   totals: UsageTotal[];
+  screen: UsageWeek;
 };
 
 export type ReportTokensInput = {
@@ -90,6 +98,15 @@ function isoWeekOf(at: Date, tz: string): string {
   return `${year}-W${String(week).padStart(2, "0")}`;
 }
 
+// Noon UTC on the Thursday of an ISO week (YYYY-Www): inside that Monday-to-Sunday week in any time zone, so
+// weekBounds gives its Monday 00:00 there (what to_date(week, 'IYYY-"W"IW') at time zone tz did).
+function isoWeekThursday(week: string): Date {
+  const [year, w] = [Number(week.slice(0, 4)), Number(week.slice(6))];
+  const jan4 = Date.UTC(year, 0, 4);
+  const monday1 = jan4 - ((new Date(jan4).getUTCDay() + 6) % 7) * 86_400_000;
+  return new Date(monday1 + (w - 1) * 7 * 86_400_000 + 3.5 * 86_400_000);
+}
+
 // Same project, agent, task and run replaces the previous counts. A new run_id adds a row.
 export async function reportTokens(db: Db, input: ReportTokensInput, ctx: Ctx): Promise<ReportTokensResult> {
   const project = await findProject(db, input.project);
@@ -146,14 +163,24 @@ export async function usageSummary(db: Db, input: { project?: string; agent?: st
     const w = isoWeekOf(u.at, tz);
     if (week && w !== week) continue;
     const id = JSON.stringify([u.agent, slug, w]);
-    const g = groups.get(id) ?? { agent: u.agent, project: slug, week: w, input: 0, output: 0, rank: [projectRank.get(u.projectId)!, agentRank.get(u.agent)!] };
-    g.input += u.input;
-    g.output += u.output;
+    const g = groups.get(id) ?? { agent: u.agent, project: slug, week: w, input: 0, output: 0, cache_read: 0, cache_create: 0, rank: [projectRank.get(u.projectId)!, agentRank.get(u.agent)!] };
+    g.input += Number(u.input);
+    g.output += Number(u.output);
+    g.cache_read += Number(u.cacheRead);
+    g.cache_create += Number(u.cacheCreate);
     groups.set(id, g);
   }
   // Newest week first, then project slug, then agent.
   const totals = [...groups.values()].sort((a, b) => (a.week === b.week ? 0 : a.week < b.week ? 1 : -1) || a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1]);
-  return { label: USAGE_LABEL, totals: totals.map(({ agent, project, week, input, output }) => ({ agent, project, week, input, output })) };
+  // The same numbers Máquina shows for that week (this week when none is given), for the project or everything.
+  const startsAt = (await weekBounds(db, week ? isoWeekThursday(week) : new Date(), tz)).startsAt;
+  const endsAt = new Date(startsAt.getTime() + 7 * 86_400_000);
+  const w = await weekUsage(db, project ? { kind: "project", projectId: project.id } : { kind: "all" }, startsAt, endsAt);
+  return {
+    label: USAGE_LABEL,
+    totals: totals.map(({ rank: _rank, ...t }) => t),
+    screen: { week: isoWeekOf(startsAt, tz), starts_at: startsAt.toISOString(), ...w },
+  };
 }
 
 type WriteCtx = (
@@ -216,7 +243,8 @@ export function registerUsageTools(
     "usage_summary",
     {
       description: [
-        "Totals of reported tokens per agent, project and week. label is reportado.",
+        "Totals of reported tokens per agent, project and week (input, output, cache_read, cache_create). label is reportado.",
+        "screen is that week as Máquina shows it, from the runner's runs: used is input + output, cache reads and writes apart.",
         "Filter by project slug, agent, or week (YYYY-Www). The numbers are informational.",
       ].join(" "),
       inputSchema: {

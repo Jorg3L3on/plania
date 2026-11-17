@@ -5,12 +5,10 @@ import {
   LOOSE_LANE_ID,
   branchEdges,
   buildLanes,
-  emptyColumns,
   firstLine,
   projectProgress,
   statements,
   statusCounts,
-  waitsLabel,
   yourTurn,
   type LaneTask,
 } from "../ui/src/lib/lanes.js";
@@ -106,8 +104,6 @@ describe("buildLanes", () => {
     assert.deepEqual(keys(lane.next), ["FIL-I4-6", "FIL-I4-4", "FIL-I4-5"], "Ready first, then queued by key");
     assert.deepEqual(keys(lane.later), ["FIL-I4-9"], "a queued ticket counts as next, so Backlog waits");
     assert.equal(lane.stations.find((s) => s.task.key === "FIL-I4-4")!.tone, "pending");
-    assert.equal(waitsLabel(lane.next[1]!, lane), "F1 · F3");
-    assert.equal(waitsLabel(lane.next[2]!, lane), "F2 · FIL-I3-3", "another lane's ticket shows its key");
   });
 
   test("a lane with only reviewed work is still moving and its here is the first review", () => {
@@ -115,12 +111,6 @@ describe("buildLanes", () => {
     assert.equal(lane.state, "moving");
     assert.deepEqual(keys(lane.review), ["A-01-2", "A-01-1"], "In review before Merged");
     assert.deepEqual(lane.stations.filter((s) => s.here).map((s) => s.task.key), ["A-01-2"]);
-  });
-
-  test("emptyColumns names the columns with nothing in any lane", () => {
-    assert.deepEqual([...emptyColumns(buildLanes(filmia()))], []);
-    const lanes = buildLanes([init("A-01"), t("A-01-1", "In progress", { parent_key: "A-01" }), t("A-01-2", "Ready", { parent_key: "A-01" })]);
-    assert.deepEqual([...emptyColumns(lanes)].sort(), ["done", "later", "review"]);
   });
 
   test("rows keep their order when only recency changes", () => {

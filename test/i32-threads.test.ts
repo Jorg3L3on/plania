@@ -197,6 +197,8 @@ test("I32-3 #3: a runner's finish leaves a line with links in its project thread
   assert.deepEqual(last.author, { agent: "taller-micasa", role: "taller" });
   assert.match(last.body, new RegExp(`${created.key} queda En revisión`));
   assert.match(last.body, /pnpm build ok/);
+  // PLA-43: the line names the button it will get.
+  assert.match(last.body, /Necesito: que lo revises \(Aprobar y pasar a prueba o Pedir cambios\)\./);
   assert.deepEqual(last.links.map((l) => [l.kind, l.ref]), [["ticket", created.key], ["pr", "https://github.com/example/micasa/pull/7"]]);
   assert.deepEqual(last.actions, ["fusionar", "cambios"], "a code ticket In review with a PR can be merged or sent back");
 
@@ -204,4 +206,100 @@ test("I32-3 #3: a runner's finish leaves a line with links in its project thread
   const before = view.messages.length;
   await call("add_result", { actor: { agent: "taller-micasa", session_id: "manual" }, project: "micasa", key: created.key, kind: "test", verdict: "pass", cite: "manual" });
   assert.equal(((await (await get(`/api/threads/${thread.id}`)).json()) as { messages: Message[] }).messages.length, before);
+});
+
+// PLA-53: deliveries nobody could see.
+test("PLA-53: a finish from a session that is not a runner leaves the delivery line, and the ticket gets its card", async () => {
+  const { decisionsRead } = await import("../src/api/company-decisions.js");
+  const actor = { agent: "Claude Code", session_id: "cc-manual-53" };
+  const created = (await writes.createTask(db, { project: "micasa", title: "Arreglo a mano", scope: "s", checks: ["Queda arreglado"], status: "Ready" } as never, { actor })) as { key: string };
+  await writes.claim(db, { project: "micasa", key: created.key } as never, { actor });
+  const thread = await threadOf("micasa");
+  const count = async () => ((await (await get(`/api/threads/${thread.id}`)).json()) as { messages: Message[] }).messages;
+  const before = (await count()).length;
+  await call("add_result", { actor, project: "micasa", key: created.key, kind: "test", verdict: "pass", cite: "pnpm test: 3 pass", check_ns: [1] });
+  assert.equal((await count()).length, before, "its add_result stays silent");
+  const done = await call("finish", { actor, project: "micasa", key: created.key, pr_url: "https://github.com/example/micasa/pull/53", result: { kind: "test", verdict: "pass", cite: "pnpm test: 3 pass" } });
+  assert.equal(done.__error, undefined, JSON.stringify(done));
+  const last = (await count()).at(-1)!;
+  assert.match(last.body, new RegExp(`${created.key} queda En revisión`));
+  assert.deepEqual(last.author, { agent: "claude-code", role: "sesion" });
+  assert.deepEqual(last.actions, ["fusionar", "cambios"]);
+  const card = (await decisionsRead(db, new Date())).find((d) => d.id === `m-${last.id}`);
+  assert.ok(card, "the delivery has its card");
+
+  // 205 newer lines about other tickets: the open delivery is still read (it used to fall out of the newest 200).
+  const other = (await writes.createTask(db, { project: "micasa", title: "Otro", scope: "s", checks: ["c"] } as never, { actor })) as { key: string };
+  await store.fix(async (uow) => {
+    for (let g = 1; g <= 205; g++) {
+      await uow.insert("threadMessages", {
+        threadId: thread.id,
+        authorAgent: "taller-micasa",
+        authorRole: "taller",
+        body: `nota ${g}`,
+        links: [{ kind: "ticket", ref: other.key, title: "Otro" }],
+        at: new Date(uow.now.getTime() + g * 1000),
+      });
+    }
+  });
+  assert.ok((await decisionsRead(db, new Date())).some((d) => d.id === `m-${last.id}`), "still carded behind 205 newer messages");
+});
+
+test("PLA-53: restart --check names what a restart would kill, and passes with nothing in flight", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { inFlight } = await import("../src/ops/in-flight.js");
+  const { createHash } = await import("node:crypto");
+  // The script opens this file's lobes: the prefix test/helpers.ts gives them.
+  const prefix = `t_${createHash("sha1").update(`${import.meta.dirname}|${process.argv[1] ?? ""}`).digest("hex").slice(0, 10)}`;
+  const check = () => spawnSync(process.execPath, ["--import", "tsx", "scripts/restart.ts", "--check"], { env: { ...process.env, PLANIA_JOBS: "0", PLANIA_DEVVA_PREFIX: prefix }, encoding: "utf8" });
+  const settle = () =>
+    store.fix(async (uow) => {
+      await uow.update("agentRuns", { status: "running" }, { status: "ok", endedAt: uow.now });
+      await uow.delete("qaLanes", { status: "checking" });
+    });
+  await settle();
+  assert.deepEqual(await inFlight(db), []);
+  const quiet = check();
+  assert.equal(quiet.status, 0, quiet.stderr);
+  assert.match(quiet.stdout, /Nada en curso/);
+
+  const micasa = await store.projectId("micasa");
+  const taller = (await store.get("agents", { slug: "taller-micasa" }))!.id;
+  const actor = { agent: "Claude Code", session_id: "cc-manual-53b" };
+  const a = (await writes.createTask(db, { project: "micasa", title: "Con run", scope: "s", checks: ["c"] } as never, { actor })) as { key: string };
+  const b = (await writes.createTask(db, { project: "micasa", title: "Con QA", scope: "s", checks: ["c"] } as never, { actor })) as { key: string };
+  const c = (await writes.createTask(db, { project: "micasa", title: "Con fotos", scope: "s", checks: ["c"] } as never, { actor })) as { key: string };
+  const capture = { start_command: "x", port: 3000, ready_path: "/", pages: [] };
+  await store.fix(async (uow) => {
+    await uow.insert("agentRuns", { agentId: taller, projectId: micasa, role: "taller", status: "running", startedAt: uow.now, taskKey: a.key });
+    const tb = (await uow.get("tasks", { projectId: micasa, key: b.key }))!;
+    await uow.insert("qaLanes", { projectId: micasa, taskId: tb.id, taskKey: tb.key, status: "checking" });
+    const p = (await uow.get("projects", { id: micasa }))!;
+    await uow.update("projects", { id: micasa }, { settings: { ...p.settings, capture } as never });
+    await uow.update(
+      "tasks",
+      { projectId: micasa, key: c.key },
+      {
+        status: "In review",
+        muestra: { frase: "f", vistas: [{ key: "a", label: "A", path: "/" }], pasos: ["1", "2", "3"] } as never,
+        probador: { state: "tomando", attempts: 0, error: null, commit: null, at: new Date().toISOString() } as never,
+      },
+    );
+  });
+  const found = await inFlight(db);
+  assert.deepEqual(found.map((f) => f.kind).sort(), ["fotos", "qa", "run"]);
+  const busy = check();
+  assert.equal(busy.status, 1);
+  for (const k of [a.key, b.key, c.key]) assert.ok(busy.stdout.includes(k), `${k} is named`);
+  // A «tomando» with nobody behind it (older than a whole pass) does not hold a restart: the sweep takes it again.
+  await store.fix(async (uow) => {
+    const t = (await uow.get("tasks", { projectId: micasa, key: c.key }))!;
+    await uow.update("tasks", { id: t.id }, { probador: { ...t.probador!, at: new Date(uow.now.getTime() - 10 * 60_000).toISOString() } });
+  });
+  assert.deepEqual((await inFlight(db)).map((f) => f.kind).sort(), ["qa", "run"]);
+  await settle();
+  await store.fix(async (uow) => {
+    const { capture: _gone, ...settings } = (await uow.get("projects", { id: micasa }))!.settings;
+    await uow.update("projects", { id: micasa }, { settings });
+  });
 });

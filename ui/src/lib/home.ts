@@ -109,7 +109,8 @@ export type Headline = { title: string; voice: VoicePart[] };
 
 export function headlineOf(input: {
   projects: HomeProject[];
-  flights: Flight[];
+  // Only who and where: Inicio passes its flights, Oficina (PLA-32) the teammates whose run is live.
+  flights: Pick<Flight, "slug">[];
   inbox: { count: number; by_project: Record<string, number> };
   totals: Pick<MachineTotals, "orphan" | "stale"> | null;
   nowMs?: number;

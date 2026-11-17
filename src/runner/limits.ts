@@ -31,8 +31,8 @@ export async function writeVia<T>(q: Q, fn: (uow: UnitOfWork) => Promise<T>, pro
 // A reading older than this, or past its 5-hour reset, says nothing about now.
 export const READING_TTL_MS = 30 * 60_000;
 
-// PLA-I32-2: the specialists (qa, copy, marketing, data) are runner roles too, once a team has one.
-export const RUNNER_ROLES = ["product-owner", "taller", "research", "artist", "asistente", "qa", "copy", "marketing", "data"] as const;
+// PLA-I32-2: the specialists (qa, copy, seguridad, marketing, data) are runner roles too, once a team has one.
+export const RUNNER_ROLES = ["product-owner", "taller", "research", "artist", "asistente", "qa", "copy", "seguridad", "marketing", "data"] as const;
 export type RunnerRole = (typeof RUNNER_ROLES)[number];
 
 export const PROMPT_DOCS: Record<RunnerRole, string> = {
@@ -43,6 +43,7 @@ export const PROMPT_DOCS: Record<RunnerRole, string> = {
   asistente: "Prompt: Asistente",
   qa: "Prompt: QA",
   copy: "Prompt: Copy",
+  seguridad: "Prompt: Seguridad",
   marketing: "Prompt: Marketing",
   data: "Prompt: Data",
 };
@@ -111,13 +112,16 @@ export async function weekBounds(_db: Q, now: Date, tz = screenTz()): Promise<{ 
 // PLA-21: weekly token budgets are gone (Jorge, 2026-11-12). The week's tokens are only shown, never checked.
 
 // A project's usage is its team's; Asistente's runs (role asistente) count apart.
-export type UsageScope = { kind: "project"; projectId: string } | { kind: "asistente" };
-export type WeekUsage = { used: number };
+export type UsageScope = { kind: "project"; projectId: string } | { kind: "asistente" } | { kind: "all" };
+// PLA-I46-5: used is input + output, the work the models did. Cache reads and cache writes are counted apart: a
+// resumed session re-reads its whole context each turn, so they can be 99% of the total and say little.
+export type WeekUsage = { used: number; input: number; output: number; cache_read: number; cache_create: number };
 // PLA-23: a card shows last week next to this week, so the number has something to compare with.
-export type CardUsage = WeekUsage & { last_week: number };
+export type CardUsage = { used: number; last_week: number };
 
 export function inScope(scope: UsageScope, run: Pick<AgentRun, "role" | "projectId">): boolean {
   if (scope.kind === "asistente") return run.role === "asistente";
+  if (scope.kind === "all") return true;
   return run.projectId === scope.projectId && run.role !== "asistente";
 }
 
@@ -125,13 +129,21 @@ const COUNTED = ["running", "ok", "fail", "stopped"];
 
 // Tokens from weekStart (to weekEnd when given), ended and running runs alike.
 export async function weekUsage(db: Q, scope: UsageScope, weekStart: Date, weekEnd?: Date): Promise<WeekUsage> {
-  const runs = await readerOf(db).find("agentRuns", scope.kind === "asistente" ? { role: "asistente", status: COUNTED } : { projectId: scope.projectId, status: COUNTED });
-  let used = 0;
+  const where = scope.kind === "asistente" ? { role: "asistente", status: COUNTED } : scope.kind === "all" ? { status: COUNTED } : { projectId: scope.projectId, status: COUNTED };
+  const runs = await readerOf(db).find("agentRuns", where);
+  let input = 0;
+  let output = 0;
+  let cacheRead = 0;
+  let cacheCreate = 0;
   for (const r of runs) {
     const at = (r.startedAt ?? r.queuedAt).getTime();
-    if (inScope(scope, r) && at >= weekStart.getTime() && (!weekEnd || at < weekEnd.getTime())) used += Number(r.tokensTotal);
+    if (!inScope(scope, r) || at < weekStart.getTime() || (weekEnd && at >= weekEnd.getTime())) continue;
+    input += Number(r.inputTokens);
+    output += Number(r.outputTokens);
+    cacheRead += Number(r.cacheReadTokens);
+    cacheCreate += Number(r.cacheCreateTokens);
   }
-  return { used };
+  return { used: input + output, input, output, cache_read: cacheRead, cache_create: cacheCreate };
 }
 
 // ---- Plan guard

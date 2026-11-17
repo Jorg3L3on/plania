@@ -12,8 +12,9 @@ import { ToolError } from "../mcp/errors.js";
 import { webCtx } from "../mcp/tx.js";
 import { claim, setTask } from "../mcp/writes.js";
 import { stopRun } from "../runner/runner.js";
+import { isSessionOf, sessionsOf } from "../runner/run-session.js";
 import { readerOf } from "../store/port.js";
-import { gte, notNull } from "../store/types.js";
+import { gte } from "../store/types.js";
 
 export type RunLine = { id: string; role: string; agent: string; step: string; ticket: string; since: string; last: string | null; status: "running" | "stopped" };
 
@@ -38,20 +39,22 @@ const said = (type: string, payload: Record<string, unknown>) => {
 export async function runView(db: Db, projectId: string, keys: string[]): Promise<RunLine | null> {
   if (keys.length === 0) return null;
   const r = readerOf(db);
-  const where = { projectId, taskKey: keys, status: ["running", "stopped", "ok", "fail", "queued"] };
-  // The newest by coalesce(started_at, queued_at): the newest run that started and the newest that did not,
-  // each sorted by Postgres, then the later of the two.
-  const [started] = await r.find("agentRuns", { ...where, startedAt: notNull() }, { orderBy: [{ column: "startedAt", desc: true }], limit: 1 });
-  const [waiting] = await r.find("agentRuns", { ...where, startedAt: null }, { orderBy: [{ column: "queuedAt", desc: true }], limit: 1 });
-  const run = started && (!waiting || started.startedAt!.getTime() >= waiting.queuedAt.getTime()) ? started : waiting;
+  const runs = await r.find("agentRuns", { projectId, taskKey: keys, status: ["running", "starting", "stopped", "ok", "fail", "queued"] });
+  // PLA-I60: a live run wins over a newer queued one (several runs can be on the same request's tickets); then the
+  // newest by coalesce(started_at, queued_at).
+  const rank = (s: string) => (s === "running" || s === "starting" ? 0 : s === "stopped" ? 1 : 2);
+  const at = (x: (typeof runs)[number]) => (x.startedAt ?? x.queuedAt).getTime();
+  const [run] = runs.sort((a, b) => rank(a.status) - rank(b.status) || at(b) - at(a));
   if (!run || (run.status !== "running" && run.status !== "stopped")) return null;
   // Every run has its agent (the foreign key).
   const agent = (await r.get("agents", { id: run.agentId }))!;
   const since = run.startedAt ?? run.queuedAt;
   const t = await r.get("tasks", { projectId, key: run.taskKey! });
-  // Its newest events in Plania since it started, the ones its own session (run-<first 8 of its id>) wrote.
-  const session = `run-${run.id.slice(0, 8)}`;
-  const recent = (await r.find("events", { projectId, createdAt: gte(since) }, { orderBy: [{ column: "id", desc: true }] })).filter((e) => e.actor.session_id === session).slice(0, 10);
+  // Its newest events in Plania since it started, the ones its own session wrote (either spelling, PLA-I60-1).
+  const sessions = sessionsOf(run.id);
+  const recent = (await r.find("events", { projectId, createdAt: gte(since) }, { orderBy: [{ column: "id", desc: true }] }))
+    .filter((e) => typeof e.actor.session_id === "string" && sessions.includes(e.actor.session_id))
+    .slice(0, 10);
   const last = recent.map((e) => said(e.type, e.payload as Record<string, unknown>)).find(Boolean) ?? null;
   return { id: run.id, role: run.role, agent: agent.slug, step: t?.title ?? run.taskKey!, ticket: run.taskKey!, since: since.toISOString(), last, status: run.status };
 }
@@ -96,7 +99,7 @@ export async function resumeRun(db: Db, id: string, deps?: HeartbeatDeps): Promi
     const store = readerOf(db);
     const p = await store.get("projects", { slug: r.project });
     const t = p ? await store.get("tasks", { projectId: p.id, key: r.taskKey }) : undefined;
-    if (t?.status === "In progress" && t.owner?.session_id === `run-${r.id.slice(0, 8)}`) {
+    if (t?.status === "In progress" && isSessionOf(t.owner?.session_id, r.id)) {
       await claim(db, { project: r.project, key: r.taskKey, action: "release" } as never, { ...webCtx, tool: "screen.run_resume" });
     }
   }

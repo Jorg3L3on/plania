@@ -1,0 +1,200 @@
+// PLA-I40-1: why a teammate's next step has not started. The pure verdict (src/runner/hold.ts), then
+// GET /api/company's next_start against the runner's own check (canStart) on the same state. Throwaway DB,
+// fake values only.
+import assert from "node:assert/strict";
+import { after, before, beforeEach, test } from "node:test";
+import { resetTestStore, useOwnerCode, useTestEnv, type TestStore } from "./helpers.js";
+
+useTestEnv();
+await useOwnerCode();
+process.env.PLANIA_HOME_PROJECT = "zigzag";
+process.env.PLANIA_PROMPTS_PROJECT = "micasa";
+const { makeDb } = await import("../src/db/client.js");
+const { app } = await import("../src/app.js");
+const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
+const { seedOrg } = await import("../scripts/seed-org.js");
+const writes = await import("../src/mcp/writes.js");
+const { canStart, resetRunnerForTests } = await import("../src/runner/runner.js");
+const { holdOf, agentHold, capacityHold } = await import("../src/runner/hold.js");
+const { planView } = await import("../src/runner/limits.js");
+
+type Json = Record<string, any>;
+let store: TestStore;
+let db: ReturnType<typeof makeDb>["db"];
+let closeDb: () => Promise<void>;
+const jorge = () => ({ Cookie: `${SESSION_COOKIE}=${createSession()}`, "Content-Type": "application/json" });
+const member = async (slug: string, role: string): Promise<Json> => {
+  const res = await app.request("/api/company", { headers: jorge() });
+  assert.equal(res.status, 200);
+  const card = ((await res.json()) as Json).projects.find((p: Json) => p.slug === slug) as Json;
+  return card.team.find((m: Json) => m.role === role) as Json;
+};
+const as = (agent: string) => ({ actor: { agent, session_id: `s-${agent}` } });
+const id = async (table: "agents" | "projects", slug: string) => (table === "agents" ? (await store.get("agents", { slug }))!.id : store.projectId(slug));
+const ticket = (project: string, title: string, patch: Json = {}) =>
+  writes.createTask(db, { project, title, scope: "s", checks: ["c"], status: "Ready", ...patch } as never, as(`po-${project}`)) as Promise<{ key: string }>;
+const reading = (pct: number, status = "allowed") =>
+  store.fix((uow) => uow.insert("planReadings", { at: uow.now, source: "stream", status, fiveHourPct: pct, fiveHourResetsAt: new Date(uow.now.getTime() + 3 * 3_600_000) }));
+const minutesAgo = (n: number): Date => new Date(Date.now() - n * 60_000);
+// A Taller run of the agent in the project: its status, summary and times (queued now and never started or ended
+// unless given).
+type RunRow = { status: string; summary: string; queuedAt?: Date; startedAt?: Date | null; endedAt?: Date | null };
+const run = (agent: string, project: string, row: RunRow, key: string | null = null) =>
+  store.fix((uow) => uow.insert("agentRuns", { agentId: agent, projectId: project, role: "taller", taskKey: key, queuedAt: uow.now, startedAt: null, endedAt: null, ...row }));
+// What the runner itself says for this agent and ticket, without probing usage.
+const runner = async (agentSlug: string, projectSlug: string, key: string) => {
+  const agent = await store.get("agents", { slug: agentSlug });
+  return canStart(db, agent!, await id("projects", projectSlug), key, new Date(), { probeUsage: async () => null });
+};
+const setStatus = (key: string, status: string) => store.fix((uow) => uow.update("tasks", { key }, { status }));
+
+let key = "";
+let taller = "";
+let workia = "";
+
+before(async () => {
+  store = await resetTestStore();
+  ({ db, close: closeDb } = makeDb());
+  await seedOrg(db);
+  await store.fix((uow) => uow.update("projects", {}, { runsPaused: false }));
+  key = (await ticket("workia", "Ficha del producto")).key;
+  taller = await id("agents", "taller-workia");
+  workia = await id("projects", "workia");
+});
+
+beforeEach(async () => {
+  resetRunnerForTests();
+  await store.fix(async (uow) => {
+    // run_locks went with agent_runs through the foreign key.
+    await uow.delete("runLocks", {});
+    await uow.delete("agentRuns", {});
+    await uow.delete("planReadings", {});
+    await uow.update("projects", {}, { runsPaused: false });
+    await uow.update("runnerSettings", { id: 1 }, { companyPaused: false, maxConcurrent: 1, cooldownMinutes: 30, guardOverride: false });
+  });
+  await reading(10);
+});
+
+after(async () => {
+  await closeDb?.();
+  await store?.end();
+});
+
+// ---- the pure verdict
+
+const NOW = new Date("2026-11-13T20:44:00Z");
+const own = (patch: Json = {}) => ({ companyPaused: false, projectPaused: false, role: "taller", cooldownMinutes: 30, lastEndedAt: null, hasGoal: true, now: NOW, ...patch }) as never;
+const okPlan = planView({ at: NOW, status: "allowed", fiveHourPct: 10, fiveHourResetsAt: new Date("2026-11-13T23:00:00Z") } as never, 70, NOW);
+const cap = (patch: Json = {}) => ({ plan: okPlan, running: 0, maxConcurrent: 1, now: NOW, ...patch }) as never;
+
+test("I40-1 #1: each hold, in the runner's order, and none when nothing holds", () => {
+  assert.equal(holdOf(own(), cap()), null);
+  assert.deepEqual(holdOf(own({ companyPaused: true, projectPaused: true }), cap()), { code: "paused", scope: "company", startsAt: null });
+  assert.deepEqual(holdOf(own({ projectPaused: true }), cap()), { code: "paused", scope: "project", startsAt: null });
+  assert.equal(agentHold(own({ projectPaused: true, role: "asistente" })), null, "the project switch does not hold Asistente");
+
+  const rest = holdOf(own({ lastEndedAt: new Date("2026-11-13T20:22:00Z") }), cap());
+  assert.deepEqual(rest, { code: "rest", startsAt: new Date("2026-11-13T20:52:00Z") });
+  assert.equal(holdOf(own({ lastEndedAt: new Date("2026-11-13T20:14:00Z") }), cap()), null, "the rest is over at 30 minutes");
+  assert.equal(holdOf(own({ lastEndedAt: new Date("2026-11-13T20:43:00Z"), cooldownMinutes: 0 }), cap()), null);
+
+  assert.deepEqual(holdOf(own({ role: "product-owner", hasGoal: false }), cap()), { code: "no_goal", startsAt: null });
+  assert.equal(holdOf(own({ role: "taller", hasGoal: false }), cap()), null, "only a product owner needs the goal");
+
+  const over = planView({ at: NOW, status: "allowed", fiveHourPct: 77, fiveHourResetsAt: new Date("2026-11-13T23:00:00Z") } as never, 70, NOW);
+  assert.deepEqual(capacityHold(cap({ plan: over })), { code: "usage", startsAt: new Date("2026-11-13T23:00:00Z") });
+  assert.deepEqual(capacityHold(cap({ plan: planView(null, 70, NOW) })), { code: "usage", startsAt: null }, "an unknown reading holds, with no time");
+  assert.deepEqual(capacityHold(cap({ running: 1 })), { code: "slot", startsAt: null });
+  // The rest comes before usage and the cap, as in preflight.
+  assert.equal(holdOf(own({ lastEndedAt: new Date("2026-11-13T20:40:00Z") }), cap({ plan: over, running: 1 }))!.code, "rest");
+});
+
+// ---- GET /api/company against the runner
+
+test("I40-1 #2: Ready work nobody woke is unqueued; a teammate with nothing has no next_start", async () => {
+  const m = await member("workia", "taller");
+  assert.deepEqual([m.next_start.hold, m.next_start.key, m.next_start.title, m.next_start.starts_at], ["unqueued", key, "Ficha del producto", null]);
+  assert.equal((await member("workia", "research")).next_start, null);
+  assert.deepEqual(await runner("taller-workia", "workia", key), { ok: true, summary: "" });
+});
+
+test("I40-1 #3 (PLA-I60): a queued periodic wake inside the cooldown says rest and when it starts; a retry does not wait for it", async () => {
+  await run(taller, workia, { status: "ok", summary: "listo", queuedAt: minutesAgo(9), startedAt: minutesAgo(8), endedAt: minutesAgo(2) });
+  await run(taller, workia, { status: "queued", summary: "event: unblocked" }, key);
+  // PLA-I60-4: the rest paces only the agent's own periodic runs.
+  await store.fix((uow) => uow.update("agentRuns", {}, { trigger: "cadence" }));
+  const ended = (await store.get("agentRuns", { status: "ok" }))!.endedAt!;
+
+  const m = await member("workia", "taller");
+  assert.equal(m.next_start.hold, "rest");
+  assert.equal(m.next_start.starts_at, new Date(ended.getTime() + 30 * 60_000).toISOString());
+  assert.equal(m.next_start.title, "Ficha del producto");
+  assert.equal(/WRK-|\$/.test(m.next_start.text), false, "no keys or money in the sentence");
+  assert.deepEqual(await runner("taller-workia", "workia", key), { ok: true, summary: "" });
+});
+
+test("I40-1 #4: once the rest is over a queued wake starts in a moment", async () => {
+  await run(taller, workia, { status: "ok", summary: "listo", queuedAt: minutesAgo(50), startedAt: minutesAgo(49), endedAt: minutesAgo(40) });
+  await run(taller, workia, { status: "queued", summary: "event: unblocked" }, key);
+  assert.equal((await member("workia", "taller")).next_start.hold, "soon");
+  assert.deepEqual(await runner("taller-workia", "workia", key), { ok: true, summary: "" });
+});
+
+test("I40-1 #5: usage over the guard holds with the numbers; the runner skips for the same reason", async () => {
+  await reading(77);
+  const m = await member("workia", "taller");
+  assert.equal(m.next_start.hold, "usage");
+  assert.match(m.next_start.text, /77 %.*70 %/);
+  assert.ok(m.next_start.starts_at, "the five-hour reset is the time");
+  const r = await runner("taller-workia", "workia", key);
+  assert.equal(r.ok, false);
+  assert.match(r.summary, /^skipped: plan guard \(five_hour 77% >= 70%/);
+});
+
+test("I40-1 #6: with every slot taken the hold is slot, and the runner would queue", async () => {
+  await run(await id("agents", "taller-micasa"), await id("projects", "micasa"), { status: "running", summary: "starting", startedAt: new Date() });
+  assert.equal((await member("workia", "taller")).next_start.hold, "slot");
+  assert.deepEqual(await runner("taller-workia", "workia", key), { ok: true, summary: "queued: cap reached" });
+});
+
+test("I40-1 #7: a paused project holds as paused; the runner says the same", async () => {
+  await store.fix((uow) => uow.update("projects", { slug: "workia" }, { runsPaused: true }));
+  const m = await member("workia", "taller");
+  assert.deepEqual([m.next_start.hold, m.next_start.text], ["paused", "El proyecto está en pausa."]);
+  assert.deepEqual(await runner("taller-workia", "workia", key), { ok: false, summary: "skipped: project workia paused" });
+});
+
+test("I40-1 #8: a product owner without a goal holds as no_goal", async () => {
+  const t = await ticket("zigzag", "Entrevistar a tres tiendas", { work_type: "research" });
+  const zigzag = await id("projects", "zigzag");
+  // The goal and the links to it Postgres would clear (tasks.goal_id is on delete set null).
+  await store.fix(async (uow) => {
+    const ids = (await uow.find("goals", { projectId: zigzag })).map((g) => g.id);
+    if (ids.length) await uow.update("tasks", { goalId: ids }, { goalId: null });
+    await uow.delete("goals", { projectId: zigzag });
+  });
+  assert.equal((await member("zigzag", "product-owner")).next_start.hold, "no_goal");
+  assert.deepEqual(await runner("po-zigzag", "zigzag", t.key), { ok: false, summary: "skipped: no goal" });
+});
+
+test("I40-1 #9: a step behind a delivery waits on the owner; behind anything else it waits on a step", async () => {
+  const a = await ticket("filmia", "Listado de películas");
+  const b = await ticket("filmia", "Ficha de la película", { blocked_by: [a.key] });
+  const first = async () => (await member("filmia", "taller")).next_start as Json;
+
+  await setStatus(a.key, "In review");
+  assert.deepEqual([(await first()).hold, (await first()).title, (await first()).key], ["waiting_owner", "Ficha de la película", b.key]);
+
+  await setStatus(a.key, "Backlog");
+  assert.equal((await first()).hold, "waiting_step");
+
+  await setStatus(a.key, "Merged");
+  assert.equal((await first()).hold, "unqueued");
+});
+
+test("I40-1 #10: a teammate that is working has no next_start", async () => {
+  await run(taller, workia, { status: "running", summary: "starting", startedAt: new Date() }, key);
+  const m = await member("workia", "taller");
+  assert.equal(m.state, "running");
+  assert.equal(m.next_start, null);
+});

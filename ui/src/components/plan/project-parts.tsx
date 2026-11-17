@@ -1,5 +1,6 @@
 // Project page sections around the lane grid: header, initiative lines,
 // branch graph, fixed decisions and the full resume (ficha) panel.
+import { plainWords } from "@/lib/plain-words";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowRightIcon, GitBranchIcon, PencilIcon, PinIcon } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
@@ -17,7 +18,6 @@ import {
   LANE_STATE,
   ProgressRing,
   rise,
-  statusWord,
   TONE_TEXT,
   toneVar,
 } from "@/components/plan/visuals";
@@ -27,6 +27,9 @@ import { DecisionList, ResumeView } from "@/components/resume";
 import type { BranchEdge, Lane, StationTone } from "@/lib/lanes";
 import type { Decision, Headline, HeadlineNote, ReleasePlan, Resume } from "@/lib/types";
 import { ideaClosed, ideaFinished } from "@/lib/ahora";
+import { initiativeWord } from "@/lib/etapas";
+import type { Etapa } from "@/lib/api";
+import { StageWord } from "@/components/plan/stage-word";
 import { cn } from "@/lib/utils";
 
 // 2.11: the note beside the generated headline, for what the data cannot say. Anyone writes it
@@ -63,7 +66,7 @@ function NoteLine({ slug, note, version }: { slug: string; note: HeadlineNote; v
   }
   return (
     <p className="flex max-w-2xl flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
-      {note.text ? <span>{note.text}</span> : <span className="italic">Sin nota.</span>}
+      {note.text ? <span>{plainWords(note.text)}</span> : <span className="italic">Sin nota.</span>}
       {note.text && note.stale && (
         <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-400" title="Algo cambió desde que se escribió">
           desactualizada
@@ -81,7 +84,7 @@ function NoteLine({ slug, note, version }: { slug: string; note: HeadlineNote; v
 function HeadlineBlock({ slug, headline, version }: { slug: string; headline: Headline; version: number }) {
   return (
     <div className="mt-1 grid max-w-2xl gap-0.5">
-      {headline.generated && <p className="text-[13px] leading-snug text-foreground/85">{headline.generated}</p>}
+      {headline.generated && <p className="text-[13px] leading-snug text-foreground/85">{plainWords(headline.generated)}</p>}
       <NoteLine slug={slug} note={headline.note} version={version} />
     </div>
   );
@@ -255,27 +258,38 @@ function InitiativeStatus({ lane }: { lane: Lane }) {
       style={{ background: `color-mix(in oklab, ${toneVar(state.tone)} 13%, transparent)` }}
     >
       <Glyph tone={state.tone} size={7} pulse={lane.state === "moving"} />
-      {statusWord(lane.initiative!.status)}
+      {initiativeWord(lane.initiative!.status)}
     </span>
   );
 }
 
-// In review, Merged and Released count as advanced: done in green, then the review stretch in violet.
+// PLA-I53-5: Merged and Released are landed (Hecho), as on the stage board; only In review is the violet stretch.
+// PLA-I56-2: landed is not closed. Done is solid green; Merged and Released (shipped, not closed) are green at half
+// strength, so a full solid bar always means every ticket is Done. The words say what is left.
 function InitiativeProgress({ lane, barClassName }: { lane: Lane; barClassName?: string }) {
   const share = (n: number) => (lane.total === 0 ? 0 : (n / lane.total) * 100);
-  const inReview = lane.review.length;
-  const advanced = lane.closed + inReview;
+  const merged = lane.review.filter((t) => t.status === "Merged").length;
+  const released = lane.review.filter((t) => t.status === "Released").length;
+  const shipped = merged + released;
+  const landed = lane.closed + shipped;
+  const inReview = lane.review.length - shipped;
+  const advanced = landed + inReview;
+  const ready = lane.total > 0 && lane.closed === lane.total;
   return (
     <div className="flex items-center gap-2.5">
       <div className={cn("flex h-1.5 w-24 overflow-hidden rounded-full bg-foreground/10", barClassName)} aria-hidden>
         <div className="h-full bg-status-done" style={{ width: `${share(lane.closed)}%` }} />
+        <div className="h-full bg-status-done/45" data-shipped="" style={{ width: `${share(shipped)}%` }} />
         <div className="h-full bg-status-review" style={{ width: `${share(inReview)}%` }} />
       </div>
       <span
         className="whitespace-nowrap text-muted-foreground tabular-nums"
-        title={`${lane.closed} cerrados, ${inReview} en revisión, ${lane.total} en total`}
+        title={`${lane.closed} cerrados, ${shipped} entregados sin cerrar, ${inReview} en revisión, ${lane.total} en total`}
       >
         {advanced} de {lane.total}
+        {ready && lane.initiative && <span className="text-ink-done"> · lista para cerrar</span>}
+        {merged > 0 && <span> · {merged} por lanzar</span>}
+        {released > 0 && <span> · {released} por cerrar</span>}
         {inReview > 0 && <span className="text-ink-review"> · {inReview} en revisión</span>}
       </span>
     </div>
@@ -286,9 +300,12 @@ function InitiativeHere({ lane, onOpen, clamp }: { lane: Lane; onOpen: Open; cla
   const here = lane.stations.find((s) => s.here)?.task;
   if (!here) return <span className="text-muted-foreground">—</span>;
   return (
-    <TicketButton taskKey={here.key} onOpen={onOpen} title={here.title} className="text-left">
-      <span className={cn("text-foreground/85 underline-offset-4 group-hover/ticket:underline", clamp)}>{here.title}</span>
-    </TicketButton>
+    <span className="grid gap-0.5">
+      <StageWord etapa={here.etapa as Etapa | null | undefined} status={here.status} />
+      <TicketButton taskKey={here.key} onOpen={onOpen} title={here.title} className="text-left">
+        <span className={cn("text-foreground/85 underline-offset-4 group-hover/ticket:underline", clamp)}>{here.title}</span>
+      </TicketButton>
+    </span>
   );
 }
 
@@ -305,7 +322,7 @@ function InitiativeName({ lane, onOpen, lines }: { lane: Lane; onOpen: Open; lin
         <span className="ml-2 font-mono text-xs text-muted-foreground">{initiative.key}</span>
       </TicketButton>
       {derived?.line && <span className="text-xs text-foreground/75">{derived.line}</span>}
-      {derived?.note && <span className="line-clamp-2 text-xs text-muted-foreground/80 italic">{derived.note}</span>}
+      {derived?.note && <span className="line-clamp-2 text-xs text-muted-foreground/80 italic">{plainWords(derived.note)}</span>}
     </span>
   );
 }

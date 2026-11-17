@@ -4,6 +4,7 @@
 //   POST /api/company/projects/:slug/wake         Despertar ahora: one wake of po-<slug> through wakeAgent,
 //        only when the PO has Ready work in this project; otherwise {woke: false, reason: "idle"} and no run.
 // Both refuse a paused project or company, and a project without a runner PO, with 409 and a reason.
+// PLA-I54-1: ask takes {mode: forma | ya}: forma (default) is an idea the PO shapes in the floor's tube; ya is below.
 // PLA-I36-6/8: ask takes {kind: cambio | direccion | idea, now}; now wakes the PO at once (only when it has
 //   Ready work, which the new ticket is). The ticket's scope asks the PO for a plan through `propose`.
 //   POST /api/company/projects/:slug/next {key}       Cambiar lo siguiente: that Ready ticket goes first.
@@ -13,8 +14,13 @@ import type { Agent, ProjectSettings } from "../db/schema.js";
 import { loadReady, pickReady, wakeAgent, type HeartbeatDeps } from "../jobs/heartbeat.js";
 import { WEB_ACTOR } from "../mcp/tx.js";
 import { createTask } from "../mcp/writes.js";
-import { eventWakesEnabled } from "../runner/events.js";
+import { createPoIdea } from "./company-pedidos.js";
+import { answerNote, askConsulta } from "../pedidos/consultas.js";
+import { eventWakesEnabled, queueWake } from "../runner/events.js";
 import { loadSettings, roleOf } from "../runner/limits.js";
+import { startNow } from "../runner/runner.js";
+import { ACTIVE_STATUSES, workKeyOf } from "../runner/queue.js";
+import { teamOf } from "../runner/team.js";
 import { storeOf, readerOf } from "../store/port.js";
 
 export type ActionRefusal = { error: "PROJECT_NOT_FOUND" | "PROJECT_PAUSED" | "COMPANY_PAUSED" | "NO_PO"; status: 404 | 409; hint: string };
@@ -50,7 +56,10 @@ export const firstLine = (text: string) => {
 
 export type OrderKind = "cambio" | "direccion" | "idea";
 const KIND_WORD: Record<OrderKind, string> = { cambio: "un cambio", direccion: "una dirección", idea: "una idea" };
-export type AskResult = { key: string; title: string; po: string; wake: "queued" | "busy" | "off"; woke: WakeOutcome | null };
+// PLA-I54-1: mode forma makes an idea for the PO to shape (company-pedidos.ts); ya is the Ready ticket plus the wake.
+export type AskMode = "forma" | "ya" | "pregunta";
+// PLA-I57-1: mode pregunta keeps a question (consulta) and creates no task: key is "" and consulta is its id.
+export type AskResult = { key: string; title: string; po: string; mode: AskMode; wake: "queued" | "busy" | "off"; woke: WakeOutcome | null; consulta?: string };
 
 // A Ready ticket owned by the project's PO, origin jorge; the event hook queues the PO's wake in the same
 // write. wake says what happened: queued (on this ticket), busy (the PO already has a run), off (no wakes).
@@ -87,17 +96,35 @@ export async function createPoTicket(
     },
     { actor: WEB_ACTOR, human: true, tool: "company.ask" },
   )) as { key: string };
-  const run = await readerOf(db).get("agentRuns", { agentId: po.id, status: ["queued", "running"] });
+  // PLA-I60-1: the event hook queued a run on this ticket's work key unless the PO already had one there.
+  const active = await readerOf(db).find("agentRuns", { agentId: po.id, status: [...ACTIVE_STATUSES] });
+  const run = active.find((r) => r.workKey === workKeyOf(out.key)) ?? active[0];
   const wake = !eventWakesEnabled() ? "off" : run?.taskKey === out.key ? "queued" : run ? "busy" : "off";
   return { key: out.key, title: firstLine(sentence), wake };
 }
 
-export async function askPo(db: Db, slug: string, text: string, opts: { kind?: OrderKind; now?: boolean } = {}, deps?: HeartbeatDeps): Promise<AskResult | ActionRefusal> {
+// PLA-I54-1: mode forma creates an idea and wakes the PO on it (company-pedidos.ts); ya is the ticket with the wake at
+// once (what «Que empiece ya» did). Without a mode it is the ticket as before, woken only with now. On the route a body
+// with neither mode nor now (the new side page always sends a mode) is forma; an old client's {now} keeps its ticket.
+export const askMode = (input: { mode?: AskMode; now?: boolean }): AskMode | undefined => input.mode ?? (input.now === undefined ? "forma" : undefined);
+
+export async function askPo(db: Db, slug: string, text: string, opts: { kind?: OrderKind; now?: boolean; mode?: AskMode; consulta?: string } = {}, deps?: HeartbeatDeps): Promise<AskResult | ActionRefusal> {
   const g = await guard(db, slug);
   if ("error" in g) return g;
+  if (opts.mode === "pregunta") {
+    const made = await askConsulta(db, g.project, g.po, text);
+    return { key: "", title: firstLine(text), po: g.po.slug, mode: "pregunta", wake: made.wake, woke: null, consulta: made.id };
+  }
+  // PLA-I57-1: «Pedirlo» from an answer: the answer travels with the request.
+  const note = opts.consulta ? await answerNote(db, g.project.id, opts.consulta) : null;
+  if (note) text = `${text}\n\n---\n${note}`.slice(0, 3800);
+  if (opts.mode === "forma") {
+    const made = await createPoIdea(db, g.project.slug, g.po, text);
+    return { key: made.key, title: made.title, po: g.po.slug, mode: "forma", wake: made.wake, woke: null };
+  }
   const made = await createPoTicket(db, g.project, g.po, text, "Compañía", opts.kind ?? null);
-  const woke = opts.now ? await wakePo(db, slug, deps) : null;
-  return { key: made.key, title: made.title, po: g.po.slug, wake: made.wake, woke: woke && !("error" in woke) ? woke : null };
+  const woke = opts.now || opts.mode === "ya" ? await wakePo(db, slug, deps) : null;
+  return { key: made.key, title: made.title, po: g.po.slug, mode: "ya", wake: made.wake, woke: woke && !("error" in woke) ? woke : null };
 }
 
 // PLA-I36-6: Cambiar lo siguiente. The ticket must be Ready in this project.
@@ -117,7 +144,7 @@ export async function pickNext(db: Db, slug: string, key: string): Promise<{ nex
 }
 
 // PLA-I36-8/10: the project's switches that are not limits: plan approval and the preview address.
-export async function setProjectOptions(db: Db, slug: string, input: { plan_approval?: boolean; preview_url?: string | null }): Promise<{ plan_approval: boolean; preview_url: string | null } | { error: string; status: 404; hint: string }> {
+export async function setProjectOptions(db: Db, slug: string, input: { plan_approval?: boolean; preview_url?: string | null; auto_accept?: boolean; auto_accept_invisible?: boolean }): Promise<{ plan_approval: boolean; preview_url: string | null; auto_accept: boolean; auto_accept_invisible: boolean } | { error: string; status: 404; hint: string }> {
   const p = await readerOf(db).get("projects", { slug });
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   const settings = { ...p.settings };
@@ -126,8 +153,10 @@ export async function setProjectOptions(db: Db, slug: string, input: { plan_appr
     if (input.preview_url) settings.preview_url = input.preview_url;
     else delete settings.preview_url;
   }
+  if (input.auto_accept !== undefined) settings.auto_accept = input.auto_accept;
+  if (input.auto_accept_invisible !== undefined) settings.auto_accept_invisible = input.auto_accept_invisible;
   await saveSettings(db, p.id, settings);
-  return { plan_approval: !!settings.plan_approval, preview_url: settings.preview_url ?? null };
+  return { plan_approval: !!settings.plan_approval, preview_url: settings.preview_url ?? null, auto_accept: !!settings.auto_accept, auto_accept_invisible: !!settings.auto_accept_invisible };
 }
 
 export type WakeOutcome = { woke: boolean; reason: string; ticket: string | null; summary: string };
@@ -139,4 +168,36 @@ export async function wakePo(db: Db, slug: string, deps?: HeartbeatDeps): Promis
   if (!work) return { woke: false, reason: "idle", ticket: null, summary: "Sin trabajo para el PO: pídele algo." };
   const out = await wakeAgent(db, { agent: g.po.slug, taskKey: work.key }, deps);
   return { woke: out.woke, reason: out.reason, ticket: out.run?.task_key ?? work.key, summary: out.run?.summary ?? "" };
+}
+
+// PLA-I40-2: Que empiece ya. One teammate's next run starts now: its queued run, else one on its Ready work.
+// The rest between runs is skipped once; past_guard also lets it past the plan guard this once. A paused
+// company or project refuses, as do the goal, the base branch and the cap (a full cap leaves it queued).
+export type StartNowResult = { started: boolean; reason: "started" | "queued" | "busy" | "idle" | "held" | "fail"; ticket: string | null; run_id: string | null; summary: string };
+export type StartRefusal = { error: "PROJECT_NOT_FOUND" | "PROJECT_PAUSED" | "COMPANY_PAUSED" | "AGENT_NOT_FOUND"; status: 404 | 409; hint: string };
+
+// PLA-I49-5: reason, when given, is what the bot reads under "Why you woke" (a screen wake had none).
+export async function startTeammateNow(db: Db, slug: string, agentSlug: string, opts: { past_guard?: boolean; now?: Date; reason?: string } = {}, deps?: HeartbeatDeps): Promise<StartNowResult | StartRefusal> {
+  const project = await readerOf(db).get("projects", { slug });
+  if (!project) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
+  if ((await loadSettings(db)).companyPaused) return { error: "COMPANY_PAUSED", status: 409, hint: "La compañía está detenida." };
+  if (project.runsPaused) return { error: "PROJECT_PAUSED", status: 409, hint: "El proyecto está en pausa: reanúdalo primero." };
+  const agent = (await teamOf(db, project.id)).find((a) => a.slug === agentSlug);
+  if (!agent) return { error: "AGENT_NOT_FOUND", status: 404, hint: "Ese compañero no está en el equipo de este proyecto." };
+  const work = pickReady({ ...agent, projectSlug: project.slug }, (await loadReady(db)).filter((r) => r.project === project.slug));
+  const out = await startNow(db, { agent, task: work, pastGuard: opts.past_guard, now: opts.now ?? new Date(), reason: opts.reason }, deps?.runner);
+  const base = { started: out.kind === "started", reason: out.kind, summary: "summary" in out ? out.summary : "" };
+  return "runId" in out ? { ...base, ticket: out.taskKey, run_id: out.runId } : { ...base, ticket: null, run_id: null };
+}
+
+// PLA-I40-6: Reenviar. A request of the owner's that nobody took gets its PO's wake queued again.
+export async function resendRequest(db: Db, slug: string, key: string): Promise<{ key: string; wake: "queued" | "busy" | "off" } | { error: string; status: 404 | 409; hint: string }> {
+  const g = await guard(db, slug);
+  if ("error" in g) return g;
+  const t = await readerOf(db).get("tasks", { projectId: g.project.id, key });
+  if (!t || t.origin !== "jorge") return { error: "ORDER_NOT_FOUND", status: 404, hint: "Ese pedido no está." };
+  if (t.status !== "Ready") return { error: "NOT_READY", status: 409, hint: "Ese pedido ya no espera a nadie." };
+  if (!eventWakesEnabled()) return { key, wake: "off" };
+  const out = await queueWake(db, g.project, { id: t.id, key: t.key }, { agent: g.po, taskKey: t.key, reason: "request resent" }, "screen.resend");
+  return { key, wake: out.kind === "queued" ? "queued" : "busy" };
 }

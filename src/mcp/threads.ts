@@ -9,11 +9,14 @@ import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
 import { LINK_KINDS, type ThreadLink } from "../db/schema.js";
-import { agentOfActor, runOfSession } from "../runner/events.js";
+import { agentOfActor } from "../runner/events.js";
 import { readerOf } from "../store/port.js";
 import { roleOf } from "../runner/limits.js";
 import { assertThreadAccess, checkLinks, lastLineFor, messageView, postMessage, projectThread, readThread, resolveThread } from "../runner/threads.js";
 import type { Ctx } from "./tx.js";
+
+// A code ticket with a PR is approved into the test copy; anything else is approved and closed (src/runner/threads.ts).
+const CODE_WORK = new Set(["code", "bug", "debt"]);
 
 type WriteCtx = (
   tool: string,
@@ -44,17 +47,27 @@ const RUN_SESSION = /^run-([0-9a-f]{8})$/;
 export type Closing = { project: string; key: string; via: "finish" | "add_result"; verdict?: string; cite?: string; prUrl?: string | null };
 
 export async function closingLine(db: Db, ctx: Ctx, c: Closing): Promise<string | null> {
-  if (!RUN_SESSION.test(ctx.actor.session_id ?? "")) return null;
+  const m = RUN_SESSION.exec(ctx.actor.session_id ?? "");
+  // PLA-53: a finish from a session that is not a runner leaves the delivery line too; without it the ticket sat In
+  // review with no card and nobody's turn. Its add_result stays silent (a session adds many).
+  if (!m && c.via !== "finish") return null;
   const r = readerOf(db);
-  const run = await runOfSession(db, ctx.actor.session_id);
-  const agent = await agentOfActor(db, ctx.actor);
-  if (!run || !agent) return null;
+  // The run whose id starts with the session's 8 hex.
+  const run = m ? ((await r.find("agentRuns")).find((x) => x.id.startsWith(m[1]!)) ?? null) : null;
+  const rosterAgent = await agentOfActor(db, ctx.actor);
+  if (m && (!run || !rosterAgent)) return null;
   const project = await r.get("projects", { slug: c.project });
   if (!project) return null;
   const t = await r.get("tasks", { projectId: project.id, key: c.key });
   if (!t) return null;
+  // Who signs it: the session's roster agent, else the ticket's owner agent, else the session by its own name.
+  const owner = !rosterAgent && t.ownerAgent ? await r.get("agents", { id: t.ownerAgent }) : undefined;
+  const signer = rosterAgent ?? owner ?? null;
+  const agent = signer
+    ? { slug: signer.slug, role: roleOf(signer) ?? signer.role }
+    : { slug: (ctx.actor.agent ?? "sesion").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "sesion", role: "sesion" };
   const thread = await projectThread(db, project.id);
-  if (c.via === "add_result" && (await lastLineFor(db, thread.id, agent.slug, t.key, run.startedAt ?? run.queuedAt))) return null;
+  if (c.via === "add_result" && run && (await lastLineFor(db, thread.id, agent.slug, t.key, run.startedAt ?? run.queuedAt))) return null;
 
   const links: ThreadLink[] = [{ kind: t.kind === "idea" ? "idea" : "ticket", ref: t.key, title: t.title.slice(0, 200) }];
   const pr = c.prUrl?.trim() || t.prUrl;
@@ -64,8 +77,8 @@ export async function closingLine(db: Db, ctx: Ctx, c: Closing): Promise<string 
 
   const cite = (c.cite ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
   const head = c.via === "finish" ? `${t.key} queda En revisión: ${t.title}.` : `${t.key}: evidencia ${c.verdict ?? ""} registrada.`.replace(/\s+\./, ".");
-  const body = [head, cite ? `Hice: ${cite}` : null, c.via === "finish" ? "Necesito: que lo revises (Aceptar o Pedir cambios)." : null].filter(Boolean).join("\n");
-  const msg = await postMessage(db, { thread, project }, { author: { agent: agent.slug, role: roleOf(agent) ?? agent.role }, body, links }, { ...ctx, requestId: undefined, tool: "thread.closing_line" });
+  const body = [head, cite ? `Hice: ${cite}` : null, c.via === "finish" ? `Necesito: que lo revises (${pr && CODE_WORK.has(t.workType ?? "code") ? "Aprobar y pasar a prueba" : "Aprobar y cerrar"} o Pedir cambios).` : null].filter(Boolean).join("\n");
+  const msg = await postMessage(db, { thread, project }, { author: { agent: agent.slug, role: agent.role }, body, links }, { ...ctx, requestId: undefined, tool: "thread.closing_line" });
   return msg.id;
 }
 
@@ -113,7 +126,7 @@ export const registerThreadTools = (
       description: [
         "Write a message in a thread Jorge reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from him.",
         "Asistente may post in every thread; any other agent only in its own project's thread (THREAD_FORBIDDEN otherwise).",
-        "links (up to 10) point at what the message talks about: {kind ticket|doc|pr|idea|question, ref (key, doc id, PR url, question id), title}. A ticket In review gets Aceptar and Pedir cambios on screen; a question link gets Responder.",
+        "links (up to 10) point at what the message talks about: {kind ticket|doc|pr|idea|question, ref (key, doc id, PR url, question id), title}. A ticket In review gets «Aprobar y pasar a prueba» (with a PR) or «Aprobar y cerrar» (without one) and «Pedir cambios» on screen; a question link gets Responder.",
         "body: plain Spanish, up to 4000 characters. You are the author (your roster slug and role).",
       ].join(" "),
       inputSchema: {

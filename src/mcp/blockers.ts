@@ -24,7 +24,7 @@ export type BlockerInput =
   | string
   | { task: string }
   | { env: string; condition: string; value?: string | number }
-  | { human_action: { assignee?: string; text: string; before_release?: boolean } }
+  | { human_action: { assignee?: string; text: string; before_release?: boolean; file?: { path: string; append: string } } }
   | { env_flag: { env: string; flag: string; equals: string | number | boolean } }
   | { time_after: string }
   | { metric_gte: { name: string; value: number } };
@@ -62,7 +62,19 @@ function typedBlocker(b: Exclude<BlockerInput, string | { task: string } | { env
   if ("human_action" in b) {
     const text = b.human_action?.text?.trim();
     if (!text) throw bad("human_action", "text says what Jorge has to do");
-    return { type: "human_action", spec: { assignee: b.human_action.assignee?.trim() || "jorge", text, ...(b.human_action.before_release ? { before_release: true } : {}) } };
+    // A file the session may not write (e.g. .env.example): the lines go with it, and Compañía commits them to the PR.
+    const file = b.human_action.file;
+    if (file && (typeof file.path !== "string" || !file.path.trim() || typeof file.append !== "string" || !file.append.trim()))
+      throw bad("human_action", "file needs path (inside the repo) and append (the exact lines)");
+    return {
+      type: "human_action",
+      spec: {
+        assignee: b.human_action.assignee?.trim() || "jorge",
+        text,
+        ...(b.human_action.before_release ? { before_release: true } : {}),
+        ...(file ? { file: { path: file.path.trim(), append: file.append } } : {}),
+      },
+    };
   }
   if ("env_flag" in b) {
     const f = b.env_flag ?? ({} as { env?: string; flag?: string; equals?: unknown });
@@ -142,7 +154,7 @@ async function blockerRowsOf(r: Reader, taskIds: string[]): Promise<BlockerRows>
 
 // Whether one typed blocker holds at `now`, against the project's environments, commits and metrics
 // (read once, on first need). A condition that cannot be evaluated does not hold.
-function typedHolds(r: Reader, projectId: string, now: Date) {
+export function typedHolds(r: Reader, projectId: string, now: Date) {
   let envs: Promise<Map<string, Row<"envStates">>> | undefined;
   let metrics: Promise<Map<string, number>> | undefined;
   const commits = new Map<string, Promise<string[]>>();
@@ -193,6 +205,13 @@ function typedHolds(r: Reader, projectId: string, now: Date) {
   };
 }
 
+// A typed blocker that counts (it is gating) and does not hold at `now`. The predicate reads the project's
+// environments, commits and metrics once, on first need. Takes rows of one project.
+export function typedBlockerOpen(r: Reader, projectId: string, now: Date): (b: Row<"blockers">) => Promise<boolean> {
+  const holds = typedHolds(r, projectId, now);
+  return async (b) => isGating(b.spec) && !(await holds(b));
+}
+
 async function unsatisfiedAmong(r: Reader, projectId: string, rows: BlockerRows, now: Date): Promise<Set<string>> {
   const out = new Set<string>();
   if (rows.links.length) {
@@ -202,10 +221,10 @@ async function unsatisfiedAmong(r: Reader, projectId: string, rows: BlockerRows,
       if (s !== undefined && !(SETTLED_STATUSES as readonly string[]).includes(s)) out.add(l.taskId);
     }
   }
-  const holds = typedHolds(r, projectId, now);
+  const open = typedBlockerOpen(r, projectId, now);
   for (const b of rows.typed) {
-    if (out.has(b.taskId) || !isGating(b.spec)) continue;
-    if (!(await holds(b))) out.add(b.taskId);
+    if (out.has(b.taskId)) continue;
+    if (await open(b)) out.add(b.taskId);
   }
   return out;
 }

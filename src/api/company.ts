@@ -8,18 +8,27 @@
 //   GET  /api/company                      the Compañía read (switches, runs, plan reading)
 //   POST /api/company/switch               {paused}            company kill switch
 //   POST /api/company/projects/:slug/switch {paused}           project kill switch
-//   PUT  /api/company/settings             {max_concurrent?, cooldown_minutes?, plan_guard_pct?, guard_override?, reserve_tokens?, max_turns?, timeout_minutes?}
+//   PUT  /api/company/settings             {max_concurrent?, cooldown_minutes?, plan_guard_pct?, guard_override?, reserve_tokens?, max_turns?, timeout_minutes?, default_model?, default_effort?}
 //   POST /api/company/projects             {name, goal}  PLA-I31-3: a new project, paused, with its PO
 //        → 201 {slug, key_prefix, paused: true, po, prompt_doc_id}; 409 PROJECT_EXISTS | PROMPT_DOC_MISSING
 // PLA-I30 (src/api/company-extra.ts): the read gains viewer, prompts, roster and project_facts, plus
 //   GET  /api/company/projects/:slug       the project sheet
-//   GET  /api/company/docs/:id             one role prompt doc (Prompt ↗)
+//   GET  /api/company/docs/:id             one role prompt doc (Prompt ↗); ?project=<slug>: any doc of that project (PLA-I47-1)
+//   GET  /api/company/projects/:slug/ficha La ficha's rows: ideas, PRs, docs, lienzos (PLA-I47-1)
 // PLA-I30-6/7: POST /api/company/projects/:slug/ask {text}  and  POST /api/company/projects/:slug/wake
+// PLA-I54-3/4: GET /api/company/projects/:slug/pedidos/:key and POST …/pedidos/:key/{guardar,restaurar,descartar,construir}.
 // PLA-I36-11: deleting a project needs the owner's code ({code}). src/auth/owner-code.ts.
 // PLA-21: no token budgets, so no limit to raise.
 //   GET  /api/company/owner-code          {enrolled}
 //   POST /api/company/owner-code/enroll   {password, code?} → {secret_base32, otpauth_uri} once
 //   DELETE /api/company/projects/:slug    {code}  the project and everything in it
+// PLA-I46-12: skill packs (src/runner/packs.ts). A pack is a `Pack: <name>` doc; a role carries a list of slugs.
+//   GET  /api/company/packs                               → {packs: [{slug, name, when, doc_id}]}
+//   GET  /api/company/projects/:slug/team/:agent/packs    → {project, agent, packs: [{slug, name, when, doc_id}]}
+//   PUT  /api/company/projects/:slug/team/:agent/packs    {packs: [slug]} replaces the list → same shape
+//        404 PROJECT_NOT_FOUND | AGENT_NOT_FOUND; 400 UNKNOWN_PACK {packs} | TOO_MANY_PACKS
+//   POST /api/company/projects/:slug/team                 {template, packs?, motor?} sets the new member's packs (and PLA-I59-2 motor) too
+//   PUT  /api/company/motores  {project, seats?, company?}  PLA-I59-2: the Motores console's save (src/api/company-motores.ts)
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { z } from "zod";
@@ -27,17 +36,26 @@ import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { createProjectFromTemplate } from "../runner/new-project.js";
-import { askPo, pickNext, setProjectOptions, wakePo } from "./company-actions.js";
+import { listConsultas } from "../pedidos/consultas.js";
+import { askMode, askPo, pickNext, resendRequest, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
 import { cancelOrder } from "./company-orders.js";
+import { construirPedido, descartarPedido, guardarPedido, pedidoDetail, restaurarPedido } from "./company-pedido.js";
+import { ideaDespertar, ideaDetail, ideaRespuesta, ideaVisto } from "./company-idea.js";
+import { frameBytes } from "../pedidos/frames.js";
 import { promptDoc } from "./company-extra.js";
+import { fichaRead, projectDocRead } from "./company-ficha.js";
 import { addTeamMember, companyRead, projectRead } from "./company-org.js";
+import { setMotores } from "./company-motores.js";
+import { checkMotor } from "../mcp/team.js";
 import { actOnDecision } from "./company-decisions.js";
 import { setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner/company.js";
+import { EFFORTS, MODEL_HINT, isModel } from "../runner/motor.js";
 import { checkOwnerCode, enrolOwnerCode, ownerCodeEnrolled } from "../auth/owner-code.js";
 import { deleteProject } from "../mcp/project.js";
 import { findProject } from "../mcp/queries.js";
-import { storeOf } from "../store/port.js";
+import { readerOf, storeOf } from "../store/port.js";
+import { MAX_PACKS, listPacks, packRef, rolePacks, setRolePacks } from "../runner/packs.js";
 
 export const companyRoutes = new Hono();
 
@@ -74,12 +92,32 @@ companyRoutes.get("/projects/:slug", async (c) => {
   }
 });
 
+// PLA-I47-1 (src/api/company-ficha.ts): what La ficha's tabs read (ideas, PRs, docs, lienzos).
+companyRoutes.get("/projects/:slug/ficha", async (c) => {
+  try {
+    return c.json(await withDb((db) => fichaRead(db, c.req.param("slug"))));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
 // PLA-I35-1 (src/api/company-decisions.ts): act on one Te toca row.
 const DecisionBody = z
   .object({
-    action: z.enum(["elegir", "responder", "hecho", "aplazar", "aceptar", "fusionar", "cambios", "empezar", "cambiar", "cancelar"]),
+    action: z.enum(["elegir", "responder", "hecho", "aplazar", "aceptar", "fusionar", "cambios", "empezar", "cambiar", "cancelar", "despues", "aplicar", "verificar"]),
     option: z.union([z.number().int().min(1).max(20), z.array(z.number().int().min(1).max(20)).min(1).max(5)]).optional(),
     text: z.string().trim().min(1).max(2000).optional(),
+    // PLA-I52-6, Devolver a Taller from El Probador: the pins the owner put on the pictures.
+    marcas: z
+      .array(z.object({ vista: z.string().max(40), side: z.enum(["antes", "despues"]), width: z.enum(["desktop", "phone"]), x: z.number().min(0).max(1), y: z.number().min(0).max(1), note: z.string().max(300) }).strict())
+      .max(12)
+      .optional(),
+    // aplicar: the file and the lines the owner reviewed (a file step).
+    path: z.string().trim().min(1).max(300).optional(),
+    lines: z.string().min(1).max(20000).optional(),
+    // PLA-I46-11, Aprobar el plan: the answer kept for each question (0-based) and the check list as the owner left it.
+    answers: z.array(z.number().int().min(0).max(3)).max(3).optional(),
+    checklist: z.array(z.string().max(200)).max(3).optional(),
   })
   .strict();
 
@@ -98,12 +136,47 @@ companyRoutes.post("/decisions/:id", async (c) => {
   }
 });
 
-const TeamBody = z.object({ template: z.string().min(1).max(40) }).strict();
+const PackSlugs = z.array(z.string().trim().min(1).max(40)).max(MAX_PACKS);
+const MotorBody = z.object({ model: z.string().max(80).nullable().optional(), effort: z.string().max(20).nullable().optional() }).strict();
+// PLA-I59-2: Sumar may give the new seat its own motor (absent: it inherits the company default).
+const TeamBody = z.object({ template: z.string().min(1).max(40), packs: PackSlugs.optional(), motor: MotorBody.optional() }).strict();
 
 companyRoutes.post("/projects/:slug/team", async (c) => {
   const input = await body(c, TeamBody);
   if (input instanceof Response) return input;
-  const out = await withDb((db) => addTeamMember(db, c.req.param("slug"), input.template.trim()));
+  const slug = c.req.param("slug");
+  const out = await withDb(async (db) => {
+    // Unknown packs are refused before anyone is hired.
+    if (input.packs?.length) {
+      const known = new Set((await listPacks(db)).map((p) => p.slug));
+      const unknown = input.packs.filter((s) => !known.has(s));
+      if (unknown.length) return { error: "UNKNOWN_PACK" as const, status: 400 as const, hint: `no pack doc for ${unknown.join(", ")}`, packs: unknown };
+    }
+    // PLA-I59-2: a bad motor is refused before anyone is hired, too.
+    if (input.motor) {
+      try {
+        checkMotor("motor", input.motor);
+      } catch (e) {
+        if (e instanceof ToolError) return { error: "INVALID_FILTER" as const, status: 400 as const, field: String(e.detail.field ?? ""), hint: String(e.detail.hint ?? "") };
+        throw e;
+      }
+    }
+    const hired = await addTeamMember(db, slug, input.template.trim());
+    if ("error" in hired) return hired;
+    let made = hired;
+    if (input.motor) {
+      const set = await setMotores(db, { project: slug, seats: [{ agent: hired.agent.agent, motor: input.motor }] });
+      if ("error" in set) return set;
+      const team = (await projectRead(db, slug)).team;
+      made = { agent: team.find((m) => m.agent === hired.agent.agent)!, team };
+    }
+    if (!input.packs?.length) return made;
+    const set = await setRolePacks(db, slug, made.agent.agent, input.packs);
+    if ("error" in set) return set;
+    const slugs = set.packs.map((x) => x.slug);
+    const withPacks = <T extends { agent: string }>(m: T): T => (m.agent === made.agent.agent ? { ...m, packs: slugs } : m);
+    return { agent: withPacks(made.agent), team: made.team.map(withPacks), packs: set.packs };
+  });
   if ("error" in out) {
     const { status, ...rest } = out;
     return c.json(rest, status);
@@ -111,10 +184,64 @@ companyRoutes.post("/projects/:slug/team", async (c) => {
   return c.json(out, 201);
 });
 
+// PLA-I59-2 (Motores): one save for the console (several seats and the company default, all or nothing).
+const MotoresBody = z
+  .object({
+    project: z.string().min(1).max(60),
+    // PLA-I60-5: a seat's own «a la vez» (null: del piso).
+    seats: z
+      .array(z.object({ agent: z.string().min(1).max(60), motor: MotorBody.nullable().optional(), consulta_motor: MotorBody.nullable().optional(), max_parallel: z.number().int().min(1).max(50).nullable().optional() }).strict())
+      .max(20)
+      .optional(),
+    // PLA-I60-5: the project's «Agentes a la vez», «Por agente», «Preguntas a la vez».
+    floor: z.object({ max_concurrent: z.number().int().min(0).max(500).optional(), max_per_agent: z.number().int().min(1).max(50).optional(), consulta_slots: z.number().int().min(0).max(20).optional() }).strict().optional(),
+    // PLA-I60-5: «Tope de la Mac» (the company ceiling) rides with the company default motor.
+    company: MotorBody.extend({ max_concurrent: z.number().int().min(0).max(500).optional() }).strict().optional(),
+  })
+  .strict();
+
+companyRoutes.put("/motores", async (c) => {
+  const input = await body(c, MotoresBody);
+  if (input instanceof Response) return input;
+  const out = await withDb((db) => setMotores(db, input));
+  if ("error" in out) {
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  return c.json(out);
+});
+
+companyRoutes.get("/packs", async (c) => c.json({ packs: (await withDb((db) => listPacks(db))).map(packRef) }));
+
+companyRoutes.get("/projects/:slug/team/:agent/packs", async (c) => {
+  const out = await withDb((db) => rolePacks(db, c.req.param("slug"), c.req.param("agent")));
+  if ("error" in out) {
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  return c.json(out);
+});
+
+const PacksBody = z.object({ packs: PackSlugs }).strict();
+
+companyRoutes.put("/projects/:slug/team/:agent/packs", async (c) => {
+  const input = await body(c, PacksBody);
+  if (input instanceof Response) return input;
+  const out = await withDb((db) => setRolePacks(db, c.req.param("slug"), c.req.param("agent"), input.packs));
+  if ("error" in out) {
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  return c.json(out);
+});
+
 companyRoutes.get("/docs/:id", async (c) => {
   const id = c.req.param("id");
   if (!/^[0-9a-f-]{36}$/i.test(id)) return c.json({ error: "DOC_NOT_FOUND" }, 404);
+  // PLA-I47-1: ?project=<slug> reads any doc of that one project (La ficha); without it, role prompts and task docs only.
+  const project = c.req.query("project");
   try {
+    if (project) return c.json(await withDb((db) => projectDocRead(db, project, id)));
     return c.json(await withDb((db) => promptDoc(db, id)));
   } catch (e) {
     return fail(c, e);
@@ -146,6 +273,9 @@ const Settings = z
     reserve_tokens: z.number().int().min(0).max(5_000_000).optional(),
     max_turns: z.number().int().min(1).max(500).optional(),
     timeout_minutes: z.number().int().min(1).max(600).optional(),
+    // PLA-I59-1: the company's default motor; null clears it.
+    default_model: z.string().trim().toLowerCase().refine(isModel, MODEL_HINT).nullable().optional(),
+    default_effort: z.enum(EFFORTS).nullable().optional(),
   })
   .strict();
 
@@ -191,13 +321,17 @@ companyRoutes.delete("/projects/:slug", async (c) => {
 });
 
 // PLA-I30-6/7 (src/api/company-actions.ts): Pedirle al PO and Despertar ahora on the project sheet.
-const AskBody = z.object({ text: z.string().trim().min(3).max(500), kind: z.enum(["cambio", "direccion", "idea"]).optional(), now: z.boolean().optional() }).strict();
+// PLA-I54-1: {mode: forma | ya} (default forma); the text grew to 2000 for the side page's textarea.
+// PLA-I57-1: mode pregunta asks the PO a question (no task); consulta carries an answer into a forma or ya request.
+const AskBody = z
+  .object({ text: z.string().trim().min(3).max(2000), kind: z.enum(["cambio", "direccion", "idea"]).optional(), now: z.boolean().optional(), mode: z.enum(["forma", "ya", "pregunta"]).optional(), consulta: z.string().uuid().optional() })
+  .strict();
 
 companyRoutes.post("/projects/:slug/ask", async (c) => {
   const input = await body(c, AskBody);
   if (input instanceof Response) return input;
   try {
-    const out = await withDb((db) => askPo(db, c.req.param("slug"), input.text, { kind: input.kind, now: input.now }));
+    const out = await withDb((db) => askPo(db, c.req.param("slug"), input.text, { kind: input.kind, now: input.now, mode: askMode(input), consulta: input.consulta }));
     if ("error" in out) {
       const { status, ...rest } = out;
       return c.json(rest, status);
@@ -208,9 +342,46 @@ companyRoutes.post("/projects/:slug/ask", async (c) => {
   }
 });
 
+// PLA-I57-1: the project's questions for Pedir's side page (newest first), each with its state, trail and answer.
+companyRoutes.get("/projects/:slug/consultas", async (c) => {
+  try {
+    const out = await withDb(async (db) => {
+      const p = await readerOf(db).get("projects", { slug: c.req.param("slug") });
+      return p ? { consultas: await listConsultas(db, p.id) } : null;
+    });
+    return out ? c.json(out) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
 companyRoutes.post("/projects/:slug/wake", async (c) => {
   try {
     const out = await withDb((db) => wakePo(db, c.req.param("slug")));
+    if ("error" in out) {
+      const { status, ...rest } = out;
+      return c.json(rest, status);
+    }
+    return c.json(out);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I40-2: Que empiece ya for one teammate. The body is optional: {past_guard} also passes the plan guard once.
+const StartNow = z.object({ past_guard: z.boolean().optional() }).strict();
+companyRoutes.post("/projects/:slug/team/:agent/start", async (c) => {
+  const raw = await c.req.text();
+  let json: unknown = {};
+  try {
+    if (raw.trim()) json = JSON.parse(raw);
+  } catch {
+    return c.json({ error: "INVALID_BODY" }, 400);
+  }
+  const input = StartNow.safeParse(json);
+  if (!input.success) return c.json({ error: "INVALID_BODY" }, 400);
+  try {
+    const out = await withDb((db) => startTeammateNow(db, c.req.param("slug"), c.req.param("agent"), input.data));
     if ("error" in out) {
       const { status, ...rest } = out;
       return c.json(rest, status);
@@ -236,6 +407,54 @@ companyRoutes.post("/projects/:slug/tasks/:key/note", async (c) => {
   if (input instanceof Response) return input;
   return send(c, await withDb((db) => noteForAgent(db, c.req.param("slug"), c.req.param("key"), input.text)));
 });
+// PLA-I54-3: the «Pedido» tab (src/api/company-pedido.ts). The note box uses /tasks/:key/note above and the answer box
+// POST /api/projects/:slug/questions/:id/answer.
+companyRoutes.get("/projects/:slug/pedidos/:key", async (c) => send(c, await withDb((db) => pedidoDetail(db, c.req.param("slug"), c.req.param("key")))));
+companyRoutes.post("/projects/:slug/pedidos/:key/guardar", async (c) => send(c, await withDb((db) => guardarPedido(db, c.req.param("slug"), c.req.param("key")))));
+companyRoutes.post("/projects/:slug/pedidos/:key/restaurar", async (c) => send(c, await withDb((db) => restaurarPedido(db, c.req.param("slug"), c.req.param("key")))));
+// PLA-I54-4: «Constrúyelo».
+companyRoutes.post("/projects/:slug/pedidos/:key/construir", async (c) => send(c, await withDb((db) => construirPedido(db, c.req.param("slug"), c.req.param("key")))));
+companyRoutes.post("/projects/:slug/pedidos/:key/descartar", async (c) => {
+  const raw = await c.req.text();
+  let json: unknown = {};
+  try {
+    if (raw.trim()) json = JSON.parse(raw);
+  } catch {
+    return c.json({ error: "INVALID_BODY" }, 400);
+  }
+  const input = z.object({ reason: z.string().trim().max(500).optional() }).strict().safeParse(json);
+  if (!input.success) return c.json({ error: "INVALID_BODY" }, 400);
+  return send(c, await withDb((db) => descartarPedido(db, c.req.param("slug"), c.req.param("key"), input.data.reason)));
+});
+// PLA-I61 (La idea abierta, src/api/company-idea.ts): any idea, its stops and deliveries; seen, answers, wake, frames.
+companyRoutes.get("/projects/:slug/ideas/:key", async (c) => send(c, await withDb((db) => ideaDetail(db, c.req.param("slug"), c.req.param("key")))));
+companyRoutes.post("/projects/:slug/ideas/:key/visto", async (c) => {
+  const input = await body(c, z.object({ stop: z.string().min(1).max(20) }).strict());
+  if (input instanceof Response) return input;
+  return send(c, await withDb((db) => ideaVisto(db, c.req.param("slug"), c.req.param("key"), input.stop)));
+});
+const Answer = z
+  .object({
+    stop: z.string().min(1).max(20),
+    verdict: z.enum(["ok", "deshacer", "cambios", "opcion", "corregir"]),
+    text: z.string().trim().max(1000).optional(),
+    option: z.number().int().min(1).max(20).optional(),
+    notes: z.array(z.object({ frame: z.string().min(1).max(16), x: z.number(), y: z.number(), text: z.string().max(600) }).strict()).max(30).optional(),
+  })
+  .strict();
+companyRoutes.post("/projects/:slug/ideas/:key/respuesta", async (c) => {
+  const input = await body(c, Answer);
+  if (input instanceof Response) return input;
+  return send(c, await withDb((db) => ideaRespuesta(db, c.req.param("slug"), c.req.param("key"), input)));
+});
+companyRoutes.post("/projects/:slug/ideas/:key/despertar", async (c) => send(c, await withDb((db) => ideaDespertar(db, c.req.param("slug"), c.req.param("key")))));
+companyRoutes.get("/projects/:slug/ideas/:key/frames/:id", async (c) => {
+  const r = await withDb((db) => frameBytes(db, c.req.param("slug"), c.req.param("key"), c.req.param("id")));
+  if (!r) return c.json({ error: "FRAME_NOT_FOUND", hint: "No encontré ese marco." }, 404);
+  return c.body(new Uint8Array(r.bytes), 200, { "Content-Type": r.mime, "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" });
+});
+// PLA-I40-6: Reenviar a request nobody took (Cerrar is the cancel below).
+companyRoutes.post("/projects/:slug/requests/:key/resend", async (c) => send(c, await withDb((db) => resendRequest(db, c.req.param("slug"), c.req.param("key")))));
 companyRoutes.post("/projects/:slug/orders/:key/cancel", async (c) => send(c, await withDb((db) => cancelOrder(db, c.req.param("slug"), c.req.param("key")))));
 
 // PLA-I36-6: Cambiar lo siguiente.
@@ -252,7 +471,7 @@ companyRoutes.post("/projects/:slug/next", async (c) => {
 
 // PLA-I36-8/10: plan approval and the preview address.
 companyRoutes.put("/projects/:slug/options", async (c) => {
-  const input = await body(c, z.object({ plan_approval: z.boolean().optional(), preview_url: z.string().url().regex(/^https?:\/\//).max(300).nullable().optional() }).strict());
+  const input = await body(c, z.object({ plan_approval: z.boolean().optional(), auto_accept: z.boolean().optional(), auto_accept_invisible: z.boolean().optional(), preview_url: z.string().url().regex(/^https?:\/\//).max(300).nullable().optional() }).strict());
   if (input instanceof Response) return input;
   const out = await withDb((db) => setProjectOptions(db, c.req.param("slug"), input));
   if ("error" in out) {

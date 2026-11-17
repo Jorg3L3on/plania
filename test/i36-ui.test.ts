@@ -66,9 +66,9 @@ const row = (patch: Record<string, unknown>) => ({
 
 // ---- PLA-I36-1
 
-test("I36-1 #1: Te necesita shows its reason and points to the question on the floor", () => {
+test("I36-1 #1 / I46-3: Te necesita is the floor's move, not a second line on the plate", () => {
   const out = card(project({ light: "needs_jorge", light_reason: { text: "Lo siguiente es tuyo: «Kickoff con la boutique».", action: { label: "Ver en Te toca", href: "#te-toca" } } }));
-  assert.ok(out.includes("Lo siguiente es tuyo: «Kickoff con la boutique».") && out.includes('data-control="ver-pregunta"') && out.includes("Ver la pregunta"));
+  assert.equal(out.includes("Lo siguiente es tuyo") || out.includes("ver-pregunta") || out.includes("data-light-reason"), false);
   clean(out);
 });
 

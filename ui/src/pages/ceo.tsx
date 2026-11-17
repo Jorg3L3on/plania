@@ -7,32 +7,50 @@
 // Data: GET /api/company (decisions[] with asker, team[] with queue), GET /api/threads/:id,
 // GET /api/company/projects/:slug for the plan and adding someone; POST /api/company/decisions/:id acts.
 // URL: ?m=<slug>:<agent> a teammate, ?plan=<slug> the plan, ?add=<slug> adding someone, ?asistente the thread,
-// ?decision=<id> scrolls to that decision, ?doc=<id> a doc, ?nuevo the new project dialog; ?p=<slug> and
+// ?decision=<id> scrolls to that decision, ?doc=<id> a doc, ?nuevo the new project dialog, ?piso=<slug> the open
+// floor (PLA-I47-2); ?p=<slug> and
 // ?vista=<slug> redirect to /p/<slug>, ?equipo to Máquina.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
-import { BlockError, StopBody } from "@/components/compania/parts";
+import { BRIEF_LINK_LABEL, BlockError, StopBody, briefTitle } from "@/components/compania/parts";
+import { Brief } from "@/components/dashboard/ceo-v2";
 import type { Steer } from "@/components/compania/timon";
 import { toast } from "sonner";
 import { ThreadPanel } from "@/components/compania/org";
 import type { DecisionBusy } from "@/components/compania/v2";
 import { AskBox } from "@/components/compania/edificio/ask";
-import { AsistenteFab } from "@/components/compania/edificio/asistente";
+import { AsistenteButton } from "@/components/compania/edificio/asistente";
+import { OficinaCiudad } from "@/components/compania/edificio/oficina-ciudad";
 import { Building, BuildingBlock } from "@/components/compania/edificio/building";
-import { PublishBody, publishError } from "@/components/compania/edificio/publish";
-import { AddPage, MemberHead, MemberSide, PlanPage, SidePage, memberTitle } from "@/components/compania/edificio/side";
+import { VentanaLive } from "@/components/compania/edificio/ventana";
+import { PublishBody, PublishDone, publishError } from "@/components/compania/edificio/publish";
+import { MemberHead, MemberSide, PlanPage, SidePage, SumarSide, memberTitle } from "@/components/compania/edificio/side";
 import { NewProjectDone, NewProjectForm, PromptDocBody, type NewProjectState } from "@/components/compania/sheets";
 import { useThread } from "@/components/compania/use-thread";
 import { GoalDialog } from "@/components/goals/goal-dialog";
 import type { Goal } from "@/components/goals/model";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { ApiError, api, type Decision, type DecisionInput, type OrgProject } from "@/lib/api";
+import { ApiError, api, uploadPedidoImages, type Decision, type DecisionInput, type MotorPatch, type MotoresSave, type OrgProject } from "@/lib/api";
+import { MotoresConsole, MotorCard } from "@/components/compania/edificio/motores";
 import { ceoRedirect, sheetOf, sheetSearch } from "@/lib/compania";
-import { caption } from "@/lib/edificio";
+import { caption, floorOrder, oficinaOf, seatIn } from "@/lib/edificio";
+import { openFloor, stepFloor } from "@/components/compania/edificio/tower";
+import { Ficha, type Load } from "@/components/compania/edificio/ficha";
+import type { IdeaActs } from "@/components/compania/edificio/idea";
+import { Resguardo } from "@/components/compania/edificio/resguardo";
+import { After, Last } from "@/components/compania/edificio/after";
+import { FICHA_TABS, escStep, fichaOf, fichaSearch, needsIdea, needsRows, needsTask, type FichaRef } from "@/lib/ficha";
+import { nivelOf, type Nivel } from "@/lib/maquinas";
+import { NivelSwitch, useMaquinasRoom } from "@/components/compania/edificio/maquinas-live";
+import { TableroLive } from "@/components/compania/edificio/tablero";
 import { byLight, plumbingLine } from "@/lib/org";
 import { greeting } from "@/lib/greeting";
+import { hireLabel } from "@/lib/sumar";
+
+const typingIn = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || !!t.closest("[role=dialog]"));
 
 const dayLabel = (timeZone: string) =>
   new Intl.DateTimeFormat("es-MX", {
@@ -55,6 +73,17 @@ export const useWide = () => {
   return wide;
 };
 
+export const useMedia = (query: string) => {
+  const [on, setOn] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches);
+  useEffect(() => {
+    const q = window.matchMedia(query);
+    const onChange = () => setOn(q.matches);
+    q.addEventListener("change", onChange);
+    return () => q.removeEventListener("change", onChange);
+  }, [query]);
+  return on;
+};
+
 // "hace 5 min" keeps moving without a refetch.
 export const useMinute = () => {
   const [now, setNow] = useState(() => Date.now());
@@ -63,6 +92,15 @@ export const useMinute = () => {
     return () => window.clearInterval(id);
   }, []);
   return now;
+};
+
+const clockIn = (timeZone: string) => new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", timeZone }).format(new Date());
+
+// PLA-31: the app bar's slot for a page's own control (app-shell.tsx).
+const useShellSlot = () => {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  useEffect(() => setEl(document.getElementById("shell-actions")), []);
+  return el;
 };
 
 const sheetClass = "max-h-[92svh] overflow-y-auto bg-background sm:max-h-none data-[side=right]:sm:max-w-[560px]";
@@ -89,6 +127,9 @@ const DECISION_REFUSAL: Record<string, string> = {
   MERGE_FAILED: "No se pudo fusionar: revisa el PR.",
   BASE_NOT_SANDBOX: "El cambio no apunta a la copia de prueba.",
   OWNER_CODE: "Publicar se hace en Bandeja, con tu código.",
+  INVALID_ACTION: "Eso no se puede hacer aquí. Recarga la página y vuelve a intentarlo.",
+  PR_NOT_OPEN: "El PR está cerrado sin fusionar: pide cambios o que Taller abra otro.",
+  NO_TICKET: "El mensaje no enlaza un ticket.",
 };
 
 const Compania = () => {
@@ -120,32 +161,110 @@ const Compania = () => {
   });
 
   const projects = useMemo(() => [...(company?.projects ?? [])].sort(byLight), [company]);
-  const openSheet = (search: string) => navigate({ pathname: "/ceo", search });
-  const closeSheet = () => navigate({ pathname: "/ceo", search: "" }, { replace: true });
-  // PLA-I39-6: the side page. Its project and teammate come from the company read; plan and add read the project.
-  const sideProject = sheet && (sheet.kind === "member" || sheet.kind === "plan" || sheet.kind === "add") ? (company?.projects.find((p) => p.slug === sheet.slug) ?? null) : null;
-  const sideMember = sheet?.kind === "member" ? (sideProject?.team.find((m) => m.agent === sheet.agent) ?? null) : null;
-  const detail = useQuery({
-    queryKey: ["company-project", sideProject?.slug ?? ""],
-    queryFn: () => api.companyProject(sideProject!.slug),
-    enabled: !!sideProject && (sheet?.kind === "plan" || sheet?.kind === "add"),
-  });
+  // PLA-I47-2: ?piso=<slug> is the open floor; it stays in the address while a side page opens and closes.
+  const piso = new URLSearchParams(location.search).get("piso");
+  // PLA-31: Oficina (?edificio) stays too, so closing Asistente or a doc returns to the city, not to a floor.
+  const onOficina = new URLSearchParams(location.search).has("edificio");
+  const withPiso = (search: string) => {
+    const q = new URLSearchParams(search);
+    if (piso && !q.has("piso")) q.set("piso", piso);
+    if (onOficina && !q.has("edificio")) q.set("edificio", "");
+    const out = q.toString().split("&").map((part) => (part === "edificio=" ? "edificio" : part)).join("&");
+    return out ? `?${out}` : "";
+  };
+  const openSheet = (search: string) => navigate({ pathname: "/ceo", search: withPiso(search) });
+  const closeSheet = () => navigate({ pathname: "/ceo", search: withPiso("") }, { replace: true });
+  // PLA-I48-4: ?nivel=maquinas is the floor's lower level; it stays while walking floors and opening La ficha.
+  const nivel: Nivel = nivelOf(location.search);
+  const onPiso = (slug: string) => navigate({ pathname: "/ceo", search: `?piso=${encodeURIComponent(slug)}${nivel === "maquinas" ? "&nivel=maquinas" : ""}` }, { replace: true });
+  // PLA-I47-5: ?edificio is the building zoomed out (Tu oficina and one row per project); a floor zooms back in.
+  // PLA-32: /ceo that names no floor (no ?piso, no ficha link, no ?decision) is Oficina too, so Compañía opens there.
+  const zoomOut = oficinaOf(location.search);
+  const shellSlot = useShellSlot();
+  const setZoom = (out: boolean, slug = piso) => {
+    const q = new URLSearchParams();
+    if (slug) q.set("piso", slug);
+    if (out) q.set("edificio", "");
+    navigate({ pathname: "/ceo", search: q.toString() ? `?${q.toString().replace("edificio=", "edificio")}` : "" });
+  };
+  // PLA-I47-4: La ficha. ?f=<kind>:<ref> is what it shows (the old ?m=, ?plan=, ?add= links still land there); the
+  // project is the open floor. PLA-I55-1: it is the floor's ventanal now, always there; with no ?f= it shows its
+  // home tab (Te toca / Ahora), so "open" means the address names something.
+  const fichaAt = fichaOf(location.search);
+  const fref: FichaRef = fichaAt?.ref ?? { kind: "tab", tab: "resumen" };
+  const fichaOpen = !!fichaAt;
   const [added, setAdded] = useState<string | null>(null);
   // PLA-I39-7: floors whose ask box has text: their PO's window says "Recibiría tu pedido".
   const [typing, setTyping] = useState<Record<string, boolean>>({});
   const opener = useRef<HTMLElement | null>(null);
-  // The side page last open, so closing (which clears the address first) still knows what to focus.
-  const lastSide = useRef(sheet);
-  if (sheet && (sheet.kind === "member" || sheet.kind === "plan" || sheet.kind === "add")) lastSide.current = sheet;
+  // PLA-I46-13: the Sumar sheet's packs, read from Plania (GET /api/company/packs).
+  const packs = useQuery({ queryKey: ["company-packs"], queryFn: () => api.packs(), enabled: fref.kind === "sumar" });
+  // PLA-I59-3 (Motores): one save from the console or a teammate's Motor card; the next read shows it.
+  const saveMotores = async (input: MotoresSave) => {
+    try {
+      const out = await api.saveMotores(input);
+      await client.invalidateQueries({ queryKey: ["company"] });
+      return out;
+    } catch (e) {
+      toast.error(e instanceof ApiError ? `No se pudo guardar el motor (${e.code}).` : "No se pudo. Si la Mac está dormida, intenta al despertar.");
+      throw e;
+    }
+  };
   const addMember = useMutation({
-    mutationFn: (v: { slug: string; template: string }) => api.addToTeam(v.slug, v.template),
-    onSuccess: (r, v) => {
-      setAdded(detail.data?.templates.find((t) => t.slug === v.template)?.title ?? r.role);
+    mutationFn: (v: { slug: string; template: string; packs: string[]; motor?: MotorPatch }) => api.addToTeam(v.slug, v.template, v.packs, v.motor),
+    onSuccess: (_r, v) => {
+      setAdded(hireLabel(v.template));
       void client.invalidateQueries({ queryKey: ["company"] });
       void client.invalidateQueries({ queryKey: ["company-project", v.slug] });
     },
     onError: (e) => toast.error(e instanceof ApiError ? `No se pudo sumar (${e.code}).` : "No se pudo. Si la Mac está dormida, intenta al despertar."),
   });
+
+  // PLA-I47-4: what La ficha draws with parts that already exist (a teammate, the plan, Sumar, the app, the accept-by-itself switch).
+  const fichaSlots = (fp: OrgProject) => {
+    const m = fref.kind === "member" ? fp.team.find((x) => x.agent === fref.agent) : undefined;
+    return {
+      member: m ? (
+        <div className="edi-fi-member" data-member={m.agent}>
+          <div className="edi-fi-mhead">
+            <MemberHead m={m} project={fp} companyPaused={company?.company.paused} />
+            <div>
+              <h3 className="edi-fi-title">{memberTitle(m, fp)}</h3>
+              <p className="edi-fi-state-line">{caption(m, now, { companyPaused: company?.company.paused, seat: seatIn(fp, m, company?.company.paused) }).doing}</p>
+            </div>
+          </div>
+          <MotorCard key={`motor-${m.agent}`} project={fp} member={m} def={company?.motor_default} onSave={saveMotores} onAll={() => setFicha({ kind: "tab", tab: "motores" })} />
+          <MemberSide key={m.agent} project={fp} member={m} now={now} steer={steer} />
+        </div>
+      ) : undefined,
+      plan: (
+        <div className="edi-fi-slot">
+          <PlanPage project={fp} sheet={detail.data} loading={detail.isPending} error={detail.isError} onRetry={() => void detail.refetch()} now={now} steer={steer} onFijar={setFijar} />
+        </div>
+      ),
+      sumar:
+        fp.team.length < 8 ? (
+          <div className="edi-fi-slot">
+          <SumarSide
+            key={fp.slug}
+            hire={detail.data?.hire}
+            packs={packs.data?.packs}
+            loading={detail.isPending || packs.isPending}
+            packsError={packs.isError}
+            busy={addMember.isPending}
+            added={added}
+            motorDefault={company?.motor_default}
+            onAdd={(template, chosen, motor) => addMember.mutate({ slug: fp.slug, template, packs: chosen, motor })}
+          />
+          </div>
+        ) : undefined,
+      app: <VentanaLive slug={fp.slug} title={fp.title} timeZone={timeZone} />,
+      solo: <After project={fp} decisions={decisions} now={now} timeZone={timeZone} acts={nowActs} qacts={qacts} />,
+      maq: maq.ficha(fref),
+      motores: fp.team.length ? <MotoresConsole key={fp.slug} project={fp} def={company?.motor_default} onSave={saveMotores} /> : undefined,
+      last: <Last project={fp} decisions={decisions} now={now} timeZone={timeZone} acts={nowActs} qacts={qacts} />,
+    };
+  };
 
   // Te toca: the result is written in the row at once; the next read keeps it (acted rows stay 24 h).
   const [acted, setActed] = useState<Record<string, Decision>>({});
@@ -162,6 +281,133 @@ const Compania = () => {
   }, [openDecision, company]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const decisions = useMemo(() => (company?.decisions ?? []).map((d) => acted[d.id] ?? d), [company, acted]);
+  // PLA-I47-2: ↑ ↓ walk the tower's floors, unless the owner is typing or a dialog is open.
+  const shownPiso = piso ?? fichaAt?.slug ?? decisions.find((d) => d.id === openDecision)?.project ?? null;
+  const fichaProject = useMemo(() => {
+    if (!company) return null;
+    const { floors, basement } = floorOrder(company.projects, decisions);
+    return openFloor(floors, basement, shownPiso);
+  }, [company, decisions, shownPiso]);
+  const fslug = fichaProject?.slug ?? "";
+  // Each read loads only when its view is open (the Resumen tab reads nothing new).
+  const fichaRows = useQuery({ queryKey: ["company-ficha", fslug], queryFn: () => api.companyFicha(fslug), enabled: fichaOpen && !!fslug && needsRows(fref), staleTime: 15_000 });
+  const taskKey = needsTask(fref);
+  const fichaTask = useQuery({ queryKey: ["ficha-task", fslug, taskKey], queryFn: () => api.task(fslug, taskKey!), enabled: fichaOpen && !!fslug && !!taskKey });
+  const docId = fref.kind === "doc" ? fref.id : null;
+  const fichaDoc = useQuery({ queryKey: ["ficha-doc", fslug, docId], queryFn: () => api.projectDoc(fslug, docId!), enabled: fichaOpen && !!fslug && !!docId });
+  // PLA-I54-3: the open request in the Pedido tab; read again while it is shown, so the PO's moves land in its trail.
+  // PLA-I61: a request and an idea open La idea abierta, read again while shown so the team's moves land in it.
+  const pedidoKey = needsIdea(fref);
+  const fichaIdea = useQuery({ queryKey: ["ficha-pedido", fslug, pedidoKey], queryFn: () => api.idea(fslug, pedidoKey!), enabled: fichaOpen && !!fslug && !!pedidoKey, refetchInterval: 15_000 });
+  const detail = useQuery({
+    queryKey: ["company-project", fslug],
+    queryFn: () => api.companyProject(fslug),
+    enabled: fichaOpen && !!fslug && (fref.kind === "plan" || fref.kind === "sumar"),
+  });
+  const loadOf = <T,>(q: { isError: boolean; data?: T; refetch: () => unknown }, on: boolean): Load<T> => ({
+    status: !on ? "idle" : q.isError ? "error" : q.data !== undefined ? "ok" : "loading",
+    data: q.data,
+    retry: () => void q.refetch(),
+  });
+  // Opening something in La ficha: the floor stays, the address carries what is shown.
+  const setFicha = (r: FichaRef | null, el?: HTMLElement | null, slug = fslug) => {
+    if (el) opener.current = el;
+    navigate({ pathname: "/ceo", search: fichaSearch(slug || null, r, nivel) });
+  };
+  const setNivel = (n: Nivel, r: FichaRef | null = fichaAt?.ref ?? null) => navigate({ pathname: "/ceo", search: fichaSearch(fslug || null, r, n) }, { replace: true });
+  const closeFicha = () => {
+    navigate({ pathname: "/ceo", search: fichaSearch(fslug || null, null, nivel) }, { replace: true });
+    const back = opener.current;
+    if (back?.isConnected) window.setTimeout(() => back.focus(), 0);
+  };
+  const showFicha = (r: FichaRef, el?: HTMLElement | null, slug?: string) => setFicha(r, el, slug);
+  // PLA-I48: the open floor's Máquinas (its room, its switch's lights, and La ficha's Máquinas kinds).
+  const maq = useMaquinasRoom({
+    slug: fslug || null,
+    nivel,
+    fref: fichaOpen ? fref : null,
+    onFicha: (r, el) => showFicha(r, el),
+    onPedir: (slug, text) => setPrefill((x) => ({ ...x, [slug]: text })),
+  });
+  const [appsOn, setAppsOn] = useState<string[]>([]);
+  useEffect(() => {
+    if (!company) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || typingIn(e.target) || document.querySelector("[role=dialog]")) return;
+      // PLA-I47-5: Esc zooms back in from the building; from a floor with nothing open in La ficha it zooms out.
+      if (e.key === "Escape" && zoomOut) {
+        e.preventDefault();
+        setZoom(false, fslug || piso);
+        return;
+      }
+      if (e.key === "Escape" && !fichaOpen) {
+        e.preventDefault();
+        setZoom(true, fslug || piso);
+        return;
+      }
+      if (e.key === "Escape" && fichaOpen) {
+        const to = escStep(fref);
+        e.preventDefault();
+        if (to === "close") closeFicha();
+        else {
+          setFicha(to);
+          const back = opener.current;
+          if (back?.isConnected) window.setTimeout(() => back.focus(), 0);
+        }
+        return;
+      }
+      if (e.key.length === 1 && "1234567".includes(e.key)) {
+        e.preventDefault();
+        showFicha({ kind: "tab", tab: FICHA_TABS[Number(e.key) - 1]! });
+        return;
+      }
+      // PLA-I48-4: M goes down to Máquinas and back up to Trabajo.
+      if ((e.key === "m" || e.key === "M") && fslug) {
+        e.preventDefault();
+        setNivel(nivel === "maquinas" ? "trabajo" : "maquinas");
+        return;
+      }
+      if (e.key === "i" || e.key === "I") {
+        e.preventDefault();
+        if (fichaOpen) closeFicha();
+        else showFicha({ kind: "tab", tab: "resumen" });
+        return;
+      }
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      const { floors, basement } = floorOrder(company.projects, decisions);
+      const open = openFloor(floors, basement, shownPiso);
+      const to = stepFloor(floors, basement, open?.slug ?? null, e.key === "ArrowUp" ? -1 : 1);
+      if (to && to !== open?.slug) {
+        e.preventDefault();
+        onPiso(to);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [company, decisions, shownPiso, fichaOpen, fref.kind, fslug, zoomOut, nivel, location.search]);
+  // PLA-I56-2: Cerrar iniciativa from the ventanal. The server accepts it only when every step is Done (the read
+  // says can_close); a refusal names what is still open.
+  const cerrar = useMutation({
+    mutationFn: (v: { slug: string; key: string; version: number }) => api.patchTask(v.slug, v.key, { status: "Done", version: v.version }),
+    onSuccess: (_r, v) => {
+      toast("Iniciativa cerrada: ya está en Completas.");
+      void client.invalidateQueries({ queryKey: ["company"] });
+      void client.invalidateQueries({ queryKey: ["company-project", v.slug] });
+      void client.invalidateQueries({ queryKey: ["project", v.slug] });
+    },
+    onError: (e) => {
+      const open = e instanceof ApiError && Array.isArray(e.detail?.open) ? (e.detail.open as string[]) : [];
+      toast.error(
+        e instanceof ApiError && e.code === "INITIATIVE_CHILDREN_OPEN"
+          ? `Todavía no se puede cerrar: ${open.length === 1 ? "queda 1 paso abierto" : `quedan ${open.length} pasos abiertos`}${open.length ? ` (${open.join(", ")})` : ""}.`
+          : e instanceof ApiError && e.code === "STALE_VERSION"
+            ? "Cambió mientras la veías. Ya está al día: vuelve a intentarlo."
+            : "No se pudo cerrar la iniciativa.",
+      );
+      void client.invalidateQueries({ queryKey: ["company"] });
+    },
+  });
   const act = useMutation({
     mutationFn: (v: { d: Decision; input: DecisionInput; key: string }) => api.actDecision(v.d.id, v.input),
     onMutate: (v) => {
@@ -169,6 +415,11 @@ const Compania = () => {
       setErrors((e) => ({ ...e, [v.d.id]: "" }));
     },
     onSuccess: (r, v) => {
+      // Volver a probar leaves the delivery open: the live row (with its run) shows, not a frozen acted copy.
+      if (v.input.action === "verificar") {
+        void client.invalidateQueries({ queryKey: ["company"] });
+        return;
+      }
       setActed((a) => ({
         ...a,
         [v.d.id]: r.decision ?? { ...v.d, state: r.state, actions: [] },
@@ -185,7 +436,11 @@ const Compania = () => {
     onError: (e, v) =>
       setErrors((x) => ({
         ...x,
-        [v.d.id]: e instanceof ApiError ? (DECISION_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar.",
+        // A file step's refusal carries its own reason (GitHub's, or why Plania will not write that file).
+        [v.d.id]:
+          e instanceof ApiError
+            ? (DECISION_REFUSAL[e.code] ?? ((e.code.startsWith("FILE_") || e.code === "NOT_WOKEN" || e.code === "NO_OWNER") && typeof e.detail.hint === "string" ? e.detail.hint : `No se pudo (${e.code}). Recarga la página: puede que ya haya cambiado.`))
+            : "No se pudo. Si la Mac está dormida, intenta al despertar.",
       })),
     onSettled: () => setBusy(null),
   });
@@ -211,6 +466,42 @@ const Compania = () => {
   const [steerBusy, setSteerBusy] = useState<string | null>(null);
   const [pausing, setPausing] = useState<OrgProject | null>(null);
   const refresh = () => void client.invalidateQueries({ queryKey: ["company"] });
+  // PLA-I54-3: what the Pedido tab does. Each call reads the floor and the request again when it lands; what it did
+  // shows in the trail, so only a failure toasts (a toast would sit over the tab's buttons).
+  const [pedidoBusy, setPedidoBusy] = useState<string | null>(null);
+  const pedidoDo = (k: string, fn: () => Promise<unknown>) => {
+    setPedidoBusy(k);
+    fn()
+      .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+      .finally(() => {
+        setPedidoBusy(null);
+        refresh();
+        void client.invalidateQueries({ queryKey: ["ficha-pedido"] });
+      });
+  };
+  const pedidoActs: IdeaActs | undefined = pedidoKey
+    ? {
+        onAnswer: (qid, text) => pedidoDo("answer", () => api.answer(fslug, qid, text)),
+        // PLA-I54-5: the note, then its pictures; a refused picture says why (too big, a seventh one).
+        onNote: (text, files) =>
+          pedidoDo("note", async () => {
+            await api.noteTask(fslug, pedidoKey, text);
+            if (!files?.length) return;
+            const r = await uploadPedidoImages(fslug, pedidoKey, files);
+            if (r.error) toast.error(typeof r.error.detail.message === "string" ? r.error.detail.message : "Una imagen no subió.");
+          }),
+        onGuardar: () => pedidoDo("guardar", () => api.pedidoAct(fslug, pedidoKey, "guardar")),
+        onRestaurar: () => pedidoDo("restaurar", () => api.pedidoAct(fslug, pedidoKey, "restaurar")),
+        onDescartar: () => pedidoDo("descartar", () => api.pedidoAct(fslug, pedidoKey, "descartar")),
+        // PLA-I54-4: «Constrúyelo».
+        onConstruir: () => pedidoDo("construir", () => api.pedidoAct(fslug, pedidoKey, "construir")),
+        // PLA-I61: seen (quietly, no busy state), answers and wake.
+        onVisto: (stop) => void api.ideaVisto(fslug, pedidoKey, stop).then(() => client.invalidateQueries({ queryKey: ["ficha-pedido"] }), () => undefined),
+        onRespuesta: (input) => pedidoDo("respuesta", () => api.ideaRespuesta(fslug, pedidoKey, input)),
+        onDespertar: () => pedidoDo("despertar", () => api.ideaDespertar(fslug, pedidoKey)),
+        busy: pedidoBusy,
+      }
+    : undefined;
   const quietly = async (key: string, fn: () => Promise<unknown>) => {
     setSteerBusy(key);
     try {
@@ -239,6 +530,94 @@ const Compania = () => {
     prefill,
     busy: steerBusy,
   };
+  // PLA-I40-4: the Ahora band's calls. The floor reads again right after, so the band changes without a reload.
+  const [nowBusy, setNowBusy] = useState<string | null>(null);
+  const START_WORDS: Record<string, string> = {
+    queued: "Quedó en fila: arranca en cuanto haya lugar.",
+    busy: "Ya está trabajando.",
+    idle: "No tiene nada listo para empezar.",
+    held: "No pudo arrancar: el uso de Claude está al límite.",
+    fail: "No pudo arrancar. Míralo en Máquina.",
+  };
+  // The questions' calls, the same on the floor and in La ficha.
+  const qacts = { now, busy, errors, opened: openDecision, onAct: (d: Decision, input: DecisionInput, key: string) => act.mutate({ d, input, key }), onPublish: (d: Decision) => openPublish(d.project) };
+  const nowActs = {
+    busy: nowBusy,
+    onElapsed: refresh,
+    // PLA-I47-7: «#te-toca» opens Tu oficina (the building zoomed out, where what waits on the owner is); «#publicar» publishes.
+    onLink: (slug: string, href: string) => (href === "#publicar" ? openPublish(slug) : setZoom(true, slug)),
+    // PLA-I48-6: an idle floor's «Probar la app» opens Cómo probarla on Máquinas; «Bajar a máquinas» goes down.
+    onMaquinas: (slug: string, what: "probar" | "bajar") =>
+      navigate({ pathname: "/ceo", search: fichaSearch(slug, what === "probar" ? { kind: "maq", what: "probar" } : (fichaAt?.ref ?? null), "maquinas") }),
+    onAuto: (slug: string, on: boolean) => {
+      setNowBusy(`${slug}:auto`);
+      void api
+        .setProjectOptions(slug, { auto_accept: on })
+        .then(() => toast(on ? "Las entregas con pruebas en verde se aprueban solas, solo a la copia de prueba." : "Vuelves a aprobar cada entrega."))
+        .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+        .finally(() => {
+          setNowBusy(null);
+          refresh();
+        });
+    },
+    onAutoInvisible: (slug: string, on: boolean) => {
+      setNowBusy(`${slug}:auto`);
+      void api
+        .setProjectOptions(slug, { auto_accept_invisible: on })
+        .then(() => toast(on ? "Las entregas que no cambian la pantalla se aprueban solas." : "Vuelves a aprobar también lo que no se ve."))
+        .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+        .finally(() => {
+          setNowBusy(null);
+          refresh();
+        });
+    },
+    onResend: (slug: string, key: string) => {
+      setNowBusy(`${slug}:request`);
+      void api
+        .resendRequest(slug, key)
+        .then((r) => toast(r.wake === "queued" ? "Se lo mandaste al PO otra vez." : r.wake === "busy" ? "El PO está ocupado; lo toma al terminar." : "Los avisos están apagados; lo ve en su próximo turno."))
+        .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+        .finally(() => {
+          setNowBusy(null);
+          refresh();
+        });
+    },
+    onClose: (slug: string, key: string) => {
+      setNowBusy(`${slug}:request`);
+      void api
+        .cancelOrder(slug, key)
+        .then(() => toast("Pedido cerrado."))
+        .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+        .finally(() => {
+          setNowBusy(null);
+          refresh();
+        });
+    },
+    onStart: (slug: string, agent: string, pastGuard: boolean) => {
+      setNowBusy(`${slug}:start`);
+      void api
+        .startTeammate(slug, agent, pastGuard)
+        .then((r) => {
+          if (!r.started) toast(START_WORDS[r.reason] ?? "No arrancó.");
+        })
+        .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+        .finally(() => {
+          setNowBusy(null);
+          refresh();
+        });
+    },
+    onPlan: (slug: string, text: string) => {
+      setNowBusy(`${slug}:plan`);
+      void api
+        .askProject(slug, { text, mode: "ya" })
+        .then(() => toast("Se lo pediste al PO."))
+        .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+        .finally(() => {
+          setNowBusy(null);
+          refresh();
+        });
+    },
+  };
   const pause = useMutation({
     mutationFn: (slug: string) => api.setProjectPaused(slug, true),
     onSettled: () => {
@@ -251,19 +630,29 @@ const Compania = () => {
   // publishing keeps the project while the sheet slides closed, so it never flashes an empty name.
   const [publishing, setPublishing] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
-  const publishRelease = publishing ? (decisions.find((d) => d.kind === "release" && d.project === publishing && !d.state) ?? null) : null;
+  const liveRelease = publishing ? (decisions.find((d) => d.kind === "release" && d.project === publishing && !d.state) ?? null) : null;
+  // What the owner clicked on: kept while it publishes and after, when the floor no longer lists it.
+  const [shipped, setShipped] = useState<typeof liveRelease>(null);
+  const [publishSince, setPublishSince] = useState<number | null>(null);
+  const publishRelease = shipped ?? liveRelease;
   const publishTitle = publishing ? (company?.projects.find((p) => p.slug === publishing)?.title ?? publishing) : "";
   const openPublish = (slug: string | null | undefined) => {
     if (!slug) return;
     publish.reset();
+    setShipped(null);
+    setPublishSince(null);
     setPublishing(slug);
     setPublishOpen(true);
   };
   const publish = useMutation({
     mutationFn: (v: { slug: string }) => api.shipRelease(v.slug),
+    onMutate: () => {
+      setShipped(liveRelease);
+      setPublishSince(Date.now());
+    },
+    // The sheet stays open on success and says what went out (PublishDone); a toast too, if it was closed meanwhile.
     onSuccess: (_r, v) => {
-      toast(`${publishTitle || v.slug}: publicado. Ya está en la versión principal.`);
-      setPublishOpen(false);
+      toast.success(`${publishTitle || v.slug}: publicado. Ya está en la versión principal.`);
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ["company"] });
@@ -301,17 +690,44 @@ const Compania = () => {
     openSheet("?nuevo");
   };
 
+  // The building's links (Plomería, Tablero) and Asistente: in the sky strip on a floor; on Oficina (PLA-31) the links
+  // sit in the city's header and Asistente in the app bar.
+  const links = company ? (
+    <>
+      <Link to="/machine" className="edi-mini" data-plumbing>
+        Plomería · {plumbingLine(company.plumbing).text}
+      </Link>
+      {/* PLA-I48-7: the building's tablero, beside Plomería (which keeps counting tokens and runs). */}
+      <TableroLive onPiso={onPiso} onCount={setAppsOn} />
+    </>
+  ) : null;
+  const asistenteButton = company ? (
+    <AsistenteButton
+      unread={company.asistente.unread ?? 0}
+      waiting={company.asistente.state === "waiting_jorge"}
+      onOpen={(el) => {
+        opener.current = el;
+        openSheet(sheetSearch({ kind: "asistente" }));
+      }}
+    />
+  ) : null;
+  const cityOn = zoomOut && !!company && company.projects.length > 0;
+
   return (
-    <div className="mx-auto grid w-full max-w-[1380px] min-w-0 gap-5">
+    <div className="grid w-full min-w-0">
+      {cityOn && shellSlot && createPortal(asistenteButton, shellSlot)}
       {company?.company.paused && (
-        <p role="status" data-banner="paused" className="rounded-[16px] bg-surface-sunken px-4 py-2.5 text-sm ring-1 ring-foreground/15">
+        <p role="status" data-banner="paused" className="m-3 rounded-[16px] bg-surface-sunken px-4 py-2.5 text-sm ring-1 ring-foreground/15">
           La compañía está detenida: nada arranca. Se reanuda en Máquina.
         </p>
       )}
 
+
       {/* PLA-I39-3: the building in place of the 360 px column and the cards grid. */}
       <BuildingBlock loading={comp.isPending} error={comp.isError && !company} onRetry={() => void comp.refetch()}>
+        {/* PLA-I47-7: a part that fails to draw says so in place instead of blanking the page. */}
         {company && (
+          <Resguardo what="el edificio">
           <Building
             company={company}
             decisions={decisions}
@@ -322,61 +738,118 @@ const Compania = () => {
             meta={
               <>
                 <span className="edi-eyebrow">Compañía</span>
-                <Link to="/machine" className="edi-mini" data-plumbing>
-                  Plomería · {plumbingLine(company.plumbing).text}
-                </Link>
+                {links}
+                {asistenteButton}
               </>
+            }
+            city={
+              <OficinaCiudad
+                projects={company.projects}
+                decisions={decisions}
+                now={now}
+                timeZone={timeZone}
+                companyPaused={company.company.paused}
+                pre={`${hello}, Jorge · ${dayLabel(timeZone)} · ${clockIn(timeZone)}`}
+                links={links}
+                onPiso={onPiso}
+                onResume={(slug) => resume.mutate(slug)}
+                resuming={resuming}
+              />
             }
             onNew={onNew}
             onFijar={setFijar}
             onResume={(slug) => resume.mutate(slug)}
             resuming={resuming}
-            acts={{ now, busy, errors, opened: openDecision, onAct: (d, input, key) => act.mutate({ d, input, key }), onPublish: (d) => openPublish(d.project) }}
+            acts={qacts}
             onPublish={(p) => openPublish(p.slug)}
             roofOpen={roofOpen}
             onChip={(d) => setRoofOpen((x) => (x === d.id ? null : d.id))}
-            onOpen={(slug, m, el) => {
-              opener.current = el;
-              openSheet(sheetSearch({ kind: "member", slug, agent: m.agent }));
-            }}
-            onPlan={(p, el) => {
-              opener.current = el;
-              openSheet(sheetSearch({ kind: "plan", slug: p.slug }));
-            }}
+            onOpen={(slug, m, el) => showFicha({ kind: "member", agent: m.agent }, el, slug)}
+            onPlan={(p, el) => showFicha({ kind: "tab", tab: "resumen" }, el, p.slug)}
             askFor={(p) => (
               <AskBox
                 key={p.slug}
                 project={p}
                 prefill={prefill[p.slug]}
                 disabled={company.company.paused}
-                onAsk={(slug, input) => steer.onAsk(slug, { text: input.text, now: input.now })}
+                wide={wide}
+                onAsk={(slug, input) => steer.onAsk(slug, { text: input.text, mode: input.mode, consulta: input.consulta })}
+                onPictures={refresh}
                 onTyping={(slug, on) => setTyping((t) => (!!t[slug] === on ? t : { ...t, [slug]: on }))}
               />
             )}
             typing={typing}
-            onAdd={(slug, el) => {
-              opener.current = el;
-              setAdded(null);
-              openSheet(sheetSearch({ kind: "add", slug }));
+            nowActs={nowActs}
+            // PLA-47: no Ventana a la app beside Ahora on the Trabajo level (Jorge, 2026-11-16).
+            // PLA-I42-5: Brief de hoy, the Morning brief's 0-token lines; PLA-I47-2: inside Tu oficina, not above the floor.
+            office={zoomOut}
+            onOffice={() => setZoom(!zoomOut, fichaProject?.slug ?? piso)}
+            officeMore={
+              company.brief ? (
+                <Brief lines={company.brief.lines} title={briefTitle(company.brief.generated_at, now, timeZone)} sign="Asistente" link={{ to: company.brief.link, label: BRIEF_LINK_LABEL }} />
+              ) : undefined
+            }
+            piso={shownPiso}
+            // PLA-I53-3: the stage board acts through the routes La fila used; a card, a track or a Hecho stack opens in La ficha.
+            board={{
+              onPickNext: steer.onPickNext,
+              onStop: (id) => steer.onRun("stop", id),
+              onAccept: (d, action) => act.mutate({ d, input: { action }, key: `tablero-${action}` }),
+              onCancel: steer.onCancelOrder,
+              onTicket: (slug, t, el) => showFicha({ kind: "step", key: t.key }, el, slug),
+              onTrack: (slug, key, el) => showFicha(key ? { kind: "leg", key } : { kind: "sueltos" }, el, slug),
+              selected: fichaAt?.ref.kind === "step" ? fichaAt.ref.key : null,
+              busy: steer.busy,
             }}
+            // PLA-I54-3: a capsule in the tube opens its Pedido tab in La ficha; Guardadas opens the shelf.
+            tubo={{
+              onOpen: (slug, key, el) => showFicha({ kind: "pedido", key }, el, slug),
+              onGuardadas: (slug, el) => showFicha({ kind: "guardadas" }, el, slug),
+              selected: fichaOpen && fref.kind === "pedido" ? fref.key : null,
+            }}
+            onPiso={onPiso}
+            onAdd={(slug, el) => {
+              setAdded(null);
+              showFicha({ kind: "sumar" }, el, slug);
+            }}
+            foco={fichaAt?.ref ?? null}
+            onFoco={(slug, r, el) => showFicha(r, el, slug)}
+            nivel={nivel}
+            liftFor={() => <NivelSwitch nivel={nivel} lights={maq.lights} onNivel={(n) => setNivel(n)} />}
+            maquinasFor={(_p, ask) => maq.room(ask)}
+            appsOn={appsOn}
+            ventanal={(parts) =>
+              fichaProject ? (
+                <Resguardo what="la ficha">
+                <Ficha
+                  project={fichaProject}
+                  fref={fref}
+                  rows={loadOf(fichaRows, needsRows(fref))}
+                  task={loadOf(fichaTask, !!taskKey)}
+                  doc={loadOf(fichaDoc, !!docId)}
+                  now={now}
+                  timeZone={timeZone}
+                  onRef={(r) => setFicha(r)}
+                  onClose={closeFicha}
+                  home={parts.home}
+                  homeOn={!fichaAt}
+                  onHome={closeFicha}
+                  slots={{ ...fichaSlots(fichaProject), board: parts.board, tubo: parts.tubo }}
+                  idea={loadOf(fichaIdea, !!pedidoKey)}
+                  ideaActs={pedidoActs}
+                  cerrar={{ onCerrar: (slug, key, version) => cerrar.mutate({ slug, key, version }), busy: cerrar.isPending ? (cerrar.variables?.key ?? null) : null }}
+                />
+                </Resguardo>
+              ) : (
+                parts.home.body
+              )
+            }
           />
+          </Resguardo>
         )}
       </BuildingBlock>
 
       {/* PLA-I39-7: Asistente floats; room so it never covers the last floor's controls. */}
-      {company && (
-        <>
-          <div className="edi-fab-room" aria-hidden />
-          <AsistenteFab
-            unread={company.asistente.unread ?? 0}
-            waiting={company.asistente.state === "waiting_jorge"}
-            onOpen={(el) => {
-              opener.current = el;
-              openSheet(sheetSearch({ kind: "asistente" }));
-            }}
-          />
-        </>
-      )}
       <SidePage
         open={sheet?.kind === "asistente" && !!company}
         wide={wide}
@@ -406,38 +879,6 @@ const Compania = () => {
           onMore={asistente.onMore}
           className="ring-0 p-0"
         />
-      </SidePage>
-
-      {/* PLA-I39-6: the side page: a teammate, the plan, adding someone. */}
-      <SidePage
-        open={!!sideProject && (sheet?.kind !== "member" || !!sideMember)}
-        wide={wide}
-        title={sideMember && sideProject ? memberTitle(sideMember, sideProject) : sheet?.kind === "add" ? `Sumar a ${sideProject?.title ?? ""}` : (sideProject?.title ?? "")}
-        description={sideMember ? caption(sideMember, now, { companyPaused: company?.company.paused }).doing : sheet?.kind === "add" ? "Un puesto más en el equipo, con su ventana." : "El plan del proyecto"}
-        head={sideMember ? <MemberHead m={sideMember} companyPaused={company?.company.paused} /> : undefined}
-        onClose={closeSheet}
-        returnTo={() => {
-          // What opened it; after a reload, the window or the name it belongs to.
-          if (opener.current?.isConnected) return opener.current;
-          const last = lastSide.current;
-          if (last?.kind === "member") return document.querySelector<HTMLElement>(`button[data-agent="${CSS.escape(last.agent)}"]`);
-          if (last && "slug" in last) return document.querySelector<HTMLElement>(`[data-floor="${CSS.escape(last.slug)}"] [data-control="${last.kind === "add" ? "sumar" : "plan"}"]`);
-          return null;
-        }}
-      >
-        {sideProject && sideMember && <MemberSide key={sideMember.agent} project={sideProject} member={sideMember} now={now} steer={steer} />}
-        {sideProject && sheet?.kind === "plan" && (
-          <PlanPage project={sideProject} sheet={detail.data} loading={detail.isPending} error={detail.isError} onRetry={() => void detail.refetch()} now={now} steer={steer} onFijar={setFijar} />
-        )}
-        {sideProject && sheet?.kind === "add" && (
-          <AddPage
-            templates={detail.data?.templates}
-            loading={detail.isPending}
-            busy={addMember.isPending ? (addMember.variables?.template ?? null) : null}
-            added={added}
-            onAdd={(template) => addMember.mutate({ slug: sideProject.slug, template })}
-          />
-        )}
       </SidePage>
 
       {/* A doc linked from a message or a role row */}
@@ -474,14 +915,17 @@ const Compania = () => {
         <SheetContent side="bottom" className="mx-auto max-h-[85svh] w-full max-w-xl overflow-y-auto rounded-t-[22px] bg-background">
           <SheetHeader className="pr-10">
             <SheetTitle className="font-display text-2xl font-extrabold tracking-tight">Publicar {publishTitle}</SheetTitle>
-            <SheetDescription>Lo que ya aceptaste en la copia de prueba pasa a la versión principal.</SheetDescription>
+            <SheetDescription>Lo que ya aprobaste en la copia de prueba pasa a la versión principal.</SheetDescription>
           </SheetHeader>
           <div className="px-4 pb-8">
-            {publishing && publishRelease?.release ? (
+            {publishing && publishRelease?.release && publish.isSuccess ? (
+              <PublishDone title={publishTitle} release={publishRelease.release} result={publish.data} onClose={() => setPublishOpen(false)} />
+            ) : publishing && publishRelease?.release ? (
               <PublishBody
                 title={publishTitle}
                 release={publishRelease.release}
                 busy={publish.isPending}
+                since={publishSince}
                 error={publish.isError ? (publish.error instanceof ApiError ? publishError(publish.error.code, publish.error.detail) : "No se pudo. Si la Mac está dormida, intenta al despertar.") : null}
                 onPublish={() => publish.mutate({ slug: publishing })}
                 onCancel={() => setPublishOpen(false)}

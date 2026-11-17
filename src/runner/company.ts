@@ -25,7 +25,7 @@ export type RunView = {
 
 export type CompanyState = {
   company: { paused: boolean; paused_at: string | null };
-  settings: { max_concurrent: number; cooldown_minutes: number; plan_guard_pct: number; guard_override: boolean; reserve_tokens: number; max_turns: number; timeout_minutes: number };
+  settings: { max_concurrent: number; cooldown_minutes: number; plan_guard_pct: number; guard_override: boolean; reserve_tokens: number; max_turns: number; timeout_minutes: number; default_model: string | null; default_effort: string | null };
   week: { starts_at: string; resets_at: string; timezone: string };
   projects: { slug: string; title: string; paused: boolean; paused_at: string | null; usage: WeekUsage }[];
   runs: { live: RunView[]; queued: RunView[] };
@@ -94,6 +94,8 @@ export async function companyState(db: Db, now = new Date()): Promise<CompanySta
       reserve_tokens: settings.reserveTokens,
       max_turns: settings.maxTurns,
       timeout_minutes: settings.timeoutMinutes,
+      default_model: settings.defaultModel,
+      default_effort: settings.defaultEffort,
     },
     week: { starts_at: startsAt.toISOString(), resets_at: resetsAt.toISOString(), timezone: tz },
     projects: projectsOut,
@@ -134,6 +136,9 @@ export type SettingsPatch = Partial<{
   reserve_tokens: number;
   max_turns: number;
   timeout_minutes: number;
+  // PLA-I59-1: the company's default motor; null clears it (the CLI's own default).
+  default_model: string | null;
+  default_effort: string | null;
 }>;
 
 export async function setRunnerSettings(db: Db, patch: SettingsPatch): Promise<CompanyState["settings"]> {
@@ -146,6 +151,8 @@ export async function setRunnerSettings(db: Db, patch: SettingsPatch): Promise<C
   if (patch.reserve_tokens !== undefined) set.reserveTokens = patch.reserve_tokens;
   if (patch.max_turns !== undefined) set.maxTurns = patch.max_turns;
   if (patch.timeout_minutes !== undefined) set.timeoutMinutes = patch.timeout_minutes;
+  if (patch.default_model !== undefined) set.defaultModel = patch.default_model;
+  if (patch.default_effort !== undefined) set.defaultEffort = patch.default_effort;
   await storeOf(db).write(COMPANY, {}, (uow) => uow.update("runnerSettings", { id: 1 }, { ...set, updatedAt: uow.now }));
   const s = await loadSettings(db);
   return {
@@ -156,5 +163,7 @@ export async function setRunnerSettings(db: Db, patch: SettingsPatch): Promise<C
     reserve_tokens: s.reserveTokens,
     max_turns: s.maxTurns,
     timeout_minutes: s.timeoutMinutes,
+    default_model: s.defaultModel,
+    default_effort: s.defaultEffort,
   };
 }

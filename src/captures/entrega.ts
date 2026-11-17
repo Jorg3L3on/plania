@@ -1,0 +1,25 @@
+// PLA-I52-2: warm the delivery's copy when a delivery with a muestra lands, so El Probador's «Pruébala en vivo» is
+// ready by the time the owner looks (a first Next.js compile can take a minute). Best effort: a failure shows on
+// the copy's read, never on the finish that triggered it.
+import type { Db } from "../db/client.js";
+import { readerOf } from "../store/port.js";
+import { encenderEntrega, type EntregaRead } from "./prueba.js";
+import { probar } from "./probador.js";
+
+export async function warmEntrega(db: Db, slug: string, key: string): Promise<EntregaRead | null> {
+  const r = readerOf(db);
+  const p = await r.get("projects", { slug });
+  if (!p?.settings.capture) return null;
+  const t = await r.get("tasks", { projectId: p.id, key });
+  const branch = t?.branch || t?.workspace?.branch;
+  if (!t?.muestra || !branch) return null;
+  return encenderEntrega(db, slug, { key: t.key, branch });
+}
+
+// PLA-I52-3: after finish, the whole pass: both copies, the pairs, and where the delivery's pictures stand. In the background.
+export function afterFinish(db: Db, slug: string, key: string): void {
+  void probar(db, slug, key).catch((e) => console.log(`[probador] ${slug}/${key} failed: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`));
+}
+
+// Off in tests and wherever background jobs are off (PLANIA_JOBS=0).
+export const warmOn = (env: NodeJS.ProcessEnv = process.env): boolean => env.PLANIA_JOBS !== "0" && env.PLANIA_WARM_ENTREGA !== "0";

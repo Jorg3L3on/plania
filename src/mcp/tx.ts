@@ -54,9 +54,12 @@ export async function writeTx<T>(
     changes.set(JSON.stringify(change), change);
   };
   let result: T;
+  const asked = performance.now();
+  let lockedAt = 0;
   try {
     // The store serializes the write, replays a retried request id, and commits everything fn did together.
     result = await storeOf(db).write(project.id, { requestId: ctx.requestId, tool: ctx.tool }, async (uow) => {
+      lockedAt = performance.now();
       const tx = uow.sql;
       for (const key of await reapExpiredLeases(tx, project.id, project.slug)) touched("claim.expired", key);
       const emit: Emit = async (type, task, payload = {}, actor = ctx.actor) => {
@@ -79,9 +82,35 @@ export async function writeTx<T>(
     if (err instanceof RequestIdReused) throw new ToolError("REQUEST_ID_REUSED", { tool: err.tool });
     throw err;
   }
+  // The store's write queue is the lock: the wait is the time in the queue, the hold the time to run and commit.
+  if (lockedAt) noteWriteLock(lockedAt - asked, performance.now() - lockedAt);
   for (const change of changes.values()) bus.publish(change);
   return result;
 }
+
+// PLA-I60-6: how long writes wait for the global write lock and hold it, over the last 2 000 writes. The load test
+// reads it; the heartbeat job keeps it in machine_state (runner.writelock) for Máquina's diagnostics line.
+const WINDOW = 2000;
+const waits: number[] = [];
+const holds: number[] = [];
+function noteWriteLock(wait: number, hold: number): void {
+  waits.push(wait);
+  holds.push(hold);
+  if (waits.length > WINDOW) waits.shift();
+  if (holds.length > WINDOW) holds.shift();
+}
+const pct = (xs: number[], p: number): number => {
+  if (!xs.length) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  return Math.round(s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))]! * 10) / 10;
+};
+export function writeLockStats(): { n: number; wait_p50_ms: number; wait_p95_ms: number; hold_p50_ms: number; hold_p95_ms: number } {
+  return { n: waits.length, wait_p50_ms: pct(waits, 50), wait_p95_ms: pct(waits, 95), hold_p50_ms: pct(holds, 50), hold_p95_ms: pct(holds, 95) };
+}
+export const resetWriteLockStats = (): void => {
+  waits.length = 0;
+  holds.length = 0;
+};
 
 // Leases expire lazily: reads treat lease_until < now() as free, and the first write in the project
 // afterwards clears the owner (In progress goes back to Ready) and logs claim.expired. The leases

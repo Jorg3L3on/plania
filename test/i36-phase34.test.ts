@@ -178,7 +178,7 @@ test("I36-7 #3: 1 + 2 shows and is accepted only when the proposal marks them co
 });
 
 test("I36-7 #5: the protocol is 2.21 and docs/bot-protocol.md describes propose", async () => {
-  assert.equal(PROTOCOL_VERSION, "2.21");
+  assert.equal(PROTOCOL_VERSION, "2.22");
   const { readFileSync } = await import("node:fs");
   const doc = readFileSync(new URL("../docs/bot-protocol.md", import.meta.url), "utf8");
   assert.ok(doc.includes("## Proposals (protocol 2.19)") && doc.includes('kind: "plan"') && doc.includes("combinable"));
@@ -204,7 +204,7 @@ const plan = (order: string, patch: Json = {}) => ({
 
 test("I36-8 #1, #2: with plan approval on, the PO's plan shows in Te toca and nothing is Ready for Taller until Sí, empiecen", async () => {
   assert.equal((await post("/api/company/projects/workia/options", { plan_approval: true }, "PUT")).status, 200);
-  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Pon un botón de WhatsApp", kind: "cambio" })).json()) as Json).key as string;
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Pon un botón de WhatsApp", kind: "cambio", now: false })).json()) as Json).key as string;
   const before = (await steps()).length;
   const out = (await propose(db, plan(order), PO() as never)) as Json;
   assert.equal(out.proposal.needs_approval, true);
@@ -218,7 +218,7 @@ test("I36-8 #1, #2: with plan approval on, the PO's plan shows in Te toca and no
   const o = (await card()).orders.find((x: Json) => x.key === order);
   assert.deepEqual([o.stage, o.plan.needs_approval, o.plan.approved], ["entendido", true, false]);
   const html = renderTeToca([row]);
-  for (const t of ["Lo entendí:", "Hecho cuando: el botón abre WhatsApp en el teléfono", "Sí, empiecen", "Cambiar algo", "Cancelar"]) assert.ok(html.includes(t), t);
+  for (const t of ["Lo entendí:", "Hecho cuando: el botón abre WhatsApp en el teléfono", "Aprobar el plan", "Se crean sus pasos y Taller empieza.", "Cambiar algo", "Cancelar"]) assert.ok(html.includes(t), t);
 
   const go = await act(row.id, { action: "empezar" });
   assert.equal(go.status, 200, await go.clone().text());
@@ -235,7 +235,7 @@ test("I36-8 #1, #2: with plan approval on, the PO's plan shows in Te toca and no
 });
 
 test("I36-8: Cambiar algo closes the order and hands its words back to the box", async () => {
-  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega un mapa de la tienda" })).json()) as Json).key as string;
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega un mapa de la tienda", now: false })).json()) as Json).key as string;
   const out = (await propose(db, plan(order, { title: "Mapa" }), PO() as never)) as Json;
   const res = await act(`m-${out.message.id}`, { action: "cambiar" });
   assert.equal(res.status, 200);
@@ -245,7 +245,7 @@ test("I36-8: Cambiar algo closes the order and hands its words back to the box",
 
 test("I36-8 #3: with the switch off, the plan's tickets start at once and the plan is information", async () => {
   await post("/api/company/projects/workia/options", { plan_approval: false }, "PUT");
-  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega horarios" })).json()) as Json).key as string;
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega horarios", now: false })).json()) as Json).key as string;
   const before = (await steps()).length;
   const out = (await propose(db, plan(order, { title: "Horarios" }), PO() as never)) as Json;
   assert.equal(out.proposal.needs_approval, false);
@@ -256,7 +256,7 @@ test("I36-8 #3: with the switch off, the plan's tickets start at once and the pl
 });
 
 test("I36-8 #4: Cancelar closes the order and its tickets", async () => {
-  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega reseñas" })).json()) as Json).key as string;
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega reseñas", now: false })).json()) as Json).key as string;
   const out = (await propose(db, plan(order, { title: "Reseñas" }), PO() as never)) as Json;
   const made = out.proposal.created as string[];
   assert.equal(made.length, 2);
@@ -407,6 +407,35 @@ test("PLA-14 #2, #3: a repo with no CI says so and Aceptar opens with a pass on 
   let html = renderTeToca([d]);
   assert.ok(html.includes("repo sin CI") && !html.includes("pruebas corriendo") && !html.includes("siguen corriendo"));
   assert.ok(button(html).includes(' disabled=""'));
+  // Held only by the stale pass: the card offers asking the ticket's owner to run the checks again.
+  assert.ok(d.actions.includes("verificar"));
+  assert.match(html, /data-action="verificar"[^>]*>Que (el )?PO vuelva a probar/);
+  // PLA-I60: its owner (the PO here) busy with another run no longer refuses: the check is a work item of its own.
+  await store.fix(async (uow) => {
+    const [newest] = await uow.find("agentRuns", {}, { orderBy: [{ column: "queuedAt", desc: true }], limit: 1 });
+    await uow.update("agentRuns", { id: newest!.id }, { status: "running" });
+  });
+  const asked = await act(d.id, { action: "verificar" });
+  assert.equal(asked.status, 200, await asked.clone().text());
+  await store.fix(async (uow) => {
+    const owner = (await uow.get("agents", { slug: po }))!;
+    await uow.update("agentRuns", { status: "running", agentId: owner.id }, { status: "ok", endedAt: uow.now });
+  });
+  const [run] = await store.find("agentRuns", { taskKey: t.key }, { orderBy: [{ column: "queuedAt", desc: true }], limit: 1 });
+  assert.deepEqual({ status: run?.status, task_key: run?.taskKey }, { status: "queued", task_key: t.key }, "the owner wakes on that ticket");
+  const [note] = await store.find("events", { taskKey: t.key, type: "note" }, { orderBy: [{ column: "id", desc: true }], limit: 1 });
+  assert.match(String((note!.payload as Json).text), /volver a correr las pruebas en el último commit \(2222222\)/);
+  assert.equal((await taskOf(t.key)).status, "In review", "the delivery stays as it is");
+  // While that run is queued the card says so (no button, Aceptar still held); asking twice queues nothing more.
+  d = await find();
+  assert.equal(d.verify.state, "queued");
+  assert.match(d.hold, /va a correr las pruebas en el último commit/);
+  assert.equal(d.actions.includes("verificar"), false);
+  html = renderTeToca([d]);
+  assert.ok(html.includes('role="status"') && button(html).includes(' disabled=""'));
+  await store.fix((uow) => uow.update("agentRuns", { taskKey: t.key }, { status: "running", startedAt: uow.now }));
+  assert.match((await find()).hold, /está corriendo las pruebas/);
+  await store.fix((uow) => uow.update("agentRuns", { taskKey: t.key }, { status: "skipped", endedAt: uow.now }));
   // A pass on the current head opens Aceptar.
   await pass(HEAD);
   d = await find();
@@ -422,6 +451,32 @@ test("PLA-14 #2, #3: a repo with no CI says so and Aceptar opens with a pass on 
   d = await find();
   assert.equal(d.hold, "Las pruebas fallan.");
   assert.ok(button(renderTeToca([d])).includes(' disabled=""'));
+});
+
+test("one card per delivery: a ticket said ready three times shows once, the newest; once acted the older ones stay out", async () => {
+  const t = (await writes.createTask(db, { project: "workia", title: "Tres veces lista", scope: "s", checks: ["c1"], owner_agent: po } as never, PO())) as Json;
+  const url = "https://github.com/x/workia/pull/41";
+  await store.fix((uow) => uow.update("tasks", { key: t.key }, { status: "In review", prUrl: url }));
+  const thread = await workiaThread();
+  const links = [
+    { kind: "ticket" as const, ref: t.key, title: "Tres veces lista" },
+    { kind: "pr" as const, ref: url, title: "PR" },
+  ];
+  const ids: string[] = [];
+  for (const [i, body] of ["Lista.", "Evidencia registrada.", "Lista para revisar."].entries()) {
+    const m = await store.fix((uow) =>
+      uow.insert("threadMessages", { threadId: thread, authorAgent: "taller", authorRole: "taller", body, links, at: new Date(uow.now.getTime() + (20 + i) * 60_000) }),
+    );
+    ids.push(m.id);
+  }
+  const cards = async () => (await company()).decisions.filter((d: Json) => d.ref === t.key);
+  let mine = await cards();
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].id, `m-${ids[2]}`, "the newest message is the card");
+  // Accepted on the newest: the older two do not come back with Aceptar.
+  await store.fix((uow) => uow.update("threadMessages", { id: ids[2]! }, { actionState: { action: "aceptar", at: new Date().toISOString(), result: { merged: true } } as never }));
+  mine = await cards();
+  assert.deepEqual(mine.map((d: Json) => [d.id, d.actions]), [[`m-${ids[2]}`, []]]);
 });
 
 // ---- PLA-I36-11
@@ -458,7 +513,7 @@ test("I36-11 #4: asking, approving a plan, stopping a run and accepting into the
   const gated = [...company.matchAll(/checkOwnerCode\(/g)].length;
   assert.equal(gated, 1, "only delete project (PLA-21 removed the limits)");
   // Exercised above without a code: ask (I36-6), Sí, empiecen (I36-8), stop (I36-9), Pedir cambios (I36-10).
-  const r = await post("/api/company/projects/workia/ask", { text: "Otra cosa pequeña" });
+  const r = await post("/api/company/projects/workia/ask", { text: "Otra cosa pequeña", now: false });
   assert.equal(r.status, 201);
 });
 
@@ -485,7 +540,9 @@ function renderTeToca(decisions: Json[]) {
   );
 }
 
-const outsideDetalles = (html: string) => html.replace(/<details[\s\S]*?<\/details>/g, "");
+// PLA-I53-3: the stage board's cards carry their key by the accepted Design doc of PLA-I53 (key, title, stage word);
+// everything else on the floor still keeps keys inside Detalles.
+const outsideDetalles = (html: string) => html.replace(/<section class="dark sb"[\s\S]*?<\/section>/g, "").replace(/<details[\s\S]*?<\/details>/g, "");
 
 test("I36-11 #1: the page renders no ticket key, branch name or the word sandbox outside Detalles", async () => {
   const p = await card();
@@ -495,15 +552,16 @@ test("I36-11 #1: the page renders no ticket key, branch name or the word sandbox
   assert.equal(/\b[A-Z]{2,5}-(I\d+-)?\d+\b/.test(html), false, html.match(/\b[A-Z]{2,5}-(I\d+-)?\d+\b/)?.[0] ?? "");
   assert.equal(/sandbox|jl\/|main\b/i.test(html.replace(/<[^>]+>/g, " ")), false);
   assert.ok(renderCard(p, steerStub()).includes("data-detalles"), "the keys live in Detalles");
-  assert.equal(lib.stateText({ action: "fusionar", at: "x", result: {} }), "Aceptado en la copia de prueba");
+  assert.equal(lib.stateText({ action: "fusionar", at: "x", result: {} }), "Aprobado · en la copia de prueba");
 });
 
 test("I36-8 #5: phone at 390: the floor's box and its button fit in one column", () => {
   const html = renderToStaticMarkup(
-    React.createElement(MemoryRouter, null, React.createElement(ask.AskView, { project: { slug: "workia", title: "Workia" }, text: "", setText() {}, now: false, setNow() {}, onSubmit() {} })),
+    React.createElement(MemoryRouter, null, React.createElement(ask.AskView, { project: { slug: "workia", title: "Workia" }, text: "", setText() {}, onSubmit() {} })),
   );
-  assert.ok(html.includes("Pide algo para Workia") && html.includes("Que empiece ya"));
-  assert.ok(html.includes('class="edi-ask-row"'), "input and button share one row that shrinks");
+  // PLA-I54-1: a textarea, the two modes and the button, stacked in one column.
+  assert.ok(html.includes("Pide algo para Workia") && html.includes("Darle forma"));
+  assert.ok(html.includes('class="edi-ask-text"') && html.includes('class="edi-modes"'));
 });
 
 // ---- PLA-I36-12
@@ -520,7 +578,7 @@ test("I36-12 #1-#3: a plan whose tickets the PO moved under an initiative still 
     }
     return now;
   };
-  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega un carrito" })).json()) as Json).key as string;
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega un carrito", now: false })).json()) as Json).key as string;
   const out = (await propose(db, plan(order, { title: "Carrito" }), PO() as never)) as Json;
   const moved = await moveAll(out.proposal.created as string[]);
   assert.ok(moved.every((k) => k.startsWith("WRK-I9-")), moved.join(","));
@@ -539,10 +597,47 @@ test("I36-12 #1-#3: a plan whose tickets the PO moved under an initiative still 
   await store.fix((uow) => uow.update("tasks", { key: moved[1]! }, { status: "Done" }));
   assert.equal((await card()).orders.find((x: Json) => x.key === order).stage, "listo");
 
-  const other = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega cupones" })).json()) as Json).key as string;
+  const other = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega cupones", now: false })).json()) as Json).key as string;
   const second = (await propose(db, plan(other, { title: "Cupones" }), PO() as never)) as Json;
   const moved2 = await moveAll(second.proposal.created as string[]);
   assert.equal((await post(`/api/company/projects/workia/orders/${other}/cancel`)).status, 200);
   const statuses = (await store.find("tasks", { key: moved2 })).map((r) => r.status);
   assert.deepEqual(statuses, ["Won't do", "Won't do"]);
+});
+
+// ---- PLA-27 (last, so its orders do not push earlier ones out of the five shown)
+
+test("PLA-27: a plan that needed no approval is accepted like any delivery once its order is In review", async () => {
+  await post("/api/company/projects/workia/options", { plan_approval: false }, "PUT");
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega contacto por WhatsApp", now: false })).json()) as Json).key as string;
+  const out = (await propose(db, plan(order, { title: "Contacto" }), PO() as never)) as Json;
+  assert.equal(out.proposal.needs_approval, false);
+  const ordered = await taskOf(order);
+  await store.fix(async (uow) => {
+    await uow.update("tasks", { id: ordered.id }, { status: "In review" });
+    await uow.update("checks", { taskId: ordered.id }, { done: true, doneAt: uow.now });
+  });
+  const id = `m-${out.message.id}`;
+  const d = (await company()).decisions.find((x: Json) => x.id === id);
+  assert.ok(d, "the plan's message shows as the order's delivery");
+  assert.deepEqual([d.kind, d.actions], ["deliverable", ["aceptar", "cambios"]]);
+  const res = await act(id, { action: "aceptar" });
+  assert.equal(res.status, 200, await res.clone().text());
+  assert.equal((await taskOf(order)).status, "Done");
+  const again = await act(id, { action: "aceptar" });
+  assert.deepEqual([again.status, ((await again.json()) as Json).error], [409, "ALREADY_ACTED"]);
+});
+
+test("PLA-27: a plan that waits for approval still refuses aceptar and takes Sí, empiecen", async () => {
+  await post("/api/company/projects/workia/options", { plan_approval: true }, "PUT");
+  const order = ((await (await post("/api/company/projects/workia/ask", { text: "Agrega exportar a Excel", now: false })).json()) as Json).key as string;
+  const out = (await propose(db, plan(order, { title: "Excel" }), PO() as never)) as Json;
+  assert.equal(out.proposal.needs_approval, true);
+  const id = `m-${out.message.id}`;
+  const refused = await act(id, { action: "aceptar" });
+  assert.deepEqual([refused.status, ((await refused.json()) as Json).error], [400, "INVALID_ACTION"]);
+  assert.equal((await act(id, { action: "empezar" })).status, 200);
+  await post("/api/company/projects/workia/options", { plan_approval: false }, "PUT");
+  const page = (await import("node:fs")).readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes('INVALID_ACTION: "Eso no se puede hacer aquí.'), "the screen says it in words");
 });

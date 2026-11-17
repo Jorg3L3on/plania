@@ -1,0 +1,197 @@
+{
+ "version": 1,
+ "generatedAt": "2026-11-13T07:04:12-06:00",
+ "timezone": "America/Mexico_City",
+ "timezoneLabel": "CDMX",
+ "window": {
+  "from": "2026-11-12T18:00:00-06:00",
+  "to": "2026-11-13T07:04:12-06:00"
+ },
+ "reply": {
+  "prefix": "yes",
+  "destination": "Plania"
+ },
+ "mode": "full",
+ "language": "en",
+ "sources": [
+  {
+   "name": "plania",
+   "ok": true
+  },
+  {
+   "name": "github",
+   "ok": true
+  },
+  {
+   "name": "claude_brief",
+   "ok": true
+  },
+  {
+   "name": "claude_ideas",
+   "ok": true
+  }
+ ],
+ "apps": [
+  {
+   "id": "workia",
+   "name": "Workia",
+   "color": "c0"
+  },
+  {
+   "id": "zigzag",
+   "name": "ZigZag",
+   "color": "c1"
+  },
+  {
+   "id": "filmia",
+   "name": "Filmia",
+   "color": "c2"
+  },
+  {
+   "id": "micasa",
+   "name": "MiCasa",
+   "color": "c3"
+  },
+  {
+   "id": "cross",
+   "name": "Cross-app",
+   "color": "other"
+  }
+ ],
+ "items": [
+  {
+   "id": "i|filmia|952a4f17d8ec",
+   "app": "filmia",
+   "status": "needs_you",
+   "ref": "FIL-I50-6 · FIL-I51 · #238",
+   "title": "Close Juegos after the iPhone check; Quiniela data comes later",
+   "detail": "Extras (La tanda) and the Quinielas went to prod with #238 at 11:11 PM CDMX. FIL-I50-6 (your iPhone test) is the last open ticket on FIL-I50.",
+   "url": "https://github.com/Jorg3L3on/filmia/pull/238",
+   "action": "Review"
+  },
+  {
+   "id": "i|filmia|f3b3e5963587",
+   "app": "filmia",
+   "status": "needs_you",
+   "ref": "FIL prod record",
+   "title": "Filmia prod record in Plania is stale",
+   "detail": "Prod moved again last night (#238). Plania still says prod is 1fb7188 from Oct 29, migrations through 0024. Confirm 0027, 0029, 0031 and 0032 in prod and update the record.",
+   "action": "Decide"
+  },
+  {
+   "id": "i|micasa|6733290c4106",
+   "app": "micasa",
+   "status": "needs_you",
+   "ref": "#345 · MIC-I16",
+   "title": "Release sandbox to main (programados kit)",
+   "detail": "Sandbox is 10 commits ahead of main and main is 6 ahead, so a fast-forward fails. Check Neon first.",
+   "url": "https://github.com/Jorg3L3on/micasa/compare/main...sandbox",
+   "action": "Open compare"
+  },
+  {
+   "id": "i|workia|b05508d1c5df",
+   "app": "workia",
+   "status": "needs_you",
+   "ref": "WRK-I14 · WRK-I15",
+   "title": "Release sandbox to main after the legal check",
+   "detail": "Sandbox is 9 commits ahead of main and main is 2 merge commits ahead. Prod is on migration 0027, so the release brings 0028 and 0029.",
+   "url": "https://github.com/Jorg3L3on/workia/compare/main...sandbox",
+   "action": "Open compare"
+  },
+  {
+   "id": "i|filmia|2476a1071b2c",
+   "app": "filmia",
+   "status": "open_pr",
+   "ref": "#235",
+   "title": "Dependabot npm minor/patch bump",
+   "detail": "Open into sandbox since Nov 12 at 9:56 AM CDMX. Low priority.",
+   "url": "https://github.com/Jorg3L3on/filmia/pull/235",
+   "action": "Open PR"
+  },
+  {
+   "id": "i|workia|47b742667fa9",
+   "app": "workia",
+   "status": "next",
+   "ref": "WRK-13",
+   "title": "Fix expediente crash on contracts with pay",
+   "detail": "Next claimable Workia ticket. Issuing a contract with salary fields blanks the person page."
+  },
+  {
+   "id": "i|cross|f87f1294395c",
+   "app": "cross",
+   "status": "needs_you",
+   "ref": "#94 · #95 · PLA-12 · PLA-13",
+   "title": "Close the leftover merge-gate PRs",
+   "detail": "PLA-19 already shipped the same fix in #99. #94 and #95 are still open and both tickets are still In review.",
+   "url": "https://github.com/Jorg3L3on/plania/pull/94",
+   "action": "Review"
+  }
+ ],
+ "ideas": [
+  {
+   "id": "d|workia|f3ceac25381f",
+   "code": "W1",
+   "app": "workia",
+   "title": "Renewal board",
+   "why": "Every contract ending in the next 30 days on one board, with batch renew or end. Dozens fall due the same weeks at a multi-branch store.",
+   "source": "Workia"
+  },
+  {
+   "id": "d|zigzag|11d5e0e86475",
+   "code": "Z1",
+   "app": "zigzag",
+   "title": "Privacy and terms pack",
+   "why": "Privacy notice, terms, and export or delete one end customer's data on request. It's legally required, and buyers will ask.",
+   "source": "ZigZag",
+   "flags": [
+    "legal"
+   ]
+  },
+  {
+   "id": "d|zigzag|00e15e4bc3f7",
+   "code": "Z2",
+   "app": "zigzag",
+   "title": "Late-payer flag",
+   "why": "Mark customers who usually pay late and show it when a new quote opens, so the shop can ask for an advance.",
+   "source": "ZigZag"
+  },
+  {
+   "id": "d|filmia|0b4dbcd96ba2",
+   "code": "F1",
+   "app": "filmia",
+   "title": "Taste map",
+   "why": "Map everything watched by country, decade and genre, and point out blind spots with three starter picks.",
+   "source": "Filmia"
+  },
+  {
+   "id": "d|filmia|2608d694a946",
+   "code": "F2",
+   "app": "filmia",
+   "title": "Affiliate rent/buy links",
+   "why": "Where to rent or buy each title, through free affiliate programs. A first zero-cost revenue stream.",
+   "source": "Filmia",
+   "flags": [
+    "outside_service"
+   ]
+  },
+  {
+   "id": "d|micasa|001c1ce8a921",
+   "code": "M1",
+   "app": "micasa",
+   "title": "What-if sandbox",
+   "why": "Simulate a big decision on a household copy and see the next 6 to 12 quincenas next to the real ones, using the existing forecast.",
+   "source": "MiCasa"
+  },
+  {
+   "id": "d|cross|6211b038eea4",
+   "code": "X1",
+   "app": "cross",
+   "title": "Local fallback lane for builds",
+   "why": "When cloud agent usage runs out, Ready tickets go to the local runner with a token cap, so night work keeps moving at $0.",
+   "source": "Plania",
+   "flags": [
+    "big"
+   ]
+  }
+ ]
+}

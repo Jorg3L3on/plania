@@ -243,6 +243,10 @@ export async function taskFull(db: Q, t: Task, opts: ShapeOptions = {}) {
     work_type: t.workType,
     phase: t.phase,
     checks: await taskChecks(db, t.id),
+    // PLA-I46-11: the PO's check list from an accepted plan, for QA (only when the ticket has one).
+    ...(t.poChecklist?.length ? { po_checklist: t.poChecklist } : {}),
+    // PLA-I52-1: the delivery's muestra (views, steps, one sentence), once finish stored one.
+    ...(t.muestra ? { muestra: t.muestra } : {}),
     results: await taskResults(db, t),
     docs: await taskDocs(db, t.id),
     questions: await taskQuestions(db, t),

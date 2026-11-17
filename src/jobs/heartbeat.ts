@@ -1,14 +1,20 @@
+import { retryConsultas } from "../pedidos/consultas.js";
+import { sweepStalledIdeas } from "../runner/stalled.js";
 import type { Db } from "../db/client.js";
-import { ADAPTERS, type AdapterConfig, type AdapterName } from "../db/schema.js";
+import { ADAPTERS, type AdapterConfig, type AdapterName, type RunTrigger } from "../db/schema.js";
 import { spawn, type SpawnDeps, type SpawnTask } from "../adapters/index.js";
 import { requeueHeld, sweepFailedRuns, sweepStoppedRuns } from "../runner/failed.js";
 import { COMPANY } from "../runner/limits.js";
-import { cleanupWorktrees, drainQueue, enforceLive, wakeClaude, type RunnerDeps } from "../runner/runner.js";
+import { sweepAutoAccept } from "../api/auto-accept.js";
+import { sweepQa } from "../runner/qa.js";
+import { cleanupWorktrees, drainQueue, enforceLive, pruneRunLogs, runLogDir, slotReservation, wakeClaude, type RunnerDeps } from "../runner/runner.js";
+import { writeLockStats } from "../mcp/tx.js";
 import { ToolError } from "../mcp/errors.js";
 import { iso } from "../mcp/tx.js";
 import { storeOf, readerOf } from "../store/port.js";
 import type { NewRow } from "../store/types.js";
 import type { Job } from "./index.js";
+import { sweepProbador } from "../captures/probador.js";
 
 // PLA-I26: on each agent's cadence, pick Ready work and wake them through their adapter.
 // Stuck agents stay on sweepStuck (src/jobs/stuck.ts). A second wake inside the cadence writes nothing.
@@ -182,7 +188,7 @@ const explicitTask = async (db: Db, agentId: string, taskKey: string): Promise<R
   };
 };
 
-export const wakeAgent = async (db: Db, input: { agent: string; taskKey?: string; dryRun?: boolean; now?: Date }, deps?: HeartbeatDeps): Promise<WakeResult> => {
+export const wakeAgent = async (db: Db, input: { agent: string; taskKey?: string; dryRun?: boolean; now?: Date; trigger?: RunTrigger }, deps?: HeartbeatDeps): Promise<WakeResult> => {
   const slug = checkSlug(input.agent);
   const now = input.now ?? new Date();
   const r = readerOf(db);
@@ -222,7 +228,7 @@ export const wakeAgent = async (db: Db, input: { agent: string; taskKey?: string
   // PLA-I29: claude_code wakes go through the runner (limits, worktree, supervised process).
   // A started run writes its heartbeat_runs row when it ends; a skip or a fail writes it now.
   if (spawnAgent.adapter === "claude_code") {
-    const outcome = await wakeClaude(db, { agent: row, task, now }, deps?.runner);
+    const outcome = await wakeClaude(db, { agent: row, task, now, trigger: input.trigger ?? "owner" }, deps?.runner);
     if (outcome.kind === "coalesced") return { woke: false, reason: "coalesced", run: null };
     if (outcome.kind === "queued") {
       return { woke: false, reason: "queued", run: { agent: row.slug, started_at: iso(now)!, ended_at: null, status: "queued", adapter: "claude_code", summary: outcome.summary, task_key: outcome.taskKey } };
@@ -284,9 +290,30 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
   // runner's checks say it would start.
   const freed = await sweepStoppedRuns(db);
   const held = await requeueHeld(db, now, deps?.runner);
+  // PLA-I40-7: deliveries whose tests pass are accepted into the test copy where the project's switch is on.
+  const auto = await sweepAutoAccept(db, now).catch((e) => (console.log(`[jobs] heartbeat: auto-accept failed: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`), { accepted: [] as string[], held: [] }));
+  // PLA-I46-9: QA passes on code deliveries; a review run it queues starts in the drain below.
+  // PLA-52: a sweep that throws is said in the log, never dropped: a silent stall hides deliveries.
+  const logged = (what: string) => (e: unknown) => (console.log(`[jobs] heartbeat: ${what} failed: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`), null);
+  const qa = await sweepQa(db, now, { runner: deps?.runner, env: deps?.runner?.env, worktreeRoot: deps?.runner?.worktreeRoot, git: deps?.runner?.git }).catch(logged("qa sweep"));
+  // PLA-52: El Probador's pictures an earlier server left half-taken (or that never started) are taken again.
+  const fotos = await sweepProbador(db, now).catch(logged("probador sweep"));
+  // PLA-I57-1: a question whose PO was busy gets queued again now that it may be free.
+  await retryConsultas(db, now).catch(() => 0);
+  // PLA-I60-4: an idea in a stage nobody has worked on since it got there gets one retry run.
+  const stalled = await sweepStalledIdeas(db, now).catch(() => 0);
   const drained = await drainQueue(db, now, deps?.runner);
   const cleaned = await cleanupWorktrees(db, deps?.runner);
-  const roster = (await readerOf(db).find("agents")).map((a) => ({ slug: a.slug, minutes: a.heartbeatMinutes }));
+  // PLA-I60-6: run-log retention, and the write lock's timings kept for Máquina's diagnostics.
+  const pruned = pruneRunLogs(runLogDir(deps?.runner ?? {}), now);
+  await storeOf(db)
+    .write(COMPANY, {}, async (uow) => {
+      const key = "runner.writelock";
+      const value = writeLockStats();
+      if (await uow.get("machineState", { key })) await uow.update("machineState", { key }, { value, updatedAt: uow.now });
+      else await uow.insert("machineState", { key, value });
+    })
+    .catch(() => undefined);
   const counts = {
     woken: 0,
     skipped: 0,
@@ -297,14 +324,28 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
     started_from_queue: drained.started,
     dropped_from_queue: drained.dropped,
     worktrees_removed: cleaned,
+    logs_pruned: pruned,
     retried_after_fail: failed.retried,
     handed_to_jorge: failed.held,
     freed_after_stop: freed.freed,
     requeued_held: held.requeued,
+    stalled_ideas: stalled,
+    qa_opened: qa?.opened ?? 0,
+    qa_started: qa?.started ?? 0,
+    qa_concluded: qa?.concluded ?? 0,
+    fotos_restarted: fotos?.restarted ?? 0,
+    fotos_opened: fotos?.opened ?? 0,
+    reserved: 0,
   };
+  // PLA-I41-3: while the Morning brief holds the slot, no agent is woken (cadences stay due for the next tick).
+  if (slotReservation()) {
+    counts.reserved = 1;
+    return counts;
+  }
+  const roster = (await readerOf(db).find("agents")).map((a) => ({ slug: a.slug, minutes: a.heartbeatMinutes }));
   for (const row of roster) {
     if (row.minutes == null) continue;
-    const result = await wakeAgent(db, { agent: row.slug, now }, deps);
+    const result = await wakeAgent(db, { agent: row.slug, now, trigger: "cadence" }, deps);
     if (!result.run || result.reason === "coalesced") {
       counts.held += 1;
       continue;

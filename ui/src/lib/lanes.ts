@@ -23,6 +23,8 @@ export type LaneTask = {
   held?: boolean;
   /** 2.10: the due day, YYYY-MM-DD. */
   due_on?: string | null;
+  /** PLA-I53-2: the server's stage (src/api/etapa.ts); who holds it is read from here, not from the lease. */
+  etapa?: { etapa: string; holder: { agent: string; role: string } | null; live: boolean; since: string | null } | null;
 };
 
 /**
@@ -193,25 +195,6 @@ export const waitsOnJorge = (t: LaneTask) => t.kind === "ticket" && t.status ===
 
 export function yourTurn(tasks: LaneTask[]): YourTurnItem[] {
   return tasks.filter(waitsOnJorge).sort(byPriorityThenKey).map((task) => ({ task, ask: task.title }));
-}
-
-export const LANE_COLUMNS = ["done", "review", "now", "next", "later"] as const;
-export type LaneColumn = (typeof LANE_COLUMNS)[number];
-
-/** Columns with nothing in any lane: the grid narrows them to a strip so busy columns get the room. */
-export function emptyColumns(lanes: Lane[]): Set<LaneColumn> {
-  return new Set(LANE_COLUMNS.filter((c) => lanes.every((l) => l[c].length === 0)));
-}
-
-/** Short name for a ticket: the "F2" a phase title starts with, else its key. */
-export function shortName(t: Pick<LaneTask, "key" | "title">): string {
-  return t.title.match(/^(F\d+)\s*·/)?.[1] ?? t.key;
-}
-
-/** "F1 · F3" for the tickets a queued one waits on; another lane's ticket shows its key. */
-export function waitsLabel(t: LaneTask, lane: Lane): string {
-  const all = [...lane.done, ...lane.review, ...lane.now, ...lane.next, ...lane.later];
-  return (t.waits_on ?? []).map((k) => shortName(all.find((x) => x.key === k) ?? { key: k, title: "" })).join(" · ");
 }
 
 export type BranchEdge = { branch: string; base: string; lanes: string[] };

@@ -85,7 +85,8 @@ describe("session", () => {
     assert.deepEqual(await bad.json(), { error: "INVALID_PASSWORD" });
     const good = await req("POST", "/api/login", { cookie: null, body: { password: "test-password-123" } });
     assert.equal(good.status, 204);
-    assert.match(good.headers.get("set-cookie") ?? "", /^plania_session=v1\.\d+\..+HttpOnly; Secure; SameSite=Lax/);
+    assert.match(good.headers.get("set-cookie") ?? "", /^plania_session=v1\.\d+\..+HttpOnly; SameSite=Lax/);
+    assert.doesNotMatch(good.headers.get("set-cookie") ?? "", /; Secure/, "plain http on loopback: Safari drops Secure cookies (PLA-30)");
     const formLogin = await app.request("/api/login", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "password=test-password-123",
     });
@@ -142,8 +143,8 @@ describe("reads", () => {
     assert.equal(p.tasks.at(-1).key, "MIC-01");
     const f1 = p.tasks.find((t: Json) => t.key === "MIC-01-F1");
     assert.deepEqual(Object.keys(f1).sort(), [
-      "base_branch", "blocked_note", "branch", "claimed_at", "claimed_by", "created_at", "due_on", "held", "key", "kind", "last_seen_at", "lease_until", "parent_key",
-      "pr_url", "priority", "promoted_to", "stage", "status", "summary", "time_after", "title", "updated_at", "version", "waits_on", "work_type",
+      "base_branch", "blocked_note", "branch", "claimed_at", "claimed_by", "created_at", "due_on", "etapa", "held", "key", "kind", "last_seen_at", "lease_until", "parent_key",
+      "pr_url", "priority", "promoted_to", "stage", "status", "summary", "time_after", "title", "updated_at", "version", "waits_on", "work_type", "zonas",
     ]);
     assert.deepEqual(f1.waits_on, []);
     assert.equal(f1.held, false);

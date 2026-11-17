@@ -12,7 +12,9 @@ export const TE_TOCA_EMPTY = "Nada te espera. El equipo sigue; Asistente te avis
 // ---- Te toca
 
 // A release has no button here (publishing asks for the owner's code in Bandeja) and still waits.
-export const pending = (d: Decision) => d.state === null && (d.actions.length > 0 || d.kind === "release");
+// PLA-I46-11: a plan left for later (Después) waits on its floor but is not Te toca.
+export const waitingPlan = (d: Decision) => d.state === null && d.kind === "plan" && !!d.plan?.later_at;
+export const pending = (d: Decision) => d.state === null && !waitingPlan(d) && (d.actions.length > 0 || d.kind === "release");
 
 // PLA-I36-2: "Nada te espera" only when Bandeja's decisiones and pasos are empty too.
 export function teTocaEmpty(inbox: { decisiones: number; pasos: number } | undefined): string {
@@ -85,12 +87,22 @@ export function stateText(s: DecisionState): string {
       return ["Respondiste", str(r.text) || str(r.answer), WAKE[str(r.wake)] ?? ""].filter(Boolean).join(" · ");
     case "hecho":
       return "Hecho";
+    case "aplicar": {
+      const n = typeof r.added === "number" ? r.added : 0;
+      const at = [str(r.path), str(r.branch) && `en ${str(r.branch)}`].filter(Boolean).join(" ");
+      const commit = str(r.commit) ? ` (${str(r.commit).slice(0, 7)})` : "";
+      const base = n ? `Agregado al PR · ${n === 1 ? "1 línea" : `${n} líneas`} en ${at}${commit} · paso hecho` : `Ya estaba en el PR · ${at} · paso hecho`;
+      // A new commit on a delivery with no CI: its owner was asked to run the checks again (or why not).
+      const v = str(r.verify);
+      if (!v) return base;
+      return v === "taller" || v === "product-owner" ? `${base} · ${v === "taller" ? "Taller" : "El PO"} vuelve a probar el último commit` : `${base} · ${v}`;
+    }
     case "aplazar":
       return "Aplazado · vuelve a la lista de pendientes";
     case "aceptar":
-      return r.merged ? "Aceptado en la copia de prueba" : "Aceptado";
+      return r.already ? "Ya estaba aprobado · en la copia de prueba" : r.merged ? "Aprobado · en la copia de prueba" : "Aprobado · cerrado";
     case "fusionar":
-      return "Aceptado en la copia de prueba";
+      return "Aprobado · en la copia de prueba";
     case "empezar": {
       const n = Array.isArray(r.created) ? r.created.length : 0;
       return `Empezó · ${n === 1 ? "1 paso" : `${n} pasos`} en marcha`;

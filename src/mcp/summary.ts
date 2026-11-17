@@ -73,6 +73,10 @@ export function summarize(e: Ev): string {
       const keys = Array.isArray(p.tickets) ? p.tickets.length : 0;
       return `${str(from.branch)} → ${str(into.branch)} fusionado por ${by} (${keys} ${keys === 1 ? "ticket" : "tickets"}, ${str(p.merge_sha).slice(0, 7)})`;
     }
+    case "task.muestra": {
+      const n = Array.isArray(p.vistas) ? p.vistas.length : 0;
+      return `${k} entregó su muestra (${n} ${n === 1 ? "vista" : "vistas"})`;
+    }
     case "task.no_pr":
       return `${k} cerrado sin PR: ${str(p.reason).slice(0, 140)}`;
     case "release.recorded":

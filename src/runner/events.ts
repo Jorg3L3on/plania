@@ -16,11 +16,15 @@
 // check (switches, cooldown, goal, base branch, plan guard, cap). Coalescing: an agent with a
 // queued or running run gets nothing new. A company or project switch that is off enqueues nothing.
 // Off unless the heartbeat job runs (PLANIA_JOBS=1), so nothing waits in a queue nobody drains.
-import type { Actor, Agent, AgentRun } from "../db/schema.js";
+import type { Actor, Agent, AgentRun, RunTrigger, Task } from "../db/schema.js";
 import { unsatisfiedBlockers } from "../mcp/blockers.js";
 import type { Q } from "../mcp/tx.js";
-import { readerOf, uowOf } from "../store/port.js";
+import { readerOf } from "../store/port.js";
+import { notNull } from "../store/types.js";
 import { loadSettings, roleOf, writeVia, type RunnerRole } from "./limits.js";
+import { insertRun, kickQueue } from "./queue.js";
+import { STAGE_REASON, stageOwner, type IdeaStage } from "./stages.js";
+import { isRunSession, runPrefixOf } from "./run-session.js";
 
 export const EVENT_SUMMARY = "queued: event";
 const RUNNER_ADAPTER = "claude_code";
@@ -32,11 +36,11 @@ const PRIORITY = ["P0", "P1", "P2", "P3"];
 export const eventWakesEnabled = (env: NodeJS.ProcessEnv = process.env): boolean => env.PLANIA_JOBS === "1" || env.PLANIA_EVENT_WAKES === "1";
 
 // A runner run writes as session run-<first 8 of its agent_runs id> (see userPrompt in runner.ts).
-export const isRunSession = (sessionId: string | null | undefined): boolean => /^run-[0-9a-f]{8}$/.test(sessionId ?? "");
+export { isRunSession } from "./run-session.js";
 
 export type EventWake =
   | { kind: "queued"; runId: string; agent: string; role: RunnerRole; taskKey: string | null; reason: string }
-  | { kind: "none"; reason: string };
+  | { kind: "none"; reason: string; existingRunId?: string };
 
 type ProjectRef = { id: string; slug: string };
 type TaskRef = { id: string; key: string } | null;
@@ -46,11 +50,13 @@ async function runnerAgents(tx: Q): Promise<Agent[]> {
   return (await readerOf(tx).find("agents", { adapter: RUNNER_ADAPTER }, { orderBy: [{ column: "slug" }] })).filter((a) => a.status !== "retired");
 }
 
-// The run behind a runner session, run-<first 8 of its agent_runs id>; null for any other session.
+// The run behind a runner session; null for any other session. PLA-I60-1: 16 hex (dashes removed) for runs since
+// 0060, 8 for older ones; the newest run wins an 8-hex tie.
 export async function runOfSession(tx: Q, sessionId: string | null | undefined): Promise<AgentRun | null> {
-  const m = /^run-([0-9a-f]{8})$/.exec(sessionId ?? "");
-  if (!m) return null;
-  return (await readerOf(tx).find("agentRuns")).find((r) => r.id.startsWith(m[1]!)) ?? null;
+  const prefix = runPrefixOf(sessionId);
+  if (!prefix) return null;
+  const runs = await readerOf(tx).find("agentRuns", {}, { orderBy: [{ column: "queuedAt", desc: true }] });
+  return runs.find((r) => r.id.replace(/-/g, "").startsWith(prefix)) ?? null;
 }
 
 // PLA-I32-5: the runner agent for a role in a project is that project's team member (project_id). Only when
@@ -65,8 +71,8 @@ export async function serviceAgent(tx: Q, role: RunnerRole, project: ProjectRef)
   return shared.find((a) => a.slug === role) ?? shared[0] ?? null;
 }
 
-// Who asked: a runner session is run-<first 8 of the agent_runs id> (see userPrompt); otherwise the
-// actor's agent may be a roster slug.
+// Who asked: a runner session names its run (runOfSession, see userPrompt); otherwise the actor's agent may be
+// a roster slug.
 export async function agentOfActor(tx: Q, actor: Actor | null | undefined): Promise<Agent | null> {
   if (!actor) return null;
   const r = readerOf(tx);
@@ -130,10 +136,11 @@ export async function freedBy(tx: Q, project: ProjectRef, landedId: string, tall
   return mine[0]?.key ?? null;
 }
 
-// Queue one wake, or say why not. Never spawns.
+// Queue one wake, or say why not. Never spawns. PLA-I60-1: one active run per (agent, project, work key), checked by
+// insertRun in the write that queues; a wake for work the agent already has coalesces into that run.
 export async function enqueueWake(
   tx: Q,
-  input: { agent: Agent | null; project: ProjectRef; taskKey: string | null; reason: string; now?: Date },
+  input: { agent: Agent | null; project: ProjectRef; taskKey: string | null; reason: string; now?: Date; trigger?: RunTrigger; consultaId?: string | null; notBefore?: Date | null; appendReason?: boolean },
 ): Promise<EventWake> {
   const { agent, project } = input;
   if (!agent) return { kind: "none", reason: "no agent" };
@@ -143,28 +150,26 @@ export async function enqueueWake(
   const settings = await loadSettings(tx);
   if (settings.companyPaused) return { kind: "none", reason: "company paused" };
   // Asistente works for the company: its home project's switch does not hold it (the company switch does).
-  const r = readerOf(tx);
-  const p = await r.get("projects", { id: project.id });
+  const p = await readerOf(tx).get("projects", { id: project.id });
   if (!p || (p.runsPaused && role !== "asistente")) return { kind: "none", reason: `project ${project.slug} paused` };
-  const busy = await r.get("agentRuns", { agentId: agent.id, status: ["queued", "running"] });
-  if (busy) return { kind: "none", reason: "coalesced" };
-  // Inside the caller's write; a caller outside any write (a screen action) gets a write of its own.
-  const row = await writeVia(
-    tx,
-    (uow) =>
-      uow.insert("agentRuns", {
-        agentId: agent.id,
-        projectId: project.id,
-        taskKey: input.taskKey,
-        role,
-        status: "queued",
-        summary: `${EVENT_SUMMARY} ${input.reason}`.slice(0, 500),
-        queuedAt: input.now ?? uow.now,
-        reserveTokens: settings.reserveTokens,
-      }),
-    project.id,
-  );
-  return { kind: "queued", runId: row.id, agent: agent.slug, role, taskKey: input.taskKey, reason: input.reason };
+  // Inside the caller's write; a caller outside any write (a screen action) gets a write of its own (insertRun).
+  const out = await insertRun(tx, {
+    agent,
+    project,
+    role,
+    taskKey: input.taskKey,
+    consultaId: input.consultaId ?? null,
+    trigger: input.trigger ?? "event",
+    reason: input.reason,
+    summary: `${EVENT_SUMMARY} ${input.reason}`,
+    queuedAt: input.now ?? new Date(),
+    reserveTokens: settings.reserveTokens,
+    notBefore: input.notBefore ?? null,
+    appendReason: input.appendReason,
+  });
+  if (out.kind === "coalesced") return { kind: "none", reason: "coalesced", existingRunId: out.existing.id };
+  kickQueue();
+  return { kind: "queued", runId: out.run.id, agent: agent.slug, role, taskKey: input.taskKey, reason: input.reason };
 }
 
 // What an emitted event should wake, if anything. Read-only; enqueueWake decides the rest.
@@ -233,9 +238,17 @@ async function targetOf(
   if (type === "task.updated") {
     const stage = (payload.changes as Record<string, unknown> | undefined)?.stage;
     if (!Array.isArray(stage) || stage[0] === stage[1]) return null;
-    const role: RunnerRole | null = stage[1] === "research" ? "research" : stage[1] === "design" ? "artist" : null;
+    // PLA-I60-4: every stage with an owner wakes it (planning wakes the PO; before, nothing did).
+    const role = stageOwner(String(stage[1]));
     if (!role) return null;
-    return { agent: await serviceAgent(tx, role, project), taskKey: task.key, reason: `idea stage ${stage[1]}` };
+    let agent: Agent | null = null;
+    if (role === "product-owner") {
+      const t = await r.get("tasks", { id: task.id });
+      if (t?.ownerAgent) agent = (await r.get("agents", { id: t.ownerAgent })) ?? null;
+      if (agent && roleOf(agent) !== "product-owner") agent = null;
+    }
+    agent ??= await serviceAgent(tx, role, project);
+    return { agent, taskKey: task.key, reason: STAGE_REASON[stage[1] as IdeaStage] || `idea stage ${stage[1]}` };
   }
   return null;
 }
@@ -253,12 +266,30 @@ export async function onWriteEvent(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<EventWake | null> {
   if (!WATCHED.has(type) || !eventWakesEnabled(env)) return null;
+  // PLA-I49-6: a project's runs coming back also wake the Artist or Research who own a Ready request of the owner's
+  // there (origin jorge: a sketch asked from the brief while the project was paused), once each. The PO wakes as before.
+  if (type === "project.runs_resumed") await wakeReadyOwners(tx, project);
   const target = await targetOf(tx, project, type, task, payload);
   if (!target) return null;
   return queueWake(tx, project, task, target, type);
 }
 
+async function wakeReadyOwners(tx: Q, project: ProjectRef): Promise<void> {
+  const r = readerOf(tx);
+  const rows = await r.find("tasks", { projectId: project.id, kind: "ticket", status: "Ready", origin: "jorge", ownerAgent: notNull() }, { orderBy: [{ column: "createdAt" }] });
+  const seen = new Set<string>();
+  for (const t of rows) {
+    const agent = await r.get("agents", { id: t.ownerAgent! });
+    if (!agent) continue;
+    const role = roleOf(agent);
+    if ((role !== "artist" && role !== "research") || seen.has(agent.id)) continue;
+    seen.add(agent.id);
+    await queueWake(tx, project, { id: t.id, key: t.key }, { agent, taskKey: t.key, reason: "project resumed" }, "project.runs_resumed");
+  }
+}
+
 // Queue one wake and log it as wake.queued (inserted directly, so it is never itself an event the hook reads).
+// Inside the caller's write; a caller outside any write (a run that just ended) gets one write for both.
 export async function queueWake(
   tx: Q,
   project: ProjectRef,
@@ -266,16 +297,59 @@ export async function queueWake(
   target: { agent: Agent | null; taskKey: string | null; reason: string },
   fromEvent: string,
 ): Promise<EventWake> {
-  const out = await enqueueWake(tx, { ...target, project });
-  if (out.kind === "queued") {
-    await uowOf(tx).insert("events", {
-      projectId: project.id,
-      taskId: task?.id ?? null,
-      taskKey: task?.key ?? null,
-      type: "wake.queued",
-      actor: { agent: "plania", session_id: "system" },
-      payload: { agent: out.agent, role: out.role, reason: out.reason, run_id: out.runId, from_event: fromEvent },
-    });
+  return writeVia(
+    tx,
+    async (uow) => {
+      const out = await enqueueWake(uow.sql, { ...target, project });
+      if (out.kind === "queued") {
+        await uow.insert("events", {
+          projectId: project.id,
+          taskId: task?.id ?? null,
+          taskKey: task?.key ?? null,
+          type: "wake.queued",
+          actor: { agent: "plania", session_id: "system" },
+          payload: { agent: out.agent, role: out.role, reason: out.reason, run_id: out.runId, from_event: fromEvent },
+        });
+      }
+      return out;
+    },
+    project.id,
+  );
+}
+
+// PLA-I40-6: a request made Ready for a product owner that already had a run queued or live is coalesced, and
+// nothing wakes that PO for it again. So when a PO's run ends well, one wake is queued for its oldest Ready
+// ticket that nothing holds. Never the ticket the run was on: an unfinished one would wake it in a loop.
+export async function wakePoIfWaiting(tx: Q, agent: Agent, project: ProjectRef, justRan: string | null, env: NodeJS.ProcessEnv = process.env): Promise<EventWake | null> {
+  if (!eventWakesEnabled(env) || roleOf(agent) !== "product-owner") return null;
+  const r = readerOf(tx);
+  const byAge = { orderBy: [{ column: "createdAt" as const }] };
+  // The oldest Ready ticket of this PO that nothing holds, other than the one it just ran.
+  let next: Task | null = null;
+  for (const t of await r.find("tasks", { projectId: project.id, kind: "ticket", status: "Ready", ownerAgent: agent.id }, byAge)) {
+    if (t.key === justRan || t.title.includes("[PRUEBA]")) continue;
+    if ((await unsatisfiedBlockers(tx, t)).length > 0) continue;
+    next = t;
+    break;
   }
-  return out;
+  if (next) return queueWake(tx, project, { id: next.id, key: next.key }, { agent, taskKey: next.key, reason: "request waiting" }, "run.ended");
+  const ideas = (await r.find("tasks", { projectId: project.id, kind: "idea", origin: "jorge", status: "Open", ownerAgent: agent.id, promotedTo: null }, byAge)).filter((t) => t.key !== (justRan ?? ""));
+  // PLA-I54-4: an owner's «Constrúyelo» whose wake was coalesced: the idea still waits for its promoted_to.
+  let built: Task | null = null;
+  for (const t of ideas) {
+    if ((await r.count("events", { taskId: t.id, type: "pedido.construir" })) === 0) continue;
+    built = t;
+    break;
+  }
+  if (built) return queueWake(tx, project, { id: built.id, key: built.key }, { agent, taskKey: built.key, reason: "Jorge dijo «Constrúyelo» en esta idea: termina los docs de las etapas que faltan, crea la iniciativa y sus tickets directamente, sin preguntar, y pon promoted_to en la idea" }, "run.ended");
+  // PLA-I54-1: an idea the owner asked to shape (Darle forma) whose wake was coalesced waits in the buzón: no run ever
+  // took it. The PO takes the oldest one once nothing Ready waits.
+  let idea: Task | null = null;
+  for (const t of ideas) {
+    if (t.stage !== "idea" || (await r.count("agentRuns", { projectId: t.projectId, taskKey: t.key })) > 0) continue;
+    idea = t;
+    break;
+  }
+  if (!idea) return null;
+  return queueWake(tx, project, { id: idea.id, key: idea.key }, { agent, taskKey: idea.key, reason: "pedido de Jorge para darle forma" }, "run.ended");
 }

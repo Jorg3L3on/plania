@@ -39,16 +39,22 @@ Fill `.env`:
 
 ## Store
 
-Start the devva engine first ([deploy/devva/README.md](deploy/devva/README.md)), then:
+Start the devva engine first ([deploy/devva/README.md](deploy/devva/README.md)). There are no migrations:
+`src/db/schema.ts` names the tables, their columns and defaults; the store reads it at start and creates its
+lobes on the first write. The devva client is in `vendor/devva-client`.
+
+Then add your own projects, and give each one its team (product owner, Research, Artist, Taller):
 
 ```bash
-pnpm seed
+pnpm project:add <slug> --title "<Title>" --prefix <PFX> [--repo owner/name] [--path /abs/repo]
+pnpm tsx --env-file=.env scripts/seed-org.ts
 ```
 
-There are no migrations. `src/db/schema.ts` names the tables, their columns and defaults; the store reads it
-at start and creates its lobes on the first write. The devva client is in `vendor/devva-client`.
+`--path` is the repo on this Mac (default `PLANIA_PROJECTS_ROOT/<slug>`, else `~/Developer/Projects/<slug>`).
+`--repo` is its GitHub `owner/name`. Both are safe to rerun.
 
-`pnpm seed` loads the day-one projects `micasa`, `workia`, `filmia`, `zigzag`. It is safe to rerun:
+`pnpm seed` is the original owner's setup: it loads their day-one projects `micasa`, `workia`, `filmia`, `zigzag`.
+Skip it on a new install. It is safe to rerun:
 
 - Title and body belong to the seed until someone edits them with `set_project`; after that the seed leaves them alone.
 - Each project's handoff "must keep" line is added once as a pinned decision.
@@ -155,6 +161,97 @@ start an empty one with the export in its `meta/dumps` and run `pnpm devva:load 
 Change the screen password with `pnpm hash-password`, paste the result into `.env` as
 `PLANIA_PASSWORD_HASH='...'`, then restart. Rotating `MCP_BEARER_TOKEN` means updating all three client configs.
 
+## Morning brief
+
+A daily brief of every project, made by a headless `claude -p` on this Mac with the owner's own Claude subscription
+(no API key, nothing paid) and shown on `/brief`. It runs once a day at `run_at` (default 07:00, local time) and on
+"Generate now". Passes A (brief) and B (ideas) are read-only: they read Plania with a read token and each repo with
+`git`, and write nothing.
+
+To turn it on:
+
+1. Nothing to apply to the store: its tables come from `src/db/schema.ts`.
+
+2. On `/tokens`, issue a token with read scope (name it `morning-brief`) and put it in `.env` as `PLANIA_BRIEF_TOKEN`.
+   Without it the brief falls back to `MCP_READ_TOKEN`, and with neither it stores a facts-only brief that says so.
+   If `.env` has no `PLANIA_RUNNER_TOKEN` yet (the agent runner uses it too), issue one with write scope there as well:
+   Send to Plania wakes each project's product owner with it.
+3. Make sure `claude` is installed and logged in with your subscription: run `claude` once and log in. The brief uses
+   `CLAUDE_CODE_BIN` when it is set, else `~/.local/bin/claude`.
+4. Run the setup check. Every line should be ✓; each ✗ line says what to fix. It never prints a token or a path.
+
+   ```bash
+   pnpm brief:doctor                 # includes a short claude dry run (one small turn on your plan)
+   pnpm brief:doctor --skip-claude   # everything except that dry run
+   ```
+
+5. Build and restart the service:
+
+   ```bash
+   pnpm build && launchctl kickstart -k gui/$(id -u)/com.plania.server
+   ```
+
+Then open `/brief` and press "Generate now" (or `pnpm brief:run`). The first brief takes a few minutes.
+
+What the doctor checks: claude found and its version; claude logged in (the dry run also confirms the result carries
+`structured_output`); read token set; runner token set (`PLANIA_RUNNER_TOKEN`, needed for Send to Plania); GitHub
+token readable (`GITHUB_TOKEN`, else `~/.config/plania/github-token`, see GitHub token file); each included
+project's repo path exists; the brief settings (saved or first-run defaults, on or off) and a valid time zone; each
+included project's product owner and the home project (both for Send to Plania); the prompts folder
+`prompts/morning-brief` is present; migration `0045` applied. The same lines, without the claude dry run, are the
+"Setup check" at the bottom of the settings sheet on `/brief` (`GET /api/brief/doctor`).
+
+First-run defaults (change them on `/brief`, settings): on, 07:00, time zone `PLANIA_TZ` (else
+`America/Mexico_City`; the label is the city name unless you set one), language `es` (migration `0051` moved a saved `en` to `es`; English stays one setting away), owner name `PLANIA_CEO_NAME` (else "the owner"), every project included, each
+project's idea letter taken from its key prefix (X is for cross ideas), no hidden refs, facts-only fallback at 11:00.
+A project's repo is `settings.local.repo_path`, else `PLANIA_PROJECTS_ROOT/<slug>`. Its GitHub repo is
+`settings.github.repo`. Send to Plania needs a product-owner agent per project (`po-<slug>`, made by
+`create_company_project`, or `scripts/seed-org.ts` above); cross ideas go to `PLANIA_HOME_PROJECT` (default `plania`;
+set it to one of your projects if you have no `plania` project). The doctor checks both.
+
+### The page: the city at dawn (V3)
+
+`/brief` is the city at dawn, in Plania's own night (or light) surfaces. The sky on top has one tower per project of
+the brief, in brief order, then "Entre apps": the project's logo (Plania has its own; a project with no logo gets a
+monogram) and its Inicio colour, the open counts by kind, or "al día". Each row of today's brief is one window: orange
+waits for you, red blocks, blue is next (or an open PR), violet is a new idea, pale is handled. The sun climbs and the
+sky turns to day as rows are handled. The tools are Generar ahora (a menu: Pendientes e ideas, Solo pendientes, Solo
+ideas, each with its time; it sends `passes` to `POST /api/brief/run`), the day picker (past days are read-only),
+Ajustes, and "N resueltos hoy" (the handled list, with Deshacer where it exists).
+
+A tower is a tab: the page opens on the first project with a blocker. Below it, la mesa shows every card of that
+project (Pendientes, at most `max_items_per_app`; Ideas with two tabs, Nuevas and Ya en Plania, the open Plania ideas
+not yet planned and a count of the planned ones), and at the right la ficha shows the card in hand: what Plania says
+now, Hazlo tú (the first action answers to Enter), Dáselo a (only the teammates that can take that row, with the cost
+of waking them), Guárdalo (Después, No aplica). After an action the card keeps its stamp and time, a toast offers
+Deshacer, and the next open card is picked. Keys: J/K or the arrows move, left and right change project, Enter does the
+first action, L later, X not relevant, Z undo; keys do nothing while typing. "Ver <KEY> aquí" and an idea in Plania open
+the task sheet over the page; only GitHub and a sketch link leave it. A failed run after the day's brief keeps that
+brief and says when and why, with the steps to fix it and Reintentar.
+
+### Acting from the brief (V2)
+
+Every row knows the Plania object it is about (a question, a human
+step, the release, a PR, a ticket, an initiative, an idea, a paused project, an env record or an audit finding): pass A
+names it from `facts.json` handles and the server checks the handle, else reads the row's ref, URL and action.
+
+Each action runs the same server function as the button it mirrors elsewhere in Plania, through
+`POST /api/brief/act` (screen cookie only; a Bearer token is refused). Three levels:
+
+- **Instant, with Undo:** Later, Not relevant, Postpone, Put first, Put on hold, Keep (ideas), Discard (ideas). Answer
+  and Done on a step are instant too, with no Undo.
+- **Confirm first:** Publish to main (only when the release can ship), Accept into sandbox, Ask for changes, Add to
+  PR, Turn on runs, Fix it. The box says exactly what will happen.
+- **Wake, with a cost line first:** Give to PO (any row), Start now (a Ready ticket), Start building (an initiative's
+  first open phase), and for ideas Plan it, Sketch it, Research it. The line says who wakes, about how long, that it
+  uses your plan ($0), and that it waits when the project's runs are paused. The row then follows the run.
+
+Rows read Plania every 30 s while the tab is open, so a row handled in Bandeja or Compañía leaves by itself. A retry
+with the same request id writes once; a row whose object moved meanwhile answers "stale" and refreshes. Later keeps a
+row out until its date; Not relevant keeps it out of the next briefs. Discarded ideas are passed to the ideas prompt
+for 60 days so they are not proposed again; an idea shown in 3 briefs with no action is dropped. A past day shows its
+outcomes and no buttons. Migration `0050` adds `brief_actions`, one row per action; `0051` makes Spanish the default.
+
 ## MCP
 
 `POST /mcp`, stateless JSON (no sessions, no GET listen stream). Every call needs a Bearer token;
@@ -198,12 +295,12 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `get_running` | Every ticket with an owner, across projects, with a derived liveness: live (lease valid, activity in the last 20 min), quiet (lease valid, no heartbeat or event for longer), stale (lease ran out, not yet cleared). |
 | `get_digest` | One call for an assistant that keeps Jorge updated: what changed since a cursor, grouped by project with Spanish summaries and highlights (done, to_review, blocked, needs_jorge, prs_opened, prs_merged, claims), what runs now (get_running) and what waits on Jorge (get_inbox all), plus unchanged_projects and readiness (state, reasons, line) on each changed project. |
 | `get_inbox` | Everything waiting on Jorge, oldest first per kind, each item with its group: decisiones (open questions), pasos (human actions a task waits on, the project's release) and limpieza (what agents left on the Mac). |
-| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, WONT_DO_WITHOUT_EVIDENCE, and the footprint codes. |
+| `audit` | What the server can see is wrong, from data it has: REVIEW_PR_MERGED, REVIEW_NOBODYS_TURN, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE, ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, WONT_DO_WITHOUT_EVIDENCE, and the footprint codes. |
 | `get_context` | One call for a session opening a worktree: from workspace {branch, worktree_path, machine} (and your session_id) it returns the initiative on that branch, the tickets on it, your live claims (with any handoff note), the pinned decisions that apply, open questions on those tickets, the footprint they have on the Mac (footprint) and what your session registered (my_footprint), the events since since_cursor that touch them, and requests (Jorge's open asks from the screen, newest first, read them first). |
 | `list_agents` | The company roster: every bot, coder and human, with role, title, adapter, heartbeat, who they report to, capabilities, kind, status, last check-in and note. |
 | `list_goals` | Company goals and the project goals under them. |
 | `list_routine_runs` | Routine runs, newest first. |
-| `usage_summary` | Totals of reported tokens per agent, project and week. |
+| `usage_summary` | Totals of reported tokens per agent, project and week (input, output, cache_read, cache_create). |
 | `list_heartbeat_runs` | Recent heartbeat runs: agent, status, adapter, summary and task key, newest first. |
 | `thread_read` | Read a thread's messages, oldest first (the last 200, or only those after `after`: an ISO time or a message id). |
 
@@ -216,6 +313,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `set_check` | Tick (or untick) one Done when item by its n, amend its text, or lift a waiver. |
 | `add_result` | Record evidence on a task: kind, verdict pass\|warn\|fail, cite (what ran and what it showed), url (CI run, screenshot, recording), and the structured fields: commit, branch, env, command, exit_code, counts, duration_s, attachments, viewport, device, metrics. |
 | `attach_doc` | Store a markdown doc in Plania so every machine can read it: a spec or plan on a task (key), or a project doc such as a design page (no key). |
+| `attach_frames` | Artist: put the design's frames on an idea so the owner sees them on the screen (the idea's Diseño stop and its review table). |
 | `claim` | Lease a ticket so no other session works on it. |
 | `add_decision` | Append one decision to the log. |
 | `reserve_sequence` | Reserve the next number of a per-project sequence (e.g. name 'migration' gives '0009') for a ticket, so two initiatives never take the same one. |
@@ -244,6 +342,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `create_company_project` | Create a project, a product-owner bot and a Playbook doc from the company template. |
 | `wake_agent` | Wake one roster agent through its adapter when its heartbeat is due. |
 | `thread_post` | Write a message in a thread Jorge reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from him. |
+| `answer_consulta` | Answer a question Jorge asked about a project with Pedir's Preguntar mode. |
 | `propose` | Post a proposal as data in your project's thread; Jorge decides it in Te toca. |
 <!-- mcp-tools:end -->
 
@@ -377,6 +476,8 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `INVALID_STATUS` | 400 | status is not in the task kind's vocabulary, or not allowed at creation |
 | `INVALID_TTL` | 400 | ttl_minutes outside 5..240 |
 | `INVALID_WORK_TYPE` | 400 | work_type is not code, ops, research, decision-needed, bug or debt |
+| `MUESTRA_INVALID` | 400 | finish: muestra does not fit its shape (detail: field, hint) |
+| `MUESTRA_REQUIRED` | 400 | finish: the delivery changes the screen on a project Plania photographs; pass muestra {frase, vistas, pasos} (detail: ui_files, hint) |
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
 | `PROMOTED_TO_INVALID` | 400 | promoted_to is not an initiative or a standalone ticket of this project |
 | `RESERVED_ACTOR` | 400 | actor.agent is jorge: only the screen writes as Jorge |
@@ -387,12 +488,14 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `TOO_LARGE` | 400 | a text field exceeds its limit (detail: field, max) |
 | `VERSION_REQUIRED` | 400 | set_task changes fields without the version you read |
 | `ACTOR_MISMATCH` | 403 | actor.agent or actor.machine disagrees with the agent token's (detail: expected) |
+| `CONSULTA_FORBIDDEN` | 403 | answer_consulta by an agent that is not the PO the question woke (detail: consulta, agent) |
 | `DELEGATION_OFF` | 403 | delegated answers and delegated moves are off: the kill switch on the screen is off |
 | `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: Jorge's call, on screen with a reason, or by an agent with a reason and delegated_by_jorge {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it |
 | `NOT_DELEGABLE` | 403 | answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored |
 | `THREAD_FORBIDDEN` | 403 | thread_post or thread_read on a thread that is not yours: Asistente may use every thread, a team member only its own project's (detail: thread, agent) |
 | `AGENT_NOT_FOUND` | 404 | unknown roster slug (owner_agent or reports_to) |
 | `CHECK_NOT_FOUND` | 404 | no check with that n on this task |
+| `CONSULTA_NOT_FOUND` | 404 | answer_consulta on an id that is not a question of this project |
 | `DECISION_NOT_FOUND` | 404 | supersedes names no decision of this project |
 | `DOC_NOT_FOUND` | 404 | no doc with that id in the project, or replacing (version given) a title that does not exist |
 | `FINDING_NOT_FOUND` | 404 | audit fix: a fresh audit no longer has that finding (code and id), so there is nothing to fix |
@@ -419,6 +522,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `FOOTPRINT_HELD` | 409 | another live session declared this footprint, or releasing one you did not declare (detail: holder, purpose) |
 | `HANDOFF_HELD` | 409 | the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note) |
 | `HOP_CAP` | 409 | assign would pass 3 hops (detail: hops, cap). The owner stays and a limpieza inbox item is posted |
+| `FRAME_INVALID` | 400 | attach_frames: the task is not an idea, more than 40 frames, an id repeats, or a frame's path is outside the canvases folder, missing, not a PNG/JPEG/WebP, or over 5 MB (detail: frame, hint) |
 | `IDEA_CLOSED` | 409 | a Done or Won't do idea does not change stage or promoted_to (detail: status) |
 | `INITIATIVE_CHILDREN_OPEN` | 409 | an initiative cannot be Done or Won't do while a ticket of it is in another state (detail: open) |
 | `INVALID_STAGE_MOVE` | 409 | set_task stage is not one step along idea → research → design → planning → ready, or a step back without a note (detail: from, to) |
@@ -426,8 +530,10 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `KEY_BELOW_COUNTER` | 409 | an explicit key with a number already issued for that scope (detail: next); omit key to get the next one |
 | `KEY_EXISTS` | 409 | create with a key that exists (or is an alias of one); creates are not idempotent without request_id |
 | `LEASE_EXPIRED` | 409 | heartbeat after your lease ran out: claim again |
+| `LEG_POSTPONED` | 409 | propose: a plan for a leg that is On hold, postponed on purpose; planning is not permission to start it (detail: key, status) |
 | `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
 | `NOT_OWNER` | 409 | another session holds a live lease on this task (detail: owner, lease_until) |
+| `PEDIDO_SIN_ORDEN` | 409 | an idea the owner asked for on screen (origin jorge) gets promoted_to only after his «Constrúyelo» on the Pedido tab |
 | `PING_PONG` | 409 | this owner pair already assigned the other way (detail: from, to). The owner stays |
 | `QUOTA_EXCEEDED` | 409 | consume would pass the daily quota (detail: limit, used, remaining) |
 | `RELEASE_MERGE_FAILED` | 409 | release/ship: a gh call failed (detail: step token | list | edit | create | merge | view, output); nothing was recorded |
@@ -486,14 +592,9 @@ The local configs on this Mac hold the token literally, because apps launched fr
 
 ### In a product repo
 
-Add this to the repo's `CLAUDE.md` (or `AGENTS.md`). The rules themselves come from Plania, so they do not drift:
-
-```markdown
-## Plan
-
-The plan for this product lives in Plania (MCP server `plania`, project `<slug>`), not in this repo.
-Follow the protocol in the Plania server's instructions and the project's rules (`get_project`).
-```
+Nothing. Do not add a `CLAUDE.md`, `AGENTS.md`, `.cursor/`, `.claude/`, hooks or CI for Plania to a product repo.
+The plan and the rules live in Plania: the server's `instructions` carry the protocol, and `get_project` /
+`get_memory` carry the project's rules. Client-side rules belong in the owner's user-level config, not in the repo.
 
 ## Screen
 

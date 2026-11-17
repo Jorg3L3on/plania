@@ -14,6 +14,8 @@ import { isScreenActor, iso, type Q } from "./tx.js";
 
 // 2.11: id names what a one-click fix acts on (a decision id, an env, a branch, a worktree path) and
 // command is the shell line Jorge copies, when the fix is one (src/mcp/orden.ts).
+import { checkRunnerInvariants } from "../runner/invariants.js";
+
 export type Finding = { code: string; key: string | null; detail: string; fix_hint: string; id?: string; command?: string; level?: "info" | "warn" };
 
 /** Scope says the ticket must wait, and nothing typed holds it. */
@@ -34,6 +36,7 @@ export function canonicalAuditCode(code: string): string {
 
 const CLOSED = ["Done", "Won't do"];
 // A ticket that has not reached In review yet (PLA-03 drift).
+const REVIEW_LIMBO_MS = 30 * 60_000;
 export const DRIFT_STATUSES = ["Backlog", "Ready", "In progress", "Blocked", "Needs Jorge"];
 export { WAITING_ON_JORGE };
 const SHA = /\b[0-9a-f]{7,40}\b/g;
@@ -77,6 +80,24 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   for (const t of all.filter((t) => t.status === "In review")) {
     const pr = prOf(t);
     if (pr?.state === "merged") out.push({ code: "REVIEW_PR_MERGED", key: t.key, detail: `PR #${pr.number} merged ${iso(pr.mergedAt)}`, fix_hint: "the poller moves it to Merged on its next tick; check settings.github" });
+  }
+  // PLA-52: In review for a while and it is nobody's turn: no card for the owner, QA is not on it and no PR check
+  // runs. The stage is the board's own (etapaOf), so the audit and the screen cannot disagree.
+  const waitingReview = all.filter((t) => t.kind === "ticket" && t.status === "In review" && Date.now() - (t.statusChangedAt ?? t.updatedAt).getTime() > REVIEW_LIMBO_MS);
+  if (waitingReview.length) {
+    const { projectEtapas } = await import("../api/etapa.js");
+    const etapas = (await projectEtapas(db as never, p)).byTicket;
+    for (const t of waitingReview) {
+      const e = etapas.get(t.key)?.etapa;
+      if (!e || e.etapa !== "en_revision" || e.ci === "pending") continue;
+      out.push({
+        code: "REVIEW_NOBODYS_TURN",
+        key: t.key,
+        detail: `In review since ${iso(t.statusChangedAt ?? t.updatedAt)} and nobody can act on it${e.reason ? `: ${e.reason}` : ": no delivery message waits on the owner"}`,
+        fix_hint: "pictures pending: POST /api/projects/<slug>/probador/<KEY>/tomar; no delivery message: finish it again from a runner, or accept it by hand",
+        level: "warn",
+      });
+    }
   }
   // PLA-03: a merged PR whose ticket never reached In review. Nothing moves it; it is only said.
   for (const t of all.filter((t) => t.kind === "ticket" && DRIFT_STATUSES.includes(t.status))) {
@@ -299,6 +320,12 @@ export async function auditProject(db: Q, p: Project): Promise<Finding[]> {
   }
   // What this project's agents left running on the Mac (stale servers and databases, merged worktrees).
   out.push(...(await footprintFindings(db, { projectId: p.id })));
+  // PLA-I60-6: the runner's rules (one active run per work item, caps, lock keys), reported on Plania's own project.
+  if (p.slug === (process.env.PLANIA_HOME_PROJECT || "plania")) {
+    for (const v of await checkRunnerInvariants(db).catch(() => [])) {
+      out.push({ code: "RUNNER_INVARIANT", key: null, detail: `${v.code}: ${v.detail}`, fix_hint: "a runner rule was broken: read PLA-I60's spec, section 5, and the run rows named here" });
+    }
+  }
   return out;
 }
 

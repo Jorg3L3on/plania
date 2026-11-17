@@ -27,6 +27,7 @@ import { SYSTEM_ACTOR, writeTx, type Ctx, type Emit, type Q } from "../mcp/tx.js
 import { setTask } from "../mcp/writes.js";
 import { readerOf, uowOf } from "../store/port.js";
 import { queueWake } from "./events.js";
+import { sessionsOf } from "./run-session.js";
 import { canStart, type RunnerDeps } from "./runner.js";
 
 // Plania itself, as a plain writer: the system flag is for the pollers, whose moves stop at Merged and
@@ -43,6 +44,7 @@ export const failureWords = (summary: string): string =>
 
 type Held = { task_id: string; key: string; project_id: string; run_id: string; agent_id: string; summary: string } & Record<string, unknown>;
 
+// The ticket's owner session a run is matched by here: the 8-hex form (sessionsOf takes both when freeing).
 const sessionOf = (runId: string) => `run-${runId.slice(0, 8)}`;
 const atOf = (r: AgentRun) => (r.endedAt ?? r.queuedAt).getTime();
 // Newest first: when it ended (or was queued, if it never did), then when it was queued.
@@ -65,7 +67,7 @@ export async function failStreak(db: Q, agentId: string, projectId: string, key:
 async function free(tx: Q, emit: Emit, row: Held, reason: string): Promise<Task | null> {
   const uow = uowOf(tx);
   const before = await uow.get("tasks", { id: row.task_id });
-  if (!before || before.status !== "In progress" || before.owner?.session_id !== sessionOf(row.run_id)) return null;
+  if (!before || before.status !== "In progress" || !sessionsOf(row.run_id).includes(before.owner?.session_id ?? "")) return null;
   const [u] = await uow.update(
     "tasks",
     { id: before.id, status: "In progress", version: before.version },
@@ -193,11 +195,18 @@ const HELD_DAYS = 8;
 
 export async function requeueHeld(db: Db, now = new Date(), deps: RunnerDeps = {}): Promise<{ requeued: number }> {
   // Each Ready, free, unblocked ticket with its newest run of any status; a queued or running one is not held.
-  // The window is the database clock's, as it was in SQL, not the tick's now.
+  // PLA-48: an open idea too (Darle forma, a stage's Research or Artist, «Constrúyelo»): its wake can be dropped
+  // the same way, most often by a deploy restarting the server while it waited out the PO's rest. Nothing else
+  // queues it again: wakePoIfWaiting only takes ideas that never had a run.
+  // The window is the wall clock's, as it was in SQL, not the tick's now.
   const r = readerOf(db);
   const since = Date.now() - HELD_DAYS * 86_400_000;
   const found: HeldWork[] = [];
-  for (const t of await r.find("tasks", { kind: "ticket", status: "Ready", owner: null })) {
+  const candidates = [
+    ...(await r.find("tasks", { kind: "ticket", status: "Ready", owner: null })),
+    ...(await r.find("tasks", { kind: "idea", status: "Open", owner: null, promotedTo: null })),
+  ];
+  for (const t of candidates) {
     const [newest] = (await r.find("agentRuns", { projectId: t.projectId, taskKey: t.key })).sort(newestFirst);
     if (!newest || !["stopped", "skipped"].includes(newest.status) || atOf(newest) <= since) continue;
     if ((await unsatisfiedBlockers(db, t)).length > 0) continue;

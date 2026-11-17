@@ -16,6 +16,7 @@ import { ProgressDayPage, ProgressItemPage, ProgressProjectPage, ProgressYearPag
 import { ProgresoPage } from "@/pages/progreso";
 import { TokensPage } from "@/pages/tokens";
 import { CeoPage } from "@/pages/ceo";
+import { BriefPage } from "@/pages/brief";
 import { LEGACY_REDIRECTS } from "@/lib/compania";
 
 // What the cached app shows when the server can't be reached, e.g. a home-screen launch with no network.
@@ -72,6 +73,7 @@ export function App() {
         <Route path="/progreso/proyecto/:slug" element={<ProgressProjectPage />} />
         <Route path="/progreso/:slug/:key" element={<ProgressItemPage />} />
         <Route path="/ceo" element={<CeoPage />} />
+        <Route path="/brief" element={<BriefPage />} />
         {/* PLA-I30-2: Ahora, Metas and Equipo live on Compañía now. */}
         {Object.entries(LEGACY_REDIRECTS).map(([from, to]) => (
           <Route key={from} path={from} element={<Navigate to={to} replace />} />

@@ -11,7 +11,19 @@ import { type Q } from "./tx.js";
 // tickets not yet released, the migrations they reserved that env does not run yet, the human
 // actions that must happen first, the checks still open, and the command. Agents never merge `into`.
 
-export type ReleaseCompare = { key: string; from_head: string; into_head: string; ahead: number; contains: boolean; commits: string[]; shipped_at?: string };
+// behind_by and status come from GitHub's compare of into...from (PLA-I41-7); caches written before
+// that ticket lack them.
+export type ReleaseCompare = {
+  key: string;
+  from_head: string;
+  into_head: string;
+  ahead: number;
+  behind_by?: number;
+  status?: "ahead" | "behind" | "identical" | "diverged";
+  contains: boolean;
+  commits: string[];
+  shipped_at?: string;
+};
 
 export type ReleasePlan = {
   from: { branch: string; head_sha: string | null };
@@ -158,7 +170,8 @@ async function mergedFromScreen(db: Q, projectId: string, fromHead: string): Pro
 
 /** PLA-03: tickets are waiting but the poller has no compare for these heads, so whether `from` is
  * ahead is unknown. Said as "sin datos de GitHub", never as nothing to ship. */
-export const releaseUnknown = (plan: ReleasePlan | null): plan is ReleasePlan => !!plan && !plan.shipped && plan.ahead === null && plan.tickets.length > 0;
+export const releaseUnknown = (plan: ReleasePlan | null): plan is ReleasePlan => !!plan && !plan.merged && !plan.shipped && plan.ahead === null && plan.tickets.length > 0;
 
-/** The plan waits on Jorge: `from` is ahead and carries tickets. */
-export const releasePending = (plan: ReleasePlan | null): plan is ReleasePlan => !!plan && !plan.shipped && (plan.ahead ?? 0) > 0 && plan.tickets.length > 0;
+/** The plan waits on Jorge: `from` is ahead and carries tickets. Once Jorge published this `from` head (merged),
+ * it no longer waits, even before the poller's next compare catches up; a new commit on `from` clears merged. */
+export const releasePending = (plan: ReleasePlan | null): plan is ReleasePlan => !!plan && !plan.merged && !plan.shipped && (plan.ahead ?? 0) > 0 && plan.tickets.length > 0;

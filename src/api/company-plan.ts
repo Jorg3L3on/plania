@@ -12,6 +12,7 @@
 // bar and no pace: only the active initiative and its tickets done of total.
 import type { Db } from "../db/client.js";
 import type { Project, Task } from "../db/schema.js";
+import { blockedTaskIds } from "../mcp/blockers.js";
 import { roleOf } from "../runner/limits.js";
 import { readerOf } from "../store/port.js";
 import { gte, notNull } from "../store/types.js";
@@ -43,7 +44,7 @@ export type WorkLine = { open: number; in_progress: number };
 
 // MIA-I2 before MIA-I10: the number at the end of the key, then creation.
 const keyNumber = (key: string) => Number(/(\d+)$/.exec(key)?.[1] ?? Number.MAX_SAFE_INTEGER);
-const byKey = (a: Task, b: Task) => keyNumber(a.key) - keyNumber(b.key) || a.createdAt.getTime() - b.createdAt.getTime();
+export const byKey = (a: Task, b: Task) => keyNumber(a.key) - keyNumber(b.key) || a.createdAt.getTime() - b.createdAt.getTime();
 const OPEN_INITIATIVE = ["Planning", "Active", "Shipping", "On hold"];
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const atNoon = (iso: string) => Date.parse(`${iso}T12:00:00Z`);
@@ -101,6 +102,93 @@ export async function planOf(db: Db, p: Project, today = new Date(), goalTarget:
 
 // The text Postgres's ->> gives for a JSON value: a string as is, anything else as its JSON, null for none.
 const jsonText = (v: unknown): string | null => (v === undefined || v === null ? null : typeof v === "string" ? v : JSON.stringify(v));
+
+// PLA-I40-3: the route. The project's open initiatives in the plan's order are its legs; the one the plan stands
+// on (planOf's active initiative, so both counts agree) is "here" and carries its tickets as named steps.
+//   leg   done (every ticket landed), here, planned (has tickets), unplanned (none yet); note says a step that
+//         was put off when only Backlog tickets are left, and postponed is true then (PLA-I46-14: drawn striped).
+//   step  done (accepted), published (in a release that shipped, or Released), delivered (In review, waits for
+//         the owner), working (In progress), next (the first Ready step nothing holds), later (the rest).
+//         PLA-I47-3 (La fila): postponed is true on a Backlog step (put off on purpose); waits names the first step
+//         that holds a Ready one (its unlanded blocker), so the list says «Espera a <paso>».
+//         Both are present only when they say something, so older readers see the same shape.
+// At most 8 legs and 12 steps; more_legs and more_steps count what was left out.
+export type StepState = "done" | "published" | "delivered" | "working" | "next" | "later";
+export type RouteStep = { key: string; title: string; state: StepState; who: string | null; at: string | null; postponed?: true; waits?: string };
+export type LegState = "done" | "here" | "planned" | "unplanned";
+export type RouteLeg = { key: string; title: string; done: number; total: number; state: LegState; note: string | null; postponed: boolean; steps?: RouteStep[]; more_steps?: number };
+export type Route = { legs: RouteLeg[]; more_legs: number };
+const MAX_LEGS = 8;
+const MAX_STEPS = 12;
+
+export async function routeOf(db: Db, p: Project): Promise<Route | null> {
+  const r = readerOf(db);
+  const open = (await r.find("tasks", { projectId: p.id, kind: "initiative" })).filter((t) => OPEN_INITIATIVE.includes(t.status)).sort(byKey);
+  if (open.length === 0) return null;
+  const here = open.filter((t) => t.status === "Active").at(-1) ?? null;
+  const tickets = (await r.find("tasks", { parentId: open.map((t) => t.id), kind: "ticket" })).filter((t) => t.status !== "Won't do");
+
+  const legs: RouteLeg[] = open.map((i) => {
+    const mine = tickets.filter((t) => t.parentId === i.id);
+    const done = mine.filter((t) => DONE.includes(t.status)).length;
+    const left = mine.filter((t) => !DONE.includes(t.status));
+    const off = left.length > 0 && left.every((t) => t.status === "Backlog");
+    const state: LegState = i.id === here?.id ? "here" : mine.length === 0 ? "unplanned" : done === mine.length ? "done" : "planned";
+    return { key: i.key, title: i.title, done, total: mine.length, state, note: off ? (left.length === 1 ? `Pospuesto: ${left[0]!.title}` : `${left.length} pasos pospuestos`) : null, postponed: off };
+  });
+
+  if (here) {
+    const mine = tickets.filter((t) => t.parentId === here.id).sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || byKey(a, b));
+    const shipped = new Set<string>();
+    for (const e of await r.find("events", { projectId: p.id, type: "release.shipped" }, { orderBy: [{ column: "id", desc: true }], limit: 50 })) {
+      for (const k of (e.payload.tickets as unknown[] | undefined) ?? []) if (typeof k === "string") shipped.add(k);
+    }
+    // A Ready step is free when nothing holds it and every step before it has landed (the rule that wakes Taller).
+    const ready = mine.filter((t) => t.status === "Ready");
+    const LANDED = ["Merged", "Released", "Done"];
+    // The ticket links of the Ready steps, with each blocking ticket: a step In review has not landed yet.
+    const links = ready.length ? await r.find("taskBlockers", { taskId: ready.map((t) => t.id) }) : [];
+    const blocking = new Map(links.length ? (await r.find("tasks", { id: [...new Set(links.map((l) => l.blockerId))] })).map((b) => [b.id, b]) : []);
+    const unlanded = links.map((l) => ({ taskId: l.taskId, b: blocking.get(l.blockerId) })).filter((x): x is { taskId: string; b: Task } => !!x.b && !LANDED.includes(x.b.status));
+    const held = ready.length ? await blockedTaskIds(r, p.id, ready.map((t) => t.id), new Date()) : new Set<string>();
+    for (const x of unlanded) held.add(x.taskId);
+    // The first unlanded blocker of each held step: by phase (none last), then key.
+    const waits = new Map<string, string>();
+    const byPhase = [...unlanded].sort((a, b) => (a.b.phase ?? Infinity) - (b.b.phase ?? Infinity) || (a.b.key < b.b.key ? -1 : a.b.key > b.b.key ? 1 : 0));
+    for (const x of byPhase) if (held.has(x.taskId) && !waits.has(x.taskId)) waits.set(x.taskId, x.b.title);
+    const next = ready.find((t) => !held.has(t.id))?.id ?? null;
+    const owners = [...new Set(mine.map((t) => t.ownerAgent).filter((x): x is string => !!x))];
+    const roles = new Map<string, string>();
+    if (owners.length) for (const a of await r.find("agents", { id: owners })) roles.set(a.id, roleOf(a) ?? a.role);
+    const steps: RouteStep[] = mine.map((t) => {
+      const state: StepState =
+        t.status === "Released" || (DONE.includes(t.status) && shipped.has(t.key))
+          ? "published"
+          : DONE.includes(t.status)
+            ? "done"
+            : t.status === "In review"
+              ? "delivered"
+              : t.status === "In progress"
+                ? "working"
+                : t.id === next
+                  ? "next"
+                  : "later";
+      const who = (t.ownerAgent && roles.get(t.ownerAgent)) || ((t.workType ?? "code") === "code" ? "taller" : "product-owner");
+      const step: RouteStep = { key: t.key, title: t.title, state, who, at: t.statusChangedAt?.toISOString() ?? null };
+      if (state === "later" && t.status === "Backlog") step.postponed = true;
+      const w = waits.get(t.id);
+      if (state === "later" && w) step.waits = w;
+      return step;
+    });
+    const leg = legs.find((l) => l.key === here.key)!;
+    leg.steps = steps.slice(0, MAX_STEPS);
+    if (steps.length > MAX_STEPS) leg.more_steps = steps.length - MAX_STEPS;
+  }
+  // Keep the leg we stand on in view when there are more than fit.
+  const at = Math.max(0, legs.findIndex((l) => l.state === "here"));
+  const from = Math.min(Math.max(0, at - (MAX_LEGS - 2)), Math.max(0, legs.length - MAX_LEGS));
+  return { legs: legs.slice(from, from + MAX_LEGS), more_legs: Math.max(0, legs.length - MAX_LEGS) };
+}
 
 export async function thisWeekOf(db: Db, p: Project, now = new Date()): Promise<ThisWeek> {
   const r = readerOf(db);

@@ -104,3 +104,25 @@ export async function removeWorktree(input: { repo: string; path: string }, git:
   const out = await git(["worktree", "remove", input.path], input.repo);
   return out.code === 0;
 }
+
+// PLA-I60-2: git on one repo from several runs at once. Transient lock errors are retried; `git fetch` of a repo
+// runs at most once a minute per process (worktrees are cut from origin/sandbox, which a minute does not change).
+const LOCK_ERR = /index\.lock|cannot lock ref|Unable to create .*\.lock|another git process/i;
+const lastFetch = new Map<string, number>();
+export function carefulGit(git: GitFn, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): GitFn {
+  return async (args, cwd) => {
+    if (args[0] === "fetch") {
+      const at = lastFetch.get(cwd);
+      if (at && Date.now() - at < 60_000) return { code: 0, stdout: "", stderr: "" };
+    }
+    let out = await git(args, cwd);
+    for (const wait of [500, 2_000, 5_000]) {
+      if (out.code === 0 || !LOCK_ERR.test(out.stderr)) break;
+      await sleep(wait);
+      out = await git(args, cwd);
+    }
+    if (args[0] === "fetch" && out.code === 0) lastFetch.set(cwd, Date.now());
+    return out;
+  };
+}
+export const resetGitThrottleForTests = (): void => lastFetch.clear();

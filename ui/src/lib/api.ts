@@ -3,7 +3,9 @@ import type { TeamRoster } from "@/components/team/types";
 import type { Dashboard, WakeResult } from "@/components/dashboard/types";
 import type { Goal, GoalWrite } from "@/components/goals/model";
 import type { Usage, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
-import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail } from "./types";
+import type { CapturesRead, PruebaRead } from "@/lib/ventana";
+import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
+import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail, TaskRow } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -35,7 +37,7 @@ export const api = {
   // TanStack Query rejects undefined data, so the empty 204 becomes true.
   session: () => request<void>("GET", "/session").then(() => true),
   projects: () => request<ProjectSummary[]>("GET", "/projects"),
-  project: (slug: string) => request<ProjectDetail>("GET", `/projects/${encodeURIComponent(slug)}`),
+  project: (slug: string) => request<ProjectRead>("GET", `/projects/${encodeURIComponent(slug)}`),
   task: (slug: string, key: string) =>
     request<TaskDetail>("GET", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}`),
   // version is the one shown on screen; if the task moved since, the server answers STALE_VERSION.
@@ -72,6 +74,36 @@ export const api = {
   // PLA-06: mark delegated answers seen (they leave the Bandeja and the audit; the record stays).
   reviewDelegated: (ids: string[]) => request<{ reviewed: number }>("POST", "/delegated/reviewed", { ids }),
   machine: () => request<Machine>("GET", "/machine"),
+  // PLA-I46-7/8: the Ventana a la app (stills of the test copy) and its clicks: Encenderla, Reintentar, Apagar.
+  captures: (slug: string) => request<CapturesRead>("GET", `/projects/${encodeURIComponent(slug)}/captures`),
+  prueba: (slug: string, act: "encender" | "tomar" | "apagar") =>
+    request<{ prueba: PruebaRead }>("POST", `/projects/${encodeURIComponent(slug)}/captures/${act}`, {}),
+  // PLA-I48: Máquinas, the floor's second level (src/api/maquinas.ts).
+  maquinas: (slug: string) => request<MaquinasRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas`),
+  reiniciar: (slug: string) => request<{ prueba: PruebaRead }>("POST", `/projects/${encodeURIComponent(slug)}/captures/reiniciar`, {}),
+  bitacora: (slug: string) => request<{ lines: string[] }>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/bitacora`),
+  configurar: (slug: string) => request<MaquinasRead>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/configurar`, {}),
+  baseLever: (slug: string, act: "encender" | "apagar") => request<{ base: BaseRead }>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/base/${act}`, {}),
+  tablas: (slug: string) => request<TablesRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/tablas`),
+  filas: (slug: string, table: string, offset: number) =>
+    request<RowsRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/tablas/${encodeURIComponent(table)}/filas?offset=${offset}`),
+  migrar: (slug: string) => request<SeedResult>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/migrar`, {}),
+  sembrar: (slug: string) => request<SeedResult>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/sembrar`, {}),
+  vaciarYSembrar: (slug: string, rows: number) => request<SeedResult>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/vaciar-y-sembrar`, { rows }),
+  llaves: (slug: string) => request<LlavesRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/llaves`),
+  pruebas: (slug: string) => request<PruebasRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/pruebas`),
+  correrPruebas: (slug: string) => request<PruebasRead>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/pruebas`, {}),
+  recorrido: (slug: string) => request<RecorridoRead>("GET", `/projects/${encodeURIComponent(slug)}/maquinas/recorrido`),
+  contrasena: (slug: string) => request<{ user: string; password: string }>("POST", `/projects/${encodeURIComponent(slug)}/maquinas/recorrido/contrasena`, {}),
+  tablero: () => request<TableroRead>("GET", "/maquinas/tablero"),
+  // PLA-I46-10: the QA lane's evidence for one delivery (the floor's evidence card).
+  qa: (slug: string, key: string) => request<QaRead>("GET", `/projects/${encodeURIComponent(slug)}/qa/${encodeURIComponent(key)}`),
+  // PLA-I52-4: El Probador. The delivery's pairs (antes / después per view and width), its copy, and the two clicks.
+  probador: (slug: string, key: string) => request<ProbadorRead>("GET", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}`),
+  probadorTomar: (slug: string, key: string) => request<{ ok: true }>("POST", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}/tomar`, {}),
+  preguntar: (slug: string, key: string, text: string) => request<{ id: string; wake: string }>("POST", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}/preguntar`, { text }),
+  vivo: (slug: string) => request<{ vivo: VivoRead }>("POST", `/projects/${encodeURIComponent(slug)}/entrega/vivo`, {}),
+  entregaEncender: (slug: string, key: string) => request<{ entrega: EntregaRead }>("POST", `/projects/${encodeURIComponent(slug)}/entrega/encender`, { key }),
   team: () => request<TeamRoster>("GET", "/team"),
   comments: (slug: string, key: string) =>
     request<{ comments: TaskComment[] }>(
@@ -126,8 +158,15 @@ export const api = {
   company: () => request<OrgCompany>("GET", "/company"),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
-  addToTeam: (slug: string, template: string) =>
-    request<{ agent: string; role: string; template: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, { template }),
+  companyFicha: (slug: string) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha`),
+  projectDoc: (slug: string, id: string) => request<ProjectDocBody>("GET", `/company/docs/${encodeURIComponent(id)}?project=${encodeURIComponent(slug)}`),
+  // PLA-I46-13: packs are set in the same call; the server refuses an unknown pack before hiring.
+  addToTeam: (slug: string, template: string, packs?: string[], motor?: MotorPatch) =>
+    request<{ agent: OrgMember; team: OrgMember[]; packs?: PackRef[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, { template, ...(packs?.length ? { packs } : {}), ...(motor ? { motor } : {}) }),
+  // PLA-I59-2 (Motores): the console's one save (several seats and the company default, all or nothing).
+  saveMotores: (input: MotoresSave) => request<{ changed: string[]; company: boolean; floor?: boolean }>("PUT", "/company/motores", input),
+  // PLA-I46-12: the skill packs (Plania docs `Pack: <name>`).
+  packs: () => request<{ packs: PackRef[] }>("GET", "/company/packs"),
   actDecision: (id: string, input: DecisionInput) => request<DecisionResult>("POST", `/company/decisions/${encodeURIComponent(id)}`, input),
   thread: (id: string, after?: string) =>
     request<Thread>("GET", `/threads/${encodeURIComponent(id)}${after ? `?after=${encodeURIComponent(after)}` : ""}`),
@@ -143,13 +182,33 @@ export const api = {
     request<{ project: string; paused: boolean; stopped: number }>("POST", `/company/projects/${encodeURIComponent(slug)}/switch`, { paused }),
   setRunnerSettings: (input: { plan_guard_pct?: number; guard_override?: boolean }) => request<Company["settings"]>("PUT", "/company/settings", input),
   // PLA-I36: steer a project from its card.
-  askProject: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean }) => request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, input),
+  // PLA-I40-2: Que empiece ya for one teammate.
+  startTeammate: (slug: string, agent: string, pastGuard = false) =>
+    request<StartNowResult>("POST", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/start`, pastGuard ? { past_guard: true } : {}),
+  // PLA-I54-1: mode forma (an idea in the floor's tube) or ya (the Ready ticket plus the wake). The reply's key is the
+  // new idea's or ticket's: F5 uploads the side page's pictures to it.
+  // PLA-I57-1: mode pregunta asks the PO a question (no task; the reply's consulta is its id); consulta on a forma or
+  // ya request carries that answer along.
+  askProject: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean; mode?: AskMode; consulta?: string }) =>
+    request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, input),
+  consultas: (slug: string) => request<{ consultas: ConsultaView[] }>("GET", `/company/projects/${encodeURIComponent(slug)}/consultas`),
   pickNext: (slug: string, key: string) => request<{ next: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/next`, { key }),
-  setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null }) =>
+  setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null; auto_accept?: boolean; auto_accept_invisible?: boolean }) =>
     request<{ plan_approval: boolean; preview_url: string | null }>("PUT", `/company/projects/${encodeURIComponent(slug)}/options`, input),
   stopRun: (id: string) => request<{ stopped: true; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/stop`),
   resumeRun: (id: string) => request<{ woke: boolean; reason: string; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/resume`),
+  // PLA-I54-3: the Pedido tab (a note uses noteTask, an answer the screen's answer route).
+  pedido: (slug: string, key: string) => request<PedidoDetail>("GET", `/company/projects/${encodeURIComponent(slug)}/pedidos/${encodeURIComponent(key)}`),
+  pedidoAct: (slug: string, key: string, action: "guardar" | "restaurar" | "descartar" | "construir", reason?: string) =>
+    request<{ key: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/pedidos/${encodeURIComponent(key)}/${action}`, reason ? { reason } : {}),
+  // PLA-I61 (La idea abierta): any idea with its stops; seen, answers, wake (src/api/company-idea.ts).
+  idea: (slug: string, key: string) => request<IdeaDetail>("GET", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}`),
+  ideaVisto: (slug: string, key: string, stop: PedidoStop) => request<{ key: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/visto`, { stop }),
+  ideaRespuesta: (slug: string, key: string, input: IdeaAnswerInput) =>
+    request<{ key: string; stage: string | null; wake: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/respuesta`, input),
+  ideaDespertar: (slug: string, key: string) => request<{ key: string; wake: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/despertar`),
   noteTask: (slug: string, key: string, text: string) => request<{ noted: true }>("POST", `/company/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/note`, { text }),
+  resendRequest: (slug: string, key: string) => request<{ key: string; wake: "queued" | "busy" | "off" }>("POST", `/company/projects/${encodeURIComponent(slug)}/requests/${encodeURIComponent(key)}/resend`),
   cancelOrder: (slug: string, key: string) => request<{ cancelled: string[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/orders/${encodeURIComponent(key)}/cancel`),
   ownerCode: () => request<{ enrolled: boolean }>("GET", "/company/owner-code"),
   enrolOwnerCode: (input: { password: string; code?: string }) => request<{ secret_base32: string; otpauth_uri: string }>("POST", "/company/owner-code/enroll", input),
@@ -163,7 +222,106 @@ export const api = {
 // untyped (week, usage, last_run) reuse the PLA-I30 shapes.
 
 export type OrderKind = "cambio" | "direccion" | "idea";
-export type AskResult = { key: string; title: string; po: string; wake: "queued" | "busy" | "off"; woke: { woke: boolean; reason: string; ticket: string | null; summary: string } | null };
+export type StartNowResult = { started: boolean; reason: "started" | "queued" | "busy" | "idle" | "held" | "fail"; ticket: string | null; run_id: string | null; summary: string };
+export type AskMode = "forma" | "ya" | "pregunta";
+// PLA-I57-1: a question from Preguntar and the PO's answer (src/pedidos/consultas.ts).
+export type ConsultaAnswer = {
+  short: string;
+  why: string[];
+  sources: { path: string; line: number | null; missing: boolean }[];
+  branch: string | null;
+  commit: string | null;
+  sure: "seen" | "guess";
+  tried: boolean;
+  fix: string | null;
+  by: string;
+};
+export type ConsultaView = {
+  id: string;
+  text: string;
+  asked_at: string;
+  state: "cola" | "leyendo" | "lista" | "sin_respuesta";
+  trail: string[];
+  started_at: string | null;
+  answered_at: string | null;
+  answer: ConsultaAnswer | null;
+};
+export type AskResult = { key: string; title: string; po: string; mode?: AskMode; consulta?: string; wake: "queued" | "busy" | "off"; woke: { woke: boolean; reason: string; ticket: string | null; summary: string } | null };
+// PLA-I54-1: one of the owner's ideas taking shape, a capsule in the floor's tube (src/api/company-pedidos.ts).
+export type PedidoStop = "buzon" | "entendido" | "investigacion" | "diseno" | "plan" | "lista";
+export type PedidoState = "espera" | "trabajando" | "quieta" | "cola" | "valvula";
+// PLA-I54-3: one request in La ficha's Pedido tab (src/api/company-pedido.ts).
+export type PedidoTrailItem = {
+  at: string;
+  who: string;
+  kind: "pedido" | "nota" | "entendi" | "pregunta" | "respuesta" | "doc" | "etapa" | "guardada" | "restaurada" | "construir" | "valvula" | "descartada" | "veredicto" | "marcos" | "despertar";
+  text: string;
+  doc?: { id: string; title: string };
+  stop?: string;
+};
+// PLA-I61 (La idea abierta).
+export type IdeaVerdict = "ok" | "deshacer" | "cambios" | "opcion" | "corregir";
+export type IdeaNote = { frame: string; x: number; y: number; text: string };
+export type IdeaAnswerInput = { stop: PedidoStop; verdict: IdeaVerdict; text?: string; option?: number; notes?: IdeaNote[] };
+export type IdeaAnswer = { verdict: Exclude<IdeaVerdict, "deshacer">; text: string | null; option: number | null; notes: IdeaNote[]; at: string };
+export type IdeaStop = {
+  stop: PedidoStop;
+  state: "done" | "here" | "todo";
+  by: string | null;
+  at: string | null;
+  delivered: boolean;
+  doc: { id: string; title: string; version: number; markdown: string } | null;
+  seen: boolean;
+  answer: IdeaAnswer | null;
+};
+export type IdeaFrame = { id: string; frame: string; name: string; group: string | null; hace: string | null; porque: string | null; url: string; width: number | null; height: number | null };
+export type IdeaDetail = OrgPedido & {
+  summary: string;
+  text: string;
+  status: string;
+  stage: string | null;
+  promoted_to: string | null;
+  pedido: boolean;
+  question_options: string[];
+  stops: IdeaStop[];
+  ficha: PedidoFicha;
+  research: { recommendation: string | null; options: { n: number; title: string; text: string }[]; unknown: string[] };
+  plan_steps: string[];
+  frames: IdeaFrame[];
+  unseen: number;
+  quiet_since: string | null;
+  queued?: string | null;
+  trail: PedidoTrailItem[];
+  pictures: { id: string; url: string; at: string }[];
+};
+export type PedidoFicha = { problema: string | null; tamano: string | null; solucion: string | null; riesgos: string | null; fuera: string | null };
+export type PedidoDetail = OrgPedido & {
+  mode: "forma";
+  text: string;
+  status: string;
+  stage: string | null;
+  promoted_to: string | null;
+  question_options: string[];
+  trail: PedidoTrailItem[];
+  ficha: PedidoFicha;
+  // PLA-I54-5: the request's pictures.
+  pictures: { id: string; url: string; at: string }[];
+};
+export type OrgPedido = {
+  key: string;
+  title: string;
+  stop: PedidoStop;
+  state: PedidoState;
+  who: string;
+  images: number;
+  understood: string | null;
+  question: { id: string; text: string } | null;
+  guardada: boolean;
+  at: string;
+  // PLA-I61-6: deliveries he has not opened and the newest one (an older server sends neither).
+  unseen?: number;
+  unseen_stop?: PedidoStop | null;
+};
 export type OrgLight = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused";
 export type OrgLightReason = { text: string; action: { label: string; href: string } | null };
 // PLA-I36-3: Tus órdenes.
@@ -200,9 +358,36 @@ export type OrgMember = {
   waiting: string | null;
   // PLA-I39-1: up to three Ready tickets waiting for this teammate.
   queue?: { key: string; title: string }[];
+  // PLA-I40-1: why the next step has not started, and when it will if that is known.
+  next_start?: OrgNextStart | null;
+  // PLA-I46-12: the skill pack slugs this role carries.
+  packs?: string[];
+  // PLA-I59-2 (Motores): what this seat's next run asks for and whether each part is its own; a PO's Preguntar
+  // motor; this week's input + output tokens and share of the project. Optional for older servers.
+  motor?: MotorView;
+  consulta_motor?: MotorView | null;
+  used_week?: { tokens: number; share: number } | null;
 };
+export type MotorView = { model: string | null; effort: string | null; own_model: boolean; own_effort: boolean };
+// A part null clears it (the seat inherits again); the whole patch null clears both.
+export type MotorPatch = { model?: string | null; effort?: string | null };
+// PLA-I60-5: the same save carries «a la vez»: per seat (max_parallel, null: del piso), the project's floor and the
+// company's «Tope de la Mac».
+export type MotoresSave = {
+  project: string;
+  seats?: { agent: string; motor?: MotorPatch | null; consulta_motor?: MotorPatch | null; max_parallel?: number | null }[];
+  floor?: { max_concurrent?: number; max_per_agent?: number; consulta_slots?: number };
+  company?: MotorPatch & { max_concurrent?: number };
+};
+// PLA-I60-5: what Motores shows about «a la vez» (types live with the pure logic, lib/a-la-vez.ts).
+export type { RunnerHeld, RunnerLive, RunnerQueued, RunnerSeat, RunnerView } from "./a-la-vez";
+import type { RunnerView } from "./a-la-vez";
+export type OrgNextHold = "rest" | "usage" | "slot" | "paused" | "no_goal" | "waiting_owner" | "waiting_step" | "unqueued" | "soon";
+export type OrgNextStart = { key: string | null; title: string | null; hold: OrgNextHold; starts_at: string | null; text: string };
 export type OrgThreadRef = { id: string; unread: number; last: { at: string; author_role: string; body: string } | null };
 export type OrgProject = {
+  // PLA-I60-5: «a la vez» (absent on older servers: Motores then shows the model and effort only).
+  runner?: RunnerView;
   slug: string;
   title: string;
   paused: boolean;
@@ -216,15 +401,68 @@ export type OrgProject = {
   thread: OrgThreadRef;
   // PLA-I35-1: the card as a report.
   plan: OrgPlan | null;
+  // PLA-I40-7: the accept-by-itself switch, and why the oldest waiting delivery was not accepted.
+  auto_accept?: { on: boolean; hold: string | null; invisible?: boolean };
+  // PLA-I40-6: what just happened here, and the owner's requests nobody took.
+  latest?: OrgLatest[];
+  stale_requests?: OrgStaleRequest[];
+  // PLA-I40-3: the delivery as legs; the one marked here carries its named steps.
+  route?: OrgRoute | null;
   this_week: { done: number; docs: number; prs: number; last_at: string | null };
   next: { title: string; key: string; owner: string; due: string | null } | null;
   work: { open: number; in_progress: number };
   orders?: OrgOrder[];
   // PLA-I36-6/8/10.
   ready?: { key: string; title: string }[];
+  // PLA-I47-3: the ticket the owner put first.
+  next_first?: string | null;
   plan_approval?: boolean;
   preview_url?: string | null;
+  // PLA-I46-3: la siguiente jugada (src/api/company-move.ts). Null: nothing here is the owner's; absent: older server.
+  next_move?: OrgNextMove | null;
+  // PLA-I53-2: every open initiative with its tickets' stage (the stage board), and who works now.
+  tablero?: Tablero;
+  ahora?: AhoraItem[];
+  // PLA-I54-1: the tube's capsules (absent: an older server, and the floor draws no tube).
+  pedidos?: OrgPedido[];
 };
+// PLA-I53-2: one stage per ticket, computed on the server (src/api/etapa.ts). The shapes the floor and the project
+// page both read.
+export type EtapaId = "despues" | "lista" | "en_espera" | "pospuesto" | "bloqueado" | "construyendo" | "devuelto" | "sin_dueno" | "en_qa" | "en_revision" | "te_toca" | "integrado" | "publicado" | "hecho";
+export type EtapaCi = "pending" | "success" | "failure" | "none";
+export type EtapaHolder = { agent: string; role: string };
+export type Etapa = { etapa: EtapaId; qa: "queued" | "running" | null; holder: EtapaHolder | null; live: boolean; since: string | null; ci: EtapaCi | null; reason: string | null };
+export type AhoraItem = { key: string; title: string; initiative: string | null } & Pick<Etapa, "etapa" | "qa" | "holder" | "live" | "since" | "reason">;
+// PLA-I53-6: zonas, what part of the app a ticket touches (from its areas); none when it has no areas.
+export type Zona = "pantalla" | "servidor" | "datos" | "docs";
+export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas?: Zona[] };
+export type DoneInitiative = { key: string; title: string; done_at: string | null };
+// PLA-I56-1: done counts landed tickets (Merged, Released, Done); closed only Done; can_close when every ticket is Done.
+// An older server sends none of the three (then landed counts as closed, and there is no Cerrar).
+export type OpenInitiative = { key: string; title: string; status: string; done: number; total: number; closed?: number; can_close?: boolean; version?: number; tickets: ProjectTicket[] };
+// PLA-I53-2: GET /api/projects/:slug, with every ticket's stage and the board the floor reads.
+export type StagedTask = TaskRow & { etapa?: Etapa | null };
+export type ProjectRead = Omit<ProjectDetail, "tasks"> & { tasks: StagedTask[]; tablero?: Tablero; ahora?: AhoraItem[] };
+// PLA-I53-6: the newest landed loose ticket's title, and the completed initiatives (newest first, no tickets).
+export type Tablero = { initiatives: OpenInitiative[]; loose: ProjectTicket[]; loose_done: number; loose_done_title?: string | null; done_initiatives?: DoneInitiative[] };
+export type OrgMoveVerb = "aceptar" | "publicar" | "responder" | "fijar" | "arrancar" | "planear" | "ver";
+export type OrgMoveAction =
+  | { kind: "decision"; id: string; action: DecisionAction; label: string }
+  | { kind: "reveal"; id: string | null; label: string }
+  | { kind: "publish"; label: string }
+  | { kind: "fijar"; label: string }
+  | { kind: "plan"; text: string; label: string }
+  | { kind: "start"; agent: string; label: string }
+  | { kind: "link"; href: string; label: string };
+export type OrgMoveOrigin = { kind: "decision"; id: string; decision: string } | { kind: "light" } | { kind: "hold"; agent: string; hold: string } | { kind: "route"; leg: string };
+export type OrgNextMove = { verbo: OrgMoveVerb; texto: string; accion: OrgMoveAction; origen: OrgMoveOrigin };
+export type OrgLatest = { kind: "published" | "delivered"; title: string | null; n: number | null; at: string };
+export type OrgStaleRequest = { key: string; title: string; since: string };
+export type OrgStepState = "done" | "published" | "delivered" | "working" | "next" | "later";
+// PLA-I47-3: postponed (a Backlog step) and waits (the step that holds it) only when they say something.
+export type OrgRouteStep = { key: string; title: string; state: OrgStepState; who: string | null; at: string | null; postponed?: boolean; waits?: string | null };
+export type OrgRouteLeg = { key: string; title: string; done: number; total: number; state: "done" | "here" | "planned" | "unplanned"; note: string | null; postponed?: boolean; steps?: OrgRouteStep[]; more_steps?: number };
+export type OrgRoute = { legs: OrgRouteLeg[]; more_legs: number };
 // PLA-I36-5: position by calendar. weeks, today_pct, done_pct are null without a delivery date (no bar).
 export type OrgPlan = {
   initiative: { key: string; title: string };
@@ -243,12 +481,53 @@ export type OrgPlan = {
 export type OrgRumbo = { goal_id: string | null; goal: string | null; why: string; target_on: string | null; forecast_on: string | null; weeks_behind: number | null; missing: boolean };
 // PLA-I35-1: Te toca rows (GET /api/company decisions[]) and POST /api/company/decisions/:id.
 export type DecisionKind = "proposal" | "plan" | "action" | "question" | "deliverable" | "pr" | "step" | "release";
-export type DecisionPlan = { order: string; understood: string; steps: { title: string; done_when: string }[]; cost: string; needs_approval: boolean; created: string[] };
+// PLA-I46-11: a plan for a leg also carries the leg, its closed questions (suggested: 0-based) and the PO's
+// check list; later_at once the owner said Después.
+export type PlanQuestion = { text: string; options: string[]; suggested: number };
+export type DecisionPlan = {
+  order: string;
+  understood: string;
+  steps: { title: string; done_when: string }[];
+  cost: string;
+  needs_approval: boolean;
+  created: string[];
+  leg?: { key: string; title: string } | null;
+  questions?: PlanQuestion[];
+  checklist?: string[];
+  later_at?: string | null;
+};
 export type DecisionEvidence = { verdict: string; kind: string; cite: string; pass: number | null; fail: number | null; at: string };
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
-export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number };
-export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar";
+export type ReelItem = { key: string; title: string; label: string; kind: "nueva" | "cambio"; image_url: string };
+export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[] };
+export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar";
+// PLA-I46-9/10: GET /api/projects/:slug/qa/:key (src/runner/qa.ts qaEvidence).
+export type QaState = "off" | "none" | "waiting" | "checking" | "reviewing" | "pass" | "fail" | "returned" | "error";
+export type QaRead = {
+  project: string;
+  key: string;
+  enabled: boolean;
+  state: QaState;
+  tests: { pass: number; total: number; verdict: "pass" | "fail" | null; items: { name: string; command: string; ok: boolean; exit_code: number | null; pass: number | null; fail: number | null; duration_s: number }[] };
+  review: { verdict: "pass" | "fail"; notes: string; model: string | null } | null;
+  checklist: { n: number; text: string; mark: "pass" | "fail" | null; note: string | null }[];
+  captures: { ids: string[]; image_urls: string[]; ok: number; failed: number; error: string | null } | null;
+  notes: string | null;
+};
+// PLA-I52-4: GET /api/projects/:slug/probador/:key (src/captures/probador.ts probadorRead).
+export type MuestraVista = { key: string; label: string; path: string; estado?: string; session?: boolean };
+export type Muestra = { frase: string; vistas: MuestraVista[]; pasos: string[] };
+export type ProbadorState = { state: "tomando" | "lista" | "fallo"; attempts: number; error: string | null; commit: string | null; at: string };
+export type ParShot = { id: string; image_url: string; width: number; height: number | null; taken_at: string } | null;
+export type ParSide = { still: ParShot; error: string | null; missing: boolean };
+export type DiffBox = { x: number; y: number; w: number; h: number; ratio: number };
+export type ParWidth = { antes: ParSide; despues: ParSide; diff: DiffBox | null };
+export type ParVista = { key: string; label: string; path: string; estado: string | null; kind: "nueva" | "cambio" | "igual" | "sin_antes"; desktop: ParWidth; phone: ParWidth };
+export type EntregaRead = { phase: "starting" | "capturing" | "live" | "failed" | "off" | "running"; port: number | null; url: string | null; error: string | null; key: string | null; branch: string | null; commit: string | null };
+export type VivoRead = { url: string | null; local_url: string | null; tailnet: boolean; signed_in: boolean; user: string | null; error: string | null; hint: string | null };
+export type ProbadorQA = { id: string; text: string; at: string; answer: { text: string; at: string; by: string } | null };
+export type ProbadorRead = { key: string; muestra: Muestra | null; state: ProbadorState | null; vistas: ParVista[]; entrega: EntregaRead | null; preguntas?: ProbadorQA[] };
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
 export type Decision = {
   id: string;
@@ -266,6 +545,7 @@ export type Decision = {
   body?: string | null;
   checks?: DecisionChecks | null;
   release?: DecisionRelease | null;
+  cambio?: "se_ve" | "se_comporta" | "no_se_ve" | null;
   // PLA-I36-7/8/10.
   combinable?: number[][];
   recommended_reason?: string | null;
@@ -276,9 +556,14 @@ export type Decision = {
   hold?: string | null;
   // PLA-I39-1: who asked (null: nobody on a team, e.g. a release).
   asker?: DecisionAsker | null;
+  // A step that asks for lines in a file: Plania can commit them to the PR (aplicar).
+  file_step?: { path: string; lines: string; pr_url: string | null; source: "agent" | "text" } | null;
+  // The owner's run on this ticket while queued or running (e.g. re-running its checks after verificar).
+  verify?: { state: "queued" | "running"; since: string; role: string | null } | null;
 };
 export type DecisionAsker = { agent: string; role: string };
-export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string };
+export type Marca = { vista: string; side: "antes" | "despues"; width: "desktop" | "phone"; x: number; y: number; note: string };
+export type DecisionInput = { action: DecisionAction; option?: number | number[]; text?: string; path?: string; lines?: string; answers?: number[]; checklist?: string[]; marcas?: Marca[] };
 export type DecisionResult = { ok: boolean; state: DecisionState; decision: Decision | null; created?: { kind: string; key: string } | null; wake?: string };
 export type OrgPlumbing = { spend: number; running: number; paused: boolean };
 export type OrgCompany = {
@@ -289,12 +574,46 @@ export type OrgCompany = {
   plumbing: OrgPlumbing;
   decisions: Decision[];
   inbox?: { decisiones: number; pasos: number };
+  // PLA-I42-5: Brief de hoy (the Morning brief's 0-token lines) and the link to /brief. Optional for older servers.
+  brief?: { lines: string[]; generated_at: string; link: string } | null;
+  // PLA-I59-2: the company's default motor (null parts: the CLI's own default). Optional for older servers.
+  motor_default?: { model: string | null; effort: string | null };
 };
 export type OrgTemplate = { slug: string; title: string };
-export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[] };
+// PLA-I46-13: every role template and whether it can be added (free), is on the team (taken) or lacks its prompt doc.
+export type HireRole = OrgTemplate & { state: "free" | "taken" | "no_doc" };
+export type PackRef = { slug: string; name: string; when: string; doc_id: string };
+export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[]; hire?: HireRole[] };
+
+// PLA-I47-1: La ficha's tabs (GET /api/company/projects/:slug/ficha). Rows only; a doc's body is read on open.
+export type FichaIdea = {
+  key: string;
+  title: string;
+  stage: string | null;
+  waits: string | null;
+  updated_at: string;
+  docs: { Idea: string | null; Research: string | null; Design: string | null; Plan: string | null };
+  // PLA-I61-3: older servers send neither.
+  summary?: string;
+  unseen?: number;
+};
+export type FichaLienzo = { key: string; title: string; count: number; thumbs: string[]; unseen: number };
+export type FichaPr = { number: number; title: string; url: string; state: string; ci_state: string | null; task_key: string | null; merged_at: string | null; head_branch: string | null };
+export type FichaDoc = { id: string; title: string; task_key: string | null; updated_at: string };
+export type FichaDesign = { idea_key: string; doc_id: string; url: string };
+export type OrgFicha = {
+  slug: string;
+  counts: { ideas: number; prs: number; docs: number; designs: number };
+  ideas: FichaIdea[];
+  prs: FichaPr[];
+  docs: FichaDoc[];
+  designs: FichaDesign[];
+  lienzos?: FichaLienzo[];
+};
+export type ProjectDocBody = { id: string; title: string; version: number; markdown: string; task_key: string | null };
 
 export type ThreadAction = "aceptar" | "cambios" | "responder" | "fusionar";
-export type ThreadLink = { kind: "ticket" | "doc" | "pr" | "idea" | "question"; ref: string; title: string };
+export type ThreadLink = { kind: "ticket" | "doc" | "pr" | "idea" | "question" | "brief_plan"; ref: string; title: string };
 // result is an object on the server ({ticket, status} …); older fixtures carry a string.
 export type ThreadActionState = { action: ThreadAction; at: string; result: string | Record<string, unknown> | null };
 export type ThreadMessage = {
@@ -317,7 +636,8 @@ export type MachinePlumbing = {
   settings: Company["settings"];
   week: Company["week"];
   plan: CompanyPlan;
-  usage: { asistente: Usage; projects: CompanyProjectRow[] };
+  // PLA-I46-5: week is the whole company's, input + output in used, cache reads and writes apart.
+  usage: { asistente: Usage; projects: CompanyProjectRow[]; week?: Usage };
   runs: { live: CompanyRun[]; queued: CompanyRun[] };
   log: RunBrief[];
   viewer?: { can_edit_limits: boolean };
@@ -332,8 +652,58 @@ export type CompanyProject = {
   playbook: { title: string; version: number } | null;
 };
 
-export type UsageTotal = { agent: string; project: string; week: string; input: number; output: number };
-
-export type UsageSummary = { label: "reportado"; totals: UsageTotal[] };
+export type UsageTotal = { agent: string; project: string; week: string; input: number; output: number; cache_read?: number; cache_create?: number };
+export type UsageWeek = { week: string; starts_at: string; used: number; input: number; output: number; cache_read: number; cache_create: number };
+export type UsageSummary = { label: "reportado"; totals: UsageTotal[]; screen?: UsageWeek };
 
 export const isUnauthorized = (e: unknown) => e instanceof ApiError && e.status === 401;
+
+// ---- PLA-I54-2: pictures on a request (src/api/pedido-images.ts). Screen cookie only.
+// Errors come back as ApiError with detail.message in Spanish, ready to show (e.g. "La imagen pesa más de 5 MB.").
+export type PedidoImage = {
+  id: string;
+  url: string; // the bytes, behind the session
+  mime: "image/png" | "image/jpeg" | "image/webp";
+  bytes: number;
+  width: number | null;
+  height: number | null;
+  created_at: string;
+};
+export const PEDIDO_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+export const PEDIDO_IMAGE_MAX = 6;
+const pedidoImagesPath = (slug: string, key: string) => `/company/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/images`;
+
+export const listPedidoImages = (slug: string, key: string) =>
+  request<{ images: PedidoImage[] }>("GET", pedidoImagesPath(slug, key)).then((r) => r.images);
+
+// One picture per call, sent as its raw bytes (the server reads the type from them, not from the name).
+export async function uploadPedidoImage(slug: string, key: string, file: Blob): Promise<PedidoImage> {
+  const res = await fetch(`/api${pedidoImagesPath(slug, key)}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  if (!res.ok) {
+    const { error, ...detail } = (await res.json().catch(() => ({}))) as { error?: string } & Record<string, unknown>;
+    throw new ApiError(res.status, error ?? `HTTP_${res.status}`, detail);
+  }
+  return ((await res.json()) as { image: PedidoImage }).image;
+}
+
+// Several pictures in order; stops at the first refusal and says which ones made it.
+export async function uploadPedidoImages(slug: string, key: string, files: Blob[]): Promise<{ images: PedidoImage[]; error: ApiError | null }> {
+  const images: PedidoImage[] = [];
+  for (const f of files) {
+    try {
+      images.push(await uploadPedidoImage(slug, key, f));
+    } catch (e) {
+      if (e instanceof ApiError) return { images, error: e };
+      throw e;
+    }
+  }
+  return { images, error: null };
+}
+
+export const deletePedidoImage = (slug: string, key: string, id: string) =>
+  request<{ deleted: true }>("DELETE", `${pedidoImagesPath(slug, key)}/${encodeURIComponent(id)}`);

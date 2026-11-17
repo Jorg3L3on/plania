@@ -6,10 +6,12 @@ import { test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
+import { nextMove } from "../src/api/company-move.js";
 
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
 const building = await load("components/compania/edificio/building.tsx");
+const equipoUi = await load("components/compania/edificio/equipo.tsx");
 const win = await load("components/compania/edificio/window.tsx");
 const roof = await load("components/compania/edificio/roof.tsx");
 const scene = await load("components/compania/edificio/scene.tsx");
@@ -81,8 +83,10 @@ const company = (patch: Json = {}): Json => ({
   inbox: { decisiones: 0, pasos: 0 },
   ...patch,
 });
+// PLA-I46-3: each floor's move comes from the server (src/api/company-move.ts); attach it as companyRead does.
+const withMoves = (c: Json): Json => ({ ...c, projects: c.projects.map((p: Json) => ("next_move" in p ? p : { ...p, next_move: nextMove(p as never, c.decisions as never, { companyPaused: c.company.paused }) })) });
 const render = (c: Json, extra: Json = {}) =>
-  html(h(building.Building, { company: c, decisions: c.decisions, now: NOW, timeZone: TZ, hello: "Buenas tardes", day: "Martes 10 de noviembre", onNew: noop, ...extra }));
+  html(h(building.Building, { company: withMoves(c), decisions: c.decisions, now: NOW, timeZone: TZ, hello: "Buenas tardes", day: "Martes 10 de noviembre", onNew: noop, ...extra }));
 const one = (m: Json, extra: Json = {}) => html(h(win.Window, { member: m, project: "Workia", now: NOW, ...extra }));
 
 // ---- PLA-I39-3
@@ -129,17 +133,23 @@ test("I39-3 #2: the caption is role and verb, then what it is on with since when
   assert.deepEqual(["product-owner", "research", "artist", "taller", "qa", "copy"].map(lib.propOf), ["headset", "glasses", "beret", "hardhat", "magnifier", "none"]);
 });
 
-test("I39-3 #3: the roof shows Te toca with the number, one chip per decision, deliveries and tokens this week", () => {
+test("I39-3 #3 / I46-3: the roof shows Te toca with the number, one chip per floor's move, deliveries; no tokens", () => {
   const ds = [decision(), decision({ id: "m-2", kind: "proposal", title: "Dos caminos", asker: { agent: "product-owner-workia", role: "product-owner" } })];
-  const out = html(h(roof.Roof, { decisions: ds, projects: [project()], plumbing: { spend: 1_250_000, running: 1, paused: false } }));
-  assert.match(out, /data-te-toca="2"/);
-  assert.ok(text(out).includes("Te toca") && out.includes(">2<"));
-  assert.equal((out.match(/data-chip=/g) ?? []).length, 2);
-  assert.ok(out.includes("Workia: ¿Qué tienda abrimos primero?") && out.includes('href="#piso-workia"'));
-  assert.ok(out.includes("2 entregas esta semana") && out.includes("1.25M tokens esta semana"));
+  const projects = withMoves(company({ decisions: ds })).projects;
+  const out = html(h(roof.Roof, { decisions: ds, projects, plumbing: { spend: 1_250_000, running: 1, paused: false } }));
+  assert.match(out, /data-te-toca="1"/, "one floor, one move");
+  assert.ok(text(out).includes("Te toca") && out.includes(">1<"));
+  assert.equal((out.match(/data-chip=/g) ?? []).length, 1);
+  assert.ok(out.includes("Workia: Responder a Research: «¿Qué tienda abrimos primero?»") && out.includes('href="/ceo?piso=workia"'));
+  assert.ok(out.includes("2 entregas esta semana"));
+  assert.equal(/tokens|1\.25M/.test(out), false, "PLA-I46-4: no tokens on the building");
   clean(out);
-  const calm = html(h(roof.Roof, { decisions: [], projects: [project()], plumbing: { spend: 0, running: 0, paused: false } }));
-  assert.ok(calm.includes("Nada te espera.") && /data-te-toca="0"/.test(calm));
+  const calm = html(h(roof.Roof, { decisions: [], projects: [project({ next_move: null })], plumbing: { spend: 0, running: 0, paused: false } }));
+  assert.ok(calm.includes("Nada pendiente.") && /data-te-toca="0"/.test(calm));
+  // A decision no floor can show (no project) still gets its chip, opened in place.
+  const loose = html(h(roof.Roof, { decisions: [decision({ id: "c-1", project: null, asker: null })], projects: [project({ next_move: null })], onChip: noop }));
+  assert.match(loose, /data-te-toca="1"/);
+  assert.match(loose, /<button[^>]*data-chip="c-1"/);
 });
 
 test("I39-3 #4: empty is a lot with the door, loading the outline with dark windows, error the existing block", () => {
@@ -176,10 +186,12 @@ test("I39-3 #6: with prefers-reduced-motion nothing in the scene animates", () =
   const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
   const block = /@media \(prefers-reduced-motion: reduce\) \{\s*\.edi \*, \.edi \*::before, \.edi \*::after \{ animation: none !important; transition: none !important; \}/.test(css);
   assert.ok(block, "the .edi reduced-motion rule");
-  // Nothing in the scene moves to look busy: the only animations are the stars and the antenna.
-  const edi = css.slice(css.indexOf("/* PLA-I39: the building"), css.indexOf("@keyframes edi-twinkle"));
+  // PLA-I46-3: nothing in the scene moves but the Ahora card that holds a move (still stars, still antenna).
+  const start = css.indexOf("/* PLA-I39: the building");
+  const edi = css.slice(start, css.indexOf("@keyframes edi-twinkle", start));
   const animated = [...edi.matchAll(/^\s*(\.[^{]+)\{[^}]*animation:/gm)].map((m) => m[1]!.trim());
-  assert.deepEqual(animated, [".edi-star", ".edi-antenna::after"]);
+  assert.deepEqual(animated, [".edi-nowb[data-breathe]"]);
+  assert.match(edi, /\.edi-nowb\[data-breathe\] \{[^}]*animation: edi-breathe 2\.4s/);
   const out = html(h(scene.EdificioSkeleton, {}));
   assert.ok(out.includes("edi"));
 });
@@ -187,7 +199,7 @@ test("I39-3 #6: with prefers-reduced-motion nothing in the scene animates", () =
 // ---- handlers without a DOM: expand hook-free components into their element tree and call the handler.
 type El = { type: unknown; props: Json };
 // Components that hold state are left as elements (their own handlers are tested where they live).
-const STATEFUL = new Set<unknown>();
+const STATEFUL = new Set<unknown>([equipoUi.Timbre]);
 const expand = (node: unknown): unknown => {
   if (Array.isArray(node)) return node.map(expand);
   if (!node || typeof node !== "object" || !("type" in node)) return node;
@@ -205,13 +217,13 @@ const findAll = (node: unknown, pred: (el: El) => boolean, out: El[] = []): El[]
   return out;
 };
 const control = (tree: unknown, name: string) => findAll(tree, (el) => el.props?.["data-control"] === name);
-const tree = (c: Json, extra: Json = {}) => expand(h(building.Building, { company: c, decisions: c.decisions, now: NOW, timeZone: TZ, hello: "Hola", day: "Martes", onNew: noop, ...extra }));
+const tree = (c: Json, extra: Json = {}) => expand(h(building.Building, { company: withMoves(c), decisions: c.decisions, now: NOW, timeZone: TZ, hello: "Hola", day: "Martes", onNew: noop, ...extra }));
 
 // ---- PLA-I39-4
 
 const plan = { initiative: { key: "WRK-I2", title: "Formulario de bienvenida" }, done: 2, total: 5, start_on: null, due_on: null, weeks: null, today_pct: null, done_pct: null, pace: null, weeks_behind: null, forecast_on: null };
 
-test("I39-4 #1: the plate shows name, deliverable, steps done of total, goal with date or Sin meta: Fijar, and the light's reason", () => {
+test("I39-4 #1 / I46-4: the compact plate: name, the real goal, one status line, Sin meta only without a goal, no tokens", () => {
   const set = project({
     plan,
     rumbo: { goal_id: "g-1", goal: "Que una tienda reciba su primer pedido", why: "", target_on: "2026-12-05", forecast_on: "2026-12-05", weeks_behind: 0, missing: false },
@@ -219,16 +231,17 @@ test("I39-4 #1: the plate shows name, deliverable, steps done of total, goal wit
     light_reason: { text: "El equipo te hizo una pregunta y espera tu respuesta.", action: { label: "Ver en Te toca", href: "#te-toca" } },
   });
   const out = render(company({ projects: [set] }), { onFijar: noop });
-  assert.ok(out.includes("Workia") && out.includes('title="Workia"'));
-  assert.ok(out.includes("Formulario de bienvenida") && out.includes("2 de 5 pasos hechos"));
-  assert.equal((out.match(/edi-seg edi-seg-done/g) ?? []).length, 2);
-  assert.ok(out.includes("Meta: <b>Que una tienda reciba su primer pedido</b> · 5 dic") && out.includes("a tiempo"));
-  assert.ok(out.includes("El equipo te hizo una pregunta y espera tu respuesta.") && out.includes('data-control="ver-pregunta"'));
-  assert.ok(out.includes("100k tokens esta semana"));
+  // PLA-I47-2: the plate became the floor's Encabezado (one line).
+  const plate = out.slice(out.indexOf('class="edi-fhead"'), out.indexOf("</header>", out.indexOf('class="edi-fhead"')));
+  assert.ok(plate.includes("Workia") && plate.includes('title="Workia"'));
+  assert.match(plate, /class="edi-goal" data-rumbo="set" data-goal="true" title="Que una tienda reciba su primer pedido">Que una tienda reciba su primer pedido</);
+  assert.ok(plate.includes("2 de 5 pasos hechos"), "one status line");
+  assert.equal(/Sin meta|tokens|100k|edi-seg|ver-pregunta|edi-reason|te hizo una pregunta/.test(plate), false, "no Sin meta, no tokens, no strip, no action of its own; the question is the floor's move");
+  assert.ok(plate.includes('data-pill="you"') && plate.includes("Entrega <b>"), "the state pill and the delivery date");
   clean(out);
   const missing = render(company({ projects: [project({ next: { title: "Pantalla del carrito", key: "WRK-3", owner: "taller", due: null } })] }), { onFijar: noop });
-  assert.ok(missing.includes('data-rumbo="missing"') && missing.includes("Sin meta: ") && missing.includes('data-control="fijar"'));
-  assert.ok(missing.includes("Pantalla del carrito") && missing.includes("Aún no hay pasos"));
+  assert.ok(missing.includes('data-rumbo="missing"') && text(missing).replace(/\s+/g, " ").includes("Sin meta · Fijar meta") && missing.includes('data-control="fijar"'));
+  assert.ok(missing.includes("Aún no hay pasos"));
   clean(missing);
   // Fijar opens the goal dialog for that project.
   let fixed: Json | null = null;
@@ -239,16 +252,21 @@ test("I39-4 #1: the plate shows name, deliverable, steps done of total, goal wit
 test("I39-4 #2: a paused project sits below the street with Reanudar and no lit window; Reanudar calls the project switch", () => {
   const paused = project({ slug: "nido", title: "Nido", paused: true, light: "paused", team: ["product-owner", "taller"].map((r) => member(r, { agent: `${r}-nido`, state: "paused" })) });
   const c = company({ projects: [project(), paused] });
-  const out = render(c, { onResume: noop });
-  const under = out.slice(out.indexOf("data-basement"));
-  assert.ok(under.includes("Bajo la calle · en pausa") && under.includes('data-floor="nido"') && under.includes("Reanudar"));
-  assert.equal(/data-state="(work|ask)"/.test(under), false);
-  assert.ok(out.indexOf('data-floor="workia"') < out.indexOf("edi-street") && out.indexOf("edi-street") < out.indexOf('data-floor="nido"'));
+  // PLA-I47-2: the paused floor is a tile under the street on the rail; it opens with ?piso=nido.
+  const rail = render(c, { onResume: noop });
+  const under = rail.slice(rail.indexOf("data-basement"), rail.indexOf("</nav>"));
+  assert.ok(under.includes("Bajo la calle · en pausa") && under.includes('data-tile="nido"') && under.includes("en pausa"));
+  assert.ok(rail.indexOf('data-tile="workia"') < rail.indexOf("edi-rail-street") && rail.indexOf("edi-rail-street") < rail.indexOf('data-tile="nido"'));
+  assert.ok(rail.includes('data-floor="workia"') && !rail.includes('data-floor="nido"'), "one floor at a time: the first running one");
+  const out = render(c, { onResume: noop, piso: "nido" });
+  const floorOut = out.slice(out.indexOf('data-floor="nido"'));
+  assert.ok(floorOut.includes("Reanudar"));
+  assert.equal(/data-state="(work|ask)"/.test(floorOut), false);
   const calls: string[] = [];
-  const [btn] = control(tree(c, { onResume: (slug: string) => calls.push(slug) }), "reanudar");
+  const [btn] = control(tree(c, { onResume: (slug: string) => calls.push(slug), piso: "nido" }), "reanudar");
   btn!.props.onClick();
   assert.deepEqual(calls, ["nido"]);
-  assert.equal(control(tree(c, { onResume: noop, resuming: "nido" }), "reanudar")[0]!.props.disabled, true);
+  assert.equal(control(tree(c, { onResume: noop, resuming: "nido", piso: "nido" }), "reanudar")[0]!.props.disabled, true);
 });
 
 test("I39-4 #3: company paused: no window is lit and the banner says it resumes in Máquina", () => {
@@ -260,15 +278,15 @@ test("I39-4 #3: company paused: no window is lit and the banner says it resumes 
   assert.ok(page.includes('data-banner="paused"') && page.includes("La compañía está detenida: nada arranca. Se reanuda en Máquina."));
 });
 
-test("I39-4 #4: a long name stays on one line with ellipsis and its full text in title; a long deliverable wraps to two lines", () => {
+test("I39-4 #4: a long name stays on one line with ellipsis and its full text in title; a long goal wraps whole", () => {
   const name = "Telar de cuentos para niños y abuelos que leen en voz alta";
-  const deliv = "Una pantalla del cuento con un título muy largo que ocupa por lo menos dos líneas en el teléfono y algo más";
-  const out = render(company({ projects: [project({ title: name, plan: { ...plan, initiative: { key: "WRK-I3", title: deliv } } })] }));
+  const goal = "Una pantalla del cuento con un título muy largo que ocupa por lo menos dos líneas en el teléfono y algo más";
+  const out = render(company({ projects: [project({ title: name, rumbo: { goal_id: "g", goal, why: "", target_on: null, forecast_on: null, weeks_behind: null, missing: true } })] }));
   assert.ok(new RegExp(`<a[^>]*class="edi-nm"[^>]*title="${name}"`).test(out) && out.includes(`>${name}</a>`));
-  assert.ok(new RegExp(`class="edi-deliv"[^>]*title="${deliv}"`).test(out));
+  assert.ok(new RegExp(`class="edi-goal"[^>]*title="${goal}"`).test(out) && out.includes(`>${goal}</p>`), "a goal without a date is still the goal, whole");
   const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
   assert.ok(/\.edi-nm \{[^}]*overflow: hidden; text-overflow: ellipsis; white-space: nowrap;/.test(css), "one line with ellipsis");
-  assert.ok(/\.edi-deliv \{[^}]*-webkit-line-clamp: 2;/.test(css), "two lines at most");
+  assert.ok(/\.edi-goal \{[^}]*overflow-wrap: anywhere;/.test(css), "it wraps, never clipped");
 });
 
 test("I39-4 #5: the door opens the new-project dialog and a created project shows as a new floor", () => {
@@ -317,15 +335,17 @@ test("I39-5 #1: a proposal hangs under the PO's window and a question under the 
   assert.match(floor, new RegExp(`data-bubble="${proposal.id}"[^>]*data-asker="product-owner-workia"`));
   assert.match(floor, /data-bubble="q-00000000-0000-4000-8000-000000000001"[^>]*data-asker="research-workia"/);
   assert.ok(floor.includes("PO te pregunta") && floor.includes("Research te pregunta"));
-  // The bubble follows its asker's row: PO is window 0, Research window 1 (five per row on a Mac, two on a phone).
-  assert.match(floor, /data-bubble="m-[^"]+"[^>]*style="--o-wide:7;--o-phone:3;--nx-wide:10%;--nx-phone:25%"/);
-  assert.match(floor, /data-asker="research-workia"[^>]*style="--o-wide:7;--o-phone:3;--nx-wide:30%;--nx-phone:75%"/);
+  // PLA-I55-1: the questions stack in the ventanal's home, under Ahora and before the index (no notch: nothing to point at).
+  const at = floor.indexOf(`data-bubble="${proposal.id}"`);
+  assert.ok(floor.indexOf('class="edi-home-q"') < at && at < floor.indexOf('class="edi-idx"'));
+  assert.equal(/--nx-wide/.test(floor), false);
   // The plate's pointer goes to the question on this floor, and Te toca's block is gone from the page.
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
   assert.equal(page.includes("<TeToca"), false);
   assert.ok(page.includes('get("decision")'));
+  // PLA-I46-3: the floor's move points at the question on this floor (Ahora's Ver y responder).
   const reason = render(company({ projects: [project({ light: "needs_jorge", light_reason: { text: "Te preguntan.", action: { label: "Ver en Te toca", href: "#te-toca" } } })], decisions: [decision()] }), { acts: acts() });
-  assert.ok(reason.includes('data-control="ver-pregunta"') && reason.includes('id="pregunta-workia"') && reason.includes("Ver la pregunta"));
+  assert.ok(reason.includes('data-control="ahora-reveal"') && reason.includes('id="pregunta-workia"') && reason.includes("Ver y responder"));
   clean(out);
 });
 
@@ -343,6 +363,15 @@ test("I39-5 #2: each of the eight decision kinds shows the same actions Te toca 
   };
   for (const d of KINDS) {
     const out = render(company({ decisions: [d] }), { acts: acts(), roofOpen: d.id });
+    // PLA-I46-10: a PR delivery is the floor's move and Ahora carries it as the evidence card, with the same two
+    // exits (held here, so its Aceptar is plain), and it does not hang a second time under Taller's window.
+    if (d.kind === "pr") {
+      const card = /<div id="pregunta-workia" class="edi-nowb"[\s\S]*?(?=<div class="edi-home-q"|<div class="edi-fcol"|<nav class="edi-idx")/.exec(out)?.[0] ?? "";
+      assert.ok(card.includes(`data-evidence="${d.id}"`), "pr is shown in Ahora");
+      assert.deepEqual([...card.matchAll(/data-ev-act="([a-z]+)"/g)].map((m) => m[1]), ["aceptar", "devolver", "frente"]);
+      assert.equal(out.includes(`data-bubble="${d.id}"`), false);
+      continue;
+    }
     const where = d.asker ? out.slice(out.indexOf('data-floor="workia"')) : out.slice(out.indexOf("data-roof"), out.indexOf("edi-tower"));
     assert.ok(where.includes(`data-bubble="${d.id}"`), `${d.kind} is shown`);
     assert.deepEqual(actionsIn(where), TE_TOCA[d.kind], d.kind);
@@ -362,10 +391,12 @@ test("I39-5 #3: choosing an option acts once with that option; the result line a
   const busy = expand(h(v2.DecisionView, { d: proposal, now: NOW, busy: { id: proposal.id, key: "elegir-1" }, onAct: noop, ui }));
   assert.ok(findAll(busy, (el) => el.props?.["data-action"] === "elegir").every((b) => b.props.disabled === true));
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("api.actDecision(v.d.id, v.input)") && page.includes("onAct: (d, input, key) => act.mutate({ d, input, key })"));
-  // Acted: the floor keeps the result line.
-  const done = render(company({ decisions: [{ ...proposal, actions: [], state: { action: "elegir", at: "2026-11-10T17:55:00Z", result: { option: 1, label: "Con el borrador" } } }] }), { acts: acts() });
-  assert.ok(/data-bubble="m-[^"]+"[^>]*data-acted="1"/.test(done) && done.includes("✓") && done.includes("Ya respondiste a PO"));
+  assert.ok(page.includes("api.actDecision(v.d.id, v.input)") && page.includes("onAct: (d: Decision, input: DecisionInput, key: string) => act.mutate({ d, input, key })"));
+  // Acted. PLA-I40-6: it no longer hangs as a bubble; the floor keeps it as one line under Lo último, with the
+  // result behind Ver.
+  const done = render(company({ projects: [project({ latest: [], stale_requests: [] })], decisions: [{ ...proposal, actions: [], state: { action: "elegir", at: "2026-11-10T17:55:00Z", result: { option: 1, label: "Con el borrador" } } }] }), { acts: acts() });
+  assert.equal(done.includes("data-bubble="), false);
+  assert.ok(done.includes('data-last="answered"') && done.includes("Respondiste «¿Con qué arrancamos el formulario?»") && done.includes("✓"));
   // Refused: its sentence in place.
   const refused = render(company({ decisions: [proposal] }), { acts: acts({ errors: { [proposal.id]: "Ya actuaste sobre esto." } }) });
   const bubble = refused.slice(refused.indexOf(`data-bubble="${proposal.id}"`));
@@ -442,13 +473,14 @@ test("I39-6 #1: a window opens that teammate's page with what it is on, its queu
   assert.deepEqual(companiaLib.sheetOf("?add=workia"), { kind: "add", slug: "workia" });
   assert.deepEqual(companiaLib.sheetOf("?doc=d-1"), { kind: "doc", id: "d-1" });
   assert.deepEqual(companiaLib.sheetOf("?nuevo"), { kind: "nuevo" });
-  // A window click goes there.
+  // A window click goes there (PLA-I58-1: the windows are in La sala, which El timbre hands onMember).
   const opened: string[] = [];
-  const [win0] = findAll(tree(company({ projects: [project({ team: [taller] })] }), { onOpen: (slug: string, m: Json) => opened.push(companiaLib.sheetSearch({ kind: "member", slug, agent: m.agent })) }), (el) => el.props?.["data-agent"] === "taller-workia");
-  win0!.props.onClick({ currentTarget: {} });
+  const [t0] = findAll(tree(company({ projects: [project({ team: [taller] })] }), { onOpen: (slug: string, m: Json) => opened.push(companiaLib.sheetSearch({ kind: "member", slug, agent: m.agent })) }), (el) => el.type === equipoUi.Timbre);
+  t0!.props.onMember(t0!.props.team[0], {});
   assert.deepEqual(opened, ["?m=workia:taller-workia"]);
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes('sheetSearch({ kind: "member", slug, agent: m.agent })') && page.includes("sheetOf(location.search)"));
+  // PLA-I47-4: the page opens the teammate in La ficha (?f=member:<agent>); the old ?m= link still lands there.
+  assert.ok(page.includes('showFicha({ kind: "member", agent: m.agent }, el, slug)') && page.includes("fichaOf(location.search)"));
 });
 
 test("I39-6 #2: Dile algo notes the teammate's current ticket, or sends an order to the PO naming the role", () => {
@@ -510,44 +542,112 @@ test("I39-6 #4: the plan page lists in progress, next and blocked, and your orde
   assert.deepEqual(plans, ["workia"]);
 });
 
-test("I39-6 #5: adding someone lists only the templates not on the team; the new window shows after the next read", () => {
-  const added: string[] = [];
-  const el = h(side.AddPage, { templates: [{ slug: "qa", title: "QA" }, { slug: "copy", title: "Copy" }], onAdd: (t: string) => added.push(t) });
+// PLA-I46-13 (replaces the I39-6 #5 list): the Sumar sheet. Role and packs are the two choices; the engine is one line.
+const HIRE = [
+  { slug: "product-owner", title: "Product owner", state: "taken" },
+  { slug: "research", title: "Research", state: "taken" },
+  { slug: "artist", title: "Artist", state: "taken" },
+  { slug: "taller", title: "Builder", state: "taken" },
+  { slug: "qa", title: "QA", state: "free" },
+  { slug: "copy", title: "Copy", state: "free" },
+  { slug: "seguridad", title: "Seguridad", state: "no_doc" },
+  { slug: "marketing", title: "Marketing", state: "free" },
+  { slug: "data", title: "Data", state: "free" },
+];
+const PACKS = [
+  { slug: "pruebas-primero", name: "Pruebas primero", when: "Antes de escribir código.", doc_id: "d1" },
+  { slug: "qa-visual-con-capturas", name: "QA visual con capturas", when: "Al revisar una pantalla.", doc_id: "d2" },
+  { slug: "revision-de-seguridad", name: "Revisión de seguridad", when: "Antes de publicar.", doc_id: "d3" },
+  { slug: "espanol-claro", name: "Español claro", when: "Al escribir textos.", doc_id: "d4" },
+  { slug: "preguntas-antes-de-construir", name: "Preguntas antes de construir", when: "Si algo no está claro.", doc_id: "d5" },
+];
+const sumar = await load("lib/sumar.ts");
+const sumarPage = (patch: Json = {}) => h(side.SumarPage, { hire: HIRE, packs: PACKS, role: "qa", chosen: ["pruebas-primero"], onRole: noop, onPack: noop, onAdd: noop, ...patch });
+
+test("I46-13 #1: the + window opens the Sumar sheet; it adds the role with its packs and the new window shows after the next read", () => {
+  const adds: [string, string[]][] = [];
+  const el = sumarPage({ onAdd: (t: string, p: string[]) => adds.push([t, p]) });
   const out = html(el);
-  assert.ok(out.includes('data-templates="2"') && out.includes("QA") && out.includes("Copy"));
-  findAll(expand(el), (x) => x.props?.["data-add"] === "qa")[0]!.props.onClick();
-  assert.deepEqual(added, ["qa"]);
-  assert.ok(html(h(side.AddPage, { templates: [], onAdd: noop })).includes('data-empty="templates"'));
+  clean(out);
+  const words = text(out);
+  for (const w of ["QA", "Escritura", "Seguridad", "Research", "Otro", "Motor:", "Claude Code", "Publicar sigue siendo tuyo", "viven en Plania", "Sumar QA"]) assert.ok(words.includes(w), w);
+  // The packs are the ones read from Plania, with their «Cuándo» line; none is named in the sheet's code.
+  assert.ok(out.includes('data-packs="5"'));
+  for (const p of PACKS) assert.ok(words.includes(p.name) && words.includes(p.when), p.name);
+  const sideSrc = readFileSync(new URL("../ui/src/components/compania/edificio/side.tsx", import.meta.url), "utf8");
+  assert.equal(/Pruebas primero|QA visual con capturas|Revisión de seguridad|Español claro/.test(sideSrc), false, "packs come from the API");
+  // One engine is one line, not a step.
+  assert.equal((out.match(/data-motor/g) ?? []).length, 1);
+  assert.equal(/radio[^>]*Claude Code/.test(out), false);
+  control(expand(el), "sumar-rol")[0]!.props.onClick();
+  assert.deepEqual(adds, [["qa", ["pruebas-primero"]]]);
   // The "+" window opens it; after the next read the new teammate has its window.
   const opened: string[] = [];
   control(tree(company(), { onAdd: (slug: string) => opened.push(slug) }), "sumar")[0]!.props.onClick({ currentTarget: {} });
   assert.deepEqual(opened, ["workia"]);
-  const after = render(company({ projects: [project({ team: [...project().team, member("qa")] })] }), { onAdd: noop });
+  const after = render(company({ projects: [project({ team: [...project().team, member("qa", { packs: ["pruebas-primero"] })] })] }), { onAdd: noop });
   assert.ok(after.includes('data-agent="qa-workia"') && after.includes('data-prop="magnifier"'));
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("api.addToTeam(v.slug, v.template)") && page.includes('invalidateQueries({ queryKey: ["company"] })'));
+  assert.ok(page.includes("api.addToTeam(v.slug, v.template, v.packs, v.motor)") && page.includes("api.packs()") && page.includes('invalidateQueries({ queryKey: ["company"] })'));
+});
+
+test("I46-13 #2: role states, Otro, and the packs a role suggests", () => {
+  const view = expand(sumarPage());
+  const roleEl = (slug: string) => findAll(view, (x) => x.props?.["data-hire"] === slug)[0]!;
+  assert.equal(roleEl("qa").props["aria-checked"], true);
+  assert.equal(roleEl("research").props.disabled, true, "already on the team");
+  assert.equal(roleEl("seguridad").props.disabled, true, "no prompt doc yet");
+  const out = text(html(sumarPage()));
+  assert.ok(out.includes("Ya está") && out.includes("Falta su doc"));
+  // Otro picks the first free template that is not one of the four, and lists the rest.
+  const roles: string[] = [];
+  findAll(expand(sumarPage({ onRole: (r: string) => roles.push(r) })), (x) => x.props?.["data-hire"] === "otro")[0]!.props.onClick();
+  assert.deepEqual(roles, ["marketing"]);
+  const otro = html(sumarPage({ role: "marketing", chosen: [] }));
+  assert.ok(otro.includes('data-otros="2"') && text(otro).includes("Sumar Marketing") && text(otro).includes("Data"));
+  // Ticking a pack goes through onPack; the button names the role.
+  const ticks: string[] = [];
+  findAll(expand(sumarPage({ onPack: (p: string) => ticks.push(p) })), (x) => x.props?.["data-pack"] === "espanol-claro")[0]!.props.onChange();
+  assert.deepEqual(ticks, ["espanol-claro"]);
+  assert.ok(text(html(sumarPage({ role: "copy" }))).includes("Sumar Escritura"));
+  // Suggestions only keep packs Plania has.
+  assert.deepEqual(sumar.suggestedPacks("qa", PACKS), ["pruebas-primero", "qa-visual-con-capturas"]);
+  assert.deepEqual(sumar.suggestedPacks("seguridad", PACKS.slice(0, 2)), []);
+  assert.equal(sumar.firstFree(sumar.roleChoices(HIRE)), "qa");
+  assert.equal(sumar.firstFree(sumar.roleChoices(HIRE.map((x) => ({ ...x, state: "taken" })))), null);
+  // Nothing to add, no packs, a failed packs read: the sheet still says so.
+  const none = html(sumarPage({ hire: HIRE.map((x) => ({ ...x, state: "taken" })), role: null, packs: [] }));
+  assert.ok(text(none).includes("Elige un rol") && none.includes('data-empty="packs"') && text(none).includes("No queda otro"));
+  assert.ok(html(sumarPage({ packsError: true })).includes('data-empty="packs-error"'));
+});
+
+test("I46-13 #3: the sheet works at 390: role chips in two columns, rows wrap, the button fills the width", () => {
+  const out = html(sumarPage());
+  assert.ok(out.includes("grid-cols-2") && out.includes("sm:grid-cols-3"));
+  assert.ok(out.includes("w-full sm:w-auto"));
+  assert.ok(out.includes("break-words") && out.includes("min-w-0"));
 });
 
 // ---- PLA-I39-7
 
 const ask = await load("components/compania/edificio/ask.tsx");
 const fab = await load("components/compania/edificio/asistente.tsx");
-const askView = (patch: Json = {}) => h(ask.AskView, { project: project(), text: "", setText: noop, now: false, setNow: noop, onSubmit: noop, ...patch });
+const askView = (patch: Json = {}) => h(ask.AskView, { project: project(), text: "", setText: noop, onSubmit: noop, ...patch });
 
-test("I39-7 #1: a floor has one box and one send button; sending posts the text, with Que empiece ya also now: true; the plate confirms", () => {
-  const out = render(company(), { askFor: (p: Json) => h(ask.AskView, { project: p, text: "", setText: noop, now: false, setNow: noop, onSubmit: noop }) });
+test("I39-7 #1: a floor has one box and one send button; sending posts the text with its mode (PLA-I54-1); the plate confirms", () => {
+  const out = render(company(), { askFor: (p: Json) => h(ask.AskView, { project: p, text: "", setText: noop, onSubmit: noop }) });
   const floor = out.slice(out.indexOf('data-floor="workia"'));
-  assert.equal((floor.match(/<input[^>]*type="text"/g) ?? []).length, 1);
+  assert.equal((floor.match(/<textarea/g) ?? []).length, 1);
   assert.equal((floor.match(/data-control="pedir"/g) ?? []).length, 1);
-  assert.ok(floor.includes("Pide algo para Workia") && floor.includes("Que empiece ya"));
+  assert.ok(floor.includes("Pide algo para Workia") && floor.includes("Darle forma") && !floor.includes("Que empiece ya"));
   assert.equal(/data-kind="(cambio|direccion|idea)"/.test(floor), false, "no kind picker");
   const sent: Json[] = [];
-  const view = expand(askView({ text: "  un botón de WhatsApp  ", now: true, onSubmit: (i: Json) => sent.push(i) }));
+  const view = expand(askView({ text: "  un botón de WhatsApp  ", mode: "ya", onSubmit: (i: Json) => sent.push(i) }));
   findAll(view, (el) => el.type === "form")[0]!.props.onSubmit({ preventDefault: noop });
-  assert.deepEqual(sent, [{ text: "un botón de WhatsApp", now: true }]);
+  assert.deepEqual(sent, [{ text: "un botón de WhatsApp", mode: "ya" }]);
   const later: Json[] = [];
   findAll(expand(askView({ text: "otra cosa", onSubmit: (i: Json) => later.push(i) })), (el) => el.type === "form")[0]!.props.onSubmit({ preventDefault: noop });
-  assert.deepEqual(later, [{ text: "otra cosa", now: false }]);
+  assert.deepEqual(later, [{ text: "otra cosa", mode: "forma" }]);
   // Too short: nothing is sent.
   const none: Json[] = [];
   findAll(expand(askView({ text: "ok", onSubmit: (i: Json) => none.push(i) })), (el) => el.type === "form")[0]!.props.onSubmit({ preventDefault: noop });
@@ -559,7 +659,7 @@ test("I39-7 #1: a floor has one box and one send button; sending posts the text,
   assert.ok(confirmed.includes("data-sent") && confirmed.includes("lo toma en su turno"));
   clean(confirmed);
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("steer.onAsk(slug, { text: input.text, now: input.now })") && page.includes("api.askProject(slug, input)"));
+  assert.ok(page.includes("steer.onAsk(slug, { text: input.text, mode: input.mode, consulta: input.consulta })") && page.includes("api.askProject(slug, input)"));
 });
 
 test("I39-7 #2: while the box has text the PO's window says Recibiría tu pedido; clearing it removes the line", () => {
@@ -574,15 +674,15 @@ test("I39-7 #2: while the box has text the PO's window says Recibiría tu pedido
   assert.ok(box.includes("onTyping?.(project.slug, v.trim().length > 0)"));
 });
 
-test("I39-7 #3: the floating button shows the unread count and a dot when Asistente waits; it opens the thread in the side page", () => {
-  const out = html(h(fab.AsistenteFab, { unread: 3, waiting: true, onOpen: noop }));
-  assert.ok(out.includes('data-unread="3"') && out.includes('class="edi-badge"') && out.includes(">3<") && out.includes("edi-fab-dot") && out.includes('data-waiting="1"'));
+test("I39-7 #3 / I47-5: Asistente's button shows the unread count and a dot when Asistente waits; it opens the thread in the side page", () => {
+  const out = html(h(fab.AsistenteButton, { unread: 3, waiting: true, onOpen: noop }));
+  assert.ok(out.includes('data-unread="3"') && out.includes('class="edi-badge"') && out.includes(">3<") && out.includes("edi-asis-dot") && out.includes('data-waiting="1"'));
   assert.ok(out.includes("3 mensajes sin leer, te espera"));
-  const quiet = html(h(fab.AsistenteFab, { unread: 0, waiting: false, onOpen: noop }));
-  assert.equal(quiet.includes("edi-badge") || quiet.includes("edi-fab-dot"), false);
+  const quiet = html(h(fab.AsistenteButton, { unread: 0, waiting: false, onOpen: noop }));
+  assert.equal(quiet.includes("edi-badge") || quiet.includes("edi-asis-dot"), false);
   const opened: number[] = [];
-  expand(h(fab.AsistenteFab, { unread: 0, waiting: false, onOpen: () => opened.push(1) }));
-  (expand(h(fab.AsistenteFab, { unread: 0, waiting: false, onOpen: () => opened.push(1) })) as El).props.onClick({ currentTarget: {} });
+  expand(h(fab.AsistenteButton, { unread: 0, waiting: false, onOpen: () => opened.push(1) }));
+  (expand(h(fab.AsistenteButton, { unread: 0, waiting: false, onOpen: () => opened.push(1) })) as El).props.onClick({ currentTarget: {} });
   assert.deepEqual(opened, [1]);
   assert.deepEqual(companiaLib.sheetOf("?asistente"), { kind: "asistente" });
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
@@ -633,15 +733,13 @@ test("I39-9 #2: every window is named with role, state and what it is on; the ta
     member("taller", { state: "running", now: { ticket: "WRK-3", title: "Pantalla del carrito", since: "2026-11-10T17:20:00Z" } }),
   ];
   const out = render(company({ projects: [project({ team })], decisions: [proposal] }), { acts: acts(), onOpen: noop });
-  const names = [...out.matchAll(/<button type="button" class="edi-win"[^>]*aria-label="([^"]+)"/g)].map((m) => m[1]);
+  // PLA-I58-1: every teammate is a window in La sala, in the team's order.
+  const names = [...out.matchAll(/<button type="button" class="edi-sala-mate"[^>]*aria-label="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(names, ["PO de Workia, te espera: Te pregunta algo, ¿Qué tienda?", "Research de Workia, libre: Sin trabajo", "Taller de Workia, trabajando: Pantalla del carrito, desde hace 40 min"]);
-  // DOM order (the tab order): the PO's window, then its question, then the next window.
-  const po = out.indexOf('data-agent="product-owner-workia"');
+  // The question is in the ventanal, under Ahora; with La sala closed the plate says who asks.
   const q = out.indexOf(`data-bubble="${proposal.id}"`);
-  const next = out.indexOf('data-agent="research-workia"');
-  assert.ok(po < q && q < next, "window → its question → the next window");
-  const firstButtonInQuestion = out.indexOf("<button", q);
-  assert.ok(firstButtonInQuestion < next, "the question's controls come before the next window");
+  assert.ok(q > 0 && out.indexOf('class="edi-home-q"') < q, "questions sit under Ahora");
+  assert.match(out, /data-control="timbre-pregunta"[^>]*>[\s\S]*?PO te pregunta</);
 });
 
 test("I39-9 #3: caption, plate and question text on the night panel reach 4.5:1", () => {
@@ -673,8 +771,9 @@ test("I39-9 live: the sky quotes Asistente only from a run that finished ok; the
   assert.equal(skipped.includes("BUDGET") || skipped.includes("data-asistente-line"), false);
   assert.ok(render(company()).includes("Resumen: Workia avanza."));
   const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  // PLA-22: no clock under it any more; on a phone the button sits just above the tab bar.
-  assert.ok(css.includes(".edi-fab { bottom: calc(4.5rem + 14px + env(safe-area-inset-bottom, 0px));"));
+  // PLA-I47-5: Asistente sits in the sky line; nothing floats at the bottom right any more.
+  assert.equal(css.includes("edi-fab"), false);
+  assert.ok(css.includes(".edi-asis {"));
 });
 
 // ---- PLA-23: the floor says what it wants, and its action acts
@@ -694,17 +793,19 @@ const release = (patch: Json = {}): Json =>
   });
 const waitingRelease = project({ light: "needs_jorge", light_reason: { text: "2 cambios listos esperan que los publiques.", action: { label: "Publicar", href: "#publicar" } } });
 
-test("PLA-23 #1: a floor with a release has a Publicar button on its plate that opens publishing for that project", () => {
-  const opened: string[] = [];
-  const t = tree(company({ projects: [waitingRelease], decisions: [release()] }), { acts: acts(), onPublish: (p: Json) => opened.push(p.slug) });
-  const [btn] = control(t, "publicar");
-  assert.ok(btn, "the plate has Publicar");
-  btn!.props.onClick();
-  assert.deepEqual(opened, ["workia"]);
+// PLA-I47-2: the Tú window is gone; the move is Ahora's and the phone bar's.
+test("PLA-23 #1 / I46-3: a floor with a release has its move Publicar in Ahora and the phone bar; each opens publishing", () => {
+  for (const where of ["ahora", "barra"]) {
+    const opened: string[] = [];
+    const t = tree(company({ projects: [waitingRelease], decisions: [release()] }), { acts: acts(), onPublish: (p: Json) => opened.push(p.slug) });
+    const [btn] = control(t, `${where}-publish`);
+    assert.ok(btn, `${where} has Publicar`);
+    btn!.props.onClick();
+    assert.deepEqual(opened, ["workia"], where);
+  }
   const out = render(company({ projects: [waitingRelease], decisions: [release()] }), { acts: acts(), onPublish: noop });
-  assert.ok(out.includes("2 cambios listos esperan que los publiques.") && !out.includes('href="#publicar"'));
-  // Without a handler (an older page), it still goes somewhere: Bandeja.
-  assert.ok(render(company({ projects: [waitingRelease] })).includes('href="/inbox"'));
+  assert.ok(text(out).includes("Publicar 2 cambios") && !out.includes('href="#publicar"'));
+  assert.equal(out.includes('data-control="publicar"'), false, "the plate draws no Publicar of its own");
 });
 
 test("PLA-23 #1: the roof chip of a release publishes in place, and the sheet says what goes out, where, and asks the code", () => {
@@ -724,40 +825,40 @@ test("PLA-23 #1: the roof chip of a release publishes in place, and the sheet sa
   assert.equal(confirm(body).includes('disabled=""'), false);
   const sending = html(h(publishUi.PublishBody, { title: "Mianovia", release: release().release, busy: true, onPublish: noop, onCancel: noop }));
   assert.ok(confirm(sending).includes('disabled=""') && sending.includes("Publicando…"));
+  // It never just closes: while it publishes, a status line with a running clock; when done, what went out and the PR.
+  const working = html(h(publishUi.PublishBody, { title: "Mianovia", release: release().release, busy: true, since: 0, onPublish: noop, onCancel: noop }));
+  assert.ok(working.includes("data-publish-working") && working.includes("Publicando en GitHub"));
+  assert.ok(html(h(publishUi.PublishWorking, { release: release().release, since: 0, now: 75_000 })).includes("1:15"));
+  const done = html(h(publishUi.PublishDone, { title: "Mianovia", release: release().release, result: { merged: true, pr: { number: 699, url: "https://github.com/x/y/pull/699" }, merge_sha: "7cccccc1234", tickets: [], migrations: [] }, onClose: noop }));
+  assert.ok(done.includes("data-publish-done") && done.includes("Publicado.") && done.includes("#699") && done.includes("7cccccc") && done.includes('data-control="publicar-listo"'));
   assert.equal(publishUi.publishError("OWNER_CODE_INVALID"), "Ese código no es válido o ya se usó; espera el siguiente.");
   assert.match(publishUi.publishError("RELEASE_NOT_READY", { reason: "open_checks" }), /puntos abiertos/);
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("api.shipRelease(v.slug)") && page.includes("onPublish: (d) => openPublish(d.project)"));
+  assert.ok(page.includes("api.shipRelease(v.slug)") && page.includes("onPublish: (d: Decision) => openPublish(d.project)"));
   const bandeja = readFileSync(new URL("../ui/src/components/release-step.tsx", import.meta.url), "utf8");
   assert.equal(/OwnerCodeInput|isOwnerCode/.test(bandeja), false, "Bandeja's Lanzar asks no code either");
 });
 
-test("PLA-23 #2: Ver la pregunta is a button that brings the question into view", () => {
-  const seen: string[] = [];
+test("PLA-23 #2 / I46-3: Ver y responder is the move's button; it brings the question into view", () => {
   const out = render(company({ projects: [project({ light: "needs_jorge", light_reason: { text: "Te preguntan.", action: { label: "Ver en Te toca", href: "#te-toca" } } })], decisions: [decision()] }), { acts: acts() });
-  assert.match(out, /<button type="button" class="edi-mini"[^>]*data-control="ver-pregunta"/);
-  const p = plateReveal((x: Json) => seen.push(x.slug));
-  p.props.onClick();
-  assert.deepEqual(seen, ["workia"]);
+  assert.match(out, /<button type="button" class="edi-nact edi-go"[^>]*data-control="ahora-reveal"[^>]*>Ver y responder</);
   const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
   assert.ok(css.includes("[data-flash]"));
 });
 const plateUi = await load("components/compania/edificio/plate.tsx");
-function plateReveal(onReveal: (p: Json) => void): El {
-  const p = project({ light: "needs_jorge", light_reason: { text: "Te preguntan.", action: { label: "Ver en Te toca", href: "#te-toca" } } });
-  return control(expand(h(plateUi.Plate, { project: p, onReveal })), "ver-pregunta")[0]!;
-}
 
 test("PLA-23 #3: bubbles, captions, goal and tokens say what they mean", () => {
   assert.equal(questionUi.bubbleHead({ kind: "pr", state: null }, "taller"), "Taller te entrega");
   assert.equal(questionUi.bubbleHead({ kind: "question", state: null }, "research"), "Research te pregunta");
   assert.equal(questionUi.bubbleHead({ kind: "pr", state: { action: "aceptar", at: "x", result: {} } }, "taller"), "Ya respondiste a Taller");
+  // PLA-I46-4: a goal without a date is still a goal: no «Sin meta». Only a project with none says it.
   const goalNoDate = render(company({ projects: [project({ rumbo: { goal_id: "g", goal: "Primera boda", why: "", target_on: null, forecast_on: null, weeks_behind: null, missing: true } })] }), { onFijar: noop });
-  assert.ok(text(goalNoDate).includes("Meta sin fecha") && goalNoDate.includes("Poner fecha"));
+  assert.ok(text(goalNoDate).includes("Primera boda") && !text(goalNoDate).includes("Sin meta"));
   const noGoal = render(company({ projects: [project()] }), { onFijar: noop });
   assert.ok(text(noGoal).includes("Sin meta") && noGoal.includes("Fijar meta"));
+  // No token figure anywhere on the building.
   const tok = render(company({ projects: [project({ usage: { used: 14_620_000, last_week: 9_400_000 } })] }));
-  assert.ok(text(tok).includes("14.62M tokens esta semana") && text(tok).includes("9.4M la pasada"));
+  assert.equal(/tokens|14\.62M|9\.4M/.test(text(tok)), false);
   const ci = v2lib.checksText({ checks: { open: 0, ci: "none" } });
   assert.deepEqual(ci, { text: "repo sin CI", tone: "idle", open: false });
   const msg = html(h(v2.DecisionBody, { d: decision({ kind: "pr", body: "Hice esto.", asker: { agent: "taller-workia", role: "taller" } }), now: NOW, busy: null, onAct: noop }));

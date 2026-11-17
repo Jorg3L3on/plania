@@ -4,12 +4,12 @@
 // Presentational: data and callbacks come in as props.
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import type { AskResult, OrderKind, OrgProject } from "@/lib/api";
+import type { AskMode, AskResult, OrderKind, OrgProject } from "@/lib/api";
 import { pillGhost } from "@/components/compania/parts";
 
 
 export type Steer = {
-  onAsk: (slug: string, input: { text: string; kind?: OrderKind; now: boolean }) => Promise<AskResult>;
+  onAsk: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean; mode?: AskMode; consulta?: string }) => Promise<AskResult>;
   onPickNext: (slug: string, key: string) => void;
   onPause: (p: OrgProject) => void;
   onRun: (action: "stop" | "resume", runId: string) => void;

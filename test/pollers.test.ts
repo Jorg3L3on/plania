@@ -209,7 +209,7 @@ describe("github token", () => {
 });
 
 describe("vercel", () => {
-  test("READY production deployments become sourced env records, oldest first; the merge commit deployed moves Merged to Released", async () => {
+  test("READY production deployments become sourced env records, oldest first; the merge commit deployed moves Merged to Released, and a released ticket with its checks closed to Done (PLA-I56-1)", async () => {
     const { db, close } = makeDb();
     try {
       const p = await findProject(db, "filmia");
@@ -217,8 +217,11 @@ describe("vercel", () => {
       const s = await pollVercelProject(db, p, { fetch, env: { VERCEL_TOKEN: "vc_test" } });
       assert.equal(s.deployments, 3);
       assert.equal(s.released, 2, "dpl_A deployed the merge commit of #130, both its tickets");
-      assert.equal(await status("FIL-I1-1"), "Released");
-      assert.equal(await status("FIL-I1-2"), "Released", "the sibling finds its PR by pr_url");
+      assert.equal(s.closed, 2, "both had every check closed");
+      assert.equal(await status("FIL-I1-1"), "Done");
+      assert.equal(await status("FIL-I1-2"), "Done", "the sibling finds its PR by pr_url");
+      const moves = (await listEvents(db, p.id, { key: "FIL-I1-1", types: ["task.status"] })).events.slice(-2).map((e) => [e.payload.from, e.payload.to]);
+      assert.deepEqual(moves, [["Merged", "Released"], ["Released", "Done"]]);
       assert.equal(await status("FIL-I1-3"), "Merged", "#131 is not merged, so it has no merge commit to ship");
       const envs = await store.find("envStates", {}, { orderBy: [{ column: "env" }] });
       const rows = envs.map((r) => ({ env: r.env, commit: r.commit, dpl: r.deploySource?.deployment_id ?? null, deployed: r.deployedAt !== null }));

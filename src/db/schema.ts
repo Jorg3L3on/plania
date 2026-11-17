@@ -11,6 +11,7 @@ import {
   primaryKey,
   real,
   text,
+  time,
   timestamp,
   unique,
   uniqueIndex,
@@ -216,6 +217,16 @@ export const tasks = pgTable(
     goalId: uuid("goal_id").references((): AnyPgColumn => goals.id, { onDelete: "set null" }),
     // PLA-I23: how many times assign moved owner_agent. Above 3 the next assign is refused.
     assignHops: integer("assign_hops").notNull().default(0),
+    // PLA-I46-11: the PO's check list, copied onto each step of an accepted plan; QA ticks it.
+    poChecklist: jsonb("po_checklist").$type<PoCheck[]>().notNull().default(sql`'[]'::jsonb`),
+    // PLA-I52-1: what Taller hands over with a delivery so Plania can show it (src/captures/muestra.ts). Null until finish.
+    muestra: jsonb("muestra").$type<import("../captures/muestra.js").Muestra>(),
+    // PLA-I52-3: where the delivery's pictures stand (src/captures/probador.ts). Null until Plania starts them.
+    probador: jsonb("probador").$type<import("../captures/probador.js").ProbadorState>(),
+    // PLA-I52-6: what the owner asked about the delivery (answers live in the project thread).
+    // PLA-I52-7: the kind of change finish read from the diff: se_ve | se_comporta | no_se_ve. Null when unknown.
+    cambio: text("cambio"),
+    preguntas: jsonb("preguntas").$type<{ id: string; text: string; at: string }[]>().notNull().default(sql`'[]'::jsonb`),
   },
   (t) => [
     unique("tasks_project_key_unique").on(t.projectId, t.key),
@@ -753,8 +764,19 @@ export type Handoff = { to: string; note: string; head_sha?: string; from: Actor
 export type DeploySource = { provider: string; deployment_id: string; url?: string };
 
 // projects.settings (set_project settings, merged). Secrets never: integrations name env vars.
+// PLA-I60: the project's run limits, set in Motores. Missing keys are the defaults (1, 1, 1, true).
+export type ProjectRunnerSettings = { max_concurrent?: number; consulta_slots?: number; max_per_agent?: number; serialize_areas?: boolean };
+
 export type ProjectSettings = {
+  // PLA-I60: «Agentes a la vez», «Preguntas a la vez», «Por agente» (Motores) and same-files serialization.
+  runner?: ProjectRunnerSettings;
   release_target?: string; // the env a Released ticket must reach (default prod)
+  // PLA-I56-1: what "released" means. env: release_target runs the merge commit (a deploy). branch: the release
+  // branch (release.into, default main) contains it. Unset: env with Vercel or a commit recorded for release_target, else branch.
+  release_on?: "env" | "branch";
+  // PLA-I56-1: a released code, bug or debt ticket with every check closed and no open question moves to Done by
+  // the rule. On unless false.
+  auto_done?: boolean;
   branch_pattern?: string; // regex every branch name must match
   claim_from?: "backlog" | "ready"; // what get_next offers (default backlog)
   resources?: Record<string, { needs_approval?: boolean; ttl_max?: number }>; // by name glob
@@ -773,6 +795,17 @@ export type ProjectSettings = {
   plan_approval?: boolean;
   // PLA-I36-10: where the project's running preview lives (Ver la vista previa).
   preview_url?: string;
+  // PLA-I40-7: a delivery whose tests pass is accepted into the test copy without the owner. Off unless set.
+  auto_accept?: boolean;
+  // PLA-I52-7: «solo lo que no se ve». With auto_accept off, deliveries whose diff does not change the screen
+  // (tasks.cambio no_se_ve) are accepted alone into the test copy under the same rules. Off unless set.
+  auto_accept_invisible?: boolean;
+  // PLA-I46-6: how Plania starts and captures the project's test copy (src/captures/settings.ts).
+  capture?: import("../captures/settings.js").CaptureSettings;
+  // PLA-I46-9: the QA lane's verify list and review model (src/runner/qa-settings.ts).
+  qa?: import("../runner/qa-settings.js").QaSettings;
+  // PLA-I48-2: the floor's Máquinas: env file, migrate and seed commands, migrations folder (src/maquinas/settings.ts).
+  maquinas?: import("../maquinas/env.js").MaquinasSettings;
 };
 
 // 2.13: mode "command" (default) shows the command Jorge runs; "merge" lets him ship from the screen
@@ -822,16 +855,32 @@ export const agents = pgTable(
     // and the role template it was made from (product-owner, research, artist, taller, ...). Migration 0041.
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     roleTemplate: text("role_template"),
+    // PLA-I46-12: the skill packs this role carries, by slug (a `Pack: <name>` doc in Plania). Migration 0046.
+    skillPacks: text("skill_packs").array().notNull().default(sql`'{}'::text[]`),
+    // PLA-I59-1 (Motores): the model and effort this seat runs on (null: the company default), and for a PO the
+    // ones its Preguntar runs use (null: the seat's). src/runner/motor.ts resolves them. Migration 0058.
+    motorModel: text("motor_model"),
+    motorEffort: text("motor_effort"),
+    consultaModel: text("consulta_model"),
+    consultaEffort: text("consulta_effort"),
+    // PLA-I60 (0060): this seat's own «a la vez» (null: the project's «por agente»).
+    maxParallel: integer("max_parallel"),
     ...timestamps,
   },
   (t) => [
     index("agents_project_idx").on(t.projectId),
+    check("agents_skill_packs_check", sql`cardinality(${t.skillPacks}) <= 10`),
     check("agents_kind_check", sql`${t.kind} in ('bot', 'coder', 'human')`),
     check("agents_status_check", sql`${t.status} in ('alive', 'idle', 'stuck', 'retired')`),
     check("agents_role_template_check", sql`${t.roleTemplate} is null or ${t.roleTemplate} ~ '^[a-z][a-z0-9-]{0,39}$'`),
     check("agents_not_self", sql`${t.reportsTo} is null or ${t.reportsTo} <> ${t.id}`),
     check("agents_adapter_check", sql`${t.adapter} in ('http', 'claude_code', 'grok_webhook', 'none')`),
     check("agents_heartbeat_minutes_check", sql`${t.heartbeatMinutes} is null or (${t.heartbeatMinutes} between 1 and 1440)`),
+    check("agents_motor_model_check", sql`${t.motorModel} is null or ${t.motorModel} ~ '^(haiku|sonnet|opus|fable|claude-[a-z0-9.-]{3,60}(\\[1m\\])?)$'`),
+    check("agents_consulta_model_check", sql`${t.consultaModel} is null or ${t.consultaModel} ~ '^(haiku|sonnet|opus|fable|claude-[a-z0-9.-]{3,60}(\\[1m\\])?)$'`),
+    check("agents_motor_effort_check", sql`${t.motorEffort} is null or ${t.motorEffort} in ('low', 'medium', 'high', 'xhigh', 'max')`),
+    check("agents_consulta_effort_check", sql`${t.consultaEffort} is null or ${t.consultaEffort} in ('low', 'medium', 'high', 'xhigh', 'max')`),
+    check("agents_max_parallel_check", sql`${t.maxParallel} is null or ${t.maxParallel} between 1 and 50`),
   ],
 );
 
@@ -996,8 +1045,17 @@ export const runnerSettings = pgTable(
     reserveTokens: integer("reserve_tokens").notNull().default(60000),
     maxTurns: integer("max_turns").notNull().default(40),
     timeoutMinutes: integer("timeout_minutes").notNull().default(45),
+    // PLA-I59-1: the company's default motor (null: the CLI's own default). Migration 0058.
+    defaultModel: text("default_model"),
+    defaultEffort: text("default_effort"),
+    // PLA-I60 (0060): max_concurrent is the company ceiling; these pace and protect the machine.
+    maxStartsPerMinute: integer("max_starts_per_minute").notNull().default(6),
+    estPctPerRun: integer("est_pct_per_run").notNull().default(3),
+    minFreeMb: integer("min_free_mb").notNull().default(1500),
+    minFreeDiskGb: integer("min_free_disk_gb").notNull().default(10),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
+  // runner_settings_ranges (0039, widened in 0060: max_concurrent up to 500) lives in the migrations only.
   (t) => [check("runner_settings_singleton", sql`${t.id} = 1`)],
 );
 
@@ -1041,17 +1099,80 @@ export const agentRuns = pgTable(
     usageAckAt: timestamp("usage_ack_at", { withTimezone: true }),
     exitCode: integer("exit_code"),
     stopReason: text("stop_reason"),
+    // PLA-I59-1: the --model and --effort this run was started with (null: the flag was not passed).
+    requestedModel: text("requested_model"),
+    requestedEffort: text("requested_effort"),
+    // PLA-I60 (migration 0060): what the run is about and why, as columns (summary is display text only).
+    workKey: text("work_key").notNull().default("general"),
+    trigger: text("trigger").$type<RunTrigger>().notNull().default("owner"),
+    lane: text("lane").$type<RunLane>().notNull().default("work"),
+    reason: text("reason"),
+    absorbed: text("absorbed"),
+    heldCode: text("held_code"),
+    heldDetail: jsonb("held_detail").$type<Record<string, unknown>>(),
+    workerId: text("worker_id"),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    stopRequested: text("stop_requested"),
+    notBefore: timestamp("not_before", { withTimezone: true }),
+    planWeight: real("plan_weight"),
   },
   (t) => [
     index("agent_runs_status_idx").on(t.status, t.queuedAt),
+    uniqueIndex("agent_runs_active_work_unique").on(t.agentId, t.projectId, t.workKey).where(sql`${t.status} in ('queued', 'starting', 'running')`),
+    index("agent_runs_live_project_idx").on(t.projectId, t.lane).where(sql`${t.status} in ('starting', 'running')`),
+    index("agent_runs_live_worker_idx").on(t.workerId).where(sql`${t.status} in ('starting', 'running')`),
+    check("agent_runs_trigger_check", sql`${t.trigger} in ('event', 'owner', 'cadence', 'consulta', 'retry', 'qa', 'brief')`),
+    check("agent_runs_lane_check", sql`${t.lane} in ('work', 'consulta')`),
+    check("agent_runs_work_key_check", sql`char_length(${t.workKey}) between 1 and 200`),
     index("agent_runs_agent_idx").on(t.agentId, t.queuedAt),
     index("agent_runs_project_idx").on(t.projectId, t.startedAt),
-    check("agent_runs_status_check", sql`${t.status} in ('queued', 'running', 'ok', 'fail', 'skipped', 'stopped')`),
+    check("agent_runs_status_check", sql`${t.status} in ('queued', 'starting', 'running', 'ok', 'fail', 'skipped', 'stopped')`),
     check("agent_runs_summary_check", sql`char_length(${t.summary}) <= 500`),
   ],
 );
 
 export type AgentRun = typeof agentRuns.$inferSelect;
+export const RUN_TRIGGERS = ["event", "owner", "cadence", "consulta", "retry", "qa", "brief"] as const;
+export type RunTrigger = (typeof RUN_TRIGGERS)[number];
+export type RunLane = "work" | "consulta";
+
+// PLA-I60-2: one live run per lock key (a folder, a branch, a ticket).
+export const runLocks = pgTable(
+  "run_locks",
+  {
+    lockKey: text("lock_key").primaryKey(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "cascade" }),
+    acquiredAt: timestamp("acquired_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("run_locks_run_idx").on(t.runId)],
+);
+
+// PLA-I60-3: a process that spawns and supervises runs.
+export const runnerWorkers = pgTable("runner_workers", {
+  id: text("id").primaryKey(),
+  machine: text("machine").notNull(),
+  capacity: integer("capacity").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  seenAt: timestamp("seen_at", { withTimezone: true }).notNull().defaultNow(),
+  version: text("version"),
+  draining: boolean("draining").notNull().default(false),
+});
+
+// PLA-I60-2: slots held for something that is not an agent run (the Morning brief).
+export const runnerReservations = pgTable(
+  "runner_reservations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    label: text("label").notNull(),
+    slots: integer("slots").notNull().default(1),
+    holder: text("holder"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [check("runner_reservations_slots_check", sql`${t.slots} between 1 and 50`)],
+);
 
 export const agentSessions = pgTable(
   "agent_sessions",
@@ -1066,8 +1187,10 @@ export const agentSessions = pgTable(
     cwd: text("cwd").notNull(),
     runs: integer("runs").notNull().default(1),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // PLA-I60-1: one resumable session per work item.
+    workKey: text("work_key").notNull().default("general"),
   },
-  (t) => [primaryKey({ columns: [t.agentId, t.projectId] })],
+  (t) => [primaryKey({ columns: [t.agentId, t.projectId, t.workKey] })],
 );
 
 export const PLAN_SOURCES = ["stream", "usage_probe"] as const;
@@ -1095,13 +1218,17 @@ export type PlanReading = typeof planReadings.$inferSelect;
 // the team answers there too). Messages link what they talk about and keep the action Jorge took.
 export const THREAD_KINDS = ["company", "project"] as const;
 export type ThreadKind = (typeof THREAD_KINDS)[number];
-export const LINK_KINDS = ["ticket", "doc", "pr", "idea", "question"] as const;
+export const LINK_KINDS = ["ticket", "doc", "pr", "idea", "question", "brief_plan"] as const;
 export type ThreadLink = { kind: (typeof LINK_KINDS)[number]; ref: string; title: string };
 // PLA-I36-7/8: what a PO proposes. choice: options to pick from. plan: what it understood of an order, the steps
 // (each with what done means) and the cost; on approval the server makes one Ready ticket per step.
 export type ProposalCost = { tickets?: number; days?: number; tokens?: number; delays?: string };
 export type ProposalOption = { n: number; label: string; effect: string; cost: ProposalCost; recommended: boolean };
 export type ProposalStep = { title: string; done_when: string; work_type: string };
+// PLA-I46-11: a closed question in a leg's plan: two to four answers, the PO's suggestion marked (0-based).
+export type PlanQuestion = { text: string; options: string[]; suggested: number };
+// One line of the PO's check list on a ticket: what to verify, and whether QA ticked it.
+export type PoCheck = { n: number; text: string; done: boolean; done_at: string | null; done_by: string | null };
 export type ProposalData = {
   kind: "choice" | "plan";
   title: string;
@@ -1116,6 +1243,13 @@ export type ProposalData = {
   // plan: whether it waited for approval (the project's switch when it was posted), and the tickets made.
   needs_approval: boolean;
   created: string[];
+  // PLA-I46-11, plan for a leg of the route: the initiative it fills, up to 3 closed questions, the PO's check list
+  // (3 things to verify), when the owner said Después, and what he accepted (answers by index, the edited list).
+  leg?: string | null;
+  questions?: PlanQuestion[];
+  checklist?: string[];
+  later_at?: string | null;
+  answers?: number[] | null;
 };
 export const THREAD_ACTIONS = ["aceptar", "cambios", "responder"] as const;
 export type ThreadAction = (typeof THREAD_ACTIONS)[number];
@@ -1168,3 +1302,381 @@ export const threadMessages = pgTable(
 );
 
 export type ThreadMessage = typeof threadMessages.$inferSelect;
+
+// PLA-I46-6: stills of a project's running app (the floor's Ventana, QA evidence). One row per page and
+// viewport per run. The PNG lives in the local capture store (src/captures/store.ts) under file, named by
+// its sha256; Plania keeps only the row. A failed page is a row with status error, no file and the error
+// text, so the last good still of that page stays readable beside it.
+export const CAPTURE_STATUSES = ["ok", "error"] as const;
+export const captureStills = pgTable(
+  "capture_stills",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    // The ticket or delivery the run was for; null for a plain look at the test copy.
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    runId: uuid("run_id").notNull(),
+    pageKey: text("page_key").notNull(),
+    pageLabel: text("page_label").notNull(),
+    path: text("path").notNull(),
+    viewport: text("viewport").notNull(), // desktop | phone
+    width: integer("width").notNull(),
+    height: integer("height"),
+    status: text("status").notNull(),
+    error: text("error"),
+    file: text("file"), // <sha256>.png in the store, null on error
+    bytes: integer("bytes"),
+    url: text("url"), // where the page ended up (after a follow or a redirect)
+    commit: text("commit"),
+    branch: text("branch"),
+    actor: jsonb("actor").$type<Actor>().notNull(),
+    takenAt: timestamp("taken_at", { withTimezone: true }).notNull().defaultNow(),
+    // PLA-I52-3: a delivery's pair. side antes (sandbox) | despues (the delivery's copy); null for the Ventana's.
+    side: text("side"),
+    missing: boolean("missing").notNull().default(false), // antes: the path did not exist (a new screen)
+    diff: jsonb("diff").$type<import("../captures/diff.js").DiffBox | { nueva: true } | { unreadable: true }>(), // despues
+  },
+  (t) => [
+    index("capture_stills_side_idx").on(t.taskId, t.side, t.pageKey, t.viewport, t.takenAt),
+    check("capture_stills_side_check", sql`${t.side} is null or ${t.side} in ('antes', 'despues')`),
+    index("capture_stills_latest_idx").on(t.projectId, t.pageKey, t.viewport, t.takenAt),
+    index("capture_stills_task_idx").on(t.taskId, t.takenAt),
+    check("capture_stills_status_check", sql`${t.status} in ('ok', 'error')`),
+    check("capture_stills_viewport_check", sql`${t.viewport} in ('desktop', 'phone')`),
+    check("capture_stills_file_check", sql`(${t.status} = 'ok') = (${t.file} is not null)`),
+  ],
+);
+export type CaptureStill = typeof captureStills.$inferSelect;
+
+// PLA-I54-2: pictures Jorge attaches to a request (pasted, dropped or picked on Pedir). Migration 0056. The file lives
+// in the local store under <captures dir>/pedidos/<project>/, named by its sha256 (src/pedidos/images.ts); Plania keeps
+// the row. The same picture twice on one request is one row; at most 6 per request (checked on upload).
+export const IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"] as const;
+export type ImageMime = (typeof IMAGE_MIMES)[number];
+export const taskImages = pgTable(
+  "task_images",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    file: text("file").notNull(), // <sha256>.<png|jpg|webp> in the store
+    mime: text("mime").$type<ImageMime>().notNull(),
+    bytes: integer("bytes").notNull(),
+    width: integer("width"),
+    height: integer("height"),
+    actor: jsonb("actor").$type<Actor>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("task_images_task_file_unique").on(t.taskId, t.file),
+    index("task_images_task_idx").on(t.taskId, t.createdAt),
+    check("task_images_mime_check", sql`${t.mime} in ('image/png', 'image/jpeg', 'image/webp')`),
+    check("task_images_bytes_check", sql`${t.bytes} > 0 and ${t.bytes} <= 5242880`),
+  ],
+);
+export type TaskImage = typeof taskImages.$inferSelect;
+
+// PLA-I61-2 (La idea abierta): Artist's frames on an idea, in order, with what each does and why. Migration 0059.
+// Same local store as the request pictures (src/pedidos/frames.ts); attach_frames replaces the whole set.
+export const ideaFrames = pgTable(
+  "idea_frames",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    frameId: text("frame_id").notNull(), // the designer's own label: T, A1, B3…
+    name: text("name").notNull(),
+    grupo: text("grupo"),
+    hace: text("hace"),
+    porque: text("porque"),
+    position: integer("position").notNull(),
+    file: text("file").notNull(),
+    mime: text("mime").$type<ImageMime>().notNull(),
+    bytes: integer("bytes").notNull(),
+    width: integer("width"),
+    height: integer("height"),
+    actor: jsonb("actor").$type<Actor>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idea_frames_task_frame_unique").on(t.taskId, t.frameId),
+    index("idea_frames_task_idx").on(t.taskId, t.position),
+    check("idea_frames_mime_check", sql`${t.mime} in ('image/png', 'image/jpeg', 'image/webp')`),
+    check("idea_frames_bytes_check", sql`${t.bytes} > 0 and ${t.bytes} <= 5242880`),
+  ],
+);
+export type IdeaFrame = typeof ideaFrames.$inferSelect;
+
+// PLA-I46-9: the QA lane's passes on a delivery. Migration 0049. The PO's check list it reads is tasks.po_checklist
+// (PoCheck, migration 0048); QA's marks live on the lane (per commit), not on the item.
+
+export type QaVerifyItem = {
+  name: string;
+  command: string;
+  exit_code: number | null;
+  ok: boolean;
+  pass: number | null;
+  fail: number | null;
+  duration_s: number;
+  tail: string; // the last lines of output, for Taller's notes
+};
+export type QaCapture = { run_id: string | null; ok: number; failed: number; still_ids: string[]; error: string | null };
+export type QaReview = { verdict: "pass" | "fail"; notes: string; model: string | null };
+export type QaMark = { n: number; mark: "pass" | "fail"; note: string };
+export const QA_STATUSES = ["queued", "checking", "reviewing", "pass", "fail", "error"] as const;
+export type QaStatus = (typeof QA_STATUSES)[number];
+
+export const qaLanes = pgTable(
+  "qa_lanes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    taskKey: text("task_key").notNull(),
+    commit: text("commit"),
+    branch: text("branch"),
+    prUrl: text("pr_url"),
+    attempt: integer("attempt").notNull().default(1),
+    status: text("status").$type<QaStatus>().notNull().default("queued"),
+    hold: text("hold"),
+    verify: jsonb("verify").$type<QaVerifyItem[]>().notNull().default([]),
+    capture: jsonb("capture").$type<QaCapture | null>(),
+    review: jsonb("review").$type<QaReview | null>(),
+    marks: jsonb("marks").$type<QaMark[]>().notNull().default([]),
+    notes: text("notes"),
+    diffLines: integer("diff_lines"),
+    model: text("model"),
+    runId: uuid("run_id"),
+    reviewTries: integer("review_tries").notNull().default(0),
+    headAfter: text("head_after"),
+    returned: boolean("returned").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("qa_lanes_task_idx").on(t.taskId, t.createdAt),
+    index("qa_lanes_status_idx").on(t.status),
+    index("qa_lanes_run_idx").on(t.runId),
+    check("qa_lanes_status_check", sql`${t.status} in ('queued', 'checking', 'reviewing', 'pass', 'fail', 'error')`),
+    check("qa_lanes_attempt_check", sql`${t.attempt} >= 1`),
+  ],
+);
+export type QaLane = typeof qaLanes.$inferSelect;
+
+// PLA-I41-1: the Morning brief (spec "Spec: Morning brief" §7.2). A brief per run (several a day are fine; the page
+// shows the newest), the runs that made them, Send to Plania requests, the owner's checks, and one settings row.
+// Migration 0045. The BriefData shape lives with the brief engine; here data is plain JSON.
+export const BRIEF_TRIGGERS = ["schedule", "manual", "cli"] as const;
+export type BriefTrigger = (typeof BRIEF_TRIGGERS)[number];
+export const BRIEF_MODES = ["full", "partial", "facts_only"] as const;
+export type BriefMode = (typeof BRIEF_MODES)[number];
+
+export const morningBriefs = pgTable(
+  "morning_briefs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The date in the brief's time zone.
+    localDate: date("local_date").notNull(),
+    generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+    trigger: text("trigger").$type<BriefTrigger>().notNull(),
+    mode: text("mode").$type<BriefMode>().notNull(),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull(),
+    // brief_runs.id (no foreign key: a run row may be pruned while the brief stays).
+    runId: uuid("run_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("morning_briefs_date_idx").on(t.localDate.desc(), t.generatedAt.desc()),
+    check("morning_briefs_trigger_check", sql`${t.trigger} in ('schedule', 'manual', 'cli')`),
+    check("morning_briefs_mode_check", sql`${t.mode} in ('full', 'partial', 'facts_only')`),
+  ],
+);
+
+export type MorningBrief = typeof morningBriefs.$inferSelect;
+
+export const BRIEF_RUN_STATUSES = ["waiting", "running", "ok", "partial", "fail", "fallback"] as const;
+export type BriefRunStatus = (typeof BRIEF_RUN_STATUSES)[number];
+export type BriefPassRecord = { status: string; turns?: number; tokens?: number; log_file?: string };
+
+export const briefRuns = pgTable(
+  "brief_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    trigger: text("trigger").notNull(),
+    status: text("status").$type<BriefRunStatus>().notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    // {brief: {status, turns, tokens, log_file}, ideas: {...}}; log_file is a file name only.
+    passes: jsonb("passes").$type<Record<string, BriefPassRecord>>().notNull().default({}),
+    // One plain line; never home paths, env values or tokens.
+    summary: text("summary").notNull().default(""),
+  },
+  (t) => [
+    check("brief_runs_status_check", sql`${t.status} in ('waiting', 'running', 'ok', 'partial', 'fail', 'fallback')`),
+  ],
+);
+
+export type BriefRun = typeof briefRuns.$inferSelect;
+
+export const BRIEF_PLAN_STATUSES = ["open", "done", "partial", "failed"] as const;
+export type BriefPlanStatus = (typeof BRIEF_PLAN_STATUSES)[number];
+export type BriefPlanTarget = {
+  slug: string;
+  po_agent: string;
+  codes: string[];
+  wake_run_id?: string | null;
+  state: "waiting_paused" | "queued" | "running" | "done" | "failed";
+  // PLA-I43-1: the "Plan these ideas" message (posted in the same transaction as the wake), why the target waits
+  // or failed (one plain line), and when it last changed.
+  message_id?: string | null;
+  note?: string | null;
+  updated_at?: string;
+  results: {
+    code: string;
+    status: "created" | "duplicate" | "proposed" | "failed";
+    idea_key?: string;
+    initiative_key?: string;
+    ticket_keys?: string[];
+    note?: string;
+  }[];
+};
+
+// Send to Plania (D3): the ideas the owner picked from a brief, and how each target project's PO is doing.
+export const briefPlanRequests = pgTable(
+  "brief_plan_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    briefId: uuid("brief_id")
+      .notNull()
+      .references(() => morningBriefs.id, { onDelete: "cascade" }),
+    codes: text("codes").array().notNull(),
+    // The chosen Idea objects (code, app, title, why, flags).
+    ideas: jsonb("ideas").$type<Record<string, unknown>[]>().notNull(),
+    targets: jsonb("targets").$type<BriefPlanTarget[]>().notNull().default([]),
+    status: text("status").$type<BriefPlanStatus>().notNull().default("open"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("brief_plan_requests_status_check", sql`${t.status} in ('open', 'done', 'partial', 'failed')`)],
+);
+
+export type BriefPlanRequest = typeof briefPlanRequests.$inferSelect;
+
+// Item.id or Idea.id, stable across days. Uncheck = delete; ids unseen for 30 days are pruned by the pipeline.
+export const briefChecks = pgTable("brief_checks", {
+  itemId: text("item_id").primaryKey(),
+  checkedAt: timestamp("checked_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type BriefCheck = typeof briefChecks.$inferSelect;
+
+// PLA-I49-3: what the owner did from a brief row (migration 0050). request_id makes a retry write once.
+export type BriefActionOutcome = { status: "running" | "done" | "failed"; line?: string; error?: string; hint?: string; result?: Record<string, unknown>; undo?: Record<string, unknown> };
+export const briefActions = pgTable(
+  "brief_actions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    briefId: uuid("brief_id")
+      .notNull()
+      .references(() => morningBriefs.id, { onDelete: "cascade" }),
+    itemId: text("item_id").notNull(),
+    action: text("action").notNull(),
+    target: jsonb("target").$type<Record<string, unknown> | null>(),
+    input: jsonb("input").$type<Record<string, unknown>>().notNull().default({}),
+    outcome: jsonb("outcome").$type<BriefActionOutcome>().notNull().default({ status: "running" }),
+    requestId: text("request_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    undoneAt: timestamp("undone_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("brief_actions_request_idx").on(t.requestId), index("brief_actions_item_idx").on(t.itemId, t.createdAt.desc()), index("brief_actions_brief_idx").on(t.briefId)],
+);
+export type BriefAction = typeof briefActions.$inferSelect;
+
+export const BRIEF_LANGUAGES = ["en", "es"] as const;
+export type BriefLanguage = (typeof BRIEF_LANGUAGES)[number];
+export const BRIEF_GITHUB_MODES = ["poller", "gh", "off"] as const;
+export type BriefGithubMode = (typeof BRIEF_GITHUB_MODES)[number];
+export type BriefPassTimeouts = { brief: number; ideas: number; plan: number };
+export type BriefProjectSetting = { include?: boolean; include_ideas?: boolean; letter?: string; order?: number };
+
+export const briefSettings = pgTable(
+  "brief_settings",
+  {
+    id: integer("id").primaryKey().default(1),
+    enabled: boolean("enabled").notNull().default(true),
+    runAt: time("run_at").notNull().default("07:00"),
+    // Null = PLANIA_TZ.
+    timezone: text("timezone"),
+    // Null = derived (small map, else the IANA city).
+    timezoneLabel: text("timezone_label"),
+    // D5: content and page labels.
+    language: text("language").$type<BriefLanguage>().notNull().default("es"),
+    // Null = PLANIA_CEO_NAME.
+    ownerName: text("owner_name"),
+    hiddenRefs: text("hidden_refs").array().notNull().default(sql`'{}'::text[]`),
+    maxItemsPerApp: integer("max_items_per_app").notNull().default(5),
+    ideasPerProject: integer("ideas_per_project").notNull().default(3),
+    ideasEnabled: boolean("ideas_enabled").notNull().default(true),
+    // D4: hard ceiling for the scheduled brief (local time).
+    fallbackAt: time("fallback_at").notNull().default("11:00"),
+    // Null = CLI default.
+    model: text("model"),
+    passTimeouts: jsonb("pass_timeouts").$type<BriefPassTimeouts>().notNull().default({ brief: 10, ideas: 20, plan: 30 }),
+    projects: jsonb("projects").$type<Record<string, BriefProjectSetting>>().notNull().default({}),
+    githubMode: text("github_mode").$type<BriefGithubMode>().notNull().default("poller"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("brief_settings_id_check", sql`${t.id} = 1`),
+    check("brief_settings_language_check", sql`${t.language} in ('en', 'es')`),
+    check("brief_settings_github_mode_check", sql`${t.githubMode} in ('poller', 'gh', 'off')`),
+  ],
+);
+
+export type BriefSettings = typeof briefSettings.$inferSelect;
+
+// PLA-I57-1: Preguntar en Pedir. The owner's question about a project and the PO's answer (answer_consulta).
+// No task: a question creates no idea and no ticket. run_id is the PO's read-only run, null until one is queued.
+export type ConsultaAnswer = {
+  short: string;
+  why: string[];
+  sources: { path: string; line: number | null; missing: boolean }[];
+  branch: string | null;
+  commit: string | null;
+  sure: "seen" | "guess";
+  tried: boolean;
+  fix: string | null;
+  by: string;
+};
+export const consultas = pgTable(
+  "consultas",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    text: text("text").notNull(),
+    runId: uuid("run_id"),
+    answer: jsonb("answer").$type<ConsultaAnswer>(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    askedAt: timestamp("asked_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("consultas_project_idx").on(t.projectId, t.askedAt), check("consultas_text_check", sql`char_length(${t.text}) between 3 and 2000`)],
+);
+export type Consulta = typeof consultas.$inferSelect;

@@ -5,6 +5,9 @@ import type { Row, TableName, UnitOfWork } from "../store/types.js";
 import { ToolError } from "./errors.js";
 import { headlineWarnings } from "./jorge-lines.js";
 import { checkReleaseSettings } from "./release-plan.js";
+import { parseCaptureSettings } from "../captures/settings.js";
+import { parseQaSettings } from "../runner/qa-settings.js";
+import { parseMaquinasSettings } from "../maquinas/settings.js";
 import { TEXT_LIMITS } from "./limits.js";
 import { findProject } from "./queries.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
@@ -13,7 +16,7 @@ import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 // additions to the protocol) and the headline (one line on where it stands, ≤ 280 chars).
 // Replaced with the version you read; rules_version moves with the rules, headline_version with the headline.
 
-const SETTING_KEYS = ["release_target", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel", "release", "team"] as const;
+const SETTING_KEYS = ["release_target", "release_on", "auto_done", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel", "release", "team", "capture", "qa", "maquinas"] as const;
 
 // settings merge key by key; null removes one. Secrets never: integrations name env vars.
 function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>): ProjectSettings {
@@ -23,6 +26,8 @@ function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>)
     if (v === null) delete next[k];
     else next[k] = v;
   }
+  if (next.release_on !== undefined && !["env", "branch"].includes(String(next.release_on))) throw new ToolError("INVALID_FILTER", { field: "settings.release_on", allowed: ["env", "branch"] });
+  if (next.auto_done !== undefined && typeof next.auto_done !== "boolean") throw new ToolError("INVALID_FILTER", { field: "settings.auto_done", allowed: [true, false] });
   if (next.claim_from !== undefined && !["backlog", "ready"].includes(String(next.claim_from))) throw new ToolError("INVALID_FILTER", { field: "settings.claim_from", allowed: ["backlog", "ready"] });
   if (next.branch_pattern !== undefined) {
     try {
@@ -33,6 +38,24 @@ function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>)
   }
   if (next.release_target !== undefined && !/^[a-z][a-z0-9_-]{0,29}$/.test(String(next.release_target))) throw new ToolError("INVALID_FILTER", { field: "settings.release_target" });
   if (next.release !== undefined) next.release = checkReleaseSettings(next.release);
+  // PLA-I46-6: how Plania reaches the running app (src/captures/settings.ts).
+  if (next.capture !== undefined) {
+    const c = parseCaptureSettings(next.capture);
+    if (!c.ok) throw new ToolError("INVALID_FILTER", { field: c.field, hint: c.hint });
+    next.capture = c.settings;
+  }
+  // PLA-I46-9: the QA lane's verify list (src/runner/qa-settings.ts).
+  if (next.qa !== undefined) {
+    const q = parseQaSettings(next.qa);
+    if (!q.ok) throw new ToolError("INVALID_FILTER", { field: q.field, hint: q.hint });
+    next.qa = q.settings;
+  }
+  // PLA-I48-2: the floor's Máquinas (src/maquinas/settings.ts): env file name, migrate and seed commands, migrations folder.
+  if (next.maquinas !== undefined) {
+    const m = parseMaquinasSettings(next.maquinas);
+    if (!m.ok) throw new ToolError("INVALID_FILTER", { field: m.field, hint: m.hint });
+    next.maquinas = m.settings;
+  }
   if (next.team !== undefined) {
     const team = next.team as { idle_minutes?: unknown };
     if (typeof team !== "object" || team === null || Array.isArray(team)) throw new ToolError("INVALID_FILTER", { field: "settings.team" });
@@ -121,7 +144,7 @@ export async function markHeadlineStale(tx: Q, projectId: string): Promise<void>
 
 // Deleting a project. Postgres used to do it from one `delete from projects`, through the foreign keys'
 // ON DELETE actions; a store that is not SQL has none, so the write removes each row itself. FOREIGN_KEYS is
-// every foreign key Postgres has (the 59 in pg_constraint after the migrations), and deleteProject follows them
+// every foreign key in src/db/schema.ts (the 72 Postgres had after main's migrations), and deleteProject follows them
 // the way Postgres does: a cascade removes the rows pointing at a removed row, again and again down the chain
 // (a task's children, a question's delegated answer), and a set null clears the pointer on a row that stays
 // (an event keeps its task_key once the task is gone, an agent leaves the project's team).
@@ -235,6 +258,35 @@ const FOREIGN_KEYS: { [T in TableName]: ForeignKey<T>[] } = {
     { column: "threadId", references: "threads", onDelete: "cascade" },
     { column: "questionId", references: "questions", onDelete: "set null" },
   ],
+  runLocks: [{ column: "runId", references: "agentRuns", onDelete: "cascade" }],
+  runnerReservations: [],
+  runnerWorkers: [],
+  captureStills: [
+    { column: "projectId", references: "projects", onDelete: "cascade" },
+    { column: "taskId", references: "tasks", onDelete: "set null" },
+  ],
+  qaLanes: [
+    { column: "projectId", references: "projects", onDelete: "cascade" },
+    { column: "taskId", references: "tasks", onDelete: "cascade" },
+  ],
+  taskImages: [
+    { column: "projectId", references: "projects", onDelete: "cascade" },
+    { column: "taskId", references: "tasks", onDelete: "cascade" },
+  ],
+  ideaFrames: [
+    { column: "projectId", references: "projects", onDelete: "cascade" },
+    { column: "taskId", references: "tasks", onDelete: "cascade" },
+  ],
+  consultas: [
+    { column: "projectId", references: "projects", onDelete: "cascade" },
+    { column: "agentId", references: "agents", onDelete: "set null" },
+  ],
+  morningBriefs: [],
+  briefPlanRequests: [{ column: "briefId", references: "morningBriefs", onDelete: "cascade" }],
+  briefActions: [{ column: "briefId", references: "morningBriefs", onDelete: "cascade" }],
+  briefChecks: [],
+  briefRuns: [],
+  briefSettings: [],
 };
 
 type AnyKey = { column: string; references: TableName; onDelete: "cascade" | "set null" };
