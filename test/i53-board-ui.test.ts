@@ -196,7 +196,7 @@ test("I53-3 #1 #3 #4: the floor draws the board in place of Entrega and La fila,
   assert.match(html, /data-station="por"[^>]*data-agent="product-owner-demo"/);
   assert.match(html, /data-station="taller"[^>]*data-agent="taller-demo"/);
   assert.match(html, /data-station="qa"[^>]*data-agent="qa-demo"/);
-  assert.match(html, /class="edi-ix-mate"[^>]*data-agent="research-demo"/);
+  assert.match(html, /class="edi-sala-mate"[^>]*data-agent="research-demo"/, "PLA-I58-1: everyone is a window in La sala");
   assert.match(html, /class="edi-ix-ini" aria-pressed="true"[^>]*data-track="DEM-I2"/, "the open initiative is pressed in the index");
   // The actions on their cards.
   assert.match(html, /data-card="DEM-I2-6"[\s\S]*?data-control="tablero-detener"/);
@@ -208,7 +208,7 @@ test("I53-3 #1 #3 #4: the floor draws the board in place of Entrega and La fila,
   assert.match(sueltos, /data-card="o-o1"[^>]*data-etapa="pedido"[\s\S]*?Tu pedido · enviado[\s\S]*?Cambiar el color del botón/);
   // This read carries no done_initiatives, so nothing folds under the floor's board (PLA-I53-6 tests the folded line).
   assert.equal(html.includes("data-folded"), false);
-  for (const c of ["tablero-tarjeta", "indice-iniciativa", "indice-equipo", "tablero-hecho"]) assert.ok(html.includes(`data-control="${c}"`), c);
+  for (const c of ["tablero-tarjeta", "indice-iniciativa", "sala-equipo", "timbre", "tablero-hecho"]) assert.ok(html.includes(`data-control="${c}"`), c);
   // The files are gone.
   for (const f of ["components/compania/edificio/route.tsx", "components/compania/edificio/fila.tsx", "lib/fila.ts"]) assert.equal(existsSync(new URL(`../ui/src/${f}`, import.meta.url)), false, f);
 });
