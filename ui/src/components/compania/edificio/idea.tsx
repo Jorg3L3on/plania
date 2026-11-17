@@ -338,6 +338,8 @@ function Empty({ title, d, now, timeZone, acts }: { title: string; d: IdeaDetail
 function AnswerBar({ d, ui, set, acts }: Pick<IdeaViewProps, "d" | "ui" | "set" | "acts">) {
   const s = d.stops.find((x) => x.stop === ui.stop)!;
   if (!ANSWERABLE.includes(s.stop) || !s.delivered || !acts.onRespuesta) return null;
+  // While the PO asks him something, his answer to that question is the one that counts.
+  if (s.stop === "entendido" && d.question && !s.answer) return null;
   const busy = acts.busy === "respuesta";
   const send = (input: Omit<IdeaAnswerInput, "stop">) => acts.onRespuesta!({ stop: s.stop, ...input });
   if (s.answer) {
@@ -710,6 +712,7 @@ export const IdeaView = (props: IdeaViewProps) => {
         <div className="edi-pd-ask ia-ask-po" data-question={d.question.id}>
           <b>El PO pregunta</b>
           <span>{d.question.text}</span>
+          <div className="ia-ask-row">
           {d.question_options.length > 0 && (
             <span className="edi-pd-opts">
               {d.question_options.map((o) => (
@@ -734,6 +737,7 @@ export const IdeaView = (props: IdeaViewProps) => {
               {busy("answer") ? "…" : "Contestar"}
             </button>
           </form>
+          </div>
         </div>
       ) : (
         <p className="ia-asked">
