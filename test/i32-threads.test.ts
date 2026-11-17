@@ -200,3 +200,70 @@ test("I32-3 #3: a runner's finish leaves a line with links in its project thread
   await call("add_result", { actor: { agent: "taller-micasa", session_id: "manual" }, project: "micasa", key: created.key, kind: "test", verdict: "pass", cite: "manual" });
   assert.equal(((await (await get(`/api/threads/${thread.id}`)).json()) as { messages: Message[] }).messages.length, before);
 });
+
+// PLA-53: deliveries nobody could see.
+test("PLA-53: a finish from a session that is not a runner leaves the delivery line, and the ticket gets its card", async () => {
+  const { decisionsRead } = await import("../src/api/company-decisions.js");
+  const actor = { agent: "Claude Code", session_id: "cc-manual-53" };
+  const created = (await writes.createTask(db, { project: "micasa", title: "Arreglo a mano", scope: "s", checks: ["Queda arreglado"], status: "Ready" } as never, { actor })) as { key: string };
+  await writes.claim(db, { project: "micasa", key: created.key } as never, { actor });
+  const thread = await threadOf("micasa");
+  const count = async () => ((await (await get(`/api/threads/${thread.id}`)).json()) as { messages: Message[] }).messages;
+  const before = (await count()).length;
+  await call("add_result", { actor, project: "micasa", key: created.key, kind: "test", verdict: "pass", cite: "pnpm test: 3 pass", check_ns: [1] });
+  assert.equal((await count()).length, before, "its add_result stays silent");
+  const done = await call("finish", { actor, project: "micasa", key: created.key, pr_url: "https://github.com/example/micasa/pull/53", result: { kind: "test", verdict: "pass", cite: "pnpm test: 3 pass" } });
+  assert.equal(done.__error, undefined, JSON.stringify(done));
+  const last = (await count()).at(-1)!;
+  assert.match(last.body, new RegExp(`${created.key} queda En revisión`));
+  assert.deepEqual(last.author, { agent: "claude-code", role: "sesion" });
+  assert.deepEqual(last.actions, ["fusionar", "cambios"]);
+  const card = (await decisionsRead(db, new Date())).find((d) => d.id === `m-${last.id}`);
+  assert.ok(card, "the delivery has its card");
+
+  // 205 newer lines about other tickets: the open delivery is still read (it used to fall out of the newest 200).
+  const other = (await writes.createTask(db, { project: "micasa", title: "Otro", scope: "s", checks: ["c"] } as never, { actor })) as { key: string };
+  await raw.query(
+    `insert into thread_messages (thread_id, author_agent, author_role, body, links, at)
+     select $1, 'taller-micasa', 'taller', 'nota ' || g, $2::jsonb, now() + (g || ' seconds')::interval from generate_series(1, 205) g`,
+    [thread.id, JSON.stringify([{ kind: "ticket", ref: other.key, title: "Otro" }])],
+  );
+  assert.ok((await decisionsRead(db, new Date())).some((d) => d.id === `m-${last.id}`), "still carded behind 205 newer messages");
+});
+
+test("PLA-53: restart --check names what a restart would kill, and passes with nothing in flight", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { inFlight } = await import("../src/ops/in-flight.js");
+  const check = () => spawnSync(process.execPath, ["--import", "tsx", "scripts/restart.ts", "--check"], { env: { ...process.env, PLANIA_JOBS: "0" }, encoding: "utf8" });
+  await raw.query(`update agent_runs set status = 'ok', ended_at = now() where status = 'running'`);
+  await raw.query(`delete from qa_lanes where status = 'checking'`);
+  assert.deepEqual(await inFlight(db), []);
+  const quiet = check();
+  assert.equal(quiet.status, 0, quiet.stderr);
+  assert.match(quiet.stdout, /Nada en curso/);
+
+  const micasa = (await raw.query(`select id from projects where slug = 'micasa'`)).rows[0].id;
+  const taller = (await raw.query(`select id from agents where slug = 'taller-micasa'`)).rows[0].id;
+  const actor = { agent: "Claude Code", session_id: "cc-manual-53b" };
+  const a = (await writes.createTask(db, { project: "micasa", title: "Con run", scope: "s", checks: ["c"] } as never, { actor })) as { key: string };
+  const b = (await writes.createTask(db, { project: "micasa", title: "Con QA", scope: "s", checks: ["c"] } as never, { actor })) as { key: string };
+  const c = (await writes.createTask(db, { project: "micasa", title: "Con fotos", scope: "s", checks: ["c"] } as never, { actor })) as { key: string };
+  await raw.query(`insert into agent_runs (agent_id, project_id, role, status, started_at, task_key) values ($1, $2, 'taller', 'running', now(), $3)`, [taller, micasa, a.key]);
+  await raw.query(`insert into qa_lanes (project_id, task_id, task_key, status) select $1, id, key, 'checking' from tasks where key = $2`, [micasa, b.key]);
+  await raw.query(`update projects set settings = settings || '{"capture":{"start_command":"x","port":3000,"ready_path":"/","pages":[]}}'::jsonb where id = $1`, [micasa]);
+  await raw.query(`update tasks set status = 'In review', muestra = '{"frase":"f","vistas":[{"key":"a","label":"A","path":"/"}],"pasos":["1","2","3"]}'::jsonb, probador = $1::jsonb where key = $2`, [
+    JSON.stringify({ state: "tomando", attempts: 0, error: null, commit: null, at: new Date().toISOString() }),
+    c.key,
+  ]);
+  const found = await inFlight(db);
+  assert.deepEqual(found.map((f) => f.kind).sort(), ["fotos", "qa", "run"]);
+  const busy = check();
+  assert.equal(busy.status, 1);
+  for (const k of [a.key, b.key, c.key]) assert.ok(busy.stdout.includes(k), `${k} is named`);
+  // A «tomando» with nobody behind it (older than a whole pass) does not hold a restart: the sweep takes it again.
+  await raw.query(`update tasks set probador = jsonb_set(probador, '{at}', to_jsonb((now() - interval '10 minutes')::text)) where key = $1`, [c.key]);
+  assert.deepEqual((await inFlight(db)).map((f) => f.kind).sort(), ["qa", "run"]);
+  await raw.query(`update agent_runs set status = 'ok', ended_at = now() where status = 'running'`);
+  await raw.query(`delete from qa_lanes where status = 'checking'`);
+  await raw.query(`update projects set settings = settings - 'capture' where id = $1`, [micasa]);
+});

@@ -110,6 +110,8 @@ stays off and everything else works. Phone access over Tailscale and turning pus
 
 ### Upgrading to 2.13 (agent surface)
 
+Restart with `pnpm restart`: it lists what a restart would cut (a running agent, a QA check, El Probador's pictures, a Máquinas test run) and refuses while there is any; `--check` only lists, `--force` restarts anyway.
+
 No migration. `pnpm build`, then restart the service; agents get the `start` / `finish` tools on their
 next `initialize`. That release served protocol 2.12. PLA-I8-3 moved the protocol to 2.13: those questions were answered only on the screen (that step was removed in 2.17). Shipping a release from the screen is off until a project asks for it: add `mode: "merge"` to its
 `settings.release` (on screen or `set_project settings {release: {from, into, env, mode: "merge"}}`) and keep

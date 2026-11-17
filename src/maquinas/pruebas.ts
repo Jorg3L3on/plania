@@ -48,9 +48,44 @@ export async function pruebasRead(db: Db, slug: string): Promise<PruebasRead> {
   const cmds = commandsOf(p);
   const wt = appDirs(slug, p.settings, menv()).prueba;
   const r = running.get(slug);
+  if (!r) await closeInterrupted(db, slug);
   const reason = !cmds.length ? "Este piso no tiene comandos de prueba (settings.qa.verify o un script test)" : !wt ? "Enciende la app una vez para crear la copia de prueba" : null;
   return { running: r ? { started_at: r.started_at, step: r.step } : null, last: await last(db, slug), commands: cmds.map(({ name, command }) => ({ name, command })), can: !reason, reason };
 }
+
+// PLA-53: a run lives in this process. It leaves a marker while it runs; a marker with no run behind it is a run the
+// server's restart cut, and it is recorded as that (once) instead of vanishing.
+const markKey = (slug: string) => `maquinas:pruebas:${slug}:corriendo`;
+export const INTERRUPTED = "Plania se reinició a media corrida: las pruebas no terminaron. Córrelas otra vez.";
+async function closeInterrupted(db: Db, slug: string): Promise<void> {
+  const [m] = await db.select().from(machineState).where(eq(machineState.key, markKey(slug)));
+  if (!m) return;
+  const v = m.value as { started_at?: string; step?: string | null; server_pid?: number };
+  // Another live Plania server on this database (a dev server) may still be running it.
+  if (v.server_pid && v.server_pid !== process.pid && alive(v.server_pid)) return;
+  const ended = new Date();
+  const started = v.started_at ?? ended.toISOString();
+  const result: PruebasResult = {
+    ok: false,
+    started_at: started,
+    ended_at: ended.toISOString(),
+    duration_ms: Math.max(0, ended.getTime() - Date.parse(started)),
+    passed: null,
+    failed: null,
+    steps: [{ name: v.step ?? "?", command: "", ok: false, code: null, ms: 0, passed: null, failed: null, tail: [INTERRUPTED] }],
+    commit: null,
+  };
+  await db.insert(machineState).values({ key: key(slug), value: result }).onConflictDoUpdate({ target: machineState.key, set: { value: result, updatedAt: ended } });
+  await db.delete(machineState).where(eq(machineState.key, markKey(slug)));
+}
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 // Starts a run. A second call while one runs is refused.
 export async function correrPruebas(db: Db, slug: string): Promise<PruebasRead> {
@@ -64,6 +99,12 @@ export async function correrPruebas(db: Db, slug: string): Promise<PruebasRead> 
   const startedAt = new Date();
   const state = { started_at: startedAt.toISOString(), step: cmds[0]!.name as string | null, done: Promise.resolve() };
   running.set(slug, state);
+  const mark = { started_at: state.started_at, step: state.step, server_pid: process.pid };
+  await db
+    .insert(machineState)
+    .values({ key: markKey(slug), value: mark })
+    .onConflictDoUpdate({ target: machineState.key, set: { value: mark, updatedAt: startedAt } })
+    .catch((e) => console.log(`[pruebas] ${slug}: could not mark the run: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`));
   state.done = (async () => {
     const steps: PruebaStep[] = [];
     try {
@@ -98,7 +139,8 @@ export async function correrPruebas(db: Db, slug: string): Promise<PruebasRead> 
       .insert(machineState)
       .values({ key: key(slug), value: result })
       .onConflictDoUpdate({ target: machineState.key, set: { value: result, updatedAt: ended } })
-      .catch(() => undefined);
+      .catch((e) => console.log(`[pruebas] ${slug}: could not save the result: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`));
+    await db.delete(machineState).where(eq(machineState.key, markKey(slug))).catch(() => undefined);
   })().finally(() => running.delete(slug));
   return pruebasRead(db, slug);
 }

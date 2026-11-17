@@ -370,20 +370,25 @@ async function proposalRows(db: Db, since: Date, slugById: Map<string, Project>)
 
 async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, skip: Set<string>): Promise<Decision[]> {
   const out: Decision[] = [];
-  const rows = await db
-    .select({ m: threadMessages, projectId: threads.projectId })
-    .from(threadMessages)
-    .innerJoin(threads, eq(threads.id, threadMessages.threadId))
-    .where(
-      and(
-        ne(threadMessages.authorAgent, JORGE.agent),
-        isNull(threadMessages.questionId),
-        sql`(${threadMessages.links} @> '[{"kind":"ticket"}]'::jsonb or ${threadMessages.links} @> '[{"kind":"idea"}]'::jsonb)`,
-        or(isNull(threadMessages.actionState), sql`(${threadMessages.actionState}->>'at')::timestamptz >= ${since.toISOString()}::timestamptz`),
-      ),
-    )
-    .orderBy(desc(threadMessages.at))
-    .limit(200);
+  const base = and(
+    ne(threadMessages.authorAgent, JORGE.agent),
+    isNull(threadMessages.questionId),
+    sql`(${threadMessages.links} @> '[{"kind":"ticket"}]'::jsonb or ${threadMessages.links} @> '[{"kind":"idea"}]'::jsonb)`,
+  );
+  const read = (where: ReturnType<typeof and>, limit: number) =>
+    db.select({ m: threadMessages, projectId: threads.projectId }).from(threadMessages).innerJoin(threads, eq(threads.id, threadMessages.threadId)).where(where).orderBy(desc(threadMessages.at)).limit(limit);
+  // PLA-53: an open message can only be acted on while its ticket is In review, and those are read whole: a delivery
+  // nobody answered is never pushed out of the window by newer messages. What he already acted on stays windowed.
+  const open = await read(
+    and(
+      base,
+      isNull(threadMessages.actionState),
+      sql`exists (select 1 from ${tasks} t, jsonb_array_elements(${threadMessages.links}) l where t.status = 'In review' and l->>'kind' in ('ticket', 'idea') and t.key = l->>'ref' and (${threads.projectId} is null or t.project_id = ${threads.projectId}))`,
+    ),
+    1000,
+  );
+  const acted = await read(and(base, sql`(${threadMessages.actionState}->>'at')::timestamptz >= ${since.toISOString()}::timestamptz`), 200);
+  const rows = [...open, ...acted].sort((a, b) => b.m.at.getTime() - a.m.at.getTime());
   // One card per ticket: rows come newest first, so an open message whose ticket already has a card (a newer
   // delivery, or one already accepted or sent back) is the same delivery said again and is left out.
   const carded = new Set<string>();

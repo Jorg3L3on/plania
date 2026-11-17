@@ -1,0 +1,54 @@
+// PLA-53: what a restart of the Plania server would kill. Runs, QA checks, El Probador's passes and Máquinas test
+// runs live in the server process: a restart (every release) cuts them. `pnpm restart` reads this first and refuses
+// while anything is listed (scripts/restart.ts).
+import { and, eq, like, sql } from "drizzle-orm";
+import type { Db } from "../db/client.js";
+import { agentRuns, agents, machineState, projects, qaLanes, tasks } from "../db/schema.js";
+
+export type InFlight = { kind: "run" | "qa" | "fotos" | "entrega" | "pruebas"; text: string };
+
+// A «tomando» older than this has nobody behind it (the sweep takes it again); a delivery this fresh may be about to
+// get its pass.
+const PASS_MS = 6 * 60_000;
+const FRESH_MS = 2 * 60_000;
+
+export async function inFlight(db: Db, now = new Date()): Promise<InFlight[]> {
+  const out: InFlight[] = [];
+  const runs = await db
+    .select({ slug: agents.slug, key: agentRuns.taskKey, startedAt: agentRuns.startedAt })
+    .from(agentRuns)
+    .innerJoin(agents, eq(agents.id, agentRuns.agentId))
+    .where(eq(agentRuns.status, "running"));
+  for (const r of runs) out.push({ kind: "run", text: `${r.slug} trabaja${r.key ? ` en ${r.key}` : ""}${r.startedAt ? ` desde ${r.startedAt.toISOString().slice(11, 16)}Z` : ""}` });
+
+  const lanes = await db.select({ key: tasks.key }).from(qaLanes).innerJoin(tasks, eq(tasks.id, qaLanes.taskId)).where(eq(qaLanes.status, "checking"));
+  for (const l of lanes) out.push({ kind: "qa", text: `QA corre las pruebas de ${l.key}` });
+
+  const deliveries = await db
+    .select({ t: tasks, p: projects })
+    .from(tasks)
+    .innerJoin(projects, eq(projects.id, tasks.projectId))
+    .where(and(eq(tasks.status, "In review"), sql`${tasks.muestra} is not null`));
+  for (const { t, p } of deliveries) {
+    if (!p.settings.capture) continue;
+    const s = t.probador;
+    if (s?.state === "tomando" && now.getTime() - Date.parse(s.at) < PASS_MS) out.push({ kind: "fotos", text: `El Probador toma las fotos de ${t.key}` });
+    else if (!s && now.getTime() - (t.statusChangedAt ?? t.createdAt).getTime() < FRESH_MS) out.push({ kind: "entrega", text: `${t.key} se acaba de entregar: sus fotos están por empezar` });
+  }
+
+  const marks = await db.select().from(machineState).where(like(machineState.key, "maquinas:pruebas:%:corriendo"));
+  for (const m of marks) {
+    const pid = Number((m.value as { server_pid?: number }).server_pid);
+    if (Number.isInteger(pid) && pid > 1 && alive(pid)) out.push({ kind: "pruebas", text: `Máquinas corre las pruebas de ${m.key.split(":")[2]}` });
+  }
+  return out;
+}
+
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
