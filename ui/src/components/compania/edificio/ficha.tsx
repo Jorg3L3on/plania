@@ -4,7 +4,9 @@
 // already draws elsewhere (a teammate, the plan, Sumar, the app, Solo tú, Lo último) as slots.
 import type { CSSProperties, ReactNode } from "react";
 import Markdown from "react-markdown";
-import type { FichaDoc, FichaIdea, FichaPr, OrgFicha, OrgProject, ProjectDocBody, ProjectTicket } from "@/lib/api";
+import type { FichaDoc, FichaIdea, FichaPr, OrgFicha, OrgProject, PedidoDetail, ProjectDocBody, ProjectTicket } from "@/lib/api";
+import { PedidoTab, type PedidoActs, type PedidoSlots } from "./pedido";
+import { pedidoWord, stopName } from "./tubo";
 import { floorHue } from "@/lib/edificio";
 import { FICHA_TABS, TAB_WORD, tabOf, type FichaRef, type FichaTab } from "@/lib/ficha";
 import type { TaskDetail } from "@/lib/types";
@@ -127,6 +129,34 @@ const Resumen = ({ p, onRef, slots }: { p: OrgProject; onRef: (r: FichaRef) => v
           La app
         </button>
       </div>
+    </>
+  );
+};
+
+// PLA-I54-3: the Pedido tab: the requests taking shape (the tube's capsules) and the shelf. A row opens the request.
+const PedidoList = ({ p, onRef, shelf }: { p: OrgProject; onRef: (r: FichaRef) => void; shelf?: boolean }) => {
+  const all = p.pedidos ?? [];
+  const list = all.filter((x) => !!x.guardada === !!shelf);
+  const saved = all.filter((x) => x.guardada).length;
+  return (
+    <>
+      {shelf && <Title eyebrow="Pedidos" title="Guardadas" state="Ideas que apartaste. No se pierden y nadie las trabaja." />}
+      {list.length === 0 ? (
+        <Empty>{shelf ? "Ninguna guardada." : "Ningún pedido tomando forma. Pide algo con «Darle forma» y toca su cápsula en el tubo."}</Empty>
+      ) : (
+        <ul className="edi-fi-lis" data-fi-list={shelf ? "guardadas" : "pedido"}>
+          {list.map((x) => (
+            <Li key={x.key} onClick={() => onRef({ kind: "pedido", key: x.key })} title={x.title} sub={shelf ? `Guardada · ${stopName(x.stop)}` : `${pedidoWord(x)} · ${stopName(x.stop)}`} tail={x.key} data={x.key} />
+          ))}
+        </ul>
+      )}
+      {!shelf && saved > 0 && (
+        <div className="edi-fi-acts">
+          <button type="button" className="edi-btn" onClick={() => onRef({ kind: "guardadas" })} data-control="ficha-guardadas">
+            Guardadas · {saved}
+          </button>
+        </div>
+      )}
     </>
   );
 };
@@ -285,8 +315,14 @@ const TicketLists = ({ tickets, now, onRef }: { tickets: ProjectTicket[]; now: n
   );
 };
 
-const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone }: { p: OrgProject; r: Exclude<FichaRef, { kind: "tab" }>; rows: Load<OrgFicha>; task: Load<TaskDetail>; doc: Load<ProjectDocBody>; onRef: (r: FichaRef) => void; slots: FichaSlots; now: number; timeZone?: string }) => {
+type PedidoProps = { pedido?: Load<PedidoDetail>; pedidoActs?: PedidoActs; pedidoSlots?: PedidoSlots };
+const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone, pedido, pedidoActs, pedidoSlots }: { p: OrgProject; r: Exclude<FichaRef, { kind: "tab" }>; rows: Load<OrgFicha>; task: Load<TaskDetail>; doc: Load<ProjectDocBody>; onRef: (r: FichaRef) => void; slots: FichaSlots; now: number; timeZone?: string } & PedidoProps) => {
   switch (r.kind) {
+    // PLA-I54-3: one request of the owner's, and the shelf.
+    case "pedido":
+      return whenLoaded(pedido ?? { status: "loading" }, "el pedido", (d) => <PedidoTab d={d} now={now} timeZone={timeZone} acts={{ ...pedidoActs, onDoc: (id) => onRef({ kind: "doc", id }) }} slots={pedidoSlots} />);
+    case "guardadas":
+      return <PedidoList p={p} onRef={onRef} shelf />;
     case "step":
       return whenLoaded(task, "el paso", (t) => (
         <>
@@ -454,7 +490,10 @@ export const Ficha = ({
   timeZone,
   onRef,
   onClose,
-}: {
+  pedido,
+  pedidoActs,
+  pedidoSlots,
+}: PedidoProps & {
   project: OrgProject;
   fref: FichaRef;
   rows: Load<OrgFicha>;
@@ -468,7 +507,8 @@ export const Ficha = ({
 }) => {
   const tab = tabOf(fref);
   const counts = rows.status === "ok" && rows.data ? rows.data.counts : null;
-  const n: Partial<Record<FichaTab, number>> = counts ? { ideas: counts.ideas, diseno: counts.designs, prs: counts.prs, docs: counts.docs } : {};
+  const live = (p.pedidos ?? []).filter((x) => !x.guardada).length;
+  const n: Partial<Record<FichaTab, number>> = { ...(counts ? { ideas: counts.ideas, diseno: counts.designs, prs: counts.prs, docs: counts.docs } : {}), ...(live ? { pedido: live } : {}) };
   return (
     // dark: the parts it borrows from the app (a teammate, the plan, Sumar) use the app's tokens; the card is a night
     // panel in both themes, like the question bubbles (PLA-I47-7).
@@ -495,11 +535,13 @@ export const Ficha = ({
         {fref.kind === "tab" ? (
           fref.tab === "resumen" ? (
             <Resumen p={p} onRef={onRef} slots={slots} />
+          ) : fref.tab === "pedido" ? (
+            <PedidoList p={p} onRef={onRef} />
           ) : (
             <ListTab tab={fref.tab} rows={rows} onRef={onRef} timeZone={timeZone} />
           )
         ) : (
-          <Detail p={p} r={fref} rows={rows} task={task} doc={doc} onRef={onRef} slots={slots} now={now} timeZone={timeZone} />
+          <Detail p={p} r={fref} rows={rows} task={task} doc={doc} onRef={onRef} slots={slots} now={now} timeZone={timeZone} pedido={pedido} pedidoActs={pedidoActs} pedidoSlots={pedidoSlots} />
         )}
       </div>
     </aside>

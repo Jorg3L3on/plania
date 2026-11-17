@@ -191,6 +191,10 @@ export const api = {
     request<{ plan_approval: boolean; preview_url: string | null }>("PUT", `/company/projects/${encodeURIComponent(slug)}/options`, input),
   stopRun: (id: string) => request<{ stopped: true; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/stop`),
   resumeRun: (id: string) => request<{ woke: boolean; reason: string; ticket: string | null }>("POST", `/company/runs/${encodeURIComponent(id)}/resume`),
+  // PLA-I54-3: the Pedido tab (a note uses noteTask, an answer the screen's answer route).
+  pedido: (slug: string, key: string) => request<PedidoDetail>("GET", `/company/projects/${encodeURIComponent(slug)}/pedidos/${encodeURIComponent(key)}`),
+  pedidoAct: (slug: string, key: string, action: "guardar" | "restaurar" | "descartar", reason?: string) =>
+    request<{ key: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/pedidos/${encodeURIComponent(key)}/${action}`, reason ? { reason } : {}),
   noteTask: (slug: string, key: string, text: string) => request<{ noted: true }>("POST", `/company/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/note`, { text }),
   resendRequest: (slug: string, key: string) => request<{ key: string; wake: "queued" | "busy" | "off" }>("POST", `/company/projects/${encodeURIComponent(slug)}/requests/${encodeURIComponent(key)}/resend`),
   cancelOrder: (slug: string, key: string) => request<{ cancelled: string[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/orders/${encodeURIComponent(key)}/cancel`),
@@ -212,6 +216,27 @@ export type AskResult = { key: string; title: string; po: string; mode?: AskMode
 // PLA-I54-1: one of the owner's ideas taking shape, a capsule in the floor's tube (src/api/company-pedidos.ts).
 export type PedidoStop = "buzon" | "entendido" | "investigacion" | "diseno" | "plan" | "lista";
 export type PedidoState = "espera" | "trabajando" | "quieta" | "cola" | "valvula";
+// PLA-I54-3: one request in La ficha's Pedido tab (src/api/company-pedido.ts).
+export type PedidoTrailItem = {
+  at: string;
+  who: string;
+  kind: "pedido" | "nota" | "entendi" | "pregunta" | "respuesta" | "doc" | "etapa" | "guardada" | "restaurada" | "construir" | "valvula" | "descartada";
+  text: string;
+  doc?: { id: string; title: string };
+};
+export type PedidoFicha = { problema: string | null; tamano: string | null; solucion: string | null; riesgos: string | null; fuera: string | null };
+export type PedidoDetail = OrgPedido & {
+  mode: "forma";
+  text: string;
+  status: string;
+  stage: string | null;
+  promoted_to: string | null;
+  question_options: string[];
+  trail: PedidoTrailItem[];
+  ficha: PedidoFicha;
+  // PLA-I54-5: the request's pictures.
+  pictures: { id: string; url: string; at: string }[];
+};
 export type OrgPedido = {
   key: string;
   title: string;

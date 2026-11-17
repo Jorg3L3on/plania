@@ -1,0 +1,198 @@
+// PLA-I54-3 (Pedidos con recorrido): one open request in La ficha's «Pedido» tab, on the cookie-only company routes.
+//   GET  /api/company/projects/:slug/pedidos/:key             the idea: stop, state, who, the PO's open question,
+//        Recorrido (its events, docs and questions, oldest first) and Ficha de la idea (the five headings, read from its
+//        docs; null where nobody wrote it yet)
+//   POST /api/company/projects/:slug/pedidos/:key/guardar      off the tube, listed under Guardadas (an event)
+//   POST /api/company/projects/:slug/pedidos/:key/restaurar    back to its stop
+//   POST /api/company/projects/:slug/pedidos/:key/descartar {reason?}   Won't do, with the reason as its note
+// The note box uses POST …/tasks/:key/note (company-runs.ts: the PO reads it on its next run) and the answer box the
+// screen's answer route (POST /api/projects/:slug/questions/:id/answer, which wakes the PO that asked).
+// PLA-I54-5: images join the trail and the note box; the detail's pictures is [] until F5 fills it.
+import { and, asc, desc, eq } from "drizzle-orm";
+import type { Db } from "../db/client.js";
+import { docs, events, projects, questions, tasks, type Actor, type Task } from "../db/schema.js";
+import { findProject } from "../mcp/queries.js";
+import { webCtx, writeTx } from "../mcp/tx.js";
+import { setTask } from "../mcp/writes.js";
+import { agentOfActor } from "../runner/events.js";
+import { roleOf } from "../runner/limits.js";
+import { CONSTRUIR, GUARDADA, RESTAURADA, pedidoOf, type Pedido } from "./company-pedidos.js";
+
+export type FichaIdea = { problema: string | null; tamano: string | null; solucion: string | null; riesgos: string | null; fuera: string | null };
+export type TrailItem = {
+  at: string;
+  // jorge, a runner role (product-owner, research, artist…), or the actor's own name.
+  who: string;
+  kind: "pedido" | "nota" | "entendi" | "pregunta" | "respuesta" | "doc" | "etapa" | "guardada" | "restaurada" | "construir" | "valvula" | "descartada";
+  text: string;
+  doc?: { id: string; title: string };
+};
+export type PedidoDetail = Pedido & {
+  mode: "forma";
+  // The owner's words as he sent them.
+  text: string;
+  status: string;
+  stage: string | null;
+  promoted_to: string | null;
+  question_options: string[];
+  trail: TrailItem[];
+  ficha: FichaIdea;
+  // PLA-I54-5: the request's pictures (thumbnails in the trail). Empty until F5 fills it from task_images.
+  pictures: { id: string; url: string; at: string }[];
+};
+type Refusal = { error: string; status: 404 | 409; hint: string };
+
+const STAGE_WORD: Record<string, string> = { idea: "Idea", research: "Investigación", design: "Diseño", planning: "Plan", ready: "Lista" };
+// Each line of the idea's ficha, from its docs: the Spanish heading the PO is asked for, else the stage docs' own.
+const FICHA_HEADINGS: Record<keyof FichaIdea, string[]> = {
+  problema: ["Problema", "Problem"],
+  tamano: ["Tamaño", "Size"],
+  solucion: ["Solución", "Solution", "Recommendation", "Approach"],
+  riesgos: ["Riesgos", "Risks"],
+  fuera: ["Fuera", "Out of scope"],
+};
+
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// The text under a markdown heading, up to the next heading; null when the heading is missing or empty.
+export function section(markdown: string, heading: string): string | null {
+  const m = new RegExp(`^(#{1,6})[ \\t]+${esc(heading)}[ \\t]*$`, "im").exec(markdown);
+  if (!m) return null;
+  const rest = markdown.slice(m.index + m[0].length);
+  const next = /^#{1,6}[ \t]+\S/m.exec(rest);
+  const body = (next ? rest.slice(0, next.index) : rest).trim();
+  if (!body) return null;
+  return body.length > 600 ? `${body.slice(0, 599).trimEnd()}…` : body;
+}
+
+export function fichaOf(list: { markdown: string }[]): FichaIdea {
+  const out = { problema: null, tamano: null, solucion: null, riesgos: null, fuera: null } as FichaIdea;
+  for (const k of Object.keys(FICHA_HEADINGS) as (keyof FichaIdea)[]) {
+    for (const h of FICHA_HEADINGS[k]) {
+      for (const d of list) {
+        out[k] ??= section(d.markdown, h);
+        if (out[k]) break;
+      }
+      if (out[k]) break;
+    }
+  }
+  return out;
+}
+
+const ASKED = /\(Darle forma\): "([\s\S]*)"\n/;
+export const askedText = (scope: string, title: string) => ASKED.exec(scope)?.[1] ?? title;
+const UNDERSTOOD = /^\s*entend[ií]\s*[:：-]/i;
+const SCREEN_NOTE = /^De Compañía:\s*/;
+const DROPPED = /^Descartada por Jorge desde Compañía(?::\s*([\s\S]+)|\.)$/;
+
+async function whoOf(db: Db, actor: Actor | null | undefined, cache: Map<string, string>): Promise<string> {
+  if (!actor) return "plania";
+  if (actor.agent === "jorge") return "jorge";
+  const id = `${actor.agent}|${actor.session_id}`;
+  const hit = cache.get(id);
+  if (hit) return hit;
+  const a = await agentOfActor(db, actor);
+  const who = a ? (roleOf(a) ?? a.role) : actor.agent;
+  cache.set(id, who);
+  return who;
+}
+
+async function trailOf(db: Db, t: Task): Promise<TrailItem[]> {
+  const rows = await db.select().from(events).where(eq(events.taskId, t.id)).orderBy(asc(events.id));
+  const cache = new Map<string, string>();
+  const out: TrailItem[] = [];
+  for (const e of rows) {
+    const p = e.payload as Record<string, unknown>;
+    const at = e.createdAt.toISOString();
+    const who = await whoOf(db, e.actor as Actor, cache);
+    const push = (kind: TrailItem["kind"], text: string, extra: Partial<TrailItem> = {}) => out.push({ at, who, kind, text, ...extra });
+    if (e.type === "task.created") push("pedido", "Lo pediste.");
+    else if (e.type === "note") {
+      const text = String(p.text ?? "");
+      const dropped = DROPPED.exec(text);
+      if (dropped) {
+        // Descartar writes the status and its reason: one item says both.
+        const line = dropped[1] ? `La descartaste: ${dropped[1]}` : "La descartaste.";
+        const prev = out.findLast((x) => x.kind === "descartada");
+        if (prev) prev.text = line;
+        else push("descartada", line);
+      } else push(UNDERSTOOD.test(text) ? "entendi" : "nota", text.replace(SCREEN_NOTE, ""));
+    } else if (e.type === "question.asked") push("pregunta", `Preguntó: ${String(p.question ?? "")}`);
+    else if (e.type === "question.answered") push("respuesta", String(p.answer ?? ""));
+    else if (e.type === "doc.put") push("doc", Number(p.version ?? 1) > 1 ? `Actualizó «${String(p.title)}».` : `Escribió «${String(p.title)}».`, { doc: { id: String(p.doc_id), title: String(p.title) } });
+    else if (e.type === "task.updated") {
+      const ch = (p.changes ?? {}) as Record<string, unknown>;
+      const stage = ch.stage as [string, string] | undefined;
+      const promoted = ch.promoted_to as [string | null, string | null] | undefined;
+      if (Array.isArray(stage) && stage[0] !== stage[1]) push("etapa", `La pasó a ${STAGE_WORD[stage[1]] ?? stage[1]}.`);
+      if (Array.isArray(promoted) && promoted[1]) push("valvula", `Pasó la válvula: ahora es ${promoted[1]} en el tablero.`);
+    } else if (e.type === "task.status" && p.to === "Won't do") push("descartada", "La descartaste.");
+    else if (e.type === GUARDADA) push("guardada", "La guardaste para después.");
+    else if (e.type === RESTAURADA) push("restaurada", "La sacaste de Guardadas.");
+    else if (e.type === CONSTRUIR) push("construir", "Dijiste «Constrúyelo».");
+  }
+  return out;
+}
+
+// A request of the owner's in this project: an idea with origin jorge.
+async function ideaOf(db: Db, slug: string, key: string): Promise<{ project: { id: string; slug: string }; t: Task } | Refusal> {
+  const [p] = await db.select({ id: projects.id, slug: projects.slug }).from(projects).where(eq(projects.slug, slug)).limit(1);
+  if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
+  const [t] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
+  if (!t || t.kind !== "idea" || t.origin !== "jorge") return { error: "PEDIDO_NOT_FOUND", status: 404, hint: "Ese pedido no está en este proyecto." };
+  return { project: p, t };
+}
+const open = (t: Task): Refusal | null => (t.status !== "Open" ? { error: "PEDIDO_CLOSED", status: 409, hint: "Ese pedido ya está cerrado." } : t.promotedTo ? { error: "PEDIDO_PROMOTED", status: 409, hint: `Ya pasó la válvula: es ${t.promotedTo}.` } : null);
+
+export async function pedidoDetail(db: Db, slug: string, key: string): Promise<PedidoDetail | Refusal> {
+  const found = await ideaOf(db, slug, key);
+  if ("error" in found) return found;
+  const { project, t } = found;
+  const base = await pedidoOf(db, project.id, t);
+  const list = await db.select({ markdown: docs.markdown }).from(docs).where(eq(docs.taskId, t.id)).orderBy(desc(docs.updatedAt));
+  const [q] = base.question ? await db.select({ options: questions.options }).from(questions).where(eq(questions.id, base.question.id)).limit(1) : [];
+  return {
+    ...base,
+    mode: "forma",
+    text: askedText(t.scope, t.title),
+    status: t.status,
+    stage: t.stage,
+    promoted_to: t.promotedTo,
+    question_options: q?.options ?? [],
+    trail: await trailOf(db, t),
+    ficha: fichaOf(list),
+    pictures: [],
+  };
+}
+
+async function mark(db: Db, slug: string, key: string, type: string, want: (guardada: boolean) => Refusal | null): Promise<{ key: string; guardada: boolean } | Refusal> {
+  const found = await ideaOf(db, slug, key);
+  if ("error" in found) return found;
+  const closed = open(found.t);
+  if (closed) return closed;
+  const now = await pedidoOf(db, found.project.id, found.t);
+  const no = want(now.guardada);
+  if (no) return no;
+  const p = await findProject(db, slug);
+  await writeTx(db, p, { ...webCtx, tool: "company.pedido" }, async (_tx, emit) => emit(type, { id: found.t.id, key: found.t.key }, {}));
+  return { key, guardada: type === GUARDADA };
+}
+
+export const guardarPedido = (db: Db, slug: string, key: string) => mark(db, slug, key, GUARDADA, (g) => (g ? { error: "ALREADY_SAVED", status: 409, hint: "Ya está en Guardadas." } : null));
+export const restaurarPedido = (db: Db, slug: string, key: string) => mark(db, slug, key, RESTAURADA, (g) => (!g ? { error: "NOT_SAVED", status: 409, hint: "No está en Guardadas." } : null));
+
+export async function descartarPedido(db: Db, slug: string, key: string, reason?: string): Promise<{ key: string; status: "Won't do" } | Refusal> {
+  const found = await ideaOf(db, slug, key);
+  if ("error" in found) return found;
+  const closed = open(found.t);
+  if (closed) return closed;
+  const note = `Descartada por Jorge desde Compañía${reason?.trim() ? `: ${reason.trim()}` : "."}`;
+  await setTask(db, { project: slug, key, status: "Won't do", reason: note, note, version: found.t.version } as never, { ...webCtx, tool: "company.pedido" });
+  return { key, status: "Won't do" };
+}
+
+// Still an open request (for routes that act on one).
+export async function openPedido(db: Db, slug: string, key: string): Promise<{ project: { id: string; slug: string }; t: Task } | Refusal> {
+  const found = await ideaOf(db, slug, key);
+  if ("error" in found) return found;
+  return open(found.t) ?? found;
+}

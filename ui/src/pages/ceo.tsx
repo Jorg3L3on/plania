@@ -38,6 +38,7 @@ import { ceoRedirect, sheetOf, sheetSearch } from "@/lib/compania";
 import { caption, floorOrder, oficinaOf, seatIn } from "@/lib/edificio";
 import { openFloor, stepFloor } from "@/components/compania/edificio/tower";
 import { Ficha, type Load } from "@/components/compania/edificio/ficha";
+import type { PedidoActs } from "@/components/compania/edificio/pedido";
 import { Resguardo } from "@/components/compania/edificio/resguardo";
 import { After, Last } from "@/components/compania/edificio/after";
 import { FICHA_TABS, escStep, fichaOf, fichaSearch, needsRows, needsTask, type FichaRef } from "@/lib/ficha";
@@ -287,6 +288,9 @@ const Compania = () => {
   const fichaTask = useQuery({ queryKey: ["ficha-task", fslug, taskKey], queryFn: () => api.task(fslug, taskKey!), enabled: fichaOpen && !!fslug && !!taskKey });
   const docId = fref.kind === "doc" ? fref.id : null;
   const fichaDoc = useQuery({ queryKey: ["ficha-doc", fslug, docId], queryFn: () => api.projectDoc(fslug, docId!), enabled: fichaOpen && !!fslug && !!docId });
+  // PLA-I54-3: the open request in the Pedido tab; read again while it is shown, so the PO's moves land in its trail.
+  const pedidoKey = fref.kind === "pedido" ? fref.key : null;
+  const fichaPedido = useQuery({ queryKey: ["ficha-pedido", fslug, pedidoKey], queryFn: () => api.pedido(fslug, pedidoKey!), enabled: fichaOpen && !!fslug && !!pedidoKey, refetchInterval: 15_000 });
   const detail = useQuery({
     queryKey: ["company-project", fslug],
     queryFn: () => api.companyProject(fslug),
@@ -362,7 +366,7 @@ const Compania = () => {
         }
         return;
       }
-      if (e.key.length === 1 && "12345".includes(e.key)) {
+      if (e.key.length === 1 && "123456".includes(e.key)) {
         e.preventDefault();
         showFicha({ kind: "tab", tab: FICHA_TABS[Number(e.key) - 1]! });
         return;
@@ -450,6 +454,29 @@ const Compania = () => {
   const [steerBusy, setSteerBusy] = useState<string | null>(null);
   const [pausing, setPausing] = useState<OrgProject | null>(null);
   const refresh = () => void client.invalidateQueries({ queryKey: ["company"] });
+  // PLA-I54-3: what the Pedido tab does. Each call reads the floor and the request again when it lands; what it did
+  // shows in the trail, so only a failure toasts (a toast would sit over the tab's buttons).
+  const [pedidoBusy, setPedidoBusy] = useState<string | null>(null);
+  const pedidoDo = (k: string, fn: () => Promise<unknown>) => {
+    setPedidoBusy(k);
+    fn()
+      .catch((e) => toast.error(e instanceof ApiError ? (STEER_REFUSAL[e.code] ?? `No se pudo (${e.code}).`) : "No se pudo. Si la Mac está dormida, intenta al despertar."))
+      .finally(() => {
+        setPedidoBusy(null);
+        refresh();
+        void client.invalidateQueries({ queryKey: ["ficha-pedido"] });
+      });
+  };
+  const pedidoActs: PedidoActs | undefined = pedidoKey
+    ? {
+        onAnswer: (qid, text) => pedidoDo("answer", () => api.answer(fslug, qid, text)),
+        onNote: (text) => pedidoDo("note", () => api.noteTask(fslug, pedidoKey, text)),
+        onGuardar: () => pedidoDo("guardar", () => api.pedidoAct(fslug, pedidoKey, "guardar")),
+        onRestaurar: () => pedidoDo("restaurar", () => api.pedidoAct(fslug, pedidoKey, "restaurar")),
+        onDescartar: () => pedidoDo("descartar", () => api.pedidoAct(fslug, pedidoKey, "descartar")),
+        busy: pedidoBusy,
+      }
+    : undefined;
   const quietly = async (key: string, fn: () => Promise<unknown>) => {
     setSteerBusy(key);
     try {
@@ -748,10 +775,11 @@ const Compania = () => {
               selected: fichaAt?.ref.kind === "step" ? fichaAt.ref.key : null,
               busy: steer.busy,
             }}
-            // PLA-I54-1: a capsule in the tube opens the idea in La ficha (PLA-I54-3 gives it its Pedido tab).
+            // PLA-I54-3: a capsule in the tube opens its Pedido tab in La ficha; Guardadas opens the shelf.
             tubo={{
-              onOpen: (slug, key, el) => showFicha({ kind: "idea", key }, el, slug),
-              onGuardadas: (slug, el) => showFicha({ kind: "tab", tab: "ideas" }, el, slug),
+              onOpen: (slug, key, el) => showFicha({ kind: "pedido", key }, el, slug),
+              onGuardadas: (slug, el) => showFicha({ kind: "guardadas" }, el, slug),
+              selected: fichaOpen && fref.kind === "pedido" ? fref.key : null,
             }}
             onPiso={onPiso}
             onAdd={(slug, el) => {
@@ -778,6 +806,8 @@ const Compania = () => {
                   onRef={(r) => setFicha(r)}
                   onClose={closeFicha}
                   slots={fichaSlots(fichaProject)}
+                  pedido={loadOf(fichaPedido, !!pedidoKey)}
+                  pedidoActs={pedidoActs}
                 />
                 </Resguardo>
               ) : undefined

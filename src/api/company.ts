@@ -16,6 +16,7 @@
 //   GET  /api/company/docs/:id             one role prompt doc (Prompt ↗); ?project=<slug>: any doc of that project (PLA-I47-1)
 //   GET  /api/company/projects/:slug/ficha La ficha's rows: ideas, PRs, docs, lienzos (PLA-I47-1)
 // PLA-I30-6/7: POST /api/company/projects/:slug/ask {text}  and  POST /api/company/projects/:slug/wake
+// PLA-I54-3: GET /api/company/projects/:slug/pedidos/:key and POST …/pedidos/:key/{guardar,restaurar,descartar}.
 // PLA-I36-11: deleting a project needs the owner's code ({code}). src/auth/owner-code.ts.
 // PLA-21: no token budgets, so no limit to raise.
 //   GET  /api/company/owner-code          {enrolled}
@@ -37,6 +38,7 @@ import { createProjectFromTemplate } from "../runner/new-project.js";
 import { askMode, askPo, pickNext, resendRequest, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
 import { cancelOrder } from "./company-orders.js";
+import { descartarPedido, guardarPedido, pedidoDetail, restaurarPedido } from "./company-pedido.js";
 import { promptDoc } from "./company-extra.js";
 import { fichaRead, projectDocRead } from "./company-ficha.js";
 import { addTeamMember, companyRead, projectRead } from "./company-org.js";
@@ -331,6 +333,23 @@ companyRoutes.post("/projects/:slug/tasks/:key/note", async (c) => {
   const input = await body(c, z.object({ text: z.string().trim().min(2).max(1000) }).strict());
   if (input instanceof Response) return input;
   return send(c, await withDb((db) => noteForAgent(db, c.req.param("slug"), c.req.param("key"), input.text)));
+});
+// PLA-I54-3: the «Pedido» tab (src/api/company-pedido.ts). The note box uses /tasks/:key/note above and the answer box
+// POST /api/projects/:slug/questions/:id/answer.
+companyRoutes.get("/projects/:slug/pedidos/:key", async (c) => send(c, await withDb((db) => pedidoDetail(db, c.req.param("slug"), c.req.param("key")))));
+companyRoutes.post("/projects/:slug/pedidos/:key/guardar", async (c) => send(c, await withDb((db) => guardarPedido(db, c.req.param("slug"), c.req.param("key")))));
+companyRoutes.post("/projects/:slug/pedidos/:key/restaurar", async (c) => send(c, await withDb((db) => restaurarPedido(db, c.req.param("slug"), c.req.param("key")))));
+companyRoutes.post("/projects/:slug/pedidos/:key/descartar", async (c) => {
+  const raw = await c.req.text();
+  let json: unknown = {};
+  try {
+    if (raw.trim()) json = JSON.parse(raw);
+  } catch {
+    return c.json({ error: "INVALID_BODY" }, 400);
+  }
+  const input = z.object({ reason: z.string().trim().max(500).optional() }).strict().safeParse(json);
+  if (!input.success) return c.json({ error: "INVALID_BODY" }, 400);
+  return send(c, await withDb((db) => descartarPedido(db, c.req.param("slug"), c.req.param("key"), input.data.reason)));
 });
 // PLA-I40-6: Reenviar a request nobody took (Cerrar is the cancel below).
 companyRoutes.post("/projects/:slug/requests/:key/resend", async (c) => send(c, await withDb((db) => resendRequest(db, c.req.param("slug"), c.req.param("key")))));
