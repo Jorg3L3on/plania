@@ -1398,20 +1398,6 @@
   .edi-ix-head { display: flex; align-items: baseline; gap: 8px; padding: 0 2px; min-width: 0; }
   .edi-ix-head h3 { margin: 0; font-weight: 400; }
   .edi-ix-head small { margin-left: auto; color: var(--e-muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .edi-ix-team { display: grid; grid-template-columns: repeat(auto-fit, minmax(56px, 1fr)); gap: 2px; }
-  .edi-ix-mate { display: grid; justify-items: center; gap: 2px; min-width: 0; padding: 5px 1px 4px; border-radius: 11px; border: 1px solid transparent; background: none; color: inherit; font: inherit; cursor: pointer; }
-  .edi-ix-mate:disabled { cursor: default; }
-  .edi-ix-mate .edi-seat { width: 40px; height: 32px; border-radius: 22px 22px 6px 6px; cursor: inherit; }
-  .edi-ix-mate .edi-seat-glass { width: 30px; height: 25px; }
-  .edi-ix-mate b { font-size: 11.5px; font-weight: 600; line-height: 1.15; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .edi-ix-mate small { max-width: 100%; font-size: 10.5px; line-height: 1.2; color: var(--e-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .edi-ix-mate[data-state="work"] small { color: var(--status-now, #ffc145); }
-  .edi-ix-mate[data-state="ask"] small, .edi-ix-mate[data-state="ghost"] small { color: var(--e-you-ink); }
-  .edi-ix-mate[data-state="back"] small { color: var(--status-review, #b094ff); }
-  .edi-ix-team .edi-add { display: grid; justify-items: center; align-content: start; gap: 2px; min-width: 0; padding: 5px 1px 4px; border: 1px solid transparent; border-radius: 11px; background: none; color: var(--e-muted); font: inherit; cursor: pointer; }
-  .edi-ix-team .edi-add .edi-glass { all: unset; display: grid; place-items: center; width: 40px; height: 32px; border-radius: 22px 22px 6px 6px; box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.2); font-size: 18px; }
-  .edi-ix-team .edi-add .edi-who { margin: 0; font-size: 11.5px; }
-  .edi-ix-team .edi-add .edi-who b { font-weight: 600; }
   .edi-ix-ini { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 3px 8px; align-items: baseline; width: 100%; padding: 5px 8px 6px; border-radius: 11px; border: 1px solid transparent; background: none; color: inherit; font: inherit; text-align: left; }
   button.edi-ix-ini { cursor: pointer; }
   .edi-ix-code { font-family: var(--font-mono); font-size: 10.5px; color: var(--e-muted); }
@@ -1433,15 +1419,64 @@
   .edi-ix-tube { grid-column: 1 / -1; position: relative; height: 14px; border-radius: 99px; background: rgb(94 200 255 / 0.07); border: 1px solid rgb(94 200 255 / 0.28); }
   .edi-ix-ideas[data-live="0"] .edi-ix-tube { display: none; }
   .edi-ix-tube i { position: absolute; top: 2px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--sc); box-shadow: 0 0 0 2px #111630; }
+  /* PLA-I58-1: El timbre (equipo.tsx). The team's plate in the floor's head; La sala drops under the head, over the floor. */
+  .edi-fhead { position: relative; }
+  .edi-timbre { display: flex; align-items: center; gap: 8px; }
+  .edi-timbre-plate { display: inline-flex; align-items: center; gap: 9px; height: 34px; padding: 0 9px 0 7px; border-radius: 12px; border: 1px solid var(--e-line); background: rgb(7 9 20 / 0.5); color: var(--e-fg); font: inherit; cursor: pointer; white-space: nowrap; }
+  .edi-timbre-plate:hover, .edi-timbre[data-open="1"] .edi-timbre-plate { border-color: rgb(255 255 255 / 0.32); background: rgb(255 255 255 / 0.06); }
+  .edi-timbre-plate:focus-visible, .edi-timbre-ask:focus-visible, .edi-sala-mate:focus-visible, .edi-sala-x:focus-visible, .edi-sala-mates .edi-add:focus-visible { outline: 2px solid var(--e-fg); outline-offset: 2px; }
+  .edi-timbre-wins { display: inline-grid; grid-auto-flow: column; gap: 3px; }
+  .edi-timbre-wins i { width: 11px; height: 14px; border-radius: 6px 6px 2px 2px; background: #0b0d13; border: 1px solid rgb(255 255 255 / 0.2); }
+  .edi-timbre-wins i[data-state="work"] { background: linear-gradient(180deg, #ffe3a3, #b98a2c); border-color: transparent; box-shadow: 0 0 8px rgb(255 196 107 / 0.45); }
+  .edi-timbre-wins i[data-state="back"] { background: linear-gradient(180deg, #d6c6ff, #7a5fd0); border-color: transparent; }
+  .edi-timbre-wins i[data-state="ask"], .edi-timbre-wins i[data-state="ghost"] { background: linear-gradient(180deg, #ffd0a1, #b8692a); border-color: transparent; box-shadow: 0 0 10px rgb(255 159 67 / 0.75); }
+  .edi-timbre-lbl { display: grid; line-height: 1.1; text-align: left; }
+  .edi-timbre-lbl b { font-size: 12.5px; font-weight: 600; }
+  .edi-timbre-lbl small { font-size: 11px; color: var(--e-muted); }
+  .edi-timbre kbd, .edi-sala kbd { font-family: var(--font-mono); font-size: 10px; line-height: 1; color: var(--e-muted); border: 1px solid var(--e-line); border-radius: 4px; padding: 2px 4px; }
+  .edi-timbre-ask { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px 0 9px; border-radius: 99px; border: 1px solid color-mix(in srgb, var(--e-you) 50%, transparent); background: color-mix(in srgb, var(--e-you) 14%, transparent); color: var(--e-you-ink); font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+  .edi-timbre-ask i { width: 7px; height: 7px; border-radius: 50%; background: var(--e-you); }
+  .edi-sala { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 8px); display: grid; gap: 12px; padding: 14px 16px 16px; border-radius: 18px; border: 1px solid rgb(255 255 255 / 0.16); background: linear-gradient(180deg, #1d2240, #151933); color: var(--e-fg); box-shadow: 0 28px 60px -20px rgb(0 0 0 / 0.85), 0 0 0 100vmax rgb(5 7 16 / 0.45); animation: edi-sala-in 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  @keyframes edi-sala-in { from { opacity: 0.4; transform: translateY(-6px); } }
+  .edi-sala-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+  .edi-sala-head h3 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-sala-head small { color: var(--e-muted); font-size: 12.5px; white-space: nowrap; }
+  .edi-sala-x { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: var(--e-muted); font: inherit; font-size: 12.5px; cursor: pointer; }
+  .edi-sala-mates { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 10px; }
+  .edi-sala-mate { display: grid; align-content: start; gap: 8px; min-width: 0; padding: 12px; border-radius: 14px; border: 1px solid var(--e-line); background: rgb(7 9 20 / 0.45); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .edi-sala-mate:disabled { cursor: default; }
+  .edi-sala-mate[data-state="ask"] { border-color: color-mix(in srgb, var(--e-you) 55%, transparent); background: color-mix(in srgb, var(--e-you) 8%, rgb(7 9 20 / 0.45)); }
+  .edi-sala-mate .edi-seat { width: 100%; height: 84px; border-radius: 42px 42px 10px 10px; cursor: inherit; }
+  .edi-sala-mate .edi-seat-glass { width: 86px; height: 72px; }
+  .edi-sala-role { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
+  .edi-sala-role b { font-family: var(--font-display); font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-sala-st { flex: none; font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 99px; background: rgb(255 255 255 / 0.07); color: var(--e-muted); }
+  .edi-sala-st[data-state="work"] { color: #ffc46b; background: rgb(255 196 107 / 0.12); }
+  .edi-sala-st[data-state="ask"], .edi-sala-st[data-state="ghost"] { color: var(--e-you-ink); background: rgb(255 159 67 / 0.16); }
+  .edi-sala-st[data-state="back"] { color: #c9b6ff; background: rgb(176 148 255 / 0.14); }
+  .edi-sala-mate small { font-size: 12.5px; line-height: 1.35; color: var(--e-fg); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .edi-sala-mates .edi-add { display: grid; place-content: center; justify-items: center; gap: 6px; min-height: 150px; padding: 12px; border-radius: 14px; border: 1px dashed rgb(255 255 255 / 0.2); background: none; color: var(--e-muted); font: inherit; cursor: pointer; }
+  .edi-sala-mates .edi-add .edi-glass { all: unset; display: grid; place-items: center; width: 54px; height: 54px; border-radius: 27px 27px 8px 8px; box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.2); font-size: 22px; color: var(--e-fg); }
+  .edi-sala-mates .edi-add .edi-who { margin: 0; font-family: var(--font-display); font-size: 14px; color: var(--e-fg); }
+  @media (hover: hover) { .edi-sala-mate:not(:disabled):hover, .edi-sala-mates .edi-add:hover { border-color: rgb(255 255 255 / 0.3); background: rgb(255 255 255 / 0.05); } .edi-sala-x:hover { color: var(--e-fg); } }
+  @media (prefers-reduced-motion: reduce) { .edi-sala { animation: none; } }
+  @media (width < 48rem) {
+    .edi-timbre-lbl small, .edi-timbre kbd { display: none; }
+    .edi-sala { padding: 12px; gap: 10px; }
+    .edi-sala-head small { display: none; }
+    .edi-sala-role { flex-wrap: wrap; }
+    .edi-sala-mate { padding: 10px; }
+    .edi-sala-mate .edi-seat { height: 64px; }
+    .edi-sala-mate .edi-seat-glass { width: 66px; height: 56px; }
+    .edi-sala-mates { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
   @media (max-height: 760px) and (min-width: 48rem) {
     .edi-idx { gap: 7px; }
     .edi-ix { gap: 3px; padding: 7px 10px 8px; }
     .edi-ix-ini { padding: 4px 8px 5px; }
   }
-  @media (hover: hover) { .edi-ix-mate:not(:disabled):hover, button.edi-ix-ini:hover, .edi-ix-ideas:not(:disabled):hover, .edi-ix-team .edi-add:hover { background: rgb(255 255 255 / 0.055); } }
-  .edi-ix-mate[aria-pressed="true"], .edi-ix-ini[aria-pressed="true"], .edi-ix-ideas[aria-pressed="true"] { border-color: var(--c); background: color-mix(in srgb, var(--c) 11%, transparent); }
+  @media (hover: hover) { button.edi-ix-ini:hover, .edi-ix-ideas:not(:disabled):hover { background: rgb(255 255 255 / 0.055); } }
   .edi-ix .sb-fc[aria-pressed="true"] { border-color: var(--c); }
-  .edi-ix-mate:focus-visible, .edi-ix-ini:focus-visible, .edi-ix-ideas:focus-visible, .edi-ix-team .edi-add:focus-visible { outline: 2px solid var(--e-fg); outline-offset: 2px; }
   .edi-fi-top { display: flex; align-items: flex-end; gap: 4px; padding: 8px 8px 0 10px; border-bottom: 1px solid rgb(255 255 255 / 0.07); }
   .edi-fi-tabs { display: flex; gap: 1px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   .edi-fi-tab { padding: 7px 8px 9px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--e-muted); font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; }
@@ -1984,6 +2019,9 @@
   .edi-mtr-chip i[data-on] { background: var(--kc); }
   .edi-mtr-go { margin-left: 2px; flex: none; min-height: 24px; padding: 0 9px; border: 0; border-radius: 99px; background: rgb(94 200 255 / 0.13); color: #bfe6ff; font-size: 11.5px; font-weight: 600; white-space: nowrap; cursor: pointer; }
   .edi-mtr-go[aria-pressed="true"] { background: rgb(94 200 255 / 0.28); color: var(--e-fg); }
+  .edi-sala-mate .edi-mtr-chip { justify-self: start; }
+  .edi-sala-head .edi-mtr-go { margin-left: auto; }
+  .edi-sala-head .edi-mtr-go + .edi-sala-x { margin-left: 4px; }
   .edi-mtr-sumar { display: grid; gap: 8px; }
   .edi-mtr-sumar .edi-mtr-seg { background: rgb(0 0 0 / 0.25); }
   .edi-mtr-dial:focus-visible, .edi-mtr-lbl:focus-visible, .edi-mtr-own:focus-visible, .edi-mtr-preset:focus-visible, .edi-mtr-go:focus-visible, .edi-mtr-seg button:focus-visible, .edi-mtr input:focus-visible, .edi-mtr-card input:focus-visible { outline: 2px solid var(--e-fg); outline-offset: 2px; }

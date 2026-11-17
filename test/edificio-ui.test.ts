@@ -11,6 +11,7 @@ import { nextMove } from "../src/api/company-move.js";
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
 const building = await load("components/compania/edificio/building.tsx");
+const equipoUi = await load("components/compania/edificio/equipo.tsx");
 const win = await load("components/compania/edificio/window.tsx");
 const roof = await load("components/compania/edificio/roof.tsx");
 const scene = await load("components/compania/edificio/scene.tsx");
@@ -198,7 +199,7 @@ test("I39-3 #6: with prefers-reduced-motion nothing in the scene animates", () =
 // ---- handlers without a DOM: expand hook-free components into their element tree and call the handler.
 type El = { type: unknown; props: Json };
 // Components that hold state are left as elements (their own handlers are tested where they live).
-const STATEFUL = new Set<unknown>();
+const STATEFUL = new Set<unknown>([equipoUi.Timbre]);
 const expand = (node: unknown): unknown => {
   if (Array.isArray(node)) return node.map(expand);
   if (!node || typeof node !== "object" || !("type" in node)) return node;
@@ -472,10 +473,10 @@ test("I39-6 #1: a window opens that teammate's page with what it is on, its queu
   assert.deepEqual(companiaLib.sheetOf("?add=workia"), { kind: "add", slug: "workia" });
   assert.deepEqual(companiaLib.sheetOf("?doc=d-1"), { kind: "doc", id: "d-1" });
   assert.deepEqual(companiaLib.sheetOf("?nuevo"), { kind: "nuevo" });
-  // A window click goes there.
+  // A window click goes there (PLA-I58-1: the windows are in La sala, which El timbre hands onMember).
   const opened: string[] = [];
-  const [win0] = findAll(tree(company({ projects: [project({ team: [taller] })] }), { onOpen: (slug: string, m: Json) => opened.push(companiaLib.sheetSearch({ kind: "member", slug, agent: m.agent })) }), (el) => el.props?.["data-agent"] === "taller-workia");
-  win0!.props.onClick({ currentTarget: {} });
+  const [t0] = findAll(tree(company({ projects: [project({ team: [taller] })] }), { onOpen: (slug: string, m: Json) => opened.push(companiaLib.sheetSearch({ kind: "member", slug, agent: m.agent })) }), (el) => el.type === equipoUi.Timbre);
+  t0!.props.onMember(t0!.props.team[0], {});
   assert.deepEqual(opened, ["?m=workia:taller-workia"]);
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
   // PLA-I47-4: the page opens the teammate in La ficha (?f=member:<agent>); the old ?m= link still lands there.
@@ -732,14 +733,13 @@ test("I39-9 #2: every window is named with role, state and what it is on; the ta
     member("taller", { state: "running", now: { ticket: "WRK-3", title: "Pantalla del carrito", since: "2026-11-10T17:20:00Z" } }),
   ];
   const out = render(company({ projects: [project({ team })], decisions: [proposal] }), { acts: acts(), onOpen: noop });
-  // PLA-I55-1: every teammate is a window in the index, in the team's order.
-  const names = [...out.matchAll(/<button type="button" class="edi-ix-mate"[^>]*aria-label="([^"]+)"/g)].map((m) => m[1]);
+  // PLA-I58-1: every teammate is a window in La sala, in the team's order.
+  const names = [...out.matchAll(/<button type="button" class="edi-sala-mate"[^>]*aria-label="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(names, ["PO de Workia, te espera: Te pregunta algo, ¿Qué tienda?", "Research de Workia, libre: Sin trabajo", "Taller de Workia, trabajando: Pantalla del carrito, desde hace 40 min"]);
-  // DOM order (the tab order): the ventanal (Ahora, then the questions), then the index.
-  const po = out.indexOf('data-agent="product-owner-workia"');
+  // The question is in the ventanal, under Ahora; with La sala closed the plate says who asks.
   const q = out.indexOf(`data-bubble="${proposal.id}"`);
-  assert.ok(q < po, "the question is in the ventanal, before the index");
-  assert.ok(out.indexOf('class="edi-home-q"') < q, "questions sit under Ahora");
+  assert.ok(q > 0 && out.indexOf('class="edi-home-q"') < q, "questions sit under Ahora");
+  assert.match(out, /data-control="timbre-pregunta"[^>]*>[\s\S]*?PO te pregunta</);
 });
 
 test("I39-9 #3: caption, plate and question text on the night panel reach 4.5:1", () => {

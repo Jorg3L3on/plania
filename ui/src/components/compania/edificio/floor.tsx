@@ -26,7 +26,8 @@ import { Head } from "./head";
 import { Now, type NowActs } from "./now";
 import { Question, type QuestionActs } from "./question";
 import { Tubo, type TuboActs } from "./tubo";
-import { Indice } from "./indice";
+import { Indice, type SeatView } from "./indice";
+import { Timbre } from "./equipo";
 
 // PLA-I55-1: what the floor hands the page for the ventanal. home is the first tab (Te toca while something waits on
 // the owner, else Ahora); board is the open initiative's (or Sueltos') own stage board; tubo is the tube in full.
@@ -312,6 +313,16 @@ export const Floor = ({
       </>
     );
 
+  // PLA-I58-1: what each teammate's window says, in El timbre and La sala.
+  const seatView = (m: OrgMember): SeatView => {
+    const hint = hintOf(m);
+    const c = caption(m, now, { companyPaused, timeZone, seat: seat(m) });
+    return { data: seatData(m), state: seatState(m), label: hint ? `${seatLabel(m)}. ${hint}` : seatLabel(m), line: hint ?? (isBack(m) ? BACK_WORD : c.sub ? `${c.doing} · ${c.sub}` : c.doing) };
+  };
+  const timbre = team.length > 0 || children ? <Timbre key={slug} title={p.title} team={team} seat={seatView} onMember={onOpen} onMotores={onFoco ? (el) => onFoco({ kind: "tab", tab: "motores" }, el) : undefined}>
+      {children}
+    </Timbre> : null;
+
   const trabajo = (
     <div className="edi-fbody" data-ventanal={foco && !down ? foco.kind : "home"}>
       <div className="edi-ventanal" data-vent={ventanal && !down ? "ficha" : "home"}>
@@ -319,18 +330,10 @@ export const Floor = ({
       </div>
       <Indice
         project={p}
-        team={team}
         tracks={tracks}
         foco={down ? null : foco}
-        seat={(m) => {
-          const hint = hintOf(m);
-          const c = caption(m, now, { companyPaused, timeZone, seat: seat(m) });
-          return { data: seatData(m), state: seatState(m), label: hint ? `${seatLabel(m)}. ${hint}` : seatLabel(m), line: hint ?? (isBack(m) ? BACK_WORD : c.sub ? `${c.doing} · ${c.sub}` : c.doing) };
-        }}
-        onMember={onOpen}
         onTrack={bacts.onTrack ? (key, el) => bacts.onTrack!(slug, key, el) : undefined}
         onIdeas={onFoco ? (el) => onFoco({ kind: "tab", tab: "pedido" }, el) : undefined}
-        onMotores={onFoco ? (el) => onFoco({ kind: "tab", tab: "motores" }, el) : undefined}
         empty={
           <div className="edi-board-empty" data-board="empty">
             <p>{p.route && p.route.legs.length > 0 ? "No hay iniciativas abiertas ni trabajo suelto en este piso." : "Aún no hay plan: ninguna iniciativa abierta ni trabajo suelto."}</p>
@@ -341,15 +344,13 @@ export const Floor = ({
             )}
           </div>
         }
-      >
-        {children}
-      </Indice>
+      />
       {ask && !down && <div className="edi-askbar">{ask}</div>}
     </div>
   );
   return (
     <article id={`piso-${p.slug}`} tabIndex={-1} className="edi-floor" data-floor={slug} data-nivel={maquinas ? nivel : undefined} data-light={p.light} data-move={line.move ? line.move.verbo : undefined} style={{ "--c": floorHue(slug) } as CSSProperties} aria-label={p.title}>
-      <Head project={p} line={line} onFijar={onFijar} onPlan={onPlan} extra={resume} lift={lift} />
+      <Head project={p} line={line} onFijar={onFijar} onPlan={onPlan} extra={resume} lift={lift} equipo={timbre} />
       {maquinas ? (
         <div className="edi-levels" data-nivel={nivel}>
           <div className="edi-level" data-level="trabajo" inert={down} aria-hidden={down || undefined}>

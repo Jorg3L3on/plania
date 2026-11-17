@@ -80,8 +80,10 @@ test("I55-1: a bead per step, the done ones first, then from Te toca back to Por
 test("I55-1: the index lists every teammate, each initiative on one line with its beads, the completed ones and the ideas", () => {
   const html = floor();
   const idx = html.slice(html.indexOf('class="edi-idx"'), html.indexOf('class="edi-askbar"'));
-  assert.deepEqual([...idx.matchAll(/class="edi-ix-mate"[^>]*data-agent="([^"]+)"/g)].map((m) => m[1]), ["product-owner-demo", "research-demo", "taller-demo"]);
-  assert.match(text(idx), /Equipo nadie trabaja ahora/);
+  // PLA-I58-1: the team left the index for El timbre in the head.
+  assert.equal(idx.includes("edi-sala-mate") || idx.includes('data-ix="equipo"'), false, "no team in the index");
+  assert.deepEqual([...html.matchAll(/class="edi-sala-mate"[^>]*data-agent="([^"]+)"/g)].map((m) => m[1]), ["product-owner-demo", "research-demo", "taller-demo"]);
+  assert.match(text(html), /Equipo nadie trabaja/);
   assert.match(text(idx), /Iniciativas 2 abiertas · 1 completa/);
   // One line per initiative: the short code, the name, the count with what waits on the owner, and the beads.
   const agenda = /<button type="button" class="edi-ix-ini"[^>]*data-track="DEM-I2"[\s\S]*?<\/button>/.exec(idx)![0];
@@ -104,7 +106,8 @@ test("I55-1: what the ventanal shows is pressed in the index", () => {
       .filter((tag) => tag.includes('aria-pressed="true"'))
       .map((tag) => /data-(?:agent|track)="([^"]+)"/.exec(tag)?.[1] ?? /data-control="([^"]+)"/.exec(tag)![1]);
   assert.deepEqual(pressed(floor()), []);
-  assert.deepEqual(pressed(floor({ foco: { kind: "member", agent: "taller-demo" } })), ["taller-demo"]);
+  // PLA-I58-1: a teammate opens from La sala, so nothing in the index is pressed for it.
+  assert.deepEqual(pressed(floor({ foco: { kind: "member", agent: "taller-demo" } })), []);
   assert.deepEqual(pressed(floor({ foco: { kind: "leg", key: "DEM-I2" } })), ["DEM-I2"]);
   assert.deepEqual(pressed(floor({ foco: { kind: "tab", tab: "pedido" } })), ["indice-ideas"]);
   assert.deepEqual(pressed(floor({ foco: { kind: "pedido", key: "DEM-IDEA5" } })), ["indice-ideas"]);

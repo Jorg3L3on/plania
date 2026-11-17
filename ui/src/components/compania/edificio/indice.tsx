@@ -1,6 +1,5 @@
 // PLA-I55-1 (El ventanal): el índice. The floor's narrow column beside the ventanal: everything the floor has, one line
-// each, so nothing needs room of its own until it is opened.
-//   Equipo       every teammate as a small window (lit while working, orange while asking) with one line
+// each, so nothing needs room of its own until it is opened. PLA-I58-1: the team left it for El timbre (equipo.tsx).
 //   Iniciativas  one line per open initiative (and Sueltos): its count and a bead per step in its stage colour;
 //                the completed ones as chips
 //   Ideas        the tube in small: a dot per idea taking shape at its stop (the shelf, Guardadas, is in the Pedido tab)
@@ -8,14 +7,11 @@
 // presentational, like the floor. Its sections are night panels in both themes (dark), so the stage colours are the
 // night ones, as on the board.
 import type { CSSProperties, ReactNode } from "react";
-import type { OrgMember, OrgProject } from "@/lib/api";
+import type { OrgProject } from "@/lib/api";
 import { closedPct, OPEN_STATIONS, toneOf, trackLine, trackPct, type StageTone, type Track } from "@/lib/etapas";
 import type { FichaRef } from "@/lib/ficha";
-import { roleName } from "@/lib/org";
 import { TONE_VAR } from "@/components/plan/stage-board";
-import { Figure } from "./figure";
 import { PEDIDO_TONE, STOPS } from "./tubo";
-import { EngineChip } from "./motores";
 
 export type SeatView = { data: Record<string, string | undefined>; state: string; label: string; line: string };
 
@@ -42,39 +38,22 @@ const one = (n: number, a: string, b: string) => `${n} ${n === 1 ? a : b}`;
 
 export const Indice = ({
   project: p,
-  team,
   tracks,
   foco,
-  seat,
-  onMember,
   onTrack,
   onIdeas,
-  onMotores,
   empty,
-  children,
 }: {
   project: OrgProject;
-  team: OrgMember[];
   tracks: Track[];
   // What the ventanal shows (null: its home tab).
   foco: FichaRef | null;
-  seat: (m: OrgMember) => SeatView;
-  onMember?: (m: OrgMember, el: HTMLElement) => void;
   // key null is Sueltos.
   onTrack?: (key: string | null, el: HTMLElement) => void;
   onIdeas?: (el: HTMLElement) => void;
-  // PLA-I59-3: «Motores ›» opens the floor's Motores tab in the ventanal.
-  onMotores?: (el: HTMLElement) => void;
   // What Iniciativas says with no track (the floor: «Aún no hay plan» and Que PO lo planee).
   empty?: ReactNode;
-  // The «+ Sumar» window.
-  children?: ReactNode;
 }) => {
-  const seats = team.map((m) => ({ m, v: seat(m) }));
-  const working = seats.filter((x) => x.v.state === "work" || x.v.state === "back").length;
-  const asking = seats.filter((x) => x.v.state === "ask").length;
-  const teamLine = [working ? one(working, "trabaja", "trabajan") : null, asking ? one(asking, "te pregunta", "te preguntan") : null].filter(Boolean).join(" · ") || "nadie trabaja ahora";
-
   const done = p.tablero?.done_initiatives ?? [];
   const open = tracks.filter((t) => t.key).length;
   const iniLine = [one(open, "abierta", "abiertas"), done.length ? one(done.length, "completa", "completas") : null].filter(Boolean).join(" · ");
@@ -92,50 +71,6 @@ export const Indice = ({
 
   return (
     <nav className="edi-idx" data-indice aria-label={`${p.title} de un vistazo`}>
-      <section className="dark edi-ix" data-ix="equipo" aria-label="Equipo">
-        <header className="edi-ix-head">
-          <h3 className="sb-eyebrow">Equipo</h3>
-          <small>{teamLine}</small>
-          {onMotores && (
-            <button
-              type="button"
-              className="edi-mtr-go"
-              aria-pressed={foco?.kind === "tab" && foco.tab === "motores"}
-              onClick={(e) => onMotores(e.currentTarget)}
-              data-control="indice-motores"
-            >
-              Motores ›
-            </button>
-          )}
-        </header>
-        <div className="edi-ix-team" data-team={team.length}>
-          {seats.map(({ m, v }) => (
-            <button
-              key={m.agent}
-              type="button"
-              className="edi-ix-mate"
-              {...v.data}
-              aria-label={v.label}
-              aria-pressed={foco?.kind === "member" && foco.agent === m.agent}
-              onClick={(e) => onMember?.(m, e.currentTarget)}
-              disabled={!onMember}
-              title={`${roleName(m.role)}: ${v.line}`}
-              data-control="indice-equipo"
-            >
-              <span className="edi-seat" data-state={v.state} aria-hidden>
-                <span className="edi-seat-glass">
-                  <Figure role={m.role} />
-                </span>
-              </span>
-              <b>{roleName(m.role)}</b>
-              <small>{v.line}</small>
-              <EngineChip m={m} />
-            </button>
-          ))}
-          {children}
-        </div>
-      </section>
-
       <section className="dark edi-ix" data-ix="iniciativas" aria-label="Iniciativas">
         <header className="edi-ix-head">
           <h3 className="sb-eyebrow">Iniciativas</h3>
