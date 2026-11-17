@@ -16,7 +16,7 @@ import type { Decision, OrgProject } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
 import { APPROVE, acceptWords } from "@/lib/evidencia";
 import { frameOf } from "@/lib/probador";
-import { checksText, ordered, releaseText, stateText } from "@/lib/v2";
+import { checksText, evidenceText, ordered, releaseText, stateText } from "@/lib/v2";
 import type { CorrienteActs } from "./acts";
 import { Ajuste } from "./ajuste";
 import { Btn, Label, Logo, Opt, Switch, You } from "./parts";
@@ -102,6 +102,11 @@ const PlanBox = ({ d, acts }: { d: Decision; acts: CorrienteActs }) => {
   const leg = !!plan.leg;
   return (
     <>
+      {plan.understood && (
+        <p className="cor-text" data-plan-understood>
+          <b>Lo entendí:</b> {plan.understood}
+        </p>
+      )}
       <div className="cor-plan" data-plan={d.id}>
         <div>
           <Label>{plan.steps.length === 1 ? "1 paso" : `${plan.steps.length} pasos`}</Label>
@@ -307,10 +312,30 @@ export const Pendiente = ({ d, p, acts, links, big = false }: { d: Decision; p: 
           {why && <p className="cor-text">{why}</p>}
           {failed && (
             <p className="cor-text">
-              <span className="cor-state bad">No pasó la prueba.</span> {d.hold} Puedes pedir que su dueño lo intente otra vez.
+              <span className="cor-state bad">{d.hold}</span> Puedes pedir que su dueño lo intente otra vez.
             </p>
           )}
-          {checks && checks.open && !failed && <p className="cor-cap">{checks.text}</p>}
+          {checks && (
+            <p className="cor-cap" data-checks={checks.open ? "open" : "done"}>
+              {checks.text}
+            </p>
+          )}
+          {delivery && (() => {
+            const ev = evidenceText(d);
+            return (
+              <p className="cor-cap" data-evidence>
+                {ev && <span>{ev.text}</span>}
+                {ev && " · "}
+                {d.preview_url ? (
+                  <a className="cor-inline" href={d.preview_url} target="_blank" rel="noreferrer" data-control="vista-previa">
+                    Ver la vista previa ↗
+                  </a>
+                ) : (
+                  <span data-no-preview>Sin vista previa</span>
+                )}
+              </p>
+            );
+          })()}
           {d.state ? (
             <p className="cor-state ok" data-state={d.state.action}>
               ✓ {stateText(d.state)}
@@ -323,13 +348,13 @@ export const Pendiente = ({ d, p, acts, links, big = false }: { d: Decision; p: 
               {delivery && (
                 <>
                   <div className="cor-acts">
-                    {accept && !failed && (
+                    {accept && (
                       <Btn kind="primary" disabled={busy || !!d.hold} title={d.hold ?? acceptWords(d).aria} aria-label={acceptWords(d).aria} onClick={() => acts.decisions.decide(d, { action: accept }, "aceptar")} data-action={accept}>
                         {busy && acts.decisions.busy?.key === "aceptar" ? "…" : "Aceptar"}
                       </Btn>
                     )}
                     {d.actions.includes("verificar") && (
-                      <Btn kind={failed ? "primary" : "secondary"} disabled={busy} onClick={() => acts.decisions.decide(d, { action: "verificar" }, "verificar")} data-action="verificar">
+                      <Btn kind={accept ? "secondary" : "primary"} disabled={busy} onClick={() => acts.decisions.decide(d, { action: "verificar" }, "verificar")} data-action="verificar">
                         {`Que ${d.asker ? seatName(d.asker.role) : "su dueño"} vuelva a probar`}
                       </Btn>
                     )}

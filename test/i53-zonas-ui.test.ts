@@ -10,8 +10,8 @@ import { MemoryRouter } from "react-router";
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
 const board = await load("components/plan/stage-board.tsx");
-const floorUi = await load("components/compania/edificio/floor.tsx");
-const fichaUi = await load("components/compania/edificio/ficha.tsx");
+
+
 
 type Json = Record<string, any>;
 const h = React.createElement;
@@ -93,26 +93,6 @@ const project = (patch: Json = {}): Json => ({
   ...patch,
 });
 
-test("I53-6: the floor folds the read's completed initiatives under its board; each opens La ficha", () => {
-  const html = renderToStaticMarkup(h(MemoryRouter, null, h(floorUi.Floor, { project: project(), now: NOW, timeZone: TZ, decisions: [], board: { onTrack: noop, onTicket: noop }, foco: { kind: "leg", key: project().tablero.initiatives[0].key }, ventanal: (parts: Json) => h(React.Fragment, null, parts.home.body, parts.board, parts.tubo), onOpen: noop })));
-  // PLA-I55-1: the completed ones are chips in the index, under the open initiatives.
-  assert.match(html, /class="edi-ix-done" data-folded="6"/);
-  assert.match(html, /<b>✓ DEM-I1<\/b>Alta/);
-  assert.match(html, /data-zonas="pantalla servidor"/);
-  const none = renderToStaticMarkup(h(MemoryRouter, null, h(floorUi.Floor, { project: project({ tablero: tablero({ done_initiatives: [] }) }), now: NOW, timeZone: TZ, decisions: [], board: {}, onOpen: noop })));
-  assert.equal(none.includes("data-folded"), false);
-});
 
-test("I53-6 #2: La ficha shows the zone tags in a ticket's stage line, nothing without; a completed initiative opens", () => {
-  const p = project();
-  const r = (fref: Json, task: Json = { status: "idle" }) =>
-    renderToStaticMarkup(h(MemoryRouter, null, h(fichaUi.Ficha, { project: p, fref, rows: { status: "idle" }, task, doc: { status: "idle" }, slots: {}, now: NOW, timeZone: TZ, onRef: noop, onClose: noop })));
-  const step = (key: string, title: string) => r({ kind: "step", key }, { status: "ok", data: { key, title, status: "Ready", checks: [], results: [], docs: [], log: [], pr: null, pr_url: null } });
-  const mixed = step("DEM-I2-1", "Con pantalla y servidor");
-  assert.match(mixed, /data-fi-etapa="lista"[\s\S]*data-zonas="pantalla servidor"/);
-  assert.ok(text(mixed).includes("Pantalla Servidor"));
-  assert.equal(step("DEM-I2-2", "Sin áreas").includes("data-zona"), false);
-  const done = text(r({ kind: "leg", key: "DEM-I1" }));
-  assert.ok(done.includes("Alta") && done.includes("Completa · 10 nov"), done);
-  assert.ok(text(r({ kind: "sueltos" })).includes("4 sueltos hechos; el último: «Último suelto hecho»."));
-});
+
+

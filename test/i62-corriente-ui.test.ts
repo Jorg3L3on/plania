@@ -34,7 +34,7 @@ test("I62-1: the address round-trips views, projects, tabs and what a tab has op
   assert.equal(lib.verOf("pr:abc"), null);
   assert.equal(lib.verOf("nada:1"), null);
   assert.equal(lib.searchOf({ view: "corriente" }), "");
-  assert.equal(lib.hrefOf({ slug: "micasa" }), "/corriente?proyecto=micasa");
+  assert.equal(lib.hrefOf({ slug: "micasa" }), "/ceo?proyecto=micasa");
 });
 
 test("I62-1: a part not drawn yet links to its place in the building with the right parameters", () => {
@@ -215,7 +215,7 @@ test("I62-3: Ahora with a delivery: the move's one white button (Aceptar), Ver a
     rumbo: { goal_id: "g", goal: "Publicar en un día", why: "", target_on: "2026-12-17", forecast_on: "2026-12-17", weeks_behind: 0, missing: false },
     tablero: { initiatives: [{ key: "FIL-I1", title: "x", status: "Active", done: 0, total: 3, tickets: [tk("FIL-30", "integrado"), tk("FIL-31", "en_revision"), tk("FIL-32", "en_revision"), tk("FIL-33", "en_revision")] }], loose: [], loose_done: 0 },
   });
-  p.team[0].now.run_id = "run-1";
+  (p.team[0] as unknown as { now: { run_id?: string } }).now.run_id = "run-1";
   const { acts } = fakeActs();
   const out = html(h(ahora.Ahora, { p, decisions: [d], now: Date.parse("2026-11-17T20:12:00Z"), companyPaused: false, totals: { open: 45, done: 321 }, acts, links: ahoraLinks, onFijar: () => {} }));
   assert.match(out, /Te toca · Taller te entrega/);
@@ -312,7 +312,7 @@ test("I62-4: every kind draws /ceo's actions with one white button", () => {
   assert.match(file.out, />Ya lo hice yo</);
   const fail = card({ ...decision("x", "plania", "deliverable"), actions: ["cambios", "verificar"], hold: "Las pruebas fallan.", asker: { agent: "t", role: "taller" } });
   one(fail.out);
-  assert.match(fail.out, /No pasó la prueba\./);
+  assert.match(fail.out, /class="cor-state bad">Las pruebas fallan\.</);
   assert.match(fail.out, /class="cor-btn primary"[^>]*>Que Taller vuelva a probar</);
   const rel = card({ ...decision("r", "plania", "release"), release: { from: "sandbox", into: "main", env: "prod", ahead: 3, tickets: [], open_checks: 0, before: 0 } });
   one(rel.out);
@@ -420,4 +420,51 @@ test("I62-8: the sheets open from the address; Plomería's headline says how the
   assert.equal(plomeria.plumbingHead(pl({ plan: { five_hour_pct: 20, guard_pct: 70, override: true } })).title, "La compañía trabaja sin el freno del plan.");
   assert.match(plomeria.plumbingHead(pl({ plan: { five_hour_pct: 80, guard_pct: 70, override: false } })).sub, /80% y el freno está en 70%/);
   assert.equal(plomeria.weekParts({ usage: { week: { used: 584710, cache_read: 5, cache_create: 2 }, asistente: { used: 0 }, projects: [] } }).main, 584710);
+});
+
+// PLA-I62-9: every address the building used still lands, now on its La corriente screen.
+test("I62-9: each old building address opens its screen in La corriente", async () => {
+  const cor = await load("lib/corriente.ts");
+  const ficha = await load("lib/ficha.ts");
+  const compania = await load("lib/compania.ts");
+  const D = "00000000-0000-4000-8000-0000000000d1";
+  const moved = (s: string) => {
+    const f = ficha.fichaOf(s);
+    return cor.fromBuilding(s, f?.ref ?? null, f?.slug ?? null);
+  };
+  const cases: [string, string][] = [
+    ["?edificio", "?v=tetoca"],
+    ["?asistente", "?v=asistente"],
+    ["?nuevo", "?hoja=nuevo"],
+    ["?decision=abc", "?v=tetoca&decision=abc"],
+    ["?piso=filmia", "?proyecto=filmia"],
+    ["?piso=filmia&nivel=maquinas", "?proyecto=filmia&t=maquinas"],
+    ["?piso=filmia&f=tab:prs", "?proyecto=filmia&t=prs"],
+    ["?piso=filmia&f=step:FIL-3", "?proyecto=filmia&t=tablero&ver=paso%3AFIL-3"],
+    ["?piso=filmia&f=idea:FIL-IDEA2", "?proyecto=filmia&t=ideas&ver=idea%3AFIL-IDEA2"],
+    ["?piso=filmia&f=maq:tabla:cortos", "?proyecto=filmia&t=maquinas&ver=tabla%3Acortos"],
+    ["?m=filmia:taller-filmia", "?proyecto=filmia&t=equipo&ver=miembro%3Ataller-filmia"],
+    ["?plan=filmia", "?proyecto=filmia&t=tablero"],
+    ["?add=filmia", "?proyecto=filmia&t=equipo&ver=sumar"],
+    [`?piso=filmia&doc=${D}`, `?proyecto=filmia&doc=${D}`],
+  ];
+  for (const [from, to] of cases) assert.equal(moved(from), to, from);
+  assert.equal(moved("?proyecto=filmia"), null, "La corriente's own address stays");
+  assert.equal(compania.ceoRedirect("?p=filmia"), "/p/filmia");
+  assert.equal(compania.ceoRedirect("?vista=filmia"), "/p/filmia");
+  assert.equal(compania.ceoRedirect("?equipo"), "/machine");
+  const ceo = await load("pages/ceo.tsx");
+  assert.equal(ceo.ownAddress("?v=pedir&p=filmia"), true, "Pedir's ?p= is La corriente's, not the old /p/<slug> route");
+  assert.equal(ceo.ownAddress("?p=filmia"), false);
+});
+
+test("I62-9: /ceo is La corriente; the building's code and .edi- rules are gone, the shared .sb-/.ahl-/.bc-/.city- rules stay", () => {
+  const app = readFileSync(new URL("../ui/src/App.tsx", import.meta.url), "utf8");
+  const ceo = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  const index = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
+  assert.match(app, /path="\/ceo"/);
+  assert.match(ceo, /<CorrientePage \/>/);
+  assert.doesNotMatch(ceo, /edificio\//);
+  assert.doesNotMatch(index, /\.edi-/);
+  for (const k of [".sb-", ".ahl", ".bc-", ".city-"]) assert.ok(index.includes(k), k);
 });

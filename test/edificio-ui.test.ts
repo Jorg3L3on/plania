@@ -10,11 +10,11 @@ import { nextMove } from "../src/api/company-move.js";
 
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
-const building = await load("components/compania/edificio/building.tsx");
-const equipoUi = await load("components/compania/edificio/equipo.tsx");
-const win = await load("components/compania/edificio/window.tsx");
-const roof = await load("components/compania/edificio/roof.tsx");
-const scene = await load("components/compania/edificio/scene.tsx");
+
+
+
+
+
 const lib = await load("lib/edificio.ts");
 
 type Json = Record<string, any>;
@@ -85,88 +85,16 @@ const company = (patch: Json = {}): Json => ({
 });
 // PLA-I46-3: each floor's move comes from the server (src/api/company-move.ts); attach it as companyRead does.
 const withMoves = (c: Json): Json => ({ ...c, projects: c.projects.map((p: Json) => ("next_move" in p ? p : { ...p, next_move: nextMove(p as never, c.decisions as never, { companyPaused: c.company.paused }) })) });
-const render = (c: Json, extra: Json = {}) =>
-  html(h(building.Building, { company: withMoves(c), decisions: c.decisions, now: NOW, timeZone: TZ, hello: "Buenas tardes", day: "Martes 10 de noviembre", onNew: noop, ...extra }));
-const one = (m: Json, extra: Json = {}) => html(h(win.Window, { member: m, project: "Workia", now: NOW, ...extra }));
 
-// ---- PLA-I39-3
 
-test("I39-3 #1: a window is lit with a laptop only while running; orange with a hand when it asks; blinds when paused; PLA-21: no out-of-budget window", () => {
-  const work = one(member("taller", { state: "running", now: { ticket: "WRK-3", title: "Pantalla del carrito", since: "2026-11-10T17:20:00Z" } }));
-  assert.match(work, /data-state="work"/);
-  assert.ok(work.includes("edi-lap"));
-  const ask = one(member("product-owner", { state: "waiting_jorge", waiting: "¿Qué tienda abrimos primero?" }));
-  assert.match(ask, /data-state="ask"/);
-  assert.ok(ask.includes("edi-arm") && ask.includes("Te pregunta algo"));
-  const off = one(member("research", { state: "paused" }));
-  assert.match(off, /data-state="off"/);
-  assert.ok(off.includes("En pausa"));
-  const idle = one(member("artist"));
-  assert.match(idle, /data-state="idle"/);
-  // Only running lights a window: idle and paused are never "work".
-  for (const s of [ask, off, idle]) assert.equal(/data-state="work"/.test(s), false);
-  // The company switch puts every blind down.
-  assert.match(one(member("research"), { companyPaused: true }), /data-state="off"/);
-  // The laptop and the hand are CSS-gated by state.
-  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  assert.ok(css.includes('.edi-win[data-state="work"] .edi-lap { display: block; }'));
-  assert.ok(css.includes('.edi-win[data-state="ask"] .edi-arm { display: block; }'));
-  assert.ok(css.includes(".edi-arm, .edi-lap { display: none; }"));
-});
 
-test("I39-3 #2: the caption is role and verb, then what it is on with since when, else its queue, else its last delivery", () => {
-  const work = one(member("taller", { state: "running", now: { ticket: "WRK-3", title: "Pantalla del carrito", since: "2026-11-10T17:20:00Z" } }));
-  assert.ok(text(work).includes("Taller") && text(work).includes("construye") && work.includes("Pantalla del carrito") && work.includes("desde hace 40 min"));
-  const queued = one(member("product-owner", { queue: [{ key: "WRK-5", title: "Entrevistar a tres tiendas" }, { key: "WRK-6", title: "Otra" }] }));
-  assert.ok(queued.includes("Siguiente: Entrevistar a tres tiendas") && queued.includes("aún no empieza · 1 más en fila") && text(queued).includes("coordina"));
-  const delivered = one(member("artist", { produced: { kind: "doc", ref: "d-1", title: "Boceto del carrito" }, last: { ticket: "WRK-2", title: "Boceto", status: "ok", at: "2026-11-10T15:00:00Z" } }));
-  assert.ok(delivered.includes("Entregó: Boceto del carrito") && delivered.includes("hace 3 h"));
-  const none = one(member("research"));
-  assert.ok(none.includes("Sin trabajo"));
-  // A run without a ticket title never shows its key.
-  const keyOnly = one(member("taller", { state: "running", now: { ticket: "WRK-9", title: null, since: "2026-11-10T17:58:00Z" } }));
-  assert.ok(keyOnly.includes("Trabajando"));
-  const qa = one(member("qa"));
-  assert.ok(text(qa).includes("QA") && text(qa).includes("prueba") && qa.includes('data-prop="magnifier"'));
-  for (const s of [work, queued, delivered, none, keyOnly, qa]) clean(s);
-  // Every prop by role.
-  assert.deepEqual(["product-owner", "research", "artist", "taller", "qa", "copy"].map(lib.propOf), ["headset", "glasses", "beret", "hardhat", "magnifier", "none"]);
-});
 
-test("I39-3 #3 / I46-3: the roof shows Te toca with the number, one chip per floor's move, deliveries; no tokens", () => {
-  const ds = [decision(), decision({ id: "m-2", kind: "proposal", title: "Dos caminos", asker: { agent: "product-owner-workia", role: "product-owner" } })];
-  const projects = withMoves(company({ decisions: ds })).projects;
-  const out = html(h(roof.Roof, { decisions: ds, projects, plumbing: { spend: 1_250_000, running: 1, paused: false } }));
-  assert.match(out, /data-te-toca="1"/, "one floor, one move");
-  assert.ok(text(out).includes("Te toca") && out.includes(">1<"));
-  assert.equal((out.match(/data-chip=/g) ?? []).length, 1);
-  assert.ok(out.includes("Workia: Responder a Research: «¿Qué tienda abrimos primero?»") && out.includes('href="/ceo?piso=workia"'));
-  assert.ok(out.includes("2 entregas esta semana"));
-  assert.equal(/tokens|1\.25M/.test(out), false, "PLA-I46-4: no tokens on the building");
-  clean(out);
-  const calm = html(h(roof.Roof, { decisions: [], projects: [project({ next_move: null })], plumbing: { spend: 0, running: 0, paused: false } }));
-  assert.ok(calm.includes("Nada pendiente.") && /data-te-toca="0"/.test(calm));
-  // A decision no floor can show (no project) still gets its chip, opened in place.
-  const loose = html(h(roof.Roof, { decisions: [decision({ id: "c-1", project: null, asker: null })], projects: [project({ next_move: null })], onChip: noop }));
-  assert.match(loose, /data-te-toca="1"/);
-  assert.match(loose, /<button[^>]*data-chip="c-1"/);
-});
 
-test("I39-3 #4: empty is a lot with the door, loading the outline with dark windows, error the existing block", () => {
-  const empty = render(company({ projects: [] }));
-  assert.ok(empty.includes('data-empty="projects"') && empty.includes("Abrir el primer piso"));
-  assert.equal(empty.includes("data-roof"), false);
-  const loading = html(h(building.BuildingBlock, { loading: true, error: false, onRetry: noop, children: null }));
-  assert.ok(loading.includes('data-testid="edificio-skeleton"'));
-  assert.equal((loading.match(/class="edi-floor"/g) ?? []).length, 3);
-  assert.equal(/data-state="(work|ask)"/.test(loading), false);
-  const error = html(h(building.BuildingBlock, { loading: false, error: true, onRetry: noop, children: null }));
-  assert.ok(error.includes("data-edificio-error") && /la compañía/.test(error));
-  const full = render(company({ decisions: [decision()] }));
-  assert.ok(full.includes("data-roof") && full.includes('data-floor="workia"') && full.includes("Workia avanza."));
-  assert.ok(full.includes("Resumen: Workia avanza."));
-  clean(full);
-});
+
+
+
+
+
 
 test("I39-3 #5: floors that need the owner come first; the hue is fixed per slug; the sky follows the hour", () => {
   const a = project({ slug: "alfa", title: "Alfa" });
@@ -182,31 +110,12 @@ test("I39-3 #5: floors that need the owner come first; the hue is fixed per slug
   assert.notEqual(lib.skyAt(12).top, lib.skyAt(2).top);
 });
 
-test("I39-3 #6: with prefers-reduced-motion nothing in the scene animates", () => {
-  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  const block = /@media \(prefers-reduced-motion: reduce\) \{\s*\.edi \*, \.edi \*::before, \.edi \*::after \{ animation: none !important; transition: none !important; \}/.test(css);
-  assert.ok(block, "the .edi reduced-motion rule");
-  // PLA-I46-3: nothing in the scene moves but the Ahora card that holds a move (still stars, still antenna).
-  const start = css.indexOf("/* PLA-I39: the building");
-  const edi = css.slice(start, css.indexOf("@keyframes edi-twinkle", start));
-  const animated = [...edi.matchAll(/^\s*(\.[^{]+)\{[^}]*animation:/gm)].map((m) => m[1]!.trim());
-  assert.deepEqual(animated, [".edi-nowb[data-breathe]"]);
-  assert.match(edi, /\.edi-nowb\[data-breathe\] \{[^}]*animation: edi-breathe 2\.4s/);
-  const out = html(h(scene.EdificioSkeleton, {}));
-  assert.ok(out.includes("edi"));
-});
+
 
 // ---- handlers without a DOM: expand hook-free components into their element tree and call the handler.
 type El = { type: unknown; props: Json };
-// Components that hold state are left as elements (their own handlers are tested where they live).
-const STATEFUL = new Set<unknown>([equipoUi.Timbre]);
-const expand = (node: unknown): unknown => {
-  if (Array.isArray(node)) return node.map(expand);
-  if (!node || typeof node !== "object" || !("type" in node)) return node;
-  const el = node as El;
-  if (typeof el.type === "function" && !STATEFUL.has(el.type)) return expand((el.type as (p: Json) => unknown)(el.props));
-  return { ...el, props: { ...el.props, children: expand(el.props?.children) } };
-};
+
+
 const findAll = (node: unknown, pred: (el: El) => boolean, out: El[] = []): El[] => {
   if (Array.isArray(node)) for (const n of node) findAll(n, pred, out);
   else if (node && typeof node === "object" && "props" in node) {
@@ -216,93 +125,24 @@ const findAll = (node: unknown, pred: (el: El) => boolean, out: El[] = []): El[]
   }
   return out;
 };
-const control = (tree: unknown, name: string) => findAll(tree, (el) => el.props?.["data-control"] === name);
-const tree = (c: Json, extra: Json = {}) => expand(h(building.Building, { company: withMoves(c), decisions: c.decisions, now: NOW, timeZone: TZ, hello: "Hola", day: "Martes", onNew: noop, ...extra }));
+
+
 
 // ---- PLA-I39-4
 
 const plan = { initiative: { key: "WRK-I2", title: "Formulario de bienvenida" }, done: 2, total: 5, start_on: null, due_on: null, weeks: null, today_pct: null, done_pct: null, pace: null, weeks_behind: null, forecast_on: null };
 
-test("I39-4 #1 / I46-4: the compact plate: name, the real goal, one status line, Sin meta only without a goal, no tokens", () => {
-  const set = project({
-    plan,
-    rumbo: { goal_id: "g-1", goal: "Que una tienda reciba su primer pedido", why: "", target_on: "2026-12-05", forecast_on: "2026-12-05", weeks_behind: 0, missing: false },
-    light: "needs_jorge",
-    light_reason: { text: "El equipo te hizo una pregunta y espera tu respuesta.", action: { label: "Ver en Te toca", href: "#te-toca" } },
-  });
-  const out = render(company({ projects: [set] }), { onFijar: noop });
-  // PLA-I47-2: the plate became the floor's Encabezado (one line).
-  const plate = out.slice(out.indexOf('class="edi-fhead"'), out.indexOf("</header>", out.indexOf('class="edi-fhead"')));
-  assert.ok(plate.includes("Workia") && plate.includes('title="Workia"'));
-  assert.match(plate, /class="edi-goal" data-rumbo="set" data-goal="true" title="Que una tienda reciba su primer pedido">Que una tienda reciba su primer pedido</);
-  assert.ok(plate.includes("2 de 5 pasos hechos"), "one status line");
-  assert.equal(/Sin meta|tokens|100k|edi-seg|ver-pregunta|edi-reason|te hizo una pregunta/.test(plate), false, "no Sin meta, no tokens, no strip, no action of its own; the question is the floor's move");
-  assert.ok(plate.includes('data-pill="you"') && plate.includes("Entrega <b>"), "the state pill and the delivery date");
-  clean(out);
-  const missing = render(company({ projects: [project({ next: { title: "Pantalla del carrito", key: "WRK-3", owner: "taller", due: null } })] }), { onFijar: noop });
-  assert.ok(missing.includes('data-rumbo="missing"') && text(missing).replace(/\s+/g, " ").includes("Sin meta · Fijar meta") && missing.includes('data-control="fijar"'));
-  assert.ok(missing.includes("Aún no hay pasos"));
-  clean(missing);
-  // Fijar opens the goal dialog for that project.
-  let fixed: Json | null = null;
-  control(tree(company({ projects: [project()] }), { onFijar: (p: Json) => (fixed = p) }), "fijar")[0]!.props.onClick();
-  assert.equal(fixed!.slug, "workia");
-});
 
-test("I39-4 #2: a paused project sits below the street with Reanudar and no lit window; Reanudar calls the project switch", () => {
-  const paused = project({ slug: "nido", title: "Nido", paused: true, light: "paused", team: ["product-owner", "taller"].map((r) => member(r, { agent: `${r}-nido`, state: "paused" })) });
-  const c = company({ projects: [project(), paused] });
-  // PLA-I47-2: the paused floor is a tile under the street on the rail; it opens with ?piso=nido.
-  const rail = render(c, { onResume: noop });
-  const under = rail.slice(rail.indexOf("data-basement"), rail.indexOf("</nav>"));
-  assert.ok(under.includes("Bajo la calle · en pausa") && under.includes('data-tile="nido"') && under.includes("en pausa"));
-  assert.ok(rail.indexOf('data-tile="workia"') < rail.indexOf("edi-rail-street") && rail.indexOf("edi-rail-street") < rail.indexOf('data-tile="nido"'));
-  assert.ok(rail.includes('data-floor="workia"') && !rail.includes('data-floor="nido"'), "one floor at a time: the first running one");
-  const out = render(c, { onResume: noop, piso: "nido" });
-  const floorOut = out.slice(out.indexOf('data-floor="nido"'));
-  assert.ok(floorOut.includes("Reanudar"));
-  assert.equal(/data-state="(work|ask)"/.test(floorOut), false);
-  const calls: string[] = [];
-  const [btn] = control(tree(c, { onResume: (slug: string) => calls.push(slug), piso: "nido" }), "reanudar");
-  btn!.props.onClick();
-  assert.deepEqual(calls, ["nido"]);
-  assert.equal(control(tree(c, { onResume: noop, resuming: "nido", piso: "nido" }), "reanudar")[0]!.props.disabled, true);
-});
 
-test("I39-4 #3: company paused: no window is lit and the banner says it resumes in Máquina", () => {
-  const busy = project({ team: [member("taller", { state: "running", now: { ticket: "WRK-3", title: "Pantalla", since: "2026-11-10T17:00:00Z" } }), member("product-owner", { state: "waiting_jorge" })] });
-  const out = render(company({ company: { paused: true }, projects: [busy] }));
-  assert.equal(/data-state="(work|ask|hold|idle)"/.test(out.slice(out.indexOf("edi-tower"))), false);
-  assert.ok((out.match(/data-state="off"/g) ?? []).length >= 2);
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes('data-banner="paused"') && page.includes("La compañía está detenida: nada arranca. Se reanuda en Máquina."));
-});
 
-test("I39-4 #4: a long name stays on one line with ellipsis and its full text in title; a long goal wraps whole", () => {
-  const name = "Telar de cuentos para niños y abuelos que leen en voz alta";
-  const goal = "Una pantalla del cuento con un título muy largo que ocupa por lo menos dos líneas en el teléfono y algo más";
-  const out = render(company({ projects: [project({ title: name, rumbo: { goal_id: "g", goal, why: "", target_on: null, forecast_on: null, weeks_behind: null, missing: true } })] }));
-  assert.ok(new RegExp(`<a[^>]*class="edi-nm"[^>]*title="${name}"`).test(out) && out.includes(`>${name}</a>`));
-  assert.ok(new RegExp(`class="edi-goal"[^>]*title="${goal}"`).test(out) && out.includes(`>${goal}</p>`), "a goal without a date is still the goal, whole");
-  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  assert.ok(/\.edi-nm \{[^}]*overflow: hidden; text-overflow: ellipsis; white-space: nowrap;/.test(css), "one line with ellipsis");
-  assert.ok(/\.edi-goal \{[^}]*overflow-wrap: anywhere;/.test(css), "it wraps, never clipped");
-});
 
-test("I39-4 #5: the door opens the new-project dialog and a created project shows as a new floor", () => {
-  let opened = 0;
-  const c = company();
-  control(tree(c, { onNew: () => opened++ }), "piso-nuevo")[0]!.props.onClick();
-  assert.equal(opened, 1);
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes('openSheet("?nuevo")') && page.includes("onNew={onNew}") && page.includes('sheet?.kind === "nuevo"'));
-  const after = render(company({ projects: [project(), project({ slug: "faro", title: "Faro" })] }));
-  assert.ok(after.includes('data-floor="faro"') && after.includes('data-tower="2"'));
-});
 
-// ---- PLA-I39-5
 
-const v2 = await load("components/compania/v2.tsx");
+
+
+
+
+
 const acts = (patch: Json = {}) => ({ now: NOW, busy: null, errors: {}, opened: null, onAct: noop, ...patch });
 const proposal = decision({
   id: "m-00000000-0000-4000-8000-0000000000a1",
@@ -329,113 +169,19 @@ const KINDS: Json[] = [
 ];
 const actionsIn = (s: string) => [...s.matchAll(/data-action="([a-z]+)"/g)].map((m) => m[1]).sort();
 
-test("I39-5 #1: a proposal hangs under the PO's window and a question under the window of who asked it", () => {
-  const out = render(company({ decisions: [proposal, decision()] }), { acts: acts() });
-  const floor = out.slice(out.indexOf('data-floor="workia"'));
-  assert.match(floor, new RegExp(`data-bubble="${proposal.id}"[^>]*data-asker="product-owner-workia"`));
-  assert.match(floor, /data-bubble="q-00000000-0000-4000-8000-000000000001"[^>]*data-asker="research-workia"/);
-  assert.ok(floor.includes("PO te pregunta") && floor.includes("Research te pregunta"));
-  // PLA-I55-1: the questions stack in the ventanal's home, under Ahora and before the index (no notch: nothing to point at).
-  const at = floor.indexOf(`data-bubble="${proposal.id}"`);
-  assert.ok(floor.indexOf('class="edi-home-q"') < at && at < floor.indexOf('class="edi-idx"'));
-  assert.equal(/--nx-wide/.test(floor), false);
-  // The plate's pointer goes to the question on this floor, and Te toca's block is gone from the page.
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.equal(page.includes("<TeToca"), false);
-  assert.ok(page.includes('get("decision")'));
-  // PLA-I46-3: the floor's move points at the question on this floor (Ahora's Ver y responder).
-  const reason = render(company({ projects: [project({ light: "needs_jorge", light_reason: { text: "Te preguntan.", action: { label: "Ver en Te toca", href: "#te-toca" } } })], decisions: [decision()] }), { acts: acts() });
-  assert.ok(reason.includes('data-control="ahora-reveal"') && reason.includes('id="pregunta-workia"') && reason.includes("Ver y responder"));
-  clean(out);
-});
 
-test("I39-5 #2: each of the eight decision kinds shows the same actions Te toca shows", () => {
-  // What Te toca showed for each kind (recorded from its rows before the block left the page, PLA-I39-9).
-  const TE_TOCA: Record<string, string[]> = {
-    proposal: ["combo", "elegir", "elegir", "responder"],
-    plan: ["cambiar", "cancelar", "empezar"],
-    action: ["aplazar", "hecho"],
-    question: ["elegir", "elegir", "responder"],
-    deliverable: ["aceptar", "cambios"],
-    pr: ["cambios", "fusionar"],
-    step: ["hecho"],
-    release: ["publicar"],
-  };
-  for (const d of KINDS) {
-    const out = render(company({ decisions: [d] }), { acts: acts(), roofOpen: d.id });
-    // PLA-I46-10: a PR delivery is the floor's move and Ahora carries it as the evidence card, with the same two
-    // exits (held here, so its Aceptar is plain), and it does not hang a second time under Taller's window.
-    if (d.kind === "pr") {
-      const card = /<div id="pregunta-workia" class="edi-nowb"[\s\S]*?(?=<div class="edi-home-q"|<div class="edi-fcol"|<nav class="edi-idx")/.exec(out)?.[0] ?? "";
-      assert.ok(card.includes(`data-evidence="${d.id}"`), "pr is shown in Ahora");
-      assert.deepEqual([...card.matchAll(/data-ev-act="([a-z]+)"/g)].map((m) => m[1]), ["aceptar", "devolver", "frente"]);
-      assert.equal(out.includes(`data-bubble="${d.id}"`), false);
-      continue;
-    }
-    const where = d.asker ? out.slice(out.indexOf('data-floor="workia"')) : out.slice(out.indexOf("data-roof"), out.indexOf("edi-tower"));
-    assert.ok(where.includes(`data-bubble="${d.id}"`), `${d.kind} is shown`);
-    assert.deepEqual(actionsIn(where), TE_TOCA[d.kind], d.kind);
-    clean(where);
-  }
-});
 
-test("I39-5 #3: choosing an option acts once with that option; the result line and a refusal show in place", () => {
-  const calls: Json[] = [];
-  const ui = { reply: false, setReply: noop, text: "", setText: noop, open: false, setOpen: noop };
-  const view = expand(h(v2.DecisionView, { d: proposal, now: NOW, busy: null, onAct: (d: Json, input: Json, key: string) => calls.push({ id: d.id, input, key }), ui }));
-  const elegir = findAll(view, (el) => el.props?.["data-action"] === "elegir");
-  assert.equal(elegir.length, 2);
-  elegir[0]!.props.onClick();
-  assert.deepEqual(calls, [{ id: proposal.id, input: { action: "elegir", option: 1 }, key: "elegir-1" }]);
-  // While it is on its way the buttons are disabled, so it is sent once.
-  const busy = expand(h(v2.DecisionView, { d: proposal, now: NOW, busy: { id: proposal.id, key: "elegir-1" }, onAct: noop, ui }));
-  assert.ok(findAll(busy, (el) => el.props?.["data-action"] === "elegir").every((b) => b.props.disabled === true));
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("api.actDecision(v.d.id, v.input)") && page.includes("onAct: (d: Decision, input: DecisionInput, key: string) => act.mutate({ d, input, key })"));
-  // Acted. PLA-I40-6: it no longer hangs as a bubble; the floor keeps it as one line under Lo último, with the
-  // result behind Ver.
-  const done = render(company({ projects: [project({ latest: [], stale_requests: [] })], decisions: [{ ...proposal, actions: [], state: { action: "elegir", at: "2026-11-10T17:55:00Z", result: { option: 1, label: "Con el borrador" } } }] }), { acts: acts() });
-  assert.equal(done.includes("data-bubble="), false);
-  assert.ok(done.includes('data-last="answered"') && done.includes("Respondiste «¿Con qué arrancamos el formulario?»") && done.includes("✓"));
-  // Refused: its sentence in place.
-  const refused = render(company({ decisions: [proposal] }), { acts: acts({ errors: { [proposal.id]: "Ya actuaste sobre esto." } }) });
-  const bubble = refused.slice(refused.indexOf(`data-bubble="${proposal.id}"`));
-  assert.ok(bubble.includes("Ya actuaste sobre esto."));
-});
 
-test("I39-5 #4: two decisions from one asker: the oldest shows and +1 más is there", () => {
-  const older = decision({ id: "q-old", title: "¿Primero la tienda de ropa?", at: "2026-11-10T10:00:00Z" });
-  const newer = decision({ id: "q-new", title: "¿Y la de libros?", at: "2026-11-10T16:00:00Z" });
-  const out = render(company({ decisions: [newer, older] }), { acts: acts() });
-  assert.equal((out.match(/data-bubble="/g) ?? []).length, 1);
-  assert.ok(out.includes('data-bubble="q-old"') && out.includes('data-more="1"') && out.includes("+1 más"));
-  const floor = out.slice(out.indexOf('data-floor="workia"'));
-  assert.ok(floor.indexOf("¿Primero la tienda de ropa?") < floor.indexOf("¿Y la de libros?"));
-  const hang = lib.hangingFor([newer, older], "workia", "research-workia");
-  assert.deepEqual([hang.decision.id, hang.more.map((d: Json) => d.id)], ["q-old", ["q-new"]]);
-});
 
-test("I39-5 #5: a release is a chip on the roof and not a bubble under a window", () => {
-  const release = KINDS.at(-1)!;
-  const closed = render(company({ decisions: [release] }), { acts: acts(), onChip: noop });
-  assert.ok(closed.includes(`data-chip="${release.id}"`) && /data-on-team="0"/.test(closed));
-  assert.equal(closed.includes("data-bubble"), false);
-  const calls: string[] = [];
-  const [chip] = findAll(tree(company({ decisions: [release] }), { acts: acts(), onChip: (d: Json) => calls.push(d.id) }), (el) => el.props?.["data-chip"] === release.id);
-  chip!.props.onClick();
-  assert.deepEqual(calls, [release.id]);
-  const opened = render(company({ decisions: [release] }), { acts: acts(), onChip: noop, roofOpen: release.id });
-  const roofPart = opened.slice(opened.indexOf("data-roof"), opened.indexOf("edi-tower"));
-  assert.ok(roofPart.includes(`data-bubble="${release.id}"`) && roofPart.includes("Publicar en Bandeja"));
-  assert.equal(opened.slice(opened.indexOf("edi-tower")).includes("data-bubble"), false);
-});
 
-// ---- PLA-I39-6
 
-const side = await load("components/compania/edificio/side.tsx");
-const timon = await load("components/compania/timon.tsx");
+
+
+
+
+
+
 const companiaLib = await load("lib/compania.ts");
-STATEFUL.add(timon.Detalles);
 const taller = member("taller", {
   state: "running",
   now: { ticket: "WRK-3", title: "Pantalla del carrito", since: "2026-11-10T17:20:00Z", run_id: "00000000-0000-4000-8000-0000000000r1" },
@@ -443,104 +189,16 @@ const taller = member("taller", {
   produced: { kind: "doc", ref: "00000000-0000-4000-8000-0000000000d1", title: "Notas del carrito" },
   last: { ticket: "WRK-2", title: "Lista", status: "ok", at: "2026-11-10T15:00:00Z", run_id: "00000000-0000-4000-8000-0000000000r0" },
 });
-const steerSpy = () => {
-  const calls: Json[] = [];
-  const steer = {
-    onAsk: async (slug: string, input: Json) => (calls.push({ ask: slug, ...input }), { key: "WRK-9", title: "x", po: "po", wake: "off", woke: null }),
-    onPickNext: (slug: string, key: string) => calls.push({ next: slug, key }),
-    onPause: (p: Json) => calls.push({ pause: p.slug }),
-    onRun: (action: string, id: string) => calls.push({ run: action, id }),
-    onNote: (slug: string, key: string, text: string) => calls.push({ note: slug, key, text }),
-    onCancelOrder: (slug: string, key: string) => calls.push({ cancel: slug, key }),
-    onOptions: noop,
-    busy: null,
-  };
-  return { steer, calls };
-};
-const memberPage = (m: Json, extra: Json = {}) => h(side.MemberPage, { project: project({ team: [m] }), member: m, now: NOW, steer: steerSpy().steer, text: "", setText: noop, onSay: noop, ...extra });
 
-test("I39-6 #1: a window opens that teammate's page with what it is on, its queue and its last delivery; the address carries ?m=", () => {
-  const out = html(memberPage(taller));
-  assert.ok(out.includes("Pantalla del carrito") && out.includes("desde hace 40 min"));
-  assert.ok(out.includes('data-queue="2"') && out.includes("Guardar el carrito") && out.includes("Pagar"));
-  assert.ok(out.includes("Notas del carrito") && out.includes("data-produced"));
-  clean(out);
-  // The address: ?m=<slug>:<agent>, and reading it back opens the same page (a reload reopens it).
-  const search = companiaLib.sheetSearch({ kind: "member", slug: "workia", agent: "taller-workia" });
-  assert.equal(search, "?m=workia:taller-workia");
-  assert.deepEqual(companiaLib.sheetOf(search), { kind: "member", slug: "workia", agent: "taller-workia" });
-  assert.deepEqual(companiaLib.sheetOf("?plan=workia"), { kind: "plan", slug: "workia" });
-  assert.deepEqual(companiaLib.sheetOf("?add=workia"), { kind: "add", slug: "workia" });
-  assert.deepEqual(companiaLib.sheetOf("?doc=d-1"), { kind: "doc", id: "d-1" });
-  assert.deepEqual(companiaLib.sheetOf("?nuevo"), { kind: "nuevo" });
-  // A window click goes there (PLA-I58-1: the windows are in La sala, which El timbre hands onMember).
-  const opened: string[] = [];
-  const [t0] = findAll(tree(company({ projects: [project({ team: [taller] })] }), { onOpen: (slug: string, m: Json) => opened.push(companiaLib.sheetSearch({ kind: "member", slug, agent: m.agent })) }), (el) => el.type === equipoUi.Timbre);
-  t0!.props.onMember(t0!.props.team[0], {});
-  assert.deepEqual(opened, ["?m=workia:taller-workia"]);
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  // PLA-I47-4: the page opens the teammate in La ficha (?f=member:<agent>); the old ?m= link still lands there.
-  assert.ok(page.includes('showFicha({ kind: "member", agent: m.agent }, el, slug)') && page.includes("fichaOf(location.search)"));
-});
 
-test("I39-6 #2: Dile algo notes the teammate's current ticket, or sends an order to the PO naming the role", () => {
-  assert.deepEqual(lib.sayTo(taller, "  usa el verde  "), { kind: "note", key: "WRK-3", text: "usa el verde" });
-  assert.deepEqual(lib.sayTo(member("artist"), "otro boceto"), { kind: "order", text: "Para Artist: otro boceto" });
-  assert.deepEqual(lib.sayTo(member("product-owner"), "prioriza pagos"), { kind: "order", text: "prioriza pagos" });
-  assert.equal(lib.sayTo(taller, " a "), null);
-  const said: Json[] = [];
-  const view = expand(memberPage(taller, { text: "usa el verde", onSay: (x: Json) => said.push(x) }));
-  const [form] = findAll(view, (el) => el.type === "form" && "data-say" in el.props);
-  form!.props.onSubmit({ preventDefault: noop });
-  assert.deepEqual(said, [{ kind: "note", key: "WRK-3", text: "usa el verde" }]);
-});
 
-test("I39-6 #3: Detener shows only for a live run and calls the stop route", () => {
-  const { steer, calls } = steerSpy();
-  const view = expand(memberPage(taller, { steer }));
-  const [stop] = control(view, "detener");
-  stop!.props.onClick();
-  assert.deepEqual(calls, [{ run: "stop", id: "00000000-0000-4000-8000-0000000000r1" }]);
-  assert.equal(html(memberPage(member("taller", { last: taller.last }))).includes('data-control="detener"'), false);
-  const stopped = member("taller", { last: { ...taller.last, status: "stopped" } });
-  const again = steerSpy();
-  control(expand(memberPage(stopped, { steer: again.steer })), "reanudar-corrida")[0]!.props.onClick();
-  assert.deepEqual(again.calls, [{ run: "resume", id: "00000000-0000-4000-8000-0000000000r0" }]);
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes('action === "stop" ? api.stopRun(id) : api.resumeRun(id)'));
-});
 
-test("I39-6 #4: the plan page lists in progress, next and blocked, and your orders; Hacer primero and Quitar call their routes", () => {
-  const sheet = {
-    slug: "workia",
-    title: "Workia",
-    goal: null,
-    pipeline: [],
-    in_progress: [{ key: "WRK-3", title: "Pantalla del carrito", status: "In progress", owner: "Taller Workia" }],
-    blocked: [{ key: "WRK-8", title: "Pagos con tarjeta", status: "Blocked", why: "falta la cuenta" }],
-    next: [{ key: "WRK-5", title: "Guardar el carrito", priority: "P1", yours: false }],
-    runs: [],
-    bot_work: 1,
-  };
-  const orders = [{ id: "o-1", kind: "order", key: "WRK-9", title: "Una portada de otoño", text: null, at: "2026-11-10T12:00:00Z", state: "enviada", stage: "enviada", understood: null, who: null, link: null, age_h: 2, plan: null, run: null }];
-  const p = project({ orders });
-  const { steer, calls } = steerSpy();
-  const el = h(side.PlanPage, { project: p, sheet, now: NOW, steer, onFijar: noop });
-  const out = html(el);
-  for (const t of ["Pantalla del carrito", "Guardar el carrito", "Pagos con tarjeta", "falta la cuenta", "Una portada de otoño"]) assert.ok(out.includes(t), t);
-  assert.ok(out.includes('data-section="en-curso"') && out.includes('data-section="sigue"') && out.includes('data-section="bloqueado"') && out.includes('data-section="pedidos"'));
-  const view = expand(el);
-  control(view, "hacer-primero")[0]!.props.onClick();
-  control(view, "quitar")[0]!.props.onClick();
-  control(view, "pausar")[0]!.props.onClick();
-  assert.deepEqual(calls, [{ next: "workia", key: "WRK-9" }, { cancel: "workia", key: "WRK-9" }, { pause: "workia" }]);
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("api.pickNext(slug, key)") && page.includes("api.cancelOrder(slug, key)"));
-  // The project's name opens the plan.
-  const plans: string[] = [];
-  control(tree(company(), { onPlan: (x: Json) => plans.push(x.slug) }), "plan")[0]!.props.onClick({ currentTarget: {} });
-  assert.deepEqual(plans, ["workia"]);
-});
+
+
+
+
+
+
 
 // PLA-I46-13 (replaces the I39-6 #5 list): the Sumar sheet. Role and packs are the two choices; the engine is one line.
 const HIRE = [
@@ -562,154 +220,27 @@ const PACKS = [
   { slug: "preguntas-antes-de-construir", name: "Preguntas antes de construir", when: "Si algo no está claro.", doc_id: "d5" },
 ];
 const sumar = await load("lib/sumar.ts");
-const sumarPage = (patch: Json = {}) => h(side.SumarPage, { hire: HIRE, packs: PACKS, role: "qa", chosen: ["pruebas-primero"], onRole: noop, onPack: noop, onAdd: noop, ...patch });
 
-test("I46-13 #1: the + window opens the Sumar sheet; it adds the role with its packs and the new window shows after the next read", () => {
-  const adds: [string, string[]][] = [];
-  const el = sumarPage({ onAdd: (t: string, p: string[]) => adds.push([t, p]) });
-  const out = html(el);
-  clean(out);
-  const words = text(out);
-  for (const w of ["QA", "Escritura", "Seguridad", "Research", "Otro", "Motor:", "Claude Code", "Publicar sigue siendo tuyo", "viven en Plania", "Sumar QA"]) assert.ok(words.includes(w), w);
-  // The packs are the ones read from Plania, with their «Cuándo» line; none is named in the sheet's code.
-  assert.ok(out.includes('data-packs="5"'));
-  for (const p of PACKS) assert.ok(words.includes(p.name) && words.includes(p.when), p.name);
-  const sideSrc = readFileSync(new URL("../ui/src/components/compania/edificio/side.tsx", import.meta.url), "utf8");
-  assert.equal(/Pruebas primero|QA visual con capturas|Revisión de seguridad|Español claro/.test(sideSrc), false, "packs come from the API");
-  // One engine is one line, not a step.
-  assert.equal((out.match(/data-motor/g) ?? []).length, 1);
-  assert.equal(/radio[^>]*Claude Code/.test(out), false);
-  control(expand(el), "sumar-rol")[0]!.props.onClick();
-  assert.deepEqual(adds, [["qa", ["pruebas-primero"]]]);
-  // The "+" window opens it; after the next read the new teammate has its window.
-  const opened: string[] = [];
-  control(tree(company(), { onAdd: (slug: string) => opened.push(slug) }), "sumar")[0]!.props.onClick({ currentTarget: {} });
-  assert.deepEqual(opened, ["workia"]);
-  const after = render(company({ projects: [project({ team: [...project().team, member("qa", { packs: ["pruebas-primero"] })] })] }), { onAdd: noop });
-  assert.ok(after.includes('data-agent="qa-workia"') && after.includes('data-prop="magnifier"'));
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("api.addToTeam(v.slug, v.template, v.packs, v.motor)") && page.includes("api.packs()") && page.includes('invalidateQueries({ queryKey: ["company"] })'));
-});
 
-test("I46-13 #2: role states, Otro, and the packs a role suggests", () => {
-  const view = expand(sumarPage());
-  const roleEl = (slug: string) => findAll(view, (x) => x.props?.["data-hire"] === slug)[0]!;
-  assert.equal(roleEl("qa").props["aria-checked"], true);
-  assert.equal(roleEl("research").props.disabled, true, "already on the team");
-  assert.equal(roleEl("seguridad").props.disabled, true, "no prompt doc yet");
-  const out = text(html(sumarPage()));
-  assert.ok(out.includes("Ya está") && out.includes("Falta su doc"));
-  // Otro picks the first free template that is not one of the four, and lists the rest.
-  const roles: string[] = [];
-  findAll(expand(sumarPage({ onRole: (r: string) => roles.push(r) })), (x) => x.props?.["data-hire"] === "otro")[0]!.props.onClick();
-  assert.deepEqual(roles, ["marketing"]);
-  const otro = html(sumarPage({ role: "marketing", chosen: [] }));
-  assert.ok(otro.includes('data-otros="2"') && text(otro).includes("Sumar Marketing") && text(otro).includes("Data"));
-  // Ticking a pack goes through onPack; the button names the role.
-  const ticks: string[] = [];
-  findAll(expand(sumarPage({ onPack: (p: string) => ticks.push(p) })), (x) => x.props?.["data-pack"] === "espanol-claro")[0]!.props.onChange();
-  assert.deepEqual(ticks, ["espanol-claro"]);
-  assert.ok(text(html(sumarPage({ role: "copy" }))).includes("Sumar Escritura"));
-  // Suggestions only keep packs Plania has.
-  assert.deepEqual(sumar.suggestedPacks("qa", PACKS), ["pruebas-primero", "qa-visual-con-capturas"]);
-  assert.deepEqual(sumar.suggestedPacks("seguridad", PACKS.slice(0, 2)), []);
-  assert.equal(sumar.firstFree(sumar.roleChoices(HIRE)), "qa");
-  assert.equal(sumar.firstFree(sumar.roleChoices(HIRE.map((x) => ({ ...x, state: "taken" })))), null);
-  // Nothing to add, no packs, a failed packs read: the sheet still says so.
-  const none = html(sumarPage({ hire: HIRE.map((x) => ({ ...x, state: "taken" })), role: null, packs: [] }));
-  assert.ok(text(none).includes("Elige un rol") && none.includes('data-empty="packs"') && text(none).includes("No queda otro"));
-  assert.ok(html(sumarPage({ packsError: true })).includes('data-empty="packs-error"'));
-});
 
-test("I46-13 #3: the sheet works at 390: role chips in two columns, rows wrap, the button fills the width", () => {
-  const out = html(sumarPage());
-  assert.ok(out.includes("grid-cols-2") && out.includes("sm:grid-cols-3"));
-  assert.ok(out.includes("w-full sm:w-auto"));
-  assert.ok(out.includes("break-words") && out.includes("min-w-0"));
-});
 
-// ---- PLA-I39-7
 
-const ask = await load("components/compania/edificio/ask.tsx");
-const fab = await load("components/compania/edificio/asistente.tsx");
-const askView = (patch: Json = {}) => h(ask.AskView, { project: project(), text: "", setText: noop, onSubmit: noop, ...patch });
 
-test("I39-7 #1: a floor has one box and one send button; sending posts the text with its mode (PLA-I54-1); the plate confirms", () => {
-  const out = render(company(), { askFor: (p: Json) => h(ask.AskView, { project: p, text: "", setText: noop, onSubmit: noop }) });
-  const floor = out.slice(out.indexOf('data-floor="workia"'));
-  assert.equal((floor.match(/<textarea/g) ?? []).length, 1);
-  assert.equal((floor.match(/data-control="pedir"/g) ?? []).length, 1);
-  assert.ok(floor.includes("Pide algo para Workia") && floor.includes("Darle forma") && !floor.includes("Que empiece ya"));
-  assert.equal(/data-kind="(cambio|direccion|idea)"/.test(floor), false, "no kind picker");
-  const sent: Json[] = [];
-  const view = expand(askView({ text: "  un botón de WhatsApp  ", mode: "ya", onSubmit: (i: Json) => sent.push(i) }));
-  findAll(view, (el) => el.type === "form")[0]!.props.onSubmit({ preventDefault: noop });
-  assert.deepEqual(sent, [{ text: "un botón de WhatsApp", mode: "ya" }]);
-  const later: Json[] = [];
-  findAll(expand(askView({ text: "otra cosa", onSubmit: (i: Json) => later.push(i) })), (el) => el.type === "form")[0]!.props.onSubmit({ preventDefault: noop });
-  assert.deepEqual(later, [{ text: "otra cosa", mode: "forma" }]);
-  // Too short: nothing is sent.
-  const none: Json[] = [];
-  findAll(expand(askView({ text: "ok", onSubmit: (i: Json) => none.push(i) })), (el) => el.type === "form")[0]!.props.onSubmit({ preventDefault: noop });
-  assert.deepEqual(none, []);
-  // The plate says where it landed, in plain words.
-  assert.equal(lib.askedLine({ key: "WRK-9", title: "x", po: "po-workia", wake: "queued", woke: { woke: true, reason: "started", ticket: "WRK-9", summary: "" } }, "Workia"), "Le llegó a el PO de Workia y ya está en ello.");
-  assert.equal(lib.askedLine({ key: "WRK-9", title: "x", po: "po-workia", wake: "queued", woke: null }, "Workia"), "Le llegó a el PO de Workia; lo toma en su turno.");
-  const confirmed = html(askView({ sent: "Le llegó a el PO de Workia; lo toma en su turno." }));
-  assert.ok(confirmed.includes("data-sent") && confirmed.includes("lo toma en su turno"));
-  clean(confirmed);
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("steer.onAsk(slug, { text: input.text, mode: input.mode, consulta: input.consulta })") && page.includes("api.askProject(slug, input)"));
-});
 
-test("I39-7 #2: while the box has text the PO's window says Recibiría tu pedido; clearing it removes the line", () => {
-  const typing = render(company(), { typing: { workia: true } });
-  assert.match(typing, /data-state="ghost" data-agent="product-owner-workia"/);
-  assert.ok(typing.includes("Recibiría tu pedido"));
-  const cleared = render(company(), { typing: { workia: false } });
-  assert.equal(cleared.includes("Recibiría tu pedido"), false);
-  assert.equal(cleared.includes('data-state="ghost"'), false);
-  // The box reports typing on every change.
-  const box = readFileSync(new URL("../ui/src/components/compania/edificio/ask.tsx", import.meta.url), "utf8");
-  assert.ok(box.includes("onTyping?.(project.slug, v.trim().length > 0)"));
-});
 
-test("I39-7 #3 / I47-5: Asistente's button shows the unread count and a dot when Asistente waits; it opens the thread in the side page", () => {
-  const out = html(h(fab.AsistenteButton, { unread: 3, waiting: true, onOpen: noop }));
-  assert.ok(out.includes('data-unread="3"') && out.includes('class="edi-badge"') && out.includes(">3<") && out.includes("edi-asis-dot") && out.includes('data-waiting="1"'));
-  assert.ok(out.includes("3 mensajes sin leer, te espera"));
-  const quiet = html(h(fab.AsistenteButton, { unread: 0, waiting: false, onOpen: noop }));
-  assert.equal(quiet.includes("edi-badge") || quiet.includes("edi-asis-dot"), false);
-  const opened: number[] = [];
-  expand(h(fab.AsistenteButton, { unread: 0, waiting: false, onOpen: () => opened.push(1) }));
-  (expand(h(fab.AsistenteButton, { unread: 0, waiting: false, onOpen: () => opened.push(1) })) as El).props.onClick({ currentTarget: {} });
-  assert.deepEqual(opened, [1]);
-  assert.deepEqual(companiaLib.sheetOf("?asistente"), { kind: "asistente" });
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes('sheet?.kind === "asistente"') && page.includes("<ThreadPanel") && page.includes("onSend={asistente.onSend}") && page.includes("useThread(company?.asistente.thread_id"));
-});
 
-test("I39-7 #4: no 360 px column and no folded Asistente remain on the page", () => {
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.equal(page.includes("360px") || page.includes("AsistenteFolded") || page.includes("lg:grid-cols"), false);
-});
 
-// ---- PLA-22: the clock is gone (Jorge: "Remove this"). The building always shows now.
 
-test("PLA-22: no clock bar, no past mode, no history route", async () => {
-  const { existsSync } = await import("node:fs");
-  assert.equal(existsSync(new URL("../ui/src/components/compania/edificio/clock.tsx", import.meta.url)), false);
-  assert.equal(existsSync(new URL("../src/api/company-history.ts", import.meta.url)), false);
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.equal(/ClockBar|companyHistory|setViewAt|Ver qué pasó/.test(page), false);
-  const out = render(company(), { acts: acts(), onOpen: noop });
-  assert.equal(/data-clock|data-mode="past"|Volver a ahora|Mirando atrás|data-past/.test(out), false);
-  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  assert.equal(/\.edi-clock|\.edi-scrub|data-mode="past"/.test(css), false);
-  const routes = readFileSync(new URL("../src/api/company.ts", import.meta.url), "utf8");
-  assert.equal(routes.includes('"/history"'), false);
-  for (const k of ["litAt", "marksOf", "stepEvent", "timeAt", "valueAt", "clampTime", "runAt"]) assert.equal(k in lib, false, k);
-});
+
+
+
+
+
+
+
+
+
+
 
 // ---- PLA-I39-9
 
@@ -726,60 +257,14 @@ const contrast = (a: string, b: string) => {
 const over = (a: string, b: string, alpha: number) =>
   "#" + [1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * alpha + parseInt(b.slice(i, i + 2), 16) * (1 - alpha)).toString(16).padStart(2, "0")).join("");
 
-test("I39-9 #2: every window is named with role, state and what it is on; the tab order goes from a window to its question", () => {
-  const team = [
-    member("product-owner", { state: "waiting_jorge", waiting: "¿Qué tienda?" }),
-    member("research"),
-    member("taller", { state: "running", now: { ticket: "WRK-3", title: "Pantalla del carrito", since: "2026-11-10T17:20:00Z" } }),
-  ];
-  const out = render(company({ projects: [project({ team })], decisions: [proposal] }), { acts: acts(), onOpen: noop });
-  // PLA-I58-1: every teammate is a window in La sala, in the team's order.
-  const names = [...out.matchAll(/<button type="button" class="edi-sala-mate"[^>]*aria-label="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(names, ["PO de Workia, te espera: Te pregunta algo, ¿Qué tienda?", "Research de Workia, libre: Sin trabajo", "Taller de Workia, trabajando: Pantalla del carrito, desde hace 40 min"]);
-  // The question is in the ventanal, under Ahora; with La sala closed the plate says who asks.
-  const q = out.indexOf(`data-bubble="${proposal.id}"`);
-  assert.ok(q > 0 && out.indexOf('class="edi-home-q"') < q, "questions sit under Ahora");
-  assert.match(out, /data-control="timbre-pregunta"[^>]*>[\s\S]*?PO te pregunta</);
-});
 
-test("I39-9 #3: caption, plate and question text on the night panel reach 4.5:1", () => {
-  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  const v = (name: string, scope: string) => new RegExp(`${scope}[\\s\\S]*?${name}: (#[0-9a-f]{6})`, "i").exec(css)![1]!;
-  const wall = v("--e-wall", "\\.edi \\{");
-  const fg = v("--e-fg", "\\.edi \\{");
-  const muted = v("--e-muted", "\\.edi \\{");
-  const youInk = v("--e-you-ink", "\\.edi \\{");
-  const workInk = /\.edi-win\[data-state="work"\] \.edi-do \{ color: (#[0-9a-f]{6})/.exec(css)![1]!;
-  const darkCard = v("--card", "\\.dark \\{");
-  const darkFg = v("--foreground", "\\.dark \\{");
-  const darkMuted = v("--muted-foreground", "\\.dark \\{");
-  // The worst floor background: the brightest hue tinted 11 % over the wall.
-  const floors = lib.HUES.map((h: string) => over(h, wall, 0.11));
-  const pairs: [string, string, string][] = [];
-  for (const bg of [wall, ...floors]) {
-    pairs.push(["plate and caption text", fg, bg], ["muted caption and plate lines", muted, bg], ["asking captions", youInk, bg], ["working caption", workInk, bg]);
-  }
-  pairs.push(["question text", darkFg, darkCard], ["question muted text", darkMuted, darkCard], ["question eyebrow", youInk, darkCard]);
-  const low = pairs.map(([what, a, b]) => ({ what, a, b, ratio: Math.round(contrast(a, b) * 100) / 100 })).filter((p) => p.ratio < 4.5);
-  assert.deepEqual(low, []);
-  const worst = Math.min(...pairs.map(([, a, b]) => contrast(a, b)));
-  console.log(`edificio contrast: worst ${worst.toFixed(2)}:1 over ${pairs.length} pairs`);
-});
 
-test("I39-9 live: the sky quotes Asistente only from a run that finished ok; the button sits above the tab bar on a phone", () => {
-  const skipped = render(company({ asistente: { ...company().asistente, last_run: { status: "skipped", at: "2026-11-10T17:00:00Z", summary: "skipped: BUDGET/STOPPED asistente at 177%" } } }));
-  assert.equal(skipped.includes("BUDGET") || skipped.includes("data-asistente-line"), false);
-  assert.ok(render(company()).includes("Resumen: Workia avanza."));
-  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  // PLA-I47-5: Asistente sits in the sky line; nothing floats at the bottom right any more.
-  assert.equal(css.includes("edi-fab"), false);
-  assert.ok(css.includes(".edi-asis {"));
-});
 
-// ---- PLA-23: the floor says what it wants, and its action acts
 
-const publishUi = await load("components/compania/edificio/publish.tsx");
-const questionUi = await load("components/compania/edificio/question.tsx");
+
+
+
+
 const release = (patch: Json = {}): Json =>
   decision({
     id: "r-workia",
@@ -793,76 +278,13 @@ const release = (patch: Json = {}): Json =>
   });
 const waitingRelease = project({ light: "needs_jorge", light_reason: { text: "2 cambios listos esperan que los publiques.", action: { label: "Publicar", href: "#publicar" } } });
 
-// PLA-I47-2: the Tú window is gone; the move is Ahora's and the phone bar's.
-test("PLA-23 #1 / I46-3: a floor with a release has its move Publicar in Ahora and the phone bar; each opens publishing", () => {
-  for (const where of ["ahora", "barra"]) {
-    const opened: string[] = [];
-    const t = tree(company({ projects: [waitingRelease], decisions: [release()] }), { acts: acts(), onPublish: (p: Json) => opened.push(p.slug) });
-    const [btn] = control(t, `${where}-publish`);
-    assert.ok(btn, `${where} has Publicar`);
-    btn!.props.onClick();
-    assert.deepEqual(opened, ["workia"], where);
-  }
-  const out = render(company({ projects: [waitingRelease], decisions: [release()] }), { acts: acts(), onPublish: noop });
-  assert.ok(text(out).includes("Publicar 2 cambios") && !out.includes('href="#publicar"'));
-  assert.equal(out.includes('data-control="publicar"'), false, "the plate draws no Publicar of its own");
-});
 
-test("PLA-23 #1: the roof chip of a release publishes in place, and the sheet says what goes out, where, and asks the code", () => {
-  const published: string[] = [];
-  const ui = { reply: false, setReply: noop, text: "", setText: noop, open: false, setOpen: noop };
-  const row = expand(h(v2.DecisionView, { d: release(), now: NOW, busy: null, onAct: noop, onPublish: (d: Json) => published.push(d.project), ui }));
-  const [btn] = findAll(row, (el) => el.props?.["data-action"] === "publicar");
-  assert.equal(btn!.type, "button");
-  btn!.props.onClick();
-  assert.deepEqual(published, ["workia"]);
-  const body = html(h(publishUi.PublishBody, { title: "Mianovia", release: release().release, onPublish: noop, onCancel: noop }));
-  for (const t of ["2 cambios terminados de Mianovia pasan de la copia de prueba a la versión principal", "sandbox → main, 9 commits", "Opciones y reglas", "Pantalla en dos secciones", "Publicar 2 cambios", "Ahora no"]) assert.ok(text(body).includes(t), t);
-  assert.equal(body.includes("WRK-1"), false, "no ticket keys");
-  // PLA-24: no owner's code; the sheet itself is the confirm, so Publicar is on at once (off only while sending).
-  assert.equal(/Código del dueño|data-owner-code/.test(body), false);
-  const confirm = (out: string) => /<button[^>]*data-control="publicar-confirmar"[^>]*>/.exec(out)![0];
-  assert.equal(confirm(body).includes('disabled=""'), false);
-  const sending = html(h(publishUi.PublishBody, { title: "Mianovia", release: release().release, busy: true, onPublish: noop, onCancel: noop }));
-  assert.ok(confirm(sending).includes('disabled=""') && sending.includes("Publicando…"));
-  // It never just closes: while it publishes, a status line with a running clock; when done, what went out and the PR.
-  const working = html(h(publishUi.PublishBody, { title: "Mianovia", release: release().release, busy: true, since: 0, onPublish: noop, onCancel: noop }));
-  assert.ok(working.includes("data-publish-working") && working.includes("Publicando en GitHub"));
-  assert.ok(html(h(publishUi.PublishWorking, { release: release().release, since: 0, now: 75_000 })).includes("1:15"));
-  const done = html(h(publishUi.PublishDone, { title: "Mianovia", release: release().release, result: { merged: true, pr: { number: 699, url: "https://github.com/x/y/pull/699" }, merge_sha: "7cccccc1234", tickets: [], migrations: [] }, onClose: noop }));
-  assert.ok(done.includes("data-publish-done") && done.includes("Publicado.") && done.includes("#699") && done.includes("7cccccc") && done.includes('data-control="publicar-listo"'));
-  assert.equal(publishUi.publishError("OWNER_CODE_INVALID"), "Ese código no es válido o ya se usó; espera el siguiente.");
-  assert.match(publishUi.publishError("RELEASE_NOT_READY", { reason: "open_checks" }), /puntos abiertos/);
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("api.shipRelease(v.slug)") && page.includes("onPublish: (d: Decision) => openPublish(d.project)"));
-  const bandeja = readFileSync(new URL("../ui/src/components/release-step.tsx", import.meta.url), "utf8");
-  assert.equal(/OwnerCodeInput|isOwnerCode/.test(bandeja), false, "Bandeja's Lanzar asks no code either");
-});
 
-test("PLA-23 #2 / I46-3: Ver y responder is the move's button; it brings the question into view", () => {
-  const out = render(company({ projects: [project({ light: "needs_jorge", light_reason: { text: "Te preguntan.", action: { label: "Ver en Te toca", href: "#te-toca" } } })], decisions: [decision()] }), { acts: acts() });
-  assert.match(out, /<button type="button" class="edi-nact edi-go"[^>]*data-control="ahora-reveal"[^>]*>Ver y responder</);
-  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  assert.ok(css.includes("[data-flash]"));
-});
-const plateUi = await load("components/compania/edificio/plate.tsx");
 
-test("PLA-23 #3: bubbles, captions, goal and tokens say what they mean", () => {
-  assert.equal(questionUi.bubbleHead({ kind: "pr", state: null }, "taller"), "Taller te entrega");
-  assert.equal(questionUi.bubbleHead({ kind: "question", state: null }, "research"), "Research te pregunta");
-  assert.equal(questionUi.bubbleHead({ kind: "pr", state: { action: "aceptar", at: "x", result: {} } }, "taller"), "Ya respondiste a Taller");
-  // PLA-I46-4: a goal without a date is still a goal: no «Sin meta». Only a project with none says it.
-  const goalNoDate = render(company({ projects: [project({ rumbo: { goal_id: "g", goal: "Primera boda", why: "", target_on: null, forecast_on: null, weeks_behind: null, missing: true } })] }), { onFijar: noop });
-  assert.ok(text(goalNoDate).includes("Primera boda") && !text(goalNoDate).includes("Sin meta"));
-  const noGoal = render(company({ projects: [project()] }), { onFijar: noop });
-  assert.ok(text(noGoal).includes("Sin meta") && noGoal.includes("Fijar meta"));
-  // No token figure anywhere on the building.
-  const tok = render(company({ projects: [project({ usage: { used: 14_620_000, last_week: 9_400_000 } })] }));
-  assert.equal(/tokens|14\.62M|9\.4M/.test(text(tok)), false);
-  const ci = v2lib.checksText({ checks: { open: 0, ci: "none" } });
-  assert.deepEqual(ci, { text: "repo sin CI", tone: "idle", open: false });
-  const msg = html(h(v2.DecisionBody, { d: decision({ kind: "pr", body: "Hice esto.", asker: { agent: "taller-workia", role: "taller" } }), now: NOW, busy: null, onAct: noop }));
-  assert.ok(msg.includes("Ver el mensaje de Taller"));
-});
+
+
+
+
+
 const v2lib = await load("lib/v2.ts");
 

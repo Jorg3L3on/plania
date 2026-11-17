@@ -11,7 +11,7 @@ import { nextMove } from "../src/api/company-move.js";
 (globalThis as { React?: unknown }).React = React;
 
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
-const floorc = await load("components/compania/edificio/floor.tsx");
+
 const ev = await load("lib/evidencia.ts");
 const v2 = await load("lib/v2.ts");
 const pb = await load("lib/probador.ts");
@@ -36,30 +36,12 @@ const delivery = (patch: Json = {}): Json => ({
   at: "2026-11-16T08:40:00Z", ref: "WRK-40", detail: null, links: [PR], preview_url: null,
   asker: { agent: "taller-workia", role: "taller" }, ...patch,
 });
-const floor = (ds: Json[]) => {
-  const p = { ...project(), next_move: nextMove(project() as never, ds as never, {}) };
-  return renderToStaticMarkup(h(MemoryRouter, null, h(floorc.Floor, { project: p, now: NOW, decisions: ds, acts: { now: NOW, busy: null, onAct: noop }, nowActs: { onStart: noop, onPlan: noop }, board: { onAccept: noop } })));
-};
+
 const strip = (s: string) => s.replace(/<[^>]+>/g, " ");
 
-test("PLA-42 #1 #2: a PR delivery reads «Aprobar y pasar a prueba», its line under it, and names the delivery", () => {
-  const m = nextMove(project() as never, [delivery()] as never)!;
-  assert.equal(m.texto, `Aprobar «${TITLE}»`);
-  assert.equal(m.accion.label, "Aprobar y pasar a prueba");
-  const s = floor([delivery()]);
-  assert.match(s, /data-now-action="decision"[^>]*>Aprobar y pasar a prueba</);
-  assert.ok(s.includes(`aria-label="Aprobar «${TITLE}» y pasar a prueba"`));
-  assert.ok(s.includes(`title="Aprobar «${TITLE}» y pasar a prueba"`));
-  assert.match(s, /data-accept-hint="true">Se integra a la copia de prueba; lo publicado no cambia\. Luego arranca el siguiente paso\.</);
-});
 
-test("PLA-42 #1: the screenshot case, a held PR delivery: the card's own button says it too", () => {
-  const s = floor([delivery({ hold: "Faltan fotos: Sin antes: la copia de prueba no arrancó" })]);
-  assert.match(s, /data-ev-act="aceptar"[^>]*>Aprobar y pasar a prueba</);
-  assert.match(s, new RegExp(`data-ev-act="aceptar"[^>]*aria-label="Aprobar «${TITLE}» y pasar a prueba"`));
-  assert.match(s, /data-accept-hint="true">Se integra a la copia de prueba/);
-  assert.doesNotMatch(strip(s), />\s*Aceptar\s*</);
-});
+
+
 
 test("PLA-42 #1: without a PR it is «Aprobar y cerrar»; a plan is «Aprobar el plan»; done states and the switch", () => {
   const w = ev.acceptWords({ kind: "deliverable", links: [], preview_url: "x", title: "Doc de precios" });
@@ -71,8 +53,4 @@ test("PLA-42 #1: without a PR it is «Aprobar y cerrar»; a plan is «Aprobar el
   assert.equal(ed.AUTO_LABEL, "Aprobar sola si las pruebas pasan (solo a la copia de prueba)");
 });
 
-test("PLA-42 #3: no «sandbox» on the floor, the Probador or Máquinas words", () => {
-  const s = floor([delivery({ hold: "Faltan fotos" })]);
-  assert.doesNotMatch(strip(s), /sandbox/i);
-  assert.doesNotMatch([pb.PROBADOR_WORDS.nueva, ...pb.siAceptas("sandbox", "X"), pb.frameOf({ label: "L", desktop: { antes: { still: null, missing: false, error: null }, despues: { still: null } } }, "desktop", "antes").why].join(" "), /sandbox/i);
-});
+

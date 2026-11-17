@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
 const lib = await load("lib/motores.ts");
-const ui = await load("components/compania/edificio/motores.tsx");
+
 const h = React.createElement;
 
 const mv = (model: string | null, effort: string | null, own_model = false, own_effort = false) => ({ model, effort, own_model, own_effort });
@@ -64,27 +64,6 @@ test("I59-3: the hint names a big-share seat on Opus or Fable, and goes once it 
   assert.equal(lib.hintOf(TEAM, moved), null);
 });
 
-test("I59-3: the console draws a strip per seat, Preguntar, the Compañía strip, presets and a disabled Guardar", () => {
-  const html = renderToStaticMarkup(h(ui.MotoresConsole, { project, def: DEF, onSave: async () => ({}) })).replaceAll("<!-- -->", "");
-  for (const k of ["po-mia", "po-mia#preguntar", "research-mia", "taller-mia", "compania"]) assert.ok(html.includes(`data-strip="${k}"`), k);
-  assert.equal((html.match(/data-control="motor-preajuste-/g) ?? []).length, 4);
-  assert.ok(html.includes("Motores de Mianovia"));
-  // Preguntar and Taller set their own; PO and Research follow the company.
-  assert.equal((html.match(/Propio · ↺/g) ?? []).length, 2);
-  assert.equal((html.match(/>De la compañía</g) ?? []).length, 2);
-  assert.match(html, /data-control="motor-guardar"[^>]*disabled|disabled[^>]*data-control="motor-guardar"/);
-  assert.ok(html.includes('data-hint="research-mia"'));
-  assert.equal(/\$|USD/.test(html), false, "no money on screen");
-});
 
-test("I59-3: the Motor card shows the seat's motor and where it comes from; the chip dims an inherited motor", () => {
-  const card = renderToStaticMarkup(h(ui.MotorCard, { project, member: TEAM[2], def: DEF, onSave: async () => ({}), onAll: () => {} })).replaceAll("<!-- -->", "");
-  assert.ok(card.includes("Motor en Mianovia") && card.includes("Sonnet · máximo") && card.includes("Propio de este proyecto"));
-  assert.ok(card.includes("Volver al de la compañía (Opus · alto)"));
-  const inherited = renderToStaticMarkup(h(ui.EngineChip, { m: TEAM[1] }));
-  assert.ok(inherited.includes('data-own="0"') && inherited.includes(">O<"));
-  assert.equal((inherited.match(/data-on="1"/g) ?? []).length, 3);
-  const own = renderToStaticMarkup(h(ui.EngineChip, { m: TEAM[2] }));
-  assert.ok(own.includes('data-own="1"') && (own.match(/data-on="1"/g) ?? []).length === 5);
-  assert.equal(renderToStaticMarkup(h(ui.EngineChip, { m: member("qa", "qa-mia") })), "");
-});
+
+

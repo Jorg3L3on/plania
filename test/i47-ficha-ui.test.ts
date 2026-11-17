@@ -12,7 +12,7 @@ import { MemoryRouter } from "react-router";
 
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
-const ui = await load("components/compania/edificio/ficha.tsx");
+
 const lib = await load("lib/ficha.ts");
 
 type Json = Record<string, any>;
@@ -54,73 +54,14 @@ const idle = { status: "idle" };
 const task: Json = { key: "LUM-2", title: "Hosting", status: "Ready", stage: null, waits: null, checks: [{ n: 1, text: "La página abre en la copia de prueba", done: true }, { n: 2, text: "Se lee a 390", done: false }], results: [{ id: "r1", kind: "test", verdict: "pass", cite: "pnpm test 12 de 12" }], docs: [{ id: DOC, title: "Spec", version: 2, updated_at: "2026-11-09T10:00:00Z" }], pr: { number: 7, url: "https://github.com/demo/lumen/pull/7" }, pr_url: null, log: [{ id: 1, at: "2026-11-09T10:00:00Z", type: "task.claimed", actor: {}, payload: {} }] };
 const slots = { member: h("p", null, "MIEMBRO"), plan: h("p", null, "PLAN"), sumar: h("p", null, "SUMAR"), app: h("p", null, "APP"), solo: h("p", null, "SOLO TU"), last: h("p", null, "LO ULTIMO") };
 const props = (fref: Json, extra: Json = {}) => ({ project: project(), fref, rows: idle, task: idle, doc: idle, slots, now: NOW, timeZone: TZ, onRef: () => {}, onClose: () => {}, ...extra });
-const render = (fref: Json, extra: Json = {}) => renderToStaticMarkup(h(MemoryRouter, null, h(ui.Ficha, props(fref, extra))));
+
 const text = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
-test("I47-4 #1: Resumen has rumbo, this week, Ojo, Solo tú and Lo último, and reads nothing new", () => {
-  const out = render({ kind: "tab", tab: "resumen" });
-  const t = text(out);
-  for (const x of ["Que un estudio venda sus sesiones en línea", "Entrega", "Esta semana", "Ojo", "Nadie tomó «Cambiar el logo»", "SOLO TU", "LO ULTIMO", "El plan", "La app"]) assert.ok(t.includes(x), x);
-  assert.match(out, /role="tab" class="edi-fi-tab" aria-selected="true"[^>]*data-control="ficha-tab-resumen"/);
-  assert.equal(lib.needsRows({ kind: "tab", tab: "resumen" }), false);
-  assert.equal(lib.needsTask({ kind: "tab", tab: "resumen" }), null);
-});
 
-test("I47-4 #1: each list tab draws its rows, its empty state, loading and error with Reintentar", () => {
-  const empty = { ...rowsData, counts: { ideas: 0, prs: 0, docs: 0, designs: 0 }, ideas: [], prs: [], docs: [], designs: [] };
-  const expect: Record<string, [string, string]> = { ideas: ["Pagos en línea", "No hay ideas abiertas."], diseno: ["Lienzo · LUM-IDEA1", "Ninguna idea tiene lienzo todavía."], prs: ["#7", "Este proyecto no tiene PRs."], docs: ["LUM-IDEA1 ·", "Este proyecto no tiene docs."] };
-  for (const [tab, [row, none]] of Object.entries(expect)) {
-    const r = { kind: "tab", tab };
-    assert.equal(lib.needsRows(r), true, tab);
-    const full = render(r, { rows: ok(rowsData) });
-    assert.ok(text(full).includes(row), `${tab}: row`);
-    assert.ok(text(render(r, { rows: ok(empty) })).includes(none), `${tab}: empty`);
-    assert.match(render(r, { rows: { status: "loading" } }), /data-state="loading"/, `${tab}: loading`);
-    const err = render(r, { rows: { status: "error", retry: () => {} } });
-    assert.ok(err.includes('data-state="error"') && err.includes('data-control="ficha-reintentar"'), `${tab}: error`);
-  }
-  // The counts show once the rows are read, never before.
-  assert.match(render({ kind: "tab", tab: "prs" }, { rows: ok(rowsData) }), /PRs<small>1<\/small>/);
-  assert.equal(/<small>/.test(render({ kind: "tab", tab: "resumen" }).split('role="tabpanel"')[0]!), false);
-  // Retry calls the read again.
-  let again = 0;
-  const el = ui.Ficha(props({ kind: "tab", tab: "ideas" }, { rows: { status: "error", retry: () => again++ } }));
-  const find = (n: any, pred: (e: any) => boolean): any => {
-    if (!n || typeof n !== "object") return null;
-    if (Array.isArray(n)) return n.map((x) => find(x, pred)).find(Boolean) ?? null;
-    if (pred(n)) return n;
-    if (typeof n.type === "function") return find(n.type(n.props), pred);
-    return find(n.props?.children, pred);
-  };
-  find(el, (e) => e.props?.["data-control"] === "ficha-reintentar").props.onClick();
-  assert.equal(again, 1);
-});
 
-test("I47-4 #1: every detail kind draws, with a way back to its tab", () => {
-  const step = render({ kind: "step", key: "LUM-2" }, { task: ok(task) });
-  assert.ok(["Paso", "Hosting", "Hecho cuando", "La página abre en la copia de prueba", "Evidencia", "pnpm test 12 de 12", "PR #7", "Historia", "← Resumen"].every((x) => text(step).includes(x)));
-  assert.match(step, /<li data-ok="">La página abre/);
-  assert.match(render({ kind: "step", key: "LUM-2" }, { task: { status: "loading" } }), /data-state="loading"/);
-  // PLA-I61: an idea opens La idea abierta (its own read; i61-idea-ui covers the view). Loading still has a way back.
-  const idea = render({ kind: "idea", key: "LUM-IDEA1" }, { idea: { status: "loading" } });
-  assert.ok(text(idea).includes("← Ideas"));
-  assert.match(idea, /data-state="loading"/);
-  const leg = render({ kind: "leg", key: "LUM-I1" });
-  // PLA-I53-3: with no board in the read (an older server) a leg says its count; the board's own list is in i53-board-ui.
-  assert.ok(text(leg).includes("Arranque") && text(leg).includes("1 de 2 hechos") && text(leg).includes("todavía no trae los pasos"));
-  assert.ok(text(render({ kind: "leg", key: "LUM-I9" })).includes("ya no está"));
-  const pr = render({ kind: "pr", n: 7 }, { rows: ok(rowsData) });
-  assert.ok(text(pr).includes("Fusionado · pruebas en verde") && pr.includes('href="https://github.com/demo/lumen/pull/7"') && pr.includes('data-control="ficha-pr-paso"') && text(pr).includes("← PRs"));
-  const doc = render({ kind: "doc", id: DOC }, { doc: ok({ id: DOC, title: "Guía", version: 3, markdown: "# Guía\n\nCómo trabajamos.", task_key: null }) });
-  assert.ok(text(doc).includes("Doc del proyecto") && doc.includes("<h1>Guía</h1>") && text(doc).includes("← Docs"));
-  const lienzo = render({ kind: "lienzo", url: LIENZO }, { rows: ok(rowsData) });
-  assert.ok(lienzo.includes(`href="${LIENZO}"`) && text(lienzo).includes("Pagos en línea") && text(lienzo).includes("← Diseño"));
-  for (const [kind, word] of [["member", "MIEMBRO"], ["plan", "PLAN"], ["sumar", "SUMAR"], ["app", "APP"]] as const) {
-    const r = kind === "member" ? { kind, agent: "taller-lumen" } : { kind };
-    assert.ok(text(render(r)).includes(word), kind);
-    assert.ok(text(render(r, { slots: {} })).length > 0, `${kind} without its slot says so`);
-  }
-});
+
+
+
 
 test("I47-4 #1: the address parses every ?f= kind, round-trips, and the old links land on the right detail", () => {
   const cases: [string, Json][] = [
@@ -149,24 +90,4 @@ test("I47-4 #1: the address parses every ?f= kind, round-trips, and the old link
   assert.equal(lib.fichaSearch("lumen", null), "?piso=lumen");
 });
 
-test("I47-4 #2 / #4: Esc goes from a detail to its tab, then closes; reads follow the open view; the page wires both", () => {
-  assert.deepEqual(lib.escStep({ kind: "pr", n: 7 }), { kind: "tab", tab: "prs" });
-  assert.deepEqual(lib.escStep({ kind: "member", agent: "x" }), { kind: "tab", tab: "resumen" });
-  assert.equal(lib.escStep({ kind: "tab", tab: "docs" }), "close");
-  assert.equal(lib.needsTask({ kind: "step", key: "LUM-2" }), "LUM-2");
-  assert.equal(lib.needsRows({ kind: "step", key: "LUM-2" }), false, "a step reads its task, not the rows");
-  assert.equal(lib.needsRows({ kind: "pr", n: 7 }), true);
-  // Close and Volver call back.
-  const calls: string[] = [];
-  const el = ui.Ficha(props({ kind: "pr", n: 7 }, { rows: ok(rowsData), onRef: (r: Json) => calls.push(JSON.stringify(r)), onClose: () => calls.push("close") }));
-  const kids = (n: any): any[] => (!n || typeof n !== "object" ? [] : Array.isArray(n) ? n.flatMap(kids) : [n, ...kids(n.props?.children)]);
-  const all = kids(el);
-  all.find((e) => e.props?.["data-control"] === "ficha-volver").props.onClick();
-  all.find((e) => e.props?.["data-control"] === "ficha-cerrar").props.onClick();
-  all.find((e) => e.props?.["data-control"] === "ficha-tab-docs").props.onClick();
-  assert.deepEqual(calls, ['{"kind":"tab","tab":"prs"}', "close", '{"kind":"tab","tab":"docs"}']);
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("const to = escStep(fref);") && page.includes("back.focus()"), "Esc walks back and focus returns to the opener");
-  assert.ok(page.includes('queryKey: ["company-ficha", fslug]') && page.includes("enabled: fichaOpen && !!fslug && needsRows(fref)"), "one ficha query per project, only when needed");
-  assert.equal(/<SidePage[\s\S]{0,200}kind === "member"/.test(page), false, "the teammate no longer opens the old side page");
-});
+

@@ -7,6 +7,7 @@ import { after, before, test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type pg from "pg";
 import { TEST_BEARER, ownerCode, resetTestDb, useOwnerCode, useTestEnv } from "./helpers.js";
 
@@ -27,10 +28,9 @@ const { PROTOCOL_VERSION } = await import("../src/mcp/protocol.js");
 
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
-const v2 = await load("components/compania/v2.tsx");
-const floor = await load("components/compania/edificio/floor.tsx");
-const side = await load("components/compania/edificio/side.tsx");
-const ask = await load("components/compania/edificio/ask.tsx");
+// PLA-I62-9: the building is gone; the cards are La corriente's (components/corriente/pendiente.tsx, ahora.tsx).
+const pend = await load("components/corriente/pendiente.tsx");
+const ahoraUi = await load("components/corriente/ahora.tsx");
 const lib = await load("lib/v2.ts");
 
 type Json = Record<string, any>;
@@ -106,10 +106,10 @@ test("I36-6 #3: picking another ticket as next changes Siguiente on the next rea
 });
 
 test("I36-6 #4: Pausar from the card pauses the project; it moves to En pausa", async () => {
-  const html = renderCard({ ...(await card("filmia")) }, steerStub());
+  const html = renderCard({ ...(await card("filmia")) });
   assert.ok(html.includes('data-control="pausar"'));
-  const page = await import("node:fs").then((fs) => fs.readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8"));
-  assert.ok(page.includes("onPause: (p) => setPausing(p)") && page.includes("<StopBody") && page.includes("api.setProjectPaused(slug, true)"));
+  const sheet = await import("node:fs").then((fs) => fs.readFileSync(new URL("../ui/src/components/corriente/hojas.tsx", import.meta.url), "utf8"));
+  assert.ok(sheet.includes("api.setProjectPaused(p.slug, true)") && sheet.includes("Se cierra"));
   assert.equal((await post("/api/company/projects/filmia/switch", { paused: true })).status, 200);
   const f = await card("filmia");
   assert.deepEqual([f.paused, f.light], [true, "paused"]);
@@ -202,7 +202,7 @@ test("I36-8 #1, #2: with plan approval on, the PO's plan shows in Te toca and no
   const o = (await card()).orders.find((x: Json) => x.key === order);
   assert.deepEqual([o.stage, o.plan.needs_approval, o.plan.approved], ["entendido", true, false]);
   const html = renderTeToca([row]);
-  for (const t of ["Lo entendí:", "Hecho cuando: el botón abre WhatsApp en el teléfono", "Aprobar el plan", "Se crean sus pasos y Taller empieza.", "Cambiar algo", "Cancelar"]) assert.ok(html.includes(t), t);
+  for (const t of ["Lo entendí:", "Hecho cuando: el botón abre WhatsApp en el teléfono", "Empezar", "Se crean sus pasos y Taller empieza.", "Cambiar algo", "Cancelar"]) assert.ok(html.includes(t), t);
 
   const go = await act(row.id, { action: "empezar" });
   assert.equal(go.status, 200, await go.clone().text());
@@ -460,50 +460,21 @@ test("I36-11 #4: asking, approving a plan, stopping a run and accepting into the
 
 // ---- the screen (UI, fake data)
 
-function steerStub() {
-  return { onAsk: async () => ({ key: "x", title: "x", po: "po", wake: "queued", woke: null }), onPickNext() {}, onPause() {}, onRun() {}, onNote() {}, onCancelOrder() {}, onOptions() {}, prefill: {}, busy: null };
-}
-// PLA-I39: the floor (plate and windows) and the plan's side page take what the card held; a decision renders with
-// Te toca's body under its asker's window.
-function renderCard(p: Json, steer: unknown = steerStub()) {
-  return renderToStaticMarkup(
-    React.createElement(
-      MemoryRouter,
-      null,
-      React.createElement(floor.Floor, { project: p, now: Date.now() }),
-      React.createElement(side.PlanPage, { project: p, now: Date.now(), steer }),
-    ),
-  );
+const noop = () => {};
+const fakeActs = { refresh: noop, decisions: { decide: noop, withActed: (d: Json[]) => d, busy: null, errors: {}, prefill: {}, setPrefill: noop }, busy: null, stopRun: noop, resumeRun: noop, start: noop, plan: noop, autoAccept: noop, autoInvisible: noop, resend: noop, closeRequest: noop, cancelOrder: noop, pickNext: noop, note: noop, resume: noop, pause: noop };
+const links = { entrega: () => "/e", tetoca: () => "/t", paso: () => "/p", tablero: "/tb", equipo: "/eq", miembro: () => "/m", publicar: "/pub", pausar: "/pausar", pagina: "/pg", hash: () => "/h" };
+// PLA-I62-9: the project's Ahora (it carries Pausar el proyecto) and Te toca's cards, La corriente's.
+function renderCard(p: Json) {
+  return renderToStaticMarkup(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(MemoryRouter, null, React.createElement(ahoraUi.Ahora, { p, decisions: [], now: Date.now(), companyPaused: false, totals: null, acts: fakeActs, links, onFijar: noop }))));
 }
 function renderTeToca(decisions: Json[]) {
   return renderToStaticMarkup(
-    React.createElement(MemoryRouter, null, ...decisions.map((d) => React.createElement(v2.DecisionBody, { key: d.id, d, now: Date.now(), busy: null, onAct: () => {} }))),
+    React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(MemoryRouter, null, ...decisions.map((d) => React.createElement(pend.Pendiente, { key: d.id, d, p: null, acts: fakeActs, links: { entrega: () => "/e", publicar: () => "/pub", project: () => "/p" } })))),
   );
 }
 
-// PLA-I53-3: the stage board's cards carry their key by the accepted Design doc of PLA-I53 (key, title, stage word);
-// everything else on the floor still keeps keys inside Detalles.
-const outsideDetalles = (html: string) => html.replace(/<section class="dark sb"[\s\S]*?<\/section>/g, "").replace(/<details[\s\S]*?<\/details>/g, "");
 
-test("I36-11 #1: the page renders no ticket key, branch name or the word sandbox outside Detalles", async () => {
-  const p = await card();
-  const decisions = (await company()).decisions as Json[];
-  const html = outsideDetalles(renderCard(p, steerStub()) + renderTeToca(decisions));
-  // Free text written by bots (a message body opened with Ver mensaje) is theirs; the rendered rows are folded.
-  assert.equal(/\b[A-Z]{2,5}-(I\d+-)?\d+\b/.test(html), false, html.match(/\b[A-Z]{2,5}-(I\d+-)?\d+\b/)?.[0] ?? "");
-  assert.equal(/sandbox|jl\/|main\b/i.test(html.replace(/<[^>]+>/g, " ")), false);
-  assert.ok(renderCard(p, steerStub()).includes("data-detalles"), "the keys live in Detalles");
-  assert.equal(lib.stateText({ action: "fusionar", at: "x", result: {} }), "Aprobado · en la copia de prueba");
-});
 
-test("I36-8 #5: phone at 390: the floor's box and its button fit in one column", () => {
-  const html = renderToStaticMarkup(
-    React.createElement(MemoryRouter, null, React.createElement(ask.AskView, { project: { slug: "workia", title: "Workia" }, text: "", setText() {}, onSubmit() {} })),
-  );
-  // PLA-I54-1: a textarea, the two modes and the button, stacked in one column.
-  assert.ok(html.includes("Pide algo para Workia") && html.includes("Darle forma"));
-  assert.ok(html.includes('class="edi-ask-text"') && html.includes('class="edi-modes"'));
-});
 
 // ---- PLA-I36-12
 
@@ -575,6 +546,6 @@ test("PLA-27: a plan that waits for approval still refuses aceptar and takes Sí
   assert.deepEqual([refused.status, ((await refused.json()) as Json).error], [400, "INVALID_ACTION"]);
   assert.equal((await act(id, { action: "empezar" })).status, 200);
   await post("/api/company/projects/workia/options", { plan_approval: false }, "PUT");
-  const page = (await import("node:fs")).readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
+  const page = (await import("node:fs")).readFileSync(new URL("../ui/src/components/corriente/acts.ts", import.meta.url), "utf8");
   assert.ok(page.includes('INVALID_ACTION: "Eso no se puede hacer aquí.'), "the screen says it in words");
 });

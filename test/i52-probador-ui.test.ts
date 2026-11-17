@@ -10,9 +10,9 @@ import { nextMove } from "../src/api/company-move.js";
 
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
-const building = await load("components/compania/edificio/building.tsx");
-const nowc = await load("components/compania/edificio/now.tsx");
-const store = await load("components/compania/edificio/evidence-store.ts");
+
+
+
 const ev = await load("lib/evidencia.ts");
 const edificio = await load("lib/edificio.ts");
 const pb = await load("lib/probador.ts");
@@ -105,23 +105,7 @@ const company = (p: Json, ds: Json[]): Json => ({
   decisions: ds,
   inbox: { decisiones: 0, pasos: 0 },
 });
-const render = (c: Json, extra: Json = {}) =>
-  html(
-    h(building.Building, {
-      company: c,
-      decisions: c.decisions,
-      now: NOW,
-      timeZone: TZ,
-      hello: "Buenas noches",
-      day: "Viernes 13 de noviembre",
-      onNew: noop,
-      onFijar: noop,
-      onPublish: noop,
-      acts: { now: NOW, busy: null, onAct: extra.onAct ?? noop },
-      nowActs: { onStart: noop, onPlan: noop, ...(extra.nowActs ?? { onAuto: noop }) },
-      askFor: () => h("div", null, "Pedir"),
-    }),
-  );
+
 const nowCard = (s: string) => /<div(?: id="[^"]+")? class="edi-nowb"[\s\S]*?(?=<div class="edi-home-q"|<div class="edi-fcol"|<nav class="edi-idx")/.exec(s)?.[0] ?? "";
 const floorOf = (s: string) => s.slice(s.indexOf('data-floor="demo"'), s.indexOf("edi-street"));
 
@@ -157,100 +141,14 @@ test("I52-4 helpers: what a frame shows, where the viewer opens, the state line 
   assert.equal(pb.siAceptas(null, "MIA-28")[1], "Si no: MIA-28 espera a esta.");
 });
 
-test("I52-4 Ahora: a delivery with a muestra leads with one still per view, marked nueva or cambió; the QA stills step aside", () => {
-  const d = delivery({ id: "m-pb-1" });
-  store.setRead("demo", "DEM-3", d.id, READ);
-  store.setProbador("demo", "DEM-3", d.id, PROB);
-  const card = nowCard(render(company(project(), [d])));
-  assert.ok(card.includes('data-probador-on="1"'));
-  assert.ok(unq(text(card)).includes("Las asesoras pueden crear y apagar sucursales."));
-  const thumbs = [...card.matchAll(/data-vista="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(thumbs, ["encabezado", "sucursales", "apagada"]);
-  assert.deepEqual([...card.matchAll(/class="edi-pbk" data-kind="([^"]+)">([^<]+)</g)].map((m) => [m[1], m[2]]), [["cambio", "cambió"], ["nueva", "nueva"], ["cambio", "cambió"]]);
-  assert.ok(card.includes("/api/projects/demo/captures/s-d.png"));
-  assert.equal(card.includes('data-ev="stills"'), false, "the QA stills tile is not drawn twice");
-  assert.ok(card.includes('data-ev="tests"'), "the tests still show");
-});
 
-test("I52-4 layer: El Probador opens on the new screen, with views, sides, widths, the live copy, three steps and what accepting does", () => {
-  const d = delivery({ id: "m-pb-2" });
-  store.setRead("demo", "DEM-3", d.id, READ);
-  store.setProbador("demo", "DEM-3", d.id, PROB);
-  store.openLayer("demo", d.id, null);
-  const s = render(company(project(), [d]));
-  store.closeLayer();
-  const layer = /<div class="edi-layer"[\s\S]*$/.exec(s)?.[0] ?? "";
-  assert.match(layer, /class="edi-lcard" data-wide="1"/);
-  assert.match(layer, /data-probador="m-pb-2"/);
-  assert.deepEqual([...layer.matchAll(/role="tab"[^>]*aria-selected="(true|false)"[^>]*data-vista="([^"]+)"/g)].map((m) => [m[2], m[1]]), [["encabezado", "false"], ["sucursales", "true"], ["apagada", "false"]]);
-  assert.deepEqual([...layer.matchAll(/aria-pressed="(true|false)" data-side="([^"]+)"/g)].map((m) => [m[2], m[1]]), [["antes", "false"], ["despues", "true"], ["comparar", "false"]]);
-  assert.deepEqual([...layer.matchAll(/aria-pressed="(true|false)" data-width="([^"]+)"/g)].map((m) => [m[2], m[1]]), [["desktop", "true"], ["phone", "false"]]);
-  assert.ok(layer.includes('src="/api/projects/demo/captures/s-d.png"'));
-  assert.match(layer, /data-control="abrir-vivo">Pruébala en vivo</, "the delivery's copy is on: one click opens it signed in (PLA-I52-5)");
-  assert.ok(unq(text(layer)).includes("Pruébala en 3 pasos · 0 de 3"));
-  assert.ok(unq(text(layer)).includes("Pasa a tu copia de prueba; lo publicado no cambia."));
-  assert.match(layer, /role="switch" class="edi-sw" aria-checked="true"[^>]*data-control="resaltar"/);
-});
 
-test("I52-4 layer: a changed view opens on Comparar with the line; a view without a picture says why", () => {
-  const d = delivery({ id: "m-pb-3" });
-  store.setRead("demo", "DEM-3", d.id, READ);
-  store.setProbador("demo", "DEM-3", d.id, PROB);
-  store.setView(d.id, "encabezado");
-  store.openLayer("demo", d.id, null);
-  let layer = /<div class="edi-layer"[\s\S]*$/.exec(render(company(project(), [d])))?.[0] ?? "";
-  store.closeLayer();
-  assert.match(layer, /data-side="comparar"/);
-  assert.ok(layer.includes("edi-pbcmp") && layer.includes("e-a.png") && layer.includes("e-d.png"));
-  assert.match(layer, /class="edi-pbbox"/);
-  assert.match(layer, /type="range"[^>]*aria-label="Línea entre antes y después"/);
-  store.setView(d.id, "apagada");
-  store.openLayer("demo", d.id, null);
-  layer = /<div class="edi-layer"[\s\S]*$/.exec(render(company(project(), [d])))?.[0] ?? "";
-  store.closeLayer();
-  assert.ok(layer.includes("edi-pbpair"), "a pair without both pictures is side by side");
-  assert.ok(unq(text(layer)).includes("pidió entrar otra vez"));
-});
 
-test("I52-4: a delivery without a muestra keeps the old card", () => {
-  const d = delivery({ id: "m-pb-4" });
-  store.setRead("demo", "DEM-3", d.id, READ);
-  store.setProbador("demo", "DEM-3", d.id, { ...PROB, muestra: null, vistas: [] });
-  const card = nowCard(render(company(project(), [d])));
-  assert.equal(card.includes("data-probador-on"), false);
-  assert.ok(card.includes('data-ev="stills"'));
-});
 
-test("I52-6 layer: Señalar algo, the pins list once there are pins, and Pregúntale a Taller with its answers", () => {
-  const d = delivery({ id: "m-pb-6" });
-  store.setRead("demo", "DEM-3", d.id, READ);
-  store.setProbador("demo", "DEM-3", d.id, { ...PROB, preguntas: [
-    { id: "q1", text: "¿Y las novias?", at: "2026-11-15T09:00:00Z", answer: { text: "Se quedan.", at: "2026-11-15T09:02:00Z", by: "taller" } },
-    { id: "q2", text: "¿En el teléfono?", at: "2026-11-15T09:05:00Z", answer: null },
-  ] });
-  store.setPins(d.id, [{ vista: "sucursales", side: "despues", width: "desktop", x: 0.5, y: 0.2, note: "muy pegado" }]);
-  store.openLayer("demo", d.id, null);
-  const layer = /<div class="edi-layer"[\s\S]*$/.exec(render(company(project(), [d])))?.[0] ?? "";
-  store.closeLayer();
-  store.setPins(d.id, []);
-  assert.match(layer, /data-control="senalar">Señalar algo</);
-  assert.match(layer, /class="edi-pbpin"[^>]*>1</, "the pin sits on the picture it belongs to");
-  assert.match(layer, /data-ev="marcas"/);
-  assert.match(layer, /value="muy pegado"/);
-  assert.ok(unq(text(layer)).includes("¿Y las novias? Se quedan."));
-  assert.ok(unq(text(layer)).includes("¿En el teléfono? Taller la recibió. Te responde aquí."));
-  assert.match(layer, /data-control="preguntar"/);
-});
 
-test("I52-7 Ahora: a delivery that changes nothing on screen says so, and «Solo lo que no se ve» sits beside «Aceptar sola»", () => {
-  const d = delivery({ id: "m-pb-7", cambio: "no_se_ve" });
-  store.setRead("demo", "DEM-3", d.id, READ);
-  store.setProbador("demo", "DEM-3", d.id, { ...PROB, muestra: null, vistas: [] });
-  const card = nowCard(render(company(project({ auto_accept: { on: false, hold: null, invisible: true } }), [d])));
-  assert.match(card, /data-ev="cambio" data-cambio="no_se_ve"/);
-  assert.ok(unq(text(card)).includes("Nada cambia en pantalla"));
-  assert.match(card, /role="switch" class="edi-sw" aria-checked="true"[^>]*data-control="aceptar-invisible"/);
-  assert.ok(unq(text(card)).includes("Solo lo que no se ve · encendido"));
-  const se = nowCard(render(company(project(), [delivery({ id: "m-pb-8", cambio: "se_comporta" })])));
-  assert.ok(unq(text(se)).includes("Cambia lo que hace la app"));
-});
+
+
+
+
+
+

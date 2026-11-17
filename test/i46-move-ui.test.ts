@@ -11,7 +11,7 @@ import { nextMove } from "../src/api/company-move.js";
 
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
-const building = await load("components/compania/edificio/building.tsx");
+
 
 type Json = Record<string, any>;
 const h = React.createElement;
@@ -99,23 +99,7 @@ const company = (p: Json, ds: Json[]): Json => ({
   decisions: ds,
   inbox: { decisiones: 0, pasos: 0 },
 });
-const render = (c: Json) =>
-  html(
-    h(building.Building, {
-      company: c,
-      decisions: c.decisions,
-      now: NOW,
-      timeZone: TZ,
-      hello: "Buenas noches",
-      day: "Viernes 13 de noviembre",
-      onNew: noop,
-      onFijar: noop,
-      onPublish: noop,
-      acts: { now: NOW, busy: null, onAct: noop },
-      nowActs: { onStart: noop, onPlan: noop },
-      askFor: () => h("div", { "data-ask-open": "mia" }, "Pedir"),
-    }),
-  );
+
 // A green button: the class edi-go (not edi-goal), a data-move mark, or a breathing card.
 const GREEN = /edi-go[" ]|data-move="1"|data-breathe/;
 const pick = (s: string, re: RegExp) => unq(text(re.exec(s)?.[1] ?? ""));
@@ -146,71 +130,10 @@ test("I46-3 #4: the move for each state: plan next initiative, accept a delivery
   assert.equal(nextMove(project({ team: [member("product-owner", { queue: [{ key: "MIA-20", title: "Planea" }] })] }) as never, []), null);
 });
 
-test("I46-3 #1: Ahora, the roof, the sky and the phone bar say the same sentence with the same button", () => {
-  for (const [name, { p, ds }] of Object.entries(STATES)) {
-    const want = EXPECTED[name];
-    if (!want) continue;
-    const out = render(company(p, ds));
-    const ahora = pick(out, /data-now-say="true">([^<]*)</);
-    const chip = pick(out, /class="edi-chip"[^>]*data-chip-move="1"[^>]*>([^<]*)</);
-    const bar = pick(out, /data-pbar-say="true">([^<]*)</);
-    const sky = pick(out, /data-voice="true">([^<]*)</);
-    assert.equal(ahora, want.texto, `${name}: Ahora`);
-    assert.equal(chip, `Mianovia: ${want.texto}`, `${name}: roof`);
-    assert.equal(bar, want.texto, `${name}: phone bar`);
-    assert.equal(sky, `Te toca: ${want.texto}.`, `${name}: sky`);
-    // The same button, in green, on the three surfaces that carry one.
-    const b = buttons(out);
-    assert.deepEqual(b.map((x) => x.where).sort(), ["ahora", "barra"], name);
-    for (const x of b) assert.deepEqual([x.kind, x.label], [want.kind, want.label], `${name}: ${x.where}`);
-    assert.match(out, /data-pill="you"/, `${name}: the floor's pill takes the orange`);
-    assert.match(out, /data-te-toca="1"/);
-  }
-});
 
-test("I46-3 #2: with no next move, no green button is drawn anywhere on the floor", () => {
-  for (const name of ["returned to Taller", "nothing pending"]) {
-    const { p, ds } = STATES[name]!;
-    const out = render(company(p, ds));
-    assert.equal(GREEN.test(out), false, name);
-    assert.equal(/data-pill="you"/.test(out), false, name);
-    assert.equal(pick(out, /data-pbar-say="true">([^<]*)</), "Nada te toca ahora", name);
-    assert.match(out, /data-te-toca="0"/, name);
-    assert.ok(pick(out, /data-voice="true">([^<]*)</).endsWith("Nada te espera."), name);
-  }
-  // A resting teammate's «Que empiece ya» stays, as an outline button: it is never the owner's turn.
-  const resting = project({ route: legs(2), team: [member("taller", { next_start: { key: "MIA-I4-3", title: "Exportar", hold: "rest", starts_at: "2026-11-13T20:52:00Z", text: "Descansa." } })] });
-  const out = render(company(resting, []));
-  assert.match(out, /<button type="button" class="edi-btn" data-now-action="start" data-where="ahora"/);
-  assert.equal(GREEN.test(out), false);
-});
 
-test("I46-3 #3: only the Ahora card breathes (2.4 s), the Tú window is still, nothing moves with reduce-motion", () => {
-  const { p, ds } = STATES["accept a delivery"]!;
-  const out = render(company(p, ds));
-  assert.equal((out.match(/data-breathe="1"/g) ?? []).length, 1);
-  assert.match(out, /class="edi-nowb" data-now="you"[^>]*data-breathe="1"/);
-  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  const start = css.indexOf("/* PLA-I39: the building");
-  const edi = css.slice(start, css.indexOf("@keyframes edi-twinkle", start));
-  assert.deepEqual([...edi.matchAll(/^\s*(\.[^{]+)\{[^}]*animation:/gm)].map((m) => m[1]!.trim()), [".edi-nowb[data-breathe]"]);
-  assert.match(edi, /animation: edi-breathe 2\.4s ease-in-out infinite/);
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.edi \*, \.edi \*::before, \.edi \*::after \{ animation: none !important; transition: none !important; \}/);
-  // Green is #8fe0a4 with dark text; the stars and the antenna no longer blink.
-  assert.match(css, /\.edi \.edi-go \{ background: #8fe0a4; color: #10131f;/);
-  assert.equal(/\.edi-star \{[^}]*animation/.test(css) || /\.edi-antenna::after \{[^}]*animation/.test(css), false);
-});
 
-test("I46-3: at 390 the bar carries the main button and Pedir; Ahora and Tú hide theirs", () => {
-  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  const phone = css.slice(css.indexOf("@media (width < 40rem) {\n    .edi-pbar"));
-  assert.match(phone, /\.edi-pbar \{ position: fixed;[^}]*display: grid;/);
-  assert.match(phone, /\.edi-nowb \.edi-go\[data-move\], \.edi-tu-go \{ display: none !important; \}/);
-  assert.match(css, /\.edi-pbar \{ display: none; \}/, "hidden on a laptop");
-  const { p, ds } = STATES["accept a delivery"]!;
-  const out = render(company(p, ds));
-  assert.match(out, /data-pbar="mia"[\s\S]*data-where="barra"[\s\S]*data-control="barra-pedir"[^>]*>Pedir</);
-  // Pedir in the bar opens the plate's own side page (one box, one draft).
-  const src = readFileSync(new URL("../ui/src/components/compania/edificio/building.tsx", import.meta.url), "utf8");
-  assert.ok(src.includes('[data-control="pedir-abrir"]'));
-});
+
+
+
+

@@ -17,8 +17,8 @@ import { MemoryRouter } from "react-router";
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
 const lib = await load("lib/etapas.ts");
 const board = await load("components/plan/stage-board.tsx");
-const floorUi = await load("components/compania/edificio/floor.tsx");
-const fichaUi = await load("components/compania/edificio/ficha.tsx");
+
+
 const fichaLib = await load("lib/ficha.ts");
 
 type Json = Record<string, any>;
@@ -131,29 +131,7 @@ test("I53-3 #1: a station is lit while someone works there, in the stage colour;
 });
 
 const decision = (key: string): Json => ({ id: `m-${key}`, project: "demo", kind: "pr", state: null, actions: ["fusionar", "cambios"], ref: key, links: [] });
-test("I53-3 #3: the cards carry Detener, Aceptar, Hacer primero and Quitar where they apply", () => {
-  const team: Json[] = [{ agent: "taller-demo", role: "taller", state: "running", now: { ticket: "DEM-I2-6", since: "2026-11-15T19:48:00Z", run_id: "run-6" } }];
-  const ctx = { team, decisions: [decision("DEM-I2-12")], orders: [{ key: "DEM-81", state: "enviada", stage: null }], nextFirst: null };
-  const acts = (key: string) => lib.cardActs([...ALL, ...tablero().loose].find((t: Json) => t.key === key), ctx).map((a: Json) => a.kind);
-  assert.deepEqual(acts("DEM-I2-6"), ["detener"]);
-  assert.deepEqual(acts("DEM-I2-12"), ["aceptar"]);
-  assert.deepEqual(acts("DEM-I2-2"), ["primero"]);
-  assert.deepEqual(acts("DEM-81"), ["primero", "quitar"]);
-  assert.deepEqual(acts("DEM-I2-1"), []);
-  assert.deepEqual(lib.cardActs(ALL[1], { ...ctx, nextFirst: "DEM-I2-2" }).map((a: Json) => a.kind), [], "already first");
 
-  // Each act calls the route La fila called.
-  const calls: string[] = [];
-  const bacts = {
-    onPickNext: (slug: string, key: string) => calls.push(`next ${slug} ${key}`),
-    onStop: (id: string) => calls.push(`stop ${id}`),
-    onAccept: (d: Json, action: string) => calls.push(`accept ${d.id} ${action}`),
-    onCancel: (slug: string, key: string) => calls.push(`cancel ${slug} ${key}`),
-  };
-  for (const key of ["DEM-I2-6", "DEM-I2-12", "DEM-I2-2", "DEM-81"]) for (const a of lib.cardActs([...ALL, ...tablero().loose].find((t: Json) => t.key === key), ctx)) floorUi.boardRun("demo", a, bacts)!();
-  assert.deepEqual(calls, ["stop run-6", "accept m-DEM-I2-12 fusionar", "next demo DEM-I2-2", "next demo DEM-81", "cancel demo DEM-81"]);
-  assert.equal(floorUi.boardRun("demo", { kind: "detener", runId: "x" }, {}), null, "no handler, no button");
-});
 
 const project = (patch: Json = {}): Json => ({
   slug: "demo",
@@ -181,70 +159,13 @@ const project = (patch: Json = {}): Json => ({
   ahora: [],
   ...patch,
 });
-const floorHtml = (p: Json, extra: Json = {}) =>
-  renderToStaticMarkup(h(MemoryRouter, null, h(floorUi.Floor, { project: p, now: NOW, timeZone: TZ, decisions: [decision("DEM-I2-12")], board: { onPickNext: noop, onStop: noop, onAccept: noop, onCancel: noop, onTicket: noop, onTrack: noop }, foco: { kind: "leg", key: "DEM-I2" }, ventanal: (parts: Json) => h(React.Fragment, null, parts.home.body, parts.board, parts.tubo), onOpen: noop, ...extra })));
+
 
 // PLA-I55-1: the floor no longer draws the whole board. The index lists the initiatives; the open one's own board (one
-// track, the same stations, cards and calls) is a part the floor hands the ventanal.
-test("I53-3 #1 #3 #4: the floor draws the board in place of Entrega and La fila, with the seats at their stations", () => {
-  const html = floorHtml(project());
-  assert.equal(/edi-route|edi-leg\b|data-fila|edi-frow|data-steps-of/.test(html), false, "no Entrega, no La fila");
-  assert.match(html, /data-slot="ahora"/, "the place for the Ahora line, above the board");
-  assert.ok(html.indexOf('data-slot="ahora"') < html.indexOf('class="dark sb-one sb"'));
-  assert.equal((html.match(/class="sb-row"/g) ?? []).length, 1, "only the open initiative's track");
-  // Seats: PO, Taller and QA over their stations; everyone (Research too) is a window in the index.
-  assert.match(html, /data-station="por"[^>]*data-agent="product-owner-demo"/);
-  assert.match(html, /data-station="taller"[^>]*data-agent="taller-demo"/);
-  assert.match(html, /data-station="qa"[^>]*data-agent="qa-demo"/);
-  assert.match(html, /class="edi-sala-mate"[^>]*data-agent="research-demo"/, "PLA-I58-1: everyone is a window in La sala");
-  assert.match(html, /class="edi-ix-ini" aria-pressed="true"[^>]*data-track="DEM-I2"/, "the open initiative is pressed in the index");
-  // The actions on their cards.
-  assert.match(html, /data-card="DEM-I2-6"[\s\S]*?data-control="tablero-detener"/);
-  assert.match(html, /data-card="DEM-I2-12"[\s\S]*?data-control="tablero-aceptar"/);
-  assert.match(html, /data-card="DEM-I2-2"[\s\S]*?data-control="tablero-primero"/);
-  // The owner's order that is not a ticket yet stands in Sueltos, Por hacer.
-  const sueltos = floorHtml(project(), { foco: { kind: "sueltos" } });
-  assert.match(sueltos, /class="edi-ix-ini" aria-pressed="true"[^>]*data-track="sueltos"/);
-  assert.match(sueltos, /data-card="o-o1"[^>]*data-etapa="pedido"[\s\S]*?Tu pedido · enviado[\s\S]*?Cambiar el color del botón/);
-  // This read carries no done_initiatives, so nothing folds under the floor's board (PLA-I53-6 tests the folded line).
-  assert.equal(html.includes("data-folded"), false);
-  for (const c of ["tablero-tarjeta", "indice-iniciativa", "sala-equipo", "timbre", "tablero-hecho"]) assert.ok(html.includes(`data-control="${c}"`), c);
-  // The files are gone.
-  for (const f of ["components/compania/edificio/route.tsx", "components/compania/edificio/fila.tsx", "lib/fila.ts"]) assert.equal(existsSync(new URL(`../ui/src/${f}`, import.meta.url)), false, f);
-});
 
-test("I53-3: an empty floor offers Que PO lo planee; a floor with a plan but nothing open says so", () => {
-  const calls: string[] = [];
-  const empty = floorHtml(project({ route: { legs: [], more_legs: 0 }, tablero: { initiatives: [], loose: [], loose_done: 0 }, orders: [] }), { nowActs: { onPlan: (slug: string, t: string) => calls.push(`${slug}: ${t}`) } });
-  assert.ok(text(empty).includes("Aún no hay plan") && empty.includes('data-control="planear"'));
-  const done = floorHtml(project({ tablero: { initiatives: [], loose: [], loose_done: 0 }, orders: [] }), { nowActs: { onPlan: noop } });
-  assert.ok(text(done).includes("No hay iniciativas abiertas") && !done.includes('data-control="planear"'));
-  assert.equal(floorUi.PLAN_ASK, "Arma el plan del proyecto: los entregables y los pasos de cada uno.");
-});
 
-test("I53-3 #3: La ficha opens an initiative with its tickets by stage, Sueltos, and a card's stage line", () => {
-  const p = project();
-  const props = (fref: Json, extra: Json = {}) => ({ project: p, fref, rows: { status: "idle" }, task: { status: "idle" }, doc: { status: "idle" }, slots: {}, now: NOW, timeZone: TZ, onRef: noop, onClose: noop, ...extra });
-  const r = (fref: Json, extra: Json = {}) => renderToStaticMarkup(h(MemoryRouter, null, h(fichaUi.Ficha, props(fref, extra))));
-  const leg = text(r({ kind: "leg", key: "DEM-I2" }));
-  assert.ok(leg.includes("Agenda") && leg.includes("3 de 15 hechos") && leg.includes("Abiertos") && leg.includes("Hechos · 3"));
-  assert.ok(leg.indexOf("Catorce") < leg.indexOf("Trece") && leg.indexOf("Trece") < leg.indexOf("Quince"), "done newest first");
-  assert.ok(leg.includes("Construyendo · Taller · hace 12 min"));
-  const done = text(r({ kind: "leg", key: "DEM-I1" }));
-  assert.ok(done.includes("Completa · 2 de 2 hechos"));
-  const sueltos = text(r({ kind: "sueltos" }));
-  assert.ok(sueltos.includes("Sueltos") && sueltos.includes("Suelto listo") && sueltos.includes("80 sueltos hechos"));
-  const step = r({ kind: "step", key: "DEM-I2-11" }, { task: { status: "ok", data: { key: "DEM-I2-11", title: "Once", status: "In review", checks: [], results: [], docs: [], log: [], pr: null, pr_url: null } } });
-  assert.ok(text(step).includes("En revisión · Revisión · pruebas en rojo"));
-  assert.deepEqual(fichaLib.fichaOf("?piso=demo&f=sueltos")?.ref, { kind: "sueltos" });
-  assert.equal(fichaLib.fichaSearch("demo", { kind: "sueltos" }), "?piso=demo&f=sueltos");
-});
 
-test("I53-3 #4: the floor's CSS has no Entrega or La fila rules left; the board scrolls inside and never squeezes", () => {
-  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  assert.equal(/\.edi-route|\.edi-legs|\.edi-fila|\.edi-frow|\.edi-steps/.test(css), false);
-  assert.match(css, /\.sb-grid \{ display: grid; grid-template-columns: 150px repeat\(6, minmax\(0, 1fr\)\);[^}]*min-width: 780px;/);
-  assert.match(css, /\.sb-tt \{[^}]*-webkit-line-clamp: 2;/);
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes('showFicha({ kind: "step", key: t.key }, el, slug)') && page.includes('showFicha(key ? { kind: "leg", key } : { kind: "sueltos" }, el, slug)'));
-});
+
+
+
+
