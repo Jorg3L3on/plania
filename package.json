@@ -12,7 +12,7 @@
     "dev:api": "PLANIA_JOBS=0 tsx watch --env-file=.env scripts/dev.ts --port 3738",
     "dev:ui": "vite",
     "start": "tsx --env-file=.env scripts/dev.ts",
-    "restart": "PLANIA_JOBS=0 tsx --env-file=.env scripts/restart.ts",
+    "server:restart": "PLANIA_JOBS=0 tsx --env-file=.env scripts/restart.ts",
     "build": "tsc --noEmit && tsc -p ui && vite build",
     "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts",
     "db:generate": "drizzle-kit generate",

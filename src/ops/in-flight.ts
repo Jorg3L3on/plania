@@ -1,5 +1,5 @@
 // PLA-53: what a restart of the Plania server would kill. Runs, QA checks, El Probador's passes and Máquinas test
-// runs live in the server process: a restart (every release) cuts them. `pnpm restart` reads this first and refuses
+// runs live in the server process: a restart (every release) cuts them. `pnpm server:restart` reads this first and refuses
 // while anything is listed (scripts/restart.ts).
 import { and, eq, like, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
