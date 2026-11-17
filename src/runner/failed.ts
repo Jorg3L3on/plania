@@ -185,13 +185,18 @@ type HeldWork = { task_id: string; key: string; project_id: string; agent_id: st
 
 export async function requeueHeld(db: Db, now = new Date(), deps: RunnerDeps = {}): Promise<{ requeued: number }> {
   // Each Ready, free, unblocked ticket with its newest run of any status; a queued or running one is not held.
+  // PLA-48: an open idea too (Darle forma, a stage's Research or Artist, «Constrúyelo»): its wake can be dropped
+  // the same way, most often by a deploy restarting the server while it waited out the PO's rest. Nothing else
+  // queues it again: wakePoIfWaiting only takes ideas that never had a run.
   const found = await db.execute<HeldWork>(sql`
     select * from (
       select distinct on (${tasks.id}) ${tasks.id} as task_id, ${tasks.key} as key, ${tasks.projectId} as project_id,
              r.agent_id, r.status, r.summary, r.stop_reason, coalesce(r.ended_at, r.queued_at) as at
       from ${tasks}
       join agent_runs r on r.project_id = ${tasks.projectId} and r.task_key = ${tasks.key}
-      where ${tasks.kind} = 'ticket' and ${tasks.status} = 'Ready' and ${tasks.owner} is null and not ${hasUnsatisfiedBlocker(tasks.id)}
+      where ${tasks.owner} is null and not ${hasUnsatisfiedBlocker(tasks.id)}
+        and ((${tasks.kind} = 'ticket' and ${tasks.status} = 'Ready')
+          or (${tasks.kind} = 'idea' and ${tasks.status} = 'Open' and ${tasks.promotedTo} is null))
       order by ${tasks.id}, coalesce(r.ended_at, r.queued_at) desc, r.queued_at desc
     ) newest
     where newest.status in ('stopped', 'skipped') and newest.at > now() - interval '8 days'
