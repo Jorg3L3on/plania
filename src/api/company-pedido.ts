@@ -27,7 +27,9 @@ export type TrailItem = {
   at: string;
   // jorge, a runner role (product-owner, research, artist…), or the actor's own name.
   who: string;
-  kind: "pedido" | "nota" | "entendi" | "pregunta" | "respuesta" | "doc" | "etapa" | "guardada" | "restaurada" | "construir" | "valvula" | "descartada";
+  kind: "pedido" | "nota" | "entendi" | "pregunta" | "respuesta" | "doc" | "etapa" | "guardada" | "restaurada" | "construir" | "valvula" | "descartada" | "veredicto" | "marcos" | "despertar";
+  // PLA-I61-3: the stop an item belongs to (a doc, an answer), so the idea view links it to that stop.
+  stop?: string;
   text: string;
   doc?: { id: string; title: string };
 };
@@ -68,6 +70,44 @@ export function section(markdown: string, heading: string): string | null {
   return body.length > 600 ? `${body.slice(0, 599).trimEnd()}…` : body;
 }
 
+export const RESPUESTA = "idea.respuesta";
+export const VISTO = "idea.visto";
+export const DESPERTAR = "idea.despertar";
+const STOP_WORD: Record<string, string> = { entendido: "lo que entendió el PO", investigacion: "la investigación", diseno: "el diseño", plan: "el plan" };
+// One line per answer, in the owner's voice.
+export function answerLine(p: Record<string, unknown>): string | null {
+  const what = STOP_WORD[String(p.stop ?? "")] ?? "la entrega";
+  const notes = Array.isArray(p.notes) ? p.notes.length : 0;
+  const text = typeof p.text === "string" && p.text.trim() ? `: «${p.text.trim()}»` : "";
+  switch (p.verdict) {
+    case "ok":
+      return p.stop === "entendido" ? "Le dijiste al PO que así es." : p.stop === "investigacion" ? "Vas con la opción recomendada." : `Te gustó ${what}.`;
+    case "deshacer":
+      return `Deshiciste tu respuesta sobre ${what}.`;
+    case "opcion":
+      return `Pediste la opción ${Number(p.option)} de la investigación${text}.`;
+    case "corregir":
+      return `Corregiste al PO${text}.`;
+    case "cambios":
+      return notes ? `Pediste cambios en ${what} con ${notes} ${notes === 1 ? "nota" : "notas"}${text}.` : `Pediste cambios en ${what}${text}.`;
+    default:
+      return null;
+  }
+}
+
+// The whole text under a heading (no cut), for the idea view's deliveries.
+export function sectionAll(markdown: string, ...headings: string[]): string | null {
+  for (const heading of headings) {
+    const m = new RegExp(`^(#{1,6})[ \\t]+${esc(heading)}[ \\t]*$`, "im").exec(markdown);
+    if (!m) continue;
+    const rest = markdown.slice(m.index + m[0].length);
+    const next = new RegExp(`^#{1,${m[1]!.length}}[ \\t]+\\S`, "m").exec(rest);
+    const body = (next ? rest.slice(0, next.index) : rest).trim();
+    if (body) return body;
+  }
+  return null;
+}
+
 export function fichaOf(list: { markdown: string }[]): FichaIdea {
   const out = { problema: null, tamano: null, solucion: null, riesgos: null, fuera: null } as FichaIdea;
   for (const k of Object.keys(FICHA_HEADINGS) as (keyof FichaIdea)[]) {
@@ -89,19 +129,31 @@ const SCREEN_NOTE = /^De Compañía:\s*/;
 const BUILD_NOTE = /^Constrúyelo \(orden de Jorge/;
 const DROPPED = /^Descartada por Jorge desde Compañía(?::\s*([\s\S]+)|\.)$/;
 
-async function whoOf(db: Db, actor: Actor | null | undefined, cache: Map<string, string>): Promise<string> {
+// PLA-I61-1: the runner writes as «plania-runner» with a session named after the seat (po-mianovia-idea1-…,
+// research-…, artist-…): the trail names the role, not the runner.
+const SESSION_ROLE: [RegExp, string][] = [
+  [/^po-/i, "product-owner"],
+  [/^research-/i, "research"],
+  [/^artist-/i, "artist"],
+  [/^taller-/i, "taller"],
+  [/^qa-/i, "qa"],
+  [/^asistente-/i, "asistente"],
+];
+export const roleOfSession = (sessionId: string | null | undefined): string | null => SESSION_ROLE.find(([re]) => re.test(sessionId ?? ""))?.[1] ?? null;
+
+export async function whoOf(db: Db, actor: Actor | null | undefined, cache: Map<string, string>): Promise<string> {
   if (!actor) return "plania";
   if (actor.agent === "jorge") return "jorge";
   const id = `${actor.agent}|${actor.session_id}`;
   const hit = cache.get(id);
   if (hit) return hit;
   const a = await agentOfActor(db, actor);
-  const who = a ? (roleOf(a) ?? a.role) : actor.agent;
+  const who = a ? (roleOf(a) ?? a.role) : (roleOfSession(actor.session_id) ?? actor.agent);
   cache.set(id, who);
   return who;
 }
 
-async function trailOf(db: Db, t: Task): Promise<TrailItem[]> {
+export async function trailOf(db: Db, t: Task): Promise<TrailItem[]> {
   const rows = await db.select().from(events).where(eq(events.taskId, t.id)).orderBy(asc(events.id));
   const cache = new Map<string, string>();
   const out: TrailItem[] = [];
@@ -135,6 +187,12 @@ async function trailOf(db: Db, t: Task): Promise<TrailItem[]> {
     else if (e.type === GUARDADA) push("guardada", "La guardaste para después.");
     else if (e.type === RESTAURADA) push("restaurada", "La sacaste de Guardadas.");
     else if (e.type === CONSTRUIR) push("construir", "Dijiste «Constrúyelo».");
+    // PLA-I61: the owner's answers to a stop, Artist's frames, a wake from the screen. «Visto» stays out of the trail.
+    else if (e.type === RESPUESTA) {
+      const line = answerLine(p);
+      if (line) push("veredicto", line, { stop: String(p.stop ?? "") });
+    } else if (e.type === "frames.attached") push("marcos", `Subió ${Number(p.count ?? 0)} ${Number(p.count) === 1 ? "marco" : "marcos"} del diseño.`, { stop: "diseno" });
+    else if (e.type === DESPERTAR) push("despertar", "La despertaste.");
   }
   return out;
 }

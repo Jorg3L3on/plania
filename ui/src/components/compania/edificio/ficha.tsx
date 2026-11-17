@@ -7,6 +7,7 @@
 // show their own stage board (slots.board) over their done steps; the Pedido tab shows the tube (slots.tubo).
 import type { CSSProperties, ReactNode } from "react";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { FichaDoc, FichaIdea, FichaPr, OpenInitiative, OrgFicha, OrgProject, PedidoDetail, ProjectDocBody, ProjectTicket } from "@/lib/api";
 import { PedidoTab, type PedidoActs, type PedidoSlots } from "./pedido";
 import { pedidoWord, stopName } from "./tubo";
@@ -467,7 +468,7 @@ const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone, pedido, pe
         <>
           <Title eyebrow={d.task_key ? `Doc de ${d.task_key}` : "Doc del proyecto"} title={d.title} state={`v${d.version}`} />
           <div className="edi-fi-md">
-            <Markdown>{d.markdown}</Markdown>
+            <Markdown remarkPlugins={[remarkGfm]}>{d.markdown}</Markdown>
           </div>
         </>
       ));
