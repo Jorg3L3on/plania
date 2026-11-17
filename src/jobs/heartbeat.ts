@@ -12,6 +12,7 @@ import { writeLockStats } from "../mcp/tx.js";
 import { ToolError } from "../mcp/errors.js";
 import { iso } from "../mcp/tx.js";
 import type { Job } from "./index.js";
+import { sweepProbador } from "../captures/probador.js";
 
 // PLA-I26: on each agent's cadence, pick Ready work and wake them through their adapter.
 // Stuck agents stay on sweepStuck (src/jobs/stuck.ts). A second wake inside the cadence writes nothing.
@@ -299,9 +300,13 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
   const freed = await sweepStoppedRuns(db);
   const held = await requeueHeld(db, now, deps?.runner);
   // PLA-I40-7: deliveries whose tests pass are accepted into the test copy where the project's switch is on.
-  const auto = await sweepAutoAccept(db, now).catch(() => ({ accepted: [] as string[], held: [] }));
+  const auto = await sweepAutoAccept(db, now).catch((e) => (console.log(`[jobs] heartbeat: auto-accept failed: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`), { accepted: [] as string[], held: [] }));
   // PLA-I46-9: QA passes on code deliveries; a review run it queues starts in the drain below.
-  const qa = await sweepQa(db, now, { runner: deps?.runner, env: deps?.runner?.env, worktreeRoot: deps?.runner?.worktreeRoot, git: deps?.runner?.git }).catch(() => null);
+  // PLA-52: a sweep that throws is said in the log, never dropped: a silent stall hides deliveries.
+  const logged = (what: string) => (e: unknown) => (console.log(`[jobs] heartbeat: ${what} failed: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`), null);
+  const qa = await sweepQa(db, now, { runner: deps?.runner, env: deps?.runner?.env, worktreeRoot: deps?.runner?.worktreeRoot, git: deps?.runner?.git }).catch(logged("qa sweep"));
+  // PLA-52: El Probador's pictures an earlier server left half-taken (or that never started) are taken again.
+  const fotos = await sweepProbador(db, now).catch(logged("probador sweep"));
   // PLA-I57-1: a question whose PO was busy gets queued again now that it may be free.
   await retryConsultas(db, now).catch(() => 0);
   // PLA-I60-4: an idea in a stage nobody has worked on since it got there gets one retry run.
@@ -334,6 +339,8 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
     qa_opened: qa?.opened ?? 0,
     qa_started: qa?.started ?? 0,
     qa_concluded: qa?.concluded ?? 0,
+    fotos_restarted: fotos?.restarted ?? 0,
+    fotos_opened: fotos?.opened ?? 0,
     reserved: 0,
   };
   // PLA-I41-3: while the Morning brief holds the slot, no agent is woken (cadences stay due for the next tick).

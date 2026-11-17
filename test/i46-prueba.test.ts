@@ -255,6 +255,18 @@ describe("Encenderla", () => {
     await post("workia", "apagar");
   });
 
+  test("PLA-52: two copies started in the same instant never take the same port", async () => {
+    // Looking at a port takes a moment: both copies used to look before either had taken one.
+    prueba.setPruebaDeps(fakeDeps({ portBusy: async (port) => (await new Promise((r) => setTimeout(r, 15)), busyPorts.has(port)) }));
+    upPorts = new Set([3000, 3001]);
+    await Promise.all([post("zigzag", "encender"), post("workia", "encender")]);
+    await until(async () => (await read("zigzag")).prueba.phase === "live" && (await read("workia")).prueba.phase === "live");
+    assert.deepEqual([(await read("zigzag")).prueba.port, (await read("workia")).prueba.port].sort(), [3000, 3001]);
+    assert.deepEqual(children.map((c) => c.env.PORT).sort(), ["3000", "3001"]);
+    await post("zigzag", "apagar");
+    await post("workia", "apagar");
+  });
+
   test("a port another session registered is skipped too", async () => {
     await raw.query(`insert into footprints (machine, kind, locator, source, purpose, teardown, state) values ('otra', 'server', 'port:3000', 'declared', 'dev server de un ticket', 'kill 1', 'live')`);
     upPorts.add(3001);

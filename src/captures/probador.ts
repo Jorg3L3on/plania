@@ -6,7 +6,7 @@
 import { hostname } from "node:os";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agents, captureStills, events, projects, tasks, threadMessages, threads, type Project, type Task } from "../db/schema.js";
+import { agents, captureStills, events, projects, pullRequests, tasks, threadMessages, threads, type Project, type Task } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
 import type { Ctx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
@@ -25,6 +25,8 @@ export type ProbadorState = {
   error: string | null; // why pictures are missing (lista with error = partial)
   commit: string | null; // the delivery's commit the pictures show
   at: string;
+  // PLA-52: the PR head the sweep asked a retake for; a second mismatch on the same head opens the card with the reason.
+  for_head?: string | null;
 };
 
 export type ProbadorDeps = {
@@ -34,6 +36,7 @@ export type ProbadorDeps = {
   waitMs?: number;
   pollMs?: number;
   returnToTaller?: boolean; // false: tests that only look at the state
+  forHead?: string | null; // PLA-52: the PR head this retake is for (the sweep's)
 };
 
 const WAIT_MS = 240_000;
@@ -70,10 +73,22 @@ export async function probar(db: Db, slug: string, key: string, deps: ProbadorDe
   running.add(id);
   try {
     return await pass(db, slug, key, deps);
+  } catch (e) {
+    // PLA-52: never left «tomando». An error of Plania's own is not Taller's to fix: the sweep tries once more, then
+    // the card shows with the reason.
+    console.log(`[probador] ${id} failed: ${short(e)}`);
+    const got = await load(db, slug, key).catch(() => null);
+    if (!got) return null;
+    return failed(db, got.p, got.t, got.t.probador?.attempts ?? 0, `Plania falló al tomar las fotos: ${short(e)}`, { ...deps, returnToTaller: false }).catch((e2) => {
+      console.log(`[probador] ${id} could not record the failure: ${short(e2)}`);
+      return null;
+    });
   } finally {
     running.delete(id);
   }
 }
+
+export const probando = (slug: string, key?: string): boolean => (key ? running.has(`${slug}/${key}`) : [...running].some((id) => id.startsWith(`${slug}/`)));
 
 async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Promise<ProbadorState | null> {
   const got = await load(db, slug, key);
@@ -81,9 +96,11 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   const { p, t } = got;
   const settings = p.settings.capture;
   const branch = t.branch || t.workspace?.branch;
-  if (!settings || !t.muestra || !branch) return null;
+  if (!settings || !t.muestra) return null;
   const attempts = t.probador?.attempts ?? 0;
-  await setState(db, t, { state: "tomando", attempts, error: null, commit: t.probador?.commit ?? null });
+  // PLA-52: a delivery with no branch cannot be photographed; the card shows with the reason instead of waiting forever.
+  if (!branch) return setState(db, t, { state: "lista", attempts, error: "La entrega no tiene rama: no hay fotos", commit: null });
+  await setState(db, t, { state: "tomando", attempts, error: null, commit: t.probador?.commit ?? null, for_head: deps.forHead ?? t.probador?.for_head ?? null });
 
   // Both copies, then wait until each answers (or fails).
   const startSandbox = deps.encender ?? encender;
@@ -133,7 +150,7 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   }
   const missing = despues.stills.filter((x) => x.status === "error");
   const error = [missing.length ? `${missing.length} de ${despues.stills.length} fotos no salieron (${missing[0]!.error})` : null, antesError].filter(Boolean).join(" · ") || null;
-  return setState(db, t, { state: "lista", attempts, error, commit: e.commit ?? null });
+  return setState(db, t, { state: "lista", attempts, error, commit: e.commit ?? null, for_head: deps.forHead ?? t.probador?.for_head ?? null });
 }
 
 // The box on each después still against the newest antes of the same view and width.
@@ -165,18 +182,23 @@ async function failed(db: Db, p: Project, t: Task, attempts: number, error: stri
     return setState(db, t, { state: "lista", attempts: n, error, commit: null });
   }
   const state = await setState(db, t, { state: "fallo", attempts: n, error, commit: null });
-  if (deps.returnToTaller !== false) await returnToTaller(db, p, t, error);
+  if (deps.returnToTaller !== false && !(await returnToTaller(db, p, t, error))) {
+    // PLA-52: it could not go back to Taller: the owner sees the card with the reason, never a hidden delivery.
+    return setState(db, t, { state: "lista", attempts: n, error, commit: null });
+  }
   return state;
 }
 
-async function returnToTaller(db: Db, p: Project, t0: Task, error: string): Promise<void> {
+// False when the ticket is still In review and could not be sent back.
+async function returnToTaller(db: Db, p: Project, t0: Task, error: string): Promise<boolean> {
   const [t] = await db.select().from(tasks).where(eq(tasks.id, t0.id)).limit(1);
-  if (!t || t.status !== "In review") return;
+  if (!t || t.status !== "In review") return true;
   const text = `Plania no pudo fotografiar la entrega para El Probador: ${error}. Revisa la muestra (rutas, sesión, acciones) o que la app arranque, y vuelve a entregar.`.slice(0, 2000);
   try {
     await setTask(db, { project: p.slug, key: t.key, status: "Ready", version: t.version, note: text } as never, ctx());
-  } catch {
-    return;
+  } catch (e) {
+    console.log(`[probador] ${p.slug}/${t.key} could not go back to Taller: ${short(e)}`);
+    return false;
   }
   const at = new Date().toISOString();
   await db
@@ -194,6 +216,60 @@ async function returnToTaller(db: Db, p: Project, t0: Task, error: string): Prom
     const [owner] = await db.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
     if (owner) await enqueueWake(db, { agent: owner, project: { id: p.id, slug: p.slug }, taskKey: t.key, reason: "Plania could not photograph the delivery: read the note on the ticket" }).catch(() => undefined);
   }
+  return true;
+}
+
+// ---- PLA-52: the sweep (each heartbeat tick)
+// A pass lives in this process only. One an earlier server left «tomando», one that never started, one that failed
+// and could not go back to Taller, and pictures of an older commit than the PR head are taken again here, so a
+// delivery is never hidden for good. Bounded: a second miss on the same head, or a second failure, opens the card
+// with the reason.
+
+const sameCommit = (a: string, b: string) => a.startsWith(b.slice(0, 7)) || b.startsWith(a.slice(0, 7));
+const ORPHAN_MS = WAIT_MS + 120_000; // a «tomando» older than a whole pass has nobody behind it
+const SETTLE_MS = 120_000;
+const sweeping = new Set<Promise<unknown>>();
+/** Tests: resolves once every pass the sweep started in this process is done. */
+export async function waitForProbador(): Promise<void> {
+  while (sweeping.size) await Promise.all([...sweeping]);
+}
+
+export type ProbadorSweep = { restarted: number; opened: number };
+export async function sweepProbador(db: Db, now = new Date(), deps: ProbadorDeps & { orphanMs?: number; settleMs?: number; force?: boolean } = {}): Promise<ProbadorSweep> {
+  const out: ProbadorSweep = { restarted: 0, opened: 0 };
+  // Off wherever background work is off (tests, a dev server on the same database), as afterFinish is (warmOn).
+  if (!deps.force && (process.env.PLANIA_JOBS === "0" || process.env.PLANIA_WARM_ENTREGA === "0")) return out;
+  const rows = await db
+    .select({ t: tasks, p: projects })
+    .from(tasks)
+    .innerJoin(projects, eq(projects.id, tasks.projectId))
+    .where(and(eq(tasks.status, "In review"), sql`${tasks.muestra} is not null`))
+    .orderBy(tasks.statusChangedAt);
+  const started = new Set<string>();
+  for (const { t, p } of rows) {
+    if (!p.settings.capture) continue;
+    const s = t.probador;
+    const [pr] = await db.select({ head: pullRequests.headSha }).from(pullRequests).where(and(eq(pullRequests.taskId, t.id), eq(pullRequests.state, "open"))).orderBy(desc(pullRequests.updatedAt)).limit(1);
+    const head = pr?.head ?? null;
+    const age = now.getTime() - Date.parse(s?.at ?? (t.statusChangedAt ?? t.createdAt).toISOString());
+    const moved = !!head && !!s?.commit && s.state === "lista" && !sameCommit(head, s.commit);
+    const need = !s ? age > (deps.settleMs ?? SETTLE_MS) : s.state === "tomando" ? age > (deps.orphanMs ?? ORPHAN_MS) : s.state === "fallo" ? age > (deps.settleMs ?? SETTLE_MS) : moved;
+    if (!need || probando(p.slug) || started.has(p.slug)) continue;
+    if (moved && s!.for_head && sameCommit(s!.for_head, head!)) {
+      // Asked once for this head already and the copy still shows another commit: show what there is and say so.
+      await setState(db, t, { state: "lista", attempts: s!.attempts, error: `Las fotos son de un commit anterior (${s!.commit!.slice(0, 7)})`, commit: head, for_head: head });
+      out.opened += 1;
+      continue;
+    }
+    started.add(p.slug);
+    console.log(`[probador] ${p.slug}/${t.key}: ${!s ? "never started" : s.state === "tomando" ? "left mid-pass by an earlier server" : s.state === "fallo" ? "failed and still In review" : "the PR moved"}; taking the pictures again`);
+    const job: Promise<unknown> = probar(db, p.slug, t.key, { ...deps, forHead: head, returnToTaller: s?.state === "fallo" ? false : deps.returnToTaller })
+      .catch((e) => console.log(`[probador] ${p.slug}/${t.key} failed: ${short(e)}`))
+      .finally(() => sweeping.delete(job));
+    sweeping.add(job);
+    out.restarted += 1;
+  }
+  return out;
 }
 
 export type ProbadorGate = { pending: boolean; hold: string | null };

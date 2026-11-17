@@ -9,7 +9,7 @@
 // An idea that was promoted (promoted_to set), dropped (Won't do) or done leaves the tube.
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agentRuns, events, questions, taskImages, tasks, type Agent, type Task } from "../db/schema.js";
+import { agentRuns, docs, events, questions, taskImages, tasks, type Agent, type Task } from "../db/schema.js";
 import { findProject } from "../mcp/queries.js";
 import { webCtx, writeTx } from "../mcp/tx.js";
 import { createTaskInTx } from "../mcp/writes.js";
@@ -36,6 +36,9 @@ export type Pedido = {
   // PLA-I54-3: Guardar takes it out of the tube; it is listed under Guardadas and can come back.
   guardada: boolean;
   at: string;
+  // PLA-I61-6: deliveries he has not opened (Entendido, Investigación, Diseño, Plan; Lista is not one) and the newest.
+  unseen: number;
+  unseen_stop: PedidoStop | null;
 };
 
 // Event types the screen writes on an idea (src/api/company-pedido.ts reads them back for the trail).
@@ -111,6 +114,41 @@ export async function openIdeasOf(db: Db, projectId: string): Promise<Task[]> {
     .orderBy(asc(tasks.createdAt));
 }
 
+// PLA-I61-6: what La idea abierta marks «sin ver», counted for the tube, Ahora and the sky. A stop's delivery is its
+// doc (and, for Diseño, Artist's frames); it is seen once an idea.visto for that stop came after it.
+export const SEEN_EVENT = "idea.visto";
+const STOP_DOC: [PedidoStop, string][] = [
+  ["entendido", "idea"],
+  ["investigacion", "research"],
+  ["diseno", "design"],
+  ["plan", "plan"],
+];
+export async function unseenOf(db: Db, taskId: string): Promise<{ count: number; newest: PedidoStop | null }> {
+  const ds = await db.select({ title: docs.title, at: docs.updatedAt }).from(docs).where(eq(docs.taskId, taskId));
+  const evs = await db
+    .select({ type: events.type, payload: events.payload, at: events.createdAt })
+    .from(events)
+    .where(and(eq(events.taskId, taskId), inArray(events.type, [SEEN_EVENT, "frames.attached"])))
+    .orderBy(asc(events.id));
+  let count = 0;
+  let newest: PedidoStop | null = null;
+  let newestAt = -1;
+  for (const [stop, title] of STOP_DOC) {
+    let at = ds.find((d) => d.title.toLowerCase() === title)?.at ?? null;
+    const frames = stop === "diseno" ? evs.findLast((e) => e.type === "frames.attached")?.at : undefined;
+    if (frames && (!at || frames > at)) at = frames;
+    if (!at) continue;
+    const seen = evs.some((e) => e.type === SEEN_EVENT && (e.payload as { stop?: string }).stop === stop && e.at >= at!);
+    if (seen) continue;
+    count++;
+    if (at.getTime() >= newestAt) {
+      newestAt = at.getTime();
+      newest = stop;
+    }
+  }
+  return { count, newest };
+}
+
 export async function pedidoOf(db: Db, projectId: string, t: Task, facts?: { running: Map<string, string>; taken: Set<string>; shelf: Set<string>; built: Set<string> }): Promise<Pedido> {
   const f = facts ?? (await factsOf(db, projectId, [t]));
   const understood = await understoodOf(db, t);
@@ -124,6 +162,7 @@ export async function pedidoOf(db: Db, projectId: string, t: Task, facts?: { run
   const running = f.running.get(t.key);
   // PLA-I54-5: how many pictures the request carries.
   const pics = await db.select({ id: taskImages.id }).from(taskImages).where(eq(taskImages.taskId, t.id));
+  const unseen = await unseenOf(db, t.id);
   const state: PedidoState = f.built.has(t.id) ? "valvula" : q ? "espera" : running ? "trabajando" : stop === "buzon" && !f.taken.has(t.key) ? "cola" : "quieta";
   return {
     key: t.key,
@@ -136,6 +175,8 @@ export async function pedidoOf(db: Db, projectId: string, t: Task, facts?: { run
     question: q ? { id: q.id, text: q.text } : null,
     guardada: f.shelf.has(t.id),
     at: t.createdAt.toISOString(),
+    unseen: unseen.count,
+    unseen_stop: unseen.newest,
   };
 }
 

@@ -33,6 +33,7 @@ import { runBatch } from "./batch.js";
 import { WORK_TYPES } from "./lifecycle.js";
 import { setCheck } from "./checks.js";
 import { attachDoc, getDoc } from "./docs.js";
+import { MAX_FRAMES, attachFrames } from "../pedidos/frames.js";
 import { REVIEW_EVIDENCE, RESULT_KINDS, VERDICTS, addResult, validateEvidence } from "./evidence.js";
 import { checkSizes } from "./limits.js";
 import type { Ctx } from "./tx.js";
@@ -663,7 +664,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       const out = await finish(db, input as never, ctx);
       // PLA-I32-3: a runner's finish leaves its line in the project thread (best effort, after the commit).
       const i = input as { project: string; key: string; result?: { cite?: string; verdict?: string }; pr_url?: string };
-      await closingLine(db, ctx, { project: i.project, key: i.key, via: "finish", cite: i.result?.cite, verdict: i.result?.verdict, prUrl: i.pr_url }).catch(() => null);
+      await closingLine(db, ctx, { project: i.project, key: i.key, via: "finish", cite: i.result?.cite, verdict: i.result?.verdict, prUrl: i.pr_url }).catch((e) => (console.log(`[thread] closing line of ${i.project}/${i.key} failed: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`), null));
       // PLA-I52-2/3: a delivery with a muestra warms its own copy and gets its pairs for El Probador (background).
       if (warmOn()) afterFinish(db, i.project, i.key);
       return out;
@@ -744,7 +745,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     writeHandler("add_result", async (input, ctx) => {
       const out = await addResult(db, input, ctx);
       const i = input as { project: string; key: string; cite?: string; verdict?: string };
-      await closingLine(db, ctx, { project: i.project, key: i.key, via: "add_result", cite: i.cite, verdict: i.verdict }).catch(() => null);
+      await closingLine(db, ctx, { project: i.project, key: i.key, via: "add_result", cite: i.cite, verdict: i.verdict }).catch((e) => (console.log(`[thread] closing line of ${i.project}/${i.key} failed: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`), null));
       return out;
     }),
   );
@@ -769,6 +770,40 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
       annotations: write,
     },
     writeHandler("attach_doc", (input, ctx) => attachDoc(db, input, ctx)),
+  );
+
+  // PLA-I61-2 (La idea abierta): Artist's frames, so the owner sees the design on the screen.
+  server.registerTool(
+    "attach_frames",
+    {
+      description: [
+        "Artist: put the design's frames on an idea so the owner sees them on the screen (the idea's Diseño stop and its review table).",
+        "One image per frame (PNG, JPEG or WebP, 5 MB each, up to 40), each with a short id (T, A1, B3), a name, an optional group, what it does (hace) and why (porque), in the order to show them.",
+        "path is a file inside the canvases folder on this Mac (PLANIA_CANVASES_ROOT, by default ~/Developer/design-canvases); anything else is FRAME_INVALID.",
+        "A new call replaces the idea's whole set. Write the Design doc with attach_doc as before.",
+      ].join(" "),
+      inputSchema: {
+        project,
+        actor,
+        request_id,
+        key,
+        frames: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(16),
+              name: z.string().min(1).max(120),
+              group: z.string().max(80).optional(),
+              hace: z.string().max(400).optional(),
+              porque: z.string().max(400).optional(),
+              path: z.string().min(1).max(500),
+            }),
+          )
+          .min(1)
+          .max(MAX_FRAMES),
+      },
+      annotations: write,
+    },
+    writeHandler("attach_frames", (input, ctx) => attachFrames(db, input, ctx)),
   );
 
   server.registerTool(
@@ -1023,7 +1058,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
     "audit",
     {
       description: [
-        "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
+        "What the server can see is wrong, from data it has: REVIEW_PR_MERGED, REVIEW_NOBODYS_TURN, DONE_CHECKS_OPEN, MERGED_CHECKS_OPEN, INITIATIVE_CHILDREN_DONE, INITIATIVE_SCOPE_HAS_STATUS, DECISION_STALE_REF, DECISION_CONTRADICTS_DONE,",
         "ENV_DEPLOYED_AT_MISSING, ENV_DRIFT, BLOCKED_BUT_SATISFIED, CLAIMABLE_BUT_WAITING, CLAIM_EXPIRED_WITH_COMMITS, BRANCH_MERGED_NOT_DELETED, BRANCH_WITHOUT_TICKET, TASK_MISSING_PR_URL, WAITING_ON_JORGE_FREE_TEXT, OVERDUE, PR_WITHOUT_PLANIA_KEY, PR_MERGED_TICKET_OPEN, DELEGATED_ANSWER, WONT_DO_WITHOUT_EVIDENCE, and the footprint codes.",
         "CLAIMABLE_BUT_GATED is the previous name of CLAIMABLE_BUT_WAITING, kept as an alias for one release.",
         "Each finding has key, detail and fix_hint. It also runs every ten minutes; get_resume.status.audit_findings is the last count.",

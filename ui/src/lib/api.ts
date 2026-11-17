@@ -201,6 +201,12 @@ export const api = {
   pedido: (slug: string, key: string) => request<PedidoDetail>("GET", `/company/projects/${encodeURIComponent(slug)}/pedidos/${encodeURIComponent(key)}`),
   pedidoAct: (slug: string, key: string, action: "guardar" | "restaurar" | "descartar" | "construir", reason?: string) =>
     request<{ key: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/pedidos/${encodeURIComponent(key)}/${action}`, reason ? { reason } : {}),
+  // PLA-I61 (La idea abierta): any idea with its stops; seen, answers, wake (src/api/company-idea.ts).
+  idea: (slug: string, key: string) => request<IdeaDetail>("GET", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}`),
+  ideaVisto: (slug: string, key: string, stop: PedidoStop) => request<{ key: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/visto`, { stop }),
+  ideaRespuesta: (slug: string, key: string, input: IdeaAnswerInput) =>
+    request<{ key: string; stage: string | null; wake: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/respuesta`, input),
+  ideaDespertar: (slug: string, key: string) => request<{ key: string; wake: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/despertar`),
   noteTask: (slug: string, key: string, text: string) => request<{ noted: true }>("POST", `/company/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/note`, { text }),
   resendRequest: (slug: string, key: string) => request<{ key: string; wake: "queued" | "busy" | "off" }>("POST", `/company/projects/${encodeURIComponent(slug)}/requests/${encodeURIComponent(key)}/resend`),
   cancelOrder: (slug: string, key: string) => request<{ cancelled: string[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/orders/${encodeURIComponent(key)}/cancel`),
@@ -248,9 +254,45 @@ export type PedidoState = "espera" | "trabajando" | "quieta" | "cola" | "valvula
 export type PedidoTrailItem = {
   at: string;
   who: string;
-  kind: "pedido" | "nota" | "entendi" | "pregunta" | "respuesta" | "doc" | "etapa" | "guardada" | "restaurada" | "construir" | "valvula" | "descartada";
+  kind: "pedido" | "nota" | "entendi" | "pregunta" | "respuesta" | "doc" | "etapa" | "guardada" | "restaurada" | "construir" | "valvula" | "descartada" | "veredicto" | "marcos" | "despertar";
   text: string;
   doc?: { id: string; title: string };
+  stop?: string;
+};
+// PLA-I61 (La idea abierta).
+export type IdeaVerdict = "ok" | "deshacer" | "cambios" | "opcion" | "corregir";
+export type IdeaNote = { frame: string; x: number; y: number; text: string };
+export type IdeaAnswerInput = { stop: PedidoStop; verdict: IdeaVerdict; text?: string; option?: number; notes?: IdeaNote[] };
+export type IdeaAnswer = { verdict: Exclude<IdeaVerdict, "deshacer">; text: string | null; option: number | null; notes: IdeaNote[]; at: string };
+export type IdeaStop = {
+  stop: PedidoStop;
+  state: "done" | "here" | "todo";
+  by: string | null;
+  at: string | null;
+  delivered: boolean;
+  doc: { id: string; title: string; version: number; markdown: string } | null;
+  seen: boolean;
+  answer: IdeaAnswer | null;
+};
+export type IdeaFrame = { id: string; frame: string; name: string; group: string | null; hace: string | null; porque: string | null; url: string; width: number | null; height: number | null };
+export type IdeaDetail = OrgPedido & {
+  summary: string;
+  text: string;
+  status: string;
+  stage: string | null;
+  promoted_to: string | null;
+  pedido: boolean;
+  question_options: string[];
+  stops: IdeaStop[];
+  ficha: PedidoFicha;
+  research: { recommendation: string | null; options: { n: number; title: string; text: string }[]; unknown: string[] };
+  plan_steps: string[];
+  frames: IdeaFrame[];
+  unseen: number;
+  quiet_since: string | null;
+  queued?: string | null;
+  trail: PedidoTrailItem[];
+  pictures: { id: string; url: string; at: string }[];
 };
 export type PedidoFicha = { problema: string | null; tamano: string | null; solucion: string | null; riesgos: string | null; fuera: string | null };
 export type PedidoDetail = OrgPedido & {
@@ -276,6 +318,9 @@ export type OrgPedido = {
   question: { id: string; text: string } | null;
   guardada: boolean;
   at: string;
+  // PLA-I61-6: deliveries he has not opened and the newest one (an older server sends neither).
+  unseen?: number;
+  unseen_stop?: PedidoStop | null;
 };
 export type OrgLight = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused";
 export type OrgLightReason = { text: string; action: { label: string; href: string } | null };
@@ -548,7 +593,11 @@ export type FichaIdea = {
   waits: string | null;
   updated_at: string;
   docs: { Idea: string | null; Research: string | null; Design: string | null; Plan: string | null };
+  // PLA-I61-3: older servers send neither.
+  summary?: string;
+  unseen?: number;
 };
+export type FichaLienzo = { key: string; title: string; count: number; thumbs: string[]; unseen: number };
 export type FichaPr = { number: number; title: string; url: string; state: string; ci_state: string | null; task_key: string | null; merged_at: string | null; head_branch: string | null };
 export type FichaDoc = { id: string; title: string; task_key: string | null; updated_at: string };
 export type FichaDesign = { idea_key: string; doc_id: string; url: string };
@@ -559,6 +608,7 @@ export type OrgFicha = {
   prs: FichaPr[];
   docs: FichaDoc[];
   designs: FichaDesign[];
+  lienzos?: FichaLienzo[];
 };
 export type ProjectDocBody = { id: string; title: string; version: number; markdown: string; task_key: string | null };
 

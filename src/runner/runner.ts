@@ -3,6 +3,7 @@
 // `claude -p` in a worktree outside every repo. When it exits, its result is read: modelUsage goes
 // to report_tokens per model, the turns/session/subtype to heartbeat_runs, the session to agent_sessions.
 // Summaries never carry paths, env values, tokens or money.
+import { canvasesRoot } from "../pedidos/frames.js";
 import { resolveMotor } from "./motor.js";
 import { execFile } from "node:child_process";
 import pg from "pg";
@@ -847,6 +848,12 @@ export function userPrompt(input: {
       : `Plania first: open the ticket with start (actor session_id ${input.sessionId}, that workspace) before you touch code.`,
     "Never main: commit on your branch, open PRs into sandbox only, never merge. Stop when the ticket is In review or when only Jorge can decide (ask).",
   );
+  // PLA-I61-2 (La idea abierta): the owner sees the design on the screen only through its frames in Plania.
+  if (idea && input.role === "artist") {
+    lines.push(
+      `Draw the canvas under ${canvasesRoot()}/${input.task!.key}/, export one PNG per frame, and put them on the idea with attach_frames (key ${input.task!.key}): each frame's id (T, A1, B3), name, group, what it does (hace) and why (porque), in order. Jorge sees the design only through those frames, then writes the Design doc with attach_doc as usual.`,
+    );
+  }
   return lines.join("\n");
 }
 

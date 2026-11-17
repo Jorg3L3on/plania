@@ -92,3 +92,12 @@ test("I47-7: dim text passes AA and Ahora gets its height back", () => {
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
   assert.ok(page.includes('<Resguardo what="el edificio">') && page.includes('<Resguardo what="la ficha">'));
 });
+
+test("I61-6: with nothing to do, the sky says something waits to be looked at; Te toca still comes first", () => {
+  const look = project({ next_move: null, pedidos: [{ key: "LUM-IDEA1", title: "x", stop: "plan", state: "quieta", who: "product-owner", guardada: false, unseen: 1, unseen_stop: "diseno" }] });
+  assert.equal(lib.skyLine([look], [], "Lumen avanza"), `Lumen avanza. Te espera algo para mirar en ${look.title}.`);
+  const none = project({ next_move: null, pedidos: [] });
+  assert.equal(lib.skyLine([none], [], "Lumen avanza"), "Lumen avanza. Nada te espera.");
+  const both = project({ pedidos: look.pedidos, next_move: { verbo: "ver", texto: "Una entrega espera tu visto bueno.", accion: { kind: "publish", label: "Publicar" }, origen: { kind: "light" } } });
+  assert.equal(lib.skyLine([both], [], "x"), "Te toca: Una entrega espera tu visto bueno.");
+});

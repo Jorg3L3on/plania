@@ -97,7 +97,7 @@ captureRoutes.post("/:slug/probador/:key/tomar", async (c) => {
   try {
     const slug = c.req.param("slug");
     const key = assertKey(c.req.param("key"));
-    void withDb((db) => probar(db, slug, key)).catch(() => null);
+    void withDb((db) => probar(db, slug, key)).catch((e) => console.log(`[probador] ${slug}/${key} failed: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`));
     return c.json({ ok: true });
   } catch (e) {
     return fail(c, e);

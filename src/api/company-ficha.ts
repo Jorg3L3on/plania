@@ -9,6 +9,7 @@ import { sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { ideaWaits } from "../mcp/ideas.js";
+import { ideasWithFrames, unseenByIdea } from "./company-idea.js";
 
 export const FICHA_LIMITS = { ideas: 30, prs: 20, docs: 30, designs: 20 } as const;
 const STAGE_DOC_TITLES = ["Idea", "Research", "Design", "Plan"] as const;
@@ -26,7 +27,12 @@ export type FichaIdea = {
   waits: string | null;
   updated_at: string;
   docs: Record<(typeof STAGE_DOC_TITLES)[number], string | null>;
+  // PLA-I61-3: the summary the PO wrote, the stops it passed (stage index) and what the owner has not opened.
+  summary: string;
+  unseen: number;
 };
+// PLA-I61-2: an idea whose design lives in Plania (Artist's frames), for the Diseño tab.
+export type FichaLienzo = { key: string; title: string; count: number; thumbs: string[]; unseen: number };
 export type FichaPr = {
   number: number;
   title: string;
@@ -46,6 +52,7 @@ export type Ficha = {
   prs: FichaPr[];
   docs: FichaDoc[];
   designs: FichaDesign[];
+  lienzos: FichaLienzo[];
 };
 
 export function artifactLinks(markdown: string): string[] {
@@ -63,7 +70,7 @@ export async function fichaRead(db: Db, slug: string): Promise<Ficha> {
 
   const ideaRows = await rows(
     db,
-    sql`select t.id, t.key, t.title, t.stage, t.updated_at from tasks t
+    sql`select t.id, t.key, t.title, t.summary, t.stage, t.updated_at from tasks t
         where t.project_id = ${id} and t.kind = 'idea' and t.status = 'Open'
         order by t.updated_at desc, t.key limit ${FICHA_LIMITS.ideas}`,
   );
@@ -78,6 +85,7 @@ export async function fichaRead(db: Db, slug: string): Promise<Ficha> {
       )
     : [];
   const waits = ideaIds.length ? await ideaWaits(db, id) : new Map<string, string>();
+  const unseen = await unseenByIdea(db, slug, ideaRows.map((r) => String(r.key)));
   const ideas: FichaIdea[] = ideaRows.map((r) => {
     const mine = stageDocs.filter((d) => String(d.task_id) === String(r.id));
     const docs = Object.fromEntries(
@@ -93,6 +101,8 @@ export async function fichaRead(db: Db, slug: string): Promise<Ficha> {
       waits: waits.get(String(r.key)) ?? null,
       updated_at: iso(r.updated_at)!,
       docs,
+      summary: String(r.summary ?? ""),
+      unseen: unseen[String(r.key)] ?? 0,
     };
   });
 
@@ -139,9 +149,14 @@ export async function fichaRead(db: Db, slug: string): Promise<Ficha> {
     artifactLinks(String(r.markdown)).map((url) => ({ idea_key: String(r.key), doc_id: String(r.id), url })),
   );
 
+  // PLA-I61-2: ideas carrying Artist's frames count as a design too (once per idea, with or without a link).
+  const framed = await ideasWithFrames(db, id, slug);
+  const lienzos: FichaLienzo[] = framed.map((f) => ({ ...f, unseen: unseen[f.key] ?? 0 }));
+  const linkOnly = new Set(allDesigns.map((d) => d.idea_key).filter((k) => !framed.some((f) => f.key === k)));
   return {
     slug,
-    counts: { ideas: Number(ideaCount?.n ?? 0), prs: Number(prCount?.n ?? 0), docs: Number(docCount?.n ?? 0), designs: allDesigns.length },
+    counts: { ideas: Number(ideaCount?.n ?? 0), prs: Number(prCount?.n ?? 0), docs: Number(docCount?.n ?? 0), designs: lienzos.length + linkOnly.size },
+    lienzos,
     ideas,
     prs,
     docs,

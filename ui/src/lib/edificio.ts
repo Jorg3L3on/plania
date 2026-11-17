@@ -463,7 +463,11 @@ export function skyMove(projects: OrgProject[], decisions: Decision[]): { projec
 }
 export function skyLine(projects: OrgProject[], decisions: Decision[], base: string): string {
   const s = skyMove(projects, decisions);
-  if (!s) return `${base}. Nada te espera.`;
+  if (!s) {
+    // PLA-I61-6: nothing waits on him, but the team left something he has not opened.
+    const look = floorOrder(projects, decisions).floors.find((p) => (p.pedidos ?? []).some((x) => !x.guardada && (x.unseen ?? 0) > 0));
+    return look ? `${base}. Te espera algo para mirar en ${look.title}.` : `${base}. Nada te espera.`;
+  }
   const more = s.more ? ` · y ${s.more === 1 ? "1 piso más" : `${s.more} pisos más`}` : "";
   // PLA-I47-7: a texto that already ends a sentence keeps one period, not two.
   const texto = more ? s.move.texto.replace(/[.。]+\s*$/, "") : s.move.texto;

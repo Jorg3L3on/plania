@@ -17,7 +17,8 @@
 //       ("revísala tú", qaGate's hold) · latest lane error → te_toca
 //     PR merged → integrado (the poller has not moved the ticket yet)
 //     PR open with CI pending or failure → en_revision (ci says which)
-//     the latest delivery message for the ticket waits on the owner (no action yet) → te_toca
+//     the latest delivery message for the ticket waits on the owner (no action yet) → te_toca; while El Probador
+//       still takes its pictures (PLA-52: the card is not raised yet) → en_revision
 //     else → en_revision (PR green or no PR, nothing posted to the owner yet)
 //   Any other open status with a sent-back delivery (the latest delivery message was answered «cambios», by the owner's
 //     Pedir cambios or QA's return, or the latest QA lane is fail + returned) → devuelto while it is Ready or someone
@@ -33,6 +34,7 @@ import { agentRuns, agents, blockers, envStates, pullRequests, qaLanes, taskBloc
 import { SETTLED_STATUSES, typedBlockerOpen } from "../mcp/blockers.js";
 import { roleOf } from "../runner/limits.js";
 import { qaAgentOf, qaTicket, sameCommit } from "../runner/qa.js";
+import { probadorGate } from "../captures/probador.js";
 import { JORGE } from "../runner/threads.js";
 import { byKey } from "./company-plan.js";
 import { zonasOf, type Zona } from "./zonas.js";
@@ -82,6 +84,8 @@ export type EtapaFacts = {
   postponed: boolean;
   // The latest delivery message that links this ticket: answered «cambios» (sent back), or still waiting (open).
   delivery: { returned: boolean; open: boolean; at: Date } | null;
+  // PLA-52: El Probador has not finished the delivery's pictures (probadorGate, the rule the delivery card reads).
+  photos?: boolean;
 };
 
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
@@ -133,6 +137,8 @@ export function etapaOf(f: EtapaFacts, now: Date): Etapa | null {
       if (f.pr?.state === "open" && (ci === "pending" || ci === "failure")) {
         return make("en_revision", { reason: ci === "failure" ? "Las pruebas del PR fallan." : "Las pruebas del PR corren." });
       }
+      // PLA-52: no card is raised before the pictures exist, so it is not the owner's turn yet either.
+      if (f.delivery?.open && f.photos) return make("en_revision", { since: iso(f.delivery.at) ?? at, reason: "Plania toma las fotos de la entrega." });
       if (f.delivery?.open) return make("te_toca", { holder: { ...JORGE }, since: iso(f.delivery.at) ?? at, reason: "Entregada: espera que la aceptes." });
       return make("en_revision", { reason: f.pr?.state === "closed" ? "El PR se cerró sin fusionar." : null });
     }
@@ -331,6 +337,7 @@ export async function projectEtapas(db: Db, p: Project, now = new Date()): Promi
       blockedNote: t.blockedNote ?? null,
       postponed: !!parent && ((parent.id === here?.id && t.status === "Backlog") || (parent.status === "On hold" && (t.status === "Backlog" || t.status === "Ready"))),
       delivery: d ? { returned: action === "cambios", open: !action, at: date(d.at)! } : null,
+      photos: !!pr && probadorGate(p, t, (pr.head_sha as string | null) ?? null).pending,
     };
     const etapa = etapaOf(facts, now);
     if (etapa) byTicket.set(t.key, { key: t.key, title: t.title, status: t.status, phase: t.phase ?? null, parent_key: parent?.key ?? null, etapa, zonas: zonasOf(t.areas) });

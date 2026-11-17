@@ -393,6 +393,13 @@
       "when": 1795420800000,
       "tag": "0058_motores",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1795507200000,
+      "tag": "0059_idea_frames",
+      "breakpoints": true
     }
   ]
 }
