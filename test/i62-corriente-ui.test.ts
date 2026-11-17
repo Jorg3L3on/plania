@@ -215,7 +215,7 @@ test("I62-3: Ahora with a delivery: the move's one white button (Aceptar), Ver a
     rumbo: { goal_id: "g", goal: "Publicar en un día", why: "", target_on: "2026-12-17", forecast_on: "2026-12-17", weeks_behind: 0, missing: false },
     tablero: { initiatives: [{ key: "FIL-I1", title: "x", status: "Active", done: 0, total: 3, tickets: [tk("FIL-30", "integrado"), tk("FIL-31", "en_revision"), tk("FIL-32", "en_revision"), tk("FIL-33", "en_revision")] }], loose: [], loose_done: 0 },
   });
-  (p.team[0] as { now: { run_id?: string } }).now.run_id = "run-1";
+  (p.team[0] as unknown as { now: { run_id?: string } }).now.run_id = "run-1";
   const { acts } = fakeActs();
   const out = html(h(ahora.Ahora, { p, decisions: [d], now: Date.parse("2026-11-17T20:12:00Z"), companyPaused: false, totals: { open: 45, done: 321 }, acts, links: ahoraLinks, onFijar: () => {} }));
   assert.match(out, /Te toca · Taller te entrega/);
