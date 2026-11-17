@@ -764,3 +764,4 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-newproj { display: flex; align-items: center; min-height: 44px; }
 .cor-maq-side { overflow-y: auto; }
 .cor-maq-head > .cor-inline-head { display: block; }
+.cor-hoja-doc { max-height: 60svh; overflow-y: auto; padding-right: 8px; }

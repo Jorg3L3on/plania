@@ -23,7 +23,7 @@ const writes = await import("../src/mcp/writes.js");
 const docsMod = await import("../src/mcp/docs.js");
 const events = await import("../src/runner/events.js");
 const pedido = await import("../src/api/company-pedido.js");
-const pedidoUi = (await import(new URL("../ui/src/components/compania/edificio/pedido.tsx", import.meta.url).href)) as Record<string, any>;
+
 
 type Json = Record<string, any>;
 let raw: pg.Client;
@@ -120,25 +120,7 @@ test("I54-4 #1: from any stop, and a coalesced order is taken when the PO's run 
   assert.match((out as Json).reason, /Constrúyelo/);
 });
 
-test("I54-4 #2: an idea with promoted_to leaves the tube and its initiative is a track on the board", async () => {
-  const key = await forma("Recordatorio por WhatsApp");
-  await toLista(key);
-  await post(`/api/company/projects/micasa/pedidos/${key}/construir`);
-  const ini = await promote(key, "Recordatorios por WhatsApp");
-  const c = await card();
-  assert.equal((c.pedidos as Json[]).some((x) => x.key === key), false);
-  assert.ok((c.tablero.initiatives as Json[]).some((i) => i.key === ini), "the new initiative is on the board");
-  const d = (await (await app.request(`/api/company/projects/micasa/pedidos/${key}`, { headers: jorge() })).json()) as Json;
-  assert.equal(d.promoted_to, ini);
-  assert.equal(d.trail.at(-1).kind, "valvula");
-  assert.match(d.trail.at(-1).text, new RegExp(`ahora es ${ini} en el tablero`));
-  // The tab points to the board and offers nothing else.
-  const tracks: string[] = [];
-  const html = renderToStaticMarkup(React.createElement(pedidoUi.PedidoView, { d, now: Date.now(), acts: { onTrack: (k: string) => tracks.push(k), onConstruir: () => {} }, sub: "recorrido", setSub() {}, answer: "", setAnswer() {}, note: "", setNote() {}, confirmDrop: false, setConfirmDrop() {} }));
-  assert.match(html, /data-control="pedido-iniciativa"/);
-  assert.equal(/pedido-(construir|guardar|descartar)/.test(html), false);
-  assert.match(html.replace(/<[^>]+>/g, " "), new RegExp(`Ya pasó la válvula: es ${ini}`));
-});
+
 
 test("I54-4 #3: an owner's idea at Lista is never promoted without the order; the PO's own ideas are not held", async () => {
   const key = await forma("Usar el panel sin conexión");

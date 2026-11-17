@@ -7,7 +7,9 @@
 //   Meta            the goal and its date (the goal routes /ceo's dialog uses).
 // Esc and Cancelar close; focus starts inside and returns where it was.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api, type Decision, type OrgProject } from "@/lib/api";
@@ -337,6 +339,29 @@ export const Meta = ({ p, onClose }: { p: OrgProject; onClose: () => void }) => 
           </Btn>
         </div>
       </form>
+    </Hoja>
+  );
+};
+
+/** A doc linked from a message or a role (?doc=<id>, the address lib/org.ts gives company docs). */
+export const DocHoja = ({ id, onClose }: { id: string; onClose: () => void }) => {
+  const q = useQuery({ queryKey: ["prompt-doc", id], queryFn: () => api.promptDoc(id) });
+  return (
+    <Hoja label={q.data ? `Doc · v${q.data.version}` : "Doc"} title={q.data?.title ?? "Doc"} onClose={onClose} wide>
+      {q.isError ? (
+        <p className="cor-state bad">No se pudo leer el doc.</p>
+      ) : q.data ? (
+        <div className="cor-md cor-hoja-doc" tabIndex={0} role="region" aria-label={q.data.title}>
+          <Markdown remarkPlugins={[remarkGfm]}>{q.data.markdown}</Markdown>
+        </div>
+      ) : (
+        <div className="cor-skel" style={{ height: 200 }} aria-busy="true" />
+      )}
+      <div className="cor-acts">
+        <Btn kind="secondary" onClick={onClose}>
+          Cerrar
+        </Btn>
+      </div>
     </Hoja>
   );
 };

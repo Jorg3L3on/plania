@@ -137,8 +137,8 @@ export function searchOf(at: Partial<At> & { extra?: Record<string, string> }): 
   return s ? `?${s}` : "";
 }
 
-/** Where La corriente lives. /corriente until PLA-I62-9 makes it /ceo. */
-export const HOME = "/corriente";
+/** Where La corriente lives: Compañía (PLA-I62-9; it was built at /corriente, which now redirects here). */
+export const HOME = "/ceo";
 export const hrefOf = (at: Partial<At> & { extra?: Record<string, string> }) => `${HOME}${searchOf(at)}`;
 
 /** Where each part still lives in the building (/ceo) while La corriente does not draw it yet. */
@@ -233,7 +233,7 @@ export function clockLine(now: number, timeZone?: string): string {
 
 // ---- which parts La corriente draws already (each phase of PLA-I62 adds its own); the rest link to the building.
 export const BUILT: { views: View[]; tabs: Tab[]; vers: Ver["kind"][] } = {
-  views: ["corriente", "piezas", "tetoca", "pedir", "asistente"],
+  views: [...VIEWS],
   tabs: ["ahora", "pedidos", "tablero", "equipo", "ideas", "diseno", "prs", "docs", "motores", "maquinas"],
   vers: ["entrega", "pedido", "guardadas", "paso", "iniciativa", "sueltos", "miembro", "sumar", "idea", "lienzo", "pr", "doc", "maq", "tabla"],
 };
@@ -254,3 +254,57 @@ export const MODES: { id: AskMode; name: string; line: string }[] = [
   { id: "ya", name: "Hacerlo ya", line: "Un cambio pequeño y claro. Sube directo al tablero." },
   { id: "pregunta", name: "Preguntar", line: "Solo quieres saber algo. El PO lee el código y te contesta. No crea idea ni paso." },
 ];
+
+// ---- PLA-I62-9: the building's addresses, each to its screen in La corriente (null: nothing to move).
+//   ?edificio (Oficina) → Te toca · ?asistente → Asistente · ?nuevo → the Nuevo proyecto sheet · ?decision=<id> → its card
+//   in Te toca · ?piso=<slug> → the project (with ?nivel=maquinas → Máquinas) · ?f=<ficha ref> → its tab and what it
+//   opens · ?m=<slug>:<agent> → the teammate · ?plan=<slug> → the board · ?add=<slug> → Sumar. ?doc=<id> stays (a sheet).
+const FICHA_TAB: Record<string, Tab> = { resumen: "ahora", pedido: "pedidos", ideas: "ideas", diseno: "diseno", prs: "prs", docs: "docs", motores: "motores" };
+export function fromBuilding(search: string, ref: { kind: string; [k: string]: unknown } | null, refSlug: string | null): string | null {
+  const q = new URLSearchParams(search);
+  const legacy = ["edificio", "asistente", "nuevo", "decision", "piso", "f", "m", "plan", "add", "nivel"].some((k) => q.has(k));
+  if (!legacy) return null;
+  const keep: Record<string, string> = q.has("doc") ? { doc: q.get("doc")! } : {};
+  if (q.has("asistente")) return searchOf({ view: "asistente", extra: keep });
+  if (q.has("nuevo")) return searchOf({ view: "corriente", extra: { ...keep, hoja: "nuevo" } });
+  const slug = refSlug ?? q.get("piso");
+  if (q.has("decision") && !slug) return searchOf({ view: "tetoca", extra: { ...keep, decision: q.get("decision")! } });
+  if (!slug) return searchOf({ view: q.has("edificio") ? "tetoca" : "corriente", extra: keep });
+  if (q.has("decision")) return searchOf({ view: "tetoca", extra: { ...keep, decision: q.get("decision")! } });
+  const maquinas = q.get("nivel") === "maquinas";
+  if (!ref) return searchOf({ slug, tab: maquinas ? "maquinas" : "ahora", extra: keep });
+  const s = (v: unknown) => String(v ?? "");
+  switch (ref.kind) {
+    case "tab":
+      return searchOf({ slug, tab: FICHA_TAB[s(ref.tab)] ?? "ahora", extra: keep });
+    case "step":
+      return searchOf({ slug, ver: { kind: "paso", key: s(ref.key) }, extra: keep });
+    case "leg":
+      return searchOf({ slug, ver: { kind: "iniciativa", key: s(ref.key) }, extra: keep });
+    case "idea":
+      return searchOf({ slug, ver: { kind: "idea", key: s(ref.key) }, extra: keep });
+    case "pedido":
+      return searchOf({ slug, ver: { kind: "pedido", key: s(ref.key) }, extra: keep });
+    case "guardadas":
+      return searchOf({ slug, ver: { kind: "guardadas" }, extra: keep });
+    case "member":
+      return searchOf({ slug, ver: { kind: "miembro", agent: s(ref.agent) }, extra: keep });
+    case "pr":
+      return searchOf({ slug, ver: { kind: "pr", n: Number(ref.n) }, extra: keep });
+    case "doc":
+      return searchOf({ slug, ver: { kind: "doc", id: s(ref.id) }, extra: keep });
+    case "lienzo":
+      return searchOf({ slug, tab: "diseno", extra: keep });
+    case "sumar":
+      return searchOf({ slug, ver: { kind: "sumar" }, extra: keep });
+    case "app":
+      return searchOf({ slug, tab: "maquinas", extra: keep });
+    case "maq":
+      return searchOf({ slug, ver: { kind: "maq", what: s(ref.what) }, extra: keep });
+    case "maq-tabla":
+      return searchOf({ slug, ver: { kind: "tabla", name: s(ref.name) }, extra: keep });
+    default:
+      // plan, sueltos: the board.
+      return searchOf({ slug, tab: "tablero", extra: keep });
+  }
+}

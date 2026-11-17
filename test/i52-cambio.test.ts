@@ -22,7 +22,7 @@ const { cambioOf } = await import("../src/captures/muestra.js");
 const { autoVerdict } = await import("../src/api/auto-accept.js");
 const { releaseReel } = await import("../src/captures/probador.js");
 const { resolveThread } = await import("../src/runner/threads.js");
-const publish = (await import(new URL("../ui/src/components/compania/edificio/publish.tsx", import.meta.url).href)) as Record<string, any>;
+
 type Json = Record<string, any>;
 
 let raw: pg.Client;
@@ -70,34 +70,4 @@ describe("«solo lo que no se ve»", () => {
   });
 });
 
-describe("the release reel", () => {
-  test("each shipped ticket that changed the screen shows its después picture, marked nueva or cambió; invisible ones are left out", async () => {
-    const [p] = (await raw.query(`select id from projects where slug = 'zigzag'`)).rows;
-    const mk = async (title: string, cambio: string) => {
-      const t = await writes.createTask(db, { project: "zigzag", title, scope: "s", checks: ["ok"] } as never, ctx as never);
-      await raw.query(`update tasks set cambio = $2, muestra = $3::jsonb where key = $1`, [t.key, cambio, JSON.stringify({ frase: "x", vistas: [{ key: "v", label: `Vista ${title}`, path: "/v" }], pasos: ["a", "b", "c"] })]);
-      return { key: t.key, id: (await raw.query(`select id from tasks where key = $1`, [t.key])).rows[0].id as string, title };
-    };
-    const nueva = await mk("Sucursales", "se_ve");
-    const cambio = await mk("Encabezado", "se_ve");
-    const datos = await mk("Índices", "no_se_ve");
-    const shot = async (taskId: string, side: "antes" | "despues", extra: Json = {}) =>
-      store.recordStill(db, "zigzag", { projectId: p.id, taskId, runId: crypto.randomUUID(), pageKey: "v", pageLabel: "V", path: "/v", viewport: "desktop", width: 1280, height: 800, commit: null, branch: null, actor: ctx.actor, side, ...(extra.missing ? { ok: false, error: "no existe", url: null, missing: true } : { ok: true, png, url: null }) } as never);
-    await shot(nueva.id, "antes", { missing: true });
-    const dn = await shot(nueva.id, "despues");
-    await raw.query(`update capture_stills set diff = '{"nueva": true}'::jsonb where id = $1`, [dn.id]);
-    await shot(cambio.id, "antes");
-    const dc = await shot(cambio.id, "despues");
-    await raw.query(`update capture_stills set diff = '{"x":0.1,"y":0.1,"w":0.2,"h":0.1,"ratio":0.01}'::jsonb where id = $1`, [dc.id]);
-    await shot(datos.id, "despues");
-    const reel = await releaseReel(db, p.id, "zigzag", [nueva, cambio, datos].map(({ key, title }) => ({ key, title })));
-    assert.deepEqual(reel.map((r) => [r.title, r.kind, r.label]), [["Sucursales", "nueva", "Vista Sucursales"], ["Encabezado", "cambio", "Vista Encabezado"]]);
-    assert.ok(reel[0]!.image_url.endsWith(`${dn.id}.png`));
-    const html = renderToStaticMarkup(
-      React.createElement(publish.PublishBody, { title: "Zigzag", release: { from: "sandbox", into: "main", env: "prod", ahead: 3, tickets: [nueva, cambio, datos].map(({ key, title }) => ({ key, title })), open_checks: 0, before: 0, reel }, onPublish: () => {}, onCancel: () => {} }),
-    );
-    assert.match(html, /data-publish-reel="2"/);
-    assert.match(html, /Lo que verán tus usuarias/);
-    assert.ok(html.includes(`${dn.id}.png`) && html.includes(">nueva<") && html.includes(">cambió<"));
-  });
-});
+

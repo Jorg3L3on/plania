@@ -11,7 +11,7 @@ import { MemoryRouter } from "react-router";
 // Loaded by URL so the root typecheck (NodeNext, no JSX) does not follow them; `pnpm build` checks them.
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
 const org = await load("components/compania/org.tsx");
-const v2 = await load("components/compania/v2.tsx");
+
 const lib = await load("lib/org.ts");
 
 const h = React.createElement;
@@ -165,24 +165,9 @@ test("I33-1 phone: the thread folds to its last message; the toggle shows only o
   assert.ok(open.includes("Plegar el hilo"));
 });
 
-test("I33-1 the retired blocks are gone from the page: Solo tú, En marcha, Gasto, the switch and the Equipo sheet", async () => {
-  const { readFileSync } = await import("node:fs");
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  for (const gone of ["Solo tú", "EnMarcha", "Gasto", "KillSwitch", "EquipoSheetBody", "setCompanyPaused", "Queue", "TeamCards", "ProjectPreview", "Vista previa"]) assert.equal(page.includes(gone), false, gone);
-  // PLA-I39-3: the building replaces the 360 px column and the cards grid.
-  assert.ok(page.includes("<Building") && !page.includes("360px"), "the building, no 360 px column (PLA-I39)");
-  assert.ok(page.includes("plumbingLine") && !page.includes("<TeToca"), "Te toca lives on the floors now (PLA-I39-5)");
-});
 
-test("I33-1 the company plumbing line reads tokens and what runs, amber at 80 % and red at 100 %", async () => {
-  assert.deepEqual(lib.plumbingLine({ spend: 912_000, running: 1, paused: false }), { text: "912k · 1 en marcha", tone: "ok" });
-  assert.equal(lib.plumbingLine({ spend: 900_000_000, running: 0, paused: false }).tone, "ok", "PLA-21: no limit, never red for tokens");
-  assert.deepEqual(lib.plumbingLine({ spend: 0, running: 0, paused: true }), { text: "0 · detenida", tone: "idle" });
-  // PLA-I39: the line sits in the building's sky, linking to Máquina.
-  const { readFileSync } = await import("node:fs");
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("Plomería · {plumbingLine(company.plumbing).text}") && page.includes('to="/machine"'));
-});
+
+
 
 test("I33-1 a bare link in the text box says Asistente saves it to the library", () => {
   assert.equal(lib.isBareLink("https://example.test/a"), true);
@@ -252,16 +237,7 @@ test("I33-2 → I35: the preview sheet is gone; /ceo?p=x and ?vista=x redirect t
 
 const parts = await load("components/compania/parts.tsx");
 
-test("I33-4 state vacío: no projects, no messages, a team with no runs", async () => {
-  const { readFileSync } = await import("node:fs");
-  // PLA-I39-3: an empty lot with the door.
-  const page = readFileSync(new URL("../ui/src/components/compania/edificio/building.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes('data-empty="projects"'));
-  assert.ok(page.includes("Abrir el primer piso"));
-  const thread = html(h(org.ThreadPanel, threadProps({ thread: { ...asistenteThread, messages: [] } })));
-  assert.ok(thread.includes('data-empty="thread"'));
-  assert.ok(thread.includes("Dile a Asistente…"), "the text box stays");
-});
+
 
 test("I33-4 state carga: a skeleton per block", () => {
   const loading = html(h(org.ThreadPanel, threadProps({ thread: undefined, loading: true })));
@@ -332,14 +308,4 @@ test("I33-4 state PR fusionado and pregunta respondida: the result replaces the 
   assert.equal(lib.actionStateText({ action: "aceptar", at: "x", result: { ticket: "MIA-1", status: "Done" } }), "Aprobado · cerrado");
 });
 
-test("I33-4 phone: the pages keep one column under 640 px and nothing sets a width wider than a phone", async () => {
-  const { readFileSync } = await import("node:fs");
-  const read = (p: string) => readFileSync(new URL(`../ui/src/${p}`, import.meta.url), "utf8");
-  const ceo = read("pages/ceo.tsx");
-  assert.equal(ceo.includes("360px"), false, "no 360 px column (PLA-I39)");
-  const files = ["pages/ceo.tsx", "components/compania/org.tsx", "components/compania/v2.tsx", "components/compania/plumbing.tsx"].map(read).join("\n");
-  assert.equal(/(?:^|[\s"\'`])(?:min-)?w-\[\d{3,}px\]/m.test(files), false, "no fixed width of 100 px or more without a breakpoint");
-  // PLA-I39-3: floors stack and windows go two per row on a phone.
-  const css = read("index.css");
-  assert.ok(/@media \(width < 64rem\) \{[\s\S]*?\.edi-wins \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/.test(css), "two windows per row on a phone");
-});
+

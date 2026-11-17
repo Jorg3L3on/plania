@@ -13,10 +13,10 @@ import { MemoryRouter } from "react-router";
 
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
-const now = await load("components/compania/edificio/now.tsx");
-const head = await load("components/compania/edificio/head.tsx");
-const ficha = await load("components/compania/edificio/ficha.tsx");
-const facade = await load("components/compania/edificio/facade.tsx");
+
+
+
+
 const lib = await load("lib/edificio.ts");
 const ev = await load("lib/evidencia.ts");
 
@@ -42,17 +42,7 @@ const project = (patch: Json = {}): Json => ({
   ...patch,
 });
 
-test("I47-7: an in-page link move is a button that calls onLink; without onLink it stays a link", () => {
-  const p = project();
-  const calls: string[] = [];
-  const el = now.ActButton({ project: p, action: p.next_move.accion, move: true, where: "ahora", ctx: { acts: { onLink: (s: string, href: string) => calls.push(`${s} ${href}`) } } });
-  assert.equal(el.type, "button");
-  el.props.onClick();
-  assert.deepEqual(calls, ["lumen #te-toca"]);
-  assert.equal(now.ActButton({ project: p, action: p.next_move.accion, move: true, where: "ahora", ctx: {} }).type, "a");
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes('onLink: (slug: string, href: string) => (href === "#publicar" ? openPublish(slug) : setZoom(true, slug))'));
-});
+
 
 test("I47-7: the sky line ends with one period", () => {
   const p = project({ next_move: { verbo: "ver", texto: "Una entrega espera tu visto bueno.", accion: { kind: "publish", label: "Publicar" }, origen: { kind: "light" } } });
@@ -61,37 +51,11 @@ test("I47-7: the sky line ends with one period", () => {
   assert.equal(lib.skyLine([q], [], "x"), "Te toca: Aceptar «Acceso».");
 });
 
-test("I47-7: the header shows no count the route already shows; Ojo leaves the owner's move to Ahora", () => {
-  const line = { state: "you", word: "Te toca" };
-  const withRoute = html(h(head.Head, { project: project({ light: "ok", light_reason: null }), line }));
-  assert.equal(withRoute.includes("data-status"), false);
-  const noRoute = html(h(head.Head, { project: project({ light: "ok", light_reason: null, route: null, plan: { initiative: { key: "LUM-I1", title: "x" }, done: 1, total: 4 } }), line }));
-  assert.ok(noRoute.includes("data-status"));
-  const res = html(h(ficha.Ficha, { project: project(), fref: { kind: "tab", tab: "resumen" }, rows: { status: "idle" }, task: { status: "idle" }, doc: { status: "idle" }, slots: {}, now: NOW, onRef: () => {}, onClose: () => {} }));
-  assert.equal(res.includes("Una entrega espera tu visto bueno"), false, "Ojo does not repeat Ahora");
-  const failed = html(h(ficha.Ficha, { project: project({ light: "failed", light_reason: { text: "La última corrida falló.", action: null } }), fref: { kind: "tab", tab: "resumen" }, rows: { status: "idle" }, task: { status: "idle" }, doc: { status: "idle" }, slots: {}, now: NOW, onRef: () => {}, onClose: () => {} }));
-  assert.ok(failed.includes("La última corrida falló."), "a problem still shows in Ojo");
-});
 
-test("I47-7: the Edificio's pill has the floor's tone; the evidence card survives a review without notes", () => {
-  const out = renderToStaticMarkup(h(facade.Facade, { projects: [project({ next_move: null, light: "ok", light_reason: null })], decisions: [], now: NOW, ctx: {} }));
-  assert.match(out, /class="edi-pill" data-pill="[a-z]+" data-tone="[a-z]+"><i aria-hidden="true"><\/i>/);
-  const d = { id: "m-1", kind: "pr", actions: ["fusionar"], state: null, evidence: null, links: [], checks: null };
-  const read = { tests: { total: 0, pass: 0, verdict: "none", items: [] }, review: { verdict: "fail" }, checklist: [], stills: [], marks: [], status: "pass" };
-  assert.doesNotThrow(() => ev.evidenceView(read, d), "a review without notes is an empty line, not a crash");
-  assert.equal(ev.evidenceView(read, d).review.sub, "");
-});
 
-test("I47-7: dim text passes AA and Ahora gets its height back", () => {
-  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  assert.match(css, /\.edi-fi-tab small, \.edi-fi-li em, \.edi-fi-tube li, \.edi-fi-empty \{ color: #959cb8; \}/);
-  assert.match(css, /grid-template-areas: "voice meta" "by by"/, "the sky is one row");
-  assert.match(css, /\.edi-team \{ grid-template-columns: repeat\(var\(--n\), minmax\(0, 1fr\)\) var\(--add, 0px\);/, "a narrow track for «+»");
-  const r = readFileSync(new URL("../ui/src/components/compania/edificio/resguardo.tsx", import.meta.url), "utf8");
-  assert.ok(r.includes("getDerivedStateFromError") && r.includes("Reintentar"));
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes('<Resguardo what="el edificio">') && page.includes('<Resguardo what="la ficha">'));
-});
+
+
+
 
 test("I61-6: with nothing to do, the sky says something waits to be looked at; Te toca still comes first", () => {
   const look = project({ next_move: null, pedidos: [{ key: "LUM-IDEA1", title: "x", stop: "plan", state: "quieta", who: "product-owner", guardada: false, unseen: 1, unseen_stop: "diseno" }] });

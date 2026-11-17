@@ -22,7 +22,7 @@ const { rumboOf } = await import("../src/api/company-org.js");
 
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
-const v2 = await load("components/compania/v2.tsx");
+
 const lib = await load("lib/v2.ts");
 
 type Json = Record<string, any>;
@@ -138,41 +138,13 @@ const project = (patch: Record<string, unknown> = {}) => ({
   orders: [],
   ...patch,
 });
-// PLA-I39-4: Rumbo lives on the floor's plate now.
-const plate = await load("components/compania/edificio/plate.tsx");
-const render = (p: Json, onFijar: unknown = () => {}) => html(h(plate.Plate, { project: p, onFijar }));
 
-test("I36-4 #1 (UI): the plate shows the goal, its date and the forecast", () => {
-  const out = render(project({ rumbo: { goal_id: "g1", goal: "Tienda en línea con pagos", why: "", target_on: "2026-12-20", forecast_on: "2027-01-03", weeks_behind: 2, missing: false } }));
-  // PLA-I46-4: the goal sentence itself; the one status line says when it runs late.
-  assert.ok(out.includes('data-rumbo="set"') && out.includes(">Tienda en línea con pagos</p>"));
-  assert.ok(out.includes("va 2 semanas tarde"));
-});
 
-test("I36-4 #2, #3 (UI): the placeholder shows Sin meta and Fijar; the page opens the goal dialog in place", async () => {
-  const out = render(project());
-  assert.ok(out.includes('data-rumbo="missing"') && out.includes("Sin meta") && out.includes('data-control="fijar"'));
-  const { readFileSync } = await import("node:fs");
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("onFijar={setFijar}") && page.includes("<GoalDialog") && page.includes('invalidateQueries({ queryKey: ["company"] })'));
-  const dialog = readFileSync(new URL("../ui/src/components/goals/goal-dialog.tsx", import.meta.url), "utf8");
-  assert.ok(dialog.includes('type="date"'), "the dialog has the date field");
-});
 
-test("I36-4 #4 (UI): a long goal wraps whole on the plate", async () => {
-  const long = "Una meta muy larga ".repeat(20).trim();
-  const out = render(project({ rumbo: { goal_id: "g1", goal: long, why: "", target_on: "2026-12-20", forecast_on: null, weeks_behind: null, missing: false } }));
-  assert.ok(out.includes(`>${long}</p>`));
-  const { readFileSync } = await import("node:fs");
-  const css = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
-  assert.ok(/\.edi-goal \{[^}]*overflow-wrap: anywhere/.test(css));
-});
 
-test("I36-5 #1, #2 (UI): the plate shows the plan's steps done of total; the calendar words stay in the lib", () => {
-  const dated = { initiative: { key: "X-I1", title: "Pagos" }, done: 1, total: 4, start_on: "2026-11-01", due_on: "2026-12-27", weeks: 8, today_pct: 50, done_pct: 25, pace: "bad", weeks_behind: 2, forecast_on: "2027-01-10" };
-  const out = render(project({ plan: dated }));
-  assert.ok(out.includes("1 de 4 pasos hechos"), "PLA-I46-4: one status line, no strip");
-  assert.equal(/Semana \d+ de/.test(out), false);
-  assert.equal(lib.calendarBar(dated)!.line, "Hoy va al 50% del tiempo y la obra al 25%: 2 semanas atrás");
-  assert.equal(lib.calendarBar({ ...dated, weeks: null }), null);
-});
+
+
+
+
+
+

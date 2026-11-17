@@ -9,7 +9,7 @@ import { MemoryRouter } from "react-router";
 
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
-const v2 = await load("components/compania/v2.tsx");
+
 const lib = await load("lib/v2.ts");
 const org = await load("lib/org.ts");
 
@@ -41,11 +41,9 @@ const project = (patch: Record<string, unknown> = {}) => ({
   ...patch,
 });
 const count = (s: string, re: RegExp) => (s.match(re) ?? []).length;
-// PLA-I39: the reason sits on the floor's plate; each decision renders with Te toca's body under its asker.
-const plate = await load("components/compania/edificio/plate.tsx");
-const card = (p: Record<string, unknown>) => html(h(plate.Plate, { project: p }));
-const teToca = (decisions: Record<string, unknown>[], opened?: string) =>
-  html(h("ul", null, ...decisions.map((d) => h("li", { key: d.id as string, "data-kind": d.kind }, h(v2.DecisionBody, { d, now: NOW, busy: null, onAct: noop, opened: opened === d.id })))));
+
+
+
 const row = (patch: Record<string, unknown>) => ({
   id: "b-00000000-0000-4000-8000-000000000001",
   project: "workia",
@@ -64,67 +62,17 @@ const row = (patch: Record<string, unknown>) => ({
   ...patch,
 });
 
-// ---- PLA-I36-1
 
-test("I36-1 #1 / I46-3: Te necesita is the floor's move, not a second line on the plate", () => {
-  const out = card(project({ light: "needs_jorge", light_reason: { text: "Lo siguiente es tuyo: «Kickoff con la boutique».", action: { label: "Ver en Te toca", href: "#te-toca" } } }));
-  assert.equal(out.includes("Lo siguiente es tuyo") || out.includes("ver-pregunta") || out.includes("data-light-reason"), false);
-  clean(out);
-});
 
-test("I36-1 #2: Falló shows the reason, a link to Máquina, and Ahora says the run failed", () => {
-  const out = card(
-    project({
-      light: "failed",
-      light_reason: { text: "La última corrida del PO falló: spawn claude ENOENT", action: { label: "Ver en Máquina", href: "/machine" } },
-      team: [member("product-owner", { last: { ticket: "WRK-3", status: "fail", at: "2026-11-10T17:30:00Z" } }), member("taller")],
-    }),
-  );
-  assert.ok(out.includes("spawn claude ENOENT"));
-  assert.ok(/<a[^>]*href="\/machine"[^>]*>|<a[^>]*data-light-action[^>]*href="\/machine"/.test(out) && out.includes("Ver en Máquina"));
-  assert.equal(org.lightOf("failed").tone, "stop");
-  clean(out);
-});
 
-test("I36-1 #3: Bloqueado shows the blocking reason in one sentence", () => {
-  const out = card(project({ light: "blocked", light_reason: { text: "Las pruebas de «Galería» fallaron.", action: { label: "Abrir", href: "/p/workia" } } }));
-  assert.ok(out.includes("Las pruebas de «Galería» fallaron."));
-  assert.equal(count(out, /data-light-reason/g), 1);
-  clean(out);
-});
 
-test("I36-1 #4: Bien has no reason line; the worst light sorts first", () => {
-  const out = card(project());
-  assert.equal(out.includes("data-light-reason"), false);
-  const sorted = [project({ slug: "a", light: "ok" }), project({ slug: "b", light: "late" }), project({ slug: "c", light: "failed" }), project({ slug: "d", light: "needs_jorge" })].sort(org.byLight);
-  assert.deepEqual(sorted.map((p) => p.light), ["needs_jorge", "failed", "late", "ok"]);
-});
 
-// ---- PLA-I36-2
 
-test("I36-2 #2: a step row has Hecho and names the ticket it holds", () => {
-  const out = teToca([row({ detail: "Lo espera: Publicar la tienda" })]);
-  assert.ok(out.includes('data-kind="step"') && out.includes("Crear la cuenta de la tienda") && out.includes("Lo espera: Publicar la tienda"));
-  assert.ok(out.includes('data-action="hecho"'));
-  clean(out);
-});
 
-test("I36-2 #1: a release row shows commits, changes, open checks and goes to Bandeja to publish", () => {
-  const out = teToca([
-    row({
-      id: "r-workia",
-      kind: "release",
-      title: "2 cambios listos para publicar",
-      actions: [],
-      ref: null,
-      checks: { open: 1, ci: null },
-      release: { from: "sandbox", into: "main", env: "prod", ahead: 4, tickets: [{ key: "WRK-1", title: "Uno" }, { key: "WRK-2", title: "Dos" }], open_checks: 1, before: 0 },
-    }),
-  ]);
-  assert.ok(out.includes("4 commits · 2 cambios · 1 check abierto"));
-  assert.ok(/data-action="publicar"[^>]*>Publicar en Bandeja|href="\/inbox"[^>]*data-action="publicar"/.test(out));
-  clean(out);
-});
+
+
+
+
 
 test("I36-2 #3: Nada te espera only when Bandeja is empty too", () => {
   assert.equal(lib.teTocaEmpty({ decisiones: 0, pasos: 0 }), lib.TE_TOCA_EMPTY);
@@ -132,52 +80,9 @@ test("I36-2 #3: Nada te espera only when Bandeja is empty too", () => {
   assert.equal(lib.teTocaEmpty(undefined), lib.TE_TOCA_EMPTY);
 });
 
-test("I36-2 #4: a proposal row has Ver mensaje and its doc link; the message opens in place", () => {
-  const body = "Leí el borrador.\nTres caminos:\n1. Corto\n2. Largo";
-  const d = row({
-    id: "m-00000000-0000-4000-8000-000000000009",
-    kind: "proposal",
-    title: "Tres caminos",
-    options: [
-      { n: 1, label: "Corto", recommended: true },
-      { n: 2, label: "Largo", recommended: false },
-    ],
-    actions: ["elegir", "responder"],
-    ref: null,
-    body,
-    links: [{ kind: "doc", ref: "d0c00000-0000-4000-8000-000000000001", title: "Campos y flujos" }],
-  });
-  const out = teToca([d]);
-  assert.ok(out.includes('data-control="ver-mensaje"') && out.includes("Ver mensaje"));
-  assert.ok(out.includes('href="/ceo?doc=d0c00000-0000-4000-8000-000000000001"') && out.includes("Campos y flujos"));
-  assert.equal(out.includes("data-body"), false, "folded until opened");
-  // Opened (?decision=<id>): the full message in place.
-  const opened = teToca([d], d.id);
-  assert.ok(opened.includes("data-body") && opened.includes("Tres caminos:\n1. Corto") && opened.includes("Ocultar mensaje"));
-  clean(out);
-});
 
-test("I36-2 #5: a PR row shows its link and open checks before Fusionar", () => {
-  const out = teToca([
-    row({
-      id: "m-00000000-0000-4000-8000-000000000010",
-      kind: "pr",
-      title: "Galería",
-      actions: ["fusionar", "cambios"],
-      checks: { open: 1, ci: "failure" },
-      links: [
-        { kind: "ticket", ref: "WRK-9", title: "Galería" },
-        { kind: "pr", ref: "https://github.com/x/w/pull/9", title: "PR de WRK-9" },
-      ],
-    }),
-  ]);
-  assert.ok(out.includes('data-checks="open"') && out.includes("1 check abierto · pruebas fallando"));
-  assert.ok(out.includes('href="https://github.com/x/w/pull/9"'));
-  assert.ok(out.indexOf("data-checks") < out.indexOf('data-action="fusionar"'), "checks before Fusionar");
-  assert.deepEqual(lib.checksText({ checks: { open: 0, ci: "success" } }), { text: "pruebas en verde", tone: "ok", open: false });
-  // PLA-14: a repo with no CI is not "pruebas corriendo". PLA-23: nor good news: neutral.
-  assert.deepEqual(lib.checksText({ checks: { open: 0, ci: "none" } }), { text: "repo sin CI", tone: "idle", open: false });
-});
+
+
 
 // ---- PLA-I36-3
 

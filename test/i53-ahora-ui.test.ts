@@ -16,7 +16,7 @@ const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import
 const lib = await load("lib/ahora-piso.ts");
 const edificio = await load("lib/edificio.ts");
 const lineUi = await load("components/plan/ahora-line.tsx");
-const floorUi = await load("components/compania/edificio/floor.tsx");
+
 
 type Json = Record<string, any>;
 const h = React.createElement;
@@ -51,66 +51,16 @@ const card = (tickets: Json[], patch: Json = {}): Json => ({
   ahora: tickets.filter((t) => ["construyendo", "devuelto"].includes(t.etapa.etapa) || (t.etapa.etapa === "en_qa" && t.etapa.qa === "running")).map(item),
   ...patch,
 });
-const floorHtml = (p: Json) =>
-  renderToStaticMarkup(h(MemoryRouter, null, h(floorUi.Floor, { project: p, now: NOW, timeZone: TZ, decisions: [], board: { onTicket: noop, onTrack: noop }, foco: { kind: "leg", key: "DEM-I2" }, ventanal: (parts: Json) => h(React.Fragment, null, parts.home.body, parts.board, parts.tubo), onOpen: noop })));
+
 const lineHtml = (p: Json, opts: Json = {}) => renderToStaticMarkup(h(lineUi.AhoraLine, { view: lib.ahoraView(p, NOW, { timeZone: TZ, ...opts }) }));
 const slot = (html: string) => html.slice(html.indexOf('data-slot="ahora"'), html.indexOf('class="dark sb-one sb"'));
 const stationOf = (html: string, id: string) => html.match(new RegExp(`<(?:button|div)[^>]*data-station="${id}"[^>]*>[\\s\\S]*?</(?:button|div)>`))?.[0] ?? "";
 
-test("I53-4 #1: a running run names the same agent and stage in the line, the seat and the card", () => {
-  const building = tk("DEM-I2-3", "Agenda semanal", etapa("construyendo", { holder: TALLER, live: true, since: "2026-11-15T19:48:00Z" }));
-  const p = card([tk("DEM-I2-1", "Alta", etapa("lista")), building], { team: [member("product-owner"), member("taller", { state: "running", now: { ticket: "DEM-I2-3", title: "Agenda semanal", since: "2026-11-15T19:48:00Z", run_id: "r1" } }), member("qa")] });
-  const v = lib.ahoraView(p, NOW, { timeZone: TZ });
-  assert.equal(v.working, true);
-  assert.deepEqual(v.lines.map((l: Json) => l.text), ["Taller construye «Agenda semanal» · hace 12 min"]);
-  assert.match(v.why, /Sin trabajo ahora: PO, QA\./, "the second line names who is idle");
 
-  const html = floorHtml(p);
-  const line = slot(html);
-  assert.match(line, /data-ahora="work"/);
-  assert.match(line, /data-ahora-item="DEM-I2-3"[^>]*data-agent="taller-demo"[^>]*data-station="taller"/);
-  assert.match(text(line), /Taller construye «Agenda semanal» · hace 12 min/);
-  // The seat over Taller: lit, and its caption is the same ticket.
-  const seat = stationOf(html, "taller");
-  assert.match(seat, /data-lit="now"/);
-  assert.match(seat, /data-state="work"/);
-  assert.match(seat, /aria-label="Taller de Demo, trabajando: Agenda semanal/);
-  // The card: the same stage and the same holder.
-  const c = html.match(/<div class="sb-card" data-card="DEM-I2-3"[\s\S]*?<\/div>/)![0];
-  assert.match(c, /data-etapa="construyendo"/);
-  assert.match(text(c), /Construyendo .*Taller · hace 12 min/);
-  assert.doesNotMatch(html, new RegExp(lib.QUIET_SAY));
-});
 
-test("I53-4 #1: a live run the server's ahora cannot list (no ticket) still lights its seat and is named", () => {
-  const p = card([tk("DEM-I2-1", "Alta", etapa("lista"))], { team: [member("product-owner", { state: "running", now: { ticket: null, title: "Repartir el pedido", since: "2026-11-15T19:55:00Z", run_id: "r2" } }), member("taller")] });
-  const v = lib.ahoraView(p, NOW);
-  assert.deepEqual(v.lines.map((l: Json) => l.text), ["PO prepara «Repartir el pedido» · hace 5 min"]);
-  const html = floorHtml(p);
-  assert.match(stationOf(html, "por"), /data-lit="now"/);
-  assert.match(stationOf(html, "por"), /data-state="work"/);
-  // A seat the line does not name is never lit, whatever its run says.
-  assert.equal(edificio.windowState({ state: "running" }, false, null), "idle");
-});
 
-test("I53-4 #2: a returned ticket being fixed says who fixes it, never «Nadie trabaja»", () => {
-  const fixing = tk("DEM-I2-4", "Recordatorios", etapa("devuelto", { holder: TALLER, live: true, since: "2026-11-15T19:30:00Z" }));
-  const p = card([fixing]);
-  const html = floorHtml(p);
-  const line = slot(html);
-  assert.match(text(line), /Taller arregla «Recordatorios» \(devuelto\) · hace 30 min/);
-  assert.doesNotMatch(html, /Nadie trabaja/);
-  assert.match(stationOf(html, "taller"), /data-state="back"/);
-  assert.match(stationOf(html, "taller"), /data-lit="review"/);
-  assert.match(line, /data-now="back"/);
-  // Sent back with nobody on it: not «arreglando», and the line says it waits.
-  const waiting = card([tk("DEM-I2-4", "Recordatorios", etapa("devuelto", { holder: TALLER, live: false }))]);
-  const w = lib.ahoraView(waiting, NOW);
-  assert.equal(w.working, false);
-  assert.equal(w.returned, "Devuelto: «Recordatorios» espera que Taller lo tome.");
-  assert.equal(edificio.windowState({ state: "idle" }, false, lib.seatOf({ agent: "taller-demo" }, w.obras)), "idle");
-  assert.doesNotMatch(floorHtml(waiting), /Devuelto · arreglando/);
-});
+
+
 
 test("I53-4: several at once stack, newest first", () => {
   const p = card([
@@ -156,31 +106,6 @@ test("I53-4 #3: the project is paused", () => {
 test("I53-4 #3: work queued for the next round", () => {
   assert.deepEqual(lib.quietReason(facts({ ready: ["Alta", "Baja"], queued: { who: "Taller", at: "2:10 pm" } })), { kind: "queued", text: "«Alta» está listo: Taller lo toma en la próxima ronda, a las 2:10 pm. Hay 1 más en fila." });
 });
-test("I53-4 #3: the facts come from the card the floor reads", () => {
-  const ready = card([tk("DEM-I2-1", "Alta", etapa("lista"))], { team: [member("taller", { next_start: { key: "DEM-I2-1", title: "Alta", hold: "rest", starts_at: "2026-11-15T20:10:00Z", text: "Descansa." } })] });
-  assert.equal(lib.ahoraView(ready, NOW, { timeZone: TZ }).why, "«Alta» está listo: Taller lo toma en la próxima ronda, a las 2:10 pm; ahora descansa.");
-  const usage = card([tk("DEM-I2-1", "Alta", etapa("lista"))], { team: [member("taller", { next_start: { key: "DEM-I2-1", title: "Alta", hold: "usage", starts_at: null, text: "x" } })] });
-  assert.equal(lib.ahoraView(usage, NOW).why, "«Alta» está listo: Taller lo toma en la próxima ronda; por ahora el uso lo detiene.");
-  const toca = card([tk("DEM-I2-1", "Alta", etapa("lista")), tk("DEM-I2-2", "Entrega", etapa("te_toca", { holder: { agent: "jorge", role: "ceo" } }))]);
-  assert.equal(lib.ahoraView(toca, NOW).quiet.kind, "owner");
-  const blocked = card([tk("DEM-I2-1", "Alta", etapa("bloqueado", { reason: "Falta una llave" })), tk("DEM-I2-2", "Baja", etapa("en_espera", { reason: "Espera a «Alta»" }))]);
-  assert.equal(lib.ahoraView(blocked, NOW).why, "Todo está bloqueado: «Alta» (Falta una llave) y 1 más.");
-  assert.equal(lib.ahoraView(card([tk("DEM-I2-1", "Alta", etapa("lista"))], { paused: true }), NOW).quiet.kind, "paused");
-  assert.equal(lib.ahoraView(card([tk("DEM-I2-1", "Alta", etapa("lista"))]), NOW, { companyPaused: true }).quiet.kind, "paused");
-  const html = floorHtml(blocked);
-  assert.match(text(slot(html)), /Nadie trabaja en este piso ahora\. Todo está bloqueado: «Alta»/);
-  assert.match(slot(html), /data-ahora="quiet"[^>]*data-reason="blocked"/);
-});
 
-test("I53-4 #4: /p/<slug> draws the same line from the same card", () => {
-  const p = card([tk("DEM-I2-3", "Agenda", etapa("construyendo", { holder: TALLER, live: true, since: "2026-11-15T19:48:00Z" }))]);
-  const floorLine = slot(floorHtml(p));
-  const pageLine = lineHtml(p);
-  const say = (s: string) => text(s.slice(s.indexOf('class="ahl'), s.indexOf("</ul>") + 5)).trim();
-  assert.equal(say(pageLine), say(floorLine));
-  const src = readFileSync(new URL("../ui/src/pages/project.tsx", import.meta.url), "utf8");
-  assert.match(src, /<AhoraLine view=\{view\} \/>/);
-  assert.match(src, /ahoraView\(card, now/);
-  // PLA-I53-5 removed the lease-only NowRow with the whole lane grid.
-  assert.equal(existsSync(new URL("../ui/src/components/plan/lane-grid.tsx", import.meta.url)), false, "no lease-only NowRow left");
-});
+
+

@@ -1,5 +1,5 @@
-// PLA-I62: La corriente, Compañía redesigned (PLA-IDEA25). Built at /corriente while /ceo keeps the building; PLA-I62-9
-// makes it /ceo. Data and calls are the ones /ceo uses (GET /api/company, GET /api/projects and friends); only the
+// PLA-I62: La corriente, Compañía redesigned (PLA-IDEA25), served at /ceo (pages/ceo.tsx moves the building's old
+// addresses here first). Data and calls are the ones /ceo uses (GET /api/company, GET /api/projects and friends); only the
 // drawing is new. The address (lib/corriente.ts) says which screen shows.
 // Keys (inside a project, as on /ceo): ↑ ↓ change project; 1-7 the work tabs; M Máquinas and back; I Ahora; E Equipo;
 // Esc steps out (what a tab has open, then the tab, then the project back to the stream).
@@ -20,7 +20,7 @@ import { Idea } from "@/components/corriente/idea";
 import { Disenos, Docs, Ideas, Prs } from "@/components/corriente/listas";
 import { Motores } from "@/components/corriente/motores";
 import { Maquinas } from "@/components/corriente/maquinas";
-import { Meta, NuevoProyecto, Pausar, Publicar, Reanudar, type HojaKind } from "@/components/corriente/hojas";
+import { DocHoja, Meta, NuevoProyecto, Pausar, Publicar, Reanudar, type HojaKind } from "@/components/corriente/hojas";
 import type { PendLinks } from "@/components/corriente/pendiente";
 import { Head } from "@/components/corriente/header";
 import { Btn, NotYet, ReadError } from "@/components/corriente/parts";
@@ -32,7 +32,7 @@ import { ApiError, api, type OrgProject } from "@/lib/api";
 import { WORK_TABS, atOf, hrefOf, isBuilt, legacyHref, linkTo, type AskInput, type At, type Tab } from "@/lib/corriente";
 import { CLOSED, headlineOf, lanesOf, projectOfKey, totalsOf } from "@/lib/corriente-stream";
 import { pending } from "@/lib/v2";
-import { useMinute } from "@/pages/ceo";
+import { useMinute } from "@/lib/use-minute";
 
 const typingIn = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || !!t.closest("[role=dialog]"));
 
@@ -111,7 +111,7 @@ export const CorrientePage = () => {
   const project = at.slug ? (company?.projects.find((p) => p.slug === at.slug) ?? null) : null;
   const go = (to: Partial<At>, replace = false) => {
     const href = linkTo(to);
-    if (href.startsWith("/corriente")) navigate(href, { replace });
+    if (href.startsWith("/ceo")) navigate(href, { replace });
     else navigate(href);
   };
 
@@ -366,6 +366,16 @@ export const CorrientePage = () => {
         </div>
       )}
       <div className="cor-main">{body()}</div>
+      {new URLSearchParams(location.search).get("doc") && (
+        <DocHoja
+          id={new URLSearchParams(location.search).get("doc")!}
+          onClose={() => {
+            const q = new URLSearchParams(location.search);
+            q.delete("doc");
+            navigate(`${location.pathname}${q.toString() ? `?${q}` : ""}`, { replace: true });
+          }}
+        />
+      )}
       {hoja && company && (() => {
         const hp = hoja.slug ? (company.projects.find((x) => x.slug === hoja.slug) ?? null) : null;
         if (hoja.kind === "nuevo") return <NuevoProyecto onClose={closeHoja} onOpen={(slug) => navigate(linkTo({ slug }))} />;

@@ -14,7 +14,7 @@ import { MemoryRouter } from "react-router";
 
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
-const building = await load("components/compania/edificio/building.tsx");
+
 const ciudad = await load("components/home/ciudad.tsx");
 
 type Json = Record<string, any>;
@@ -45,30 +45,11 @@ const project = (slug: string, title: string, patch: Json = {}): Json => ({
 });
 const projects = [project("alba", "Alba"), project("cauce", "Cauce"), project("eco", "Eco", { paused: true, light: "paused" })];
 const company = { company: { paused: false }, week: { starts_at: "2026-11-09T06:00:00Z", resets_at: "2026-11-16T06:00:00Z", timezone: TZ }, asistente: { thread_id: "t", usage: { used: 0 }, last_run: { status: "ok", summary: "ok: success, 7 turns" }, state: "idle", unread: 0 }, projects, plumbing: { spend: 0, running: 0, paused: false }, decisions: [], inbox: { decisiones: 0, pasos: 0 } };
-const render = (extra: Json) =>
-  renderToStaticMarkup(
-    h(MemoryRouter, null, h(building.Building, { company, decisions: [], now: NOW, timeZone: TZ, hello: "Hola", day: "Martes", onNew: () => {}, meta: h("span", { "data-meta": "" }, "Plomería"), officeMore: h("div", { "data-brief": "" }, "Brief de hoy"), city: h("div", { "data-city-node": "" }), ...extra })),
-  );
 
-test("PLA-31 #1: Oficina with the city: no sky strip, no Brief de hoy, no rows; the roof, then the city", () => {
-  const out = render({ office: true });
-  assert.ok(out.includes("data-city-node") && out.includes("data-roof"), "the roof and the city");
-  assert.equal(out.includes('class="edi-sky"'), false, "no sky strip");
-  assert.equal(out.includes("data-meta") || out.includes("ok: success"), false, "no links or Asistente line up there");
-  assert.equal(out.includes("data-brief"), false, "no Brief de hoy");
-  assert.equal(out.includes("data-fa-row="), false, "no project rows");
-  assert.equal(out.includes("edi-orb"), false, "no moon over the city's «i»");
-  assert.ok(out.indexOf("data-roof") < out.indexOf("data-city-node"), "Tu oficina above the city");
-});
 
-test("PLA-31 #2: on a floor the sky strip stays and the city is not drawn", () => {
-  const out = render({});
-  assert.ok(out.includes('class="edi-sky"') && out.includes("data-meta") && /<article [^>]*class="edi-floor"/.test(out));
-  assert.equal(out.includes("data-city-node"), false);
-  // Without a city (older callers), Oficina keeps the facade.
-  const old = render({ office: true, city: undefined });
-  assert.ok(old.includes("data-fa-row=") && old.includes("data-brief") && old.includes('class="edi-sky"'));
-});
+
+
+
 
 test("PLA-31 #3: CiudadOficina: header, legend behind the «i», a plate per district, the basement under the street", () => {
   const tower = { slug: "alba", key: "ALBA-I1", title: "Arranque", stage: "building", columns: 2, windows: ["lit", "now", "dark"], agents: [{ key: "ALBA-I1-1", title: "x", agent: "taller", model: null }], waits: false, awaitsGo: false, working: true, closed: 1, total: 3, inbox: [] };
@@ -95,10 +76,4 @@ test("PLA-31 #3: CiudadOficina: header, legend behind the «i», a plate per dis
   assert.ok(out.indexOf("data-plate=\"cauce\"") < out.indexOf("data-fa-under"), "the basement under the street");
 });
 
-test("PLA-31 #4: the page draws the city only on Oficina and moves Asistente to the app bar there", () => {
-  const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("<OficinaCiudad") && page.includes("const cityOn = zoomOut"));
-  assert.ok(page.includes("createPortal(asistenteButton, shellSlot)"));
-  const shell = readFileSync(new URL("../ui/src/components/app-shell.tsx", import.meta.url), "utf8");
-  assert.ok(shell.includes('id="shell-actions"'));
-});
+

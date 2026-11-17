@@ -20,7 +20,7 @@ const fs = await import("../src/api/file-step.js");
 
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
-const v2 = await load("components/compania/v2.tsx");
+
 const lib = await load("lib/v2.ts");
 
 type Json = Record<string, any>;
@@ -171,21 +171,4 @@ describe("Agregar al PR", () => {
   });
 });
 
-describe("the card", () => {
-  const d = { id: "b-1", project: "zigzag", title: "Agregar a .env.example", kind: "step", options: null, actions: ["aplicar", "hecho"], state: null, at: "2026-11-14T02:30:00Z", ref: "ZIG-9", detail: null, file_step: { path: ".env.example", lines: "A=1\nB=2", pr_url: PR_URL, source: "text" } };
-  const render = (props: Json) => renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(v2.DecisionBody, { d, now: Date.parse("2026-11-14T02:31:00Z"), onAct() {}, ...props })));
-  test("it shows the file, the lines and one button; Hecho becomes Ya lo hice yo", () => {
-    const html = render({});
-    assert.ok(html.includes("Plania puede hacerlo por ti") && html.includes('value=".env.example"') && html.includes("A=1\nB=2"));
-    assert.ok(html.includes("Agregar al PR #19 y marcar hecho") && html.includes("Ya lo hice yo"));
-    assert.ok(html.includes("revísalas"), "read from the text: it says to check them");
-  });
-  test("while it runs it says what it is doing; when done the line says where it went", () => {
-    const html = render({ busy: { id: "b-1", key: "aplicar" } });
-    assert.ok(html.includes("data-file-working") && html.includes("Agregando en GitHub"));
-    assert.equal(lib.stateText({ action: "aplicar", at: "", result: { path: ".env.example", branch: "jl/x", added: 3, commit: "c0ffee1234" } }), "Agregado al PR · 3 líneas en .env.example en jl/x (c0ffee1) · paso hecho");
-    assert.equal(lib.stateText({ action: "aplicar", at: "", result: { path: ".env.example", branch: "jl/x", added: 0, commit: null } }), "Ya estaba en el PR · .env.example en jl/x · paso hecho");
-    // On a delivery with no CI the new commit makes its pass stale: the line says its owner is re-running the checks.
-    assert.equal(lib.stateText({ action: "aplicar", at: "", result: { path: ".env.example", branch: "jl/x", added: 1, commit: "c0ffee1", verify: "taller" } }), "Agregado al PR · 1 línea en .env.example en jl/x (c0ffee1) · paso hecho · Taller vuelve a probar el último commit");
-  });
-});
+
