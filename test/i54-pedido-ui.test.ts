@@ -68,7 +68,7 @@ function els(node: unknown): React.ReactElement<Json>[] {
 const byControl = (node: unknown, c: string) => els(node).filter((e) => e.props?.["data-control"] === c);
 
 test("I54-3 #1: a capsule's address is f=pedido:<key>, under the Pedido tab; Guardadas is f=guardadas", () => {
-  assert.deepEqual(fichaLib.FICHA_TABS, ["resumen", "pedido", "ideas", "diseno", "prs", "docs"]);
+  assert.deepEqual(fichaLib.FICHA_TABS, ["resumen", "pedido", "ideas", "diseno", "prs", "docs", "motores"]);
   assert.deepEqual(fichaLib.fichaOf("?piso=demo&f=pedido:DEM-IDEA5"), { ref: { kind: "pedido", key: "DEM-IDEA5" }, slug: null });
   assert.equal(fichaLib.fichaSearch("demo", { kind: "pedido", key: "DEM-IDEA5" }), "?piso=demo&f=pedido%3ADEM-IDEA5");
   assert.deepEqual(fichaLib.fichaOf("?f=guardadas")!.ref, { kind: "guardadas" });

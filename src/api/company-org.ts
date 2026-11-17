@@ -9,6 +9,7 @@ import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { agentRuns, agents, docs, events, projects, questions, taskBlockers, tasks, threadMessages, type Actor, type Agent, type Project, type RunnerSettings } from "../db/schema.js";
 import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
+import { resolveMotor } from "../runner/motor.js";
 import { capacityFacts, agentFacts, holdOf, type CapacityFacts } from "../runner/hold.js";
 import { projectSheet, type ProjectSheet, type RunBrief } from "./company-extra.js";
 import { agentOfActor, asistenteAgent } from "../runner/events.js";
@@ -54,7 +55,16 @@ export type TeamMember = {
   next_start: NextStart | null;
   // PLA-I46-12: the skill pack slugs this role carries (GET/PUT /api/company/projects/:slug/team/:agent/packs).
   packs: string[];
+  // PLA-I59-2 (Motores): what this seat's next run asks for (resolved as the runner does, src/runner/motor.ts), and
+  // whether each part is the seat's own or the company's. A PO also carries its Preguntar motor.
+  motor: MotorView;
+  consulta_motor: MotorView | null;
+  // This ISO week's input + output tokens of the seat's runs in this project, and its share of the project's
+  // total (null when nothing was reported this week).
+  used_week: { tokens: number; share: number } | null;
 };
+
+export type MotorView = { model: string | null; effort: string | null; own_model: boolean; own_effort: boolean };
 
 // hold: the runner's own verdict (rest, usage, slot, paused, no_goal: src/runner/hold.ts), or what the ticket waits
 // on (waiting_owner: a step before it was delivered and waits for the owner's answer; waiting_step: any other
@@ -125,6 +135,8 @@ export type CompanyRead = {
   // PLA-I42-5: "Brief de hoy", the Morning brief's 0-token projection (the asistente.brief event, up to 5 lines),
   // with a link to the full /brief page. null until the first brief is stored.
   brief: { lines: string[]; generated_at: string; link: "/brief" } | null;
+  // PLA-I59-2 (Motores): the company's default motor (null fields: the CLI's own default).
+  motor_default: { model: string | null; effort: string | null };
 };
 
 const ORDER = new Map<string, number>(TEAM_TEMPLATES.map((t, i) => [t, i]));
@@ -206,7 +218,7 @@ async function ticketTitle(db: Db, projectId: string | null, key: string | null)
   return t?.title ?? null;
 }
 
-async function memberView(db: Db, a: Agent, ctx: { paused: boolean; threadId: string; waiting: Map<string, string> }): Promise<TeamMember> {
+async function memberView(db: Db, a: Agent, ctx: { paused: boolean; threadId: string; waiting: Map<string, string>; settings: RunnerSettings }): Promise<TeamMember> {
   const { running, ended } = await lastRunOf(db, a.id);
   const waiting = ctx.waiting.get(a.id) ?? null;
   const state: MemberState = running ? "running" : ctx.paused ? "paused" : waiting ? "waiting_jorge" : "idle";
@@ -222,7 +234,32 @@ async function memberView(db: Db, a: Agent, ctx: { paused: boolean; threadId: st
     waiting,
     next_start: null,
     packs: a.skillPacks ?? [],
+    motor: motorView(a, ctx.settings, false),
+    consulta_motor: a.roleTemplate === "product-owner" ? motorView(a, ctx.settings, true) : null,
+    used_week: null,
   };
+}
+
+// PLA-I59-2: the motor a seat's next run would ask for. own_* says the seat (or, for Preguntar, its consulta value)
+// set that part itself; otherwise it comes from further down the rule (the company, or the CLI when null).
+function motorView(a: Agent, settings: RunnerSettings, consulta: boolean): MotorView {
+  const m = resolveMotor({
+    consulta,
+    seat: { model: a.motorModel, effort: a.motorEffort, consultaModel: a.consultaModel, consultaEffort: a.consultaEffort },
+    company: { model: settings.defaultModel, effort: settings.defaultEffort },
+  });
+  const own = (src: string) => (consulta ? src === "consulta" : src === "seat");
+  return { model: m.model, effort: m.effort, own_model: own(m.source.model), own_effort: own(m.source.effort) };
+}
+
+// PLA-I59-2: each seat's input + output tokens this week in this project, and its share of the project's total.
+async function weekUsedBySeat(db: Db, projectId: string, startsAt: Date): Promise<Map<string, number>> {
+  const rows = await db
+    .select({ agentId: agentRuns.agentId, used: sql<string>`coalesce(sum(${agentRuns.inputTokens} + ${agentRuns.outputTokens}), 0)` })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.projectId, projectId), sql`${agentRuns.startedAt} >= ${startsAt.toISOString()}`))
+    .groupBy(agentRuns.agentId);
+  return new Map(rows.map((r) => [r.agentId, Number(r.used)]));
 }
 
 type GoalRow = { id: string; title: string; why: string; target_on: string | null };
@@ -344,8 +381,17 @@ const roleWord = (role: string) => ROLE_WORD[role] ?? `de ${role}`;
 
 async function teamView(db: Db, p: Project, ctx: { paused: boolean; threadId: string }): Promise<TeamMember[]> {
   const waiting = await openQuestionsByAgent(db, p.id);
+  const settings = await loadSettings(db);
   const out: TeamMember[] = [];
-  for (const a of (await teamOf(db, p.id)).sort(byTemplate)) out.push(await memberView(db, a, { ...ctx, waiting }));
+  const seats = (await teamOf(db, p.id)).sort(byTemplate);
+  for (const a of seats) out.push(await memberView(db, a, { ...ctx, waiting, settings }));
+  // PLA-I59-2: this week's usage per seat, as a share of the project's total.
+  const used = await weekUsedBySeat(db, p.id, (await weekBounds(db, new Date())).startsAt);
+  const total = [...used.values()].reduce((a, b) => a + b, 0);
+  seats.forEach((a, i) => {
+    const n = used.get(a.id) ?? 0;
+    out[i]!.used_week = total > 0 ? { tokens: n, share: n / total } : null;
+  });
   return out;
 }
 
@@ -574,6 +620,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
     decisions,
     inbox: countInbox(inbox),
     brief: await briefLine(db),
+    motor_default: { model: settings.defaultModel, effort: settings.defaultEffort },
   };
 }
 

@@ -9,6 +9,8 @@ import type { OrgMember } from "@/lib/api";
 import { roleName } from "@/lib/org";
 import { Figure } from "./figure";
 import type { SeatView } from "./indice";
+import { EngineChip } from "./motores";
+import { motorLine } from "@/lib/motores";
 
 const one = (n: number, a: string, b: string) => `${n} ${n === 1 ? a : b}`;
 
@@ -35,9 +37,12 @@ export const Timbre = ({
   team,
   seat,
   onMember,
+  onMotores,
   children,
   defaultOpen = false,
 }: {
+  // PLA-I59-3: «Motores ›» in La sala opens the floor's Motores tab in the ventanal.
+  onMotores?: (el: HTMLElement) => void;
   title: string;
   team: OrgMember[];
   seat: (m: OrgMember) => SeatView;
@@ -126,6 +131,19 @@ export const Timbre = ({
         <div className="edi-sala-head">
           <h3>Equipo de {title}</h3>
           <small>{line}</small>
+          {onMotores && (
+            <button
+              type="button"
+              className="edi-mtr-go"
+              onClick={(e) => {
+                setOpen(false);
+                onMotores(e.currentTarget);
+              }}
+              data-control="sala-motores"
+            >
+              Motores ›
+            </button>
+          )}
           <button type="button" className="edi-sala-x" onClick={() => setOpen(false)} data-control="sala-cerrar">
             <kbd aria-hidden>Esc</kbd> Cerrar
           </button>
@@ -143,7 +161,7 @@ export const Timbre = ({
                 onMember?.(m, e.currentTarget);
               }}
               disabled={!onMember}
-              title={`${roleName(m.role)}: ${v.line}`}
+              title={`${roleName(m.role)}: ${v.line}${m.motor ? ` · motor ${motorLine(m.motor.model, m.motor.effort)}${m.motor.own_model || m.motor.own_effort ? "" : " (de la compañía)"}` : ""}`}
               data-control="sala-equipo"
             >
               <span className="edi-seat" data-state={v.state} aria-hidden>
@@ -158,6 +176,7 @@ export const Timbre = ({
                 </span>
               </span>
               <small>{v.line}</small>
+              <EngineChip m={m} wide />
             </button>
           ))}
           {children}

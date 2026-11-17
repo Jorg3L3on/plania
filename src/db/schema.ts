@@ -852,6 +852,12 @@ export const agents = pgTable(
     roleTemplate: text("role_template"),
     // PLA-I46-12: the skill packs this role carries, by slug (a `Pack: <name>` doc in Plania). Migration 0046.
     skillPacks: text("skill_packs").array().notNull().default(sql`'{}'::text[]`),
+    // PLA-I59-1 (Motores): the model and effort this seat runs on (null: the company default), and for a PO the
+    // ones its Preguntar runs use (null: the seat's). src/runner/motor.ts resolves them. Migration 0058.
+    motorModel: text("motor_model"),
+    motorEffort: text("motor_effort"),
+    consultaModel: text("consulta_model"),
+    consultaEffort: text("consulta_effort"),
     ...timestamps,
   },
   (t) => [
@@ -863,6 +869,10 @@ export const agents = pgTable(
     check("agents_not_self", sql`${t.reportsTo} is null or ${t.reportsTo} <> ${t.id}`),
     check("agents_adapter_check", sql`${t.adapter} in ('http', 'claude_code', 'grok_webhook', 'none')`),
     check("agents_heartbeat_minutes_check", sql`${t.heartbeatMinutes} is null or (${t.heartbeatMinutes} between 1 and 1440)`),
+    check("agents_motor_model_check", sql`${t.motorModel} is null or ${t.motorModel} ~ '^(haiku|sonnet|opus|fable|claude-[a-z0-9.-]{3,60}(\\[1m\\])?)$'`),
+    check("agents_consulta_model_check", sql`${t.consultaModel} is null or ${t.consultaModel} ~ '^(haiku|sonnet|opus|fable|claude-[a-z0-9.-]{3,60}(\\[1m\\])?)$'`),
+    check("agents_motor_effort_check", sql`${t.motorEffort} is null or ${t.motorEffort} in ('low', 'medium', 'high', 'xhigh', 'max')`),
+    check("agents_consulta_effort_check", sql`${t.consultaEffort} is null or ${t.consultaEffort} in ('low', 'medium', 'high', 'xhigh', 'max')`),
   ],
 );
 
@@ -1027,6 +1037,9 @@ export const runnerSettings = pgTable(
     reserveTokens: integer("reserve_tokens").notNull().default(60000),
     maxTurns: integer("max_turns").notNull().default(40),
     timeoutMinutes: integer("timeout_minutes").notNull().default(45),
+    // PLA-I59-1: the company's default motor (null: the CLI's own default). Migration 0058.
+    defaultModel: text("default_model"),
+    defaultEffort: text("default_effort"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [check("runner_settings_singleton", sql`${t.id} = 1`)],
@@ -1072,6 +1085,9 @@ export const agentRuns = pgTable(
     usageAckAt: timestamp("usage_ack_at", { withTimezone: true }),
     exitCode: integer("exit_code"),
     stopReason: text("stop_reason"),
+    // PLA-I59-1: the --model and --effort this run was started with (null: the flag was not passed).
+    requestedModel: text("requested_model"),
+    requestedEffort: text("requested_effort"),
   },
   (t) => [
     index("agent_runs_status_idx").on(t.status, t.queuedAt),

@@ -319,7 +319,7 @@ export const Floor = ({
     const c = caption(m, now, { companyPaused, timeZone, seat: seat(m) });
     return { data: seatData(m), state: seatState(m), label: hint ? `${seatLabel(m)}. ${hint}` : seatLabel(m), line: hint ?? (isBack(m) ? BACK_WORD : c.sub ? `${c.doing} · ${c.sub}` : c.doing) };
   };
-  const timbre = team.length > 0 || children ? <Timbre key={slug} title={p.title} team={team} seat={seatView} onMember={onOpen}>
+  const timbre = team.length > 0 || children ? <Timbre key={slug} title={p.title} team={team} seat={seatView} onMember={onOpen} onMotores={onFoco ? (el) => onFoco({ kind: "tab", tab: "motores" }, el) : undefined}>
       {children}
     </Timbre> : null;
 

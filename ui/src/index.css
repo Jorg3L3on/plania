@@ -1921,6 +1921,119 @@
     .city-star, .city-win, .city-beam, .city-beacon::after, .city-crane i { animation: none !important; }
     .city-tower:hover .city-bld { transform: none; }
   }
+
+  /* PLA-I59-3 (Motores): the floor's console in the ventanal, the teammate's Motor card, the Equipo chip and Sumar's
+     model choice. Night panels like the ficha; the model colours are fixed (H green, S blue, O violet, F pink). */
+  .edi-mtr { display: grid; gap: 9px; min-width: 0; }
+  .edi-mtr-top { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 14px; min-width: 0; }
+  .edi-mtr-title { flex: 1 1 240px; min-width: 0; }
+  .edi-mtr-title h4 { margin: 0; font-family: var(--font-voice); font-style: italic; font-weight: 400; font-size: 24px; line-height: 1.05; }
+  .edi-mtr-title p { margin: 3px 0 0; color: var(--e-muted); font-size: 12px; }
+  .edi-mtr-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .edi-mtr-preset { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 11px; border-radius: 99px; border: 1px solid var(--e-rail); background: transparent; color: var(--e-fg); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .edi-mtr-preset:hover { background: rgb(255 255 255 / 0.07); }
+  .edi-mtr-preset small { color: #8d94aa; font-weight: 500; }
+  .edi-mtr-hint { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 4px 5px 4px 11px; border-radius: 11px; background: rgb(94 200 255 / 0.08); border: 1px solid rgb(94 200 255 / 0.22); font-size: 12.5px; color: #cfe9ff; }
+  .edi-mtr-hint b { color: var(--e-fg); }
+  .edi-mtr-hint button { margin-left: auto; flex: none; min-height: 28px; border: 0; border-radius: 99px; padding: 0 11px; background: rgb(94 200 255 / 0.2); color: var(--e-fg); font-weight: 600; font-size: 12px; cursor: pointer; }
+  .edi-mtr-desk { min-width: 0; overflow-x: auto; overflow-y: hidden; border-radius: 16px; background: linear-gradient(180deg, #10142a, #0b0e1d); border: 1px solid rgb(255 255 255 / 0.07); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05); scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.18) transparent; }
+  .edi-mtr-strips { display: flex; gap: 6px; width: max-content; min-width: 100%; height: 292px; padding: 8px; }
+  .edi-mtr-strip { position: relative; width: 108px; flex: none; display: grid; grid-template-rows: auto auto auto auto minmax(52px, 1fr) auto; justify-items: center; gap: 5px; padding: 8px 6px; border-radius: 13px; background: linear-gradient(180deg, #1b2038, #141832); border: 1px solid rgb(255 255 255 / 0.07); }
+  .edi-mtr-strip[data-sub] { width: 94px; border-style: dashed; border-color: rgb(255 255 255 / 0.13); background: linear-gradient(180deg, #181c33, #12162c); }
+  /* The Compañía strip stays in view while the seats scroll under it. */
+  .edi-mtr-strip[data-master] { position: sticky; right: 0; z-index: 1; width: 120px; margin-left: 8px; background: linear-gradient(180deg, #2a2440, #1a1730); border-color: rgb(176 148 255 / 0.3); box-shadow: -14px 0 18px -6px #0b0e1d; }
+  .edi-mtr-strip[data-master]::before { content: ""; position: absolute; left: -8px; top: 14px; bottom: 14px; width: 1px; background: rgb(255 255 255 / 0.12); }
+  .edi-mtr-strip[data-own="0"] .edi-mtr-dial, .edi-mtr-strip[data-own="0"] .edi-mtr-fader input { opacity: 0.6; }
+  .edi-mtr-who { display: grid; justify-items: center; gap: 2px; text-align: center; min-width: 0; max-width: 100%; }
+  .edi-mtr-who .edi-seat { width: 40px; height: 32px; border-radius: 22px 22px 6px 6px; cursor: default; }
+  .edi-mtr-who .edi-seat-glass { width: 30px; height: 25px; }
+  .edi-mtr-who b { font-size: 12.5px; font-weight: 600; line-height: 1.1; }
+  .edi-mtr-who small { font-size: 10.5px; color: #8d94aa; line-height: 1.15; }
+  .edi-mtr-q { display: grid; place-items: center; width: 32px; height: 26px; border-radius: 16px 16px 5px 5px; border: 1px dashed rgb(255 255 255 / 0.25); color: #8d94aa; font-weight: 700; }
+  .edi-mtr-tower { display: grid; grid-template-columns: repeat(2, 7px); gap: 3px; padding: 6px 9px 4px; border-radius: 8px 8px 3px 3px; background: #4b3f80; }
+  .edi-mtr-tower i { width: 7px; height: 7px; background: #2b2550; }
+  .edi-mtr-tower i:nth-child(1), .edi-mtr-tower i:nth-child(4) { background: #ffd27a; }
+  .edi-mtr-own { border: 0; border-radius: 99px; padding: 2px 8px; font-size: 10.5px; font-weight: 600; white-space: nowrap; background: rgb(255 255 255 / 0.07); color: #8d94aa; }
+  button.edi-mtr-own { cursor: pointer; background: rgb(94 200 255 / 0.16); color: #bfe6ff; }
+  .edi-mtr-own[data-master] { background: rgb(176 148 255 / 0.18); color: #dccfff; }
+  .edi-mtr-knob { position: relative; width: 88px; height: 62px; }
+  .edi-mtr-lbls { position: absolute; inset: 0; }
+  .edi-mtr-lbl { position: absolute; min-width: 18px; min-height: 18px; padding: 0 2px; border: 0; border-radius: 5px; background: none; font: 600 10px/18px var(--font-mono); color: #8d94aa; cursor: pointer; }
+  .edi-mtr-lbl[aria-checked="true"] { color: var(--kc); background: rgb(255 255 255 / 0.06); }
+  .edi-mtr-lbl[data-pos="auto"] { left: 50%; top: -3px; transform: translateX(-50%); }
+  .edi-mtr-lbl[data-pos="haiku"] { left: 0; top: 42px; }
+  .edi-mtr-lbl[data-pos="sonnet"] { left: 4px; top: 8px; }
+  .edi-mtr-lbl[data-pos="opus"] { right: 4px; top: 8px; }
+  .edi-mtr-lbl[data-pos="fable"] { right: 0; top: 42px; }
+  .edi-mtr-dial { position: absolute; left: 50%; top: 37px; width: 40px; height: 40px; margin: -20px 0 0 -20px; border: 0; padding: 0; border-radius: 50%; cursor: pointer; background: radial-gradient(circle at 35% 30%, #3b4366, #1b2036 70%); box-shadow: 0 3px 8px rgb(0 0 0 / 0.5), inset 0 1px 0 rgb(255 255 255 / 0.12); transition: transform 0.25s cubic-bezier(0.3, 1.4, 0.5, 1); }
+  .edi-mtr-dial::after { content: ""; position: absolute; left: 50%; top: 4px; width: 3px; height: 12px; margin-left: -1.5px; border-radius: 2px; background: var(--kc); box-shadow: 0 0 8px var(--kc); }
+  .edi-mtr-name { margin-top: -3px; font: 600 12px var(--font-display); color: var(--kc); white-space: nowrap; }
+  .edi-mtr-fader { display: grid; grid-template-columns: auto 16px; gap: 8px; align-items: stretch; height: 100%; min-height: 52px; }
+  .edi-mtr-notches { display: flex; flex-direction: column-reverse; justify-content: space-between; text-align: right; font: 500 9px/1 var(--font-mono); color: #8d94aa; padding: 2px 0; }
+  .edi-mtr-notches [data-on] { color: var(--e-fg); }
+  .edi-mtr-fader input { writing-mode: vertical-lr; direction: rtl; appearance: none; width: 16px; height: 100%; margin: 0; background: transparent; cursor: pointer; }
+  .edi-mtr-fader input::-webkit-slider-runnable-track { width: 6px; border-radius: 6px; background: linear-gradient(to top, var(--ec) var(--p), #2a3050 var(--p)); }
+  .edi-mtr-fader input::-moz-range-track { width: 6px; border-radius: 6px; background: linear-gradient(to top, var(--ec) var(--p), #2a3050 var(--p)); }
+  .edi-mtr-fader input::-webkit-slider-thumb { appearance: none; width: 22px; height: 12px; margin-left: -8px; border-radius: 4px; background: linear-gradient(180deg, #f3f5fb, #a9b0c8); box-shadow: 0 2px 5px rgb(0 0 0 / 0.6); }
+  .edi-mtr-fader input::-moz-range-thumb { width: 22px; height: 12px; border: 0; border-radius: 4px; background: linear-gradient(180deg, #f3f5fb, #a9b0c8); }
+  .edi-mtr-lcd { display: inline-block; max-width: 100%; padding: 3px 6px; border-radius: 7px; border: 1px solid rgb(61 220 151 / 0.2); background: #07120d; color: #c9f6dc; font: 500 10.5px/1.25 var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-mtr-strip .edi-mtr-lcd { width: 100%; text-align: center; }
+  .edi-mtr-use { width: 100%; display: grid; gap: 3px; }
+  .edi-mtr-use small { display: flex; justify-content: space-between; font-size: 10px; color: #8d94aa; font-variant-numeric: tabular-nums; }
+  .edi-mtr-use i { display: block; height: 4px; border-radius: 4px; background: #262c48; overflow: hidden; }
+  .edi-mtr-use i::before { content: ""; display: block; height: 100%; width: var(--u); border-radius: 4px; background: #5ec8ff; }
+  .edi-mtr-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: 12.5px; color: var(--e-muted); }
+  .edi-mtr-foot > i { width: 8px; height: 8px; border-radius: 8px; background: #8d94aa; flex: none; }
+  .edi-mtr-foot[data-dirty] > i { background: #5ec8ff; box-shadow: 0 0 0 4px rgb(94 200 255 / 0.15); }
+  .edi-mtr-foot > span[role="status"] { flex: 1 1 260px; min-width: 0; }
+  .edi-mtr-acts { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; }
+  .edi-mtr-save:not(:disabled) { background: var(--e-fg); color: #141822; border-color: transparent; }
+  .edi-mtr-save:not(:disabled):hover { background: #d9dcea; }
+  .edi-mtr-card { position: relative; display: grid; gap: 11px; padding: 13px 14px 14px; border-radius: 16px; background: linear-gradient(180deg, #1b2038, #141832); border: 1px solid color-mix(in srgb, var(--kc) 35%, transparent); }
+  .edi-mtr-card-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+  .edi-mtr-card-h small { margin-left: auto; color: #8d94aa; font-size: 12px; }
+  .edi-mtr-seg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 13px; background: rgb(0 0 0 / 0.3); }
+  .edi-mtr-seg button { display: grid; gap: 1px; min-width: 0; min-height: 44px; padding: 6px 7px; border: 0; border-radius: 9px; background: none; color: var(--e-fg); text-align: left; cursor: pointer; }
+  .edi-mtr-seg button:hover { background: rgb(255 255 255 / 0.05); }
+  .edi-mtr-seg button b { font: 700 13.5px var(--font-display); }
+  .edi-mtr-seg button small { font-size: 11px; color: #b4bad0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edi-mtr-seg button[aria-checked="true"] { background: rgb(255 255 255 / 0.1); box-shadow: inset 0 0 0 1px var(--kc); }
+  .edi-mtr-seg button[aria-checked="true"] b { color: var(--kc); }
+  .edi-mtr-eff { display: grid; gap: 6px; font-size: 12.5px; color: var(--e-muted); }
+  .edi-mtr-eff > span:first-child { display: flex; justify-content: space-between; gap: 10px; }
+  .edi-mtr-eff b { color: var(--e-fg); }
+  .edi-mtr-eff input { width: 100%; height: 22px; margin: 0; appearance: none; background: transparent; cursor: pointer; }
+  .edi-mtr-eff input::-webkit-slider-runnable-track { height: 6px; border-radius: 6px; background: linear-gradient(90deg, var(--ec) var(--p), #2a3050 var(--p)); }
+  .edi-mtr-eff input::-moz-range-track { height: 6px; border-radius: 6px; background: linear-gradient(90deg, var(--ec) var(--p), #2a3050 var(--p)); }
+  .edi-mtr-eff input::-webkit-slider-thumb { appearance: none; width: 14px; height: 22px; margin-top: -8px; border-radius: 4px; background: linear-gradient(90deg, #f3f5fb, #a9b0c8); box-shadow: 0 2px 5px rgb(0 0 0 / 0.6); }
+  .edi-mtr-eff input::-moz-range-thumb { width: 14px; height: 22px; border: 0; border-radius: 4px; background: linear-gradient(90deg, #f3f5fb, #a9b0c8); }
+  .edi-mtr-ticks { display: flex; justify-content: space-between; font: 500 10.5px var(--font-mono); color: #8d94aa; }
+  .edi-mtr-ticks [data-on] { color: var(--e-fg); }
+  .edi-mtr-card-f { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: 12.5px; color: var(--e-muted); }
+  .edi-mtr-link { border: 0; padding: 0; background: none; color: #bfe6ff; font-size: 12.5px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; text-align: left; }
+  .edi-mtr-msg { margin: 0; font-size: 12px; font-weight: 600; color: var(--status-done, #3ddc97); }
+  .edi-mtr-chip { display: inline-flex; align-items: center; gap: 4px; margin-top: 1px; padding: 1px 6px 1px 5px; border-radius: 99px; background: rgb(0 0 0 / 0.35); border: 1px solid rgb(255 255 255 / 0.08); color: var(--kc); font: 600 9.5px/1.4 var(--font-mono); }
+  .edi-mtr-chip[data-own="0"] { opacity: 0.72; }
+  .edi-mtr-chip > span { display: inline-flex; gap: 1.5px; }
+  .edi-mtr-chip i { width: 3px; height: 7px; border-radius: 1px; background: #343b5c; }
+  .edi-mtr-chip i[data-on] { background: var(--kc); }
+  .edi-mtr-go { margin-left: 2px; flex: none; min-height: 24px; padding: 0 9px; border: 0; border-radius: 99px; background: rgb(94 200 255 / 0.13); color: #bfe6ff; font-size: 11.5px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+  .edi-mtr-go[aria-pressed="true"] { background: rgb(94 200 255 / 0.28); color: var(--e-fg); }
+  .edi-sala-mate .edi-mtr-chip { justify-self: start; }
+  .edi-sala-head .edi-mtr-go { margin-left: auto; }
+  .edi-sala-head .edi-mtr-go + .edi-sala-x { margin-left: 4px; }
+  .edi-mtr-sumar { display: grid; gap: 8px; }
+  .edi-mtr-sumar .edi-mtr-seg { background: rgb(0 0 0 / 0.25); }
+  .edi-mtr-dial:focus-visible, .edi-mtr-lbl:focus-visible, .edi-mtr-own:focus-visible, .edi-mtr-preset:focus-visible, .edi-mtr-go:focus-visible, .edi-mtr-seg button:focus-visible, .edi-mtr input:focus-visible, .edi-mtr-card input:focus-visible { outline: 2px solid var(--e-fg); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { .edi-mtr-dial { transition: none; } }
+  /* A short window (1280 × 720): the strips lose their second lines so the desk fits without a page scroll. */
+  @media (max-height: 760px) {
+    .edi-mtr-strips { height: 236px; }
+    .edi-mtr-title p, .edi-mtr-preset small, .edi-mtr-who small, .edi-mtr-strip .edi-mtr-use { display: none; }
+    .edi-mtr-strip { grid-template-rows: auto auto auto auto minmax(52px, 1fr); }
+    .edi-mtr-top { align-items: center; }
+  }
+  @media (max-width: 520px) { .edi-mtr-seg { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 }
 
 /* ---- PLA-I51: the Morning brief as the city at dawn (ui/src/components/brief/city.tsx), from the Design doc on

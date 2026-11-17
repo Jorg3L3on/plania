@@ -33,7 +33,8 @@ import { GoalDialog } from "@/components/goals/goal-dialog";
 import type { Goal } from "@/components/goals/model";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { ApiError, api, uploadPedidoImages, type Decision, type DecisionInput, type OrgProject } from "@/lib/api";
+import { ApiError, api, uploadPedidoImages, type Decision, type DecisionInput, type MotorPatch, type MotoresSave, type OrgProject } from "@/lib/api";
+import { MotoresConsole, MotorCard } from "@/components/compania/edificio/motores";
 import { ceoRedirect, sheetOf, sheetSearch } from "@/lib/compania";
 import { caption, floorOrder, oficinaOf, seatIn } from "@/lib/edificio";
 import { openFloor, stepFloor } from "@/components/compania/edificio/tower";
@@ -198,8 +199,19 @@ const Compania = () => {
   const opener = useRef<HTMLElement | null>(null);
   // PLA-I46-13: the Sumar sheet's packs, read from Plania (GET /api/company/packs).
   const packs = useQuery({ queryKey: ["company-packs"], queryFn: () => api.packs(), enabled: fref.kind === "sumar" });
+  // PLA-I59-3 (Motores): one save from the console or a teammate's Motor card; the next read shows it.
+  const saveMotores = async (input: MotoresSave) => {
+    try {
+      const out = await api.saveMotores(input);
+      await client.invalidateQueries({ queryKey: ["company"] });
+      return out;
+    } catch (e) {
+      toast.error(e instanceof ApiError ? `No se pudo guardar el motor (${e.code}).` : "No se pudo. Si la Mac está dormida, intenta al despertar.");
+      throw e;
+    }
+  };
   const addMember = useMutation({
-    mutationFn: (v: { slug: string; template: string; packs: string[] }) => api.addToTeam(v.slug, v.template, v.packs),
+    mutationFn: (v: { slug: string; template: string; packs: string[]; motor?: MotorPatch }) => api.addToTeam(v.slug, v.template, v.packs, v.motor),
     onSuccess: (_r, v) => {
       setAdded(hireLabel(v.template));
       void client.invalidateQueries({ queryKey: ["company"] });
@@ -221,6 +233,7 @@ const Compania = () => {
               <p className="edi-fi-state-line">{caption(m, now, { companyPaused: company?.company.paused, seat: seatIn(fp, m, company?.company.paused) }).doing}</p>
             </div>
           </div>
+          <MotorCard key={`motor-${m.agent}`} project={fp} member={m} def={company?.motor_default} onSave={saveMotores} onAll={() => setFicha({ kind: "tab", tab: "motores" })} />
           <MemberSide key={m.agent} project={fp} member={m} now={now} steer={steer} />
         </div>
       ) : undefined,
@@ -240,13 +253,15 @@ const Compania = () => {
             packsError={packs.isError}
             busy={addMember.isPending}
             added={added}
-            onAdd={(template, chosen) => addMember.mutate({ slug: fp.slug, template, packs: chosen })}
+            motorDefault={company?.motor_default}
+            onAdd={(template, chosen, motor) => addMember.mutate({ slug: fp.slug, template, packs: chosen, motor })}
           />
           </div>
         ) : undefined,
       app: <VentanaLive slug={fp.slug} title={fp.title} timeZone={timeZone} />,
       solo: <After project={fp} decisions={decisions} now={now} timeZone={timeZone} acts={nowActs} qacts={qacts} />,
       maq: maq.ficha(fref),
+      motores: fp.team.length ? <MotoresConsole key={fp.slug} project={fp} def={company?.motor_default} onSave={saveMotores} /> : undefined,
       last: <Last project={fp} decisions={decisions} now={now} timeZone={timeZone} acts={nowActs} qacts={qacts} />,
     };
   };
@@ -340,7 +355,7 @@ const Compania = () => {
         }
         return;
       }
-      if (e.key.length === 1 && "123456".includes(e.key)) {
+      if (e.key.length === 1 && "1234567".includes(e.key)) {
         e.preventDefault();
         showFicha({ kind: "tab", tab: FICHA_TABS[Number(e.key) - 1]! });
         return;

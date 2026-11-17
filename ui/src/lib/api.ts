@@ -161,8 +161,10 @@ export const api = {
   companyFicha: (slug: string) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha`),
   projectDoc: (slug: string, id: string) => request<ProjectDocBody>("GET", `/company/docs/${encodeURIComponent(id)}?project=${encodeURIComponent(slug)}`),
   // PLA-I46-13: packs are set in the same call; the server refuses an unknown pack before hiring.
-  addToTeam: (slug: string, template: string, packs?: string[]) =>
-    request<{ agent: OrgMember; team: OrgMember[]; packs?: PackRef[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, packs?.length ? { template, packs } : { template }),
+  addToTeam: (slug: string, template: string, packs?: string[], motor?: MotorPatch) =>
+    request<{ agent: OrgMember; team: OrgMember[]; packs?: PackRef[] }>("POST", `/company/projects/${encodeURIComponent(slug)}/team`, { template, ...(packs?.length ? { packs } : {}), ...(motor ? { motor } : {}) }),
+  // PLA-I59-2 (Motores): the console's one save (several seats and the company default, all or nothing).
+  saveMotores: (input: MotoresSave) => request<{ changed: string[]; company: boolean }>("PUT", "/company/motores", input),
   // PLA-I46-12: the skill packs (Plania docs `Pack: <name>`).
   packs: () => request<{ packs: PackRef[] }>("GET", "/company/packs"),
   actDecision: (id: string, input: DecisionInput) => request<DecisionResult>("POST", `/company/decisions/${encodeURIComponent(id)}`, input),
@@ -315,7 +317,16 @@ export type OrgMember = {
   next_start?: OrgNextStart | null;
   // PLA-I46-12: the skill pack slugs this role carries.
   packs?: string[];
+  // PLA-I59-2 (Motores): what this seat's next run asks for and whether each part is its own; a PO's Preguntar
+  // motor; this week's input + output tokens and share of the project. Optional for older servers.
+  motor?: MotorView;
+  consulta_motor?: MotorView | null;
+  used_week?: { tokens: number; share: number } | null;
 };
+export type MotorView = { model: string | null; effort: string | null; own_model: boolean; own_effort: boolean };
+// A part null clears it (the seat inherits again); the whole patch null clears both.
+export type MotorPatch = { model?: string | null; effort?: string | null };
+export type MotoresSave = { project: string; seats?: { agent: string; motor?: MotorPatch | null; consulta_motor?: MotorPatch | null }[]; company?: MotorPatch };
 export type OrgNextHold = "rest" | "usage" | "slot" | "paused" | "no_goal" | "waiting_owner" | "waiting_step" | "unqueued" | "soon";
 export type OrgNextStart = { key: string | null; title: string | null; hold: OrgNextHold; starts_at: string | null; text: string };
 export type OrgThreadRef = { id: string; unread: number; last: { at: string; author_role: string; body: string } | null };
@@ -508,6 +519,8 @@ export type OrgCompany = {
   inbox?: { decisiones: number; pasos: number };
   // PLA-I42-5: Brief de hoy (the Morning brief's 0-token lines) and the link to /brief. Optional for older servers.
   brief?: { lines: string[]; generated_at: string; link: string } | null;
+  // PLA-I59-2: the company's default motor (null parts: the CLI's own default). Optional for older servers.
+  motor_default?: { model: string | null; effort: string | null };
 };
 export type OrgTemplate = { slug: string; title: string };
 // PLA-I46-13: every role template and whether it can be added (free), is on the team (taken) or lacks its prompt doc.

@@ -18,7 +18,7 @@ import { columnOf, isDone, wordOf, whoLine, ciWord, STATIONS } from "@/lib/etapa
 import { ZonaTags } from "@/components/plan/zona-tags";
 
 export type Load<T> = { status: "idle" | "loading" | "error" | "ok"; data?: T; retry?: () => void };
-export type FichaSlots = { member?: ReactNode; plan?: ReactNode; sumar?: ReactNode; app?: ReactNode; solo?: ReactNode; last?: ReactNode; maq?: ReactNode; board?: ReactNode; tubo?: ReactNode };
+export type FichaSlots = { member?: ReactNode; plan?: ReactNode; sumar?: ReactNode; app?: ReactNode; solo?: ReactNode; last?: ReactNode; maq?: ReactNode; board?: ReactNode; tubo?: ReactNode; motores?: ReactNode };
 export type FichaHome = { word: string; tone: "you" | "now"; count: number; body: ReactNode };
 
 const STAGES = ["idea", "research", "design", "planning", "ready"] as const;
@@ -171,7 +171,7 @@ const ideaLine = (i: FichaIdea) => `${STAGE_WORD[i.stage ?? "idea"] ?? i.stage}$
 const prLine = (pr: FichaPr) => [PR_STATE[pr.state] ?? pr.state, pr.ci_state ? CI_WORD[pr.ci_state] : null].filter(Boolean).join(" · ");
 const docLine = (d: FichaDoc, timeZone?: string) => `${d.task_key ?? "del proyecto"} · ${day(d.updated_at, timeZone)}`;
 
-const ListTab = ({ tab, rows, onRef, timeZone }: { tab: Exclude<FichaTab, "resumen">; rows: Load<OrgFicha>; onRef: (r: FichaRef) => void; timeZone?: string }) =>
+const ListTab = ({ tab, rows, onRef, timeZone }: { tab: Exclude<FichaTab, "resumen" | "pedido" | "motores">; rows: Load<OrgFicha>; onRef: (r: FichaRef) => void; timeZone?: string }) =>
   whenLoaded(rows, "la ficha", (f) => {
     if (tab === "ideas")
       return f.ideas.length === 0 ? (
@@ -602,6 +602,8 @@ export const Ficha = ({
             <Resumen p={p} onRef={onRef} slots={slots} />
           ) : fref.tab === "pedido" ? (
             <PedidoList p={p} onRef={onRef} tubo={slots.tubo} />
+          ) : fref.tab === "motores" ? (
+            (slots.motores ?? <Empty>Este piso no tiene equipo todavía.</Empty>)
           ) : (
             <ListTab tab={fref.tab} rows={rows} onRef={onRef} timeZone={timeZone} />
           )
