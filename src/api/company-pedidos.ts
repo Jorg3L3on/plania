@@ -9,7 +9,7 @@
 // An idea that was promoted (promoted_to set), dropped (Won't do) or done leaves the tube.
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agentRuns, events, questions, tasks, type Agent, type Task } from "../db/schema.js";
+import { agentRuns, events, questions, taskImages, tasks, type Agent, type Task } from "../db/schema.js";
 import { findProject } from "../mcp/queries.js";
 import { webCtx, writeTx } from "../mcp/tx.js";
 import { createTaskInTx } from "../mcp/writes.js";
@@ -122,6 +122,8 @@ export async function pedidoOf(db: Db, projectId: string, t: Task, facts?: { run
     .limit(1);
   const stop = stopOf(t.stage, !!understood);
   const running = f.running.get(t.key);
+  // PLA-I54-5: how many pictures the request carries.
+  const pics = await db.select({ id: taskImages.id }).from(taskImages).where(eq(taskImages.taskId, t.id));
   const state: PedidoState = f.built.has(t.id) ? "valvula" : q ? "espera" : running ? "trabajando" : stop === "buzon" && !f.taken.has(t.key) ? "cola" : "quieta";
   return {
     key: t.key,
@@ -129,7 +131,7 @@ export async function pedidoOf(db: Db, projectId: string, t: Task, facts?: { run
     stop,
     state,
     who: running ?? STAGE_ROLE[t.stage ?? "idea"] ?? "product-owner",
-    images: 0,
+    images: pics.length,
     understood,
     question: q ? { id: q.id, text: q.text } : null,
     guardada: f.shelf.has(t.id),

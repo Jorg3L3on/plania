@@ -8,8 +8,9 @@
 // Darle forma (the default; an idea in the floor's tube that the PO shapes, no code until «Constrúyelo») and Hacerlo ya
 // (the Ready ticket plus the wake). Between the two sits the slot for the pictures (data-slot="imagenes"): F2's ImageDrop
 // goes there through the images prop, and onAsk's reply carries the new key to upload them to.
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import type { AskMode, AskResult, OrgProject } from "@/lib/api";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
+import { uploadPedidoImages, type AskMode, type AskResult, type OrgProject } from "@/lib/api";
+import { ImageDrop } from "./image-drop";
 import { askedLine } from "@/lib/edificio";
 import { SidePage } from "./side";
 
@@ -33,6 +34,7 @@ export const AskView = ({
   disabled,
   autoFocus,
   images,
+  textRef,
 }: {
   project: OrgProject;
   text: string;
@@ -45,8 +47,9 @@ export const AskView = ({
   onSubmit: (input: AskInput) => void;
   disabled?: boolean;
   autoFocus?: boolean;
-  // PLA-I54-5: the image picker (ImageDrop), wired by the page.
+  // PLA-I54-5: the image picker (ImageDrop), and the text box it listens to for ⌘V.
   images?: ReactNode;
+  textRef?: RefObject<HTMLTextAreaElement | null>;
 }) => {
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
@@ -60,6 +63,7 @@ export const AskView = ({
       </label>
       <textarea
         id={`ask-${p.slug}`}
+        ref={textRef}
         className="edi-ask-text"
         rows={4}
         placeholder={`Pide algo para ${p.title}…`}
@@ -73,7 +77,7 @@ export const AskView = ({
         }}
         data-control="pedir-texto"
       />
-      {/* PLA-I54-1: the pictures' slot. Empty until F5 passes ImageDrop (paste ⌘V, drag, pick). */}
+      {/* PLA-I54-5: the pictures: ImageDrop (paste ⌘V, drag, pick). */}
       <div className="edi-ask-imgs" data-slot="imagenes">
         {images}
       </div>
@@ -108,6 +112,7 @@ export const AskBox = ({
   disabled,
   wide = true,
   images,
+  onPictures,
 }: {
   project: OrgProject;
   prefill?: string;
@@ -116,8 +121,12 @@ export const AskBox = ({
   disabled?: boolean;
   wide?: boolean;
   images?: ReactNode;
+  // PLA-I54-5: called once the request's pictures are stored, so the floor reads their count.
+  onPictures?: (slug: string) => void;
 }) => {
   const [open, setOpen] = useState(false);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const opener = useRef<HTMLButtonElement>(null);
   const [text, setTextState] = useState(prefill ?? "");
   // PLA-I54-1: Darle forma is the default every time the page opens (not remembered per project).
@@ -142,7 +151,15 @@ export const AskBox = ({
     setError(null);
     try {
       const r = await onAsk(project.slug, input);
-      setSent(askedLine(r, project.title));
+      // PLA-I54-5: the pictures go up once the request has its key. One that fails does not undo the request.
+      let lost: string | null = null;
+      if (files.length > 0) {
+        const up = await uploadPedidoImages(project.slug, r.key, files);
+        if (up.error) lost = typeof up.error.detail.message === "string" ? up.error.detail.message : "inténtalo desde el pedido abierto.";
+        onPictures?.(project.slug);
+      }
+      setFiles([]);
+      setSent(askedLine(r, project.title) + (lost ? ` Pero ${files.length > 1 ? "no todas las imágenes subieron" : "la imagen no subió"}: ${lost}` : ""));
       setText("");
       setMode("forma");
       setOpen(false);
@@ -181,7 +198,7 @@ export const AskBox = ({
         onClose={() => setOpen(false)}
         returnTo={() => opener.current}
       >
-        <AskView project={project} text={text} setText={setText} mode={mode} setMode={setMode} sending={sending} error={error} onSubmit={(i) => void onSubmit(i)} disabled={disabled} autoFocus images={images} />
+        <AskView project={project} text={text} setText={setText} mode={mode} setMode={setMode} sending={sending} error={error} onSubmit={(i) => void onSubmit(i)} disabled={disabled} autoFocus textRef={textRef} images={images ?? <ImageDrop files={files} onChange={setFiles} textarea={textRef} disabled={disabled || sending} />} />
       </SidePage>
     </div>
   );

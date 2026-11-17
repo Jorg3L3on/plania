@@ -33,7 +33,7 @@ import { GoalDialog } from "@/components/goals/goal-dialog";
 import type { Goal } from "@/components/goals/model";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { ApiError, api, type Decision, type DecisionInput, type OrgProject } from "@/lib/api";
+import { ApiError, api, uploadPedidoImages, type Decision, type DecisionInput, type OrgProject } from "@/lib/api";
 import { ceoRedirect, sheetOf, sheetSearch } from "@/lib/compania";
 import { caption, floorOrder, oficinaOf, seatIn } from "@/lib/edificio";
 import { openFloor, stepFloor } from "@/components/compania/edificio/tower";
@@ -470,7 +470,14 @@ const Compania = () => {
   const pedidoActs: PedidoActs | undefined = pedidoKey
     ? {
         onAnswer: (qid, text) => pedidoDo("answer", () => api.answer(fslug, qid, text)),
-        onNote: (text) => pedidoDo("note", () => api.noteTask(fslug, pedidoKey, text)),
+        // PLA-I54-5: the note, then its pictures; a refused picture says why (too big, a seventh one).
+        onNote: (text, files) =>
+          pedidoDo("note", async () => {
+            await api.noteTask(fslug, pedidoKey, text);
+            if (!files?.length) return;
+            const r = await uploadPedidoImages(fslug, pedidoKey, files);
+            if (r.error) toast.error(typeof r.error.detail.message === "string" ? r.error.detail.message : "Una imagen no subió.");
+          }),
         onGuardar: () => pedidoDo("guardar", () => api.pedidoAct(fslug, pedidoKey, "guardar")),
         onRestaurar: () => pedidoDo("restaurar", () => api.pedidoAct(fslug, pedidoKey, "restaurar")),
         onDescartar: () => pedidoDo("descartar", () => api.pedidoAct(fslug, pedidoKey, "descartar")),
@@ -751,6 +758,7 @@ const Compania = () => {
                 disabled={company.company.paused}
                 wide={wide}
                 onAsk={(slug, input) => steer.onAsk(slug, { text: input.text, mode: input.mode })}
+                onPictures={refresh}
                 onTyping={(slug, on) => setTyping((t) => (!!t[slug] === on ? t : { ...t, [slug]: on }))}
               />
             )}
