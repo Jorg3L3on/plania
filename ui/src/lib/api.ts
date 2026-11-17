@@ -185,7 +185,11 @@ export const api = {
     request<StartNowResult>("POST", `/company/projects/${encodeURIComponent(slug)}/team/${encodeURIComponent(agent)}/start`, pastGuard ? { past_guard: true } : {}),
   // PLA-I54-1: mode forma (an idea in the floor's tube) or ya (the Ready ticket plus the wake). The reply's key is the
   // new idea's or ticket's: F5 uploads the side page's pictures to it.
-  askProject: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean; mode?: AskMode }) => request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, input),
+  // PLA-I57-1: mode pregunta asks the PO a question (no task; the reply's consulta is its id); consulta on a forma or
+  // ya request carries that answer along.
+  askProject: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean; mode?: AskMode; consulta?: string }) =>
+    request<AskResult>("POST", `/company/projects/${encodeURIComponent(slug)}/ask`, input),
+  consultas: (slug: string) => request<{ consultas: ConsultaView[] }>("GET", `/company/projects/${encodeURIComponent(slug)}/consultas`),
   pickNext: (slug: string, key: string) => request<{ next: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/next`, { key }),
   setProjectOptions: (slug: string, input: { plan_approval?: boolean; preview_url?: string | null; auto_accept?: boolean; auto_accept_invisible?: boolean }) =>
     request<{ plan_approval: boolean; preview_url: string | null }>("PUT", `/company/projects/${encodeURIComponent(slug)}/options`, input),
@@ -211,8 +215,30 @@ export const api = {
 
 export type OrderKind = "cambio" | "direccion" | "idea";
 export type StartNowResult = { started: boolean; reason: "started" | "queued" | "busy" | "idle" | "held" | "fail"; ticket: string | null; run_id: string | null; summary: string };
-export type AskMode = "forma" | "ya";
-export type AskResult = { key: string; title: string; po: string; mode?: AskMode; wake: "queued" | "busy" | "off"; woke: { woke: boolean; reason: string; ticket: string | null; summary: string } | null };
+export type AskMode = "forma" | "ya" | "pregunta";
+// PLA-I57-1: a question from Preguntar and the PO's answer (src/pedidos/consultas.ts).
+export type ConsultaAnswer = {
+  short: string;
+  why: string[];
+  sources: { path: string; line: number | null; missing: boolean }[];
+  branch: string | null;
+  commit: string | null;
+  sure: "seen" | "guess";
+  tried: boolean;
+  fix: string | null;
+  by: string;
+};
+export type ConsultaView = {
+  id: string;
+  text: string;
+  asked_at: string;
+  state: "cola" | "leyendo" | "lista" | "sin_respuesta";
+  trail: string[];
+  started_at: string | null;
+  answered_at: string | null;
+  answer: ConsultaAnswer | null;
+};
+export type AskResult = { key: string; title: string; po: string; mode?: AskMode; consulta?: string; wake: "queued" | "busy" | "off"; woke: { woke: boolean; reason: string; ticket: string | null; summary: string } | null };
 // PLA-I54-1: one of the owner's ideas taking shape, a capsule in the floor's tube (src/api/company-pedidos.ts).
 export type PedidoStop = "buzon" | "entendido" | "investigacion" | "diseno" | "plan" | "lista";
 export type PedidoState = "espera" | "trabajando" | "quieta" | "cola" | "valvula";

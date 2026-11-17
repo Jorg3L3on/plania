@@ -85,6 +85,33 @@ export const QA_DENY_RULES: readonly string[] = [
   "mcp__plania__thread_post",
 ];
 
+// PLA-I57-1: a run that answers the owner's question (Preguntar) works in the project's own checkout, so on top of
+// QA's rules it may not change files from the shell or run the app's tooling. It answers with answer_consulta only.
+export const CONSULTA_DENY_RULES: readonly string[] = [
+  ...QA_DENY_RULES,
+  "Bash(rm*)",
+  "Bash(mv*)",
+  "Bash(cp*)",
+  "Bash(touch*)",
+  "Bash(mkdir*)",
+  "Bash(chmod*)",
+  "Bash(sed -i*)",
+  "Bash(tee*)",
+  "Bash(npm*)",
+  "Bash(pnpm*)",
+  "Bash(npx*)",
+  "Bash(yarn*)",
+  "Bash(node*)",
+  "Bash(python*)",
+  "Bash(git pull*)",
+  "Bash(git fetch*)",
+  "Bash(git worktree*)",
+  "Bash(git branch*)",
+  "mcp__plania__ask",
+  "mcp__plania__create_task",
+  "mcp__plania__attach_doc",
+];
+
 export const denySettings = (extra: readonly string[] = []): DenySettings => ({ permissions: { deny: [...DENY_RULES, ...extra] } });
 
 const globToRegex = (glob: string): RegExp =>

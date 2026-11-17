@@ -165,6 +165,6 @@ test("I54-1 #4: Pedir's side page has the textarea, the pictures' slot and the t
   assert.equal(edificio.askedLine({ key: "DEM-IDEA8", title: "x", po: "po", mode: "forma", wake: "busy", woke: null }, "Demo"), "Entró al tubo como DEM-IDEA8; el PO de Demo la abre en su turno.");
   // The page sends the mode, and Que PO lo planee stays a ticket that starts now.
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("steer.onAsk(slug, { text: input.text, mode: input.mode })"));
+  assert.ok(page.includes("steer.onAsk(slug, { text: input.text, mode: input.mode, consulta: input.consulta })"));
   assert.ok(page.includes('.askProject(slug, { text, mode: "ya" })'));
 });

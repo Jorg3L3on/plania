@@ -1522,3 +1522,34 @@ export const briefSettings = pgTable(
 );
 
 export type BriefSettings = typeof briefSettings.$inferSelect;
+
+// PLA-I57-1: Preguntar en Pedir. The owner's question about a project and the PO's answer (answer_consulta).
+// No task: a question creates no idea and no ticket. run_id is the PO's read-only run, null until one is queued.
+export type ConsultaAnswer = {
+  short: string;
+  why: string[];
+  sources: { path: string; line: number | null; missing: boolean }[];
+  branch: string | null;
+  commit: string | null;
+  sure: "seen" | "guess";
+  tried: boolean;
+  fix: string | null;
+  by: string;
+};
+export const consultas = pgTable(
+  "consultas",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    text: text("text").notNull(),
+    runId: uuid("run_id"),
+    answer: jsonb("answer").$type<ConsultaAnswer>(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    askedAt: timestamp("asked_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("consultas_project_idx").on(t.projectId, t.askedAt), check("consultas_text_check", sql`char_length(${t.text}) between 3 and 2000`)],
+);
+export type Consulta = typeof consultas.$inferSelect;

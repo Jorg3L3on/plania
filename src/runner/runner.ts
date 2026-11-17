@@ -28,7 +28,8 @@ import {
 import { registerFootprint, releaseFootprint } from "../mcp/footprint.js";
 import { SYSTEM_ACTOR, WEB_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
-import { QA_DENY_RULES, denySettings } from "./deny.js";
+import { CONSULTA_DENY_RULES, QA_DENY_RULES, denySettings } from "./deny.js";
+import { consultaById, consultaIdOf, consultaPrompt } from "../pedidos/consultas.js";
 import { PREGUNTA_MARK } from "../captures/preguntas.js";
 import { EVENT_SUMMARY, wakePoIfWaiting } from "./events.js";
 import { capacityFacts, capacityHold, agentFacts, agentHold, projectGoal } from "./hold.js";
@@ -212,18 +213,19 @@ async function probeIfUnknown(db: Db, deps: RunnerDeps, now: Date): Promise<void
 
 // PLA-I40-2: skipRest and pastGuard are the owner's "start now" from the screen, for one run: the rest between
 // runs is not counted, and the plan guard reads as with the override on. Every other check stands.
-async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, opts: { fromQueue?: string; skipRest?: boolean; pastGuard?: boolean } = {}): Promise<Preflight> {
+async function preflight(db: Db, ctx: WakeContext, now: Date, deps: RunnerDeps, opts: { fromQueue?: string; skipRest?: boolean; pastGuard?: boolean; consulta?: boolean } = {}): Promise<Preflight> {
   const settings = await loadSettings(db);
   const { agent, role, project, task } = ctx;
   if (!project) return { ok: false, kind: "skipped", summary: "skipped: no project" };
   // PLA-I40-1: the switches, the rest and the goal are one verdict (hold.ts), the same one the screen reads.
   const facts = role || settings.companyPaused ? await agentFacts(db, { agent, role, project, settings, now }) : null;
-  const own = facts ? agentHold(opts.skipRest ? { ...facts, cooldownMinutes: 0 } : facts) : null;
+  // PLA-I57-1: the owner's question is answered between runs, and needs no project goal.
+  const own = facts ? agentHold(opts.skipRest || opts.consulta ? { ...facts, cooldownMinutes: 0 } : facts) : null;
   if (own?.scope === "company") return { ok: false, kind: "skipped", summary: "skipped: company paused" };
   if (!role) return { ok: false, kind: "skipped", summary: "skipped: no runner role" };
   if (own?.code === "paused") return { ok: false, kind: "skipped", summary: `skipped: project ${project.slug} paused` };
   if (own?.code === "rest") return { ok: false, kind: "skipped", summary: "skipped: cooldown" };
-  if (own?.code === "no_goal") return { ok: false, kind: "skipped", summary: "skipped: no goal" };
+  if (own?.code === "no_goal" && !opts.consulta) return { ok: false, kind: "skipped", summary: "skipped: no goal" };
   if (!task && role !== "product-owner" && role !== "asistente") return { ok: false, kind: "skipped", summary: "no ready work" };
 
   if (task) {
@@ -368,7 +370,7 @@ export async function drainQueue(db: Db, now: Date, deps: RunnerDeps = {}): Prom
       const task = run.taskKey ? await readyWorkOf(db, run.projectId, run.taskKey) : null;
       const ctx = await loadContext(db, agent, task);
       if (!ctx.project) ctx.project = (await db.select().from(projects).where(eq(projects.id, run.projectId)).limit(1))[0] ?? null;
-      const pre = await preflight(db, ctx, now, deps, { fromQueue: run.id });
+      const pre = await preflight(db, ctx, now, deps, { fromQueue: run.id, consulta: !!consultaIdOf(run.summary) });
       if (!pre.ok && pre.kind === "cap") break;
       // PLA-I31-1: an event wake inside the agent's cooldown waits for it to end instead of being
       // dropped, so events that arrive during the cooldown coalesce into this one run.
@@ -526,6 +528,9 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   if (!token) return fail("fail: missing env PLANIA_RUNNER_TOKEN");
   const settings = await loadSettings(db);
   const root = rootOf(deps, env);
+  // PLA-I57-1: a question from Preguntar. Read-only, in the project's own checkout, fresh session, no packs.
+  const consultaId = consultaIdOf(run.summary);
+  const consulta = consultaId ? await consultaById(db, consultaId) : null;
 
   // Where the run works: the ticket's worktree, or a scratch folder for a PO with no ticket.
   let cwd: string;
@@ -559,6 +564,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
         ).catch(() => undefined);
       }
     }
+  } else if (consulta && existsSync(repoPathOf(project.slug, project.settings, env))) {
+    cwd = repoPathOf(project.slug, project.settings, env);
   } else {
     cwd = scratchPathFor(root, project.slug, ctx.agent.slug);
     mkdirSync(cwd, { recursive: true });
@@ -572,7 +579,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     .limit(1);
   // PLA-I46-9: a QA run is always a fresh session, so its review has not seen anyone's earlier reasoning.
   const qa = role === "qa" ? await qaBriefFor(db, run.id, cwd) : null;
-  const resume = !qa && session && session.cwd === cwd ? session.claudeSessionId : null;
+  const resume = !qa && !consulta && session && session.cwd === cwd ? session.claudeSessionId : null;
 
   const tmp = path.join(tmpDirOf(deps), run.id);
   mkdirSync(tmp, { recursive: true, mode: 0o700 });
@@ -593,16 +600,18 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     const h = await (deps.git ?? defaultGit)(["rev-parse", "HEAD"], cwd).catch(() => null);
     askHeads.set(run.id, h && h.code === 0 ? h.stdout.trim() : null);
   }
-  writeFileSync(settingsPath, JSON.stringify(denySettings(role === "qa" || asks ? QA_DENY_RULES : [])), { mode: 0o600 });
+  writeFileSync(settingsPath, JSON.stringify(denySettings(consulta ? CONSULTA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : [])), { mode: 0o600 });
   const mcpConfigPath = path.join(tmp, "mcp.json");
   writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp")), { mode: 0o600 });
 
   // PLA-I46-12: only this role's packs, written fresh (whatever an earlier run left is cleared first).
-  const packs = writePacks(cwd, await packsOf(db, ctx.agent, env));
+  const packs = consulta ? [] : writePacks(cwd, await packsOf(db, ctx.agent, env));
 
   const goal = await projectGoal(db, project.id);
   const planiaSession = `run-${run.id.slice(0, 8)}`;
-  const prompt = qa?.prompt ?? userPrompt({
+  const prompt = consulta
+    ? consultaPrompt({ agent: ctx.agent.name, project: { slug: project.slug, title: project.title }, consulta, cwd, sessionId: planiaSession })
+    : qa?.prompt ?? userPrompt({
     agent: ctx.agent.name,
     role,
     project: { slug: project.slug, title: project.title },
@@ -614,7 +623,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     packs,
     images: ctx.task ? await taskImagePaths(db, project.id, ctx.task.key).catch(() => []) : [],
   });
-  const args = claudeArgs({ prompt, settingsPath, mcpConfigPath, systemPromptPath, maxTurns: settings.maxTurns, resume, model: qa?.model ?? null });
+  const args = claudeArgs({ prompt, settingsPath, mcpConfigPath, systemPromptPath, maxTurns: consulta ? Math.min(settings.maxTurns, 40) : settings.maxTurns, resume, model: qa?.model ?? null });
   const command = claudeCommand(ctx.agent.adapterConfig, env);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const logPath = path.join(logDirOf(deps, env), `${stamp}-${ctx.agent.slug}-${run.id.slice(0, 8)}.jsonl`);
@@ -677,7 +686,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     .finally(() => {
       live.delete(run.id);
       rmSync(tmp, { recursive: true, force: true });
-      clearPacks(cwd);
+      if (!consulta) clearPacks(cwd);
     });
   live.set(run.id, entry);
   return { kind: "started", runId: run.id, summary: `started${resume ? " (resumed)" : ""}`, taskKey };
@@ -779,14 +788,16 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
   if (exit.timedOut && status !== "ok") summary = `${summary} after timeout`.slice(0, 500);
 
   // PLA-I46-12: a skill pack never reaches the app repo. One in the branch diff (or staged) fails the run.
-  const leaked = await packsInDiff(input.cwd, deps.git ?? defaultGit).catch(() => [] as string[]);
+  const consultaRun = !!consultaIdOf(run.summary);
+  const leaked = consultaRun ? [] : await packsInDiff(input.cwd, deps.git ?? defaultGit).catch(() => [] as string[]);
   if (leaked.length > 0) {
     status = "fail";
     summary = `fail: pack file in the diff (${leaked.slice(0, 3).join(", ")}${leaked.length > 3 ? ", …" : ""})`;
   }
 
   const sessionId = result?.sessionId ?? reader.sessionId;
-  if (sessionId) {
+  // PLA-I57-1: a question's run never replaces the PO's own session (it ran elsewhere, with a different prompt).
+  if (sessionId && !consultaRun) {
     await db
       .insert(agentSessions)
       .values({ agentId: agent.id, projectId: project.id, claudeSessionId: sessionId, cwd: input.cwd, runs: 1 })

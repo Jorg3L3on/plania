@@ -753,7 +753,7 @@ const Compania = () => {
                 prefill={prefill[p.slug]}
                 disabled={company.company.paused}
                 wide={wide}
-                onAsk={(slug, input) => steer.onAsk(slug, { text: input.text, mode: input.mode })}
+                onAsk={(slug, input) => steer.onAsk(slug, { text: input.text, mode: input.mode, consulta: input.consulta })}
                 onPictures={refresh}
                 onTyping={(slug, on) => setTyping((t) => (!!t[slug] === on ? t : { ...t, [slug]: on }))}
               />

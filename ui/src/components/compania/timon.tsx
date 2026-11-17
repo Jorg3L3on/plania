@@ -9,7 +9,7 @@ import { pillGhost } from "@/components/compania/parts";
 
 
 export type Steer = {
-  onAsk: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean; mode?: AskMode }) => Promise<AskResult>;
+  onAsk: (slug: string, input: { text: string; kind?: OrderKind; now?: boolean; mode?: AskMode; consulta?: string }) => Promise<AskResult>;
   onPickNext: (slug: string, key: string) => void;
   onPause: (p: OrgProject) => void;
   onRun: (action: "stop" | "resume", runId: string) => void;

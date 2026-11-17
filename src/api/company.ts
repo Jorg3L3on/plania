@@ -35,6 +35,7 @@ import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { createProjectFromTemplate } from "../runner/new-project.js";
+import { listConsultas } from "../pedidos/consultas.js";
 import { askMode, askPo, pickNext, resendRequest, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
 import { cancelOrder } from "./company-orders.js";
@@ -265,18 +266,34 @@ companyRoutes.delete("/projects/:slug", async (c) => {
 
 // PLA-I30-6/7 (src/api/company-actions.ts): Pedirle al PO and Despertar ahora on the project sheet.
 // PLA-I54-1: {mode: forma | ya} (default forma); the text grew to 2000 for the side page's textarea.
-const AskBody = z.object({ text: z.string().trim().min(3).max(2000), kind: z.enum(["cambio", "direccion", "idea"]).optional(), now: z.boolean().optional(), mode: z.enum(["forma", "ya"]).optional() }).strict();
+// PLA-I57-1: mode pregunta asks the PO a question (no task); consulta carries an answer into a forma or ya request.
+const AskBody = z
+  .object({ text: z.string().trim().min(3).max(2000), kind: z.enum(["cambio", "direccion", "idea"]).optional(), now: z.boolean().optional(), mode: z.enum(["forma", "ya", "pregunta"]).optional(), consulta: z.string().uuid().optional() })
+  .strict();
 
 companyRoutes.post("/projects/:slug/ask", async (c) => {
   const input = await body(c, AskBody);
   if (input instanceof Response) return input;
   try {
-    const out = await withDb((db) => askPo(db, c.req.param("slug"), input.text, { kind: input.kind, now: input.now, mode: askMode(input) }));
+    const out = await withDb((db) => askPo(db, c.req.param("slug"), input.text, { kind: input.kind, now: input.now, mode: askMode(input), consulta: input.consulta }));
     if ("error" in out) {
       const { status, ...rest } = out;
       return c.json(rest, status);
     }
     return c.json(out, 201);
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I57-1: the project's questions for Pedir's side page (newest first), each with its state, trail and answer.
+companyRoutes.get("/projects/:slug/consultas", async (c) => {
+  try {
+    const out = await withDb(async (db) => {
+      const [p] = await db.select({ id: projects.id }).from(projects).where(eq(projects.slug, c.req.param("slug"))).limit(1);
+      return p ? { consultas: await listConsultas(db, p.id) } : null;
+    });
+    return out ? c.json(out) : c.json({ error: "PROJECT_NOT_FOUND" }, 404);
   } catch (e) {
     return fail(c, e);
   }

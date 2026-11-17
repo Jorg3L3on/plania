@@ -16,6 +16,7 @@ import { loadReady, pickReady, wakeAgent, type HeartbeatDeps } from "../jobs/hea
 import { WEB_ACTOR } from "../mcp/tx.js";
 import { createTask } from "../mcp/writes.js";
 import { createPoIdea } from "./company-pedidos.js";
+import { answerNote, askConsulta } from "../pedidos/consultas.js";
 import { eventWakesEnabled, queueWake } from "../runner/events.js";
 import { loadSettings, roleOf } from "../runner/limits.js";
 import { startNow } from "../runner/runner.js";
@@ -55,7 +56,9 @@ export const firstLine = (text: string) => {
 export type OrderKind = "cambio" | "direccion" | "idea";
 const KIND_WORD: Record<OrderKind, string> = { cambio: "un cambio", direccion: "una dirección", idea: "una idea" };
 // PLA-I54-1: mode forma makes an idea for the PO to shape (company-pedidos.ts); ya is the Ready ticket plus the wake.
-export type AskResult = { key: string; title: string; po: string; mode: "forma" | "ya"; wake: "queued" | "busy" | "off"; woke: WakeOutcome | null };
+export type AskMode = "forma" | "ya" | "pregunta";
+// PLA-I57-1: mode pregunta keeps a question (consulta) and creates no task: key is "" and consulta is its id.
+export type AskResult = { key: string; title: string; po: string; mode: AskMode; wake: "queued" | "busy" | "off"; woke: WakeOutcome | null; consulta?: string };
 
 // A Ready ticket owned by the project's PO, origin jorge; the event hook queues the PO's wake in the same
 // write. wake says what happened: queued (on this ticket), busy (the PO already has a run), off (no wakes).
@@ -104,11 +107,18 @@ export async function createPoTicket(
 // PLA-I54-1: mode forma creates an idea and wakes the PO on it (company-pedidos.ts); ya is the ticket with the wake at
 // once (what «Que empiece ya» did). Without a mode it is the ticket as before, woken only with now. On the route a body
 // with neither mode nor now (the new side page always sends a mode) is forma; an old client's {now} keeps its ticket.
-export const askMode = (input: { mode?: "forma" | "ya"; now?: boolean }): "forma" | "ya" | undefined => input.mode ?? (input.now === undefined ? "forma" : undefined);
+export const askMode = (input: { mode?: AskMode; now?: boolean }): AskMode | undefined => input.mode ?? (input.now === undefined ? "forma" : undefined);
 
-export async function askPo(db: Db, slug: string, text: string, opts: { kind?: OrderKind; now?: boolean; mode?: "forma" | "ya" } = {}, deps?: HeartbeatDeps): Promise<AskResult | ActionRefusal> {
+export async function askPo(db: Db, slug: string, text: string, opts: { kind?: OrderKind; now?: boolean; mode?: AskMode; consulta?: string } = {}, deps?: HeartbeatDeps): Promise<AskResult | ActionRefusal> {
   const g = await guard(db, slug);
   if ("error" in g) return g;
+  if (opts.mode === "pregunta") {
+    const made = await askConsulta(db, g.project, g.po, text);
+    return { key: "", title: firstLine(text), po: g.po.slug, mode: "pregunta", wake: made.wake, woke: null, consulta: made.id };
+  }
+  // PLA-I57-1: «Pedirlo» from an answer: the answer travels with the request.
+  const note = opts.consulta ? await answerNote(db, g.project.id, opts.consulta) : null;
+  if (note) text = `${text}\n\n---\n${note}`.slice(0, 3800);
   if (opts.mode === "forma") {
     const made = await createPoIdea(db, g.project.slug, g.po, text);
     return { key: made.key, title: made.title, po: g.po.slug, mode: "forma", wake: made.wake, woke: null };
