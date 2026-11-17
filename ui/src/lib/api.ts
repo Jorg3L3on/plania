@@ -318,6 +318,9 @@ export type OrgPedido = {
   question: { id: string; text: string } | null;
   guardada: boolean;
   at: string;
+  // PLA-I61-6: deliveries he has not opened and the newest one (an older server sends neither).
+  unseen?: number;
+  unseen_stop?: PedidoStop | null;
 };
 export type OrgLight = "ok" | "needs_jorge" | "failed" | "blocked" | "late" | "quiet" | "paused";
 export type OrgLightReason = { text: string; action: { label: string; href: string } | null };

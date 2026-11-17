@@ -139,7 +139,8 @@ export async function ideaDetail(db: Db, slug: string, key: string): Promise<Ide
     const delivered = stop === "buzon" ? true : stop === "lista" ? t.stage === "ready" : !!at;
     const after = (e: { at: Date }) => !at || e.at >= at;
     const mine = evs.filter((e) => (e.payload as { stop?: string }).stop === stop && after(e));
-    const seen = stop === "buzon" || !delivered || mine.some((e) => e.type === VISTO);
+    // Lista is where the idea waits for «Constrúyelo», not something to look at (PLA-I61-6).
+    const seen = stop === "buzon" || stop === "lista" || !delivered || mine.some((e) => e.type === VISTO);
     const last = mine.findLast((e) => e.type === RESPUESTA);
     const lp = (last?.payload ?? {}) as Record<string, unknown>;
     const answer: IdeaAnswer | null =

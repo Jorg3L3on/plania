@@ -164,3 +164,18 @@ test("I55-1: the page opens La ficha only while the address names something; the
   assert.doesNotMatch(css, /\.edi-bld\[data-ficha/);
   assert.match(css, /\.sb-one \.sb-corner, \.sb-one \.sb-track \{ display: none; \}/);
 });
+
+test("I61-6: what the team left unopened: Para mirar in Ahora opens it, the small tube rings it and counts it", () => {
+  const p = project({ pedidos: [pedido("DEM-IDEA6", "plan", "quieta", { title: "Toda la app con shadcn", unseen: 2, unseen_stop: "diseno" }), pedido("DEM-IDEA7", "diseno", "quieta", { unseen: 0 })] });
+  const opened: string[] = [];
+  const html = floor({ tubo: { onOpen: (slug: string, key: string) => opened.push(`${slug} ${key}`) } }, p);
+  assert.ok(text(html).includes("Para mirar · 2"), text(html));
+  assert.ok(text(html).includes("Artist dejó el diseño de «Toda la app con shadcn» · 2 entregas sin ver"));
+  assert.match(html, /data-control="ahora-mirar"/);
+  assert.match(text(html), /Ideas tomando forma · 2 2 sin ver/);
+  assert.deepEqual([...html.matchAll(/<i data-state="quieta"( data-unseen="")?/g)].map((m) => !!m[1]), [false, true], "dots in stop order: DEM-IDEA7 at Diseño, DEM-IDEA6 at Plan");
+  // Nothing unseen: no Para mirar, no count.
+  const quiet = floor({}, project({ pedidos: [pedido("DEM-IDEA7", "diseno", "quieta", { unseen: 0 })] }));
+  assert.equal(text(quiet).includes("Para mirar"), false);
+  assert.equal(quiet.includes("data-unseen"), false);
+});
