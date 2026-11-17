@@ -3,6 +3,7 @@
 // `claude -p` in a worktree outside every repo. When it exits, its result is read: modelUsage goes
 // to report_tokens per model, the turns/session/subtype to heartbeat_runs, the session to agent_sessions.
 // Summaries never carry paths, env values, tokens or money.
+import { resolveMotor } from "./motor.js";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -489,8 +490,9 @@ export type ClaudeArgsInput = {
   systemPromptPath: string | null;
   maxTurns: number;
   resume: string | null;
-  // PLA-I46-9: a QA review of a small change runs on a smaller model.
+  // PLA-I46-9: a QA review of a small change runs on a smaller model. PLA-I59-1: every run's motor (motor.ts).
   model?: string | null;
+  effort?: string | null;
 };
 
 export function claudeArgs(input: ClaudeArgsInput): string[] {
@@ -516,6 +518,7 @@ export function claudeArgs(input: ClaudeArgsInput): string[] {
   if (input.systemPromptPath && !input.resume) args.push("--append-system-prompt-file", input.systemPromptPath);
   if (input.resume) args.push("--resume", input.resume);
   if (input.model) args.push("--model", input.model);
+  if (input.effort) args.push("--effort", input.effort);
   return args;
 }
 
@@ -633,7 +636,14 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     packs,
     images: ctx.task ? await taskImagePaths(db, project.id, ctx.task.key).catch(() => []) : [],
   });
-  const args = claudeArgs({ prompt, settingsPath, mcpConfigPath, systemPromptPath, maxTurns: consulta ? Math.min(settings.maxTurns, 40) : settings.maxTurns, resume, model: qa?.model ?? null });
+  // PLA-I59-1: the motor this run asks for (QA lane > the seat, or its Preguntar values > the company > none).
+  const motor = resolveMotor({
+    qaModel: qa?.model ?? null,
+    consulta: !!consulta,
+    seat: { model: ctx.agent.motorModel, effort: ctx.agent.motorEffort, consultaModel: ctx.agent.consultaModel, consultaEffort: ctx.agent.consultaEffort },
+    company: { model: settings.defaultModel, effort: settings.defaultEffort },
+  });
+  const args = claudeArgs({ prompt, settingsPath, mcpConfigPath, systemPromptPath, maxTurns: consulta ? Math.min(settings.maxTurns, 40) : settings.maxTurns, resume, model: motor.model, effort: motor.effort });
   const command = claudeCommand(ctx.agent.adapterConfig, env);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const logPath = path.join(logDirOf(deps, env), `${stamp}-${ctx.agent.slug}-${run.id.slice(0, 8)}.jsonl`);
@@ -682,6 +692,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
       branch,
       logPath,
       startedAt,
+      requestedModel: motor.model,
+      requestedEffort: motor.effort,
     })
     .where(eq(agentRuns.id, run.id));
 

@@ -752,3 +752,82 @@ test("I29-8 #3: resuming the company leaves a self-paused project paused; new pr
   await raw.query(`insert into projects (slug, title, key_prefix) values ('nuevo', 'Nuevo', 'NUE')`);
   assert.equal((await raw.query(`select runs_paused from projects where slug = 'nuevo'`)).rows[0].runs_paused, true);
 });
+
+// ---- PLA-I59-1 (Motores)
+
+test("I59-1: a seat with motor sonnet/high runs with --model sonnet --effort high and the run records them", async () => {
+  const f = fakes();
+  await raw.query(`update agents set motor_model = 'sonnet', motor_effort = 'high' where slug = 'taller'`);
+  try {
+    await ready("micasa", "RUN-MOTOR");
+    const res = await wake("taller", f.deps, "RUN-MOTOR");
+    assert.equal(res.reason, "ok");
+    const { args } = f.spawned[0]!;
+    assert.deepEqual(args.slice(args.indexOf("--model"), args.indexOf("--model") + 2), ["--model", "sonnet"]);
+    assert.deepEqual(args.slice(args.indexOf("--effort"), args.indexOf("--effort") + 2), ["--effort", "high"]);
+    const row = (await raw.query(`select requested_model, requested_effort from agent_runs order by queued_at desc limit 1`)).rows[0];
+    assert.deepEqual(row, { requested_model: "sonnet", requested_effort: "high" });
+    f.spawned[0]!.child.write([resultEvent({ "claude-sonnet-5-5": OPUS })]);
+    f.spawned[0]!.child.exit(0);
+    await runner.waitForAllRuns();
+  } finally {
+    await raw.query(`update agents set motor_model = null, motor_effort = null where slug = 'taller'`);
+  }
+});
+
+test("I59-1: the company default reaches a seat with nothing of its own; with nothing set, neither flag is passed", async () => {
+  const f = fakes();
+  await raw.query(`update runner_settings set default_model = 'opus', default_effort = 'medium'`);
+  try {
+    await ready("micasa", "RUN-MOTOR-CO");
+    await wake("taller", f.deps, "RUN-MOTOR-CO");
+    const a = f.spawned[0]!.args;
+    assert.equal(a[a.indexOf("--model") + 1], "opus");
+    assert.equal(a[a.indexOf("--effort") + 1], "medium");
+    f.spawned[0]!.child.write([resultEvent({ "claude-opus-5-5": OPUS })]);
+    f.spawned[0]!.child.exit(0);
+    await runner.waitForAllRuns();
+  } finally {
+    await raw.query(`update runner_settings set default_model = null, default_effort = null`);
+  }
+  const g = fakes();
+  await ready("micasa", "RUN-MOTOR-NONE");
+  await wake("taller", g.deps, "RUN-MOTOR-NONE");
+  assert.equal(g.spawned[0]!.args.includes("--model"), false);
+  assert.equal(g.spawned[0]!.args.includes("--effort"), false);
+  const row = (await raw.query(`select requested_model, requested_effort from agent_runs order by queued_at desc limit 1`)).rows[0];
+  assert.deepEqual(row, { requested_model: null, requested_effort: null });
+  g.spawned[0]!.child.write([resultEvent({ "claude-opus-5-5": OPUS })]);
+  g.spawned[0]!.child.exit(0);
+  await runner.waitForAllRuns();
+});
+
+test("I59-1: set_agent stores, refuses with field + hint, and clears a motor; list_agents shows it; the seed still repairs it", async () => {
+  const { setAgent, listAgents } = await import("../src/mcp/team.js");
+  const v = await setAgent(db, { slug: "research", motor: { model: "Sonnet", effort: "high" }, consulta_motor: { model: "haiku" } });
+  assert.deepEqual(v.motor, { model: "sonnet", effort: "high" });
+  assert.deepEqual(v.consulta_motor, { model: "haiku", effort: null });
+  await assert.rejects(() => setAgent(db, { slug: "research", motor: { model: "gpt-4" } }), (e: { code?: string; detail?: { field?: string; hint?: string } }) => e.code === "INVALID_FILTER" && e.detail?.field === "motor.model" && !!e.detail?.hint);
+  await assert.rejects(() => setAgent(db, { slug: "research", motor: { effort: "ultra" } }), (e: { detail?: { field?: string } }) => e.detail?.field === "motor.effort");
+  const listed = (await listAgents(db)).agents.find((a) => a.slug === "research")!;
+  assert.deepEqual(listed.motor, { model: "sonnet", effort: "high" });
+  // The org seed's repair only looks at adapter fields: a seat with a motor and a blank adapter is still repaired.
+  const { untouchedAdapter } = await import("../src/runner/team.js");
+  const row = (await raw.query(`select * from agents where slug = 'research'`)).rows[0];
+  assert.equal(untouchedAdapter({ ...row, adapterConfig: row.adapter_config, heartbeatMinutes: row.heartbeat_minutes, adapter: "none", status: "idle", kind: "bot", wakeUrl: null } as never), true);
+  const cleared = await setAgent(db, { slug: "research", motor: null, consulta_motor: { model: null } });
+  assert.deepEqual(cleared.motor, { model: null, effort: null });
+  assert.deepEqual(cleared.consulta_motor, { model: null, effort: null });
+});
+
+test("I59-1: PUT /settings takes the company default and refuses a bad model", async () => {
+  const token = createSession();
+  const put = (body: unknown) => app.request("/api/company/settings", { method: "PUT", headers: { cookie: `${SESSION_COOKIE}=${token}`, "content-type": "application/json", origin: "http://localhost" }, body: JSON.stringify(body) });
+  const ok = await put({ default_model: "fable", default_effort: "low" });
+  assert.equal(ok.status, 200, await ok.clone().text());
+  const s = (await ok.json()) as { default_model: string; default_effort: string };
+  assert.deepEqual([s.default_model, s.default_effort], ["fable", "low"]);
+  assert.equal((await put({ default_model: "gpt-4" })).status, 400);
+  const cleared = (await (await put({ default_model: null, default_effort: null })).json()) as { default_model: null };
+  assert.equal(cleared.default_model, null);
+});

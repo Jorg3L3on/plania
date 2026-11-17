@@ -8,7 +8,7 @@
 //   GET  /api/company                      the Compañía read (switches, runs, plan reading)
 //   POST /api/company/switch               {paused}            company kill switch
 //   POST /api/company/projects/:slug/switch {paused}           project kill switch
-//   PUT  /api/company/settings             {max_concurrent?, cooldown_minutes?, plan_guard_pct?, guard_override?, reserve_tokens?, max_turns?, timeout_minutes?}
+//   PUT  /api/company/settings             {max_concurrent?, cooldown_minutes?, plan_guard_pct?, guard_override?, reserve_tokens?, max_turns?, timeout_minutes?, default_model?, default_effort?}
 //   POST /api/company/projects             {name, goal}  PLA-I31-3: a new project, paused, with its PO
 //        → 201 {slug, key_prefix, paused: true, po, prompt_doc_id}; 409 PROJECT_EXISTS | PROMPT_DOC_MISSING
 // PLA-I30 (src/api/company-extra.ts): the read gains viewer, prompts, roster and project_facts, plus
@@ -45,6 +45,7 @@ import { fichaRead, projectDocRead } from "./company-ficha.js";
 import { addTeamMember, companyRead, projectRead } from "./company-org.js";
 import { actOnDecision } from "./company-decisions.js";
 import { setCompanyPaused, setProjectPaused, setRunnerSettings } from "../runner/company.js";
+import { EFFORTS, MODEL_HINT, isModel } from "../runner/motor.js";
 import { checkOwnerCode, enrolOwnerCode, ownerCodeEnrolled } from "../auth/owner-code.js";
 import { findProject } from "../mcp/queries.js";
 import { projects } from "../db/schema.js";
@@ -221,6 +222,9 @@ const Settings = z
     reserve_tokens: z.number().int().min(0).max(5_000_000).optional(),
     max_turns: z.number().int().min(1).max(500).optional(),
     timeout_minutes: z.number().int().min(1).max(600).optional(),
+    // PLA-I59-1: the company's default motor; null clears it.
+    default_model: z.string().trim().toLowerCase().refine(isModel, MODEL_HINT).nullable().optional(),
+    default_effort: z.enum(EFFORTS).nullable().optional(),
   })
   .strict();
 
