@@ -81,6 +81,15 @@ export function withCounts<S extends MotoresSave>(save: S, saved: Counts | null,
   };
 }
 
+// PLA-57: what the queue link says. It counts what is really queued (the server's list), not what the preview
+// thinks would not start: a run whose stored hold is a cap the owner just raised reads as «starts» in the preview
+// while it still sits in the queue (and admission may then hold it for machine room). «Cola vacía» only when empty.
+export function queueLabel(queued: number, starts: number): string {
+  if (queued === 0) return "Cola vacía";
+  const fits = Math.min(starts, queued);
+  return `${queued} en cola${fits ? ` · ${fits} ${fits === 1 ? "arranca" : "arrancan"}` : ""}`;
+}
+
 export type Fix = { label: string; apply: (c: Counts) => Counts };
 export type Verdict = { run: RunnerQueued; starts: boolean; code: RunnerHeld | null; text: string; fix: Fix | null };
 
