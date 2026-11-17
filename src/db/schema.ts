@@ -1306,6 +1306,41 @@ export const taskImages = pgTable(
 );
 export type TaskImage = typeof taskImages.$inferSelect;
 
+// PLA-I61-2 (La idea abierta): Artist's frames on an idea, in order, with what each does and why. Migration 0059.
+// Same local store as the request pictures (src/pedidos/frames.ts); attach_frames replaces the whole set.
+export const ideaFrames = pgTable(
+  "idea_frames",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    frameId: text("frame_id").notNull(), // the designer's own label: T, A1, B3…
+    name: text("name").notNull(),
+    grupo: text("grupo"),
+    hace: text("hace"),
+    porque: text("porque"),
+    position: integer("position").notNull(),
+    file: text("file").notNull(),
+    mime: text("mime").$type<ImageMime>().notNull(),
+    bytes: integer("bytes").notNull(),
+    width: integer("width"),
+    height: integer("height"),
+    actor: jsonb("actor").$type<Actor>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idea_frames_task_frame_unique").on(t.taskId, t.frameId),
+    index("idea_frames_task_idx").on(t.taskId, t.position),
+    check("idea_frames_mime_check", sql`${t.mime} in ('image/png', 'image/jpeg', 'image/webp')`),
+    check("idea_frames_bytes_check", sql`${t.bytes} > 0 and ${t.bytes} <= 5242880`),
+  ],
+);
+export type IdeaFrame = typeof ideaFrames.$inferSelect;
+
 // PLA-I46-9: the QA lane's passes on a delivery. Migration 0049. The PO's check list it reads is tasks.po_checklist
 // (PoCheck, migration 0048); QA's marks live on the lane (per commit), not on the item.
 

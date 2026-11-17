@@ -7,8 +7,10 @@
 // show their own stage board (slots.board) over their done steps; the Pedido tab shows the tube (slots.tubo).
 import type { CSSProperties, ReactNode } from "react";
 import Markdown from "react-markdown";
-import type { FichaDoc, FichaIdea, FichaPr, OpenInitiative, OrgFicha, OrgProject, PedidoDetail, ProjectDocBody, ProjectTicket } from "@/lib/api";
-import { PedidoTab, type PedidoActs, type PedidoSlots } from "./pedido";
+import remarkGfm from "remark-gfm";
+import type { FichaDoc, FichaIdea, FichaPr, IdeaDetail, OpenInitiative, OrgFicha, OrgProject, ProjectDocBody, ProjectTicket } from "@/lib/api";
+import { type PedidoActs, type PedidoSlots } from "./pedido";
+import { IdeaTab, type IdeaActs } from "./idea";
 import { pedidoWord, stopName } from "./tubo";
 import { floorHue } from "@/lib/edificio";
 import { FICHA_TABS, TAB_WORD, tabOf, type FichaRef, type FichaTab } from "@/lib/ficha";
@@ -21,7 +23,6 @@ export type Load<T> = { status: "idle" | "loading" | "error" | "ok"; data?: T; r
 export type FichaSlots = { member?: ReactNode; plan?: ReactNode; sumar?: ReactNode; app?: ReactNode; solo?: ReactNode; last?: ReactNode; maq?: ReactNode; board?: ReactNode; tubo?: ReactNode; motores?: ReactNode };
 export type FichaHome = { word: string; tone: "you" | "now"; count: number; body: ReactNode };
 
-const STAGES = ["idea", "research", "design", "planning", "ready"] as const;
 const STAGE_WORD: Record<string, string> = { idea: "Idea", research: "Investigación", design: "Diseño", planning: "Planeación", ready: "Lista" };
 const PR_STATE: Record<string, string> = { open: "Abierto", merged: "Fusionado", closed: "Cerrado" };
 const CI_WORD: Record<string, string> = { success: "pruebas en verde", failure: "pruebas fallan", pending: "pruebas corriendo", none: "sin pruebas" };
@@ -63,7 +64,7 @@ const Empty = ({ children }: { children: ReactNode }) => (
   </p>
 );
 
-const Li = ({ onClick, lead, title, sub, tail, data }: { onClick: () => void; lead?: ReactNode; title: string; sub?: string; tail?: string; data: string }) => (
+const Li = ({ onClick, lead, title, sub, tail, data, badge }: { onClick: () => void; lead?: ReactNode; title: string; sub?: string; tail?: string; data: string; badge?: string }) => (
   <li>
     <button type="button" className="edi-fi-li" onClick={onClick} title={title} data-fi-row={data}>
       {lead !== undefined && <span className="edi-fi-num">{lead}</span>}
@@ -71,6 +72,7 @@ const Li = ({ onClick, lead, title, sub, tail, data }: { onClick: () => void; le
         <b>{title}</b>
         {sub && <small>{sub}</small>}
       </span>
+      {badge && <span className="ia-unseen">{badge}</span>}
       {tail && <em>{tail}</em>}
     </button>
   </li>
@@ -167,7 +169,9 @@ const PedidoList = ({ p, onRef, shelf, tubo }: { p: OrgProject; onRef: (r: Ficha
   );
 };
 
-const ideaLine = (i: FichaIdea) => `${STAGE_WORD[i.stage ?? "idea"] ?? i.stage}${i.waits ? ` · ${i.waits}` : ""}`;
+// PLA-I61: «Doc Plan» (what the stage still needs) said in words.
+const waitWord = (w: string) => w.replace(/^Doc (\w+)$/, (_m, d: string) => `falta el doc ${d}`);
+const ideaLine = (i: FichaIdea) => `${STAGE_WORD[i.stage ?? "idea"] ?? i.stage}${i.waits ? ` · ${waitWord(i.waits)}` : ""}`;
 const prLine = (pr: FichaPr) => [PR_STATE[pr.state] ?? pr.state, pr.ci_state ? CI_WORD[pr.ci_state] : null].filter(Boolean).join(" · ");
 const docLine = (d: FichaDoc, timeZone?: string) => `${d.task_key ?? "del proyecto"} · ${day(d.updated_at, timeZone)}`;
 
@@ -179,20 +183,42 @@ const ListTab = ({ tab, rows, onRef, timeZone }: { tab: Exclude<FichaTab, "resum
       ) : (
         <ul className="edi-fi-lis">
           {f.ideas.map((i) => (
-            <Li key={i.key} data={i.key} title={i.title} sub={ideaLine(i)} onClick={() => onRef({ kind: "idea", key: i.key })} />
+            <Li key={i.key} data={i.key} title={i.summary?.trim() || i.title} sub={`${i.key} · ${ideaLine(i)}`} badge={i.unseen ? `${i.unseen} sin ver` : undefined} onClick={() => onRef({ kind: "idea", key: i.key })} />
           ))}
         </ul>
       );
-    if (tab === "diseno")
-      return f.designs.length === 0 ? (
+    if (tab === "diseno") {
+      // PLA-I61-2: ideas whose frames live in Plania first (they open La idea abierta on Diseño), then artifact links.
+      const lienzos = f.lienzos ?? [];
+      const links = f.designs.filter((d) => !lienzos.some((l) => l.key === d.idea_key));
+      return lienzos.length + links.length === 0 ? (
         <Empty>Ninguna idea tiene lienzo todavía.</Empty>
       ) : (
-        <ul className="edi-fi-lis">
-          {f.designs.map((d) => (
+        <ul className="edi-fi-lis ia-lienzos">
+          {lienzos.map((l) => (
+            <li key={l.key}>
+              <button type="button" className="ia-lcard" onClick={() => onRef({ kind: "idea", key: l.key, from: "diseno" })} data-fi-row={l.key}>
+                <span className="ia-lthumbs" aria-hidden>
+                  {l.thumbs.map((t) => (
+                    <img key={t} src={t} alt="" loading="lazy" />
+                  ))}
+                </span>
+                <span className="edi-ftx">
+                  <b>{l.title}</b>
+                  <small>
+                    {l.key} · {l.count} {l.count === 1 ? "marco" : "marcos"}
+                  </small>
+                </span>
+                {l.unseen > 0 && <span className="ia-unseen">sin ver</span>}
+              </button>
+            </li>
+          ))}
+          {links.map((d) => (
             <Li key={d.url} data={d.url} title={f.ideas.find((i) => i.key === d.idea_key)?.title ?? "Lienzo"} sub={`Lienzo · ${d.idea_key}`} onClick={() => onRef({ kind: "lienzo", url: d.url })} />
           ))}
         </ul>
       );
+    }
     if (tab === "prs")
       return f.prs.length === 0 ? (
         <Empty>Este proyecto no tiene PRs.</Empty>
@@ -323,7 +349,8 @@ const TicketLists = ({ tickets, now, onRef, board }: { tickets: ProjectTicket[];
   );
 };
 
-type PedidoProps = { pedido?: Load<PedidoDetail>; pedidoActs?: PedidoActs; pedidoSlots?: PedidoSlots };
+// PLA-I61: a request (Pedido) and an idea (Ideas, Diseño) open the same view, read from GET …/ideas/:key.
+type PedidoProps = { idea?: Load<IdeaDetail>; ideaActs?: IdeaActs; pedidoSlots?: PedidoSlots };
 // PLA-I56-2: closing an initiative whose every step is Done (the owner's call; the server accepts it then).
 export type CerrarActs = { onCerrar: (slug: string, key: string, version: number) => void; busy: string | null };
 
@@ -345,11 +372,16 @@ function legClose(ini: OpenInitiative): { line: string; left: string | null; rea
   return { line, left: ini.total > 0 && parts.length ? `Podrás cerrarla cuando todos sus pasos estén hechos. Falta: ${parts.join("; ")}.` : null, ready };
 }
 
-const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone, pedido, pedidoActs, pedidoSlots, cerrar }: { p: OrgProject; r: Exclude<FichaRef, { kind: "tab" }>; rows: Load<OrgFicha>; task: Load<TaskDetail>; doc: Load<ProjectDocBody>; onRef: (r: FichaRef) => void; slots: FichaSlots; now: number; timeZone?: string; cerrar?: CerrarActs } & PedidoProps) => {
+const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone, idea, ideaActs, cerrar }: { p: OrgProject; r: Exclude<FichaRef, { kind: "tab" }>; rows: Load<OrgFicha>; task: Load<TaskDetail>; doc: Load<ProjectDocBody>; onRef: (r: FichaRef) => void; slots: FichaSlots; now: number; timeZone?: string; cerrar?: CerrarActs } & PedidoProps) => {
   switch (r.kind) {
     // PLA-I54-3: one request of the owner's, and the shelf.
     case "pedido":
-      return whenLoaded(pedido ?? { status: "loading" }, "el pedido", (d) => <PedidoTab d={d} now={now} timeZone={timeZone} acts={{ ...pedidoActs, onDoc: (id) => onRef({ kind: "doc", id }), onTrack: (key) => onRef({ kind: "leg", key }) }} slots={pedidoSlots} />);
+    case "idea": {
+      const back = r.kind === "pedido" ? "pedido" : (r.from ?? "ideas");
+      return whenLoaded(idea ?? { status: "loading" }, r.kind === "pedido" ? "el pedido" : "la idea", (d) => (
+        <IdeaTab d={d} now={now} timeZone={timeZone} from={TAB_WORD[back]} acts={{ ...ideaActs, onBack: () => onRef({ kind: "tab", tab: back }), onTrack: (key) => onRef({ kind: "leg", key }) }} />
+      ));
+    }
     case "guardadas":
       return <PedidoList p={p} onRef={onRef} shelf />;
     case "step":
@@ -359,25 +391,6 @@ const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone, pedido, pe
           <TaskBody t={t} onRef={onRef} timeZone={timeZone} />
         </>
       ));
-    case "idea":
-      return whenLoaded(task, "la idea", (t) => {
-        const row = rows.data?.ideas.find((i) => i.key === r.key);
-        const here = STAGES.indexOf((t.stage ?? "idea") as (typeof STAGES)[number]);
-        return (
-          <>
-            <Title eyebrow="Idea" title={t.title} state={row?.waits ?? t.waits ?? undefined} />
-            <ol className="edi-fi-tube" aria-label="Etapas">
-              {STAGES.map((s, i) => (
-                <li key={s} data-on={i <= here ? "" : undefined} data-here={i === here ? "" : undefined}>
-                  <i aria-hidden />
-                  <span>{STAGE_WORD[s]}</span>
-                </li>
-              ))}
-            </ol>
-            <TaskBody t={t} onRef={onRef} timeZone={timeZone} />
-          </>
-        );
-      });
     case "leg": {
       // PLA-I53-3: an open initiative lists its tickets by stage from the board's read; a completed one says so.
       const ini = p.tablero?.initiatives.find((i) => i.key === r.key);
@@ -467,7 +480,7 @@ const Detail = ({ p, r, rows, task, doc, onRef, slots, now, timeZone, pedido, pe
         <>
           <Title eyebrow={d.task_key ? `Doc de ${d.task_key}` : "Doc del proyecto"} title={d.title} state={`v${d.version}`} />
           <div className="edi-fi-md">
-            <Markdown>{d.markdown}</Markdown>
+            <Markdown remarkPlugins={[remarkGfm]}>{d.markdown}</Markdown>
           </div>
         </>
       ));
@@ -530,9 +543,8 @@ export const Ficha = ({
   timeZone,
   onRef,
   onClose,
-  pedido,
-  pedidoActs,
-  pedidoSlots,
+  idea,
+  ideaActs,
   home,
   homeOn = false,
   onHome,
@@ -590,7 +602,8 @@ export const Ficha = ({
         {atHome && home.body}
         {/* Lo último closes the home tab: on a quiet floor it is what there is to read. */}
         {atHome && slots.last}
-        {!atHome && fref.kind !== "tab" && (
+        {/* PLA-I61: La idea abierta draws its own way back once loaded; until then (loading, error) this one shows. */}
+        {!atHome && fref.kind !== "tab" && !((fref.kind === "idea" || fref.kind === "pedido") && idea?.status === "ok") && (
           <button type="button" className="edi-fi-back" onClick={() => onRef({ kind: "tab", tab })} data-control="ficha-volver">
             ← {TAB_WORD[tab]}
           </button>
@@ -608,7 +621,7 @@ export const Ficha = ({
             <ListTab tab={fref.tab} rows={rows} onRef={onRef} timeZone={timeZone} />
           )
         ) : (
-          <Detail p={p} r={fref} rows={rows} task={task} doc={doc} onRef={onRef} slots={slots} now={now} timeZone={timeZone} pedido={pedido} pedidoActs={pedidoActs} pedidoSlots={pedidoSlots} cerrar={cerrar} />
+          <Detail p={p} r={fref} rows={rows} task={task} doc={doc} onRef={onRef} slots={slots} now={now} timeZone={timeZone} idea={idea} ideaActs={ideaActs} cerrar={cerrar} />
         )}
       </div>
     </section>

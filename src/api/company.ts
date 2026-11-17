@@ -41,6 +41,8 @@ import { askMode, askPo, pickNext, resendRequest, setProjectOptions, startTeamma
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
 import { cancelOrder } from "./company-orders.js";
 import { construirPedido, descartarPedido, guardarPedido, pedidoDetail, restaurarPedido } from "./company-pedido.js";
+import { ideaDespertar, ideaDetail, ideaRespuesta, ideaVisto } from "./company-idea.js";
+import { frameBytes } from "../pedidos/frames.js";
 import { promptDoc } from "./company-extra.js";
 import { fichaRead, projectDocRead } from "./company-ficha.js";
 import { addTeamMember, companyRead, projectRead } from "./company-org.js";
@@ -415,6 +417,33 @@ companyRoutes.post("/projects/:slug/pedidos/:key/descartar", async (c) => {
   const input = z.object({ reason: z.string().trim().max(500).optional() }).strict().safeParse(json);
   if (!input.success) return c.json({ error: "INVALID_BODY" }, 400);
   return send(c, await withDb((db) => descartarPedido(db, c.req.param("slug"), c.req.param("key"), input.data.reason)));
+});
+// PLA-I61 (La idea abierta, src/api/company-idea.ts): any idea, its stops and deliveries; seen, answers, wake, frames.
+companyRoutes.get("/projects/:slug/ideas/:key", async (c) => send(c, await withDb((db) => ideaDetail(db, c.req.param("slug"), c.req.param("key")))));
+companyRoutes.post("/projects/:slug/ideas/:key/visto", async (c) => {
+  const input = await body(c, z.object({ stop: z.string().min(1).max(20) }).strict());
+  if (input instanceof Response) return input;
+  return send(c, await withDb((db) => ideaVisto(db, c.req.param("slug"), c.req.param("key"), input.stop)));
+});
+const Answer = z
+  .object({
+    stop: z.string().min(1).max(20),
+    verdict: z.enum(["ok", "deshacer", "cambios", "opcion", "corregir"]),
+    text: z.string().trim().max(1000).optional(),
+    option: z.number().int().min(1).max(20).optional(),
+    notes: z.array(z.object({ frame: z.string().min(1).max(16), x: z.number(), y: z.number(), text: z.string().max(600) }).strict()).max(30).optional(),
+  })
+  .strict();
+companyRoutes.post("/projects/:slug/ideas/:key/respuesta", async (c) => {
+  const input = await body(c, Answer);
+  if (input instanceof Response) return input;
+  return send(c, await withDb((db) => ideaRespuesta(db, c.req.param("slug"), c.req.param("key"), input)));
+});
+companyRoutes.post("/projects/:slug/ideas/:key/despertar", async (c) => send(c, await withDb((db) => ideaDespertar(db, c.req.param("slug"), c.req.param("key")))));
+companyRoutes.get("/projects/:slug/ideas/:key/frames/:id", async (c) => {
+  const r = await withDb((db) => frameBytes(db, c.req.param("slug"), c.req.param("key"), c.req.param("id")));
+  if (!r) return c.json({ error: "FRAME_NOT_FOUND", hint: "No encontré ese marco." }, 404);
+  return c.body(new Uint8Array(r.bytes), 200, { "Content-Type": r.mime, "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" });
 });
 // PLA-I40-6: Reenviar a request nobody took (Cerrar is the cancel below).
 companyRoutes.post("/projects/:slug/requests/:key/resend", async (c) => send(c, await withDb((db) => resendRequest(db, c.req.param("slug"), c.req.param("key")))));

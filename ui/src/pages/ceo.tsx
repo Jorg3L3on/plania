@@ -39,10 +39,10 @@ import { ceoRedirect, sheetOf, sheetSearch } from "@/lib/compania";
 import { caption, floorOrder, oficinaOf, seatIn } from "@/lib/edificio";
 import { openFloor, stepFloor } from "@/components/compania/edificio/tower";
 import { Ficha, type Load } from "@/components/compania/edificio/ficha";
-import type { PedidoActs } from "@/components/compania/edificio/pedido";
+import type { IdeaActs } from "@/components/compania/edificio/idea";
 import { Resguardo } from "@/components/compania/edificio/resguardo";
 import { After, Last } from "@/components/compania/edificio/after";
-import { FICHA_TABS, escStep, fichaOf, fichaSearch, needsRows, needsTask, type FichaRef } from "@/lib/ficha";
+import { FICHA_TABS, escStep, fichaOf, fichaSearch, needsIdea, needsRows, needsTask, type FichaRef } from "@/lib/ficha";
 import { nivelOf, type Nivel } from "@/lib/maquinas";
 import { NivelSwitch, useMaquinasRoom } from "@/components/compania/edificio/maquinas-live";
 import { TableroLive } from "@/components/compania/edificio/tablero";
@@ -296,8 +296,9 @@ const Compania = () => {
   const docId = fref.kind === "doc" ? fref.id : null;
   const fichaDoc = useQuery({ queryKey: ["ficha-doc", fslug, docId], queryFn: () => api.projectDoc(fslug, docId!), enabled: fichaOpen && !!fslug && !!docId });
   // PLA-I54-3: the open request in the Pedido tab; read again while it is shown, so the PO's moves land in its trail.
-  const pedidoKey = fref.kind === "pedido" ? fref.key : null;
-  const fichaPedido = useQuery({ queryKey: ["ficha-pedido", fslug, pedidoKey], queryFn: () => api.pedido(fslug, pedidoKey!), enabled: fichaOpen && !!fslug && !!pedidoKey, refetchInterval: 15_000 });
+  // PLA-I61: a request and an idea open La idea abierta, read again while shown so the team's moves land in it.
+  const pedidoKey = needsIdea(fref);
+  const fichaIdea = useQuery({ queryKey: ["ficha-pedido", fslug, pedidoKey], queryFn: () => api.idea(fslug, pedidoKey!), enabled: fichaOpen && !!fslug && !!pedidoKey, refetchInterval: 15_000 });
   const detail = useQuery({
     queryKey: ["company-project", fslug],
     queryFn: () => api.companyProject(fslug),
@@ -478,7 +479,7 @@ const Compania = () => {
         void client.invalidateQueries({ queryKey: ["ficha-pedido"] });
       });
   };
-  const pedidoActs: PedidoActs | undefined = pedidoKey
+  const pedidoActs: IdeaActs | undefined = pedidoKey
     ? {
         onAnswer: (qid, text) => pedidoDo("answer", () => api.answer(fslug, qid, text)),
         // PLA-I54-5: the note, then its pictures; a refused picture says why (too big, a seventh one).
@@ -494,6 +495,10 @@ const Compania = () => {
         onDescartar: () => pedidoDo("descartar", () => api.pedidoAct(fslug, pedidoKey, "descartar")),
         // PLA-I54-4: «Constrúyelo».
         onConstruir: () => pedidoDo("construir", () => api.pedidoAct(fslug, pedidoKey, "construir")),
+        // PLA-I61: seen (quietly, no busy state), answers and wake.
+        onVisto: (stop) => void api.ideaVisto(fslug, pedidoKey, stop).then(() => client.invalidateQueries({ queryKey: ["ficha-pedido"] }), () => undefined),
+        onRespuesta: (input) => pedidoDo("respuesta", () => api.ideaRespuesta(fslug, pedidoKey, input)),
+        onDespertar: () => pedidoDo("despertar", () => api.ideaDespertar(fslug, pedidoKey)),
         busy: pedidoBusy,
       }
     : undefined;
@@ -830,8 +835,8 @@ const Compania = () => {
                   homeOn={!fichaAt}
                   onHome={closeFicha}
                   slots={{ ...fichaSlots(fichaProject), board: parts.board, tubo: parts.tubo }}
-                  pedido={loadOf(fichaPedido, !!pedidoKey)}
-                  pedidoActs={pedidoActs}
+                  idea={loadOf(fichaIdea, !!pedidoKey)}
+                  ideaActs={pedidoActs}
                   cerrar={{ onCerrar: (slug, key, version) => cerrar.mutate({ slug, key, version }), busy: cerrar.isPending ? (cerrar.variables?.key ?? null) : null }}
                 />
                 </Resguardo>

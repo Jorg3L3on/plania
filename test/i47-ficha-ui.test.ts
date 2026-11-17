@@ -101,10 +101,10 @@ test("I47-4 #1: every detail kind draws, with a way back to its tab", () => {
   assert.ok(["Paso", "Hosting", "Hecho cuando", "La página abre en la copia de prueba", "Evidencia", "pnpm test 12 de 12", "PR #7", "Historia", "← Resumen"].every((x) => text(step).includes(x)));
   assert.match(step, /<li data-ok="">La página abre/);
   assert.match(render({ kind: "step", key: "LUM-2" }, { task: { status: "loading" } }), /data-state="loading"/);
-  const idea = render({ kind: "idea", key: "LUM-IDEA1" }, { task: ok({ ...task, key: "LUM-IDEA1", title: "Pagos en línea", stage: "design" }), rows: ok(rowsData) });
-  assert.ok(text(idea).includes("Doc Diseño") && text(idea).includes("← Ideas"));
-  assert.equal((idea.match(/data-on=""/g) ?? []).length, 3, "idea, research and design lit");
-  assert.match(idea, /data-here=""><i aria-hidden="true"><\/i><span>Diseño/);
+  // PLA-I61: an idea opens La idea abierta (its own read; i61-idea-ui covers the view). Loading still has a way back.
+  const idea = render({ kind: "idea", key: "LUM-IDEA1" }, { idea: { status: "loading" } });
+  assert.ok(text(idea).includes("← Ideas"));
+  assert.match(idea, /data-state="loading"/);
   const leg = render({ kind: "leg", key: "LUM-I1" });
   // PLA-I53-3: with no board in the read (an older server) a leg says its count; the board's own list is in i53-board-ui.
   assert.ok(text(leg).includes("Arranque") && text(leg).includes("1 de 2 hechos") && text(leg).includes("todavía no trae los pasos"));
