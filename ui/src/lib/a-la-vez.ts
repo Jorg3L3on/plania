@@ -175,8 +175,13 @@ export function heldText(code: RunnerHeld | null, d: Record<string, unknown> | n
       return `${who} descansa entre corridas`;
     case "lock":
       return "Espera a que termine el trabajo en la misma rama o ticket";
-    case "areas":
-      return "Espera: otro trabajo toca los mismos archivos";
+    case "areas": {
+      // PLA-58: which ticket, and which files («Espera a MIA-I7-2: cambia src/components/ui/native-select.tsx»).
+      const other = typeof d?.with === "string" ? d.with : null;
+      const files = Array.isArray(d?.files) ? (d!.files as unknown[]).filter((f): f is string => typeof f === "string") : [];
+      if (!other) return "Espera: otro trabajo toca los mismos archivos";
+      return files.length ? `Espera a ${other}: cambia ${files.join(", ")}` : `Espera a ${other}: toca los mismos archivos`;
+    }
     default:
       return "En cola";
   }

@@ -619,3 +619,85 @@ test("I60-5 #1: the preview says what Guardar would start and offers the number 
   const save = alv.withCounts({ project: "mianovia" }, alv.countsOf(r, team), c);
   assert.deepEqual(save, { project: "mianovia", seats: [{ agent: "po-x", max_parallel: 2 }], floor: { max_concurrent: 3 }, company: { max_concurrent: 4 } });
 });
+
+// ---- PLA-58: what a run really changes, and the files every step builds on.
+
+const touchedMod = await import("../src/runner/touched.js");
+const { writeFileSync } = await import("node:fs");
+const areasOf = async (key: string) => (await raw.query(`select areas from tasks where key = $1`, [key])).rows[0].areas as string[];
+const heldOf = async (runId: string) => (await raw.query(`select status, held_code, held_detail from agent_runs where id = $1`, [runId])).rows[0] as { status: string; held_code: string | null; held_detail: Record<string, unknown> | null };
+
+test("PLA-58 #1: a live Taller run's changed files outside its areas join them on the next tick; covered files add nothing", async () => {
+  await t2Reset();
+  const key = await ticketIn("micasa", "Registro con piezas", { areas: ["src/app/registro/**"] });
+  const wt = path.join(scratch, "wt-touched");
+  mkdirSync(wt, { recursive: true });
+  writeFileSync(path.join(wt, ".git"), "gitdir: /nowhere\n");
+  await raw.query(
+    `insert into agent_runs (agent_id, project_id, role, status, summary, task_key, work_key, trigger, started_at, worker_id, worktree_path, lane)
+     values ($1, $2, 'taller', 'running', 'running', $3, 'task:' || $3, 'event', now(), 'other:main', $4, 'work')`,
+    [await id("agents", "taller-micasa"), await projectId("micasa"), key, wt],
+  );
+  const out: Record<string, string> = {
+    diff3: "src/app/registro/formulario.tsx\nsrc/components/ui/native-select.tsx\n",
+    diffHead: "src/app/registro/formulario.tsx\n",
+    others: "src/app/registro/nuevo.tsx\n",
+  };
+  const git = async (args: string[]) => ({ code: 0, stderr: "", stdout: args[0] === "ls-files" ? out.others! : args[2] === "HEAD" ? out.diffHead! : out.diff3! });
+  const { version } = (await raw.query(`select version from tasks where key = $1`, [key])).rows[0];
+
+  assert.deepEqual(await touchedMod.sweepTouched(db, { git }), { grown: 1 });
+  assert.deepEqual(await areasOf(key), ["src/app/registro/**", "src/components/ui/native-select.tsx"]);
+  const ev = (await raw.query(`select actor, payload from events where task_key = $1 and type = 'task.areas_touched'`, [key])).rows;
+  assert.deepEqual(ev.map((e) => [e.actor.session_id, e.payload.files]), [["system", ["src/components/ui/native-select.tsx"]]]);
+  assert.equal((await raw.query(`select version from tasks where key = $1`, [key])).rows[0].version, version, "derived, not an edit: the run's own writes are not refused");
+  assert.deepEqual(await touchedMod.sweepTouched(db, { git }), { grown: 0 }, "covered now");
+
+  // Many new files in one folder become the folder.
+  out.diff3 = Array.from({ length: 14 }, (_, i) => `src/lib/gen/f${i}.ts`).join("\n");
+  assert.deepEqual(await touchedMod.sweepTouched(db, { git }), { grown: 1 });
+  assert.ok((await areasOf(key)).includes("src/lib/gen/**"));
+  await raw.query(`delete from agent_runs`);
+});
+
+test("PLA-58 #2: shared paths keep code runs apart and the hold names the ticket and the files", async () => {
+  // MIA-I7-2 (registro) is changing the shared NativeSelect; MIA-I7-3 (panel) declares only its own folder.
+  await t2Reset();
+  await setRunner("micasa", { max_concurrent: 5, max_per_agent: 5 });
+  const i2 = await ticketIn("micasa", "Registro", { areas: ["src/app/registro/**", "src/components/ui/native-select.tsx"] });
+  await liveRun("taller-micasa", "micasa", i2);
+  const i3 = await ticketIn("micasa", "Panel", { areas: ["src/app/panel/**"] });
+  const q3 = await queueRun("taller-micasa", "micasa", i3);
+  const f = fakes();
+  await runner.drainQueue(db, new Date(), f.deps as never);
+  const held = await heldOf(q3);
+  assert.deepEqual([held.status, held.held_code], ["queued", "areas"]);
+  assert.deepEqual(held.held_detail, { with: i2, files: ["src/components/ui/native-select.tsx"] });
+  assert.equal(alv.heldText("areas", held.held_detail, "Taller"), `Espera a ${i2}: cambia src/components/ui/native-select.tsx`);
+  assert.equal(alv.heldText("areas", {}, "Taller"), "Espera: otro trabajo toca los mismos archivos", "an old hold without detail still reads");
+
+  // The project says nothing is shared: the panel starts.
+  await setRunner("micasa", { max_concurrent: 5, max_per_agent: 5, shared_areas: [] });
+  await runner.drainQueue(db, new Date(), f.deps as never);
+  assert.equal((await heldOf(q3)).status, "running");
+  await finishAll(f);
+});
+
+test("PLA-58 #3: no shared or overlapping path starts side by side; a ticket that declares a shared path waits for any live code run", async () => {
+  await t2Reset();
+  await setRunner("micasa", { max_concurrent: 5, max_per_agent: 5 });
+  const a = await ticketIn("micasa", "Registro", { areas: ["src/app/registro/**"] });
+  await liveRun("taller-micasa", "micasa", a);
+  const b = await queueRun("taller-micasa", "micasa", await ticketIn("micasa", "Panel", { areas: ["src/app/panel/**"] }));
+  const deps = await ticketIn("micasa", "Dependencias", { areas: ["package.json"] });
+  const c = await queueRun("taller-micasa", "micasa", deps);
+  const f = fakes();
+  await runner.drainQueue(db, new Date(), f.deps as never);
+  assert.equal((await heldOf(b)).status, "running", "separate folders, nothing shared");
+  const hc = await heldOf(c);
+  assert.deepEqual([hc.status, hc.held_code, (hc.held_detail as { files: string[] }).files], ["queued", "areas", ["package.json"]]);
+  // The default list, as the screen and the runner read it.
+  assert.ok(touchedMod.isShared("src/components/ui/button.tsx", touchedMod.sharedAreasOf(undefined)));
+  assert.ok(!touchedMod.isShared("src/app/panel/page.tsx", touchedMod.sharedAreasOf(undefined)));
+  await finishAll(f);
+});

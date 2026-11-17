@@ -60,6 +60,7 @@ import {
   type MachineFacts,
 } from "./admission.js";
 import { areasOverlap } from "../mcp/writes.js";
+import { isShared, sharedAreasOf } from "./touched.js";
 import { PREGUNTA_MARK } from "../captures/preguntas.js";
 import { EVENT_SUMMARY, enqueueWake, wakePoIfWaiting } from "./events.js";
 import { capacityFacts, capacityHold, agentFacts, agentHold, projectGoal } from "./hold.js";
@@ -524,7 +525,9 @@ export async function admit(db: Db, now: Date, deps: RunnerDeps = {}, opts: Admi
     const hold = async (run: AgentRun, code: HeldCode, detail: Record<string, unknown>) => {
       result.outcomes.set(run.id, { kind: "held", code, summary: HOLD_SUMMARY[code] });
       // Written when the reason changes (the numbers in it move every pass; the screen reads live counts anyway).
-      if (run.heldCode !== code) await tx.update(agentRuns).set({ heldCode: code, heldDetail: detail }).where(eq(agentRuns.id, run.id));
+      // PLA-58: an areas hold names the ticket and files, so a different one is written too.
+      const moved = run.heldCode !== code || (code === "areas" && JSON.stringify(run.heldDetail ?? {}) !== JSON.stringify(detail));
+      if (moved) await tx.update(agentRuns).set({ heldCode: code, heldDetail: detail }).where(eq(agentRuns.id, run.id));
     };
     const holdRest = async (from: number, code: HeldCode, detail: Record<string, unknown>, lane?: string) => {
       const rest = ordered.slice(from).filter((q) => (!lane || q.run.lane === lane) && !result.outcomes.has(q.run.id));
@@ -635,9 +638,10 @@ export async function admit(db: Db, now: Date, deps: RunnerDeps = {}, opts: Admi
         await hold(run, "lock", { keys: taken.held });
         continue;
       }
-      if (limits.serializeAreas && ctx.role === "taller" && task && (await areasClash(tx, project.id, task.key))) {
+      const clash = limits.serializeAreas && ctx.role === "taller" && task ? await areasClash(tx, project.id, task.key, sharedAreasOf(project.settings?.runner)) : null;
+      if (clash) {
         await releaseLocks(tx, run.id);
-        await hold(run, "areas", {});
+        await hold(run, "areas", clash);
         continue;
       }
       const [updated] = await tx
@@ -695,16 +699,28 @@ const safePath = (fn: () => string): string | null => {
 };
 
 // A code run waits while a live code run in the same project lists areas that overlap its ticket's.
-async function areasClash(tx: Q, projectId: string, key: string): Promise<boolean> {
+// PLA-58: the live run's areas include what it really changed (sweepTouched). And shared paths (shadcn's
+// components/ui, package.json, lockfiles…) are everyone's: while a live run touches one, every other code run
+// waits; a ticket that declares one waits for any live code run. The hold names the other ticket and the files.
+export async function areasClash(tx: Q, projectId: string, key: string, shared: string[] = []): Promise<{ with: string; files: string[] } | null> {
   const [mine] = await tx.select({ areas: tasks.areas }).from(tasks).where(and(eq(tasks.projectId, projectId), eq(tasks.key, key))).limit(1);
   const a = mine?.areas ?? [];
-  if (a.length === 0) return false;
   const others = await tx
-    .select({ areas: tasks.areas })
+    .select({ key: tasks.key, areas: tasks.areas })
     .from(agentRuns)
     .innerJoin(tasks, and(eq(tasks.projectId, agentRuns.projectId), eq(tasks.key, agentRuns.taskKey)))
     .where(and(eq(agentRuns.projectId, projectId), inArray(agentRuns.status, ["starting", "running"]), eq(agentRuns.role, "taller"), sql`${agentRuns.taskKey} <> ${key}`));
-  return others.some((o) => (o.areas ?? []).some((x) => a.some((y) => areasOverlap(x, y))));
+  const mineShared = a.filter((y) => isShared(y, shared));
+  for (const o of others) {
+    const theirs = o.areas ?? [];
+    const files = [
+      ...theirs.filter((x) => a.some((y) => areasOverlap(x, y))),
+      ...theirs.filter((x) => isShared(x, shared)),
+      ...mineShared,
+    ];
+    if (files.length) return { with: o.key, files: [...new Set(files)].slice(0, 3) };
+  }
+  return null;
 }
 
 // The motor a run would start with (for its plan weight).
