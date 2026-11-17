@@ -224,7 +224,7 @@ const Sumar = ({ p, motorDefault, focus }: { p: OrgProject; motorDefault?: { mod
               <ul>
                 {(packs.data?.packs ?? []).map((x) => (
                   <li key={x.slug}>
-                    <label className="cor-check">
+                    <label className="cor-check" data-inline-ok>
                       <input type="checkbox" checked={pk.includes(x.slug)} onChange={() => setChosen({ role, packs: pk.includes(x.slug) ? pk.filter((s) => s !== x.slug) : [...pk, x.slug] })} data-pack={x.slug} />
                       <span>{x.name}</span>
                     </label>

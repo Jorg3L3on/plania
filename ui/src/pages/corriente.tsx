@@ -18,6 +18,9 @@ import { Board, Paso, type BoardLinks } from "@/components/corriente/tablero";
 import { Equipo } from "@/components/corriente/equipo";
 import { Idea } from "@/components/corriente/idea";
 import { Disenos, Docs, Ideas, Prs } from "@/components/corriente/listas";
+import { Motores } from "@/components/corriente/motores";
+import { Maquinas } from "@/components/corriente/maquinas";
+import { Meta, NuevoProyecto, Pausar, Publicar, Reanudar, type HojaKind } from "@/components/corriente/hojas";
 import type { PendLinks } from "@/components/corriente/pendiente";
 import { Head } from "@/components/corriente/header";
 import { Btn, NotYet, ReadError } from "@/components/corriente/parts";
@@ -25,8 +28,6 @@ import { PedirBar } from "@/components/corriente/pedir-bar";
 import { Piezas } from "@/components/corriente/piezas";
 import { ProjectBar, Strip } from "@/components/corriente/strip";
 import { Stream, type StreamLinks } from "@/components/corriente/stream";
-import { GoalDialog } from "@/components/goals/goal-dialog";
-import type { Goal } from "@/components/goals/model";
 import { ApiError, api, type OrgProject } from "@/lib/api";
 import { WORK_TABS, atOf, hrefOf, isBuilt, legacyHref, linkTo, type AskInput, type At, type Tab } from "@/lib/corriente";
 import { CLOSED, headlineOf, lanesOf, projectOfKey, totalsOf } from "@/lib/corriente-stream";
@@ -35,11 +36,15 @@ import { useMinute } from "@/pages/ceo";
 
 const typingIn = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || !!t.closest("[role=dialog]"));
 
-/** The goal dialog's goal for a project (its placeholder is edited, not kept). */
-const goalOf = (p: OrgProject | null): Goal | null =>
-  p?.rumbo?.goal_id != null
-    ? { id: p.rumbo.goal_id, title: p.rumbo.goal ?? "", why: p.rumbo.why, status: "active", target_on: p.rumbo.target_on, position: 0, project: p.slug, parent_id: null, progress: { done: 0, total: 0 }, initiatives: [], children: [] }
-    : null;
+/** The sheet the address opens: ?hoja=<kind>[:<slug>] (?nuevo, the building's link, is Nuevo proyecto too). */
+export function hojaOf(search: string): { kind: HojaKind; slug: string | null } | null {
+  const q = new URLSearchParams(search);
+  if (q.has("nuevo")) return { kind: "nuevo", slug: null };
+  const raw = q.get("hoja");
+  if (!raw) return null;
+  const [kind, slug] = raw.split(":") as [string, string | undefined];
+  return (["nuevo", "pausar", "reanudar", "publicar", "meta"] as const).includes(kind as HojaKind) ? { kind: kind as HojaKind, slug: slug || q.get("proyecto") } : null;
+}
 
 /** Esc from where the address is: what a tab has open, then the tab, then the project. */
 export function escFrom(at: At): Partial<At> {
@@ -86,7 +91,21 @@ export const CorrientePage = () => {
     refresh();
     return r;
   };
-  const [fijar, setFijar] = useState<OrgProject | null>(null);
+  const hoja = hojaOf(location.search);
+  const hojaHref = (kind: HojaKind, slug?: string | null) => {
+    const q = new URLSearchParams(location.search);
+    q.delete("nuevo");
+    q.set("hoja", slug ? `${kind}:${slug}` : kind);
+    return `${location.pathname}?${q.toString()}`;
+  };
+  const closeHoja = () => {
+    const q = new URLSearchParams(location.search);
+    q.delete("hoja");
+    q.delete("nuevo");
+    const out = q.toString();
+    navigate(`${location.pathname}${out ? `?${out}` : ""}`, { replace: true });
+  };
+  const openHoja = (kind: HojaKind, slug?: string | null) => navigate(hojaHref(kind, slug));
 
   const lanes = useMemo(() => (company ? lanesOf(company.projects, summaries.data, decisions, paused) : []), [company, summaries.data, decisions, paused]);
   const project = at.slug ? (company?.projects.find((p) => p.slug === at.slug) ?? null) : null;
@@ -153,16 +172,15 @@ export const CorrientePage = () => {
     tablero: linkTo({ slug, tab: "tablero" }),
     equipo: linkTo({ slug, tab: "equipo" }),
     miembro: (agent) => linkTo({ slug, ver: { kind: "miembro", agent } }),
-    // Publicar is a sheet of PLA-I62-8; until then the building's floor, where its button is.
-    publicar: legacyHref({ slug }),
+    publicar: hojaHref("publicar", slug),
+    pausar: hojaHref("pausar", slug),
     pagina: `/p/${encodeURIComponent(slug)}`,
-    hash: (href) => (href === "#te-toca" ? linkTo({ view: "tetoca" }) : legacyHref({ slug })),
+    hash: (href) => (href === "#te-toca" ? linkTo({ view: "tetoca" }) : href === "#publicar" ? hojaHref("publicar", slug) : linkTo({ slug })),
   });
 
   const pendLinks: PendLinks = {
     entrega: (d) => linkTo({ slug: d.project ?? undefined, ver: { kind: "entrega", id: d.id } }),
-    // Publicar is a sheet of PLA-I62-8; until then the building's floor, where its button is.
-    publicar: (d) => legacyHref({ slug: d.project ?? undefined }),
+    publicar: (d) => hojaHref("publicar", d.project),
     project: (slug) => linkTo({ slug }),
   };
   const focusParam = new URLSearchParams(location.search).get("decision");
@@ -235,7 +253,29 @@ export const CorrientePage = () => {
           }}
         />
       );
-    if (at.tab === "ahora") return <Ahora p={p} decisions={decisions} now={now} timeZone={timeZone} companyPaused={paused} totals={totals} acts={acts} links={ahoraLinks(p.slug)} onFijar={setFijar} />;
+    if (at.tab === "motores")
+      return (
+        <Motores
+          p={p}
+          def={company?.motor_default}
+          planTo="/machine"
+          onSave={async (save) => {
+            const out = await api.saveMotores(save);
+            void client.invalidateQueries({ queryKey: ["company"] });
+            return out;
+          }}
+        />
+      );
+    if (at.tab === "maquinas")
+      return (
+        <Maquinas
+          p={p}
+          focus={at.ver?.kind === "maq" ? at.ver.what : at.ver?.kind === "tabla" ? `tabla:${at.ver.name}` : null}
+          onFocus={(what) => navigate(linkTo({ slug: p.slug, tab: "maquinas", ver: what ? (what.startsWith("tabla:") ? { kind: "tabla", name: what.slice(6) } : { kind: "maq", what }) : null }), { replace: true })}
+          onPedir={(text) => navigate(hrefOf({ view: "pedir", extra: { p: p.slug, texto: text } }))}
+        />
+      );
+    if (at.tab === "ahora") return <Ahora p={p} decisions={decisions} now={now} timeZone={timeZone} companyPaused={paused} totals={totals} acts={acts} links={ahoraLinks(p.slug)} onFijar={(x) => openHoja("meta", x.slug)} />;
     return <NotYet what="Esto" to={legacyHref(at)} />;
   };
 
@@ -268,7 +308,8 @@ export const CorrientePage = () => {
           totals={summaries.data ? totalsOf(company.projects, summaries.data) : null}
           lanes={lanes}
           links={streamLinks}
-          onResume={(slug) => resume.mutate(slug)}
+          onResume={(slug) => openHoja("reanudar", slug)}
+          onNew={() => openHoja("nuevo")}
           resuming={resuming}
           pedir={<PedirBar projects={company.projects} disabled={paused} onAsk={ask} pedirTo={(slug) => pedirTo(slug)} />}
         />
@@ -288,7 +329,7 @@ export const CorrientePage = () => {
         />
       );
     if (at.view === "pedir")
-      return <Pedir projects={company.projects} initial={new URLSearchParams(location.search).get("p")} disabled={paused} onAsk={ask} onPictures={refresh} asistenteTo={hrefOf({ view: "asistente" })} pedidosTo={(slug) => linkTo({ slug, tab: "pedidos" })} />;
+      return <Pedir projects={company.projects} initial={new URLSearchParams(location.search).get("p")} initialText={new URLSearchParams(location.search).get("texto")} disabled={paused} onAsk={ask} onPictures={refresh} asistenteTo={hrefOf({ view: "asistente" })} pedidosTo={(slug) => linkTo({ slug, tab: "pedidos" })} />;
     if (at.view === "asistente")
       return (
         <Asistente
@@ -325,15 +366,17 @@ export const CorrientePage = () => {
         </div>
       )}
       <div className="cor-main">{body()}</div>
-      <GoalDialog
-        open={fijar !== null}
-        goal={goalOf(fijar)}
-        fixedProject={fijar?.slug}
-        projects={[]}
-        parents={[]}
-        onOpenChange={(open) => !open && setFijar(null)}
-        onSaved={() => void client.invalidateQueries({ queryKey: ["company"] })}
-      />
+      {hoja && company && (() => {
+        const hp = hoja.slug ? (company.projects.find((x) => x.slug === hoja.slug) ?? null) : null;
+        if (hoja.kind === "nuevo") return <NuevoProyecto onClose={closeHoja} onOpen={(slug) => navigate(linkTo({ slug }))} />;
+        if (!hp) return null;
+        if (hoja.kind === "pausar") return <Pausar p={hp} onClose={closeHoja} onDone={() => (closeHoja(), refresh())} />;
+        if (hoja.kind === "reanudar") return <Reanudar p={hp} companyPaused={paused} onClose={closeHoja} onDone={() => (closeHoja(), refresh())} plomeriaTo="/machine" />;
+        if (hoja.kind === "meta") return <Meta p={hp} onClose={closeHoja} />;
+        const release = decisions.find((d) => d.project === hp.slug && d.kind === "release" && !d.state) ?? null;
+        const first = decisions.find((d) => d.project === hp.slug && pending(d) && d.kind !== "release") ?? null;
+        return <Publicar p={hp} release={release} first={first} firstTo={first ? (first.kind === "deliverable" || first.kind === "pr" ? linkTo({ slug: hp.slug, ver: { kind: "entrega", id: first.id } }) : hrefOf({ view: "tetoca", extra: { decision: first.id } })) : null} onClose={closeHoja} />;
+      })()}
     </div>
   );
 };

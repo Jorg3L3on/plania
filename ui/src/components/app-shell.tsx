@@ -133,7 +133,7 @@ export function AppShell() {
   // max width around it. The phone keeps room for the tab bar.
   // PLA-I49-4: the Morning brief's desk (/brief) fills the page the same way.
   // PLA-I62: La corriente (/corriente) too.
-  const fullBleed = ["/ceo", "/brief", "/corriente"].includes(useLocation().pathname);
+  const fullBleed = ["/ceo", "/brief", "/corriente", "/machine"].includes(useLocation().pathname);
   // The Bandeja badge and Máquina's quiet Limpieza count; live changes refresh them.
   const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
   const counts = { inbox: inbox.data?.count ?? 0, chores: inbox.data?.chores ?? 0 };
