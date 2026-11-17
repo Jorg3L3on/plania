@@ -5,7 +5,8 @@
 //                the completed ones as chips
 //   Ideas        the tube in small: a dot per idea taking shape at its stop (the shelf, Guardadas, is in the Pedido tab)
 // A click opens that thing in the ventanal (the page's ?f= address); what is open shows pressed. Hook-free and
-// presentational, like the floor.
+// presentational, like the floor. Its sections are night panels in both themes (dark), so the stage colours are the
+// night ones, as on the board.
 import type { CSSProperties, ReactNode } from "react";
 import type { OrgMember, OrgProject } from "@/lib/api";
 import { OPEN_STATIONS, toneOf, trackLine, trackPct, type StageTone, type Track } from "@/lib/etapas";
@@ -79,7 +80,7 @@ export const Indice = ({
 
   return (
     <nav className="edi-idx" data-indice aria-label={`${p.title} de un vistazo`}>
-      <section className="edi-ix" data-ix="equipo" aria-label="Equipo">
+      <section className="dark edi-ix" data-ix="equipo" aria-label="Equipo">
         <header className="edi-ix-head">
           <h3 className="sb-eyebrow">Equipo</h3>
           <small>{teamLine}</small>
@@ -111,7 +112,7 @@ export const Indice = ({
         </div>
       </section>
 
-      <section className="edi-ix" data-ix="iniciativas" aria-label="Iniciativas">
+      <section className="dark edi-ix" data-ix="iniciativas" aria-label="Iniciativas">
         <header className="edi-ix-head">
           <h3 className="sb-eyebrow">Iniciativas</h3>
           {tracks.length > 0 && <small>{iniLine}</small>}
@@ -195,7 +196,7 @@ export const Indice = ({
 
       {/* PLA-I54-1: the owner's ideas taking shape (an older server sends none). */}
       {pedidos && (
-        <section className="edi-ix" data-ix="ideas" aria-label="Ideas tomando forma">
+        <section className="dark edi-ix" data-ix="ideas" aria-label="Ideas tomando forma">
           <button type="button" className="edi-ix-ideas" aria-pressed={ideasOn} onClick={(e) => onIdeas?.(e.currentTarget)} disabled={!onIdeas} data-control="indice-ideas" data-live={live.length}>
             <b>{live.length > 0 ? `Ideas tomando forma · ${live.length}` : "Ideas: nada tomando forma"}</b>
             {waits > 0 && <span className="edi-ix-ct" data-toca={waits}>{one(waits, "te espera", "te esperan")}</span>}
