@@ -118,13 +118,11 @@ async function changes(db: Db, msg: ThreadMessage, ref: ThreadRef, text: string)
   let wake: string = "event";
   if (t.ownerAgent) {
     const [owner] = await db.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
-    const [busy] = owner
-      ? await db.select({ id: agentRuns.id }).from(agentRuns).where(and(eq(agentRuns.agentId, owner.id), inArray(agentRuns.status, ["queued", "running"]))).limit(1)
-      : [];
-    if (owner && !busy) {
+    // PLA-I60-1: one run per work item; a run already on this ticket takes the request too.
+    if (owner) {
       const out = await enqueueWake(db, { agent: owner, project, taskKey: t.key, reason: "changes requested" });
-      wake = out.kind === "queued" ? "queued" : out.reason;
-    } else if (busy) wake = "queued";
+      wake = out.kind === "queued" || out.reason === "coalesced" ? "queued" : out.reason;
+    }
   }
   return record(db, msg, { action: "cambios", at: new Date().toISOString(), result: { ticket: t.key, status: "Ready", text, wake } });
 }

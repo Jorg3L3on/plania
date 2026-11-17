@@ -248,10 +248,12 @@ export const retryPrompt = (prompt: string, issues: string): string =>
   `${prompt}\n\n---\nYour previous answer did not match the JSON schema. Fix these problems and answer again with JSON that matches the schema exactly:\n${issues}`;
 
 // Waits, with no time cutoff, until no runner run is live. Returns false when aborted.
-async function waitForFreeSlot(deps: SpawnPassDeps, signal?: AbortSignal): Promise<boolean> {
+async function waitForFreeSlot(db: Db, deps: SpawnPassDeps, signal?: AbortSignal): Promise<boolean> {
   const live = deps.liveRuns ?? liveRuns;
   await settleRunner();
-  while (live().length > 0) {
+  // PLA-I60-2: the brief needs its reserved slot of the ceiling, not a quiet machine.
+  const ceiling = Math.max(1, (await loadSettings(db)).maxConcurrent);
+  while (live().length >= ceiling) {
     if (signal?.aborted) return false;
     await sleep(deps.pollMs ?? 5_000, signal);
   }
@@ -288,7 +290,7 @@ export async function spawnPass<T>(db: Db, input: SpawnPassInput<T>, deps: Spawn
   // Hold the slot: reserve first (no new run starts), then wait until the live ones end.
   const mine = reserveSlot(`${BRIEF_AGENT}:${input.pass}`);
   try {
-    if (!(await waitForFreeSlot(deps, input.signal))) {
+    if (!(await waitForFreeSlot(db, deps, input.signal))) {
       return { ok: false, reason: "aborted", summary: "stopped while waiting for the current run", attempts: 0, logPath: null };
     }
 

@@ -17,10 +17,13 @@
 // queued or running run gets nothing new. A company or project switch that is off enqueues nothing.
 // Off unless the heartbeat job runs (PLANIA_JOBS=1), so nothing waits in a queue nobody drains.
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { agentRuns, agents, events, projects, taskBlockers, tasks, type Actor, type Agent } from "../db/schema.js";
+import { agentRuns, agents, events, projects, taskBlockers, tasks, type Actor, type Agent, type RunTrigger } from "../db/schema.js";
 import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
 import type { Q } from "../mcp/tx.js";
 import { loadSettings, roleOf, type RunnerRole } from "./limits.js";
+import { insertRun, kickQueue } from "./queue.js";
+import { STAGE_REASON, stageOwner, type IdeaStage } from "./stages.js";
+import { isRunSession, runPrefixOf } from "./run-session.js";
 
 export const EVENT_SUMMARY = "queued: event";
 const RUNNER_ADAPTER = "claude_code";
@@ -32,11 +35,11 @@ const PRIORITY = ["P0", "P1", "P2", "P3"];
 export const eventWakesEnabled = (env: NodeJS.ProcessEnv = process.env): boolean => env.PLANIA_JOBS === "1" || env.PLANIA_EVENT_WAKES === "1";
 
 // A runner run writes as session run-<first 8 of its agent_runs id> (see userPrompt in runner.ts).
-export const isRunSession = (sessionId: string | null | undefined): boolean => /^run-[0-9a-f]{8}$/.test(sessionId ?? "");
+export { isRunSession } from "./run-session.js";
 
 export type EventWake =
   | { kind: "queued"; runId: string; agent: string; role: RunnerRole; taskKey: string | null; reason: string }
-  | { kind: "none"; reason: string };
+  | { kind: "none"; reason: string; existingRunId?: string };
 
 type ProjectRef = { id: string; slug: string };
 type TaskRef = { id: string; key: string } | null;
@@ -57,12 +60,14 @@ export async function serviceAgent(tx: Q, role: RunnerRole, project: ProjectRef)
 // actor's agent may be a roster slug.
 export async function agentOfActor(tx: Q, actor: Actor | null | undefined): Promise<Agent | null> {
   if (!actor) return null;
-  const m = /^run-([0-9a-f]{8})$/.exec(actor.session_id ?? "");
-  if (m) {
+  const prefix = runPrefixOf(actor.session_id);
+  if (prefix) {
+    // PLA-I60-1: 16 hex for runs since 0060, 8 for older ones; the newest run wins an 8-hex tie.
     const [run] = await tx
       .select({ agentId: agentRuns.agentId })
       .from(agentRuns)
-      .where(sql`${agentRuns.id}::text like ${`${m[1]}%`}`)
+      .where(sql`replace(${agentRuns.id}::text, '-', '') like ${`${prefix}%`}`)
+      .orderBy(sql`${agentRuns.queuedAt} desc`)
       .limit(1);
     if (run) {
       const [row] = await tx.select().from(agents).where(eq(agents.id, run.agentId)).limit(1);
@@ -130,10 +135,11 @@ export async function freedBy(tx: Q, project: ProjectRef, landedId: string, tall
   return mine[0]?.key ?? null;
 }
 
-// Queue one wake, or say why not. Never spawns.
+// Queue one wake, or say why not. Never spawns. PLA-I60-1: one active run per (agent, project, work key), enforced
+// by the unique index through insertRun; a wake for work the agent already has coalesces into that run.
 export async function enqueueWake(
   tx: Q,
-  input: { agent: Agent | null; project: ProjectRef; taskKey: string | null; reason: string; now?: Date },
+  input: { agent: Agent | null; project: ProjectRef; taskKey: string | null; reason: string; now?: Date; trigger?: RunTrigger; consultaId?: string | null; notBefore?: Date | null; appendReason?: boolean },
 ): Promise<EventWake> {
   const { agent, project } = input;
   if (!agent) return { kind: "none", reason: "no agent" };
@@ -145,26 +151,23 @@ export async function enqueueWake(
   // Asistente works for the company: its home project's switch does not hold it (the company switch does).
   const [p] = await tx.select({ paused: projects.runsPaused }).from(projects).where(eq(projects.id, project.id)).limit(1);
   if (!p || (p.paused && role !== "asistente")) return { kind: "none", reason: `project ${project.slug} paused` };
-  const [busy] = await tx
-    .select({ id: agentRuns.id })
-    .from(agentRuns)
-    .where(and(eq(agentRuns.agentId, agent.id), inArray(agentRuns.status, ["queued", "running"])))
-    .limit(1);
-  if (busy) return { kind: "none", reason: "coalesced" };
-  const [row] = await tx
-    .insert(agentRuns)
-    .values({
-      agentId: agent.id,
-      projectId: project.id,
-      taskKey: input.taskKey,
-      role,
-      status: "queued",
-      summary: `${EVENT_SUMMARY} ${input.reason}`.slice(0, 500),
-      queuedAt: input.now ?? new Date(),
-      reserveTokens: settings.reserveTokens,
-    })
-    .returning({ id: agentRuns.id });
-  return { kind: "queued", runId: row!.id, agent: agent.slug, role, taskKey: input.taskKey, reason: input.reason };
+  const out = await insertRun(tx, {
+    agent,
+    project,
+    role,
+    taskKey: input.taskKey,
+    consultaId: input.consultaId ?? null,
+    trigger: input.trigger ?? "event",
+    reason: input.reason,
+    summary: `${EVENT_SUMMARY} ${input.reason}`,
+    queuedAt: input.now ?? new Date(),
+    reserveTokens: settings.reserveTokens,
+    notBefore: input.notBefore ?? null,
+    appendReason: input.appendReason,
+  });
+  if (out.kind === "coalesced") return { kind: "none", reason: "coalesced", existingRunId: out.existing.id };
+  kickQueue();
+  return { kind: "queued", runId: out.run.id, agent: agent.slug, role, taskKey: input.taskKey, reason: input.reason };
 }
 
 // What an emitted event should wake, if anything. Read-only; enqueueWake decides the rest.
@@ -236,9 +239,17 @@ async function targetOf(
   if (type === "task.updated") {
     const stage = (payload.changes as Record<string, unknown> | undefined)?.stage;
     if (!Array.isArray(stage) || stage[0] === stage[1]) return null;
-    const role: RunnerRole | null = stage[1] === "research" ? "research" : stage[1] === "design" ? "artist" : null;
+    // PLA-I60-4: every stage with an owner wakes it (planning wakes the PO; before, nothing did).
+    const role = stageOwner(String(stage[1]));
     if (!role) return null;
-    return { agent: await serviceAgent(tx, role, project), taskKey: task.key, reason: `idea stage ${stage[1]}` };
+    let agent: Agent | null = null;
+    if (role === "product-owner") {
+      const [t] = await tx.select({ ownerAgent: tasks.ownerAgent }).from(tasks).where(eq(tasks.id, task.id)).limit(1);
+      if (t?.ownerAgent) agent = (await tx.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1))[0] ?? null;
+      if (agent && roleOf(agent) !== "product-owner") agent = null;
+    }
+    agent ??= await serviceAgent(tx, role, project);
+    return { agent, taskKey: task.key, reason: STAGE_REASON[stage[1] as IdeaStage] || `idea stage ${stage[1]}` };
   }
   return null;
 }

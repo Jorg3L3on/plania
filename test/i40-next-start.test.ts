@@ -112,9 +112,11 @@ test("I40-1 #2: Ready work nobody woke is unqueued; a teammate with nothing has 
   assert.deepEqual(await runner("taller-workia", "workia", key), { ok: true, summary: "" });
 });
 
-test("I40-1 #3: a queued event wake inside the cooldown says rest and when it starts; the runner agrees", async () => {
+test("I40-1 #3 (PLA-I60): a queued periodic wake inside the cooldown says rest and when it starts; a retry does not wait for it", async () => {
   await run(taller, workia, `'ok', 'listo', $3::text, now() - interval '9 minutes', now() - interval '8 minutes', now() - interval '2 minutes'`);
   await run(taller, workia, `'queued', 'event: unblocked', $3::text, now(), null, null`, key);
+  // PLA-I60-4: the rest paces only the agent's own periodic runs.
+  await raw.query(`update agent_runs set trigger = 'cadence'`);
   const ended = (await raw.query(`select ended_at from agent_runs where status = 'ok'`)).rows[0].ended_at as Date;
 
   const m = await member("workia", "taller");
@@ -122,7 +124,7 @@ test("I40-1 #3: a queued event wake inside the cooldown says rest and when it st
   assert.equal(m.next_start.starts_at, new Date(ended.getTime() + 30 * 60_000).toISOString());
   assert.equal(m.next_start.title, "Ficha del producto");
   assert.equal(/WRK-|\$/.test(m.next_start.text), false, "no keys or money in the sentence");
-  assert.deepEqual(await runner("taller-workia", "workia", key), { ok: true, summary: "skipped: cooldown" });
+  assert.deepEqual(await runner("taller-workia", "workia", key), { ok: true, summary: "" });
 });
 
 test("I40-1 #4: once the rest is over a queued wake starts in a moment", async () => {

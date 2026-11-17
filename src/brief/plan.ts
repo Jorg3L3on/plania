@@ -25,6 +25,7 @@ import { agentRuns, agents, briefPlanRequests, events, morningBriefs, projects, 
 import { writeTx, type Emit, type Q } from "../mcp/tx.js";
 import { setTaskInTx } from "../mcp/writes.js";
 import { enqueueWake } from "../runner/events.js";
+import { sessionsOf } from "../runner/run-session.js";
 import { loadSettings, roleOf } from "../runner/limits.js";
 import { MAX_BODY, companyThread, homeSlug, insertMessage, postMessage, projectThread } from "../runner/threads.js";
 import { poPlanIdeasPrompt, type PlanIdea } from "./prompts.js";
@@ -305,7 +306,7 @@ export async function advanceRequest(db: Db, requestId: string, opts: { now?: Da
         return;
       }
 
-      const out = await enqueueWake(tx, { agent: po, project, taskKey: null, reason: wakeReason(requestId, t.codes), now });
+      const out = await enqueueWake(tx, { agent: po, project, taskKey: null, reason: wakeReason(requestId, t.codes), now, trigger: "brief", appendReason: false });
       if (out.kind !== "queued") {
         // Coalesced: the PO has a run queued or going; this one is posted and woken once it ends.
         const note = out.reason === "coalesced" ? `waiting for ${po.slug}'s current run` : /paused/.test(out.reason) ? out.reason.replace(/^project (\S+) paused$/, `${project.title} runs are paused`) : out.reason;
@@ -434,7 +435,7 @@ export async function checkResults(
   run: Run | null,
 ): Promise<{ target: Pick<BriefPlanTarget, "state" | "note" | "results">; guarded: string[] }> {
   const since = run?.queuedAt ?? new Date(0);
-  const session = run ? `run-${run.id.slice(0, 8)}` : null;
+  const session = run ? sessionsOf(run.id) : null;
 
   // The PO's writes with this request's ids, by code and step.
   const wr = await tx
@@ -493,7 +494,7 @@ export async function checkResults(
     ? await tx
         .select({ key: events.taskKey })
         .from(events)
-        .where(and(eq(events.projectId, project.id), inArray(events.type, ["task.created", "task.status"]), sql`${events.actor}->>'session_id' = ${session}`, gte(events.createdAt, since)))
+        .where(and(eq(events.projectId, project.id), inArray(events.type, ["task.created", "task.status"]), sql`${events.actor}->>'session_id' in (${sql.join(session.map((x) => sql`${x}`), sql`, `)})`, gte(events.createdAt, since)))
     : [];
   for (const e of touched) if (e.key) ticketsSeen.add(e.key);
   const ready = (await byKey([...ticketsSeen])).filter((x) => x.kind === "ticket" && x.status === "Ready");

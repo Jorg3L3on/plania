@@ -272,12 +272,12 @@ test("I31-1 #1d: an idea moving to research wakes Research; to design wakes Arti
   assert.deepEqual({ agent: w[0]!.agent, task: w[0]!.task_key }, { agent: "artist", task: key });
 });
 
-test("I31-1 #2: 3 events inside the cooldown produce 1 run; the queue (cadence job) starts it after", async () => {
+test("I31-1 #2 (PLA-I60): 3 events on 3 tickets queue 3 runs; events do not wait for the rest; the seat's cap starts one at a time", async () => {
   await raw.query(`update runner_settings set cooldown_minutes = 30`);
-  // Taller's last run ended a minute ago: the cooldown is on.
+  // Taller's last run ended a minute ago. Before PLA-I60 that rest held event wakes; now it paces only cadence runs.
   await raw.query(
-    `insert into agent_runs (agent_id, project_id, role, status, started_at, ended_at, queued_at, summary)
-     values ($1, $2, 'taller', 'ok', now() - interval '5 minutes', now() - interval '1 minute', now() - interval '5 minutes', 'ok: seed')`,
+    `insert into agent_runs (agent_id, project_id, role, status, started_at, ended_at, queued_at, summary, trigger)
+     values ($1, $2, 'taller', 'ok', now() - interval '5 minutes', now() - interval '1 minute', now() - interval '5 minutes', 'ok: seed', 'cadence')`,
     [await id("agents", "taller"), await id("projects", "micasa")],
   );
   for (const key of ["EV-C1", "EV-C2", "EV-C3"]) {
@@ -285,32 +285,33 @@ test("I31-1 #2: 3 events inside the cooldown produce 1 run; the queue (cadence j
     await toReady(key);
   }
   let w = await wakes();
-  assert.equal(w.length, 1, "three events, one queued wake");
-  assert.equal(w[0]!.task_key, "EV-C1");
+  assert.deepEqual(w.map((x) => x.task_key).sort(), ["EV-C1", "EV-C2", "EV-C3"], "one queued run per ticket");
+  // A second event on a ticket that already has a queued run coalesces into it.
+  await raw.query(`update tasks set status = 'Backlog' where key = 'EV-C1'`);
+  await toReady("EV-C1");
+  assert.equal((await wakes()).length, 3);
 
   const f = fakes();
-  // Inside the cooldown the queued wake waits (not dropped, not started).
+  // The rest does not hold an event wake; the seat's cap (1 by default) starts one.
   let drained = await runner.drainQueue(db, new Date(), f.deps as never);
-  assert.deepEqual(drained, { started: 0, dropped: 0 });
-  assert.equal(f.spawned.length, 0);
-  assert.equal((await wakes())[0]!.status, "queued");
-
-  // Cooldown over: the heartbeat job's drain starts it, once.
-  await raw.query(`update agent_runs set ended_at = now() - interval '31 minutes' where summary = 'ok: seed'`);
-  const counts = await runHeartbeat(db, new Date(), { runner: f.deps as never });
-  assert.equal(counts.started_from_queue, 1);
+  assert.equal(drained.started, 1);
   assert.equal(f.spawned.length, 1);
+  w = await wakes();
+  assert.equal(w.filter((x) => x.status === "queued").length, 2);
   f.spawned[0]!.finish();
   await runner.waitForAllRuns();
-
-  // More events inside the new cooldown: still no second run.
-  await backlog("EV-C4");
-  await toReady("EV-C4");
+  // The next one starts when the slot frees, from the heartbeat's drain.
+  const counts = await runHeartbeat(db, new Date(), { runner: f.deps as never });
+  assert.equal(counts.started_from_queue, 1);
+  assert.equal(f.spawned.length, 2);
+  f.spawned[1]!.finish();
+  await runner.waitForAllRuns();
   drained = await runner.drainQueue(db, new Date(), f.deps as never);
-  assert.equal(drained.started, 0);
-  assert.equal(f.spawned.length, 1);
+  assert.equal(drained.started, 1);
+  f.spawned[2]!.finish();
+  await runner.waitForAllRuns();
   const runs = (await raw.query(`select count(*)::int as n from agent_runs r join agents a on a.id = r.agent_id where a.slug = 'taller' and r.status = 'ok' and r.summary <> 'ok: seed'`)).rows[0].n;
-  assert.equal(runs, 1);
+  assert.equal(runs, 3);
 });
 
 test("I31-1 #3: with the kill switch off, events enqueue nothing (company, project, and jobs off)", async () => {
@@ -336,19 +337,21 @@ test("I31-1 #3: with the kill switch off, events enqueue nothing (company, proje
   assert.deepEqual(await wakes(), []);
 });
 
-test("I31-1: resuming a project queues its PO's first wake; a second event while queued coalesces", async () => {
+test("I31-1: resuming a project queues its PO's first wake; an answer on a ticket is its own work item (PLA-I60)", async () => {
   await raw.query(`update projects set runs_paused = true where slug = 'micasa'`);
   await setProjectPaused(db, "micasa", false);
   let w = await wakes();
   assert.equal(w.length, 1);
   assert.deepEqual({ agent: w[0]!.agent, task: w[0]!.task_key }, { agent: "housi", task: null });
   assert.match(w[0]!.summary, /project resumed/);
-  // Coalescing: a question housi asked, answered now, writes nothing new while the wake is queued.
+  // PLA-I60: the answer wakes housi on that ticket, a work item of its own; a second answer there coalesces.
   await backlog("EV-CO");
-  const q = (await questions.ask(db, { project: "micasa", key: "EV-CO", question: "¿?" }, { actor: { agent: "housi", session_id: "h1" } })) as { question_id: string };
-  await questions.answer(db, { project: "micasa", question_id: q.question_id, answer: "Sí" }, webCtx);
+  for (const n of [1, 2]) {
+    const q = (await questions.ask(db, { project: "micasa", key: "EV-CO", question: `¿${n}?` }, { actor: { agent: "housi", session_id: "h1" } })) as { question_id: string };
+    await questions.answer(db, { project: "micasa", question_id: q.question_id, answer: "Sí" }, webCtx);
+  }
   w = await wakes();
-  assert.equal(w.filter((x) => x.agent === "housi").length, 1);
+  assert.deepEqual(w.filter((x) => x.agent === "housi").map((x) => x.task_key).sort(), ["EV-CO", null].sort());
   assert.deepEqual(w.filter((x) => x.agent !== "housi").map((x) => x.agent), ["asistente"], "the question itself went to Asistente");
 });
 
@@ -444,7 +447,7 @@ test("PLA-15 #2: a landing queues nothing when the next ticket is not Taller's t
   await setCompanyPaused(db, false);
 });
 
-test("PLA-15: several tickets freed at once: Jorge's pick first, then priority; a busy Taller gets nothing new", async () => {
+test("PLA-15: several tickets freed at once: Jorge's pick first, then priority; the next landing queues its own run (PLA-I60)", async () => {
   await backlog("LD-G1");
   await step("LD-G2", ["LD-G1"], { priority: "P2" });
   await step("LD-G3", ["LD-G1"], { priority: "P1" });
@@ -461,11 +464,12 @@ test("PLA-15: several tickets freed at once: Jorge's pick first, then priority; 
   assert.deepEqual((await wakes()).map((x) => x.task_key), ["LD-H3"]);
   await raw.query(`update projects set settings = settings - 'next_first' where slug = 'micasa'`);
 
-  // Taller already has a run queued (LD-H3): the next landing coalesces.
+  // PLA-I60: Taller already has a run queued (LD-H3); the next landing frees another ticket, a work item of its
+  // own, so it gets its own queued run (the seat's cap decides when it starts).
   await backlog("LD-I1");
   await step("LD-I2", ["LD-I1"]);
   await land("LD-I1");
-  assert.deepEqual((await wakes()).map((x) => x.task_key), ["LD-H3"]);
+  assert.deepEqual((await wakes()).map((x) => x.task_key), ["LD-H3", "LD-I2"]);
 });
 
 // ---- PLA-16: a run that failed holding its ticket is retried once; a second failure in a row goes to Jorge.
@@ -540,17 +544,18 @@ test("PLA-16 #1, #2: a failed run frees its ticket and the same agent is queued 
   assert.deepEqual(await sweepFailedRuns(db), { retried: 1, held: 0 });
 });
 
-test("PLA-16: the retry waits for a busy agent and a closed switch; a stopped run, a run that ended ok and a person's lease are left alone", async () => {
-  // Taller is busy on another ticket: FR-B1 keeps its lease until Taller is free.
-  await backlog("FR-B1");
-  await endedRunHolding("FR-B1");
-  await raw.query(`insert into agent_runs (agent_id, project_id, task_key, role, status, summary) values ($1, $2, 'FR-OTHER', 'taller', 'queued', 'queued: event ticket ready')`, [
+test("PLA-16: the retry waits for a closed switch, not for a busy agent (PLA-I60); a stopped run, a run that ended ok and a person's lease are left alone", async () => {
+  // PLA-I60: Taller busy on another ticket no longer holds the retry: FR-B1 is a work item of its own.
+  await backlog("FR-B0");
+  await endedRunHolding("FR-B0");
+  await raw.query(`insert into agent_runs (agent_id, project_id, task_key, role, status, summary, work_key) values ($1, $2, 'FR-OTHER', 'taller', 'queued', 'queued: event ticket ready', 'task:FR-OTHER')`, [
     await id("agents", "taller"),
     await id("projects", "micasa"),
   ]);
-  assert.deepEqual(await sweepFailedRuns(db), { retried: 0, held: 0 });
-  assert.equal((await ticket("FR-B1")).status, "In progress");
-  await raw.query(`delete from agent_runs where status = 'queued'`);
+  assert.deepEqual(await sweepFailedRuns(db), { retried: 1, held: 0 });
+  await raw.query(`delete from agent_runs`);
+  await backlog("FR-B1");
+  await endedRunHolding("FR-B1");
 
   // A paused project, then a paused company.
   await raw.query(`update projects set runs_paused = true where slug = 'micasa'`);
@@ -583,7 +588,8 @@ test("PLA-16: the heartbeat tick sweeps the failed run and starts its retry in t
   const counts = await runHeartbeat(db, new Date(), { runner: f.deps as never });
   assert.deepEqual([counts.retried_after_fail, counts.handed_to_jorge, counts.started_from_queue], [1, 0, 1]);
   assert.equal(f.spawned.length, 1);
-  const running = await wakes();
+  // (PLA-I60-4: the same tick may also queue a retry for an idea an earlier test left in a stage with no run.)
+  const running = (await wakes()).filter((x) => x.agent === "taller");
   assert.deepEqual(running.map((x) => [x.agent, x.task_key, x.status]), [["taller", "FR-D1", "running"]]);
   f.spawned[0]!.finish();
   await runner.waitForAllRuns();

@@ -14,6 +14,7 @@ import { ToolError } from "../mcp/errors.js";
 import { webCtx } from "../mcp/tx.js";
 import { claim, setTask } from "../mcp/writes.js";
 import { stopRun } from "../runner/runner.js";
+import { isSessionOf, sessionsOf } from "../runner/run-session.js";
 
 export type RunLine = { id: string; role: string; agent: string; step: string; ticket: string; since: string; last: string | null; status: "running" | "stopped" };
 
@@ -41,8 +42,9 @@ export async function runView(db: Db, projectId: string, keys: string[]): Promis
     .select({ id: agentRuns.id, status: agentRuns.status, role: agentRuns.role, taskKey: agentRuns.taskKey, startedAt: agentRuns.startedAt, queuedAt: agentRuns.queuedAt, agent: agents.slug })
     .from(agentRuns)
     .innerJoin(agents, eq(agents.id, agentRuns.agentId))
-    .where(and(eq(agentRuns.projectId, projectId), inArray(agentRuns.taskKey, keys), inArray(agentRuns.status, ["running", "stopped", "ok", "fail", "queued"])))
-    .orderBy(desc(sql`coalesce(${agentRuns.startedAt}, ${agentRuns.queuedAt})`))
+    .where(and(eq(agentRuns.projectId, projectId), inArray(agentRuns.taskKey, keys), inArray(agentRuns.status, ["running", "starting", "stopped", "ok", "fail", "queued"])))
+    // PLA-I60: a live run wins over a newer queued one (several runs can be on the same request's tickets).
+    .orderBy(sql`case when ${agentRuns.status} in ('running', 'starting') then 0 when ${agentRuns.status} = 'stopped' then 1 else 2 end`, desc(sql`coalesce(${agentRuns.startedAt}, ${agentRuns.queuedAt})`))
     .limit(1);
   if (!run || (run.status !== "running" && run.status !== "stopped")) return null;
   const since = run.startedAt ?? run.queuedAt;
@@ -50,7 +52,7 @@ export async function runView(db: Db, projectId: string, keys: string[]): Promis
   const recent = await db
     .select({ type: events.type, payload: events.payload })
     .from(events)
-    .where(and(eq(events.projectId, projectId), gte(events.createdAt, since), sql`${events.actor}->>'session_id' = ${`run-${run.id.slice(0, 8)}`}`))
+    .where(and(eq(events.projectId, projectId), gte(events.createdAt, since), sql`${events.actor}->>'session_id' in (${sql.join(sessionsOf(run.id).map((x) => sql`${x}`), sql`, `)})`))
     .orderBy(desc(events.id))
     .limit(10);
   const last = recent.map((e) => said(e.type, e.payload as Record<string, unknown>)).find(Boolean) ?? null;
@@ -101,7 +103,7 @@ export async function resumeRun(db: Db, id: string, deps?: HeartbeatDeps): Promi
       .innerJoin(projects, eq(projects.id, tasks.projectId))
       .where(and(eq(projects.slug, r.project), eq(tasks.key, r.taskKey)))
       .limit(1);
-    if (t?.status === "In progress" && t.owner?.session_id === `run-${r.id.slice(0, 8)}`) {
+    if (t?.status === "In progress" && isSessionOf(t.owner?.session_id, r.id)) {
       await claim(db, { project: r.project, key: r.taskKey, action: "release" } as never, { ...webCtx, tool: "screen.run_resume" });
     }
   }

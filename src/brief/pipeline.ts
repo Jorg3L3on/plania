@@ -19,6 +19,7 @@ import { briefChecks, briefPlanRequests, briefRuns, morningBriefs, projects, tas
 import { writeTx } from "../mcp/tx.js";
 import { buildBrief as defaultBuildBrief, ASISTENTE_ACTOR } from "../runner/asistente.js";
 import { liveRuns as defaultLiveRuns, releaseReservation, reserveSlot, settleRunner } from "../runner/runner.js";
+import { loadSettings } from "../runner/limits.js";
 import { asistenteHome } from "../runner/threads.js";
 import { BRIEF_AGENT, spawnPass as defaultSpawnPass, type BriefPass, type PassOutcome, type SpawnPassDeps, type SpawnPassInput } from "./claude.js";
 import { setAsideItems } from "./act.js";
@@ -338,8 +339,10 @@ async function execute(db: Db, runId: string, opts: RunBriefOptions, deps: RunBr
   try {
     if (claude) {
       await settleRunner();
-      while (live().length > 0 && !opts.signal?.aborted) await sleep(deps.pollMs ?? 5_000, opts.signal);
-      if (opts.signal?.aborted) factsOnly = ceilingText(s.language, stored.fallback_at, opts.ceilingLabel ?? (live().length ? "a build was still running" : "Claude was not free"));
+      // PLA-I60-2: the brief needs its one reserved slot of the ceiling, not a quiet machine.
+      const ceiling = Math.max(1, (await loadSettings(db)).maxConcurrent);
+      while (live().length >= ceiling && !opts.signal?.aborted) await sleep(deps.pollMs ?? 5_000, opts.signal);
+      if (opts.signal?.aborted) factsOnly = ceilingText(s.language, stored.fallback_at, opts.ceilingLabel ?? (live().length >= ceiling ? "a build was still running" : "Claude was not free"));
     }
     await setRun({ status: "running", startedAt: now() });
 

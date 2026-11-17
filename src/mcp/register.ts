@@ -65,6 +65,7 @@ import { finish, start } from "./agent-surface.js";
 import { muestraSchema } from "../captures/muestra.js";
 import { afterFinish, warmOn } from "../captures/entrega.js";
 import { projectReleases } from "./releases.js";
+import { runnerOfProject } from "../api/company-runner.js";
 import { DIGEST_PER_PROJECT_DEFAULT, QUIET_MIN, getDigest, getRunning, listProjects, readerOf } from "./watch.js";
 
 // v2 contract (approved 2026-10-06; supersedes the v1 handoff's 12-tool ceiling).
@@ -373,6 +374,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Project title, long body (stack, repo, prod, constraints), rules (project-specific additions to the protocol in the server instructions) with rules_version, protocol_version, headline (the note set_project writes; get_resume has the generated line), settings (release_target, branch_pattern, claim_from, resources, quotas, github, vercel, release),",
         "ticket counts, env (per environment: commit, branch, migrations, flags, deployed_at and its source), branches (each with its owner, head and merge state), resources (live leases, today's quotas), metrics, reserved sequence numbers with the ticket holding each,",
         "and release: the step settings.release names (from → into), with how far from is ahead, the merged tickets it ships, their migrations, the before-steps, open checks, the command Jorge runs, its mode (command, or merge: Jorge ships it from the screen) and merged once he did (null without settings.release). Agents never merge it.",
+        "runner: the project's run limits set in Motores (max_concurrent, consulta_slots, max_per_agent, serialize_areas) and what is live now (work, consulta). Read-only: no tool changes them.",
       ].join(" "),
       inputSchema: { project },
       annotations: readOnly,
@@ -399,6 +401,8 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
           metrics: await projectMetricsOf(db, p.id),
           releases: await projectReleases(db, p.id),
           release: await releasePlan(db, p),
+          // PLA-I60-5: «a la vez», read-only (set in Motores by the owner).
+          runner: await runnerOfProject(db, p),
           ...(await projectSequences(db, p.id)),
         };
       }),

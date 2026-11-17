@@ -27,6 +27,7 @@ import { ToolError } from "../mcp/errors.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx, type Emit, type Q } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
 import { queueWake } from "./events.js";
+import { sessionsOf } from "./run-session.js";
 import { canStart, type RunnerDeps } from "./runner.js";
 
 // Plania itself, as a plain writer: the system flag is for the pollers, whose moves stop at Merged and
@@ -61,12 +62,12 @@ export async function failStreak(db: Q, agentId: string, projectId: string, key:
 
 // The dead run's lease comes off and the ticket goes back to Ready, only if that run still holds it.
 async function free(tx: Q, emit: Emit, row: Held, reason: string): Promise<Task | null> {
-  const session = `run-${row.run_id.slice(0, 8)}`;
+  const sessions = sessionsOf(row.run_id);
   const [before] = await tx.select({ owner: tasks.owner }).from(tasks).where(eq(tasks.id, row.task_id)).limit(1);
   const [u] = await tx
     .update(tasks)
     .set({ owner: null, claimedAt: null, leaseUntil: null, expiringWarnedAt: null, status: "Ready", statusChangedAt: sql`now()`, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` })
-    .where(and(eq(tasks.id, row.task_id), eq(tasks.status, "In progress"), sql`${tasks.owner}->>'session_id' = ${session}`))
+    .where(and(eq(tasks.id, row.task_id), eq(tasks.status, "In progress"), sql`${tasks.owner}->>'session_id' in (${sql.join(sessions.map((x) => sql`${x}`), sql`, `)})`))
     .returning();
   if (!u) return null;
   await emit("claim.released", u, { owner: before?.owner ?? null, from: "In progress", to: "Ready", reason });

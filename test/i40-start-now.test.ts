@@ -78,9 +78,10 @@ const runs = async (slug: string) =>
   (await raw.query(`select r.id, r.status, r.task_key from agent_runs r join agents a on a.id = r.agent_id where a.slug = $1 order by r.queued_at, r.id`, [slug])).rows as { id: string; status: string; task_key: string | null }[];
 const ticket = async (title: string) => ((await writes.createTask(db, { project: "micasa", title, scope: "s", checks: ["c"], status: "Ready" } as never, A)) as { key: string }).key;
 const queue = async (key: string) =>
-  (await raw.query(`insert into agent_runs (agent_id, project_id, role, status, summary, task_key) values ($1, $2, 'taller', 'queued', $3, $4) returning id`, [await aid("taller-micasa"), await pid("micasa"), `${EVENT_SUMMARY} unblocked`, key])).rows[0].id as string;
+  // PLA-I60: the agent's own periodic wake (trigger cadence) is the one the rest paces.
+  (await raw.query(`insert into agent_runs (agent_id, project_id, role, status, summary, task_key, work_key, trigger) values ($1, $2, 'taller', 'queued', $3, $4, 'task:' || $4, 'cadence') returning id`, [await aid("taller-micasa"), await pid("micasa"), `${EVENT_SUMMARY} unblocked`, key])).rows[0].id as string;
 const rested = (minutesAgo: number) =>
-  raw.query(`insert into agent_runs (agent_id, project_id, role, status, summary, queued_at, started_at, ended_at) values ($1, $2, 'taller', 'ok', 'listo', now() - interval '1 hour', now() - interval '1 hour', now() - $3 * interval '1 minute')`, [aid_taller, pid_micasa, minutesAgo]);
+  raw.query(`insert into agent_runs (agent_id, project_id, role, status, summary, queued_at, started_at, ended_at, trigger) values ($1, $2, 'taller', 'ok', 'listo', now() - interval '1 hour', now() - interval '1 hour', now() - $3 * interval '1 minute', 'cadence')`, [aid_taller, pid_micasa, minutesAgo]);
 const go = (f: ReturnType<typeof fakes>, opts: Record<string, unknown> = {}) => actions.startTeammateNow(db, "micasa", "taller-micasa", opts, { runner: f.deps } as never) as Promise<Record<string, any>>;
 const post = (path: string, headers: Record<string, string> = jorge(), body?: unknown) => app.request(path, { method: "POST", headers, body: body === undefined ? undefined : JSON.stringify(body) });
 let aid_taller = "";
@@ -139,7 +140,8 @@ test("I40-2 #1: a queued run inside the rest starts on Que empiece ya, is logged
   await queue(second);
   assert.equal((await runner.drainQueue(db, new Date(), f.deps as never)).started, 0, "nothing was stored: the next run waits its rest");
   const [agent] = await db.select().from(schema.agents).where(eq(schema.agents.slug, "taller-micasa")).limit(1);
-  assert.deepEqual(await runner.canStart(db, agent!, pid_micasa, second, new Date(), f.deps as never), { ok: true, summary: "skipped: cooldown" });
+  // PLA-I60-4: a retry (what canStart judges) does not wait for the rest.
+  assert.deepEqual(await runner.canStart(db, agent!, pid_micasa, second, new Date(), f.deps as never), { ok: true, summary: "" });
   assert.equal(f.spawned.length, 1);
 });
 
