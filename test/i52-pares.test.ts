@@ -299,3 +299,126 @@ describe("antes y después", () => {
     assert.equal(probador.probadorGate(p, await taskRow(t.key), null).pending, false);
   });
 });
+
+// PLA-52: a pass lives in one process. What an earlier server left half-taken, what never started, what failed without
+// going back, and pictures of an older commit are taken again by the sweep; nothing stays hidden for good.
+describe("PLA-52: the sweep takes the pictures again", () => {
+  const sweepDeps = (over: Json = {}) => ({ force: true, capture: fakeCapture as any, pollMs: 5, waitMs: 3000, ...over });
+  const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
+  const project = async () => (await raw.query(`select * from projects where slug = 'zigzag'`)).rows[0];
+  const up = () => {
+    upPorts.add(3000);
+    upPorts.add(3001);
+  };
+  beforeEach(async () => {
+    // Only this test's delivery is In review on the floor.
+    await raw.query(`update tasks set status = 'Done' where status = 'In review'`);
+  });
+
+  test("a delivery an earlier server left «tomando» gets its pass again; a pass that just started is left alone", async () => {
+    const key = await delivery("Reinicio a media foto");
+    await raw.query(`update tasks set probador = $1::jsonb where key = $2`, [JSON.stringify({ state: "tomando", attempts: 0, error: null, commit: null, at: minutesAgo(0) }), key]);
+    up();
+    assert.deepEqual(await probador.sweepProbador(db, new Date(), sweepDeps()), { restarted: 0, opened: 0 }, "a fresh «tomando» may be another server's live pass");
+    await raw.query(`update tasks set probador = $1::jsonb where key = $2`, [JSON.stringify({ state: "tomando", attempts: 0, error: null, commit: null, at: minutesAgo(10) }), key]);
+    assert.equal(probador.probadorGate(await project(), await taskRow(key), null).pending, true);
+    assert.deepEqual(await probador.sweepProbador(db, new Date(), sweepDeps()), { restarted: 1, opened: 0 });
+    assert.deepEqual(await probador.sweepProbador(db, new Date(), sweepDeps()), { restarted: 0, opened: 0 }, "one pass at a time per floor");
+    await probador.waitForProbador();
+    const t = await taskRow(key);
+    assert.equal(t.probador.state, "lista");
+    assert.equal(probador.probadorGate(await project(), t, null).pending, false, "the card may show");
+  });
+
+  test("a delivery whose pass never started is photographed", async () => {
+    const key = await delivery("Nunca empezó");
+    await raw.query(`update tasks set status_changed_at = now() - interval '10 minutes' where key = $1`, [key]);
+    up();
+    assert.equal((await probador.sweepProbador(db, new Date(), sweepDeps())).restarted, 1);
+    await probador.waitForProbador();
+    assert.equal((await taskRow(key)).probador.state, "lista");
+  });
+
+  test("an error of Plania's own never leaves «tomando»: it is logged, tried once more, then the card shows with the reason", async () => {
+    const key = await delivery("Falla por dentro");
+    // A capture whose run id is not a uuid makes the diff step throw past every handled failure.
+    const broken = async (_d: typeof db, input: Json) => ({ run_id: "no-es-uuid", project: input.project, task_key: input.task_key, commit: null, branch: input.branch, base_url: input.base_url, ok: 1, failed: 0, stills: [] }) as any;
+    const lines: string[] = [];
+    const log = console.log;
+    console.log = (...a: unknown[]) => void lines.push(a.join(" "));
+    try {
+      up();
+      const s1 = await probador.probar(db, "zigzag", key, { capture: broken, pollMs: 5, waitMs: 3000 });
+      assert.equal(s1?.state, "fallo");
+      assert.equal(s1?.attempts, 1);
+      const t1 = await taskRow(key);
+      assert.equal(t1.status, "In review", "not Taller's to fix: it stays In review");
+      assert.ok(lines.some((l) => l.includes(`[probador] zigzag/${key} failed`)), "the error is in the log");
+      up();
+      assert.equal((await probador.sweepProbador(db, new Date(), sweepDeps({ capture: broken, settleMs: 0 }))).restarted, 1);
+      await probador.waitForProbador();
+    } finally {
+      console.log = log;
+    }
+    const t2 = await taskRow(key);
+    assert.equal(t2.probador.state, "lista");
+    assert.equal(t2.probador.attempts, 2);
+    const g = probador.probadorGate(await project(), t2, null);
+    assert.equal(g.pending, false);
+    assert.match(g.hold!, /Plania falló al tomar las fotos/);
+  });
+
+  test("the PR moved after the pictures: one retake; still another commit, the card shows and says so", async () => {
+    const key = await delivery("Empuje después de las fotos");
+    up();
+    const s = await pass(key);
+    assert.equal(s?.state, "lista");
+    const t0 = await taskRow(key);
+    const p = await project();
+    const HEAD = "f".repeat(40);
+    await raw.query(`insert into pull_requests (project_id, repo, number, url, task_id, state, head_sha, ci_state) values ($1, 'o/r', 520, 'https://github.com/o/r/pull/520', $2, 'open', $3, 'success')`, [p.id, t0.id, HEAD]);
+    if (!t0.probador.commit) await raw.query(`update tasks set probador = probador || '{"commit":"aaaaaaa"}'::jsonb where key = $1`, [key]);
+    assert.equal(probador.probadorGate(p, await taskRow(key), HEAD).pending, true, "pictures of an older commit hide the card");
+    up();
+    assert.deepEqual(await probador.sweepProbador(db, new Date(), sweepDeps()), { restarted: 1, opened: 0 });
+    await probador.waitForProbador();
+    const t1 = await taskRow(key);
+    assert.equal(t1.probador.for_head, HEAD);
+    if (!t1.probador.commit) await raw.query(`update tasks set probador = probador || '{"commit":"aaaaaaa"}'::jsonb where key = $1`, [key]);
+    assert.deepEqual(await probador.sweepProbador(db, new Date(), sweepDeps()), { restarted: 0, opened: 1 }, "asked once for this head already");
+    const t2 = await taskRow(key);
+    const g = probador.probadorGate(p, t2, HEAD);
+    assert.equal(g.pending, false);
+    assert.match(g.hold!, /commit anterior/);
+    assert.deepEqual(await probador.sweepProbador(db, new Date(), sweepDeps()), { restarted: 0, opened: 0 }, "and it does not loop");
+  });
+
+  test("the board and the audit agree with the card: no Te toca before the pictures, and limbo is a finding", async () => {
+    const { projectEtapas } = await import("../src/api/etapa.js");
+    const { auditProject } = await import("../src/mcp/audit.js");
+    const key = await delivery("Entregada sin fotos");
+    const p = await project();
+    const t = await taskRow(key);
+    await raw.query(`insert into pull_requests (project_id, repo, number, url, task_id, state, head_sha, ci_state) values ($1, 'o/r', 521, 'https://github.com/o/r/pull/521', $2, 'open', 'abc1234', 'success')`, [p.id, t.id]);
+    const th = (await raw.query(`insert into threads (kind, project_id) values ('project', $1) on conflict do nothing returning id`, [p.id])).rows[0] ?? (await raw.query(`select id from threads where project_id = $1`, [p.id])).rows[0];
+    await raw.query(`insert into thread_messages (thread_id, author_agent, author_role, body, links) values ($1, 'taller-zigzag', 'taller', 'queda En revisión', $2::jsonb)`, [th.id, JSON.stringify([{ kind: "ticket", ref: key, title: "x" }])]);
+    const [pd] = await db.select().from((await import("../src/db/schema.js")).projects).where((await import("drizzle-orm")).eq((await import("../src/db/schema.js")).projects.slug, "zigzag"));
+    const stage = async () => (await projectEtapas(db, pd!)).byTicket.get(key)!.etapa;
+    const e1 = await stage();
+    assert.equal(e1.etapa, "en_revision", "no pictures yet: not the owner's turn on the board either");
+    assert.equal(e1.reason, "Plania toma las fotos de la entrega.");
+    const limbo = async () => (await auditProject(db, pd!)).filter((f) => f.code === "REVIEW_NOBODYS_TURN" && f.key === key);
+    assert.equal((await limbo()).length, 0, "not in its first half hour");
+    await raw.query(`update tasks set status_changed_at = now() - interval '45 minutes' where key = $1`, [key]);
+    const found = await limbo();
+    assert.equal(found.length, 1);
+    assert.match(found[0]!.detail, /fotos/);
+    await raw.query(`update pull_requests set ci_state = 'pending' where number = 521`);
+    assert.equal((await limbo()).length, 0, "PR checks running: someone is on it");
+    await raw.query(`update pull_requests set ci_state = 'success' where number = 521`);
+    // Pictures done: the board says Te toca, as the card does, and the audit is quiet.
+    await raw.query(`update tasks set probador = $1::jsonb where key = $2`, [JSON.stringify({ state: "lista", attempts: 0, error: null, commit: "abc1234", at: minutesAgo(1) }), key]);
+    assert.equal((await stage()).etapa, "te_toca");
+    assert.equal((await limbo()).length, 0);
+  });
+});

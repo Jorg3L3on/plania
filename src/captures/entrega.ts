@@ -18,7 +18,7 @@ export async function warmEntrega(db: Db, slug: string, key: string): Promise<En
 
 // PLA-I52-3: after finish, the whole pass: both copies, the pairs, and where the delivery's pictures stand. In the background.
 export function afterFinish(db: Db, slug: string, key: string): void {
-  void probar(db, slug, key).catch(() => null);
+  void probar(db, slug, key).catch((e) => console.log(`[probador] ${slug}/${key} failed: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`));
 }
 
 // Off in tests and wherever background jobs are off (PLANIA_JOBS=0).
