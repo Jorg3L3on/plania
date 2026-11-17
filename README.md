@@ -405,6 +405,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `set_check` | Tick (or untick) one Done when item by its n, amend its text, or lift a waiver. |
 | `add_result` | Record evidence on a task: kind, verdict pass\|warn\|fail, cite (what ran and what it showed), url (CI run, screenshot, recording), and the structured fields: commit, branch, env, command, exit_code, counts, duration_s, attachments, viewport, device, metrics. |
 | `attach_doc` | Store a markdown doc in Plania so every machine can read it: a spec or plan on a task (key), or a project doc such as a design page (no key). |
+| `attach_frames` | Artist: put the design's frames on an idea so the owner sees them on the screen (the idea's Diseño stop and its review table). |
 | `claim` | Lease a ticket so no other session works on it. |
 | `add_decision` | Append one decision to the log. |
 | `reserve_sequence` | Reserve the next number of a per-project sequence (e.g. name 'migration' gives '0009') for a ticket, so two initiatives never take the same one. |
@@ -613,6 +614,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `FOOTPRINT_HELD` | 409 | another live session declared this footprint, or releasing one you did not declare (detail: holder, purpose) |
 | `HANDOFF_HELD` | 409 | the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note) |
 | `HOP_CAP` | 409 | assign would pass 3 hops (detail: hops, cap). The owner stays and a limpieza inbox item is posted |
+| `FRAME_INVALID` | 400 | attach_frames: the task is not an idea, more than 40 frames, an id repeats, or a frame's path is outside the canvases folder, missing, not a PNG/JPEG/WebP, or over 5 MB (detail: frame, hint) |
 | `IDEA_CLOSED` | 409 | a Done or Won't do idea does not change stage or promoted_to (detail: status) |
 | `INITIATIVE_CHILDREN_OPEN` | 409 | an initiative cannot be Done or Won't do while a ticket of it is in another state (detail: open) |
 | `INVALID_STAGE_MOVE` | 409 | set_task stage is not one step along idea → research → design → planning → ready, or a step back without a note (detail: from, to) |

@@ -135,7 +135,7 @@ test("I61-2: attach_frames keeps the order, serves each frame, replaces the set 
   assert.equal(img.headers.get("Content-Type"), "image/png");
   assert.equal((await app.request(d.frames[1].url)).status, 401, "behind the owner's session");
   writeFileSync(path.join(scratch, "fuera.png"), PNG);
-  await assert.rejects(attachFrames(db, { project: "micasa", key, frames: [{ id: "X", name: "x", path: path.join(scratch, "fuera.png") }] }, RUN("artist")), /FRAME_INVALID/);
+  await assert.rejects(attachFrames(db, { project: "micasa", key, frames: [{ id: "X", name: "x", path: path.join(scratch, "fuera.png") }] }, RUN("artist")), (e: Json) => e.code === "FRAME_INVALID");
   await assert.rejects(attachFrames(db, { project: "micasa", key, frames: [{ id: "X", name: "x", path: "../fuera.png" }] }, RUN("artist")), /FRAME_INVALID/);
   writeFileSync(path.join(CANVASES, key, "nota.txt"), "no soy imagen");
   await assert.rejects(attachFrames(db, { project: "micasa", key, frames: [{ id: "X", name: "x", path: `${key}/nota.txt` }] }, RUN("artist")), /FRAME_INVALID/);
@@ -220,6 +220,14 @@ test("I61-4: another option sends it back to Investigación; correcting the PO g
   const woke = (await raw.query(`select a.slug from agent_runs r join agents a on a.id = r.agent_id where r.task_key = $1 and r.status = 'queued'`, [key])).rows.map((r) => r.slug);
   assert.deepEqual(woke, ["po-micasa"]);
   assert.ok((await detail(key)).trail.some((x: Json) => x.kind === "despertar"));
+});
+
+test("I61-2: Artist's brief on an idea asks for the frames with attach_frames", async () => {
+  const { userPrompt } = await import("../src/runner/runner.js");
+  const base = { agent: "artist-micasa", project: { slug: "micasa", title: "MiCasa" }, goal: null, task: { key: "MIC-IDEA3", title: "x" }, workspace: null, sessionId: "run-1" };
+  assert.match(userPrompt({ ...base, role: "artist" }), /attach_frames \(key MIC-IDEA3\)/);
+  assert.doesNotMatch(userPrompt({ ...base, role: "research" }), /attach_frames/);
+  assert.doesNotMatch(userPrompt({ ...base, role: "artist", task: { key: "MIC-12", title: "x" } }), /attach_frames/);
 });
 
 test("I61-3: numbered options read bold titles, plain ones and long lists whole", () => {

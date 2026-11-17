@@ -11,7 +11,8 @@ export const TAB_WORD: Record<FichaTab, string> = { resumen: "Resumen", pedido: 
 export type FichaRef =
   | { kind: "tab"; tab: FichaTab }
   | { kind: "step"; key: string }
-  | { kind: "idea"; key: string }
+  // PLA-I61: an idea opened from the Diseño tab goes back there: ?f=idea:<key>~diseno.
+  | { kind: "idea"; key: string; from?: "diseno" }
   // PLA-I54-3: one request of the owner's (?f=pedido:<key>) and the shelf of saved ones (?f=guardadas).
   | { kind: "pedido"; key: string }
   | { kind: "guardadas" }
@@ -47,7 +48,11 @@ export function fichaOf(search: string): { ref: FichaRef; slug: string | null } 
     const ref = at < 0 ? "" : f.slice(at + 1);
     const one = (r: FichaRef | null) => (r ? { ref: r, slug: null } : null);
     if (kind === "tab") return one((FICHA_TABS as readonly string[]).includes(ref) ? { kind: "tab", tab: ref as FichaTab } : null);
-    if (kind === "step" || kind === "idea" || kind === "leg" || kind === "pedido") return one(KEY.test(ref) ? { kind, key: ref } : null);
+    if (kind === "idea") {
+      const [k, from] = ref.split("~");
+      return one(KEY.test(k ?? "") ? (from === "diseno" ? { kind, key: k!, from } : { kind, key: k! }) : null);
+    }
+    if (kind === "step" || kind === "leg" || kind === "pedido") return one(KEY.test(ref) ? { kind, key: ref } : null);
     if (kind === "member") return one(ref ? { kind, agent: ref } : null);
     if (kind === "pr") return one(/^\d{1,7}$/.test(ref) ? { kind, n: Number(ref) } : null);
     if (kind === "doc") return one(UUID.test(ref) ? { kind, id: ref } : null);
@@ -72,8 +77,9 @@ export function fichaParam(ref: FichaRef): string {
   switch (ref.kind) {
     case "tab":
       return `tab:${ref.tab}`;
-    case "step":
     case "idea":
+      return `idea:${ref.key}${ref.from ? `~${ref.from}` : ""}`;
+    case "step":
     case "leg":
     case "pedido":
       return `${ref.kind}:${ref.key}`;
@@ -108,7 +114,7 @@ export function fichaSearch(slug: string | null, ref: FichaRef | null, nivel?: "
 // The tab a detail sits under, so «Volver» lands where it came from.
 export function tabOf(ref: FichaRef): FichaTab {
   if (ref.kind === "tab") return ref.tab;
-  if (ref.kind === "idea") return "ideas";
+  if (ref.kind === "idea") return ref.from ?? "ideas";
   if (ref.kind === "pedido" || ref.kind === "guardadas") return "pedido";
   if (ref.kind === "lienzo") return "diseno";
   if (ref.kind === "pr") return "prs";
@@ -124,4 +130,6 @@ export function escStep(ref: FichaRef): FichaRef | "close" {
 // Which reads a view needs: the ficha rows only for the four list tabs and their details (never for Resumen).
 export const needsRows = (ref: FichaRef) => ref.kind === "idea" || ref.kind === "pr" || ref.kind === "lienzo" || ref.kind === "doc" || (ref.kind === "tab" && ref.tab !== "resumen" && ref.tab !== "pedido" && ref.tab !== "motores");
 export const isMaq = (ref: FichaRef) => ref.kind === "maq" || ref.kind === "maq-tabla";
-export const needsTask = (ref: FichaRef): string | null => (ref.kind === "step" || ref.kind === "idea" ? ref.key : null);
+export const needsTask = (ref: FichaRef): string | null => (ref.kind === "step" ? ref.key : null);
+// PLA-I61: an idea and an owner's request both open La idea abierta (GET …/ideas/:key).
+export const needsIdea = (ref: FichaRef): string | null => (ref.kind === "idea" || ref.kind === "pedido" ? ref.key : null);

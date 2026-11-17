@@ -127,6 +127,8 @@ export const askedText = (scope: string, title: string) => ASKED.exec(scope)?.[1
 const UNDERSTOOD = /^\s*entend[ií]\s*[:：-]/i;
 const SCREEN_NOTE = /^De Compañía:\s*/;
 const BUILD_NOTE = /^Constrúyelo \(orden de Jorge/;
+// PLA-I61-4: the note an answer leaves for the stage owner; the answer's own line already tells it.
+const ANSWER_NOTE = /^Jorge (pide cambios en|pide la opción|dice que no es eso)/;
 const DROPPED = /^Descartada por Jorge desde Compañía(?::\s*([\s\S]+)|\.)$/;
 
 // PLA-I61-1: the runner writes as «plania-runner» with a session named after the seat (po-mianovia-idea1-…,
@@ -172,7 +174,7 @@ export async function trailOf(db: Db, t: Task): Promise<TrailItem[]> {
         const prev = out.findLast((x) => x.kind === "descartada");
         if (prev) prev.text = line;
         else push("descartada", line);
-      } else if (BUILD_NOTE.test(text)) continue;
+      } else if (BUILD_NOTE.test(text) || ANSWER_NOTE.test(text)) continue;
       else push(UNDERSTOOD.test(text) ? "entendi" : "nota", text.replace(SCREEN_NOTE, ""));
     } else if (e.type === "question.asked") push("pregunta", `Preguntó: ${String(p.question ?? "")}`);
     else if (e.type === "question.answered") push("respuesta", String(p.answer ?? ""));

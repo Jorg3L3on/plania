@@ -9,10 +9,10 @@
 //        stage, and its owner wakes (Research and Artist wake on the stage itself; the PO is woken here).
 //   POST /api/company/projects/:slug/ideas/:key/despertar       wakes the owner of the stage it sits on
 //   GET  /api/company/projects/:slug/ideas/:key/frames/:id      one of Artist's frames (src/pedidos/frames.ts)
-// No gates: an answer never holds the idea; without one it keeps going.
+// Nothing waits on an answer: without one the idea keeps going.
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { docs, events, ideaFrames, projects, questions, tasks, type Actor, type Task } from "../db/schema.js";
+import { agentRuns, docs, events, ideaFrames, projects, questions, tasks, type Actor, type Task } from "../db/schema.js";
 import { findProject } from "../mcp/queries.js";
 import { webCtx, writeTx } from "../mcp/tx.js";
 import { eventWakesEnabled, queueWake, serviceAgent } from "../runner/events.js";
@@ -55,8 +55,10 @@ export type IdeaDetail = Pedido & {
   frames: FrameView[];
   // Delivered stops he has not opened.
   unseen: number;
-  // Nobody runs on it and nothing waits on him: since when (its last event).
+  // Nobody runs on it, nobody is queued for it and nothing waits on him: since when (its last event).
   quiet_since: string | null;
+  // A wake waiting in the queue for it: the role that will take it.
+  queued: string | null;
   trail: TrailItem[];
   pictures: { id: string; url: string; at: string }[];
 };
@@ -164,6 +166,11 @@ export async function ideaDetail(db: Db, slug: string, key: string): Promise<Ide
   const research = docOf("Research")?.markdown ?? "";
   const plan = docOf("Plan")?.markdown ?? "";
   const [q] = base.question ? await db.select({ options: questions.options }).from(questions).where(eq(questions.id, base.question.id)).limit(1) : [];
+  const [inLine] = await db
+    .select({ role: agentRuns.role })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.projectId, project.id), eq(agentRuns.taskKey, t.key), eq(agentRuns.status, "queued")))
+    .limit(1);
   const [lastEv] = await db.select({ at: events.createdAt }).from(events).where(and(eq(events.taskId, t.id), sql`${events.type} not in ('usage.reported', 'idea.visto')`)).orderBy(desc(events.id)).limit(1);
   return {
     ...base,
@@ -184,7 +191,8 @@ export async function ideaDetail(db: Db, slug: string, key: string): Promise<Ide
     plan_steps: bullets(sectionAll(plan, "Steps", "Pasos")),
     frames,
     unseen: stops.filter((s) => s.delivered && !s.seen && s.stop !== "buzon").length,
-    quiet_since: base.state === "quieta" && t.status === "Open" && !t.promotedTo ? (lastEv?.at.toISOString() ?? null) : null,
+    quiet_since: base.state === "quieta" && !inLine && t.status === "Open" && !t.promotedTo ? (lastEv?.at.toISOString() ?? null) : null,
+    queued: inLine?.role ?? null,
     trail: await trailOf(db, t),
     pictures: t.origin === "jorge" ? (await listTaskImages(db, slug, key)).map((i) => ({ id: i.id, url: i.url, at: i.created_at })) : [],
   };
