@@ -9,6 +9,9 @@ import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { useCorrienteActs, SLEEPY } from "@/components/corriente/acts";
 import { Ahora, type AhoraLinks } from "@/components/corriente/ahora";
+import { Entrega } from "@/components/corriente/entrega";
+import { TeToca } from "@/components/corriente/tetoca";
+import type { PendLinks } from "@/components/corriente/pendiente";
 import { Head } from "@/components/corriente/header";
 import { Btn, NotYet, ReadError } from "@/components/corriente/parts";
 import { PedirBar } from "@/components/corriente/pedir-bar";
@@ -149,11 +152,33 @@ export const CorrientePage = () => {
     hash: (href) => (href === "#te-toca" ? linkTo({ view: "tetoca" }) : legacyHref({ slug })),
   });
 
+  const pendLinks: PendLinks = {
+    entrega: (d) => linkTo({ slug: d.project ?? undefined, ver: { kind: "entrega", id: d.id } }),
+    // Publicar is a sheet of PLA-I62-8; until then the building's floor, where its button is.
+    publicar: (d) => legacyHref({ slug: d.project ?? undefined }),
+    project: (slug) => linkTo({ slug }),
+  };
+  const focusParam = new URLSearchParams(location.search).get("decision");
+
   const projectBody = (p: OrgProject) => {
     const summary = summaries.data?.find((s) => s.slug === p.slug);
     const tickets = summary?.tasks.filter((t) => t.kind === "ticket");
     const totals = tickets ? { open: p.work.open, done: tickets.filter((t) => CLOSED.has(t.status) && t.status !== "Won't do" && t.status !== "Cancelled").length } : null;
     if (!isBuilt({ slug: p.slug, tab: at.tab, ver: at.ver })) return <NotYet what={at.ver ? "Esto" : `La pestaña ${at.tab}`} to={legacyHref(at)} />;
+    if (at.ver?.kind === "entrega") {
+      const verId = at.ver.id;
+      const d = decisions.find((x) => x.id === verId);
+      if (!d)
+        return (
+          <div className="cor-empty">
+            <p className="cor-text">Esta entrega ya no espera tu decisión.</p>
+            <Btn kind="secondary" onClick={() => go({ slug: p.slug })}>
+              Volver a Ahora
+            </Btn>
+          </div>
+        );
+      return <Entrega p={p} d={d} acts={acts} back={linkTo({ slug: p.slug })} />;
+    }
     if (at.tab === "ahora") return <Ahora p={p} decisions={decisions} now={now} timeZone={timeZone} companyPaused={paused} totals={totals} acts={acts} links={ahoraLinks(p.slug)} onFijar={setFijar} />;
     return <NotYet what="Esto" to={legacyHref(at)} />;
   };
@@ -192,7 +217,21 @@ export const CorrientePage = () => {
           pedir={<PedirBar projects={company.projects} disabled={paused} onAsk={ask} pedirTo={(slug) => pedirTo(slug)} />}
         />
       );
-    return <NotYet what={at.view === "tetoca" ? "Te toca" : at.view === "asistente" ? "Asistente" : "Pedir"} to={legacyHref(at)} />;
+    if (at.view === "tetoca")
+      return (
+        <TeToca
+          company={company}
+          decisions={decisions}
+          focus={focusParam}
+          now={now}
+          timeZone={timeZone}
+          acts={acts}
+          links={{ ...pendLinks, consulta: (slug) => pedirTo(slug) }}
+          onFocus={(id) => navigate(hrefOf({ view: "tetoca", extra: { decision: id } }), { replace: true })}
+          askTo={pedirTo(null)}
+        />
+      );
+    return <NotYet what={at.view === "asistente" ? "Asistente" : "Pedir"} to={legacyHref(at)} />;
   };
 
   return (

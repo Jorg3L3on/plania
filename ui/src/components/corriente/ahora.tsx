@@ -10,7 +10,9 @@ import type { Decision, OrgMember, OrgProject, ProjectTicket } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
 import { nowLine, type NowAction, type NowLine } from "@/lib/edificio";
 import { ETAPA_WORD } from "@/lib/etapas";
-import { RETURN_REASONS, acceptWords, returnText } from "@/lib/evidencia";
+import { acceptWords } from "@/lib/evidencia";
+import { Ajuste } from "./ajuste";
+import { Shots } from "./pendiente";
 import { rumboText } from "@/lib/v2";
 import type { CorrienteActs } from "./acts";
 import { Agent, Btn, Key, Label, State, You } from "./parts";
@@ -59,44 +61,6 @@ export function youEyebrow(d: Decision | null, p: OrgProject): string {
       return "Te toca · un paso tuyo";
   }
 }
-
-/** Pedir ajuste: one reason, one optional line, Enviar a Taller. Taller reads «reason: line». */
-export const Ajuste = ({ d, acts, onDone }: { d: Decision; acts: CorrienteActs; onDone: () => void }) => {
-  const [reason, setReason] = useState<string>(RETURN_REASONS[0]);
-  const [line, setLine] = useState("");
-  const busy = acts.decisions.busy?.id === d.id;
-  return (
-    <form
-      className="cor-ajuste"
-      data-ajuste={d.id}
-      onSubmit={(e) => {
-        e.preventDefault();
-        acts.decisions.decide(d, { action: "cambios", text: returnText(reason, line) }, "devolver");
-        onDone();
-      }}
-    >
-      <Label as="p" id={`aj-${d.id}`}>
-        Pedir ajuste a Taller
-      </Label>
-      <div className="cor-seg" role="radiogroup" aria-labelledby={`aj-${d.id}`}>
-        {RETURN_REASONS.map((x) => (
-          <button key={x} type="button" role="radio" aria-checked={reason === x} className="cor-opt" onClick={() => setReason(x)} disabled={busy} data-reason={x}>
-            {x}
-          </button>
-        ))}
-      </div>
-      <div className="cor-ajuste-row">
-        <input className="cor-input" value={line} maxLength={300} placeholder="Una línea para Taller (opcional)" aria-label="Nota para Taller" onChange={(e) => setLine(e.target.value)} disabled={busy} />
-        <Btn kind="secondary" type="submit" disabled={busy} data-control="enviar-ajuste">
-          Enviar a Taller
-        </Btn>
-        <Btn kind="quiet" onClick={onDone}>
-          Cancelar
-        </Btn>
-      </div>
-    </form>
-  );
-};
 
 /** The move's one button: what a click does is runOf's in the building, here with La corriente's calls. */
 export const MoveButton = ({ p, a, d, primary, acts, links, onFijar }: { p: OrgProject; a: NowAction; d: Decision | null; primary: boolean; acts: CorrienteActs; links: AhoraLinks; onFijar: (p: OrgProject) => void }) => {
@@ -178,6 +142,7 @@ const YouCard = ({ p, line, decisions, acts, links, onFijar }: { p: OrgProject; 
           </p>
         )}
       </div>
+      {delivery && d && <Shots p={p} d={d} to={links.entrega(d)} />}
     </section>
   );
 };

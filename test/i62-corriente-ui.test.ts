@@ -254,3 +254,70 @@ test("I62-3: Ahora with nothing waiting: the state, the reason and the nudge (st
   assert.match(out, /Sin meta todavía\./);
   assert.ok(!/cor-btn primary/.test(out), "nothing waits on him: no white button");
 });
+
+// ---- PLA-I62-4: Te toca, every pending kind, Entrega
+const pend = await load("components/corriente/pendiente.tsx");
+const toca = await load("components/corriente/tetoca.tsx");
+const pendLinks = { entrega: (d: { id: string }) => `/e/${d.id}`, publicar: () => "/pub", project: (s: string) => `/p/${s}` };
+const card = (d: Record<string, unknown>, p: unknown = project("filmia")) => {
+  const { acts, calls } = fakeActs();
+  return { out: html(h(pend.Pendiente, { d, p, acts, links: pendLinks, big: true })), calls };
+};
+
+test("I62-4: Te toca's headline, the absent kinds, and each card's word", () => {
+  assert.equal(toca.tocaHeadline([]), "Nada te espera.");
+  assert.equal(toca.tocaHeadline([decision("a", "f", "deliverable"), decision("b", "f", "pr")]), "Dos entregas esperan tu decisión.");
+  assert.equal(toca.tocaHeadline([decision("a", "f", "question")]), "Una cosa espera tu decisión.");
+  assert.equal(toca.absentLine([decision("a", "f", "deliverable")]), "Sin preguntas, planes por aprobar ni pasos tuyos pendientes.");
+  assert.equal(toca.absentLine([decision("a", "f", "question"), decision("b", "f", "plan")]), "Sin pasos tuyos pendientes.");
+  assert.equal(toca.absentLine([]), null);
+  assert.equal(pend.kindWord({ ...decision("a", "f", "deliverable"), asker: { role: "taller" } }), "Entrega · Taller");
+  assert.equal(pend.kindWord({ ...decision("a", "f", "step"), actions: ["aplicar"], file_step: { path: "x" } }), "Paso tuyo · archivo");
+  assert.equal(pend.kindWord({ ...decision("a", "f", "deliverable"), actions: ["verificar"], hold: "fallan" }), "Algo falló");
+});
+
+test("I62-4: every kind draws /ceo's actions with one white button", () => {
+  const one = (out: string) => assert.equal((out.match(/cor-btn primary/g) ?? []).length, 1, out.slice(0, 200));
+  const del = card({ ...decision("d", "filmia", "deliverable", "FIL-35"), auto: 1 });
+  one(del.out);
+  assert.match(del.out, /data-action="aceptar"[^>]*>Aceptar</);
+  assert.match(del.out, /href="\/e\/d"[^>]*>Ver antes y después/);
+  assert.match(del.out, /Pedir ajuste/);
+  assert.match(del.out, /Aprobar sola si las pruebas pasan · apagado/);
+  assert.match(del.out, /Solo lo que no se ve · apagado/);
+  const held = card({ ...decision("d", "filmia", "deliverable"), hold: "Falta 1 check." });
+  assert.match(held.out, /data-action="aceptar"[^>]*disabled=""|disabled=""[^>]*data-action="aceptar"/);
+  assert.match(held.out, /data-hold="true">Falta 1 check\./);
+  const auto = card(decision("d", "filmia", "deliverable"), project("filmia", { auto_accept: { on: true, hold: "QA no pasó", invisible: false } }));
+  assert.match(auto.out, /No se aprobó sola: QA no pasó/);
+  const plan = card({ ...decision("p", "mianovia", "plan"), actions: ["empezar", "cambiar", "despues"], plan: { understood: "x", steps: [{ title: "Tablas", done_when: "y" }], cost: null, leg: { key: "MIA-I2", title: "R" }, questions: [{ text: "¿Teléfono?", options: ["Sí", "No"], suggested: 0 }], checklist: ["Abre rápido"] } });
+  one(plan.out);
+  assert.match(plan.out, />Empezar</);
+  assert.match(plan.out, />Cambiar algo</);
+  assert.match(plan.out, />Después</);
+  assert.match(plan.out, /aria-checked="true"[^>]*>Sí<small>sugerida/);
+  assert.match(plan.out, /value="Abre rápido"/);
+  const q = card({ ...decision("q", "micasa", "question"), actions: ["elegir", "responder"], options: [{ n: 1, label: "Un día antes", recommended: true }, { n: 2, label: "El mismo día", recommended: false }] });
+  one(q.out);
+  assert.match(q.out, /aria-checked="true"[^>]*>Un día antes/);
+  assert.match(q.out, />Responder</);
+  assert.match(q.out, />Cambiar algo</);
+  const step = card({ ...decision("s", "workia", "step"), actions: ["hecho", "aplazar"] });
+  one(step.out);
+  assert.match(step.out, />Hecho</);
+  assert.match(step.out, />Aplazar</);
+  const file = card({ ...decision("f", "plania", "step"), actions: ["aplicar", "hecho"], file_step: { path: ".env.example", lines: "A=1", pr_url: "https://github.com/x/y/pull/12", source: "agent" } });
+  one(file.out);
+  assert.match(file.out, />Agregar al PR #12 y marcar hecho</);
+  assert.match(file.out, />Ya lo hice yo</);
+  const fail = card({ ...decision("x", "plania", "deliverable"), actions: ["cambios", "verificar"], hold: "Las pruebas fallan.", asker: { agent: "t", role: "taller" } });
+  one(fail.out);
+  assert.match(fail.out, /No pasó la prueba\./);
+  assert.match(fail.out, /class="cor-btn primary"[^>]*>Que Taller vuelva a probar</);
+  const rel = card({ ...decision("r", "plania", "release"), release: { from: "sandbox", into: "main", env: "prod", ahead: 3, tickets: [], open_checks: 0, before: 0 } });
+  one(rel.out);
+  assert.match(rel.out, /href="\/pub"[^>]*>Publicar</);
+  const doneCard = card({ ...decision("d", "filmia", "deliverable"), state: { action: "aceptar", at: "x", result: {} } });
+  assert.match(doneCard.out, /class="cor-state ok"/);
+  assert.ok(!/cor-btn primary/.test(doneCard.out), "an answered card has no button");
+});
