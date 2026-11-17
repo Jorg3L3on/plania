@@ -103,6 +103,20 @@ test("I40-1 #1: each hold, in the runner's order, and none when nothing holds", 
   assert.equal(holdOf(own({ lastEndedAt: new Date("2026-11-13T20:40:00Z") }), cap({ plan: over, running: 1 }))!.code, "rest");
 });
 
+test("PLA-56: with the override on, a «rejected» reading stops only while its window is still closed", () => {
+  const rejected = (at: string, resets: string | null) => ({ at: new Date(at), status: "rejected", fiveHourPct: 100, fiveHourResetsAt: resets ? new Date(resets) : null }) as never;
+  // Seen 2026-11-17: read 09:12, reset 11:30, still stopping every run at 19:27.
+  const old = rejected("2026-11-13T09:12:00Z", "2026-11-13T11:30:00Z");
+  assert.equal(planView(old, 70, NOW, true).state, "ok", "the reset passed hours ago");
+  assert.equal(planView(rejected("2026-11-13T20:30:00Z", "2026-11-13T23:00:00Z"), 70, NOW, true).state, "stopped", "the window is still closed");
+  assert.equal(planView(rejected("2026-11-13T18:00:00Z", "2026-11-13T23:00:00Z"), 70, NOW, true).state, "stopped", "old, but its reset is still ahead");
+  assert.equal(planView(rejected("2026-11-13T20:30:00Z", null), 70, NOW, true).state, "stopped", "no reset time: fresh still stops");
+  assert.equal(planView(rejected("2026-11-13T19:00:00Z", null), 70, NOW, true).state, "ok", "no reset time: stale does not");
+  // The switch off is unchanged: an old reading is unknown (preflight probes), a live one stops.
+  assert.equal(planView(old, 70, NOW, false).state, "unknown");
+  assert.equal(planView(rejected("2026-11-13T20:30:00Z", "2026-11-13T23:00:00Z"), 70, NOW, false).state, "stopped");
+});
+
 // ---- GET /api/company against the runner
 
 test("I40-1 #2: Ready work nobody woke is unqueued; a teammate with nothing has no next_start", async () => {
