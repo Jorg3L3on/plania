@@ -2008,3 +2008,25 @@
    the stage owns the card's colour; the zone is a fact beside it. */
 .zt-list { display: inline-flex; flex-wrap: wrap; gap: 3px; vertical-align: baseline; }
 .zt { border: 1px dashed color-mix(in srgb, currentColor 45%, transparent); border-radius: 5px; padding: 0 5px; font-size: 10.5px; line-height: 1.35; white-space: nowrap; }
+
+/* ---- PLA-I54-2: pictures on a request (ui/src/components/compania/edificio/image-drop.tsx). ImageDrop: a dashed box
+   that takes ⌘V, a drop or the picker; Thumbs: 52px squares with a remove button. The night tokens of the floor
+   (--e-*) when inside it, the app's own (--border, --muted-foreground) elsewhere, e.g. in the side page. */
+@layer components {
+  .pdi-drop { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 9px 11px; border: 1px dashed var(--e-line, var(--border)); border-radius: 12px; color: var(--e-muted, var(--muted-foreground)); font-size: 12.5px; line-height: 1.45; transition: border-color 120ms, background-color 120ms; }
+  .pdi-drop[data-over] { border-color: var(--e-you, #ff9f43); background: rgb(255 159 67 / 0.08); }
+  .pdi-drop[data-disabled] { opacity: 0.55; }
+  .pdi-drop kbd { font: 500 11px var(--font-mono, ui-monospace, monospace); padding: 1px 5px; border-radius: 5px; color: var(--e-fg, var(--foreground)); background: rgb(255 255 255 / 0.1); }
+  .pdi-pick { padding: 0; border: 0; background: none; font: inherit; color: var(--e-fg, var(--foreground)); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+  .pdi-pick:disabled { cursor: default; }
+  .pdi-pick:focus-visible, .pdi-thumb button:focus-visible, .pdi-thumb a:focus-visible { outline: 2px solid var(--e-you, #ff9f43); outline-offset: 2px; }
+  .pdi-error { color: #ffb4a8; font-size: 12px; }
+  .pdi-thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+  .pdi-thumb { position: relative; width: 52px; height: 52px; border-radius: 8px; overflow: hidden; border: 1px solid var(--e-line, var(--border)); background: rgb(0 0 0 / 0.25); }
+  .pdi-thumb a, .pdi-thumb-blank { display: block; width: 100%; height: 100%; }
+  .pdi-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .pdi-thumb[data-removing] { opacity: 0.5; }
+  .pdi-thumb button { position: absolute; top: 2px; right: 2px; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 999px; font-size: 13px; line-height: 1; color: var(--e-fg, var(--foreground)); background: rgb(10 12 24 / 0.82); cursor: pointer; }
+  .pdi-thumb button:disabled { cursor: default; }
+}
+/* ---- end PLA-I54-2 */

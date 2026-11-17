@@ -1252,6 +1252,38 @@ export const captureStills = pgTable(
 );
 export type CaptureStill = typeof captureStills.$inferSelect;
 
+// PLA-I54-2: pictures Jorge attaches to a request (pasted, dropped or picked on Pedir). Migration 0056. The file lives
+// in the local store under <captures dir>/pedidos/<project>/, named by its sha256 (src/pedidos/images.ts); Plania keeps
+// the row. The same picture twice on one request is one row; at most 6 per request (checked on upload).
+export const IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"] as const;
+export type ImageMime = (typeof IMAGE_MIMES)[number];
+export const taskImages = pgTable(
+  "task_images",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    file: text("file").notNull(), // <sha256>.<png|jpg|webp> in the store
+    mime: text("mime").$type<ImageMime>().notNull(),
+    bytes: integer("bytes").notNull(),
+    width: integer("width"),
+    height: integer("height"),
+    actor: jsonb("actor").$type<Actor>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("task_images_task_file_unique").on(t.taskId, t.file),
+    index("task_images_task_idx").on(t.taskId, t.createdAt),
+    check("task_images_mime_check", sql`${t.mime} in ('image/png', 'image/jpeg', 'image/webp')`),
+    check("task_images_bytes_check", sql`${t.bytes} > 0 and ${t.bytes} <= 5242880`),
+  ],
+);
+export type TaskImage = typeof taskImages.$inferSelect;
+
 // PLA-I46-9: the QA lane's passes on a delivery. Migration 0049. The PO's check list it reads is tasks.po_checklist
 // (PoCheck, migration 0048); QA's marks live on the lane (per commit), not on the item.
 
