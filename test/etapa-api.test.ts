@@ -56,6 +56,10 @@ before(async () => {
   ] as const) K[name] = (await make({ title, parent_key: leg.key })).key;
   K.next = (await make({ title: "Del tramo siguiente", parent_key: later.key })).key;
   K.loose = (await make({ title: "Suelto" })).key;
+  // PLA-54: a step filed in Backlog that never moved waits its turn in the chain: not postponed. Behind an In
+  // review step it still waits (it moves once that one lands).
+  K.step = (await make({ title: "Paso siguiente", parent_key: leg.key, status: "Backlog", blocked_by: [K.ready] })).key;
+  K.afterReview = (await make({ title: "Tras la revisión", parent_key: leg.key, status: "Backlog", blocked_by: [K.qarun] })).key;
 
   const lease = JSON.stringify({ agent: "taller-micasa", session_id: "s-lease" });
   await raw.query(`update tasks set status = 'In progress', owner = $2, claimed_at = now() - interval '4 minutes', lease_until = now() + interval '20 minutes' where key = $1`, [K.lease, lease]);
@@ -65,7 +69,8 @@ before(async () => {
   await raw.query(`update tasks set status = 'In review' where key in ($1, $2)`, [K.qafail, K.qarun]);
   await raw.query(`insert into qa_lanes (project_id, task_id, task_key, status, attempt, commit, ended_at) values ($1, $2, $3, 'fail', 1, 'abc1234', now() - interval '1 minute')`, [project, await idOf(K.qafail!), K.qafail]);
   await raw.query(`insert into qa_lanes (project_id, task_id, task_key, status, attempt, commit, started_at) values ($1, $2, $3, 'checking', 1, 'abc1234', now() - interval '2 minutes')`, [project, await idOf(K.qarun!), K.qarun]);
-  await raw.query(`update tasks set status = 'Backlog' where key = $1`, [K.backlog]);
+  // Put back in Backlog by someone: its status moved (PLA-54).
+  await raw.query(`update tasks set status = 'Backlog', status_changed_at = now() where key = $1`, [K.backlog]);
   await raw.query(`update tasks set status = 'Done' where key = $1`, [K.done]);
 });
 
@@ -85,6 +90,8 @@ const EXPECTED: Record<string, string> = {
   done: "hecho",
   next: "lista",
   loose: "lista",
+  step: "despues",
+  afterReview: "despues",
 };
 
 test("I53-2 #2: GET /api/projects/:slug carries etapa on every ticket, null on initiatives", async () => {
@@ -100,6 +107,10 @@ test("I53-2 #2: GET /api/projects/:slug carries etapa on every ticket, null on i
   assert.equal(lease.live, true);
   assert.equal(by.get(K.qarun!)!.etapa.qa, "running");
   assert.equal(by.get(K.expired!)!.etapa.holder, null);
+  // PLA-54: the board names what the step waits on, and keeps «Pospuesto a propósito» for the one put back.
+  assert.equal(by.get(K.step!)!.etapa.reason, "Espera a «Lista para empezar»");
+  assert.equal(by.get(K.afterReview!)!.etapa.reason, "Espera a «QA la prueba ahora»");
+  assert.equal(by.get(K.backlog!)!.etapa.reason, "Pospuesto a propósito.");
   // The old fields stay.
   assert.ok("claimed_by" in by.get(K.lease!)!);
 });
@@ -111,7 +122,7 @@ test("I53-2 #2: GET /api/company returns every open initiative with its tickets'
   assert.deepEqual(rows.map((i) => i.key), [K.leg, K.later]);
   const leg = rows[0]!;
   assert.equal(leg.status, "Active");
-  assert.deepEqual([leg.done, leg.total], [1, 8]);
+  assert.deepEqual([leg.done, leg.total], [1, 10]);
   const by = new Map([...rows.flatMap((i) => i.tickets as Json[]), ...(card.tablero.loose as Json[])].map((t) => [t.key, t]));
   for (const [name, etapa] of Object.entries(EXPECTED)) assert.equal(by.get(K[name]!)?.etapa.etapa, etapa, name);
   assert.equal(rows[1]!.tickets[0].key, K.next);
