@@ -658,7 +658,7 @@ test("I39-7 #1: a floor has one box and one send button; sending posts the text 
   assert.ok(confirmed.includes("data-sent") && confirmed.includes("lo toma en su turno"));
   clean(confirmed);
   const page = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
-  assert.ok(page.includes("steer.onAsk(slug, { text: input.text, mode: input.mode })") && page.includes("api.askProject(slug, input)"));
+  assert.ok(page.includes("steer.onAsk(slug, { text: input.text, mode: input.mode, consulta: input.consulta })") && page.includes("api.askProject(slug, input)"));
 });
 
 test("I39-7 #2: while the box has text the PO's window says Recibiría tu pedido; clearing it removes the line", () => {

@@ -45,9 +45,11 @@ export const ERRORS = {
   ACTOR_MISMATCH: [403, "actor.agent or actor.machine disagrees with the agent token's (detail: expected)"],
   HUMAN_ONLY: [403, "Won't do or reopening a closed task: Jorge's call, on screen with a reason, or by an agent with a reason and delegated_by_jorge {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it"],
   THREAD_FORBIDDEN: [403, "thread_post or thread_read on a thread that is not yours: Asistente may use every thread, a team member only its own project's (detail: thread, agent)"],
+  CONSULTA_FORBIDDEN: [403, "answer_consulta by an agent that is not the PO the question woke (detail: consulta, agent)"],
   DELEGATION_OFF: [403, "delegated answers and delegated moves are off: the kill switch on the screen is off"],
   NOT_DELEGABLE: [403, "answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored"],
   // 404: something named does not exist.
+  CONSULTA_NOT_FOUND: [404, "answer_consulta on an id that is not a question of this project"],
   CHECK_NOT_FOUND: [404, "no check with that n on this task"],
   UNKNOWN_BRANCH: [404, "get_context: no initiative or ticket is on that branch (detail: known)"],
   DECISION_NOT_FOUND: [404, "supersedes names no decision of this project"],

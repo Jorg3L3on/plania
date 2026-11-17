@@ -1,3 +1,4 @@
+import { retryConsultas } from "../pedidos/consultas.js";
 import { and, desc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { ADAPTERS, agents, heartbeatRuns, projects, tasks, type AdapterConfig, type AdapterName } from "../db/schema.js";
@@ -299,6 +300,8 @@ export const runHeartbeat = async (db: Db, now = new Date(), deps?: HeartbeatDep
   const auto = await sweepAutoAccept(db, now).catch(() => ({ accepted: [] as string[], held: [] }));
   // PLA-I46-9: QA passes on code deliveries; a review run it queues starts in the drain below.
   const qa = await sweepQa(db, now, { runner: deps?.runner, env: deps?.runner?.env, worktreeRoot: deps?.runner?.worktreeRoot, git: deps?.runner?.git }).catch(() => null);
+  // PLA-I57-1: a question whose PO was busy gets queued again now that it may be free.
+  await retryConsultas(db, now).catch(() => 0);
   const drained = await drainQueue(db, now, deps?.runner);
   const cleaned = await cleanupWorktrees(db, deps?.runner);
   const counts = {

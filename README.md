@@ -433,6 +433,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `create_company_project` | Create a project, a product-owner bot and a Playbook doc from the company template. |
 | `wake_agent` | Wake one roster agent through its adapter when its heartbeat is due. |
 | `thread_post` | Write a message in a thread Jorge reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from him. |
+| `answer_consulta` | Answer a question Jorge asked about a project with Pedir's Preguntar mode. |
 | `propose` | Post a proposal as data in your project's thread; Jorge decides it in Te toca. |
 <!-- mcp-tools:end -->
 
@@ -566,6 +567,8 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `INVALID_STATUS` | 400 | status is not in the task kind's vocabulary, or not allowed at creation |
 | `INVALID_TTL` | 400 | ttl_minutes outside 5..240 |
 | `INVALID_WORK_TYPE` | 400 | work_type is not code, ops, research, decision-needed, bug or debt |
+| `MUESTRA_INVALID` | 400 | finish: muestra does not fit its shape (detail: field, hint) |
+| `MUESTRA_REQUIRED` | 400 | finish: the delivery changes the screen on a project Plania photographs; pass muestra {frase, vistas, pasos} (detail: ui_files, hint) |
 | `PARENT_MUST_BE_INITIATIVE` | 400 | parent_key names a ticket |
 | `PROMOTED_TO_INVALID` | 400 | promoted_to is not an initiative or a standalone ticket of this project |
 | `RESERVED_ACTOR` | 400 | actor.agent is jorge: only the screen writes as Jorge |
@@ -573,17 +576,17 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `TASK_MISSING_PR_URL` | 400 | Done, Merged or Released on a code ticket without pr_url: pass pr_url, or no_pr_reason when the work had no PR |
 | `TEMPLATE_INVALID` | 400 | create_task: a ticket without scope, or a code/ops ticket without checks (detail: missing) |
 | `TEXT_HAS_DATE` | 400 | decision text starts with a date: the server stamps dates |
-| `MUESTRA_REQUIRED` | 400 | finish: the delivery changes the screen on a project Plania photographs; pass muestra {frase, vistas, pasos} (detail: ui_files, hint) |
-| `MUESTRA_INVALID` | 400 | finish: muestra does not fit its shape (detail: field, hint) |
 | `TOO_LARGE` | 400 | a text field exceeds its limit (detail: field, max) |
 | `VERSION_REQUIRED` | 400 | set_task changes fields without the version you read |
 | `ACTOR_MISMATCH` | 403 | actor.agent or actor.machine disagrees with the agent token's (detail: expected) |
+| `CONSULTA_FORBIDDEN` | 403 | answer_consulta by an agent that is not the PO the question woke (detail: consulta, agent) |
 | `DELEGATION_OFF` | 403 | delegated answers and delegated moves are off: the kill switch on the screen is off |
 | `HUMAN_ONLY` | 403 | Won't do or reopening a closed task: Jorge's call, on screen with a reason, or by an agent with a reason and delegated_by_jorge {message_id, quote}. Also a human_only question: only the screen can answer it, by a click; bots are refused. answer_delegated is a different tool and only actor agent plania-bot may call it |
 | `NOT_DELEGABLE` | 403 | answer_delegated only answers one human_only question that has named options. An approval_id on that call is ignored |
 | `THREAD_FORBIDDEN` | 403 | thread_post or thread_read on a thread that is not yours: Asistente may use every thread, a team member only its own project's (detail: thread, agent) |
 | `AGENT_NOT_FOUND` | 404 | unknown roster slug (owner_agent or reports_to) |
 | `CHECK_NOT_FOUND` | 404 | no check with that n on this task |
+| `CONSULTA_NOT_FOUND` | 404 | answer_consulta on an id that is not a question of this project |
 | `DECISION_NOT_FOUND` | 404 | supersedes names no decision of this project |
 | `DOC_NOT_FOUND` | 404 | no doc with that id in the project, or replacing (version given) a title that does not exist |
 | `FINDING_NOT_FOUND` | 404 | audit fix: a fresh audit no longer has that finding (code and id), so there is nothing to fix |
@@ -610,7 +613,6 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `FOOTPRINT_HELD` | 409 | another live session declared this footprint, or releasing one you did not declare (detail: holder, purpose) |
 | `HANDOFF_HELD` | 409 | the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note) |
 | `HOP_CAP` | 409 | assign would pass 3 hops (detail: hops, cap). The owner stays and a limpieza inbox item is posted |
-| `PEDIDO_SIN_ORDEN` | 409 | an idea the owner asked for on screen (origin jorge) gets promoted_to only after his «Constrúyelo» on the Pedido tab |
 | `IDEA_CLOSED` | 409 | a Done or Won't do idea does not change stage or promoted_to (detail: status) |
 | `INITIATIVE_CHILDREN_OPEN` | 409 | an initiative cannot be Done or Won't do while a ticket of it is in another state (detail: open) |
 | `INVALID_STAGE_MOVE` | 409 | set_task stage is not one step along idea → research → design → planning → ready, or a step back without a note (detail: from, to) |
@@ -618,9 +620,10 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `KEY_BELOW_COUNTER` | 409 | an explicit key with a number already issued for that scope (detail: next); omit key to get the next one |
 | `KEY_EXISTS` | 409 | create with a key that exists (or is an alias of one); creates are not idempotent without request_id |
 | `LEASE_EXPIRED` | 409 | heartbeat after your lease ran out: claim again |
-| `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
 | `LEG_POSTPONED` | 409 | propose: a plan for a leg that is On hold, postponed on purpose; planning is not permission to start it (detail: key, status) |
+| `NOT_CLAIMABLE` | 409 | the ticket cannot be claimed (detail: status, or unsatisfied blocked_by) |
 | `NOT_OWNER` | 409 | another session holds a live lease on this task (detail: owner, lease_until) |
+| `PEDIDO_SIN_ORDEN` | 409 | an idea the owner asked for on screen (origin jorge) gets promoted_to only after his «Constrúyelo» on the Pedido tab |
 | `PING_PONG` | 409 | this owner pair already assigned the other way (detail: from, to). The owner stays |
 | `QUOTA_EXCEEDED` | 409 | consume would pass the daily quota (detail: limit, used, remaining) |
 | `RELEASE_MERGE_FAILED` | 409 | release/ship: a gh call failed (detail: step token | list | edit | create | merge | view, output); nothing was recorded |

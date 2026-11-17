@@ -253,6 +253,8 @@ export function sayTo(m: Pick<OrgMember, "role" | "now">, text: string): Say | n
 // Where the order landed, in plain words: the PO of that project, and whether it woke.
 export function askedLine(r: AskResult, project?: string): string {
   const who = project ? `el PO de ${project}` : "el PO";
+  // PLA-I57-1: a question creates nothing; the answer comes back in Pedir's side page.
+  if (r.mode === "pregunta") return r.wake === "queued" ? `${who[0]!.toUpperCase()}${who.slice(1)} lee el código para contestarte.` : `${who[0]!.toUpperCase()}${who.slice(1)} te contesta en cuanto termine lo que corre.`;
   // PLA-I54-1: Darle forma lands in the tube, not on the board.
   if (r.mode === "forma") return r.wake === "queued" ? `Entró al tubo como ${r.key}; ${who} le da forma ahora.` : `Entró al tubo como ${r.key}; ${who} la abre en su turno.`;
   if (r.woke?.woke) return `Le llegó a ${who} y ya está en ello.`;
