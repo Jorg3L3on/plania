@@ -176,3 +176,81 @@ test("I62-2: the stream draws lanes, agents, rhombi, counts, the paused lane's R
   for (const c of ["IDEA", "INVESTIGACIÓN", "DISEÑO", "PLAN", "LISTA", "CONSTRUCCIÓN", "REVISIÓN"]) assert.ok(out.toUpperCase().includes(c), c);
   assert.ok(!/Plania/.test(out));
 });
+
+// ---- PLA-I62-3: the project view
+const strip = await load("components/corriente/strip.tsx");
+const ahora = await load("components/corriente/ahora.tsx");
+const page = await load("pages/corriente.tsx");
+const fakeActs = () => {
+  const calls: unknown[][] = [];
+  const rec = (name: string) => (...a: unknown[]) => void calls.push([name, ...a]);
+  return {
+    calls,
+    acts: { refresh: () => {}, decisions: { decide: rec("decide"), withActed: (d: unknown[]) => d, busy: null, errors: {}, prefill: {}, setPrefill: () => {} }, busy: null, stopRun: rec("stopRun"), resumeRun: rec("resumeRun"), start: rec("start"), plan: rec("plan"), autoAccept: rec("auto"), autoInvisible: rec("autoInv"), resend: rec("resend"), closeRequest: rec("close"), cancelOrder: rec("cancel"), pickNext: rec("next"), note: rec("note"), resume: rec("resume"), pause: rec("pause") },
+  };
+};
+const ahoraLinks = { entrega: (d: { id: string }) => `/e/${d.id}`, tetoca: () => "/tt", paso: (k: string) => `/paso/${k}`, tablero: "/tablero", equipo: "/equipo", miembro: (a: string) => `/m/${a}`, publicar: "/pub", pagina: "/p/filmia", hash: () => "/hash" };
+
+test("I62-3: Esc steps out one level at a time; the strip marks the open project and keeps the tab", () => {
+  assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia&t=tablero&ver=paso:FIL-1")), { slug: "filmia", tab: "tablero" });
+  assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia&t=tablero")), { slug: "filmia" });
+  assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia")), { view: "corriente" });
+  assert.deepEqual(page.escFrom(lib.atOf("?v=tetoca")), { view: "corriente" });
+  const lanes = [stream.laneOf(project("filmia", { team: [member("t", "taller", "running", { ticket: null })] }), undefined, [decision("d", "filmia", "deliverable")]), stream.laneOf(project("micasa"), undefined, [])];
+  const out = html(h(strip.Strip, { lanes, open: "filmia", href: (s: string) => `/c?proyecto=${s}&t=tablero`, back: "/c", pedirTo: "/pedir" }));
+  assert.match(out, /aria-current="page"[^>]*href="\/c\?proyecto=filmia&amp;t=tablero"|href="\/c\?proyecto=filmia&amp;t=tablero"[^>]*aria-current="page"/);
+  assert.match(out, /class="t yo"/);
+  assert.match(out, /class="t ag"/);
+  assert.match(out, /class="cor-btn secondary"[^>]*>Pedir</);
+  const bar = html(h(strip.ProjectBar, { slug: "filmia", title: "Filmia", tab: "ahora", href: (t: string) => `/t/${t}`, counts: { ahora: { n: 1, amber: true } } }));
+  for (const t of ["Ahora", "Pedidos", "Tablero", "Ideas", "Diseño", "PRs", "Docs", "Equipo", "Motores", "Máquinas"]) assert.ok(bar.includes(`>${t}<`) || bar.includes(`>${t}<span`), t);
+  assert.match(bar, /aria-current="page"[^>]*>Ahora<span class="cor-count amber">1</);
+});
+
+test("I62-3: Ahora with a delivery: the move's one white button (Aceptar), Ver antes y después, Pedir ajuste; Detener; Meta; Equipo", () => {
+  const d = { ...decision("d1", "filmia", "deliverable", "FIL-35"), title: "Reproductor", asker: { agent: "taller-filmia", role: "taller" } };
+  const p = project("filmia", {
+    next_move: { verbo: "aceptar", texto: "Acepta el reproductor.", accion: { kind: "decision", id: "d1", action: "aceptar", label: "Aprobar y cerrar" }, origen: { kind: "decision", id: "d1", decision: "deliverable" } },
+    team: [member("taller-filmia", "taller", "running", { ticket: "FIL-42", title: "Pruebas" }), member("po-filmia", "product-owner")],
+    rumbo: { goal_id: "g", goal: "Publicar en un día", why: "", target_on: "2026-12-17", forecast_on: "2026-12-17", weeks_behind: 0, missing: false },
+    tablero: { initiatives: [{ key: "FIL-I1", title: "x", status: "Active", done: 0, total: 3, tickets: [tk("FIL-30", "integrado"), tk("FIL-31", "en_revision"), tk("FIL-32", "en_revision"), tk("FIL-33", "en_revision")] }], loose: [], loose_done: 0 },
+  });
+  p.team[0].now.run_id = "run-1";
+  const { acts } = fakeActs();
+  const out = html(h(ahora.Ahora, { p, decisions: [d], now: Date.parse("2026-11-17T20:12:00Z"), companyPaused: false, totals: { open: 45, done: 321 }, acts, links: ahoraLinks, onFijar: () => {} }));
+  assert.match(out, /Te toca · Taller te entrega/);
+  assert.match(out, /FIL-35 · Reproductor/);
+  assert.equal((out.match(/cor-btn primary/g) ?? []).length, 1, "one white button");
+  assert.match(out, /class="cor-btn primary"[^>]*>Aceptar</);
+  assert.match(out, /href="\/e\/d1"[^>]*>Ver antes y después/);
+  assert.match(out, />Pedir ajuste</);
+  assert.match(out, /data-running="taller-filmia"[\s\S]*?12 MIN[\s\S]*?Detener/);
+  assert.match(out, /En revisión · 4 · no necesitan nada de ti/);
+  assert.match(out, /Espera publicación/);
+  assert.match(out, /Ver la otra en el tablero/);
+  assert.match(out, /Cambiar meta/);
+  assert.match(out, /Publicar en un día/);
+  assert.match(out, /45 ABIERTOS · 321 HECHOS/);
+  assert.match(out, /href="\/p\/filmia"/);
+  assert.match(out, />Taller<\/span><span class="cor-state live">Trabajando</);
+  assert.match(out, />PO<\/span><span class="cor-state">Libre</);
+  assert.ok(!/Plania/.test(out));
+});
+
+test("I62-3: Ahora with nothing waiting: the state, the reason and the nudge (start past the guard, Arma el plan); Sin meta offers Fijar", () => {
+  const p = project("workia", {
+    light: "quiet",
+    light_reason: { text: "Nadie tiene trabajo listo.", action: null },
+    team: [{ ...member("taller-workia", "taller"), next_start: { key: "W-1", title: "Alta", hold: "usage", starts_at: null, text: "El uso está al 92 %." } }],
+    rumbo: { goal_id: null, goal: null, why: "", target_on: null, forecast_on: null, weeks_behind: null, missing: true },
+  });
+  const { acts } = fakeActs();
+  const out = html(h(ahora.Ahora, { p, decisions: [], now: Date.now(), companyPaused: false, totals: null, acts, links: ahoraLinks, onFijar: () => {} }));
+  assert.match(out, /data-state-card="stuck"/);
+  assert.match(out, /Seguir de todos modos/);
+  assert.match(out, /Nadie tiene trabajo listo\./);
+  assert.match(out, />Arma el plan</);
+  assert.match(out, />Fijar meta</);
+  assert.match(out, /Sin meta todavía\./);
+  assert.ok(!/cor-btn primary/.test(out), "nothing waits on him: no white button");
+});

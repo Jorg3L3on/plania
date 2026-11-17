@@ -234,7 +234,7 @@ export function clockLine(now: number, timeZone?: string): string {
 // ---- which parts La corriente draws already (each phase of PLA-I62 adds its own); the rest link to the building.
 export const BUILT: { views: View[]; tabs: Tab[]; vers: Ver["kind"][] } = {
   views: ["corriente", "piezas"],
-  tabs: [],
+  tabs: ["ahora"],
   vers: [],
 };
 export function isBuilt(at: Partial<At>): boolean {
