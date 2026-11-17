@@ -144,7 +144,8 @@ export function laneOf(p: OrgProject, summary: ProjectSummary | undefined, decis
               : ((d.ref ? where.get(d.ref) : undefined) ?? "construccion");
       return { decision: d, col, verb: youVerb(d) };
     });
-  const idle = live && agents.length === 0 && p.light_reason && p.light !== "ok" ? p.light_reason : null;
+  // Te toca already speaks for a project that waits on the owner.
+  const idle = live && agents.length === 0 && p.light_reason && p.light !== "ok" && p.light !== "needs_jorge" && !you.length ? p.light_reason : null;
   return {
     slug: p.slug,
     title: p.title,

@@ -22,7 +22,7 @@ const MAX_DOTS = 3;
 // Each lane breathes at its own speed so the stream never moves in lockstep.
 const SPEEDS = [7, 9, 6, 5.5, 8, 6.5, 10, 7.5];
 
-const Cell = ({ lane, col, links, revisionCount }: { lane: Lane; col: Column; links: StreamLinks; revisionCount: number }) => {
+const Cell = ({ lane, col, links, revisionCount, idle }: { lane: Lane; col: Column; links: StreamLinks; revisionCount: number; idle?: boolean }) => {
   const work = lane.cells[col];
   const agents = lane.agents.filter((a) => a.col === col);
   const you = lane.you.filter((y) => y.col === col);
@@ -50,6 +50,14 @@ const Cell = ({ lane, col, links, revisionCount }: { lane: Lane; col: Column; li
         </Link>
       ))}
       {agents.length > 1 && <span className="cor-cell-more">+{agents.length - 1}</span>}
+      {idle && lane.idle?.action && (
+        <Link to={links.reason(lane.slug, lane.idle.action.href)} className="cor-tag-link" data-idle-action={lane.slug}>
+          <span className="cor-tag">
+            <b>{lane.idle.action.label}</b>
+            <span>nadie trabaja</span>
+          </span>
+        </Link>
+      )}
       {you.slice(0, 1).map((y) => (
         <Link key={y.decision.id} to={links.you(lane.slug, y.decision)} className="cor-tag-link" data-you={y.decision.id}>
           <You />
@@ -66,13 +74,17 @@ const Cell = ({ lane, col, links, revisionCount }: { lane: Lane; col: Column; li
 export const StreamLane = ({ lane, i, links, onResume, resuming }: { lane: Lane; i: number; links: StreamLinks; onResume: (slug: string) => void; resuming: string | null }) => {
   const style = { "--cor-speed": `${lane.pace === "still" ? 16 : SPEEDS[i % SPEEDS.length]}s`, "--cor-delay": `-${(i * 2.3) % 9}s` } as CSSProperties;
   const revisionCount = lane.cells.revision.length;
+  // Nobody works here: the server's action sits in the first empty stage, so it never covers work.
+  const idleCol = lane.idle?.action ? (COLUMNS.find((c) => !lane.cells[c].length && !lane.you.some((y) => y.col === c)) ?? null) : null;
   return (
     <div className="cor-lane" data-lane={lane.slug} data-paused={lane.paused || undefined} data-pace={lane.pace}>
       <Link className="cor-lane-name" to={links.project(lane.slug)}>
         <Logo slug={lane.slug} title={lane.title} />
         <span className="cor-lane-text">
           <span className="cor-lane-title">{lane.title}</span>
-          <span className="cor-cap">{lane.paused ? "en pausa" : lane.next ? `sigue ${lane.next}` : "sin paso siguiente"}</span>
+          <span className="cor-cap cor-ellipsis" title={lane.idle?.text} data-idle={lane.idle ? lane.slug : undefined}>
+            {lane.paused ? "en pausa" : lane.idle ? lane.idle.text : lane.next ? `sigue ${lane.next}` : "sin paso siguiente"}
+          </span>
         </span>
       </Link>
       <div className={`cor-track ${lane.pace === "off" ? "off" : lane.pace === "still" ? "still" : ""}`} style={style}>
@@ -83,7 +95,7 @@ export const StreamLane = ({ lane, i, links, onResume, resuming }: { lane: Lane;
           </>
         )}
         {COLUMNS.map((c) => (
-          <Cell key={c} lane={lane} col={c} links={links} revisionCount={revisionCount} />
+          <Cell key={c} lane={lane} col={c} links={links} revisionCount={revisionCount} idle={c === idleCol} />
         ))}
         {lane.paused ? (
           <div className="cor-lane-over" data-resume={lane.slug}>
@@ -92,20 +104,7 @@ export const StreamLane = ({ lane, i, links, onResume, resuming }: { lane: Lane;
               {resuming === lane.slug ? "Reanudando…" : "Reanudar"}
             </Btn>
           </div>
-        ) : (
-          lane.idle && (
-            <div className="cor-lane-over idle" data-idle={lane.slug}>
-              <span className="cor-body cor-ellipsis" title={lane.idle.text}>
-                {lane.idle.text}
-              </span>
-              {lane.idle.action && (
-                <Link className="cor-btn quiet small" to={links.reason(lane.slug, lane.idle.action.href)} data-idle-action>
-                  {lane.idle.action.label}
-                </Link>
-              )}
-            </div>
-          )
-        )}
+        ) : null}
       </div>
     </div>
   );

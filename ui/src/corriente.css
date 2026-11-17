@@ -216,8 +216,6 @@ button.cor-row { width: 100%; text-align: left; background: transparent; border-
 .cor-tag > span { font-family: var(--cor-mono); font-size: 10.5px; color: #a9a9b6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cor-tag.amber b { color: var(--cor-amber); }
 .cor-lane-over { position: absolute; z-index: 2; inset: 0; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 0 16px; background: rgba(5, 5, 7, 0.72); font-size: 13.5px; }
-.cor-lane-over.idle { inset: auto 0 auto auto; top: 50%; transform: translateY(-50%); left: 0; justify-content: flex-start; padding-left: calc(100% / 7 * 0.15); background: transparent; pointer-events: none; }
-.cor-lane-over.idle > * { pointer-events: auto; background: var(--cor-bg); padding-left: 8px; padding-right: 8px; border-radius: 8px; max-width: 60%; }
 .cor-lane[data-paused] .cor-track > .cor-cell { opacity: 0.35; }
 
 .cor-pedir { position: relative; flex: none; display: flex; align-items: center; gap: 10px; padding: 14px 32px; border-top: 1px solid var(--cor-line); background: rgba(5, 5, 7, 0.9); }

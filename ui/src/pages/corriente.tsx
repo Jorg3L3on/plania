@@ -68,7 +68,8 @@ export const CorrientePage = () => {
         : isBuilt({ view: "tetoca" })
           ? hrefOf({ view: "tetoca", extra: { decision: d.id } })
           : legacyHref({ slug, ver: { kind: "entrega", id: d.id } }),
-    reason: (slug, href) => (href.startsWith("#") ? linkTo({ slug }) : href),
+    // The server's in-page anchors: «#te-toca» is Te toca, «#publicar» and the rest the project.
+    reason: (slug, href) => (href === "#te-toca" ? linkTo({ view: "tetoca" }) : href.startsWith("#") ? linkTo({ slug }) : href),
   };
   const pedirTo = (slug: string | null) =>
     isBuilt({ view: "pedir" }) ? hrefOf({ view: "pedir", extra: slug ? { p: slug } : {} }) : slug ? legacyHref({ slug }) : legacyHref({});

@@ -172,7 +172,7 @@ test("I62-2: the stream draws lanes, agents, rhombi, counts, the paused lane's R
   assert.match(out, /href="\/y\/filmia\/d1"[^>]*><span aria-hidden="true" class="cor-you"><\/span><span class="cor-tag amber"><b>Aceptar FIL-35<\/b><span>1 en revisión<\/span>/);
   assert.match(out, /aria-label="5 en Lista"/, "many dots become a count");
   assert.match(out, /data-resume="zigzag"[\s\S]*?Reanudar/);
-  assert.match(out, /data-idle="workia"[\s\S]*?Sin paso listo\.[\s\S]*?href="\/ceo\?piso=workia"[^>]*>Arma el plan/);
+  assert.match(out, /data-idle="workia"[\s\S]*?Sin paso listo\.[\s\S]*?href="\/ceo\?piso=workia"[^>]*>[\s\S]*?Arma el plan/);
   for (const c of ["IDEA", "INVESTIGACIÓN", "DISEÑO", "PLAN", "LISTA", "CONSTRUCCIÓN", "REVISIÓN"]) assert.ok(out.toUpperCase().includes(c), c);
   assert.ok(!/Plania/.test(out));
 });
