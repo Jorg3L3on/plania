@@ -8,7 +8,7 @@
 //   SumarPage   PLA-I46-13: a role (QA, Escritura, Seguridad, Research, Otro) and skill packs from Plania; the engine
 //               is one line («Motor: Claude Code»); ends with «Sumar <rol>».
 // The views are pure (state comes in as props) so tests call their handlers without a DOM.
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router";
 import type { HireRole, OrgMember, OrgProject, PackRef } from "@/lib/api";
 import type { ProjectSheetData } from "@/lib/compania";
@@ -22,6 +22,8 @@ import { Detalles, type Steer } from "@/components/compania/timon";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { Glass } from "./window";
+import type { MotorPatch } from "@/lib/api";
+import { MODELS, motorLine, type ModelId } from "@/lib/motores";
 
 const pillSmall = "min-h-9 px-3.5 text-xs";
 const input = "min-h-10 w-full min-w-0 rounded-xl border border-border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -372,7 +374,14 @@ export const SumarPage = ({
   onRole,
   onPack,
   onAdd,
+  motorDefault,
+  model = null,
+  onModel,
 }: {
+  // PLA-I59-3: the company's default motor the new seat starts on, and the model picked for it (null: inherit).
+  motorDefault?: { model: string | null; effort: string | null };
+  model?: ModelId | null;
+  onModel?: (m: ModelId | null) => void;
   hire?: HireRole[];
   packs?: PackRef[];
   loading?: boolean;
@@ -383,7 +392,7 @@ export const SumarPage = ({
   added?: string | null;
   onRole: (slug: string) => void;
   onPack: (slug: string) => void;
-  onAdd: (template: string, packs: string[]) => void;
+  onAdd: (template: string, packs: string[], motor?: MotorPatch) => void;
 }) => {
   if (loading) return <div className="h-40 animate-pulse rounded-xl bg-muted" aria-hidden />;
   const choices = roleChoices(hire ?? []);
@@ -464,9 +473,25 @@ export const SumarPage = ({
         )}
       </Section>
 
-      <p className="text-sm" data-motor>
-        <span className="text-muted-foreground">Motor:</span> <b>{MOTOR}</b>
-      </p>
+      <div className="edi-mtr-sumar" data-motor>
+        <p className="text-sm">
+          <span className="text-muted-foreground">Motor:</span> <b>{MOTOR}</b>{" "}
+          <span className="edi-mtr-lcd">{model ? motorLine(model, motorDefault?.effort ?? null) : motorLine(motorDefault?.model ?? null, motorDefault?.effort ?? null)}</span>
+        </p>
+        {onModel && (
+          <div className="edi-mtr-seg" role="radiogroup" aria-label="Modelo del nuevo puesto">
+            {MODELS.map((x) => (
+              <button key={x.id} type="button" role="radio" aria-checked={model === x.id} style={{ "--kc": x.color } as CSSProperties} onClick={() => onModel(model === x.id ? null : x.id)} data-control="sumar-modelo">
+                <b>{x.name}</b>
+                <small>{x.note}</small>
+              </button>
+            ))}
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">
+          {model ? `Queda como motor propio de este puesto. Tócalo otra vez para volver al de la compañía.` : "Empieza con el de la compañía; lo cambias después en Motores."}
+        </p>
+      </div>
       <p className="text-xs text-muted-foreground" data-note="sumar">
         Publicar sigue siendo tuyo. Los paquetes viven en Plania, no en el repo de la app.
       </p>
@@ -475,7 +500,7 @@ export const SumarPage = ({
         type="button"
         className={cn(pillPrimary, "w-full sm:w-auto sm:justify-self-start")}
         disabled={!role || busy}
-        onClick={() => role && onAdd(role, chosen)}
+        onClick={() => role && onAdd(role, chosen, model ? { model } : undefined)}
         data-control="sumar-rol"
       >
         {busy ? "Sumando…" : label ? `Sumar ${label}` : "Elige un rol"}
@@ -490,16 +515,19 @@ export const SumarPage = ({
 };
 
 // Holds the role and packs picked; picking a role ticks its suggested packs.
-export const SumarSide = (props: Omit<Parameters<typeof SumarPage>[0], "role" | "chosen" | "onRole" | "onPack">) => {
+export const SumarSide = (props: Omit<Parameters<typeof SumarPage>[0], "role" | "chosen" | "onRole" | "onPack" | "model" | "onModel">) => {
   const choices = roleChoices(props.hire ?? []);
   const [picked, setPicked] = useState<string | null>(null);
   const role = picked && [...choices.main, ...choices.otros].some((c) => c.slug === picked && c.state === "free") ? picked : firstFree(choices);
   // The ticks belong to the role they were made for; another role starts from its own suggestion.
   const [chosen, setChosen] = useState<{ role: string | null; packs: string[] } | null>(null);
   const packs = chosen && chosen.role === role ? chosen.packs : suggestedPacks(role, props.packs ?? []);
+  const [model, setModel] = useState<ModelId | null>(null);
   return (
     <SumarPage
       {...props}
+      model={model}
+      onModel={setModel}
       role={role}
       chosen={packs}
       onRole={setPicked}

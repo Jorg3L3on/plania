@@ -3,9 +3,10 @@
 // ?m=<slug>:<agent> is a teammate, ?plan=<slug> the plan, ?add=<slug> adding someone (sheetOf keeps reading them for
 // the floor they name). Pure; the page owns the navigation.
 // PLA-I54-3: Pedido, the owner's requests taking shape (a capsule in the tube opens there).
-export const FICHA_TABS = ["resumen", "pedido", "ideas", "diseno", "prs", "docs"] as const;
+// PLA-I59-3: Motores, the model and effort of each teammate on this floor (motores.tsx).
+export const FICHA_TABS = ["resumen", "pedido", "ideas", "diseno", "prs", "docs", "motores"] as const;
 export type FichaTab = (typeof FICHA_TABS)[number];
-export const TAB_WORD: Record<FichaTab, string> = { resumen: "Resumen", pedido: "Pedido", ideas: "Ideas", diseno: "Diseño", prs: "PRs", docs: "Docs" };
+export const TAB_WORD: Record<FichaTab, string> = { resumen: "Resumen", pedido: "Pedido", ideas: "Ideas", diseno: "Diseño", prs: "PRs", docs: "Docs", motores: "Motores" };
 
 export type FichaRef =
   | { kind: "tab"; tab: FichaTab }
@@ -121,6 +122,6 @@ export function escStep(ref: FichaRef): FichaRef | "close" {
 }
 
 // Which reads a view needs: the ficha rows only for the four list tabs and their details (never for Resumen).
-export const needsRows = (ref: FichaRef) => ref.kind === "idea" || ref.kind === "pr" || ref.kind === "lienzo" || ref.kind === "doc" || (ref.kind === "tab" && ref.tab !== "resumen" && ref.tab !== "pedido");
+export const needsRows = (ref: FichaRef) => ref.kind === "idea" || ref.kind === "pr" || ref.kind === "lienzo" || ref.kind === "doc" || (ref.kind === "tab" && ref.tab !== "resumen" && ref.tab !== "pedido" && ref.tab !== "motores");
 export const isMaq = (ref: FichaRef) => ref.kind === "maq" || ref.kind === "maq-tabla";
 export const needsTask = (ref: FichaRef): string | null => (ref.kind === "step" || ref.kind === "idea" ? ref.key : null);

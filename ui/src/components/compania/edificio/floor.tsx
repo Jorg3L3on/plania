@@ -330,6 +330,7 @@ export const Floor = ({
         onMember={onOpen}
         onTrack={bacts.onTrack ? (key, el) => bacts.onTrack!(slug, key, el) : undefined}
         onIdeas={onFoco ? (el) => onFoco({ kind: "tab", tab: "pedido" }, el) : undefined}
+        onMotores={onFoco ? (el) => onFoco({ kind: "tab", tab: "motores" }, el) : undefined}
         empty={
           <div className="edi-board-empty" data-board="empty">
             <p>{p.route && p.route.legs.length > 0 ? "No hay iniciativas abiertas ni trabajo suelto en este piso." : "Aún no hay plan: ninguna iniciativa abierta ni trabajo suelto."}</p>

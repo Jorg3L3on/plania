@@ -15,6 +15,7 @@ import { roleName } from "@/lib/org";
 import { TONE_VAR } from "@/components/plan/stage-board";
 import { Figure } from "./figure";
 import { PEDIDO_TONE, STOPS } from "./tubo";
+import { EngineChip } from "./motores";
 
 export type SeatView = { data: Record<string, string | undefined>; state: string; label: string; line: string };
 
@@ -48,6 +49,7 @@ export const Indice = ({
   onMember,
   onTrack,
   onIdeas,
+  onMotores,
   empty,
   children,
 }: {
@@ -61,6 +63,8 @@ export const Indice = ({
   // key null is Sueltos.
   onTrack?: (key: string | null, el: HTMLElement) => void;
   onIdeas?: (el: HTMLElement) => void;
+  // PLA-I59-3: «Motores ›» opens the floor's Motores tab in the ventanal.
+  onMotores?: (el: HTMLElement) => void;
   // What Iniciativas says with no track (the floor: «Aún no hay plan» and Que PO lo planee).
   empty?: ReactNode;
   // The «+ Sumar» window.
@@ -92,6 +96,17 @@ export const Indice = ({
         <header className="edi-ix-head">
           <h3 className="sb-eyebrow">Equipo</h3>
           <small>{teamLine}</small>
+          {onMotores && (
+            <button
+              type="button"
+              className="edi-mtr-go"
+              aria-pressed={foco?.kind === "tab" && foco.tab === "motores"}
+              onClick={(e) => onMotores(e.currentTarget)}
+              data-control="indice-motores"
+            >
+              Motores ›
+            </button>
+          )}
         </header>
         <div className="edi-ix-team" data-team={team.length}>
           {seats.map(({ m, v }) => (
@@ -114,6 +129,7 @@ export const Indice = ({
               </span>
               <b>{roleName(m.role)}</b>
               <small>{v.line}</small>
+              <EngineChip m={m} />
             </button>
           ))}
           {children}

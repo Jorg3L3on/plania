@@ -31,7 +31,8 @@ const STATES = ["running", "idle", "waiting_jorge", "paused"];
 const LIGHTS = ["ok", "needs_jorge", "failed", "blocked", "late", "quiet", "paused"];
 // PLA-I46-5: used is input + output; the four parts travel with it.
 const USAGE = ["cache_create", "cache_read", "input", "output", "used"];
-const MEMBER = ["agent", "last", "next_start", "now", "packs", "produced", "queue", "role", "state", "template", "waiting"];
+// PLA-I59-2 added consulta_motor, motor and used_week.
+const MEMBER = ["agent", "consulta_motor", "last", "motor", "next_start", "now", "packs", "produced", "queue", "role", "state", "template", "used_week", "waiting"];
 
 before(async () => {
   raw = await resetTestDb();
@@ -71,7 +72,7 @@ after(async () => {
 
 test("I32-6 #1: GET /api/company has exactly the contract keys, a team of four per project and the plumbing line", async () => {
   const c = await get("/api/company");
-  assert.deepEqual(keys(c), ["asistente", "brief", "company", "decisions", "inbox", "plumbing", "projects", "week"], "PLA-I35-1 added decisions, PLA-I36-2 inbox, PLA-I42-5 brief");
+  assert.deepEqual(keys(c), ["asistente", "brief", "company", "decisions", "inbox", "motor_default", "plumbing", "projects", "week"], "PLA-I35-1 added decisions, PLA-I36-2 inbox, PLA-I42-5 brief, PLA-I59-2 motor_default");
   assert.deepEqual(keys(c.company), ["paused"]);
   assert.deepEqual(keys(c.week), ["resets_at", "starts_at", "timezone"]);
   assert.deepEqual(keys(c.asistente), ["last_run", "state", "thread_id", "unread", "usage"]);
