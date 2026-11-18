@@ -68,6 +68,7 @@ export const ERRORS = {
   BLOCKER_NOT_WITHDRAWABLE: [409, "set_task withdraw_blocker: not a pending blocker parsed from a note on this task, or another session's note (detail: reason)"],
   BRANCH_IN_USE: [409, "the branch belongs to another live initiative (detail: owner_key); pass share_branch: true with a reason to share it"],
   CHECKS_OPEN: [409, "In review, Merged, Released or Done while a check is neither done nor waived (detail: open, the check numbers)"],
+  VERIFY_FAILED: [409, "finish: one of the project's checks (settings.qa.verify) fails in the ticket's workspace (detail: failed {name, command, exit_code, tail}, hint): fix it there and call finish again"],
   EVIDENCE_STALE: [409, "In review needs a pass recorded against the branch's current head; the passes found are for older commits (detail: head, results)"],
   QUOTA_EXCEEDED: [409, "consume would pass the daily quota (detail: limit, used, remaining)"],
   FOOTPRINT_HELD: [409, "another live session declared this footprint, or releasing one you did not declare (detail: holder, purpose)"],

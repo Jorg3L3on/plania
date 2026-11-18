@@ -582,7 +582,8 @@ export type OrgCompany = {
 export type OrgTemplate = { slug: string; title: string };
 // PLA-I46-13: every role template and whether it can be added (free), is on the team (taken) or lacks its prompt doc.
 export type HireRole = OrgTemplate & { state: "free" | "taken" | "no_doc" };
-export type PackRef = { slug: string; name: string; when: string; doc_id: string };
+// AUDIT-3: source kit is a skill folder in the Plania repo (no doc); doc is a `Pack: <name>` doc.
+export type PackRef = { slug: string; name: string; when: string; doc_id: string | null; source?: "kit" | "doc"; sha?: string };
 export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[]; hire?: HireRole[] };
 
 // PLA-I47-1: La ficha's tabs (GET /api/company/projects/:slug/ficha). Rows only; a doc's body is read on open.
