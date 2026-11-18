@@ -73,6 +73,12 @@ put the fake rows in `muestra.datos` as SQL: fictional names, example.com addres
 good shots stayed in a Mac folder and the card showed «Sin citas hoy»). Pictures you take yourself
 are not shown to the owner; the muestra is.
 
+The views run in order on that one database: every view on desktop, then every view on phone. So
+`acciones` may open, pick and fill, but never press a button that saves, cancels or sends: the next
+view would find the data changed (PLA-107: a «ficha» view that pressed «Mover» moved the sample
+appointment, and four of six photos found nobody). To show a state after a save, such as a moved
+appointment and its history, seed that state in `datos` and open it with `path` or `follow`.
+
 ## Done when
 
 - The pull request is open against `sandbox`, never main, and is not merged.
