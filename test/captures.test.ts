@@ -20,7 +20,7 @@ const { createTask } = await import("../src/mcp/writes.js");
 const { setProject } = await import("../src/mcp/project.js");
 const { findProject } = await import("../src/mcp/queries.js");
 const { parseCaptureSettings } = await import("../src/captures/settings.js");
-const { runCapture, pngHeight } = await import("../src/captures/run.js");
+const { runCapture, pngHeight, pageError } = await import("../src/captures/run.js");
 const { findChrome, launchChrome } = await import("../src/captures/chrome.js");
 const { KEEP_UNTIED } = await import("../src/captures/store.js");
 type Browser = import("../src/captures/chrome.js").Browser;
@@ -329,6 +329,16 @@ describe("capture run (real headless Chrome)", { skip: chrome ? false : "no Chro
       if (url.pathname.startsWith("/panel") && !authed) return (res.writeHead(307, { location: "/panel/entrar" }), res.end());
       if (url.pathname === "/panel") return html(200, `<h1>Panel</h1><a href="/panel/novias/n7?q=1">Ana Ejemplo</a>`);
       if (url.pathname === "/panel/novias/n7") return html(200, `<h1>Ficha de Ana</h1>`);
+      // PLA-76: a page that answers 200 but shows Next's dev error overlay; one with only Next's badge; a sheet whose
+      // button (no id, no class worth naming) opens the overlay when clicked, so a click is visible as an error.
+      const portal = (inner: string) => `<nextjs-portal></nextjs-portal><script>document.querySelector('nextjs-portal').attachShadow({mode:'open'}).innerHTML = ${JSON.stringify(`<style>h1{color:red}</style>${inner}`)};</script>`;
+      if (url.pathname === "/roto") return html(200, `<h1>Citas</h1>${portal(`<div><h1>Unhandled Runtime Error</h1><p>Error: relation "citas" does not exist</p></div>`)}`);
+      if (url.pathname === "/badge") return html(200, `<h1>Citas</h1>${portal(`<div><button>N</button></div>`)}`);
+      if (url.pathname === "/hoja")
+        return html(
+          200,
+          `<h1>Ficha</h1><script>function abrir() { document.body.insertAdjacentHTML('beforeend', '<nextjs-portal></nextjs-portal>'); document.querySelector('nextjs-portal').attachShadow({ mode: 'open' }).innerHTML = '<div><h1>Runtime Error</h1><p>Error: clicked</p></div>'; }</script><div><button onclick="abrir()">Actualizar seguimiento</button></div>`,
+        );
       return html(404, "no");
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
@@ -365,5 +375,43 @@ describe("capture run (real headless Chrome)", { skip: chrome ? false : "no Chro
     }
     // The panel pages are not the login page: their stills differ from each other and from the form's.
     assert.equal(new Set(rows.filter((x) => x.viewport === "desktop").map((x) => x.file)).size, 3);
+  });
+
+  test("PLA-76: a page showing Next's error overlay is an error with its first line, not a still; Next's badge alone is fine", { timeout: 120_000 }, async () => {
+    const views = [
+      { key: "roto", label: "Roto", path: "/roto" },
+      { key: "badge", label: "Con insignia", path: "/badge" },
+    ];
+    const r = await runCapture(db, { project: "micasa", checkout, base_url: `http://127.0.0.1:${port}`, commit: "abc1234", branch: "sandbox", views, viewports: ["desktop"], actor }, { launch: launchChrome });
+    const by = Object.fromEntries(r.stills.map((s: Json) => [s.page, s]));
+    assert.equal(by.roto.status, "error");
+    assert.equal(by.roto.error, '/roto muestra un error: Unhandled Runtime Error: Error: relation "citas" does not exist');
+    assert.equal(by.badge.status, "ok", JSON.stringify(by.badge));
+  });
+
+  test("PLA-76: acciones.click takes a button's visible text or a CSS selector", { timeout: 120_000 }, async () => {
+    const views = [
+      { key: "texto", label: "Por texto", path: "/hoja", acciones: [{ click: "Actualizar seguimiento" }] },
+      { key: "selector", label: "Por selector", path: "/hoja", acciones: [{ click: "div > button" }] },
+      { key: "nada", label: "No existe", path: "/hoja", acciones: [{ click: "Borrar todo" }] },
+    ];
+    const r = await runCapture(db, { project: "micasa", checkout, base_url: `http://127.0.0.1:${port}`, commit: "abc1234", branch: "sandbox", views, viewports: ["desktop"], actor }, { launch: launchChrome });
+    const by = Object.fromEntries(r.stills.map((s: Json) => [s.page, s.error]));
+    // The click opens the page's (fake) error overlay, so a click that happened shows as that error.
+    assert.equal(by.texto, "/hoja muestra un error: Runtime Error: Error: clicked");
+    assert.equal(by.selector, "/hoja muestra un error: Runtime Error: Error: clicked");
+    assert.equal(by.nada, "En /hoja no encontré «Borrar todo»");
+  });
+});
+
+describe("PLA-76: pageError reads a framework error off the page", () => {
+  test("Next's overlay, the production «Application error», a bare 500; the badge or an app's own words are not errors", () => {
+    assert.equal(pageError({ overlay: "Unhandled Runtime Error\nError: relation \"citas\" does not exist\nCall Stack", body: "" }), 'Unhandled Runtime Error: Error: relation "citas" does not exist');
+    assert.equal(pageError({ overlay: "1 of 2\nBuild Error\n\nModule not found: Can't resolve './x'", body: "" }), "Build Error: Module not found: Can't resolve './x'");
+    assert.equal(pageError({ overlay: "", body: "Application error: a client-side exception has occurred (see the browser console for more information)." }), "Application error: a client-side exception has occurred (see the browser console for more information).");
+    assert.equal(pageError({ overlay: "", body: "Internal Server Error" }), "Internal Server Error");
+    assert.equal(pageError({ overlay: "N\nIssues", body: "Citas de hoy\nSin citas hoy" }), null);
+    assert.equal(pageError({ overlay: "", body: "Nuestro servidor de citas tuvo un error de red ayer" }), null);
+    assert.equal(pageError(null), null);
   });
 });

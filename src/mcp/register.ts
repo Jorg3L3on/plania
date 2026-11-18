@@ -656,7 +656,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         muestra: muestraSchema
           .optional()
           .describe(
-            "What the owner will be shown (El Probador): frase (one sentence on what changes for the app's users), vistas (the views it touched: key, label, path, estado?, session?, follow?, acciones? [{click} | {fill, value}]), pasos (three ways to try it). Each view must land on the screen that changed: a record page reached from a list (one client, one ticket) needs follow: the href prefix of the link to open (e.g. /panel/novias/) or a CSS selector of that link; a view whose before and after are the same shows the owner nothing (PLA-70). Required when the diff touches the screen on a project with settings.capture (MUESTRA_REQUIRED)",
+            "What the owner will be shown (El Probador): frase (one sentence on what changes for the app's users), vistas (the views it touched: key, label, path, estado?, session?, follow?, acciones? [{click: a button's visible text or a CSS selector} | {fill: a CSS selector, value}]), pasos (three ways to try it). Each view must land on the screen that changed: a record page reached from a list (one client, one ticket) needs follow: the href prefix of the link to open (e.g. /panel/novias/) or a CSS selector of that link; a view whose before and after are the same shows the owner nothing (PLA-70); a page that shows the framework's error overlay or a 5xx is marked error and holds Aceptar back (PLA-76). Required when the diff touches the screen on a project with settings.capture (MUESTRA_REQUIRED)",
           ),
       },
       annotations: write,

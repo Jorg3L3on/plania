@@ -296,7 +296,8 @@ export type ParVista = {
   label: string;
   path: string;
   estado: string | null;
-  kind: "nueva" | "cambio" | "igual" | "sin_antes";
+  // PLA-76: «error» when the delivery's page showed a crash (framework overlay, 5xx) instead of the screen.
+  kind: "nueva" | "cambio" | "igual" | "sin_antes" | "error";
 } & Record<ViewportName, { antes: ParSide; despues: ParSide; diff: DiffBox | null }>;
 export type ProbadorRead = {
   key: string;
@@ -306,6 +307,10 @@ export type ProbadorRead = {
   entrega: ReturnType<typeof entregaRead>;
   preguntas: QA[]; // PLA-I52-6
 };
+
+// PLA-76: the después page crashed (the framework's error overlay, read by run.ts, or a 5xx), as opposed to a picture
+// that did not come out for another reason (the login, a missing link).
+export const crashed = (error: string | null): boolean => !!error && /muestra un error: |respondió 5\d\d\b/.test(error);
 
 export async function probadorRead(db: Db, slug: string, key: string): Promise<ProbadorRead | null> {
   const got = await load(db, slug, key);
@@ -335,7 +340,7 @@ export async function probadorRead(db: Db, slug: string, key: string): Promise<P
     ) as Record<ViewportName, { antes: ParSide; despues: ParSide; diff: DiffBox | null }>;
     const desk = pick(v.key, "desktop", "despues");
     const raw = desk?.diff as Record<string, unknown> | null | undefined;
-    const kind: ParVista["kind"] = per.desktop.antes.missing || raw?.nueva ? "nueva" : !per.desktop.antes.still ? "sin_antes" : raw && "x" in raw ? "cambio" : desk?.status === "ok" ? "igual" : "sin_antes";
+    const kind: ParVista["kind"] = crashed(per.desktop.despues.error) ? "error" : per.desktop.antes.missing || raw?.nueva ? "nueva" : !per.desktop.antes.still ? "sin_antes" : raw && "x" in raw ? "cambio" : desk?.status === "ok" ? "igual" : "sin_antes";
     return { key: v.key, label: v.label, path: v.path, estado: v.estado ?? null, kind, ...per };
   });
   return { key: t.key, muestra: m, state: t.probador ?? null, vistas, entrega: entregaRead(slug), preguntas: await preguntasOf(db, got.p, t) };

@@ -170,14 +170,7 @@ async function shoot(page: BrowserPage, base: string, pg: ViewPage, settings: Ca
   for (const a of pg.acciones ?? []) {
     const done = await page.evaluate<string>(
       "click" in a
-        ? `(() => {
-            const want = ${JSON.stringify(a.click)}.trim().toLowerCase();
-            const all = [...document.querySelectorAll('button, a, [role=button], [role=tab], label, summary, input[type=submit]')];
-            const el = all.find((e) => (e.innerText || e.value || '').trim().toLowerCase() === want) || all.find((e) => (e.innerText || e.value || '').trim().toLowerCase().includes(want));
-            if (!el) return 'missing';
-            el.click();
-            return 'ok';
-          })()`
+        ? clickScript(a.click)
         : `(() => {
             const el = document.querySelector(${JSON.stringify(a.fill)});
             if (!el) return 'missing';
@@ -200,6 +193,11 @@ async function shoot(page: BrowserPage, base: string, pg: ViewPage, settings: Ca
     if (done === "nooption") throw new Error(`En ${pg.path}, ${"fill" in a ? a.fill : ""} no tiene la opción «${"fill" in a ? a.value : ""}»`);
     await new Promise((res) => setTimeout(res, 400)); // let the page settle after the action
   }
+  // PLA-76 (F-24): a page that answered 200 but shows the framework's error (Next's overlay, «Application error»)
+  // is not a picture of the delivery: it becomes an error with the error's first line, so the card says «error»
+  // and holds Aceptar back instead of calling it «cambió».
+  const crash = pageError(await page.evaluate<PageText>(PAGE_TEXT_SCRIPT).catch(() => null));
+  if (crash) throw new Error(`${pg.path} muestra un error: ${crash}`);
   return { png: await page.screenshot(Boolean(pg.full_page)), url: nav.url };
 }
 
@@ -347,3 +345,56 @@ export function pngHeight(png: Buffer, scale: number): number | null {
 
 /** PLA-73: «/panel/novias/» → a[href^="/panel/novias/"]; a CSS selector stays as it is. */
 export const followSelector = (follow: string): string => (follow.startsWith("/") ? `a[href^=${JSON.stringify(follow)}]` : follow);
+
+/** PLA-76 (F-22): click a button, link, tab or label by its visible text (exact first), else by a CSS selector, else by
+ * a text that contains it. Taller believed it needed a selector; both now work. */
+export const clickScript = (click: string): string => `(() => {
+  const raw = ${JSON.stringify(click)};
+  const want = raw.trim().toLowerCase();
+  const all = [...document.querySelectorAll('button, a, [role=button], [role=tab], [role=menuitem], label, summary, input[type=submit], input[type=button]')];
+  const text = (e) => (e.innerText || e.textContent || e.value || e.getAttribute && e.getAttribute('aria-label') || '').trim().toLowerCase();
+  let el = all.find((e) => text(e) === want) || null;
+  if (!el) {
+    try {
+      el = document.querySelector(raw);
+    } catch {
+      el = null;
+    }
+  }
+  if (!el && want) el = all.find((e) => text(e).includes(want)) || null;
+  if (!el) return 'missing';
+  el.click();
+  return 'ok';
+})()`;
+
+// What the page says, read before the still: the text inside Next's dev overlay (a shadow root on <nextjs-portal>),
+// Vite's overlay, and the start of the body.
+export type PageText = { overlay: string; body: string };
+export const PAGE_TEXT_SCRIPT = `(() => {
+  const words = (root) => [...root.children].filter((c) => c.tagName !== 'STYLE' && c.tagName !== 'SCRIPT').map((c) => c.innerText || c.textContent || '').join('\\n');
+  const shadow = (sel) => [...document.querySelectorAll(sel)].map((e) => words(e.shadowRoot || e)).join('\\n');
+  const overlay = [shadow('nextjs-portal'), shadow('vite-error-overlay')].join('\\n').slice(0, 4000);
+  const body = ((document.body && document.body.innerText) || '').slice(0, 4000);
+  return { overlay, body };
+})()`;
+
+const OVERLAY_HEADS = [/Unhandled Runtime Error/i, /Runtime Error/i, /Build Error/i, /Server Error/i, /Failed to compile/i, /\[plugin:[^\]]+\]/i];
+const BODY_HEADS = [/Application error: a (client|server)-side exception has occurred[^\n]*/i, /^\s*Internal Server Error\s*$/im, /^\s*500\s*[|:-]?\s*Internal Server Error/im];
+
+/** PLA-76: the framework error a page shows, as one short line, or null when the page looks like the app. A dev
+ * overlay that only holds Next's badge (no error heading) is not an error. */
+export function pageError(t: PageText | null): string | null {
+  if (!t) return null;
+  const line = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 200);
+  for (const re of OVERLAY_HEADS) {
+    const m = re.exec(t.overlay);
+    if (!m) continue;
+    const after = t.overlay.slice(m.index + m[0].length).split("\n").map((x) => x.trim()).find((x) => x && !/^(Call Stack|Next\.js|Source|\d+ of \d+|Close)/i.test(x));
+    return line(after ? `${m[0]}: ${after}` : m[0]);
+  }
+  for (const re of BODY_HEADS) {
+    const m = re.exec(t.body);
+    if (m) return line(m[0]);
+  }
+  return null;
+}
