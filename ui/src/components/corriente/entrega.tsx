@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { Link } from "react-router";
 import { api, type Decision, type Marca, type OrgProject, type ParVista, type ProbadorQA, type VivoRead } from "@/lib/api";
-import { acceptWords, evidenceView } from "@/lib/evidencia";
+import { acceptWords, evidenceView, MARK_MAX } from "@/lib/evidencia";
 import { KIND_WORD, PROBADOR_WORDS as W, firstVista, frameOf, sideFor, siAceptas, stateLine, type Side, type Width } from "@/lib/probador";
 import type { CorrienteActs } from "./acts";
 import { Ajuste } from "./ajuste";
@@ -28,8 +28,8 @@ const Frame = ({ v, width, side, hi, pins = [], onPin }: { v: ParVista; width: W
     );
   if (f.kind === "none")
     return (
-      <div className="cor-noshot" data-frame="none">
-        <b>{W.sinFoto}</b>
+      <div className="cor-noshot" data-frame={f.error ? "error" : "none"}>
+        <b>{f.error ? W.conError : W.sinFoto}</b>
         <span className="cor-text">{f.why}</span>
       </div>
     );
@@ -48,7 +48,7 @@ const Frame = ({ v, width, side, hi, pins = [], onPin }: { v: ParVista; width: W
           : undefined
       }
     >
-      <div style={{ position: "relative", width: "100%" }}>
+      <div className="cor-stage-fit">
         <img src={f.src} alt={f.alt} decoding="async" />
         {box && <i className="cor-diffbox" aria-hidden style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%` } as CSSProperties} />}
         {pins.map((p) => (
@@ -112,6 +112,10 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
   const read = useProbadorRead(p.slug, d.ref);
   const qa = useQaRead(p.slug, d.ref);
   const r = read.data;
+  const blind = !!r && r.vistas.length > 0 && r.vistas.every((x) => x.kind === "igual");
+  // PLA-79: a held delivery (missing photos, a red check…) looked acceptable: a white «Aceptar» that did nothing. The
+  // hold now leads like a blind sample: «Pedir ajuste» first, the reason said as a reason.
+  const held = !!d.hold;
   const [key, setKey] = useState<string | null>(null);
   const v = r?.vistas.find((x) => x.key === key) ?? r?.vistas.find((x) => x.key === (r ? firstVista(r) : null)) ?? r?.vistas[0];
   const [side, setSide] = useState<Side | null>(null);
@@ -131,6 +135,18 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
   const [vivo, setVivo] = useState<VivoRead | null>(null);
   const [opening, setOpening] = useState(false);
   useEffect(() => setLive(r?.entrega ?? null), [r?.entrega]);
+  // PLA-91 (guided test PLA-86, F-14): the copy was live in seconds but the card said «Encendiendo la copia…» until a
+  // reload. While it starts, the card asks every 2 s; it stops once the copy is live or failed.
+  useEffect(() => {
+    if (live?.phase !== "starting") return;
+    const t = setInterval(() => {
+      void api
+        .entregaEstado(p.slug)
+        .then((x) => x.entrega && setLive(x.entrega))
+        .catch(() => undefined);
+    }, 2000);
+    return () => clearInterval(t);
+  }, [live?.phase, p.slug]);
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!more) return;
@@ -343,6 +359,32 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
             )}
           </div>
         </div>
+        {/* PLA-91: the copy's state where it can be seen, not only inside «Más». */}
+        {!liveUrl && (starting || live?.phase === "starting") && (
+          <p className="cor-cap" role="status" data-copia="starting">
+            {W.encendiendo}
+          </p>
+        )}
+        {!liveUrl && !starting && live?.phase === "live" && (
+          <p className="cor-cap" role="status" data-copia="live">
+            La copia está lista.{" "}
+            <button type="button" className="cor-inline" onClick={() => void abrir()} disabled={opening} data-control="abrir-vivo-linea">
+              {opening ? "Entrando…" : W.vivo}
+            </button>
+          </p>
+        )}
+        {liveUrl && (
+          <p className="cor-cap" role="status" data-copia="abierta">
+            <a className="cor-inline" href={liveUrl} target="_blank" rel="noreferrer">
+              {W.vivo} ↗
+            </a>
+          </p>
+        )}
+        {live?.phase === "failed" && (
+          <p className="cor-cap" role="status" data-copia="failed">
+            <span className="cor-state bad">La copia no pudo encender.</span> {live.error ?? ""}
+          </p>
+        )}
         {vivo && (vivo.error || vivo.hint) && (
           <p className="cor-cap" role="status" data-vivo-note>
             {[vivo.error, vivo.hint].filter(Boolean).join(". ")}
@@ -357,21 +399,28 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
           ) : (
             <>
               <p className="cor-text">{siAceptas(null, null)[0]} Pedir ajuste la devuelve a Taller con tus marcas.</p>
+              {/* PLA-70: every view came back the same, so the card shows nothing of the change (MIA-I9-1 showed the
+                  list for «Ficha de una clienta»). Say so, and make asking for another sample the main move. */}
+              {blind && (
+                <p className="cor-hold" data-muestra-ciega>
+                  Ninguna vista cambió: esta muestra no enseña lo que hizo Taller. Pide otra antes de aceptar.
+                </p>
+              )}
               <div className="cor-acts">
                 {accept && (
-                  <Btn kind="primary" disabled={busy || !!d.hold} title={d.hold ?? acceptWords(d).aria} aria-label={acceptWords(d).aria} onClick={() => acts.decisions.decide(d, { action: accept }, "aceptar")} data-action={accept}>
+                  <Btn kind={blind || held ? "secondary" : "primary"} disabled={busy || !!d.hold} title={d.hold ?? acceptWords(d).aria} aria-label={acceptWords(d).aria} onClick={() => acts.decisions.decide(d, { action: accept }, "aceptar")} data-action={accept}>
                     {busy && acts.decisions.busy?.key === "aceptar" ? "…" : "Aceptar"}
                   </Btn>
                 )}
                 {d.actions.includes("cambios") && (
-                  <Btn kind="secondary" aria-expanded={ajuste} onClick={() => setAjuste((x) => !x)} disabled={busy} data-action="cambios">
+                  <Btn kind={blind || held ? "primary" : "secondary"} aria-expanded={ajuste} onClick={() => setAjuste((x) => !x)} disabled={busy} data-action="cambios">
                     Pedir ajuste
                   </Btn>
                 )}
               </div>
               {d.hold && (
                 <span className="cor-hold" data-hold>
-                  {d.hold}
+                  {`No puedes aceptar todavía: ${d.hold.charAt(0).toLowerCase()}${d.hold.slice(1)}`}
                 </span>
               )}
               {ajuste && <Ajuste d={d} acts={acts} marcas={pins} onDone={() => (setAjuste(false), setPins([]))} />}
@@ -435,7 +484,7 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
               {pins.map((m, i) => (
                 <li key={i}>
                   <b aria-hidden>{i + 1}</b>
-                  <input className="cor-input" value={m.note} maxLength={300} placeholder="Qué quieres que cambie" aria-label={`Nota de la marca ${i + 1}`} onChange={(e) => setPins((l) => l.map((x, j) => (j === i ? { ...x, note: e.target.value } : x)))} />
+                  <input className="cor-input" value={m.note} maxLength={MARK_MAX} placeholder="Qué quieres que cambie" aria-label={`Nota de la marca ${i + 1}`} onChange={(e) => setPins((l) => l.map((x, j) => (j === i ? { ...x, note: e.target.value } : x)))} />
                   <Btn kind="quiet" small aria-label={`Quitar la marca ${i + 1}`} onClick={() => setPins((l) => l.filter((_, j) => j !== i))}>
                     ×
                   </Btn>
@@ -456,6 +505,24 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
           </section>
         )}
       </aside>
+    </div>
+  );
+};
+
+// PLA-82 (F-26): «Volver a tomar las fotos» takes the card off the floor until the new pictures exist, and the open
+// card jumped to «Esta entrega ya no espera tu decisión». While its pictures are being taken it says so instead
+// (no buttons: nothing to accept until they exist); otherwise the old words stay.
+export const EntregaRetomando = ({ p, d, onBack }: { p: OrgProject; d: Decision; onBack: () => void }) => {
+  const read = useProbadorRead(p.slug, d.ref);
+  const tomando = read.data?.state?.state === "tomando" || read.isPending;
+  return (
+    <div className="cor-empty" data-entrega-retomando={tomando ? "tomando" : "fuera"}>
+      <p className="cor-text" role="status">
+        {tomando ? `Tomando las fotos de ${d.ref ?? "la entrega"} otra vez… La tarjeta vuelve en cuanto estén.` : "Esta entrega ya no espera tu decisión."}
+      </p>
+      <Btn kind="secondary" onClick={onBack}>
+        Volver a la lista
+      </Btn>
     </div>
   );
 };

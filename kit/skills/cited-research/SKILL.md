@@ -27,6 +27,11 @@ carries the link that proves it, and every gap is shown as a gap.
 2. **Go to primary sources.** The vendor's own documentation and pricing page, the text of the rule or
    law, a changelog, source code, a published paper, a status page, your own measurement. Blogs, forum
    answers, summaries and AI answers are only a way to find the primary source.
+   For an idea (something to build), also find **how others do it**: at least two outside products,
+   libraries or guides that solve the same thing, each linked. The repo tells you what exists, not what
+   works elsewhere; research that read only the code is not finished (PLA-82, F-11: «No se consultó
+   fuente externa» on a one-minute run). If nothing outside applies, say what you searched in «Lo que no
+   se sabe».
 3. **Open the page and read the part that supports the claim.** Never cite from a search snippet or
    from memory. If the page does not say it, the claim goes.
 4. **Link each claim where it is made**, in the same sentence: `[texto](url)`. One source per number.
@@ -56,6 +61,7 @@ secrets, even if a source shows them.
 - Every claim a reader could doubt has a link, or is marked `Inferencia:`.
 - Every link was opened in this run and says what the claim says.
 - «Lo que no se sabe» exists, even if it only says that nothing was left unanswered.
+- For an idea, at least two outside sources on how others solve it, or the searches that found none.
 - The recommendation names one option.
 - The doc is attached, and the idea's stage moved or the ticket is In review.
 

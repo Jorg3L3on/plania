@@ -5,7 +5,7 @@ import type { Goal, GoalWrite } from "@/components/goals/model";
 import type { Usage, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
 import type { CapturesRead, PruebaRead } from "@/lib/ventana";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
-import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail, TaskRow } from "./types";
+import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -37,6 +37,8 @@ export const api = {
   // TanStack Query rejects undefined data, so the empty 204 becomes true.
   session: () => request<void>("GET", "/session").then(() => true),
   projects: () => request<ProjectSummary[]>("GET", "/projects"),
+  // PLA-74: the stream's slim read (open ideas and tickets, counts), a few KB instead of the full 1.3 MB.
+  projectsStream: () => request<StreamSummary[]>("GET", "/projects?for=stream"),
   project: (slug: string) => request<ProjectRead>("GET", `/projects/${encodeURIComponent(slug)}`),
   task: (slug: string, key: string) =>
     request<TaskDetail>("GET", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}`),
@@ -103,6 +105,8 @@ export const api = {
   probadorTomar: (slug: string, key: string) => request<{ ok: true }>("POST", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}/tomar`, {}),
   preguntar: (slug: string, key: string, text: string) => request<{ id: string; wake: string }>("POST", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}/preguntar`, { text }),
   vivo: (slug: string) => request<{ vivo: VivoRead }>("POST", `/projects/${encodeURIComponent(slug)}/entrega/vivo`, {}),
+  // PLA-91: the copy's state while it comes up (the card polls it; it never refreshed before).
+  entregaEstado: (slug: string) => request<{ entrega: EntregaRead | null }>("GET", `/projects/${encodeURIComponent(slug)}/entrega`),
   entregaEncender: (slug: string, key: string) => request<{ entrega: EntregaRead }>("POST", `/projects/${encodeURIComponent(slug)}/entrega/encender`, { key }),
   team: () => request<TeamRoster>("GET", "/team"),
   comments: (slug: string, key: string) =>
@@ -252,6 +256,8 @@ export type ConsultaView = {
   started_at: string | null;
   answered_at: string | null;
   answer: ConsultaAnswer | null;
+  /** PLA-69: why a queued question waits, when the runner holds it. */
+  held?: string | null;
 };
 export type AskResult = { key: string; title: string; po: string; mode?: AskMode; consulta?: string; wake: "queued" | "busy" | "off"; woke: { woke: boolean; reason: string; ticket: string | null; summary: string } | null };
 // PLA-I54-1: one of the owner's ideas taking shape, a capsule in the floor's tube (src/api/company-pedidos.ts).
@@ -537,7 +543,7 @@ export type DecisionEvidence = { verdict: string; kind: string; cite: string; pa
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 export type ReelItem = { key: string; title: string; label: string; kind: "nueva" | "cambio"; image_url: string };
-export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[] };
+export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[]; migrations?: string[]; migrate?: "auto" | "manual" | null };
 export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar";
 // PLA-I46-9/10: GET /api/projects/:slug/qa/:key (src/runner/qa.ts qaEvidence).
 export type QaState = "off" | "none" | "waiting" | "checking" | "reviewing" | "pass" | "fail" | "returned" | "error";
@@ -562,7 +568,7 @@ export type ParShot = { id: string; image_url: string; width: number; height: nu
 export type ParSide = { still: ParShot; error: string | null; missing: boolean };
 export type DiffBox = { x: number; y: number; w: number; h: number; ratio: number };
 export type ParWidth = { antes: ParSide; despues: ParSide; diff: DiffBox | null };
-export type ParVista = { key: string; label: string; path: string; estado: string | null; kind: "nueva" | "cambio" | "igual" | "sin_antes"; desktop: ParWidth; phone: ParWidth };
+export type ParVista = { key: string; label: string; path: string; estado: string | null; kind: "nueva" | "cambio" | "igual" | "sin_antes" | "error"; desktop: ParWidth; phone: ParWidth };
 export type EntregaRead = { phase: "starting" | "capturing" | "live" | "failed" | "off" | "running"; port: number | null; url: string | null; error: string | null; key: string | null; branch: string | null; commit: string | null };
 export type VivoRead = { url: string | null; local_url: string | null; tailnet: boolean; signed_in: boolean; user: string | null; error: string | null; hint: string | null };
 export type ProbadorQA = { id: string; text: string; at: string; answer: { text: string; at: string; by: string } | null };

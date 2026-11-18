@@ -66,7 +66,15 @@ export async function revokeToken(db: Q, id: string, reason?: string) {
   return row ? tokenShape(row) : null;
 }
 
-export type Identity = { tokenId: string; agent: string; machine: string | null; scopes: TokenScope[] };
+export type Identity = {
+  tokenId: string;
+  agent: string;
+  machine: string | null;
+  scopes: TokenScope[];
+  // PLA-82 (F-12): the runner names the run it started (X-Plania-Run), so a run whose agent invents its own
+  // session_id is still known as its roster agent. It grants nothing a run session in actor.session_id does not.
+  runSession?: string;
+};
 
 // The live token behind a secret, or null. last_used_at moves at most once a minute.
 export async function findToken(db: Db, secret: string): Promise<Identity | null> {

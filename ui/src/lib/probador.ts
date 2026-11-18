@@ -6,7 +6,7 @@ import type { ParVista, ProbadorRead } from "./api";
 export type Side = "antes" | "despues" | "comparar";
 export type Width = "desktop" | "phone";
 
-export const KIND_WORD: Record<ParVista["kind"], string> = { nueva: "nueva", cambio: "cambió", igual: "igual", sin_antes: "sin antes" };
+export const KIND_WORD: Record<ParVista["kind"], string> = { nueva: "nueva", cambio: "cambió", igual: "igual", sin_antes: "sin antes", error: "error" };
 
 export const PROBADOR_WORDS = {
   antes: "Antes",
@@ -24,10 +24,11 @@ export const PROBADOR_WORDS = {
   abrir: "Abrir el probador",
   nueva: "Pantalla nueva: en la copia de prueba esta dirección no existe.",
   sinFoto: "Sin foto",
+  conError: "La página dio error",
 } as const;
 
 // What to draw in one frame: a still, a «nueva» note, or why there is no picture.
-export type Frame = { kind: "still"; src: string; alt: string; ratio: number | null } | { kind: "nueva" } | { kind: "none"; why: string };
+export type Frame = { kind: "still"; src: string; alt: string; ratio: number | null } | { kind: "nueva" } | { kind: "none"; why: string; error?: boolean };
 
 export function frameOf(v: ParVista, width: Width, side: "antes" | "despues"): Frame {
   const s = v[width][side];
@@ -36,12 +37,14 @@ export function frameOf(v: ParVista, width: Width, side: "antes" | "despues"): F
     return { kind: "still", src: s.still.image_url, alt: `${v.label}, ${side === "antes" ? "antes" : "después"}, ${width === "desktop" ? "escritorio" : "teléfono"}`, ratio };
   }
   if (side === "antes" && s.missing) return { kind: "nueva" };
+  // PLA-76: the delivery's page crashed; say so as the heading, with the error's first line under it.
+  if (side === "despues" && v.kind === "error" && s.error) return { kind: "none", why: s.error, error: true };
   return { kind: "none", why: s.error ?? (side === "antes" ? "Sin foto de la copia de prueba" : "Sin foto de la entrega") };
 }
 
-// Where the viewer opens: on a new screen first (that is what the delivery is about), else the first change.
+// Where the viewer opens: on a crashed page first (PLA-76), then on a new screen (that is what the delivery is about), else the first change.
 export function firstVista(r: ProbadorRead): string | null {
-  return (r.vistas.find((v) => v.kind === "nueva") ?? r.vistas.find((v) => v.kind === "cambio") ?? r.vistas[0])?.key ?? null;
+  return (r.vistas.find((v) => v.kind === "error") ?? r.vistas.find((v) => v.kind === "nueva") ?? r.vistas.find((v) => v.kind === "cambio") ?? r.vistas[0])?.key ?? null;
 }
 
 // The default side: a new screen shows después; a change opens on Comparar.

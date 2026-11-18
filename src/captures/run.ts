@@ -60,6 +60,8 @@ export type CaptureInput = {
   allow_missing?: boolean;
   viewports?: ViewportName[];
   actor: Actor;
+  // PLA-75: extra variables for commands run in the checkout (the delivery copy's own database URL).
+  env?: Record<string, string>;
 };
 
 // A muestra's view as a page to shoot: the page fields plus what to do on it before the still.
@@ -156,7 +158,10 @@ async function shoot(page: BrowserPage, base: string, pg: ViewPage, settings: Ca
   };
   check();
   if (pg.follow) {
-    const href = await page.evaluate<string | null>(`(() => { const a = document.querySelector(${JSON.stringify(pg.follow)}); return a ? a.href : null; })()`);
+    // PLA-73: a follow that is a path («/panel/novias/») means the first link whose href starts with it; anything else
+    // is a CSS selector, as before. Taller was told to give the prefix and the photo pass threw on it.
+    const sel = followSelector(pg.follow);
+    const href = await page.evaluate<string | null>(`(() => { const a = document.querySelector(${JSON.stringify(sel)}); return a ? a.href : null; })()`);
     if (!href) throw new Error(`En ${pg.path} no hay nada que coincida con ${pg.follow}`);
     if (new URL(href).origin !== new URL(base).origin) throw new Error(`${pg.follow} lleva fuera de la copia de prueba`);
     nav = await page.goto(href);
@@ -165,41 +170,48 @@ async function shoot(page: BrowserPage, base: string, pg: ViewPage, settings: Ca
   for (const a of pg.acciones ?? []) {
     const done = await page.evaluate<string>(
       "click" in a
-        ? `(() => {
-            const want = ${JSON.stringify(a.click)}.trim().toLowerCase();
-            const all = [...document.querySelectorAll('button, a, [role=button], [role=tab], label, summary, input[type=submit]')];
-            const el = all.find((e) => (e.innerText || e.value || '').trim().toLowerCase() === want) || all.find((e) => (e.innerText || e.value || '').trim().toLowerCase().includes(want));
-            if (!el) return 'missing';
-            el.click();
-            return 'ok';
-          })()`
+        ? clickScript(a.click)
         : `(() => {
             const el = document.querySelector(${JSON.stringify(a.fill)});
             if (!el) return 'missing';
-            const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-            Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${JSON.stringify(a.value)});
+            // PLA-80: a <select> has its own value setter (the input one threw «Illegal invocation»), and its value
+            // may be given as the option's visible text.
+            let v = ${JSON.stringify(a.value)};
+            if (el instanceof HTMLSelectElement) {
+              const opt = [...el.options].find((o) => o.value === v) || [...el.options].find((o) => o.text.trim().toLowerCase() === v.trim().toLowerCase());
+              if (!opt) return 'nooption';
+              v = opt.value;
+            }
+            const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+            Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v);
             el.dispatchEvent(new Event('input', { bubbles: true }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
             return 'ok';
           })()`,
     );
     if (done === "missing") throw new Error("click" in a ? `En ${pg.path} no encontré «${a.click}»` : `En ${pg.path} no hay ${a.fill}`);
+    if (done === "nooption") throw new Error(`En ${pg.path}, ${"fill" in a ? a.fill : ""} no tiene la opción «${"fill" in a ? a.value : ""}»`);
     await new Promise((res) => setTimeout(res, 400)); // let the page settle after the action
   }
+  // PLA-76 (F-24): a page that answered 200 but shows the framework's error (Next's overlay, «Application error»)
+  // is not a picture of the delivery: it becomes an error with the error's first line, so the card says «error»
+  // and holds Aceptar back instead of calling it «cambió».
+  const crash = pageError(await page.evaluate<PageText>(PAGE_TEXT_SCRIPT).catch(() => null));
+  if (crash) throw new Error(`${pg.path} muestra un error: ${crash}`);
   return { png: await page.screenshot(Boolean(pg.full_page)), url: nav.url };
 }
 
 // PLA-I52-5: sign the test user in on a running copy and return the session cookies, for El Probador's live copy.
 // A fresh password every time (never kept), the same login as the stills. Throws with the reason in Spanish.
 export async function sessionCookies(
-  input: { base_url: string; checkout: string; settings: CaptureSettings },
+  input: { base_url: string; checkout: string; settings: CaptureSettings; env?: Record<string, string> },
   deps: CaptureDeps = {},
 ): Promise<{ name: string; value: string }[]> {
   const s = input.settings.session;
   if (!s) return [];
   const exec = deps.exec ?? shellExec;
   const password = (deps.password ?? (() => randomBytes(18).toString("base64url")))();
-  const r = await exec(s.password_command.replaceAll("{user}", s.user), { cwd: input.checkout, stdin: `${password}\n${password}\n`, timeoutMs: 120_000, env: checkoutEnv() });
+  const r = await exec(s.password_command.replaceAll("{user}", s.user), { cwd: input.checkout, stdin: `${password}\n${password}\n`, timeoutMs: 120_000, env: checkoutEnv(input.env ?? {}) });
   if (r.code !== 0) throw new Error(`No se pudo preparar el usuario de prueba (código ${r.code})`);
   const browser = await (deps.launch ?? launchChrome)();
   try {
@@ -288,7 +300,7 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
       const s = settings.session;
       const password = (deps.password ?? (() => randomBytes(18).toString("base64url")))();
       const cmd = s.password_command.replaceAll("{user}", s.user);
-      const r = await exec(cmd, { cwd: input.checkout, stdin: `${password}\n${password}\n`, timeoutMs: 120_000, env: checkoutEnv() });
+      const r = await exec(cmd, { cwd: input.checkout, stdin: `${password}\n${password}\n`, timeoutMs: 120_000, env: checkoutEnv(input.env ?? {}) });
       if (r.code !== 0) sessionError = `No se pudo preparar el usuario de prueba: ${(r.stderr || r.stdout).trim().split("\n").pop()?.slice(0, 200) ?? `código ${r.code}`}`;
       else {
         try {
@@ -329,4 +341,60 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
 export function pngHeight(png: Buffer, scale: number): number | null {
   if (png.length < 24 || png.readUInt32BE(12) !== 0x49484452) return null;
   return Math.round(png.readUInt32BE(20) / scale);
+}
+
+/** PLA-73: «/panel/novias/» → a[href^="/panel/novias/"]; a CSS selector stays as it is. */
+export const followSelector = (follow: string): string => (follow.startsWith("/") ? `a[href^=${JSON.stringify(follow)}]` : follow);
+
+/** PLA-76 (F-22): click a button, link, tab or label by its visible text (exact first), else by a CSS selector, else by
+ * a text that contains it. Taller believed it needed a selector; both now work. */
+export const clickScript = (click: string): string => `(() => {
+  const raw = ${JSON.stringify(click)};
+  const want = raw.trim().toLowerCase();
+  const all = [...document.querySelectorAll('button, a, [role=button], [role=tab], [role=menuitem], label, summary, input[type=submit], input[type=button]')];
+  const text = (e) => (e.innerText || e.textContent || e.value || e.getAttribute && e.getAttribute('aria-label') || '').trim().toLowerCase();
+  let el = all.find((e) => text(e) === want) || null;
+  if (!el) {
+    try {
+      el = document.querySelector(raw);
+    } catch {
+      el = null;
+    }
+  }
+  if (!el && want) el = all.find((e) => text(e).includes(want)) || null;
+  if (!el) return 'missing';
+  el.click();
+  return 'ok';
+})()`;
+
+// What the page says, read before the still: the text inside Next's dev overlay (a shadow root on <nextjs-portal>),
+// Vite's overlay, and the start of the body.
+export type PageText = { overlay: string; body: string };
+export const PAGE_TEXT_SCRIPT = `(() => {
+  const words = (root) => [...root.children].filter((c) => c.tagName !== 'STYLE' && c.tagName !== 'SCRIPT').map((c) => c.innerText || c.textContent || '').join('\\n');
+  const shadow = (sel) => [...document.querySelectorAll(sel)].map((e) => words(e.shadowRoot || e)).join('\\n');
+  const overlay = [shadow('nextjs-portal'), shadow('vite-error-overlay')].join('\\n').slice(0, 4000);
+  const body = ((document.body && document.body.innerText) || '').slice(0, 4000);
+  return { overlay, body };
+})()`;
+
+const OVERLAY_HEADS = [/Unhandled Runtime Error/i, /Runtime Error/i, /Build Error/i, /Server Error/i, /Failed to compile/i, /\[plugin:[^\]]+\]/i];
+const BODY_HEADS = [/Application error: a (client|server)-side exception has occurred[^\n]*/i, /^\s*Internal Server Error\s*$/im, /^\s*500\s*[|:-]?\s*Internal Server Error/im];
+
+/** PLA-76: the framework error a page shows, as one short line, or null when the page looks like the app. A dev
+ * overlay that only holds Next's badge (no error heading) is not an error. */
+export function pageError(t: PageText | null): string | null {
+  if (!t) return null;
+  const line = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 200);
+  for (const re of OVERLAY_HEADS) {
+    const m = re.exec(t.overlay);
+    if (!m) continue;
+    const after = t.overlay.slice(m.index + m[0].length).split("\n").map((x) => x.trim()).find((x) => x && !/^(Call Stack|Next\.js|Source|\d+ of \d+|Close)/i.test(x));
+    return line(after ? `${m[0]}: ${after}` : m[0]);
+  }
+  for (const re of BODY_HEADS) {
+    const m = re.exec(t.body);
+    if (m) return line(m[0]);
+  }
+  return null;
 }

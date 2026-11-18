@@ -4,13 +4,15 @@
 // Keys (inside a project): ↑ ↓ change project; A Archivo, E Equipo, M Máquinas (and back to the list); Esc steps out
 // (what is open, then the door, then the project back to the stream). PLA-I64-7: the list is the project's entry and
 // 1-7 (the retired tabs) do nothing.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
+import { keepRead, lastRead } from "@/lib/last-read";
+import type { StreamSummary } from "@/lib/types";
 import { useCorrienteActs, SLEEPY } from "@/components/corriente/acts";
 import { MoveButton, PLAN_ASK, type AhoraLinks } from "@/components/corriente/ahora";
-import { Entrega } from "@/components/corriente/entrega";
+import { Entrega, EntregaRetomando } from "@/components/corriente/entrega";
 import { TeToca } from "@/components/corriente/tetoca";
 import { Pedir } from "@/components/corriente/pedir";
 import { Asistente } from "@/components/corriente/asistente";
@@ -36,9 +38,9 @@ import { Archivo, HechoView } from "@/components/corriente/archivo";
 import { cosasOf, fraseOf } from "@/lib/cosas";
 import { nowLine } from "@/lib/edificio";
 import { rumboText } from "@/lib/v2";
-import { ApiError, api, type OrgProject } from "@/lib/api";
+import { ApiError, api, type Decision, type OrgCompany, type OrgProject } from "@/lib/api";
 import { OLD_TAB, atOf, hrefOf, isBuilt, legacyHref, linkTo, verParam, type AskInput, type At, type Tab } from "@/lib/corriente";
-import { CLOSED, headlineOf, lanesOf, projectOfKey, totalsOf } from "@/lib/corriente-stream";
+import { doneOf, headlineOf, lanesOf, projectOfKey, totalsOf } from "@/lib/corriente-stream";
 import { pending } from "@/lib/v2";
 import { useMinute } from "@/lib/use-minute";
 
@@ -64,6 +66,11 @@ export function escFrom(at: At): Partial<At> {
   return { view: "corriente" };
 }
 
+const LAST_READ_MS = 30 * 60_000;
+const keepIt =
+  (key: string) =>
+  <T,>(data: T): T => (keepRead(key, data), data);
+
 export const CorrientePage = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -71,9 +78,13 @@ export const CorrientePage = () => {
   const at = atOf(location.search);
   const now = useMinute();
   const acts = useCorrienteActs();
-  const comp = useQuery({ queryKey: ["company"], queryFn: api.company, staleTime: 10_000, refetchInterval: 20_000 });
+  // PLA-82 (F-26): the delivery cards seen in this visit, so one taken off the floor for a retake still reads right.
+  const seenDecisions = useRef(new Map<string, Decision>());
+  // PLA-74: the last read paints at once while the fresh one loads.
+  const comp = useQuery({ queryKey: ["company"], queryFn: () => api.company().then(keepIt("company")), staleTime: 10_000, refetchInterval: 20_000, placeholderData: () => lastRead<OrgCompany>("company", LAST_READ_MS) });
   // The ideas with their stage and the tickets with their status (Inicio's read): the stream's dots and the totals.
-  const summaries = useQuery({ queryKey: ["projects"], queryFn: api.projects, staleTime: 15_000, refetchInterval: 30_000 });
+  // PLA-74: the slim read; the full one (1.3 MB, up to 7 s) is Inicio's.
+  const summaries = useQuery({ queryKey: ["projects", "stream"], queryFn: () => api.projectsStream().then(keepIt("stream")), staleTime: 15_000, refetchInterval: 30_000, placeholderData: () => lastRead<StreamSummary[]>("stream", LAST_READ_MS) });
   const company = comp.data;
   const timeZone = company?.week.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const decisions = useMemo(() => acts.decisions.withActed(company?.decisions ?? []), [company, acts.decisions]);
@@ -213,14 +224,16 @@ export const CorrientePage = () => {
 
   const projectBody = (p: OrgProject) => {
     const summary = summaries.data?.find((s) => s.slug === p.slug);
-    const tickets = summary?.tasks.filter((t) => t.kind === "ticket");
-    const totals = tickets ? { open: p.work.open, done: tickets.filter((t) => CLOSED.has(t.status) && t.status !== "Won't do" && t.status !== "Cancelled").length } : null;
+    const totals = summary ? { open: p.work.open, done: doneOf(summary) } : null;
     if (!isBuilt({ slug: p.slug, tab: at.tab, ver: at.ver })) return <NotYet what={at.ver ? "Esto" : `La pestaña ${at.tab}`} to={legacyHref(at)} />;
     // PLA-I64: opened from the list, a thing's view comes back to the list.
     const todoHref = linkTo({ slug: p.slug, tab: "todo" });
     if (at.ver?.kind === "entrega") {
       const verId = at.ver.id;
       const d = decisions.find((x) => x.id === verId);
+      if (d) seenDecisions.current.set(d.id, d);
+      const was = !d ? seenDecisions.current.get(verId) : undefined;
+      if (!d && was && (was.kind === "deliverable" || was.kind === "pr") && was.ref) return <EntregaRetomando p={p} d={was} onBack={() => go({ slug: p.slug })} />;
       if (!d)
         return (
           <div className="cor-empty">
@@ -464,7 +477,7 @@ export const CorrientePage = () => {
         />
       );
     if (at.view === "pedir")
-      return <Pedir projects={company.projects} initial={new URLSearchParams(location.search).get("p")} initialText={new URLSearchParams(location.search).get("texto")} disabled={paused} onAsk={ask} onPictures={refresh} asistenteTo={hrefOf({ view: "asistente" })} pedidosTo={(slug) => linkTo({ slug })} />;
+      return <Pedir projects={company.projects} initial={new URLSearchParams(location.search).get("p")} initialText={new URLSearchParams(location.search).get("texto")} initialQuestion={new URLSearchParams(location.search).get("pregunta")} disabled={paused} onAsk={ask} onPictures={refresh} asistenteTo={hrefOf({ view: "asistente" })} pedidosTo={(slug) => linkTo({ slug })} />;
     if (at.view === "asistente")
       return (
         <Asistente

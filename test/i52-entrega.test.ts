@@ -186,6 +186,23 @@ describe("la copia de la entrega", () => {
     assert.equal(prueba.entregaRead("zigzag"), null);
   });
 
+  test("PLA-94: the same delivery on a new commit starts its copy again; on its own head it is kept", async () => {
+    killed = [];
+    const before = children.length;
+    await prueba.encenderEntrega(db, "workia", { key: "WRK-7", branch: "jl/wrk-7" });
+    await until(() => children.length === before + 1);
+    upPorts.add(3000);
+    await until(() => prueba.entregaRead("workia")?.phase === "live");
+    assert.equal(prueba.entregaRead("workia")?.commit, SANDBOX);
+    await prueba.encenderEntrega(db, "workia", { key: "WRK-7", branch: "jl/wrk-7", head: SANDBOX.slice(0, 7) });
+    assert.equal(children.length, before + 1, "the copy runs the PR's head: kept");
+    const first = children.at(-1)!.pid;
+    await prueba.encenderEntrega(db, "workia", { key: "WRK-7", branch: "jl/wrk-7", head: "beefbeefbeefbeefbeefbeefbeefbeefbeefbeef" });
+    assert.deepEqual(killed, [[first, "SIGTERM"]], "Taller pushed a new commit: the old copy goes");
+    await until(() => children.length === before + 2);
+    await prueba.apagarEntrega(db, "workia");
+  });
+
   test("a second delivery in the same project replaces the first; the same one is not started twice", async () => {
     await prueba.encenderEntrega(db, "workia", { key: "WRK-1", branch: "jl/wrk-1" });
     await until(() => children.length === 1);

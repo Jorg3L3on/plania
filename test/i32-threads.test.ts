@@ -269,8 +269,11 @@ test("PLA-53: restart --check names what a restart would kill, and passes with n
   const busy = check();
   assert.equal(busy.status, 1);
   for (const k of [a.key, b.key, c.key]) assert.ok(busy.stdout.includes(k), `${k} is named`);
-  // A «tomando» with nobody behind it (older than a whole pass) does not hold a restart: the sweep takes it again.
+  // PLA-102: a pass 10 minutes in still holds a restart (MIA-I10-3's ran past 6 and was cut).
   await raw.query(`update tasks set probador = jsonb_set(probador, '{at}', to_jsonb((now() - interval '10 minutes')::text)) where key = $1`, [c.key]);
+  assert.ok((await inFlight(db)).some((f) => f.kind === "fotos"), "a long pass is still in flight");
+  // A «tomando» with nobody behind it (older than PASS_MS) does not hold a restart: the sweep takes it again.
+  await raw.query(`update tasks set probador = jsonb_set(probador, '{at}', to_jsonb((now() - interval '25 minutes')::text)) where key = $1`, [c.key]);
   assert.deepEqual((await inFlight(db)).map((f) => f.kind).sort(), ["qa", "run"]);
   await raw.query(`update agent_runs set status = 'ok', ended_at = now() where status = 'running'`);
   await raw.query(`delete from qa_lanes where status = 'checking'`);

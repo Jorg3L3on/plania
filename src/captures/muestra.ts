@@ -31,6 +31,11 @@ export const muestraSchema = z
     frase: z.string().trim().min(1).max(160), // what changes for the people who use the app, in one sentence
     vistas: z.array(vista).min(1).max(6),
     pasos: z.array(z.string().trim().min(1).max(140)).length(3), // three ways to try it, in plain words
+    // PLA-78: the fake rows the views need (an appointment today, a client with a stage…), as SQL. Plania loads them
+    // into both throwaway copies' databases (<db>_entrega and <db>_prueba, never the app's own) in one transaction
+    // before the pictures, so the card shows the feature with data instead of its empty state. Times relative to
+    // now() keep «today» true whenever the pictures are taken.
+    datos: z.string().trim().min(1).max(20_000).optional(),
   })
   .strict()
   .superRefine((m, ctx) => {
@@ -101,4 +106,4 @@ export function parseMuestra(v: unknown): { ok: true; muestra: Muestra } | { ok:
 }
 
 export const MUESTRA_HINT =
-  "this delivery changes the screen: pass muestra {frase (one sentence for the owner), vistas [{key, label, path, estado?, session?, acciones?}] (the views it touched), pasos [three ways to try it]} so Plania can photograph it before asking the owner";
+  "this delivery changes the screen: pass muestra {frase (one sentence for the owner), vistas [{key, label, path, estado?, session?, acciones?}] (the views it touched), pasos [three ways to try it], datos? (SQL with the fake rows the views need)} so Plania can photograph it before asking the owner";

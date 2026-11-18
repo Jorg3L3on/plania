@@ -198,8 +198,20 @@ test("I65-3: an idea at each stop opens the ficha on its delivery, with at most 
   assert.match(ficha(detail("lista")), /data-control="ficha-construir"[^>]*>Constrúyelo</);
   assert.match(ficha(detail("entendido")), /data-control="ficha-ok"[^>]*>Así es</);
   // A stop with nothing delivered says «Todavía no» and what unlocks it, never the doc's title.
-  const empty = ficha({ ...detail("entendido"), stops: STOPS.map((s, i) => stopRow(s, i, 1, i === 1 ? { delivered: false } : {})) });
+  // PLA-67: a stop being worked on (nobody quiet) is «en curso»; quiet, it «no ha empezado».
+  const empty = ficha({ ...detail("entendido"), quiet_since: "2026-11-17T20:00:00Z", stops: STOPS.map((s, i) => stopRow(s, i, 1, i === 1 ? { delivered: false } : {})) });
   assert.match(empty, /Todavía no[\s\S]*Entendido no ha empezado/);
+  const working = ficha({ ...detail("entendido"), stops: STOPS.map((s, i) => stopRow(s, i, 1, i === 1 ? { delivered: false } : {})) });
+  assert.match(working, /Entendido en curso/);
+  // PLA-82 (F-10): Entendido shows only the fields the PO wrote; no «Pendiente» filler.
+  const und = ficha(detail("entendido"));
+  assert.match(und, /<dt>Problema<\/dt>[\s\S]*<dt>Solución<\/dt>[\s\S]*<dt>Tamaño<\/dt>/);
+  assert.doesNotMatch(und, /<dt>Fuera<\/dt>|<dt>Riesgos<\/dt>|Pendiente/);
+  assert.doesNotMatch(ficha({ ...detail("entendido"), ficha: { problema: null, solucion: null, fuera: null, tamano: null, riesgos: null } }), /cor-ficha-cells/);
+  // PLA-82 (F-16): after «Constrúyelo» the plan's steps no longer «esperan tu sí».
+  const built = ficha({ ...detail("lista"), state: "valvula" });
+  assert.match(built, /Dijiste «Constrúyelo»\. El PO está subiendo/);
+  assert.doesNotMatch(built, /esperan? tu sí/);
   // His question takes «Ahora»; PLA-63: it is read once (the bar), and the panel repeats it only when too long for the bar.
   const q = ficha({ ...detail("investigacion"), question: { id: "q1", text: "¿Un día antes o el mismo día? Una pregunta corta." }, question_options: ["Un día antes", "El mismo día"] });
   assert.equal((q.match(/Una pregunta corta/g) ?? []).length, 2, "the bar's text and its title attribute, not the panel");

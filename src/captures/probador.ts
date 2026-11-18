@@ -13,7 +13,7 @@ import { setTask } from "../mcp/writes.js";
 import { enqueueWake } from "../runner/events.js";
 import { pngDiff, type DiffBox } from "./diff.js";
 import type { Muestra } from "./muestra.js";
-import { encender, encenderEntrega, entregaRead, pruebaInfo, pruebaOf, pruebaRead, BRANCH } from "./prueba.js";
+import { apagar, apagarEntrega, cargarDatos, datosDe, encender, encenderEntrega, entregaEnv, entregaRead, hashDatos, pruebaEnv, pruebaInfo, pruebaOf, pruebaRead, BRANCH } from "./prueba.js";
 import { runCapture, type CaptureInput, type CaptureSummary, type ViewPage } from "./run.js";
 import { imageUrl, readFile } from "./store.js";
 import { preguntasOf, type QA } from "./preguntas.js";
@@ -33,6 +33,7 @@ export type ProbadorDeps = {
   capture?: (db: Db, input: CaptureInput) => Promise<CaptureSummary>;
   encender?: typeof encender;
   encenderEntrega?: typeof encenderEntrega;
+  cargarDatos?: typeof cargarDatos; // PLA-78
   waitMs?: number;
   pollMs?: number;
   returnToTaller?: boolean; // false: tests that only look at the state
@@ -106,9 +107,16 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   const startSandbox = deps.encender ?? encender;
   const startEntrega = deps.encenderEntrega ?? encenderEntrega;
   const outside = !pruebaOf(slug) && (await pruebaRead(slug, settings)).phase === "running";
+  // PLA-78: a copy whose database carries another muestra's fake rows starts again on a fresh copy, so one
+  // delivery's rows never show in another's pictures.
+  const want = hashDatos(t.muestra.datos);
+  const sbDatos = datosDe(slug, "sandbox");
+  if (!outside && sbDatos && sbDatos !== want) await apagar(db, slug).catch(() => null);
+  const enDatos = datosDe(slug, "entrega");
+  if (enDatos && enDatos !== want) await apagarEntrega(db, slug).catch(() => null);
   if (!outside) await startSandbox(db, slug).catch(() => null);
   try {
-    await startEntrega(db, slug, { key: t.key, branch });
+    await startEntrega(db, slug, { key: t.key, branch, head: deps.forHead ?? null });
   } catch (e) {
     return failed(db, p, t, attempts, `No se pudo encender la copia de la entrega: ${short(e)}`, deps);
   }
@@ -124,6 +132,18 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   const e = entregaRead(slug);
   if (!e || e.phase !== "live" || !e.port) return failed(db, p, t, attempts, e?.error ?? "La copia de la entrega no arrancó a tiempo", deps);
 
+  // PLA-78: the muestra's fake rows, in the delivery's database (a failure goes back to Taller: its SQL is wrong for
+  // its own branch) and in the test copy's (a failure there is fine: the rows may need the branch's new columns).
+  if (t.muestra.datos) {
+    const load = deps.cargarDatos ?? cargarDatos;
+    const d = await load(slug, "entrega", t.muestra.datos);
+    if (!d.ok) return failed(db, p, t, attempts, `Los datos de la muestra no se cargaron: ${d.error}`, deps);
+    if (!outside && pruebaOf(slug)?.phase === "live") {
+      const a = await load(slug, "sandbox", t.muestra.datos);
+      if (!a.ok) console.log(`[probador] ${slug}/${t.key}: antes without the muestra's datos: ${a.error}`);
+    }
+  }
+
   const views = viewsOf(t.muestra);
   const capture = deps.capture ?? runCapture;
   const actor = ctx().actor;
@@ -132,14 +152,14 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   let antesError: string | null = null;
   if (sb?.phase === "live" && sb.port) {
     const info = pruebaInfo(slug);
-    await capture(db, { project: slug, checkout: info?.worktree ?? e.worktree ?? "", base_url: `http://localhost:${sb.port}`, branch: BRANCH, commit: info?.commit ?? undefined, task_key: t.key, views, side: "antes", allow_missing: true, actor }).catch(
+    await capture(db, { project: slug, checkout: info?.worktree ?? e.worktree ?? "", base_url: `http://localhost:${sb.port}`, branch: BRANCH, commit: info?.commit ?? undefined, task_key: t.key, views, side: "antes", allow_missing: true, actor, env: pruebaEnv(slug) }).catch(
       (err) => (antesError = `Antes: ${short(err)}`),
     );
   } else antesError = "Sin antes: la copia de prueba no arrancó";
   // Después: the delivery.
   let despues: CaptureSummary | null = null;
   try {
-    despues = await capture(db, { project: slug, checkout: e.worktree ?? "", base_url: `http://localhost:${e.port}`, branch, commit: e.commit ?? undefined, task_key: t.key, views, side: "despues", actor });
+    despues = await capture(db, { project: slug, checkout: e.worktree ?? "", base_url: `http://localhost:${e.port}`, branch, commit: e.commit ?? undefined, task_key: t.key, views, side: "despues", actor, env: entregaEnv(slug) });
   } catch (err) {
     return failed(db, p, t, attempts, `No se pudo fotografiar la entrega: ${short(err)}`, deps);
   }
@@ -296,7 +316,8 @@ export type ParVista = {
   label: string;
   path: string;
   estado: string | null;
-  kind: "nueva" | "cambio" | "igual" | "sin_antes";
+  // PLA-76: «error» when the delivery's page showed a crash (framework overlay, 5xx) instead of the screen.
+  kind: "nueva" | "cambio" | "igual" | "sin_antes" | "error";
 } & Record<ViewportName, { antes: ParSide; despues: ParSide; diff: DiffBox | null }>;
 export type ProbadorRead = {
   key: string;
@@ -306,6 +327,10 @@ export type ProbadorRead = {
   entrega: ReturnType<typeof entregaRead>;
   preguntas: QA[]; // PLA-I52-6
 };
+
+// PLA-76: the después page crashed (the framework's error overlay, read by run.ts, or a 5xx), as opposed to a picture
+// that did not come out for another reason (the login, a missing link).
+export const crashed = (error: string | null): boolean => !!error && /muestra un error: |respondió 5\d\d\b/.test(error);
 
 export async function probadorRead(db: Db, slug: string, key: string): Promise<ProbadorRead | null> {
   const got = await load(db, slug, key);
@@ -335,7 +360,7 @@ export async function probadorRead(db: Db, slug: string, key: string): Promise<P
     ) as Record<ViewportName, { antes: ParSide; despues: ParSide; diff: DiffBox | null }>;
     const desk = pick(v.key, "desktop", "despues");
     const raw = desk?.diff as Record<string, unknown> | null | undefined;
-    const kind: ParVista["kind"] = per.desktop.antes.missing || raw?.nueva ? "nueva" : !per.desktop.antes.still ? "sin_antes" : raw && "x" in raw ? "cambio" : desk?.status === "ok" ? "igual" : "sin_antes";
+    const kind: ParVista["kind"] = crashed(per.desktop.despues.error) ? "error" : per.desktop.antes.missing || raw?.nueva ? "nueva" : !per.desktop.antes.still ? "sin_antes" : raw && "x" in raw ? "cambio" : desk?.status === "ok" ? "igual" : "sin_antes";
     return { key: v.key, label: v.label, path: v.path, estado: v.estado ?? null, kind, ...per };
   });
   return { key: t.key, muestra: m, state: t.probador ?? null, vistas, entrega: entregaRead(slug), preguntas: await preguntasOf(db, got.p, t) };

@@ -1,38 +1,25 @@
-// 2.12 Pedir on Inicio: one field and the project; it becomes a Backlog ticket (origin jorge) that agents
-// read first. The project page's Pedir box left with PLA-I33-2: there Jorge writes to the PO's thread.
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+// 2.12 Pedir on Inicio: the words, the project and Pedir. PLA-87: it sends through the same route and modes as La
+// corriente's Pedir bar (POST /company/projects/:slug/ask), so a request enters the idea flow (the PO, the tube) instead
+// of becoming a bare Backlog ticket, and it keeps the bar's 2000-character limit instead of cutting at 200. The field
+// grows with the words so a long request can be read before it goes.
 import { SendIcon } from "lucide-react";
-import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router";
+import { useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { api, ApiError } from "@/lib/api";
+import { Textarea } from "@/components/ui/textarea";
+import { api } from "@/lib/api";
+import { ASK_MAX, MODES, type AskMode } from "@/lib/corriente";
+import { askedLine } from "@/lib/edificio";
 import { cn } from "@/lib/utils";
 
 // The project Inicio's field asked for last, per device.
 const LAST_PROJECT = "plania.pedir.project";
+// The field grows up to this many pixels, then scrolls.
+const MAX_FIELD_PX = 200;
 
 const selectClass =
   "h-11 min-w-0 rounded-lg border border-input bg-transparent px-2.5 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:h-9 md:text-sm dark:bg-input/30";
-const fieldClass = "h-11 text-base md:h-9 md:text-sm";
-
-function useCreate(onCreated: (slug: string, key: string) => void) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { slug: string; title: string; summary?: string; priority?: string; parent_key?: string }) => {
-      const { slug, ...body } = input;
-      return api.createTask(slug, body).then((t) => ({ slug, key: t.key }));
-    },
-    onSuccess: ({ slug, key }) => {
-      toast(`Pedido como ${key}`);
-      void queryClient.invalidateQueries({ queryKey: ["project", slug] });
-      void queryClient.invalidateQueries({ queryKey: ["projects"] });
-      onCreated(slug, key);
-    },
-    onError: (e) => toast.error(e instanceof ApiError && e.code === "TASK_NOT_FOUND" ? "Esa iniciativa ya no existe." : "No se pudo pedir."),
-  });
-}
 
 function readLast(): string | null {
   try {
@@ -50,52 +37,122 @@ function writeLast(slug: string) {
   }
 }
 
-/** Inicio's one-field version: a sentence and the project; the ticket opens on its project page. */
+/** Inicio's Pedir: the words, the project and how (Darle forma, Hacerlo ya, Preguntar), as in La corriente. */
 export function PedirHome({ projects }: { projects: { slug: string; title: string }[] }) {
-  const navigate = useNavigate();
-  const [title, setTitle] = useState("");
+  const queryClient = useQueryClient();
+  const [text, setText] = useState("");
+  const [mode, setMode] = useState<AskMode>("forma");
+  const [sending, setSending] = useState(false);
   const [picked, setPicked] = useState(() => readLast());
+  const field = useRef<HTMLTextAreaElement>(null);
   const slug = projects.some((p) => p.slug === picked) ? picked! : (projects[0]?.slug ?? "");
-  const create = useCreate((s, key) => {
-    setTitle("");
-    writeLast(s);
-    navigate(`/p/${s}?task=${encodeURIComponent(key)}`);
-  });
+  const project = projects.find((p) => p.slug === slug);
+
+  // Grow with the words: one line when empty, up to MAX_FIELD_PX, then scroll.
+  useLayoutEffect(() => {
+    const el = field.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, MAX_FIELD_PX)}px`;
+  }, [text]);
+
+  async function send() {
+    const words = text.trim();
+    if (!words || !slug || sending) return;
+    setSending(true);
+    try {
+      const r = await api.askProject(slug, { text: words, mode });
+      toast(askedLine({ ...r, mode: r.mode ?? mode }, project?.title));
+      setText("");
+      setMode("forma");
+      writeLast(slug);
+      void queryClient.invalidateQueries({ queryKey: ["project", slug] });
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+    } catch {
+      toast.error("No se pudo enviar. Si la Mac está dormida, intenta al despertar.");
+    } finally {
+      setSending(false);
+    }
+  }
+
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (!title.trim() || !slug || create.isPending) return;
-    create.mutate({ slug, title: title.trim() });
+    void send();
   }
+
+  // Enter sends, Shift+Enter starts a new line (as in a chat box).
+  function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      void send();
+    }
+  }
+
   if (!projects.length) return null;
+  const near = text.length > ASK_MAX * 0.9;
+  const line = MODES.find((m) => m.id === mode)?.line ?? "";
   return (
-    <form onSubmit={submit} className="flex animate-rise flex-wrap gap-2 rounded-[20px] border bg-card/60 p-2.5 sm:flex-nowrap" aria-label="Pedir">
-      <Input
-        aria-label="Qué necesitas"
-        value={title}
-        maxLength={200}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="Pedir algo…"
-        className={cn(fieldClass, "basis-full sm:basis-auto")}
-        enterKeyHint="send"
-      />
-      <select
-        aria-label="Proyecto"
-        value={slug}
-        onChange={(e) => {
-          setPicked(e.target.value);
-          writeLast(e.target.value);
-        }}
-        className={cn(selectClass, "flex-1 sm:w-40 sm:flex-none")}
-      >
-        {projects.map((p) => (
-          <option key={p.slug} value={p.slug}>
-            {p.title}
-          </option>
-        ))}
-      </select>
-      <Button type="submit" disabled={!title.trim() || create.isPending} className="h-11 shrink-0 px-4 md:h-9">
-        <SendIcon aria-hidden /> Pedir
-      </Button>
+    <form onSubmit={submit} className="grid animate-rise gap-2 rounded-[20px] border bg-card/60 p-2.5" aria-label="Pedir" data-pedir-home>
+      <div className="flex flex-wrap items-start gap-2 sm:flex-nowrap">
+        <Textarea
+          ref={field}
+          aria-label="Qué necesitas"
+          aria-describedby="pedir-home-line"
+          value={text}
+          maxLength={ASK_MAX}
+          rows={1}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={onKey}
+          placeholder="Pedir algo…"
+          className="min-h-11 basis-full resize-none py-2.5 text-base md:min-h-9 md:py-1.5 md:text-sm sm:basis-auto"
+          enterKeyHint="send"
+        />
+        <select
+          aria-label="Proyecto"
+          value={slug}
+          onChange={(e) => {
+            setPicked(e.target.value);
+            writeLast(e.target.value);
+          }}
+          className={cn(selectClass, "flex-1 sm:w-40 sm:flex-none")}
+        >
+          {projects.map((p) => (
+            <option key={p.slug} value={p.slug}>
+              {p.title}
+            </option>
+          ))}
+        </select>
+        <Button type="submit" disabled={!text.trim() || sending} className="h-11 shrink-0 px-4 md:h-9">
+          <SendIcon aria-hidden /> {sending ? "Enviando…" : mode === "pregunta" ? "Preguntar" : "Pedir"}
+        </Button>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-1 text-xs text-muted-foreground">
+        <span role="group" aria-label="Cómo" className="inline-flex rounded-lg border p-0.5">
+          {MODES.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              aria-pressed={mode === m.id}
+              data-mode={m.id}
+              onClick={() => setMode(m.id)}
+              className={cn(
+                "rounded-md px-2 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+                mode === m.id ? "bg-secondary text-secondary-foreground" : "hover:text-foreground",
+              )}
+            >
+              {m.name}
+            </button>
+          ))}
+        </span>
+        <span id="pedir-home-line" className="min-w-0 flex-1">
+          {line}
+        </span>
+        {near && (
+          <span aria-live="polite" className="tabular-nums">
+            {text.length} / {ASK_MAX}
+          </span>
+        )}
+      </div>
     </form>
   );
 }

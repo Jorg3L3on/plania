@@ -51,6 +51,13 @@ upgraded. Say what else could break and how someone would notice.
 **Cómo deshacerlo.** What it takes to go back. Usually: revert the merge commit. Say when that is not
 enough: a migration that must be reversed first, data that was rewritten, a setting to switch off.
 
+## A database migration
+
+Before you add one, reserve its number: `reserve_sequence {name: "migration", task_key, at_least: <the
+next number in the repo's migrations folder>}`, and name the file with the number it returns. Two
+branches never take the same number, and the release sheet shows it (PLA-82, F-25: a migration 0003 was
+added while the counter still said 0001). Say the migration under «Riesgo de la mezcla».
+
 ## Language and title
 
 Match the repo: look at its last merged pull requests (`gh pr list --state merged --limit 5`). When
@@ -59,6 +66,12 @@ ticket key: «MIC-12: compartir una lista por enlace».
 
 The `muestra` you pass to `finish` is for the owner and is always plain Spanish: `frase` is one
 sentence on what changes for the app's users, and `pasos` are three ways to try it.
+
+When a view needs data the app's dev database lacks (an appointment today, a client at a given stage),
+put the fake rows in `muestra.datos` as SQL: fictional names, example.com addresses, times from
+`now()`. Plania loads it into its own throwaway copies before the pictures (PLA-78, after Taller's
+good shots stayed in a Mac folder and the card showed «Sin citas hoy»). Pictures you take yourself
+are not shown to the owner; the muestra is.
 
 ## Done when
 

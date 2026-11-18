@@ -10,7 +10,7 @@
 // a reason and changes nothing; a message already acted on is 409 ALREADY_ACTED.
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { agentRuns, agents, projects, questions, results, tasks, threadMessages, type ActionState, type Task, type ThreadMessage } from "../db/schema.js";
+import { agentRuns, agents, projects, pullRequests, questions, results, tasks, threadMessages, type ActionState, type Task, type ThreadMessage } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
 import { answer } from "../mcp/questions.js";
 import { releaseGh } from "../mcp/release-ship.js";
@@ -88,10 +88,30 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: Accep
     await writeTx(db, project, ctx, async (_tx, emit) => {
       await emit("pr.merged", { id: t.id, key: t.key }, { number: Number(number), url: after.url || view.url, base: MERGE_BASE, merge_sha: sha, by, message_id: msg.id, ...(auto ? { evidence_id: pass?.id ?? null } : {}) });
     });
+    await mergedNow(db, project, t, { repo: repo!, number: Number(number), url: after.url || view.url, sha });
     return record(db, msg, { action: "aceptar", at: new Date().toISOString(), result: { merged: true, pr: url, base: MERGE_BASE, sha, ticket: t.key, ...(auto ? { by: "auto" } : {}) } });
   } catch (e) {
     if (e instanceof ToolError && e.code === "RELEASE_MERGE_FAILED") return refuse("MERGE_FAILED", "No se pudo fusionar el PR.", e.detail);
     throw e;
+  }
+}
+
+// PLA-82 (F-31): the merge Plania just made is known now; the floor read «Publicar 4 cambios» with the step still
+// «en revisión» for ~40 s until the GitHub poller saw it. The stored PR becomes merged (so the poller does not say
+// pr.merged twice) and the In review tickets it carries move to Merged, as the poller would.
+async function mergedNow(db: Db, project: typeof projects.$inferSelect, t: Task, pr: { repo: string; number: number; url: string; sha: string }): Promise<void> {
+  await db
+    .update(pullRequests)
+    .set({ state: "merged", mergeSha: pr.sha, mergedAt: new Date(), baseBranch: MERGE_BASE })
+    .where(and(eq(pullRequests.projectId, project.id), eq(pullRequests.repo, pr.repo), eq(pullRequests.number, pr.number)));
+  const sharing = await db.select().from(tasks).where(and(eq(tasks.projectId, project.id), eq(tasks.prUrl, pr.url), eq(tasks.status, "In review")));
+  const moving = [t, ...sharing.filter((x) => x.id !== t.id)];
+  for (const m of moving) {
+    await setTask(
+      db,
+      { project: project.slug, key: m.key, status: "Merged", note: `PR #${pr.number} merged into ${MERGE_BASE} (${pr.sha.slice(0, 7)})` } as never,
+      { actor: SYSTEM_ACTOR, system: true, requestId: `accept:${pr.repo}#${pr.number}:merged:${pr.sha}:${m.key}`, tool: "screen.thread_merge" },
+    ).catch((e) => console.log(`[accept] ${m.key} stays for the poller: ${e instanceof Error ? e.message : String(e)}`));
   }
 }
 

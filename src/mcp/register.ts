@@ -165,7 +165,7 @@ function writeCtx(tool: string, input: WriteInput, identity: Identity | undefine
   if (!agent?.trim()) throw new ToolError("ACTOR_REQUIRED");
   if (agent.trim().toLowerCase() === "jorge") throw new ToolError("RESERVED_ACTOR");
   const actorOut = { ...input.actor, agent, ...(machine !== undefined ? { machine } : {}) };
-  return { actor: actorOut, requestId: input.request_id, tool, verbose: input.verbose, tokenId: identity?.tokenId };
+  return { actor: actorOut, requestId: input.request_id, tool, verbose: input.verbose, tokenId: identity?.tokenId, ...(identity?.runSession ? { runSession: identity.runSession } : {}) };
 }
 
 // Field schemas shared by a tool and its batch op (keys.ts assigns keys; see create_task).
@@ -656,7 +656,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         muestra: muestraSchema
           .optional()
           .describe(
-            "What the owner will be shown (El Probador): frase (one sentence on what changes for the app's users), vistas (the views it touched: key, label, path, estado?, session?, follow?, acciones? [{click} | {fill, value}]), pasos (three ways to try it). Required when the diff touches the screen on a project with settings.capture (MUESTRA_REQUIRED)",
+            "What the owner will be shown (El Probador): frase (one sentence on what changes for the app's users), vistas (the views it touched: key, label, path, estado?, session?, follow?, acciones? [{click: a button's visible text or a CSS selector} | {fill: a CSS selector, value}]), pasos (three ways to try it). Each view must land on the screen that changed: a record page reached from a list (one client, one ticket) needs follow: the href prefix of the link to open (e.g. /panel/novias/) or a CSS selector of that link; a view whose before and after are the same shows the owner nothing (PLA-70); a page that shows the framework's error overlay or a 5xx is marked error and holds Aceptar back (PLA-76). datos: when a view needs rows the app's dev data lacks (an appointment today, a client at some stage), the SQL that inserts fake ones (example.com, times from now()); Plania runs it on both throwaway copies' databases, never the app's own, in one transaction before the pictures (PLA-78). Required when the diff touches the screen on a project with settings.capture (MUESTRA_REQUIRED)",
           ),
       },
       annotations: write,
@@ -707,7 +707,7 @@ export function createMcpServer(db: Db, opts: ServerOptions = {}): McpServer {
         "Anything else is INVALID_TRANSITION with the allowed moves.",
         "Finishing a phase: finish does add_result and In review in one call. By hand: add_result first, then status 'In review' (committed, not merged) with branch and pr_url; without fitting evidence it is EVIDENCE_REQUIRED.",
         "Merged and Released are the pollers' (GitHub merge; deploy, or with no deploy the release branch containing the merge, settings.release_on); by hand they need a ci pass result naming the merge commit (and, for Released, the release target env containing it).",
-        "Done is yours once the work is finished: code, bug and debt tickets from Merged or Released; ops and research from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open status. Elsewhere it is INVALID_TRANSITION with allowed_from. A released code, bug or debt ticket with every check closed and no open question moves to Done by itself (settings.auto_done, on unless false); get_resume status.released_waiting_done lists the Released tickets something still holds.",
+        "Done is yours once the work is finished: code, bug and debt tickets from Merged or Released; ops and research from In review on; decision-needed once answered (Backlog, Ready or In progress); an initiative from any open status. Elsewhere it is INVALID_TRANSITION with allowed_from. A released code, bug or debt ticket with every check closed and no open question moves to Done by itself (settings.auto_done, on unless false); get_resume status.released_waiting_done lists the Released tickets something still holds. Under the same setting an initiative whose tickets are all closed closes itself, and one whose tickets are all merged or released gets the next_action that only publishing is left (PLA-82).",
         "Done, Merged or Released on a code ticket needs pr_url (on the ticket or in this call): TASK_MISSING_PR_URL, unless no_pr_reason says why there is none.",
         "Won't do and reopening a closed task are Jorge's: HUMAN_ONLY unless this call has a reason. On screen the reason is enough. An agent also sends delegated_by_jorge {message_id, quote}. The move is logged. An approval_id is ignored.",
         "In review (and later Done) needs every check done or waived: CHECKS_OPEN lists the open numbers. An initiative needs every ticket closed: INITIATIVE_CHILDREN_OPEN.",

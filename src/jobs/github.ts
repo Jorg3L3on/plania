@@ -8,7 +8,7 @@ import { DRIFT_STATUSES } from "../mcp/audit.js";
 import { touchBranch } from "../mcp/branches.js";
 import { addResult } from "../mcp/evidence.js";
 import { findTask, prRowOf } from "../mcp/queries.js";
-import { compareKey, releaseCompareOf, releasePlan, type ReleaseCompare } from "../mcp/release-plan.js";
+import { compareKey, migrationFiles, releaseCompareOf, releasePlan, type ReleaseCompare } from "../mcp/release-plan.js";
 import { recordRelease } from "../mcp/releases.js";
 import { SYSTEM_ACTOR, writeTx, type Ctx } from "../mcp/tx.js";
 import { setTask, setTaskLinks } from "../mcp/writes.js";
@@ -56,7 +56,7 @@ type Review = { id: number; state: string; submitted_at?: string | null };
 // Reviews that ask Taller for something. An approval needs no wake.
 const REVIEW_WAKES = ["CHANGES_REQUESTED", "COMMENTED"];
 type Branch = { name: string; commit: { sha: string } };
-type Compare = { status: "ahead" | "behind" | "identical" | "diverged"; ahead_by?: number; behind_by?: number; commits?: { sha: string }[] };
+type Compare = { status: "ahead" | "behind" | "identical" | "diverged"; ahead_by?: number; behind_by?: number; commits?: { sha: string }[]; files?: { filename: string; status: string }[] };
 
 export type GithubDeps = {
   fetch: Fetch;
@@ -508,6 +508,8 @@ async function pollRelease(db: Db, p: Project, deps: GithubDeps, token: string, 
       status: c.status,
       contains: c.status === "behind" || c.status === "identical",
       commits: (c.commits ?? []).slice(-50).map((x) => x.sha.slice(0, 7)),
+      // PLA-82 (F-32): the database migrations the release adds, from the same response (no extra request).
+      migration_files: migrationFiles(c.files ?? []),
     };
   }
   // Shipped: the last compare had from ahead, this one finds it inside into.
@@ -655,6 +657,36 @@ export async function closeReleased(db: Db, p: Project): Promise<number> {
       { actor: { ...SYSTEM_ACTOR, machine: "poller" }, system: true, requestId: `auto-done:${t.key}:${t.version}`, tool: "jobs.release" },
     );
     closed++;
+  }
+  await settleInitiatives(db, p);
+  return closed;
+}
+
+// PLA-82 (F-33, F-34): an initiative whose steps are all finished said the old «MIA-I9-3 en revisión… sigue MIA-I9-4»
+// and waited ten minutes for «Cerrar iniciativa». Once every step is merged or released its next action says that
+// only publishing is left; once every step is Done (the release rule above closed the last one) it closes itself.
+// settings.auto_done false keeps both off, as for the tickets.
+export const ONLY_PUBLISH_LEFT = "Todos sus pasos están hechos; solo falta publicarlos.";
+export const CLOSED_BY_RELEASE = "Se cerró sola: todos sus pasos están publicados.";
+const FINISHED = ["Done", "Won't do", "Cancelled"];
+export async function settleInitiatives(db: Db, p: Project): Promise<number> {
+  if (p.settings.auto_done === false) return 0;
+  const open = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "initiative"), sql`${tasks.status} not in ('Done', 'Won''t do', 'Cancelled')`))
+    .orderBy(tasks.key);
+  let closed = 0;
+  for (const ini of open) {
+    const kids = await db.select({ status: tasks.status }).from(tasks).where(and(eq(tasks.parentId, ini.id), eq(tasks.kind, "ticket")));
+    if (!kids.length || !kids.some((k) => k.status === "Done" || k.status === "Released" || k.status === "Merged")) continue;
+    const sys = (what: string) => ({ actor: { ...SYSTEM_ACTOR, machine: "poller" }, system: true, requestId: `initiative-${what}:${ini.key}:${ini.version}`, tool: "jobs.release" });
+    if (kids.every((k) => FINISHED.includes(k.status))) {
+      await setTask(db, { project: p.slug, key: ini.key, status: "Done", next_action: CLOSED_BY_RELEASE, note: CLOSED_BY_RELEASE } as never, sys("done"));
+      closed++;
+    } else if (kids.every((k) => FINISHED.includes(k.status) || k.status === "Merged" || k.status === "Released") && ini.nextAction !== ONLY_PUBLISH_LEFT) {
+      await setTask(db, { project: p.slug, key: ini.key, next_action: ONLY_PUBLISH_LEFT } as never, sys("publish-left"));
+    }
   }
   return closed;
 }

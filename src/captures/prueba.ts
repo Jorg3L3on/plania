@@ -103,6 +103,11 @@ type Copy = {
   stopping: boolean;
   // The server footprint being written for this copy, so a failure can wait for it and release it.
   registering: Promise<unknown> | null;
+  // PLA-75: a delivery copy's own database (settings.capture.database): the variable and URL it runs with.
+  dbEnv: Record<string, string> | null;
+  // PLA-78: the hash of the muestra's datos loaded into this copy's database, so a retake does not load them twice
+  // and another delivery gets a clean copy.
+  datos: string | null;
 };
 
 let deps: PruebaDeps = {};
@@ -227,7 +232,7 @@ export async function encender(db: Db, slug: string): Promise<PruebaRead> {
 // Error shows only once the process is stopped and its footprint released (a footprint still being written is
 // waited for first), so whoever reads «failed» never finds the copy still registered.
 function newCopy(slug: string, lane: Lane, ref: string, taskKey: string | null, phase: Phase, managed: boolean, port: number | null = null): Copy {
-  return { id: idOf(slug, lane), lane, ref, taskKey, slug, phase, managed, port, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null };
+  return { id: idOf(slug, lane), lane, ref, taskKey, slug, phase, managed, port, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null, dbEnv: null, datos: null };
 }
 
 async function fail(db: Db, c: Copy, error: string): Promise<void> {
@@ -276,7 +281,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   if (copies.get(c.id) !== c || c.stopping) return;
 
   // PLA-38: the app's own env file (untracked, so not in a fresh worktree): its database and keys.
-  syncEnvFile(repo, wt, p.settings.maquinas);
+  const envFile = syncEnvFile(repo, wt, p.settings.maquinas);
 
   // Dependencies, once per lockfile.
   const install = installCommand(wt, s);
@@ -296,6 +301,16 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   }
   if (copies.get(c.id) !== c || c.stopping) return;
 
+  // PLA-75: a delivery whose branch changes the database runs on its own copy of the app's database, migrated to
+  // the branch. Without it the delivery's pages crashed on the new columns and El Probador photographed the error.
+  // PLA-77: the sandbox copy too (<db>_prueba, migrated to sandbox): once a delivery with a migration was merged,
+  // the app's own database lagged behind sandbox and «Antes» crashed («Sin antes» on MIA-I9-2).
+  if (s.database) {
+    const made = await entregaDatabase(db, c, p.slug, wt, envFile, s.database, c.lane === "sandbox" ? "_prueba" : "_entrega");
+    if (!made.ok) return fail(db, c, made.error);
+    if (copies.get(c.id) !== c || c.stopping) return;
+  }
+
   // PLA-52: one copy picks at a time, and holds its port before the next one looks: El Probador starts the test copy
   // and the delivery's copy together, and both took the same free port (the second one died at start).
   const picking = portLock.then(async () => {
@@ -311,7 +326,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   c.command = command;
   let child: ChildLike;
   try {
-    child = (deps.spawn ?? defaultSpawn)(command, { cwd: wt, env: checkoutEnv({ PORT: String(port) }) });
+    child = (deps.spawn ?? defaultSpawn)(command, { cwd: wt, env: checkoutEnv({ PORT: String(port), ...(c.dbEnv ?? {}) }) });
   } catch (e) {
     return fail(db, c, `No se pudo arrancar: ${short(e)}`);
   }
@@ -370,7 +385,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   // Fresh stills, then En vivo.
   c.phase = "capturing";
   try {
-    await (deps.capture ?? runCapture)(db, { project: p.slug, checkout: wt, base_url: urlOf(port), commit: head, branch: BRANCH, actor: ctx().actor });
+    await (deps.capture ?? runCapture)(db, { project: p.slug, checkout: wt, base_url: urlOf(port), commit: head, branch: BRANCH, actor: ctx().actor, env: c.dbEnv ?? {} });
   } catch (e) {
     c.error = `No se pudo tomar la captura: ${short(e)}`;
   }
@@ -478,7 +493,7 @@ export async function tomar(db: Db, slug: string): Promise<PruebaRead> {
   if (had) {
     had.phase = "capturing";
     had.error = null;
-    void (deps.capture ?? runCapture)(db, { project: slug, checkout: had.worktree!, base_url: urlOf(had.port!), branch: BRANCH, actor: ctx().actor })
+    void (deps.capture ?? runCapture)(db, { project: slug, checkout: had.worktree!, base_url: urlOf(had.port!), branch: BRANCH, actor: ctx().actor, env: had.dbEnv ?? {} })
       .catch((e) => (had.error = `No se pudo tomar la captura: ${short(e)}`))
       .finally(() => {
         if (copies.get(slug) === had && had.phase === "capturing") had.phase = "live";
@@ -505,7 +520,24 @@ function readEntrega(c: Copy): EntregaRead {
 
 // Starts the delivery's copy (its PR branch, next to sandbox's), or returns the one already running for the same
 // ticket and branch. A different delivery in the same project replaces it: one delivery copy per project.
-export async function encenderEntrega(db: Db, slug: string, delivery: { key: string; branch: string }): Promise<EntregaRead> {
+// PLA-94 (guided test PLA-86, F-17): a copy kept for the same ticket and branch is only reused while it runs the
+// branch's head. MIA-I10-1 came back from Taller on a new commit while the live copy turned on for its first delivery
+// still ran the old one; El Probador reused it and photographed the old commit, and the card held «Aceptar» with
+// «Las fotos son de un commit anterior». The head is the caller's (the PR's) when it knows it, else origin's after a
+// fetch. A copy still starting (no commit yet) is kept: it is on its way to the head it fetched.
+async function atHead(c: Copy, branch: string, head?: string | null): Promise<boolean> {
+  if (!c.commit) return true;
+  let want = head?.trim() || "";
+  if (!want && c.repo) {
+    const g = git();
+    if ((await g(["fetch", "origin", branch], c.repo)).code !== 0) return true;
+    want = (await g(["rev-parse", `origin/${branch}`], c.repo)).stdout.trim();
+  }
+  if (!want) return true;
+  return c.commit.startsWith(want.slice(0, 7)) || want.startsWith(c.commit.slice(0, 7));
+}
+
+export async function encenderEntrega(db: Db, slug: string, delivery: { key: string; branch: string; head?: string | null }): Promise<EntregaRead> {
   const { p, s } = await settingsOf(db, slug);
   const branch = delivery.branch.trim();
   if (!/^[A-Za-z0-9._\/-]{1,200}$/.test(branch) || branch.startsWith("-") || branch.includes("..")) {
@@ -514,7 +546,7 @@ export async function encenderEntrega(db: Db, slug: string, delivery: { key: str
   if (branch === "main" || branch === BRANCH) throw new ToolError("INVALID_FILTER", { field: "branch", hint: `the delivery's copy runs the PR branch, never ${branch}` });
   const id = idOf(slug, "entrega");
   const had = copies.get(id);
-  if (had && had.taskKey === delivery.key && had.ref === branch && had.phase !== "failed") {
+  if (had && had.taskKey === delivery.key && had.ref === branch && had.phase !== "failed" && (await atHead(had, branch, delivery.head))) {
     had.seenAt = now();
     return readEntrega(had);
   }
@@ -649,3 +681,132 @@ const psCommand = (pid: number) =>
   new Promise<string | null>((resolve) => {
     execFile("ps", ["-o", "command=", "-p", String(pid)], { timeout: 5_000 }, (err, stdout) => resolve(err ? null : stdout.trim() || null));
   });
+
+// ---- PLA-75: the delivery copy's own database
+
+/** The value of one variable in an env file (KEY=value, optional export and quotes); null when it is not there. */
+export function envValue(text: string, name: string): string | null {
+  for (const line of text.split(/\r?\n/)) {
+    const m = new RegExp(`^\\s*(?:export\\s+)?${name}\\s*=\\s*(.*)$`).exec(line);
+    if (!m) continue;
+    const v = m[1]!.trim();
+    return v.replace(/^(['"])(.*)\1$/, "$2") || null;
+  }
+  return null;
+}
+
+/** The delivery database's URL: the app's URL with its database name + _entrega. Null for anything unexpected. */
+export function entregaUrl(base: string, suffix: "_entrega" | "_prueba" = "_entrega"): { url: string; name: string } | null {
+  let u: URL;
+  try {
+    u = new URL(base);
+  } catch {
+    return null;
+  }
+  if (!/^postgres(ql)?:$/.test(u.protocol)) return null;
+  const name = decodeURIComponent(u.pathname.replace(/^\//, ""));
+  if (!/^[A-Za-z0-9_]{1,50}$/.test(name)) return null;
+  const host = u.hostname;
+  if (!["localhost", "127.0.0.1", "::1", "[::1]", ""].includes(host)) return null; // a local database only
+  u.pathname = `/${name}${suffix}`;
+  return { url: u.toString(), name: `${name}${suffix}` };
+}
+
+export const PG_DIRS = ["/opt/homebrew/opt/postgresql@17/bin", "/opt/homebrew/opt/postgresql@16/bin", "/opt/homebrew/opt/libpq/bin", "/usr/local/opt/libpq/bin"];
+
+async function entregaDatabase(
+  db: Db,
+  c: Copy,
+  slug: string,
+  wt: string,
+  envFile: string | null,
+  cfg: { env_var: string; migrate_command: string },
+  suffix: "_entrega" | "_prueba" = "_entrega",
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const file = envFile ? path.join(wt, envFile) : null;
+  const base = file && existsSync(file) ? envValue(readFileSync(file, "utf8"), cfg.env_var) : null;
+  if (!base) return { ok: false, error: `La copia de la entrega no encuentra ${cfg.env_var} en el archivo de entorno de la app` };
+  const target = entregaUrl(base, suffix);
+  if (!target) return { ok: false, error: `${cfg.env_var} no es una base local de Postgres; la entrega no se prueba sobre ella` };
+  const exec = deps.exec ?? shellExec;
+  const pgPath = [...PG_DIRS.filter((d) => existsSync(d)), checkoutEnv().PATH ?? ""].join(":");
+  // The URLs go in the environment, never in the command line.
+  const copyCmd = `psql "$PLANIA_BASE_URL" -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${target.name} with (force)' -c 'create database ${target.name}' && pg_dump --no-owner --no-privileges "$PLANIA_BASE_URL" | psql -v ON_ERROR_STOP=1 -q "$PLANIA_NEW_URL"`;
+  const copied = await exec(copyCmd, { cwd: wt, timeoutMs: 300_000, env: checkoutEnv({ PATH: pgPath, PLANIA_BASE_URL: base, PLANIA_NEW_URL: target.url }) });
+  if (copied.code !== 0) {
+    c.tail = tailOf(copied.stderr || copied.stdout);
+    return { ok: false, error: `No se pudo copiar la base de la app para la entrega (${target.name})` };
+  }
+  const migrated = await exec(cfg.migrate_command, { cwd: wt, timeoutMs: 300_000, env: checkoutEnv({ [cfg.env_var]: target.url }) });
+  if (migrated.code !== 0) {
+    c.tail = tailOf(migrated.stderr || migrated.stdout);
+    return { ok: false, error: `Las migraciones de la entrega fallaron (${cfg.migrate_command})` };
+  }
+  c.dbEnv = { [cfg.env_var]: target.url };
+  if (deps.footprints !== false) {
+    const u = new URL(target.url);
+    await registerFootprint(
+      db,
+      { project: slug, kind: "database", locator: `${target.name}@${u.hostname || "127.0.0.1"}:${u.port || "5432"}`, purpose: suffix === "_prueba" ? `Base de la copia de prueba de ${slug} (copia de la de la app, con las migraciones de sandbox)` : `Base de la copia de la entrega de ${slug} (copia de la de la app, con las migraciones de la rama), para El Probador`, teardown: `dropdb --if-exists -h ${u.hostname || "localhost"} -p ${u.port || "5432"} ${target.name}` },
+      ctx(),
+    ).catch(() => undefined);
+  }
+  return { ok: true };
+}
+
+/** PLA-75: what a command run in the delivery copy needs to reach its own database (empty when it has none). */
+export function entregaEnv(slug: string): Record<string, string> {
+  return copies.get(idOf(slug, "entrega"))?.dbEnv ?? {};
+}
+
+/** PLA-77: the same for the sandbox copy (Antes, Encenderla). */
+export function pruebaEnv(slug: string): Record<string, string> {
+  return copies.get(idOf(slug, "sandbox"))?.dbEnv ?? {};
+}
+
+// ---- PLA-78: the muestra's fake rows
+
+export const hashDatos = (sql: string | null | undefined): string | null => (sql ? createHash("sha256").update(sql).digest("hex").slice(0, 16) : null);
+
+/** Which datos (hash) a copy's database carries, or null when it is clean or not running. */
+export function datosDe(slug: string, lane: Lane): string | null {
+  return copies.get(idOf(slug, lane))?.datos ?? null;
+}
+
+/** The copy's own database name when it is one of Plania's throwaway copies (<db>_entrega, <db>_prueba), else null. */
+export function copyDatabase(env: Record<string, string> | null): { url: string; name: string } | null {
+  const url = env ? Object.values(env)[0] : undefined;
+  if (!url) return null;
+  try {
+    const name = decodeURIComponent(new URL(url).pathname.replace(/^\//, ""));
+    return /^[A-Za-z0-9_]+_(entrega|prueba)$/.test(name) ? { url, name } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Loads a muestra's SQL into a live copy's own database, in one transaction. Never the app's own database: a copy
+ * without settings.capture.database is refused. Loading the same datos twice is a no-op. */
+export async function cargarDatos(slug: string, lane: Lane, sql: string): Promise<{ ok: true; skipped?: true } | { ok: false; error: string }> {
+  const c = copies.get(idOf(slug, lane));
+  if (!c || c.phase !== "live") return { ok: false, error: "la copia no está encendida" };
+  const target = copyDatabase(c.dbEnv);
+  if (!target) return { ok: false, error: "la copia no tiene base propia (settings.capture.database); los datos nunca van a la base de la app" };
+  const hash = hashDatos(sql)!;
+  if (c.datos === hash) return { ok: true, skipped: true };
+  if (c.datos) return { ok: false, error: "la copia ya tiene los datos de otra muestra" };
+  const exec = deps.exec ?? shellExec;
+  const pgPath = [...PG_DIRS.filter((d) => existsSync(d)), checkoutEnv().PATH ?? ""].join(":");
+  const r = await exec(`psql "$PLANIA_COPY_URL" -X -q -v ON_ERROR_STOP=1 --single-transaction -f -`, {
+    cwd: c.worktree ?? process.cwd(),
+    stdin: sql,
+    timeoutMs: 60_000,
+    env: checkoutEnv({ PATH: pgPath, PLANIA_COPY_URL: target.url }),
+  });
+  if (r.code !== 0) {
+    const line = (r.stderr || r.stdout).split("\n").map((l) => l.trim()).find((l) => /ERROR/.test(l)) ?? (r.stderr || r.stdout).trim().split("\n")[0] ?? `código ${r.code}`;
+    return { ok: false, error: line.replace(/^psql:[^:]*:\d+:\s*/, "").slice(0, 200) };
+  }
+  c.datos = hash;
+  return { ok: true };
+}

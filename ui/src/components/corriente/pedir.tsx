@@ -43,7 +43,7 @@ const Thread = ({ c, po, onPedirlo, onMore, busy }: { c: ConsultaView; po: strin
       <p className="cor-thread-me">{c.text}</p>
       <p className="cor-cap">
         {po} ·{" "}
-        {c.state === "cola" ? "le llegó tu pregunta; empieza en cuanto termine lo que corre" : c.state === "leyendo" ? "lee el código…" : c.state === "sin_respuesta" ? "su corrida terminó sin contestar" : `leyó ${a?.branch ?? "el código"}`}
+        {c.state === "cola" ? (c.held ? `en cola: ${c.held.charAt(0).toLowerCase()}${c.held.slice(1)}` : "le llegó tu pregunta; empieza en cuanto termine lo que corre") : c.state === "leyendo" ? "lee el código…" : c.state === "sin_respuesta" ? "su corrida terminó sin contestar" : `leyó ${a?.branch ?? "el código"}`}
       </p>
       {a && c.trail.length > 0 && (
         <Btn kind="link" onClick={() => setTrail((x) => !x)} data-control="consulta-rastro">
@@ -110,6 +110,7 @@ export const Pedir = ({
   projects,
   initial,
   initialText,
+  initialQuestion,
   disabled,
   onAsk,
   onPictures,
@@ -120,6 +121,8 @@ export const Pedir = ({
   initial: string | null;
   /** Words handed over from elsewhere (Máquinas' «Algo falló»). */
   initialText?: string | null;
+  /** PLA-67: the question to open (from the bar's «Ver la respuesta»). */
+  initialQuestion?: string | null;
   disabled?: boolean;
   onAsk: (slug: string, input: AskInput) => Promise<AskResult>;
   onPictures: () => void;
@@ -136,7 +139,7 @@ export const Pedir = ({
   const [sent, setSent] = useState<{ text: string; key: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fromAnswer, setFromAnswer] = useState<string | null>(null);
-  const [openQ, setOpenQ] = useState<string | null>(null);
+  const [openQ, setOpenQ] = useState<string | null>(initialQuestion ?? null);
   const area = useRef<HTMLTextAreaElement>(null);
   const consultas = useQuery({
     queryKey: ["consultas", slug],
@@ -146,7 +149,11 @@ export const Pedir = ({
   });
   const list = consultas.data?.consultas ?? [];
   const current = openQ ? (list.find((c) => c.id === openQ) ?? null) : null;
+  // A new project closes the open question; the first render keeps the one the link asked for (PLA-67).
+  const shownSlug = useRef(slug);
   useEffect(() => {
+    if (shownSlug.current === slug) return;
+    shownSlug.current = slug;
     setOpenQ(null);
     setFromAnswer(null);
   }, [slug]);
@@ -330,11 +337,15 @@ export const Pedir = ({
                         <span className="cor-ellipsis" style={{ flex: 1 }}>
                           {c.text}
                         </span>
-                        <span className={`cor-state ${pendingQ(c) ? "live" : ""}`}>{pendingQ(c) ? "Leyendo" : c.answer ? "Contestada" : "Sin respuesta"}</span>
+                        <span className={`cor-state ${pendingQ(c) ? "live" : ""}`}>{c.state === "cola" ? "En cola" : c.state === "leyendo" ? "Leyendo" : c.answer ? "Contestada" : "Sin respuesta"}</span>
                       </button>
                     </li>
                   ))}
                 </ul>
+              ) : consultas.isPending ? (
+                <p className="cor-text" style={{ padding: "10px 0" }} data-anteriores-cargando>
+                  Buscando tus preguntas…
+                </p>
               ) : (
                 <p className="cor-text" style={{ padding: "10px 0" }}>
                   Aún no le has preguntado nada a este proyecto. Lo que preguntes queda aquí con su respuesta y lo que el PO leyó.

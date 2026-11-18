@@ -16,7 +16,7 @@ export type Q = PgDatabase<NodePgQueryResultHKT, typeof schema>;
 // verbose: writes return the full task besides the compact {key, status, version, changed} reply.
 // system: a poller acting on GitHub or deploy data (moves In review → Merged → Released).
 // An app-repo code ticket still needs a scan pass before Merged.
-export type Ctx = { actor: Actor; human?: boolean; system?: boolean; requestId?: string; tool?: string; verbose?: boolean; tokenId?: string };
+export type Ctx = { actor: Actor; human?: boolean; system?: boolean; requestId?: string; tool?: string; verbose?: boolean; tokenId?: string; runSession?: string };
 
 const REQUEST_TTL = "30 days";
 const WRITE_LOCK = 7_264_201; // arbitrary constant: the one advisory lock every writeTx takes

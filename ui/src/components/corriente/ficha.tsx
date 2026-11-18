@@ -7,6 +7,7 @@
 // team note with pictures, the trail, «visto». An initiative adds Construcción (its steps, stage and PR, Aceptar on
 // the one that waits) and Publicado (when, and the evidence). Calls: GET …/ideas/:key (PLA-I65-1) and the
 // building's writes (acts.ts).
+import { createPortal } from "react-dom";
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Markdown from "react-markdown";
@@ -16,7 +17,7 @@ import { api, type Decision, type IdeaAnswerInput, type IdeaBuilt, type IdeaDeta
 import { cardActs, deliveryFor, ETAPA_WORD, type CardAct } from "@/lib/etapas";
 import { acceptWords } from "@/lib/evidencia";
 import type { CorrienteActs } from "./acts";
-import { Decisiones } from "./decisiones";
+import { Decisiones, forwardOf } from "./decisiones";
 import { Images } from "./images";
 import { Btn, Key, Label, Opt, ReadError, State, type StateTone } from "./parts";
 import { Corriente } from "./rio";
@@ -57,14 +58,29 @@ export function recommended(d: Pick<IdeaDetail, "research">): number | null {
 }
 
 // dec: the option he has marked on each of the PO's decisions (by its number) before sending; why: his words for a change.
-type Ui = { sel: Sel; sub: "entrega" | "recorrido" | "nota"; frame: number; pins: IdeaNote[]; text: string; asking: boolean; pick: number | null; note: string; answer: string; drop: boolean; dec: Record<number, number>; why: Record<number, string> };
+type Ui = { sel: Sel; sub: "entrega" | "recorrido" | "nota"; frame: number; pins: IdeaNote[]; text: string; asking: boolean; pick: number | null; note: string; answer: string; drop: boolean; dec: Record<number, number>; why: Record<number, string>; grande: boolean };
 /** PLA-62: «Constrúyelo» said and nobody is turning it into an initiative (no live run on it): stuck, as the list says. */
 export const stuckOf = (p: Pick<OrgProject, "paused" | "team">, d: Pick<IdeaDetail, "key" | "state">) =>
   d.state === "valvula" && (p.paused || !p.team.some((m) => m.state === "running" && m.now?.ticket === d.key));
 /** When he said «Constrúyelo» (the newest one), from the trail. */
 export const orderedAt = (d: Pick<IdeaDetail, "trail">) => [...(d.trail ?? [])].reverse().find((t) => t.kind === "construir")?.at ?? null;
 
-const initialUi = (d: IdeaDetail): Ui => ({ sel: selOf(d), sub: "entrega", frame: 0, pins: [], text: "", asking: false, pick: null, note: "", answer: "", drop: false, dec: {}, why: {} });
+// PLA-90: the lightbox takes the focus when it opens, and only then. An inline ref callback is a new function on every
+// render, so React called it on each keystroke and pulled the focus out of the pin's note field.
+const focusOnOpen = (el: HTMLElement | null) => {
+  if (el && !el.contains(document.activeElement)) el.focus();
+};
+// PLA-90: the Diseño preview box (CSS .cor-ficha-frame-big); the frame is fitted inside it whole, so a pin's
+// percentages are of the frame itself, not of the letterbox around it.
+const PREVIEW_W = 220;
+const PREVIEW_H = 124;
+export const fitIn = (w: number | null, h: number | null, boxW: number, boxH: number): { width: number; height: number } => {
+  const fw = w && w > 0 ? w : 16;
+  const fh = h && h > 0 ? h : 10;
+  const k = Math.min(boxW / fw, boxH / fh);
+  return { width: Math.round(fw * k), height: Math.round(fh * k) };
+};
+const initialUi = (d: IdeaDetail): Ui => ({ sel: selOf(d), sub: "entrega", frame: 0, pins: [], text: "", asking: false, pick: null, note: "", answer: "", drop: false, dec: {}, why: {}, grande: false });
 export type FichaLinks = { doc: (id: string) => string; paso: (key: string) => string; entrega: (d: Decision) => string; pedir: string };
 
 // ---- the stops as tabs over the current
@@ -278,12 +294,16 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
     if (d.stop !== "lista" && !b) return <Empty title="Lista no ha empezado" line={WAITS.lista!} />;
     return (
       <>
-        <Eyebrow links={links}>{b ? `Lista · se construyó con tu sí · ${b.key}` : "Lista · esto es lo que se va a construir"}</Eyebrow>
-        <p className="cor-ficha-quote">{b ? `Dijiste «Constrúyelo» y el PO la subió al tablero como ${b.key}.` : d.plan_steps.length ? `Todo lo de arriba ya está. ${d.plan_steps.length === 1 ? "Un paso espera" : `${d.plan_steps.length} pasos esperan`} tu sí.` : "Todo lo de arriba ya está. El plan espera tu sí."}</p>
+        <Eyebrow links={links}>{b ? `Lista · se construyó con tu sí · ${b.key}` : d.state === "valvula" ? "Lista · dijiste «Constrúyelo»" : "Lista · esto es lo que se va a construir"}</Eyebrow>
+        {/* PLA-82 (F-16): after «Constrúyelo» the steps no longer wait for his yes; they are on their way to the board. */}
+        <p className="cor-ficha-quote">{b ? `Dijiste «Constrúyelo» y el PO la subió al tablero como ${b.key}.` : d.state === "valvula" ? `Dijiste «Constrúyelo». El PO está subiendo ${d.plan_steps.length === 1 ? "el paso" : d.plan_steps.length ? `los ${d.plan_steps.length} pasos` : "el plan"} al tablero.` : d.plan_steps.length ? `Todo lo de arriba ya está. ${d.plan_steps.length === 1 ? "Un paso espera" : `${d.plan_steps.length} pasos esperan`} tu sí.` : "Todo lo de arriba ya está. El plan espera tu sí."}</p>
         {d.plan_steps.length > 0 && <PlanSteps titles={d.plan_steps} />}
       </>
     );
   }
+  // PLA-67: the stop it is at, with nobody stuck, is being worked on: it did not «not start».
+  if (!s.delivered && s.state === "here" && !d.quiet_since)
+    return <Empty title={`${SEL_NAME[s.stop]} en curso`} line={`${d.stage === "research" ? "Research" : d.stage === "design" ? "Artist" : "El PO"} la trabaja ahora. Te avisa cuando entregue.`} />;
   if (!s.delivered)
     return (
       <Empty title={`${SEL_NAME[s.stop]} no ha empezado`} line={s.state === "here" && d.quiet_since ? `Quieta desde ${dayHm(d.quiet_since, now, timeZone)}. Si la despiertas, ${d.stage === "research" ? "Research" : d.stage === "design" ? "Artist" : "el PO"} la toma en su siguiente turno.` : (WAITS[s.stop] ?? "Llega después de la parada anterior.")}>
@@ -295,28 +315,35 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
       </Empty>
     );
   if (s.stop === "entendido") {
-    const cells: [string, string | null][] = [
-      ["Problema", d.ficha.problema],
-      ["Solución", d.ficha.solucion],
-      ["Fuera", d.ficha.fuera],
-      ["Tamaño", d.ficha.tamano],
-      ["Riesgos", d.ficha.riesgos],
-    ];
+    // PLA-82 (F-10): only what the PO wrote. «Pendiente» on four fields this stop never fills read as missing work.
+    const cells = (
+      [
+        ["Problema", d.ficha.problema],
+        ["Solución", d.ficha.solucion],
+        ["Fuera", d.ficha.fuera],
+        ["Tamaño", d.ficha.tamano],
+        ["Riesgos", d.ficha.riesgos],
+      ] as [string, string | null][]
+    ).filter(([, v]) => !!v?.trim());
     return (
       <>
         <Eyebrow links={links} doc={s.doc}>
           {eb(s, now, timeZone)}
         </Eyebrow>
-        <div className="cor-ficha-split">
+        <div className="cor-ficha-split" style={cells.length ? undefined : { gridTemplateColumns: "minmax(0, 1fr)" }}>
           <p className="cor-ficha-quote">{(d.understood_text ?? d.understood) ? (d.understood_text ?? d.understood)!.replace(/^\s*entend[ií]\s*[:：-]\s*/i, "") : "El PO escribió la ficha de la idea."}</p>
-          <dl className="cor-ficha-cells">
-            {cells.map(([k, v]) => (
-              <div key={k}>
-                <dt>{k}</dt>
-                <dd className={v ? "" : "cor-muted"}>{v ? <Md>{v}</Md> : "Pendiente"}</dd>
-              </div>
-            ))}
-          </dl>
+          {cells.length > 0 && (
+            <dl className="cor-ficha-cells">
+              {cells.map(([k, v]) => (
+                <div key={k}>
+                  <dt>{k}</dt>
+                  <dd>
+                    <Md>{v!}</Md>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
         </div>
         {/* AUDIT-8: the PO's open decisions, each with its recommended option in force until he marks another. */}
         {(d.decisions?.length ?? 0) > 0 && (
@@ -326,6 +353,7 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
             why={ui.why}
             open={isOpen(d)}
             busy={acts.busy === `pedido-${d.key}:decision`}
+            forward={forwardOf(d.stage)}
             onMark={(n, option) => set({ dec: { ...ui.dec, [n]: option } })}
             onWhy={(n, text) => set({ why: { ...ui.why, [n]: text } })}
             onSend={(input) => acts.decision(slug, d.key, input)}
@@ -409,31 +437,114 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
   const f = d.frames[i]!;
   const canPin = isOpen(d) && !s.answer;
   const pins = ui.pins.map((p, n) => ({ ...p, n: n + 1 })).filter((p) => p.frame === f.frame);
+  const pinAt = (e: { clientX: number; clientY: number; currentTarget: Element }) => {
+    if (!canPin) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    set({ pins: [...ui.pins, { frame: f.frame, x: Math.round(((e.clientX - r.left) / r.width) * 1000) / 10, y: Math.round(((e.clientY - r.top) / r.height) * 1000) / 10, text: "" }] });
+  };
+  const pinMarks = pins.map((p) => (
+    <i key={p.n} className="cor-pin" style={{ left: `${p.x}%`, top: `${p.y}%` }} aria-hidden>
+      {p.n}
+    </i>
+  ));
+  const go = (n: number) => set({ frame: (n + d.frames.length) % d.frames.length });
   return (
     <>
+      {/* PLA-72 (F-14): the frame in the ficha is 124 px tall, too small to judge a design; Ampliar opens it large,
+          one click deep, with the same pins and arrows between frames. */}
+      {ui.grande &&
+        createPortal(
+        <div className="cor-portal">
+        <div
+          className="cor-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Marco ${f.frame}: ${f.name}`}
+          tabIndex={-1}
+          ref={focusOnOpen}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") set({ grande: false });
+            if (e.key === "ArrowRight") go(i + 1);
+            if (e.key === "ArrowLeft") go(i - 1);
+          }}
+          data-lightbox
+        >
+          <div className="cor-lightbox-bar">
+            <b>
+              {f.frame} · {f.name}
+            </b>
+            <span className="cor-cap">{`${i + 1} de ${d.frames.length}${canPin ? " · toca un punto para dejar una nota" : ""}`}</span>
+            <Btn kind="quiet" small aria-label="Marco anterior" onClick={() => go(i - 1)}>
+              ‹
+            </Btn>
+            <Btn kind="quiet" small aria-label="Marco siguiente" onClick={() => go(i + 1)}>
+              ›
+            </Btn>
+            <Btn kind="secondary" small onClick={() => set({ grande: false })} data-control="ficha-cerrar-grande">
+              Cerrar ✕
+            </Btn>
+          </div>
+          <div className="cor-lightbox-stage">
+            <div className="cor-lightbox-frame" style={{ aspectRatio: `${f.width || 16} / ${f.height || 10}`, width: `min(100%, calc((100svh - 96px) * ${f.width || 16} / ${f.height || 10}))` } as CSSProperties} onClick={pinAt} data-control="ficha-clavar-grande">
+              <img src={f.url} alt={`Marco ${f.frame}: ${f.name}`} draggable={false} />
+              {pinMarks}
+            </div>
+          </div>
+          {/* PLA-90 (PLA-86 F-11): a pin placed here is written here, not after closing the lightbox. */}
+          {pins.length > 0 && (
+            <ol className="cor-marcas cor-lightbox-notes" aria-label={`Notas en el marco ${f.frame}`}>
+              {pins.map((p) => (
+                <li key={p.n}>
+                  <b aria-hidden>{p.n}</b>
+                  <input
+                    className="cor-input"
+                    value={p.text}
+                    maxLength={600}
+                    placeholder="¿Qué cambiarías aquí?"
+                    aria-label={`Nota ${p.n}, marco ${p.frame}`}
+                    autoFocus={p.n === ui.pins.length && !p.text}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    onChange={(e) => set({ pins: ui.pins.map((x, j) => (j === p.n - 1 ? { ...x, text: e.target.value } : x)) })}
+                  />
+                  <Btn kind="quiet" small aria-label={`Quitar la nota ${p.n}`} onClick={() => set({ pins: ui.pins.filter((_, j) => j !== p.n - 1) })}>
+                    ×
+                  </Btn>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+        </div>,
+          document.body,
+        )}
       <Eyebrow links={links} doc={s.doc}>
         {eb(s, now, timeZone, `${d.frames.length} ${d.frames.length === 1 ? "marco" : "marcos"}`)}
       </Eyebrow>
       <div className="cor-ficha-frames">
-        <div
-          className="cor-ficha-frame-big"
-          role={canPin ? "button" : undefined}
-          tabIndex={canPin ? 0 : undefined}
-          aria-label={canPin ? `Marco ${f.frame}: toca un punto para dejar una nota ahí` : `Marco ${f.frame}`}
-          style={{ aspectRatio: f.width && f.height ? `${f.width} / ${f.height}` : "16 / 10" } as CSSProperties}
-          onClick={(e) => {
-            if (!canPin) return;
-            const r = e.currentTarget.getBoundingClientRect();
-            set({ pins: [...ui.pins, { frame: f.frame, x: Math.round(((e.clientX - r.left) / r.width) * 1000) / 10, y: Math.round(((e.clientY - r.top) / r.height) * 1000) / 10, text: "" }] });
-          }}
-          data-control="ficha-clavar"
-        >
-          <img src={f.url} alt={`Marco ${f.frame}: ${f.name}`} draggable={false} />
-          {pins.map((p) => (
-            <i key={p.n} className="cor-pin" style={{ left: `${p.x}%`, top: `${p.y}%` }} aria-hidden>
-              {p.n}
-            </i>
-          ))}
+        <div className="cor-ficha-frame-big">
+          <div
+            className="cor-ficha-frame-fit"
+            role={canPin ? "button" : undefined}
+            tabIndex={canPin ? 0 : undefined}
+            aria-label={canPin ? `Marco ${f.frame}: toca un punto para dejar una nota ahí` : `Marco ${f.frame}`}
+            style={fitIn(f.width, f.height, PREVIEW_W, PREVIEW_H)}
+            onClick={pinAt}
+            data-control="ficha-clavar"
+          >
+            <img src={f.url} alt={`Marco ${f.frame}: ${f.name}`} draggable={false} />
+            {pinMarks}
+          </div>
+          <button
+            type="button"
+            className="cor-ficha-ampliar"
+            onClick={(e) => {
+              e.stopPropagation();
+              set({ grande: true });
+            }}
+            data-control="ficha-ampliar"
+          >
+            Ampliar
+          </button>
         </div>
         <div className="cor-ficha-thumbs" role="group" aria-label="Marcos">
           {d.frames.map((x, n) => (
@@ -677,7 +788,10 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
         </span>
       </Bar>
     );
-  if (d.stop === "lista" && isOpen(d)) {
+  // PLA-68: an earlier stop the owner opened (Diseño, to pin notes) keeps its own answer bar; Lista keeps «Constrúyelo».
+  const opened = ui.sel !== "lista" && STOP_IDS.includes(ui.sel as PedidoStop) ? d.stops.find((x) => x.stop === ui.sel) : null;
+  const answering = !!opened && ANSWERABLE.includes(opened.stop) && opened.delivered && d.state !== "valvula";
+  if (d.stop === "lista" && isOpen(d) && !answering) {
     if (d.state === "valvula" && stuckOf(p, d)) {
       const at = orderedAt(d);
       return (
@@ -733,7 +847,8 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
             </form>
           }
         >
-          ¿Entendió bien el PO? <span>Si dices «Así es», sigue a Investigación.</span>
+          ¿Entendió bien el PO?{" "}
+          <span>{d.stop === "entendido" || d.stop === "buzon" ? "Si dices «Así es», sigue a Investigación." : `Ya sigue en ${SEL_NAME[d.stop]}; si algo está mal, corrígelo y lo retoma.`}</span>
         </Bar>
       );
     if (s.stop === "investigacion" && d.research.options.length) {

@@ -17,6 +17,7 @@ import { ToolError } from "../mcp/errors.js";
 import { PREGUNTA_MARK } from "../captures/preguntas.js";
 import { enqueueWake } from "../runner/events.js";
 import { isSessionOf } from "../runner/run-session.js";
+import { HELD_TEXT, type HeldCode } from "../runner/admission.js";
 
 export const CONSULTA_RE = /\[consulta ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/;
 export const consultaIdOf = (summary: string | null | undefined): string | null => CONSULTA_RE.exec(summary ?? "")?.[1] ?? null;
@@ -58,12 +59,23 @@ export async function retryConsultas(db: Db, now = new Date()): Promise<number> 
 }
 
 // What the run is told. The role prompt still goes first; this replaces the ticket prompt.
-export function consultaPrompt(input: { agent: string; project: { slug: string; title: string }; consulta: Pick<Consulta, "id" | "text">; cwd: string; sessionId: string }): string {
+export function consultaPrompt(input: {
+  agent: string;
+  project: { slug: string; title: string };
+  consulta: Pick<Consulta, "id" | "text">;
+  cwd: string;
+  sessionId: string;
+  /** PLA-66: the read copy the run is in (origin/sandbox just fetched), or why it fell back to the owner's checkout. */
+  copy?: { branch: string | null; commit: string | null; fallback?: string } | null;
+}): string {
+  const where = input.copy?.branch
+    ? `You are in a read-only copy of the project at origin/${input.copy.branch} ${input.copy.commit ?? ""}, fetched just now: ${input.cwd}. In answer_consulta, branch is "${input.copy.branch}" and commit is "${input.copy.commit ?? ""}" unless you read another branch. This run is read-only: you may read and search files and use read-only git (git status, git log, git show, git diff, git for-each-ref). You may not edit, commit, push, install or run the app, and you start no work in Plania.`
+    : `You are in the project's own checkout: ${input.cwd}.${input.copy?.fallback ? ` A fresh copy could not be made (${input.copy.fallback}), so this checkout may be behind origin; check with git log -1 --format=%cd and say how old it is.` : ""} This run is read-only: you may read and search files and use read-only git (git status, git log, git show, git diff, git for-each-ref). You may not edit, commit, push, install or run the app, and you start no work in Plania.`;
   return [
     `You are ${input.agent}, the product owner of project ${input.project.slug} (${input.project.title}), woken by the Plania runner to answer one question from Jorge. Nothing else.`,
     `His question (consulta ${input.consulta.id}):`,
     `«${input.consulta.text}»`,
-    `You are in the project's own checkout: ${input.cwd}. This run is read-only: you may read and search files and use read-only git (git status, git log, git show, git diff, git for-each-ref). You may not edit, commit, push, install or run the app, and you start no work in Plania.`,
+    where,
     "First see which branch is checked out and its commit (git rev-parse --abbrev-ref HEAD; git rev-parse --short HEAD). If what he asks about is not on that branch, look for it on the open branches (git for-each-ref refs/heads refs/remotes, then git show <branch>:<path>) and say which branch you read.",
     "Answer in the language of his question, in plain words: one short answer (two sentences at most), then the reasons (up to four, one or two sentences each). Name every file you rely on with its line. Say whether you saw it in the code or are guessing, and that you did not try it live. If knowing for sure needs running the app, say so instead of guessing.",
     "If there is something to fix, write it as a request he could send to the team (fix: one or two sentences in Spanish, naming the branch when it is not main). Otherwise leave fix out. Never start the fix.",
@@ -130,6 +142,8 @@ export type ConsultaView = {
   started_at: string | null;
   answered_at: string | null;
   answer: ConsultaAnswer | null;
+  /** PLA-69: why a queued question waits (the runner's hold, in the screen's words); null when nothing holds it. */
+  held: string | null;
 };
 
 // One line per thing the run looked at, from the stream-json log (assistant tool_use blocks). Missing or unreadable
@@ -175,14 +189,16 @@ export async function listConsultas(db: Db, projectId: string, limit = 20): Prom
   const runIds = rows.map((r) => r.runId).filter((x): x is string => !!x);
   const runs = runIds.length
     ? await db
-        .select({ id: agentRuns.id, status: agentRuns.status, logPath: agentRuns.logPath, cwd: agentRuns.cwd, startedAt: agentRuns.startedAt })
+        .select({ id: agentRuns.id, status: agentRuns.status, logPath: agentRuns.logPath, cwd: agentRuns.cwd, startedAt: agentRuns.startedAt, heldCode: agentRuns.heldCode })
         .from(agentRuns)
         .where(inArray(agentRuns.id, runIds))
     : [];
   const byId = new Map(runs.map((r) => [r.id, r]));
   return rows.map((c, i) => {
     const run = c.runId ? byId.get(c.runId) : undefined;
-    const state: ConsultaState = c.answer ? "lista" : !run ? "cola" : run.status === "queued" || run.status === "running" ? "leyendo" : "sin_respuesta";
+    // PLA-69: queued is still in line (it said «Leyendo» while the Mac held it); only a started run reads.
+    const state: ConsultaState = c.answer ? "lista" : !run || run.status === "queued" ? "cola" : run.status === "running" || run.status === "starting" ? "leyendo" : "sin_respuesta";
+    const held = state === "cola" && run?.heldCode ? (HELD_TEXT[run.heldCode as HeldCode] ?? null) : null;
     // Only the newest few carry their trail: it is read from a log file each time.
     const trail = run && i < 5 ? readTrail(run.logPath, run.cwd) : [];
     return {
@@ -194,6 +210,7 @@ export async function listConsultas(db: Db, projectId: string, limit = 20): Prom
       started_at: run?.startedAt?.toISOString() ?? null,
       answered_at: c.answeredAt?.toISOString() ?? null,
       answer: c.answer ?? null,
+      held,
     };
   });
 }

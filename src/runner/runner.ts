@@ -98,7 +98,7 @@ import {
 } from "./process.js";
 import { StreamReader, parseStream, parseUsageText, totalOf, type PlanWindowReading } from "./stream.js";
 import { clearPacks, packLines, packsInDiff, packsOf, writePacks } from "./packs.js";
-import { branchFor, checkBase, defaultGit, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreePathFor, worktreeRoot, carefulGit, resetGitThrottleForTests, type GitFn } from "./worktree.js";
+import { branchFor, checkBase, defaultGit, ensureReadCopy, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreePathFor, worktreeRoot, carefulGit, resetGitThrottleForTests, type GitFn } from "./worktree.js";
 import { taskImagePaths } from "../pedidos/images.js";
 
 export type ReadyWork = {
@@ -255,6 +255,20 @@ async function taskBranchInfo(db: Q, projectId: string, key: string): Promise<{ 
     from tasks t left join tasks p on p.id = t.parent_id
     where t.project_id = ${projectId} and t.key = ${key} limit 1`);
   return rows.rows[0] ?? { branch: null, base: null };
+}
+
+// PLA-89: Research and Artist are woken for an idea's stage (research, design). A wake queued for a stage the idea
+// has left (it moved on, or went back) ends without a run: on MIA-IDEA4 (guided test PLA-86) two such wakes would
+// have redone Research and Design after the idea had reached Plan. Returns the stage it is on now, or null to run.
+const STAGE_OF_ROLE: Partial<Record<RunnerRole, string>> = { research: "research", artist: "design" };
+export function stageMovedOn(role: RunnerRole | null, kind: string | null | undefined, stage: string | null | undefined): string | null {
+  const want = role ? STAGE_OF_ROLE[role] : undefined;
+  if (!want || kind !== "idea" || !stage) return null;
+  return stage === want ? null : stage;
+}
+async function ideaStageOf(db: Q, projectId: string, key: string): Promise<{ kind: string; stage: string | null } | null> {
+  const [t] = await db.select({ kind: tasks.kind, stage: tasks.stage }).from(tasks).where(and(eq(tasks.projectId, projectId), eq(tasks.key, key))).limit(1);
+  return t ?? null;
 }
 
 async function loadContext(db: Q, agent: Agent, task: ReadyWork | null): Promise<WakeContext> {
@@ -598,6 +612,17 @@ export async function admit(db: Db, now: Date, deps: RunnerDeps = {}, opts: Admi
         result.dropped += 1;
         continue;
       }
+      if (run.lane === "work" && run.taskKey && ctx.role && STAGE_OF_ROLE[ctx.role]) {
+        const t = await ideaStageOf(tx, run.projectId, run.taskKey);
+        const now_ = stageMovedOn(ctx.role, t?.kind, t?.stage);
+        if (now_) {
+          const summary = `skipped: the idea moved on (stage ${now_})`;
+          await endWithoutProcess(tx, run, "skipped", summary, now);
+          result.outcomes.set(run.id, { kind: "ended", status: "skipped", summary });
+          result.dropped += 1;
+          continue;
+        }
+      }
       // The plan: a stopped (or unknown) plan ends the run as it always did; requeueHeld queues it again later.
       const view = planView(reading, settings.planGuardPct, now, settings.guardOverride || (mine && !!opts.pastGuard));
       if (view.state === "unknown" || view.state === "stopped") {
@@ -819,6 +844,20 @@ async function endWithoutProcess(db: Q, run: AgentRun, status: "skipped" | "fail
 
 // ---- Start
 
+// PLA-71: the owner's «Cambios que pide Jorge» note (thread-actions changes) that is newer than the ticket's last move
+// to In review: the request this run has to answer. Null when the ticket was not sent back since it was last delivered.
+export async function ownerChangesOf(db: Db, projectId: string, taskKey: string): Promise<string | null> {
+  const rows = await db.execute<{ text: string | null }>(sql`
+    select e.payload->>'text' as text from events e
+    where e.project_id = ${projectId} and e.task_key = ${taskKey} and e.type = 'note'
+      and e.payload->>'text' like 'Cambios que pide Jorge:%'
+      and e.id > coalesce((select max(s.id) from events s where s.project_id = ${projectId} and s.task_key = ${taskKey}
+                            and s.type = 'task.status' and s.payload->>'to' = 'In review'), 0)
+    order by e.id desc limit 1`);
+  const text = rows.rows[0]?.text ?? null;
+  return text ? text.replace(/^Cambios que pide Jorge:\s*/, "").trim().slice(0, 1500) || null : null;
+}
+
 export function userPrompt(input: {
   agent: string;
   role: string;
@@ -838,6 +877,8 @@ export function userPrompt(input: {
   verify?: { name: string; command: string }[];
   // AUDIT-7: a fresh session on work that was already started, and why.
   handoff?: string | null;
+  // PLA-71: what the owner asked to change when he sent this delivery back (his words), newest first.
+  changes?: string | null;
 }): string {
   const company = input.role === "asistente";
   const lines = [
@@ -849,6 +890,12 @@ export function userPrompt(input: {
   ];
   if (company) lines.splice(1, 2, input.task ? `Ticket: ${input.task.key}: ${input.task.title}` : "Ticket: none. Read the company thread (thread_read company) first.");
   if (input.reason) lines.push(`Why you woke: ${input.reason}.`);
+  // PLA-71: a delivery Jorge sent back. Without this line a fresh session saw only «ticket ready», took the work
+  // for unfinished, re-ran the checks and delivered the same thing again.
+  if (input.changes)
+    lines.push(
+      `Jorge sent your last delivery of this ticket back. His words: «${input.changes}». Do exactly that before you call finish again; re-running the checks alone does not answer him. If what he asks is in your muestra (the views Plania shows him), fix the muestra.`,
+    );
   // PLA-I32-3/5: the conversation is where Jorge reads you.
   lines.push(
     company
@@ -1013,10 +1060,16 @@ export type McpStdio = { command: string; args: string[] };
 // timeout: finish may run the project's checks before it answers (AUDIT-1) and sends nothing while it does. Claude Code
 // drops an HTTP tool call that is silent for five minutes whatever MCP_TOOL_TIMEOUT says, and the server would go on
 // and commit a delivery the run was told had failed. The per-server timeout lifts that for Plania alone.
+// PLA-82 (F-12): X-Plania-Run names the run, so its writes are its roster agent's even when it invents a session_id.
 export const PLANIA_TOOL_TIMEOUT_MS = 30 * 60_000;
-export const mcpConfig = (url: string, browser: McpStdio | null = null) => ({
+export const mcpConfig = (url: string, browser: McpStdio | null = null, run: string | null = null) => ({
   mcpServers: {
-    plania: { type: "http", url, headers: { Authorization: "Bearer ${PLANIA_RUNNER_TOKEN}" }, timeout: PLANIA_TOOL_TIMEOUT_MS },
+    plania: {
+      type: "http",
+      url,
+      headers: { Authorization: "Bearer ${PLANIA_RUNNER_TOKEN}", ...(run ? { "X-Plania-Run": run } : {}) },
+      timeout: PLANIA_TOOL_TIMEOUT_MS,
+    },
     ...(browser ? { browser } : {}),
   },
 });
@@ -1066,6 +1119,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   let cwd: string;
   let worktree: string | null = null;
   let branch: string | null = null;
+  let readCopy: { branch: string | null; commit: string | null; fallback?: string } | null = null;
   if (ctx.task) {
     const repo = repoPathOf(project.slug, project.settings, env);
     const wanted = ctx.taskRow?.branch?.trim() || branchFor(ctx.task.key);
@@ -1096,7 +1150,23 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
       }
     }
   } else if (consulta && existsSync(repoPathOf(project.slug, project.settings, env))) {
-    cwd = repoPathOf(project.slug, project.settings, env);
+    // PLA-66: a fresh read-only copy at origin/sandbox; the owner's checkout only if that copy cannot be made.
+    const repo = repoPathOf(project.slug, project.settings, env);
+    const copy = await withRepoLock(db, repo, () => ensureReadCopy({ repo, root, project: project.slug }, carefulGit(deps.git ?? defaultGit)));
+    if (copy.ok) {
+      cwd = copy.path;
+      readCopy = { branch: copy.branch, commit: copy.commit };
+      if (copy.created && deps.footprints !== false) {
+        await registerFootprint(
+          db,
+          { project: project.slug, kind: "worktree", locator: copy.path, purpose: `Read copy for Preguntar (${project.slug}), moved to origin/sandbox before each question`, teardown: `git -C ${repo} worktree remove --force ${copy.path}` },
+          { ...sysCtx("runner.worktree"), actor: { ...sysCtx("runner.worktree").actor, session_id: `runner-${ctx.agent.slug}` } },
+        ).catch(() => undefined);
+      }
+    } else {
+      cwd = repo;
+      readCopy = { branch: null, commit: null, fallback: copy.summary };
+    }
   } else {
     cwd = scratchPathFor(root, project.slug, ctx.agent.slug);
     mkdirSync(cwd, { recursive: true });
@@ -1144,7 +1214,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const hooks = !readOnly && role === "taller" ? afterEditHooks(project.settings?.qa?.after_edit) : undefined;
   writeFileSync(settingsPath, JSON.stringify({ ...denySettings(consulta ? CONSULTA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : []), ...(hooks ? { hooks } : {}) }), { mode: 0o600 });
   const mcpConfigPath = path.join(tmp, "mcp.json");
-  writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp", qa?.browser ? browserServer(env) : null)), { mode: 0o600 });
+  writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp", qa?.browser ? browserServer(env) : null, runSession(run.id))), { mode: 0o600 });
 
   // PLA-I46-12: only this role's packs, written fresh (whatever an earlier run left is cleared first).
   // AUDIT-3: by default they go in a plugin in the run's temp folder, loaded with --plugin-dir, and the worktree is
@@ -1161,7 +1231,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const goal = await projectGoal(db, project.id);
   const planiaSession = runSession(run.id);
   const prompt = consulta
-    ? consultaPrompt({ agent: ctx.agent.name, project: { slug: project.slug, title: project.title }, consulta, cwd, sessionId: planiaSession })
+    ? consultaPrompt({ agent: ctx.agent.name, project: { slug: project.slug, title: project.title }, consulta, cwd, sessionId: planiaSession, copy: readCopy })
     : qa?.prompt ?? userPrompt({
     agent: ctx.agent.name,
     role,
@@ -1175,6 +1245,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     kit,
     verify,
     handoff,
+    changes: ctx.task ? await ownerChangesOf(db, project.id, ctx.task.key).catch(() => null) : null,
     images: ctx.task ? await taskImagePaths(db, project.id, ctx.task.key).catch(() => []) : [],
   });
   // PLA-I59-1: the motor this run asks for (QA lane > the seat, or its Preguntar values > the company > none).

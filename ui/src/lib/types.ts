@@ -193,6 +193,9 @@ export type ShipResult = {
   merge_sha: string;
   tickets: string[];
   migrations: string[];
+  // PLA-82 (F-32)
+  migration_files?: string[];
+  migrate?: "auto" | "manual" | null;
 };
 
 // 2.11 Orden (GET /api/projects/:slug/audit): the last audit run, with what each finding offers.
@@ -274,6 +277,10 @@ export type AgentToken = {
   revoked_at: string | null;
   revoked_reason: string | null;
 };
+
+/** PLA-74: what the stream (/ceo) reads: open ideas and open tickets, and the ticket counts. */
+export type StreamTask = Pick<TaskRow, "key" | "kind" | "title" | "status" | "stage" | "promoted_to">;
+export type StreamSummary = { slug: string; title?: string; prefix?: string; done?: number; revision?: number; tasks: StreamTask[] };
 
 export type TaskRow = {
   key: string;

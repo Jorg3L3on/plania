@@ -11,7 +11,7 @@ import { eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { projects } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
-import { entregaRead } from "./prueba.js";
+import { entregaEnv, entregaRead } from "./prueba.js";
 import { sessionCookies } from "./run.js";
 import type { CaptureSettings } from "./settings.js";
 
@@ -55,6 +55,21 @@ export function withSession(header: string | undefined, session: { name: string;
   return [...theirs, ...[...mine].map(([n, v]) => `${n}=${v}`)].join("; ");
 }
 
+// PLA-91 (guided test PLA-86, F-15): the browser's Origin and Referer name the proxy (localhost:<proxy port>), while
+// Host is rewritten to the copy. Next.js compares Origin with Host for Server Actions and answered every form post
+// with 500 «Invalid Server Actions request», so nothing could be saved in the live copy. Both are rewritten to the
+// copy's own origin when they point at this proxy (on loopback or the tailnet); any other origin is left as it is.
+export function toCopyOrigin(value: string | undefined, proxyPort: number, target: number): string | undefined {
+  if (!value) return value;
+  try {
+    const u = new URL(value);
+    if (Number(u.port) !== proxyPort) return value;
+    return `http://localhost:${target}${value.slice(u.origin.length)}`;
+  } catch {
+    return value;
+  }
+}
+
 // A redirect to the copy's own origin becomes a path, so the browser stays on the proxy.
 export function localLocation(location: string, target: number): string {
   try {
@@ -73,6 +88,11 @@ function proxy(live: Omit<Live, "server" | "port" | "read">): http.Server {
       return;
     }
     const headers = { ...req.headers, host: `localhost:${live.target}` } as http.OutgoingHttpHeaders;
+    const proxyPort = (req.socket.localPort ?? 0) as number;
+    for (const k of ["origin", "referer"] as const) {
+      const v = toCopyOrigin(req.headers[k], proxyPort, live.target);
+      if (v) headers[k] = v;
+    }
     const cookie = withSession(req.headers.cookie, live.cookies);
     if (cookie) headers.cookie = cookie;
     delete headers["x-forwarded-host"];
@@ -155,7 +175,7 @@ export async function startVivo(db: Db, slug: string): Promise<VivoRead> {
   let error: string | null = null;
   if (settings.session) {
     try {
-      cookies = await (deps.signIn ?? sessionCookies)({ base_url: `http://localhost:${target.port}`, checkout: target.worktree ?? "", settings });
+      cookies = await (deps.signIn ?? sessionCookies)({ base_url: `http://localhost:${target.port}`, checkout: target.worktree ?? "", settings, env: entregaEnv(slug) });
       if (!cookies.length) error = "No se pudo entrar con el usuario de prueba";
     } catch (err) {
       error = err instanceof Error ? err.message.split("\n")[0]!.slice(0, 200) : String(err);

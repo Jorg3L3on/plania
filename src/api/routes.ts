@@ -167,8 +167,46 @@ api.get("/session", (c) => c.body(null, 204));
 
 // ---- Projects
 
+// PLA-74: what the stream (/ceo) draws, without the per-project digest: open ideas and open tickets with their title
+// and stage, and how many tickets are in review and done. The full read below weighed 1.3 MB and took up to 7 s.
+const STREAM_CLOSED = ["Done", "Released", "Merged", "Won't do", "Cancelled"];
+export async function streamRead(db: Db) {
+  const [all, open, counts] = await Promise.all([
+    db.select({ id: projects.id, slug: projects.slug, title: projects.title, prefix: projects.keyPrefix }).from(projects).orderBy(asc(projects.slug)),
+    db
+      .select({ project_id: tasks.projectId, key: tasks.key, kind: tasks.kind, title: tasks.title, status: tasks.status, stage: tasks.stage, promoted_to: tasks.promotedTo })
+      .from(tasks)
+      .where(
+        sql`(${tasks.kind} = 'idea' and ${tasks.status} = 'Open' and ${tasks.promotedTo} is null)
+          or (${tasks.kind} = 'ticket' and ${tasks.status} not in (${sql.join(STREAM_CLOSED.map((x) => sql`${x}`), sql`, `)}))`,
+      )
+      .orderBy(sql`${tasks.priority} asc nulls last`, desc(tasks.updatedAt)),
+    db
+      .select({
+        project_id: tasks.projectId,
+        done: sql<number>`count(*) filter (where ${tasks.status} in ('Done', 'Released', 'Merged'))::int`,
+        revision: sql<number>`count(*) filter (where ${tasks.status} = 'In review')::int`,
+      })
+      .from(tasks)
+      .where(eq(tasks.kind, "ticket"))
+      .groupBy(tasks.projectId),
+  ]);
+  return all.map((p) => {
+    const n = counts.find((x) => x.project_id === p.id);
+    return {
+      slug: p.slug,
+      title: p.title,
+      prefix: p.prefix,
+      done: n?.done ?? 0,
+      revision: n?.revision ?? 0,
+      tasks: open.filter((t) => t.project_id === p.id).map(({ project_id: _, ...t }) => t),
+    };
+  });
+}
+
 // Every project with its generated line, open question count, and all its tasks without scope.
 api.get("/projects", async (c) => {
+  if (c.req.query("for") === "stream") return c.json(await withDb((db) => streamRead(db)));
   const rows = await withDb(async (db) => {
     const all = await db.select().from(projects).orderBy(asc(projects.slug));
     const allTasks = await screenTasks(db);

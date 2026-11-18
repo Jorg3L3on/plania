@@ -2,6 +2,28 @@
    the global tokens, .edi-* and the rest of the app are not touched. Near black, one violet light for live work,
    amber only for what waits on Jorge, a project's colour only in its logo. Geist and Geist Mono only. */
 
+/* PLA-72: the large frame lives in a portal on <body> (above the app header); it carries the floor's colours. */
+.cor-portal {
+  --cor-bg: #050507;
+  --cor-surface: #0c0c10;
+  --cor-raised: #121218;
+  --cor-line: rgba(255, 255, 255, 0.08);
+  --cor-line-strong: rgba(255, 255, 255, 0.16);
+  --cor-text: #f4f4f6;
+  --cor-body: #c9c9d2;
+  --cor-muted: #9a9aa6;
+  --cor-violet: #8b5cf6;
+  --cor-violet-2: #a78bfa;
+  --cor-violet-3: #c4b5fd;
+  --cor-violet-4: #ddd6fe;
+  --cor-amber: #ffb454;
+  --cor-green: #6ee7a0;
+  --cor-red: #ff7a7a;
+  --cor-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --cor-sans: "Geist Variable", "Geist", system-ui, sans-serif;
+  --cor-shell: 49px;
+  color: var(--cor-text);
+}
 .cor {
   --cor-bg: #050507;
   --cor-surface: #0c0c10;
@@ -29,6 +51,9 @@
   min-height: calc(100svh - var(--cor-shell));
   height: calc(100svh - var(--cor-shell));
   overflow: hidden;
+  /* PLA-67: clip, not just hide: the aura sticks out 190px on the right, and a hidden box still scrolls sideways
+     when a button inside takes focus (the whole floor jumped left on «Así es»). */
+  overflow: clip;
   background: var(--cor-bg);
   color: var(--cor-text);
   font-family: var(--cor-sans);
@@ -278,6 +303,7 @@ button.cor-row { width: 100%; text-align: left; background: transparent; border-
 .cor-ajuste { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--cor-line); }
 .cor-ajuste-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .cor-ajuste-row .cor-input { flex: 1 1 240px; }
+.cor-ajuste-row .cor-ajuste-text { flex-basis: 100%; min-height: 72px; max-height: 40svh; resize: vertical; padding-top: 8px; line-height: 1.45; }
 .cor-sec { display: flex; flex-direction: column; gap: 8px; }
 .cor-sec-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .cor-run { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 10px 16px; border-radius: 12px; }
@@ -377,7 +403,14 @@ button.cor-row { width: 100%; text-align: left; background: transparent; border-
 .cor-noshot { position: absolute; inset: 0; display: grid; place-content: center; gap: 6px; padding: 24px; text-align: center; color: var(--cor-body); }
 .cor-pair { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--cor-line); }
 .cor-pair > div { position: relative; background: var(--cor-surface); overflow: hidden; }
-.cor-stage[data-width="phone"] .cor-stage-img img { width: auto; max-width: 100%; max-height: 100%; margin: 0 auto; }
+/* PLA-101 (guided test PLA-86, F-23): a phone photo is a whole page (780×1688 at 2x). «max-height: 100%» never
+   resolved inside the grid, so it drew at full size and only its top fifth showed: the welcome header, never the
+   calendar under it. On phone width the photo is shown at a phone's own width and the stage scrolls; the wrapper is the
+   image's size, so pins and the change box stay on it. */
+.cor-stage-fit { position: relative; width: 100%; }
+.cor-stage[data-width="phone"] .cor-stage-img { overflow-y: auto; overscroll-behavior: contain; }
+.cor-stage[data-width="phone"] .cor-stage-fit { width: min(390px, 100%); margin: 0 auto; }
+.cor-stage[data-width="phone"] .cor-stage-img img { width: 100%; height: auto; max-height: none; }
 .cor-entrega-foot { display: flex; align-items: center; gap: 10px; }
 .cor-entrega-foot form { flex: 1; display: flex; gap: 10px; min-width: 0; }
 .cor-entrega-foot .cor-input { flex: 1; min-width: 0; }
@@ -632,9 +665,21 @@ a.cor-ficha-paso:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-ficha-rows .cor-state { flex: 0 0 96px; }
 .cor-ficha-row-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cor-body); }
 .cor-ficha-row-t b { color: var(--cor-text); font-weight: 500; }
-.cor-ficha-frames { display: grid; grid-template-columns: auto minmax(0, 1fr) 260px; gap: 14px; flex: 1; min-height: 124px; }
-.cor-ficha-frame-big { position: relative; height: 124px; border-radius: 10px; border: 1px solid var(--cor-line-strong); background: var(--cor-surface); overflow: hidden; cursor: crosshair; }
+/* PLA-90 (PLA-86 F-10, F-12): the preview has one fixed box, so a phone frame is not 45 px wide and picking a frame
+   does not move the thumbnails under the pointer. The frame sits inside it, whole (contain); pins are placed on it. */
+.cor-ficha-frames { display: grid; grid-template-columns: 220px minmax(0, 1fr) 260px; gap: 14px; flex: 1; min-height: 124px; }
+.cor-ficha-frame-big { position: relative; width: 220px; height: 124px; border-radius: 10px; border: 1px solid var(--cor-line-strong); background: var(--cor-surface); overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.cor-ficha-frame-big .cor-ficha-frame-fit { position: relative; flex: none; cursor: crosshair; }
 .cor-ficha-frame-big img { display: block; width: 100%; height: 100%; object-fit: contain; }
+/* PLA-72: the frame large, one click deep. */
+.cor-ficha-ampliar { position: absolute; right: 6px; bottom: 6px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--cor-line-strong); background: rgba(5, 5, 7, 0.82); color: var(--cor-text); font: inherit; font-size: 11px; cursor: zoom-in; }
+.cor-lightbox { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; gap: 10px; padding: 14px 20px 20px; background: rgba(5, 5, 7, 0.94); outline: none; }
+.cor-lightbox-bar { display: flex; align-items: center; gap: 10px; color: var(--cor-text); }
+.cor-lightbox-bar .cor-cap { flex: 1; }
+.cor-lightbox-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.cor-lightbox-frame { position: relative; cursor: crosshair; }
+.cor-lightbox-frame img { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: 8px; }
+.cor-lightbox-notes { max-width: 960px; width: 100%; margin: 0 auto; max-height: 30svh; overflow-y: auto; }
 .cor-ficha-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); grid-auto-rows: 58px; gap: 8px; overflow-y: auto; align-content: start; }
 .cor-ficha-thumb { display: flex; flex-direction: column; gap: 3px; padding: 4px; border-radius: 8px; border: 1px solid var(--cor-line); background: var(--cor-surface); color: var(--cor-body); font: inherit; font-size: 11px; text-align: left; min-width: 0; overflow: hidden; }
 .cor-ficha-thumb[aria-pressed="true"] { border-color: rgba(167, 139, 250, 0.6); }

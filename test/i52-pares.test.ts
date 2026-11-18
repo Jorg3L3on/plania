@@ -189,6 +189,7 @@ function png(w: number, h: number, box?: { x: number; y: number; w: number; h: n
 // A fake capture that writes real rows: antes of «sucursales» is a new screen (404), antes and después of «apagada»
 // differ in one box. failDespues makes every después still fail.
 let failDespues = false;
+let despuesError = "pidió entrar otra vez";
 const fakeCapture = async (d: typeof db, input: Json) => {
   const [p] = (await raw.query(`select id from projects where slug = $1`, [input.project])).rows;
   const [t] = (await raw.query(`select id from tasks where key = $1`, [input.task_key])).rows;
@@ -199,7 +200,7 @@ const fakeCapture = async (d: typeof db, input: Json) => {
       const base = { projectId: p.id, taskId: t.id, runId, pageKey: v.key, pageLabel: v.label, path: v.path, viewport: vp, width: vp === "desktop" ? 1280 : 390, height: 100, commit: input.commit ?? null, branch: input.branch, actor: input.actor, side: input.side };
       let row;
       if (input.side === "antes" && v.key === "sucursales") row = await store.recordStill(d, input.project, { ...base, ok: false, error: "no existe todavía", url: null, missing: true });
-      else if (input.side === "despues" && failDespues) row = await store.recordStill(d, input.project, { ...base, ok: false, error: "pidió entrar otra vez", url: null });
+      else if (input.side === "despues" && failDespues) row = await store.recordStill(d, input.project, { ...base, ok: false, error: despuesError, url: null });
       else row = await store.recordStill(d, input.project, { ...base, ok: true, png: png(40, 30, input.side === "despues" && v.key === "apagada" ? { x: 10, y: 5, w: 8, h: 6 } : undefined), url: null });
       stills.push({ page: v.key, viewport: vp, status: row.status, id: row.id, error: row.error ?? undefined });
     }
@@ -281,6 +282,31 @@ describe("antes y después", () => {
       assert.match(g.hold!, /^Faltan fotos: /);
     } finally {
       failDespues = false;
+    }
+  });
+
+  test("PLA-76: a después page that crashed reads «error», not «cambió», and holds the card with the error's line", async () => {
+    failDespues = true;
+    despuesError = '/panel/sucursales muestra un error: Unhandled Runtime Error: Error: relation "citas" does not exist';
+    try {
+      const key = await delivery("Pantalla que truena");
+      const s1 = await pass(key, { returnToTaller: false });
+      assert.equal(s1?.state, "fallo", "nothing but crashes: Taller's to fix first");
+      assert.match(s1!.error ?? "", /muestra un error: Unhandled Runtime Error/);
+      const s = await pass(key, { returnToTaller: false });
+      assert.equal(s?.state, "lista");
+      const r = (await (await app.request(`/api/projects/zigzag/probador/${key}`, { headers: jorge() })).json()) as Json;
+      assert.deepEqual(r.vistas.map((v: Json) => v.kind), ["error", "error"]);
+      assert.match(r.vistas[0].desktop.despues.error, /relation "citas" does not exist/);
+      const [p] = (await raw.query(`select * from projects where slug = 'zigzag'`)).rows;
+      const g = probador.probadorGate(p, await taskRow(key), null);
+      assert.match(g.hold!, /^Faltan fotos: .*muestra un error/, "held back from Aceptar");
+      assert.equal(probador.crashed("pidió entrar otra vez"), false);
+      assert.equal(probador.crashed("/x respondió 502"), true);
+      assert.equal(probador.crashed("/x respondió 404"), false);
+    } finally {
+      failDespues = false;
+      despuesError = "pidió entrar otra vez";
     }
   });
 
@@ -420,5 +446,86 @@ describe("PLA-52: the sweep takes the pictures again", () => {
     await raw.query(`update tasks set probador = $1::jsonb where key = $2`, [JSON.stringify({ state: "lista", attempts: 0, error: null, commit: "abc1234", at: minutesAgo(1) }), key]);
     assert.equal((await stage()).etapa, "te_toca");
     assert.equal((await limbo()).length, 0);
+  });
+});
+
+// PLA-78: the muestra's fake rows reach both throwaway copies' databases (never the app's own) before the pictures.
+describe("PLA-78: the muestra's datos", () => {
+  const DATOS = "insert into cita (novia, hora) values ('Novia Ejemplo 1', now() + interval '2 hours');";
+  let execs: { command: string; stdin?: string; env?: NodeJS.ProcessEnv }[] = [];
+  let failOn: RegExp | null = null;
+  const dbExec: Deps["exec"] = async (command, opts) => {
+    execs.push({ command, stdin: opts.stdin, env: opts.env });
+    if (failOn && command.startsWith("psql") && failOn.test(opts.env?.PLANIA_COPY_URL ?? "")) return { code: 3, stdout: "", stderr: 'psql:<stdin>:1: ERROR:  relation "cita" does not exist\nLINE 1: insert into cita\n' };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const loads = () => execs.filter((e) => e.command.includes("--single-transaction")).map((e) => [new URL(e.env!.PLANIA_COPY_URL!).pathname, e.stdin]);
+  before(async () => {
+    writeFileSync(path.join(REPO, ".env.local"), "DATABASE_URL=postgres://localhost:5432/zigzag_dev\n");
+    await setCapture("zigzag", SETTINGS(3000, { database: { env_var: "DATABASE_URL", migrate_command: "npm run db:migrate" } }), REPO);
+  });
+  after(async () => {
+    rmSync(path.join(REPO, ".env.local"), { force: true });
+    await setCapture("zigzag", SETTINGS(3000), REPO);
+  });
+  beforeEach(() => {
+    execs = [];
+    failOn = null;
+    // Nothing answers on the port before Plania starts its own copies (else the test copy is someone else's server).
+    prueba.setPruebaDeps(fakeDeps({ exec: dbExec, up: async () => children.length > 0 }));
+  });
+  const pass = (key: string, over: Json = {}) => probador.probar(db, "zigzag", key, { capture: fakeCapture as any, pollMs: 5, waitMs: 3000, ...over });
+  const withDatos = async (title: string, datos: string | null) => {
+    const key = await delivery(title);
+    if (datos) await raw.query(`update tasks set muestra = muestra || jsonb_build_object('datos', $1::text) where key = $2`, [datos, key]);
+    return key;
+  };
+
+  test("the rows go into <db>_entrega and <db>_prueba in one transaction; a retake does not load them twice", async () => {
+    const key = await withDatos("Citas de hoy", DATOS);
+    const s = await pass(key);
+    assert.equal(s?.state, "lista", JSON.stringify(s));
+    assert.deepEqual(loads().sort(), [["/zigzag_dev_entrega", DATOS], ["/zigzag_dev_prueba", DATOS]]);
+    assert.ok(!execs.some((e) => e.env?.PLANIA_COPY_URL?.endsWith("/zigzag_dev")), "never the app's own database");
+    assert.equal(prueba.datosDe("zigzag", "entrega"), prueba.hashDatos(DATOS));
+    execs = [];
+    await pass(key);
+    assert.deepEqual(loads(), [], "same copy, same rows: nothing loaded again");
+  });
+
+  test("another delivery gets clean copies: the ones holding other rows start again", async () => {
+    const a = await withDatos("Citas con datos", DATOS);
+    await pass(a);
+    const pidsBefore = children.map((c) => c.pid);
+    const b = await withDatos("Sin datos", null);
+    execs = [];
+    killed = [];
+    const s = await pass(b);
+    assert.equal(s?.state, "lista");
+    assert.ok(pidsBefore.every((pid) => killed.some(([k]) => k === pid)), "both copies with A's rows were stopped");
+    assert.equal(prueba.datosDe("zigzag", "sandbox"), null);
+    assert.equal(prueba.datosDe("zigzag", "entrega"), null);
+    assert.deepEqual(loads(), []);
+  });
+
+  test("rows that fail on the delivery's own database go back to Taller with the error; failing on Antes is fine", async () => {
+    failOn = /_prueba$/;
+    const ok = await withDatos("Columna nueva", DATOS);
+    assert.equal((await pass(ok))?.state, "lista", "Antes may lack the branch's new table");
+    assert.equal(prueba.datosDe("zigzag", "sandbox"), null);
+    failOn = /_entrega$/;
+    const bad = await withDatos("SQL roto", DATOS.replace("cita", "cita2"));
+    const s = await pass(bad, { returnToTaller: false });
+    assert.equal(s?.state, "fallo");
+    assert.equal(s?.error, 'Los datos de la muestra no se cargaron: ERROR:  relation "cita" does not exist');
+  });
+
+  test("a copy without its own database never gets the rows; finish takes datos in the muestra", async () => {
+    const { parseMuestra } = await import("../src/captures/muestra.js");
+    assert.equal(parseMuestra({ ...MUESTRA, datos: DATOS }).ok, true);
+    assert.equal(parseMuestra({ ...MUESTRA, datos: "x".repeat(20_001) }).ok, false);
+    assert.equal(prueba.copyDatabase({ DATABASE_URL: "postgres://localhost/zigzag_dev" }), null);
+    assert.equal(prueba.copyDatabase(null), null);
+    assert.deepEqual(prueba.copyDatabase({ DATABASE_URL: "postgres://localhost/zigzag_dev_prueba" }), { url: "postgres://localhost/zigzag_dev_prueba", name: "zigzag_dev_prueba" });
   });
 });

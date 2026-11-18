@@ -113,11 +113,14 @@ async function hold(db: Db, p: Project, agent: Agent, row: Held): Promise<boolea
   return true;
 }
 
+// PLA-95 (guided test PLA-86, F-18): runs write as run-<16 hex> since PLA-I60-1 (run-session.ts), but both sweeps
+// still joined on the 8-hex form, so a failed or stopped run never let go of its ticket. MIA-I10-2 hit Taller's turn
+// limit and stayed In progress under the dead run's lease for two hours. Both spellings are matched now.
 export async function sweepFailedRuns(db: Db): Promise<{ retried: number; held: number }> {
   const found = await db.execute<Held>(sql`
     select t.id as task_id, t.key, t.project_id, r.id as run_id, r.agent_id, r.summary
     from tasks t
-    join agent_runs r on r.project_id = t.project_id and r.task_key = t.key and 'run-' || left(r.id::text, 8) = t.owner->>'session_id'
+    join agent_runs r on r.project_id = t.project_id and r.task_key = t.key and t.owner->>'session_id' in ('run-' || left(replace(r.id::text, '-', ''), 16), 'run-' || left(r.id::text, 8))
     where t.kind = 'ticket' and t.status = 'In progress' and r.status = 'fail'
     order by r.ended_at, r.id`);
   const out = { retried: 0, held: 0 };
@@ -160,7 +163,7 @@ export async function sweepStoppedRuns(db: Db): Promise<{ freed: number }> {
   const found = await db.execute<Stopped>(sql`
     select t.id as task_id, t.key, t.project_id, r.id as run_id, r.agent_id, r.summary, r.stop_reason
     from tasks t
-    join agent_runs r on r.project_id = t.project_id and r.task_key = t.key and 'run-' || left(r.id::text, 8) = t.owner->>'session_id'
+    join agent_runs r on r.project_id = t.project_id and r.task_key = t.key and t.owner->>'session_id' in ('run-' || left(replace(r.id::text, '-', ''), 16), 'run-' || left(r.id::text, 8))
     where t.kind = 'ticket' and t.status = 'In progress' and r.status = 'stopped'
     order by r.ended_at, r.id`);
   let freed = 0;

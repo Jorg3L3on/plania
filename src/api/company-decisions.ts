@@ -29,6 +29,7 @@ import { resolveHumanAction } from "../mcp/blockers.js";
 import { writeTx } from "../mcp/tx.js";
 import { ToolError } from "../mcp/errors.js";
 import type { ReleasePlan } from "../mcp/release-plan.js";
+import { migrateMode } from "../mcp/release-ship.js";
 import { setCheck } from "../mcp/checks.js";
 import { headFor, resultShape } from "../mcp/evidence.js";
 import { answer } from "../mcp/questions.js";
@@ -72,12 +73,41 @@ export type DecisionPlan = {
 // PLA-I36-10: the latest result of the work, how many files changed, and whether accepting is held.
 export type DecisionEvidence = { verdict: string; kind: string; cite: string; pass: number | null; fail: number | null; at: string };
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
+// PLA-96 (guided test PLA-86, F-19): a delivery's title is its link's, as the agent wrote it; when that is empty or
+// only the key («MIA-I10-2»), the card read the key twice and no title, so the ticket's own title is shown instead.
+// Keys are not words for the owner's screen (CLAUDE.md rule 9).
+export function deliveryTitle(link: { ref: string; title?: string | null } | undefined, ticket: { title: string } | null, body: string): string {
+  const own = link?.title?.trim();
+  if (own && own !== link!.ref.trim()) return own;
+  return ticket?.title?.trim() || own || firstLine(body);
+}
+
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
 // PLA-14: ci none is a repo with no CI at all (no check run, no status on the head); it never reads as running.
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 // PLA-I39-1: who asked, so the screen hangs the decision under that teammate's window. Null: nobody on a team.
 export type DecisionAsker = { agent: string; role: string };
-export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[] };
+// PLA-82 (F-32): present only when the release carries migrations, so a plain release keeps its shape.
+function releaseMigrations(p: Project, plan: ReleasePlan): Pick<DecisionRelease, "migrations" | "migrate"> {
+  const tags = plan.migrations ?? [];
+  const files = plan.migration_files ?? [];
+  const migrations = [...tags, ...files.map((f) => f.split("/").pop()!)];
+  return migrations.length ? { migrations, migrate: migrateMode(p, { migrations: tags, migration_files: files }) } : {};
+}
+
+export type DecisionRelease = {
+  from: string;
+  into: string;
+  env: string;
+  ahead: number | null;
+  tickets: { key: string; title: string }[];
+  open_checks: number;
+  before: number;
+  reel?: ReelItem[];
+  // PLA-82 (F-32): the migrations it carries and who runs them on the app's database.
+  migrations?: string[];
+  migrate?: "auto" | "manual" | null;
+};
 export type Decision = {
   id: string;
   project: string | null;
@@ -379,15 +409,28 @@ async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, 
     db.select({ m: threadMessages, projectId: threads.projectId }).from(threadMessages).innerJoin(threads, eq(threads.id, threadMessages.threadId)).where(where).orderBy(desc(threadMessages.at)).limit(limit);
   // PLA-53: an open message can only be acted on while its ticket is In review, and those are read whole: a delivery
   // nobody answered is never pushed out of the window by newer messages. What he already acted on stays windowed.
-  const open = await read(
-    and(
-      base,
-      isNull(threadMessages.actionState),
-      sql`exists (select 1 from ${tasks} t, jsonb_array_elements(${threadMessages.links}) l where t.status = 'In review' and l->>'kind' in ('ticket', 'idea') and t.key = l->>'ref' and (${threads.projectId} is null or t.project_id = ${threads.projectId}))`,
-    ),
-    1000,
-  );
-  const acted = await read(and(base, sql`(${threadMessages.actionState}->>'at')::timestamptz >= ${since.toISOString()}::timestamptz`), 200);
+  // PLA-74: start from the few tickets In review (a per-message subquery probed tasks once per thread message: 340 ms
+  // on 6,000 messages); a message links one of them, in its own project or from a thread with none.
+  const inReview = await db.select({ key: tasks.key, projectId: tasks.projectId }).from(tasks).where(eq(tasks.status, "In review"));
+  const keys = [...new Set(inReview.map((t) => t.key))];
+  const ownProject = (r: { m: { links: { kind: string; ref: string }[] }; projectId: string | null }) =>
+    r.m.links.some((l) => (l.kind === "ticket" || l.kind === "idea") && inReview.some((t) => t.key === l.ref && (r.projectId === null || t.projectId === r.projectId)));
+  const [open, acted] = await Promise.all([
+    keys.length
+      ? read(
+          and(
+            base,
+            isNull(threadMessages.actionState),
+            sql`exists (select 1 from jsonb_array_elements(${threadMessages.links}) l where l->>'kind' in ('ticket', 'idea') and l->>'ref' = any(${sql`array[${sql.join(
+              keys.map((k) => sql`${k}`),
+              sql`, `,
+            )}]::text[]`}))`,
+          ),
+          1000,
+        ).then((rows) => rows.filter(ownProject))
+      : Promise.resolve([]),
+    read(and(base, sql`(${threadMessages.actionState}->>'at')::timestamptz >= ${since.toISOString()}::timestamptz`), 200),
+  ]);
   const rows = [...open, ...acted].sort((a, b) => b.m.at.getTime() - a.m.at.getTime());
   // One card per ticket: rows come newest first, so an open message whose ticket already has a card (a newer
   // delivery, or one already accepted or sent back) is the same delivery said again and is left out.
@@ -417,7 +460,7 @@ async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, 
       file_step: null,
       id: `m-${m.id}`,
       project: p?.slug ?? null,
-      title: link?.title || firstLine(m.body),
+      title: deliveryTitle(link, ticket, m.body),
       kind: pr ? "pr" : "deliverable",
       options: null,
       // Held only because the pass is on an older commit: offer asking the owner to run the checks again.
@@ -557,6 +600,7 @@ async function pasoRows(db: Db, all: Project[], inbox: Map<string, InboxItem[]>,
             ahead: plan.ahead,
             tickets: plan.tickets.map((t) => ({ key: t.key, title: t.title })),
             open_checks: plan.open_checks,
+            ...releaseMigrations(p, plan),
             before: plan.before.length,
             ...(await releaseReel(db, p.id, p.slug, plan.tickets).then((reel) => (reel.length ? { reel } : {}))),
           },
@@ -575,21 +619,19 @@ export async function inboxByProject(db: Db, all: Project[]): Promise<Map<string
 
 export async function decisionsRead(db: Db, now = new Date(), inboxed?: Map<string, InboxItem[]>): Promise<Decision[]> {
   const since = new Date(now.getTime() - KEEP_ACTED);
-  const all = await db.select().from(projects);
+  const [all, settings] = await Promise.all([db.select().from(projects), loadSettings(db)]);
   const byId = new Map(all.map((p) => [p.id, p]));
-  const settings = await loadSettings(db);
-  const inbox = inboxed ?? (await inboxByProject(db, all));
-  const proposals = await proposalRows(db, since, byId);
+  // PLA-74: the independent reads go together; messages wait for the proposals (skip) and pasos for the tickets.
+  const [inbox, proposals, tickets, questionsOut] = await Promise.all([
+    inboxed ?? inboxByProject(db, all),
+    proposalRows(db, since, byId),
+    ticketRows(db, since, byId),
+    questionRows(db, since, byId, settings.companyPaused),
+  ]);
   const skip = new Set(proposals.map((d) => d.id.slice(2)));
-  const tickets = await ticketRows(db, since, byId);
   const ceoTickets = new Set(tickets.filter((d) => !d.state).map((d) => `${d.project}/${d.ref}`));
-  const rows = [
-    ...proposals,
-    ...(await messageRows(db, since, byId, skip)),
-    ...tickets,
-    ...(await questionRows(db, since, byId, settings.companyPaused)),
-    ...(await pasoRows(db, all, inbox, ceoTickets)),
-  ];
+  const [messages, pasos] = await Promise.all([messageRows(db, since, byId, skip), pasoRows(db, all, inbox, ceoTickets)]);
+  const rows = [...proposals, ...messages, ...tickets, ...questionsOut, ...pasos];
   // What unblocks the team first (a proposal, a question, a delivery), then Jorge's own tickets; newest first.
   return rows.sort((a, b) => RANK[a.kind] - RANK[b.kind] || b.at.localeCompare(a.at) || a.id.localeCompare(b.id));
 }

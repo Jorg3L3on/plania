@@ -3,22 +3,33 @@
 import type { IdeaDecision, IdeaDecisionInput } from "@/lib/api";
 import { Btn, Label } from "./parts";
 
+// PLA-88: where a change goes once the idea is past the PO's stop: who has it now and the stop it stays on.
+export type Forward = { to: string; stop: string };
+const FORWARD: Record<string, Forward> = { research: { to: "a Research", stop: "Investigación" }, design: { to: "a Artist", stop: "Diseño" }, planning: { to: "al PO", stop: "Plan" }, ready: { to: "al PO", stop: "Lista" } };
+/** PLA-88: the stage an idea sits on, as where a changed decision goes (null on the idea stage: the PO redoes it). */
+export const forwardOf = (stage: string | null | undefined): Forward | null => (stage ? (FORWARD[stage] ?? null) : null);
+
 /** AUDIT-8: what one decision says under its options. marked is the option he has marked (the one in force until he marks another). */
-export function decisionWords(q: IdeaDecision, marked: number): { line: string; act: "confirm" | "change" | null; label: string } {
+export function decisionWords(q: IdeaDecision, marked: number, forward: Forward | null = null): { line: string; act: "confirm" | "change" | null; label: string } {
   const name = (n: number) => `«${q.options[n - 1] ?? ""}»`;
-  if (marked !== q.chosen) return { line: `Si cambias a ${name(marked)}, la idea vuelve al PO para rehacerla con tu respuesta.`, act: "change", label: `Cambiar a ${name(marked)}` };
+  if (marked !== q.chosen)
+    return {
+      line: forward ? `Si cambias a ${name(marked)}, se lo pasamos ${forward.to} y la idea sigue en ${forward.stop}.` : `Si cambias a ${name(marked)}, la idea vuelve al PO para rehacerla con tu respuesta.`,
+      act: "change",
+      label: `Cambiar a ${name(marked)}`,
+    };
   if (q.state === "decided") return { line: `Tú decidiste ${name(q.chosen)}.${q.chosen === q.recommended ? "" : ` El PO recomendaba ${name(q.recommended)}.`}`, act: null, label: "" };
   return { line: `Se aplica ${name(q.recommended)} si no la cambias. ${q.why}`, act: "confirm", label: "Así está bien" };
 }
 
 /** AUDIT-8: the PO's decisions as closed questions. The recommended option comes chosen; nothing waits for him. */
-export const Decisiones = ({ decisions, dec, why, open, busy, onMark, onWhy, onSend }: { decisions: IdeaDecision[]; dec: Record<number, number>; why: Record<number, string>; open: boolean; busy: boolean; onMark: (n: number, option: number) => void; onWhy: (n: number, text: string) => void; onSend: (input: IdeaDecisionInput) => void }) => (
+export const Decisiones = ({ decisions, dec, why, open, busy, forward = null, onMark, onWhy, onSend }: { decisions: IdeaDecision[]; dec: Record<number, number>; why: Record<number, string>; open: boolean; busy: boolean; forward?: Forward | null; onMark: (n: number, option: number) => void; onWhy: (n: number, text: string) => void; onSend: (input: IdeaDecisionInput) => void }) => (
   <section className="cor-decisiones" data-decisiones={decisions.length} aria-label="Lo que el PO da por hecho">
     <Label tone="violet">Lo que el PO da por hecho</Label>
     <p className="cor-text">Son sus dudas, ya con respuesta. La marcada se aplica si no la cambias; nada te espera.</p>
     {decisions.map((q) => {
       const marked = dec[q.n] ?? q.chosen;
-      const w = decisionWords(q, marked);
+      const w = decisionWords(q, marked, forward);
       const send = () => onSend({ decision: q.n, option: marked, question: q.question, ...(w.act === "change" && why[q.n]?.trim() ? { text: why[q.n]!.trim() } : {}) });
       return (
         <div key={q.n} className="cor-card cor-decision" data-decision={q.n} data-state={q.state}>
