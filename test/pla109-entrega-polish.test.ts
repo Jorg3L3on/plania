@@ -19,14 +19,19 @@ test("PLA-109 F-37: a still says it is loading until its image arrives", async (
   const entrega = await src("components/corriente/entrega.tsx");
   assert.match(entrega, /<Still src=\{f\.src\} alt=\{f\.alt\} \/>/);
   assert.match(entrega, /onLoad=\{\(\) => setLoaded\(src\)\}/);
-  const { PROBADOR_WORDS } = await import("../ui/src/lib/probador.js");
-  assert.equal(PROBADOR_WORDS.cargando, "Cargando la foto…");
+  assert.match(await src("lib/probador.ts"), /cargando: "Cargando la foto…",/);
   assert.match(await src("corriente.css"), /\.cor-stage-fit:has\(> \.cor-still-loading\) \{ min-height: 240px; \}/);
 });
 
 test("PLA-109 F-41: the header's three-letter names, without accents, switched by a container query", async () => {
-  const { TINY } = await import("../ui/src/components/corriente/hilo.js");
-  assert.deepEqual(["buzon", "entendido", "investigacion", "diseno", "plan", "lista", "construccion", "publicado"].map((p) => TINY(p as never)), ["Buz", "Ent", "Inv", "Dis", "Pla", "Lis", "Con", "Pub"]);
+  const hilo = await src("components/corriente/hilo.tsx");
+  assert.match(hilo, /<span className="t">\{TINY\(p\)\}<\/span>/);
+  // The same rule as TINY, on the stops' names: three letters without accents, none of them alike.
+  const tiny = (n: string) => n.normalize("NFD").replace(/[\u0300-\u036f]/g, "").slice(0, 3);
+  assert.match(hilo, /normalize\("NFD"\)\.replace\(\/\[\\u0300-\\u036f\]\/g, ""\)\.slice\(0, 3\)/);
+  const names = ["Buzón", "Entendido", "Investigación", "Diseño", "Plan", "Lista", "Construcción", "Publicado"].map(tiny);
+  assert.deepEqual(names, ["Buz", "Ent", "Inv", "Dis", "Pla", "Lis", "Con", "Pub"]);
+  assert.equal(new Set(names).size, names.length);
   const css = await src("corriente.css");
   assert.match(css, /\.cor-hilo-wrap \{ display: block; min-width: 0; container-type: inline-size; \}/);
   assert.match(css, /@container \(max-width: 520px\) \{ \.cor-hilo\.head \.l, \.cor-hilo\.head \.s \{ display: none; \} \.cor-hilo\.head \.t \{ display: inline; \} \}/);
