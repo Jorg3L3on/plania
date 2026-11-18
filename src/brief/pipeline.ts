@@ -253,7 +253,7 @@ export async function writeProjection(db: Db, brief: { id: string; localDate: st
       source: "morning_brief",
       brief_id: brief.id,
       mode: brief.data.mode,
-      link: "/brief",
+      link: "/ceo?v=brief",
     });
   });
   return lines;

@@ -16,7 +16,6 @@ import { ProgressDayPage, ProgressItemPage, ProgressProjectPage, ProgressYearPag
 import { ProgresoPage } from "@/pages/progreso";
 import { TokensPage } from "@/pages/tokens";
 import { CeoPage, CorrienteRedirect } from "@/pages/ceo";
-import { BriefPage } from "@/pages/brief";
 import { CalidadPage } from "@/pages/calidad";
 import { LEGACY_REDIRECTS } from "@/lib/compania";
 
@@ -76,7 +75,8 @@ export function App() {
         <Route path="/ceo" element={<CeoPage />} />
         {/* PLA-I62-9: La corriente was built at /corriente; it is Compañía now. */}
         <Route path="/corriente" element={<CorrienteRedirect />} />
-        <Route path="/brief" element={<BriefPage />} />
+        {/* PLA-I63-5: the brief lives in Compañía; the old address stays for saved links and notices. */}
+        <Route path="/brief" element={<Navigate to="/ceo?v=brief" replace />} />
         {/* PLA-I30-2: Ahora, Metas and Equipo live on Compañía now. */}
         {Object.entries(LEGACY_REDIRECTS).map(([from, to]) => (
           <Route key={from} path={from} element={<Navigate to={to} replace />} />

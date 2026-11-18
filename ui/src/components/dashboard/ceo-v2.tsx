@@ -63,7 +63,7 @@ export const Kpis = ({ data }: { data: Dashboard }) => {
 // ---- Brief
 
 // PLA-I30: Compañía titles it "Brief de hoy" and signs it as Asistente; the default stays for older callers.
-// PLA-I42-5: an optional link under the lines ("Ver el brief completo" → /brief).
+// PLA-I42-5: an optional link under the lines ("Ver el brief completo" → /ceo?v=brief).
 export const Brief = ({ lines, title = "Hoy te toca", sign, link }: { lines: string[]; title?: string; sign?: string; link?: { to: string; label: string } }) => (
   <section aria-labelledby="ceo-brief" className="grid gap-2.5 rounded-[22px] bg-gradient-to-b from-muted to-card p-4 ring-1 ring-foreground/10 sm:p-5">
     <div className="flex items-baseline justify-between gap-3">

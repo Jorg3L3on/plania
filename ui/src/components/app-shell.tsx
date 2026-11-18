@@ -135,9 +135,8 @@ export function AppShell() {
   const queryClient = useQueryClient();
   // PLA-29: Compañía (/ceo) is the building itself: it runs edge to edge under the header, with no gutter or
   // max width around it. The phone keeps room for the tab bar.
-  // PLA-I49-4: the Morning brief's desk (/brief) fills the page the same way.
   // PLA-I62: La corriente (Compañía) and Plomería (/machine) too.
-  const fullBleed = ["/ceo", "/brief", "/machine"].includes(useLocation().pathname);
+  const fullBleed = ["/ceo", "/machine"].includes(useLocation().pathname);
   // The Bandeja badge and Máquina's quiet Limpieza count; live changes refresh them.
   const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
   const counts = { inbox: inbox.data?.count ?? 0, chores: inbox.data?.chores ?? 0 };
