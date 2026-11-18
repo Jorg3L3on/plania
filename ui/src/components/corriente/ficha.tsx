@@ -680,7 +680,10 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
         </span>
       </Bar>
     );
-  if (d.stop === "lista" && isOpen(d)) {
+  // PLA-68: an earlier stop the owner opened (Diseño, to pin notes) keeps its own answer bar; Lista keeps «Constrúyelo».
+  const opened = ui.sel !== "lista" && STOP_IDS.includes(ui.sel as PedidoStop) ? d.stops.find((x) => x.stop === ui.sel) : null;
+  const answering = !!opened && ANSWERABLE.includes(opened.stop) && opened.delivered && d.state !== "valvula";
+  if (d.stop === "lista" && isOpen(d) && !answering) {
     if (d.state === "valvula" && stuckOf(p, d)) {
       const at = orderedAt(d);
       return (
