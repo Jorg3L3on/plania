@@ -81,7 +81,16 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: Accep
     // branch up to date, and the owner is told so.
     const { mergeable } = JSON.parse(await gh("view", ["pr", "view", number!, "--repo", repo!, "--json", "mergeable"])) as { mergeable?: string };
     if (mergeable === "CONFLICTING") return conflictBack(db, t, Number(number), by);
-    await gh("merge", ["pr", "merge", number!, "--repo", repo!, "--merge", "--match-head-commit", view.headRefOid]);
+    try {
+      await gh("merge", ["pr", "merge", number!, "--repo", repo!, "--merge", "--match-head-commit", view.headRefOid]);
+    } catch (e) {
+      // PLA-108: right after another PR lands on sandbox GitHub answers mergeable UNKNOWN, and the merge itself is
+      // what says «not mergeable: the merge commit cannot be cleanly created». That is the same conflict.
+      if (e instanceof ToolError && e.code === "RELEASE_MERGE_FAILED" && NOT_MERGEABLE.test(String((e.detail as { output?: string } | undefined)?.output ?? ""))) {
+        return conflictBack(db, t, Number(number), by);
+      }
+      throw e;
+    }
     const after = JSON.parse(await gh("view", ["pr", "view", number!, "--repo", repo!, "--json", "mergeCommit,url"])) as { mergeCommit: { oid: string } | null; url: string };
     const sha = after.mergeCommit?.oid;
     if (!sha) return refuse("MERGE_FAILED", "GitHub no muestra el commit de fusión.", { step: "view" });
@@ -103,6 +112,7 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: Accep
 
 // PLA-108: the delivery's PR conflicts with sandbox. The ticket goes back to Ready with a note saying why, and its owner
 // (Taller) gets one wake whose reason is the instruction; a wake already queued for it takes the reason too.
+const NOT_MERGEABLE = /not mergeable|cannot be cleanly created|merge conflict/i;
 export const CONFLICT_WAKE = `The PR conflicts with ${MERGE_BASE} (work accepted after this branch was cut). Merge origin/${MERGE_BASE} into the branch, resolve the conflict keeping both changes, run the tests, push and finish again with the same muestra.`;
 async function conflictBack(db: Db, t: Task, number: number, by: AcceptBy): Promise<ActionRefusal> {
   const project = await projectOf(db, t);
