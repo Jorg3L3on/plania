@@ -85,7 +85,8 @@ const STATES: Record<string, { p: Json; ds: Json[] }> = {
 };
 const EXPECTED: Record<string, { verbo: string; texto: string; label: string; kind: string } | null> = {
   "plan next initiative": { verbo: "planear", texto: "Planear «Ajustes finales y entrega»", label: "Que PO lo planee", kind: "plan" },
-  "accept a delivery": { verbo: "aceptar", texto: "Aprobar «Avisos al equipo»", label: "Aprobar y pasar a prueba", kind: "decision" },
+  // PLA-93: a delivery is opened, never accepted, from the floor.
+  "accept a delivery": { verbo: "aceptar", texto: "Aprobar «Avisos al equipo»", label: "Ver la entrega", kind: "reveal" },
   "returned to Taller": null,
   "nothing pending": null,
 };

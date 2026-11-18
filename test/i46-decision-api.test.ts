@@ -86,7 +86,8 @@ test("I46-10 #1: Aceptar on the evidence card merges the delivery into the test 
   const c = await company();
   const m = card(c).next_move;
   assert.equal(m.verbo, "aceptar");
-  assert.deepEqual(m.accion, { kind: "decision", id, action: "fusionar", label: "Aprobar y pasar a prueba" });
+  // PLA-93: the floor's move opens the card; the card's Aceptar is what merges.
+  assert.deepEqual(m.accion, { kind: "reveal", id, label: "Ver la entrega" });
   assert.equal(m.origen.decision, "pr", "the evidence card is drawn for this move");
   const res = await decide(id, { action: "fusionar" });
   assert.equal(res.status, 200, await res.clone().text());

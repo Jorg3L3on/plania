@@ -17,6 +17,23 @@ import { useProbadorRead, useQaRead } from "./reads";
 
 type Pin = Marca & { n: number };
 
+/** PLA-109 (guided test PLA-86, F-37): a full-size photo takes seconds to arrive the first time; until it does the stage
+ * says so instead of showing an empty dark box. Keyed by src, so switching views starts over. */
+const Still = ({ src, alt }: { src: string; alt: string }) => {
+  const [loaded, setLoaded] = useState<string | null>(null);
+  const ready = loaded === src;
+  return (
+    <>
+      <img src={src} alt={alt} decoding="async" onLoad={() => setLoaded(src)} data-loaded={ready || undefined} />
+      {!ready && (
+        <span className="cor-still-loading" role="status">
+          {W.cargando}
+        </span>
+      )}
+    </>
+  );
+};
+
 const Frame = ({ v, width, side, hi, pins = [], onPin }: { v: ParVista; width: Width; side: "antes" | "despues"; hi: boolean; pins?: Pin[]; onPin?: (x: number, y: number) => void }) => {
   const f = frameOf(v, width, side);
   if (f.kind === "nueva")
@@ -49,7 +66,7 @@ const Frame = ({ v, width, side, hi, pins = [], onPin }: { v: ParVista; width: W
       }
     >
       <div className="cor-stage-fit">
-        <img src={f.src} alt={f.alt} decoding="async" />
+        <Still src={f.src} alt={f.alt} />
         {box && <i className="cor-diffbox" aria-hidden style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%` } as CSSProperties} />}
         {pins.map((p) => (
           <i key={p.n} className="cor-pin" style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` } as CSSProperties} aria-hidden>
@@ -271,7 +288,7 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
                 </button>
               ))}
             </div>
-            <span style={{ display: "flex", gap: 10 }}>
+            <span className="cor-entrega-modes">
               <span className="cor-segbox" role="group" aria-label="Lado">
                 {(["antes", "despues", "comparar"] as const).map((s) => (
                   <Opt key={s} on={shownSide === s} onClick={() => setSide(s)} data-side={s}>

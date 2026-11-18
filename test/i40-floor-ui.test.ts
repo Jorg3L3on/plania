@@ -135,7 +135,8 @@ test("I40-4 #1: one sentence per state: working, soon, stuck, your turn, plan fi
   const mine = line(resting(), [delivery()]);
   assert.deepEqual([mine.state, mine.word, mine.holder], ["you", "Te toca", "owner"], "a delivery comes before the next start");
   assert.equal(mine.say, "Aprobar «Listado de novias con búsqueda y filtros»");
-  assert.deepEqual(mine.action, { kind: "decision", id: "pr-1", action: "aceptar", label: "Aprobar y pasar a prueba" });
+  // PLA-93: the floor opens the delivery's card; Aceptar lives only there.
+  assert.deepEqual(mine.action, { kind: "reveal", id: "pr-1", label: "Ver la entrega" });
   assert.equal(line(project(), [delivery({ hold: "Las pruebas siguen corriendo." })]).action.kind, "reveal", "a held delivery is not one click");
   const asked = line(project(), [decision()]);
   assert.deepEqual([asked.say, asked.action.kind], ["Responder a Research: «¿Qué tienda abrimos primero?»", "reveal"]);

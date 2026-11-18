@@ -83,7 +83,9 @@ export function nextMove(p: MoveFloor, decisions: Decision[], opts: { companyPau
     }
     const first = d.actions.find((a) => ONE_CLICK[a]);
     const accion: MoveAction = first && !d.hold ? { kind: "decision", id: d.id, action: first, label: oneClick(d, first) } : { kind: "reveal", id: d.id, label: "Ver y responder" };
-    if (d.kind === "pr" || d.kind === "deliverable") return { verbo: "aceptar", texto: `Aprobar ${q(d.title)}`, accion, origen };
+    // PLA-93 (guided test PLA-86, F-13): a delivery is never accepted from the floor. Its row opens the card, where the
+    // before/after, the live copy and the checks are; Aceptar lives only there (PLA-IDEA18, no blind approvals).
+    if (d.kind === "pr" || d.kind === "deliverable") return { verbo: "aceptar", texto: `Aprobar ${q(d.title)}`, accion: { kind: "reveal", id: d.id, label: "Ver la entrega" }, origen };
     if (d.kind === "plan" && d.plan?.leg) return { verbo: "aceptar", texto: `Aprobar el plan de ${q(d.plan.leg.title)}`, accion: { kind: "decision", id: d.id, action: "empezar", label: "Aprobar el plan" }, origen };
     if (d.kind === "plan") return { verbo: "aceptar", texto: `Aprobar el plan ${q(d.title)}`, accion, origen };
     return { verbo: "responder", texto: `Responder a ${who(d.asker?.role)}: ${q(d.title, 60)}`, accion, origen };
