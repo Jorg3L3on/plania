@@ -205,7 +205,10 @@ const Sumar = ({ p, motorDefault, focus }: { p: OrgProject; motorDefault?: { mod
     <aside className={`cor-card cor-sumar ${focus ? "focus" : ""}`} aria-label="Sumar a alguien" data-sumar>
       <Label>Sumar a alguien</Label>
       {detail.isPending ? (
-        <div className="cor-skel" style={{ height: 160 }} aria-busy="true" />
+        // PLA-82 (F-5): an empty grey box for ~2 s read as broken; it says what it is doing.
+        <p className="cor-text cor-muted" style={{ minHeight: 160 }} role="status" aria-busy="true" data-sumar-loading>
+          Buscando los puestos libres…
+        </p>
       ) : free.length === 0 ? (
         <p className="cor-text">Todos los puestos con su doc ya están en el equipo.</p>
       ) : (
