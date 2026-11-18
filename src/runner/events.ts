@@ -193,7 +193,7 @@ async function targetOf(
   if (!task) return null;
 
   // PLA-I30-6: a ticket a product owner owns wakes that PO when it is Ready, created that way included
-  // (Pedirle al PO creates it Ready). Taller still wakes on a move only.
+  // (Pedirle al PO creates it Ready). Taller wakes on a move, and on a standalone ticket created Ready and given to it (PLA-103).
   // PLA-16: a runner run's lease that ran out (the run ended without finishing or freeing its ticket) puts
   // the ticket back in Ready like a move. A person's or another client's expired lease wakes nobody.
   const runnerLeaseExpired =
@@ -204,7 +204,7 @@ async function targetOf(
     runnerLeaseExpired;
   if (readyNow) {
     const [t] = await tx
-      .select({ kind: tasks.kind, title: tasks.title, workType: tasks.workType, ownerAgent: tasks.ownerAgent })
+      .select({ kind: tasks.kind, title: tasks.title, workType: tasks.workType, ownerAgent: tasks.ownerAgent, parentId: tasks.parentId, blocked: hasUnsatisfiedBlocker(task.id) })
       .from(tasks)
       .where(eq(tasks.id, task.id))
       .limit(1);
@@ -213,8 +213,12 @@ async function targetOf(
       const [owner] = await tx.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
       if (owner && roleOf(owner) === "product-owner") return { agent: owner, taskKey: task.key, reason: "ticket ready" };
     }
-    if (type === "task.created") return null;
+    // PLA-103 (guided test PLA-86, F-29): a standalone ticket created Ready and given to Taller (the PO splits a «Hacerlo
+    // ya» into one) waited forever: Taller woke on a move only and the cadence never came; MIA-38 sat Ready 80 minutes.
+    // Only that case wakes on creation: plan steps (a parent), tickets behind a blocker and unassigned tickets still
+    // wait for their move.
     const taller = await serviceAgent(tx, "taller", project);
+    if (type === "task.created" && !(t.ownerAgent && t.ownerAgent === taller?.id && !t.parentId && !t.blocked)) return null;
     if (t.ownerAgent && t.ownerAgent !== taller?.id) return null;
     if (!t.ownerAgent && !(t.workType && TALLER_WORK.has(t.workType))) return null;
     // PLA-54: a chain step the server moved to Ready says which landing freed it.

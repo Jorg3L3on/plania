@@ -140,9 +140,13 @@ after(async () => {
 });
 
 test("I31-1 #1a: a ticket moving to Ready queues exactly one wake, for Taller, on that ticket", async () => {
-  // Created straight into Ready is not a move: nothing queued.
+  // Created straight into Ready is not a move: an unassigned ticket queues nothing.
   await backlog("EV-NEW", { status: "Ready" });
   assert.deepEqual(await wakes(), []);
+  // PLA-103: one created Ready and given to Taller (the PO splits a «Hacerlo ya» into one) wakes Taller on it.
+  await backlog("EV-GIVEN", { status: "Ready", owner_agent: "taller" });
+  assert.deepEqual((await wakes()).map((x) => [x.agent, x.task_key]), [["taller", "EV-GIVEN"]]);
+  await raw.query(`delete from agent_runs`);
   await backlog("EV-READY");
   await toReady("EV-READY");
   const w = await wakes();
