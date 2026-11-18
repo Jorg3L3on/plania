@@ -43,7 +43,7 @@ const Thread = ({ c, po, onPedirlo, onMore, busy }: { c: ConsultaView; po: strin
       <p className="cor-thread-me">{c.text}</p>
       <p className="cor-cap">
         {po} ·{" "}
-        {c.state === "cola" ? "le llegó tu pregunta; empieza en cuanto termine lo que corre" : c.state === "leyendo" ? "lee el código…" : c.state === "sin_respuesta" ? "su corrida terminó sin contestar" : `leyó ${a?.branch ?? "el código"}`}
+        {c.state === "cola" ? (c.held ? `en cola: ${c.held.charAt(0).toLowerCase()}${c.held.slice(1)}` : "le llegó tu pregunta; empieza en cuanto termine lo que corre") : c.state === "leyendo" ? "lee el código…" : c.state === "sin_respuesta" ? "su corrida terminó sin contestar" : `leyó ${a?.branch ?? "el código"}`}
       </p>
       {a && c.trail.length > 0 && (
         <Btn kind="link" onClick={() => setTrail((x) => !x)} data-control="consulta-rastro">
@@ -337,7 +337,7 @@ export const Pedir = ({
                         <span className="cor-ellipsis" style={{ flex: 1 }}>
                           {c.text}
                         </span>
-                        <span className={`cor-state ${pendingQ(c) ? "live" : ""}`}>{pendingQ(c) ? "Leyendo" : c.answer ? "Contestada" : "Sin respuesta"}</span>
+                        <span className={`cor-state ${pendingQ(c) ? "live" : ""}`}>{c.state === "cola" ? "En cola" : c.state === "leyendo" ? "Leyendo" : c.answer ? "Contestada" : "Sin respuesta"}</span>
                       </button>
                     </li>
                   ))}
