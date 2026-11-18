@@ -692,7 +692,7 @@ export function entregaUrl(base: string, suffix: "_entrega" | "_prueba" = "_entr
   return { url: u.toString(), name: `${name}${suffix}` };
 }
 
-const PG_DIRS = ["/opt/homebrew/opt/postgresql@17/bin", "/opt/homebrew/opt/postgresql@16/bin", "/opt/homebrew/opt/libpq/bin", "/usr/local/opt/libpq/bin"];
+export const PG_DIRS = ["/opt/homebrew/opt/postgresql@17/bin", "/opt/homebrew/opt/postgresql@16/bin", "/opt/homebrew/opt/libpq/bin", "/usr/local/opt/libpq/bin"];
 
 async function entregaDatabase(
   db: Db,

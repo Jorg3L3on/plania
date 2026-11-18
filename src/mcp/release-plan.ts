@@ -22,7 +22,17 @@ export type ReleaseCompare = {
   contains: boolean;
   commits: string[];
   shipped_at?: string;
+  // PLA-82 (F-32): migration files the release adds (absent in compares cached before it).
+  migration_files?: string[];
 };
+
+/** PLA-82 (F-32): files a compare adds under a migrations folder (drizzle, prisma, knex…); meta and snapshots apart. */
+export function migrationFiles(files: { filename: string; status: string }[]): string[] {
+  return files
+    .filter((f) => f.status === "added" && /(^|\/)(migrations?|drizzle)\/.+\.(sql|ts|js|mjs|cjs)$/i.test(f.filename) && !/(^|\/)(meta|snapshots?)\//i.test(f.filename))
+    .map((f) => f.filename)
+    .slice(0, 50);
+}
 
 export type ReleasePlan = {
   from: { branch: string; head_sha: string | null };
@@ -34,6 +44,8 @@ export type ReleasePlan = {
   commits: string[];
   tickets: { key: string; title: string; status: string; pr_url: string | null }[];
   migrations: string[];
+  // PLA-82 (F-32): the migration files the release adds (from GitHub's compare), whether or not a number was reserved.
+  migration_files: string[];
   before: { blocker_id: string; key: string; text: string }[];
   open_checks: number;
   command: string;
@@ -159,6 +171,7 @@ export async function releasePlan(db: Q, p: Project): Promise<ReleasePlan | null
     commits: fresh?.commits ?? [],
     tickets: shipping.map((t) => ({ key: t.key, title: t.title, status: t.status, pr_url: t.prUrl ?? prOf(t.id)?.url ?? null })),
     migrations,
+    migration_files: shipped ? [] : (fresh?.migration_files ?? []),
     before,
     open_checks,
     command: releaseCommand(r),

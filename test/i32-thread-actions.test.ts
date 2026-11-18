@@ -130,6 +130,8 @@ test("I32-4 #1: aceptar on a PR merges it into sandbox with gh pr merge --merge 
   assert.deepEqual(merge, ["pr", "merge", "9", "--repo", "example/micasa", "--merge", "--match-head-commit", "f".repeat(40)]);
   const ev = (await raw.query(`select payload from events where type = 'pr.merged' and task_key = $1`, [good.key])).rows[0].payload;
   assert.deepEqual([ev.number, ev.base, ev.merge_sha, ev.by], [9, "sandbox", "a".repeat(40), "screen"]);
+  // PLA-82 (F-31): the step is Merged at once, not ~40 s later when the poller sees it.
+  assert.equal((await raw.query(`select status from tasks where key = $1`, [good.key])).rows[0].status, "Merged");
 
   calls.length = 0;
   const bad = await reviewTicket("Atajo a main", "code", { pr: "https://github.com/example/micasa/pull/10" });
