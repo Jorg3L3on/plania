@@ -56,7 +56,9 @@ export function calendarOf(input: { startOn: string; dueOn: string; today: Date;
   const due = atNoon(input.dueOn);
   const span = Math.max(DAY, due - start);
   const weeks = Math.max(1, Math.ceil(span / (7 * DAY)));
-  const today = Math.min(1, Math.max(0, (input.today.getTime() - start) / span));
+  // PLA-99: today counts by day, at noon like start and delivery, so the mark does not move with the hour (it read
+  // 51 % at 18:53 and 50 % at noon for the same plan, and i36-phase2 failed by the clock).
+  const today = Math.min(1, Math.max(0, (atNoon(day(input.today)) - start) / span));
   const done = input.total > 0 ? input.done / input.total : 0;
   const behind = Math.max(0, Math.round((today - done) * weeks));
   const pct = (x: number) => Math.round(x * 100);
