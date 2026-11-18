@@ -14,15 +14,22 @@ export const PedirBar = ({
   disabled,
   onAsk,
   pedirTo,
+  fixed,
+  primary = true,
 }: {
   projects: OrgProject[];
+  /** PLA-I64-5: the bar at the foot of one project: no project picker, «Pedir a <proyecto>». */
+  fixed?: OrgProject;
+  /** Pedir is white unless something on the screen waits on the owner (one white button per screen). */
+  primary?: boolean;
   initial?: string | null;
   disabled?: boolean;
   onAsk: (slug: string, input: AskInput) => Promise<AskResult>;
   /** The Pedir page for this project (pictures, past questions, the answer to a question). */
   pedirTo: (slug: string) => string;
 }) => {
-  const live = projects.filter((p) => !p.paused && p.light !== "paused");
+  const live = fixed ? [fixed] : projects.filter((p) => !p.paused && p.light !== "paused");
+  const held = !!fixed && fixed.paused;
   const [slug, setSlug] = useState<string>(initial && live.some((p) => p.slug === initial) ? initial : (live[0]?.slug ?? ""));
   const [text, setText] = useState("");
   const [mode, setMode] = useState<AskMode>("forma");
@@ -50,18 +57,22 @@ export const PedirBar = ({
   return (
     <form className="cor-pedir" onSubmit={(e) => void submit(e)} aria-label="Pedir" data-pedir-bar>
       <Label as="span" className="cor-pedir-label">
-        Pedir
+        {fixed ? `Pedir a ${fixed.title}` : "Pedir"}
       </Label>
-      <label className="sr-only" htmlFor="cor-pedir-p">
-        Proyecto
-      </label>
-      <select id="cor-pedir-p" className="cor-select" value={slug} onChange={(e) => setSlug(e.target.value)} disabled={disabled || !live.length}>
-        {live.map((p) => (
-          <option key={p.slug} value={p.slug}>
-            {p.title}
-          </option>
-        ))}
-      </select>
+      {!fixed && (
+        <>
+          <label className="sr-only" htmlFor="cor-pedir-p">
+            Proyecto
+          </label>
+          <select id="cor-pedir-p" className="cor-select" value={slug} onChange={(e) => setSlug(e.target.value)} disabled={disabled || !live.length}>
+            {live.map((p) => (
+              <option key={p.slug} value={p.slug}>
+                {p.title}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
       <label className="sr-only" htmlFor="cor-pedir-t">
         Lo que pides
       </label>
@@ -70,20 +81,20 @@ export const PedirBar = ({
         className="cor-input cor-pedir-text"
         value={text}
         maxLength={ASK_MAX}
-        placeholder="Pide algo…"
+        placeholder={held ? "En pausa: reanuda el proyecto para pedir algo nuevo." : "Pide algo…"}
         onChange={(e) => setText(e.target.value)}
-        disabled={disabled || !project}
+        disabled={disabled || held || !project}
         aria-describedby="cor-pedir-line"
         data-pedir-text
       />
       <span className="cor-seg" role="group" aria-label="Cómo">
         {MODES.map((m) => (
-          <Opt key={m.id} on={mode === m.id} onClick={() => setMode(m.id)} title={m.line} data-mode={m.id}>
+          <Opt key={m.id} on={mode === m.id} onClick={() => setMode(m.id)} title={m.line} data-mode={m.id} disabled={held}>
             {m.name}
           </Opt>
         ))}
       </span>
-      <Btn kind="primary" type="submit" disabled={disabled || !project || !text.trim() || sending} data-pedir-send>
+      <Btn kind={primary ? "primary" : "secondary"} type="submit" disabled={disabled || held || !project || !text.trim() || sending} data-pedir-send>
         {sending ? "Enviando…" : "Pedir"}
       </Btn>
       <span id="cor-pedir-line" className="sr-only">
