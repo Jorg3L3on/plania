@@ -116,7 +116,7 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   if (enDatos && enDatos !== want) await apagarEntrega(db, slug).catch(() => null);
   if (!outside) await startSandbox(db, slug).catch(() => null);
   try {
-    await startEntrega(db, slug, { key: t.key, branch });
+    await startEntrega(db, slug, { key: t.key, branch, head: deps.forHead ?? null });
   } catch (e) {
     return failed(db, p, t, attempts, `No se pudo encender la copia de la entrega: ${short(e)}`, deps);
   }
