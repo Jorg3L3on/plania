@@ -339,6 +339,12 @@ describe("capture run (real headless Chrome)", { skip: chrome ? false : "no Chro
           200,
           `<h1>Ficha</h1><script>function abrir() { document.body.insertAdjacentHTML('beforeend', '<nextjs-portal></nextjs-portal>'); document.querySelector('nextjs-portal').attachShadow({ mode: 'open' }).innerHTML = '<div><h1>Runtime Error</h1><p>Error: clicked</p></div>'; }</script><div><button onclick="abrir()">Actualizar seguimiento</button></div>`,
         );
+      // PLA-105: «Ver horas» loads the times 1.5 s later (as a server action does), then «17:00» can be clicked.
+      if (url.pathname === "/tarde")
+        return html(
+          200,
+          `<h1>Mover</h1><script>function ver() { setTimeout(() => document.body.insertAdjacentHTML('beforeend', '<div aria-label="Hora" role="group"><button onclick="abrir()">17:00</button></div>'), 1500); } function abrir() { document.body.insertAdjacentHTML('beforeend', '<nextjs-portal></nextjs-portal>'); document.querySelector('nextjs-portal').attachShadow({ mode: 'open' }).innerHTML = '<div><h1>Runtime Error</h1><p>Error: clicked</p></div>'; }</script><button onclick="ver()">Ver horas</button>`,
+        );
       return html(404, "no");
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
@@ -401,6 +407,17 @@ describe("capture run (real headless Chrome)", { skip: chrome ? false : "no Chro
     assert.equal(by.texto, "/hoja muestra un error: Runtime Error: Error: clicked");
     assert.equal(by.selector, "/hoja muestra un error: Runtime Error: Error: clicked");
     assert.equal(by.nada, "En /hoja no encontré «Borrar todo»");
+  });
+
+  test("PLA-105: an action waits for a target that appears after an async load; one that never appears still fails", { timeout: 120_000 }, async () => {
+    const views = [
+      { key: "tarde", label: "Hora tardía", path: "/tarde", acciones: [{ click: "Ver horas" }, { click: '[aria-label="Hora"] button' }] },
+      { key: "nunca", label: "Nunca llega", path: "/tarde", acciones: [{ click: "Ver horas" }, { click: "18:30" }] },
+    ];
+    const r = await runCapture(db, { project: "micasa", checkout, base_url: `http://127.0.0.1:${port}`, commit: "abc1234", branch: "sandbox", views, viewports: ["desktop"], actor }, { launch: launchChrome });
+    const by = Object.fromEntries(r.stills.map((s: Json) => [s.page, s.error]));
+    assert.equal(by.tarde, "/tarde muestra un error: Runtime Error: Error: clicked");
+    assert.equal(by.nunca, "En /tarde no encontré «18:30»");
   });
 });
 

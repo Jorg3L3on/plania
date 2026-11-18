@@ -168,7 +168,10 @@ async function shoot(page: BrowserPage, base: string, pg: ViewPage, settings: Ca
     check();
   }
   for (const a of pg.acciones ?? []) {
-    const done = await page.evaluate<string>(
+    // PLA-105: a target that is not there yet (shown after an async load, e.g. the free times of a day) is looked for
+    // again every ACTION_POLL_MS for up to ACTION_WAIT_MS; a fixed 400 ms missed it on a slow dev copy.
+    const act = () =>
+      page.evaluate<string>(
       "click" in a
         ? clickScript(a.click)
         : `(() => {
@@ -188,7 +191,12 @@ async function shoot(page: BrowserPage, base: string, pg: ViewPage, settings: Ca
             el.dispatchEvent(new Event('change', { bubbles: true }));
             return 'ok';
           })()`,
-    );
+      );
+    let done = await act();
+    for (let waited = 0; done === "missing" && waited < ACTION_WAIT_MS; waited += ACTION_POLL_MS) {
+      await new Promise((res) => setTimeout(res, ACTION_POLL_MS));
+      done = await act();
+    }
     if (done === "missing") throw new Error("click" in a ? `En ${pg.path} no encontré «${a.click}»` : `En ${pg.path} no hay ${a.fill}`);
     if (done === "nooption") throw new Error(`En ${pg.path}, ${"fill" in a ? a.fill : ""} no tiene la opción «${"fill" in a ? a.value : ""}»`);
     await new Promise((res) => setTimeout(res, 400)); // let the page settle after the action
@@ -342,6 +350,10 @@ export function pngHeight(png: Buffer, scale: number): number | null {
   if (png.length < 24 || png.readUInt32BE(12) !== 0x49484452) return null;
   return Math.round(png.readUInt32BE(20) / scale);
 }
+
+/** PLA-105: how long an action's target is waited for, and how often it is looked for. */
+export const ACTION_WAIT_MS = 8_000;
+export const ACTION_POLL_MS = 250;
 
 /** PLA-73: «/panel/novias/» → a[href^="/panel/novias/"]; a CSS selector stays as it is. */
 export const followSelector = (follow: string): string => (follow.startsWith("/") ? `a[href^=${JSON.stringify(follow)}]` : follow);
