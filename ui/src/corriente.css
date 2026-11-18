@@ -431,26 +431,11 @@ button.cor-row { width: 100%; text-align: left; background: transparent; border-
 .cor-thread-trail { display: flex; flex-direction: column; gap: 4px; padding-left: 16px; list-style: disc; font-family: var(--cor-mono); font-size: 11px; color: var(--cor-muted); }
 
 .cor-pedidos { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; }
-.cor-pedidos > .cor-filas { flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; }
 .cor-pedidos-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--cor-line); }
 .cor-pedidos-head .cor-h3 { font-size: 22px; }
 .cor-ring { width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.28); background: var(--cor-bg); }
 .cor-stale-acts { display: flex; justify-content: flex-end; gap: 8px; }
 /* PLA-I65-5: one thing closed is one row (46px): short name and key, the current in small, what it needs, Abrir. */
-.cor-filas { display: flex; flex-direction: column; min-height: 0; }
-.cor-filas > li { min-width: 0; }
-.cor-fila { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr) minmax(200px, 300px) 60px; gap: 20px; align-items: center; width: 100%; min-height: 46px; padding: 0 20px; border-top: 1px solid var(--cor-line); color: var(--cor-body); }
-a.cor-fila:hover { background: rgba(255, 255, 255, 0.025); }
-.cor-fila-nm { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
-.cor-fila-nm b { font-size: 14.5px; font-weight: 500; color: var(--cor-text); }
-.cor-fila-nm .cor-key { flex: none; }
-.cor-fila-rio { display: block; min-width: 0; }
-.cor-fila > .cor-state { overflow: hidden; text-overflow: ellipsis; }
-.cor-fila-go { font-size: 13px; color: var(--cor-violet-3); text-align: right; }
-.cor-fila.stale { grid-template-columns: minmax(220px, 300px) minmax(0, 1fr) auto; }
-.cor-fila-open { padding: 8px 0; }
-.cor-fila-open > .cor-ficha { height: min(560px, calc(100svh - var(--cor-shell) - 240px)); min-height: 440px; }
-.cor-fila-open .cor-ficha-entrega { min-height: 110px; }
 .cor-tablero-ficha { margin-bottom: 14px; }
 .cor-last { display: flex; align-items: flex-start; gap: 16px; font-size: 13.5px; color: var(--cor-body); }
 .cor-last ul { flex: 1; min-width: 0; display: flex; flex-direction: column; }
