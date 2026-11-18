@@ -66,10 +66,17 @@ test("I64-2: groups in order, an empty group is one line, a long group folds and
   assert.equal(todo.foldOf(cosas, new Set(["fila"]), 100).fila, 12);
 });
 
-test("I64-2: the small thread draws the nine stops, the valve and one segment per step", () => {
-  const head = html(h(todo.TodoList, { p: project(), cosas: cosasLib.cosasOf({ p: project(), decisions: [], ficha: { ideas: [], promoted: [] } }), links, companyPaused: false }));
+test("I64-2/5: the header names the stops; empty groups share a line; an empty project shows the ghost row", () => {
+  const done = project({ tablero: { initiatives: [], loose: [], loose_done: 2, done_initiatives: [] } });
+  const head = html(h(todo.TodoList, { p: done, cosas: cosasLib.cosasOf({ p: done, decisions: [], ficha: { ideas: [], promoted: [] } }), links, companyPaused: false }));
   for (const name of ["Buzón", "Entendido", "Investigación", "Diseño", "Plan", "Lista", "Construcción", "Publicado"]) assert.ok(head.includes(name), name);
   assert.match(head, /Nada te espera\. Nadie trabaja ahora\. Nada espera turno\. Nada está quieto\./);
+  const empty = project();
+  const plan = h("button", { "data-control": "planear" }, "Arma el plan");
+  const out = html(h(todo.TodoList, { p: empty, cosas: cosasLib.cosasOf({ p: empty, decisions: [], ficha: { ideas: [], promoted: [] } }), links, companyPaused: false, plan }));
+  assert.match(out, /data-fantasma/);
+  assert.match(out, /Te toca · 0.*Se mueve · 0.*En fila · 0.*Quieto · 0.*Hecho · 0/);
+  assert.match(out, /Arma el plan/);
 });
 
 test("I64-4: each lever keeps its busy state and refusal under today's call key", async () => {

@@ -860,3 +860,10 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-palanca-btns { display: flex; align-items: center; gap: 8px; }
 .cor-palanca .cor-state.bad { font-size: 12.5px; text-align: right; }
 .cor-palanca .cor-ajuste { width: 260px; }
+/* PLA-I64-5: the empty project, Pedir at the foot of the list, Pausar or Reanudar in the bar. */
+.cor-frase-h .sub { color: var(--cor-muted); }
+.cor-cosa.ghost { min-height: 96px; margin: 10px -12px 6px; padding: 0 12px; border: 1px dashed rgba(255, 255, 255, 0.18); border-radius: 14px; }
+.cor-cosa.ghost:hover { background: none; }
+.cor-vacio-plan { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 14px 0; border-top: 1px solid var(--cor-line); }
+.cor-todo .cor-pedir { padding: 10px 32px 12px; }
+.cor-pbar-end { display: flex; align-items: center; gap: 8px; }

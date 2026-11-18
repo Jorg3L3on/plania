@@ -403,7 +403,7 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
 // ---- PLA-I64-3: the sentence on top (LIB-0137), generated from the list and today's line (lib/edificio.ts nowLine,
 // wrapped, not changed): what moves; in amber, what waits on the owner (only when something does); one line on what
 // is left.
-export type Frase = { mueve: string; toca: string | null; falta: string };
+export type Frase = { mueve: string; toca: string | null; falta: string; /** A grey second line (the empty project). */ sub?: string };
 
 const elapsed = (since: string | null, now: number): string | null => {
   if (!since) return null;
@@ -427,6 +427,10 @@ export function fraseOf(
   const fila = g("fila");
   const quieto = g("quieto");
   const paused = !!opts.companyPaused || p.paused;
+
+  // An empty project: what will happen when he asks (board A4).
+  if (c.abiertas === 0 && c.hecho.iniciativas.length === 0 && c.hecho.sueltos === 0 && !paused)
+    return { mueve: "Todavía no hay nada aquí.", toca: null, sub: "Pide lo primero y se vuelve una fila.", falta: "Cada cosa que pidas avanza sola de Buzón a Lista. Nadie escribe código hasta que digas «Constrúyelo»." };
 
   // What moves.
   let first: string;

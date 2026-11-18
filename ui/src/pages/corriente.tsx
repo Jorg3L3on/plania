@@ -5,10 +5,10 @@
 // Esc steps out (what a tab has open, then the tab, then the project back to the stream).
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { useCorrienteActs, SLEEPY } from "@/components/corriente/acts";
-import { Ahora, type AhoraLinks } from "@/components/corriente/ahora";
+import { Ahora, PLAN_ASK, type AhoraLinks } from "@/components/corriente/ahora";
 import { Entrega } from "@/components/corriente/entrega";
 import { TeToca } from "@/components/corriente/tetoca";
 import { Pedir } from "@/components/corriente/pedir";
@@ -250,6 +250,16 @@ export const CorrientePage = () => {
           timeZone={timeZone}
           companyPaused={paused}
           actOf={(c, cosas) => <Palanca p={p} c={c} primary={c.grupo === "toca" && cosas.grupos[0]?.cosas[0]?.key === c.key} acts={acts} decisions={decisions} links={palancaLinks} onFijar={(x) => openHoja("meta", x.slug)} />}
+          bottom={(cosas) => (
+            <PedirBar projects={company?.projects ?? [p]} fixed={p} primary={!cosas.grupos[0]?.cosas.length} disabled={paused} onAsk={ask} pedirTo={(slug) => pedirTo(slug)} />
+          )}
+          plan={
+            !p.paused && !paused && !(p.route && p.route.legs.length > 0) ? (
+              <Btn kind="secondary" onClick={() => acts.plan(p.slug, PLAN_ASK)} disabled={acts.busy === `${p.slug}:plan`} data-control="planear">
+                {acts.busy === `${p.slug}:plan` ? "Pidiendo…" : "Arma el plan"}
+              </Btn>
+            ) : undefined
+          }
           top={(cosas) => <Cabeza slug={p.slug} f={fraseOf(p, cosas, nowLine(p, decisions, now, { companyPaused: paused, timeZone }), { now, companyPaused: paused, totals })} />}
         />
       );
@@ -342,7 +352,23 @@ export const CorrientePage = () => {
             slug={project.slug}
             title={project.title}
             tab={at.tab}
-            meta={at.tab === "todo" ? { text: [rumboText(project).goal ?? "Sin meta todavía", rumboText(project).date ?? (rumboText(project).goal ? "sin fecha" : null)].filter(Boolean).join(" · "), missing: rumboText(project).missing, href: hojaHref("meta", project.slug) } : undefined} href={(t) => linkTo({ slug: project.slug, tab: t })} counts={{ ahora: { n: mine, amber: true }, pedidos: { n: (project.pedidos ?? []).filter((x) => !x.guardada && x.question).length, amber: true } }} />
+            meta={at.tab === "todo" ? { text: [rumboText(project).goal ?? "Sin meta todavía", rumboText(project).date ?? (rumboText(project).goal ? "sin fecha" : null)].filter(Boolean).join(" · "), missing: rumboText(project).missing, href: hojaHref("meta", project.slug) } : undefined}
+            end={
+              at.tab === "todo" ? (
+                <span className="cor-pbar-end">
+                  {project.paused ? (
+                    <Link className="cor-btn secondary" to={hojaHref("reanudar", project.slug)} data-control="reanudar">
+                      {`Reanudar ${project.title}`}
+                    </Link>
+                  ) : (
+                    <Link className="cor-btn quiet" to={hojaHref("pausar", project.slug)} data-control="pausar">
+                      Pausar
+                    </Link>
+                  )}
+                </span>
+              ) : undefined
+            }
+            href={(t) => linkTo({ slug: project.slug, tab: t })} counts={{ ahora: { n: mine, amber: true }, pedidos: { n: (project.pedidos ?? []).filter((x) => !x.guardada && x.question).length, amber: true } }} />
           <div className="cor-pbody">{projectBody(project)}</div>
         </div>
       );

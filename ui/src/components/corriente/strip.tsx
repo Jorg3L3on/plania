@@ -2,7 +2,7 @@
 // with its mini stream (a tick per stage: lit when work waits there, white where an agent works, amber where something
 // waits on the owner), the open one marked, and Pedir (secondary). Under it, one row: the project's logo and name,
 // the seven work tabs and, on the right, Equipo, Motores and Máquinas.
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Link } from "react-router";
 import { SIDE_TABS, TAB_NAME, WORK_TABS, type Tab } from "@/lib/corriente";
 import { COLUMNS, type Lane } from "@/lib/corriente-stream";
@@ -39,7 +39,7 @@ export const Strip = ({ lanes, open, href, back, pedirTo }: { lanes: Lane[]; ope
 );
 
 export type BarMeta = { text: string; missing: boolean; href: string };
-export const ProjectBar = ({ slug, title, tab, href, counts, meta }: { slug: string; title: string; tab: Tab; href: (t: Tab) => string; counts?: Partial<Record<Tab, { n: number; amber?: boolean }>>; meta?: BarMeta }) => {
+export const ProjectBar = ({ slug, title, tab, href, counts, meta, end }: { slug: string; title: string; tab: Tab; href: (t: Tab) => string; counts?: Partial<Record<Tab, { n: number; amber?: boolean }>>; meta?: BarMeta; end?: ReactNode }) => {
   const one = (t: Tab) => {
     const c = counts?.[t];
     return (
@@ -70,6 +70,7 @@ export const ProjectBar = ({ slug, title, tab, href, counts, meta }: { slug: str
       <nav className="cor-tabs side" aria-label={`Equipo y máquinas de ${title}`}>
         {SIDE_TABS.map(one)}
       </nav>
+      {end}
     </div>
   );
 };

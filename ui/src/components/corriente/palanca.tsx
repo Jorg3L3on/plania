@@ -81,7 +81,10 @@ export const Palanca = ({ p, c, primary, acts, decisions, links, onFijar }: { p:
         if (a.ids.length > 1) return link("Ver las entregas", links.entrega(a.ids[0]!), "ver-entregas");
         return (
           <>
-            {link("Ver antes y después", links.entrega(a.ids[0]!), "ver-entrega")}
+            {/* Beside Pedir ajuste the short word keeps «qué toca» readable; the label says it whole. */}
+            <Link className={`cor-btn ${kind}`} to={links.entrega(a.ids[0]!)} {...data("ver-entrega")} aria-label={`Ver antes y después: ${c.title}`}>
+              {d?.actions.includes("cambios") ? "Ver" : "Ver antes y después"}
+            </Link>
             {d?.actions.includes("cambios") && (
               <Btn kind="quiet" aria-expanded={ajuste} onClick={() => setAjuste((x) => !x)} data-control="pedir-ajuste">
                 Pedir ajuste

@@ -210,9 +210,7 @@ test("I64-3 #1 the sentence: quiet, someone working, paused with deliveries, emp
   // Empty.
   const e = project("nueva", { title: "Tienda Nueva" });
   const fe = fraseOf(e, cosasOf({ p: e, decisions: [], ficha: { ideas: [], promoted: [] } }), quiet, { now: NOW });
-  assert.equal(fe.mueve, "Nadie trabaja ahora.");
-  assert.equal(fe.toca, null);
-  assert.match(fe.falta, /^Todavía no hay nada aquí/);
+  assert.deepEqual(fe, { mueve: "Todavía no hay nada aquí.", toca: null, sub: "Pide lo primero y se vuelve una fila.", falta: "Cada cosa que pidas avanza sola de Buzón a Lista. Nadie escribe código hasta que digas «Constrúyelo»." });
   // Only quiet things: what they wait for.
   const q = project("workia", { tablero: { initiatives: [ini("WRK-I1", [tk("WRK-1", "despues", { status: "Backlog", title: "Alta" }, { reason: "Está en Backlog: nadie la pasó a Lista." })])], loose: [], loose_done: 0, done_initiatives: [] } });
   assert.equal(fraseOf(q, cosasOf({ p: q, decisions: [], ficha: { ideas: [], promoted: [] } }), quiet, { now: NOW, totals: { open: 1, done: 0 } }).falta, "Falta 1 paso de 1 para terminar workia. Falta «Alta». Está en Backlog: nadie la pasó a Lista.");

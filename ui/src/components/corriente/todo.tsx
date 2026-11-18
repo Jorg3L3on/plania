@@ -25,12 +25,12 @@ const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean)
  *  it in group order: a Te toca row costs more than a quiet one, a row in line or done costs least. Te toca always
  *  shows its first row; Hecho shows up to two rows while room is left. Measured at 1440×800 (PLA-I64-2). */
 export const ROW_PX = { toca: 86, mueve: 58, fila: 52, quieto: 66, hecho: 46 } as const;
-// The column header is 30px; a group's line is 48 (its «Ver…» link is a 44px target).
-export const LINE_PX = { head: 30, group: 48 } as const;
+// The column header is 30px; a group's line is 30, or 48 when it carries a «Ver…» link (a 44px target).
+export const LINE_PX = { head: 30, group: 30, folded: 48 } as const;
 export const FOLD = { perGroup: 3, hecho: 2, fallback: 420 } as const;
 export function foldOf(c: Cosas, open: ReadonlySet<Grupo>, height: number = FOLD.fallback): Record<Grupo, number> {
   // Fixed lines: the column header, one line per group shown (empty groups share the next one), Hecho's line.
-  let left = height - LINE_PX.head - (c.grupos.filter((g) => g.cosas.length > 0).length + 1) * LINE_PX.group;
+  let left = height - LINE_PX.head - c.grupos.filter((g) => g.cosas.length > 0).length * LINE_PX.group - LINE_PX.folded;
   const out = {} as Record<Grupo, number>;
   for (const g of c.grupos) {
     const n = g.cosas.length;
@@ -41,7 +41,8 @@ export function foldOf(c: Cosas, open: ReadonlySet<Grupo>, height: number = FOLD
         show++;
         left -= ROW_PX[g.grupo];
       }
-    if (open.has(g.grupo)) left -= n * ROW_PX[g.grupo];
+    if (open.has(g.grupo)) left -= n * ROW_PX[g.grupo] + (LINE_PX.folded - LINE_PX.group);
+    else if (show < n) left -= LINE_PX.folded - LINE_PX.group;
     out[g.grupo] = show;
   }
   const h = c.hecho.iniciativas.length;
@@ -103,6 +104,7 @@ export const TodoList = ({
   timeZone,
   companyPaused,
   actOf,
+  plan,
 }: {
   p: OrgProject;
   cosas: Cosas;
@@ -110,6 +112,8 @@ export const TodoList = ({
   timeZone?: string;
   companyPaused: boolean;
   actOf?: (c: Cosa) => ReactNode;
+  /** PLA-I64-5: the empty project's «Arma el plan» (null: not offered, e.g. a plan is already asked for). */
+  plan?: ReactNode;
 }) => {
   const [open, setOpen] = useState<Set<Grupo>>(new Set());
   const paused = companyPaused || p.paused;
@@ -146,6 +150,40 @@ export const TodoList = ({
   if (pend.length) blocks.push({ kind: "empty", grupos: pend });
   const hecho = cosas.hecho;
   const hechoRows = hecho.iniciativas.slice(0, shown.hecho);
+  if (cosas.abiertas === 0 && hecho.iniciativas.length === 0 && hecho.sueltos === 0)
+    return (
+      <div className="cor-todo-list" ref={ref} data-todo={p.slug} data-abiertas={0} data-vacio>
+        <div className="cor-cosa-head" aria-hidden>
+          <span className="cor-label">Cada cosa</span>
+          <HiloHead />
+          <span className="cor-label">Qué toca</span>
+        </div>
+        <div className="cor-cosa ghost" data-fantasma>
+          <div className="cor-cosa-nm">
+            <span className="cor-label">Así se verá</span>
+            <b className="cor-muted">Lo primero que pidas</b>
+          </div>
+          <Hilo h={{ idea: 0, ideaTono: "quieto", valvula: "cerrada", tramos: [], publicado: false, at: "buzon" }} />
+          <div className="cor-cosa-que">
+            <span className="cor-cosa-tx">
+              <span className="cor-label">Aquí dirá qué toca</span>
+              <span className="cor-cosa-espera">Quién la tiene, qué espera y, si te toca a ti, el botón para decidir.</span>
+            </span>
+          </div>
+        </div>
+        <div className="cor-grp" data-grupo-vacio="toca mueve fila quieto hecho">
+          {(["toca", "mueve", "fila", "quieto", "hecho"] as const).map((g) => (
+            <span key={g} className="cor-label">{`${GRUPO_NAME[g]} · 0`}</span>
+          ))}
+        </div>
+        {plan && (
+          <div className="cor-vacio-plan">
+            <p className="cor-text">¿Prefieres que el PO proponga por dónde empezar? Arma el plan del proyecto: los entregables y los pasos de cada uno.</p>
+            {plan}
+          </div>
+        )}
+      </div>
+    );
   return (
     <div className="cor-todo-list" ref={ref} data-todo={p.slug} data-abiertas={cosas.abiertas}>
       <div className="cor-cosa-head" aria-hidden>
@@ -221,6 +259,7 @@ export const Todo = ({
   actOf,
   top,
   bottom,
+  plan,
 }: {
   p: OrgProject;
   decisions: Decision[];
@@ -229,7 +268,8 @@ export const Todo = ({
   companyPaused: boolean;
   actOf?: (c: Cosa, cosas: Cosas) => ReactNode;
   top?: (cosas: Cosas) => ReactNode;
-  bottom?: ReactNode;
+  bottom?: (cosas: Cosas) => ReactNode;
+  plan?: ReactNode;
 }) => {
   const f = useFicha(p.slug);
   const cosas = cosasOf({ p, decisions, ficha: f.data ?? null, companyPaused });
@@ -242,9 +282,9 @@ export const Todo = ({
             <ReadError what="las ideas del proyecto" onRetry={() => void f.refetch()} />
           </div>
         ) : null}
-        {f.isLoading ? <div className="cor-skel" role="status" style={{ height: 320, margin: "8px 0" }} aria-busy="true" aria-label="Leyendo las cosas del proyecto" /> : <TodoList p={p} cosas={cosas} links={links} timeZone={timeZone} companyPaused={companyPaused} actOf={actOf ? (c) => actOf(c, cosas) : undefined} />}
+        {f.isLoading ? <div className="cor-skel" role="status" style={{ height: 320, margin: "8px 0" }} aria-busy="true" aria-label="Leyendo las cosas del proyecto" /> : <TodoList p={p} cosas={cosas} links={links} timeZone={timeZone} companyPaused={companyPaused} actOf={actOf ? (c) => actOf(c, cosas) : undefined} plan={plan} />}
       </div>
-      {bottom}
+      {bottom?.(cosas)}
     </div>
   );
 };
@@ -260,6 +300,7 @@ export const FraseView = ({ f }: { f: Frase }) => (
           {f.toca}
         </span>
       )}
+      {f.sub && <span className="sub">{f.sub}</span>}
     </h2>
     <p className="cor-frase-falta">{f.falta}</p>
   </div>
