@@ -253,13 +253,15 @@ export function sayTo(m: Pick<OrgMember, "role" | "now">, text: string): Say | n
 // Where the order landed, in plain words: the PO of that project, and whether it woke.
 export function askedLine(r: AskResult, project?: string): string {
   const who = project ? `el PO de ${project}` : "el PO";
+  // PLA-101 (F-26): «a el PO» → «al PO».
+  const toWho = `a${who.startsWith("el ") ? "l" + who.slice(2) : " " + who}`;
   // PLA-I57-1: a question creates nothing; the answer comes back in Pedir's side page.
   if (r.mode === "pregunta") return r.wake === "queued" ? `${who[0]!.toUpperCase()}${who.slice(1)} lee el código para contestarte.` : `${who[0]!.toUpperCase()}${who.slice(1)} te contesta en cuanto termine lo que corre.`;
   // PLA-I54-1: Darle forma lands in the tube, not on the board.
   if (r.mode === "forma") return r.wake === "queued" ? `Entró al tubo como ${r.key}; ${who} le da forma ahora.` : `Entró al tubo como ${r.key}; ${who} la abre en su turno.`;
-  if (r.woke?.woke) return `Le llegó a ${who} y ya está en ello.`;
-  if (r.woke) return `Le llegó a ${who}; ${r.woke.reason === "busy" ? "termina lo que corre y sigue con esto" : r.woke.reason === "queued" ? "arranca en cuanto haya lugar" : "lo toma en su turno"}.`;
-  return r.wake === "busy" ? `Le llegó a ${who}; lo toma al terminar lo que corre.` : r.wake === "queued" ? `Le llegó a ${who}; lo toma en su turno.` : `Le llegó a ${who}; lo ve en su próximo turno.`;
+  if (r.woke?.woke) return `Le llegó ${toWho} y ya está en ello.`;
+  if (r.woke) return `Le llegó ${toWho}; ${r.woke.reason === "busy" ? "termina lo que corre y sigue con esto" : r.woke.reason === "queued" ? "arranca en cuanto haya lugar" : "lo toma en su turno"}.`;
+  return r.wake === "busy" ? `Le llegó ${toWho}; lo toma al terminar lo que corre.` : r.wake === "queued" ? `Le llegó ${toWho}; lo toma en su turno.` : `Le llegó ${toWho}; lo ve en su próximo turno.`;
 }
 export const RECIBIRIA = "Recibiría tu pedido";
 

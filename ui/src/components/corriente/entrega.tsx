@@ -48,7 +48,7 @@ const Frame = ({ v, width, side, hi, pins = [], onPin }: { v: ParVista; width: W
           : undefined
       }
     >
-      <div style={{ position: "relative", width: "100%" }}>
+      <div className="cor-stage-fit">
         <img src={f.src} alt={f.alt} decoding="async" />
         {box && <i className="cor-diffbox" aria-hidden style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%` } as CSSProperties} />}
         {pins.map((p) => (
