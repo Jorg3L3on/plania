@@ -1,16 +1,20 @@
 // PLA-I63: the Morning brief as a Compañía place (/ceo?v=brief), drawn in La corriente's look (PLA-IDEA26, sketch 2).
 // The data, the passes and the API are the brief's own (lib/brief.ts, /api/brief/*); only the drawing is new.
 // I63-1: the address, the page, the date line and headline, its tools (Generar ahora with the three passes, Días
-// anteriores, Ajustes) and the states with no brief on screen. The delta and the card in hand come in I63-2 and I63-3.
-import { useEffect, useRef, useState, type ReactNode } from "react";
+// anteriores, Ajustes) and the states with no brief on screen. I63-2: the delta (brief-delta.tsx), the light in hand,
+// J K and the arrows. The card in hand's evidence and actions come in I63-3.
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { BriefSettingsSheet } from "@/components/brief/brief-settings";
 import { ApiError } from "@/lib/api";
 import { BRIEF_LABELS } from "@/lib/brief-i18n";
-import { type BriefHistoryRow, type BriefLanguage, type BriefPass, runMinutes, useBriefByDate, useBriefHistory, useBriefLatest, useBriefSettings, useRunBrief } from "@/lib/brief";
-import { dayLine, headlineOf, kickOf, noBriefHeadline, type Headline } from "@/lib/brief-delta";
-import { Btn } from "./parts";
+import { CROSS, type BriefHistoryRow, type BriefLanguage, type BriefPass, type BriefStateReply, runMinutes, useBriefByDate, useBriefHistory, useBriefLatest, useBriefSettings, useBriefState, usePlanProgress, useRunBrief } from "@/lib/brief";
+import { keyCommand, stations, type Station } from "@/lib/brief-city";
+import { dayLine, deltaOf, firstLight, headlineOf, hopStream, kickOf, noBriefHeadline, stepLight, type Delta, type Headline, type Light } from "@/lib/brief-delta";
+import { CrossMark } from "@/components/plania-mark";
+import { BriefDelta, useStage } from "./brief-delta";
+import { Btn, Logo } from "./parts";
 
 export type BriefEmptyKind = "loading" | "empty" | "off" | "failed";
 
@@ -260,11 +264,46 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
         ? kickOf({ kind: "today", generatedAt: data.generatedAt, timeZone: tz })
         : kickOf({ kind: "none", now, timeZone });
 
-  // I63-1: the counts for the headline come from the rows as they are; I63-2 counts what is settled.
-  const headline: Headline = data
-    ? headlineOf({ total: data.items.length + data.ideas.length, open: data.items.length + data.ideas.length, blocked: data.items.filter((i) => i.status === "blocker").length, needs: data.items.filter((i) => i.status === "needs_you").length }, runAt)
-    : noBriefHeadline(state === "brief" ? "loading" : state, runAt);
+  // The rows' live state (and Send to Plania's progress for today's ideas), as the old page read them.
+  const briefId = stored?.id ?? null;
+  const rows = useBriefState(briefId);
+  const planId = date ? null : latest.data?.brief?.id === briefId ? (latest.data?.plan_id ?? null) : null;
+  const progress = usePlanProgress(planId);
+  const sentCodes = useMemo(() => new Set(progress.data && progress.data.brief_id === briefId ? progress.data.ideas.map((x) => x.code) : []), [progress.data, briefId]);
+  const live_ = rows.data && rows.data.brief_id === briefId ? rows.data : undefined;
+  const list = useMemo(() => (data ? stations(data, live_, { checks: shown?.checks ?? [], sentCodes, maxItems: settings.data?.settings.max_items_per_app }) : []), [data, live_, shown?.checks, sentCodes, settings.data?.settings.max_items_per_app]);
+  const [stageRef, size] = useStage();
+  const delta = useMemo(() => deltaOf({ list, w: size.w, h: size.h, states: live_?.items, settled: settledOrder(live_) }), [list, size.w, size.h, live_]);
+  const [picked, setPicked] = useState<string | null>(null);
+  const all = useMemo(() => [...delta.streams.flatMap((x) => x.lights), ...delta.river], [delta]);
+  const selected = picked && all.some((l) => l.id === picked) ? picked : firstLight(delta);
+  const light = all.find((l) => l.id === selected) ?? null;
 
+  // Keys: J K and ↑ ↓ walk the lights, ← → hop streams (I63-3 adds Enter, L, X, Z).
+  const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyRef.current = (e: KeyboardEvent) => {
+    if (document.querySelector("[role=dialog]")) return;
+    const cmd = keyCommand({ key: e.key, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, target: e.target as HTMLElement | null });
+    if (cmd === "next" || cmd === "prev") {
+      e.preventDefault();
+      setPicked(stepLight(delta, selected, cmd === "next" ? 1 : -1));
+    } else if (cmd === "nextProject" || cmd === "prevProject") {
+      e.preventDefault();
+      setPicked(hopStream(delta, selected, cmd === "nextProject" ? 1 : -1));
+    }
+  };
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => keyRef.current(e);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+
+  const headline: Headline = data ? headlineOf({ total: delta.counts.total, open: delta.counts.total - delta.counts.done, blocked: delta.counts.blocked, needs: delta.counts.needs }, runAt) : noBriefHeadline(state === "brief" ? "loading" : state, runAt);
+  const walk = useMemo(() => [...delta.streams.flatMap((x) => x.lights), ...delta.river].map((l) => l.id), [delta]);
+  const streamOf = (l: Light | null): Station | undefined => (l ? list.find((st) => st.items.some((x) => x.id === l.id) || st.ideas.some((x) => x.id === l.id)) : undefined);
+  const card = data ? (
+    <HandCard light={light} station={streamOf(light)} position={light ? [walk.indexOf(light.id) + 1, walk.length] : null} onStep={(d) => setPicked(stepLight(delta, selected, d))} />
+  ) : undefined;
   const tools = (
     <BriefTools
       language={language}
@@ -283,7 +322,66 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
   return (
     <>
       <BriefSettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} language={language} />
-      <BriefView kick={kick} live={generating} headline={headline} tools={tools} state={state} onRetry={() => void (date ? past.refetch() : latest.refetch())} />
+      <BriefView
+        kick={kick}
+        live={generating}
+        headline={headline}
+        tools={tools}
+        state={state}
+        onRetry={() => void (date ? past.refetch() : latest.refetch())}
+        delta={data ? <BriefDelta delta={delta} selected={selected} onPick={setPicked} inHand={!!light?.card.open} stageRef={stageRef} /> : <div className="cor-bf-delta" ref={stageRef} aria-hidden />}
+        card={card}
+      />
     </>
   );
 }
+
+/** The river's order: settled rows and ideas by the time they were settled. */
+export function settledOrder(st: BriefStateReply | undefined): string[] {
+  if (!st) return [];
+  const xs: [string, string][] = [];
+  for (const [id, v] of Object.entries(st.items)) if (v.state !== "open") xs.push([id, v.at ?? ""]);
+  for (const [id, v] of Object.entries(st.ideas ?? {})) if (v.state !== "open") xs.push([id, v.at ?? ""]);
+  return xs.sort((a, b) => a[1].localeCompare(b[1])).map(([id]) => id);
+}
+
+const KIND_WORD: Record<Light["kind"], [string, string]> = { idea: ["Idea nueva", "v"], next: ["Sigue", "v"], toca: ["Te toca", "a"], block: ["Bloquea", "r"] };
+
+/** The card's head: «En la mano · i de n» and the two steps (K, J). */
+export function HandHead({ position, onStep }: { position: [number, number] | null; onStep: (d: 1 | -1) => void }) {
+  return (
+    <div className="cor-bf-fh">
+      <span className="cor-label">En la mano{position ? ` · ${position[0]} de ${position[1]}` : ""}</span>
+      <span className="cor-bf-step">
+        <button type="button" aria-label="Anterior (K)" onClick={() => onStep(-1)} data-step="-1">
+          ↑
+        </button>
+        <button type="button" aria-label="Siguiente (J)" onClick={() => onStep(1)} data-step="1">
+          ↓
+        </button>
+      </span>
+    </div>
+  );
+}
+
+/** I63-2's card in hand: the project, the kind and the title. I63-3 adds the evidence and every action. */
+export function HandCard({ light, station, position, onStep }: { light: Light | null; station: Station | undefined; position: [number, number] | null; onStep: (d: 1 | -1) => void }) {
+  if (!light || !station) return <EmptyHand state="brief" line="Nada en el brief de hoy." />;
+  const name = station.slug === CROSS ? "Entre apps" : station.app.name || station.slug;
+  const [word, tone] = light.card.open ? KIND_WORD[light.kind] : (["Resuelto", "g"] as const);
+  return (
+    <>
+      <HandHead position={position} onStep={onStep} />
+      <section className={`cor-bf-card ${!light.card.open ? "done" : tone === "a" || tone === "r" ? "you" : "live"}`} aria-label="En la mano" data-brief="card" data-card={light.id}>
+        <div className="cor-bf-ck">
+          {station.slug === CROSS ? <CrossMark className="cor-logo" /> : <Logo slug={station.slug} title={name} />}
+          <span className="pn">{name}</span>
+          <span className={`cor-bf-kd ${tone}`}>{word}</span>
+        </div>
+        <h2>{light.title}</h2>
+      </section>
+    </>
+  );
+}
+
+export type { Delta };
