@@ -3,7 +3,8 @@
 // stream per project of the brief (stations() of brief-city.ts, «Entre apps» last): its lights in order (new ideas
 // near the source, what follows, what waits on Jorge, a blocker last as a dam), the stream's width (what is open), the
 // line under its name; every stream meets at «Tú»; what is settled leaves by the river of Resuelto.
-import { CROSS, type Item, type ItemState } from "@/lib/brief";
+import { CROSS, type BriefStateReply, type IdeaFate, type Item, type ItemState, type ActionId } from "@/lib/brief";
+import type { Ink } from "@/lib/brief-row";
 import { cardsOf, type CityCard, type Station } from "@/lib/brief-city";
 
 const NUM = ["cero", "una", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez", "once", "doce", "trece", "catorce", "quince", "dieciséis", "diecisiete", "dieciocho", "diecinueve", "veinte", "veintiuna", "veintidós", "veintitrés", "veinticuatro", "veinticinco", "veintiséis", "veintisiete", "veintiocho", "veintinueve", "treinta"];
@@ -334,4 +335,35 @@ export function stepLight(delta: Delta, current: string | null, d: number): stri
   const i = current ? walk.indexOf(current) : -1;
   if (i < 0) return d > 0 ? walk[0]! : walk[walk.length - 1]!;
   return walk[(i + d + walk.length) % walk.length]!;
+}
+
+// ---- I63-3: what was settled in this visit, shown at once (the state poll catches up). From city.tsx (PLA-I51).
+export type Local = { word: string; ink: Ink; at: string; actionId: string | null; undo: boolean; fate?: IdeaFate; line?: string; action?: ActionId };
+
+/** The state with this visit's settled cards laid over it, so a light leaves its stream at once. */
+export function mergeLocal(state: BriefStateReply | undefined, local: Record<string, Local>): BriefStateReply | undefined {
+  if (!state || !Object.keys(local).length) return state;
+  const items = { ...state.items };
+  const ideas = { ...(state.ideas ?? {}) };
+  for (const [id, l] of Object.entries(local)) {
+    if (id.startsWith("d|")) {
+      const was = ideas[id];
+      if (!was || was.state === "open") ideas[id] = { state: l.fate ?? "kept", line: l.line ?? null, key: null, action_id: l.actionId, undo: l.undo, at: l.at, project: was?.project ?? "", paused: was?.paused ?? false };
+    } else {
+      const was = items[id];
+      if (was && was.state === "open") items[id] = { ...was, state: l.action === "later" ? "later" : l.action === "dismiss" ? "dismissed" : "handled", line: l.line ?? was.line, action_id: l.actionId, undo: l.undo, at: l.at, action: l.action ?? null };
+    }
+  }
+  return { ...state, items, ideas };
+}
+
+/** After a light is settled: the next open light of the same stream, else the next open one anywhere. */
+export function nextAfter(delta: Delta, settledId: string): string | null {
+  const walk = walkOf(delta);
+  const s = delta.streams.find((x) => x.lights.some((l) => l.id === settledId));
+  const same = s ? walkOf({ ...delta, streams: [s] }).filter((id) => id !== settledId) : [];
+  if (same.length) return same[0]!;
+  const i = walk.indexOf(settledId);
+  const order = [...walk.slice(i + 1), ...walk.slice(0, Math.max(i, 0))].filter((id) => id !== settledId);
+  return order[0] ?? null;
 }

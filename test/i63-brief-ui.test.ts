@@ -168,3 +168,84 @@ test("I63-2: amber only on rhombi, the dam and Tú; reduced motion stops particl
   assert.match(css, /\.cor-bf-lt \{[^}]*height: 44px/);
   assert.match(css, /\.cor-bf-who \{[^}]*height: 44px/);
 });
+
+// ---- I63-3: the card in hand
+const card = await load("components/corriente/brief-card.tsx");
+const i18n = await load("lib/brief-i18n.ts");
+const cardProps = (over: Record<string, any> = {}) => {
+  const data = brief(["filmia"], [item("filmia", "needs_you", 1, "Filtros por género"), item("filmia", "next", 2)], [idea("filmia", 1)]);
+  const st = { brief_id: "b", read_only: false, items: {
+    "i|filmia|needs_you1": { state: "open", line: null, action_id: null, undo: false, live: { kind: "pr", number: 212, state: "open", base: "sandbox", url: "https://github.com/x/y/pull/212", ticket: { key: "FIL-35", status: "In review" }, message_id: null }, actions: [{ id: "accept_pr", level: "confirm", undo: true, target: 0 }, { id: "request_changes", level: "instant", undo: true, target: 0 }, { id: "later", level: "instant", undo: true, target: null }, { id: "dismiss", level: "instant", undo: true, target: null }] },
+    "i|filmia|next2": { state: "open", line: null, action_id: null, undo: false, live: { kind: "ticket", key: "K-2", status: "Ready", title: "x", first: false, paused: true, owner: null }, actions: [{ id: "put_first", level: "instant", undo: true, target: 0 }, { id: "start_now", level: "wake", undo: false, target: 0, wake: { agent: "taller-filmia", role: "taller", low: 10, high: 25, paused: true, company_paused: false, busy: false } }] },
+  }, ideas: {} };
+  const list = city.stations(data, st);
+  const d = delta.deltaOf({ list, w: 1440, h: 650 });
+  return { light: d.streams[0].lights.find((l: any) => l.kind === "toca"), station: list[0], data, state: st, local: {}, language: "es", readOnly: false, acting: false, position: [1, 3], onStep: () => {}, onAct: async () => ({}), onHandled: () => {}, onUndo: async () => {}, ideaCost: () => ({ bots: 1, low: 10, high: 25 }), plans: new Map(), links: { paso: (s: string, k: string) => `/ceo?proyecto=${s}&ver=paso:${k}`, idea: (s: string, k: string) => `/ceo?proyecto=${s}&ver=idea:${k}` }, ...over, d };
+};
+
+test("I63-3: La corriente's words over the brief's (both languages); the old /brief keeps its own", () => {
+  const es = i18n.corLabels("es").d;
+  assert.equal(es.verbs.accept_pr, "Aceptar");
+  assert.equal(es.verbs.request_changes, "Pedir ajuste");
+  assert.equal(es.verbs.publish, "Publicar");
+  assert.equal(es.kinds.ticket, "Paso");
+  assert.equal(es.kinds.pr, "Entrega");
+  assert.equal(i18n.corLabels("en").d.verbs.accept_pr, "Accept");
+  assert.equal(i18n.BRIEF_LABELS.es.d.verbs.accept_pr, "Aprobar y pasar a prueba");
+  assert.equal(i18n.BRIEF_LABELS.en.d.verbs.accept_pr, "Approve into the test copy");
+});
+
+test("I63-3: a delivery's card: evidence, one white button (Aceptar ↵), Pedir ajuste, Después L, No aplica X, Ver its paso", () => {
+  const p = cardProps();
+  const out = html(h(card.BriefCard, p));
+  assert.match(out, /data-brief="card"/);
+  assert.match(out, /Te toca · Entrega/);
+  assert.match(out, /data-brief="evidence".*#212 · open → copia de prueba.*Paso<\/dt><dd>FIL-35 · In review/s);
+  assert.equal((out.match(/cor-btn primary/g) ?? []).length, 1);
+  assert.match(out, /class="cor-btn primary"[^>]*data-act="accept_pr"[^>]*>Aceptar<kbd>↵<\/kbd>/);
+  assert.match(out, /data-act="request_changes"[^>]*>Pedir ajuste/);
+  assert.match(out, /data-act="later"[^>]*>Después <kbd>L<\/kbd>/);
+  assert.match(out, /data-act="dismiss"[^>]*>No aplica <kbd>X<\/kbd>/);
+  assert.match(out, /data-see="K-1" href="\/ceo\?proyecto=filmia&amp;ver=paso:K-1"/);
+  assert.match(out, /En la mano · 1 de 3/);
+});
+
+test("I63-3: the confirm, the note for Pedir ajuste, the wake's cost line, failed, a paused project and a past day", () => {
+  const p = cardProps();
+  assert.match(html(h(card.BriefCard, { ...p, initialPending: { kind: "confirm", action: "accept_pr", target: 0 } })), /data-brief="confirm".*integra el PR #212.*data-act="confirm-accept_pr"[^>]*>Aceptar/s);
+  assert.match(html(h(card.BriefCard, { ...p, initialPending: { kind: "changes", target: 0 } })), /data-brief="changes".*Enviar nota/s);
+  assert.match(html(h(card.BriefCard, { ...p, initialPending: { kind: "failed", action: "accept_pr", target: 0, error: "GH", hint: "GitHub no respondió" } })), /role="alert".*No se pudo: GitHub no respondió.*Nada cambió.*Intentar otra vez/s);
+  const next = { ...p, light: p.d.streams[0].lights.find((l: any) => l.kind === "next") };
+  const paused = html(h(card.BriefCard, next));
+  assert.match(paused, /data-brief="waiting-paused"[^>]*>En espera: las corridas de Filmia están en pausa/);
+  assert.match(html(h(card.BriefCard, { ...next, initialPending: { kind: "wake", action: "start_now", target: 0 } })), /data-brief="cost"[^>]*>Despierta a taller-filmia · unos 10–25 min · usa tu plan, \$0 · espera a que Filmia tenga corridas/);
+  const past = html(h(card.BriefCard, { ...p, readOnly: true }));
+  assert.match(past, /Un día pasado: solo lectura/);
+  assert.doesNotMatch(past, /data-act=/);
+});
+
+test("I63-3: an idea's five fates (Que lo planee ↵, Boceto, Investigar, Guardar, Descartar X) and the reasons", () => {
+  const p = cardProps();
+  const ideaLight = p.d.streams[0].lights.find((l: any) => l.kind === "idea");
+  const out = html(h(card.BriefCard, { ...p, light: ideaLight }));
+  for (const a of ["plan", "sketch", "research", "keep", "discard"]) assert.match(out, new RegExp(`data-act="${a}"`));
+  assert.match(out, /class="cor-btn primary"[^>]*data-act="plan"[^>]*>Que lo planee/);
+  const reasons = html(h(card.BriefCard, { ...p, light: ideaLight, initialPending: { kind: "discard" } }));
+  for (const r of ["not_now", "not_for_product", "exists", "too_big", "costs_money", "other"]) assert.match(reasons, new RegExp(`data-act="reason-${r}"`));
+  assert.match(html(h(card.BriefCard, { ...p, light: ideaLight, initialPending: { kind: "idea-wake", action: "plan" } })), /Despierta 1 bot de proyecto · unos 10–25 min · usa tu plan, \$0/);
+});
+
+test("I63-3: a settled card shows its stamp, its line and Deshacer (Z); this visit's settling drops it into the river", () => {
+  const p = cardProps();
+  const local = { "i|filmia|needs_you1": { word: "Aceptado", ink: "go", at: "2026-11-17T15:12:00Z", actionId: "a1", undo: true, line: "Pasó a la copia de prueba.", action: "accept_pr" } };
+  const merged = delta.mergeLocal(p.state, local);
+  assert.equal(merged.items["i|filmia|needs_you1"].state, "handled");
+  const list = city.stations(p.data, merged);
+  const d = delta.deltaOf({ list, w: 1440, h: 650, settled: ["i|filmia|needs_you1"] });
+  assert.equal(d.river[0].id, "i|filmia|needs_you1");
+  assert.equal(delta.nextAfter(p.d, "i|filmia|needs_you1"), "i|filmia|next2");
+  const out = html(h(card.BriefCard, { ...p, light: d.river[0], state: merged, local }));
+  assert.match(out, /data-brief="stamp".*Aceptado/s);
+  assert.match(out, /Pasó a la copia de prueba\./);
+  assert.match(out, /data-undo="i\|filmia\|needs_you1"[^>]*>Deshacer <kbd>Z<\/kbd>/);
+});

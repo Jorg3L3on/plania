@@ -2,19 +2,22 @@
 // The data, the passes and the API are the brief's own (lib/brief.ts, /api/brief/*); only the drawing is new.
 // I63-1: the address, the page, the date line and headline, its tools (Generar ahora with the three passes, Días
 // anteriores, Ajustes) and the states with no brief on screen. I63-2: the delta (brief-delta.tsx), the light in hand,
-// J K and the arrows. The card in hand's evidence and actions come in I63-3.
+// J K and the arrows. I63-3: the card in hand (brief-card.tsx) with its evidence and every action, Enter L X Z, and
+// what was settled dropping into the river at once (with Deshacer on the card and in the footer).
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { BriefSettingsSheet } from "@/components/brief/brief-settings";
 import { ApiError } from "@/lib/api";
 import { BRIEF_LABELS } from "@/lib/brief-i18n";
-import { CROSS, type BriefHistoryRow, type BriefLanguage, type BriefPass, type BriefStateReply, runMinutes, useBriefByDate, useBriefHistory, useBriefLatest, useBriefSettings, useBriefState, usePlanProgress, useRunBrief } from "@/lib/brief";
-import { keyCommand, stations, type Station } from "@/lib/brief-city";
-import { dayLine, deltaOf, firstLight, headlineOf, hopStream, kickOf, noBriefHeadline, stepLight, type Delta, type Headline, type Light } from "@/lib/brief-delta";
-import { CrossMark } from "@/components/plania-mark";
+import { type BriefHistoryRow, type BriefLanguage, type BriefPass, type BriefStateReply, type PlanIdeaProgress, planCost, runMinutes, useBriefAct, useBriefByDate, useBriefHistory, useBriefLatest, useBriefSettings, useBriefState, usePlanProgress, useRunBrief } from "@/lib/brief";
+import { keyCommand, stations, type CityCard, type Station } from "@/lib/brief-city";
+import { dayLine, deltaOf, firstLight, headlineOf, hopStream, kickOf, mergeLocal, nextAfter, noBriefHeadline, stepLight, type Delta, type Headline, type Light, type Local } from "@/lib/brief-delta";
+import { linkTo } from "@/lib/corriente";
+import { BriefCard, EmptyHand, stampOf, type CardKeys } from "./brief-card";
 import { BriefDelta, useStage } from "./brief-delta";
-import { Btn, Logo } from "./parts";
+import { Btn } from "./parts";
+import { corLabels } from "@/lib/brief-i18n";
 
 export type BriefEmptyKind = "loading" | "empty" | "off" | "failed";
 
@@ -179,31 +182,6 @@ export function BriefView(p: BriefViewProps) {
   );
 }
 
-/** The card's place when nothing is in hand: loading, no brief yet, off, could not read. */
-export function EmptyHand({ state, onRetry, line }: { state: BriefEmptyKind | "brief"; onRetry?: () => void; line?: string }) {
-  if (state === "loading") return <div className="cor-bf-hand cor-skel" role="status" aria-label="Leyendo el brief" data-brief="loading" />;
-  const text =
-    line ??
-    (state === "empty"
-      ? "Cuando el brief llegue, lo primero que te toca aparece aquí."
-      : state === "off"
-        ? "Con el brief apagado no llega nada cada mañana. Ajustes lo enciende."
-        : state === "failed"
-          ? "No se pudo leer el brief."
-          : "");
-  return (
-    <section className="cor-bf-hand" aria-label="En la mano" data-brief="empty-hand">
-      <h2 className="cor-h3">Nada en la mano.</h2>
-      {text && <p className="cor-text">{text}</p>}
-      {state === "failed" && onRetry && (
-        <Btn kind="secondary" onClick={onRetry} data-brief="retry">
-          Reintentar
-        </Btn>
-      )}
-    </section>
-  );
-}
-
 // ---- the container: the brief's hooks, as the old /brief page used them
 
 /** ?dia=YYYY-MM-DD opens an earlier day, read-only. */
@@ -270,20 +248,79 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
   const planId = date ? null : latest.data?.brief?.id === briefId ? (latest.data?.plan_id ?? null) : null;
   const progress = usePlanProgress(planId);
   const sentCodes = useMemo(() => new Set(progress.data && progress.data.brief_id === briefId ? progress.data.ideas.map((x) => x.code) : []), [progress.data, briefId]);
-  const live_ = rows.data && rows.data.brief_id === briefId ? rows.data : undefined;
+  const server = rows.data && rows.data.brief_id === briefId ? rows.data : undefined;
+  const acts = useBriefAct(briefId);
+  // What was settled in this visit, laid over the server's state until its poll catches up; reset with the brief.
+  const [localBy, setLocalBy] = useState<{ id: string | null; local: Record<string, Local> }>({ id: null, local: {} });
+  const local = localBy.id === briefId ? localBy.local : {};
+  const setLocal = (f: (l: Record<string, Local>) => Record<string, Local>) => setLocalBy((x) => ({ id: briefId, local: f(x.id === briefId ? x.local : {}) }));
+  const live_ = useMemo(() => mergeLocal(server, local), [server, local]);
+  const readOnly = !!date || !!server?.read_only;
+  const plans = useMemo(() => new Map<string, PlanIdeaProgress>((progress.data && progress.data.brief_id === briefId ? progress.data.ideas : []).map((x) => [x.code, x])), [progress.data, briefId]);
   const list = useMemo(() => (data ? stations(data, live_, { checks: shown?.checks ?? [], sentCodes, maxItems: settings.data?.settings.max_items_per_app }) : []), [data, live_, shown?.checks, sentCodes, settings.data?.settings.max_items_per_app]);
   const [stageRef, size] = useStage();
   const delta = useMemo(() => deltaOf({ list, w: size.w, h: size.h, states: live_?.items, settled: settledOrder(live_) }), [list, size.w, size.h, live_]);
   const [picked, setPicked] = useState<string | null>(null);
+  const [arrived, setArrived] = useState<string | null>(null);
+  const [last, setLast] = useState<string | null>(null);
+  const cardKeys = useRef<CardKeys | null>(null);
   const all = useMemo(() => [...delta.streams.flatMap((x) => x.lights), ...delta.river], [delta]);
   const selected = picked && all.some((l) => l.id === picked) ? picked : firstLight(delta);
   const light = all.find((l) => l.id === selected) ?? null;
 
-  // Keys: J K and ↑ ↓ walk the lights, ← → hop streams (I63-3 adds Enter, L, X, Z).
+  const t = corLabels(language);
+  // The settled lights that can come back, newest first (Z and the footer's Deshacer).
+  const undoable = useMemo(() => {
+    const out: { id: string; actionId: string; word: string; title: string; at: string }[] = [];
+    for (const st of list)
+      for (const cd of [...st.items, ...st.ideas]) {
+        if (cd.open) continue;
+        const s = stampOf(cd, live_, local[cd.id], t);
+        if (s?.undo && s.actionId) out.push({ id: cd.id, actionId: s.actionId, word: s.word, title: cd.kind === "item" ? (cd.item.ref || cd.item.title) : cd.idea.title, at: s.at ?? "" });
+      }
+    return out.sort((a, b) => (a.id === last ? -1 : b.id === last ? 1 : b.at.localeCompare(a.at)));
+  }, [list, live_, local, last, t]);
+  const onHandled = (cd: CityCard, l: Local) => {
+    setLocal((x) => ({ ...x, [cd.id]: l }));
+    setLast(cd.id);
+    setArrived(cd.id);
+    setTimeout(() => setArrived((a) => (a === cd.id ? null : a)), 900);
+    setPicked(nextAfter(delta, cd.id) ?? cd.id);
+  };
+  const onUndo = async (actionId: string, itemId: string) => {
+    try {
+      await acts.undo.mutateAsync({ actionId, itemId });
+      setLocal((x) => {
+        const n = { ...x };
+        delete n[itemId];
+        return n;
+      });
+      if (last === itemId) setLast(null);
+      setPicked(itemId);
+    } catch {
+      toast.error(`${t.d.failed}. ${t.d.nothingChanged}`);
+    }
+  };
+
+  // Keys: J K and ↑ ↓ walk the lights, ← → hop streams, Enter the card's white button, L Después, X No aplica,
+  // Z Deshacer, Esc closes what the card has open. Nothing acts while typing in a field.
   const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
   keyRef.current = (e: KeyboardEvent) => {
     if (document.querySelector("[role=dialog]")) return;
     const cmd = keyCommand({ key: e.key, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, target: e.target as HTMLElement | null });
+    if (!cmd) return;
+    if (cmd === "primary" || cmd === "later" || cmd === "dismiss" || cmd === "escape") {
+      if (cardKeys.current?.(cmd)) e.preventDefault();
+      return;
+    }
+    if (cmd === "undo") {
+      const u = undoable[0];
+      if (u && !readOnly) {
+        e.preventDefault();
+        void onUndo(u.actionId, u.id);
+      }
+      return;
+    }
     if (cmd === "next" || cmd === "prev") {
       e.preventDefault();
       setPicked(stepLight(delta, selected, cmd === "next" ? 1 : -1));
@@ -302,7 +339,35 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
   const walk = useMemo(() => [...delta.streams.flatMap((x) => x.lights), ...delta.river].map((l) => l.id), [delta]);
   const streamOf = (l: Light | null): Station | undefined => (l ? list.find((st) => st.items.some((x) => x.id === l.id) || st.ideas.some((x) => x.id === l.id)) : undefined);
   const card = data ? (
-    <HandCard light={light} station={streamOf(light)} position={light ? [walk.indexOf(light.id) + 1, walk.length] : null} onStep={(d) => setPicked(stepLight(delta, selected, d))} />
+    <BriefCard
+      light={light}
+      station={streamOf(light)}
+      data={data}
+      state={live_}
+      local={local}
+      language={language}
+      readOnly={readOnly}
+      acting={acts.act.isPending || acts.undo.isPending}
+      position={light ? [walk.indexOf(light.id) + 1, walk.length] : null}
+      onStep={(d) => setPicked(stepLight(delta, selected, d))}
+      onAct={(body) => acts.act.mutateAsync({ ...body, brief_id: briefId! })}
+      onHandled={onHandled}
+      onUndo={onUndo}
+      ideaCost={(ids) => planCost(data, ids, latest.data?.home_project ?? null)}
+      plans={plans}
+      links={{ paso: (slug, key) => linkTo({ slug, ver: { kind: "paso", key } }), idea: (slug, key) => linkTo({ slug, ver: { kind: "idea", key } }) }}
+      keys={cardKeys}
+      runAt={runAt}
+    />
+  ) : undefined;
+  const lastUndo = !readOnly && last ? undoable.find((u) => u.id === last) : undefined;
+  const footRight = lastUndo ? (
+    <span className="cor-bf-undo" data-brief="last">
+      {lastUndo.word}: {lastUndo.title}
+      <Btn kind="link" small onClick={() => void onUndo(lastUndo.actionId, lastUndo.id)} data-undo-last={lastUndo.id}>
+        Deshacer
+      </Btn>
+    </span>
   ) : undefined;
   const tools = (
     <BriefTools
@@ -329,8 +394,9 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
         tools={tools}
         state={state}
         onRetry={() => void (date ? past.refetch() : latest.refetch())}
-        delta={data ? <BriefDelta delta={delta} selected={selected} onPick={setPicked} inHand={!!light?.card.open} stageRef={stageRef} /> : <div className="cor-bf-delta" ref={stageRef} aria-hidden />}
+        delta={data ? <BriefDelta delta={delta} selected={selected} onPick={setPicked} inHand={!!light?.card.open} arrived={arrived} stageRef={stageRef} /> : <div className="cor-bf-delta" ref={stageRef} aria-hidden />}
         card={card}
+        footRight={footRight}
       />
     </>
   );
@@ -343,45 +409,6 @@ export function settledOrder(st: BriefStateReply | undefined): string[] {
   for (const [id, v] of Object.entries(st.items)) if (v.state !== "open") xs.push([id, v.at ?? ""]);
   for (const [id, v] of Object.entries(st.ideas ?? {})) if (v.state !== "open") xs.push([id, v.at ?? ""]);
   return xs.sort((a, b) => a[1].localeCompare(b[1])).map(([id]) => id);
-}
-
-const KIND_WORD: Record<Light["kind"], [string, string]> = { idea: ["Idea nueva", "v"], next: ["Sigue", "v"], toca: ["Te toca", "a"], block: ["Bloquea", "r"] };
-
-/** The card's head: «En la mano · i de n» and the two steps (K, J). */
-export function HandHead({ position, onStep }: { position: [number, number] | null; onStep: (d: 1 | -1) => void }) {
-  return (
-    <div className="cor-bf-fh">
-      <span className="cor-label">En la mano{position ? ` · ${position[0]} de ${position[1]}` : ""}</span>
-      <span className="cor-bf-step">
-        <button type="button" aria-label="Anterior (K)" onClick={() => onStep(-1)} data-step="-1">
-          ↑
-        </button>
-        <button type="button" aria-label="Siguiente (J)" onClick={() => onStep(1)} data-step="1">
-          ↓
-        </button>
-      </span>
-    </div>
-  );
-}
-
-/** I63-2's card in hand: the project, the kind and the title. I63-3 adds the evidence and every action. */
-export function HandCard({ light, station, position, onStep }: { light: Light | null; station: Station | undefined; position: [number, number] | null; onStep: (d: 1 | -1) => void }) {
-  if (!light || !station) return <EmptyHand state="brief" line="Nada en el brief de hoy." />;
-  const name = station.slug === CROSS ? "Entre apps" : station.app.name || station.slug;
-  const [word, tone] = light.card.open ? KIND_WORD[light.kind] : (["Resuelto", "g"] as const);
-  return (
-    <>
-      <HandHead position={position} onStep={onStep} />
-      <section className={`cor-bf-card ${!light.card.open ? "done" : tone === "a" || tone === "r" ? "you" : "live"}`} aria-label="En la mano" data-brief="card" data-card={light.id}>
-        <div className="cor-bf-ck">
-          {station.slug === CROSS ? <CrossMark className="cor-logo" /> : <Logo slug={station.slug} title={name} />}
-          <span className="pn">{name}</span>
-          <span className={`cor-bf-kd ${tone}`}>{word}</span>
-        </div>
-        <h2>{light.title}</h2>
-      </section>
-    </>
-  );
 }
 
 export type { Delta };
