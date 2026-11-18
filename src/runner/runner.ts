@@ -1010,8 +1010,15 @@ export function claudeArgs(input: ClaudeArgsInput): string[] {
 // Plania only. The token stays in the child env; the file names the variable, never the value.
 // AUDIT-6: browser adds a second server for a QA run that walks through the app (settings.qa.browser).
 export type McpStdio = { command: string; args: string[] };
+// timeout: finish may run the project's checks before it answers (AUDIT-1) and sends nothing while it does. Claude Code
+// drops an HTTP tool call that is silent for five minutes whatever MCP_TOOL_TIMEOUT says, and the server would go on
+// and commit a delivery the run was told had failed. The per-server timeout lifts that for Plania alone.
+export const PLANIA_TOOL_TIMEOUT_MS = 30 * 60_000;
 export const mcpConfig = (url: string, browser: McpStdio | null = null) => ({
-  mcpServers: { plania: { type: "http", url, headers: { Authorization: "Bearer ${PLANIA_RUNNER_TOKEN}" } }, ...(browser ? { browser } : {}) },
+  mcpServers: {
+    plania: { type: "http", url, headers: { Authorization: "Bearer ${PLANIA_RUNNER_TOKEN}" }, timeout: PLANIA_TOOL_TIMEOUT_MS },
+    ...(browser ? { browser } : {}),
+  },
 });
 
 // The browser tools a QA walk-through uses: Playwright's MCP server, headless, with a profile it throws away.

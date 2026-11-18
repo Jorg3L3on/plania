@@ -16,6 +16,7 @@ const { createMcpServer } = await import("../src/mcp/register.js");
 const { createSession, SESSION_COOKIE } = await import("../src/auth/session.js");
 const { seedOrg } = await import("../scripts/seed-org.js");
 const writes = await import("../src/mcp/writes.js");
+const { runSession } = await import("../src/runner/run-session.js");
 
 type Db = ReturnType<typeof makeDb>["db"];
 let raw: pg.Client;
@@ -166,7 +167,8 @@ test("I32-3 #3: a runner's finish leaves a line with links in its project thread
   const taller = (await raw.query(`select id from agents where slug = 'taller-micasa'`)).rows[0].id;
   const micasa = (await raw.query(`select id from projects where slug = 'micasa'`)).rows[0].id;
   const run = (await raw.query(`insert into agent_runs (agent_id, project_id, role, status, started_at) values ($1, $2, 'taller', 'running', now() - interval '1 minute') returning id`, [taller, micasa])).rows[0].id as string;
-  const actor = { agent: "taller-micasa", session_id: `run-${run.slice(0, 8)}` };
+  // The session a run writes as today (16 hex, PLA-I60-1); the 8-hex form is covered in i32-thread-actions.
+  const actor = { agent: "taller-micasa", session_id: runSession(run) };
   const created = (await writes.createTask(db, { project: "micasa", title: "Página de precios", scope: "s", checks: ["La página muestra tres planes"], status: "Ready" } as never, { actor })) as { key: string };
   await writes.claim(db, { project: "micasa", key: created.key } as never, { actor });
 
@@ -195,8 +197,15 @@ test("I32-3 #3: a runner's finish leaves a line with links in its project thread
   assert.deepEqual(last.links.map((l) => [l.kind, l.ref]), [["ticket", created.key], ["pr", "https://github.com/example/micasa/pull/7"]]);
   assert.deepEqual(last.actions, ["fusionar", "cambios"], "a code ticket In review with a PR can be merged or sent back");
 
+  // PLA-I32-4: the same run's question lands in the thread too, with the question attached.
+  const other = (await writes.createTask(db, { project: "micasa", title: "Nombre del plan caro", scope: "s", checks: ["c"], work_type: "ops" } as never, { actor })) as { key: string };
+  const asked = await call("ask", { actor, project: "micasa", key: other.key, question: "¿Premium o Pro?" });
+  assert.ok(asked.question_id, JSON.stringify(asked));
+  const afterAsk = ((await (await get(`/api/threads/${thread.id}`)).json()) as { messages: Message[] }).messages;
+  assert.equal(afterAsk.filter((m) => m.question_id === asked.question_id).length, 1, "a 16-hex run session's question is posted");
+
   // A session that is not a runner run leaves no line.
-  const before = view.messages.length;
+  const before = afterAsk.length;
   await call("add_result", { actor: { agent: "taller-micasa", session_id: "manual" }, project: "micasa", key: created.key, kind: "test", verdict: "pass", cite: "manual" });
   assert.equal(((await (await get(`/api/threads/${thread.id}`)).json()) as { messages: Message[] }).messages.length, before);
 });
