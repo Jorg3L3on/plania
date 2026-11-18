@@ -91,8 +91,9 @@ test("I36-5 #2, #3: forty initiatives and no dates never read as week 40: the ac
 });
 
 test("I36-5 #1: a dated plan behind: today's mark ahead of the fill, weeks behind, and the forecast in Rumbo", async () => {
+  // PLA-99: both ends on the UTC calendar day the plan reads (day() is UTC), so the test does not depend on the hour.
   await raw.query(`update tasks set created_at = now() - interval '28 days' where key = 'MIC-I40'`);
-  await raw.query(`insert into goals (project_id, title, target_on) select id, 'Pagos en línea', current_date + 28 from projects where slug = 'micasa'`);
+  await raw.query(`insert into goals (project_id, title, target_on) select id, 'Pagos en línea', (now() at time zone 'utc')::date + 28 from projects where slug = 'micasa'`);
   const m = await card("micasa");
   assert.equal(m.plan.weeks, 8);
   assert.equal(m.plan.today_pct, 50);

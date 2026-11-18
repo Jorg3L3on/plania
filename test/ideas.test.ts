@@ -1,7 +1,6 @@
 // PLA-I8-1: the idea kind, its key, the stage machine and the reads that must ignore it.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { userInfo } from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -9,7 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import pg from "pg";
 import type { Db } from "../src/db/client.js";
 import { forwardBlock, ideaWaitText, STAGE_DOCS } from "../src/mcp/ideas.js";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestDb, useTestEnv, PG_USER } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -66,13 +65,13 @@ test("migration 0026 leaves existing rows unchanged and is not 0025", async () =
   assert.equal(files.some((f) => f.startsWith("0025_") && f !== "0025_push_subscriptions.sql"), false);
 
   const name = "plania_mig_idea";
-  const admin = new pg.Client({ connectionString: `postgres://${userInfo().username}@localhost:5432/postgres` });
+  const admin = new pg.Client({ connectionString: `postgres://${PG_USER}@localhost:5432/postgres` });
   await admin.connect();
   await admin.query(`drop database if exists ${name} with (force)`);
   await admin.query(`create database ${name}`);
   await admin.end();
 
-  const db = new pg.Client({ connectionString: `postgres://${userInfo().username}@localhost:5432/${name}` });
+  const db = new pg.Client({ connectionString: `postgres://${PG_USER}@localhost:5432/${name}` });
   await db.connect();
   try {
     for (const f of files.filter((f) => f < "0026")) {
@@ -117,7 +116,7 @@ test("migration 0026 leaves existing rows unchanged and is not 0025", async () =
     assert.deepEqual(still, { stage: null, promoted_to: null, status: "Backlog" });
   } finally {
     await db.end();
-    const drop = new pg.Client({ connectionString: `postgres://${userInfo().username}@localhost:5432/postgres` });
+    const drop = new pg.Client({ connectionString: `postgres://${PG_USER}@localhost:5432/postgres` });
     await drop.connect();
     await drop.query(`drop database if exists ${name} with (force)`);
     await drop.end();
