@@ -237,3 +237,14 @@ test("I64-7: a server move that is no decision (start, plan, goal) is a Te toca 
   const e = project("nueva", { next_move: { verbo: "planear", texto: "Pide el plan.", accion: { kind: "plan", text: "x", label: "Arma el plan" }, origen: { kind: "route", leg: "x" } } });
   assert.equal(cosasOf({ p: e, decisions: [], ficha: { ideas: [], promoted: [] } }).abiertas, 0);
 });
+
+test("PLA-62 #4: a stuck pedido's clock is its «Constrúyelo», not the idea's last edit", () => {
+  const p = project("mianovia");
+  const ficha = { ideas: [fIdea("MIA-IDEA2", { origin: "jorge", stop: "lista", state: "valvula", updated_at: "2026-11-17T17:00:00Z", ordered_at: "2026-11-17T08:53:00Z" })], promoted: [] };
+  const c = cosasOf({ p, decisions: [], ficha });
+  assert.equal(find(c, "MIA-IDEA2").since, "2026-11-17T08:53:00Z");
+  assert.equal(fraseOf(p, c, quiet, { now: Date.parse("2026-11-17T13:18:00Z") }).toca, "Tu «Constrúyelo» lleva 4 h sin subir al tablero.");
+  // Without the event (an older server) it falls back to the idea's time.
+  const f2 = { ideas: [fIdea("MIA-IDEA2", { origin: "jorge", stop: "lista", state: "valvula", updated_at: "2026-11-17T12:00:00Z" })], promoted: [] };
+  assert.equal(find(cosasOf({ p, decisions: [], ficha: f2 }), "MIA-IDEA2").since, "2026-11-17T12:00:00Z");
+});
