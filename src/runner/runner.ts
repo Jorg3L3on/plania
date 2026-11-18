@@ -1478,7 +1478,8 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
     summary: summary.slice(0, 500),
     taskKey: run.taskKey,
   });
-  // PLA-I40-6: a PO that ends well with another request waiting gets one wake for it.
+  // PLA-I40-6: a PO that ends well with another request waiting gets one wake for it. PLA-104: Taller too, for its
+  // oldest unblocked Ready ticket.
   if (status === "ok") await wakePoIfWaiting(db, agent, { id: project.id, slug: project.slug }, run.taskKey, deps.env ?? process.env).catch(() => null);
   // PLA-I60-1: wakes that arrived for this work while it ran get one more run (a stopped run's work is the owner's call).
   const absorbed = finished[0]!.absorbed?.trim();

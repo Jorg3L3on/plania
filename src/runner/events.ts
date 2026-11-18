@@ -330,7 +330,9 @@ export async function queueWake(
 // nothing wakes that PO for it again. So when a PO's run ends well, one wake is queued for its oldest Ready
 // ticket that nothing holds. Never the ticket the run was on: an unfinished one would wake it in a loop.
 export async function wakePoIfWaiting(tx: Q, agent: Agent, project: ProjectRef, justRan: string | null, env: NodeJS.ProcessEnv = process.env): Promise<EventWake | null> {
-  if (!eventWakesEnabled(env) || roleOf(agent) !== "product-owner") return null;
+  if (!eventWakesEnabled(env)) return null;
+  if (roleOf(agent) === "taller") return wakeTallerIfWaiting(tx, agent, project, justRan);
+  if (roleOf(agent) !== "product-owner") return null;
   const rows = await tx
     .select({ id: tasks.id, key: tasks.key, title: tasks.title })
     .from(tasks)
@@ -379,4 +381,24 @@ export async function wakePoIfWaiting(tx: Q, agent: Agent, project: ProjectRef, 
     .limit(1);
   if (!idea) return null;
   return queueWake(tx, project, idea, { agent, taskKey: idea.key, reason: "pedido de Jorge para darle forma" }, "run.ended");
+}
+
+// PLA-104: a wake for Taller that arrived while it was busy (a ticket made Ready for it, «Hacer primero») was coalesced
+// and lost, so an idle Taller sat next to its own Ready tickets. When its run ends well it takes the oldest one it owns
+// that nothing blocks. Never the ticket the run was on (an unfinished one would loop), never a [PRUEBA] one.
+async function wakeTallerIfWaiting(tx: Q, agent: Agent, project: ProjectRef, justRan: string | null): Promise<EventWake | null> {
+  const rows = await tx
+    .select({ id: tasks.id, key: tasks.key, title: tasks.title, priority: tasks.priority })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, project.id), eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), eq(tasks.ownerAgent, agent.id), sql`not ${hasUnsatisfiedBlocker(tasks.id)}`))
+    .orderBy(asc(tasks.createdAt));
+  // As freedBy: the project's next_first («Hacer primero») first, then priority, then the oldest.
+  const [p] = await tx.select({ settings: projects.settings }).from(projects).where(eq(projects.id, project.id)).limit(1);
+  const first = p?.settings.next_first;
+  const rank = (priority: string | null) => (PRIORITY.includes(priority ?? "") ? PRIORITY.indexOf(priority!) : PRIORITY.length);
+  const next = rows
+    .filter((t) => t.key !== justRan && !t.title.includes("[PRUEBA]"))
+    .sort((a, b) => Number(b.key === first) - Number(a.key === first) || rank(a.priority) - rank(b.priority))[0];
+  if (!next) return null;
+  return queueWake(tx, project, { id: next.id, key: next.key }, { agent, taskKey: next.key, reason: "ticket listo esperando" }, "run.ended");
 }
