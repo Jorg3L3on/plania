@@ -65,6 +65,11 @@ export const stuckOf = (p: Pick<OrgProject, "paused" | "team">, d: Pick<IdeaDeta
 /** When he said «Constrúyelo» (the newest one), from the trail. */
 export const orderedAt = (d: Pick<IdeaDetail, "trail">) => [...(d.trail ?? [])].reverse().find((t) => t.kind === "construir")?.at ?? null;
 
+// PLA-90: the lightbox takes the focus when it opens, and only then. An inline ref callback is a new function on every
+// render, so React called it on each keystroke and pulled the focus out of the pin's note field.
+const focusOnOpen = (el: HTMLElement | null) => {
+  if (el && !el.contains(document.activeElement)) el.focus();
+};
 // PLA-90: the Diseño preview box (CSS .cor-ficha-frame-big); the frame is fitted inside it whole, so a pin's
 // percentages are of the frame itself, not of the letterbox around it.
 const PREVIEW_W = 220;
@@ -456,7 +461,7 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
           aria-modal="true"
           aria-label={`Marco ${f.frame}: ${f.name}`}
           tabIndex={-1}
-          ref={(el) => el?.focus()}
+          ref={focusOnOpen}
           onKeyDown={(e) => {
             if (e.key === "Escape") set({ grande: false });
             if (e.key === "ArrowRight") go(i + 1);
