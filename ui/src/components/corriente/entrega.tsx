@@ -28,8 +28,8 @@ const Frame = ({ v, width, side, hi, pins = [], onPin }: { v: ParVista; width: W
     );
   if (f.kind === "none")
     return (
-      <div className="cor-noshot" data-frame="none">
-        <b>{W.sinFoto}</b>
+      <div className="cor-noshot" data-frame={f.error ? "error" : "none"}>
+        <b>{f.error ? W.conError : W.sinFoto}</b>
         <span className="cor-text">{f.why}</span>
       </div>
     );
