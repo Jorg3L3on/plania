@@ -66,7 +66,7 @@ test("I62-1: the pieces: 44px buttons, one primary, Pedir secondary, the three l
   assert.match(out, /class="cor-btn secondary"[^>]*>Ver antes y después</);
   assert.match(out, /class="cor-btn quiet"[^>]*>Pedir ajuste</);
   assert.match(out, /aria-pressed="true" class="cor-opt"/);
-  for (const c of ["cor-dot", "cor-agent", "cor-you", "cor-flowline", "cor-logo"]) assert.ok(out.includes(`class="${c}`), c);
+  for (const c of ["cor-dot", "cor-agent", "cor-you", "cor-flowline", "cor-logo"]) assert.match(out, new RegExp(`class="([^"]* )?${c}[ "]`), c);
   assert.equal((out.match(/cor-btn primary/g) ?? []).length, 1);
   const head = html(h(header.Head, { view: "corriente", waiting: 2, asistenteUnread: 1, now: Date.parse("2026-11-17T21:06:00Z"), timeZone: "America/Mexico_City", pedirTo: "/ceo", tocaTo: "/corriente?v=tetoca" }));
   assert.match(head, /aria-current="page"[^>]*>Corriente</);
@@ -467,4 +467,16 @@ test("I62-9: /ceo is La corriente; the building's code and .edi- rules are gone,
   assert.doesNotMatch(ceo, /edificio\//);
   assert.doesNotMatch(index, /\.edi-/);
   for (const k of [".sb-", ".ahl", ".bc-", ".city-"]) assert.ok(index.includes(k), k);
+});
+
+// PLA-59: La corriente draws each project's own mark, as Inicio does; a project with no logo gets its monogram.
+test("PLA-59: a project's logo is its own mark (Filmia's film strip); Mianovia, with none, its monogram", async () => {
+  const parts = await load("components/corriente/parts.tsx");
+  const filmia = html(h(parts.Logo, { slug: "filmia", title: "Filmia" }));
+  assert.match(filmia, /^<svg[^>]*class="[^"]*cor-logo/);
+  assert.match(filmia, /stop-color="#FF6A3D"/);
+  assert.doesNotMatch(filmia, /<text/);
+  const zig = html(h(parts.Logo, { slug: "mianovia", title: "Mianovia", size: "sm" }));
+  assert.match(zig, /class="[^"]*cor-logo sm"/);
+  assert.match(zig, /<text[^>]*>M<\/text>/);
 });
