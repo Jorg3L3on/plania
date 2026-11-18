@@ -87,6 +87,7 @@ test("I65-1: an idea not promoted reads its short name, a line per delivered sto
   await toLista(key);
   d = await read(key);
   assert.equal(d.gist.entendido, "una pantalla de usuarios para la dueña.");
+  assert.equal(d.understood_text, "una pantalla de usuarios para la dueña.", "the whole line");
   assert.equal(d.gist.investigacion, "Recomienda: Lista con acciones");
   assert.equal(d.gist.plan, "3 pasos · mediano");
   assert.equal(d.gist.lista, "Lista para construir");
@@ -147,6 +148,7 @@ test("I65-1: shortOf and gistOf", () => {
   const g = gistOf({
     text: "Algo",
     understood: "Entendí: algo bien",
+    understood_text: null,
     research: { recommendation: null, options: [{ n: 1, title: "A", text: "" }], unknown: [] },
     frames: [{}, {}] as never,
     plan_steps: ["uno"],

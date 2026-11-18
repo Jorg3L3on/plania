@@ -87,6 +87,8 @@ export type IdeaDetail = Pedido & {
   // PLA-I65-1. kind: what the key named (an idea, or an initiative with or without an idea behind it).
   kind: "idea" | "initiative";
   short: string;
+  // The PO's newest «Entendí» line whole (understood is cut at 160 for the lists).
+  understood_text: string | null;
   gist: Record<PedidoStop, string | null>;
   built: Built | null;
 };
@@ -192,7 +194,7 @@ const oneLine = (s: string | null | undefined, n = 90) => {
 };
 
 /** One or two lines per stop, from what that stop delivered; null when it has nothing (never the doc's title). */
-export function gistOf(d: Pick<IdeaDetail, "text" | "understood" | "research" | "frames" | "plan_steps" | "ficha" | "stage" | "promoted_to" | "stops">): Record<PedidoStop, string | null> {
+export function gistOf(d: Pick<IdeaDetail, "text" | "understood" | "understood_text" | "research" | "frames" | "plan_steps" | "ficha" | "stage" | "promoted_to" | "stops">): Record<PedidoStop, string | null> {
   const has = (s: PedidoStop) => d.stops.find((x) => x.stop === s)?.delivered ?? false;
   const rec = d.research.recommendation;
   const n = rec ? Number(/opci[oó]n\s*(\d+)/i.exec(rec)?.[1] ?? NaN) : NaN;
@@ -201,7 +203,7 @@ export function gistOf(d: Pick<IdeaDetail, "text" | "understood" | "research" | 
   const size = oneLine(d.ficha.tamano, 40);
   return {
     buzon: oneLine(d.text, 80),
-    entendido: has("entendido") ? oneLine(d.understood?.replace(/^\s*entend[ií]\s*[:：-]\s*/i, "")) : null,
+    entendido: has("entendido") ? oneLine((d.understood_text ?? d.understood)?.replace(/^\s*entend[ií]\s*[:：-]\s*/i, "")) : null,
     investigacion: has("investigacion") ? (recOption ? `Recomienda: ${recOption.title}` : oneLine(rec)) : null,
     diseno: has("diseno") && nf ? `${nf} ${nf === 1 ? "marco" : "marcos"} de Artist` : null,
     plan: has("plan") && d.plan_steps.length ? `${d.plan_steps.length} ${d.plan_steps.length === 1 ? "paso" : "pasos"}${size ? ` · ${size.replace(/\.$/, "").toLowerCase()}` : ""}` : null,
@@ -330,6 +332,11 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
     pictures: t.origin === "jorge" ? (await listTaskImages(db, slug, t.key)).map((i) => ({ id: i.id, url: i.url, at: i.created_at })) : [],
     kind: init ? "initiative" : "idea",
     short: shortOf(t.summary, t.title),
+    understood_text: ((): string | null => {
+      const last = evs.findLast((e) => e.type === "note" && /^\s*entend[ií]\s*[:：-]/i.test(String((e.payload as { text?: string }).text ?? "")));
+      const text = last ? String((last.payload as { text?: string }).text ?? "").replace(/^\s*entend[ií]\s*[:：-]\s*/i, "").trim() : "";
+      return text || null;
+    })(),
     built: promoted?.kind === "initiative" ? await builtOf(db, slug, promoted) : null,
   };
   return { ...out, gist: gistOf(out) };
@@ -369,6 +376,7 @@ async function initiativeAlone(db: Db, slug: string, t: Task, withBuilt: boolean
     pictures: [],
     kind: "initiative",
     short: shortOf(t.summary, t.title),
+    understood_text: null,
     gist: empty,
     built: withBuilt ? await builtOf(db, slug, t) : null,
   };

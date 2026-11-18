@@ -54,13 +54,13 @@ export function useCerrar() {
   });
 }
 
-const run = (slug: string, a: CardAct, acts: CorrienteActs) => {
+export const run = (slug: string, a: CardAct, acts: CorrienteActs) => {
   if (a.kind === "primero") return acts.pickNext(slug, a.key);
   if (a.kind === "quitar") return acts.cancelOrder(slug, a.key);
   if (a.kind === "detener") return acts.stopRun(a.runId);
   return acts.decisions.decide(a.decision, { action: a.action }, "aceptar");
 };
-const busyOf = (a: CardAct, acts: CorrienteActs) =>
+export const busyOf = (a: CardAct, acts: CorrienteActs) =>
   a.kind === "primero" ? acts.busy === `next-${a.key}` : a.kind === "quitar" ? acts.busy === `cancel-${a.key}` : a.kind === "detener" ? acts.busy === `stop-${a.runId}` : acts.decisions.busy?.id === a.decision.id;
 
 const Card = ({ p, t, acts, list, chosen, onChoose, now }: { p: OrgProject; t: ProjectTicket; acts: CorrienteActs; list: CardAct[]; chosen: boolean; onChoose: () => void; now: number }) => {

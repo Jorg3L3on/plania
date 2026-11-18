@@ -17,6 +17,7 @@ import { Asistente } from "@/components/corriente/asistente";
 import { Board, Paso, type BoardLinks } from "@/components/corriente/tablero";
 import { Equipo } from "@/components/corriente/equipo";
 import { Idea } from "@/components/corriente/idea";
+import type { FichaLinks } from "@/components/corriente/ficha";
 import { Disenos, Docs, Ideas, Prs } from "@/components/corriente/listas";
 import { Motores } from "@/components/corriente/motores";
 import { Maquinas } from "@/components/corriente/maquinas";
@@ -211,7 +212,11 @@ export const CorrientePage = () => {
       sueltos: linkTo({ slug: p.slug, tab: "tablero" }),
       doc: (id) => linkTo({ slug: p.slug, ver: { kind: "doc", id } }),
     };
-    if (at.ver?.kind === "paso" || at.ver?.kind === "iniciativa") return <Paso p={p} k={at.ver.key} links={boardLinks} back={linkTo({ slug: p.slug, tab: "tablero" })} />;
+    // PLA-I65-4: an initiative opens the one ficha; a step keeps its own view.
+    const fichaLinks: FichaLinks = { doc: boardLinks.doc, paso: boardLinks.paso, entrega: boardLinks.entrega, pedir: pedirTo(p.slug) };
+    if (at.ver?.kind === "paso") return <Paso p={p} k={at.ver.key} links={boardLinks} back={linkTo({ slug: p.slug, tab: "tablero" })} />;
+    if (at.ver?.kind === "iniciativa")
+      return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} decisions={decisions} links={fichaLinks} onClose={() => go({ slug: p.slug, tab: "tablero" })} />;
     if (at.tab === "tablero")
       return <Board p={p} decisions={decisions} acts={acts} links={boardLinks} now={now} chosenKey={new URLSearchParams(location.search).get("elegida")} onChoose={(k) => navigate(hrefOf({ slug: p.slug, tab: "tablero", extra: k ? { elegida: k } : {} }), { replace: true })} />;
     if (at.tab === "equipo")
@@ -228,8 +233,7 @@ export const CorrientePage = () => {
           motorDefault={company?.motor_default}
         />
       );
-    if (at.ver?.kind === "idea")
-      return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} links={{ back: linkTo({ slug: p.slug, tab: "ideas" }), doc: (id) => linkTo({ slug: p.slug, ver: { kind: "doc", id } }), track: (key) => linkTo({ slug: p.slug, ver: { kind: "iniciativa", key } }) }} />;
+    if (at.ver?.kind === "idea") return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} decisions={decisions} links={fichaLinks} onClose={() => go({ slug: p.slug, tab: at.tab === "ideas" ? "ideas" : at.tab })} />;
     if (at.tab === "ideas") return <Ideas p={p} acts={acts} links={{ idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }), pedir: pedirTo(p.slug) }} />;
     if (at.tab === "diseno") return <Disenos p={p} links={{ idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }) }} />;
     if (at.tab === "prs")

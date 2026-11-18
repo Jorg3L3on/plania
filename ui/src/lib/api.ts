@@ -296,6 +296,7 @@ export type IdeaDetail = OrgPedido & {
   // PLA-I65-1 (Una sola ficha); an older server sends none of these.
   kind?: "idea" | "initiative";
   short?: string;
+  understood_text?: string | null;
   gist?: Partial<Record<PedidoStop, string | null>>;
   built?: IdeaBuilt | null;
 };
