@@ -5,7 +5,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api, type Decision, type OrgProject, type ProjectTicket } from "@/lib/api";
 import { actAria, actBusyKey, actLabel, cardActs, type CardAct } from "@/lib/etapas";
-import { ETAPA_WORD } from "@/lib/etapas";
+import { ETAPA_WORD, statusWord } from "@/lib/etapas";
 import type { LogEntry } from "@/lib/types";
 import type { CorrienteActs } from "./acts";
 import { Btn, Key, Label, ReadError, State } from "./parts";
@@ -52,8 +52,9 @@ function logLine(e: LogEntry): string {
   const p = e.payload ?? {};
   const s = (k: string) => (typeof p[k] === "string" ? (p[k] as string) : null);
   if (s("note")) return s("note")!;
-  if (s("to")) return `Pasó a ${s("to")}`;
-  if (s("status")) return `Pasó a ${s("status")}`;
+  // PLA-112 (guided test PLA-86, F-4): the owner's words for the status («Quitar» read «Pasó a Won't do»).
+  if (s("to")) return `Pasó a ${statusWord(s("to")!)}`;
+  if (s("status")) return `Pasó a ${statusWord(s("status")!)}`;
   if (s("cite")) return s("cite")!;
   return e.type.replace(/^task\./, "").replace(/_/g, " ");
 }

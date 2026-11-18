@@ -45,6 +45,15 @@ export function assertStageMove(from: string | null, to: string, note?: string):
   return j > i ? "forward" : "back";
 }
 
+// PLA-112 (guided test PLA-86, F-9): Artist, finishing a run after the owner rewound the idea, moved it
+// idea → research → design → planning in 3 s, through stages it does not own. Research and Artist move an idea only out
+// of their own stage (forward or back); the PO, the Asistente, the owner and the server are not held here.
+export const STAGE_OF_ROLE: Partial<Record<string, Stage>> = { research: "research", artist: "design" };
+export function assertStageOwner(role: string | null, from: string | null): void {
+  const owns = role ? STAGE_OF_ROLE[role] : undefined;
+  if (owns && from !== owns) throw new ToolError("IDEA_STAGE_NOT_YOURS", { role, stage: from, owns });
+}
+
 export type StageDocRow = { title: string; markdown: string };
 export type StageQuestion = { question: string; answered: boolean };
 
