@@ -480,7 +480,8 @@ export type Etapa = { etapa: EtapaId; qa: "queued" | "running" | null; holder: E
 export type AhoraItem = { key: string; title: string; initiative: string | null } & Pick<Etapa, "etapa" | "qa" | "holder" | "live" | "since" | "reason">;
 // PLA-I53-6: zonas, what part of the app a ticket touches (from its areas); none when it has no areas.
 export type Zona = "pantalla" | "servidor" | "datos" | "docs";
-export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas?: Zona[] };
+// NEWPROJ-5: arranque, when the step's newest run failed before it started (its summary, when). Optional for older servers.
+export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas?: Zona[]; arranque?: { summary: string; at: string | null } | null };
 export type DoneInitiative = { key: string; title: string; done_at: string | null };
 // PLA-I56-1: done counts landed tickets (Merged, Released, Done); closed only Done; can_close when every ticket is Done.
 // An older server sends none of the three (then landed counts as closed, and there is no Cerrar).

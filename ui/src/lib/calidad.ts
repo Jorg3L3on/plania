@@ -1,5 +1,6 @@
 // AUDIT-5: Calidad. The shapes GET /api/scoreboard answers (src/api/scoreboard.ts) and the plain words the page
 // shows for them. No React here, so the wording is testable on its own.
+import { ARRANQUE, arranqueLine } from "./arranque";
 import { ApiError } from "@/lib/api";
 
 export const GROUPS = ["role", "model", "prompt_version", "skills", "resumed"] as const;
@@ -125,7 +126,8 @@ const REASON_WORD: Record<string, string> = {
   "pack file in the diff": "Dejó archivos de sus instrucciones en el cambio",
   unknown: "Sin motivo registrado",
 };
-export const reasonWord = (reason: string): string => REASON_WORD[reason] ?? reason.replace(/_/g, " ");
+// NEWPROJ-5: a start-up failure without a word here takes its words from lib/arranque.ts.
+export const reasonWord = (reason: string): string => REASON_WORD[reason] ?? ARRANQUE[reason]?.por ?? reason.replace(/_/g, " ");
 
 // "fail: error_max_turns (41 turns, session c1)" → "Falló: llegó al tope de turnos (41 turnos)".
 export function runWords(summary: string | null): string | null {
@@ -140,6 +142,15 @@ export function runWords(summary: string | null): string | null {
   const reason = /after timeout\s*$/i.test(m[2]!) ? "timeout" : m[2]!.split("(")[0]!.trim() || "unknown";
   const words = reasonWord(reason);
   return `Falló: ${words.charAt(0).toLowerCase()}${words.slice(1)}${tail}`;
+}
+
+// NEWPROJ-5: a run's summary in a list that already shows its state (Plomería's log): a start-up failure says what
+// happened and what to fix, another failure its reason in words, anything else as the run wrote it.
+export function logWords(summary: string): string {
+  const start = arranqueLine(summary);
+  if (start) return start;
+  if (!/^fail:/i.test(summary.trim())) return summary;
+  return (runWords(summary) ?? summary).replace(/^Falló: (.)/, (_m, c: string) => c.toUpperCase());
 }
 
 export const KIND_WORD: Record<ReadItem["kind"], string> = { failed: "Falló la corrida", returned: "QA la devolvió", sent_back: "La devolviste tú" };
