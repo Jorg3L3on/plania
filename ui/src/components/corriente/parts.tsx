@@ -1,8 +1,8 @@
 // PLA-I62-1: La corriente's pieces (board D4, Piezas). Buttons 44px tall; one white primary per view; Pedir always
 // secondary; amber only for what waits on Jorge; the project's colour only in its logo. No pills, no clickable divs.
-import { forwardRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from "react";
+import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Link } from "react-router";
-import { hueOf, initialOf } from "@/lib/corriente";
+import { ProjectMark } from "@/components/plania-mark";
 
 export type BtnKind = "primary" | "secondary" | "quiet" | "amber" | "danger" | "link";
 
@@ -50,10 +50,9 @@ export const You = ({ small, flat }: { small?: boolean; flat?: boolean }) => <sp
 export const Live = () => <span aria-hidden className="cor-live" />;
 
 /** The project's logo, the one place its colour shows. */
+/** The project's own mark, as on Inicio (PLA-59); a project with no logo yet gets its monogram. */
 export const Logo = ({ slug, title, size }: { slug: string; title: string; size?: "sm" | "md" }) => (
-  <span aria-hidden className={cls("cor-logo", size)} style={{ background: hueOf(slug), color: "rgba(5,5,7,.86)" } as CSSProperties}>
-    {initialOf(title)}
-  </span>
+  <ProjectMark slug={slug} name={title} fallback className={cls("cor-logo", size)} />
 );
 
 /** A section not drawn in La corriente yet: it says so and links to where it lives today. */

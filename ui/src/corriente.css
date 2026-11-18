@@ -135,9 +135,10 @@ button.cor-row { width: 100%; text-align: left; background: transparent; border-
 .cor-you.flat { width: 8px; height: 8px; border-radius: 2px; box-shadow: none; animation: none; }
 .cor-live { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--cor-violet-2); box-shadow: 0 0 10px 2px rgba(139, 92, 246, 0.9); animation: cor-pulse-sm 2.6s ease-in-out infinite; }
 .cor-flowline { flex: none; width: 40px; height: 3px; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--cor-violet-3), transparent); box-shadow: 0 0 10px rgba(139, 92, 246, 0.9); }
-.cor-logo { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; font-size: 14px; font-weight: 600; line-height: 1; }
-.cor-logo.sm { width: 18px; height: 18px; border-radius: 5px; font-size: 10.5px; }
-.cor-logo.md { width: 26px; height: 26px; border-radius: 7px; font-size: 13px; }
+/* PLA-59: the project's own mark (ProjectMark), as on Inicio. */
+.cor-logo { flex: none; display: block; width: 30px; height: 30px; }
+.cor-logo.sm { width: 18px; height: 18px; }
+.cor-logo.md { width: 26px; height: 26px; }
 
 /* The stream track: hairline, moving light, travelling sparks. */
 .cor-track { position: relative; flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); background-image: linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px); background-size: calc(100% / 7) 100%; }
