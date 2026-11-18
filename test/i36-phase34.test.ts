@@ -30,7 +30,7 @@ const { PROTOCOL_VERSION } = await import("../src/mcp/protocol.js");
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
 // PLA-I62-9: the building is gone; the cards are La corriente's (components/corriente/pendiente.tsx, ahora.tsx).
 const pend = await load("components/corriente/pendiente.tsx");
-const ahoraUi = await load("components/corriente/ahora.tsx");
+const stripUi = await load("components/corriente/strip.tsx");
 const lib = await load("lib/v2.ts");
 
 type Json = Record<string, any>;
@@ -463,9 +463,9 @@ test("I36-11 #4: asking, approving a plan, stopping a run and accepting into the
 const noop = () => {};
 const fakeActs = { refresh: noop, decisions: { decide: noop, withActed: (d: Json[]) => d, busy: null, errors: {}, prefill: {}, setPrefill: noop }, busy: null, stopRun: noop, resumeRun: noop, start: noop, plan: noop, autoAccept: noop, autoInvisible: noop, resend: noop, closeRequest: noop, cancelOrder: noop, pickNext: noop, note: noop, resume: noop, pause: noop };
 const links = { entrega: () => "/e", tetoca: () => "/t", paso: () => "/p", tablero: "/tb", equipo: "/eq", miembro: () => "/m", publicar: "/pub", pausar: "/pausar", pagina: "/pg", hash: () => "/h" };
-// PLA-I62-9: the project's Ahora (it carries Pausar el proyecto) and Te toca's cards, La corriente's.
+// PLA-I64-7: the project's bar carries Pausar (Ahora is retired); Te toca's cards are La corriente's.
 function renderCard(p: Json) {
-  return renderToStaticMarkup(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(MemoryRouter, null, React.createElement(ahoraUi.Ahora, { p, decisions: [], now: Date.now(), companyPaused: false, totals: null, acts: fakeActs, links, onFijar: noop }))));
+  return renderToStaticMarkup(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(MemoryRouter, null, React.createElement(stripUi.ProjectBar, { slug: p.slug, title: p.title, tab: "todo", href: () => "/t", paused: !!p.paused, pauseHref: "/pausar" }))));
 }
 function renderTeToca(decisions: Json[]) {
   return renderToStaticMarkup(
