@@ -78,6 +78,14 @@ export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 // PLA-I39-1: who asked, so the screen hangs the decision under that teammate's window. Null: nobody on a team.
 export type DecisionAsker = { agent: string; role: string };
+// PLA-82 (F-32): present only when the release carries migrations, so a plain release keeps its shape.
+function releaseMigrations(p: Project, plan: ReleasePlan): Pick<DecisionRelease, "migrations" | "migrate"> {
+  const tags = plan.migrations ?? [];
+  const files = plan.migration_files ?? [];
+  const migrations = [...tags, ...files.map((f) => f.split("/").pop()!)];
+  return migrations.length ? { migrations, migrate: migrateMode(p, { migrations: tags, migration_files: files }) } : {};
+}
+
 export type DecisionRelease = {
   from: string;
   into: string;
@@ -570,8 +578,7 @@ async function pasoRows(db: Db, all: Project[], inbox: Map<string, InboxItem[]>,
             ahead: plan.ahead,
             tickets: plan.tickets.map((t) => ({ key: t.key, title: t.title })),
             open_checks: plan.open_checks,
-            migrations: [...plan.migrations, ...(plan.migration_files ?? []).map((f) => f.split("/").pop()!)],
-            migrate: migrateMode(p, { migrations: plan.migrations, migration_files: plan.migration_files ?? [] }),
+            ...releaseMigrations(p, plan),
             before: plan.before.length,
             ...(await releaseReel(db, p.id, p.slug, plan.tickets).then((reel) => (reel.length ? { reel } : {}))),
           },
