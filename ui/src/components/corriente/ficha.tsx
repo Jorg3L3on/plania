@@ -57,14 +57,14 @@ export function recommended(d: Pick<IdeaDetail, "research">): number | null {
 }
 
 // dec: the option he has marked on each of the PO's decisions (by its number) before sending; why: his words for a change.
-type Ui = { sel: Sel; sub: "entrega" | "recorrido" | "nota"; frame: number; pins: IdeaNote[]; text: string; asking: boolean; pick: number | null; note: string; answer: string; drop: boolean; dec: Record<number, number>; why: Record<number, string> };
+type Ui = { sel: Sel; sub: "entrega" | "recorrido" | "nota"; frame: number; pins: IdeaNote[]; text: string; asking: boolean; pick: number | null; note: string; answer: string; drop: boolean; dec: Record<number, number>; why: Record<number, string>; grande: boolean };
 /** PLA-62: «Constrúyelo» said and nobody is turning it into an initiative (no live run on it): stuck, as the list says. */
 export const stuckOf = (p: Pick<OrgProject, "paused" | "team">, d: Pick<IdeaDetail, "key" | "state">) =>
   d.state === "valvula" && (p.paused || !p.team.some((m) => m.state === "running" && m.now?.ticket === d.key));
 /** When he said «Constrúyelo» (the newest one), from the trail. */
 export const orderedAt = (d: Pick<IdeaDetail, "trail">) => [...(d.trail ?? [])].reverse().find((t) => t.kind === "construir")?.at ?? null;
 
-const initialUi = (d: IdeaDetail): Ui => ({ sel: selOf(d), sub: "entrega", frame: 0, pins: [], text: "", asking: false, pick: null, note: "", answer: "", drop: false, dec: {}, why: {} });
+const initialUi = (d: IdeaDetail): Ui => ({ sel: selOf(d), sub: "entrega", frame: 0, pins: [], text: "", asking: false, pick: null, note: "", answer: "", drop: false, dec: {}, why: {}, grande: false });
 export type FichaLinks = { doc: (id: string) => string; paso: (key: string) => string; entrega: (d: Decision) => string; pedir: string };
 
 // ---- the stops as tabs over the current
@@ -412,8 +412,59 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
   const f = d.frames[i]!;
   const canPin = isOpen(d) && !s.answer;
   const pins = ui.pins.map((p, n) => ({ ...p, n: n + 1 })).filter((p) => p.frame === f.frame);
+  const pinAt = (e: { clientX: number; clientY: number; currentTarget: Element }) => {
+    if (!canPin) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    set({ pins: [...ui.pins, { frame: f.frame, x: Math.round(((e.clientX - r.left) / r.width) * 1000) / 10, y: Math.round(((e.clientY - r.top) / r.height) * 1000) / 10, text: "" }] });
+  };
+  const pinMarks = pins.map((p) => (
+    <i key={p.n} className="cor-pin" style={{ left: `${p.x}%`, top: `${p.y}%` }} aria-hidden>
+      {p.n}
+    </i>
+  ));
+  const go = (n: number) => set({ frame: (n + d.frames.length) % d.frames.length });
   return (
     <>
+      {/* PLA-72 (F-14): the frame in the ficha is 124 px tall, too small to judge a design; Ampliar opens it large,
+          one click deep, with the same pins and arrows between frames. */}
+      {ui.grande && (
+        <div
+          className="cor-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Marco ${f.frame}: ${f.name}`}
+          tabIndex={-1}
+          ref={(el) => el?.focus()}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") set({ grande: false });
+            if (e.key === "ArrowRight") go(i + 1);
+            if (e.key === "ArrowLeft") go(i - 1);
+          }}
+          data-lightbox
+        >
+          <div className="cor-lightbox-bar">
+            <b>
+              {f.frame} · {f.name}
+            </b>
+            <span className="cor-cap">{`${i + 1} de ${d.frames.length}${canPin ? " · toca un punto para dejar una nota" : ""}`}</span>
+            <Btn kind="quiet" small aria-label="Marco anterior" onClick={() => go(i - 1)}>
+              ‹
+            </Btn>
+            <Btn kind="quiet" small aria-label="Marco siguiente" onClick={() => go(i + 1)}>
+              ›
+            </Btn>
+            <Btn kind="secondary" small onClick={() => set({ grande: false })} data-control="ficha-cerrar-grande">
+              Cerrar ✕
+            </Btn>
+          </div>
+          <div className="cor-lightbox-stage">
+            <div className="cor-lightbox-frame" style={{ aspectRatio: `${f.width || 16} / ${f.height || 10}`, width: `min(100%, calc((100svh - 96px) * ${f.width || 16} / ${f.height || 10}))` } as CSSProperties} onClick={pinAt} data-control="ficha-clavar-grande">
+              <img src={f.url} alt={`Marco ${f.frame}: ${f.name}`} draggable={false} />
+              {pinMarks}
+            </div>
+          </div>
+        </div>
+      )}
       <Eyebrow links={links} doc={s.doc}>
         {eb(s, now, timeZone, `${d.frames.length} ${d.frames.length === 1 ? "marco" : "marcos"}`)}
       </Eyebrow>
@@ -424,19 +475,22 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
           tabIndex={canPin ? 0 : undefined}
           aria-label={canPin ? `Marco ${f.frame}: toca un punto para dejar una nota ahí` : `Marco ${f.frame}`}
           style={{ aspectRatio: f.width && f.height ? `${f.width} / ${f.height}` : "16 / 10" } as CSSProperties}
-          onClick={(e) => {
-            if (!canPin) return;
-            const r = e.currentTarget.getBoundingClientRect();
-            set({ pins: [...ui.pins, { frame: f.frame, x: Math.round(((e.clientX - r.left) / r.width) * 1000) / 10, y: Math.round(((e.clientY - r.top) / r.height) * 1000) / 10, text: "" }] });
-          }}
+          onClick={pinAt}
           data-control="ficha-clavar"
         >
           <img src={f.url} alt={`Marco ${f.frame}: ${f.name}`} draggable={false} />
-          {pins.map((p) => (
-            <i key={p.n} className="cor-pin" style={{ left: `${p.x}%`, top: `${p.y}%` }} aria-hidden>
-              {p.n}
-            </i>
-          ))}
+          {pinMarks}
+          <button
+            type="button"
+            className="cor-ficha-ampliar"
+            onClick={(e) => {
+              e.stopPropagation();
+              set({ grande: true });
+            }}
+            data-control="ficha-ampliar"
+          >
+            Ampliar
+          </button>
         </div>
         <div className="cor-ficha-thumbs" role="group" aria-label="Marcos">
           {d.frames.map((x, n) => (
