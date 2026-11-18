@@ -278,6 +278,10 @@ export type AgentToken = {
   revoked_reason: string | null;
 };
 
+/** PLA-74: what the stream (/ceo) reads: open ideas and open tickets, and the ticket counts. */
+export type StreamTask = Pick<TaskRow, "key" | "kind" | "title" | "status" | "stage" | "promoted_to">;
+export type StreamSummary = { slug: string; title?: string; prefix?: string; done?: number; revision?: number; tasks: StreamTask[] };
+
 export type TaskRow = {
   key: string;
   kind: "initiative" | "ticket" | "idea";

@@ -47,7 +47,7 @@ import { ideaDecisionRoutes, ideaDespertar, ideaDetail, ideaRespuesta, ideaVisto
 import { frameBytes } from "../pedidos/frames.js";
 import { promptDoc } from "./company-extra.js";
 import { fichaRead, hechoRead, projectDocRead, pulsoRead } from "./company-ficha.js";
-import { addTeamMember, companyRead, projectRead } from "./company-org.js";
+import { addTeamMember, companyRead, projectRead, serverTiming, type ReadProfile } from "./company-org.js";
 import { setMotores } from "./company-motores.js";
 import { checkMotor } from "../mcp/team.js";
 import { actOnDecision } from "./company-decisions.js";
@@ -84,7 +84,14 @@ async function body<T extends z.ZodType>(c: Context, schema: T): Promise<z.infer
 const Paused = z.object({ paused: z.boolean() }).strict();
 
 // PLA-I32-6: the read contract (src/api/company-org.ts). The runner's plumbing moved to GET /api/machine.
-companyRoutes.get("/", async (c) => c.json(await withDb((db) => companyRead(db))));
+// PLA-74: Server-Timing names the slowest steps (summed over projects), so a slow floor can be read from the browser.
+companyRoutes.get("/", async (c) => {
+  const prof: ReadProfile = new Map();
+  const t0 = performance.now();
+  const out = await withDb((db) => companyRead(db, new Date(), prof));
+  c.header("Server-Timing", serverTiming(prof, performance.now() - t0));
+  return c.json(out);
+});
 
 companyRoutes.get("/projects/:slug", async (c) => {
   try {

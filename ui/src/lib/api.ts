@@ -5,7 +5,7 @@ import type { Goal, GoalWrite } from "@/components/goals/model";
 import type { Usage, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
 import type { CapturesRead, PruebaRead } from "@/lib/ventana";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
-import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, TaskDetail, TaskRow } from "./types";
+import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -37,6 +37,8 @@ export const api = {
   // TanStack Query rejects undefined data, so the empty 204 becomes true.
   session: () => request<void>("GET", "/session").then(() => true),
   projects: () => request<ProjectSummary[]>("GET", "/projects"),
+  // PLA-74: the stream's slim read (open ideas and tickets, counts), a few KB instead of the full 1.3 MB.
+  projectsStream: () => request<StreamSummary[]>("GET", "/projects?for=stream"),
   project: (slug: string) => request<ProjectRead>("GET", `/projects/${encodeURIComponent(slug)}`),
   task: (slug: string, key: string) =>
     request<TaskDetail>("GET", `/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}`),
