@@ -2,14 +2,13 @@
 // Migration 0036 is applied twice on a private database, never a real one.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { userInfo } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import pg from "pg";
 import type pgTypes from "pg";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestDb, useTestEnv, PG_USER } from "./helpers.js";
 
 useTestEnv();
 const { makeDb } = await import("../src/db/client.js");
@@ -61,7 +60,7 @@ after(async () => {
 
 test("0036_delegation.sql applies twice on a throwaway database", async () => {
   const name = "plania_mig_0036";
-  const adminUrl = `postgres://${userInfo().username}@localhost:5432/postgres`;
+  const adminUrl = `postgres://${PG_USER}@localhost:5432/postgres`;
   const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
   const sql0036 = readFileSync(path.join(dir, "0036_delegation.sql"), "utf8");
   const admin = new pg.Client({ connectionString: adminUrl });
@@ -70,7 +69,7 @@ test("0036_delegation.sql applies twice on a throwaway database", async () => {
   await admin.query(`create database ${name}`);
   await admin.end();
 
-  const mig = new pg.Client({ connectionString: `postgres://${userInfo().username}@localhost:5432/${name}` });
+  const mig = new pg.Client({ connectionString: `postgres://${PG_USER}@localhost:5432/${name}` });
   await mig.connect();
   try {
     const files = readdirSync(dir).filter((f) => f.endsWith(".sql") && f < "0036").sort();

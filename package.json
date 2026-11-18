@@ -14,7 +14,7 @@
     "start": "tsx --env-file=.env scripts/dev.ts",
     "server:restart": "PLANIA_JOBS=0 tsx --env-file=.env scripts/restart.ts",
     "build": "tsc --noEmit && tsc -p ui && vite build",
-    "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts",
+    "test": "node --import tsx --test --test-concurrency=1 --test-force-exit --test-timeout=300000 test/*.test.ts",
     "db:generate": "drizzle-kit generate",
     "seed": "tsx --env-file=.env scripts/seed.ts",
     "project:add": "tsx --env-file=.env scripts/register-project.ts",

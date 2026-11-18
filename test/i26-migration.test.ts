@@ -2,14 +2,14 @@
 // This uses a private database, never a real one.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { userInfo } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import pg from "pg";
+import { PG_USER } from "./helpers.js";
 
 test("0038_heartbeats_adapters.sql applies twice on a throwaway database", async () => {
   const name = "plania_mig_0038";
-  const adminUrl = `postgres://${userInfo().username}@localhost:5432/postgres`;
+  const adminUrl = `postgres://${PG_USER}@localhost:5432/postgres`;
   const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
   const sql0038 = readFileSync(path.join(dir, "0038_heartbeats_adapters.sql"), "utf8");
   const admin = new pg.Client({ connectionString: adminUrl });
@@ -18,7 +18,7 @@ test("0038_heartbeats_adapters.sql applies twice on a throwaway database", async
   await admin.query(`create database ${name}`);
   await admin.end();
 
-  const mig = new pg.Client({ connectionString: `postgres://${userInfo().username}@localhost:5432/${name}` });
+  const mig = new pg.Client({ connectionString: `postgres://${PG_USER}@localhost:5432/${name}` });
   await mig.connect();
   try {
     const files = readdirSync(dir).filter((f) => f.endsWith(".sql") && f < "0038").sort();

@@ -3,7 +3,6 @@
 // seedOrg runs the way Jorge's deploy runs it, twice. Never a real database.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { userInfo } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -11,6 +10,7 @@ import pg from "pg";
 import * as schema from "../src/db/schema.js";
 import { seedOrg } from "../scripts/seed-org.js";
 import { roleOf } from "../src/runner/limits.js";
+import { PG_USER } from "./helpers.js";
 
 const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
@@ -40,8 +40,8 @@ const ROSTER: [slug: string, name: string, role: string, title: string, kind: st
 
 test("I32-2: today's 11-row roster becomes asistente, ceo and six teams of four; the shared three retire with their history", async () => {
   const name = "plania_mig_i32_roster";
-  const adminUrl = `postgres://${userInfo().username}@localhost:5432/postgres`;
-  const url = `postgres://${userInfo().username}@localhost:5432/${name}`;
+  const adminUrl = `postgres://${PG_USER}@localhost:5432/postgres`;
+  const url = `postgres://${PG_USER}@localhost:5432/${name}`;
   const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();
   await admin.query(`drop database if exists ${name} with (force)`);

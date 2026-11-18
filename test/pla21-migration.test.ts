@@ -3,12 +3,12 @@
 // budget and Asistente's limit go in, then 0043 runs twice and the rest of runner_settings is kept.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { userInfo } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import pg from "pg";
 import * as schema from "../src/db/schema.js";
+import { PG_USER } from "./helpers.js";
 
 const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
@@ -23,8 +23,8 @@ test("the journal holds 0043_remove_token_budgets and the schema has no budget l
 
 test("0043 applies twice on a throwaway copy: the budgets are gone, the runner settings stay", async () => {
   const name = "plania_mig_0043";
-  const adminUrl = `postgres://${userInfo().username}@localhost:5432/postgres`;
-  const url = `postgres://${userInfo().username}@localhost:5432/${name}`;
+  const adminUrl = `postgres://${PG_USER}@localhost:5432/postgres`;
+  const url = `postgres://${PG_USER}@localhost:5432/${name}`;
   const sql0043 = readFileSync(path.join(dir, "0043_remove_token_budgets.sql"), "utf8");
   const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();
