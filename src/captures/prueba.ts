@@ -520,7 +520,24 @@ function readEntrega(c: Copy): EntregaRead {
 
 // Starts the delivery's copy (its PR branch, next to sandbox's), or returns the one already running for the same
 // ticket and branch. A different delivery in the same project replaces it: one delivery copy per project.
-export async function encenderEntrega(db: Db, slug: string, delivery: { key: string; branch: string }): Promise<EntregaRead> {
+// PLA-94 (guided test PLA-86, F-17): a copy kept for the same ticket and branch is only reused while it runs the
+// branch's head. MIA-I10-1 came back from Taller on a new commit while the live copy turned on for its first delivery
+// still ran the old one; El Probador reused it and photographed the old commit, and the card held «Aceptar» with
+// «Las fotos son de un commit anterior». The head is the caller's (the PR's) when it knows it, else origin's after a
+// fetch. A copy still starting (no commit yet) is kept: it is on its way to the head it fetched.
+async function atHead(c: Copy, branch: string, head?: string | null): Promise<boolean> {
+  if (!c.commit) return true;
+  let want = head?.trim() || "";
+  if (!want && c.repo) {
+    const g = git();
+    if ((await g(["fetch", "origin", branch], c.repo)).code !== 0) return true;
+    want = (await g(["rev-parse", `origin/${branch}`], c.repo)).stdout.trim();
+  }
+  if (!want) return true;
+  return c.commit.startsWith(want.slice(0, 7)) || want.startsWith(c.commit.slice(0, 7));
+}
+
+export async function encenderEntrega(db: Db, slug: string, delivery: { key: string; branch: string; head?: string | null }): Promise<EntregaRead> {
   const { p, s } = await settingsOf(db, slug);
   const branch = delivery.branch.trim();
   if (!/^[A-Za-z0-9._\/-]{1,200}$/.test(branch) || branch.startsWith("-") || branch.includes("..")) {
@@ -529,7 +546,7 @@ export async function encenderEntrega(db: Db, slug: string, delivery: { key: str
   if (branch === "main" || branch === BRANCH) throw new ToolError("INVALID_FILTER", { field: "branch", hint: `the delivery's copy runs the PR branch, never ${branch}` });
   const id = idOf(slug, "entrega");
   const had = copies.get(id);
-  if (had && had.taskKey === delivery.key && had.ref === branch && had.phase !== "failed") {
+  if (had && had.taskKey === delivery.key && had.ref === branch && had.phase !== "failed" && (await atHead(had, branch, delivery.head))) {
     had.seenAt = now();
     return readEntrega(had);
   }
