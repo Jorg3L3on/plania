@@ -139,7 +139,7 @@ const DecisionBody = z
     text: z.string().trim().min(1).max(2000).optional(),
     // PLA-I52-6, Devolver a Taller from El Probador: the pins the owner put on the pictures.
     marcas: z
-      .array(z.object({ vista: z.string().max(40), side: z.enum(["antes", "despues"]), width: z.enum(["desktop", "phone"]), x: z.number().min(0).max(1), y: z.number().min(0).max(1), note: z.string().max(300) }).strict())
+      .array(z.object({ vista: z.string().max(40), side: z.enum(["antes", "despues"]), width: z.enum(["desktop", "phone"]), x: z.number().min(0).max(1), y: z.number().min(0).max(1), note: z.string().max(600) }).strict())
       .max(12)
       .optional(),
     // aplicar: the file and the lines the owner reviewed (a file step).

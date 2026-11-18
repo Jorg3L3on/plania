@@ -21,10 +21,19 @@ export type EvidenceView = {
   loading: boolean;
 };
 
-// Devolver a Taller: one quick reason and one optional line. What Taller reads is «reason: line».
+// Devolver a Taller: one quick reason and an optional note. What Taller reads is «reason: note».
+// PLA-92 (guided test PLA-86, F-16): the note was one line cut silently at 300 characters; a real correction stopped
+// mid-sentence. It is now a text box of NOTE_MAX characters whose line breaks are kept (the server takes 2000 with the
+// reason in front), and a mark's note goes to MARK_MAX.
 export const RETURN_REASONS = ["No se ve bien", "Falta algo", "El texto", "Otra cosa"] as const;
+export const NOTE_MAX = 1900;
+export const MARK_MAX = 600;
 export const returnText = (reason: string, line: string) => {
-  const l = line.replace(/\s+/g, " ").trim();
+  const l = line
+    .split("\n")
+    .map((x) => x.replace(/[ \t]+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n");
   return l ? `${reason}: ${l}` : reason;
 };
 export const EV_WORDS = {
@@ -36,7 +45,7 @@ export const EV_WORDS = {
   note: "Ver nota",
   hideNote: "Ocultar nota",
   sheet: "Devolver a Taller",
-  line: "Una línea para Taller (opcional)",
+  line: "Qué cambiarías, para Taller (opcional)",
   auto: "Aprobar sola si las pruebas pasan (solo a la copia de prueba)",
 } as const;
 

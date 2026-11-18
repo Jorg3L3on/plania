@@ -39,7 +39,7 @@ export function cleanMarcas(v: unknown): Marca[] {
       width: m.width === "phone" ? "phone" : "desktop",
       x: Math.max(0, Math.min(1, m.x!)),
       y: Math.max(0, Math.min(1, m.y!)),
-      note: String(m.note ?? "").replace(/\s+/g, " ").trim().slice(0, 300),
+      note: String(m.note ?? "").replace(/\s+/g, " ").trim().slice(0, 600),
     }));
 }
 
