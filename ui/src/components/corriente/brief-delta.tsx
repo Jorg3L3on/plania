@@ -184,7 +184,7 @@ export function BriefDelta({ delta, selected, onPick, inHand, arrived, quiet, st
             ),
         )}
 
-        <span className={`cor-bf-gate${free ? " free" : ""}`} style={{ left: g.gx, top: g.gy }} aria-hidden data-brief="tu" />
+        <span className={`cor-bf-tu${free ? " free" : ""}`} style={{ left: g.gx, top: g.gy }} aria-hidden data-brief="tu" />
         <span className={`cor-bf-gl${free ? " free" : ""}`} style={{ left: g.gx, top: g.gy - 34 }}>
           TÚ
         </span>
