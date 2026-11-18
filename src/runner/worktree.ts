@@ -100,6 +100,42 @@ export async function ensureWorktree(
   return { ok: true, path: target, branch: input.branch, created: true };
 }
 
+// PLA-66: a question (Preguntar) reads its own copy of the project, never the owner's checkout as it sits (that
+// checkout was 27 commits behind and the PO answered about a 5-day-old app). <root>/<project>/_consulta is a detached
+// worktree moved to a freshly fetched origin/sandbox before each question. Read-only runs only: it is reset by force.
+export type ReadCopy = { ok: true; path: string; branch: string; commit: string; created: boolean } | { ok: false; summary: string };
+export const readCopyPathFor = (root: string, project: string): string => {
+  if (!SAFE_KEY.test(project)) throw new Error("unsafe worktree name");
+  return path.join(root, project, "_consulta");
+};
+export async function ensureReadCopy(input: { repo: string; root: string; project: string }, git: GitFn = defaultGit): Promise<ReadCopy> {
+  let target: string;
+  try {
+    target = readCopyPathFor(input.root, input.project);
+  } catch {
+    return { ok: false, summary: "fail: bad worktree name" };
+  }
+  if (isInside(target, input.repo)) return { ok: false, summary: "fail: worktree inside the repo" };
+  if (!existsSync(input.repo)) return { ok: false, summary: "fail: no repo" };
+  const ref = `origin/${ALLOWED_BASE}`;
+  const fetched = await git(["fetch", "origin", ALLOWED_BASE], input.repo);
+  if (fetched.code !== 0) return { ok: false, summary: "fail: fetch origin/sandbox" };
+  let created = false;
+  if (existsSync(target)) {
+    const moved = await git(["checkout", "--detach", "--force", ref], target);
+    if (moved.code !== 0) return { ok: false, summary: "fail: read copy checkout" };
+  } else {
+    mkdirSync(path.dirname(target), { recursive: true });
+    await git(["worktree", "prune"], input.repo);
+    const added = await git(["worktree", "add", "--detach", target, ref], input.repo);
+    if (added.code !== 0) return { ok: false, summary: "fail: worktree add" };
+    created = true;
+  }
+  const head = await git(["rev-parse", "--short", "HEAD"], target);
+  if (head.code !== 0) return { ok: false, summary: "fail: worktree unreadable" };
+  return { ok: true, path: target, branch: ALLOWED_BASE, commit: head.stdout.trim(), created };
+}
+
 export async function removeWorktree(input: { repo: string; path: string }, git: GitFn = defaultGit): Promise<boolean> {
   const out = await git(["worktree", "remove", input.path], input.repo);
   return out.code === 0;

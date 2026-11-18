@@ -83,7 +83,7 @@ export const StreamLane = ({ lane, i, links, onResume, resuming }: { lane: Lane;
         <span className="cor-lane-text">
           <span className="cor-lane-title">{lane.title}</span>
           <span className="cor-cap cor-ellipsis" title={lane.idle?.text} data-idle={lane.idle ? lane.slug : undefined}>
-            {lane.paused ? "en pausa" : lane.idle ? lane.idle.text : lane.next ? `sigue ${lane.next}` : "sin paso siguiente"}
+            {lane.paused ? "en pausa" : lane.idle ? lane.idle.text : lane.agents[0] ? `${lane.agents[0].seat} trabaja ${lane.agents[0].key ?? "ahora"}` : lane.next ? `sigue ${lane.next}` : "sin paso siguiente"}
           </span>
         </span>
       </Link>

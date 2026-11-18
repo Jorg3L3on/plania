@@ -29,6 +29,9 @@
   min-height: calc(100svh - var(--cor-shell));
   height: calc(100svh - var(--cor-shell));
   overflow: hidden;
+  /* PLA-67: clip, not just hide: the aura sticks out 190px on the right, and a hidden box still scrolls sideways
+     when a button inside takes focus (the whole floor jumped left on «Así es»). */
+  overflow: clip;
   background: var(--cor-bg);
   color: var(--cor-text);
   font-family: var(--cor-sans);

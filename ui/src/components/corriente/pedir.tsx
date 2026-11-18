@@ -110,6 +110,7 @@ export const Pedir = ({
   projects,
   initial,
   initialText,
+  initialQuestion,
   disabled,
   onAsk,
   onPictures,
@@ -120,6 +121,8 @@ export const Pedir = ({
   initial: string | null;
   /** Words handed over from elsewhere (Máquinas' «Algo falló»). */
   initialText?: string | null;
+  /** PLA-67: the question to open (from the bar's «Ver la respuesta»). */
+  initialQuestion?: string | null;
   disabled?: boolean;
   onAsk: (slug: string, input: AskInput) => Promise<AskResult>;
   onPictures: () => void;
@@ -136,7 +139,7 @@ export const Pedir = ({
   const [sent, setSent] = useState<{ text: string; key: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fromAnswer, setFromAnswer] = useState<string | null>(null);
-  const [openQ, setOpenQ] = useState<string | null>(null);
+  const [openQ, setOpenQ] = useState<string | null>(initialQuestion ?? null);
   const area = useRef<HTMLTextAreaElement>(null);
   const consultas = useQuery({
     queryKey: ["consultas", slug],
@@ -146,7 +149,11 @@ export const Pedir = ({
   });
   const list = consultas.data?.consultas ?? [];
   const current = openQ ? (list.find((c) => c.id === openQ) ?? null) : null;
+  // A new project closes the open question; the first render keeps the one the link asked for (PLA-67).
+  const shownSlug = useRef(slug);
   useEffect(() => {
+    if (shownSlug.current === slug) return;
+    shownSlug.current = slug;
     setOpenQ(null);
     setFromAnswer(null);
   }, [slug]);
@@ -335,6 +342,10 @@ export const Pedir = ({
                     </li>
                   ))}
                 </ul>
+              ) : consultas.isPending ? (
+                <p className="cor-text" style={{ padding: "10px 0" }} data-anteriores-cargando>
+                  Buscando tus preguntas…
+                </p>
               ) : (
                 <p className="cor-text" style={{ padding: "10px 0" }}>
                   Aún no le has preguntado nada a este proyecto. Lo que preguntes queda aquí con su respuesta y lo que el PO leyó.

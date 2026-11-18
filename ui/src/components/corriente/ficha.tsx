@@ -284,6 +284,9 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
       </>
     );
   }
+  // PLA-67: the stop it is at, with nobody stuck, is being worked on: it did not «not start».
+  if (!s.delivered && s.state === "here" && !d.quiet_since)
+    return <Empty title={`${SEL_NAME[s.stop]} en curso`} line={`${d.stage === "research" ? "Research" : d.stage === "design" ? "Artist" : "El PO"} la trabaja ahora. Te avisa cuando entregue.`} />;
   if (!s.delivered)
     return (
       <Empty title={`${SEL_NAME[s.stop]} no ha empezado`} line={s.state === "here" && d.quiet_since ? `Quieta desde ${dayHm(d.quiet_since, now, timeZone)}. Si la despiertas, ${d.stage === "research" ? "Research" : d.stage === "design" ? "Artist" : "el PO"} la toma en su siguiente turno.` : (WAITS[s.stop] ?? "Llega después de la parada anterior.")}>
@@ -733,7 +736,8 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
             </form>
           }
         >
-          ¿Entendió bien el PO? <span>Si dices «Así es», sigue a Investigación.</span>
+          ¿Entendió bien el PO?{" "}
+          <span>{d.stop === "entendido" || d.stop === "buzon" ? "Si dices «Así es», sigue a Investigación." : `Ya sigue en ${SEL_NAME[d.stop]}; si algo está mal, corrígelo y lo retoma.`}</span>
         </Bar>
       );
     if (s.stop === "investigacion" && d.research.options.length) {
