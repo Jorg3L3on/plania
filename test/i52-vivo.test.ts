@@ -93,6 +93,8 @@ describe("En vivo", () => {
     assert.equal(redirect.status, 302);
     assert.equal(redirect.location, "/panel/entrar");
     assert.deepEqual(await vivo.startVivo(db, "zigzag"), r, "a second click returns the same copy");
+    // PLA-111 (F-33): the project's own port, the same on every start (any free one only when it is busy).
+    assert.equal(Number(new URL(r.local_url!).port), vivo.vivoPort("zigzag"));
   });
 
   test("with Tailscale it opens on the tailnet, and the entry goes when the copy stops", async () => {

@@ -156,6 +156,21 @@ export function realTailscale(): Tailscale | null {
   };
 }
 
+// PLA-111 (guided test PLA-86, F-33): each «encender» got a random port, so a tab or a phone bookmark from the last
+// try pointed nowhere. A project's live copy now asks for the same port every time (4300–4399 by its slug) and
+// takes any free one only when that one is busy.
+export const VIVO_BASE = 4300;
+export const vivoPort = (slug: string): number => VIVO_BASE + ([...slug].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7) % 100);
+const listenOn = (server: http.Server, port: number) =>
+  new Promise<boolean>((resolve, reject) => {
+    const fail = (e: NodeJS.ErrnoException) => (e.code === "EADDRINUSE" && port !== 0 ? resolve(false) : reject(e));
+    server.once("error", fail);
+    server.listen(port, "127.0.0.1", () => {
+      server.off("error", fail);
+      resolve(true);
+    });
+  });
+
 const PHONE_HINT = "Para abrirla en el teléfono, esta Mac necesita Tailscale (docs/phone-access.md).";
 
 // Starts (or returns) the live copy of a project's delivery. The delivery's copy must be on (F2).
@@ -183,10 +198,7 @@ export async function startVivo(db: Db, slug: string): Promise<VivoRead> {
   }
   const base = { slug, key: e?.key ?? null, target: target.port, cookies };
   const server = proxy(base);
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => resolve());
-  });
+  if (!(await listenOn(server, vivoPort(slug)))) await listenOn(server, 0);
   const port = (server.address() as AddressInfo).port;
   const local = `http://localhost:${port}`;
   const ts = deps.tailscale === undefined ? realTailscale() : deps.tailscale;
