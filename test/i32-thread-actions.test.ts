@@ -236,3 +236,20 @@ test("PLA-108: a PR that conflicts with sandbox is not merged; the delivery goes
     assert.match(await readFile(new URL(f, import.meta.url), "utf8"), /MERGE_CONFLICT: "Choca con lo último que aceptaste/);
   }
 });
+
+test("PLA-108: mergeable UNKNOWN, then gh merge says «not mergeable»: the same conflict, back to Taller", async () => {
+  const taller = (await raw.query(`select slug from agents where role_template = 'taller' and (project_id = (select id from projects where slug = 'micasa') or project_id is null) order by project_id nulls last limit 1`)).rows[0].slug as string;
+  releaseGh.run = async (args) => {
+    if (args[1] === "view" && args.includes("baseRefName,state,headRefOid,url")) return { ok: true, stdout: JSON.stringify({ baseRefName: "sandbox", state: "OPEN", headRefOid: "f".repeat(40), url: "https://github.com/example/micasa/pull/13" }), stderr: "" };
+    if (args[1] === "view" && args.includes("mergeable")) return { ok: true, stdout: JSON.stringify({ mergeable: "UNKNOWN" }), stderr: "" };
+    if (args[1] === "merge") return { ok: false, stdout: "", stderr: "X Pull request example/micasa#13 is not mergeable: the merge commit cannot be cleanly created." };
+    return { ok: false, stdout: "", stderr: "unexpected" };
+  };
+  await raw.query(`delete from agent_runs`);
+  const t = await reviewTicket("Cancelar una cita", "code", { pr: "https://github.com/example/micasa/pull/13", owner: taller });
+  const res = await act({ message_id: t.message, action: "fusionar" });
+  assert.equal(res.status, 409);
+  assert.equal(((await res.json()) as { error: string }).error, "MERGE_CONFLICT");
+  assert.equal((await raw.query(`select status from tasks where key = $1`, [t.key])).rows[0].status, "Ready");
+  assert.equal((await raw.query(`select count(*)::int n from agent_runs r join agents a on a.id = r.agent_id where a.slug = $1 and r.task_key = $2`, [taller, t.key])).rows[0].n, 1);
+});
