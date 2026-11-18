@@ -1,6 +1,7 @@
 // PLA-I62-7, PLA-I61: an idea's stops and the words each stop says. PLA-I65-3: the idea itself now opens in the one
 // ficha (ficha.tsx), the same from Pedidos, Ideas and Tablero; this file keeps the words and the stand-alone address
 // (ver=idea), which shows that ficha with Cerrar back to the list.
+import type { ReactNode } from "react";
 import type { Decision, IdeaDetail, IdeaStop, OrgProject, PedidoStop } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
 import type { CorrienteActs } from "./acts";
@@ -42,8 +43,8 @@ export function stopLine(s: IdeaStop, d: Pick<IdeaDetail, "quiet_since" | "state
 }
 
 /** The address ver=idea:<key> (and ver=iniciativa:<key>): the ficha alone, Cerrar goes back to the list. */
-export const Idea = ({ p, k, now, timeZone, acts, decisions, links, onClose }: { p: OrgProject; k: string; now: number; timeZone?: string; acts: CorrienteActs; decisions: Decision[]; links: FichaLinks; onClose: () => void }) => (
+export const Idea = ({ p, k, now, timeZone, acts, decisions, links, onClose, extra }: { p: OrgProject; k: string; now: number; timeZone?: string; acts: CorrienteActs; decisions: Decision[]; links: FichaLinks; onClose: () => void; extra?: ReactNode }) => (
   <div className="cor-idea" data-idea={k}>
-    <Ficha p={p} k={k} now={now} timeZone={timeZone} acts={acts} decisions={decisions} links={links} onClose={onClose} />
+    <Ficha p={p} k={k} now={now} timeZone={timeZone} acts={acts} decisions={decisions} links={links} onClose={onClose} extra={extra} />
   </div>
 );

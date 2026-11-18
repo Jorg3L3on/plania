@@ -31,9 +31,9 @@ import { Piezas } from "@/components/corriente/piezas";
 import { ProjectBar, Strip } from "@/components/corriente/strip";
 import { Stream, type StreamLinks } from "@/components/corriente/stream";
 import { Cabeza, Todo, type TodoLinks } from "@/components/corriente/todo";
-import { Palanca, type PalancaLinks } from "@/components/corriente/palanca";
+import { CARRIED, Palanca, type PalancaLinks } from "@/components/corriente/palanca";
 import { Archivo, HechoView } from "@/components/corriente/archivo";
-import { fraseOf } from "@/lib/cosas";
+import { cosasOf, fraseOf } from "@/lib/cosas";
 import { nowLine } from "@/lib/edificio";
 import { rumboText } from "@/lib/v2";
 import { ApiError, api, type OrgProject } from "@/lib/api";
@@ -241,7 +241,19 @@ export const CorrientePage = () => {
     };
     // PLA-I65: an idea or an initiative opens the one ficha over the list (Cerrar goes back); a step keeps its view.
     const fichaLinks: FichaLinks = { doc: boardLinks.doc, paso: boardLinks.paso, entrega: boardLinks.entrega, pedir: pedirTo(p.slug) };
-    if (at.ver?.kind === "idea" || at.ver?.kind === "iniciativa") return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} decisions={decisions} links={fichaLinks} onClose={() => go({ slug: p.slug })} />;
+    // PLA-62: the lever the thing's row offered comes along (Pasar a Lista, Hacer primero, Detener, Reenviar).
+    const carried = (key: string) => {
+      const c = cosasOf({ p, decisions, ficha: null, companyPaused: paused }).grupos.flatMap((g) => g.cosas).find((x) => x.key === key);
+      return c?.palanca && CARRIED.has(c.palanca.kind) ? <Palanca p={p} c={c} primary={false} acts={acts} decisions={decisions} links={carriedLinks} onFijar={(x) => openHoja("meta", x.slug)} /> : null;
+    };
+    const carriedLinks: PalancaLinks = {
+      entrega: (id) => linkTo({ slug: p.slug, ver: { kind: "entrega", id } }),
+      tetoca: (id) => hrefOf({ view: "tetoca", extra: { decision: id } }),
+      idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }),
+      publicar: hojaHref("publicar", p.slug),
+      ahora: ahoraLinks(p.slug),
+    };
+    if (at.ver?.kind === "idea" || at.ver?.kind === "iniciativa") return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} decisions={decisions} links={fichaLinks} onClose={() => go({ slug: p.slug })} extra={carried(at.ver.key)} />;
     if (at.ver?.kind === "paso") return <Paso p={p} k={at.ver.key} links={boardLinks} back={todoHref} backLabel={`Todo ${p.title}`} acts={acts} decisions={decisions} />;
     if (at.tab === "todo" && !at.ver) {
       const todoLinks: TodoLinks = {

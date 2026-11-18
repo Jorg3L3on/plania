@@ -126,6 +126,7 @@ export const TodoList = ({
     if (!box || typeof ResizeObserver === "undefined") return;
     const read = () => {
       if (!ref.current) return;
+      setOver(0);
       const pad = parseFloat(getComputedStyle(box).paddingBottom) || 0;
       setRoom(box.getBoundingClientRect().bottom - pad - ref.current.getBoundingClientRect().top + box.scrollTop - 4);
     };
@@ -136,7 +137,16 @@ export const TodoList = ({
     if (head) ro.observe(head);
     return () => ro.disconnect();
   }, []);
-  const shown = foldOf(cosas, open, room);
+  // PLA-62: rows wrap taller than the estimate on narrow screens; what still overflows after a render is taken off the
+  // room once (until the box changes size), so the fold settles on what really fits. Opened groups may scroll.
+  const [over, setOver] = useState(0);
+  const shown = foldOf(cosas, open, room === undefined ? undefined : room - over);
+  useLayoutEffect(() => {
+    const box = ref.current?.closest(".cor-todo-scroll") as HTMLElement | null;
+    if (!box || open.size > 0) return;
+    const extra = box.scrollHeight - box.clientHeight;
+    if (extra > 2) setOver((o) => o + extra);
+  });
   const toggle = (g: Grupo) => setOpen((s) => (s.has(g) ? new Set([...s].filter((x) => x !== g)) : new Set([...s, g])));
   // Empty groups share the line of the group after them (or one line of their own at the end).
   const blocks: ({ kind: "empty"; grupos: Exclude<Grupo, "hecho">[] } | { kind: "group"; i: number; lead: Exclude<Grupo, "hecho">[] })[] = [];

@@ -44,6 +44,9 @@ export function busyKey(slug: string, a: PalancaT): string | null {
   }
 }
 
+/** PLA-62: the levers a ficha or a step's view does not offer by itself; opening the thing carries them over. */
+export const CARRIED: ReadonlySet<PalancaT["kind"]> = new Set(["lista", "primero", "detener", "reenviar"]);
+
 const DECISION_WORD: Record<string, string> = { plan: "Ver el plan", question: "Responder", proposal: "Elegir", step: "Hacerlo" };
 
 export const Palanca = ({ p, c, primary, acts, decisions, links, onFijar }: { p: OrgProject; c: Cosa; primary: boolean; acts: CorrienteActs; decisions: Decision[]; links: PalancaLinks; onFijar: (p: OrgProject) => void }) => {

@@ -236,7 +236,7 @@ function ticketThing(
 }
 
 /** An idea not promoted yet: a pedido (origin jorge) or the team's idea. */
-function ideaThing(i: { key: string; title: string; origin: string | null; stop: PedidoStop; state: PedidoState | null; question: { id: string; text: string } | null; waits: string | null; at: string | null }, ctx: { p: OrgProject; paused: boolean; mine: Decision[] }): Cosa {
+function ideaThing(i: { key: string; title: string; origin: string | null; stop: PedidoStop; state: PedidoState | null; question: { id: string; text: string } | null; waits: string | null; at: string | null; ordered_at?: string | null }, ctx: { p: OrgProject; paused: boolean; mine: Decision[] }): Cosa {
   const { p, paused } = ctx;
   const tipo: Tipo = i.origin === "jorge" ? "pedido" : "idea";
   const worker = workerOn(i.key, p);
@@ -256,7 +256,8 @@ function ideaThing(i: { key: string; title: string; origin: string | null; stop:
   const d = decisions[0];
   if (d) return { ...base, grupo: "toca", hilo: hilo("toca", "cerrada"), espera: d.title, cap: stopName.toUpperCase(), palanca: decisionLever(d, p), since: d.at };
   if (valve && live) return { ...base, grupo: "mueve", hilo: hilo("hecho", "pasando"), espera: `${seatName(worker!.role)} la sube al tablero.`, cap: "Pasando al tablero", palanca: worker?.now?.run_id ? { kind: "detener", run: worker.now.run_id } : null, since: worker?.now?.since ?? i.at };
-  if (valve) return { ...base, grupo: "toca", hilo: hilo("hecho", "atorada"), espera: "Dijiste «Constrúyelo» y nadie la está subiendo al tablero.", cap: "Atorada", palanca: { kind: "despertar", key: i.key }, since: i.at };
+  // PLA-62: the valve's clock is the «Constrúyelo» itself, not the idea's last edit.
+  if (valve) return { ...base, grupo: "toca", hilo: hilo("hecho", "atorada"), espera: "Dijiste «Constrúyelo» y nadie la está subiendo al tablero.", cap: "Atorada", palanca: { kind: "despertar", key: i.key }, since: i.ordered_at ?? i.at };
   if (i.stop === "lista" && tipo === "pedido") return { ...base, grupo: "toca", hilo: hilo("hecho", "toca"), espera: "El plan está: «Constrúyelo» la sube al tablero.", cap: "Lista para construir", palanca: { kind: "construir", key: i.key }, since: i.at };
   if (live || i.state === "trabajando") {
     const who = worker ? seatName(worker.role) : "El equipo";
@@ -309,6 +310,7 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
           question: i.question ?? pd?.question ?? null,
           waits: i.waits,
           at: i.updated_at,
+          ordered_at: i.ordered_at ?? null,
         },
         { p, paused, mine },
       ),

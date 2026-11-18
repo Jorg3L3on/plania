@@ -47,6 +47,7 @@ test("I64-1: the ficha carries promoted_to, origin, the tube's state and the pro
   assert.equal(by["TLU-IDEA1"].state, null, "a promoted idea has no tube state");
   assert.deepEqual([by["TLU-IDEA3"].stop, by["TLU-IDEA3"].state, by["TLU-IDEA3"].question?.text], ["diseno", "espera", "¿Azul o verde?"]);
   assert.deepEqual([by["TLU-IDEA4"].origin, by["TLU-IDEA4"].stop, by["TLU-IDEA4"].guardada], ["jorge", "lista", false]);
+  assert.equal(by["TLU-IDEA4"].ordered_at, null, "no «Constrúyelo» yet");
   assert.deepEqual(f.promoted, [
     { idea: "TLU-IDEA1", initiative: "TLU-I1" },
     { idea: "TLU-IDEA2", initiative: "TLU-I2" },
@@ -79,6 +80,16 @@ test("I64-3 #2 el pulso: steps landed per day for 14 days match a control count"
   const res = await app.request("/api/company/projects/tienda/pulso", { headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } });
   assert.equal(res.status, 200);
   assert.equal(((await res.json()) as any).days.length, 14);
+});
+
+test("PLA-62 #4: the ficha carries the time of the newest «Constrúyelo»", async () => {
+  const id = (await raw.query(`select id from tasks where key = 'TLU-IDEA4'`)).rows[0].id;
+  for (const at of ["2026-11-17T08:53:00Z", "2026-11-17T10:00:00Z"])
+    await raw.query(`insert into events (project_id, task_id, type, actor, payload, created_at) values ($1, $2, 'pedido.construir', '{"agent":"jorge","session_id":"web"}'::jsonb, '{}'::jsonb, $3)`, [pid, id, at]);
+  const f = (await (await app.request("/api/company/projects/tienda/ficha", { headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } })).json()) as any;
+  const i4 = f.ideas.find((i: any) => i.key === "TLU-IDEA4");
+  assert.equal(i4.ordered_at, "2026-11-17T10:00:00.000Z");
+  assert.equal(i4.state, "valvula");
 });
 
 test("I64-6 #1 #2 Archivo reads every doc and PR; docs without an owner are the project's own", async () => {
