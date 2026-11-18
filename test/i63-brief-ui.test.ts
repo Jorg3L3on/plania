@@ -249,3 +249,41 @@ test("I63-3: a settled card shows its stamp, its line and Deshacer (Z); this vis
   assert.match(out, /Pasó a la copia de prueba\./);
   assert.match(out, /data-undo="i\|filmia\|needs_you1"[^>]*>Deshacer <kbd>Z<\/kbd>/);
 });
+
+// ---- I63-4: states and edges
+test("I63-4: a failed run keeps the brief and says why, with the steps to fix it and Reintentar", () => {
+  const base = { language: "es", refreshFailed: false, missing: null, generatedAt: "2026-11-17T13:00:00Z", timeZone: "America/Mexico_City", canRetry: true, onRetryRun: () => {}, onRefresh: () => {} };
+  const auth = html(h(page.BriefNotice, { ...base, lastRun: { status: "fail", kind: "auth", reason: "x", ended_at: "2026-11-17T15:10:00Z" }, initialFix: true }));
+  assert.match(auth, /data-brief="last-run".*No se pudo actualizar a las 09:10\..*Claude perdió su sesión.*Sigues viendo el brief de las 07:00/s);
+  assert.match(auth, /data-brief="fix-steps".*Escribe claude y luego \/login/s);
+  assert.match(auth, /data-brief="retry-run"/);
+  assert.match(html(h(page.BriefNotice, { ...base, lastRun: { status: "fail", kind: "other", reason: "el pase tardó demasiado", ended_at: "2026-11-17T15:10:00Z" } })), /el pase tardó demasiado/);
+  assert.match(html(h(page.BriefNotice, { ...base, lastRun: null, refreshFailed: true })), /data-brief="refresh-failed".*No se pudo actualizar\..*Reintentar/s);
+  assert.match(html(h(page.BriefNotice, { ...base, lastRun: null, missing: "ideas" })), /data-brief="missing"[^>]*>.*No llegaron las ideas de hoy\./s);
+  assert.equal(html(h(page.BriefNotice, { ...base, lastRun: null })), "");
+});
+
+test("I63-4: all settled: the headline, Tú violet, thin streams, a full river", () => {
+  const data = brief(["filmia", "micasa"], [item("filmia", "needs_you", 1), item("micasa", "next", 2)]);
+  const st = { brief_id: "b", read_only: false, items: Object.fromEntries(data.items.map((i: any) => [i.id, { state: "handled", line: null, actions: [], action_id: "a", undo: true, at: "2026-11-17T15:00:00Z" }])), ideas: {} };
+  const d = delta.deltaOf({ list: city.stations(data, st), w: 1440, h: 650 });
+  assert.deepEqual([d.counts.done, d.counts.total, d.counts.toca], [2, 2, 0]);
+  assert.ok(d.streams.every((s: any) => s.width === 1 && s.sub === "al día" && !s.lights.length));
+  assert.equal(d.river.length, 2);
+  assert.equal(delta.headlineOf({ total: 2, open: 0, blocked: 0, needs: 0 }).l1, "Todo resuelto por hoy.");
+  const out = html(h(deltaUi.BriefDelta, { delta: d, selected: null, onPick: () => {}, inHand: false }));
+  assert.match(out, /cor-bf-tu free/);
+  assert.match(out, /cor-bf-gl free/);
+  assert.match(out, /RESUELTO<b>2 \/ 2/);
+});
+
+test("I63-4: the phone: no curves, one list per project, the card under the chosen light, Resuelto as a row", () => {
+  const data = brief(["filmia", "micasa"], [item("filmia", "needs_you", 1), item("micasa", "blocker", 2)], [idea("filmia", 1)]);
+  const d = delta.deltaOf({ list: city.stations(data, undefined), w: 1440, h: 650 });
+  const out = html(h(deltaUi.BriefPhone, { delta: d, selected: "i|micasa|blocker2", onPick: () => {}, card: h("div", { "data-test": "card" }) }));
+  assert.doesNotMatch(out, /<svg class="cor-bf-svg"/);
+  assert.match(out, /data-stream="filmia".*data-stream="micasa".*data-test="card".*data-stream="resuelto"/s);
+  assert.equal((out.match(/data-test="card"/g) ?? []).length, 1);
+  assert.match(out, /class="cor-bf-lt flow sel"/);
+  assert.match(css, /@media \(max-width: 639px\) \{\n  \.cor-bf \{ flex: none; \}/);
+});
