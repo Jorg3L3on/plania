@@ -681,6 +681,12 @@ a.cor-ficha-paso:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-ficha-ahora.live .cor-ficha-gl { border: 0; border-radius: 50%; background: #fff; box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.28), 0 0 22px 6px rgba(139, 92, 246, 0.7); }
 .cor-ficha-answer { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; }
 .cor-ficha-answer .cor-input { width: 250px; min-width: 120px; }
+/* A short window (1280x720): the stops keep name and state, their two-line gist folds, and the delivery gets the room. */
+@media (max-height: 760px) {
+  .cor-ficha-rio { height: 172px; }
+  .cor-ficha-tab { height: 54px; }
+  .cor-ficha-gist { display: none; }
+}
 .cor-trail { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 .cor-trail li { display: flex; align-items: center; gap: 14px; min-height: 44px; border-bottom: 1px solid var(--cor-line); font-size: 13.5px; color: var(--cor-body); }
 .cor-trail li > time { width: 90px; flex: none; }

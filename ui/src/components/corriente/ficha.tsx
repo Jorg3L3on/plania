@@ -65,7 +65,7 @@ function tabsOf(d: IdeaDetail, m: RioModel): TabInfo[] {
   const out: TabInfo[] = d.stops.map((s, i) => {
     const built = !!d.built;
     // Once built the stops are history: who delivered, no «sin ver».
-    const line = alone ? { text: "Sin entrega", tone: "" as const } : built ? { text: s.stop === "lista" ? "Tu sí" : s.stop === "buzon" ? "Tú" : whoName(s.by) || "—", tone: "" as const } : s.stop === "lista" && s.state === "here" && d.state === "quieta" ? { text: "Espera tu sí", tone: "you" as const } : s.state === "here" && d.state === "trabajando" ? { text: `${whoName(d.who) || "Alguien"} la trabaja`, tone: "live" as const } : stopLine(s, d);
+    const line = alone ? { text: "Sin entrega", tone: "" as const } : built ? { text: s.stop === "lista" ? "Tu sí" : s.stop === "buzon" ? "Tú" : whoName(s.by) || "—", tone: "" as const } : s.stop === "lista" && s.state === "here" && d.state === "valvula" ? { text: "Pasando al tablero", tone: "live" as const } : s.stop === "lista" && s.state === "here" && d.state === "quieta" ? { text: "Espera tu sí", tone: "you" as const } : s.state === "here" && d.state === "trabajando" ? { text: `${whoName(d.who) || "Alguien"} la trabaja`, tone: "live" as const } : stopLine(s, d);
     return { sel: s.stop, who: line.text, tone: line.tone, gist: d.gist?.[s.stop] ?? null, state: i < m.here ? "done" : i === m.here ? "here" : "todo" };
   });
   const b = d.built;
@@ -822,7 +822,7 @@ export const Ficha = ({ p, k, now, timeZone, acts, decisions, links, onClose }: 
   if (q.isError)
     return (
       <section className="cor-ficha error" data-ficha={k} aria-label="Ficha">
-        <ReadError what="esta cosa" onRetry={() => void q.refetch()} />
+        <ReadError what="la ficha" onRetry={() => void q.refetch()} />
         <Btn kind="quiet" small onClick={onClose} data-control="ficha-cerrar">
           Cerrar ✕
         </Btn>
