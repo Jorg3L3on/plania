@@ -16,11 +16,13 @@ export const STAGE_OWNER: Record<IdeaStage, RunnerRole | null> = {
   ready: null,
 };
 
+// AUDIT-8: each owner is told to deliver its stage as data (deliver_stage writes the doc), then to move the idea.
+// The first words stay as they were: the queue's summaries and the prompts are matched on them.
 export const STAGE_REASON: Record<IdeaStage, string> = {
-  idea: "pedido de Jorge para darle forma",
-  research: "idea stage research",
-  design: "idea stage design",
-  planning: "idea stage planning: write the Plan doc (steps and size) and move the idea to ready",
+  idea: "pedido de Jorge para darle forma: entrega la etapa con deliver_stage (stage idea: problem, who, why_now y tus dudas como decisions con la opción que recomiendas) y muévela a research",
+  research: "idea stage research: deliver it with deliver_stage (stage research: learned, options, recommendation, unknowns) and move the idea to design",
+  design: "idea stage design: deliver it with deliver_stage (stage design: approach, scope, out_of_scope) and move the idea to planning",
+  planning: "idea stage planning: deliver it with deliver_stage (stage planning: steps with done_when and try_it, risks, size) and move the idea to ready",
   ready: "",
 };
 
