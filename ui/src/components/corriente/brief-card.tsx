@@ -1,5 +1,5 @@
 // PLA-I63-3: the card in hand, at the right of the delta (PLA-IDEA26, sketch 2). It carries what the city's ficha
-// carried (components/brief/city.tsx, PLA-I51), in La corriente's look and words: the evidence for what the row is
+// carried (city.tsx, PLA-I51, retired in I63-5), in La corriente's look and words: the evidence for what the row is
 // about now (Live), every action the row's state offers (RowAction, by its level instant / confirm / wake), the
 // confirm inside the card, the cost line before waking someone, an answer by option or text, a note for Pedir ajuste,
 // an idea's five fates and the reasons to discard, Send to Plania's progress, the stamp with its time and Deshacer.

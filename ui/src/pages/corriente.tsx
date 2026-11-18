@@ -14,7 +14,7 @@ import { TeToca } from "@/components/corriente/tetoca";
 import { Pedir } from "@/components/corriente/pedir";
 import { Pedidos } from "@/components/corriente/pedidos";
 import { Asistente } from "@/components/corriente/asistente";
-import { BriefPlace } from "@/components/corriente/brief";
+import { BriefPlace, useBriefToca } from "@/components/corriente/brief";
 import { Board, Paso, type BoardLinks } from "@/components/corriente/tablero";
 import { Equipo } from "@/components/corriente/equipo";
 import { Idea } from "@/components/corriente/idea";
@@ -71,6 +71,7 @@ export const CorrientePage = () => {
   const waiting = decisions.filter(pending).length;
   const paused = !!company?.company.paused;
   const refresh = acts.refresh;
+  const briefToca = useBriefToca();
 
   const [resuming, setResuming] = useState<string | null>(null);
   const resume = useMutation({
@@ -359,7 +360,7 @@ export const CorrientePage = () => {
       {at.slug && company ? (
         <Strip lanes={lanes} open={at.slug} href={(slug) => linkTo({ slug, tab: at.tab })} back={hrefOf({ view: "corriente" })} pedirTo={pedirTo(at.slug)} />
       ) : (
-        <Head view={at.slug ? null : at.view} waiting={waiting} asistenteUnread={company?.asistente.unread ?? 0} now={now} timeZone={timeZone} pedirTo={pedirTo(null)} tocaTo={linkTo({ view: "tetoca" })} closeTo={at.view === "pedir" ? hrefOf({ view: "corriente" }) : undefined} />
+        <Head view={at.slug ? null : at.view} waiting={waiting} asistenteUnread={company?.asistente.unread ?? 0} now={now} timeZone={timeZone} pedirTo={pedirTo(null)} tocaTo={linkTo({ view: "tetoca" })} briefToca={briefToca} closeTo={at.view === "pedir" ? hrefOf({ view: "corriente" }) : undefined} />
       )}
       {paused && (
         <div className="cor-notice amber" role="status" data-banner="paused">

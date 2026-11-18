@@ -1,7 +1,7 @@
 // PLA-I63: the Morning brief as a Compañía place (/ceo?v=brief). Server-rendered with react-dom/server and the pure
 // model called directly. Clicks, measures, axe and motion run in the real-browser pass on the demo server.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -61,16 +61,17 @@ test("I63-1: the tools: Generar ahora with three passes, Días anteriores, Ajust
   assert.match(html(h(page.BriefTools, base)), /data-brief="settings"/);
 });
 
-test("I63-1: the states without a brief, and the Brief tab only when the address opens it", () => {
+test("I63-1/5: the states without a brief, and the Brief tab after Plomería with its amber count", () => {
   for (const [state, text] of [["empty", "lo primero que te toca"], ["off", "brief apagado"], ["failed", "Reintentar"]] as const) {
     const out = html(h(page.BriefView, { kick: "Brief · mar 17 nov", live: false, headline: delta.noBriefHeadline(state), tools: null, state, onRetry: () => {} }));
     assert.match(out, new RegExp(`data-brief-state="${state}"`));
     assert.match(out, new RegExp(text));
   }
   assert.match(html(h(page.BriefView, { kick: "k", live: false, headline: delta.noBriefHeadline("loading"), tools: null, state: "loading" })), /aria-busy="true".*role="status"/s);
-  const head = (view: string | null) => html(h(header.Head, { view, waiting: 0, now: Date.parse("2026-11-17T15:00:00Z"), pedirTo: "/ceo?v=pedir", tocaTo: "/ceo?v=tetoca" }));
-  assert.doesNotMatch(head("corriente"), />Brief</);
+  const head = (view: string | null, briefToca = 0) => html(h(header.Head, { view, waiting: 0, now: Date.parse("2026-11-17T15:00:00Z"), pedirTo: "/ceo?v=pedir", tocaTo: "/ceo?v=tetoca", briefToca }));
+  assert.match(head("corriente"), />Plomería<\/a><a class="cor-tab" href="\/ceo\?v=brief"[^>]*>Brief<\/a>/);
   assert.match(head("brief"), /aria-current="page"[^>]*>Brief/);
+  assert.match(head("corriente", 5), />Brief<span class="cor-count amber">5<\/span>/);
   assert.match(css, /\.cor-bf-h1 \{ font-size: 40px/);
 });
 
@@ -286,4 +287,33 @@ test("I63-4: the phone: no curves, one list per project, the card under the chos
   assert.equal((out.match(/data-test="card"/g) ?? []).length, 1);
   assert.match(out, /class="cor-bf-lt flow sel"/);
   assert.match(css, /@media \(max-width: 639px\) \{\n  \.cor-bf \{ flex: none; \}/);
+});
+
+// ---- I63-5: the switch
+test("I63-5: /brief, the Te toca link and a plan notice open /ceo?v=brief; Brief left the app bar", () => {
+  const app = readFileSync(new URL("../ui/src/App.tsx", import.meta.url), "utf8");
+  assert.match(app, /<Route path="\/brief" element={<Navigate to="\/ceo\?v=brief" replace \/>} \/>/);
+  assert.doesNotMatch(app, /pages\/brief/);
+  const org = readFileSync(new URL("../src/api/company-org.ts", import.meta.url), "utf8");
+  assert.match(org, /link: "\/ceo\?v=brief" \} : null/);
+  assert.match(readFileSync(new URL("../src/brief/pipeline.ts", import.meta.url), "utf8"), /link: "\/ceo\?v=brief"/);
+  assert.match(readFileSync(new URL("../ui/src/lib/org.ts", import.meta.url), "utf8"), /brief_plan"\) return "\/ceo\?v=brief"/);
+  const shell = readFileSync(new URL("../ui/src/components/app-shell.tsx", import.meta.url), "utf8");
+  assert.match(shell, /\["\/ceo", "\/machine"\]/);
+  for (const gone of ["../ui/src/pages/brief.tsx", "../ui/src/components/brief/city.tsx"]) assert.equal(existsSync(new URL(gone, import.meta.url)), false, gone);
+  assert.equal(lib.legacyHref({ view: "brief" }), "/ceo?v=brief");
+});
+
+test("I63-5: the pure brief model the delta reads: keys, missing parts, open ideas", () => {
+  assert.equal(city.keyCommand({ key: "j" }), "next");
+  assert.equal(city.keyCommand({ key: "ArrowLeft" }), "prevProject");
+  assert.equal(city.keyCommand({ key: "Enter", target: { tagName: "BUTTON" } }), null);
+  assert.equal(city.keyCommand({ key: "l", target: { tagName: "TEXTAREA" } }), null);
+  assert.equal(city.keyCommand({ key: "Escape", target: { tagName: "TEXTAREA" } }), "escape");
+  assert.equal(city.keyCommand({ key: "z", metaKey: true }), null);
+  const data = brief(["filmia"], [item("filmia", "next", 1)], [idea("filmia", 1)]);
+  assert.equal(city.missingPart(data), null);
+  assert.equal(city.missingPart({ ...data, mode: "partial", sources: [{ name: "claude_ideas", ok: false }] }), "ideas");
+  assert.equal(city.ideaOpen(data.ideas[0], undefined, [], new Set(["I1"])), false);
+  assert.equal(city.ideaOpen(data.ideas[0], undefined, [], new Set()), true);
 });

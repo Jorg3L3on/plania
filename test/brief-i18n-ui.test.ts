@@ -12,11 +12,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
 const lib = await load("lib/brief.ts");
 const i18n = await load("lib/brief-i18n.ts");
-const summary = await load("components/brief/brief-summary.tsx");
-const items = await load("components/brief/brief-items.tsx");
-const header = await load("components/brief/brief-header.tsx");
-const footer = await load("components/brief/brief-footer.tsx");
-const city = await load("components/brief/city.tsx");
 const settings = await load("components/brief/brief-settings.tsx");
 
 const h = React.createElement;
@@ -42,61 +37,26 @@ function shape(t: unknown): unknown {
   return typeof t;
 }
 
-/** The whole page's markup in one language: header, summary, both sections, ideas, send bar, footer. */
-function page(language: "en" | "es") {
-  const data = { ...sample, language };
-  const stamp = i18n.briefStamp(data.generatedAt, data.timezone, data.timezoneLabel, language);
-  return [
-    html(h(header.BriefHeader, { language, stamp, run: null, pending: false, canGenerate: true, onGenerate: noop, history: [], todayDate: null, date: null, onDate: noop, onSettings: noop })),
-    html(h(summary.BriefSummary, { data, checks: [], language, view: "open", onView: noop, app: null, onApp: noop })),
-    html(h(items.BriefSection, { id: "needs", title: i18n.BRIEF_LABELS[language].needsYou, count: 1 }, h(items.NeedsRow, { item: data.items[0], index: 0, app: data.apps[2], checked: false, readOnly: false, onCheck: noop, language }))),
-    html(h(items.BriefSection, { id: "next", title: i18n.BRIEF_LABELS[language].upNext, count: 1 }, h(items.NextRow, { item: { ...data.items[5], url: "https://example.com" }, app: data.apps[0], checked: false, readOnly: false, onCheck: noop, language }))),
-    html(h(city.BriefCity, { data: { ...data, version: 2 }, briefId: "b1", state: { brief_id: "b1", read_only: false, items: { [data.items[0].id]: { state: "open", line: null, actions: [{ id: "step_done", level: "instant", undo: true, target: 0 }, { id: "give_to_po", level: "wake", undo: false, target: 0, wake: { agent: "po", role: null, low: 10, high: 25, paused: false, company_paused: false, busy: false } }, { id: "later", level: "instant", undo: true, target: null }, { id: "dismiss", level: "instant", undo: true, target: null }], action_id: null, undo: false, live: null } }, ideas: {}, in_motion: [] }, stateLoading: false, checks: [], language, readOnly: false, stamp, run: null, generating: false, canGenerate: true, onGenerate: noop, history: [], todayDate: null, date: null, onDate: noop, onSettings: noop, banner: null, onRetry: noop, onAct: noop, onUndo: noop, acting: false, ideaCost: () => null, plans: new Map(), initial: { station: data.items[0].app } })),
-    html(h(footer.BriefFooter, { data: { ...data, mode: "partial" }, stamp, language })),
-  ].join("\n");
-}
-
 test("the en and es tables have the same keys at every level, settings sheet included", () => {
   assert.deepEqual(shape(i18n.BRIEF_LABELS.es), shape(i18n.BRIEF_LABELS.en));
   assert.ok(Object.keys(i18n.BRIEF_LABELS.en.s).length > 40);
 });
 
-test("check 1: with language es the page labels are Spanish and the stamp uses Spanish weekday and month", () => {
-  const out = text(page("es"));
-  for (const label of ["Te necesita", "Lo siguiente", "Te toca", "Generar ahora", "Sin marcar", "Todo", "Todas las apps", "Hazlo tú", "Dáselo a", "Guárdalo", "en tu mesa", "Pendientes", "Faltan algunas partes"]) {
-    assert.ok(out.includes(label), label);
-  }
-  assert.match(page("es"), /aria-label="Ajustes"/);
+test("check 1: the Spanish stamp, day label and plurals (the brief in Compañía reads them)", () => {
   const stamp = i18n.briefStamp("2026-11-13T07:04:12-06:00", "America/Mexico_City", "CDMX", "es");
   assert.equal(stamp, "vie · 13 nov · 07:04 CDMX");
   assert.match(i18n.dayLabel("2026-11-12", "es"), /^jue · 12 nov$/);
   assert.equal(i18n.BRIEF_LABELS.es.ideas(1), "1 idea nueva");
   assert.equal(i18n.BRIEF_LABELS.es.ideas(9), "9 ideas nuevas");
   assert.equal(i18n.BRIEF_LABELS.es.checked(3), "3 marcadas");
-});
-
-test("check 2: with language en every label is English, and neither language shows the other's labels", () => {
-  const en = text(page("en"));
-  for (const label of ["Needs you", "Up next", "Ideas", "Generate now", "Not checked", "All apps", "Do it yourself", "Hand it to", "Put it away", "on your desk", "Pending", "Some parts are missing"]) {
-    assert.ok(en.includes(label), label);
-  }
   assert.equal(i18n.briefStamp("2026-11-13T07:04:12-06:00", "America/Mexico_City", "CDMX", "en"), "Fri · Nov 13 · 07:04 CDMX");
-  // Labels that differ between the tables (and are long enough not to be data) must not leak across.
-  const enAll = new Set(strings(i18n.BRIEF_LABELS.en));
-  const esAll = new Set(strings(i18n.BRIEF_LABELS.es));
-  const onlyEn = [...enAll].filter((s) => !esAll.has(s) && s.length > 4);
-  const onlyEs = [...esAll].filter((s) => !enAll.has(s) && s.length > 4);
-  const es = text(page("es"));
-  // Words that are also brief data (e.g. an item titled "Close Juegos…") are not labels.
-  const dataText = JSON.stringify(sample);
-  for (const s of onlyEn.filter((x) => !dataText.includes(x))) assert.ok(!es.includes(s), `English label in the es page: ${s}`);
-  for (const s of onlyEs.filter((x) => !dataText.includes(x))) assert.ok(!en.includes(s), `Spanish label in the en page: ${s}`);
 });
 
 test("check 3: no hard-coded labels in ui/src/components/brief/* (grep), and labels.ts is gone", () => {
   assert.equal(existsSync(new URL("labels.ts", DIR)), false);
   const files = readdirSync(DIR).filter((f) => /\.tsx?$/.test(f));
-  assert.ok(files.length >= 7);
+  // PLA-I63-5: only the settings sheet is left here (the brief draws itself in components/corriente/brief*.tsx).
+  assert.ok(files.length >= 1);
   const found: string[] = [];
   for (const f of files) {
     const src = readFileSync(new URL(f, DIR), "utf8")

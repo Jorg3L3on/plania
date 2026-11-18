@@ -458,7 +458,7 @@ test("I62-9: each old building address opens its screen in La corriente", async 
   assert.equal(ceo.ownAddress("?p=filmia"), false);
 });
 
-test("I62-9: /ceo is La corriente; the building's code and .edi- rules are gone, the shared .sb-/.ahl-/.bc-/.city- rules stay", () => {
+test("I62-9: /ceo is La corriente; the building's code and .edi- rules are gone, the shared .sb-/.ahl-/.city- rules stay (PLA-I63-5 retired .bc-)", () => {
   const app = readFileSync(new URL("../ui/src/App.tsx", import.meta.url), "utf8");
   const ceo = readFileSync(new URL("../ui/src/pages/ceo.tsx", import.meta.url), "utf8");
   const index = readFileSync(new URL("../ui/src/index.css", import.meta.url), "utf8");
@@ -466,7 +466,8 @@ test("I62-9: /ceo is La corriente; the building's code and .edi- rules are gone,
   assert.match(ceo, /<CorrientePage \/>/);
   assert.doesNotMatch(ceo, /edificio\//);
   assert.doesNotMatch(index, /\.edi-/);
-  for (const k of [".sb-", ".ahl", ".bc-", ".city-"]) assert.ok(index.includes(k), k);
+  for (const k of [".sb-", ".ahl", ".city-"]) assert.ok(index.includes(k), k);
+  assert.ok(!index.includes(".bc-"), ".bc- rules are gone");
 });
 
 // PLA-59: La corriente draws each project's own mark, as Inicio does; a project with no logo gets its monogram.

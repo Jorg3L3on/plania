@@ -256,6 +256,20 @@ export function useNarrow(): boolean {
 
 // ---- the container: the brief's hooks, as the old /brief page used them
 
+/** PLA-I63-5: the Brief tab's count: open blockers and «te toca» in today's brief (the same reads as the page). */
+export function useBriefToca(): number {
+  const latest = useBriefLatest();
+  const settings = useBriefSettings();
+  const b = latest.data?.brief ?? null;
+  const rows = useBriefState(b?.id ?? null);
+  return useMemo(() => {
+    if (!b) return 0;
+    const st = rows.data && rows.data.brief_id === b.id ? rows.data : undefined;
+    const list = stations(b.data, st, { checks: latest.data?.checks ?? [], maxItems: settings.data?.settings.max_items_per_app });
+    return list.reduce((n, s) => n + s.counts.blocked + s.counts.needs, 0);
+  }, [b, rows.data, latest.data?.checks, settings.data?.settings.max_items_per_app]);
+}
+
 /** ?dia=YYYY-MM-DD opens an earlier day, read-only. */
 export function diaOf(search: string): string | null {
   const v = new URLSearchParams(search).get("dia");

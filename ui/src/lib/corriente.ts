@@ -147,7 +147,7 @@ export function legacyHref(at: Partial<At>): string {
   if (!slug) {
     if (at.view === "asistente") return "/ceo?asistente";
     if (at.view === "tetoca") return "/ceo?edificio";
-    if (at.view === "brief") return "/brief";
+    if (at.view === "brief") return "/ceo?v=brief";
     return "/ceo";
   }
   const piso = `piso=${encodeURIComponent(slug)}`;
