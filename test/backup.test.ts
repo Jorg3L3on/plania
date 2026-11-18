@@ -56,7 +56,13 @@ describe("runBackup", () => {
     assert.deepEqual(await runBackup(db, new Date(MORNING.getTime() + 3600_000), { dir, tz: TZ }), { dumped: 0, pruned: 0, failed: 0 });
   });
 
-  test("the dump restores into an empty database", async () => {
+  test("the dump restores into an empty database", async (t) => {
+    // PLA-65: a pg_dump newer than the server writes SET lines the server rejects (e.g. transaction_timeout on 14).
+    // runBackup picks the matching pg_dump where one is installed (the Mac); a CI runner has only its newer default.
+    const dump = gunzipSync(readFileSync(path.join(dir, "plania-20261015.sql.gz"))).toString("utf8");
+    const from = /Dumped from database version (\d+)/.exec(dump)?.[1];
+    const by = /Dumped by pg_dump version (\d+)/.exec(dump)?.[1];
+    if (from && by && Number(by) > Number(from)) return t.skip(`pg_dump ${by} is newer than the server (${from}); no pg_dump ${from} on this machine`);
     const name = `${new URL(TEST_DATABASE_URL).pathname.slice(1)}_restore`;
     const admin = new pg.Client({ connectionString: TEST_DATABASE_URL });
     await admin.connect();
