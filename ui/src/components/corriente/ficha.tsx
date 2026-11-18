@@ -316,13 +316,15 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
     );
   if (s.stop === "entendido") {
     // PLA-82 (F-10): only what the PO wrote. «Pendiente» on four fields this stop never fills read as missing work.
+    // PLA-112 (F-5): from the PO's own doc, so Research's recommendation does not show as the PO's «Solución».
+    const po = d.ficha_po ?? d.ficha;
     const cells = (
       [
-        ["Problema", d.ficha.problema],
-        ["Solución", d.ficha.solucion],
-        ["Fuera", d.ficha.fuera],
-        ["Tamaño", d.ficha.tamano],
-        ["Riesgos", d.ficha.riesgos],
+        ["Problema", po.problema],
+        ["Solución", po.solucion],
+        ["Fuera", po.fuera],
+        ["Tamaño", po.tamano],
+        ["Riesgos", po.riesgos],
       ] as [string, string | null][]
     ).filter(([, v]) => !!v?.trim());
     return (

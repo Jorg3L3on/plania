@@ -304,6 +304,8 @@ export type IdeaDetail = OrgPedido & {
   question_options: string[];
   stops: IdeaStop[];
   ficha: PedidoFicha;
+  // PLA-112 (F-5): the PO's own ficha, for the Entendido stop (older servers do not send it).
+  ficha_po?: PedidoFicha;
   research: { recommendation: string | null; options: { n: number; title: string; text: string }[]; unknown: string[]; recommended?: number | null; learned?: string[] };
   plan_steps: string[];
   // AUDIT-8: the plan and the PO's decisions as data (an idea whose docs were written by hand has neither).

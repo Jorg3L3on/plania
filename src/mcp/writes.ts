@@ -33,7 +33,7 @@ import { liveTaskFootprint } from "./footprint-read.js";
 import { assertReviewEvidence } from "./evidence.js";
 import { syncJorgeLines, withdrawParsedBlocker, type ParsedField } from "./jorge-lines.js";
 import { resolveInitiativeGoal } from "./goals.js";
-import { assertForwardStage, assertStageMove } from "./ideas.js";
+import { assertForwardStage, assertStageMove, assertStageOwner } from "./ideas.js";
 import { addAlias, assignKey } from "./keys.js";
 import { GATED_STATUSES, SEVERITIES, TERMINAL, WORK_TYPES, actionForMove, assertTransition } from "./lifecycle.js";
 import { markHeadlineStale } from "./project.js";
@@ -545,6 +545,12 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, input: SetTaskI
     if (t.kind !== "idea") throw new ToolError("FIELD_NOT_ALLOWED", { field: "stage", kind: t.kind });
     if (t.status === "Done" || t.status === "Won't do") throw new ToolError("IDEA_CLOSED", { status: t.status });
     const step = assertStageMove(t.stage, input.stage, input.note);
+    if (step !== "same" && !ctx.human && !ctx.system) {
+      // Loaded here: the runner's modules import this one.
+      const [{ agentOfCtx }, { roleOf }] = await Promise.all([import("../runner/events.js"), import("../runner/limits.js")]);
+      const agent = await agentOfCtx(tx, ctx);
+      assertStageOwner(agent ? roleOf(agent) : null, t.stage);
+    }
     if (step === "forward") await assertForwardStage(tx, t.id, t.stage ?? "", input.stage);
     if (step !== "same") patch.stage = input.stage;
   }

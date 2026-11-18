@@ -87,6 +87,9 @@ export type IdeaDetail = Pedido & {
   question_options: string[];
   stops: IdeaStop[];
   ficha: FichaIdea;
+  // PLA-112 (guided test PLA-86, F-5): the PO's own ficha (its Idea doc only), for the Entendido stop; the merged
+  // ficha put Research's recommendation under «Solución» there.
+  ficha_po: FichaIdea;
   // recommended: the number of the option Research recommends (null when the doc does not say it as data).
   research: { recommendation: string | null; options: IdeaOption[]; unknown: string[]; recommended: number | null; learned: string[] };
   plan_steps: string[];
@@ -341,6 +344,7 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
     question_options: q?.options ?? [],
     stops,
     ficha: fichaOf(list),
+    ficha_po: fichaOf(list.filter((x) => x.title.toLowerCase() === "idea")),
     // AUDIT-8: from the data when the stage delivered it; else the Markdown, read as before.
     research: rData
       ? { recommendation: recommendationText(rData), options: rData.options.map((o, i) => ({ n: i + 1, title: o.title, text: o.text })), unknown: rData.unknowns, recommended: rData.recommendation.option + 1, learned: rData.learned }
@@ -396,6 +400,7 @@ async function initiativeAlone(db: Db, slug: string, t: Task, withBuilt: boolean
     question_options: [],
     stops: PEDIDO_STOPS.map((stop) => ({ stop, state: "done" as const, by: null, at: null, delivered: false, doc: null, data: null, seen: true, answer: null })),
     ficha: { problema: null, tamano: null, solucion: null, riesgos: null, fuera: null },
+    ficha_po: { problema: null, tamano: null, solucion: null, riesgos: null, fuera: null },
     research: { recommendation: null, options: [], unknown: [], recommended: null, learned: [] },
     // AUDIT-8: an initiative read on its own has no stage data.
     plan: null,

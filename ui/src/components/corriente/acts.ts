@@ -44,9 +44,13 @@ export type DecisionBusy = { id: string; key: string } | null;
 
 export function useCorrienteActs() {
   const client = useQueryClient();
+  // PLA-112 (guided test PLA-86, F-4): an open step or idea view reads again too; after «Quitar» the ficha still said
+  // «Pasó a Backlog».
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["company"] });
     void client.invalidateQueries({ queryKey: ["projects"] });
+    void client.invalidateQueries({ queryKey: ["task"] });
+    void client.invalidateQueries({ queryKey: ["idea"] });
   };
 
   // ---- decisions (Te toca): the result stays in place; the next read keeps it (acted rows stay 24 h).
