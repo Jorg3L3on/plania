@@ -5,12 +5,14 @@
 // Deshacer after a «me gusta». The PO's question takes the card while it waits. Recorrido is the trail. Constrúyelo;
 // Guardar, Restaurar and Descartar behind Más; a note (and pictures) for the team; Despertar on a quiet stop.
 // Opening a delivery he had not seen tells the server (visto). Calls: GET …/ideas/:key and the building's writes.
+// AUDIT-8: when the stages delivered data, Entendido lists the PO's decisions as closed questions (the recommended
+// option already chosen; it applies unless he changes it) and the plan's steps say what done means and what to try.
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Link } from "react-router";
-import { api, type IdeaAnswerInput, type IdeaDetail, type IdeaNote, type IdeaStop, type OrgProject, type PedidoStop, type PedidoTrailItem } from "@/lib/api";
+import { api, type IdeaAnswerInput, type IdeaDecision, type IdeaDecisionInput, type IdeaDetail, type IdeaNote, type IdeaStop, type OrgProject, type PedidoStop, type PedidoTrailItem } from "@/lib/api";
 import { seatName } from "@/lib/corriente";
 import type { CorrienteActs } from "./acts";
 import { Images } from "./images";
@@ -59,12 +61,69 @@ export function stopLine(s: IdeaStop, d: Pick<IdeaDetail, "quiet_since" | "state
   return { text: `${who} · visto`, tone: "" };
 }
 
-type Ui = { stop: PedidoStop; sub: "entregas" | "recorrido"; frame: number; pins: IdeaNote[]; text: string; asking: boolean; pick: number | null; note: string; answer: string; drop: boolean; more: boolean };
-const initialUi = (d: Pick<IdeaDetail, "stops" | "stop">): Ui => ({ stop: firstStop(d), sub: "entregas", frame: 0, pins: [], text: "", asking: false, pick: null, note: "", answer: "", drop: false, more: false });
+// dec: the option he has marked on each decision (by its number) before sending; why: his words for a change.
+type Ui = { stop: PedidoStop; sub: "entregas" | "recorrido"; frame: number; pins: IdeaNote[]; text: string; asking: boolean; pick: number | null; note: string; answer: string; drop: boolean; more: boolean; dec: Record<number, number>; why: Record<number, string> };
+const initialUi = (d: Pick<IdeaDetail, "stops" | "stop">): Ui => ({ stop: firstStop(d), sub: "entregas", frame: 0, pins: [], text: "", asking: false, pick: null, note: "", answer: "", drop: false, more: false, dec: {}, why: {} });
 
 type Links = { back: string; doc: (id: string) => string; track: (key: string) => string };
 
-const Delivery = ({ d, s, ui, set, links, now, timeZone, onDespertar, busy }: { d: IdeaDetail; s: IdeaStop; ui: Ui; set: (p: Partial<Ui>) => void; links: Links; now: number; timeZone?: string; onDespertar: () => void; busy: boolean }) => {
+/** AUDIT-8: what one decision says under its options. marked is the option he has marked (the one in force until he marks another). */
+export function decisionWords(q: IdeaDecision, marked: number): { line: string; act: "confirm" | "change" | null; label: string } {
+  const name = (n: number) => `«${q.options[n - 1] ?? ""}»`;
+  if (marked !== q.chosen) return { line: `Si cambias a ${name(marked)}, la idea vuelve al PO para rehacerla con tu respuesta.`, act: "change", label: `Cambiar a ${name(marked)}` };
+  if (q.state === "decided") return { line: `Tú decidiste ${name(q.chosen)}.${q.chosen === q.recommended ? "" : ` El PO recomendaba ${name(q.recommended)}.`}`, act: null, label: "" };
+  return { line: `Se aplica ${name(q.recommended)} si no la cambias. ${q.why}`, act: "confirm", label: "Así está bien" };
+}
+
+/** AUDIT-8: the PO's decisions as closed questions. The recommended option comes chosen; nothing waits for him. */
+export const Decisiones = ({ decisions, dec, why, open, busy, onMark, onWhy, onSend }: { decisions: IdeaDecision[]; dec: Record<number, number>; why: Record<number, string>; open: boolean; busy: boolean; onMark: (n: number, option: number) => void; onWhy: (n: number, text: string) => void; onSend: (input: IdeaDecisionInput) => void }) => (
+  <section className="cor-decisiones" data-decisiones={decisions.length} aria-label="Lo que el PO da por hecho">
+    <Label tone="violet">Lo que el PO da por hecho</Label>
+    <p className="cor-text">Son sus dudas, ya con respuesta. La marcada se aplica si no la cambias; nada te espera.</p>
+    {decisions.map((q) => {
+      const marked = dec[q.n] ?? q.chosen;
+      const w = decisionWords(q, marked);
+      const send = () => onSend({ decision: q.n, option: marked, question: q.question, ...(w.act === "change" && why[q.n]?.trim() ? { text: why[q.n]!.trim() } : {}) });
+      return (
+        <div key={q.n} className="cor-card cor-decision" data-decision={q.n} data-state={q.state}>
+          <b>{q.question}</b>
+          <div className="cor-opts" role="radiogroup" aria-label={q.question}>
+            {q.options.map((o, i) => (
+              <button key={o} type="button" role="radio" aria-checked={marked === i + 1} className="cor-opt" disabled={!open || busy} onClick={() => onMark(q.n, i + 1)} data-option={i + 1}>
+                {o}
+                {i + 1 === q.recommended && <small>recomendada</small>}
+              </button>
+            ))}
+          </div>
+          <p className="cor-text">{w.line}</p>
+          {open && w.act === "change" && (
+            <form
+              className="cor-ajuste-row"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!busy) send();
+              }}
+            >
+              <input className="cor-input" maxLength={1000} value={why[q.n] ?? ""} aria-label="Por qué la cambias (opcional)" placeholder="¿Por qué? (opcional)" onChange={(e) => onWhy(q.n, e.target.value)} />
+              <Btn kind="primary" type="submit" disabled={busy} data-control="idea-decision-cambiar">
+                {w.label}
+              </Btn>
+            </form>
+          )}
+          {open && w.act === "confirm" && (
+            <div className="cor-acts">
+              <Btn kind="secondary" small disabled={busy} onClick={send} data-control="idea-decision-confirmar">
+                {w.label}
+              </Btn>
+            </div>
+          )}
+        </div>
+      );
+    })}
+  </section>
+);
+
+const Delivery = ({ d, s, ui, set, links, now, timeZone, onDespertar, busy, onDecision, deciding }: { d: IdeaDetail; s: IdeaStop; ui: Ui; set: (p: Partial<Ui>) => void; links: Links; now: number; timeZone?: string; onDespertar: () => void; busy: boolean; onDecision: (input: IdeaDecisionInput) => void; deciding: boolean }) => {
   const eyebrow = (extra?: string) => (
     <div className="cor-idea-eb">
       <Label>{[stopWord(s.stop), s.by ? `${whoName(s.by)} entregó` : null, s.at ? dayHm(s.at, now, timeZone) : null, extra].filter(Boolean).join(" · ")}</Label>
@@ -112,8 +171,9 @@ const Delivery = ({ d, s, ui, set, links, now, timeZone, onDespertar, busy }: { 
       ["Riesgos", d.ficha.riesgos],
       ["Fuera", d.ficha.fuera],
     ];
+    const decisions = d.decisions ?? [];
     return (
-      <div className="cor-idea-stop">
+      <div className={decisions.length ? "cor-idea-stop cor-scroll" : "cor-idea-stop"} {...(decisions.length ? { tabIndex: 0, role: "region", "aria-label": "Entendido" } : {})}>
         {eyebrow("lo que entendió")}
         {d.understood && <p className="cor-idea-quote">{d.understood.replace(/^\s*entend[ií]\s*[:：-]\s*/i, "")}</p>}
         <dl className="cor-ev cor-idea-cells">
@@ -124,6 +184,9 @@ const Delivery = ({ d, s, ui, set, links, now, timeZone, onDespertar, busy }: { 
             </div>
           ))}
         </dl>
+        {decisions.length > 0 && (
+          <Decisiones decisions={decisions} dec={ui.dec} why={ui.why} open={isOpen(d)} busy={deciding} onMark={(n, option) => set({ dec: { ...ui.dec, [n]: option } })} onWhy={(n, text) => set({ why: { ...ui.why, [n]: text } })} onSend={onDecision} />
+        )}
       </div>
     );
   }
@@ -151,7 +214,17 @@ const Delivery = ({ d, s, ui, set, links, now, timeZone, onDespertar, busy }: { 
     return (
       <div className="cor-idea-stop">
         {eyebrow()}
-        {d.plan_steps.length ? (
+        {d.plan?.steps.length ? (
+          <ol className="cor-plan-steps" data-plan="pasos">
+            {d.plan.steps.map((x, i) => (
+              <li key={i}>
+                {x.title}
+                <span>Listo cuando: {x.done_when}</span>
+                <span>Para probarlo: {x.try_it}</span>
+              </li>
+            ))}
+          </ol>
+        ) : d.plan_steps.length ? (
           <ol className="cor-plan-steps">
             {d.plan_steps.map((x, i) => (
               <li key={i}>{x}</li>
@@ -267,7 +340,9 @@ const Decide = ({ d, s, ui, set, send, busy, onConstruir }: { d: IdeaDetail; s: 
   }
   if (!isOpen(d)) return null;
   if (s.stop === "investigacion") {
-    const pick = ui.pick ?? 1;
+    // AUDIT-8: the recommended option is the one Research named in its data; a doc written by hand lists it first.
+    const rec = d.research.recommended ?? 1;
+    const pick = ui.pick ?? rec;
     return (
       <section className="cor-decide" data-decide="investigacion">
         <Label tone="amber">Investigación · tu respuesta</Label>
@@ -276,11 +351,11 @@ const Decide = ({ d, s, ui, set, send, busy, onConstruir }: { d: IdeaDetail; s: 
           {d.research.options.map((o) => (
             <button key={o.n} type="button" role="radio" aria-checked={pick === o.n} className="cor-opt" onClick={() => set({ pick: o.n })} title={o.text} data-option={o.n}>
               {o.n}. {o.title}
-              {o.n === 1 && <small>recomendada</small>}
+              {o.n === rec && <small>recomendada</small>}
             </button>
           ))}
         </div>
-        {pick === 1 ? (
+        {pick === rec ? (
           <Btn kind="primary" disabled={busy} onClick={() => send({ verdict: "ok" })} data-control="idea-ok">
             Va con la recomendada
           </Btn>
@@ -405,7 +480,7 @@ export const Idea = ({ p, k, now, timeZone, acts, links }: { p: OrgProject; k: s
   const [trailN, setTrailN] = useState(0);
   useEffect(() => {
     if (!d) return;
-    if (d.trail.length > trailN && trailN > 0) setUi((u) => (u ? { ...u, note: "", answer: "", text: "", asking: false, pins: [] } : u));
+    if (d.trail.length > trailN && trailN > 0) setUi((u) => (u ? { ...u, note: "", answer: "", text: "", asking: false, pins: [], dec: {}, why: {} } : u));
     setTrailN(d.trail.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [d?.trail.length]);
@@ -502,7 +577,7 @@ export const Idea = ({ p, k, now, timeZone, acts, links }: { p: OrgProject; k: s
         <Trail d={d} now={now} timeZone={timeZone} set={set} />
       ) : (
         <div className="cor-idea-body">
-          <Delivery d={d} s={s} ui={ui} set={set} links={links} now={now} timeZone={timeZone} onDespertar={() => acts.despertar(p.slug, k)} busy={busy("despertar")} />
+          <Delivery d={d} s={s} ui={ui} set={set} links={links} now={now} timeZone={timeZone} onDespertar={() => acts.despertar(p.slug, k)} busy={busy("despertar")} onDecision={(input) => acts.decision(p.slug, k, input)} deciding={busy("decision")} />
           <div className="cor-idea-side">
             {d.question && isOpen(d) ? (
               <section className="cor-decide" data-pregunta={d.question.id}>
