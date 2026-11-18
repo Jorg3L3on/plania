@@ -11,6 +11,12 @@
 // floor for the owner with a hold. Results go to the ticket as results (stills are capture_stills rows tied to
 // the ticket). Nothing is written to the app repo: the QA run is denied edits, commits and pushes, and the lane
 // records the head before and after.
+// AUDIT-6: the review returns two verdicts that are never merged: spec (does the change do what the ticket asked)
+// and code (is the change sound). QaReview.verdict stays the overall one (fail when either fails), so every reader
+// from before keeps working, and a report in the old one-verdict shape still parses. The brief also carries up to
+// three past misses of QA on the project (the owner disagreed with it), and, with settings.qa.browser and a
+// settings.capture, how to start the test copy and walk through the change in a browser.
+// AUDIT-10: a delivery QA sends back queues one retro (src/runner/retro.ts) when settings.qa.retro is true.
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -32,6 +38,7 @@ import {
   type Agent,
   type PoCheck,
   type Project,
+  type QaAxis,
   type QaCapture,
   type QaLane,
   type QaMark,
@@ -48,6 +55,7 @@ import { setTask } from "../mcp/writes.js";
 import { enqueueWake, serviceAgent } from "./events.js";
 import { loadSettings } from "./limits.js";
 import { modelFor, type QaSettings } from "./qa-settings.js";
+import { oneLine, queueRetro } from "./retro.js";
 import { canStart, type RunnerDeps } from "./runner.js";
 import { ALLOWED_BASE, branchFor, defaultGit, ensureWorktree, repoPathOf, worktreeRoot, type GitFn } from "./worktree.js";
 
@@ -188,33 +196,104 @@ const tailOf = (out: string, lines = 15) =>
     1500,
   );
 
-const reportSchema = z.object({
-  review: z.object({ verdict: z.enum(["pass", "fail"]), notes: z.string().trim().max(4000).default("") }),
-  checklist: z.array(z.object({ n: z.number().int(), mark: z.enum(["pass", "fail"]), note: z.string().trim().max(1000).default("") })).default([]),
-});
-export type QaReport = { review: { verdict: "pass" | "fail"; notes: string }; marks: QaMark[] };
+// AUDIT-6: the report as a JSON Schema, for `claude --json-schema` (the runner passes QaBrief.jsonSchema; the brief
+// spells the same shape out for a run without it). Two axes, never one merged verdict.
+const AXIS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["verdict", "notes"],
+  properties: { verdict: { type: "string", enum: ["pass", "fail"] }, notes: { type: "string", maxLength: 4000 } },
+} as const;
+export const QA_REPORT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["spec", "code", "checklist"],
+  properties: {
+    // Does the change do what the ticket asked: its scope, its Done when, the check list.
+    spec: AXIS_SCHEMA,
+    // Is the change sound: bugs, broken edge cases, unsafe handling. Style alone never fails.
+    code: AXIS_SCHEMA,
+    checklist: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["n", "mark", "note"],
+        properties: { n: { type: "integer" }, mark: { type: "string", enum: ["pass", "fail"] }, note: { type: "string", maxLength: 1000 } },
+      },
+    },
+    // true when the reviewer started the test copy and walked through the change in a browser.
+    walked: { type: "boolean" },
+  },
+} as const;
 
-/** The last ```qa-report block of the run's final text. Every check-list item must be marked. */
+const axisSchema = z.object({ verdict: z.enum(["pass", "fail"]), notes: z.string().trim().max(4000).default("") });
+const reportSchema = z
+  .object({
+    // The one-verdict shape from before AUDIT-6: still read.
+    review: axisSchema.optional(),
+    spec: axisSchema.optional(),
+    code: axisSchema.optional(),
+    checklist: z.array(z.object({ n: z.number().int(), mark: z.enum(["pass", "fail"]), note: z.string().trim().max(1000).default("") })).default([]),
+    walked: z.boolean().optional(),
+  })
+  .refine((r) => (r.spec && r.code) || r.review, "two axes, or the old single review");
+export type QaReport = { review: { verdict: "pass" | "fail"; notes: string; spec?: QaAxis; code?: QaAxis }; marks: QaMark[]; walked?: boolean };
+
+export const AXIS_WORDS = { spec: "Lo que se pidió", code: "El código" } as const;
+const axisLine = (axis: keyof typeof AXIS_WORDS, a: QaAxis) => `${AXIS_WORDS[axis]} (${a.verdict === "pass" ? "pasa" : "falla"}): ${a.notes || (a.verdict === "pass" ? "sin hallazgos" : "falla sin detalle")}`;
+
+// The JSON objects a final text may carry, the most deliberate first: the last ```qa-report block, the whole text
+// (a run with --json-schema answers with the bare object), then the text from its first { to its last }.
+function reportCandidates(text: string): string[] {
+  const out: string[] = [];
+  const block = [...text.matchAll(/```qa-report\s*\n([\s\S]*?)```/g)].at(-1)?.[1];
+  if (block) return [block];
+  const whole = text.trim();
+  if (whole.startsWith("{")) out.push(whole);
+  const fenced = [...text.matchAll(/```(?:json)?\s*\n([\s\S]*?)```/g)].at(-1)?.[1];
+  if (fenced) out.push(fenced);
+  const from = text.indexOf("{");
+  const to = text.lastIndexOf("}");
+  if (from >= 0 && to > from) out.push(text.slice(from, to + 1));
+  return out;
+}
+
+/** The run's report: the last ```qa-report block of its final text, or a bare JSON object there. Two axes (spec and
+ *  code), or the single review of before. Every check-list item must be marked. */
 export function parseReport(text: string | null, items: number[]): QaReport | null {
   if (!text) return null;
-  const blocks = [...text.matchAll(/```qa-report\s*\n([\s\S]*?)```/g)];
-  const body = blocks.at(-1)?.[1];
-  if (!body) return null;
-  let json: unknown;
-  try {
-    json = JSON.parse(body);
-  } catch {
-    return null;
+  for (const body of reportCandidates(text)) {
+    let json: unknown;
+    try {
+      json = JSON.parse(body);
+    } catch {
+      continue;
+    }
+    const r = reportSchema.safeParse(json);
+    if (!r.success) continue;
+    const marks: QaMark[] = [];
+    let complete = true;
+    for (const n of items) {
+      const m = r.data.checklist.filter((x) => x.n === n).at(-1);
+      if (!m) {
+        complete = false;
+        break;
+      }
+      marks.push({ n, mark: m.mark, note: cut(m.note, 1000) });
+    }
+    if (!complete) return null;
+    const walked = r.data.walked === undefined ? {} : { walked: r.data.walked };
+    if (r.data.spec && r.data.code) {
+      const spec: QaAxis = { verdict: r.data.spec.verdict, notes: cut(r.data.spec.notes, 4000) };
+      const code: QaAxis = { verdict: r.data.code.verdict, notes: cut(r.data.code.notes, 4000) };
+      // The overall verdict fails when either axis fails; its notes name each axis (readers from before show them).
+      const verdict = spec.verdict === "pass" && code.verdict === "pass" ? "pass" : "fail";
+      return { review: { verdict, notes: cut(`${axisLine("spec", spec)}\n${axisLine("code", code)}`, 4000), spec, code }, marks, ...walked };
+    }
+    return { review: { verdict: r.data.review!.verdict, notes: cut(r.data.review!.notes, 4000) }, marks, ...walked };
   }
-  const r = reportSchema.safeParse(json);
-  if (!r.success) return null;
-  const marks: QaMark[] = [];
-  for (const n of items) {
-    const m = r.data.checklist.filter((x) => x.n === n).at(-1);
-    if (!m) return null;
-    marks.push({ n, mark: m.mark, note: cut(m.note, 1000) });
-  }
-  return { review: { verdict: r.data.review.verdict, notes: cut(r.data.review.notes, 4000) }, marks };
+  return null;
 }
 
 /** The final text of a claude stream-json log: the last result event's result. */
@@ -224,8 +303,11 @@ export function resultTextOf(log: string | null): string | null {
   for (const line of log.split("\n")) {
     if (!line.includes('"result"')) continue;
     try {
-      const e = JSON.parse(line) as { type?: string; result?: unknown };
-      if (e.type === "result" && typeof e.result === "string") out = e.result;
+      const e = JSON.parse(line) as { type?: string; result?: unknown; structured_output?: unknown };
+      if (e.type !== "result") continue;
+      // AUDIT-6: a run started with --json-schema carries its report as structured_output; the text may be empty.
+      if (e.structured_output && typeof e.structured_output === "object") out = JSON.stringify(e.structured_output);
+      else if (typeof e.result === "string") out = e.result;
     } catch {
       // a partial line
     }
@@ -510,7 +592,13 @@ export function notesOf(lane: Pick<QaLane, "verify" | "capture" | "review" | "ma
     const counts = v.fail ? `: ${v.fail} de ${(v.pass ?? 0) + v.fail} fallan` : v.exit_code === null ? ": no terminó a tiempo" : ` (código ${v.exit_code})`;
     lines.push(`- ${v.name} falló${counts}. \`${v.command}\`${v.tail ? `\n  Últimas líneas:\n${v.tail.split("\n").map((l) => `    ${l}`).join("\n")}` : ""}`);
   }
-  if (lane.review?.verdict === "fail") lines.push(`- Revisión aparte: ${lane.review.notes || "falla sin detalle"}`);
+  // AUDIT-6: a two-axis review names the axis that failed, so Taller knows whether it built the wrong thing or
+  // built it wrong. A review from before has one verdict and one line.
+  const { spec, code } = lane.review ?? {};
+  if (spec && code) {
+    if (spec.verdict === "fail") lines.push(`- Revisión aparte · lo que se pidió (alcance, Done when, check list): ${spec.notes || "falla sin detalle"}`);
+    if (code.verdict === "fail") lines.push(`- Revisión aparte · el código (errores, casos límite, manejo inseguro): ${code.notes || "falla sin detalle"}`);
+  } else if (lane.review?.verdict === "fail") lines.push(`- Revisión aparte: ${lane.review.notes || "falla sin detalle"}`);
   for (const m of lane.marks.filter((x) => x.mark === "fail")) {
     const item = items.find((c) => c.n === m.n);
     lines.push(`- Check list ${m.n}${item ? ` «${item.text}»` : ""}: no se cumple. ${m.note}`.trim());
@@ -534,7 +622,16 @@ export function testsOf(verify: QaVerifyItem[]): { pass: number; total: number }
 
 async function finalize(db: Db, lane: QaLane, p: Project, t: Task, report: (QaReport & { model: string | null }) | null, deps: QaDeps): Promise<void> {
   const items = await poChecksOf(db, t.id);
-  const review: QaReview | null = report ? { verdict: report.review.verdict, notes: report.review.notes, model: report.model } : null;
+  // AUDIT-6: the axes are stored when the report has them; walked only when this project asks for the walk-through.
+  const review: QaReview | null = report
+    ? {
+        verdict: report.review.verdict,
+        notes: report.review.notes,
+        model: report.model,
+        ...(report.review.spec && report.review.code ? { spec: report.review.spec, code: report.review.code } : {}),
+        ...(browserWalk(p) ? { walked: report.walked === true } : {}),
+      }
+    : null;
   const marks = report?.marks ?? [];
   const verifyOk = lane.verify.every((v) => v.ok);
   const pass = verifyOk && review?.verdict === "pass" && marks.every((m) => m.mark === "pass");
@@ -584,7 +681,12 @@ async function finalize(db: Db, lane: QaLane, p: Project, t: Task, report: (QaRe
       [
         `QA ${pass ? "pasa" : "falla"} (intento ${lane.attempt})`,
         `pruebas ${tests.pass} de ${tests.total}`,
-        review ? `revisión ${review.verdict === "pass" ? "pasa" : "falla"}` : "sin revisión (fallaron las pruebas)",
+        review?.spec && review.code
+          ? `lo pedido ${review.spec.verdict === "pass" ? "pasa" : "falla"} · el código ${review.code.verdict === "pass" ? "pasa" : "falla"}`
+          : review
+            ? `revisión ${review.verdict === "pass" ? "pasa" : "falla"}`
+            : "sin revisión (fallaron las pruebas)",
+        ...(review?.walked ? ["recorrió la app"] : []),
         items.length ? `check list ${checkedOk} de ${items.length}` : "sin check list",
         lane.capture ? `${lane.capture.ok} capturas` : "sin capturas",
       ].join(" · "),
@@ -598,7 +700,16 @@ async function finalize(db: Db, lane: QaLane, p: Project, t: Task, report: (QaRe
     taskKey: t.key,
     type: pass ? "qa.passed" : "qa.failed",
     actor: qaActor("qa"),
-    payload: { lane_id: lane.id, attempt: lane.attempt, commit: lane.commit, tests, review: review?.verdict ?? null, marks: marks.map((m) => ({ n: m.n, mark: m.mark })) },
+    payload: {
+      lane_id: lane.id,
+      attempt: lane.attempt,
+      commit: lane.commit,
+      tests,
+      review: review?.verdict ?? null,
+      ...(review?.spec && review.code ? { spec: review.spec.verdict, code: review.code.verdict } : {}),
+      ...(review?.walked !== undefined ? { walked: review.walked } : {}),
+      marks: marks.map((m) => ({ n: m.n, mark: m.mark })),
+    },
   });
   if (!pass && lane.attempt === 1) await returnToTaller(db, { ...done, notes, status }, p, t);
 }
@@ -634,13 +745,99 @@ async function returnToTaller(db: Db, lane: QaLane, p: Project, t0: Task): Promi
     const [owner] = await db.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
     if (owner) await enqueueWake(db, { agent: owner, project: { id: p.id, slug: p.slug }, taskKey: t.key, reason: "QA returned the delivery: read the QA note on the ticket" }).catch(() => undefined);
   }
+  // AUDIT-10: one retro per ticket and delivery commit (off unless settings.qa.retro). Its why is QA's first finding.
+  const first = (lane.notes ?? "").split("\n").find((l) => l.startsWith("- "))?.slice(2) ?? null;
+  await queueRetro(db, { project: p, task: t, cause: "qa_returned", commit: lane.commit, why: first }).catch(() => undefined);
 }
+
+/** AUDIT-6: whether the QA run of this project is asked to walk through the change in a browser. */
+export const browserWalk = (p: Pick<Project, "settings">): boolean => p.settings.qa?.browser === true && !!p.settings.capture;
 
 // ---- What the QA run is told (runner.ts asks for it when it starts a QA run)
 
-export type QaBrief = { prompt: string; model: string | null };
+// ---- AUDIT-6: calibration. Where QA and the owner disagreed on this project, as short examples in the brief.
 
-export async function qaBriefFor(db: Db, runId: string, cwd: string): Promise<QaBrief | null> {
+export type QaMiss = {
+  key: string;
+  title: string;
+  // passed_then_changes: QA passed it and the owner asked for changes on that delivery.
+  // failed_then_accepted: QA failed it twice and the owner accepted it.
+  kind: "passed_then_changes" | "failed_then_accepted";
+  qa: string; // what QA said, one line
+  owner: string; // the owner's words, one line ("" when he only accepted)
+  at: string;
+};
+
+const MISSES_MAX = 3;
+
+/** Up to three recent deliveries of the project where the owner decided against QA's verdict, newest first. The
+ *  texts are one line each, cut, with tokens and paths outside the repo taken out (oneLine in retro.ts). */
+export async function qaMisses(db: Db, projectId: string, limit = MISSES_MAX): Promise<QaMiss[]> {
+  const acted = await db
+    .select({ state: threadMessages.actionState })
+    .from(threadMessages)
+    .innerJoin(threads, eq(threads.id, threadMessages.threadId))
+    .where(and(eq(threads.projectId, projectId), sql`${threadMessages.actionState}->>'action' in ('cambios', 'aceptar')`))
+    .orderBy(sql`(${threadMessages.actionState}->>'at')::timestamptz desc`)
+    .limit(80);
+  if (!acted.length) return [];
+  const lanes = await db
+    .select()
+    .from(qaLanes)
+    .where(and(eq(qaLanes.projectId, projectId), inArray(qaLanes.status, ["pass", "fail"])))
+    .orderBy(desc(qaLanes.createdAt))
+    .limit(300);
+  const out: (Omit<QaMiss, "title"> & { laneId: string })[] = [];
+  for (const { state } of acted) {
+    if (out.length >= Math.min(limit, MISSES_MAX)) break;
+    const result = (state?.result ?? {}) as { ticket?: unknown; text?: unknown; by?: unknown };
+    // QA's own return and an automatic accept are not the owner's word.
+    if (!state || typeof result.ticket !== "string" || result.by === "qa" || result.by === "auto") continue;
+    const at = Date.parse(state.at);
+    // The pass the owner had in front of him: the ticket's last one that had ended by then.
+    const lane = lanes.find((l) => l.taskKey === result.ticket && !!l.endedAt && l.endedAt.getTime() <= at);
+    if (!lane || out.some((m) => m.laneId === lane.id)) continue;
+    if (state.action === "cambios" && lane.status === "pass") {
+      const said = lane.review?.notes ? `"${oneLine(lane.review.notes, 220)}"` : "no findings";
+      out.push({ laneId: lane.id, key: lane.taskKey, kind: "passed_then_changes", qa: said, owner: oneLine(typeof result.text === "string" ? result.text : "", 220), at: state.at });
+    } else if (state.action === "aceptar" && lane.status === "fail" && lane.attempt >= 2 && !lane.returned) {
+      out.push({ laneId: lane.id, key: lane.taskKey, kind: "failed_then_accepted", qa: `"${oneLine((lane.notes ?? "").replace(/^- /gm, ""), 220)}"`, owner: "", at: state.at });
+    }
+  }
+  if (!out.length) return [];
+  const titles = await db
+    .select({ key: tasks.key, title: tasks.title })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, projectId), inArray(tasks.key, out.map((m) => m.key))));
+  return out.map(({ laneId: _lane, ...m }) => ({ ...m, title: oneLine(titles.find((t) => t.key === m.key)?.title ?? "", 80) }));
+}
+
+/** The misses as brief lines, under their heading. No misses: no lines. */
+export function missLines(misses: QaMiss[]): string[] {
+  if (!misses.length) return [];
+  return [
+    "Past misses of QA on this project, to learn from (the owner decided against QA's verdict; look for the same kind of thing here, and do not mention these cases in your report):",
+    ...misses.map((m, i) =>
+      m.kind === "passed_then_changes"
+        ? `${i + 1}. ${m.key}${m.title ? ` «${m.title}»` : ""}: QA passed it (${m.qa}). The owner then asked for changes${m.owner ? `: "${m.owner}"` : "."}`
+        : `${i + 1}. ${m.key}${m.title ? ` «${m.title}»` : ""}: QA failed it twice (${m.qa}). The owner accepted it as it was.`,
+    ),
+  ];
+}
+
+export type QaBrief = {
+  prompt: string;
+  model: string | null;
+  // AUDIT-6: the report's JSON Schema, for `claude --json-schema` (the runner passes it).
+  jsonSchema?: Record<string, unknown>;
+  // AUDIT-6: this run walks through the test copy with a browser (settings.qa.browser and a settings.capture), so the
+  // runner adds a browser tool server for it. appCommand starts the copy on appUrl's port.
+  browser: boolean;
+  appUrl: string | null;
+  appCommand: string | null;
+};
+
+export async function qaBriefFor(db: Db, runId: string, cwd: string, deps: Pick<QaDeps, "freePort"> = {}): Promise<QaBrief | null> {
   const [lane] = await db.select().from(qaLanes).where(eq(qaLanes.runId, runId)).limit(1);
   if (!lane) return null;
   const [p] = await db.select().from(projects).where(eq(projects.id, lane.projectId)).limit(1);
@@ -651,6 +848,27 @@ export async function qaBriefFor(db: Db, runId: string, cwd: string): Promise<Qa
   const verify = lane.verify.length
     ? lane.verify.map((v) => `${v.name} (\`${v.command}\`): ${v.ok ? "ok" : "falla"}${v.pass !== null || v.fail !== null ? `, ${v.pass ?? 0} de ${(v.pass ?? 0) + (v.fail ?? 0)}` : ""}`).join("; ")
     : "none configured";
+  const misses = await qaMisses(db, p.id);
+  // AUDIT-6: the walk-through, only when the project asks for it and says how its test copy starts.
+  const cs = p.settings.capture;
+  const walk = browserWalk(p) && !!cs;
+  const port = walk ? await (deps.freePort ?? freePort)() : null;
+  const appUrl = walk ? `http://localhost:${port}` : null;
+  const appCommand = walk ? cs!.start_command.replaceAll("{port}", String(port)) : null;
+  const walkLines = walk
+    ? [
+        "This project asks you to walk through the change in the running app, with the browser tools:",
+        `- Start the test copy from the workspace, in the background: \`PORT=${port} ${appCommand}\`. It answers at ${appUrl}${cs!.ready_path ?? "/"} once it is up (give it up to three minutes).`,
+        ...(cs!.session
+          ? [
+              `- Pages behind the login use the test user ${cs!.session.user} (login at ${cs!.session.login_path}). Give it a fresh random password first with \`${cs!.session.password_command.replaceAll("{user}", cs!.session.user)}\` (it reads the new password twice on stdin). Never write that password to a file or to your report.`,
+            ]
+          : []),
+        `- Open ${appUrl} and go through what this ticket changes as a user would: the screens it touches, its Done when, every check-list item that shows on screen. Look at it 1280 and 390 wide when the change is visible.`,
+        "- What you see is evidence for both verdicts: a screen or a flow that does not do what the ticket asked fails spec; an error in the console, a failed request or a crash fails code.",
+        `- Stop the app before you end (the process you started; nothing left listening on ${port}) and report "walked": true. If it did not start or you could not walk it, report "walked": false and say why in the code notes: that alone is not a fail.`,
+      ]
+    : [];
   const lines = [
     `You are the QA reviewer for project ${p.slug} (${p.title}), woken by the Plania runner on the delivery of ${t.key}: ${t.title}.`,
     `Delivery: commit ${short(lane.commit)} on branch ${lane.branch ?? "?"}${lane.prUrl ? `, PR ${lane.prUrl}` : ""}. Workspace: ${cwd} (read-only for you).`,
@@ -661,14 +879,22 @@ export async function qaBriefFor(db: Db, runId: string, cwd: string): Promise<Qa
       ? `Check list del PO (mark every item pass or fail; run the tests or read the code to check it):\n${items.map((c) => `${c.n}. ${c.text}`).join("\n")}`
       : "There is no check list for this ticket: send an empty checklist.",
     "Never edit files, commit, push, open or edit a PR, or claim, start, finish or move the ticket, and never post in a thread: Plania records your report and acts on it.",
-    "Fail only a real defect against the scope, the Done when or the check list (a bug, a missing piece, a broken screen, a check that is not met). Style alone is not a fail. Write the notes in Spanish, exact: file:line, what is wrong, what would fix it.",
+    "Your review gives two verdicts, and they are never merged: each has its own notes, about that question only.",
+    "- spec: does the change do what the ticket asked? Judge it against the scope, the Done when and the check list. Fail it for a missing piece, for behaviour that is wrong against the ticket, or for scope creep (a change the ticket did not ask for).",
+    "- code: is the change sound? Fail it for a bug, a broken edge case or unsafe handling (unchecked input, a secret in the code, data that can be lost). Style alone never fails.",
+    ...(t.workType === "bug"
+      ? ["This ticket fixes a bug: also confirm what must not change. Read the callers and the tests of what the diff touches, and say in the spec notes which behaviour around the fix you confirmed still works. A regression fails code."]
+      : []),
+    "Fail only a real defect, never a preference. Write the notes in Spanish, exact: file:line, what is wrong, what would fix it. A verdict that passes gets one line on what you checked.",
+    ...walkLines,
+    ...missLines(misses),
     "End your run with exactly one block, the last thing you write:",
     "```qa-report",
-    `{"review": {"verdict": "pass", "notes": "..."}, "checklist": [${items.map((c) => `{"n": ${c.n}, "mark": "pass", "note": "..."}`).join(", ")}]}`,
+    `{"spec": {"verdict": "pass", "notes": "..."}, "code": {"verdict": "pass", "notes": "..."}, "checklist": [${items.map((c) => `{"n": ${c.n}, "mark": "pass", "note": "..."}`).join(", ")}]${walk ? ', "walked": true' : ""}}`,
     "```",
-    'verdict and each mark are "pass" or "fail".',
+    'Each verdict and each mark is "pass" or "fail".',
   ];
-  return { prompt: lines.join("\n"), model: lane.model };
+  return { prompt: lines.join("\n"), model: lane.model, jsonSchema: QA_REPORT_SCHEMA, browser: walk, appUrl, appCommand };
 }
 
 // ---- The evidence read for the floor card (GET /api/projects/:slug/qa/:key)
@@ -695,7 +921,9 @@ export type QaEvidence = {
     ended_at: string | null;
   } | null;
   tests: { pass: number; total: number; verdict: "pass" | "fail" | null; items: { name: string; command: string; ok: boolean; exit_code: number | null; pass: number | null; fail: number | null; duration_s: number }[] };
-  review: { verdict: "pass" | "fail"; notes: string; model: string | null } | null;
+  // AUDIT-6: spec and code are the two verdicts (absent on a review from before); walked says whether QA went
+  // through the app in a browser (absent when the project does not ask for it).
+  review: { verdict: "pass" | "fail"; notes: string; model: string | null; spec?: QaAxis; code?: QaAxis; walked?: boolean } | null;
   checklist: { n: number; text: string; mark: "pass" | "fail" | null; note: string | null }[];
   captures: { ids: string[]; image_urls: string[]; ok: number; failed: number; error: string | null } | null;
   notes: string | null;
