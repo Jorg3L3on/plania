@@ -181,14 +181,23 @@ async function shoot(page: BrowserPage, base: string, pg: ViewPage, settings: Ca
         : `(() => {
             const el = document.querySelector(${JSON.stringify(a.fill)});
             if (!el) return 'missing';
-            const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-            Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${JSON.stringify(a.value)});
+            // PLA-80: a <select> has its own value setter (the input one threw «Illegal invocation»), and its value
+            // may be given as the option's visible text.
+            let v = ${JSON.stringify(a.value)};
+            if (el instanceof HTMLSelectElement) {
+              const opt = [...el.options].find((o) => o.value === v) || [...el.options].find((o) => o.text.trim().toLowerCase() === v.trim().toLowerCase());
+              if (!opt) return 'nooption';
+              v = opt.value;
+            }
+            const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+            Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v);
             el.dispatchEvent(new Event('input', { bubbles: true }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
             return 'ok';
           })()`,
     );
     if (done === "missing") throw new Error("click" in a ? `En ${pg.path} no encontré «${a.click}»` : `En ${pg.path} no hay ${a.fill}`);
+    if (done === "nooption") throw new Error(`En ${pg.path}, ${"fill" in a ? a.fill : ""} no tiene la opción «${"fill" in a ? a.value : ""}»`);
     await new Promise((res) => setTimeout(res, 400)); // let the page settle after the action
   }
   return { png: await page.screenshot(Boolean(pg.full_page)), url: nav.url };
