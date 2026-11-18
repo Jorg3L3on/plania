@@ -14,6 +14,7 @@ export const PROBADOR_WORDS = {
   comparar: "Comparar",
   desktop: "Escritorio",
   phone: "Teléfono",
+  cargando: "Cargando la foto…",
   resaltar: "Resaltar cambios",
   vivo: "Pruébala en vivo",
   encender: "Encender la copia",

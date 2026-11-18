@@ -709,8 +709,9 @@ const InitiativeBar = ({ p, d, b, m, decisions, acts, links }: { p: OrgProject; 
         label="Te toca"
         side={
           <>
-            {accept && (
-              <Btn kind={dl ? "secondary" : "primary"} disabled={busyOf(accept, acts) || !!accept.decision.hold} aria-label={acceptWords(accept.decision).aria} onClick={() => run(p.slug, accept, acts)} data-control="ficha-aceptar">
+            {/* PLA-93: a delivery is accepted on its card, after its before/after; here it is only opened. */}
+            {accept && !dl && (
+              <Btn kind="primary" disabled={busyOf(accept, acts) || !!accept.decision.hold} aria-label={acceptWords(accept.decision).aria} onClick={() => run(p.slug, accept, acts)} data-control="ficha-aceptar">
                 Aceptar
               </Btn>
             )}

@@ -1,6 +1,7 @@
 import type { Db } from "../db/client.js";
-import { tasks, type Workspace } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { agents, events, tasks, type Workspace } from "../db/schema.js";
+import { and, eq, ne, sql } from "drizzle-orm";
+import { roleOf } from "../runner/limits.js";
 import { cambioOf, changedFiles, DEFAULT_UI_GLOBS, MUESTRA_HINT, parseMuestra, uiFiles, type Cambio, type Muestra } from "../captures/muestra.js";
 import { defaultGit, repoPathOf, type GitFn } from "../runner/worktree.js";
 import { runVerifyList, verifyPlan } from "../runner/verify.js";
@@ -142,13 +143,35 @@ export async function finish(db: Db, input: FinishInput, ctx: Ctx, deps: FinishD
       changed.push("no_pr");
       await emit("task.no_pr", { id: t.id, key: t.key }, { reason: noPr, to: "In review" });
     }
+    // PLA-109 (guided test PLA-86, F-27): a PO that turns one of Jorge's requests into a Taller ticket has nothing to
+    // show; the request went to Jorge as «Aceptar» with nothing behind it. When this session made a ticket for Taller
+    // and the request has no PR, the request closes Done and says where the work went; the delivery Jorge sees is
+    // Taller's.
+    let handedTo: string[] = [];
+    if (t.origin === "jorge" && noPr && !prUrl && (t.workType ?? "code") !== "code" && t.ownerAgent) {
+      const [owner] = await tx.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
+      if (owner && roleOf(owner) === "product-owner") {
+        const made = await tx
+          .select({ key: tasks.key, owner: agents })
+          .from(events)
+          .innerJoin(tasks, eq(tasks.id, events.taskId))
+          .innerJoin(agents, eq(agents.id, tasks.ownerAgent))
+          .where(and(eq(events.projectId, p.id), eq(events.type, "task.created"), ne(tasks.id, t.id), eq(tasks.kind, "ticket"), sql`${events.actor}->>'session_id' = ${ctx.actor.session_id}`));
+        handedTo = made.filter((m) => roleOf(m.owner) === "taller").map((m) => m.key);
+      }
+    }
+    let final = moved;
+    if (handedTo.length) {
+      final = await setTaskInTx(tx, emit, p, { project: p.slug, key: t.key, status: "Done", version: moved.version, note: `Pasó a Taller: ${handedTo.join(", ")}. La entrega que revisas es la de ese ticket.` }, ctx);
+      changed.push("status");
+    }
     let initiative: { key: string; version: number; next_action: string } | undefined;
     if (input.note?.trim() && t.parentId) {
       const [parent] = await tx.select().from(tasks).where(eq(tasks.id, t.parentId)).limit(1);
       const r = await setTaskInTx(tx, emit, p, { project: p.slug, key: parent!.key, next_action: input.note.trim(), version: parent!.version }, ctx);
       initiative = { key: r.key, version: r.version, next_action: input.note.trim() };
     }
-    const { changed: _c, ...rest } = moved;
-    return { ...rest, changed, result: added.result, ...(initiative ? { initiative } : {}), ...(checked.verified ? { verified: checked.verified } : {}), ...(warnings.length ? { warnings } : {}) };
+    const { changed: _c, ...rest } = final;
+    return { ...rest, changed, ...(handedTo.length ? { handed_to: handedTo } : {}), result: added.result, ...(initiative ? { initiative } : {}), ...(checked.verified ? { verified: checked.verified } : {}), ...(warnings.length ? { warnings } : {}) };
   });
 }

@@ -385,6 +385,11 @@ button.cor-row { width: 100%; text-align: left; background: transparent; border-
 .cor-entrega-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
 .cor-entrega-bar .cor-tabs { gap: 0 24px; }
 .cor-entrega-bar .cor-tab em { font-style: normal; font-family: var(--cor-mono); font-size: 10.5px; letter-spacing: 0.08em; color: var(--cor-violet-3); text-transform: uppercase; }
+/* PLA-109 (F-36): the two button groups wrap under the tabs when the column is narrow, instead of running into the
+   decision column. */
+.cor-entrega-modes { display: flex; flex-wrap: wrap; gap: 10px; min-width: 0; }
+.cor-stage-fit:has(> .cor-still-loading) { min-height: 240px; }
+.cor-still-loading { position: absolute; inset: 0; display: grid; place-content: center; color: var(--cor-muted); font-family: var(--cor-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; pointer-events: none; }
 .cor-segbox { display: inline-flex; gap: 2px; padding: 0; border-radius: 12px; border: 1px solid var(--cor-line-strong); }
 .cor-segbox .cor-opt { border-color: transparent; }
 .cor-segbox .cor-opt[aria-pressed="true"] { border-color: rgba(167, 139, 250, 0.6); }
@@ -1012,6 +1017,10 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-cosa-tx { flex: 1 1 140px; }
 .cor-hilo.head .s { display: none; }
 @media (max-width: 1359px) { .cor-hilo.head .l { display: none; } .cor-hilo.head .s { display: inline; } }
+/* PLA-109 (F-41): the header's own width decides the three-letter names, whatever the window. */
+.cor-hilo-wrap { display: block; min-width: 0; container-type: inline-size; }
+.cor-hilo.head .t { display: none; }
+@container (max-width: 520px) { .cor-hilo.head .l, .cor-hilo.head .s { display: none; } .cor-hilo.head .t { display: inline; } }
 
 /* AUDIT-8: the PO's decisions as closed questions, and what each plan step says. */
 .cor-plan-steps li > span { display: block; margin-top: 2px; font-size: 13px; line-height: 1.45; color: var(--cor-body); }
