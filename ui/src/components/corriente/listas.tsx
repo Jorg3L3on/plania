@@ -1,18 +1,21 @@
 // PLA-I62-7: a project's Ideas, Diseño, PRs and Docs tabs (boards C1, C3, C4, C5), from the building's ficha read
-// (GET /company/projects/:slug/ficha). Ideas: each one on its six stops, grouped (a delivery not seen, advancing,
-// ready to build, saved), with Abrir, Despertar, Constrúyelo and Restaurar as today. Diseño: Artist's canvases with
+// (GET /company/projects/:slug/ficha). Ideas: grouped (a delivery not seen, advancing, ready to build, saved); each
+// one is the common row that opens the one ficha in place (PLA-I65-5), where Despertar, Constrúyelo and Restaurar live. Diseño: Artist's canvases with
 // the unseen marked. PRs: the list and the open one beside it (Rama, Fusionado, Ver la entrega, Ver el paso, GitHub).
 // Docs: by initiative, the open one beside it.
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { api, type Decision, type FichaIdea, type OrgFicha, type OrgPedido, type OrgProject, type PedidoStop } from "@/lib/api";
+import { seatName } from "@/lib/corriente";
 import { deliveryFor } from "@/lib/etapas";
 import type { CorrienteActs } from "./acts";
-import { STOPS } from "./idea";
-import { Agent, Btn, Dot, Key, Label, ReadError, State, You } from "./parts";
+import type { FichaLinks } from "./ficha";
+import { Fila, FilaAbierta } from "./fila";
+import { Btn, Key, Label, ReadError, State, You } from "./parts";
+import { rioOfRow } from "./rio-geo";
 
 const STAGE_STOP: Record<string, PedidoStop> = { idea: "entendido", research: "investigacion", design: "diseno", planning: "plan", ready: "lista" };
 const dayOf = (iso: string | null) => (iso ? new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short" }).format(new Date(iso)).replace(".", "") : "");
@@ -21,74 +24,64 @@ export function useFicha(slug: string) {
   return useQuery({ queryKey: ["company-ficha", slug], queryFn: () => api.companyFicha(slug), staleTime: 15_000 });
 }
 
-type Row = { key: string; title: string; stop: PedidoStop; who: string; unseen: number; pedido: OrgPedido | null; group: "nuevo" | "avanza" | "lista" | "guardada" };
+type Row = { key: string; title: string; stop: PedidoStop; who: string; unseen: number; pedido: OrgPedido | null; group: "nuevo" | "avanza" | "lista" | "tablero" | "guardada"; promoted: string | null };
 export function ideaRows(ideas: FichaIdea[], pedidos: OrgPedido[]): Row[] {
   const byKey = new Map(pedidos.map((x) => [x.key, x]));
   const rows: Row[] = ideas.map((i) => {
     const pd = byKey.get(i.key) ?? null;
     const stop = pd?.stop ?? STAGE_STOP[i.stage ?? "idea"] ?? "entendido";
     const unseen = i.unseen ?? pd?.unseen ?? 0;
-    const group: Row["group"] = pd?.guardada ? "guardada" : unseen > 0 ? "nuevo" : stop === "lista" ? "lista" : "avanza";
+    const group: Row["group"] = pd?.guardada ? "guardada" : i.promoted_to ? "tablero" : unseen > 0 ? "nuevo" : stop === "lista" ? "lista" : "avanza";
     // «Doc Plan» (what the stage still needs) said in words, as the building does.
     const who = i.waits ? i.waits.replace(/^Doc (\w+)$/, (_m, d: string) => `Falta el doc ${d}`) : "";
-    return { key: i.key, title: i.summary || i.title, stop, who, unseen, pedido: pd, group };
+    return { key: i.key, title: i.summary || i.title, stop, who, unseen, pedido: pd, group, promoted: i.promoted_to ?? null };
   });
   // Saved requests that the ideas read does not list.
-  for (const pd of pedidos.filter((x) => x.guardada && !rows.some((r) => r.key === x.key))) rows.push({ key: pd.key, title: pd.title, stop: pd.stop, who: "", unseen: 0, pedido: pd, group: "guardada" });
+  for (const pd of pedidos.filter((x) => x.guardada && !rows.some((r) => r.key === x.key))) rows.push({ key: pd.key, title: pd.title, stop: pd.stop, who: "", unseen: 0, pedido: pd, group: "guardada", promoted: null });
   return rows;
 }
 
-const Journey = ({ r }: { r: Row }) => {
-  const at = STOPS.findIndex((s) => s.id === r.stop);
-  const live = r.pedido?.state === "trabajando";
-  const you = r.pedido?.state === "espera";
-  return (
-    <span className="cor-journey" aria-hidden>
-      {STOPS.map((s, i) => (
-        <span key={s.id} className="cor-jstop">
-          {i === at ? r.unseen > 0 ? <span className="cor-unseen" /> : you ? <You small /> : live ? <Agent small /> : <Dot grey={r.group === "guardada"} /> : i < at ? <Dot /> : <i className="cor-ring" />}
-        </span>
-      ))}
-    </span>
-  );
-};
+const GROUP_NAME: Record<Row["group"], string> = { nuevo: "Con una entrega sin ver", avanza: "Avanzando", lista: "Listas para construir", tablero: "En el tablero", guardada: "Guardadas" };
 
-const GROUP_NAME: Record<Row["group"], string> = { nuevo: "Con una entrega sin ver", avanza: "Avanzando", lista: "Listas para construir", guardada: "Guardadas" };
+/** A row's current: its stop and state, and once built its initiative's steps (from the board read). */
+export function rowRio(r: Row, p: Pick<OrgProject, "tablero">) {
+  const state = r.pedido?.state ?? "quieta";
+  const init = r.promoted ? p.tablero?.initiatives.find((i) => i.key === r.promoted) : undefined;
+  const done = r.promoted && !init ? (p.tablero?.done_initiatives ?? []).some((i) => i.key === r.promoted) : false;
+  return rioOfRow({ stop: r.stop, state, guardada: r.group === "guardada" }, init ? { steps: init.tickets.map((t) => ({ status: t.status, etapa: t.etapa.etapa })), published: false } : done ? { steps: [{ status: "Done", etapa: "hecho" }], published: true } : null);
+}
 
-export const Ideas = ({ p, acts, links }: { p: OrgProject; acts: CorrienteActs; links: { idea: (key: string) => string; pedir: string } }) => {
+export const Ideas = ({ p, acts, decisions, now, timeZone, open, links }: { p: OrgProject; acts: CorrienteActs; decisions: Decision[]; now: number; timeZone?: string; open: string | null; links: { open: (key: string | null) => string; pedir: string; ficha: FichaLinks } }) => {
   const f = useFicha(p.slug);
+  const navigate = useNavigate();
   const [allSaved, setAllSaved] = useState(false);
   if (f.isError) return <ReadError what="las ideas" onRetry={() => void f.refetch()} />;
   if (!f.data) return <div className="cor-skel" style={{ height: 300 }} aria-busy="true" aria-label="Leyendo las ideas" />;
   const rows = ideaRows(f.data.ideas, p.pedidos ?? []);
-  const groups = (["nuevo", "avanza", "lista", "guardada"] as const).map((g) => ({ g, rows: rows.filter((r) => r.group === g) })).filter((x) => x.rows.length);
+  const groups = (["nuevo", "avanza", "lista", "tablero", "guardada"] as const).map((g) => ({ g, rows: rows.filter((r) => r.group === g) })).filter((x) => x.rows.length);
+  const close = () => navigate(links.open(null), { replace: true });
+  const opened = (k: string) => <FilaAbierta key={k} p={p} k={k} now={now} timeZone={timeZone} acts={acts} decisions={decisions} links={links.ficha} onClose={close} />;
+  // An idea opened by its address that this list does not show (closed, or past the first 30) still opens, on top.
+  const orphan = open && !rows.some((r) => r.key === open) ? open : null;
   return (
     <div className="cor-ideas" data-ideas={rows.length}>
       <div className="cor-pedidos-head" style={{ borderBottom: 0, paddingBottom: 0 }}>
         <p className="cor-text" style={{ maxWidth: 720 }}>
-          Cada idea avanza sola por sus seis paradas. Con un punto blanco, lo que el equipo ya entregó y todavía no has visto; nada se detiene si no lo ves.
+          Cada idea avanza sola por sus seis paradas. Ábrela para ver lo que entregó cada parada; nada se detiene si no la ves.
         </p>
         <Link className="cor-btn secondary" to={links.pedir} data-control="pedir-idea">
           Pedir una idea
         </Link>
       </div>
-      <div className="cor-prow-head ideas" aria-hidden>
-        <span className="cor-label">Idea</span>
-        {STOPS.map((s) => (
-          <span key={s.id} className="cor-label">
-            {s.name}
-          </span>
-        ))}
-        <span className="cor-label">Quién la tiene</span>
-      </div>
-      {rows.length === 0 ? (
+      {rows.length === 0 && !orphan ? (
         <p className="cor-empty cor-text" data-sin-ideas>
           Todavía no hay ideas. Pide una con «Darle forma» y aparece aquí, parada por parada.
         </p>
       ) : (
         <div className="cor-ideas-list">
+          {orphan && <ul className="cor-filas">{opened(orphan)}</ul>}
           {groups.map(({ g, rows: rs }) => {
-            const shown = g === "guardada" && !allSaved ? rs.slice(0, 1) : rs;
+            const shown = g === "guardada" && !allSaved && !rs.some((r) => r.key === open) ? rs.slice(0, 1) : rs;
             return (
               <section key={g} aria-label={GROUP_NAME[g]} data-group={g}>
                 <div className="cor-ideas-g">
@@ -99,34 +92,15 @@ export const Ideas = ({ p, acts, links }: { p: OrgProject; acts: CorrienteActs; 
                     </Btn>
                   )}
                 </div>
-                <ul>
+                <ul className="cor-filas">
                   {shown.map((r) => {
+                    if (r.key === open) return opened(r.key);
                     const quiet = r.pedido?.state === "quieta" && r.stop !== "lista" && r.group !== "guardada";
+                    const you = r.pedido ? r.pedido.state === "espera" || (r.stop === "lista" && r.pedido.state === "quieta" && !r.promoted && r.group !== "guardada") : false;
+                    const line = r.promoted ? `Es ${r.promoted} en el tablero` : r.group === "guardada" ? "Fuera de la corriente" : r.unseen ? `${r.unseen} ${r.unseen === 1 ? "entrega sin ver" : "entregas sin ver"}` : r.stop === "lista" ? "Espera tu «Constrúyelo»" : r.pedido?.state === "trabajando" ? `${seatName(r.pedido.who)} la trabaja` : quiet ? "Nadie la trabaja" : r.who || "En camino";
                     return (
-                      <li key={r.key} className="cor-plane idea" data-idea-row={r.key}>
-                        <Link className="cor-plane-name" to={links.idea(r.key)}>
-                          <b className="cor-ellipsis">{r.title}</b>
-                          <span className="cor-cap">{[r.key, STOPS.find((s) => s.id === r.stop)?.name, r.unseen ? `${r.unseen} sin ver` : null].filter(Boolean).join(" · ").toUpperCase()}</span>
-                        </Link>
-                        <Journey r={r} />
-                        <span className="cor-idea-who cor-ellipsis">{r.group === "guardada" ? "Fuera de la corriente" : r.stop === "lista" ? "Espera tu «Constrúyelo»" : quiet ? "Nadie la trabaja" : r.who || "En camino"}</span>
-                        {r.group === "guardada" ? (
-                          <Btn kind="secondary" onClick={() => acts.pedido(p.slug, r.key, "restaurar")} disabled={acts.busy === `pedido-${r.key}:restaurar`} data-control="restaurar">
-                            Restaurar
-                          </Btn>
-                        ) : r.stop === "lista" && r.pedido ? (
-                          <Btn kind="secondary" onClick={() => acts.pedido(p.slug, r.key, "construir")} disabled={acts.busy === `pedido-${r.key}:construir`} data-control="construyelo">
-                            Constrúyelo
-                          </Btn>
-                        ) : quiet ? (
-                          <Btn kind="secondary" onClick={() => acts.despertar(p.slug, r.key)} disabled={acts.busy === `pedido-${r.key}:despertar`} data-control="despertar">
-                            Despertar
-                          </Btn>
-                        ) : (
-                          <Link className="cor-btn quiet" to={links.idea(r.key)} data-control="abrir">
-                            Abrir ›
-                          </Link>
-                        )}
+                      <li key={r.key}>
+                        <Fila name={r.title} k={r.key} m={rowRio(r, p)} line={line} tone={you ? "amber" : r.unseen || r.pedido?.state === "trabajando" ? "live" : undefined} open={false} to={links.open(r.key)} />
                       </li>
                     );
                   })}

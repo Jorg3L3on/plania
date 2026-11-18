@@ -293,6 +293,27 @@ export type IdeaDetail = OrgPedido & {
   queued?: string | null;
   trail: PedidoTrailItem[];
   pictures: { id: string; url: string; at: string }[];
+  // PLA-I65-1 (Una sola ficha); an older server sends none of these.
+  kind?: "idea" | "initiative";
+  short?: string;
+  understood_text?: string | null;
+  gist?: Partial<Record<PedidoStop, string | null>>;
+  built?: IdeaBuilt | null;
+};
+// PLA-I65-1: the initiative the idea became (src/api/company-idea.ts builtOf).
+export type IdeaBuiltStep = { key: string; title: string; status: string; phase: number | null; etapa: EtapaId | null; pr: { number: number; state: string; url: string } | null };
+export type IdeaBuilt = {
+  key: string;
+  title: string;
+  status: string;
+  version: number;
+  done: number;
+  total: number;
+  can_close: boolean;
+  steps: IdeaBuiltStep[];
+  prs: { number: number; state: string; url: string; key: string }[];
+  published_at: string | null;
+  evidence: { key: string; kind: string; cite: string; commit: string | null; env: string | null; at: string }[];
 };
 export type PedidoFicha = { problema: string | null; tamano: string | null; solucion: string | null; riesgos: string | null; fuera: string | null };
 export type PedidoDetail = OrgPedido & {
@@ -596,6 +617,8 @@ export type FichaIdea = {
   // PLA-I61-3: older servers send neither.
   summary?: string;
   unseen?: number;
+  // PLA-I65-5.
+  promoted_to?: string | null;
 };
 export type FichaLienzo = { key: string; title: string; count: number; thumbs: string[]; unseen: number };
 export type FichaPr = { number: number; title: string; url: string; state: string; ci_state: string | null; task_key: string | null; merged_at: string | null; head_branch: string | null };
