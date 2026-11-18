@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellIcon, CloudOffIcon, EllipsisIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
+import { BellIcon, CloudOffIcon, EllipsisIcon, GaugeIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -110,6 +110,10 @@ function MoreMenu({ onLogout }: { onLogout: () => void }) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-64">
+        {/* AUDIT-5: the quality scoreboard is not one of the five destinations, so it lives here. */}
+        <DropdownMenuItem onSelect={() => navigate("/calidad")}>
+          <GaugeIcon /> Calidad del trabajo
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => navigate("/tokens")}>
           <KeyRoundIcon /> Tokens de agentes
         </DropdownMenuItem>

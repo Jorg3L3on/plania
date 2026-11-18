@@ -13,3 +13,6 @@ docs/
 scan-hashes.json
 scan-hashes.local.json
 .scan-hashes.json
+
+# AUDIT-10: replay runs are local results, not source (replay/README.md).
+replay/results/
