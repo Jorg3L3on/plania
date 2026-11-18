@@ -7,9 +7,12 @@ import { agentRuns, agents, machineState, projects, qaLanes, tasks } from "../db
 
 export type InFlight = { kind: "run" | "qa" | "fotos" | "entrega" | "pruebas"; text: string };
 
-// A «tomando» older than this has nobody behind it (the sweep takes it again); a delivery this fresh may be about to
-// get its pass.
-const PASS_MS = 6 * 60_000;
+// A «tomando» older than this has nobody behind it; a delivery this fresh may be about to get its pass.
+// PLA-102 (guided test PLA-86, F-21): this was 6 minutes, the same as the sweep's orphan age, but a pass with three
+// views at two widths, two copies and the muestra's rows runs longer. A restart at 6.6 minutes read «Nada en curso»
+// and cut MIA-I10-3's pass. The sweep can retake early (it checks the pass in memory); a restart must not, so it waits
+// longer before calling a pass abandoned.
+export const PASS_MS = 20 * 60_000;
 const FRESH_MS = 2 * 60_000;
 
 export async function inFlight(db: Db, now = new Date()): Promise<InFlight[]> {
