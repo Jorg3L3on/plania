@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { forgetReads } from "@/lib/last-read";
 import { BellIcon, CloudOffIcon, EllipsisIcon, GaugeIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
@@ -144,6 +145,7 @@ export function AppShell() {
   async function logout() {
     await api.logout();
     queryClient.clear();
+    forgetReads(); // PLA-74
     navigate("/login", { replace: true });
   }
 
