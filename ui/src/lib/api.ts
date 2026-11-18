@@ -158,7 +158,11 @@ export const api = {
   company: () => request<OrgCompany>("GET", "/company"),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
-  companyFicha: (slug: string) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha`),
+  companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),
+  // PLA-I64-6: what landed day by day (a window of 14 days ending on hasta).
+  hecho: (slug: string, hasta?: string | null) => request<Hecho>("GET", `/company/projects/${encodeURIComponent(slug)}/hecho${hasta ? `?hasta=${encodeURIComponent(hasta)}` : ""}`),
+  // PLA-I64-3: steps done per day, last 14 days.
+  pulso: (slug: string) => request<Pulso>("GET", `/company/projects/${encodeURIComponent(slug)}/pulso`),
   projectDoc: (slug: string, id: string) => request<ProjectDocBody>("GET", `/company/docs/${encodeURIComponent(id)}?project=${encodeURIComponent(slug)}`),
   // PLA-I46-13: packs are set in the same call; the server refuses an unknown pack before hiring.
   addToTeam: (slug: string, template: string, packs?: string[], motor?: MotorPatch) =>
@@ -293,6 +297,27 @@ export type IdeaDetail = OrgPedido & {
   queued?: string | null;
   trail: PedidoTrailItem[];
   pictures: { id: string; url: string; at: string }[];
+  // PLA-I65-1 (Una sola ficha); an older server sends none of these.
+  kind?: "idea" | "initiative";
+  short?: string;
+  understood_text?: string | null;
+  gist?: Partial<Record<PedidoStop, string | null>>;
+  built?: IdeaBuilt | null;
+};
+// PLA-I65-1: the initiative the idea became (src/api/company-idea.ts builtOf).
+export type IdeaBuiltStep = { key: string; title: string; status: string; phase: number | null; etapa: EtapaId | null; pr: { number: number; state: string; url: string } | null };
+export type IdeaBuilt = {
+  key: string;
+  title: string;
+  status: string;
+  version: number;
+  done: number;
+  total: number;
+  can_close: boolean;
+  steps: IdeaBuiltStep[];
+  prs: { number: number; state: string; url: string; key: string }[];
+  published_at: string | null;
+  evidence: { key: string; kind: string; cite: string; commit: string | null; env: string | null; at: string }[];
 };
 export type PedidoFicha = { problema: string | null; tamano: string | null; solucion: string | null; riesgos: string | null; fuera: string | null };
 export type PedidoDetail = OrgPedido & {
@@ -596,6 +621,13 @@ export type FichaIdea = {
   // PLA-I61-3: older servers send neither.
   summary?: string;
   unseen?: number;
+  // PLA-I64-1: older servers send none of these.
+  promoted_to?: string | null;
+  origin?: string | null;
+  stop?: PedidoStop | null;
+  state?: PedidoState | null;
+  guardada?: boolean;
+  question?: { id: string; text: string } | null;
 };
 export type FichaLienzo = { key: string; title: string; count: number; thumbs: string[]; unseen: number };
 export type FichaPr = { number: number; title: string; url: string; state: string; ci_state: string | null; task_key: string | null; merged_at: string | null; head_branch: string | null };
@@ -609,7 +641,12 @@ export type OrgFicha = {
   docs: FichaDoc[];
   designs: FichaDesign[];
   lienzos?: FichaLienzo[];
+  // PLA-I64-1: every idea that became an initiative.
+  promoted?: { idea: string; initiative: string }[];
 };
+export type HechoDay = { day: string; n: number; steps: { key: string; title: string; parent: string | null }[]; more: number; initiatives: { key: string; title: string }[]; prs: number };
+export type Hecho = { from: string; to: string; tz: string; total: number; days: HechoDay[]; initiatives: { key: string; title: string; done_at: string; steps: number; idea: string | null; origin: string | null }[]; before: string | null };
+export type Pulso = { days: { day: string; n: number }[]; total: number; tz: string };
 export type ProjectDocBody = { id: string; title: string; version: number; markdown: string; task_key: string | null };
 
 export type ThreadAction = "aceptar" | "cambios" | "responder" | "fusionar";

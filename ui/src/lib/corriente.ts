@@ -1,29 +1,29 @@
 // PLA-I62: La corriente's address. Pure, so the tests call it directly.
 //   (nothing)                 the stream, every project by stage
 //   ?v=tetoca|asistente|pedir|brief|piezas   the global pages (piezas is the internal kit page; brief is PLA-I63)
-//   ?proyecto=<slug>&t=<tab>  a project, one of its tabs
+//   ?proyecto=<slug>[&t=<door>] a project: its list (PLA-I64), or a door (archivo, hecho, equipo, motores, maquinas)
 //   &ver=<kind>:<ref>         what a tab has open (a paso, a pedido, an idea, a PR, a doc, an entrega, a teammate…)
 // The stream is the first screen; inside a project it shrinks to a strip on top.
 
 export const VIEWS = ["corriente", "tetoca", "asistente", "pedir", "brief", "piezas"] as const;
 export type View = (typeof VIEWS)[number];
 
-export const WORK_TABS = ["ahora", "pedidos", "tablero", "ideas", "diseno", "prs", "docs"] as const;
-export const SIDE_TABS = ["equipo", "motores", "maquinas"] as const;
-export const TABS = [...WORK_TABS, ...SIDE_TABS] as const;
+// PLA-I64-7: inside a project there is one list (todo, the entry) and its doors: Archivo, Hecho, Equipo (with
+// Motores behind it) and Máquinas. The old tabs' addresses still open: each lands on its new place (OLD_TAB).
+export const TABS = ["todo", "archivo", "hecho", "equipo", "motores", "maquinas"] as const;
 export type Tab = (typeof TABS)[number];
+export const DOORS = ["archivo", "equipo", "maquinas"] as const;
 export const TAB_NAME: Record<Tab, string> = {
-  ahora: "Ahora",
-  pedidos: "Pedidos",
-  tablero: "Tablero",
-  ideas: "Ideas",
-  diseno: "Diseño",
-  prs: "PRs",
-  docs: "Docs",
+  todo: "Todo",
+  archivo: "Archivo",
+  hecho: "Hecho",
   equipo: "Equipo",
   motores: "Motores",
   maquinas: "Máquinas",
 };
+/** The retired tabs (PLA-I62) and where each one lives now. */
+export const OLD_TAB: Record<string, Tab> = { ahora: "todo", pedidos: "todo", tablero: "todo", ideas: "todo", diseno: "archivo", prs: "archivo", docs: "archivo" };
+export const tabOf = (raw: string | null | undefined): Tab | null => (!raw ? null : (TABS as readonly string[]).includes(raw) ? (raw as Tab) : (OLD_TAB[raw] ?? null));
 
 /** What a tab has open beside or over its list. */
 export type Ver =
@@ -52,8 +52,11 @@ export function verOf(raw: string | null): Ver | null {
   const kind = (i < 0 ? raw : raw.slice(0, i)) as Ver["kind"];
   const ref = i < 0 ? "" : raw.slice(i + 1);
   if (!(VER_KINDS as readonly string[]).includes(kind)) return null;
-  if (kind === "sueltos" || kind === "guardadas" || kind === "sumar") return { kind };
+  // PLA-I64-7: a pedido and a lienzo are their idea; Sueltos and Guardadas are lines of the list.
+  if (kind === "sueltos" || kind === "guardadas") return null;
+  if (kind === "sumar") return { kind };
   if (!ref) return null;
+  if (kind === "pedido" || kind === "lienzo") return { kind: "idea", key: ref };
   if (kind === "pr") return Number.isFinite(Number(ref)) && Number(ref) > 0 ? { kind, n: Number(ref) } : null;
   if (kind === "doc" || kind === "entrega") return { kind, id: ref };
   if (kind === "miembro") return { kind, agent: ref };
@@ -84,32 +87,20 @@ export function verParam(v: Ver): string {
   }
 }
 
-/** The tab a Ver lives in (a link to a paso opens the board, to a pedido the Pedidos tab). */
+/** The tab a Ver lives in (PLA-I64-7: a thing of the project opens over the list, a doc or PR in Archivo). */
 export function tabOfVer(v: Ver): Tab {
   switch (v.kind) {
-    case "paso":
-    case "iniciativa":
-    case "sueltos":
-      return "tablero";
-    case "pedido":
-    case "guardadas":
-      return "pedidos";
-    case "idea":
-      return "ideas";
-    case "lienzo":
-      return "diseno";
     case "pr":
-      return "prs";
     case "doc":
-      return "docs";
-    case "entrega":
-      return "ahora";
+      return "archivo";
     case "miembro":
     case "sumar":
       return "equipo";
     case "maq":
     case "tabla":
       return "maquinas";
+    default:
+      return "todo";
   }
 }
 
@@ -117,8 +108,9 @@ export function atOf(search: string): At {
   const q = new URLSearchParams(search);
   const slug = q.get("proyecto") || null;
   const ver = verOf(q.get("ver"));
-  const t = q.get("t") as Tab | null;
-  const tab: Tab = t && (TABS as readonly string[]).includes(t) ? t : ver ? tabOfVer(ver) : "ahora";
+  const t = tabOf(q.get("t"));
+  // An old tab whose ver lives elsewhere (t=tablero&ver=pr:3) follows the ver.
+  const tab: Tab = ver && (!t || (q.get("t") && OLD_TAB[q.get("t")!] && tabOfVer(ver) !== t)) ? tabOfVer(ver) : (t ?? "todo");
   const v = q.get("v") as View | null;
   const view: View = slug ? "corriente" : v && (VIEWS as readonly string[]).includes(v) ? v : "corriente";
   return { view, slug, tab, ver };
@@ -128,8 +120,8 @@ export function searchOf(at: Partial<At> & { extra?: Record<string, string> }): 
   const q = new URLSearchParams();
   if (at.slug) {
     q.set("proyecto", at.slug);
-    const tab = at.tab ?? (at.ver ? tabOfVer(at.ver) : "ahora");
-    if (tab !== "ahora") q.set("t", tab);
+    const tab = at.tab ?? (at.ver ? tabOfVer(at.ver) : "todo");
+    if (tab !== "todo") q.set("t", tab);
     if (at.ver) q.set("ver", verParam(at.ver));
   } else if (at.view && at.view !== "corriente") q.set("v", at.view);
   for (const [k, val] of Object.entries(at.extra ?? {})) q.set(k, val);
@@ -182,11 +174,11 @@ export function legacyHref(at: Partial<At>): string {
     if (v.kind === "tabla") return `/ceo?${piso}&nivel=maquinas&f=${encodeURIComponent(`maq:tabla:${v.name}`)}`;
     if (f) return `/ceo?${piso}&f=${encodeURIComponent(f)}`;
   }
-  const tab = at.tab ?? "ahora";
+  const tab = at.tab ?? "todo";
   if (tab === "maquinas") return `/ceo?${piso}&nivel=maquinas`;
-  if (tab === "tablero" || tab === "ahora" || tab === "equipo") return `/ceo?${piso}`;
-  const fichaTab = tab === "pedidos" ? "pedido" : tab;
-  return `/ceo?${piso}&f=${encodeURIComponent(`tab:${fichaTab}`)}`;
+  if (tab === "archivo") return `/ceo?${piso}&f=${encodeURIComponent("tab:docs")}`;
+  if (tab === "motores") return `/ceo?${piso}&f=${encodeURIComponent("tab:motores")}`;
+  return `/ceo?${piso}`;
 }
 
 // ---- words
@@ -235,13 +227,13 @@ export function clockLine(now: number, timeZone?: string): string {
 // ---- which parts La corriente draws already (each phase of PLA-I62 adds its own); the rest link to the building.
 export const BUILT: { views: View[]; tabs: Tab[]; vers: Ver["kind"][] } = {
   views: [...VIEWS],
-  tabs: ["ahora", "pedidos", "tablero", "equipo", "ideas", "diseno", "prs", "docs", "motores", "maquinas"],
+  tabs: [...TABS],
   vers: ["entrega", "pedido", "guardadas", "paso", "iniciativa", "sueltos", "miembro", "sumar", "idea", "lienzo", "pr", "doc", "maq", "tabla"],
 };
 export function isBuilt(at: Partial<At>): boolean {
   if (!at.slug) return BUILT.views.includes(at.view ?? "corriente");
   if (at.ver) return BUILT.vers.includes(at.ver.kind);
-  return BUILT.tabs.includes(at.tab ?? "ahora");
+  return BUILT.tabs.includes(at.tab ?? "todo");
 }
 /** The address for a place: La corriente's when it is drawn here, else its place in the building. */
 export const linkTo = (at: Partial<At>): string => (isBuilt(at) ? hrefOf(at) : legacyHref(at));
@@ -260,7 +252,7 @@ export const MODES: { id: AskMode; name: string; line: string }[] = [
 //   ?edificio (Oficina) → Te toca · ?asistente → Asistente · ?nuevo → the Nuevo proyecto sheet · ?decision=<id> → its card
 //   in Te toca · ?piso=<slug> → the project (with ?nivel=maquinas → Máquinas) · ?f=<ficha ref> → its tab and what it
 //   opens · ?m=<slug>:<agent> → the teammate · ?plan=<slug> → the board · ?add=<slug> → Sumar. ?doc=<id> stays (a sheet).
-const FICHA_TAB: Record<string, Tab> = { resumen: "ahora", pedido: "pedidos", ideas: "ideas", diseno: "diseno", prs: "prs", docs: "docs", motores: "motores" };
+const FICHA_TAB: Record<string, Tab> = { resumen: "todo", pedido: "todo", ideas: "todo", diseno: "archivo", prs: "archivo", docs: "archivo", motores: "motores" };
 export function fromBuilding(search: string, ref: { kind: string; [k: string]: unknown } | null, refSlug: string | null): string | null {
   const q = new URLSearchParams(search);
   const legacy = ["edificio", "asistente", "nuevo", "decision", "piso", "f", "m", "plan", "add", "nivel"].some((k) => q.has(k));
@@ -273,11 +265,11 @@ export function fromBuilding(search: string, ref: { kind: string; [k: string]: u
   if (!slug) return searchOf({ view: q.has("edificio") ? "tetoca" : "corriente", extra: keep });
   if (q.has("decision")) return searchOf({ view: "tetoca", extra: { ...keep, decision: q.get("decision")! } });
   const maquinas = q.get("nivel") === "maquinas";
-  if (!ref) return searchOf({ slug, tab: maquinas ? "maquinas" : "ahora", extra: keep });
+  if (!ref) return searchOf({ slug, tab: maquinas ? "maquinas" : "todo", extra: keep });
   const s = (v: unknown) => String(v ?? "");
   switch (ref.kind) {
     case "tab":
-      return searchOf({ slug, tab: FICHA_TAB[s(ref.tab)] ?? "ahora", extra: keep });
+      return searchOf({ slug, tab: FICHA_TAB[s(ref.tab)] ?? "todo", extra: keep });
     case "step":
       return searchOf({ slug, ver: { kind: "paso", key: s(ref.key) }, extra: keep });
     case "leg":
@@ -287,7 +279,7 @@ export function fromBuilding(search: string, ref: { kind: string; [k: string]: u
     case "pedido":
       return searchOf({ slug, ver: { kind: "pedido", key: s(ref.key) }, extra: keep });
     case "guardadas":
-      return searchOf({ slug, ver: { kind: "guardadas" }, extra: keep });
+      return searchOf({ slug, extra: keep });
     case "member":
       return searchOf({ slug, ver: { kind: "miembro", agent: s(ref.agent) }, extra: keep });
     case "pr":
@@ -295,7 +287,7 @@ export function fromBuilding(search: string, ref: { kind: string; [k: string]: u
     case "doc":
       return searchOf({ slug, ver: { kind: "doc", id: s(ref.id) }, extra: keep });
     case "lienzo":
-      return searchOf({ slug, tab: "diseno", extra: keep });
+      return searchOf({ slug, tab: "archivo", extra: keep });
     case "sumar":
       return searchOf({ slug, ver: { kind: "sumar" }, extra: keep });
     case "app":
@@ -305,7 +297,7 @@ export function fromBuilding(search: string, ref: { kind: string; [k: string]: u
     case "maq-tabla":
       return searchOf({ slug, ver: { kind: "tabla", name: s(ref.name) }, extra: keep });
     default:
-      // plan, sueltos: the board.
-      return searchOf({ slug, tab: "tablero", extra: keep });
+      // plan, sueltos: the list.
+      return searchOf({ slug, extra: keep });
   }
 }
