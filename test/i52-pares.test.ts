@@ -189,6 +189,7 @@ function png(w: number, h: number, box?: { x: number; y: number; w: number; h: n
 // A fake capture that writes real rows: antes of «sucursales» is a new screen (404), antes and después of «apagada»
 // differ in one box. failDespues makes every después still fail.
 let failDespues = false;
+let despuesError = "pidió entrar otra vez";
 const fakeCapture = async (d: typeof db, input: Json) => {
   const [p] = (await raw.query(`select id from projects where slug = $1`, [input.project])).rows;
   const [t] = (await raw.query(`select id from tasks where key = $1`, [input.task_key])).rows;
@@ -199,7 +200,7 @@ const fakeCapture = async (d: typeof db, input: Json) => {
       const base = { projectId: p.id, taskId: t.id, runId, pageKey: v.key, pageLabel: v.label, path: v.path, viewport: vp, width: vp === "desktop" ? 1280 : 390, height: 100, commit: input.commit ?? null, branch: input.branch, actor: input.actor, side: input.side };
       let row;
       if (input.side === "antes" && v.key === "sucursales") row = await store.recordStill(d, input.project, { ...base, ok: false, error: "no existe todavía", url: null, missing: true });
-      else if (input.side === "despues" && failDespues) row = await store.recordStill(d, input.project, { ...base, ok: false, error: "pidió entrar otra vez", url: null });
+      else if (input.side === "despues" && failDespues) row = await store.recordStill(d, input.project, { ...base, ok: false, error: despuesError, url: null });
       else row = await store.recordStill(d, input.project, { ...base, ok: true, png: png(40, 30, input.side === "despues" && v.key === "apagada" ? { x: 10, y: 5, w: 8, h: 6 } : undefined), url: null });
       stills.push({ page: v.key, viewport: vp, status: row.status, id: row.id, error: row.error ?? undefined });
     }
@@ -281,6 +282,31 @@ describe("antes y después", () => {
       assert.match(g.hold!, /^Faltan fotos: /);
     } finally {
       failDespues = false;
+    }
+  });
+
+  test("PLA-76: a después page that crashed reads «error», not «cambió», and holds the card with the error's line", async () => {
+    failDespues = true;
+    despuesError = '/panel/sucursales muestra un error: Unhandled Runtime Error: Error: relation "citas" does not exist';
+    try {
+      const key = await delivery("Pantalla que truena");
+      const s1 = await pass(key, { returnToTaller: false });
+      assert.equal(s1?.state, "fallo", "nothing but crashes: Taller's to fix first");
+      assert.match(s1!.error ?? "", /muestra un error: Unhandled Runtime Error/);
+      const s = await pass(key, { returnToTaller: false });
+      assert.equal(s?.state, "lista");
+      const r = (await (await app.request(`/api/projects/zigzag/probador/${key}`, { headers: jorge() })).json()) as Json;
+      assert.deepEqual(r.vistas.map((v: Json) => v.kind), ["error", "error"]);
+      assert.match(r.vistas[0].desktop.despues.error, /relation "citas" does not exist/);
+      const [p] = (await raw.query(`select * from projects where slug = 'zigzag'`)).rows;
+      const g = probador.probadorGate(p, await taskRow(key), null);
+      assert.match(g.hold!, /^Faltan fotos: .*muestra un error/, "held back from Aceptar");
+      assert.equal(probador.crashed("pidió entrar otra vez"), false);
+      assert.equal(probador.crashed("/x respondió 502"), true);
+      assert.equal(probador.crashed("/x respondió 404"), false);
+    } finally {
+      failDespues = false;
+      despuesError = "pidió entrar otra vez";
     }
   });
 

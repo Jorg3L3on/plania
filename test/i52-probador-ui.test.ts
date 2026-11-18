@@ -132,6 +132,11 @@ test("I52-4 helpers: what a frame shows, where the viewer opens, the state line 
   assert.equal(pb.frameOf(apa, "phone", "antes").kind, "none");
   assert.equal(pb.frameOf(enc, "desktop", "despues").ratio, 1.6);
   assert.equal(pb.firstVista(PROB), "sucursales", "a new screen first");
+  // PLA-76: a crashed después says so as the heading and opens first.
+  const roto = { ...apa, key: "roto", kind: "error", desktop: { ...apa.desktop, despues: side(null, { error: "/panel muestra un error: Runtime Error: x" }) } };
+  assert.deepEqual(pb.frameOf(roto, "desktop", "despues"), { kind: "none", why: "/panel muestra un error: Runtime Error: x", error: true });
+  assert.equal(pb.firstVista({ ...PROB, vistas: [...PROB.vistas, roto] }), "roto");
+  assert.equal(pb.KIND_WORD.error, "error");
   assert.equal(pb.sideFor(enc), "comparar");
   assert.equal(pb.sideFor(suc), "despues");
   assert.equal(pb.stateLine(PROB), null);
