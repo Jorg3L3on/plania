@@ -47,6 +47,12 @@ export const Head = ({ view, waiting, asistenteUnread = 0, now, timeZone, pedirT
       <Tab to="/machine" on={view === "plomeria"}>
         Plomería
       </Tab>
+      {/* PLA-I63-1: the Brief tab shows only when the address opens it; I63-5 makes it a tab of its own. */}
+      {view === "brief" && (
+        <Tab to={hrefOf({ view: "brief" })} on>
+          Brief
+        </Tab>
+      )}
     </nav>
     <div className="cor-head-right">
       <span className="cor-clock" data-clock>

@@ -1,11 +1,11 @@
 // PLA-I62: La corriente's address. Pure, so the tests call it directly.
 //   (nothing)                 the stream, every project by stage
-//   ?v=tetoca|asistente|pedir|piezas   the global pages (piezas is the internal kit page)
+//   ?v=tetoca|asistente|pedir|brief|piezas   the global pages (piezas is the internal kit page; brief is PLA-I63)
 //   ?proyecto=<slug>&t=<tab>  a project, one of its tabs
 //   &ver=<kind>:<ref>         what a tab has open (a paso, a pedido, an idea, a PR, a doc, an entrega, a teammate…)
 // The stream is the first screen; inside a project it shrinks to a strip on top.
 
-export const VIEWS = ["corriente", "tetoca", "asistente", "pedir", "piezas"] as const;
+export const VIEWS = ["corriente", "tetoca", "asistente", "pedir", "brief", "piezas"] as const;
 export type View = (typeof VIEWS)[number];
 
 export const WORK_TABS = ["ahora", "pedidos", "tablero", "ideas", "diseno", "prs", "docs"] as const;
@@ -147,6 +147,7 @@ export function legacyHref(at: Partial<At>): string {
   if (!slug) {
     if (at.view === "asistente") return "/ceo?asistente";
     if (at.view === "tetoca") return "/ceo?edificio";
+    if (at.view === "brief") return "/brief";
     return "/ceo";
   }
   const piso = `piso=${encodeURIComponent(slug)}`;
