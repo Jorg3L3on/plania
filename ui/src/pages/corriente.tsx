@@ -14,6 +14,7 @@ import { Entrega } from "@/components/corriente/entrega";
 import { TeToca } from "@/components/corriente/tetoca";
 import { Pedir } from "@/components/corriente/pedir";
 import { Asistente } from "@/components/corriente/asistente";
+import { BriefPlace } from "@/components/corriente/brief";
 import { Paso, type BoardLinks } from "@/components/corriente/tablero";
 import { Equipo } from "@/components/corriente/equipo";
 import { Idea } from "@/components/corriente/idea";
@@ -145,6 +146,8 @@ export const CorrientePage = () => {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || typingIn(e.target) || document.querySelector("[role=dialog]")) return;
+      // The brief has its own keys (J K, arrows, Enter, L, X, Z, Esc).
+      if (!at.slug && at.view === "brief") return;
       if (e.key === "Escape") {
         e.preventDefault();
         go(escFrom(at), true);
@@ -387,6 +390,7 @@ export const CorrientePage = () => {
 
   const body = () => {
     if (at.view === "piezas") return <Piezas />;
+    if (at.view === "brief") return <BriefPlace now={now} timeZone={timeZone} />;
     if (comp.isError && !company) return <ReadError what="la compañía" onRetry={() => void comp.refetch()} />;
     if (!company) return <div className="cor-skel" style={{ margin: "22px 32px", flex: 1 }} aria-busy="true" aria-label="Cargando la compañía" />;
     if (at.slug) {

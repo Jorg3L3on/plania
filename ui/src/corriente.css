@@ -962,3 +962,34 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-cabeza-l { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .cor-nudge { display: flex; align-items: center; gap: 10px; }
 .cor-inline { color: var(--cor-violet-3); text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---- PLA-I63: the Morning brief as Compañía's delta (PLA-IDEA26, sketch 2). The page is one stage: the delta is
+   drawn under the headline and the card in hand sits at the right; the footer carries the keys or a notice. */
+.cor-bf { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.cor-bf-main { position: relative; flex: 1; min-height: 0; }
+.cor-bf-hero { position: absolute; z-index: 2; left: 32px; top: 12px; right: calc(32px + 423px + 40px); display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+.cor-bf-hero > * { pointer-events: auto; }
+.cor-bf-kick { display: flex; align-items: center; gap: 8px; min-height: 16px; font-family: var(--cor-mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--cor-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cor-bf-h1 { font-size: 40px; line-height: 1.02; font-weight: 500; letter-spacing: -0.035em; }
+.cor-bf-h1 span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cor-bf-h1 .a { color: var(--cor-amber); }
+.cor-bf-h1 .q { color: #8a8a9c; }
+.cor-bf-rt { position: absolute; z-index: 3; right: 32px; top: 8px; bottom: 12px; width: 423px; display: flex; flex-direction: column; gap: 6px; }
+.cor-bf-tools { display: flex; justify-content: flex-end; align-items: center; gap: 8px; min-height: 44px; }
+.cor-bf-menu { min-width: 380px; }
+.cor-bf-menu-h { padding: 8px 10px 6px; font-family: var(--cor-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--cor-muted); }
+.cor-bf-menu-none { padding: 6px 10px 10px; font-size: 13px; color: var(--cor-body); }
+.cor-bf-mi { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--cor-text); text-align: left; font-size: 13.5px; }
+.cor-bf-mi:hover, .cor-bf-mi[aria-current="true"] { background: rgba(255, 255, 255, 0.05); }
+.cor-bf-mi b { font-weight: 500; white-space: nowrap; }
+.cor-bf-mi small { font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-muted); text-align: right; }
+.cor-bf-hand { min-height: 220px; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 20px; text-align: center; border-radius: 14px; border: 1px solid var(--cor-line); background: var(--cor-surface); margin-top: 50px; }
+.cor-bf-hand.cor-skel { border: 0; }
+.cor-bf-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 45px; padding: 0 32px; border-top: 1px solid var(--cor-line); font-family: var(--cor-mono); font-size: 10.5px; letter-spacing: 0.04em; color: var(--cor-muted); }
+.cor-bf-foot-l, .cor-bf-foot-r { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.cor-bf-foot-r { flex: none; }
+@media (max-width: 1100px) {
+  .cor-bf-rt { width: 360px; }
+  .cor-bf-hero { right: calc(32px + 360px + 32px); }
+  .cor-bf-h1 { font-size: 34px; }
+}
