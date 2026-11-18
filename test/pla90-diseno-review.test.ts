@@ -21,4 +21,6 @@ test("PLA-90 #2: the preview column is fixed and the lightbox carries the note f
   const src = await readFile(new URL("../ui/src/components/corriente/ficha.tsx", import.meta.url), "utf8");
   assert.match(src, /cor-lightbox-notes/);
   assert.match(src, /autoFocus=\{p\.n === ui\.pins\.length && !p\.text\}/);
+  assert.match(src, /ref=\{focusOnOpen\}/, "a stable ref: the lightbox does not take the focus back on every render");
+  assert.doesNotMatch(src, /ref=\{\(el\) => el\?\.focus\(\)\}/);
 });
