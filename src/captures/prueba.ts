@@ -105,6 +105,9 @@ type Copy = {
   registering: Promise<unknown> | null;
   // PLA-75: a delivery copy's own database (settings.capture.database): the variable and URL it runs with.
   dbEnv: Record<string, string> | null;
+  // PLA-78: the hash of the muestra's datos loaded into this copy's database, so a retake does not load them twice
+  // and another delivery gets a clean copy.
+  datos: string | null;
 };
 
 let deps: PruebaDeps = {};
@@ -229,7 +232,7 @@ export async function encender(db: Db, slug: string): Promise<PruebaRead> {
 // Error shows only once the process is stopped and its footprint released (a footprint still being written is
 // waited for first), so whoever reads «failed» never finds the copy still registered.
 function newCopy(slug: string, lane: Lane, ref: string, taskKey: string | null, phase: Phase, managed: boolean, port: number | null = null): Copy {
-  return { id: idOf(slug, lane), lane, ref, taskKey, slug, phase, managed, port, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null, dbEnv: null };
+  return { id: idOf(slug, lane), lane, ref, taskKey, slug, phase, managed, port, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null, dbEnv: null, datos: null };
 }
 
 async function fail(db: Db, c: Copy, error: string): Promise<void> {
@@ -742,4 +745,51 @@ export function entregaEnv(slug: string): Record<string, string> {
 /** PLA-77: the same for the sandbox copy (Antes, Encenderla). */
 export function pruebaEnv(slug: string): Record<string, string> {
   return copies.get(idOf(slug, "sandbox"))?.dbEnv ?? {};
+}
+
+// ---- PLA-78: the muestra's fake rows
+
+export const hashDatos = (sql: string | null | undefined): string | null => (sql ? createHash("sha256").update(sql).digest("hex").slice(0, 16) : null);
+
+/** Which datos (hash) a copy's database carries, or null when it is clean or not running. */
+export function datosDe(slug: string, lane: Lane): string | null {
+  return copies.get(idOf(slug, lane))?.datos ?? null;
+}
+
+/** The copy's own database name when it is one of Plania's throwaway copies (<db>_entrega, <db>_prueba), else null. */
+export function copyDatabase(env: Record<string, string> | null): { url: string; name: string } | null {
+  const url = env ? Object.values(env)[0] : undefined;
+  if (!url) return null;
+  try {
+    const name = decodeURIComponent(new URL(url).pathname.replace(/^\//, ""));
+    return /^[A-Za-z0-9_]+_(entrega|prueba)$/.test(name) ? { url, name } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Loads a muestra's SQL into a live copy's own database, in one transaction. Never the app's own database: a copy
+ * without settings.capture.database is refused. Loading the same datos twice is a no-op. */
+export async function cargarDatos(slug: string, lane: Lane, sql: string): Promise<{ ok: true; skipped?: true } | { ok: false; error: string }> {
+  const c = copies.get(idOf(slug, lane));
+  if (!c || c.phase !== "live") return { ok: false, error: "la copia no está encendida" };
+  const target = copyDatabase(c.dbEnv);
+  if (!target) return { ok: false, error: "la copia no tiene base propia (settings.capture.database); los datos nunca van a la base de la app" };
+  const hash = hashDatos(sql)!;
+  if (c.datos === hash) return { ok: true, skipped: true };
+  if (c.datos) return { ok: false, error: "la copia ya tiene los datos de otra muestra" };
+  const exec = deps.exec ?? shellExec;
+  const pgPath = [...PG_DIRS.filter((d) => existsSync(d)), checkoutEnv().PATH ?? ""].join(":");
+  const r = await exec(`psql "$PLANIA_COPY_URL" -X -q -v ON_ERROR_STOP=1 --single-transaction -f -`, {
+    cwd: c.worktree ?? process.cwd(),
+    stdin: sql,
+    timeoutMs: 60_000,
+    env: checkoutEnv({ PATH: pgPath, PLANIA_COPY_URL: target.url }),
+  });
+  if (r.code !== 0) {
+    const line = (r.stderr || r.stdout).split("\n").map((l) => l.trim()).find((l) => /ERROR/.test(l)) ?? (r.stderr || r.stdout).trim().split("\n")[0] ?? `código ${r.code}`;
+    return { ok: false, error: line.replace(/^psql:[^:]*:\d+:\s*/, "").slice(0, 200) };
+  }
+  c.datos = hash;
+  return { ok: true };
 }

@@ -448,3 +448,84 @@ describe("PLA-52: the sweep takes the pictures again", () => {
     assert.equal((await limbo()).length, 0);
   });
 });
+
+// PLA-78: the muestra's fake rows reach both throwaway copies' databases (never the app's own) before the pictures.
+describe("PLA-78: the muestra's datos", () => {
+  const DATOS = "insert into cita (novia, hora) values ('Novia Ejemplo 1', now() + interval '2 hours');";
+  let execs: { command: string; stdin?: string; env?: NodeJS.ProcessEnv }[] = [];
+  let failOn: RegExp | null = null;
+  const dbExec: Deps["exec"] = async (command, opts) => {
+    execs.push({ command, stdin: opts.stdin, env: opts.env });
+    if (failOn && command.startsWith("psql") && failOn.test(opts.env?.PLANIA_COPY_URL ?? "")) return { code: 3, stdout: "", stderr: 'psql:<stdin>:1: ERROR:  relation "cita" does not exist\nLINE 1: insert into cita\n' };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const loads = () => execs.filter((e) => e.command.includes("--single-transaction")).map((e) => [new URL(e.env!.PLANIA_COPY_URL!).pathname, e.stdin]);
+  before(async () => {
+    writeFileSync(path.join(REPO, ".env.local"), "DATABASE_URL=postgres://localhost:5432/zigzag_dev\n");
+    await setCapture("zigzag", SETTINGS(3000, { database: { env_var: "DATABASE_URL", migrate_command: "npm run db:migrate" } }), REPO);
+  });
+  after(async () => {
+    rmSync(path.join(REPO, ".env.local"), { force: true });
+    await setCapture("zigzag", SETTINGS(3000), REPO);
+  });
+  beforeEach(() => {
+    execs = [];
+    failOn = null;
+    // Nothing answers on the port before Plania starts its own copies (else the test copy is someone else's server).
+    prueba.setPruebaDeps(fakeDeps({ exec: dbExec, up: async () => children.length > 0 }));
+  });
+  const pass = (key: string, over: Json = {}) => probador.probar(db, "zigzag", key, { capture: fakeCapture as any, pollMs: 5, waitMs: 3000, ...over });
+  const withDatos = async (title: string, datos: string | null) => {
+    const key = await delivery(title);
+    if (datos) await raw.query(`update tasks set muestra = muestra || jsonb_build_object('datos', $1::text) where key = $2`, [datos, key]);
+    return key;
+  };
+
+  test("the rows go into <db>_entrega and <db>_prueba in one transaction; a retake does not load them twice", async () => {
+    const key = await withDatos("Citas de hoy", DATOS);
+    const s = await pass(key);
+    assert.equal(s?.state, "lista", JSON.stringify(s));
+    assert.deepEqual(loads().sort(), [["/zigzag_dev_entrega", DATOS], ["/zigzag_dev_prueba", DATOS]]);
+    assert.ok(!execs.some((e) => e.env?.PLANIA_COPY_URL?.endsWith("/zigzag_dev")), "never the app's own database");
+    assert.equal(prueba.datosDe("zigzag", "entrega"), prueba.hashDatos(DATOS));
+    execs = [];
+    await pass(key);
+    assert.deepEqual(loads(), [], "same copy, same rows: nothing loaded again");
+  });
+
+  test("another delivery gets clean copies: the ones holding other rows start again", async () => {
+    const a = await withDatos("Citas con datos", DATOS);
+    await pass(a);
+    const pidsBefore = children.map((c) => c.pid);
+    const b = await withDatos("Sin datos", null);
+    execs = [];
+    killed = [];
+    const s = await pass(b);
+    assert.equal(s?.state, "lista");
+    assert.ok(pidsBefore.every((pid) => killed.some(([k]) => k === pid)), "both copies with A's rows were stopped");
+    assert.equal(prueba.datosDe("zigzag", "sandbox"), null);
+    assert.equal(prueba.datosDe("zigzag", "entrega"), null);
+    assert.deepEqual(loads(), []);
+  });
+
+  test("rows that fail on the delivery's own database go back to Taller with the error; failing on Antes is fine", async () => {
+    failOn = /_prueba$/;
+    const ok = await withDatos("Columna nueva", DATOS);
+    assert.equal((await pass(ok))?.state, "lista", "Antes may lack the branch's new table");
+    assert.equal(prueba.datosDe("zigzag", "sandbox"), null);
+    failOn = /_entrega$/;
+    const bad = await withDatos("SQL roto", DATOS.replace("cita", "cita2"));
+    const s = await pass(bad, { returnToTaller: false });
+    assert.equal(s?.state, "fallo");
+    assert.equal(s?.error, 'Los datos de la muestra no se cargaron: ERROR:  relation "cita" does not exist');
+  });
+
+  test("a copy without its own database never gets the rows; finish takes datos in the muestra", async () => {
+    const { parseMuestra } = await import("../src/captures/muestra.js");
+    assert.equal(parseMuestra({ ...MUESTRA, datos: DATOS }).ok, true);
+    assert.equal(parseMuestra({ ...MUESTRA, datos: "x".repeat(20_001) }).ok, false);
+    assert.equal(prueba.copyDatabase({ DATABASE_URL: "postgres://localhost/zigzag_dev" }), null);
+    assert.equal(prueba.copyDatabase(null), null);
+    assert.deepEqual(prueba.copyDatabase({ DATABASE_URL: "postgres://localhost/zigzag_dev_prueba" }), { url: "postgres://localhost/zigzag_dev_prueba", name: "zigzag_dev_prueba" });
+  });
+});
