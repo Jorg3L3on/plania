@@ -13,7 +13,7 @@ import { setTask } from "../mcp/writes.js";
 import { enqueueWake } from "../runner/events.js";
 import { pngDiff, type DiffBox } from "./diff.js";
 import type { Muestra } from "./muestra.js";
-import { encender, encenderEntrega, entregaEnv, entregaRead, pruebaInfo, pruebaOf, pruebaRead, BRANCH } from "./prueba.js";
+import { encender, encenderEntrega, entregaEnv, entregaRead, pruebaEnv, pruebaInfo, pruebaOf, pruebaRead, BRANCH } from "./prueba.js";
 import { runCapture, type CaptureInput, type CaptureSummary, type ViewPage } from "./run.js";
 import { imageUrl, readFile } from "./store.js";
 import { preguntasOf, type QA } from "./preguntas.js";
@@ -132,7 +132,7 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   let antesError: string | null = null;
   if (sb?.phase === "live" && sb.port) {
     const info = pruebaInfo(slug);
-    await capture(db, { project: slug, checkout: info?.worktree ?? e.worktree ?? "", base_url: `http://localhost:${sb.port}`, branch: BRANCH, commit: info?.commit ?? undefined, task_key: t.key, views, side: "antes", allow_missing: true, actor }).catch(
+    await capture(db, { project: slug, checkout: info?.worktree ?? e.worktree ?? "", base_url: `http://localhost:${sb.port}`, branch: BRANCH, commit: info?.commit ?? undefined, task_key: t.key, views, side: "antes", allow_missing: true, actor, env: pruebaEnv(slug) }).catch(
       (err) => (antesError = `Antes: ${short(err)}`),
     );
   } else antesError = "Sin antes: la copia de prueba no arrancó";

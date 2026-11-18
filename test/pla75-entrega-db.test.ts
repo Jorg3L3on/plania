@@ -17,6 +17,8 @@ test("PLA-75 #2: the delivery database is <name>_entrega on the same local serve
   assert.equal(entregaUrl("postgres://localhost/app;drop"), null);
   assert.equal(entregaUrl("mysql://localhost/app"), null);
   assert.equal(entregaUrl("not a url"), null);
+  // PLA-77: the sandbox copy's own database.
+  assert.deepEqual(entregaUrl("postgres://localhost:5433/mianovia_dev", "_prueba"), { url: "postgres://localhost:5433/mianovia_dev_prueba", name: "mianovia_dev_prueba" });
 });
 
 test("PLA-75 #3: settings.capture.database is optional, env_var defaults to DATABASE_URL", () => {

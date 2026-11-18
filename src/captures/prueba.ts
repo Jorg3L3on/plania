@@ -300,8 +300,10 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
 
   // PLA-75: a delivery whose branch changes the database runs on its own copy of the app's database, migrated to
   // the branch. Without it the delivery's pages crashed on the new columns and El Probador photographed the error.
-  if (c.lane === "entrega" && s.database) {
-    const made = await entregaDatabase(db, c, p.slug, wt, envFile, s.database);
+  // PLA-77: the sandbox copy too (<db>_prueba, migrated to sandbox): once a delivery with a migration was merged,
+  // the app's own database lagged behind sandbox and «Antes» crashed («Sin antes» on MIA-I9-2).
+  if (s.database) {
+    const made = await entregaDatabase(db, c, p.slug, wt, envFile, s.database, c.lane === "sandbox" ? "_prueba" : "_entrega");
     if (!made.ok) return fail(db, c, made.error);
     if (copies.get(c.id) !== c || c.stopping) return;
   }
@@ -380,7 +382,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   // Fresh stills, then En vivo.
   c.phase = "capturing";
   try {
-    await (deps.capture ?? runCapture)(db, { project: p.slug, checkout: wt, base_url: urlOf(port), commit: head, branch: BRANCH, actor: ctx().actor });
+    await (deps.capture ?? runCapture)(db, { project: p.slug, checkout: wt, base_url: urlOf(port), commit: head, branch: BRANCH, actor: ctx().actor, env: c.dbEnv ?? {} });
   } catch (e) {
     c.error = `No se pudo tomar la captura: ${short(e)}`;
   }
@@ -488,7 +490,7 @@ export async function tomar(db: Db, slug: string): Promise<PruebaRead> {
   if (had) {
     had.phase = "capturing";
     had.error = null;
-    void (deps.capture ?? runCapture)(db, { project: slug, checkout: had.worktree!, base_url: urlOf(had.port!), branch: BRANCH, actor: ctx().actor })
+    void (deps.capture ?? runCapture)(db, { project: slug, checkout: had.worktree!, base_url: urlOf(had.port!), branch: BRANCH, actor: ctx().actor, env: had.dbEnv ?? {} })
       .catch((e) => (had.error = `No se pudo tomar la captura: ${short(e)}`))
       .finally(() => {
         if (copies.get(slug) === had && had.phase === "capturing") had.phase = "live";
@@ -674,7 +676,7 @@ export function envValue(text: string, name: string): string | null {
 }
 
 /** The delivery database's URL: the app's URL with its database name + _entrega. Null for anything unexpected. */
-export function entregaUrl(base: string): { url: string; name: string } | null {
+export function entregaUrl(base: string, suffix: "_entrega" | "_prueba" = "_entrega"): { url: string; name: string } | null {
   let u: URL;
   try {
     u = new URL(base);
@@ -686,8 +688,8 @@ export function entregaUrl(base: string): { url: string; name: string } | null {
   if (!/^[A-Za-z0-9_]{1,50}$/.test(name)) return null;
   const host = u.hostname;
   if (!["localhost", "127.0.0.1", "::1", "[::1]", ""].includes(host)) return null; // a local database only
-  u.pathname = `/${name}_entrega`;
-  return { url: u.toString(), name: `${name}_entrega` };
+  u.pathname = `/${name}${suffix}`;
+  return { url: u.toString(), name: `${name}${suffix}` };
 }
 
 const PG_DIRS = ["/opt/homebrew/opt/postgresql@17/bin", "/opt/homebrew/opt/postgresql@16/bin", "/opt/homebrew/opt/libpq/bin", "/usr/local/opt/libpq/bin"];
@@ -699,11 +701,12 @@ async function entregaDatabase(
   wt: string,
   envFile: string | null,
   cfg: { env_var: string; migrate_command: string },
+  suffix: "_entrega" | "_prueba" = "_entrega",
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const file = envFile ? path.join(wt, envFile) : null;
   const base = file && existsSync(file) ? envValue(readFileSync(file, "utf8"), cfg.env_var) : null;
   if (!base) return { ok: false, error: `La copia de la entrega no encuentra ${cfg.env_var} en el archivo de entorno de la app` };
-  const target = entregaUrl(base);
+  const target = entregaUrl(base, suffix);
   if (!target) return { ok: false, error: `${cfg.env_var} no es una base local de Postgres; la entrega no se prueba sobre ella` };
   const exec = deps.exec ?? shellExec;
   const pgPath = [...PG_DIRS.filter((d) => existsSync(d)), checkoutEnv().PATH ?? ""].join(":");
@@ -724,7 +727,7 @@ async function entregaDatabase(
     const u = new URL(target.url);
     await registerFootprint(
       db,
-      { project: slug, kind: "database", locator: `${target.name}@${u.hostname || "127.0.0.1"}:${u.port || "5432"}`, purpose: `Base de la copia de la entrega de ${slug} (copia de la de la app, con las migraciones de la rama), para El Probador`, teardown: `dropdb --if-exists -h ${u.hostname || "localhost"} -p ${u.port || "5432"} ${target.name}` },
+      { project: slug, kind: "database", locator: `${target.name}@${u.hostname || "127.0.0.1"}:${u.port || "5432"}`, purpose: suffix === "_prueba" ? `Base de la copia de prueba de ${slug} (copia de la de la app, con las migraciones de sandbox)` : `Base de la copia de la entrega de ${slug} (copia de la de la app, con las migraciones de la rama), para El Probador`, teardown: `dropdb --if-exists -h ${u.hostname || "localhost"} -p ${u.port || "5432"} ${target.name}` },
       ctx(),
     ).catch(() => undefined);
   }
@@ -734,4 +737,9 @@ async function entregaDatabase(
 /** PLA-75: what a command run in the delivery copy needs to reach its own database (empty when it has none). */
 export function entregaEnv(slug: string): Record<string, string> {
   return copies.get(idOf(slug, "entrega"))?.dbEnv ?? {};
+}
+
+/** PLA-77: the same for the sandbox copy (Antes, Encenderla). */
+export function pruebaEnv(slug: string): Record<string, string> {
+  return copies.get(idOf(slug, "sandbox"))?.dbEnv ?? {};
 }
