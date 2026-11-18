@@ -523,42 +523,70 @@ const countInbox = (inbox: Map<string, InboxItem[]>) => {
 
 const threadLine = (s: Awaited<ReturnType<typeof threadSummary>>): ThreadLine => ({ id: s.id, unread: s.unread, last: s.last });
 
-export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead> {
-  const settings = await loadSettings(db);
+// PLA-74 (F-17): Compañía stayed blank 1–8 s while this read ran one project after another, each step waiting for the
+// one before. Projects are now read side by side and each project's independent steps together; steps that need
+// another's result still wait for it. prof (optional) collects how long each step took, summed over projects, for
+// the Server-Timing header.
+export type ReadProfile = Map<string, number>;
+const timed = <T>(prof: ReadProfile | undefined, label: string, p: Promise<T>): Promise<T> => {
+  if (!prof) return p;
+  const t0 = performance.now();
+  return p.finally(() => prof.set(label, (prof.get(label) ?? 0) + performance.now() - t0));
+};
+
+/** «total;dur=812, etapas;dur=420, …»: the total and the eight slowest steps. */
+export function serverTiming(prof: ReadProfile, total: number): string {
+  const top = [...prof.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  return [["total", total] as const, ...top].map(([k, ms]) => `${k.replace(/[^a-z_]/g, "")};dur=${Math.round(ms)}`).join(", ");
+}
+
+export async function companyRead(db: Db, now = new Date(), prof?: ReadProfile): Promise<CompanyRead> {
+  const t = <T>(label: string, p: Promise<T>) => timed(prof, label, p);
+  const settings = await t("settings", loadSettings(db));
   const tz = screenTz();
-  const { startsAt, resetsAt } = await weekBounds(db, now, tz);
-  const cards: ProjectCard[] = [];
-  const ceoId = await ceoAgentId(db);
-  const all = await db.select().from(projects).orderBy(asc(projects.slug));
-  const inbox = await inboxByProject(db, all);
-  const capacity = await capacityFacts(db, settings, now);
-  for (const p of all) {
+  const [{ startsAt, resetsAt }, ceoId, all] = await Promise.all([t("week", weekBounds(db, now, tz)), t("ceo", ceoAgentId(db)), t("projects", db.select().from(projects).orderBy(asc(projects.slug)))]);
+  const [inbox, capacity] = await Promise.all([t("inbox", inboxByProject(db, all)), t("capacity", capacityFacts(db, settings, now))]);
+  // The company-wide parts do not wait for the projects.
+  const rest = Promise.all([
+    t("decisions", decisionsRead(db, now, inbox)),
+    t("asistente", asistenteSide(db, settings, startsAt)),
+    t("spend", weekUsage(db, { kind: "all" }, startsAt)),
+    t("running", db.select({ n: sql<number>`count(*)::int` }).from(agentRuns).where(eq(agentRuns.status, "running"))),
+    t("brief", briefLine(db)),
+  ]);
+  const card = async (p: Project): Promise<ProjectCard> => {
     const lastWeek = new Date(startsAt.getTime() - 7 * 24 * HOUR);
-    const usage: CardUsage = {
-      used: (await weekUsage(db, { kind: "project", projectId: p.id }, startsAt)).used,
-      last_week: (await weekUsage(db, { kind: "project", projectId: p.id }, lastWeek, startsAt)).used,
-    };
-    const thread = await threadSummary(db, await projectThread(db, p.id), p);
     const paused = settings.companyPaused || p.runsPaused;
-    const goal = await goalOf(db, p.id);
-    const plan = await planOf(db, p, now, goal?.target_on ?? null);
-    const team = await teamView(db, p, { paused, threadId: thread.id });
-    const upNext = await readyOf(db, p, ceoId, plan?.initiative.key ?? null);
+    const [used, usedLast, thread, goal, stale, etapas, runner, route, latest, thisWeek, work, pedidos] = await Promise.all([
+      t("usage", weekUsage(db, { kind: "project", projectId: p.id }, startsAt)),
+      t("usage", weekUsage(db, { kind: "project", projectId: p.id }, lastWeek, startsAt)),
+      t("thread", projectThread(db, p.id).then((th) => threadSummary(db, th, p))),
+      t("goal", goalOf(db, p.id)),
+      // PLA-I40-6: a request nobody took leaves the queue; the floor shows it as a warning instead.
+      t("stale", staleRequestsOf(db, p, now)),
+      t("etapas", projectEtapas(db, p, now)),
+      // PLA-I60-5: «a la vez» in Motores.
+      t("runner", runnerView(db, p, now)),
+      t("route", routeOf(db, p)),
+      t("latest", latestOf(db, p)),
+      t("this_week", thisWeekOf(db, p, now)),
+      t("work", workOf(db, p)),
+      t("pedidos", pedidosOf(db, p.id)),
+    ]);
+    const usage: CardUsage = { used: used.used, last_week: usedLast.used };
+    const [plan, team] = await Promise.all([t("plan", planOf(db, p, now, goal?.target_on ?? null)), t("team", teamView(db, p, { paused, threadId: thread.id }))]);
+    const [upNext, orders] = await Promise.all([t("ready", readyOf(db, p, ceoId, plan?.initiative.key ?? null)), t("orders", ordersOf(db, p, thread.id, now))]);
     const owners = [...new Set(upNext.queued.map((q) => q.owner).filter((x): x is string => !!x))];
     const slugs = owners.length ? await db.select({ id: agents.id, slug: agents.slug }).from(agents).where(inArray(agents.id, owners)) : [];
-    // PLA-I40-6: a request nobody took leaves the queue; the floor shows it as a warning instead.
-    const stale = await staleRequestsOf(db, p, now);
     const staleKeys = new Set(stale.map((x) => x.key));
     fillQueues(team, upNext.queued.filter((q) => !staleKeys.has(q.key)), new Map(slugs.map((r) => [r.id, r.slug])));
-    await fillNextStarts(db, p, team, { settings, capacity, now });
-    const light = await lightOf(db, p, { paused, threadId: thread.id, now, ceoId, team, plan, inbox: inbox.get(p.slug) ?? [] });
-    const etapas = await projectEtapas(db, p, now);
-    cards.push({
+    await t("next_starts", fillNextStarts(db, p, team, { settings, capacity, now }));
+    const light = await t("light", lightOf(db, p, { paused, threadId: thread.id, now, ceoId, team, plan, inbox: inbox.get(p.slug) ?? [] }));
+    return {
       slug: p.slug,
       title: p.title,
       paused: p.runsPaused,
-      // PLA-I60-5: «a la vez» in Motores.
-      runner: await runnerView(db, p, now),
+      runner,
       light: light.light,
       light_reason: light.reason,
       goal: goal?.title ?? null,
@@ -567,43 +595,28 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       team,
       thread: threadLine(thread),
       plan,
-      route: await routeOf(db, p),
+      route,
       auto_accept: { on: !!p.settings.auto_accept, hold: null, ...(p.settings.auto_accept_invisible ? { invisible: true } : {}) },
-      latest: await latestOf(db, p),
+      latest,
       stale_requests: stale,
-      this_week: await thisWeekOf(db, p, now),
+      this_week: thisWeek,
       next: upNext.next,
       ready: upNext.ready,
       next_first: p.settings.next_first ?? null,
       plan_approval: !!p.settings.plan_approval,
       preview_url: p.settings.preview_url ?? null,
-      work: await workOf(db, p),
-      orders: await ordersOf(db, p, thread.id, now),
+      work,
+      orders,
       next_move: null,
       tablero: tableroOf(etapas),
       ahora: etapas.ahora,
-      pedidos: await pedidosOf(db, p.id),
-    });
-  }
+      pedidos,
+    };
+  };
+  const cards = await Promise.all(all.map(card));
+  const [decisions, asistente, spendUsage, [running], brief] = await rest;
+  const spend = spendUsage.used;
 
-  const asisUsage = await weekUsage(db, { kind: "asistente" }, startsAt);
-  const company = await companyThread(db);
-  const companyUnread = (await threadSummary(db, company, null)).unread;
-  const asis = await asistenteAgent(db);
-  let lastRun: CompanyRead["asistente"]["last_run"] = null;
-  let state: MemberState = settings.companyPaused ? "paused" : "idle";
-  if (asis) {
-    const { running, ended } = await lastRunOf(db, asis.id);
-    if (ended) lastRun = { status: ended.status, at: ended.endedAt!.toISOString(), summary: ended.summary };
-    if (running) state = "running";
-    else if (!settings.companyPaused && (await openQuestionsByAgent(db)).has(asis.id)) state = "waiting_jorge";
-  }
-
-  // PLA-I46-5: the company's week is input + output, as Máquina shows it (cache apart).
-  const spend = (await weekUsage(db, { kind: "all" }, startsAt)).used;
-  const [running] = await db.select({ n: sql<number>`count(*)::int` }).from(agentRuns).where(eq(agentRuns.status, "running"));
-
-  const decisions = await decisionsRead(db, now, inbox);
   // PLA-I47-7: the light read a delivery before the decisions were read. A delivery held for QA's pass (or any rule
   // that keeps it off Te toca) is not the owner's turn yet, so the floor must not say it is (it drew a dead button).
   for (const c of cards) {
@@ -613,19 +626,36 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
       c.light_reason = null;
     }
   }
-  for (const c of cards) if (c.auto_accept.on || c.auto_accept.invisible) c.auto_accept = await autoAcceptOf(db, all.find((p) => p.slug === c.slug)!, decisions);
+  await Promise.all(cards.map(async (c) => {
+    if (c.auto_accept.on || c.auto_accept.invisible) c.auto_accept = await t("auto_accept", autoAcceptOf(db, all.find((p) => p.slug === c.slug)!, decisions));
+  }));
   for (const c of cards) c.next_move = nextMove(c, decisions, { companyPaused: settings.companyPaused });
   return {
     company: { paused: settings.companyPaused },
     week: { starts_at: startsAt.toISOString(), resets_at: resetsAt.toISOString(), timezone: tz },
-    asistente: { thread_id: company.id, usage: asisUsage, last_run: lastRun, state, unread: companyUnread },
+    asistente,
     projects: cards,
     plumbing: { spend, running: running?.n ?? 0, paused: settings.companyPaused },
     decisions,
     inbox: countInbox(inbox),
-    brief: await briefLine(db),
+    brief,
     motor_default: { model: settings.defaultModel, effort: settings.defaultEffort },
   };
+}
+
+// Asistente's line on the floor: its thread, its week and whether it runs or waits on the owner.
+async function asistenteSide(db: Db, settings: Awaited<ReturnType<typeof loadSettings>>, startsAt: Date): Promise<CompanyRead["asistente"]> {
+  const [asisUsage, company, asis] = await Promise.all([weekUsage(db, { kind: "asistente" }, startsAt), companyThread(db), asistenteAgent(db)]);
+  const companyUnread = (await threadSummary(db, company, null)).unread;
+  let lastRun: CompanyRead["asistente"]["last_run"] = null;
+  let state: MemberState = settings.companyPaused ? "paused" : "idle";
+  if (asis) {
+    const { running, ended } = await lastRunOf(db, asis.id);
+    if (ended) lastRun = { status: ended.status, at: ended.endedAt!.toISOString(), summary: ended.summary };
+    if (running) state = "running";
+    else if (!settings.companyPaused && (await openQuestionsByAgent(db)).has(asis.id)) state = "waiting_jorge";
+  }
+  return { thread_id: company.id, usage: asisUsage, last_run: lastRun, state, unread: companyUnread };
 }
 
 async function briefLine(db: Db): Promise<CompanyRead["brief"]> {

@@ -9,7 +9,7 @@
 //   agents     a teammate whose run is live (state running), on the column of what it works on.
 //   te toca    each pending decision of the project, on the column of what it is about.
 import type { Decision, OrgMember, OrgProject, ProjectTicket } from "./api";
-import type { ProjectSummary, TaskRow } from "./types";
+import type { StreamSummary, StreamTask } from "./types";
 import { pending } from "./v2";
 import { seatName } from "./corriente";
 
@@ -92,7 +92,7 @@ export function youVerb(d: Decision): string {
   }
 }
 
-export function laneOf(p: OrgProject, summary: ProjectSummary | undefined, decisions: Decision[], companyPaused = false): Lane {
+export function laneOf(p: OrgProject, summary: StreamSummary | undefined, decisions: Decision[], companyPaused = false): Lane {
   const cells = emptyCells();
   const where = new Map<string, Column>();
   // Ideas by stage.
@@ -112,7 +112,7 @@ export function laneOf(p: OrgProject, summary: ProjectSummary | undefined, decis
       where.set(t.key, col);
     }
   } else {
-    for (const t of summary?.tasks ?? ([] as TaskRow[])) {
+    for (const t of summary?.tasks ?? ([] as StreamTask[])) {
       if (t.kind !== "ticket" || CLOSED.has(t.status)) continue;
       const col = STATUS_COL[t.status];
       if (!col) continue;
@@ -161,14 +161,19 @@ export function laneOf(p: OrgProject, summary: ProjectSummary | undefined, decis
 
 export type Totals = { revision: number; open: number; done: number };
 /** The company's three totals, from the per-project counts that already arrive. */
-export function totalsOf(projects: OrgProject[], summaries: ProjectSummary[] | undefined): Totals {
-  const tickets = (summaries ?? []).flatMap((s) => s.tasks.filter((t) => t.kind === "ticket"));
+export function totalsOf(projects: OrgProject[], summaries: StreamSummary[] | undefined): Totals {
+  const all = summaries ?? [];
   return {
-    revision: tickets.filter((t) => t.status === "In review").length,
+    revision: all.reduce((n, s) => n + revisionOf(s), 0),
     open: projects.reduce((n, p) => n + p.work.open, 0),
-    done: tickets.filter((t) => t.status === "Done" || t.status === "Released" || t.status === "Merged").length,
+    done: all.reduce((n, s) => n + doneOf(s), 0),
   };
 }
+
+// PLA-74: the slim read brings the counts (closed tickets are not in it); a full row list is counted.
+const tickets = (s: StreamSummary) => s.tasks.filter((t) => t.kind === "ticket");
+export const doneOf = (s: StreamSummary): number => s.done ?? tickets(s).filter((t) => t.status === "Done" || t.status === "Released" || t.status === "Merged").length;
+const revisionOf = (s: StreamSummary): number => s.revision ?? tickets(s).filter((t) => t.status === "In review").length;
 
 const NUM = ["Ningún", "Un", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"];
 const NUMF = ["Ninguna", "Una", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"];
@@ -191,17 +196,17 @@ export function headlineOf(lanes: Lane[], decisions: Decision[], companyPaused: 
 }
 
 /** Lanes stay put (by name) so the stream does not jump while it moves; paused projects go last. */
-export function lanesOf(projects: OrgProject[], summaries: ProjectSummary[] | undefined, decisions: Decision[], companyPaused = false): Lane[] {
+export function lanesOf(projects: OrgProject[], summaries: StreamSummary[] | undefined, decisions: Decision[], companyPaused = false): Lane[] {
   const bySlug = new Map((summaries ?? []).map((s) => [s.slug, s]));
   const lanes = projects.map((p) => laneOf(p, bySlug.get(p.slug), decisions, companyPaused));
   return lanes.sort((a, b) => Number(a.paused) - Number(b.paused) || a.title.localeCompare(b.title, "es"));
 }
 
 /** The project a key belongs to: the one whose tasks hold it, else the one whose keys share its prefix. */
-export function projectOfKey(key: string, summaries: ProjectSummary[] | undefined): string | null {
+export function projectOfKey(key: string, summaries: StreamSummary[] | undefined): string | null {
   const all = summaries ?? [];
   const exact = all.find((s) => s.tasks.some((t) => t.key === key));
   if (exact) return exact.slug;
   const prefix = key.split("-")[0];
-  return all.find((s) => s.tasks.some((t) => t.key.split("-")[0] === prefix))?.slug ?? null;
+  return all.find((s) => s.prefix === prefix || s.tasks.some((t) => t.key.split("-")[0] === prefix))?.slug ?? null;
 }
