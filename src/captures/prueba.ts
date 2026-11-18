@@ -103,6 +103,8 @@ type Copy = {
   stopping: boolean;
   // The server footprint being written for this copy, so a failure can wait for it and release it.
   registering: Promise<unknown> | null;
+  // PLA-75: a delivery copy's own database (settings.capture.database): the variable and URL it runs with.
+  dbEnv: Record<string, string> | null;
 };
 
 let deps: PruebaDeps = {};
@@ -227,7 +229,7 @@ export async function encender(db: Db, slug: string): Promise<PruebaRead> {
 // Error shows only once the process is stopped and its footprint released (a footprint still being written is
 // waited for first), so whoever reads «failed» never finds the copy still registered.
 function newCopy(slug: string, lane: Lane, ref: string, taskKey: string | null, phase: Phase, managed: boolean, port: number | null = null): Copy {
-  return { id: idOf(slug, lane), lane, ref, taskKey, slug, phase, managed, port, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null };
+  return { id: idOf(slug, lane), lane, ref, taskKey, slug, phase, managed, port, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null, dbEnv: null };
 }
 
 async function fail(db: Db, c: Copy, error: string): Promise<void> {
@@ -276,7 +278,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   if (copies.get(c.id) !== c || c.stopping) return;
 
   // PLA-38: the app's own env file (untracked, so not in a fresh worktree): its database and keys.
-  syncEnvFile(repo, wt, p.settings.maquinas);
+  const envFile = syncEnvFile(repo, wt, p.settings.maquinas);
 
   // Dependencies, once per lockfile.
   const install = installCommand(wt, s);
@@ -296,6 +298,14 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   }
   if (copies.get(c.id) !== c || c.stopping) return;
 
+  // PLA-75: a delivery whose branch changes the database runs on its own copy of the app's database, migrated to
+  // the branch. Without it the delivery's pages crashed on the new columns and El Probador photographed the error.
+  if (c.lane === "entrega" && s.database) {
+    const made = await entregaDatabase(db, c, p.slug, wt, envFile, s.database);
+    if (!made.ok) return fail(db, c, made.error);
+    if (copies.get(c.id) !== c || c.stopping) return;
+  }
+
   // PLA-52: one copy picks at a time, and holds its port before the next one looks: El Probador starts the test copy
   // and the delivery's copy together, and both took the same free port (the second one died at start).
   const picking = portLock.then(async () => {
@@ -311,7 +321,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   c.command = command;
   let child: ChildLike;
   try {
-    child = (deps.spawn ?? defaultSpawn)(command, { cwd: wt, env: checkoutEnv({ PORT: String(port) }) });
+    child = (deps.spawn ?? defaultSpawn)(command, { cwd: wt, env: checkoutEnv({ PORT: String(port), ...(c.dbEnv ?? {}) }) });
   } catch (e) {
     return fail(db, c, `No se pudo arrancar: ${short(e)}`);
   }
@@ -649,3 +659,79 @@ const psCommand = (pid: number) =>
   new Promise<string | null>((resolve) => {
     execFile("ps", ["-o", "command=", "-p", String(pid)], { timeout: 5_000 }, (err, stdout) => resolve(err ? null : stdout.trim() || null));
   });
+
+// ---- PLA-75: the delivery copy's own database
+
+/** The value of one variable in an env file (KEY=value, optional export and quotes); null when it is not there. */
+export function envValue(text: string, name: string): string | null {
+  for (const line of text.split(/\r?\n/)) {
+    const m = new RegExp(`^\\s*(?:export\\s+)?${name}\\s*=\\s*(.*)$`).exec(line);
+    if (!m) continue;
+    const v = m[1]!.trim();
+    return v.replace(/^(['"])(.*)\1$/, "$2") || null;
+  }
+  return null;
+}
+
+/** The delivery database's URL: the app's URL with its database name + _entrega. Null for anything unexpected. */
+export function entregaUrl(base: string): { url: string; name: string } | null {
+  let u: URL;
+  try {
+    u = new URL(base);
+  } catch {
+    return null;
+  }
+  if (!/^postgres(ql)?:$/.test(u.protocol)) return null;
+  const name = decodeURIComponent(u.pathname.replace(/^\//, ""));
+  if (!/^[A-Za-z0-9_]{1,50}$/.test(name)) return null;
+  const host = u.hostname;
+  if (!["localhost", "127.0.0.1", "::1", "[::1]", ""].includes(host)) return null; // a local database only
+  u.pathname = `/${name}_entrega`;
+  return { url: u.toString(), name: `${name}_entrega` };
+}
+
+const PG_DIRS = ["/opt/homebrew/opt/postgresql@17/bin", "/opt/homebrew/opt/postgresql@16/bin", "/opt/homebrew/opt/libpq/bin", "/usr/local/opt/libpq/bin"];
+
+async function entregaDatabase(
+  db: Db,
+  c: Copy,
+  slug: string,
+  wt: string,
+  envFile: string | null,
+  cfg: { env_var: string; migrate_command: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const file = envFile ? path.join(wt, envFile) : null;
+  const base = file && existsSync(file) ? envValue(readFileSync(file, "utf8"), cfg.env_var) : null;
+  if (!base) return { ok: false, error: `La copia de la entrega no encuentra ${cfg.env_var} en el archivo de entorno de la app` };
+  const target = entregaUrl(base);
+  if (!target) return { ok: false, error: `${cfg.env_var} no es una base local de Postgres; la entrega no se prueba sobre ella` };
+  const exec = deps.exec ?? shellExec;
+  const pgPath = [...PG_DIRS.filter((d) => existsSync(d)), checkoutEnv().PATH ?? ""].join(":");
+  // The URLs go in the environment, never in the command line.
+  const copyCmd = `psql "$PLANIA_BASE_URL" -v ON_ERROR_STOP=1 -q -c 'drop database if exists ${target.name} with (force)' -c 'create database ${target.name}' && pg_dump --no-owner --no-privileges "$PLANIA_BASE_URL" | psql -v ON_ERROR_STOP=1 -q "$PLANIA_NEW_URL"`;
+  const copied = await exec(copyCmd, { cwd: wt, timeoutMs: 300_000, env: checkoutEnv({ PATH: pgPath, PLANIA_BASE_URL: base, PLANIA_NEW_URL: target.url }) });
+  if (copied.code !== 0) {
+    c.tail = tailOf(copied.stderr || copied.stdout);
+    return { ok: false, error: `No se pudo copiar la base de la app para la entrega (${target.name})` };
+  }
+  const migrated = await exec(cfg.migrate_command, { cwd: wt, timeoutMs: 300_000, env: checkoutEnv({ [cfg.env_var]: target.url }) });
+  if (migrated.code !== 0) {
+    c.tail = tailOf(migrated.stderr || migrated.stdout);
+    return { ok: false, error: `Las migraciones de la entrega fallaron (${cfg.migrate_command})` };
+  }
+  c.dbEnv = { [cfg.env_var]: target.url };
+  if (deps.footprints !== false) {
+    const u = new URL(target.url);
+    await registerFootprint(
+      db,
+      { project: slug, kind: "database", locator: `${target.name}@${u.hostname || "127.0.0.1"}:${u.port || "5432"}`, purpose: `Base de la copia de la entrega de ${slug} (copia de la de la app, con las migraciones de la rama), para El Probador`, teardown: `dropdb --if-exists -h ${u.hostname || "localhost"} -p ${u.port || "5432"} ${target.name}` },
+      ctx(),
+    ).catch(() => undefined);
+  }
+  return { ok: true };
+}
+
+/** PLA-75: what a command run in the delivery copy needs to reach its own database (empty when it has none). */
+export function entregaEnv(slug: string): Record<string, string> {
+  return copies.get(idOf(slug, "entrega"))?.dbEnv ?? {};
+}

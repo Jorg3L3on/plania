@@ -62,6 +62,16 @@ export const captureSettingsSchema = z
     // PLA-I52-1: the repo paths that count as touching the screen (a delivery there needs a muestra).
     // Default: src/captures/muestra.ts DEFAULT_UI_GLOBS. ** spans folders, * stays inside one.
     ui_globs: z.array(z.string().min(1).max(120)).min(1).max(30).optional(),
+    // PLA-75: a delivery whose branch changes the database runs on its own copy of the app's database with the
+    // branch's migrations applied (<db>_entrega), never on the app's own database. env_var names the URL in the app's
+    // env file; migrate_command runs in the delivery's copy with that variable pointing at the copy.
+    database: z
+      .object({
+        env_var: z.string().regex(/^[A-Z_][A-Z0-9_]*$/).max(60).default("DATABASE_URL"),
+        migrate_command: z.string().min(1).max(300),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((s, ctx) => {

@@ -60,6 +60,8 @@ export type CaptureInput = {
   allow_missing?: boolean;
   viewports?: ViewportName[];
   actor: Actor;
+  // PLA-75: extra variables for commands run in the checkout (the delivery copy's own database URL).
+  env?: Record<string, string>;
 };
 
 // A muestra's view as a page to shoot: the page fields plus what to do on it before the still.
@@ -192,14 +194,14 @@ async function shoot(page: BrowserPage, base: string, pg: ViewPage, settings: Ca
 // PLA-I52-5: sign the test user in on a running copy and return the session cookies, for El Probador's live copy.
 // A fresh password every time (never kept), the same login as the stills. Throws with the reason in Spanish.
 export async function sessionCookies(
-  input: { base_url: string; checkout: string; settings: CaptureSettings },
+  input: { base_url: string; checkout: string; settings: CaptureSettings; env?: Record<string, string> },
   deps: CaptureDeps = {},
 ): Promise<{ name: string; value: string }[]> {
   const s = input.settings.session;
   if (!s) return [];
   const exec = deps.exec ?? shellExec;
   const password = (deps.password ?? (() => randomBytes(18).toString("base64url")))();
-  const r = await exec(s.password_command.replaceAll("{user}", s.user), { cwd: input.checkout, stdin: `${password}\n${password}\n`, timeoutMs: 120_000, env: checkoutEnv() });
+  const r = await exec(s.password_command.replaceAll("{user}", s.user), { cwd: input.checkout, stdin: `${password}\n${password}\n`, timeoutMs: 120_000, env: checkoutEnv(input.env ?? {}) });
   if (r.code !== 0) throw new Error(`No se pudo preparar el usuario de prueba (código ${r.code})`);
   const browser = await (deps.launch ?? launchChrome)();
   try {
@@ -288,7 +290,7 @@ export async function runCapture(db: Db, input: CaptureInput, deps: CaptureDeps 
       const s = settings.session;
       const password = (deps.password ?? (() => randomBytes(18).toString("base64url")))();
       const cmd = s.password_command.replaceAll("{user}", s.user);
-      const r = await exec(cmd, { cwd: input.checkout, stdin: `${password}\n${password}\n`, timeoutMs: 120_000, env: checkoutEnv() });
+      const r = await exec(cmd, { cwd: input.checkout, stdin: `${password}\n${password}\n`, timeoutMs: 120_000, env: checkoutEnv(input.env ?? {}) });
       if (r.code !== 0) sessionError = `No se pudo preparar el usuario de prueba: ${(r.stderr || r.stdout).trim().split("\n").pop()?.slice(0, 200) ?? `código ${r.code}`}`;
       else {
         try {
