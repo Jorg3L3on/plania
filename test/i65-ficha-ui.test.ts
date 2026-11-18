@@ -256,3 +256,18 @@ test("I65-5, PLA-61: the old open panel, both copies of Journey and the retired 
     assert.ok(!/cor-rail\b|cor-railstop|cor-stops-grid/.test(src), `${f} still has the rail`);
   }
 });
+
+test("AUDIT-8: la ficha shows the PO's decisions on Entendido, each plan step's done-when and what to try, and Research's own recommended option", () => {
+  const dec = { n: 1, question: "¿El aviso sale por WhatsApp o por correo?", options: ["WhatsApp", "Correo"], recommended: 1, why: "Casi todas contestan por WhatsApp.", state: "assumed", chosen: 1, at: null };
+  const ent = ficha(detail("entendido", { decisions: [dec] }));
+  assert.match(ent, /data-decisiones="1"/);
+  assert.match(ent, /Se aplica «WhatsApp» si no la cambias\./);
+  assert.match(ent, /data-control="idea-decision-confirmar"/);
+  assert.doesNotMatch(ficha(detail("entendido")), /data-decisiones/, "an idea without data looks as before");
+  const plan = ficha(detail("plan", { plan: { steps: [{ title: "Ruta", done_when: "La lista abre", try_it: "Entra a /usuarios" }], risks: [], size: null } }));
+  assert.match(plan, /data-plan="pasos"[\s\S]*Listo cuando: La lista abre[\s\S]*Para probarlo: Entra a \/usuarios/);
+  assert.doesNotMatch(ficha(detail("plan")), /data-plan="pasos"/);
+  const options = [{ n: 1 }, { n: 2 }];
+  assert.equal(fichaMod.recommended({ research: { recommendation: "La opción 2", options, recommended: 1 } }), 1, "the data wins over the prose");
+  assert.equal(fichaMod.recommended({ research: { recommendation: "La opción 2", options } }), 2);
+});
