@@ -2,6 +2,28 @@
    the global tokens, .edi-* and the rest of the app are not touched. Near black, one violet light for live work,
    amber only for what waits on Jorge, a project's colour only in its logo. Geist and Geist Mono only. */
 
+/* PLA-72: the large frame lives in a portal on <body> (above the app header); it carries the floor's colours. */
+.cor-portal {
+  --cor-bg: #050507;
+  --cor-surface: #0c0c10;
+  --cor-raised: #121218;
+  --cor-line: rgba(255, 255, 255, 0.08);
+  --cor-line-strong: rgba(255, 255, 255, 0.16);
+  --cor-text: #f4f4f6;
+  --cor-body: #c9c9d2;
+  --cor-muted: #9a9aa6;
+  --cor-violet: #8b5cf6;
+  --cor-violet-2: #a78bfa;
+  --cor-violet-3: #c4b5fd;
+  --cor-violet-4: #ddd6fe;
+  --cor-amber: #ffb454;
+  --cor-green: #6ee7a0;
+  --cor-red: #ff7a7a;
+  --cor-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --cor-sans: "Geist Variable", "Geist", system-ui, sans-serif;
+  --cor-shell: 49px;
+  color: var(--cor-text);
+}
 .cor {
   --cor-bg: #050507;
   --cor-surface: #0c0c10;
