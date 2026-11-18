@@ -504,13 +504,15 @@ export type DecisionRelease = { from: string; into: string; env: string; ahead: 
 export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar";
 // PLA-I46-9/10: GET /api/projects/:slug/qa/:key (src/runner/qa.ts qaEvidence).
 export type QaState = "off" | "none" | "waiting" | "checking" | "reviewing" | "pass" | "fail" | "returned" | "error";
+export type QaAxisRead = { verdict: "pass" | "fail"; notes: string };
 export type QaRead = {
   project: string;
   key: string;
   enabled: boolean;
   state: QaState;
   tests: { pass: number; total: number; verdict: "pass" | "fail" | null; items: { name: string; command: string; ok: boolean; exit_code: number | null; pass: number | null; fail: number | null; duration_s: number }[] };
-  review: { verdict: "pass" | "fail"; notes: string; model: string | null } | null;
+  // AUDIT-6: spec and code are the review's two verdicts (absent on an older review); walked, whether QA went through the app.
+  review: { verdict: "pass" | "fail"; notes: string; model: string | null; spec?: QaAxisRead; code?: QaAxisRead; walked?: boolean } | null;
   checklist: { n: number; text: string; mark: "pass" | "fail" | null; note: string | null }[];
   captures: { ids: string[]; image_urls: string[]; ok: number; failed: number; error: string | null } | null;
   notes: string | null;

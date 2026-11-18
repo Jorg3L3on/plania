@@ -398,7 +398,20 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
             <div>
               <dt>Revisión</dt>
               <dd>
-                {ev.loading ? "…" : ev.review.value}
+                {/* AUDIT-6: two verdicts, a line each; a review with one verdict reads as before. */}
+                {ev.loading
+                  ? "…"
+                  : ev.axes.length === 0
+                    ? ev.review.value
+                    : ev.axes.map((a) => (
+                        <div key={a.axis} data-eje={a.axis} data-ok={String(a.ok)}>
+                          {a.text}
+                          {a.sub ? ` · ${a.sub}` : ""}
+                        </div>
+                      ))}
+                {!ev.loading && ev.walked && (
+                  <div data-recorrido={String(ev.walked.ok)}>{ev.walked.text}</div>
+                )}
                 {pr && (
                   <>
                     {" "}

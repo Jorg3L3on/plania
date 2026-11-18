@@ -6,9 +6,15 @@
 import type { Decision, QaRead } from "./api";
 
 export type Tile = { value: string; ok: boolean | null; sub: string };
+// AUDIT-6: one short line per verdict of the review (does it do what was asked; is the code sound).
+export type AxisLine = { axis: "spec" | "code"; text: string; ok: boolean; sub: string };
 export type EvidenceView = {
   tests: Tile;
   review: Tile;
+  // Empty for a review with one verdict (before AUDIT-6): the card shows review.value as before.
+  axes: AxisLine[];
+  // Whether QA went through the app in a browser; null when the project does not ask for it.
+  walked: { text: string; ok: boolean } | null;
   checklist: { title: string; items: { n: number; text: string; mark: "pass" | "fail" | null }[] };
   stills: string[];
   pr: string | null;
@@ -33,6 +39,13 @@ export const EV_WORDS = {
   line: "Una línea para Taller (opcional)",
   auto: "Aprobar sola si las pruebas pasan (solo a la copia de prueba)",
 } as const;
+
+// AUDIT-6: the review's two verdicts and the walk-through, in the owner's words.
+export const AXIS_WORDS = {
+  spec: { pass: "Hace lo que se pidió", fail: "No hace todo lo que se pidió" },
+  code: { pass: "El código está bien", fail: "El código tiene un problema" },
+} as const;
+export const WALKED_WORDS = { yes: "QA recorrió la app", no: "QA no recorrió la app" } as const;
 
 // A text that did not come (an older or partial read) is an empty line, never a crash (PLA-I47-7).
 const clip = (s: string | null | undefined, n: number) => {
@@ -85,10 +98,21 @@ export function evidenceView(read: QaRead | null | undefined, d: Pick<Decision, 
   else if (r && BUSY.has(r.state)) review = { value: "En curso", ok: null, sub: "QA la está haciendo" };
   else review = { value: "Sin revisión aparte", ok: null, sub: r?.enabled ? "QA no la hizo en esta entrega" : "no hay QA en este equipo" };
 
+  // AUDIT-6: the two verdicts, each on its own line; a failing one carries the start of QA's note.
+  const { spec, code } = r?.review ?? {};
+  const axes: AxisLine[] =
+    spec && code
+      ? [
+          { axis: "spec", ok: spec.verdict === "pass", text: spec.verdict === "pass" ? AXIS_WORDS.spec.pass : AXIS_WORDS.spec.fail, sub: spec.verdict === "pass" ? "" : clip(spec.notes, 90) },
+          { axis: "code", ok: code.verdict === "pass", text: code.verdict === "pass" ? AXIS_WORDS.code.pass : AXIS_WORDS.code.fail, sub: code.verdict === "pass" ? "" : clip(code.notes, 90) },
+        ]
+      : [];
+  const walked = typeof r?.review?.walked === "boolean" ? { text: r.review.walked ? WALKED_WORDS.yes : WALKED_WORDS.no, ok: r.review.walked } : null;
+
   const items = (r?.checklist ?? []).map((c) => ({ n: c.n, text: c.text, mark: c.mark }));
   const passed = items.filter((c) => c.mark === "pass").length;
   const checklist = { title: items.length ? `Check list del PO · ${passed} de ${items.length}` : "Check list del PO", items };
-  return { tests, review, checklist, stills: (r?.captures?.image_urls ?? []).slice(0, 2), pr: prOf(d), loading: read === undefined };
+  return { tests, review, axes, walked, checklist, stills: (r?.captures?.image_urls ?? []).slice(0, 2), pr: prOf(d), loading: read === undefined };
 }
 
 // PLA-I46-15: what a key does in the decision layer. A accepts, D returns (a delivery), C changes (a plan), Esc
