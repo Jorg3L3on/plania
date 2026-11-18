@@ -156,7 +156,10 @@ async function shoot(page: BrowserPage, base: string, pg: ViewPage, settings: Ca
   };
   check();
   if (pg.follow) {
-    const href = await page.evaluate<string | null>(`(() => { const a = document.querySelector(${JSON.stringify(pg.follow)}); return a ? a.href : null; })()`);
+    // PLA-73: a follow that is a path («/panel/novias/») means the first link whose href starts with it; anything else
+    // is a CSS selector, as before. Taller was told to give the prefix and the photo pass threw on it.
+    const sel = followSelector(pg.follow);
+    const href = await page.evaluate<string | null>(`(() => { const a = document.querySelector(${JSON.stringify(sel)}); return a ? a.href : null; })()`);
     if (!href) throw new Error(`En ${pg.path} no hay nada que coincida con ${pg.follow}`);
     if (new URL(href).origin !== new URL(base).origin) throw new Error(`${pg.follow} lleva fuera de la copia de prueba`);
     nav = await page.goto(href);
@@ -330,3 +333,6 @@ export function pngHeight(png: Buffer, scale: number): number | null {
   if (png.length < 24 || png.readUInt32BE(12) !== 0x49484452) return null;
   return Math.round(png.readUInt32BE(20) / scale);
 }
+
+/** PLA-73: «/panel/novias/» → a[href^="/panel/novias/"]; a CSS selector stays as it is. */
+export const followSelector = (follow: string): string => (follow.startsWith("/") ? `a[href^=${JSON.stringify(follow)}]` : follow);
