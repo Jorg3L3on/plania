@@ -1116,6 +1116,14 @@ export const agentRuns = pgTable(
     stopRequested: text("stop_requested"),
     notBefore: timestamp("not_before", { withTimezone: true }),
     planWeight: real("plan_weight"),
+    // AUDIT-2 (migration 0061): what the run was given. prompt_version is "<doc version>:<first 12 of the sha256 of
+    // the role prompt>" (null on a resumed session or a run with no role prompt); skills are "<slug>@<first 8 of its
+    // sha256>" for every skill in the run's kit; skills_used are the slugs the stream showed the run invoking.
+    promptVersion: text("prompt_version"),
+    skills: text("skills").array().notNull().default(sql`'{}'::text[]`),
+    skillsUsed: text("skills_used").array().notNull().default(sql`'{}'::text[]`),
+    // AUDIT-7: the context the last turn carried (input + cache read + cache create of that turn), null when unknown.
+    contextTokens: bigint("context_tokens", { mode: "number" }),
   },
   (t) => [
     index("agent_runs_status_idx").on(t.status, t.queuedAt),
@@ -1432,7 +1440,10 @@ export type QaVerifyItem = {
   tail: string; // the last lines of output, for Taller's notes
 };
 export type QaCapture = { run_id: string | null; ok: number; failed: number; still_ids: string[]; error: string | null };
-export type QaReview = { verdict: "pass" | "fail"; notes: string; model: string | null };
+// AUDIT-6: verdict is the overall one (fail when either axis fails). spec is "does it meet the scope, the Done when
+// and the check list"; code is "is the change sound". Reviews stored before AUDIT-6 have neither.
+export type QaAxis = { verdict: "pass" | "fail"; notes: string };
+export type QaReview = { verdict: "pass" | "fail"; notes: string; model: string | null; spec?: QaAxis; code?: QaAxis; walked?: boolean };
 export type QaMark = { n: number; mark: "pass" | "fail"; note: string };
 export const QA_STATUSES = ["queued", "checking", "reviewing", "pass", "fail", "error"] as const;
 export type QaStatus = (typeof QA_STATUSES)[number];

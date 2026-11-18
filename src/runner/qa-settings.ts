@@ -24,6 +24,16 @@ export const qaSettingsSchema = z
     small_model: z.string().trim().min(1).max(60).optional(),
     // The model for a bigger change; absent: the CLI's default.
     model: z.string().trim().min(1).max(60).optional(),
+    // AUDIT-1: finish runs the verify list in the delivery's worktree and refuses a failing delivery (VERIFY_FAILED).
+    // On unless false, when the list is not empty and the worktree is on this machine.
+    verify_on_finish: z.boolean().optional(),
+    // AUDIT-1: run after every file edit of a Taller run (a formatter or a quick typecheck), through a hook in the
+    // run's own settings file. Nothing is written to the app repo.
+    after_edit: z.object({ command: z.string().trim().min(1).max(300), timeout_seconds: z.number().int().min(1).max(600).optional() }).strict().optional(),
+    // AUDIT-6: the QA run may start the test copy and walk through it with a browser. Off unless true.
+    browser: z.boolean().optional(),
+    // AUDIT-10: a delivery QA or the owner sent back queues one retro run that proposes one fix. Off unless true.
+    retro: z.boolean().optional(),
   })
   .strict()
   .superRefine((s, ctx) => {
