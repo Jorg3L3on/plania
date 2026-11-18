@@ -526,6 +526,26 @@ describe("PLA-78: the muestra's datos", () => {
     assert.equal(s?.error, 'Los datos de la muestra no se cargaron: ERROR:  relation "cita" does not exist');
   });
 
+  test("PLA-97: a step's copies also get the rows of its initiative's earlier accepted steps, after its own, statement by statement", async () => {
+    failOn = null;
+    const ini = (await writes.createTask(db, { project: "zigzag", kind: "initiative", title: "Agenda", scope: "s" } as never, ctx as never)) as Json;
+    const HOURS = "insert into horario values (1);";
+    const first = await withDatos("Paso 1: horario", HOURS);
+    const later = await withDatos("Paso 2: la novia agenda", DATOS);
+    await raw.query(`update tasks set parent_id = (select id from tasks where key = $1), phase = 1, status = 'Merged' where key = $2`, [ini.key, first]);
+    await raw.query(`update tasks set parent_id = (select id from tasks where key = $1), phase = 2 where key = $2`, [ini.key, later]);
+    await prueba.apagar(db, "zigzag").catch(() => null);
+    await prueba.apagarEntrega(db, "zigzag").catch(() => null);
+    execs = [];
+    assert.equal((await pass(later))?.state, "lista");
+    const psql = execs.filter((e) => e.command.startsWith("psql") && e.env?.PLANIA_COPY_URL?.endsWith("_entrega"));
+    assert.deepEqual(psql.map((e) => [e.command.includes("--single-transaction") ? "own" : "earlier", e.stdin]), [["own", DATOS], ["earlier", HOURS]], "its own rows first, then step 1's");
+    assert.ok(execs.some((e) => e.stdin === HOURS && e.env?.PLANIA_COPY_URL?.endsWith("_prueba")), "on Antes too");
+    execs = [];
+    await pass(later);
+    assert.ok(!execs.some((e) => e.stdin === HOURS), "a retake on the same copy loads none twice");
+  });
+
   test("a copy without its own database never gets the rows; finish takes datos in the muestra", async () => {
     const { parseMuestra } = await import("../src/captures/muestra.js");
     assert.equal(parseMuestra({ ...MUESTRA, datos: DATOS }).ok, true);

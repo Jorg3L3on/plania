@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { projects, tasks } from "../db/schema.js";
 import { apagarEntrega, cargarDatos, datosDe, encenderEntrega, entregaRead, hashDatos, type EntregaRead } from "./prueba.js";
-import { probar } from "./probador.js";
+import { earlierDatos, probar } from "./probador.js";
 
 export async function warmEntrega(db: Db, slug: string, key: string): Promise<EntregaRead | null> {
   const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
@@ -20,13 +20,15 @@ export async function warmEntrega(db: Db, slug: string, key: string): Promise<En
   const have = datosDe(slug, "entrega");
   if (have && have !== want) await apagarEntrega(db, slug).catch(() => null);
   const r = await encenderEntrega(db, slug, { key: t.key, branch });
-  if (t.muestra.datos) void loadWhenLive(slug, t.muestra.datos);
+  // PLA-97: and the rows of the initiative's earlier accepted steps, after its own.
+  const earlier = await earlierDatos(db, t).catch(() => [] as string[]);
+  if (t.muestra.datos || earlier.length) void loadWhenLive(slug, t.muestra.datos ?? null, {}, earlier);
   return r;
 }
 
 // Waits for the delivery's copy to be live (up to two minutes) and loads the muestra's rows into it; a failure stays on
 // the server log (the card's photos already say whether the rows load).
-export async function loadWhenLive(slug: string, datos: string, deps: { load?: typeof cargarDatos; read?: typeof entregaRead; sleep?: (ms: number) => Promise<void>; waitMs?: number } = {}): Promise<boolean> {
+export async function loadWhenLive(slug: string, datos: string | null, deps: { load?: typeof cargarDatos; read?: typeof entregaRead; sleep?: (ms: number) => Promise<void>; waitMs?: number } = {}, earlier: string[] = []): Promise<boolean> {
   const read = deps.read ?? entregaRead;
   const load = deps.load ?? cargarDatos;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -37,8 +39,9 @@ export async function loadWhenLive(slug: string, datos: string, deps: { load?: t
     if (!e || e.phase === "failed" || Date.now() > until) return false;
     await sleep(1000);
   }
-  const r = await load(slug, "entrega", datos);
+  const r = datos ? await load(slug, "entrega", datos) : ({ ok: true } as const);
   if (!r.ok) console.log(`[entrega] ${slug}: the muestra's rows did not load: ${r.error}`);
+  for (const sql of earlier) await load(slug, "entrega", sql, { earlier: true }).catch(() => null);
   return r.ok;
 }
 

@@ -4,7 +4,7 @@
 // If no picture of the delivery can be taken, the ticket goes back to Taller with the reason; after the second
 // failure the card is raised anyway, with what Plania has and why the rest is missing. Nobody is shown a blind card.
 import { hostname } from "node:os";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { agents, captureStills, events, projects, pullRequests, tasks, threadMessages, threads, type Project, type Task } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
@@ -167,6 +167,13 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
     }
   }
 
+  // PLA-97 (guided test PLA-86, F-20): the rows the initiative's earlier accepted steps seeded (branch hours, advisors)
+  // were gone in every later step's copy. They load after this delivery's own, on both copies.
+  for (const sql of await earlierDatos(db, t)) {
+    const load = deps.cargarDatos ?? cargarDatos;
+    await load(slug, "entrega", sql, { earlier: true }).catch(() => null);
+    if (!outside && pruebaOf(slug)?.phase === "live") await load(slug, "sandbox", sql, { earlier: true }).catch(() => null);
+  }
   mark("datos");
   const views = viewsOf(t.muestra);
   const capture = deps.capture ?? runCapture;
@@ -198,6 +205,20 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   const missing = despues.stills.filter((x) => x.status === "error");
   const error = [missing.length ? `${missing.length} de ${despues.stills.length} fotos no salieron (${missing[0]!.error})` : null, antesError].filter(Boolean).join(" · ") || null;
   return setState(db, t, { state: "lista", attempts, error, commit: e.commit ?? null, for_head: deps.forHead ?? t.probador?.for_head ?? null });
+}
+
+/** PLA-97: the datos of the initiative's earlier accepted steps (Merged, Released or Done), in step order; none for a
+ * standalone ticket. */
+export async function earlierDatos(db: Db, t: Pick<Task, "id" | "parentId" | "projectId">): Promise<string[]> {
+  if (!t.parentId) return [];
+  const rows = await db
+    .select({ key: tasks.key, phase: tasks.phase, muestra: tasks.muestra })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, t.projectId), eq(tasks.parentId, t.parentId), ne(tasks.id, t.id), inArray(tasks.status, ["Merged", "Released", "Done"])));
+  return rows
+    .filter((r) => !!r.muestra?.datos?.trim())
+    .sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || a.key.localeCompare(b.key, "en", { numeric: true }))
+    .map((r) => r.muestra!.datos!);
 }
 
 // The box on each después still against the newest antes of the same view and width.
