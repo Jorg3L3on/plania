@@ -38,7 +38,8 @@ export const Strip = ({ lanes, open, href, back, pedirTo }: { lanes: Lane[]; ope
   </nav>
 );
 
-export const ProjectBar = ({ slug, title, tab, href, counts }: { slug: string; title: string; tab: Tab; href: (t: Tab) => string; counts?: Partial<Record<Tab, { n: number; amber?: boolean }>> }) => {
+export type BarMeta = { text: string; missing: boolean; href: string };
+export const ProjectBar = ({ slug, title, tab, href, counts, meta }: { slug: string; title: string; tab: Tab; href: (t: Tab) => string; counts?: Partial<Record<Tab, { n: number; amber?: boolean }>>; meta?: BarMeta }) => {
   const one = (t: Tab) => {
     const c = counts?.[t];
     return (
@@ -54,6 +55,15 @@ export const ProjectBar = ({ slug, title, tab, href, counts }: { slug: string; t
         <Logo slug={slug} title={title} size="md" />
         {title}
       </h1>
+      {meta && (
+        <div className="cor-pmeta" data-pmeta>
+          <span className="cor-label">Meta</span>
+          <span className="cor-ellipsis cor-pmeta-tx">{meta.text}</span>
+          <Link to={meta.href} className="cor-btn link" data-control="fijar">
+            {meta.missing ? "Fijar meta" : "Cambiar meta"}
+          </Link>
+        </div>
+      )}
       <nav className="cor-tabs" aria-label={`Trabajo de ${title}`}>
         {WORK_TABS.map(one)}
       </nav>

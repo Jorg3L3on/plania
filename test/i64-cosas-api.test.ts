@@ -52,3 +52,31 @@ test("I64-1: the ficha carries promoted_to, origin, the tube's state and the pro
     { idea: "TLU-IDEA2", initiative: "TLU-I2" },
   ]);
 });
+
+test("I64-3 #2 el pulso: steps landed per day for 14 days match a control count", async () => {
+  const at = (d: string) => `${d}T18:00:00Z`;
+  const t = async (key: string, status: string, when: string | null, kind = "ticket") =>
+    raw.query(`insert into tasks (project_id, key, title, kind, status, resolved_at, status_changed_at) values ($1, $2, $2, $3, $4, $5, $5)`, [pid, key, kind, status, when]);
+  await t("TLU-1", "Done", at("2026-11-17"));
+  await t("TLU-2", "Released", at("2026-11-17"));
+  await t("TLU-3", "Merged", at("2026-11-10"));
+  await t("TLU-4", "Done", at("2026-11-01")); // before the window
+  await t("TLU-5", "In review", at("2026-11-16")); // not landed
+  await t("TLU-I9", "Done", at("2026-11-17"), "initiative"); // not a step
+  const { pulsoRead } = await import("../src/api/company-ficha.js");
+  const { withDb } = await import("../src/db/client.js");
+  const p = await withDb((db) => pulsoRead(db, "tienda", { now: new Date("2026-11-17T20:00:00Z"), tz: "America/Mexico_City" }));
+  assert.equal(p.days.length, 14);
+  assert.equal(p.days[0]!.day, "2026-11-04");
+  assert.equal(p.days.at(-1)!.day, "2026-11-17");
+  const control = (await raw.query(
+    `select count(*)::int as n from tasks where project_id = $1 and kind = 'ticket' and status in ('Merged','Released','Done') and (coalesce(resolved_at, status_changed_at) at time zone 'America/Mexico_City')::date between '2026-11-04' and '2026-11-17'`,
+    [pid],
+  )).rows[0].n;
+  assert.equal(p.total, control);
+  assert.equal(p.total, 3);
+  assert.deepEqual(p.days.filter((d) => d.n > 0), [{ day: "2026-11-10", n: 1 }, { day: "2026-11-17", n: 2 }]);
+  const res = await app.request("/api/company/projects/tienda/pulso", { headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } });
+  assert.equal(res.status, 200);
+  assert.equal(((await res.json()) as any).days.length, 14);
+});

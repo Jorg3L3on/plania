@@ -28,7 +28,10 @@ import { PedirBar } from "@/components/corriente/pedir-bar";
 import { Piezas } from "@/components/corriente/piezas";
 import { ProjectBar, Strip } from "@/components/corriente/strip";
 import { Stream, type StreamLinks } from "@/components/corriente/stream";
-import { Todo, type TodoLinks } from "@/components/corriente/todo";
+import { Cabeza, Todo, type TodoLinks } from "@/components/corriente/todo";
+import { fraseOf } from "@/lib/cosas";
+import { nowLine } from "@/lib/edificio";
+import { rumboText } from "@/lib/v2";
 import { ApiError, api, type OrgProject } from "@/lib/api";
 import { WORK_TABS, atOf, hrefOf, isBuilt, legacyHref, linkTo, type AskInput, type At, type Tab } from "@/lib/corriente";
 import { CLOSED, headlineOf, lanesOf, projectOfKey, totalsOf } from "@/lib/corriente-stream";
@@ -231,7 +234,16 @@ export const CorrientePage = () => {
         hecha: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "iniciativa", key } }),
         hecho: linkTo({ slug: p.slug, tab: "tablero" }),
       };
-      return <Todo p={p} decisions={decisions} links={todoLinks} timeZone={timeZone} companyPaused={paused} />;
+      return (
+        <Todo
+          p={p}
+          decisions={decisions}
+          links={todoLinks}
+          timeZone={timeZone}
+          companyPaused={paused}
+          top={(cosas) => <Cabeza slug={p.slug} f={fraseOf(p, cosas, nowLine(p, decisions, now, { companyPaused: paused, timeZone }), { now, companyPaused: paused, totals })} />}
+        />
+      );
     }
     if (at.tab === "tablero")
       return <Board p={p} decisions={decisions} acts={acts} links={boardLinks} now={now} chosenKey={new URLSearchParams(location.search).get("elegida")} onChoose={(k) => navigate(hrefOf({ slug: p.slug, tab: "tablero", extra: k ? { elegida: k } : {} }), { replace: true })} />;
@@ -317,7 +329,11 @@ export const CorrientePage = () => {
       const mine = decisions.filter((d) => d.project === project.slug && pending(d)).length;
       return (
         <div className="cor-project" data-project={project.slug}>
-          <ProjectBar slug={project.slug} title={project.title} tab={at.tab} href={(t) => linkTo({ slug: project.slug, tab: t })} counts={{ ahora: { n: mine, amber: true }, pedidos: { n: (project.pedidos ?? []).filter((x) => !x.guardada && x.question).length, amber: true } }} />
+          <ProjectBar
+            slug={project.slug}
+            title={project.title}
+            tab={at.tab}
+            meta={at.tab === "todo" ? { text: [rumboText(project).goal ?? "Sin meta todavía", rumboText(project).date ?? (rumboText(project).goal ? "sin fecha" : null)].filter(Boolean).join(" · "), missing: rumboText(project).missing, href: hojaHref("meta", project.slug) } : undefined} href={(t) => linkTo({ slug: project.slug, tab: t })} counts={{ ahora: { n: mine, amber: true }, pedidos: { n: (project.pedidos ?? []).filter((x) => !x.guardada && x.question).length, amber: true } }} />
           <div className="cor-pbody">{projectBody(project)}</div>
         </div>
       );

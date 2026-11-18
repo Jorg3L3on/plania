@@ -4,8 +4,9 @@
 // otras N»). A row opens today's view of the thing (the idea, the initiative, the step) and comes back here.
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
-import type { Decision, OrgProject } from "@/lib/api";
-import { GRUPO_NAME, TIPO_NAME, cosasOf, type Cosa, type Cosas, type Grupo, type Hecha } from "@/lib/cosas";
+import { useQuery } from "@tanstack/react-query";
+import { api, type Decision, type OrgProject, type Pulso } from "@/lib/api";
+import { GRUPO_NAME, TIPO_NAME, cosasOf, type Cosa, type Cosas, type Frase, type Grupo, type Hecha } from "@/lib/cosas";
 import { Hilo, HiloHead } from "./hilo";
 import { useFicha } from "./listas";
 import { Label, ReadError } from "./parts";
@@ -23,13 +24,13 @@ const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean)
 /** How many rows each group shows before it folds. The list measures its own height (ResizeObserver) and spends
  *  it in group order: a Te toca row costs more than a quiet one, a row in line or done costs least. Te toca always
  *  shows its first row; Hecho shows up to two rows while room is left. Measured at 1440×800 (PLA-I64-2). */
-export const ROW_PX = { toca: 84, mueve: 62, fila: 52, quieto: 62, hecho: 46 } as const;
-export const LINE_PX = 30;
+export const ROW_PX = { toca: 86, mueve: 58, fila: 52, quieto: 66, hecho: 46 } as const;
+// The column header is 30px; a group's line is 48 (its «Ver…» link is a 44px target).
+export const LINE_PX = { head: 30, group: 48 } as const;
 export const FOLD = { perGroup: 3, hecho: 2, fallback: 420 } as const;
 export function foldOf(c: Cosas, open: ReadonlySet<Grupo>, height: number = FOLD.fallback): Record<Grupo, number> {
   // Fixed lines: the column header, one line per group shown (empty groups share the next one), Hecho's line.
-  const lines = 1 + c.grupos.filter((g) => g.cosas.length > 0).length + 1;
-  let left = height - lines * LINE_PX;
+  let left = height - LINE_PX.head - (c.grupos.filter((g) => g.cosas.length > 0).length + 1) * LINE_PX.group;
   const out = {} as Record<Grupo, number>;
   for (const g of c.grupos) {
     const n = g.cosas.length;
@@ -119,12 +120,15 @@ export const TodoList = ({
     const box = ref.current?.closest(".cor-todo-scroll") as HTMLElement | null;
     if (!box || typeof ResizeObserver === "undefined") return;
     const read = () => {
-      const above = ref.current ? ref.current.offsetTop - box.offsetTop : 0;
-      setRoom(box.clientHeight - above - 8);
+      if (!ref.current) return;
+      const pad = parseFloat(getComputedStyle(box).paddingBottom) || 0;
+      setRoom(box.getBoundingClientRect().bottom - pad - ref.current.getBoundingClientRect().top + box.scrollTop - 4);
     };
     read();
     const ro = new ResizeObserver(read);
     ro.observe(box);
+    const head = box.querySelector("[data-cabeza]");
+    if (head) ro.observe(head);
     return () => ro.disconnect();
   }, []);
   const shown = foldOf(cosas, open, room);
@@ -241,6 +245,57 @@ export const Todo = ({
         {f.isLoading ? <div className="cor-skel" role="status" style={{ height: 320, margin: "8px 0" }} aria-busy="true" aria-label="Leyendo las cosas del proyecto" /> : <TodoList p={p} cosas={cosas} links={links} timeZone={timeZone} companyPaused={companyPaused} actOf={actOf ? (c) => actOf(c, cosas) : undefined} />}
       </div>
       {bottom}
+    </div>
+  );
+};
+
+// ---- PLA-I64-3: the sentence and the pulse (board A1, A2).
+
+export const FraseView = ({ f }: { f: Frase }) => (
+  <div className="cor-frase" data-frase>
+    <h2 className="cor-frase-h">
+      <span>{f.mueve}</span>
+      {f.toca && (
+        <span className="amber" data-frase-toca>
+          {f.toca}
+        </span>
+      )}
+    </h2>
+    <p className="cor-frase-falta">{f.falta}</p>
+  </div>
+);
+
+const shortDay = (iso: string) => new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${iso}T12:00:00Z`)).replace(".", "").toUpperCase();
+
+/** Steps done per day, the last 14 days; today lit. Read-only; the numbers are said in words for screen readers. */
+export const PulsoView = ({ pulso }: { pulso: Pulso | null }) => {
+  if (!pulso) return <div className="cor-pulso" aria-hidden />;
+  const max = Math.max(1, ...pulso.days.map((d) => d.n));
+  const first = pulso.days[0]?.day;
+  return (
+    <figure className="cor-pulso" data-pulso={pulso.total}>
+      <figcaption className="cor-label">{`Últimos ${pulso.days.length} días · ${pulso.total} ${pulso.total === 1 ? "paso hecho" : "pasos hechos"}`}</figcaption>
+      <div className="cor-pulso-bars" role="img" aria-label={`Pasos hechos por día: ${pulso.days.map((d) => `${shortDay(d.day)} ${d.n}`).join(", ")}`}>
+        {pulso.days.map((d, i) => (
+          <i key={d.day} className={cls(d.n === 0 && "z", i === pulso.days.length - 1 && "hoy")} style={{ height: d.n === 0 ? 2 : Math.max(4, Math.round((d.n / max) * 44)) }} />
+        ))}
+      </div>
+      <div className="cor-pulso-ends" aria-hidden>
+        <span>{first ? shortDay(first) : ""}</span>
+        <span>HOY</span>
+      </div>
+    </figure>
+  );
+};
+
+export const usePulso = (slug: string) => useQuery({ queryKey: ["pulso", slug], queryFn: () => api.pulso(slug), staleTime: 60_000, refetchInterval: 120_000, retry: 1 });
+
+export const Cabeza = ({ f, slug }: { f: Frase; slug: string }) => {
+  const q = usePulso(slug);
+  return (
+    <div className="cor-cabeza" data-cabeza>
+      <FraseView f={f} />
+      <PulsoView pulso={q.data ?? null} />
     </div>
   );
 };

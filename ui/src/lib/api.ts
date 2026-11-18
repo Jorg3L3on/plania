@@ -159,6 +159,8 @@ export const api = {
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
   companyFicha: (slug: string) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha`),
+  // PLA-I64-3: steps done per day, last 14 days.
+  pulso: (slug: string) => request<Pulso>("GET", `/company/projects/${encodeURIComponent(slug)}/pulso`),
   projectDoc: (slug: string, id: string) => request<ProjectDocBody>("GET", `/company/docs/${encodeURIComponent(id)}?project=${encodeURIComponent(slug)}`),
   // PLA-I46-13: packs are set in the same call; the server refuses an unknown pack before hiring.
   addToTeam: (slug: string, template: string, packs?: string[], motor?: MotorPatch) =>
@@ -619,6 +621,7 @@ export type OrgFicha = {
   // PLA-I64-1: every idea that became an initiative.
   promoted?: { idea: string; initiative: string }[];
 };
+export type Pulso = { days: { day: string; n: number }[]; total: number; tz: string };
 export type ProjectDocBody = { id: string; title: string; version: number; markdown: string; task_key: string | null };
 
 export type ThreadAction = "aceptar" | "cambios" | "responder" | "fusionar";

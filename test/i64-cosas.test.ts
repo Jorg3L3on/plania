@@ -186,3 +186,43 @@ test("I64-1 while the ficha loads, the pedidos stand in; a shelved request is co
   assert.equal(c.guardadas, 1);
   assert.ok(!find(c, "MIA-IDEA8"));
 });
+
+// ---- PLA-I64-3: the sentence on top.
+const { fraseOf } = (await import(new URL("../ui/src/lib/cosas.ts", import.meta.url).href)) as Record<string, any>;
+const NOW = Date.parse("2026-11-17T13:18:00Z");
+const quiet = { state: "idle", say: "Nadie tiene trabajo ahora.", why: "" };
+
+test("I64-3 #1 the sentence: quiet, someone working, paused with deliveries, empty, a stuck pedido", () => {
+  // Mianovia: stuck pedido (since 08:53Z → 4 h), nobody works, steps left.
+  const { p, ficha } = mianovia();
+  const f = fraseOf(p, cosasOf({ p, decisions: [], ficha }), quiet, { now: NOW, totals: { open: 2, done: 46 } });
+  assert.deepEqual(f, { mueve: "Nadie trabaja ahora.", toca: "Tu «Constrúyelo» lleva 4 h sin subir al tablero.", falta: "Faltan 2 pasos de 48 para terminar mianovia. Falta «Hosting, dominio y despliegue». Está en Backlog: nadie la pasó a Lista." });
+  // Someone works: today's line says who (nowLine, wrapped as is).
+  const w = project("micasa", { team: [member("taller-micasa", "taller", "MIC-1")], tablero: { initiatives: [ini("MIC-I1", [tk("MIC-1", "construyendo", {}, { live: true }), tk("MIC-2", "lista")])], loose: [], loose_done: 0, done_initiatives: [] } });
+  const fw = fraseOf(w, cosasOf({ p: w, decisions: [], ficha: { ideas: [], promoted: [] } }), { state: "work", say: "Taller construye «Paso MIC-1».", why: "Trabaja 20 min." }, { now: NOW, totals: { open: 2, done: 0 } });
+  assert.equal(fw.mueve, "Taller construye «Paso MIC-1».");
+  assert.equal(fw.toca, null, "amber only when something waits on him");
+  // Filmia paused with seven deliveries.
+  const steps = [1, 2, 3, 4, 5, 6, 7].map((n) => tk(`FIL-${n}`, "te_toca", { phase: n }));
+  const fp = project("filmia", { title: "Filmia", paused: true, tablero: { initiatives: [ini("FIL-I60", steps), ini("FIL-I50", [tk("FIL-21", "lista")])], loose: [], loose_done: 0, done_initiatives: [] } });
+  const ff = fraseOf(fp, cosasOf({ p: fp, decisions: [1, 2, 3, 4, 5, 6, 7].map((n) => delivery(`d${n}`, `FIL-${n}`, "filmia")), ficha: { ideas: [], promoted: [] } }), { state: "off", say: "Este proyecto está en pausa.", why: "Nada arranca hasta que lo reanudes." }, { now: NOW });
+  assert.deepEqual(ff, { mueve: "Filmia está en pausa.", toca: "Siete entregas te esperan.", falta: "Puedes aceptarlas en pausa. Nada nuevo arranca hasta que lo reanudes: una cosa tiene un paso listo." });
+  // Empty.
+  const e = project("nueva", { title: "Tienda Nueva" });
+  const fe = fraseOf(e, cosasOf({ p: e, decisions: [], ficha: { ideas: [], promoted: [] } }), quiet, { now: NOW });
+  assert.equal(fe.mueve, "Nadie trabaja ahora.");
+  assert.equal(fe.toca, null);
+  assert.match(fe.falta, /^Todavía no hay nada aquí/);
+  // Only quiet things: what they wait for.
+  const q = project("workia", { tablero: { initiatives: [ini("WRK-I1", [tk("WRK-1", "despues", { status: "Backlog", title: "Alta" }, { reason: "Está en Backlog: nadie la pasó a Lista." })])], loose: [], loose_done: 0, done_initiatives: [] } });
+  assert.equal(fraseOf(q, cosasOf({ p: q, decisions: [], ficha: { ideas: [], promoted: [] } }), quiet, { now: NOW, totals: { open: 1, done: 0 } }).falta, "Falta 1 paso de 1 para terminar workia. Falta «Alta». Está en Backlog: nadie la pasó a Lista.");
+});
+
+test("I64-3 #3 amber only when something is the owner's", () => {
+  const { p, ficha } = mianovia();
+  p.pedidos = [];
+  const f2 = { ...ficha, ideas: ficha.ideas.filter((i: any) => i.key !== "MIA-IDEA2") };
+  assert.equal(fraseOf(p, cosasOf({ p, decisions: [], ficha: f2 }), quiet, { now: NOW, totals: null }).toca, null);
+  const withMove = fraseOf(p, cosasOf({ p, decisions: [], ficha }), { state: "you", say: "Despierta al PO.", why: "" }, { now: NOW, totals: null });
+  assert.ok(withMove.toca);
+});

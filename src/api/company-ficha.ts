@@ -9,6 +9,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { tasks } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
+import { screenTz } from "../runner/limits.js";
 import { ideaWaits } from "../mcp/ideas.js";
 import { ideasWithFrames, unseenByIdea } from "./company-idea.js";
 import { factsOf, pedidoOf, type PedidoState, type PedidoStop } from "./company-pedidos.js";
@@ -200,4 +201,27 @@ export async function projectDocRead(db: Db, slug: string, docId: string): Promi
   );
   if (!doc) throw new ToolError("DOC_NOT_FOUND", { doc_id: docId });
   return { id: String(doc.id), title: String(doc.title), version: Number(doc.version), markdown: String(doc.markdown), task_key: (doc.task_key as string | null) ?? null };
+}
+
+// PLA-I64-3: el pulso, steps done per day over the last `days` days (default 14) in the screen's time zone, oldest
+// first, every day present (0 when nothing landed). A step counts on the day it landed (Merged, Released or Done:
+// resolved_at, else its last status change), once. Initiatives and ideas are not steps.
+export type Pulso = { days: { day: string; n: number }[]; total: number; tz: string };
+export async function pulsoRead(db: Db, slug: string, opts: { days?: number; tz?: string; now?: Date } = {}): Promise<Pulso> {
+  const id = await projectId(db, slug);
+  const days = Math.min(Math.max(opts.days ?? 14, 1), 90);
+  const tz = opts.tz ?? screenTz();
+  const now = opts.now ?? new Date();
+  const out = await rows(
+    db,
+    sql`with span as (
+          select generate_series((${now}::timestamptz at time zone ${tz})::date - (${days - 1})::int, (${now}::timestamptz at time zone ${tz})::date, interval '1 day')::date as day
+        ), landed as (
+          select (coalesce(resolved_at, status_changed_at, updated_at) at time zone ${tz})::date as day
+          from tasks where project_id = ${id} and kind = 'ticket' and status in ('Merged', 'Released', 'Done')
+        )
+        select to_char(s.day, 'YYYY-MM-DD') as day, count(l.day)::int as n from span s left join landed l on l.day = s.day group by s.day order by s.day`,
+  );
+  const list = out.map((r) => ({ day: String(r.day), n: Number(r.n) }));
+  return { days: list, total: list.reduce((a, d) => a + d.n, 0), tz };
 }

@@ -399,3 +399,68 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
   const iniciativas: Hecha[] = (board?.done_initiatives ?? []).map((d) => ({ key: d.key, title: d.title, idea_key: promoted.get(d.key) ?? null, done_at: d.done_at }));
   return { grupos, hecho: { iniciativas, sueltos: board?.loose_done ?? 0, ultimo_suelto: board?.loose_done_title ?? null }, guardadas, abiertas: out.length };
 }
+
+// ---- PLA-I64-3: the sentence on top (LIB-0137), generated from the list and today's line (lib/edificio.ts nowLine,
+// wrapped, not changed): what moves; in amber, what waits on the owner (only when something does); one line on what
+// is left.
+export type Frase = { mueve: string; toca: string | null; falta: string };
+
+const elapsed = (since: string | null, now: number): string | null => {
+  if (!since) return null;
+  const m = Math.max(0, Math.round((now - Date.parse(since)) / 60_000));
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  return h < 48 ? `${h} h` : `${Math.floor(h / 24)} días`;
+};
+const NUM_ES = ["Cero", "Una", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"];
+const countFem = (n: number, one: string, many: string) => `${n <= 10 ? NUM_ES[n] : String(n)} ${n === 1 ? one : many}`;
+
+export function fraseOf(
+  p: OrgProject,
+  c: Cosas,
+  line: { state: string; say: string; why: string },
+  opts: { now: number; companyPaused?: boolean; totals?: { open: number; done: number } | null },
+): Frase {
+  const g = (k: Exclude<Grupo, "hecho">) => c.grupos.find((x) => x.grupo === k)?.cosas ?? [];
+  const toca = g("toca");
+  const mueve = g("mueve");
+  const fila = g("fila");
+  const quieto = g("quieto");
+  const paused = !!opts.companyPaused || p.paused;
+
+  // What moves.
+  let first: string;
+  if (opts.companyPaused) first = "La compañía está detenida.";
+  else if (p.paused) first = `${p.title} está en pausa.`;
+  else if ((line.state === "work" || line.state === "back") && mueve.length > 0) first = line.say;
+  else if (mueve.length === 1) first = mueve[0]!.espera;
+  else if (mueve.length > 1) first = `${countFem(mueve.length, "cosa se mueve", "cosas se mueven")} ahora.`;
+  else first = "Nadie trabaja ahora.";
+
+  // What waits on him (amber), only when something does.
+  let amber: string | null = null;
+  if (toca.length > 0) {
+    const stuck = toca.find((x) => x.hilo.valvula === "atorada");
+    const deliveries = toca.reduce((n, x) => n + (x.palanca?.kind === "entregas" ? x.palanca.ids.length : x.palanca?.kind === "jugada" && x.tipo === "iniciativa" ? 1 : 0), 0);
+    if (stuck) {
+      const t = elapsed(stuck.since, opts.now);
+      amber = t ? `Tu «Constrúyelo» lleva ${t} sin subir al tablero.` : "Tu «Constrúyelo» no ha subido al tablero.";
+    } else if (deliveries > 1) amber = `${countFem(deliveries, "entrega te espera", "entregas te esperan")}.`;
+    else if (line.state === "you") amber = line.say;
+    else if (toca.length === 1) amber = toca[0]!.espera;
+    else amber = `${countFem(toca.length, "cosa te espera", "cosas te esperan")}.`;
+  }
+
+  // What is left.
+  let last: string;
+  if (c.abiertas === 0) last = "Todavía no hay nada aquí: pide lo primero, o pide al PO que arme el plan.";
+  else if (paused && toca.length > 0) last = `Puedes ${toca.length === 1 && amber && !/entregas/.test(amber) ? "atenderla" : "aceptarlas"} en pausa. Nada nuevo arranca hasta que ${opts.companyPaused ? "reanudes la compañía" : "lo reanudes"}${fila.length ? `: ${fila.length === 1 ? "una cosa tiene" : `${fila.length} cosas tienen`} un paso listo.` : "."}`;
+  else if (paused) last = line.why || "Nada arranca hasta que lo reanudes.";
+  else {
+    const t = opts.totals;
+    const left = t && t.open > 0 ? `${t.open === 1 ? "Falta 1 paso" : `Faltan ${t.open} pasos`} de ${t.open + t.done} para terminar ${p.title}.` : null;
+    const still = mueve.length === 0 && fila.length === 0 && quieto.length > 0 ? quieto[0]!.espera : null;
+    last = [left, still].filter(Boolean).join(" ") || (fila.length ? `${countFem(fila.length, "cosa espera", "cosas esperan")} turno; no te necesitan.` : "Nada más por ahora.");
+  }
+  return { mueve: first, toca: amber, falta: last };
+}

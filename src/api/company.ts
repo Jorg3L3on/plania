@@ -15,6 +15,7 @@
 //   GET  /api/company/projects/:slug       the project sheet
 //   GET  /api/company/docs/:id             one role prompt doc (Prompt ↗); ?project=<slug>: any doc of that project (PLA-I47-1)
 //   GET  /api/company/projects/:slug/ficha La ficha's rows: ideas, PRs, docs, lienzos (PLA-I47-1)
+//   GET  /api/company/projects/:slug/pulso steps done per day, last 14 days (PLA-I64-3)
 // PLA-I30-6/7: POST /api/company/projects/:slug/ask {text}  and  POST /api/company/projects/:slug/wake
 // PLA-I54-3/4: GET /api/company/projects/:slug/pedidos/:key and POST …/pedidos/:key/{guardar,restaurar,descartar,construir}.
 // PLA-I36-11: deleting a project needs the owner's code ({code}). src/auth/owner-code.ts.
@@ -44,7 +45,7 @@ import { construirPedido, descartarPedido, guardarPedido, pedidoDetail, restaura
 import { ideaDespertar, ideaDetail, ideaRespuesta, ideaVisto } from "./company-idea.js";
 import { frameBytes } from "../pedidos/frames.js";
 import { promptDoc } from "./company-extra.js";
-import { fichaRead, projectDocRead } from "./company-ficha.js";
+import { fichaRead, projectDocRead, pulsoRead } from "./company-ficha.js";
 import { addTeamMember, companyRead, projectRead } from "./company-org.js";
 import { setMotores } from "./company-motores.js";
 import { checkMotor } from "../mcp/team.js";
@@ -96,6 +97,16 @@ companyRoutes.get("/projects/:slug", async (c) => {
 companyRoutes.get("/projects/:slug/ficha", async (c) => {
   try {
     return c.json(await withDb((db) => fichaRead(db, c.req.param("slug"))));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I64-3: el pulso, steps done per day (?days=14).
+companyRoutes.get("/projects/:slug/pulso", async (c) => {
+  try {
+    const days = Number(c.req.query("days") ?? 14);
+    return c.json(await withDb((db) => pulsoRead(db, c.req.param("slug"), { days: Number.isFinite(days) ? days : 14 })));
   } catch (e) {
     return fail(c, e);
   }

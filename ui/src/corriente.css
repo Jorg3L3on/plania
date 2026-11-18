@@ -840,3 +840,18 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-cosa[data-grupo="fila"] .cor-cosa-espera { -webkit-line-clamp: 1; }
 .cor-cosa[data-grupo="fila"] { min-height: 48px; }
 .cor-todo-err .cor-empty { flex-direction: row; justify-content: flex-start; gap: 16px; text-align: left; }
+/* PLA-I64-3: the sentence and the pulse. */
+.cor-cabeza { display: flex; align-items: flex-start; justify-content: space-between; gap: 32px; padding: 16px 0 12px; }
+.cor-frase { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.cor-frase-h { display: flex; flex-direction: column; font-size: 28px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; }
+.cor-frase-h .amber { color: var(--cor-amber); }
+.cor-frase-falta { font-size: 14px; color: var(--cor-body); max-width: 860px; }
+.cor-pulso { flex: none; margin: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 200px; }
+.cor-pulso-bars { display: flex; align-items: flex-end; gap: 4px; height: 44px; }
+.cor-pulso-bars i { width: 9px; min-height: 2px; border-radius: 2px 2px 0 0; background: #7c6ad6; }
+.cor-pulso-bars i.z { background: rgba(255, 255, 255, 0.14); }
+.cor-pulso-bars i.hoy { background: var(--cor-violet-4); box-shadow: 0 0 12px 2px rgba(139, 92, 246, 0.7); }
+.cor-pulso-ends { display: flex; justify-content: space-between; width: 100%; font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-muted); }
+@media (max-width: 900px) { .cor-cabeza { flex-direction: column; } .cor-pulso { align-items: flex-start; } }
+.cor-pmeta { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 0 1 auto; font-size: 13.5px; color: var(--cor-body); }
+.cor-pmeta-tx { max-width: 360px; }
