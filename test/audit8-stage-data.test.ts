@@ -379,39 +379,53 @@ test("the owner picks the recommended option: decided, a note, and nothing moves
   assert.equal((await decide(key, { decision: 1, option: 1 })).status, 409, "already decided that");
 });
 
-test("the owner picks another option: the idea goes back to the PO with his note, and his pick outlives the new delivery", async () => {
+test("PLA-88: past the idea stage, another option stays on the stage at work and wakes its owner with his note", async () => {
   const key = await toPlan("Recordatorios para acompañantes");
   await raw.query(`delete from agent_runs`);
   const r = await decide(key, { decision: 2, option: 2, text: "Casi siempre viene la mamá y es quien confirma" });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual([r.body.changed, r.body.stage], [true, "idea"]);
-  assert.equal(await stageOf(key), "idea");
-  assert.deepEqual(await queued(key), ["po-micasa"]);
+  assert.deepEqual([r.body.changed, r.body.stage], [true, "planning"]);
+  assert.equal(await stageOf(key), "planning", "the idea does not go back to Idea");
+  assert.deepEqual(await queued(key), ["po-micasa"], "planning is the PO's: it carries the decision into the plan");
   const [ev] = await eventsOf(key, "idea.decision");
   assert.deepEqual([ev!.payload.label, ev!.payload.was, ev!.payload.changed, ev!.payload.text], ["Sí", "No", true, "Casi siempre viene la mamá y es quien confirma"]);
   const note = (await eventsOf(key, "note")).at(-1)!.payload.text as string;
   assert.match(note, /Jorge decidió \(desde Compañía\) «Sí» en «¿Se avisa también a la acompañante\?», en lugar de «No»/);
   assert.match(note, /Sus palabras: «Casi siempre viene la mamá y es quien confirma»/);
-  assert.match(note, /deliver_stage/);
+  assert.match(note, /La idea sigue en Plan/);
+  assert.doesNotMatch(note, /vuelve a mover la idea/);
   assert.match((await docOf(key, "Idea"))!.markdown, /^2\. .* Decidido por Jorge: «Sí»\. El PO recomendaba «No»\.$/m);
-  let d = await detail(key);
-  assert.deepEqual(d.stops.map((s: Json) => s.state), ["done", "here", "todo", "todo", "todo", "todo"]);
+  const d = await detail(key);
+  assert.equal(d.stops.find((s: Json) => s.stop === "plan").state, "here");
   assert.deepEqual([d.decisions[1].state, d.decisions[1].chosen, d.decisions[1].recommended], ["decided", 2, 1]);
   assert.ok(d.trail.some((x: Json) => x.text === "Decidiste «Sí» en «¿Se avisa también a la acompañante?» (se asumía «No»)."), JSON.stringify(d.trail.map((x: Json) => x.text)));
 
-  // The PO redoes the stage: the decided line is written as decided, and the read still says so.
-  await deliverStage(db, { project: "micasa", key, stage: "idea", data: { ...IDEA, who: "Recepción y la acompañante" } }, RUN("po"));
-  assert.match((await docOf(key, "Idea"))!.markdown, /^2\. .* Decidido por Jorge: «Sí»\. El PO recomendaba «No»\.$/m);
-  d = await detail(key);
-  assert.deepEqual([d.decisions[1].state, d.decisions[1].chosen], ["decided", 2]);
-  assert.equal(d.decisions[0].state, "assumed");
-
-  // Changing his mind again is a change too, even back to what the PO recommended.
+  // On Diseño, Artist is the one woken; changing his mind again (even back to the recommended one) is a change too.
+  const design = await idea("Recordatorio el día antes");
+  await deliverStage(db, { project: "micasa", key: design, stage: "idea", data: IDEA }, RUN("po"));
+  await move(design, "research", "po");
+  await deliverStage(db, { project: "micasa", key: design, stage: "research", data: RESEARCH }, RUN("research"));
+  await move(design, "design", "research");
   await raw.query(`delete from agent_runs`);
-  await move(key, "research", "po");
-  const back = await decide(key, { decision: 2, option: 1 });
+  const first = await decide(design, { decision: 2, option: 2 });
+  assert.deepEqual([first.status, first.body.stage], [200, "design"]);
+  assert.deepEqual(await queued(design), ["artist-micasa"]);
+  await raw.query(`delete from agent_runs`);
+  const again = await decide(design, { decision: 2, option: 1 });
+  assert.deepEqual([again.status, again.body.changed, again.body.stage], [200, true, "design"]);
+  assert.match((await docOf(design, "Idea"))!.markdown, /^2\. .* Decidido por Jorge: «No»\.$/m);
+
+  // On the idea stage the PO redoes it, as before; his pick outlives the new delivery.
+  const early = await idea("Avisos de pago a la acompañante");
+  await deliverStage(db, { project: "micasa", key: early, stage: "idea", data: IDEA }, RUN("po"));
+  await raw.query(`delete from agent_runs`);
+  const back = await decide(early, { decision: 2, option: 2 });
   assert.deepEqual([back.status, back.body.changed, back.body.stage], [200, true, "idea"]);
-  assert.match((await docOf(key, "Idea"))!.markdown, /^2\. .* Decidido por Jorge: «No»\.$/m);
+  assert.match((await eventsOf(early, "note")).at(-1)!.payload.text as string, /deliver_stage y vuelve a mover la idea/);
+  await deliverStage(db, { project: "micasa", key: early, stage: "idea", data: { ...IDEA, who: "Recepción y la acompañante" } }, RUN("po"));
+  assert.match((await docOf(early, "Idea"))!.markdown, /^2\. .* Decidido por Jorge: «Sí»\. El PO recomendaba «No»\.$/m);
+  const de = await detail(early);
+  assert.deepEqual([de.decisions[1].state, de.decisions[1].chosen], ["decided", 2]);
 
   // An idea that is still on its first stage does not move, and the PO is woken all the same.
   const fresh = await idea("Avisos de pago");
