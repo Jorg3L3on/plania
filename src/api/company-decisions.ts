@@ -73,6 +73,15 @@ export type DecisionPlan = {
 // PLA-I36-10: the latest result of the work, how many files changed, and whether accepting is held.
 export type DecisionEvidence = { verdict: string; kind: string; cite: string; pass: number | null; fail: number | null; at: string };
 export type DecisionState = { action: string; at: string; result: Record<string, unknown> };
+// PLA-96 (guided test PLA-86, F-19): a delivery's title is its link's, as the agent wrote it; when that is empty or
+// only the key («MIA-I10-2»), the card read the key twice and no title, so the ticket's own title is shown instead.
+// Keys are not words for the owner's screen (CLAUDE.md rule 9).
+export function deliveryTitle(link: { ref: string; title?: string | null } | undefined, ticket: { title: string } | null, body: string): string {
+  const own = link?.title?.trim();
+  if (own && own !== link!.ref.trim()) return own;
+  return ticket?.title?.trim() || own || firstLine(body);
+}
+
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
 // PLA-14: ci none is a repo with no CI at all (no check run, no status on the head); it never reads as running.
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
@@ -451,7 +460,7 @@ async function messageRows(db: Db, since: Date, slugById: Map<string, Project>, 
       file_step: null,
       id: `m-${m.id}`,
       project: p?.slug ?? null,
-      title: link?.title || firstLine(m.body),
+      title: deliveryTitle(link, ticket, m.body),
       kind: pr ? "pr" : "deliverable",
       options: null,
       // Held only because the pass is on an older commit: offer asking the owner to run the checks again.
