@@ -657,8 +657,11 @@ a.cor-ficha-paso:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-ficha-rows .cor-state { flex: 0 0 96px; }
 .cor-ficha-row-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cor-body); }
 .cor-ficha-row-t b { color: var(--cor-text); font-weight: 500; }
-.cor-ficha-frames { display: grid; grid-template-columns: auto minmax(0, 1fr) 260px; gap: 14px; flex: 1; min-height: 124px; }
-.cor-ficha-frame-big { position: relative; height: 124px; border-radius: 10px; border: 1px solid var(--cor-line-strong); background: var(--cor-surface); overflow: hidden; cursor: crosshair; }
+/* PLA-90 (PLA-86 F-10, F-12): the preview has one fixed box, so a phone frame is not 45 px wide and picking a frame
+   does not move the thumbnails under the pointer. The frame sits inside it, whole (contain); pins are placed on it. */
+.cor-ficha-frames { display: grid; grid-template-columns: 220px minmax(0, 1fr) 260px; gap: 14px; flex: 1; min-height: 124px; }
+.cor-ficha-frame-big { position: relative; width: 220px; height: 124px; border-radius: 10px; border: 1px solid var(--cor-line-strong); background: var(--cor-surface); overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.cor-ficha-frame-big .cor-ficha-frame-fit { position: relative; flex: none; cursor: crosshair; }
 .cor-ficha-frame-big img { display: block; width: 100%; height: 100%; object-fit: contain; }
 /* PLA-72: the frame large, one click deep. */
 .cor-ficha-ampliar { position: absolute; right: 6px; bottom: 6px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--cor-line-strong); background: rgba(5, 5, 7, 0.82); color: var(--cor-text); font: inherit; font-size: 11px; cursor: zoom-in; }
@@ -668,6 +671,7 @@ a.cor-ficha-paso:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-lightbox-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
 .cor-lightbox-frame { position: relative; cursor: crosshair; }
 .cor-lightbox-frame img { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: 8px; }
+.cor-lightbox-notes { max-width: 960px; width: 100%; margin: 0 auto; max-height: 30svh; overflow-y: auto; }
 .cor-ficha-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); grid-auto-rows: 58px; gap: 8px; overflow-y: auto; align-content: start; }
 .cor-ficha-thumb { display: flex; flex-direction: column; gap: 3px; padding: 4px; border-radius: 8px; border: 1px solid var(--cor-line); background: var(--cor-surface); color: var(--cor-body); font: inherit; font-size: 11px; text-align: left; min-width: 0; overflow: hidden; }
 .cor-ficha-thumb[aria-pressed="true"] { border-color: rgba(167, 139, 250, 0.6); }
