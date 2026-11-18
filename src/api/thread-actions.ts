@@ -17,6 +17,7 @@ import { releaseGh } from "../mcp/release-ship.js";
 import { SYSTEM_ACTOR, webCtx, writeTx } from "../mcp/tx.js";
 import { setTask } from "../mcp/writes.js";
 import { enqueueWake } from "../runner/events.js";
+import { queueRetro } from "../runner/retro.js";
 import type { ThreadRef } from "../runner/threads.js";
 
 export const MERGE_BASE = "sandbox";
@@ -124,6 +125,8 @@ async function changes(db: Db, msg: ThreadMessage, ref: ThreadRef, text: string)
       wake = out.kind === "queued" || out.reason === "coalesced" ? "queued" : out.reason;
     }
   }
+  // AUDIT-10: a delivery the owner sent back gets one retro (settings.qa.retro), once per delivery.
+  await queueRetro(db, { project, task: t, cause: "owner_changes", why: text, delivery: msg.id }).catch(() => undefined);
   return record(db, msg, { action: "cambios", at: new Date().toISOString(), result: { ticket: t.key, status: "Ready", text, wake } });
 }
 

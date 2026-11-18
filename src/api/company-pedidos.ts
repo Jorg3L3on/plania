@@ -58,9 +58,10 @@ export function ideaScope(sentence: string, from = "Compañía"): string {
     "",
     "Para el PO: esto es una idea, no un ticket. Jorge la sigue en el tubo de su piso y la forma contigo.",
     "1. Escribe una nota `Entendí: …` sobre esta idea (set_task note) con lo que entendiste, en una línea.",
-    "2. Lo que no esté claro, pregúntalo con `ask` sobre esta idea; Jorge contesta en la pantalla.",
-    "3. Llena el doc de la idea (attach_doc, título «Idea») con los encabezados que Plania pide (## Problem, ## Who it is for, ## Why now) y los de su ficha: ## Tamaño, ## Solución, ## Riesgos, ## Fuera.",
-    "4. Mueve la etapa (set_task stage) cuando su doc esté: idea → research → design → planning → ready. Research y Artist despiertan solos en sus etapas.",
+    // AUDIT-8: the stage is delivered as data, and what is unclear goes with it as closed questions that nothing waits on.
+    "2. Lo que no esté claro va como `decisions` en tu entrega: una pregunta cerrada, de 2 a 4 opciones y la que recomiendas. Se aplica tu recomendación salvo que Jorge la cambie en la pantalla; nada lo espera. Usa `ask` solo cuando no puedas recomendar ninguna opción.",
+    "3. Entrega tus etapas con `deliver_stage`: en idea, problem, who, why_now y decisions; en planning, steps (cada uno con done_when y try_it), risks y size. Plania revisa lo que dicen y escribe el doc; no lo escribas con attach_doc.",
+    "4. Mueve la etapa (set_task stage) cuando esté entregada: idea → research → design → planning → ready. Research y Artist despiertan solos en sus etapas.",
     "5. Nunca crees tickets para Taller ni una iniciativa desde esta idea, y no pongas promoted_to: en Lista se queda quieta. Solo Jorge la manda construir con «Constrúyelo» en la pantalla; entonces Plania te despierta con esa orden.",
   ].join("\n");
 }

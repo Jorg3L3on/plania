@@ -79,6 +79,10 @@ export class StreamReader {
   result: RunResult | null = null;
   readings: PlanWindowReading[] = [];
   sessionId: string | null = null;
+  // AUDIT-2: the skills the run invoked (the Skill tool, or a read of a skill's SKILL.md), without the plugin prefix.
+  skillsUsed = new Set<string>();
+  // AUDIT-7: the context the last top-level turn carried (input + cache read + cache create). Null before any turn.
+  contextTokens: number | null = null;
   private buffer = "";
   private messages = new Map<string, { input: number; output: number; cacheRead: number; cacheCreate: number }>();
 
@@ -135,10 +139,19 @@ export class StreamReader {
       return;
     }
     if (event.type === "assistant") {
-      const message = event.message as { id?: unknown; usage?: Record<string, unknown> } | undefined;
+      const message = event.message as { id?: unknown; usage?: Record<string, unknown>; content?: unknown } | undefined;
+      for (const part of Array.isArray(message?.content) ? (message!.content as Record<string, unknown>[]) : []) {
+        if (part?.type !== "tool_use") continue;
+        const input = (part.input ?? {}) as Record<string, unknown>;
+        if (part.name === "Skill" && typeof input.skill === "string" && input.skill.trim()) this.skillsUsed.add(input.skill.trim().replace(/^[a-z0-9-]+:/, "").slice(0, 60));
+        const file = part.name === "Read" && typeof input.file_path === "string" ? /[\\/]skills[\\/]([a-z][a-z0-9-]{0,39})[\\/]SKILL\.md$/.exec(input.file_path) : null;
+        if (file) this.skillsUsed.add(file[1]!);
+      }
       const id = str(message?.id);
       if (!id) return;
       const usage = message?.usage ?? {};
+      // A subagent's turns (parent_tool_use_id set) carry their own, smaller context.
+      if (event.parent_tool_use_id == null) this.contextTokens = num(usage.input_tokens) + num(usage.cache_read_input_tokens) + num(usage.cache_creation_input_tokens);
       this.messages.set(id, {
         input: num(usage.input_tokens),
         output: num(usage.output_tokens),

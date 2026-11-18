@@ -6,6 +6,10 @@
 // and removed when the run ends, so a role without the pack never sees its body. PACK_DIR ignores itself
 // (a `.gitignore` of `*`), and packGuard fails the run if a pack file still shows in the branch diff.
 // Nothing here is ever committed to an app repo.
+// AUDIT-2/3: a skill folder in this repo (kit/skills/<slug>, src/runner/kit.ts) is a pack too, and wins over a doc
+// with the same slug. A seat that lists no packs carries its role's default kit (kit/kits.json) unless
+// PLANIA_DEFAULT_KITS=0. By default the runner delivers packs as a plugin in the run's temp folder (kit.ts);
+// PLANIA_KIT_MODE=worktree keeps the older delivery below (PACK_DIR in the working folder).
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { and, eq, isNull, like } from "drizzle-orm";
@@ -13,6 +17,7 @@ import type { Db } from "../db/client.js";
 import { agents, docs, projects, type Agent } from "../db/schema.js";
 import type { Q } from "../mcp/tx.js";
 import { ALLOWED_BASE, defaultGit, type GitFn } from "./worktree.js";
+import { defaultSkills, repoSkills, sha } from "./kit.js";
 
 export const PACK_TITLE_PREFIX = "Pack: ";
 export const PACK_DIR = ".plania-packs";
@@ -20,8 +25,9 @@ export const MAX_PACKS = 10;
 const SLUG = /^[a-z][a-z0-9-]{0,39}$/;
 const WHEN_LINE = /^\s*(?:\*\*)?(?:cu[aá]ndo|when)(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.+?)\s*$/i;
 
-export type Pack = { slug: string; name: string; when: string; doc_id: string; markdown: string };
-export type PackRef = Omit<Pack, "markdown">;
+// source kit: a folder in this repo (dir set, doc_id null). source doc: a `Pack: <name>` doc in Plania.
+export type Pack = { slug: string; name: string; when: string; doc_id: string | null; markdown: string; source: "kit" | "doc"; dir: string | null; sha: string };
+export type PackRef = Omit<Pack, "markdown" | "dir">;
 
 const promptsProject = (env: NodeJS.ProcessEnv = process.env) => env.PLANIA_PROMPTS_PROJECT || "plania";
 
@@ -54,22 +60,26 @@ export async function listPacks(db: Db | Q, env: NodeJS.ProcessEnv = process.env
     .innerJoin(projects, eq(projects.id, docs.projectId))
     .where(and(eq(projects.slug, promptsProject(env)), isNull(docs.taskId), like(docs.title, `${PACK_TITLE_PREFIX}%`)))
     .orderBy(docs.title);
-  const out: Pack[] = [];
+  // The repo's skills first; a doc whose slug the repo already has is left out.
+  const out: Pack[] = repoSkills(env).map((k) => ({ slug: k.slug, name: k.name, when: k.when.slice(0, 240), doc_id: null, markdown: k.markdown, source: "kit" as const, dir: k.dir, sha: k.sha }));
+  const inRepo = new Set(out.map((k) => k.slug));
   for (const r of rows) {
     const name = r.title.slice(PACK_TITLE_PREFIX.length).trim();
     const slug = packSlug(name);
     const when = whenOf(r.markdown);
-    if (!name || !SLUG.test(slug) || !when) continue;
-    out.push({ slug, name, when, doc_id: r.id, markdown: r.markdown });
+    if (!name || !SLUG.test(slug) || !when || inRepo.has(slug)) continue;
+    out.push({ slug, name, when, doc_id: r.id, markdown: r.markdown, source: "doc", dir: null, sha: sha(r.markdown) });
   }
   return out;
 }
 
-export const packRef = ({ markdown: _m, ...ref }: Pack): PackRef => ref;
+export const packRef = ({ markdown: _m, dir: _d, ...ref }: Pack): PackRef => ref;
 
-// The packs one role carries, in the order stored; slugs whose doc is gone are skipped.
-export async function packsOf(db: Db | Q, agent: { skillPacks?: string[] | null }, env: NodeJS.ProcessEnv = process.env): Promise<Pack[]> {
-  const wanted = agent.skillPacks ?? [];
+// The packs one role carries, in the order stored; slugs whose doc is gone are skipped. With role given, a seat
+// that lists none carries that role's default kit (kit/kits.json).
+export async function packsOf(db: Db | Q, agent: { skillPacks?: string[] | null }, env: NodeJS.ProcessEnv = process.env, role?: string | null): Promise<Pack[]> {
+  const own = agent.skillPacks ?? [];
+  const wanted = own.length === 0 && role && env.PLANIA_DEFAULT_KITS !== "0" ? defaultSkills(role, env) : own;
   if (wanted.length === 0) return [];
   const bySlug = new Map((await listPacks(db, env)).map((p) => [p.slug, p]));
   return wanted.map((s) => bySlug.get(s)).filter((p): p is Pack => !!p);

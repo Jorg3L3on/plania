@@ -47,6 +47,7 @@ import { captureRoutes } from "./captures.js";
 import { maquinasRoutes, tableroRoutes } from "./maquinas.js";
 import { qaRoutes } from "./qa.js";
 import { briefApi } from "./brief.js";
+import { scoreboardRoutes } from "./scoreboard.js";
 
 // JSON API for the screen, behind the plania_session cookie. Separate from /mcp:
 // the MCP Bearer never opens it and the cookie never opens /mcp.
@@ -673,6 +674,8 @@ api.route("/maquinas", tableroRoutes);
 api.route("/projects", qaRoutes);
 // PLA-I41-6: the Morning brief (spec §7.3).
 api.route("/brief", briefApi);
+// AUDIT-5: the quality scoreboard, read from what Plania already stores (src/api/scoreboard.ts).
+api.route("/scoreboard", scoreboardRoutes);
 
 // Mounted sub-apps do not use their own notFound, so claim unknown API paths explicitly.
 api.all("*", (c) => c.json({ error: "NOT_FOUND" }, 404));

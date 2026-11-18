@@ -149,7 +149,7 @@ test("I65-1: shortOf and gistOf", () => {
     text: "Algo",
     understood: "Entendí: algo bien",
     understood_text: null,
-    research: { recommendation: null, options: [{ n: 1, title: "A", text: "" }], unknown: [] },
+    research: { recommendation: null, options: [{ n: 1, title: "A", text: "" }], unknown: [], recommended: null, learned: [] },
     frames: [{}, {}] as never,
     plan_steps: ["uno"],
     ficha: { problema: null, tamano: null, solucion: null, riesgos: null, fuera: null },

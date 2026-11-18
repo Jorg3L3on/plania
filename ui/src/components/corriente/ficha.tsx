@@ -16,6 +16,7 @@ import { api, type Decision, type IdeaAnswerInput, type IdeaBuilt, type IdeaDeta
 import { cardActs, deliveryFor, ETAPA_WORD, type CardAct } from "@/lib/etapas";
 import { acceptWords } from "@/lib/evidencia";
 import type { CorrienteActs } from "./acts";
+import { Decisiones } from "./decisiones";
 import { Images } from "./images";
 import { Btn, Key, Label, Opt, ReadError, State, type StateTone } from "./parts";
 import { Corriente } from "./rio";
@@ -49,18 +50,21 @@ export function selOf(d: Pick<IdeaDetail, "stops" | "stop" | "built">): Sel {
 }
 /** The recommended option: the one the recommendation names («opción N»), else the first. */
 export function recommended(d: Pick<IdeaDetail, "research">): number | null {
+  // AUDIT-8: Research's own data names it; a doc written by hand is read as before.
+  if (d.research.recommended && d.research.options.some((o) => o.n === d.research.recommended)) return d.research.recommended;
   const n = Number(/opci[oó]n\s*(\d+)/i.exec(d.research.recommendation ?? "")?.[1] ?? NaN);
   return d.research.options.some((o) => o.n === n) ? n : (d.research.options[0]?.n ?? null);
 }
 
-type Ui = { sel: Sel; sub: "entrega" | "recorrido" | "nota"; frame: number; pins: IdeaNote[]; text: string; asking: boolean; pick: number | null; note: string; answer: string; drop: boolean };
+// dec: the option he has marked on each of the PO's decisions (by its number) before sending; why: his words for a change.
+type Ui = { sel: Sel; sub: "entrega" | "recorrido" | "nota"; frame: number; pins: IdeaNote[]; text: string; asking: boolean; pick: number | null; note: string; answer: string; drop: boolean; dec: Record<number, number>; why: Record<number, string> };
 /** PLA-62: «Constrúyelo» said and nobody is turning it into an initiative (no live run on it): stuck, as the list says. */
 export const stuckOf = (p: Pick<OrgProject, "paused" | "team">, d: Pick<IdeaDetail, "key" | "state">) =>
   d.state === "valvula" && (p.paused || !p.team.some((m) => m.state === "running" && m.now?.ticket === d.key));
 /** When he said «Constrúyelo» (the newest one), from the trail. */
 export const orderedAt = (d: Pick<IdeaDetail, "trail">) => [...(d.trail ?? [])].reverse().find((t) => t.kind === "construir")?.at ?? null;
 
-const initialUi = (d: IdeaDetail): Ui => ({ sel: selOf(d), sub: "entrega", frame: 0, pins: [], text: "", asking: false, pick: null, note: "", answer: "", drop: false });
+const initialUi = (d: IdeaDetail): Ui => ({ sel: selOf(d), sub: "entrega", frame: 0, pins: [], text: "", asking: false, pick: null, note: "", answer: "", drop: false, dec: {}, why: {} });
 export type FichaLinks = { doc: (id: string) => string; paso: (key: string) => string; entrega: (d: Decision) => string; pedir: string };
 
 // ---- the stops as tabs over the current
@@ -314,6 +318,19 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
             ))}
           </dl>
         </div>
+        {/* AUDIT-8: the PO's open decisions, each with its recommended option in force until he marks another. */}
+        {(d.decisions?.length ?? 0) > 0 && (
+          <Decisiones
+            decisions={d.decisions!}
+            dec={ui.dec}
+            why={ui.why}
+            open={isOpen(d)}
+            busy={acts.busy === `pedido-${d.key}:decision`}
+            onMark={(n, option) => set({ dec: { ...ui.dec, [n]: option } })}
+            onWhy={(n, text) => set({ why: { ...ui.why, [n]: text } })}
+            onSend={(input) => acts.decision(slug, d.key, input)}
+          />
+        )}
       </>
     );
   }
@@ -360,7 +377,22 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
         <Eyebrow links={links} doc={s.doc}>
           {eb(s, now, timeZone, d.plan_steps.length ? `${d.plan_steps.length} pasos${d.ficha.tamano ? ` · ${d.ficha.tamano.replace(/[*_`#.]/g, "").toLowerCase()}` : ""}` : undefined)}
         </Eyebrow>
-        {d.plan_steps.length ? <PlanSteps titles={d.plan_steps} /> : <p className="cor-text">El plan no trae una lista de pasos; ábrelo completo.</p>}
+        {d.plan?.steps.length ? (
+          // AUDIT-8: a plan delivered as data says what done means and what to try for each step.
+          <ol className="cor-plan-steps" data-plan="pasos">
+            {d.plan.steps.map((x, i) => (
+              <li key={i}>
+                {x.title}
+                <span>Listo cuando: {x.done_when}</span>
+                <span>Para probarlo: {x.try_it}</span>
+              </li>
+            ))}
+          </ol>
+        ) : d.plan_steps.length ? (
+          <PlanSteps titles={d.plan_steps} />
+        ) : (
+          <p className="cor-text">El plan no trae una lista de pasos; ábrelo completo.</p>
+        )}
       </>
     );
   // Diseño: the frames in a row, the chosen one large with the notes pinned on it.
@@ -831,7 +863,7 @@ export const Ficha = ({ p, k, now, timeZone, acts, decisions, links, onClose, ex
   const [trailN, setTrailN] = useState(0);
   useEffect(() => {
     if (!d) return;
-    if (d.trail.length > trailN && trailN > 0) setUi((u) => (u ? { ...u, note: "", answer: "", text: "", asking: false, pins: [] } : u));
+    if (d.trail.length > trailN && trailN > 0) setUi((u) => (u ? { ...u, note: "", answer: "", text: "", asking: false, pins: [], dec: {}, why: {} } : u));
     setTrailN(d.trail.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [d?.trail.length]);

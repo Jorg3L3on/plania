@@ -1,0 +1,12 @@
+{
+  "product-owner": ["grilling", "spec", "tickets"],
+  "research": ["cited-research", "codebase-facts", "prototype"],
+  "artist": ["design-it-twice"],
+  "taller": ["tdd", "diagnosing-bugs", "verify-before-done", "pr", "handoff"],
+  "qa": ["two-axis-review", "app-walkthrough"],
+  "seguridad": ["security-review"],
+  "asistente": ["triage", "retro", "handoff"],
+  "copy": [],
+  "marketing": [],
+  "data": []
+}

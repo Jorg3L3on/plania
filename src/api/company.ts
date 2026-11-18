@@ -43,7 +43,7 @@ import { askMode, askPo, pickNext, resendRequest, setProjectOptions, startTeamma
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
 import { cancelOrder } from "./company-orders.js";
 import { construirPedido, descartarPedido, guardarPedido, pedidoDetail, restaurarPedido } from "./company-pedido.js";
-import { ideaDespertar, ideaDetail, ideaRespuesta, ideaVisto } from "./company-idea.js";
+import { ideaDecisionRoutes, ideaDespertar, ideaDetail, ideaRespuesta, ideaVisto } from "./company-idea.js";
 import { frameBytes } from "../pedidos/frames.js";
 import { promptDoc } from "./company-extra.js";
 import { fichaRead, hechoRead, projectDocRead, pulsoRead } from "./company-ficha.js";
@@ -448,6 +448,8 @@ companyRoutes.post("/projects/:slug/pedidos/:key/descartar", async (c) => {
   if (!input.success) return c.json({ error: "INVALID_BODY" }, 400);
   return send(c, await withDb((db) => descartarPedido(db, c.req.param("slug"), c.req.param("key"), input.data.reason)));
 });
+// AUDIT-8: the owner's pick on one of the PO's decisions (POST /projects/:slug/ideas/:key/decision).
+companyRoutes.route("/", ideaDecisionRoutes);
 // PLA-I61 (La idea abierta, src/api/company-idea.ts): any idea, its stops and deliveries; seen, answers, wake, frames.
 companyRoutes.get("/projects/:slug/ideas/:key", async (c) => send(c, await withDb((db) => ideaDetail(db, c.req.param("slug"), c.req.param("key")))));
 companyRoutes.post("/projects/:slug/ideas/:key/visto", async (c) => {

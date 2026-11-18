@@ -8,6 +8,10 @@
 //        cambios | opcion | corregir: a note with his words (and his pinned notes), the idea goes back to that stop's
 //        stage, and its owner wakes (Research and Artist wake on the stage itself; the PO is woken here).
 //   POST /api/company/projects/:slug/ideas/:key/despertar       wakes the owner of the stage it sits on
+//   POST /api/company/projects/:slug/ideas/:key/decision {decision, option, question?, text?}
+//        AUDIT-8: he picks an option of one of the PO's decisions (both numbers 1-based, as the screen shows them). An
+//        event, that line of the Idea doc as decided, a note in his words; a pick other than the option in force sends
+//        the idea back to the idea stage and wakes the PO. ideaDecisionRoutes below carries the route.
 //   GET  /api/company/projects/:slug/ideas/:key/frames/:id      one of Artist's frames (src/pedidos/frames.ts)
 // PLA-I65-1 (Una sola ficha): the same read serves the thing's whole life. It adds `short` (the idea's short name),
 // `gist` per stop (one line, null when the stop has nothing yet) and `built` (the initiative it became: steps with
@@ -15,11 +19,16 @@
 // an initiative no idea points at answers with empty stops and its `built`.
 // Nothing waits on an answer: without one the idea keeps going.
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import type { Db } from "../db/client.js";
+import { Hono } from "hono";
+import { getCookie } from "hono/cookie";
+import { z } from "zod";
+import { SESSION_COOKIE, verifySession } from "../auth/session.js";
+import { withDb, type Db } from "../db/client.js";
 import { agentRuns, docs, events, ideaFrames, projects, pullRequests, questions, results, tasks, type Actor, type Task } from "../db/schema.js";
 import { projectEtapas, type EtapaId } from "./etapa.js";
 import { findProject } from "../mcp/queries.js";
-import { webCtx, writeTx } from "../mcp/tx.js";
+import { DECISION, DELIVERY_EVENTS, decisionStates, deliveredFor, deliveredOf, recommendationText, rewriteDecisionLine, type DecisionState, type PlanStep, type StageData } from "../mcp/stage-docs.js";
+import { webCtx, writeTx, type Emit, type Q } from "../mcp/tx.js";
 import { eventWakesEnabled, queueWake, serviceAgent } from "../runner/events.js";
 import { listTaskImages } from "../pedidos/images.js";
 import { listFrames, type FrameView } from "../pedidos/frames.js";
@@ -41,7 +50,12 @@ export type IdeaStop = {
   doc: { id: string; title: string; version: number; markdown: string } | null;
   seen: boolean;
   answer: IdeaAnswer | null;
+  // AUDIT-8: what the stage delivered as data (deliver_stage); null when its doc was written by hand.
+  data: StageData | null;
 };
+// AUDIT-8: one of the PO's decisions. recommended and chosen are option numbers (1-based); chosen is the one in
+// force: the recommended one while it is assumed, his pick once decided.
+export type IdeaDecisionView = { n: number; question: string; options: string[]; recommended: number; why: string; state: "assumed" | "decided"; chosen: number; at: string | null };
 export type IdeaOption = { n: number; title: string; text: string };
 // PLA-I65-1: one step of the initiative the idea became, with its stage on the board and its PR.
 export type BuiltStep = { key: string; title: string; status: string; phase: number | null; etapa: EtapaId | null; pr: { number: number; state: string; url: string } | null };
@@ -73,8 +87,12 @@ export type IdeaDetail = Pedido & {
   question_options: string[];
   stops: IdeaStop[];
   ficha: FichaIdea;
-  research: { recommendation: string | null; options: IdeaOption[]; unknown: string[] };
+  // recommended: the number of the option Research recommends (null when the doc does not say it as data).
+  research: { recommendation: string | null; options: IdeaOption[]; unknown: string[]; recommended: number | null; learned: string[] };
   plan_steps: string[];
+  // AUDIT-8: the plan as data (each step with what done means and what to try); null for a Plan written by hand.
+  plan: { steps: PlanStep[]; risks: string[]; size: string | null } | null;
+  decisions: IdeaDecisionView[];
   frames: FrameView[];
   // Delivered stops he has not opened.
   unseen: number;
@@ -247,8 +265,10 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
   const evs = await db
     .select({ type: events.type, payload: events.payload, actor: events.actor, at: events.createdAt })
     .from(events)
-    .where(and(eq(events.taskId, t.id), inArray(events.type, [VISTO, RESPUESTA, "frames.attached", "task.created", "note"])))
+    .where(and(eq(events.taskId, t.id), inArray(events.type, [VISTO, RESPUESTA, "frames.attached", "task.created", "note", ...DELIVERY_EVENTS])))
     .orderBy(events.id);
+  // AUDIT-8: the stages delivered as data, and what he decided on the PO's questions.
+  const stageData = deliveredOf(evs);
   const frames = await listFrames(db, slug, t.id, t.key);
   const framesAt = evs.findLast((e) => e.type === "frames.attached")?.at ?? null;
   const understood = evs.find((e) => e.type === "note" && /^\s*entend[ií]\s*[:：-]/i.test(String((e.payload as { text?: string }).text ?? "")));
@@ -295,10 +315,13 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
       doc: d ? { id: d.id, title: d.title, version: d.version, markdown: d.markdown } : null,
       seen,
       answer,
+      data: STOP_DOC[stop] ? (stageData.stages[STOP_STAGE[stop] as keyof typeof stageData.stages] ?? null) : null,
     });
   }
   const research = docOf("Research")?.markdown ?? "";
   const plan = docOf("Plan")?.markdown ?? "";
+  const rData = stageData.stages.research ?? null;
+  const pData = stageData.stages.planning ?? null;
   const [q] = base.question ? await db.select({ options: questions.options }).from(questions).where(eq(questions.id, base.question.id)).limit(1) : [];
   const [inLine] = await db
     .select({ role: agentRuns.role })
@@ -318,12 +341,19 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
     question_options: q?.options ?? [],
     stops,
     ficha: fichaOf(list),
-    research: {
-      recommendation: sectionAll(research, "Recommendation", "Recomendación"),
-      options: numbered(sectionAll(research, "Options", "Opciones")),
-      unknown: bullets(sectionAll(research, "Unknown", "Desconocido", "Lo que no sabemos")),
-    },
-    plan_steps: bullets(sectionAll(plan, "Steps", "Pasos")),
+    // AUDIT-8: from the data when the stage delivered it; else the Markdown, read as before.
+    research: rData
+      ? { recommendation: recommendationText(rData), options: rData.options.map((o, i) => ({ n: i + 1, title: o.title, text: o.text })), unknown: rData.unknowns, recommended: rData.recommendation.option + 1, learned: rData.learned }
+      : {
+          recommendation: sectionAll(research, "Recommendation", "Recomendación"),
+          options: numbered(sectionAll(research, "Options", "Opciones")),
+          unknown: bullets(sectionAll(research, "Unknown", "Desconocido", "Lo que no sabemos")),
+          recommended: null,
+          learned: [],
+        },
+    plan_steps: pData ? pData.steps.map((s) => s.title) : bullets(sectionAll(plan, "Steps", "Pasos")),
+    plan: pData ? { steps: pData.steps, risks: pData.risks, size: pData.size } : null,
+    decisions: decisionStates(stageData.stages.idea?.decisions ?? [], stageData.picks).map(decisionView),
     frames,
     unseen: stops.filter((s) => s.delivered && !s.seen && s.stop !== "buzon").length,
     quiet_since: base.state === "quieta" && !inLine && t.status === "Open" && !t.promotedTo ? (lastEv?.at.toISOString() ?? null) : null,
@@ -364,9 +394,12 @@ async function initiativeAlone(db: Db, slug: string, t: Task, withBuilt: boolean
     promoted_to: t.key,
     pedido: false,
     question_options: [],
-    stops: PEDIDO_STOPS.map((stop) => ({ stop, state: "done" as const, by: null, at: null, delivered: false, doc: null, seen: true, answer: null })),
+    stops: PEDIDO_STOPS.map((stop) => ({ stop, state: "done" as const, by: null, at: null, delivered: false, doc: null, data: null, seen: true, answer: null })),
     ficha: { problema: null, tamano: null, solucion: null, riesgos: null, fuera: null },
-    research: { recommendation: null, options: [], unknown: [] },
+    research: { recommendation: null, options: [], unknown: [], recommended: null, learned: [] },
+    // AUDIT-8: an initiative read on its own has no stage data.
+    plan: null,
+    decisions: [],
     plan_steps: [],
     frames: [],
     unseen: 0,
@@ -381,6 +414,8 @@ async function initiativeAlone(db: Db, slug: string, t: Task, withBuilt: boolean
     built: withBuilt ? await builtOf(db, slug, t) : null,
   };
 }
+
+const decisionView = (s: DecisionState, i: number): IdeaDecisionView => ({ n: i + 1, question: s.question, options: s.options, recommended: s.recommended + 1, why: s.why, state: s.state, chosen: s.chosen + 1, at: s.at ? s.at.toISOString() : null });
 
 // How many delivered stops he has not opened, per idea (the Ideas list, the tube and the Diseño tab).
 export async function unseenByIdea(db: Db, slug: string, keys: string[]): Promise<Record<string, number>> {
@@ -445,26 +480,97 @@ export async function ideaRespuesta(db: Db, slug: string, key: string, input: An
     await writeTx(db, p, { ...webCtx, tool: "company.idea" }, async (_tx, emit) => emit(RESPUESTA, ref, payload));
     return { key, stage: t.stage, wake: "none" };
   }
-  // Back to that stop's stage in one move (the stage hook wakes Research or Artist); the PO is woken here.
-  const target = STOP_STAGE[stop];
-  const from = t.stage ?? "idea";
-  const back = STAGE_ORDER.indexOf(target) < STAGE_ORDER.indexOf(from);
   const text = answerNote(stop, { ...input, notes }, detail.frames);
   return writeTx(db, p, { ...webCtx, tool: "company.idea" }, async (tx, emit) => {
     await emit(RESPUESTA, ref, payload);
     await emit("note", ref, { text });
-    if (back) {
-      await tx.update(tasks).set({ stage: target, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` }).where(eq(tasks.id, t.id));
-      await emit("task.updated", ref, { changes: { stage: [from, target] } });
-    }
-    const role = STAGE_ROLE[target]!;
-    if (!eventWakesEnabled()) return { key, stage: back ? target : t.stage, wake: "off" as const };
-    if (back && (role === "research" || role === "artist")) return { key, stage: target, wake: "queued" as const };
-    const agent = role === "product-owner" ? ((await projectPo(db, p)) ?? (await serviceAgent(tx, role, p))) : await serviceAgent(tx, role, p);
-    const w = await queueWake(tx, p, ref, { agent, taskKey: key, reason: `Jorge respondió en ${STOP_WORD[stop]}: rehaz la etapa con su nota` }, RESPUESTA);
-    return { key, stage: back ? target : t.stage, wake: w.kind === "queued" ? ("queued" as const) : ("busy" as const) };
+    return { key, ...(await sendBack(db, tx, emit, p, t, STOP_STAGE[stop], `Jorge respondió en ${STOP_WORD[stop]}: rehaz la etapa con su nota`, RESPUESTA)) };
   });
 }
+
+// Back to a stage in one move (the stage hook wakes Research or Artist); the PO is woken here. An idea already on
+// that stage (or before it) does not move, and its owner is woken all the same.
+async function sendBack(db: Db, tx: Q, emit: Emit, p: Awaited<ReturnType<typeof findProject>>, t: Task, target: string, reason: string, fromEvent: string): Promise<{ stage: string | null; wake: "queued" | "busy" | "off" }> {
+  const ref = { id: t.id, key: t.key };
+  const from = t.stage ?? "idea";
+  const back = STAGE_ORDER.indexOf(target) < STAGE_ORDER.indexOf(from);
+  if (back) {
+    await tx.update(tasks).set({ stage: target, version: sql`${tasks.version} + 1`, updatedAt: sql`now()` }).where(eq(tasks.id, t.id));
+    await emit("task.updated", ref, { changes: { stage: [from, target] } });
+  }
+  const role = STAGE_ROLE[target]!;
+  if (!eventWakesEnabled()) return { stage: back ? target : t.stage, wake: "off" };
+  if (back && (role === "research" || role === "artist")) return { stage: target, wake: "queued" };
+  const agent = role === "product-owner" ? ((await projectPo(db, p)) ?? (await serviceAgent(tx, role, p))) : await serviceAgent(tx, role, p);
+  const w = await queueWake(tx, p, ref, { agent, taskKey: t.key, reason }, fromEvent);
+  return { stage: back ? target : t.stage, wake: w.kind === "queued" ? "queued" : "busy" };
+}
+
+// ---- AUDIT-8: the owner's pick on one of the PO's decisions.
+export type DecisionInput = { decision: number; option: number; question?: string; text?: string };
+const sameText = (a: string, b: string) => a.replace(/\s+/g, " ").trim().toLowerCase() === b.replace(/\s+/g, " ").trim().toLowerCase();
+
+// The note the PO reads: what he picked, over what, and his words.
+export function decisionNote(question: string, label: string, was: string, changed: boolean, text?: string): string {
+  const lines = [changed ? `Jorge decidió (desde Compañía) «${label}» en «${question}», en lugar de «${was}».` : `Jorge confirmó (desde Compañía) «${label}» en «${question}».`];
+  if (text?.trim()) lines.push(`Sus palabras: «${text.trim()}»`);
+  lines.push(changed ? "Rehaz esta etapa con eso: entrégala otra vez con deliver_stage y vuelve a mover la idea cuando esté." : "Nada cambia: sigue con lo que asumiste.");
+  return lines.join("\n");
+}
+
+// A pick is a change when it is not the option in force (the recommended one while assumed, his earlier pick after).
+// A change sends the idea back to the idea stage, whose owner asked the question, and wakes it; the stages after it
+// are redone when the idea reaches them again. The doc keeps its author and its time: the delivery is still the PO's,
+// and the stop does not read as new.
+export async function ideaDecision(db: Db, slug: string, key: string, input: DecisionInput): Promise<{ key: string; stage: string | null; changed: boolean; decision: IdeaDecisionView; wake: "queued" | "busy" | "off" | "none" } | Refusal> {
+  const found = await anyIdea(db, slug, key);
+  if ("error" in found) return found;
+  const { t } = found;
+  const no = writable(t);
+  if (no) return no;
+  const delivered = await deliveredFor(db, t.id);
+  const states = decisionStates(delivered.stages.idea?.decisions ?? [], delivered.picks);
+  if (!states.length) return { error: "NO_DECISIONS", status: 409, hint: "Esta idea no trae preguntas por decidir." };
+  const s = states[input.decision - 1];
+  if (!s) return { error: "INVALID_DECISION", status: 400, hint: "Esa pregunta no está en la idea." };
+  if (input.question !== undefined && !sameText(input.question, s.question)) return { error: "DECISION_CHANGED", status: 409, hint: "Las preguntas cambiaron. Vuelve a abrir la idea y elige otra vez." };
+  const pick = input.option - 1;
+  const label = s.options[pick];
+  if (label === undefined) return { error: "INVALID_OPTION", status: 400, hint: "Esa opción no está en la pregunta." };
+  if (s.state === "decided" && s.chosen === pick) return { error: "ALREADY_DECIDED", status: 409, hint: "Ya habías elegido esa." };
+  const changed = pick !== s.chosen;
+  const was = s.options[s.chosen]!;
+  const words = input.text?.trim().slice(0, 1000) || undefined;
+  const p = await findProject(db, slug);
+  const ref = { id: t.id, key: t.key };
+  return writeTx(db, p, { ...webCtx, tool: "company.idea" }, async (tx, emit) => {
+    await emit(DECISION, ref, { stop: "entendido", stage: "idea", n: input.decision, question: s.question, option: input.option, label, was, recommended: s.options[s.recommended], changed, ...(words ? { text: words } : {}) });
+    const [doc] = await tx.select({ id: docs.id, markdown: docs.markdown }).from(docs).where(and(eq(docs.taskId, t.id), eq(docs.title, "Idea"))).limit(1);
+    if (doc) await tx.update(docs).set({ markdown: rewriteDecisionLine(doc.markdown, input.decision, s, pick), version: sql`${docs.version} + 1` }).where(eq(docs.id, doc.id));
+    await emit("note", ref, { text: decisionNote(s.question, label, was, changed, words) });
+    const decision = decisionView({ ...s, state: "decided", chosen: pick, at: new Date() }, input.decision - 1);
+    if (!changed) return { key, stage: t.stage, changed, decision, wake: "none" as const };
+    return { key, changed, decision, ...(await sendBack(db, tx, emit, p, t, "idea", "Jorge decidió otra cosa en una de tus preguntas: rehaz la etapa con su nota y entrégala con deliver_stage", DECISION)) };
+  });
+}
+
+// The route, kept here so company.ts only mounts it (`companyRoutes.route("/", ideaDecisionRoutes)`). It checks the
+// owner's session itself, as companyRoutes does, so it is screen-only wherever it is mounted.
+const DecisionBody = z.object({ decision: z.number().int().min(1).max(6), option: z.number().int().min(1).max(4), question: z.string().max(300).optional(), text: z.string().trim().max(1000).optional() }).strict();
+export const ideaDecisionRoutes = new Hono();
+ideaDecisionRoutes.post("/projects/:slug/ideas/:key/decision", async (c) => {
+  if (/^\s*bearer\b/i.test(c.req.header("Authorization") ?? "")) return c.json({ error: "FORBIDDEN", hint: "a decision on an idea is Jorge's screen only" }, 403);
+  if (!verifySession(getCookie(c, SESSION_COOKIE))) return c.json({ error: "UNAUTHORIZED" }, 401);
+  if (!c.req.header("Content-Type")?.startsWith("application/json")) return c.json({ error: "JSON_REQUIRED" }, 415);
+  const input = DecisionBody.safeParse(await c.req.json().catch(() => undefined));
+  if (!input.success) return c.json({ error: "INVALID_BODY" }, 400);
+  const out = await withDb((db) => ideaDecision(db, c.req.param("slug"), c.req.param("key"), input.data));
+  if ("error" in out) {
+    const { status, ...rest } = out;
+    return c.json(rest, status);
+  }
+  return c.json(out);
+});
 
 export async function ideaDespertar(db: Db, slug: string, key: string): Promise<{ key: string; wake: "queued" | "busy" | "off" } | Refusal> {
   const found = await anyIdea(db, slug, key);

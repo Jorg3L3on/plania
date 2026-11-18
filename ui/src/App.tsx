@@ -16,6 +16,7 @@ import { ProgressDayPage, ProgressItemPage, ProgressProjectPage, ProgressYearPag
 import { ProgresoPage } from "@/pages/progreso";
 import { TokensPage } from "@/pages/tokens";
 import { CeoPage, CorrienteRedirect } from "@/pages/ceo";
+import { CalidadPage } from "@/pages/calidad";
 import { LEGACY_REDIRECTS } from "@/lib/compania";
 
 // What the cached app shows when the server can't be reached, e.g. a home-screen launch with no network.
@@ -81,6 +82,8 @@ export function App() {
           <Route key={from} path={from} element={<Navigate to={to} replace />} />
         ))}
         <Route path="/tokens" element={<TokensPage />} />
+        {/* AUDIT-5: the quality scoreboard. */}
+        <Route path="/calidad" element={<CalidadPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

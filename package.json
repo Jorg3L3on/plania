@@ -27,7 +27,12 @@
     "scan:hashes": "tsx scripts/scan-hashes.ts",
     "capture": "tsx --env-file=.env scripts/capture.ts",
     "brief:run": "tsx --env-file=.env scripts/brief-run.ts",
-    "brief:doctor": "tsx --env-file=.env scripts/brief-doctor.ts"
+    "brief:doctor": "tsx --env-file=.env scripts/brief-doctor.ts",
+    "kit:status": "tsx --env-file=.env scripts/kit.ts status",
+    "kit:export": "tsx --env-file=.env scripts/kit.ts export",
+    "kit:sync": "tsx --env-file=.env scripts/kit.ts sync",
+    "replay": "tsx --env-file=.env scripts/replay.ts",
+    "replay:capture": "tsx --env-file=.env scripts/replay-capture.ts"
   },
   "dependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.3.0",

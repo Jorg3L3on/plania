@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Types and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        # The tests connect to localhost:5432 with no password, as PLANIA_TEST_PGUSER, and create and drop their
+        # own plania_test_<hash> database (test/helpers.ts). 14 is the major version the server runs on.
+        image: postgres:14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      PLANIA_TEST_PGUSER: postgres
+      # No background jobs, no network calls from the app under test.
+      PLANIA_JOBS: "0"
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        # Reads the version from "packageManager" in package.json.
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check the server
+        run: pnpm exec tsc --noEmit
+
+      - name: Type-check the screen
+        run: pnpm exec tsc -p ui
+
+      - name: Git identity for tests that commit
+        run: |
+          git config --global user.name "plania-ci"
+          git config --global user.email "ci@plania.invalid"
+          git config --global init.defaultBranch main
+
+      - name: Test
+        run: pnpm test

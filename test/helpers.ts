@@ -6,7 +6,10 @@ import path from "node:path";
 import pg from "pg";
 import { resetPool } from "../src/db/client.js";
 
-const ADMIN_URL = `postgres://${userInfo().username}@localhost:5432/postgres`;
+// PLANIA_TEST_PGUSER: the Postgres role the tests connect as, when it is not the OS user (a Windows machine whose
+// only role is postgres).
+const PG_USER = encodeURIComponent(process.env.PLANIA_TEST_PGUSER || userInfo().username);
+const ADMIN_URL = `postgres://${PG_USER}@localhost:5432/postgres`;
 
 // One database per checkout: the suffix is a stable hash of this repo's absolute root,
 // so worktrees running `pnpm test` at the same time never drop each other's database.
@@ -16,7 +19,7 @@ const TEST_DB = `plania_test_${createHash("sha256").update(REPO_ROOT).digest("he
 // Guard: resetTestDb drops TEST_DB, so it must never be anything but a plania_test database.
 if (!/^plania_test_[0-9a-f]{6}$/.test(TEST_DB)) throw new Error(`refusing to use test database ${TEST_DB}`);
 
-export const TEST_DATABASE_URL = `postgres://${userInfo().username}@localhost:5432/${TEST_DB}`;
+export const TEST_DATABASE_URL = `postgres://${PG_USER}@localhost:5432/${TEST_DB}`;
 export const TEST_BEARER = "test-token";
 export const TEST_READ_TOKEN = "test-read-token";
 export const TEST_CI_TOKEN = "test-ci-token";
@@ -31,6 +34,9 @@ export function useTestEnv(): void {
   process.env.PLANIA_JOBS = "0";
   // PLA-I60-2: admission's free-memory and disk floor reads this Mac; tests that check it pass deps.machine.
   process.env.PLANIA_MACHINE_CHECK = "0";
+  // AUDIT-2: tests never read the repo's own kit (its skills and default kits would join every run). A test that
+  // wants a kit points PLANIA_KIT_DIR at its own folder.
+  process.env.PLANIA_KIT_DIR ??= path.join(REPO_ROOT, "test", "fixtures", "no-kit");
 }
 
 // Drops and recreates this checkout's test database, applies every migration, inserts the four projects.

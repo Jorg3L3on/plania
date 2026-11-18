@@ -36,7 +36,8 @@ import {
 import { registerFootprint, releaseFootprint } from "../mcp/footprint.js";
 import { SYSTEM_ACTOR, WEB_ACTOR, writeTx, type Ctx, type Q } from "../mcp/tx.js";
 import { reportTokens, type ReportTokensInput } from "../mcp/usage.js";
-import { CONSULTA_DENY_RULES, QA_DENY_RULES, denySettings } from "./deny.js";
+import { CONSULTA_DENY_RULES, QA_DENY_RULES, afterEditHooks, denySettings } from "./deny.js";
+import { kitLines, roleFile, sha, skillVersion, writeKitPlugin, type KitWritten } from "./kit.js";
 import { consultaById, consultaPrompt } from "../pedidos/consultas.js";
 import { ACTIVE_STATUSES, QUEUE_CHANNEL, activeRunOn, consultaIdOfRun, insertRun, notifyQueue, setQueueKick, workKeyOf } from "./queue.js";
 import { runSession } from "./run-session.js";
@@ -831,6 +832,12 @@ export function userPrompt(input: {
   packs?: { name: string; when: string; file: string }[];
   // PLA-I54-2: absolute paths of the pictures Jorge attached to the request (src/pedidos/images.ts).
   images?: string[];
+  // AUDIT-3: the same packs delivered as a plugin outside the worktree (src/runner/kit.ts).
+  kit?: KitWritten[];
+  // AUDIT-1: the project's checks (settings.qa.verify), named so the builder runs them before it delivers.
+  verify?: { name: string; command: string }[];
+  // AUDIT-7: a fresh session on work that was already started, and why.
+  handoff?: string | null;
 }): string {
   const company = input.role === "asistente";
   const lines = [
@@ -852,6 +859,18 @@ export function userPrompt(input: {
     lines.push(`Workspace: ${input.workspace.path}${input.workspace.branch ? ` on branch ${input.workspace.branch}` : ""}, base sandbox.`);
   }
   lines.push(...packLines(input.packs ?? []));
+  lines.push(...kitLines(input.kit ?? []));
+  if (input.handoff) {
+    lines.push(
+      `This is a fresh session on work that was already started (${input.handoff}). Before you change anything: read the ticket and its notes (start returns them), then run git status and git log --oneline origin/sandbox..HEAD in the workspace to see what exists. Continue from there; do not start over.`,
+    );
+  }
+  if (input.verify?.length && input.task && !/-IDEA\d+$/.test(input.task.key)) {
+    lines.push(
+      "Checks Plania runs on your delivery. Run them in the workspace and fix what fails before you call finish; finish runs them again and refuses a delivery that fails one:",
+      ...input.verify.map((v) => `- ${v.name}: \`${v.command}\``),
+    );
+  }
   if (input.images?.length) {
     lines.push("Pictures Jorge attached to this request (open each one with the Read tool before you answer):", ...input.images.map((p) => `- ${p}`));
   }
@@ -860,28 +879,77 @@ export function userPrompt(input: {
   const idea = !!input.task && /-IDEA\d+$/.test(input.task.key);
   lines.push(
     idea
-      ? `This is an idea, not a ticket: do not call start or claim on it. Read it with get_task, write your stage doc on it with attach_doc (key ${input.task!.key}), then move its stage with set_task.`
+      ? `This is an idea, not a ticket: do not call start or claim on it. Read it with get_task, deliver your stage with deliver_stage (key ${input.task!.key}; it checks the content and writes the stage doc), then move its stage with set_task.`
       : `Plania first: open the ticket with start (actor session_id ${input.sessionId}, that workspace) before you touch code.`,
     "Never main: commit on your branch, open PRs into sandbox only, never merge. Stop when the ticket is In review or when only Jorge can decide (ask).",
   );
   // PLA-I61-2 (La idea abierta): the owner sees the design on the screen only through its frames in Plania.
   if (idea && input.role === "artist") {
     lines.push(
-      `Draw the canvas under ${canvasesRoot()}/${input.task!.key}/, export one PNG per frame, and put them on the idea with attach_frames (key ${input.task!.key}): each frame's id (T, A1, B3), name, group, what it does (hace) and why (porque), in order. Jorge sees the design only through those frames, then writes the Design doc with attach_doc as usual.`,
+      `Draw the canvas under ${canvasesRoot()}/${input.task!.key}/, export one PNG per frame, and put them on the idea with attach_frames (key ${input.task!.key}): each frame's id (T, A1, B3), name, group, what it does (hace) and why (porque), in order. Jorge sees the design only through those frames, then deliver the Design stage with deliver_stage as usual.`,
     );
   }
   return lines.join("\n");
 }
 
-async function promptDoc(db: Db, role: RunnerRole, env: NodeJS.ProcessEnv): Promise<string | null> {
+// AUDIT-2: the role prompt and its version, "<doc version>:<first 12 of its sha256>". The Plania doc is the live copy;
+// with no doc the repo's kit/roles/<role>.md is used and the version reads "git:<sha>".
+export async function promptDoc(db: Db, role: RunnerRole, env: NodeJS.ProcessEnv): Promise<{ markdown: string; version: string } | null> {
   const slug = env.PLANIA_PROMPTS_PROJECT || "plania";
   const rows = await db
-    .select({ markdown: docs.markdown })
+    .select({ markdown: docs.markdown, version: docs.version })
     .from(docs)
     .innerJoin(projects, eq(projects.id, docs.projectId))
     .where(and(eq(projects.slug, slug), isNull(docs.taskId), eq(docs.title, PROMPT_DOCS[role])))
     .limit(1);
-  return rows[0]?.markdown ?? null;
+  if (rows[0]?.markdown) return { markdown: rows[0].markdown, version: `${rows[0].version}:${sha(rows[0].markdown, 12)}` };
+  const file = roleFile(role, env);
+  return file ? { markdown: file, version: `git:${sha(file, 12)}` } : null;
+}
+
+// AUDIT-9: what the owner keeps about a project that cannot be found by reading its repo: three project docs,
+// appended to the role prompt on a session's first run. Cut at CONTEXT_MAX_LINES so it stays a map.
+export const CONTEXT_DOCS = ["Context: Glossary", "Context: Commands", "Context: Map"] as const;
+export const CONTEXT_MAX_LINES = 200;
+export async function projectContext(db: Db, projectId: string): Promise<string | null> {
+  const rows = await db
+    .select({ title: docs.title, markdown: docs.markdown })
+    .from(docs)
+    .where(and(eq(docs.projectId, projectId), isNull(docs.taskId), inArray(docs.title, [...CONTEXT_DOCS])));
+  const parts = CONTEXT_DOCS.map((title) => rows.find((r) => r.title === title))
+    .filter((r): r is { title: string; markdown: string } => !!r && !!r.markdown.trim())
+    .map((r) => `## ${r.title.replace(/^Context:\s*/, "")}\n\n${r.markdown.trim()}`);
+  if (parts.length === 0) return null;
+  const lines = parts.join("\n\n").split("\n");
+  const body = lines.length > CONTEXT_MAX_LINES ? [...lines.slice(0, CONTEXT_MAX_LINES), `(cut at ${CONTEXT_MAX_LINES} lines)`] : lines;
+  return `# Project context\n\nKept by the owner in Plania. It holds only what reading the repo does not tell you.\n\n${body.join("\n")}`;
+}
+
+// AUDIT-7: resume the session, or start clean with a handoff? A session that failed, whose delivery QA sent back, or
+// that grew past PLANIA_RESUME_MAX_CONTEXT tokens carries its dead ends; a fresh one reads the ticket and git instead.
+// PLANIA_RETRY_FRESH: "1" (default) fresh in those cases, "0" always resume, "ab" fresh for every other such run, so
+// agent_runs.resumed splits them evenly and the scoreboard can compare both.
+export async function freshReason(db: Db, run: AgentRun, env: NodeJS.ProcessEnv): Promise<string | null> {
+  const mode = env.PLANIA_RETRY_FRESH ?? "1";
+  if (mode === "0") return null;
+  const [prior] = await db
+    .select({ status: agentRuns.status, context: agentRuns.contextTokens })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.agentId, run.agentId), eq(agentRuns.projectId, run.projectId), eq(agentRuns.workKey, run.workKey), inArray(agentRuns.status, ["ok", "fail", "stopped"])))
+    .orderBy(desc(sql`coalesce(${agentRuns.endedAt}, ${agentRuns.queuedAt})`))
+    .limit(1);
+  const max = Number(env.PLANIA_RESUME_MAX_CONTEXT) > 0 ? Number(env.PLANIA_RESUME_MAX_CONTEXT) : 120_000;
+  let why: string | null = null;
+  if (prior?.status === "fail") why = "the last run on it failed";
+  else if (prior?.context != null && prior.context > max) why = "the earlier session grew too long";
+  if (!why && run.taskKey) {
+    const returned = await db.execute<{ returned: boolean }>(sql`
+      select l.returned from qa_lanes l where l.project_id = ${run.projectId} and l.task_key = ${run.taskKey} order by l.created_at desc limit 1`);
+    if (returned.rows[0]?.returned) why = "QA sent the delivery back";
+  }
+  if (!why) return null;
+  if (mode === "ab" && parseInt(run.id.replace(/-/g, "").slice(-2), 16) % 2 === 1) return null;
+  return why;
 }
 
 export type ClaudeArgsInput = {
@@ -894,6 +962,18 @@ export type ClaudeArgsInput = {
   // PLA-I46-9: a QA review of a small change runs on a smaller model. PLA-I59-1: every run's motor (motor.ts).
   model?: string | null;
   effort?: string | null;
+  // AUDIT-3: the run's kit (a plugin folder in its temp dir); also granted for reading, so a run can open a skill's file.
+  pluginDir?: string | null;
+  // AUDIT-3 (PLANIA_RUN_ISOLATION): "project" loads no user-level settings, skills or CLAUDE.md of the account the
+  // server runs as; "bare" skips every auto-discovery. Unset: as before, the CLI's defaults.
+  isolation?: string | null;
+  // AUDIT-6: a JSON Schema the run's final answer must match (the QA report).
+  jsonSchema?: unknown;
+};
+
+export const isolationOf = (env: NodeJS.ProcessEnv): "project" | "bare" | null => {
+  const v = env.PLANIA_RUN_ISOLATION?.trim().toLowerCase();
+  return v === "project" || v === "bare" ? v : null;
 };
 
 export function claudeArgs(input: ClaudeArgsInput): string[] {
@@ -920,13 +1000,26 @@ export function claudeArgs(input: ClaudeArgsInput): string[] {
   if (input.resume) args.push("--resume", input.resume);
   if (input.model) args.push("--model", input.model);
   if (input.effort) args.push("--effort", input.effort);
+  if (input.pluginDir) args.push("--plugin-dir", input.pluginDir, "--add-dir", input.pluginDir);
+  if (input.isolation === "project") args.push("--setting-sources", "project,local");
+  if (input.isolation === "bare") args.push("--bare");
+  if (input.jsonSchema) args.push("--json-schema", JSON.stringify(input.jsonSchema));
   return args;
 }
 
 // Plania only. The token stays in the child env; the file names the variable, never the value.
-export const mcpConfig = (url: string) => ({
-  mcpServers: { plania: { type: "http", url, headers: { Authorization: "Bearer ${PLANIA_RUNNER_TOKEN}" } } },
+// AUDIT-6: browser adds a second server for a QA run that walks through the app (settings.qa.browser).
+export type McpStdio = { command: string; args: string[] };
+export const mcpConfig = (url: string, browser: McpStdio | null = null) => ({
+  mcpServers: { plania: { type: "http", url, headers: { Authorization: "Bearer ${PLANIA_RUNNER_TOKEN}" } }, ...(browser ? { browser } : {}) },
 });
+
+// The browser tools a QA walk-through uses: Playwright's MCP server, headless, with a profile it throws away.
+// PLANIA_BROWSER_MCP replaces the command (the first word is the program, the rest its arguments).
+export function browserServer(env: NodeJS.ProcessEnv): McpStdio {
+  const words = (env.PLANIA_BROWSER_MCP?.trim() || "npx -y @playwright/mcp@latest --headless --isolated").split(/\s+/);
+  return { command: words[0]!, args: words.slice(1) };
+}
 
 // The stream's running totals reach agent_runs every few seconds while the run is live.
 function liveFlusher(db: Db, runId: string, reader: StreamReader, every: number): (chunk: string) => void {
@@ -1010,19 +1103,27 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     .limit(1);
   // PLA-I46-9: a QA run is always a fresh session, so its review has not seen anyone's earlier reasoning.
   const qa = role === "qa" ? await qaBriefFor(db, run.id, cwd) : null;
-  const resume = !qa && !consulta && session && session.cwd === cwd ? session.claudeSessionId : null;
+  const resumable = !qa && !consulta && session && session.cwd === cwd ? session.claudeSessionId : null;
+  // AUDIT-7: a session that failed, was sent back or grew long is not resumed; the run starts clean with a handoff.
+  const handoff = resumable ? await freshReason(db, run, env).catch(() => null) : null;
+  const resume = handoff ? null : resumable;
 
   const tmp = path.join(tmpDirOf(deps), run.id);
   mkdirSync(tmp, { recursive: true, mode: 0o700 });
   let systemPromptPath: string | null = null;
+  let promptVersion: string | null = null;
   if (!resume) {
-    const markdown = await promptDoc(db, role, env);
-    if (!markdown) {
+    const doc = await promptDoc(db, role, env);
+    if (!doc) {
       rmSync(tmp, { recursive: true, force: true });
       return fail(`fail: no prompt doc (${PROMPT_DOCS[role]})`);
     }
+    promptVersion = doc.version;
+    // AUDIT-9: the project's own context rides with the role prompt (not for the company's Asistente or a QA review,
+    // which judges the change on its own).
+    const context = role === "asistente" || qa ? null : await projectContext(db, project.id).catch(() => null);
     systemPromptPath = path.join(tmp, "role-prompt.md");
-    writeFileSync(systemPromptPath, markdown, { mode: 0o600 });
+    writeFileSync(systemPromptPath, context ? `${doc.markdown.trimEnd()}\n\n${context}\n` : doc.markdown, { mode: 0o600 });
   }
   const settingsPath = path.join(tmp, "settings.json");
   // PLA-I52-6: a run that answers the owner's question about a delivery reads only, like QA.
@@ -1031,12 +1132,24 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     const h = await (deps.git ?? defaultGit)(["rev-parse", "HEAD"], cwd).catch(() => null);
     askHeads.set(run.id, h && h.code === 0 ? h.stdout.trim() : null);
   }
-  writeFileSync(settingsPath, JSON.stringify(denySettings(consulta ? CONSULTA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : [])), { mode: 0o600 });
+  const readOnly = !!consulta || role === "qa" || asks;
+  // AUDIT-1: a builder's run formats or type-checks after each edit when the project names a command for it.
+  const hooks = !readOnly && role === "taller" ? afterEditHooks(project.settings?.qa?.after_edit) : undefined;
+  writeFileSync(settingsPath, JSON.stringify({ ...denySettings(consulta ? CONSULTA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : []), ...(hooks ? { hooks } : {}) }), { mode: 0o600 });
   const mcpConfigPath = path.join(tmp, "mcp.json");
-  writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp")), { mode: 0o600 });
+  writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp", qa?.browser ? browserServer(env) : null)), { mode: 0o600 });
 
   // PLA-I46-12: only this role's packs, written fresh (whatever an earlier run left is cleared first).
-  const packs = consulta ? [] : writePacks(cwd, await packsOf(db, ctx.agent, env));
+  // AUDIT-3: by default they go in a plugin in the run's temp folder, loaded with --plugin-dir, and the worktree is
+  // left alone (whatever an older run left there is cleared). PLANIA_KIT_MODE=worktree keeps the older delivery.
+  const carried = consulta ? [] : await packsOf(db, ctx.agent, env, role);
+  const inWorktree = env.PLANIA_KIT_MODE === "worktree";
+  const packs = inWorktree ? writePacks(cwd, carried) : [];
+  if (!inWorktree && !consulta) clearPacks(cwd);
+  const kitDir = path.join(tmp, "kit");
+  const kit = inWorktree ? [] : writeKitPlugin(kitDir, carried);
+  // AUDIT-1: the builder is told the checks its delivery will meet.
+  const verify = role === "taller" && ctx.task ? (project.settings?.qa?.verify ?? []).map((v) => ({ name: v.name, command: v.command })) : [];
 
   const goal = await projectGoal(db, project.id);
   const planiaSession = runSession(run.id);
@@ -1052,6 +1165,9 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     sessionId: planiaSession,
     reason: run.reason?.trim() || null,
     packs,
+    kit,
+    verify,
+    handoff,
     images: ctx.task ? await taskImagePaths(db, project.id, ctx.task.key).catch(() => []) : [],
   });
   // PLA-I59-1: the motor this run asks for (QA lane > the seat, or its Preguntar values > the company > none).
@@ -1061,7 +1177,20 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     seat: { model: ctx.agent.motorModel, effort: ctx.agent.motorEffort, consultaModel: ctx.agent.consultaModel, consultaEffort: ctx.agent.consultaEffort },
     company: { model: settings.defaultModel, effort: settings.defaultEffort },
   });
-  const args = claudeArgs({ prompt, settingsPath, mcpConfigPath, systemPromptPath, maxTurns: consulta ? Math.min(settings.maxTurns, 40) : settings.maxTurns, resume, model: motor.model, effort: motor.effort });
+  const args = claudeArgs({
+    prompt,
+    settingsPath,
+    mcpConfigPath,
+    systemPromptPath,
+    maxTurns: consulta ? Math.min(settings.maxTurns, 40) : settings.maxTurns,
+    resume,
+    model: motor.model,
+    effort: motor.effort,
+    pluginDir: kit.length ? kitDir : null,
+    isolation: isolationOf(env),
+    // AUDIT-6: the QA report comes back as validated JSON (the fenced block in its brief stays as the fallback).
+    jsonSchema: qa?.jsonSchema ?? null,
+  });
   const command = claudeCommand(ctx.agent.adapterConfig, env);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const logPath = path.join(logDirOf(deps, env), `${stamp}-${ctx.agent.slug}-${run.id.slice(0, 8)}.jsonl`);
@@ -1079,7 +1208,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     command,
     args,
     cwd,
-    env: childEnv(env, { PLANIA_RUNNER_TOKEN: token }),
+    // AUDIT-1: finish may run the project's checks before it answers, so a Plania tool call may take minutes.
+    env: childEnv(env, { PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }),
     logPath,
     timeoutMs: deps.timeoutMs ?? settings.timeoutMinutes * MINUTE,
     graceMs: deps.graceMs ?? 30_000,
@@ -1105,6 +1235,9 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
       startedAt,
       requestedModel: motor.model,
       requestedEffort: motor.effort,
+      // AUDIT-2: what this run was given (a resumed session keeps the prompt it started with, so none is named).
+      promptVersion,
+      skills: carried.map(skillVersion),
     })
     .where(eq(agentRuns.id, run.id));
 
@@ -1247,6 +1380,9 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
       usageKnown,
       exitCode: exit.code,
       stopReason: input.stopReason,
+      // AUDIT-2 / AUDIT-7: the skills the stream showed it using, and how much context its last turn carried.
+      skillsUsed: [...reader.skillsUsed].sort().slice(0, 40),
+      contextTokens: reader.contextTokens,
     })
     .where(and(eq(agentRuns.id, run.id), inArray(agentRuns.status, ["starting", "running"])))
     .returning({ id: agentRuns.id, absorbed: agentRuns.absorbed });

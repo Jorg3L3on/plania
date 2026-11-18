@@ -3,6 +3,8 @@ import { tasks, type Workspace } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { cambioOf, changedFiles, DEFAULT_UI_GLOBS, MUESTRA_HINT, parseMuestra, uiFiles, type Cambio, type Muestra } from "../captures/muestra.js";
 import { defaultGit, repoPathOf, type GitFn } from "../runner/worktree.js";
+import { runVerifyList, verifyPlan } from "../runner/verify.js";
+import type { Exec } from "../captures/run.js";
 import { getContext } from "./context.js";
 import { addResultInTx, type AddResultInput } from "./evidence.js";
 import { ToolError, findProject, requireTask } from "./queries.js";
@@ -43,7 +45,33 @@ export type FinishInput = {
 };
 
 // PLA-I52-1: how finish reads a branch's changed files (tests inject it). null = it could not tell.
-export type FinishDeps = { changedFiles?: (repo: string, base: string, branch: string) => Promise<string[] | null>; git?: GitFn };
+// AUDIT-1: exec runs the project's checks (tests inject it); exists says whether the workspace folder is here.
+export type FinishDeps = { changedFiles?: (repo: string, base: string, branch: string) => Promise<string[] | null>; git?: GitFn; exec?: Exec; exists?: (path: string) => boolean };
+
+// AUDIT-1: the project's checks, run in the ticket's workspace before the delivery is accepted. A failing one refuses
+// the finish with its last lines, so the builder fixes it in the same run. Nothing is written when it refuses.
+async function verifyCheck(
+  db: Db,
+  p: Awaited<ReturnType<typeof findProject>>,
+  input: FinishInput,
+  ctx: Ctx,
+  deps: FinishDeps,
+): Promise<{ verified?: { name: string; ok: boolean; duration_s: number }[]; warning?: string }> {
+  const t = await requireTask(db, p.id, input.key);
+  const plan = verifyPlan(p, t, ctx.actor.session_id, deps.exists);
+  if (!plan.run) return plan.warning ? { warning: plan.warning } : {};
+  const ran = await runVerifyList(plan.cwd, plan.items, deps.exec);
+  const failed = ran.find((v) => !v.ok);
+  if (failed) {
+    throw new ToolError("VERIFY_FAILED", {
+      key: t.key,
+      failed: { name: failed.name, command: failed.command, exit_code: failed.exit_code, tail: failed.tail },
+      passed: ran.filter((v) => v.ok).map((v) => v.name),
+      hint: `\`${failed.command}\` fails in the workspace. Fix it there, run it until it passes, commit, then call finish again`,
+    });
+  }
+  return { verified: ran.map((v) => ({ name: v.name, ok: v.ok, duration_s: v.duration_s })) };
+}
 
 // The muestra check, before the transaction (it reads git). A code delivery on a project Plania photographs
 // (settings.capture) that touches the screen needs a muestra, passed now or stored by an earlier finish. When
@@ -83,6 +111,8 @@ async function muestraCheck(
 export async function finish(db: Db, input: FinishInput, ctx: Ctx, deps: FinishDeps = {}) {
   const p = await findProject(db, input.project);
   const sample = await muestraCheck(db, p, input, deps);
+  const checked = await verifyCheck(db, p, input, ctx, deps);
+  const warnings = [sample.warning, checked.warning].filter((w): w is string => !!w);
   return writeTx(db, p, ctx, async (tx, emit) => {
     const t = await requireTask(tx, p.id, input.key);
     if (t.kind !== "ticket") throw new ToolError("INVALID_TRANSITION", { from: t.status, to: "In review", hint: "finish is for tickets; an initiative closes with set_task" });
@@ -119,6 +149,6 @@ export async function finish(db: Db, input: FinishInput, ctx: Ctx, deps: FinishD
       initiative = { key: r.key, version: r.version, next_action: input.note.trim() };
     }
     const { changed: _c, ...rest } = moved;
-    return { ...rest, changed, result: added.result, ...(initiative ? { initiative } : {}), ...(sample.warning ? { warnings: [sample.warning] } : {}) };
+    return { ...rest, changed, result: added.result, ...(initiative ? { initiative } : {}), ...(checked.verified ? { verified: checked.verified } : {}), ...(warnings.length ? { warnings } : {}) };
   });
 }

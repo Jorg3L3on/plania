@@ -210,6 +210,9 @@ export const api = {
   ideaVisto: (slug: string, key: string, stop: PedidoStop) => request<{ key: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/visto`, { stop }),
   ideaRespuesta: (slug: string, key: string, input: IdeaAnswerInput) =>
     request<{ key: string; stage: string | null; wake: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/respuesta`, input),
+  // AUDIT-8: his pick on one of the PO's decisions (numbers as the screen shows them, from 1).
+  ideaDecision: (slug: string, key: string, input: IdeaDecisionInput) =>
+    request<{ key: string; stage: string | null; changed: boolean; wake: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/decision`, input),
   ideaDespertar: (slug: string, key: string) => request<{ key: string; wake: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/despertar`),
   noteTask: (slug: string, key: string, text: string) => request<{ noted: true }>("POST", `/company/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/note`, { text }),
   resendRequest: (slug: string, key: string) => request<{ key: string; wake: "queued" | "busy" | "off" }>("POST", `/company/projects/${encodeURIComponent(slug)}/requests/${encodeURIComponent(key)}/resend`),
@@ -277,7 +280,13 @@ export type IdeaStop = {
   doc: { id: string; title: string; version: number; markdown: string } | null;
   seen: boolean;
   answer: IdeaAnswer | null;
+  // AUDIT-8: what the stage delivered as data; null when its doc was written by hand.
+  data?: Record<string, unknown> | null;
 };
+// AUDIT-8: a decision of the PO's. recommended and chosen are option numbers (from 1); chosen is the one in force.
+export type IdeaDecision = { n: number; question: string; options: string[]; recommended: number; why: string; state: "assumed" | "decided"; chosen: number; at: string | null };
+export type IdeaDecisionInput = { decision: number; option: number; question?: string; text?: string };
+export type IdeaPlanStep = { title: string; done_when: string; try_it: string; work_type: string };
 export type IdeaFrame = { id: string; frame: string; name: string; group: string | null; hace: string | null; porque: string | null; url: string; width: number | null; height: number | null };
 export type IdeaDetail = OrgPedido & {
   summary: string;
@@ -289,8 +298,11 @@ export type IdeaDetail = OrgPedido & {
   question_options: string[];
   stops: IdeaStop[];
   ficha: PedidoFicha;
-  research: { recommendation: string | null; options: { n: number; title: string; text: string }[]; unknown: string[] };
+  research: { recommendation: string | null; options: { n: number; title: string; text: string }[]; unknown: string[]; recommended?: number | null; learned?: string[] };
   plan_steps: string[];
+  // AUDIT-8: the plan and the PO's decisions as data (an idea whose docs were written by hand has neither).
+  plan?: { steps: IdeaPlanStep[]; risks: string[]; size: string | null } | null;
+  decisions?: IdeaDecision[];
   frames: IdeaFrame[];
   unseen: number;
   quiet_since: string | null;
@@ -529,13 +541,15 @@ export type DecisionRelease = { from: string; into: string; env: string; ahead: 
 export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar";
 // PLA-I46-9/10: GET /api/projects/:slug/qa/:key (src/runner/qa.ts qaEvidence).
 export type QaState = "off" | "none" | "waiting" | "checking" | "reviewing" | "pass" | "fail" | "returned" | "error";
+export type QaAxisRead = { verdict: "pass" | "fail"; notes: string };
 export type QaRead = {
   project: string;
   key: string;
   enabled: boolean;
   state: QaState;
   tests: { pass: number; total: number; verdict: "pass" | "fail" | null; items: { name: string; command: string; ok: boolean; exit_code: number | null; pass: number | null; fail: number | null; duration_s: number }[] };
-  review: { verdict: "pass" | "fail"; notes: string; model: string | null } | null;
+  // AUDIT-6: spec and code are the review's two verdicts (absent on an older review); walked, whether QA went through the app.
+  review: { verdict: "pass" | "fail"; notes: string; model: string | null; spec?: QaAxisRead; code?: QaAxisRead; walked?: boolean } | null;
   checklist: { n: number; text: string; mark: "pass" | "fail" | null; note: string | null }[];
   captures: { ids: string[]; image_urls: string[]; ok: number; failed: number; error: string | null } | null;
   notes: string | null;
@@ -607,7 +621,8 @@ export type OrgCompany = {
 export type OrgTemplate = { slug: string; title: string };
 // PLA-I46-13: every role template and whether it can be added (free), is on the team (taken) or lacks its prompt doc.
 export type HireRole = OrgTemplate & { state: "free" | "taken" | "no_doc" };
-export type PackRef = { slug: string; name: string; when: string; doc_id: string };
+// AUDIT-3: source kit is a skill folder in the Plania repo (no doc); doc is a `Pack: <name>` doc.
+export type PackRef = { slug: string; name: string; when: string; doc_id: string | null; source?: "kit" | "doc"; sha?: string };
 export type OrgProjectDetail = ProjectSheetData & { team: OrgMember[]; thread_id: string; templates: OrgTemplate[]; hire?: HireRole[] };
 
 // PLA-I47-1: La ficha's tabs (GET /api/company/projects/:slug/ficha). Rows only; a doc's body is read on open.
