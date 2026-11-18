@@ -819,6 +819,20 @@ async function endWithoutProcess(db: Q, run: AgentRun, status: "skipped" | "fail
 
 // ---- Start
 
+// PLA-71: the owner's «Cambios que pide Jorge» note (thread-actions changes) that is newer than the ticket's last move
+// to In review: the request this run has to answer. Null when the ticket was not sent back since it was last delivered.
+export async function ownerChangesOf(db: Db, projectId: string, taskKey: string): Promise<string | null> {
+  const rows = await db.execute<{ text: string | null }>(sql`
+    select e.payload->>'text' as text from events e
+    where e.project_id = ${projectId} and e.task_key = ${taskKey} and e.type = 'note'
+      and e.payload->>'text' like 'Cambios que pide Jorge:%'
+      and e.id > coalesce((select max(s.id) from events s where s.project_id = ${projectId} and s.task_key = ${taskKey}
+                            and s.type = 'task.status' and s.payload->>'to' = 'In review'), 0)
+    order by e.id desc limit 1`);
+  const text = rows.rows[0]?.text ?? null;
+  return text ? text.replace(/^Cambios que pide Jorge:\s*/, "").trim().slice(0, 1500) || null : null;
+}
+
 export function userPrompt(input: {
   agent: string;
   role: string;
@@ -838,6 +852,8 @@ export function userPrompt(input: {
   verify?: { name: string; command: string }[];
   // AUDIT-7: a fresh session on work that was already started, and why.
   handoff?: string | null;
+  // PLA-71: what the owner asked to change when he sent this delivery back (his words), newest first.
+  changes?: string | null;
 }): string {
   const company = input.role === "asistente";
   const lines = [
@@ -849,6 +865,12 @@ export function userPrompt(input: {
   ];
   if (company) lines.splice(1, 2, input.task ? `Ticket: ${input.task.key}: ${input.task.title}` : "Ticket: none. Read the company thread (thread_read company) first.");
   if (input.reason) lines.push(`Why you woke: ${input.reason}.`);
+  // PLA-71: a delivery Jorge sent back. Without this line a fresh session saw only «ticket ready», took the work
+  // for unfinished, re-ran the checks and delivered the same thing again.
+  if (input.changes)
+    lines.push(
+      `Jorge sent your last delivery of this ticket back. His words: «${input.changes}». Do exactly that before you call finish again; re-running the checks alone does not answer him. If what he asks is in your muestra (the views Plania shows him), fix the muestra.`,
+    );
   // PLA-I32-3/5: the conversation is where Jorge reads you.
   lines.push(
     company
@@ -1185,6 +1207,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     kit,
     verify,
     handoff,
+    changes: ctx.task ? await ownerChangesOf(db, project.id, ctx.task.key).catch(() => null) : null,
     images: ctx.task ? await taskImagePaths(db, project.id, ctx.task.key).catch(() => []) : [],
   });
   // PLA-I59-1: the motor this run asks for (QA lane > the seat, or its Preguntar values > the company > none).
