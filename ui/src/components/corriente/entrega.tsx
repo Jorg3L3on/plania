@@ -113,6 +113,9 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
   const qa = useQaRead(p.slug, d.ref);
   const r = read.data;
   const blind = !!r && r.vistas.length > 0 && r.vistas.every((x) => x.kind === "igual");
+  // PLA-79: a held delivery (missing photos, a red check…) looked acceptable: a white «Aceptar» that did nothing. The
+  // hold now leads like a blind sample: «Pedir ajuste» first, the reason said as a reason.
+  const held = !!d.hold;
   const [key, setKey] = useState<string | null>(null);
   const v = r?.vistas.find((x) => x.key === key) ?? r?.vistas.find((x) => x.key === (r ? firstVista(r) : null)) ?? r?.vistas[0];
   const [side, setSide] = useState<Side | null>(null);
@@ -367,19 +370,19 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
               )}
               <div className="cor-acts">
                 {accept && (
-                  <Btn kind={blind ? "secondary" : "primary"} disabled={busy || !!d.hold} title={d.hold ?? acceptWords(d).aria} aria-label={acceptWords(d).aria} onClick={() => acts.decisions.decide(d, { action: accept }, "aceptar")} data-action={accept}>
+                  <Btn kind={blind || held ? "secondary" : "primary"} disabled={busy || !!d.hold} title={d.hold ?? acceptWords(d).aria} aria-label={acceptWords(d).aria} onClick={() => acts.decisions.decide(d, { action: accept }, "aceptar")} data-action={accept}>
                     {busy && acts.decisions.busy?.key === "aceptar" ? "…" : "Aceptar"}
                   </Btn>
                 )}
                 {d.actions.includes("cambios") && (
-                  <Btn kind={blind ? "primary" : "secondary"} aria-expanded={ajuste} onClick={() => setAjuste((x) => !x)} disabled={busy} data-action="cambios">
+                  <Btn kind={blind || held ? "primary" : "secondary"} aria-expanded={ajuste} onClick={() => setAjuste((x) => !x)} disabled={busy} data-action="cambios">
                     Pedir ajuste
                   </Btn>
                 )}
               </div>
               {d.hold && (
                 <span className="cor-hold" data-hold>
-                  {d.hold}
+                  {`No puedes aceptar todavía: ${d.hold.charAt(0).toLowerCase()}${d.hold.slice(1)}`}
                 </span>
               )}
               {ajuste && <Ajuste d={d} acts={acts} marcas={pins} onDone={() => (setAjuste(false), setPins([]))} />}
