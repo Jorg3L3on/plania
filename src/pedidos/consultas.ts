@@ -17,6 +17,7 @@ import { ToolError } from "../mcp/errors.js";
 import { PREGUNTA_MARK } from "../captures/preguntas.js";
 import { enqueueWake } from "../runner/events.js";
 import { isSessionOf } from "../runner/run-session.js";
+import { HELD_TEXT, type HeldCode } from "../runner/admission.js";
 
 export const CONSULTA_RE = /\[consulta ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/;
 export const consultaIdOf = (summary: string | null | undefined): string | null => CONSULTA_RE.exec(summary ?? "")?.[1] ?? null;
@@ -141,6 +142,8 @@ export type ConsultaView = {
   started_at: string | null;
   answered_at: string | null;
   answer: ConsultaAnswer | null;
+  /** PLA-69: why a queued question waits (the runner's hold, in the screen's words); null when nothing holds it. */
+  held: string | null;
 };
 
 // One line per thing the run looked at, from the stream-json log (assistant tool_use blocks). Missing or unreadable
@@ -186,14 +189,16 @@ export async function listConsultas(db: Db, projectId: string, limit = 20): Prom
   const runIds = rows.map((r) => r.runId).filter((x): x is string => !!x);
   const runs = runIds.length
     ? await db
-        .select({ id: agentRuns.id, status: agentRuns.status, logPath: agentRuns.logPath, cwd: agentRuns.cwd, startedAt: agentRuns.startedAt })
+        .select({ id: agentRuns.id, status: agentRuns.status, logPath: agentRuns.logPath, cwd: agentRuns.cwd, startedAt: agentRuns.startedAt, heldCode: agentRuns.heldCode })
         .from(agentRuns)
         .where(inArray(agentRuns.id, runIds))
     : [];
   const byId = new Map(runs.map((r) => [r.id, r]));
   return rows.map((c, i) => {
     const run = c.runId ? byId.get(c.runId) : undefined;
-    const state: ConsultaState = c.answer ? "lista" : !run ? "cola" : run.status === "queued" || run.status === "running" ? "leyendo" : "sin_respuesta";
+    // PLA-69: queued is still in line (it said «Leyendo» while the Mac held it); only a started run reads.
+    const state: ConsultaState = c.answer ? "lista" : !run || run.status === "queued" ? "cola" : run.status === "running" || run.status === "starting" ? "leyendo" : "sin_respuesta";
+    const held = state === "cola" && run?.heldCode ? (HELD_TEXT[run.heldCode as HeldCode] ?? null) : null;
     // Only the newest few carry their trail: it is read from a log file each time.
     const trail = run && i < 5 ? readTrail(run.logPath, run.cwd) : [];
     return {
@@ -205,6 +210,7 @@ export async function listConsultas(db: Db, projectId: string, limit = 20): Prom
       started_at: run?.startedAt?.toISOString() ?? null,
       answered_at: c.answeredAt?.toISOString() ?? null,
       answer: c.answer ?? null,
+      held,
     };
   });
 }
