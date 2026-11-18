@@ -20,16 +20,17 @@ const html = (el: React.ReactElement, at = "/corriente") => renderToStaticMarkup
 const css = readFileSync(new URL("../ui/src/corriente.css", import.meta.url), "utf8");
 
 test("I62-1: the address round-trips views, projects, tabs and what a tab has open", () => {
-  assert.deepEqual(lib.atOf(""), { view: "corriente", slug: null, tab: "ahora", ver: null });
+  assert.deepEqual(lib.atOf(""), { view: "corriente", slug: null, tab: "todo", ver: null });
   assert.equal(lib.atOf("?v=tetoca").view, "tetoca");
   assert.equal(lib.atOf("?v=nada").view, "corriente");
+  // PLA-I64-7: an old tab's address lands on its new place (the list, or Archivo).
   const at = lib.atOf("?proyecto=filmia&t=tablero&ver=paso:FIL-42");
-  assert.deepEqual(at, { view: "corriente", slug: "filmia", tab: "tablero", ver: { kind: "paso", key: "FIL-42" } });
-  assert.equal(lib.searchOf(at), "?proyecto=filmia&t=tablero&ver=paso%3AFIL-42");
-  // A ver without a tab opens its own tab.
-  assert.equal(lib.atOf("?proyecto=filmia&ver=pr:12").tab, "prs");
+  assert.deepEqual(at, { view: "corriente", slug: "filmia", tab: "todo", ver: { kind: "paso", key: "FIL-42" } });
+  assert.equal(lib.searchOf(at), "?proyecto=filmia&ver=paso%3AFIL-42");
+  // A ver without a tab opens its own place.
+  assert.equal(lib.atOf("?proyecto=filmia&ver=pr:12").tab, "archivo");
   assert.equal(lib.atOf("?proyecto=filmia&ver=miembro:taller-filmia").tab, "equipo");
-  for (const v of [{ kind: "sueltos" }, { kind: "pr", n: 7 }, { kind: "doc", id: "x" }, { kind: "maq", what: "base" }, { kind: "tabla", name: "users" }, { kind: "entrega", id: "d1" }])
+  for (const v of [{ kind: "pr", n: 7 }, { kind: "doc", id: "x" }, { kind: "maq", what: "base" }, { kind: "tabla", name: "users" }, { kind: "entrega", id: "d1" }])
     assert.deepEqual(lib.verOf(lib.verParam(v)), v);
   assert.equal(lib.verOf("pr:abc"), null);
   assert.equal(lib.verOf("nada:1"), null);
@@ -40,9 +41,8 @@ test("I62-1: the address round-trips views, projects, tabs and what a tab has op
 test("I62-1: a part not drawn yet links to its place in the building with the right parameters", () => {
   assert.equal(lib.legacyHref({}), "/ceo");
   assert.equal(lib.legacyHref({ view: "asistente" }), "/ceo?asistente");
-  assert.equal(lib.legacyHref({ slug: "filmia", tab: "ahora" }), "/ceo?piso=filmia");
-  assert.equal(lib.legacyHref({ slug: "filmia", tab: "ideas" }), "/ceo?piso=filmia&f=tab%3Aideas");
-  assert.equal(lib.legacyHref({ slug: "filmia", tab: "pedidos" }), "/ceo?piso=filmia&f=tab%3Apedido");
+  assert.equal(lib.legacyHref({ slug: "filmia", tab: "todo" }), "/ceo?piso=filmia");
+  assert.equal(lib.legacyHref({ slug: "filmia", tab: "archivo" }), "/ceo?piso=filmia&f=tab%3Adocs");
   assert.equal(lib.legacyHref({ slug: "filmia", ver: { kind: "paso", key: "FIL-42" } }), "/ceo?piso=filmia&f=step%3AFIL-42");
   assert.equal(lib.legacyHref({ slug: "filmia", ver: { kind: "entrega", id: "d1" } }), "/ceo?piso=filmia&decision=d1");
   assert.equal(lib.legacyHref({ slug: "filmia", tab: "maquinas" }), "/ceo?piso=filmia&nivel=maquinas");
@@ -179,7 +179,6 @@ test("I62-2: the stream draws lanes, agents, rhombi, counts, the paused lane's R
 
 // ---- PLA-I62-3: the project view
 const strip = await load("components/corriente/strip.tsx");
-const ahora = await load("components/corriente/ahora.tsx");
 const page = await load("pages/corriente.tsx");
 const fakeActs = () => {
   const calls: unknown[][] = [];
@@ -191,69 +190,27 @@ const fakeActs = () => {
 };
 const ahoraLinks = { entrega: (d: { id: string }) => `/e/${d.id}`, tetoca: () => "/tt", paso: (k: string) => `/paso/${k}`, tablero: "/tablero", equipo: "/equipo", miembro: (a: string) => `/m/${a}`, publicar: "/pub", pagina: "/p/filmia", hash: () => "/hash" };
 
-test("I62-3: Esc steps out one level at a time; the strip marks the open project and keeps the tab", () => {
-  assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia&t=tablero&ver=paso:FIL-1")), { slug: "filmia", tab: "tablero" });
-  assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia&t=tablero")), { slug: "filmia" });
+test("I62-3, I64-7: Esc steps out one level at a time; the strip keeps the door; the bar has the doors, not the tabs", () => {
+  assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia&t=tablero&ver=paso:FIL-1")), { slug: "filmia", tab: "todo" });
+  assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia&t=archivo")), { slug: "filmia" });
+  assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia&t=motores")), { slug: "filmia", tab: "equipo" });
   assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia")), { view: "corriente" });
   assert.deepEqual(page.escFrom(lib.atOf("?v=tetoca")), { view: "corriente" });
   const lanes = [stream.laneOf(project("filmia", { team: [member("t", "taller", "running", { ticket: null })] }), undefined, [decision("d", "filmia", "deliverable")]), stream.laneOf(project("micasa"), undefined, [])];
-  const out = html(h(strip.Strip, { lanes, open: "filmia", href: (s: string) => `/c?proyecto=${s}&t=tablero`, back: "/c", pedirTo: "/pedir" }));
-  assert.match(out, /aria-current="page"[^>]*href="\/c\?proyecto=filmia&amp;t=tablero"|href="\/c\?proyecto=filmia&amp;t=tablero"[^>]*aria-current="page"/);
+  const out = html(h(strip.Strip, { lanes, open: "filmia", href: (s: string) => `/c?proyecto=${s}&t=archivo`, back: "/c", pedirTo: "/pedir" }));
+  assert.match(out, /aria-current="page"[^>]*href="\/c\?proyecto=filmia&amp;t=archivo"|href="\/c\?proyecto=filmia&amp;t=archivo"[^>]*aria-current="page"/);
   assert.match(out, /class="t yo"/);
   assert.match(out, /class="t ag"/);
   assert.match(out, /class="cor-btn secondary"[^>]*>Pedir</);
-  const bar = html(h(strip.ProjectBar, { slug: "filmia", title: "Filmia", tab: "ahora", href: (t: string) => `/t/${t}`, counts: { ahora: { n: 1, amber: true } } }));
-  for (const t of ["Ahora", "Pedidos", "Tablero", "Ideas", "Diseño", "PRs", "Docs", "Equipo", "Motores", "Máquinas"]) assert.ok(bar.includes(`>${t}<`) || bar.includes(`>${t}<span`), t);
-  assert.match(bar, /aria-current="page"[^>]*>Ahora<span class="cor-count amber">1</);
+  const bar = html(h(strip.ProjectBar, { slug: "filmia", title: "Filmia", tab: "motores", href: (t: string) => `/t/${t}`, team: "4 LIBRES", paused: false, pauseHref: "/pausar" }));
+  for (const t of ["Archivo", "Equipo", "Máquinas", "Pausar"]) assert.ok(bar.includes(`>${t}<`) || bar.includes(`>${t}<span`), t);
+  for (const t of ["Ahora", "Pedidos", "Tablero", "Ideas", "Diseño", "PRs", "Docs", "Motores"]) assert.ok(!bar.includes(`>${t}<`), `no ${t} tab`);
+  assert.match(bar, /aria-current="page"[^>]*>Equipo/, "Motores opens from Equipo");
+  const paused = html(h(strip.ProjectBar, { slug: "filmia", title: "Filmia", tab: "todo", href: (t: string) => `/t/${t}`, paused: true, pauseHref: "/reanudar" }));
+  assert.match(paused, /Reanudar Filmia/);
 });
 
-test("I62-3: Ahora with a delivery: the move's one white button (Aceptar), Ver antes y después, Pedir ajuste; Detener; Meta; Equipo", () => {
-  const d = { ...decision("d1", "filmia", "deliverable", "FIL-35"), title: "Reproductor", asker: { agent: "taller-filmia", role: "taller" } };
-  const p = project("filmia", {
-    next_move: { verbo: "aceptar", texto: "Acepta el reproductor.", accion: { kind: "decision", id: "d1", action: "aceptar", label: "Aprobar y cerrar" }, origen: { kind: "decision", id: "d1", decision: "deliverable" } },
-    team: [member("taller-filmia", "taller", "running", { ticket: "FIL-42", title: "Pruebas" }), member("po-filmia", "product-owner")],
-    rumbo: { goal_id: "g", goal: "Publicar en un día", why: "", target_on: "2026-12-17", forecast_on: "2026-12-17", weeks_behind: 0, missing: false },
-    tablero: { initiatives: [{ key: "FIL-I1", title: "x", status: "Active", done: 0, total: 3, tickets: [tk("FIL-30", "integrado"), tk("FIL-31", "en_revision"), tk("FIL-32", "en_revision"), tk("FIL-33", "en_revision")] }], loose: [], loose_done: 0 },
-  });
-  (p.team[0] as unknown as { now: { run_id?: string } }).now.run_id = "run-1";
-  const { acts } = fakeActs();
-  const out = html(h(ahora.Ahora, { p, decisions: [d], now: Date.parse("2026-11-17T20:12:00Z"), companyPaused: false, totals: { open: 45, done: 321 }, acts, links: ahoraLinks, onFijar: () => {} }));
-  assert.match(out, /Te toca · Taller te entrega/);
-  assert.match(out, /FIL-35 · Reproductor/);
-  assert.equal((out.match(/cor-btn primary/g) ?? []).length, 1, "one white button");
-  assert.match(out, /class="cor-btn primary"[^>]*>Aceptar</);
-  assert.match(out, /href="\/e\/d1"[^>]*>Ver antes y después/);
-  assert.match(out, />Pedir ajuste</);
-  assert.match(out, /data-running="taller-filmia"[\s\S]*?12 MIN[\s\S]*?Detener/);
-  assert.match(out, /En revisión · 4 · no necesitan nada de ti/);
-  assert.match(out, /Espera publicación/);
-  assert.match(out, /Ver la otra en el tablero/);
-  assert.match(out, /Cambiar meta/);
-  assert.match(out, /Publicar en un día/);
-  assert.match(out, /45 ABIERTOS · 321 HECHOS/);
-  assert.match(out, /href="\/p\/filmia"/);
-  assert.match(out, />Taller<\/span><span class="cor-state live">Trabajando</);
-  assert.match(out, />PO<\/span><span class="cor-state">Libre</);
-  assert.ok(!/Plania/.test(out));
-});
-
-test("I62-3: Ahora with nothing waiting: the state, the reason and the nudge (start past the guard, Arma el plan); Sin meta offers Fijar", () => {
-  const p = project("workia", {
-    light: "quiet",
-    light_reason: { text: "Nadie tiene trabajo listo.", action: null },
-    team: [{ ...member("taller-workia", "taller"), next_start: { key: "W-1", title: "Alta", hold: "usage", starts_at: null, text: "El uso está al 92 %." } }],
-    rumbo: { goal_id: null, goal: null, why: "", target_on: null, forecast_on: null, weeks_behind: null, missing: true },
-  });
-  const { acts } = fakeActs();
-  const out = html(h(ahora.Ahora, { p, decisions: [], now: Date.now(), companyPaused: false, totals: null, acts, links: ahoraLinks, onFijar: () => {} }));
-  assert.match(out, /data-state-card="stuck"/);
-  assert.match(out, /Seguir de todos modos/);
-  assert.match(out, /Nadie tiene trabajo listo\./);
-  assert.match(out, />Arma el plan</);
-  assert.match(out, />Fijar meta</);
-  assert.match(out, /Sin meta todavía\./);
-  assert.ok(!/cor-btn primary/.test(out), "nothing waits on him: no white button");
-});
+// PLA-I64-7: Ahora is retired; its card and nudges live in the list (test/i64-*.test.ts).
 
 // ---- PLA-I62-4: Te toca, every pending kind, Entrega
 const pend = await load("components/corriente/pendiente.tsx");
@@ -323,19 +280,9 @@ test("I62-4: every kind draws /ceo's actions with one white button", () => {
 });
 
 // ---- PLA-I62-5: Pedir, Pedidos, Asistente
-const pedidos = await load("components/corriente/pedidos.tsx");
 const images = await load("components/corriente/images.tsx");
 
-test("I62-5: a request's line, who it waits on, and the tab's headline", () => {
-  const x = (stop: string, state: string, over: Record<string, unknown> = {}) => ({ key: "K", title: "t", stop, state, who: "product-owner", guardada: false, at: new Date(Date.now() - 26 * 3_600_000).toISOString(), ...over });
-  assert.deepEqual(pedidos.pedidoState(x("lista", "quieta"), Date.now()), { text: "Te espera · lista para construir", tone: "amber" });
-  assert.deepEqual(pedidos.pedidoState(x("entendido", "espera"), Date.now()), { text: "Te espera · confirma lo entendido", tone: "amber" });
-  assert.deepEqual(pedidos.pedidoState(x("investigacion", "trabajando", { who: "research" }), Date.now()), { text: "Research la trabaja", tone: "live" });
-  assert.equal(pedidos.pedidoState(x("buzon", "cola"), Date.now()).text, "En el buzón · 26 h sin tomar");
-  assert.equal(pedidos.waitsOnYou(x("lista", "quieta", { guardada: true })), false);
-  assert.deepEqual(pedidos.pedidosHeadline([x("lista", "quieta"), x("entendido", "espera"), x("buzon", "cola"), x("plan", "quieta", { guardada: true })]), { now: "Tres pedidos tomando forma.", you: "Dos te esperan." });
-  assert.deepEqual(pedidos.pedidosHeadline([]), { now: "Ningún pedido tomando forma.", you: null });
-});
+// PLA-I64-7: the Pedidos tab is retired; a pedido is a row of the list (test/i64-cosas.test.ts).
 
 test("I62-5: pictures: type, size and the limit of six, said once", () => {
   const f = (type: string, size = 10) => ({ type, size, name: "x" }) as unknown as File;
@@ -349,31 +296,9 @@ test("I62-5: pictures: type, size and the limit of six, said once", () => {
 });
 
 // ---- PLA-I62-6: Tablero, Paso, Equipo
-const tablero = await load("components/corriente/tablero.tsx");
 const equipo = await load("components/corriente/equipo.tsx");
 
-test("I62-6: the board: stations, inline Detener and Hacer primero, the chosen card's bar, Cerrar iniciativa", () => {
-  const { acts } = fakeActs();
-  const tkL = (k: string, e: string, live = false) => ({ ...tk(k, e), etapa: { ...etapa(e), live } });
-  const p = project("filmia", {
-    team: [{ ...member("taller-filmia", "taller", "running", { ticket: "FIL-2", title: "x" }), now: { ticket: "FIL-2", since: "2026-11-17T20:00:00Z", run_id: "r1" } }],
-    tablero: { initiatives: [{ key: "FIL-I1", title: "Primera", status: "Active", done: 1, total: 4, tickets: [tkL("FIL-1", "lista"), tkL("FIL-2", "construyendo", true), tkL("FIL-3", "te_toca")] }, { key: "FIL-I9", title: "Lista", status: "Active", done: 2, total: 2, closed: 2, can_close: true, version: 3, tickets: [] }], loose: [], loose_done: 0 },
-    next_first: null,
-  });
-  const d = { ...decision("d3", "filmia", "deliverable", "FIL-3") };
-  const links = { paso: (k: string) => `/paso/${k}`, iniciativa: (k: string) => `/ini/${k}`, entrega: (x: { id: string }) => `/e/${x.id}`, sueltos: "/s", doc: (id: string) => `/doc/${id}` };
-  const out = html(h(tablero.Board, { p, decisions: [d], acts, links, now: Date.parse("2026-11-17T20:12:00Z"), chosenKey: null, onChoose: () => {} }));
-  for (const s of ["Por hacer", "Taller", "QA", "Revisión", "Te toca", "Hecho"]) assert.ok(out.includes(`>${s}<`), s);
-  assert.match(out, /data-card="FIL-2"[\s\S]*?>Detener</);
-  assert.match(out, /data-card="FIL-1"[\s\S]*?>Hacer primero</);
-  assert.match(out, /data-bar="FIL-3"/, "the te toca card is chosen by default");
-  assert.equal((out.match(/cor-btn primary/g) ?? []).length, 1);
-  assert.match(out, /data-control="tablero-aceptar"[^>]*>Aceptar</);
-  assert.match(out, /href="\/e\/d3"[^>]*>Ver la entrega/);
-  assert.match(out, /data-close="FIL-I9"[\s\S]*?Cerrar iniciativa/);
-  const empty = html(h(tablero.Board, { p: project("w", { tablero: { initiatives: [], loose: [], loose_done: 0 } }), decisions: [], acts, links, now: 0, chosenKey: null, onChoose: () => {} }));
-  assert.match(empty, /data-board="empty"[\s\S]*?Arma el plan/);
-});
+// PLA-I64-7: the board is retired; its levers (Detener, Hacer primero, Cerrar) are the list's (test/i64-todo-ui.test.ts).
 
 test("I62-6: the team's headline and the seats' lines", () => {
   assert.deepEqual(equipo.teamHeadline([member("a", "taller", "running"), member("b", "product-owner"), member("c", "research"), member("d", "artist")], false), { now: "Uno trabajando.", rest: "Tres libres." });
@@ -384,7 +309,6 @@ test("I62-6: the team's headline and the seats' lines", () => {
 
 // ---- PLA-I62-7: Ideas, Idea abierta, Diseño, PRs, Docs
 const ideaMod = await load("components/corriente/idea.tsx");
-const listas = await load("components/corriente/listas.tsx");
 
 test("I62-7: an idea opens on the newest delivery not seen; each stop says where it stands", () => {
   const st = (stop: string, state: string, over: Record<string, unknown> = {}) => ({ stop, state, by: "artist", at: "2026-11-17T20:00:00Z", delivered: true, doc: null, seen: true, answer: null, ...over });
@@ -398,13 +322,7 @@ test("I62-7: an idea opens on the newest delivery not seen; each stop says where
   assert.deepEqual(ideaMod.stopLine(st("plan", "here", { delivered: false, by: "product-owner" }), { ...base, state: "trabajando" }), { text: "PO la trabaja", tone: "live" });
 });
 
-test("I62-7: ideas group by what they need from the owner", () => {
-  const fi = (key: string, stage: string, over: Record<string, unknown> = {}) => ({ key, title: key, stage, waits: null, updated_at: "x", docs: {}, unseen: 0, ...over });
-  const rows = listas.ideaRows([fi("A", "design", { unseen: 2 }), fi("B", "research", { waits: "Doc Research" }), fi("C", "ready")], [{ key: "C", title: "C", stop: "lista", state: "quieta", who: "product-owner", images: 0, understood: null, question: null, guardada: false, at: "x" }, { key: "D", title: "D", stop: "diseno", state: "quieta", who: "artist", images: 0, understood: null, question: null, guardada: true, at: "x" }]);
-  assert.deepEqual(rows.map((r: { key: string; group: string }) => `${r.key}:${r.group}`), ["A:nuevo", "B:avanza", "C:lista", "D:guardada"]);
-  assert.equal(rows[1].who, "Falta el doc Research");
-  assert.equal(rows[0].stop, "diseno");
-});
+// PLA-I64-7: the Ideas tab is retired; ideas are rows of the list grouped by what they need (test/i64-cosas.test.ts).
 
 // ---- PLA-I62-8: Motores, Máquinas, Plomería, the sheets
 const plomeria = await load("components/corriente/plomeria.tsx");
@@ -439,12 +357,12 @@ test("I62-9: each old building address opens its screen in La corriente", async 
     ["?decision=abc", "?v=tetoca&decision=abc"],
     ["?piso=filmia", "?proyecto=filmia"],
     ["?piso=filmia&nivel=maquinas", "?proyecto=filmia&t=maquinas"],
-    ["?piso=filmia&f=tab:prs", "?proyecto=filmia&t=prs"],
-    ["?piso=filmia&f=step:FIL-3", "?proyecto=filmia&t=tablero&ver=paso%3AFIL-3"],
-    ["?piso=filmia&f=idea:FIL-IDEA2", "?proyecto=filmia&t=ideas&ver=idea%3AFIL-IDEA2"],
+    ["?piso=filmia&f=tab:prs", "?proyecto=filmia&t=archivo"],
+    ["?piso=filmia&f=step:FIL-3", "?proyecto=filmia&ver=paso%3AFIL-3"],
+    ["?piso=filmia&f=idea:FIL-IDEA2", "?proyecto=filmia&ver=idea%3AFIL-IDEA2"],
     ["?piso=filmia&f=maq:tabla:cortos", "?proyecto=filmia&t=maquinas&ver=tabla%3Acortos"],
     ["?m=filmia:taller-filmia", "?proyecto=filmia&t=equipo&ver=miembro%3Ataller-filmia"],
-    ["?plan=filmia", "?proyecto=filmia&t=tablero"],
+    ["?plan=filmia", "?proyecto=filmia"],
     ["?add=filmia", "?proyecto=filmia&t=equipo&ver=sumar"],
     [`?piso=filmia&doc=${D}`, `?proyecto=filmia&doc=${D}`],
   ];

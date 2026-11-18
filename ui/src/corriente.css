@@ -834,6 +834,150 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 .cor-maq-head > .cor-inline-head { display: block; }
 .cor-hoja-doc { max-height: 60svh; overflow-y: auto; padding-right: 8px; }
 
+/* PLA-I64: a project from the inside (PLA-IDEA28 boards A1-A4). One row per thing: name 290px, thread 660px, what it
+   needs; grouped by what it needs. The thread small is PLA-IDEA27's (components/corriente/hilo.tsx). */
+.cor-pbody:has(.cor-todo) { padding: 0; overflow: hidden; }
+.cor-todo { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.cor-todo-scroll { flex: 1; min-height: 0; overflow: auto; padding: 0 32px 12px; }
+.cor-todo-err { padding: 8px 0; }
+.cor-todo-err .cor-empty { padding: 12px 0; align-items: flex-start; }
+.cor-cosa-head, .cor-cosa { display: grid; grid-template-columns: minmax(200px, 290px) minmax(0, 660px) minmax(0, 1fr); column-gap: 20px; align-items: center; }
+.cor-cosa-head { position: sticky; top: 0; z-index: 2; height: 30px; border-bottom: 1px solid var(--cor-line); background: var(--cor-bg); }
+.cor-grp { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; min-height: 30px; padding-top: 4px; }
+.cor-grp .cor-label { white-space: nowrap; }
+.cor-grp .cor-label.green { color: var(--cor-green); }
+.cor-grp-tx { font-size: 13px; color: var(--cor-body); }
+.cor-grp-more { margin-left: auto; min-height: 30px; font-size: 13px; }
+.cor-cosa { position: relative; min-height: 52px; border-top: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; }
+.cor-cosa:hover { background: rgba(255, 255, 255, 0.025); }
+.cor-cosa.sm { min-height: 44px; }
+.cor-cosa.you { min-height: 76px; margin: 2px -12px 4px; padding: 0 12px; border: 1px solid rgba(255, 180, 84, 0.38); border-radius: 14px; background: linear-gradient(180deg, rgba(255, 180, 84, 0.07), rgba(255, 180, 84, 0.02)); box-shadow: 0 0 60px -22px rgba(255, 180, 84, 0.4); }
+.cor-cosa.you + .cor-cosa.you { margin-top: 6px; }
+.cor-cosa.liv { margin: 2px -12px 4px; padding: 0 12px; border: 1px solid rgba(167, 139, 250, 0.32); border-radius: 14px; background: linear-gradient(180deg, rgba(139, 92, 246, 0.09), rgba(139, 92, 246, 0.02)); }
+.cor-cosa-nm { display: flex; flex-direction: column; justify-content: center; gap: 3px; min-width: 0; min-height: 44px; padding: 4px 0; }
+.cor-cosa-nm.row { flex-direction: row; align-items: center; gap: 10px; }
+.cor-cosa-nm b { font-size: 15px; font-weight: 500; letter-spacing: -0.01em; }
+.cor-cosa.sm .cor-cosa-nm b { font-size: 14px; color: var(--cor-body); }
+.cor-cosa-nm:hover b { color: #fff; }
+.cor-cosa-ids { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cor-cosa-que { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 6px 0; }
+.cor-cosa-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cor-cosa-tx .cor-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cor-cosa-espera { font-size: 13px; line-height: 1.35; color: var(--cor-body); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.cor-cosa:not(.you) .cor-cosa-espera { -webkit-line-clamp: 2; }
+
+.cor-hilo { position: relative; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)) 26px minmax(0, 2.3fr) minmax(0, 1fr); align-items: center; height: 24px; }
+.cor-hilo::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(255, 255, 255, 0.12); }
+.cor-hilo > span { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; }
+.cor-hilo.head { height: 30px; }
+.cor-hilo.head::before { display: none; }
+.cor-hilo.head > span { font-family: var(--cor-mono); font-size: 9px; letter-spacing: 0; color: var(--cor-muted); white-space: nowrap; text-transform: uppercase; }
+.cor-hilo.born::before { left: calc((100% - 26px) * 6 / 9.3); }
+.cor-hilo.born::after { content: ""; position: absolute; left: 0; top: 50%; width: calc((100% - 26px) * 6 / 9.3); border-top: 1px dashed rgba(255, 255, 255, 0.14); }
+.cor-h-d { width: 7px; height: 7px; border-radius: 50%; background: #7c6ad6; box-shadow: 0 0 0 3px var(--cor-bg); }
+.cor-hilo.sm .cor-h-d { background: #4a4270; }
+.cor-h-r { width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.3); background: var(--cor-bg); box-shadow: 0 0 0 2px var(--cor-bg); }
+.cor-h-r.on { border-color: var(--cor-violet-2); }
+.cor-h-y { width: 11px; height: 11px; border-radius: 3px; transform: rotate(45deg); background: var(--cor-bg); border: 2px solid var(--cor-amber); box-shadow: 0 0 16px 4px rgba(255, 180, 84, 0.55); }
+.cor-h-a { width: 11px; height: 11px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.28), 0 0 22px 7px rgba(139, 92, 246, 0.75); }
+.cor-h-e { width: 9px; height: 9px; border-radius: 50%; background: var(--cor-green); box-shadow: 0 0 0 3px var(--cor-bg), 0 0 14px 3px rgba(110, 231, 160, 0.45); }
+.cor-h-v { width: 12px; height: 16px; border-left: 2px solid rgba(255, 255, 255, 0.3); border-right: 2px solid rgba(255, 255, 255, 0.3); background: var(--cor-bg); }
+.cor-h-v.on { border-color: var(--cor-violet-2); background: linear-gradient(rgba(139, 92, 246, 0.7), rgba(139, 92, 246, 0.7)) center / 100% 1px no-repeat, var(--cor-bg); }
+.cor-h-v.wait { border-color: var(--cor-amber); box-shadow: 0 0 16px 2px rgba(255, 180, 84, 0.4); }
+.cor-h-c { gap: 8px; }
+.cor-h-sg { display: flex; flex: 1; gap: 3px; padding: 0 2px; background: var(--cor-bg); }
+.cor-h-sg i { flex: 1; height: 7px; border-radius: 2px; background: rgba(255, 255, 255, 0.12); }
+.cor-h-sg i.on { background: #7c6ad6; }
+.cor-h-sg i.fila { background: #4a4270; }
+.cor-h-sg i.live { background: #fff; box-shadow: 0 0 12px 3px rgba(139, 92, 246, 0.8); }
+.cor-h-sg i.you { background: var(--cor-amber); box-shadow: 0 0 12px 3px rgba(255, 180, 84, 0.5); }
+.cor-h-sg i.fin { background: #3f8f63; }
+.cor-hilo.flow::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 3px; margin-top: -1px; background: linear-gradient(90deg, transparent, rgba(196, 181, 253, 0.95), transparent) no-repeat; background-size: 22% 100%; filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.9)); animation: cor-hflow 6s linear infinite; pointer-events: none; }
+@keyframes cor-hflow { from { background-position: -30% 0; } to { background-position: 130% 0; } }
+@media (prefers-reduced-motion: reduce) { .cor-hilo.flow::after { animation: none; display: none; } }
+@media (max-width: 1100px) {
+  .cor-cosa-head, .cor-cosa { grid-template-columns: minmax(160px, 1fr) minmax(0, 1.4fr) minmax(0, 1fr); }
+}
+@media (max-width: 639px) {
+  .cor-todo-scroll { padding: 0 16px 12px; }
+  .cor-cosa-head { display: none; }
+  .cor-cosa, .cor-cosa.you, .cor-cosa.liv { grid-template-columns: 1fr; row-gap: 4px; padding: 8px 12px; margin-inline: 0; }
+}
+.cor-cosa-nm.row { justify-content: flex-start; }
+.cor-cosa[data-grupo="fila"] .cor-cosa-espera { -webkit-line-clamp: 1; }
+.cor-cosa[data-grupo="fila"] { min-height: 48px; }
+.cor-todo-err .cor-empty { flex-direction: row; justify-content: flex-start; gap: 16px; text-align: left; }
+/* PLA-I64-3: the sentence and the pulse. */
+.cor-cabeza { display: flex; align-items: flex-start; justify-content: space-between; gap: 32px; padding: 16px 0 12px; }
+.cor-frase { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.cor-frase-h { display: flex; flex-direction: column; font-size: 28px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; }
+.cor-frase-h .amber { color: var(--cor-amber); }
+.cor-frase-falta { font-size: 14px; color: var(--cor-body); max-width: 860px; }
+.cor-pulso { flex: none; margin: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 200px; }
+.cor-pulso-bars { display: flex; align-items: flex-end; gap: 4px; height: 44px; }
+.cor-pulso-bars i { width: 9px; min-height: 2px; border-radius: 2px 2px 0 0; background: #7c6ad6; }
+.cor-pulso-bars i.z { background: rgba(255, 255, 255, 0.14); }
+.cor-pulso-bars i.hoy { background: var(--cor-violet-4); box-shadow: 0 0 12px 2px rgba(139, 92, 246, 0.7); }
+.cor-pulso-ends { display: flex; justify-content: space-between; width: 100%; font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-muted); }
+@media (max-width: 900px) { .cor-cabeza { flex-direction: column; } .cor-pulso { align-items: flex-start; } }
+.cor-pmeta { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 0 1 auto; font-size: 13.5px; color: var(--cor-body); }
+.cor-pmeta-tx { max-width: 360px; }
+/* PLA-I64-4: the lever on a row. */
+.cor-palanca { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; max-width: 260px; }
+.cor-palanca-btns { display: flex; align-items: center; gap: 8px; }
+.cor-palanca .cor-state.bad { font-size: 12.5px; text-align: right; }
+.cor-palanca .cor-ajuste { width: 260px; }
+/* PLA-I64-5: the empty project, Pedir at the foot of the list, Pausar or Reanudar in the bar. */
+.cor-frase-h .sub { color: var(--cor-muted); }
+.cor-cosa.ghost { min-height: 96px; margin: 10px -12px 6px; padding: 0 12px; border: 1px dashed rgba(255, 255, 255, 0.18); border-radius: 14px; }
+.cor-cosa.ghost:hover { background: none; }
+.cor-vacio-plan { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 14px 0; border-top: 1px solid var(--cor-line); }
+.cor-todo .cor-pedir { padding: 10px 32px 12px; }
+.cor-pbar-end { display: flex; align-items: center; gap: 8px; }
+/* PLA-I64-6: the Archivo and Hecho doors. */
+.cor-pbody:has(.cor-archivo), .cor-pbody:has(.cor-hecho) { padding-top: 16px; }
+.cor-door { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; padding: 0 4px; font-size: 13.5px; color: #a9a9b6; border-bottom: 2px solid transparent; }
+.cor-door[aria-current="page"] { color: var(--cor-text); border-bottom-color: var(--cor-violet-2); }
+.cor-door:hover { color: var(--cor-text); }
+.cor-door-back { margin-bottom: 12px; }
+.cor-door-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 18px; }
+.cor-door-h { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
+.cor-door-empty { padding: 10px 0; }
+.cor-label.wh { color: var(--cor-text); }
+.cor-label.green { color: var(--cor-green); }
+.cor-archivo-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 36px; align-items: start; }
+.cor-door-list { display: flex; flex-direction: column; }
+.cor-door-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 0 8px; border-top: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px; font-size: 14px; }
+.cor-door-row:hover { background: rgba(255, 255, 255, 0.03); }
+.cor-door-row .cor-cap { flex: none; text-transform: uppercase; }
+.cor-door-cards { display: flex; flex-direction: column; gap: 10px; }
+.cor-lienzo-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; min-height: 44px; }
+.cor-lienzo-thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cor-lienzo-thumbs img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 6px; border: 1px solid var(--cor-line); }
+.cor-hecho-cols { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 0 40px; align-items: start; }
+.cor-hecho-left { display: flex; flex-direction: column; gap: 14px; }
+.cor-hecho-chart { margin: 0; padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 8px; }
+.cor-hecho-bars { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); align-items: end; gap: 10px; height: 136px; }
+.cor-hecho-bar { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; }
+.cor-hecho-bar i { width: 100%; max-width: 32px; border-radius: 3px 3px 0 0; background: #7c6ad6; }
+.cor-hecho-bar i.z { background: rgba(255, 255, 255, 0.14); }
+.cor-hecho-bar i.hoy { background: var(--cor-violet-4); box-shadow: 0 0 14px 2px rgba(139, 92, 246, 0.7); }
+.cor-hecho-days { display: flex; flex-direction: column; gap: 6px; }
+.cor-hecho-day { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--cor-line); }
+.cor-hecho-day .cor-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.cor-hecho-nav { display: flex; gap: 16px; }
+.cor-pbar-back { gap: 6px; }
+@media (max-width: 1100px) { .cor-archivo-cols, .cor-hecho-cols { grid-template-columns: 1fr; } }
+/* PLA-I64-7: the bar's doors. */
+.cor-doors { margin-left: auto; display: flex; align-items: center; gap: 0 22px; }
+.cor-door .n { font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-muted); letter-spacing: 0.04em; }
+.cor-pbar { min-height: 52px; flex-wrap: nowrap; }
+.cor-pbar .cor-pmeta { flex: 0 1 auto; min-width: 0; }
+@media (max-width: 900px) { .cor-pbar { flex-wrap: wrap; } .cor-doors { margin-left: 0; flex-wrap: wrap; } }
+.cor-cabeza-l { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.cor-nudge { display: flex; align-items: center; gap: 10px; }
+.cor-inline { color: var(--cor-violet-3); text-decoration: underline; text-underline-offset: 3px; }
+
 /* ---- PLA-I63: the Morning brief as Compañía's delta (PLA-IDEA26, sketch 2). The page is one stage: the delta is
    drawn under the headline and the card in hand sits at the right; the footer carries the keys or a notice. */
 .cor-bf { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
