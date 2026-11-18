@@ -180,7 +180,7 @@ export async function pedidoOf(db: Db, projectId: string, t: Task, facts?: { run
   };
 }
 
-async function factsOf(db: Db, projectId: string, rows: Task[]) {
+export async function factsOf(db: Db, projectId: string, rows: Task[]) {
   const keys = rows.map((t) => t.key);
   const runs = keys.length
     ? await db

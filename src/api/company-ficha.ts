@@ -5,11 +5,13 @@
 //   docs[]    the project's docs (task docs and project docs), newest first, at most 30, never the markdown
 //   designs[] the lienzo links written in the Design docs of the project's ideas
 // Read only; the owner's session like the rest of /api/company. projectDocRead serves one doc of one project.
-import { sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
+import { tasks } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
 import { ideaWaits } from "../mcp/ideas.js";
 import { ideasWithFrames, unseenByIdea } from "./company-idea.js";
+import { factsOf, pedidoOf, type PedidoState, type PedidoStop } from "./company-pedidos.js";
 
 export const FICHA_LIMITS = { ideas: 30, prs: 20, docs: 30, designs: 20 } as const;
 const STAGE_DOC_TITLES = ["Idea", "Research", "Design", "Plan"] as const;
@@ -30,6 +32,14 @@ export type FichaIdea = {
   // PLA-I61-3: the summary the PO wrote, the stops it passed (stage index) and what the owner has not opened.
   summary: string;
   unseen: number;
+  // PLA-I64-1: the initiative it became (then it is not a row of its own), who asked (jorge: a pedido), and for an
+  // idea not promoted yet its stop and state as the tube reads them (src/api/company-pedidos.ts), shelf and question.
+  promoted_to: string | null;
+  origin: string | null;
+  stop: PedidoStop | null;
+  state: PedidoState | null;
+  guardada: boolean;
+  question: { id: string; text: string } | null;
 };
 // PLA-I61-2: an idea whose design lives in Plania (Artist's frames), for the Diseño tab.
 export type FichaLienzo = { key: string; title: string; count: number; thumbs: string[]; unseen: number };
@@ -53,6 +63,8 @@ export type Ficha = {
   docs: FichaDoc[];
   designs: FichaDesign[];
   lienzos: FichaLienzo[];
+  // PLA-I64-1: every idea of the project that became an initiative (any status), so an initiative carries its idea.
+  promoted: { idea: string; initiative: string }[];
 };
 
 export function artifactLinks(markdown: string): string[] {
@@ -70,9 +82,9 @@ export async function fichaRead(db: Db, slug: string): Promise<Ficha> {
 
   const ideaRows = await rows(
     db,
-    sql`select t.id, t.key, t.title, t.summary, t.stage, t.updated_at from tasks t
+    sql`select t.id, t.key, t.title, t.summary, t.stage, t.updated_at, t.promoted_to, t.origin from tasks t
         where t.project_id = ${id} and t.kind = 'idea' and t.status = 'Open'
-        order by t.updated_at desc, t.key limit ${FICHA_LIMITS.ideas}`,
+        order by (t.promoted_to is not null), t.updated_at desc, t.key limit ${FICHA_LIMITS.ideas}`,
   );
   const [ideaCount] = await rows(db, sql`select count(*)::int as n from tasks where project_id = ${id} and kind = 'idea' and status = 'Open'`);
   const ideaIds = ideaRows.map((r) => String(r.id));
@@ -86,6 +98,13 @@ export async function fichaRead(db: Db, slug: string): Promise<Ficha> {
     : [];
   const waits = ideaIds.length ? await ideaWaits(db, id) : new Map<string, string>();
   const unseen = await unseenByIdea(db, slug, ideaRows.map((r) => String(r.key)));
+  // PLA-I64-1: the tube's stop and state for every open idea not promoted yet (any origin).
+  const loose = ideaRows.filter((r) => !r.promoted_to).map((r) => String(r.id));
+  const looseTasks = loose.length ? await db.select().from(tasks).where(and(eq(tasks.projectId, id), inArray(tasks.id, loose))) : [];
+  const facts = looseTasks.length ? await factsOf(db, id, looseTasks) : null;
+  const tube = new Map<string, Awaited<ReturnType<typeof pedidoOf>>>();
+  for (const t of looseTasks) tube.set(t.key, await pedidoOf(db, id, t, facts!));
+  const promotedRows = await rows(db, sql`select key, promoted_to from tasks where project_id = ${id} and kind = 'idea' and promoted_to is not null order by key`);
   const ideas: FichaIdea[] = ideaRows.map((r) => {
     const mine = stageDocs.filter((d) => String(d.task_id) === String(r.id));
     const docs = Object.fromEntries(
@@ -103,6 +122,12 @@ export async function fichaRead(db: Db, slug: string): Promise<Ficha> {
       docs,
       summary: String(r.summary ?? ""),
       unseen: unseen[String(r.key)] ?? 0,
+      promoted_to: (r.promoted_to as string | null) ?? null,
+      origin: (r.origin as string | null) ?? null,
+      stop: tube.get(String(r.key))?.stop ?? null,
+      state: tube.get(String(r.key))?.state ?? null,
+      guardada: tube.get(String(r.key))?.guardada ?? false,
+      question: tube.get(String(r.key))?.question ?? null,
     };
   });
 
@@ -161,6 +186,7 @@ export async function fichaRead(db: Db, slug: string): Promise<Ficha> {
     prs,
     docs,
     designs: allDesigns.slice(0, FICHA_LIMITS.designs),
+    promoted: promotedRows.map((r) => ({ idea: String(r.key), initiative: String(r.promoted_to) })),
   };
 }
 

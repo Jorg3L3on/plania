@@ -596,6 +596,13 @@ export type FichaIdea = {
   // PLA-I61-3: older servers send neither.
   summary?: string;
   unseen?: number;
+  // PLA-I64-1: older servers send none of these.
+  promoted_to?: string | null;
+  origin?: string | null;
+  stop?: PedidoStop | null;
+  state?: PedidoState | null;
+  guardada?: boolean;
+  question?: { id: string; text: string } | null;
 };
 export type FichaLienzo = { key: string; title: string; count: number; thumbs: string[]; unseen: number };
 export type FichaPr = { number: number; title: string; url: string; state: string; ci_state: string | null; task_key: string | null; merged_at: string | null; head_branch: string | null };
@@ -609,6 +616,8 @@ export type OrgFicha = {
   docs: FichaDoc[];
   designs: FichaDesign[];
   lienzos?: FichaLienzo[];
+  // PLA-I64-1: every idea that became an initiative.
+  promoted?: { idea: string; initiative: string }[];
 };
 export type ProjectDocBody = { id: string; title: string; version: number; markdown: string; task_key: string | null };
 

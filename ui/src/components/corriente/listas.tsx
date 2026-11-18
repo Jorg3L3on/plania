@@ -30,7 +30,8 @@ export function ideaRows(ideas: FichaIdea[], pedidos: OrgPedido[]): Row[] {
     const unseen = i.unseen ?? pd?.unseen ?? 0;
     const group: Row["group"] = pd?.guardada ? "guardada" : unseen > 0 ? "nuevo" : stop === "lista" ? "lista" : "avanza";
     // «Doc Plan» (what the stage still needs) said in words, as the building does.
-    const who = i.waits ? i.waits.replace(/^Doc (\w+)$/, (_m, d: string) => `Falta el doc ${d}`) : "";
+    // PLA-I64-1: a promoted idea is already its initiative; it never waits on «Constrúyelo».
+    const who = i.promoted_to ? `Ya es ${i.promoted_to}` : i.waits ? i.waits.replace(/^Doc (\w+)$/, (_m, d: string) => `Falta el doc ${d}`) : "";
     return { key: i.key, title: i.summary || i.title, stop, who, unseen, pedido: pd, group };
   });
   // Saved requests that the ideas read does not list.
@@ -109,12 +110,12 @@ export const Ideas = ({ p, acts, links }: { p: OrgProject; acts: CorrienteActs; 
                           <span className="cor-cap">{[r.key, STOPS.find((s) => s.id === r.stop)?.name, r.unseen ? `${r.unseen} sin ver` : null].filter(Boolean).join(" · ").toUpperCase()}</span>
                         </Link>
                         <Journey r={r} />
-                        <span className="cor-idea-who cor-ellipsis">{r.group === "guardada" ? "Fuera de la corriente" : r.stop === "lista" ? "Espera tu «Constrúyelo»" : quiet ? "Nadie la trabaja" : r.who || "En camino"}</span>
+                        <span className="cor-idea-who cor-ellipsis">{r.group === "guardada" ? "Fuera de la corriente" : r.stop === "lista" && !r.who.startsWith("Ya es") ? "Espera tu «Constrúyelo»" : quiet ? "Nadie la trabaja" : r.who || "En camino"}</span>
                         {r.group === "guardada" ? (
                           <Btn kind="secondary" onClick={() => acts.pedido(p.slug, r.key, "restaurar")} disabled={acts.busy === `pedido-${r.key}:restaurar`} data-control="restaurar">
                             Restaurar
                           </Btn>
-                        ) : r.stop === "lista" && r.pedido ? (
+                        ) : r.stop === "lista" && r.pedido && !r.who.startsWith("Ya es") ? (
                           <Btn kind="secondary" onClick={() => acts.pedido(p.slug, r.key, "construir")} disabled={acts.busy === `pedido-${r.key}:construir`} data-control="construyelo">
                             Constrúyelo
                           </Btn>
