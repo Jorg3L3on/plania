@@ -165,7 +165,7 @@ function writeCtx(tool: string, input: WriteInput, identity: Identity | undefine
   if (!agent?.trim()) throw new ToolError("ACTOR_REQUIRED");
   if (agent.trim().toLowerCase() === "jorge") throw new ToolError("RESERVED_ACTOR");
   const actorOut = { ...input.actor, agent, ...(machine !== undefined ? { machine } : {}) };
-  return { actor: actorOut, requestId: input.request_id, tool, verbose: input.verbose, tokenId: identity?.tokenId };
+  return { actor: actorOut, requestId: input.request_id, tool, verbose: input.verbose, tokenId: identity?.tokenId, ...(identity?.runSession ? { runSession: identity.runSession } : {}) };
 }
 
 // Field schemas shared by a tool and its batch op (keys.ts assigns keys; see create_task).

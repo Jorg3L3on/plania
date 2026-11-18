@@ -51,6 +51,13 @@ upgraded. Say what else could break and how someone would notice.
 **Cómo deshacerlo.** What it takes to go back. Usually: revert the merge commit. Say when that is not
 enough: a migration that must be reversed first, data that was rewritten, a setting to switch off.
 
+## A database migration
+
+Before you add one, reserve its number: `reserve_sequence {name: "migration", task_key, at_least: <the
+next number in the repo's migrations folder>}`, and name the file with the number it returns. Two
+branches never take the same number, and the release sheet shows it (PLA-82, F-25: a migration 0003 was
+added while the counter still said 0001). Say the migration under «Riesgo de la mezcla».
+
 ## Language and title
 
 Match the repo: look at its last merged pull requests (`gh pr list --state merged --limit 5`). When

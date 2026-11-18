@@ -80,6 +80,11 @@ export async function agentOfActor(tx: Q, actor: Actor | null | undefined): Prom
   return row ?? null;
 }
 
+/** PLA-82 (F-12): the roster agent behind a write: its actor, else the run the runner named for the connection. */
+export async function agentOfCtx(tx: Q, ctx: { actor: Actor | null | undefined; runSession?: string }): Promise<Agent | null> {
+  return (await agentOfActor(tx, ctx.actor)) ?? (ctx.runSession ? agentOfActor(tx, { agent: "", session_id: ctx.runSession } as Actor) : null);
+}
+
 // PLA-I32-3: the chief of staff on the runner (role_template asistente, else the old rules).
 export async function asistenteAgent(tx: Q): Promise<Agent | null> {
   const rows = await tx.select().from(agents).where(and(eq(agents.adapter, RUNNER_ADAPTER), sql`${agents.status} <> 'retired'`)).orderBy(asc(agents.slug));
