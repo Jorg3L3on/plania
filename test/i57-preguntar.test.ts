@@ -69,7 +69,12 @@ function fakes() {
     graceMs: 10,
     liveFlushMs: 0,
     footprints: false,
-    git: async () => ({ code: 0, stdout: "", stderr: "" }),
+    // PLA-66: a question reads its own copy, made with `git worktree add --detach <path> origin/sandbox`.
+    git: async (args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "add") mkdirSync(args[3]!, { recursive: true });
+      if (args[0] === "rev-parse" && args[1] === "--short") return { code: 0, stdout: "92111e1\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    },
     spawn: (_bin: string, args: string[], opts: { cwd: string }) => {
       const child = new FakeChild(++n) as FakeChild & { args: string[]; cwd: string; settings: string };
       child.args = args;
@@ -130,17 +135,19 @@ test("I57-1 #1: Preguntar keeps a consulta, creates no task, and queues the PO m
   const row = (await raw.query(`select run_id, text from consultas where id = $1`, [out.consulta])).rows[0];
   assert.equal(row.run_id, q[0].id);
   const [c] = await list();
-  assert.equal(c!.state, "leyendo");
+  assert.equal(c!.state, "cola", "PLA-69: queued is in line, not reading");
   assert.equal(c!.text, "¿Por qué se recarga toda la página al cambiar de sección?");
 });
 
-test("I57-1 #2: the question's run is read-only, works in the project's checkout, gets the question prompt and keeps no session", async () => {
+test("I57-1 #2 (PLA-66): the question's run is read-only, works in a fresh copy of origin/sandbox, gets the question prompt and keeps no session", async () => {
   const out = await ask({ text: "¿Dónde se guarda el teléfono?", mode: "pregunta" });
   const f = fakes();
   const d = await runner.drainQueue(db, new Date(), f.deps as never);
   assert.equal(d.started, 1, JSON.stringify((await raw.query(`select status, summary from agent_runs`)).rows));
   const child = f.spawned[0]!;
-  assert.equal(child.cwd, repo);
+  const copy = path.join(scratch, "worktrees", "micasa", "_consulta");
+  assert.equal(child.cwd, copy);
+  assert.match(child.args[1]!, /read-only copy of the project at origin\/sandbox 92111e1/);
   const deny = (JSON.parse(child.settings) as { permissions: { deny: string[] } }).permissions.deny;
   for (const rule of ["Edit", "Write", "Bash(git commit*)", "Bash(rm*)", "Bash(pnpm*)", "mcp__plania__create_task"]) assert.ok(deny.includes(rule), rule);
   const prompt = child.args[1]!;
@@ -149,7 +156,7 @@ test("I57-1 #2: the question's run is read-only, works in the project's checkout
   assert.match(prompt, new RegExp(`answer_consulta \\{project: "micasa", id: "${out.consulta}"`));
   assert.ok(!prompt.includes("Plania first: open the ticket"), "not the ticket prompt");
   assert.ok(!child.args.includes("--resume"));
-  child.finish([{ type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { file_path: path.join(repo, "src/app/page.tsx") } }, { type: "tool_use", name: "Grep", input: { pattern: "telefono" } }] } }]);
+  child.finish([{ type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { file_path: path.join(copy, "src/app/page.tsx") } }, { type: "tool_use", name: "Grep", input: { pattern: "telefono" } }] } }]);
   await runner.waitForAllRuns();
   assert.equal(Number((await raw.query(`select count(*) from agent_sessions`)).rows[0].count), 0, "the PO's session is left alone");
   const [c] = await list();
@@ -183,7 +190,7 @@ test("I57-1 #4 (PLA-I60): a busy PO still gets the question queued at once: a qu
   await raw.query(`insert into agent_runs (agent_id, project_id, role, status, summary, work_key) values ($1, $2, 'product-owner', 'running', 'running', 'general')`, [po, await id("projects", "micasa")]);
   const out = await ask({ text: "¿Cuántas sucursales hay?", mode: "pregunta" });
   assert.equal(out.wake, "queued");
-  assert.equal((await list())[0]!.state, "leyendo");
+  assert.equal((await list())[0]!.state, "cola");
   assert.equal(await consultas.retryConsultas(db), 0, "nothing to retry: it already has its run");
 });
 
@@ -233,7 +240,10 @@ test("PLA-50 #3: a second question waits (queued, not dropped) while one questio
   const d = await runner.drainQueue(db, new Date(), f.deps as never);
   assert.equal(d.started, 0);
   assert.equal(f.spawned.length, 0);
-  assert.equal((await list())[0]!.state, "leyendo", "still queued, not dropped");
+  // PLA-69: still queued, not dropped; it reads «cola» with the runner's reason, not «leyendo».
+  const [held] = await list();
+  assert.equal(held!.state, "cola", "still queued, not dropped");
+  assert.ok(held!.held, "says why it waits");
   const queued = (await raw.query(`select status from agent_runs r join consultas c on c.run_id = r.id where c.id = $1`, [out.consulta])).rows[0];
   assert.equal(queued.status, "queued");
 });
