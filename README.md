@@ -255,7 +255,7 @@ Change the screen password with `pnpm hash-password`, paste the result into `.en
 ## Morning brief
 
 A daily brief of every project, made by a headless `claude -p` on this Mac with the owner's own Claude subscription
-(no API key, nothing paid) and shown on `/brief`. It runs once a day at `run_at` (default 07:00, local time) and on
+(no API key, nothing paid) and shown in Compañía (`/ceo?v=brief`). It runs once a day at `run_at` (default 07:00, local time) and on
 "Generate now". Passes A (brief) and B (ideas) are read-only: they read Plania with a read token and each repo with
 `git`, and write nothing.
 
@@ -286,7 +286,7 @@ To turn it on:
    pnpm build && launchctl kickstart -k gui/$(id -u)/com.plania.server
    ```
 
-Then open `/brief` and press "Generate now" (or `pnpm brief:run`). The first brief takes a few minutes.
+Then open Compañía → Brief (`/ceo?v=brief`) and press "Generar ahora" (or `pnpm brief:run`). The first brief takes a few minutes.
 
 What the doctor checks: claude found and its version; claude logged in (the dry run also confirms the result carries
 `structured_output`); read token set; runner token set (`PLANIA_RUNNER_TOKEN`, needed for Send to Plania); GitHub
@@ -294,9 +294,9 @@ token readable (`GITHUB_TOKEN`, else `~/.config/plania/github-token`, see GitHub
 project's repo path exists; the brief settings (saved or first-run defaults, on or off) and a valid time zone; each
 included project's product owner and the home project (both for Send to Plania); the prompts folder
 `prompts/morning-brief` is present; migration `0045` applied. The same lines, without the claude dry run, are the
-"Setup check" at the bottom of the settings sheet on `/brief` (`GET /api/brief/doctor`).
+"Setup check" at the bottom of the brief's settings sheet (Ajustes) (`GET /api/brief/doctor`).
 
-First-run defaults (change them on `/brief`, settings): on, 07:00, time zone `PLANIA_TZ` (else
+First-run defaults (change them in the brief's Ajustes): on, 07:00, time zone `PLANIA_TZ` (else
 `America/Mexico_City`; the label is the city name unless you set one), language `es` (migration `0051` moved a saved `en` to `es`; English stays one setting away), owner name `PLANIA_CEO_NAME` (else "the owner"), every project included, each
 project's idea letter taken from its key prefix (X is for cross ideas), no hidden refs, facts-only fallback at 11:00.
 A project's repo is `settings.local.repo_path`, else `PLANIA_PROJECTS_ROOT/<slug>`. Its GitHub repo is
@@ -304,25 +304,28 @@ A project's repo is `settings.local.repo_path`, else `PLANIA_PROJECTS_ROOT/<slug
 `create_company_project`, or `scripts/seed-org.ts` above); cross ideas go to `PLANIA_HOME_PROJECT` (default `plania`;
 set it to one of your projects if you have no `plania` project). The doctor checks both.
 
-### The page: the city at dawn (V3)
+### The page: Brief in Compañía, la desembocadura (PLA-I63)
 
-`/brief` is the city at dawn, in Plania's own night (or light) surfaces. The sky on top has one tower per project of
-the brief, in brief order, then "Entre apps": the project's logo (Plania has its own; a project with no logo gets a
-monogram) and its Inicio colour, the open counts by kind, or "al día". Each row of today's brief is one window: orange
-waits for you, red blocks, blue is next (or an open PR), violet is a new idea, pale is handled. The sun climbs and the
-sky turns to day as rows are handled. The tools are Generar ahora (a menu: Pendientes e ideas, Solo pendientes, Solo
-ideas, each with its time; it sends `passes` to `POST /api/brief/run`), the day picker (past days are read-only),
-Ajustes, and "N resueltos hoy" (the handled list, with Deshacer where it exists).
+The brief is a tab of Compañía, after Plomería: `/ceo?v=brief` (the old `/brief` address redirects there, so saved
+links and notices still work; Brief is no longer in the app bar). Its count is what still waits on you in today's brief
+(open blockers and «te toca»). It is drawn in La corriente's look as a delta: one stream per project of the brief, in
+brief order, then "Entre apps". On a stream, new ideas spark near the source, what follows is a violet light with its
+key, what waits on you is an amber rhombus with its verb, and a blocker is an amber dam that cuts the stream (dotted
+after it). A stream is as wide as what it carries; it holds at most three ideas and five rows, the rest behind «+N».
+Every stream meets at «Tú» (amber while something waits on you, violet when nothing does); what you settle leaves by
+the green river of Resuelto, which grows through the day. The headline is one sentence that rewrites itself as you
+settle things («Dieciséis cosas esta mañana. Una bloquea y cuatro te esperan.»). The tools are Generar ahora (a menu:
+Pendientes e ideas, Solo pendientes, Solo ideas, each with its time; it sends `passes` to `POST /api/brief/run`), Días
+anteriores (`?dia=YYYY-MM-DD`, read-only, Volver a hoy) and Ajustes (the settings sheet).
 
-A tower is a tab: the page opens on the first project with a blocker. Below it, la mesa shows every card of that
-project (Pendientes, at most `max_items_per_app`; Ideas with two tabs, Nuevas and Ya en Plania, the open Plania ideas
-not yet planned and a count of the planned ones), and at the right la ficha shows the card in hand: what Plania says
-now, Hazlo tú (the first action answers to Enter), Dáselo a (only the teammates that can take that row, with the cost
-of waking them), Guárdalo (Después, No aplica). After an action the card keeps its stamp and time, a toast offers
-Deshacer, and the next open card is picked. Keys: J/K or the arrows move, left and right change project, Enter does the
-first action, L later, X not relevant, Z undo; keys do nothing while typing. "Ver <KEY> aquí" and an idea in Plania open
-the task sheet over the page; only GitHub and a sketch link leave it. A failed run after the day's brief keeps that
-brief and says when and why, with the steps to fix it and Reintentar.
+The card in hand, at the right, shows what Plania says now about the picked light and every action its row offers, in
+Compañía's words (Aceptar, Pedir ajuste, Publicar, Paso, Entrega): one white button (Enter), the rest secondary, the
+cost line before waking someone, Después (L) and No aplica (X). A settled light drops into the river with its stamp and
+time; Deshacer (on the card, in the footer, or Z) brings it back; the next open light of the same project is picked.
+Keys: J/K or ↑/↓ move, ← → change project, Enter, L, X, Z, Esc; nothing acts while typing. «Ver KEY» opens the paso or
+idea in Compañía; only GitHub leaves the page. A failed run keeps the brief and says when and why in the footer, with
+«Cómo arreglarlo» and Reintentar; a missing part says so. Ideas already in Plania are not drawn (they live in each
+project's Ideas tab). Under 640 px the delta is a list per project with the card under the chosen light.
 
 ### Acting from the brief (V2)
 

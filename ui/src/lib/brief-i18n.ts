@@ -81,7 +81,7 @@ export type CityCounts = { blocked: number; needs: number; next: number; ideas: 
 /** One piece of the voice line; tone colours it (blocked red, jorge orange). */
 export type VoicePart = { text: string; tone?: "blocked" | "jorge" };
 
-/** PLA-I51: the city at dawn (ui/src/components/brief/city.tsx). */
+/** PLA-I51: the city at dawn's labels (city.tsx retired in PLA-I63-5; the brief in Compañía reuses them). */
 export type CityLabels = {
   cross: string;
   projects: string;
