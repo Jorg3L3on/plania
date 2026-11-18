@@ -30,6 +30,8 @@ export type FichaIdea = {
   // PLA-I61-3: the summary the PO wrote, the stops it passed (stage index) and what the owner has not opened.
   summary: string;
   unseen: number;
+  // PLA-I65-5: the initiative it became (its row draws the delta).
+  promoted_to: string | null;
 };
 // PLA-I61-2: an idea whose design lives in Plania (Artist's frames), for the Diseño tab.
 export type FichaLienzo = { key: string; title: string; count: number; thumbs: string[]; unseen: number };
@@ -70,7 +72,7 @@ export async function fichaRead(db: Db, slug: string): Promise<Ficha> {
 
   const ideaRows = await rows(
     db,
-    sql`select t.id, t.key, t.title, t.summary, t.stage, t.updated_at from tasks t
+    sql`select t.id, t.key, t.title, t.summary, t.stage, t.promoted_to, t.updated_at from tasks t
         where t.project_id = ${id} and t.kind = 'idea' and t.status = 'Open'
         order by t.updated_at desc, t.key limit ${FICHA_LIMITS.ideas}`,
   );
@@ -103,6 +105,7 @@ export async function fichaRead(db: Db, slug: string): Promise<Ficha> {
       docs,
       summary: String(r.summary ?? ""),
       unseen: unseen[String(r.key)] ?? 0,
+      promoted_to: (r.promoted_to as string | null) ?? null,
     };
   });
 

@@ -54,13 +54,13 @@ export function useCerrar() {
   });
 }
 
-const run = (slug: string, a: CardAct, acts: CorrienteActs) => {
+export const run = (slug: string, a: CardAct, acts: CorrienteActs) => {
   if (a.kind === "primero") return acts.pickNext(slug, a.key);
   if (a.kind === "quitar") return acts.cancelOrder(slug, a.key);
   if (a.kind === "detener") return acts.stopRun(a.runId);
   return acts.decisions.decide(a.decision, { action: a.action }, "aceptar");
 };
-const busyOf = (a: CardAct, acts: CorrienteActs) =>
+export const busyOf = (a: CardAct, acts: CorrienteActs) =>
   a.kind === "primero" ? acts.busy === `next-${a.key}` : a.kind === "quitar" ? acts.busy === `cancel-${a.key}` : a.kind === "detener" ? acts.busy === `stop-${a.runId}` : acts.decisions.busy?.id === a.decision.id;
 
 const Card = ({ p, t, acts, list, chosen, onChoose, now }: { p: OrgProject; t: ProjectTicket; acts: CorrienteActs; list: CardAct[]; chosen: boolean; onChoose: () => void; now: number }) => {
@@ -135,7 +135,9 @@ const TrackRow = ({ p, tr, acts, decisions, chosen, onChoose, links, now, open, 
   );
 };
 
-export const Board = ({ p, decisions, acts, links, now, chosenKey, onChoose }: { p: OrgProject; decisions: Decision[]; acts: CorrienteActs; links: BoardLinks; now: number; chosenKey: string | null; onChoose: (key: string | null) => void }) => {
+// quiet: an initiative's ficha is open over the board (PLA-I65-5) and carries the one action bar; the board's own
+// bar for the chosen card stays folded so nothing asks twice.
+export const Board = ({ p, decisions, acts, links, now, chosenKey, onChoose, quiet }: { p: OrgProject; decisions: Decision[]; acts: CorrienteActs; links: BoardLinks; now: number; chosenKey: string | null; onChoose: (key: string | null) => void; quiet?: boolean }) => {
   const t = p.tablero ?? { initiatives: [], loose: [], loose_done: 0 };
   const b = boardOf(t);
   const cerrar = useCerrar();
@@ -205,7 +207,7 @@ export const Board = ({ p, decisions, acts, links, now, chosenKey, onChoose }: {
           </ul>
         </details>
       )}
-      {chosen && (
+      {chosen && !quiet && (
         <div className={`cor-bbar ${chosen.etapa.etapa === "te_toca" ? "you" : ""}`} data-bar={chosen.key} role="region" aria-label={`Paso elegido: ${chosen.key}`}>
           {chosen.etapa.etapa === "te_toca" ? <You /> : <i className="cor-ring" aria-hidden />}
           <span className="cor-bbar-text">
