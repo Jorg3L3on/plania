@@ -13,6 +13,10 @@
 //        event, that line of the Idea doc as decided, a note in his words; a pick other than the option in force sends
 //        the idea back to the idea stage and wakes the PO. ideaDecisionRoutes below carries the route.
 //   GET  /api/company/projects/:slug/ideas/:key/frames/:id      one of Artist's frames (src/pedidos/frames.ts)
+// PLA-I65-1 (Una sola ficha): the same read serves the thing's whole life. It adds `short` (the idea's short name),
+// `gist` per stop (one line, null when the stop has nothing yet) and `built` (the initiative it became: steps with
+// their stage and PR, and when it was published). The key may be an initiative's: the idea promoted to it answers;
+// an initiative no idea points at answers with empty stops and its `built`.
 // Nothing waits on an answer: without one the idea keeps going.
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
@@ -20,7 +24,8 @@ import { getCookie } from "hono/cookie";
 import { z } from "zod";
 import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb, type Db } from "../db/client.js";
-import { agentRuns, docs, events, ideaFrames, projects, questions, tasks, type Actor, type Task } from "../db/schema.js";
+import { agentRuns, docs, events, ideaFrames, projects, pullRequests, questions, results, tasks, type Actor, type Task } from "../db/schema.js";
+import { projectEtapas, type EtapaId } from "./etapa.js";
 import { findProject } from "../mcp/queries.js";
 import { DECISION, DELIVERY_EVENTS, decisionStates, deliveredFor, deliveredOf, recommendationText, rewriteDecisionLine, type DecisionState, type PlanStep, type StageData } from "../mcp/stage-docs.js";
 import { webCtx, writeTx, type Emit, type Q } from "../mcp/tx.js";
@@ -52,6 +57,24 @@ export type IdeaStop = {
 // force: the recommended one while it is assumed, his pick once decided.
 export type IdeaDecisionView = { n: number; question: string; options: string[]; recommended: number; why: string; state: "assumed" | "decided"; chosen: number; at: string | null };
 export type IdeaOption = { n: number; title: string; text: string };
+// PLA-I65-1: one step of the initiative the idea became, with its stage on the board and its PR.
+export type BuiltStep = { key: string; title: string; status: string; phase: number | null; etapa: EtapaId | null; pr: { number: number; state: string; url: string } | null };
+export type Built = {
+  key: string;
+  title: string;
+  status: string;
+  version: number;
+  // Landed steps (Merged, Released, Done) and every step but Won't do.
+  done: number;
+  total: number;
+  can_close: boolean;
+  steps: BuiltStep[];
+  prs: { number: number; state: string; url: string; key: string }[];
+  // Every step landed and released (or the initiative is Done): when the last one did.
+  published_at: string | null;
+  // The newest passing evidence on its steps (what Publicado shows).
+  evidence: { key: string; kind: string; cite: string; commit: string | null; env: string | null; at: string }[];
+};
 export type IdeaDetail = Pedido & {
   summary: string;
   // The owner's words when he asked for it (else the title).
@@ -79,6 +102,13 @@ export type IdeaDetail = Pedido & {
   queued: string | null;
   trail: TrailItem[];
   pictures: { id: string; url: string; at: string }[];
+  // PLA-I65-1. kind: what the key named (an idea, or an initiative with or without an idea behind it).
+  kind: "idea" | "initiative";
+  short: string;
+  // The PO's newest «Entendí» line whole (understood is cut at 160 for the lists).
+  understood_text: string | null;
+  gist: Record<PedidoStop, string | null>;
+  built: Built | null;
 };
 type Refusal = { error: string; status: 400 | 404 | 409; hint: string };
 
@@ -96,6 +126,107 @@ async function anyIdea(db: Db, slug: string, key: string): Promise<{ project: { 
   const [t] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
   if (!t || t.kind !== "idea") return { error: "IDEA_NOT_FOUND", status: 404, hint: "Esa idea no está en este proyecto." };
   return { project: p, t };
+}
+
+// PLA-I65-1: an initiative's key reads as the idea promoted to it (the newest one), else as the initiative alone.
+async function thingOf(db: Db, slug: string, key: string): Promise<{ project: { id: string; slug: string }; t: Task; init: Task | null } | Refusal> {
+  const [p] = await db.select({ id: projects.id, slug: projects.slug }).from(projects).where(eq(projects.slug, slug)).limit(1);
+  if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
+  const [t] = await db.select().from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
+  if (t?.kind === "idea") return { project: p, t, init: null };
+  if (t?.kind !== "initiative") return { error: "IDEA_NOT_FOUND", status: 404, hint: "Esa idea no está en este proyecto." };
+  const [idea] = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "idea"), eq(tasks.promotedTo, t.key)))
+    .orderBy(desc(tasks.updatedAt))
+    .limit(1);
+  return { project: p, t: idea ?? t, init: t };
+}
+
+const LANDED = ["Merged", "Released", "Done"];
+const PUBLISHED = ["Released", "Done"];
+
+/** The initiative an idea became: its steps with their stage and PR, and when it was published. */
+export async function builtOf(db: Db, slug: string, init: Task): Promise<Built> {
+  const p = await findProject(db, slug);
+  const kids = (await db.select().from(tasks).where(and(eq(tasks.parentId, init.id), eq(tasks.kind, "ticket")))).filter((k) => k.status !== "Won't do");
+  const etapas = kids.length ? await projectEtapas(db, p) : null;
+  const prRows = kids.length
+    ? await db
+        .select({ taskId: pullRequests.taskId, number: pullRequests.number, state: pullRequests.state, url: pullRequests.url, updatedAt: pullRequests.updatedAt })
+        .from(pullRequests)
+        .where(inArray(pullRequests.taskId, kids.map((k) => k.id)))
+        .orderBy(desc(pullRequests.updatedAt))
+    : [];
+  const keyNo = (k: string) => Number(/(\d+)$/.exec(k)?.[1] ?? Number.MAX_SAFE_INTEGER);
+  const sorted = [...kids].sort((a, b) => (a.phase ?? 999) - (b.phase ?? 999) || keyNo(a.key) - keyNo(b.key) || a.key.localeCompare(b.key));
+  const prOf = (id: string) => {
+    const mine = prRows.filter((r) => r.taskId === id);
+    const r = mine.find((x) => x.state === "open") ?? mine[0];
+    return r ? { number: r.number, state: r.state, url: r.url } : null;
+  };
+  const steps: BuiltStep[] = sorted.map((k) => ({ key: k.key, title: k.title, status: k.status, phase: k.phase ?? null, etapa: etapas?.byTicket.get(k.key)?.etapa.etapa ?? null, pr: prOf(k.id) }));
+  const done = sorted.filter((k) => LANDED.includes(k.status)).length;
+  const closed = sorted.filter((k) => k.status === "Done").length;
+  const landedAt = (k: Task) => (k.resolvedAt ?? k.statusChangedAt ?? k.updatedAt)?.getTime() ?? 0;
+  const all = sorted.length > 0 && sorted.every((k) => PUBLISHED.includes(k.status));
+  const published = init.status === "Done" ? (init.resolvedAt ?? init.statusChangedAt ?? (all ? new Date(Math.max(...sorted.map(landedAt))) : null)) : all ? new Date(Math.max(...sorted.map(landedAt))) : null;
+  const ev = kids.length
+    ? await db
+        .select({ taskId: results.taskId, kind: results.kind, cite: results.cite, commit: results.commit, env: results.env, at: results.createdAt })
+        .from(results)
+        .where(and(inArray(results.taskId, kids.map((k) => k.id)), eq(results.verdict, "pass")))
+        .orderBy(desc(results.createdAt))
+        .limit(4)
+    : [];
+  const keyOfId = new Map(kids.map((k) => [k.id, k.key]));
+  return {
+    key: init.key,
+    title: init.title,
+    status: init.status,
+    version: init.version,
+    done,
+    total: sorted.length,
+    can_close: sorted.length > 0 && closed === sorted.length && init.status !== "Done",
+    steps,
+    prs: sorted.flatMap((k) => prRows.filter((r) => r.taskId === k.id).map((r) => ({ number: r.number, state: r.state, url: r.url, key: k.key }))),
+    published_at: published ? published.toISOString() : null,
+    evidence: ev.map((r) => ({ key: keyOfId.get(r.taskId) ?? "", kind: r.kind, cite: r.cite, commit: r.commit, env: r.env, at: r.at.toISOString() })),
+  };
+}
+
+/** The short name: the idea's summary, else the first words of its title. */
+export function shortOf(summary: string | null | undefined, title: string): string {
+  const s = (summary ?? "").trim();
+  if (s && s.length <= 80) return s;
+  const words = (s || title).replace(/\s+/g, " ").trim().split(" ");
+  const out = words.slice(0, 7).join(" ");
+  return words.length > 7 ? `${out.replace(/[.,;:]$/, "")}…` : out;
+}
+
+const oneLine = (s: string | null | undefined, n = 90) => {
+  const x = clean((s ?? "").replace(/[#>]/g, " "));
+  if (!x) return null;
+  return x.length > n ? `${x.slice(0, n - 1).trimEnd()}…` : x;
+};
+
+/** One or two lines per stop, from what that stop delivered; null when it has nothing (never the doc's title). */
+export function gistOf(d: Pick<IdeaDetail, "text" | "understood" | "understood_text" | "research" | "frames" | "plan_steps" | "ficha" | "stage" | "promoted_to" | "stops">): Record<PedidoStop, string | null> {
+  const has = (s: PedidoStop) => d.stops.find((x) => x.stop === s)?.delivered ?? false;
+  const rec = d.research.recommendation;
+  const n = rec ? Number(/opci[oó]n\s*(\d+)/i.exec(rec)?.[1] ?? NaN) : NaN;
+  const recOption = d.research.options.find((o) => o.n === n) ?? (rec ? null : (d.research.options[0] ?? null));
+  const nf = d.frames.length;
+  const size = oneLine(d.ficha.tamano, 40);
+  return {
+    buzon: oneLine(d.text, 80),
+    entendido: has("entendido") ? oneLine((d.understood_text ?? d.understood)?.replace(/^\s*entend[ií]\s*[:：-]\s*/i, "")) : null,
+    investigacion: has("investigacion") ? (recOption ? `Recomienda: ${recOption.title}` : oneLine(rec)) : null,
+    diseno: has("diseno") && nf ? `${nf} ${nf === 1 ? "marco" : "marcos"} de Artist` : null,
+    plan: has("plan") && d.plan_steps.length ? `${d.plan_steps.length} ${d.plan_steps.length === 1 ? "paso" : "pasos"}${size ? ` · ${size.replace(/\.$/, "").toLowerCase()}` : ""}` : null,
+    lista: d.promoted_to ? `Es ${d.promoted_to} en el tablero` : d.stage === "ready" ? "Lista para construir" : null,
+  };
 }
 
 const clean = (s: string) => s.replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
@@ -122,10 +253,12 @@ const bullets = (body: string | null): string[] =>
     .map((x) => clean(x))
     .slice(0, 12);
 
-export async function ideaDetail(db: Db, slug: string, key: string): Promise<IdeaDetail | Refusal> {
-  const found = await anyIdea(db, slug, key);
+// lite: without built (the lists count unseen deliveries over every idea; the board read is not needed there).
+export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite?: boolean } = {}): Promise<IdeaDetail | Refusal> {
+  const found = await thingOf(db, slug, key);
   if ("error" in found) return found;
-  const { project, t } = found;
+  const { project, t, init } = found;
+  if (t.kind === "initiative") return initiativeAlone(db, slug, t, !opts.lite);
   const base = await pedidoOf(db, project.id, t);
   const list = await db.select().from(docs).where(eq(docs.taskId, t.id)).orderBy(desc(docs.updatedAt));
   const docOf = (title: string) => list.find((d) => d.title.toLowerCase() === title.toLowerCase()) ?? null;
@@ -196,7 +329,8 @@ export async function ideaDetail(db: Db, slug: string, key: string): Promise<Ide
     .where(and(eq(agentRuns.projectId, project.id), eq(agentRuns.taskKey, t.key), eq(agentRuns.status, "queued")))
     .limit(1);
   const [lastEv] = await db.select({ at: events.createdAt }).from(events).where(and(eq(events.taskId, t.id), sql`${events.type} not in ('usage.reported', 'idea.visto')`)).orderBy(desc(events.id)).limit(1);
-  return {
+  const promoted = opts.lite ? null : init ?? (t.promotedTo ? ((await db.select().from(tasks).where(and(eq(tasks.projectId, project.id), eq(tasks.key, t.promotedTo))).limit(1))[0] ?? null) : null);
+  const out: Omit<IdeaDetail, "gist"> & { gist?: IdeaDetail["gist"] } = {
     ...base,
     summary: t.summary,
     text: askedText(t.scope, t.title),
@@ -225,7 +359,59 @@ export async function ideaDetail(db: Db, slug: string, key: string): Promise<Ide
     quiet_since: base.state === "quieta" && !inLine && t.status === "Open" && !t.promotedTo ? (lastEv?.at.toISOString() ?? null) : null,
     queued: inLine?.role ?? null,
     trail: await trailOf(db, t),
-    pictures: t.origin === "jorge" ? (await listTaskImages(db, slug, key)).map((i) => ({ id: i.id, url: i.url, at: i.created_at })) : [],
+    pictures: t.origin === "jorge" ? (await listTaskImages(db, slug, t.key)).map((i) => ({ id: i.id, url: i.url, at: i.created_at })) : [],
+    kind: init ? "initiative" : "idea",
+    short: shortOf(t.summary, t.title),
+    understood_text: ((): string | null => {
+      const last = evs.findLast((e) => e.type === "note" && /^\s*entend[ií]\s*[:：-]/i.test(String((e.payload as { text?: string }).text ?? "")));
+      const text = last ? String((last.payload as { text?: string }).text ?? "").replace(/^\s*entend[ií]\s*[:：-]\s*/i, "").trim() : "";
+      return text || null;
+    })(),
+    built: promoted?.kind === "initiative" ? await builtOf(db, slug, promoted) : null,
+  };
+  return { ...out, gist: gistOf(out) };
+}
+
+// An initiative no idea points at: empty stops (nothing delivered there) and its built.
+async function initiativeAlone(db: Db, slug: string, t: Task, withBuilt: boolean): Promise<IdeaDetail> {
+  const empty = Object.fromEntries(PEDIDO_STOPS.map((s) => [s, null])) as Record<PedidoStop, string | null>;
+  return {
+    key: t.key,
+    title: t.title,
+    stop: "lista",
+    state: "quieta",
+    who: "product-owner",
+    images: 0,
+    understood: null,
+    question: null,
+    guardada: false,
+    at: t.createdAt.toISOString(),
+    unseen_stop: null,
+    summary: t.summary,
+    text: t.title,
+    status: t.status,
+    stage: null,
+    promoted_to: t.key,
+    pedido: false,
+    question_options: [],
+    stops: PEDIDO_STOPS.map((stop) => ({ stop, state: "done" as const, by: null, at: null, delivered: false, doc: null, data: null, seen: true, answer: null })),
+    ficha: { problema: null, tamano: null, solucion: null, riesgos: null, fuera: null },
+    research: { recommendation: null, options: [], unknown: [], recommended: null, learned: [] },
+    // AUDIT-8: an initiative read on its own has no stage data.
+    plan: null,
+    decisions: [],
+    plan_steps: [],
+    frames: [],
+    unseen: 0,
+    quiet_since: null,
+    queued: null,
+    trail: [],
+    pictures: [],
+    kind: "initiative",
+    short: shortOf(t.summary, t.title),
+    understood_text: null,
+    gist: empty,
+    built: withBuilt ? await builtOf(db, slug, t) : null,
   };
 }
 
@@ -235,7 +421,7 @@ const decisionView = (s: DecisionState, i: number): IdeaDecisionView => ({ n: i 
 export async function unseenByIdea(db: Db, slug: string, keys: string[]): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   for (const key of keys) {
-    const d = await ideaDetail(db, slug, key);
+    const d = await ideaDetail(db, slug, key, { lite: true });
     if (!("error" in d)) out[key] = d.unseen;
   }
   return out;
@@ -276,7 +462,7 @@ export async function ideaRespuesta(db: Db, slug: string, key: string, input: An
   if (no) return no;
   const stop = input.stop as PedidoStop;
   if (!ANSWERABLE.includes(stop)) return { error: "INVALID_STOP", status: 400, hint: "A esa parada no se le responde." };
-  const detail = await ideaDetail(db, slug, key);
+  const detail = await ideaDetail(db, slug, key, { lite: true });
   if ("error" in detail) return detail;
   const s = detail.stops.find((x) => x.stop === stop)!;
   if (!s.delivered) return { error: "NOTHING_TO_ANSWER", status: 409, hint: "Esa parada todavía no entrega nada." };

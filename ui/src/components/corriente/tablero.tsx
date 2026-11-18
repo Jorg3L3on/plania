@@ -1,31 +1,14 @@
-// PLA-I62-6: La corriente's own board (boards B3 and B6). It does not change components/plan/stage-board.tsx, which
-// /p/<slug> keeps with its .sb-* classes; it reads the same model (lib/etapas.ts boardOf, cardActs). Flat stations
-// (Por hacer, Taller, QA, Revisión, Te toca, Hecho), one row per open initiative and Sueltos; Detener on the card a
-// run works on and Hacer primero on the one that waits sit on the card; the chosen card gets the one action bar
-// (Aceptar, Ver la entrega, Ver el paso, Quitar). An initiative whose steps are all done offers Cerrar iniciativa.
-// A paso's detail: Hecho cuando, the evidence, PR and docs, its history, and its initiative with Cerrar.
-import { useState, type CSSProperties } from "react";
+// PLA-I62-6: a paso's (or an initiative's) detail, opened from the project's list. PLA-I64-7 retired the board
+// itself (the list's rows and levers took its place). A paso's detail: Hecho cuando, the evidence, PR and docs, its history, and its initiative with Cerrar.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { ApiError, api, type Decision, type OrgProject, type ProjectTicket } from "@/lib/api";
-import { OPEN_STATIONS, STATIONS, boardOf, cardActs, closeLine, deliveryFor, runOn, type CardAct, type StationId, type Track } from "@/lib/etapas";
+import { actAria, actBusyKey, actLabel, cardActs, type CardAct } from "@/lib/etapas";
 import { ETAPA_WORD } from "@/lib/etapas";
-import { acceptWords } from "@/lib/evidencia";
 import type { LogEntry } from "@/lib/types";
 import type { CorrienteActs } from "./acts";
-import { PLAN_ASK } from "./ahora";
-import { Agent, Btn, Key, Label, ReadError, State, You } from "./parts";
-
-const SUB: Record<StationId, (n: number, lit: boolean) => string> = {
-  por: () => "el PO ordena",
-  taller: (n, lit) => (lit ? "trabajando" : n ? `${n} en espera` : "vacía"),
-  qa: (n, lit) => (lit ? "probando" : n ? `${n} en espera` : "vacía"),
-  rev: () => "PR y pruebas",
-  toca: (n) => (n ? (n === 1 ? "1 te espera" : `${n} te esperan`) : "nada"),
-  hecho: (n) => String(n),
-};
-const SHOWN = 2;
+import { Btn, Key, Label, ReadError, State } from "./parts";
 
 export type BoardLinks = { paso: (key: string) => string; iniciativa: (key: string) => string; entrega: (d: Decision) => string; sueltos: string; doc: (id: string) => string };
 
@@ -54,191 +37,15 @@ export function useCerrar() {
   });
 }
 
-const run = (slug: string, a: CardAct, acts: CorrienteActs) => {
+// PLA-I65: the card's calls, shared with the ficha (ficha.tsx).
+export const run = (slug: string, a: CardAct, acts: CorrienteActs) => {
   if (a.kind === "primero") return acts.pickNext(slug, a.key);
   if (a.kind === "quitar") return acts.cancelOrder(slug, a.key);
   if (a.kind === "detener") return acts.stopRun(a.runId);
   return acts.decisions.decide(a.decision, { action: a.action }, "aceptar");
 };
-const busyOf = (a: CardAct, acts: CorrienteActs) =>
+export const busyOf = (a: CardAct, acts: CorrienteActs) =>
   a.kind === "primero" ? acts.busy === `next-${a.key}` : a.kind === "quitar" ? acts.busy === `cancel-${a.key}` : a.kind === "detener" ? acts.busy === `stop-${a.runId}` : acts.decisions.busy?.id === a.decision.id;
-
-const Card = ({ p, t, acts, list, chosen, onChoose, now }: { p: OrgProject; t: ProjectTicket; acts: CorrienteActs; list: CardAct[]; chosen: boolean; onChoose: () => void; now: number }) => {
-  const e = t.etapa;
-  const live = e.live || !!runOn(t.key, p.team);
-  const you = e.etapa === "te_toca";
-  const inline = list.filter((a) => a.kind === "detener" || a.kind === "primero");
-  const mins = e.since && live ? Math.max(0, Math.round((now - Date.parse(e.since)) / 60_000)) : null;
-  return (
-    <div className={`cor-bcard ${live ? "live" : ""} ${you ? "you" : ""} ${chosen ? "chosen" : ""}`} data-card={t.key} data-etapa={e.etapa}>
-      <button type="button" className="cor-bcard-main" aria-pressed={chosen} onClick={onChoose} aria-label={`${t.key} · ${t.title}, ${ETAPA_WORD[e.etapa]}`}>
-        <span className="cor-bcard-st">
-          {live ? <Agent small /> : you ? <You small flat /> : <i className="cor-ring" aria-hidden />}
-          {chosen && you ? "Elegida · te toca" : `${ETAPA_WORD[e.etapa]}${mins !== null ? ` · ${mins} min` : ""}`}
-        </span>
-        <span className="cor-bcard-t">
-          <Key>{t.key}</Key> <span>{t.title}</span>
-        </span>
-      </button>
-      {inline.map((a) => (
-        <Btn key={a.kind} kind="secondary" small disabled={busyOf(a, acts)} onClick={() => run(p.slug, a, acts)} data-control={`tablero-${a.kind}`} aria-label={`${a.kind === "detener" ? "Detener" : "Hacer primero"}: ${t.title}`}>
-          {a.kind === "detener" ? "Detener" : "Hacer primero"}
-        </Btn>
-      ))}
-    </div>
-  );
-};
-
-const TrackRow = ({ p, tr, acts, decisions, chosen, onChoose, links, now, open, onOpen }: { p: OrgProject; tr: Track; acts: CorrienteActs; decisions: Decision[]; chosen: string | null; onChoose: (key: string) => void; links: BoardLinks; now: number; open: Set<string>; onOpen: (cell: string) => void }) => {
-  const pct = tr.total ? Math.round((tr.done / tr.total) * 100) : 0;
-  const counts = OPEN_STATIONS.map((s) => tr.cells[s.id as Exclude<StationId, "hecho">].length);
-  const review = (tr.cells.rev?.length ?? 0) + (tr.cells.toca?.length ?? 0);
-  return (
-    <div className="cor-brow" data-track={tr.key ?? "sueltos"} role="group" aria-label={tr.title}>
-      <Link className="cor-brow-name" to={tr.key ? links.iniciativa(tr.key) : links.sueltos}>
-        {tr.key && <Key>{tr.key}</Key>}
-        <b>{tr.title}</b>
-        <span className="cor-cap">{tr.key ? `${review} en revisión · ${counts[0]} por hacer` : "pasos sin iniciativa"}</span>
-        {tr.key && tr.total > 0 && (
-          <span className="cor-segbar" aria-hidden style={{ "--n": tr.total } as CSSProperties}>
-            {Array.from({ length: Math.min(tr.total, 12) }, (_, i) => (
-              <i key={i} className={i < Math.round((pct / 100) * Math.min(tr.total, 12)) ? "on" : ""} />
-            ))}
-          </span>
-        )}
-      </Link>
-      {OPEN_STATIONS.map((s) => {
-        const cell = tr.cells[s.id as Exclude<StationId, "hecho">];
-        const id = `${tr.key ?? "s"}:${s.id}`;
-        const show = open.has(id) ? cell : cell.slice(0, SHOWN);
-        return (
-          <div key={s.id} className={`cor-bcell ${s.id}`} data-station={s.id}>
-            {show.map((t) => (
-              <Card key={t.key} p={p} t={t} acts={acts} list={cardActs(t, { team: p.team, decisions, orders: p.orders, nextFirst: p.next_first })} chosen={chosen === t.key} onChoose={() => onChoose(t.key)} now={now} />
-            ))}
-            {cell.length > SHOWN && (
-              <Btn kind="link" onClick={() => onOpen(id)} data-control="ver-otros">
-                {open.has(id) ? "Ver menos" : `Ver ${cell.length - SHOWN === 1 ? "el otro" : `los otros ${cell.length - SHOWN}`}`}
-              </Btn>
-            )}
-          </div>
-        );
-      })}
-      <div className="cor-bcell hecho" data-station="hecho">
-        {tr.hecho.count > 0 && (
-          <Link className="cor-cap" to={tr.key ? links.iniciativa(tr.key) : links.sueltos} title={tr.hecho.last ?? undefined}>
-            {tr.hecho.count} {tr.hecho.count === 1 ? "hecho" : "hechos"}
-          </Link>
-        )}
-      </div>
-    </div>
-  );
-};
-
-export const Board = ({ p, decisions, acts, links, now, chosenKey, onChoose }: { p: OrgProject; decisions: Decision[]; acts: CorrienteActs; links: BoardLinks; now: number; chosenKey: string | null; onChoose: (key: string | null) => void }) => {
-  const t = p.tablero ?? { initiatives: [], loose: [], loose_done: 0 };
-  const b = boardOf(t);
-  const cerrar = useCerrar();
-  const [open, setOpen] = useState<Set<string>>(new Set());
-  const all = [...t.initiatives.flatMap((i) => i.tickets), ...t.loose];
-  // The chosen card: the address's, else the one that waits on the owner.
-  const chosen = all.find((x) => x.key === chosenKey) ?? all.find((x) => x.etapa.etapa === "te_toca") ?? null;
-  const live = b.tracks.filter((tr) => !(tr.key && tr.canClose));
-  const closable = b.tracks.filter((tr) => tr.key && tr.canClose);
-  const counts = (id: StationId) => (id === "hecho" ? b.tracks.reduce((n, tr) => n + tr.hecho.count, 0) : b.tracks.reduce((n, tr) => n + tr.cells[id as Exclude<StationId, "hecho">].length, 0));
-  const acts4 = chosen ? cardActs(chosen, { team: p.team, decisions, orders: p.orders, nextFirst: p.next_first }) : [];
-  const accept = acts4.find((a) => a.kind === "aceptar") as Extract<CardAct, { kind: "aceptar" }> | undefined;
-  const quitar = acts4.find((a) => a.kind === "quitar");
-  const d = chosen ? deliveryFor(chosen.key, decisions) : null;
-  const empty = b.tickets === 0;
-  const doneInits = t.done_initiatives ?? [];
-  return (
-    <div className="cor-board" data-board={b.tickets}>
-      <div className="cor-bhead" aria-hidden>
-        <span className="cor-label">Iniciativa</span>
-        {STATIONS.map((s) => {
-          const n = counts(s.id);
-          const lit = b.lit[s.id];
-          return (
-            <span key={s.id} className={`cor-bstation ${s.id} ${lit ? "lit" : ""} ${s.id === "toca" && n ? "you" : ""}`}>
-              <span className="cor-label">{s.name}</span>
-              <span className="cor-cap">{SUB[s.id](n, !!lit)}</span>
-            </span>
-          );
-        })}
-      </div>
-      <div className="cor-brows">
-        {empty ? (
-          <div className="cor-empty" data-board="empty">
-            <p className="cor-text">{p.route && p.route.legs.length > 0 ? "No hay iniciativas abiertas ni pasos sueltos." : "Aún no hay plan: ninguna iniciativa abierta ni pasos sueltos."}</p>
-            {!p.paused && !(p.route && p.route.legs.length > 0) && (
-              <Btn kind="secondary" onClick={() => acts.plan(p.slug, PLAN_ASK)} disabled={acts.busy === `${p.slug}:plan`} data-control="planear">
-                Arma el plan
-              </Btn>
-            )}
-          </div>
-        ) : (
-          live.map((tr) => <TrackRow key={tr.key ?? "sueltos"} p={p} tr={tr} acts={acts} decisions={decisions} chosen={chosen?.key ?? null} onChoose={(k) => onChoose(k === chosen?.key ? null : k)} links={links} now={now} open={open} onOpen={(id) => setOpen((s) => new Set(s.has(id) ? [...s].filter((x) => x !== id) : [...s, id]))} />)
-        )}
-        {closable.map((tr) => (
-          <div key={tr.key} className="cor-bclose" data-close={tr.key}>
-            <span>
-              <Key>{tr.key}</Key>
-              <b>{tr.title}</b>
-            </span>
-            <span className="cor-text">Todos sus pasos están hechos. Cerrarla la pasa a Completas.</span>
-            <Btn kind="secondary" disabled={cerrar.isPending || tr.version === null} onClick={() => cerrar.mutate({ slug: p.slug, key: tr.key!, version: tr.version! })} data-control="cerrar-iniciativa">
-              {cerrar.isPending && cerrar.variables?.key === tr.key ? "Cerrando…" : "Cerrar iniciativa"}
-            </Btn>
-          </div>
-        ))}
-      </div>
-      {doneInits.length > 0 && (
-        <details className="cor-bdone">
-          <summary className="cor-btn link">{`Iniciativas completas · ${doneInits.length}`}</summary>
-          <ul>
-            {doneInits.slice(0, 6).map((i) => (
-              <li key={i.key}>
-                <Key>{i.key}</Key> {i.title}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {chosen && (
-        <div className={`cor-bbar ${chosen.etapa.etapa === "te_toca" ? "you" : ""}`} data-bar={chosen.key} role="region" aria-label={`Paso elegido: ${chosen.key}`}>
-          {chosen.etapa.etapa === "te_toca" ? <You /> : <i className="cor-ring" aria-hidden />}
-          <span className="cor-bbar-text">
-            <span>
-              <Key>{chosen.key}</Key> <b>{chosen.title}</b>
-            </span>
-            <span className="cor-cap">{chosen.etapa.etapa === "te_toca" ? (d?.hold ?? (accept ? acceptWords(accept.decision).hint : "Falta tu decisión.")) : ETAPA_WORD[chosen.etapa.etapa]}</span>
-          </span>
-          {accept && (
-            <Btn kind="primary" disabled={busyOf(accept, acts) || !!accept.decision.hold} aria-label={acceptWords(accept.decision).aria} onClick={() => run(p.slug, accept, acts)} data-control="tablero-aceptar">
-              Aceptar
-            </Btn>
-          )}
-          {d && (
-            <Link className="cor-btn secondary" to={links.entrega(d)} data-control="ver-entrega">
-              Ver la entrega
-            </Link>
-          )}
-          <Link className="cor-btn quiet" to={links.paso(chosen.key)} data-control="ver-paso">
-            Ver el paso
-          </Link>
-          {quitar && (
-            <Btn kind="quiet" disabled={busyOf(quitar, acts)} onClick={() => run(p.slug, quitar, acts)} data-control="tablero-quitar">
-              Quitar
-            </Btn>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ---- a paso and its initiative (board B6)
 
 const RESULT_WORD = (v: string) => (v === "pass" ? ["Pasa", "ok"] : v === "fail" ? ["Falla", "bad"] : ["Aviso", undefined]) as [string, "ok" | "bad" | undefined];
 function logLine(e: LogEntry): string {
@@ -289,7 +96,25 @@ const InitiativeCard = ({ p, k, onCerrar, busy, links, here }: { p: OrgProject; 
   );
 };
 
-export const Paso = ({ p, k, links, back }: { p: OrgProject; k: string; links: BoardLinks; back: string }) => {
+/** PLA-I64-7: what the board's card offered on a step (Hacer primero, Detener, Quitar, Aceptar), now in its view. */
+const PasoActs = ({ p, t, acts, decisions }: { p: OrgProject; t: ProjectTicket; acts: CorrienteActs; decisions: Decision[] }) => {
+  const list = cardActs(t, { team: p.team, decisions, orders: p.orders, nextFirst: p.next_first });
+  if (!list.length) return null;
+  const go = (a: CardAct) =>
+    a.kind === "primero" ? acts.pickNext(p.slug, a.key) : a.kind === "detener" ? acts.stopRun(a.runId) : a.kind === "quitar" ? acts.cancelOrder(p.slug, a.key) : acts.decisions.decide(a.decision, { action: a.action }, "paso-aceptar");
+  const busy = (a: CardAct) => (a.kind === "aceptar" ? acts.decisions.busy?.id === a.decision.id : acts.busy === actBusyKey(a) || acts.busy === `stop-${a.kind === "detener" ? a.runId : ""}`);
+  return (
+    <div className="cor-acts" data-paso-acts={t.key}>
+      {list.map((a) => (
+        <Btn key={a.kind} kind={a.kind === "aceptar" ? "primary" : "secondary"} onClick={() => go(a)} disabled={busy(a)} aria-label={actAria(a, t.title)} data-control={`paso-${a.kind}`}>
+          {actLabel(a)}
+        </Btn>
+      ))}
+    </div>
+  );
+};
+
+export const Paso = ({ p, k, links, back, backLabel = "Tablero", acts, decisions = [] }: { p: OrgProject; k: string; links: BoardLinks; back: string; backLabel?: string; acts?: CorrienteActs; decisions?: Decision[] }) => {
   const q = useQuery({ queryKey: ["task", p.slug, k], queryFn: () => api.task(p.slug, k) });
   const cerrar = useCerrar();
   const t = q.data;
@@ -304,7 +129,7 @@ export const Paso = ({ p, k, links, back }: { p: OrgProject; k: string; links: B
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M9.5 3.5 5 8l4.5 4.5" />
             </svg>
-            Tablero
+            {backLabel}
           </Link>
           <span className="cor-label violet">{t?.kind === "initiative" ? "Iniciativa" : "Paso"} ·</span>
           <Key>{k}</Key>
@@ -395,7 +220,7 @@ export const Paso = ({ p, k, links, back }: { p: OrgProject; k: string; links: B
                 </ul>
               </section>
             </div>
-            <p className="cor-cap">Lo que puedes hacer con un paso (Hacer primero, Detener, Quitar, Aceptar) está en su tarjeta del tablero.</p>
+            {acts && here && <PasoActs p={p} t={here} acts={acts} decisions={decisions} />}
           </>
         )}
       </div>

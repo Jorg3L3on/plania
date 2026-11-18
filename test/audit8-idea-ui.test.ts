@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 (globalThis as { React?: unknown }).React = React;
 const load = async (p: string) => (await import(new URL(`../ui/src/${p}`, import.meta.url).href)) as Record<string, any>;
-const ideaMod = await load("components/corriente/idea.tsx");
+const ideaMod = await load("components/corriente/decisiones.tsx");
 const h = React.createElement;
 const noop = () => undefined;
 const q = (over: Record<string, unknown> = {}) => ({ n: 1, question: "¿El aviso sale por WhatsApp o por correo?", options: ["WhatsApp", "Correo", "Los dos"], recommended: 1, why: "Casi todas contestan por WhatsApp.", state: "assumed", chosen: 1, at: null, ...over });
