@@ -2,10 +2,10 @@
 // projects start paused, and the journal names the file. A private database, never a real one.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { userInfo } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import pg from "pg";
+import { PG_USER } from "./helpers.js";
 
 const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 
@@ -18,7 +18,7 @@ test("the journal names 0039_company_runner and the file exists", () => {
 
 test("0039_company_runner.sql applies twice on a throwaway database", async () => {
   const name = "plania_mig_0039";
-  const adminUrl = `postgres://${userInfo().username}@localhost:5432/postgres`;
+  const adminUrl = `postgres://${PG_USER}@localhost:5432/postgres`;
   const sql0039 = readFileSync(path.join(dir, "0039_company_runner.sql"), "utf8");
   const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();
@@ -26,7 +26,7 @@ test("0039_company_runner.sql applies twice on a throwaway database", async () =
   await admin.query(`create database ${name}`);
   await admin.end();
 
-  const mig = new pg.Client({ connectionString: `postgres://${userInfo().username}@localhost:5432/${name}` });
+  const mig = new pg.Client({ connectionString: `postgres://${PG_USER}@localhost:5432/${name}` });
   await mig.connect();
   try {
     for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql") && f < "0039").sort()) await mig.query(readFileSync(path.join(dir, f), "utf8"));

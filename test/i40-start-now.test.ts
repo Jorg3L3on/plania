@@ -3,7 +3,7 @@
 // Every process is a fake child; throwaway DB; nothing reaches a real claude or repo.
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -31,6 +31,9 @@ let raw: pg.Client;
 let db: Db;
 let closeDb: () => Promise<void>;
 const scratch = mkdtempSync(path.join(tmpdir(), "plania-i40-start-"));
+// PLA-65: the seeded projects' checkouts live in the scratch folder, not in ~/Developer/Projects (absent on CI).
+const projectsDir = path.join(scratch, "projects");
+for (const slug of ["micasa", "workia", "filmia", "zigzag"]) mkdirSync(path.join(projectsDir, slug), { recursive: true });
 const A = { actor: { agent: "test-agent", session_id: "s-i40-start" } };
 const jorge = () => ({ Cookie: `${SESSION_COOKIE}=${createSession()}`, "Content-Type": "application/json" });
 
@@ -52,7 +55,7 @@ function fakes() {
   const spawned: { args: string[]; cwd: string; child: FakeChild }[] = [];
   let pid = 50_000;
   const deps = {
-    env: { HOME: scratch, PATH: "/usr/bin:/bin", PLANIA_RUNNER_TOKEN: "runner-token", PLANIA_PROMPTS_PROJECT: "micasa", CLAUDE_CODE_BIN: "/fake/bin/claude" } as NodeJS.ProcessEnv,
+    env: { HOME: scratch, PLANIA_PROJECTS_ROOT: projectsDir, PATH: "/usr/bin:/bin", PLANIA_RUNNER_TOKEN: "runner-token", PLANIA_PROMPTS_PROJECT: "micasa", CLAUDE_CODE_BIN: "/fake/bin/claude" } as NodeJS.ProcessEnv,
     logDir: path.join(scratch, "logs"),
     tmpDir: path.join(scratch, "tmp"),
     worktreeRoot: path.join(scratch, "worktrees"),

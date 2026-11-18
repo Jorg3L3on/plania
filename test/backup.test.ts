@@ -65,7 +65,10 @@ describe("runBackup", () => {
     try {
       const url = new URL(TEST_DATABASE_URL);
       url.pathname = `/${name}`;
-      const psql = path.join(path.dirname(realpathSync(execFileSync("which", ["pg_dump"]).toString().trim())), "psql");
+      // The psql next to the real pg_dump (Homebrew keeps one per major); else the one on PATH (PLA-65: on Ubuntu
+      // pg_dump resolves to postgresql-common's wrapper, with no psql beside it).
+      const beside = path.join(path.dirname(realpathSync(execFileSync("which", ["pg_dump"]).toString().trim())), "psql");
+      const psql = existsSync(beside) ? beside : execFileSync("which", ["psql"]).toString().trim();
       execFileSync(psql, ["-q", "-v", "ON_ERROR_STOP=1", url.toString()], { input: gunzipSync(readFileSync(path.join(dir, "plania-20261015.sql.gz"))) });
       const restored = new pg.Client({ connectionString: url.toString() });
       await restored.connect();

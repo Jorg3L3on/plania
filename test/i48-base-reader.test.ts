@@ -4,12 +4,12 @@
 // Vaciar y sembrar; and the fake password searched for in every response, log line and event.
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir, userInfo } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import pg from "pg";
 import { createHash } from "node:crypto";
-import { resetTestDb, useTestEnv } from "./helpers.js";
+import { resetTestDb, useTestEnv, PG_USER } from "./helpers.js";
 
 useTestEnv();
 const TMP = mkdtempSync(path.join(tmpdir(), "plania-i48-reader-"));
@@ -19,7 +19,7 @@ const maquinas = await import("../src/maquinas/machines.js");
 const reader = await import("../src/maquinas/reader.js");
 type Json = Record<string, any>;
 
-const USER = userInfo().username;
+const USER = PG_USER;
 const DB = `zigzag_test_i48r_${process.pid}`;
 const FAKE_PASSWORD = "fake-pw-Zx81-no-real";
 const URL_OK = `postgres://${USER}:${FAKE_PASSWORD}@127.0.0.1:5432/${DB}`;
@@ -76,7 +76,7 @@ before(async () => {
   writeFileSync(path.join(REPO, "drizzle", "0000_init.sql"), MIGRATION_0);
   writeFileSync(path.join(REPO, "drizzle", "0001_nacido.sql"), MIGRATION_1);
   writeFileSync(path.join(REPO, "seed.sql"), SEED);
-  writeFileSync(path.join(REPO, "seed.sh"), `psql -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -d ${DB} -f seed.sql\n`);
+  writeFileSync(path.join(REPO, "seed.sh"), `psql -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U ${USER} -d ${DB} -f seed.sql\n`);
   writeFileSync(path.join(REPO, "migrate.sh"), "echo migrated\n");
   writeEnv(URL_OK);
   await raw.query(`update projects set settings = settings || $1::jsonb where slug = 'zigzag'`, [
@@ -103,14 +103,18 @@ before(async () => {
   };
 });
 
+// PLA-65: each step on its own, so a failed setup (no admin connection) still closes raw and the process exits.
 after(async () => {
   logs?.restore();
-  const admin = new pg.Client({ connectionString: ADMIN });
-  await admin.connect();
-  await admin.query(`drop database if exists ${DB} with (force)`);
-  await admin.end();
-  await raw.end();
   rmSync(TMP, { recursive: true, force: true });
+  await raw?.end().catch(() => undefined);
+  const admin = new pg.Client({ connectionString: ADMIN });
+  try {
+    await admin.connect();
+    await admin.query(`drop database if exists ${DB} with (force)`);
+  } finally {
+    await admin.end().catch(() => undefined);
+  }
 });
 
 describe("tables", () => {
