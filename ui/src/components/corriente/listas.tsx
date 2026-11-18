@@ -21,7 +21,7 @@ export function useFicha(slug: string, all = false) {
 export const Prs = ({ p, decisions, open, links }: { p: OrgProject; decisions: Decision[]; open: number | null; links: { pr: (n: number) => string; paso: (key: string) => string; entrega: (d: Decision) => string } }) => {
   const f = useFicha(p.slug, true);
   if (f.isError) return <ReadError what="los PRs" onRetry={() => void f.refetch()} />;
-  if (!f.data) return <div className="cor-skel" style={{ height: 300 }} aria-busy="true" aria-label="Leyendo los PRs" />;
+  if (!f.data) return <div className="cor-skel" style={{ height: 300 }} role="status" aria-busy="true" aria-label="Leyendo los PRs" />;
   const prs = f.data.prs;
   const sel = prs.find((x) => x.number === open) ?? prs[0] ?? null;
   const openOnes = prs.filter((x) => x.state === "open" || (!x.merged_at && x.state !== "closed"));
@@ -134,7 +134,7 @@ export const Docs = ({ p, open, links }: { p: OrgProject; open: string | null; l
   const body = useQuery({ queryKey: ["ficha-doc", p.slug, sel?.id], queryFn: () => api.projectDoc(p.slug, sel!.id), enabled: !!sel });
   const [others, setOthers] = useState(false);
   if (f.isError) return <ReadError what="los docs" onRetry={() => void f.refetch()} />;
-  if (!f.data) return <div className="cor-skel" style={{ height: 300 }} aria-busy="true" aria-label="Leyendo los docs" />;
+  if (!f.data) return <div className="cor-skel" style={{ height: 300 }} role="status" aria-busy="true" aria-label="Leyendo los docs" />;
   // Grouped by initiative: the open one's first, then the project's own docs.
   const groups = new Map<string, typeof docs>();
   for (const d of docs) groups.set(d.task_key ?? "", [...(groups.get(d.task_key ?? "") ?? []), d]);

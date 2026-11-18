@@ -78,7 +78,9 @@ export function drawRio(g: CanvasRenderingContext2D, m: RioModel, size: RioSize,
   const grad = g.createLinearGradient(X(X0), 0, X(FX0), 0);
   grad.addColorStop(0, rgba(tok.violet, 0.5));
   grad.addColorStop(1, rgba(tok.violet2, 0.85));
-  band(X0, Math.min(front, FX0), grad, rgba(tok.violet, 0.9));
+  // PLA-63: an initiative born without an idea has water from the dam on.
+  const W0 = m.born ? VX : X0;
+  band(W0, Math.min(front, FX0), grad, rgba(tok.violet, 0.9));
   // The dam.
   const wait = m.dam === "wait";
   const open = m.dam === "open";
@@ -139,7 +141,7 @@ export function drawRio(g: CanvasRenderingContext2D, m: RioModel, size: RioSize,
     P.forEach((p, i) => {
       if (i < 95) {
         const f = wait ? 1 - Math.pow(1 - p.u, 2.3) : p.u;
-        const x = X0 + (Math.min(front, FX0) - X0) * f;
+        const x = W0 + (Math.min(front, FX0) - W0) * f;
         const y = Y(CY) + p.v * wAt(x) * 0.82;
         g.fillStyle = `rgba(255,255,255,${0.25 + 0.5 * Math.abs(Math.sin(p.u * 9 + i))})`;
         g.fillRect(X(x), y, p.r * 1.6, p.r);
@@ -162,7 +164,7 @@ export function drawRio(g: CanvasRenderingContext2D, m: RioModel, size: RioSize,
     const x = SX(i);
     g.beginPath();
     g.arc(X(x), Y(CY), i < m.here ? r : r + (small ? 0 : 0.5), 0, 7);
-    if (i <= m.here && x <= front + 1) {
+    if (!m.born && i <= m.here && x <= front + 1) {
       g.fillStyle = i === m.here ? (m.front === "you" ? tok.amber : "#ffffff") : "#ede9fe";
       g.fill();
       if (!small) {
@@ -196,7 +198,7 @@ export function drawRio(g: CanvasRenderingContext2D, m: RioModel, size: RioSize,
 }
 
 // A key that changes when the drawing would.
-const keyOf = (m: RioModel) => `${m.here}|${m.delivered.map(Number).join("")}|${m.dam}|${m.front}|${m.chans.join(",")}`;
+const keyOf = (m: RioModel) => `${m.born ? "b" : ""}${m.here}|${m.delivered.map(Number).join("")}|${m.dam}|${m.front}|${m.chans.join(",")}`;
 
 export const Corriente = ({ m, size = "ficha", className }: { m: RioModel; size?: RioSize; className?: string }) => {
   const ref = useRef<HTMLCanvasElement>(null);

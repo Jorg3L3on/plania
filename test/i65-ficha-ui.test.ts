@@ -200,9 +200,12 @@ test("I65-3: an idea at each stop opens the ficha on its delivery, with at most 
   // A stop with nothing delivered says «Todavía no» and what unlocks it, never the doc's title.
   const empty = ficha({ ...detail("entendido"), stops: STOPS.map((s, i) => stopRow(s, i, 1, i === 1 ? { delivered: false } : {})) });
   assert.match(empty, /Todavía no[\s\S]*Entendido no ha empezado/);
-  // His question takes «Ahora» and shows whole in the panel.
-  const q = ficha({ ...detail("investigacion"), question: { id: "q1", text: "¿Un día antes o el mismo día? Una pregunta larga que no se corta." }, question_options: ["Un día antes", "El mismo día"] });
-  assert.match(q, /data-pregunta-texto[\s\S]*Una pregunta larga que no se corta/);
+  // His question takes «Ahora»; PLA-63: it is read once (the bar), and the panel repeats it only when too long for the bar.
+  const q = ficha({ ...detail("investigacion"), question: { id: "q1", text: "¿Un día antes o el mismo día? Una pregunta corta." }, question_options: ["Un día antes", "El mismo día"] });
+  assert.equal((q.match(/Una pregunta corta/g) ?? []).length, 2, "the bar's text and its title attribute, not the panel");
+  assert.ok(!/data-pregunta-texto/.test(q));
+  const long = ficha({ ...detail("investigacion"), question: { id: "q2", text: `¿${"Una pregunta larga que no se corta, ".repeat(4)}?` }, question_options: [] });
+  assert.match(long, /data-pregunta-texto[\s\S]*Una pregunta larga que no se corta/);
   assert.match(q, /data-control="ficha-contestar"/);
   assert.ok(primaries(q) <= 1);
   // Saved: Restaurar is «Ahora»'s button.
@@ -230,7 +233,9 @@ test("I65-4: an initiative opens on Construcción with a channel per step; one w
   assert.match(out, /data-control="ficha-parada-diseno"/);
   const alone = ficha({ ...detail("lista"), key: "MIA-I3", kind: "initiative", pedido: false, stops: STOPS.map((s) => ({ ...stopRow(s, 0, 9), delivered: false })), built: { ...built, key: "MIA-I3", steps: [steps[0]], total: 1, done: 1 } });
   assert.match(alone, /data-ficha="MIA-I3"/);
-  assert.match(alone, /Sin entrega/);
+  // PLA-63: its idea stops are empty and quiet, as its row in the list draws them.
+  assert.ok(!/Sin entrega/.test(alone));
+  assert.equal((alone.match(/class="cor-ficha-tab none"/g) ?? []).length, 6);
   const pub = ficha({ ...detail("lista"), promoted_to: "MIA-I2", built: { ...built, key: "MIA-I2", steps: steps.map((s) => ({ ...s, status: "Released", etapa: "publicado" })), published_at: "2026-11-17T21:00:00Z", evidence: [{ key: "MIA-I2-3", kind: "test", cite: "38 de 38", commit: "4c1e9a2abc", env: "prod", at: "x" }] } });
   assert.match(pub, /data-sel="publicado"/);
   assert.match(pub, /38 de 38 · 4c1e9a2/);
@@ -255,4 +260,11 @@ test("I65-5, PLA-61: the old open panel, both copies of Journey and the retired 
     assert.ok(!src.includes("const Journey"), `${f} still has Journey`);
     assert.ok(!/cor-rail\b|cor-railstop|cor-stops-grid/.test(src), `${f} still has the rail`);
   }
+});
+
+test("PLA-63: an initiative that never was an idea is drawn born (no water before the dam); one from an idea is not", () => {
+  const built = { key: "MIA-I3", steps: [{ status: "Done", etapa: "hecho" }], published_at: null, done: 1, total: 1 };
+  const none = at("lista", { kind: "initiative", built, stops: at("lista").stops.map((s: Json) => ({ ...s, delivered: false })) });
+  assert.equal(geo.rioOf(none).born, true);
+  assert.equal(geo.rioOf(at("lista", { kind: "idea", built })).born, false);
 });

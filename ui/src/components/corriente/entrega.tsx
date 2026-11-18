@@ -202,7 +202,7 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
   const pr = (d.links ?? []).find((l) => l.kind === "pr")?.ref ?? ev.pr;
 
   const stage = () => {
-    if (read.isPending) return <div className="cor-skel" style={{ position: "absolute", inset: 0 }} aria-busy="true" aria-label="Leyendo las fotos" />;
+    if (read.isPending) return <div className="cor-skel" style={{ position: "absolute", inset: 0 }} role="status" aria-busy="true" aria-label="Leyendo las fotos" />;
     if (read.isError) return <ReadError what="las fotos de la entrega" onRetry={() => void read.refetch()} />;
     if (!r || !r.muestra || !v)
       return (

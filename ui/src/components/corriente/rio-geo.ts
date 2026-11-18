@@ -24,6 +24,8 @@ export type RioModel = {
   // Steps per drawn channel (more than MAX_CHANS steps are grouped).
   per: number;
   steps: { done: number; total: number };
+  // PLA-63: an initiative that never was an idea: no water before the dam, the six stops hollow.
+  born?: boolean;
 };
 
 export const W = 1374;
@@ -108,7 +110,7 @@ export function groupChans(list: Chan[], max = MAX_CHANS): { chans: Chan[]; per:
   return { chans: out, per };
 }
 
-type Thing = Pick<IdeaDetail, "stop" | "state" | "guardada" | "stops" | "promoted_to" | "question"> & Partial<Pick<IdeaDetail, "built" | "plan_steps">>;
+type Thing = Pick<IdeaDetail, "stop" | "state" | "guardada" | "stops" | "promoted_to" | "question"> & Partial<Pick<IdeaDetail, "built" | "plan_steps" | "kind">>;
 
 /** The model of a thing, from the idea read (PLA-I65-1). */
 export function rioOf(d: Thing): RioModel {
@@ -121,6 +123,7 @@ export function rioOf(d: Thing): RioModel {
     const you = list.includes("you");
     const live = list.includes("live");
     return {
+      born: d.kind === "initiative" && !delivered.some(Boolean),
       here: published ? 7 : 6,
       delivered,
       dam: "open",
