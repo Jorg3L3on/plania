@@ -133,7 +133,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const fichaMod = await load("components/corriente/ficha.tsx");
-const filaMod = await load("components/corriente/fila.tsx");
 const h = React.createElement;
 const acts = new Proxy({ busy: null, decisions: { busy: null, decide: () => undefined } } as Json, { get: (t, k: string) => (k in t ? t[k] : () => undefined) });
 const proj: Json = { slug: "mianovia", title: "Mianovia", team: [], orders: [], next_first: null, tablero: { initiatives: [], loose: [], loose_done: 0 } };
@@ -238,10 +237,8 @@ test("I65-4: an initiative opens on Construcción with a channel per step; one w
   assert.match(pub, /Pedir un ajuste/);
 });
 
-test("I65-5: a closed row is one link with the short name, the current in small and what it needs", () => {
-  const out = renderToStaticMarkup(h(MemoryRouter, null, h(filaMod.Fila, { name: "Cuentas sin terminal", k: "MIA-IDEA5", m: geo.rioOf(at("lista")), line: "Te espera · lista para construir", tone: "amber", open: false, to: "/x" })));
-  assert.match(out, /^<a[^>]*class="cor-fila"[^>]*aria-expanded="false"/);
-  assert.match(out, /Cuentas sin terminal[\s\S]*MIA-IDEA5[\s\S]*cor-rio-canvas fila[\s\S]*Te espera · lista para construir/);
+test("I65-5, PLA-61: the old open panel, both copies of Journey and the retired Fila row are gone", () => {
+  // PLA-I64 made the project's list the place a thing's row lives (components/corriente/todo.tsx).
   // The old open panel and both copies of Journey are gone.
   const files: string[] = [];
   const walk = (d: string) => {
