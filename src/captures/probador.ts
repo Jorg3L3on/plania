@@ -13,7 +13,7 @@ import { setTask } from "../mcp/writes.js";
 import { enqueueWake } from "../runner/events.js";
 import { pngDiff, type DiffBox } from "./diff.js";
 import type { Muestra } from "./muestra.js";
-import { encender, encenderEntrega, entregaEnv, entregaRead, pruebaEnv, pruebaInfo, pruebaOf, pruebaRead, BRANCH } from "./prueba.js";
+import { apagar, apagarEntrega, cargarDatos, datosDe, encender, encenderEntrega, entregaEnv, entregaRead, hashDatos, pruebaEnv, pruebaInfo, pruebaOf, pruebaRead, BRANCH } from "./prueba.js";
 import { runCapture, type CaptureInput, type CaptureSummary, type ViewPage } from "./run.js";
 import { imageUrl, readFile } from "./store.js";
 import { preguntasOf, type QA } from "./preguntas.js";
@@ -33,6 +33,7 @@ export type ProbadorDeps = {
   capture?: (db: Db, input: CaptureInput) => Promise<CaptureSummary>;
   encender?: typeof encender;
   encenderEntrega?: typeof encenderEntrega;
+  cargarDatos?: typeof cargarDatos; // PLA-78
   waitMs?: number;
   pollMs?: number;
   returnToTaller?: boolean; // false: tests that only look at the state
@@ -106,6 +107,13 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   const startSandbox = deps.encender ?? encender;
   const startEntrega = deps.encenderEntrega ?? encenderEntrega;
   const outside = !pruebaOf(slug) && (await pruebaRead(slug, settings)).phase === "running";
+  // PLA-78: a copy whose database carries another muestra's fake rows starts again on a fresh copy, so one
+  // delivery's rows never show in another's pictures.
+  const want = hashDatos(t.muestra.datos);
+  const sbDatos = datosDe(slug, "sandbox");
+  if (!outside && sbDatos && sbDatos !== want) await apagar(db, slug).catch(() => null);
+  const enDatos = datosDe(slug, "entrega");
+  if (enDatos && enDatos !== want) await apagarEntrega(db, slug).catch(() => null);
   if (!outside) await startSandbox(db, slug).catch(() => null);
   try {
     await startEntrega(db, slug, { key: t.key, branch });
@@ -123,6 +131,18 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   }
   const e = entregaRead(slug);
   if (!e || e.phase !== "live" || !e.port) return failed(db, p, t, attempts, e?.error ?? "La copia de la entrega no arrancó a tiempo", deps);
+
+  // PLA-78: the muestra's fake rows, in the delivery's database (a failure goes back to Taller: its SQL is wrong for
+  // its own branch) and in the test copy's (a failure there is fine: the rows may need the branch's new columns).
+  if (t.muestra.datos) {
+    const load = deps.cargarDatos ?? cargarDatos;
+    const d = await load(slug, "entrega", t.muestra.datos);
+    if (!d.ok) return failed(db, p, t, attempts, `Los datos de la muestra no se cargaron: ${d.error}`, deps);
+    if (!outside && pruebaOf(slug)?.phase === "live") {
+      const a = await load(slug, "sandbox", t.muestra.datos);
+      if (!a.ok) console.log(`[probador] ${slug}/${t.key}: antes without the muestra's datos: ${a.error}`);
+    }
+  }
 
   const views = viewsOf(t.muestra);
   const capture = deps.capture ?? runCapture;

@@ -60,6 +60,12 @@ ticket key: «MIC-12: compartir una lista por enlace».
 The `muestra` you pass to `finish` is for the owner and is always plain Spanish: `frase` is one
 sentence on what changes for the app's users, and `pasos` are three ways to try it.
 
+When a view needs data the app's dev database lacks (an appointment today, a client at a given stage),
+put the fake rows in `muestra.datos` as SQL: fictional names, example.com addresses, times from
+`now()`. Plania loads it into its own throwaway copies before the pictures (PLA-78, after Taller's
+good shots stayed in a Mac folder and the card showed «Sin citas hoy»). Pictures you take yourself
+are not shown to the owner; the muestra is.
+
 ## Done when
 
 - The pull request is open against `sandbox`, never main, and is not merged.
