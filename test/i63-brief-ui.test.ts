@@ -164,7 +164,7 @@ test("I63-2: seven projects and «Entre apps»: the step narrows to 64px and the
 });
 
 test("I63-2: amber only on rhombi, the dam and Tú; reduced motion stops particles and pulses", () => {
-  assert.match(css, /prefers-reduced-motion: reduce\) \{\n  \.cor \.cor-bf-spark, \.cor \.cor-bf-gate, \.cor \.cor-bf-lt\.arrive \{ animation: none; \}\n  \.cor \.cor-bf-pt, \.cor \.cor-bf-hp \{ display: none; \}/);
+  assert.match(css, /prefers-reduced-motion: reduce\) \{\n  \.cor \.cor-bf-spark, \.cor \.cor-bf-tu, \.cor \.cor-bf-lt\.arrive \{ animation: none; \}\n  \.cor \.cor-bf-pt, \.cor \.cor-bf-hp \{ display: none; \}/);
   assert.match(css, /\.cor-bf-lt \{[^}]*height: 44px/);
   assert.match(css, /\.cor-bf-who \{[^}]*height: 44px/);
 });
