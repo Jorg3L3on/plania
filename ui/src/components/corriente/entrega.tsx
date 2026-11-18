@@ -112,6 +112,7 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
   const read = useProbadorRead(p.slug, d.ref);
   const qa = useQaRead(p.slug, d.ref);
   const r = read.data;
+  const blind = !!r && r.vistas.length > 0 && r.vistas.every((x) => x.kind === "igual");
   const [key, setKey] = useState<string | null>(null);
   const v = r?.vistas.find((x) => x.key === key) ?? r?.vistas.find((x) => x.key === (r ? firstVista(r) : null)) ?? r?.vistas[0];
   const [side, setSide] = useState<Side | null>(null);
@@ -357,14 +358,21 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
           ) : (
             <>
               <p className="cor-text">{siAceptas(null, null)[0]} Pedir ajuste la devuelve a Taller con tus marcas.</p>
+              {/* PLA-70: every view came back the same, so the card shows nothing of the change (MIA-I9-1 showed the
+                  list for «Ficha de una clienta»). Say so, and make asking for another sample the main move. */}
+              {blind && (
+                <p className="cor-hold" data-muestra-ciega>
+                  Ninguna vista cambió: esta muestra no enseña lo que hizo Taller. Pide otra antes de aceptar.
+                </p>
+              )}
               <div className="cor-acts">
                 {accept && (
-                  <Btn kind="primary" disabled={busy || !!d.hold} title={d.hold ?? acceptWords(d).aria} aria-label={acceptWords(d).aria} onClick={() => acts.decisions.decide(d, { action: accept }, "aceptar")} data-action={accept}>
+                  <Btn kind={blind ? "secondary" : "primary"} disabled={busy || !!d.hold} title={d.hold ?? acceptWords(d).aria} aria-label={acceptWords(d).aria} onClick={() => acts.decisions.decide(d, { action: accept }, "aceptar")} data-action={accept}>
                     {busy && acts.decisions.busy?.key === "aceptar" ? "…" : "Aceptar"}
                   </Btn>
                 )}
                 {d.actions.includes("cambios") && (
-                  <Btn kind="secondary" aria-expanded={ajuste} onClick={() => setAjuste((x) => !x)} disabled={busy} data-action="cambios">
+                  <Btn kind={blind ? "primary" : "secondary"} aria-expanded={ajuste} onClick={() => setAjuste((x) => !x)} disabled={busy} data-action="cambios">
                     Pedir ajuste
                   </Btn>
                 )}
