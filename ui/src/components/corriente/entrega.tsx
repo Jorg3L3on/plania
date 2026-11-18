@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { Link } from "react-router";
 import { api, type Decision, type Marca, type OrgProject, type ParVista, type ProbadorQA, type VivoRead } from "@/lib/api";
-import { acceptWords, evidenceView } from "@/lib/evidencia";
+import { acceptWords, evidenceView, MARK_MAX } from "@/lib/evidencia";
 import { KIND_WORD, PROBADOR_WORDS as W, firstVista, frameOf, sideFor, siAceptas, stateLine, type Side, type Width } from "@/lib/probador";
 import type { CorrienteActs } from "./acts";
 import { Ajuste } from "./ajuste";
@@ -484,7 +484,7 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
               {pins.map((m, i) => (
                 <li key={i}>
                   <b aria-hidden>{i + 1}</b>
-                  <input className="cor-input" value={m.note} maxLength={300} placeholder="Qué quieres que cambie" aria-label={`Nota de la marca ${i + 1}`} onChange={(e) => setPins((l) => l.map((x, j) => (j === i ? { ...x, note: e.target.value } : x)))} />
+                  <input className="cor-input" value={m.note} maxLength={MARK_MAX} placeholder="Qué quieres que cambie" aria-label={`Nota de la marca ${i + 1}`} onChange={(e) => setPins((l) => l.map((x, j) => (j === i ? { ...x, note: e.target.value } : x)))} />
                   <Btn kind="quiet" small aria-label={`Quitar la marca ${i + 1}`} onClick={() => setPins((l) => l.filter((_, j) => j !== i))}>
                     ×
                   </Btn>

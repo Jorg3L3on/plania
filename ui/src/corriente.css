@@ -303,6 +303,7 @@ button.cor-row { width: 100%; text-align: left; background: transparent; border-
 .cor-ajuste { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--cor-line); }
 .cor-ajuste-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .cor-ajuste-row .cor-input { flex: 1 1 240px; }
+.cor-ajuste-row .cor-ajuste-text { flex-basis: 100%; min-height: 72px; max-height: 40svh; resize: vertical; padding-top: 8px; line-height: 1.45; }
 .cor-sec { display: flex; flex-direction: column; gap: 8px; }
 .cor-sec-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .cor-run { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 10px 16px; border-radius: 12px; }
