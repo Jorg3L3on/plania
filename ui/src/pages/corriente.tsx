@@ -25,6 +25,7 @@ import type { FichaLinks } from "@/components/corriente/ficha";
 import { Motores } from "@/components/corriente/motores";
 import { Maquinas } from "@/components/corriente/maquinas";
 import { DocHoja, Meta, NuevoProyecto, Pausar, Publicar, Reanudar, type HojaKind } from "@/components/corriente/hojas";
+import { BorrarProyecto } from "@/components/corriente/hoja-borrar";
 import type { PendLinks } from "@/components/corriente/pendiente";
 import { Head } from "@/components/corriente/header";
 import { Btn, NotYet, ReadError } from "@/components/corriente/parts";
@@ -53,7 +54,7 @@ export function hojaOf(search: string): { kind: HojaKind; slug: string | null } 
   const raw = q.get("hoja");
   if (!raw) return null;
   const [kind, slug] = raw.split(":") as [string, string | undefined];
-  return (["nuevo", "pausar", "reanudar", "publicar", "meta"] as const).includes(kind as HojaKind) ? { kind: kind as HojaKind, slug: slug || q.get("proyecto") } : null;
+  return (["nuevo", "pausar", "reanudar", "publicar", "meta", "borrar"] as const).includes(kind as HojaKind) ? { kind: kind as HojaKind, slug: slug || q.get("proyecto") } : null;
 }
 
 /** Esc from where the address is: what a tab has open, then the tab, then the project. */
@@ -443,6 +444,7 @@ export const CorrientePage = () => {
             team={team}
             paused={project.paused}
             pauseHref={hojaHref(project.paused ? "reanudar" : "pausar", project.slug)}
+            deleteHref={hojaHref("borrar", project.slug)}
             href={(t) => linkTo({ slug: project.slug, tab: t })}
           />
           <div className="cor-pbody">{projectBody(project)}</div>
@@ -531,6 +533,8 @@ export const CorrientePage = () => {
         if (hoja.kind === "pausar") return <Pausar p={hp} onClose={closeHoja} onDone={() => (closeHoja(), refresh())} />;
         if (hoja.kind === "reanudar") return <Reanudar p={hp} companyPaused={paused} onClose={closeHoja} onDone={() => (closeHoja(), refresh())} plomeriaTo="/machine" />;
         if (hoja.kind === "meta") return <Meta p={hp} onClose={closeHoja} />;
+        // NEWPROJ-7: after a delete, back to the company (La corriente), where the project is gone.
+        if (hoja.kind === "borrar") return <BorrarProyecto p={hp} onClose={closeHoja} onDone={() => (navigate(linkTo({ view: "corriente" }), { replace: true }), refresh())} />;
         const release = decisions.find((d) => d.project === hp.slug && d.kind === "release" && !d.state) ?? null;
         const first = decisions.find((d) => d.project === hp.slug && pending(d) && d.kind !== "release") ?? null;
         return <Publicar p={hp} release={release} first={first} firstTo={first ? (first.kind === "deliverable" || first.kind === "pr" ? linkTo({ slug: hp.slug, ver: { kind: "entrega", id: first.id } }) : hrefOf({ view: "tetoca", extra: { decision: first.id } })) : null} onClose={closeHoja} />;

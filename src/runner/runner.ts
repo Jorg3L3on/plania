@@ -1540,6 +1540,19 @@ export function stopRun(runId: string, reason = "detenido desde Compañía"): bo
   return true;
 }
 
+// NEWPROJ-7: deleting a project stops every run of it this process supervises (the asistente's too) and waits
+// until each has exited and written its end, so the rows go only after the processes are gone. A run that ignores
+// SIGINT gets SIGTERM and SIGKILL from its supervisor; waitMs caps the wait. Returns how many were signalled.
+export async function stopProjectRuns(projectId: string, reason: string, waitMs = 30_000): Promise<number> {
+  const runs = [...live.values()].filter((run) => run.projectId === projectId);
+  const n = stopLive((run) => run.projectId === projectId, reason);
+  if (runs.length === 0) return n;
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([Promise.all(runs.map((run) => run.finished)), new Promise<void>((resolve) => (timer = setTimeout(resolve, waitMs)))]);
+  clearTimeout(timer);
+  return n;
+}
+
 // Each tick: switches off stop the live runs in their scope. No token budgets (PLA-21).
 export async function enforceLive(db: Db, _now: Date): Promise<number> {
   if (live.size === 0) return 0;

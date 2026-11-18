@@ -18,7 +18,8 @@ import { seatName } from "@/lib/corriente";
 import type { GoalWrite } from "@/components/goals/model";
 import { Btn, Key, Label, You } from "./parts";
 
-export type HojaKind = "nuevo" | "pausar" | "reanudar" | "publicar" | "meta";
+// NEWPROJ-7: borrar is Borrar proyecto (hoja-borrar.tsx).
+export type HojaKind = "nuevo" | "pausar" | "reanudar" | "publicar" | "meta" | "borrar";
 
 export const Hoja = ({ label, title, onClose, children, wide }: { label: string; title: string; onClose: () => void; children: ReactNode; wide?: boolean }) => {
   const box = useRef<HTMLDivElement>(null);

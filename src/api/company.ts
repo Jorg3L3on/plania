@@ -23,7 +23,8 @@
 // PLA-21: no token budgets, so no limit to raise.
 //   GET  /api/company/owner-code          {enrolled}
 //   POST /api/company/owner-code/enroll   {password, code?} → {secret_base32, otpauth_uri} once
-//   DELETE /api/company/projects/:slug    {code}  the project and everything in it
+//   DELETE /api/company/projects/:slug    {code}  the project and everything in it; NEWPROJ-7: its live runs are stopped,
+//        its worktrees removed and its team deleted first → {deleted, stopped, worktrees, agents}
 // PLA-I46-12: skill packs (src/runner/packs.ts). A pack is a `Pack: <name>` doc; a role carries a list of slugs.
 //   GET  /api/company/packs                               → {packs: [{slug, name, when, doc_id}]}
 //   GET  /api/company/projects/:slug/team/:agent/packs    → {project, agent, packs: [{slug, name, when, doc_id}]}
@@ -38,6 +39,7 @@ import { SESSION_COOKIE, verifySession } from "../auth/session.js";
 import { withDb } from "../db/client.js";
 import { ToolError } from "../mcp/errors.js";
 import { createProjectFromTemplate } from "../runner/new-project.js";
+import { deleteProject } from "../runner/delete-project.js";
 import { listConsultas } from "../pedidos/consultas.js";
 import { askMode, askPo, pickNext, resendRequest, setProjectOptions, startTeammateNow, wakePo } from "./company-actions.js";
 import { noteForAgent, resumeRun, stopOneRun } from "./company-runs.js";
@@ -341,8 +343,8 @@ companyRoutes.delete("/projects/:slug", async (c) => {
         const { status, ...rest } = refused;
         return c.json(rest, status);
       }
-      await db.delete(projects).where(eq(projects.id, p.id));
-      return c.json({ deleted: p.slug });
+      // NEWPROJ-7: stops its runs, removes its worktrees and its team, then the row (src/runner/delete-project.ts).
+      return c.json(await deleteProject(db, p));
     });
   } catch (e) {
     return fail(c, e);

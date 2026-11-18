@@ -188,6 +188,9 @@ export const api = {
   setCompanyPaused: (paused: boolean) => request<{ paused: boolean; stopped: number }>("POST", "/company/switch", { paused }),
   setProjectPaused: (slug: string, paused: boolean) =>
     request<{ project: string; paused: boolean; stopped: number }>("POST", `/company/projects/${encodeURIComponent(slug)}/switch`, { paused }),
+  // NEWPROJ-7: Borrar proyecto, with the owner's code. Refusals: OWNER_CODE_UNSET 409, OWNER_CODE_REQUIRED / OWNER_CODE_INVALID 403.
+  deleteProject: (slug: string, code: string) =>
+    request<{ deleted: string; stopped: number; worktrees: number; agents: string[] }>("DELETE", `/company/projects/${encodeURIComponent(slug)}`, { code }),
   setRunnerSettings: (input: { plan_guard_pct?: number; guard_override?: boolean }) => request<Company["settings"]>("PUT", "/company/settings", input),
   // PLA-I36: steer a project from its card.
   // PLA-I40-2: Que empiece ya for one teammate.
