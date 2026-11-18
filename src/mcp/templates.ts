@@ -8,18 +8,20 @@ import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
 import { agents, docs, projects, type Project } from "../db/schema.js";
 import { attachDoc } from "./docs.js";
+import { createProjectFromTemplate } from "../runner/new-project.js";
 import { ToolError } from "./errors.js";
-import { setProject } from "./project.js";
-import { setAgent } from "./team.js";
-import { writeTx, type Ctx, type Q } from "./tx.js";
+import type { Ctx, Q } from "./tx.js";
 
-// PLA-I25: one call makes a project, a product-owner bot, and a Playbook doc.
-// The same slug again changes nothing. The copy lives in docs/templates/product-owner.md.
+// PLA-I25: one call makes a project, its product owner, and a Playbook doc.
+// The same slug again changes nothing. The Playbook copy lives in docs/templates/product-owner.md.
+// NEWPROJ-1: the project and its team come from createProjectFromTemplate (src/runner/new-project.ts),
+// the same function the screen's sheet and `pnpm project:add` use: paused, plan approval on, a checked
+// key prefix, the four core roles on the runner config. The tool keeps only the Playbook doc on top;
+// the PO's note points at the `Prompt: Product owner` doc like every other PO's.
 
 const SLUG = /^[a-z][a-z0-9-]{0,55}$/;
 const TEMPLATE = path.resolve(import.meta.dirname, "../../docs/templates/product-owner.md");
 const PLAYBOOK_TITLE = "Playbook";
-const COMPANY_BODY = "Company project. The plan lives in Plania.";
 
 export type CompanyProject = {
   created: boolean;
@@ -58,11 +60,6 @@ function checkOwner(name: string): string {
   return trimmed;
 }
 
-function prefixOf(slug: string): string {
-  const letters = slug.replace(/[^a-z0-9]/g, "").toUpperCase();
-  return (letters + "XXX").slice(0, 3);
-}
-
 function ownerSlugOf(slug: string): string {
   return `po-${slug}`;
 }
@@ -91,48 +88,20 @@ export async function createCompanyProject(
   const slug = checkSlug(input.slug);
   const name = checkName(input.name);
   const ownerName = checkOwner(input.owner_bot_name);
-  const { skills, playbook } = readProductOwnerTemplate();
-  const ownerSlug = ownerSlugOf(slug);
+  const { playbook } = readProductOwnerTemplate();
 
   const [existing] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
   if (existing) return shapeOf(db, existing, false);
 
-  const [taken] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, ownerSlug)).limit(1);
-  if (taken) throw new ToolError("INVALID_FILTER", { field: "slug", hint: "the product-owner slug is already on the roster" });
-
-  const [ceo] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, "ceo")).limit(1);
-  const [created] = await db
-    .insert(projects)
-    .values({ slug, title: name, keyPrefix: prefixOf(slug) })
-    .returning();
-  const project = created!;
-  try {
-    const quiet = { ...ctx, requestId: undefined };
-    await writeTx(db, project, { ...quiet, tool: "create_company_project" }, async (_tx, emit) => {
-      await emit("project.created", null, { slug, title: name, key_prefix: project.keyPrefix });
-    });
-    await setProject(db, { project: slug, version: 1, title: name, body: COMPANY_BODY }, { ...quiet, tool: "set_project" });
-    await setAgent(db, {
-      slug: ownerSlug,
-      name: ownerName,
-      role: "product-owner",
-      title: "Product owner",
-      kind: "bot",
-      ...(ceo ? { reports_to: "ceo" } : {}),
-      capabilities: ["product-owner"],
-      adapter: "claude_code",
-      adapter_config: {},
-      heartbeat_minutes: null,
-      note: skills,
-    });
-    await attachDoc(db, { project: slug, title: PLAYBOOK_TITLE, markdown: playbook }, { ...quiet, tool: "attach_doc" });
-    const [fresh] = await db.select().from(projects).where(eq(projects.id, project.id)).limit(1);
-    return shapeOf(db, fresh!, true);
-  } catch (err) {
-    await db.delete(agents).where(eq(agents.slug, ownerSlug));
-    await db.delete(projects).where(eq(projects.id, project.id));
-    throw err;
+  const quiet = { ...ctx, requestId: undefined };
+  const out = await createProjectFromTemplate(db, { name, slug, po_name: ownerName }, { requirePromptDoc: false, ctx: { ...quiet, tool: "create_company_project" } });
+  if ("error" in out) {
+    if (out.error === "PROJECT_EXISTS") throw new ToolError("INVALID_FILTER", { field: "slug", hint: "a team slug for this project is already on the roster" });
+    throw new ToolError("INVALID_FILTER", { field: out.field ?? "slug" });
   }
+  await attachDoc(db, { project: slug, title: PLAYBOOK_TITLE, markdown: playbook }, { ...quiet, tool: "attach_doc" });
+  const [fresh] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
+  return shapeOf(db, fresh!, true);
 }
 
 type WriteCtx = (
@@ -159,8 +128,8 @@ export function registerTemplateTools(
     "create_company_project",
     {
       description: [
-        "Create a project, a product-owner bot and a Playbook doc from the company template.",
-        "slug, name and owner_bot_name. The same slug again is a no-op.",
+        "Create a project from the company template: paused, plan approval on, its team (product owner, research, artist, taller) and a Playbook doc.",
+        "slug, name and owner_bot_name (the product owner's name). The same slug again is a no-op.",
       ].join(" "),
       inputSchema: {
         actor,

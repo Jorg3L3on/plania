@@ -225,8 +225,6 @@ export const api = {
   enrolOwnerCode: (input: { password: string; code?: string }) => request<{ secret_base32: string; otpauth_uri: string }>("POST", "/company/owner-code/enroll", input),
   // PLA-I31-3 adds this route; until then it is 404 and the dialog says so.
   createCompanyProject: (input: { name: string; goal: string }) => request<NewProjectResult>("POST", "/company/projects", input),
-  // PLA-I25: a project, a product-owner bot and a Playbook. The same slug again changes nothing.
-  createCompany: (input: { slug: string; name: string; owner_bot_name: string }) => request<CompanyProject>("POST", "/templates/company", input),
 };
 
 // ---- PLA-I33: the organization (Plan doc 61ad843a, "Contrato de API"). Fields the contract leaves
@@ -705,14 +703,6 @@ export type MachinePlumbing = {
   viewer?: { can_edit_limits: boolean };
 };
 export type MachineWithPlumbing = Machine & { plumbing?: MachinePlumbing };
-
-export type CompanyProject = {
-  created: boolean;
-  project: string;
-  name: string;
-  owner: { slug: string; name: string; role: string } | null;
-  playbook: { title: string; version: number } | null;
-};
 
 export type UsageTotal = { agent: string; project: string; week: string; input: number; output: number; cache_read?: number; cache_create?: number };
 export type UsageWeek = { week: string; starts_at: string; used: number; input: number; output: number; cache_read: number; cache_create: number };

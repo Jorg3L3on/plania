@@ -1,6 +1,6 @@
 // PLA-I30 blocks that PLA-I33 kept, rendered with fake data: Máquina's plumbing (the week's tokens per project
 // and for Asistente, plan guard, switches, En marcha, run log) with the 5e/5h banners, the per-block error, the
-// 5i stop sheet, the new-project dialog and the nav. Mover guardia shows only with canEdit. PLA-21: no budgets.
+// 5i stop sheet and the nav (NEWPROJ-1: the unused new-project dialog left). Mover guardia shows only with canEdit. PLA-21: no budgets.
 // Server-rendered with react-dom/server; no browser, no database.
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -152,22 +152,6 @@ test("5i stop sheet names what closes, what stops starting and what is kept; no 
   assert.equal(out.includes("<input"), false);
   const proj = html(h(parts.StopBody!, { scope: { kind: "project", slug: "mianovia", title: "Mianovia" }, runs: live, projectTitle: (s: string) => s, onConfirm: noop, onCancel: noop }));
   assert.ok(proj.includes("Pausar Mianovia"));
-});
-
-test("new project (4a/4b): starts paused, and a missing endpoint is a clear error", () => {
-  const form = html(h(sheets.NewProjectForm!, { state: { kind: "idle" }, onSubmit: noop, onCancel: noop }));
-  assert.ok(form.includes("Meta, en una oración"));
-  assert.ok(form.includes("Empieza en pausa. Su PO despierta cuando lo reanudes."));
-  const missing = html(h(sheets.NewProjectForm!, { state: { kind: "missing" }, onSubmit: noop, onCancel: noop }));
-  assert.ok(missing.includes("el servidor no tiene esa ruta"));
-  assert.ok(missing.includes("No se creó nada."));
-  const done = html(h(sheets.NewProjectDone!, {
-    state: { kind: "done", name: "Viajia", goal: "Que alguien arme su viaje.", result: { slug: "viajia", key_prefix: "VIA", paused: true, po: "po-viajia", prompt_doc_id: "377b1840-9262-411e-b6c4-53ddff950665" } },
-    onOpen: noop,
-    onClose: noop,
-  }));
-  assert.ok(done.includes("Su PO despierta cuando lo reanudes"));
-  assert.ok(done.includes("Ver Viajia"));
 });
 
 test("limit editor: only the guard is left (PLA-21)", () => {

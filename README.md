@@ -41,10 +41,11 @@ Migrations are generated here (`pnpm db:generate`) and applied by Jorge, in orde
 for f in drizzle/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done   # fresh database
 ```
 
-Then add your own projects, and give each one its team (product owner, Research, Artist, Taller):
+Then add your own projects. Each one comes with its team (product owner, Research, Artist, Taller), starts
+paused with plan approval on, and gets a key prefix from its slug unless `--prefix` names one:
 
 ```bash
-pnpm project:add <slug> --title "<Title>" --prefix <PFX> [--repo owner/name] [--path /abs/repo]
+pnpm project:add <slug> --title "<Title>" [--prefix <PFX>] [--repo owner/name] [--path /abs/repo]
 pnpm tsx --env-file=.env scripts/seed-org.ts
 ```
 
@@ -442,7 +443,7 @@ Unknown or missing data is caution, never ready. `details.dirty` null, a live cl
 | `assign` | Set a task's owner_agent to another roster agent and count the hop. |
 | `record_routine_run` | Record one run of a roster agent's routine. |
 | `report_tokens` | Record the tokens one agent reports for a task run. |
-| `create_company_project` | Create a project, a product-owner bot and a Playbook doc from the company template. |
+| `create_company_project` | Create a project from the company template: paused, plan approval on, its team (product owner, research, artist, taller) and a Playbook doc. |
 | `wake_agent` | Wake one roster agent through its adapter when its heartbeat is due. |
 | `thread_post` | Write a message in a thread Jorge reads on Compañía: a reply, a delivered doc, PR or idea, or what you need from him. |
 | `answer_consulta` | Answer a question Jorge asked about a project with Pedir's Preguntar mode. |
