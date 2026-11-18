@@ -2,13 +2,12 @@
 // The screen click stays. The server cannot prove the caller or the message.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { userInfo } from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import pg from "pg";
-import { resetTestDb, TEST_BEARER, TEST_CI_TOKEN, useTestEnv } from "./helpers.js";
+import { resetTestDb, TEST_BEARER, TEST_CI_TOKEN, useTestEnv, PG_USER } from "./helpers.js";
 
 useTestEnv();
 const { app } = await import("../src/app.js");
@@ -93,13 +92,13 @@ describe("answer_delegated", () => {
     // 0029's foreign key names the approval table. 0032 drops that table, so this runs on a
     // private copy that stops before 0029.
     const name = "plania_mig_0029";
-    const adminUrl = `postgres://${userInfo().username}@localhost:5432/postgres`;
+    const adminUrl = `postgres://${PG_USER}@localhost:5432/postgres`;
     const admin = new pg.Client({ connectionString: adminUrl });
     await admin.connect();
     await admin.query(`drop database if exists ${name} with (force)`);
     await admin.query(`create database ${name}`);
     await admin.end();
-    const db = new pg.Client({ connectionString: `postgres://${userInfo().username}@localhost:5432/${name}` });
+    const db = new pg.Client({ connectionString: `postgres://${PG_USER}@localhost:5432/${name}` });
     await db.connect();
     try {
       const dir = path.resolve(import.meta.dirname, "../drizzle/migrations");

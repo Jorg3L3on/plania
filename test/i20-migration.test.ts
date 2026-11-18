@@ -2,10 +2,10 @@
 // A second run copies nothing. This uses a private database, never a real one.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { userInfo } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import pg from "pg";
+import { PG_USER } from "./helpers.js";
 
 const migrationsDir = path.resolve(import.meta.dirname, "../drizzle/migrations");
 const sql0032 = readFileSync(path.join(migrationsDir, "0032_drop_gates_approvals.sql"), "utf8");
@@ -13,14 +13,14 @@ const ACTOR = JSON.stringify({ agent: "jorge", session_id: "web", machine: "scre
 
 test("migration 0032 archives old rows, drops them, and is safe to run twice", async () => {
   const name = "plania_mig_0032";
-  const adminUrl = `postgres://${userInfo().username}@localhost:5432/postgres`;
+  const adminUrl = `postgres://${PG_USER}@localhost:5432/postgres`;
   const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();
   await admin.query(`drop database if exists ${name} with (force)`);
   await admin.query(`create database ${name}`);
   await admin.end();
 
-  const db = new pg.Client({ connectionString: `postgres://${userInfo().username}@localhost:5432/${name}` });
+  const db = new pg.Client({ connectionString: `postgres://${PG_USER}@localhost:5432/${name}` });
   await db.connect();
   try {
     const files = readdirSync(migrationsDir).filter((f) => f.endsWith(".sql") && f < "0032").sort();

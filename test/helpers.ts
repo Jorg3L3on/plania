@@ -8,7 +8,7 @@ import { resetPool } from "../src/db/client.js";
 
 // PLANIA_TEST_PGUSER: the Postgres role the tests connect as, when it is not the OS user (a Windows machine whose
 // only role is postgres).
-const PG_USER = encodeURIComponent(process.env.PLANIA_TEST_PGUSER || userInfo().username);
+export const PG_USER = encodeURIComponent(process.env.PLANIA_TEST_PGUSER || userInfo().username);
 const ADMIN_URL = `postgres://${PG_USER}@localhost:5432/postgres`;
 
 // One database per checkout: the suffix is a stable hash of this repo's absolute root,
