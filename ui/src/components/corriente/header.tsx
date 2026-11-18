@@ -17,6 +17,8 @@ export type HeadProps = {
   tocaTo: string;
   /** On the Pedir page the button closes it instead (back to where he was). */
   closeTo?: string;
+  /** What still waits on Jorge in today's brief (open blockers and «te toca»). */
+  briefToca?: number;
 };
 
 const Tab = ({ to, on, children }: { to: string; on: boolean; children: React.ReactNode }) => (
@@ -25,7 +27,7 @@ const Tab = ({ to, on, children }: { to: string; on: boolean; children: React.Re
   </Link>
 );
 
-export const Head = ({ view, waiting, asistenteUnread = 0, now, timeZone, pedirTo, tocaTo, closeTo }: HeadProps) => (
+export const Head = ({ view, waiting, asistenteUnread = 0, now, timeZone, pedirTo, tocaTo, closeTo, briefToca = 0 }: HeadProps) => (
   <header className="cor-head" data-cor-head>
     <nav className="cor-head-left" aria-label="Compañía">
       <span className="cor-head-name">Compañía</span>
@@ -46,6 +48,11 @@ export const Head = ({ view, waiting, asistenteUnread = 0, now, timeZone, pedirT
       </Tab>
       <Tab to="/machine" on={view === "plomeria"}>
         Plomería
+      </Tab>
+      {/* PLA-I63-5: the Morning brief, after Plomería; its count is what still waits on Jorge in today's brief. */}
+      <Tab to={hrefOf({ view: "brief" })} on={view === "brief"}>
+        Brief
+        {briefToca > 0 && <span className="cor-count amber">{briefToca}</span>}
       </Tab>
     </nav>
     <div className="cor-head-right">

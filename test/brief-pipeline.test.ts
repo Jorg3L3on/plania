@@ -207,7 +207,7 @@ test("check 5: the Brief de hoy projection is an asistente.brief event (up to 5 
   assert.equal(ev.slug, "workia", "home project");
   assert.equal(ev.payload.source, "morning_brief");
   assert.equal(ev.payload.brief_id, res.briefId);
-  assert.equal(ev.payload.link, "/brief");
+  assert.equal(ev.payload.link, "/ceo?v=brief"); // PLA-I63-5: the brief lives in Compañía
   assert.deepEqual(ev.payload.lines, ["Zigzag: Prod is down", "Workia: Need 1", "Workia: Need 2", "Workia: Need 3", "Workia: Need 4"]);
   assert.equal((await raw.query(`select count(*)::int as n from agent_runs`)).rows[0].n, 0, "0 tokens: no Claude run queued");
 
@@ -216,7 +216,7 @@ test("check 5: the Brief de hoy projection is an asistente.brief event (up to 5 
   const body = (await http.json()) as Record<string, unknown>;
   assert.ok(body.company && Array.isArray(body.projects), "the Compañía read keeps its shape");
   // PLA-I42-5: GET /api/company carries Brief de hoy (the event's lines, up to 5) and the link to /brief.
-  assert.deepEqual(body.brief, { lines: ev.payload.lines, generated_at: ev.payload.generated_at, link: "/brief" });
+  assert.deepEqual(body.brief, { lines: ev.payload.lines, generated_at: ev.payload.generated_at, link: "/ceo?v=brief" });
   // companyState().brief, via latestBrief(), reads the same event.
   const { latestBrief } = await import("../src/runner/asistente.js");
   const { companyState } = await import("../src/runner/company.js");

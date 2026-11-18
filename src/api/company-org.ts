@@ -135,8 +135,8 @@ export type CompanyRead = {
   // PLA-I36-2: what Bandeja counts, so Te toca never says "Nada te espera" while it holds something.
   inbox: { decisiones: number; pasos: number };
   // PLA-I42-5: "Brief de hoy", the Morning brief's 0-token projection (the asistente.brief event, up to 5 lines),
-  // with a link to the full /brief page. null until the first brief is stored.
-  brief: { lines: string[]; generated_at: string; link: "/brief" } | null;
+  // with a link to the brief in Compañía (PLA-I63-5: /ceo?v=brief). null until the first brief is stored.
+  brief: { lines: string[]; generated_at: string; link: "/ceo?v=brief" } | null;
   // PLA-I59-2 (Motores): the company's default motor (null fields: the CLI's own default).
   motor_default: { model: string | null; effort: string | null };
 };
@@ -630,7 +630,7 @@ export async function companyRead(db: Db, now = new Date()): Promise<CompanyRead
 
 async function briefLine(db: Db): Promise<CompanyRead["brief"]> {
   const b = await latestBrief(db);
-  return b ? { lines: b.lines.slice(0, 5), generated_at: b.generated_at, link: "/brief" } : null;
+  return b ? { lines: b.lines.slice(0, 5), generated_at: b.generated_at, link: "/ceo?v=brief" } : null;
 }
 
 // ---- One project

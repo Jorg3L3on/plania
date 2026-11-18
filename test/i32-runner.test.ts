@@ -175,7 +175,7 @@ test("PLA-I41-6 check 4: no Asistente brief run is ever queued; the Morning brie
   assert.deepEqual(briefs, ["2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13"].map((d) => ({ d, trigger: "schedule" })), "one scheduled Morning brief a day");
   assert.deepEqual(spawned, Array(4).fill(["brief", "ideas"]).flat(), "pass A then pass B, once a day");
   const ev = (await raw.query(`select payload from events where type = 'asistente.brief' order by id`)).rows.map((r) => r.payload);
-  assert.ok(ev.length >= 4 && ev.every((p) => p.source === "morning_brief" && p.link === "/brief"), "Brief de hoy is the 0-token projection");
+  assert.ok(ev.length >= 4 && ev.every((p) => p.source === "morning_brief" && p.link === "/ceo?v=brief"), "Brief de hoy is the 0-token projection");
   assert.equal((await companyMessages()).some((m) => m.body.startsWith("Resumen del servidor")), false, "no free-text summary in the company thread");
 });
 
