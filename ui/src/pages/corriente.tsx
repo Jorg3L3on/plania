@@ -18,6 +18,7 @@ import { Paso, type BoardLinks } from "@/components/corriente/tablero";
 import { Equipo } from "@/components/corriente/equipo";
 import { Idea } from "@/components/corriente/idea";
 import { Docs, Prs } from "@/components/corriente/listas";
+import type { FichaLinks } from "@/components/corriente/ficha";
 import { Motores } from "@/components/corriente/motores";
 import { Maquinas } from "@/components/corriente/maquinas";
 import { DocHoja, Meta, NuevoProyecto, Pausar, Publicar, Reanudar, type HojaKind } from "@/components/corriente/hojas";
@@ -234,7 +235,10 @@ export const CorrientePage = () => {
       sueltos: todoHref,
       doc: (id) => linkTo({ slug: p.slug, ver: { kind: "doc", id } }),
     };
-    if (at.ver?.kind === "paso" || at.ver?.kind === "iniciativa") return <Paso p={p} k={at.ver.key} links={boardLinks} back={todoHref} backLabel={`Todo ${p.title}`} acts={acts} decisions={decisions} />;
+    // PLA-I65: an idea or an initiative opens the one ficha over the list (Cerrar goes back); a step keeps its view.
+    const fichaLinks: FichaLinks = { doc: boardLinks.doc, paso: boardLinks.paso, entrega: boardLinks.entrega, pedir: pedirTo(p.slug) };
+    if (at.ver?.kind === "idea" || at.ver?.kind === "iniciativa") return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} decisions={decisions} links={fichaLinks} onClose={() => go({ slug: p.slug })} />;
+    if (at.ver?.kind === "paso") return <Paso p={p} k={at.ver.key} links={boardLinks} back={todoHref} backLabel={`Todo ${p.title}`} acts={acts} decisions={decisions} />;
     if (at.tab === "todo" && !at.ver) {
       const todoLinks: TodoLinks = {
         open: (c) =>
@@ -356,8 +360,6 @@ export const CorrientePage = () => {
           }}
         />
       );
-    if (at.ver?.kind === "idea")
-      return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} links={{ back: todoHref, backLabel: `Todo ${p.title}`, doc: (id) => linkTo({ slug: p.slug, ver: { kind: "doc", id } }), track: (key) => linkTo({ slug: p.slug, ver: { kind: "iniciativa", key } }) }} />;
     if (at.tab === "motores")
       return (
         <Motores

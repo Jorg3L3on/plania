@@ -37,6 +37,16 @@ export function useCerrar() {
   });
 }
 
+// PLA-I65: the card's calls, shared with the ficha (ficha.tsx).
+export const run = (slug: string, a: CardAct, acts: CorrienteActs) => {
+  if (a.kind === "primero") return acts.pickNext(slug, a.key);
+  if (a.kind === "quitar") return acts.cancelOrder(slug, a.key);
+  if (a.kind === "detener") return acts.stopRun(a.runId);
+  return acts.decisions.decide(a.decision, { action: a.action }, "aceptar");
+};
+export const busyOf = (a: CardAct, acts: CorrienteActs) =>
+  a.kind === "primero" ? acts.busy === `next-${a.key}` : a.kind === "quitar" ? acts.busy === `cancel-${a.key}` : a.kind === "detener" ? acts.busy === `stop-${a.runId}` : acts.decisions.busy?.id === a.decision.id;
+
 const RESULT_WORD = (v: string) => (v === "pass" ? ["Pasa", "ok"] : v === "fail" ? ["Falla", "bad"] : ["Aviso", undefined]) as [string, "ok" | "bad" | undefined];
 function logLine(e: LogEntry): string {
   const p = e.payload ?? {};
