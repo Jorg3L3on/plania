@@ -319,6 +319,7 @@ test("to_read: newest first, with the run summary, the QA notes and the owner's 
 
   const returned = board.to_read.find((i) => i.kind === "returned")!;
   assert.equal(returned.role, "taller");
+  assert.equal(returned.title, "Ticket ZIG-2");
   assert.equal(returned.attempt, 1);
   assert.equal(returned.summary, "ok: success, 30 turns, session b1"); // the first delivery's run, not a later one
   assert.equal(returned.qa_notes, "Falla el test de login en [ruta] con SESSION_SECRET=[oculto] puesto.");

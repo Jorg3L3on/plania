@@ -54,6 +54,8 @@ export type ReadItem = {
   kind: "failed" | "returned" | "sent_back";
   project: string;
   key: string | null;
+  // The ticket's title, so the screen can name the work in the owner's words.
+  title: string | null;
   role: string | null;
   at: string;
   summary: string | null;
@@ -343,21 +345,33 @@ export async function scoreboard(db: Db, input: { days?: number; project?: strin
   const toRead: ReadItem[] = [
     ...runs
       .filter((r) => r.status === "fail" && r.at.getTime() >= since.getTime())
-      .map((r): ReadItem => ({ kind: "failed", project: r.project, key: r.task_key, role: r.role, at: iso(r.at), summary: scrub(r.summary, 500), qa_notes: null, attempt: null, owner_text: null })),
+      .map((r): ReadItem => ({ kind: "failed", project: r.project, key: r.task_key, title: null, role: r.role, at: iso(r.at), summary: scrub(r.summary, 500), qa_notes: null, attempt: null, owner_text: null })),
     ...periodLanes
       .filter((l) => l.status === "fail")
       .map((l): ReadItem => {
         const r = deliveryRun(l.project_id, l.task_key, l.created_at);
-        return { kind: "returned", project: l.project, key: l.task_key, role: r?.role ?? null, at: iso(l.ended_at), summary: scrub(r?.summary, 500), qa_notes: scrub(l.notes), attempt: l.attempt, owner_text: null };
+        return { kind: "returned", project: l.project, key: l.task_key, title: null, role: r?.role ?? null, at: iso(l.ended_at), summary: scrub(r?.summary, 500), qa_notes: scrub(l.notes), attempt: l.attempt, owner_text: null };
       }),
     ...changes.map((c): ReadItem => {
       const lane = changeLane.get(c) ?? null;
       const r = c.ticket ? deliveryRun(c.project_id, c.ticket, lane?.created_at ?? c.at) : null;
-      return { kind: "sent_back", project: c.project, key: c.ticket, role: r?.role ?? null, at: iso(c.at), summary: scrub(r?.summary, 500), qa_notes: scrub(lane?.notes), attempt: lane?.attempt ?? null, owner_text: scrub(c.text) };
+      return { kind: "sent_back", project: c.project, key: c.ticket, title: null, role: r?.role ?? null, at: iso(c.at), summary: scrub(r?.summary, 500), qa_notes: scrub(lane?.notes), attempt: lane?.attempt ?? null, owner_text: scrub(c.text) };
     }),
   ]
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, TO_READ);
+
+  // Titles for the few items kept, in one read.
+  const keys = [...new Set(toRead.flatMap((i) => (i.key ? [i.key] : [])))];
+  if (keys.length) {
+    const titles = (
+      await db.execute<{ project: string; key: string; title: string }>(sql`
+        select p.slug as project, t.key, t.title from tasks t join projects p on p.id = t.project_id
+        where t.key in (${sql.join(keys.map((k) => sql`${k}`), sql`, `)}) ${inProject(sql`t.project_id`)}`)
+    ).rows;
+    const titleOf = new Map(titles.map((t) => [`${t.project}/${t.key}`, t.title]));
+    for (const i of toRead) i.title = scrub(titleOf.get(`${i.project}/${i.key}`), 200);
+  }
 
   const groups = [...buckets.values()].map((b) => b.out()).sort((a, b) => b.runs - a.runs || b.tickets_landed - a.tickets_landed || String(a.key).localeCompare(String(b.key)));
   const total = all.out();
