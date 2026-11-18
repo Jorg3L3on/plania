@@ -551,6 +551,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `DEPLOY_SOURCE_REQUIRED` | 400 | set_env deployed needs a source {provider, deployment_id, url}: the server stores where the time came from |
 | `FIELD_NOT_ALLOWED` | 400 | a field of the other kind: priority/parent_key/origin/work_type/phase on an initiative, base_branch/next_action/in_progress_note on a ticket |
 | `FINDING_NOT_FIXABLE` | 400 | audit fix: the code has no one-click fix (copy findings: run the command; the rest: the tool the fix_hint names) |
+| `FRAME_INVALID` | 400 | attach_frames: the task is not an idea, more than 40 frames, an id repeats, or a frame's path is outside the canvases folder, missing, not a PNG/JPEG/WebP, or over 5 MB (detail: frame, hint) |
 | `INVALID_APPROVAL` | 400 | a waiver needs a non-empty reason. The old approval action list is no longer a tool |
 | `INVALID_BATCH_OP` | 400 | batch: an op is not set_task, set_check, add_result, add_decision, create_task or note |
 | `INVALID_BLOCKER` | 400 | a blocked_by entry is malformed (detail: type, hint): human_action {assignee, text}, env_flag {env, flag, equals}, time_after {at}, metric_gte {name, value} |
@@ -616,7 +617,6 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `FOOTPRINT_HELD` | 409 | another live session declared this footprint, or releasing one you did not declare (detail: holder, purpose) |
 | `HANDOFF_HELD` | 409 | the ticket was handed to another session; the hold lasts ten minutes (detail: to, until, note) |
 | `HOP_CAP` | 409 | assign would pass 3 hops (detail: hops, cap). The owner stays and a limpieza inbox item is posted |
-| `FRAME_INVALID` | 400 | attach_frames: the task is not an idea, more than 40 frames, an id repeats, or a frame's path is outside the canvases folder, missing, not a PNG/JPEG/WebP, or over 5 MB (detail: frame, hint) |
 | `IDEA_CLOSED` | 409 | a Done or Won't do idea does not change stage or promoted_to (detail: status) |
 | `INITIATIVE_CHILDREN_OPEN` | 409 | an initiative cannot be Done or Won't do while a ticket of it is in another state (detail: open) |
 | `INVALID_STAGE_MOVE` | 409 | set_task stage is not one step along idea → research → design → planning → ready, or a step back without a note (detail: from, to) |
@@ -637,6 +637,7 @@ before Plania runs, as a plain-text tool error (`INVALID_INPUT`). The catalog is
 | `SEQUENCE_TAKEN` | 409 | the requested sequence value is held by another live ticket |
 | `STAGE_REQUIREMENTS_MISSING` | 409 | moving an idea forward without that stage's doc or its headings (detail: doc, missing) |
 | `STALE_VERSION` | 409 | the task (or doc) changed since you read it (detail: current_version) |
+| `VERIFY_FAILED` | 409 | finish: one of the project's checks (settings.qa.verify) fails in the ticket's workspace (detail: failed {name, command, exit_code, tail}, hint): fix it there and call finish again |
 <!-- errors:end -->
 
 ## Hooks

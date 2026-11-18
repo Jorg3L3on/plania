@@ -59,7 +59,8 @@ export function shaOfDir(dir: string): string {
   for (const rel of filesOf(dir)) {
     h.update(rel);
     h.update("\0");
-    h.update(readFileSync(path.join(dir, rel)));
+    // Line endings are normalised, so a Windows checkout (CRLF) and the server (LF) give a skill the same version.
+    h.update(readFileSync(path.join(dir, rel)).toString("latin1").replace(/\r\n/g, "\n"), "latin1");
     h.update("\0");
   }
   return h.digest("hex").slice(0, 8);
