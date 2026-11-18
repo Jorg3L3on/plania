@@ -437,3 +437,13 @@ test("AUDIT-2: the kit script exports the live prompts, syncs the repo's, and le
   assert.deepEqual((await kitSync(db)).written, ["qa"]);
   assert.equal((await raw.query(`select count(*)::int as n from docs where title = 'Prompt: QA'`)).rows[0].n, 1);
 });
+
+test("AUDIT-6: a QA walk-through adds the browser tools to that run's servers; an idea is delivered with deliver_stage", () => {
+  assert.deepEqual(Object.keys(runner.mcpConfig("http://x/mcp").mcpServers), ["plania"]);
+  assert.deepEqual(runner.browserServer({}), { command: "npx", args: ["-y", "@playwright/mcp@latest", "--headless", "--isolated"] });
+  const cfg = runner.mcpConfig("http://x/mcp", runner.browserServer({ PLANIA_BROWSER_MCP: "node  /opt/browser.js --headless" }));
+  assert.deepEqual(cfg.mcpServers.browser, { command: "node", args: ["/opt/browser.js", "--headless"] });
+  const idea = runner.userPrompt({ agent: "Research", role: "research", project: { slug: "micasa", title: "MiCasa" }, goal: null, task: { key: "MIC-IDEA3", title: "Sucursales" }, workspace: null, sessionId: "run-1", verify: [{ name: "test", command: "pnpm test" }] });
+  assert.match(idea, /deliver your stage with deliver_stage \(key MIC-IDEA3/);
+  assert.doesNotMatch(idea, /Checks Plania runs/, "an idea has no delivery to check");
+});

@@ -116,6 +116,7 @@ export const CONSULTA_DENY_RULES: readonly string[] = [
   "mcp__plania__ask",
   "mcp__plania__create_task",
   "mcp__plania__attach_doc",
+  "mcp__plania__deliver_stage",
   "mcp__plania__attach_frames",
 ];
 

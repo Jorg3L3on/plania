@@ -55,7 +55,7 @@ const READ_GH = ["Bash(gh pr list:*)", "Bash(gh pr view:*)"];
 // Every Plania write tool, denied on top of the read-scope token (belt and braces), plus thread_read.
 export const PLANIA_WRITE_TOOLS: readonly string[] = [
   "add_decision", "add_result", "answer", "answer_delegated", "ask", "assign", "attach_doc", "batch", "check_in",
-  "claim", "comment", "consume", "create_company_project", "create_task", "finish", "handoff", "lease_resource",
+  "claim", "comment", "consume", "create_company_project", "create_task", "deliver_stage", "finish", "handoff", "lease_resource",
   "propose", "record_routine_run", "register_footprint", "release_footprint", "release_resource", "report_tokens",
   "reserve_sequence", "retire_decision", "set_agent", "set_check", "set_env", "set_goal", "set_metric", "set_project",
   "set_task", "start", "thread_post", "thread_read", "waive_check", "wake_agent",

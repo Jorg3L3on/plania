@@ -879,14 +879,14 @@ export function userPrompt(input: {
   const idea = !!input.task && /-IDEA\d+$/.test(input.task.key);
   lines.push(
     idea
-      ? `This is an idea, not a ticket: do not call start or claim on it. Read it with get_task, write your stage doc on it with attach_doc (key ${input.task!.key}), then move its stage with set_task.`
+      ? `This is an idea, not a ticket: do not call start or claim on it. Read it with get_task, deliver your stage with deliver_stage (key ${input.task!.key}; it checks the content and writes the stage doc), then move its stage with set_task.`
       : `Plania first: open the ticket with start (actor session_id ${input.sessionId}, that workspace) before you touch code.`,
     "Never main: commit on your branch, open PRs into sandbox only, never merge. Stop when the ticket is In review or when only Jorge can decide (ask).",
   );
   // PLA-I61-2 (La idea abierta): the owner sees the design on the screen only through its frames in Plania.
   if (idea && input.role === "artist") {
     lines.push(
-      `Draw the canvas under ${canvasesRoot()}/${input.task!.key}/, export one PNG per frame, and put them on the idea with attach_frames (key ${input.task!.key}): each frame's id (T, A1, B3), name, group, what it does (hace) and why (porque), in order. Jorge sees the design only through those frames, then writes the Design doc with attach_doc as usual.`,
+      `Draw the canvas under ${canvasesRoot()}/${input.task!.key}/, export one PNG per frame, and put them on the idea with attach_frames (key ${input.task!.key}): each frame's id (T, A1, B3), name, group, what it does (hace) and why (porque), in order. Jorge sees the design only through those frames, then deliver the Design stage with deliver_stage as usual.`,
     );
   }
   return lines.join("\n");
@@ -1008,9 +1008,18 @@ export function claudeArgs(input: ClaudeArgsInput): string[] {
 }
 
 // Plania only. The token stays in the child env; the file names the variable, never the value.
-export const mcpConfig = (url: string) => ({
-  mcpServers: { plania: { type: "http", url, headers: { Authorization: "Bearer ${PLANIA_RUNNER_TOKEN}" } } },
+// AUDIT-6: browser adds a second server for a QA run that walks through the app (settings.qa.browser).
+export type McpStdio = { command: string; args: string[] };
+export const mcpConfig = (url: string, browser: McpStdio | null = null) => ({
+  mcpServers: { plania: { type: "http", url, headers: { Authorization: "Bearer ${PLANIA_RUNNER_TOKEN}" } }, ...(browser ? { browser } : {}) },
 });
+
+// The browser tools a QA walk-through uses: Playwright's MCP server, headless, with a profile it throws away.
+// PLANIA_BROWSER_MCP replaces the command (the first word is the program, the rest its arguments).
+export function browserServer(env: NodeJS.ProcessEnv): McpStdio {
+  const words = (env.PLANIA_BROWSER_MCP?.trim() || "npx -y @playwright/mcp@latest --headless --isolated").split(/\s+/);
+  return { command: words[0]!, args: words.slice(1) };
+}
 
 // The stream's running totals reach agent_runs every few seconds while the run is live.
 function liveFlusher(db: Db, runId: string, reader: StreamReader, every: number): (chunk: string) => void {
@@ -1128,7 +1137,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const hooks = !readOnly && role === "taller" ? afterEditHooks(project.settings?.qa?.after_edit) : undefined;
   writeFileSync(settingsPath, JSON.stringify({ ...denySettings(consulta ? CONSULTA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : []), ...(hooks ? { hooks } : {}) }), { mode: 0o600 });
   const mcpConfigPath = path.join(tmp, "mcp.json");
-  writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp")), { mode: 0o600 });
+  writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp", qa?.browser ? browserServer(env) : null)), { mode: 0o600 });
 
   // PLA-I46-12: only this role's packs, written fresh (whatever an earlier run left is cleared first).
   // AUDIT-3: by default they go in a plugin in the run's temp folder, loaded with --plugin-dir, and the worktree is
@@ -1179,6 +1188,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     effort: motor.effort,
     pluginDir: kit.length ? kitDir : null,
     isolation: isolationOf(env),
+    // AUDIT-6: the QA report comes back as validated JSON (the fenced block in its brief stays as the fallback).
+    jsonSchema: qa?.jsonSchema ?? null,
   });
   const command = claudeCommand(ctx.agent.adapterConfig, env);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
