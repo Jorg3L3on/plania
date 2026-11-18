@@ -18,6 +18,8 @@ export type RioModel = {
   // Which of the six stops delivered something (thickness).
   delivered: boolean[];
   dam: Dam;
+  // PLA-82 (F-16): «Constrúyelo» said, the PO is turning it into an initiative.
+  valve?: boolean;
   // The light at the front: the owner's turn, someone working, or nobody (in the queue, saved, quiet).
   front: "you" | "live" | "quiet";
   chans: Chan[];
@@ -139,7 +141,7 @@ export function rioOf(d: Thing): RioModel {
   // Before it is built the delta is the plan's steps, dry (a dozen dry beds when there is no plan yet).
   const n = d.plan_steps?.length ?? 0;
   const { chans, per } = groupChans(Array.from({ length: n || 12 }, () => "todo" as Chan));
-  return { here, delivered, dam: here === 5 && !d.guardada ? "wait" : "closed", front, chans, per, steps: { done: 0, total: n } };
+  return { here, delivered, dam: here === 5 && !d.guardada ? "wait" : "closed", ...(d.state === "valvula" ? { valve: true } : {}), front, chans, per, steps: { done: 0, total: n } };
 }
 
 const STATE_WORD: Record<RioModel["front"], string> = { you: "te toca", live: "alguien la trabaja", quiet: "nadie la trabaja ahora" };
@@ -147,7 +149,7 @@ const STATE_WORD: Record<RioModel["front"], string> = { you: "te toca", live: "a
 /** What the drawing says, for role="img" (the canvas is never the only source of the state). */
 export function rioLabel(m: RioModel): string {
   const where = m.here <= 5 ? `parada ${STOP_NAMES[m.here]}` : m.here === 6 ? "en construcción" : "publicada";
-  const dam = m.dam === "wait" ? "; la presa «Constrúyelo» espera tu sí" : "";
+  const dam = m.dam === "wait" ? (m.valve ? "; dijiste «Constrúyelo» y pasa al tablero" : "; la presa «Constrúyelo» espera tu sí") : "";
   const steps = m.here >= 6 ? `; ${m.steps.done} de ${m.steps.total} pasos hechos` : m.steps.total ? `; ${m.steps.total} pasos en el plan` : "";
   return `Corriente: ${where}, ${m.here === 7 ? "nada pendiente" : STATE_WORD[m.front]}${dam}${steps}.`;
 }

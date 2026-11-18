@@ -4,13 +4,13 @@
 // Keys (inside a project): ↑ ↓ change project; A Archivo, E Equipo, M Máquinas (and back to the list); Esc steps out
 // (what is open, then the door, then the project back to the stream). PLA-I64-7: the list is the project's entry and
 // 1-7 (the retired tabs) do nothing.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { useCorrienteActs, SLEEPY } from "@/components/corriente/acts";
 import { MoveButton, PLAN_ASK, type AhoraLinks } from "@/components/corriente/ahora";
-import { Entrega } from "@/components/corriente/entrega";
+import { Entrega, EntregaRetomando } from "@/components/corriente/entrega";
 import { TeToca } from "@/components/corriente/tetoca";
 import { Pedir } from "@/components/corriente/pedir";
 import { Asistente } from "@/components/corriente/asistente";
@@ -36,7 +36,7 @@ import { Archivo, HechoView } from "@/components/corriente/archivo";
 import { cosasOf, fraseOf } from "@/lib/cosas";
 import { nowLine } from "@/lib/edificio";
 import { rumboText } from "@/lib/v2";
-import { ApiError, api, type OrgProject } from "@/lib/api";
+import { ApiError, api, type Decision, type OrgProject } from "@/lib/api";
 import { OLD_TAB, atOf, hrefOf, isBuilt, legacyHref, linkTo, verParam, type AskInput, type At, type Tab } from "@/lib/corriente";
 import { CLOSED, headlineOf, lanesOf, projectOfKey, totalsOf } from "@/lib/corriente-stream";
 import { pending } from "@/lib/v2";
@@ -71,6 +71,8 @@ export const CorrientePage = () => {
   const at = atOf(location.search);
   const now = useMinute();
   const acts = useCorrienteActs();
+  // PLA-82 (F-26): the delivery cards seen in this visit, so one taken off the floor for a retake still reads right.
+  const seenDecisions = useRef(new Map<string, Decision>());
   const comp = useQuery({ queryKey: ["company"], queryFn: api.company, staleTime: 10_000, refetchInterval: 20_000 });
   // The ideas with their stage and the tickets with their status (Inicio's read): the stream's dots and the totals.
   const summaries = useQuery({ queryKey: ["projects"], queryFn: api.projects, staleTime: 15_000, refetchInterval: 30_000 });
@@ -221,6 +223,9 @@ export const CorrientePage = () => {
     if (at.ver?.kind === "entrega") {
       const verId = at.ver.id;
       const d = decisions.find((x) => x.id === verId);
+      if (d) seenDecisions.current.set(d.id, d);
+      const was = !d ? seenDecisions.current.get(verId) : undefined;
+      if (!d && was && (was.kind === "deliverable" || was.kind === "pr") && was.ref) return <EntregaRetomando p={p} d={was} onBack={() => go({ slug: p.slug })} />;
       if (!d)
         return (
           <div className="cor-empty">

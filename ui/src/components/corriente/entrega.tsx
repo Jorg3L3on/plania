@@ -470,3 +470,21 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
     </div>
   );
 };
+
+// PLA-82 (F-26): «Volver a tomar las fotos» takes the card off the floor until the new pictures exist, and the open
+// card jumped to «Esta entrega ya no espera tu decisión». While its pictures are being taken it says so instead
+// (no buttons: nothing to accept until they exist); otherwise the old words stay.
+export const EntregaRetomando = ({ p, d, onBack }: { p: OrgProject; d: Decision; onBack: () => void }) => {
+  const read = useProbadorRead(p.slug, d.ref);
+  const tomando = read.data?.state?.state === "tomando" || read.isPending;
+  return (
+    <div className="cor-empty" data-entrega-retomando={tomando ? "tomando" : "fuera"}>
+      <p className="cor-text" role="status">
+        {tomando ? `Tomando las fotos de ${d.ref ?? "la entrega"} otra vez… La tarjeta vuelve en cuanto estén.` : "Esta entrega ya no espera tu decisión."}
+      </p>
+      <Btn kind="secondary" onClick={onBack}>
+        Volver a la lista
+      </Btn>
+    </div>
+  );
+};

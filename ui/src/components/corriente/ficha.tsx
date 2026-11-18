@@ -279,8 +279,9 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
     if (d.stop !== "lista" && !b) return <Empty title="Lista no ha empezado" line={WAITS.lista!} />;
     return (
       <>
-        <Eyebrow links={links}>{b ? `Lista · se construyó con tu sí · ${b.key}` : "Lista · esto es lo que se va a construir"}</Eyebrow>
-        <p className="cor-ficha-quote">{b ? `Dijiste «Constrúyelo» y el PO la subió al tablero como ${b.key}.` : d.plan_steps.length ? `Todo lo de arriba ya está. ${d.plan_steps.length === 1 ? "Un paso espera" : `${d.plan_steps.length} pasos esperan`} tu sí.` : "Todo lo de arriba ya está. El plan espera tu sí."}</p>
+        <Eyebrow links={links}>{b ? `Lista · se construyó con tu sí · ${b.key}` : d.state === "valvula" ? "Lista · dijiste «Constrúyelo»" : "Lista · esto es lo que se va a construir"}</Eyebrow>
+        {/* PLA-82 (F-16): after «Constrúyelo» the steps no longer wait for his yes; they are on their way to the board. */}
+        <p className="cor-ficha-quote">{b ? `Dijiste «Constrúyelo» y el PO la subió al tablero como ${b.key}.` : d.state === "valvula" ? `Dijiste «Constrúyelo». El PO está subiendo ${d.plan_steps.length === 1 ? "el paso" : d.plan_steps.length ? `los ${d.plan_steps.length} pasos` : "el plan"} al tablero.` : d.plan_steps.length ? `Todo lo de arriba ya está. ${d.plan_steps.length === 1 ? "Un paso espera" : `${d.plan_steps.length} pasos esperan`} tu sí.` : "Todo lo de arriba ya está. El plan espera tu sí."}</p>
         {d.plan_steps.length > 0 && <PlanSteps titles={d.plan_steps} />}
       </>
     );
@@ -299,28 +300,35 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
       </Empty>
     );
   if (s.stop === "entendido") {
-    const cells: [string, string | null][] = [
-      ["Problema", d.ficha.problema],
-      ["Solución", d.ficha.solucion],
-      ["Fuera", d.ficha.fuera],
-      ["Tamaño", d.ficha.tamano],
-      ["Riesgos", d.ficha.riesgos],
-    ];
+    // PLA-82 (F-10): only what the PO wrote. «Pendiente» on four fields this stop never fills read as missing work.
+    const cells = (
+      [
+        ["Problema", d.ficha.problema],
+        ["Solución", d.ficha.solucion],
+        ["Fuera", d.ficha.fuera],
+        ["Tamaño", d.ficha.tamano],
+        ["Riesgos", d.ficha.riesgos],
+      ] as [string, string | null][]
+    ).filter(([, v]) => !!v?.trim());
     return (
       <>
         <Eyebrow links={links} doc={s.doc}>
           {eb(s, now, timeZone)}
         </Eyebrow>
-        <div className="cor-ficha-split">
+        <div className="cor-ficha-split" style={cells.length ? undefined : { gridTemplateColumns: "minmax(0, 1fr)" }}>
           <p className="cor-ficha-quote">{(d.understood_text ?? d.understood) ? (d.understood_text ?? d.understood)!.replace(/^\s*entend[ií]\s*[:：-]\s*/i, "") : "El PO escribió la ficha de la idea."}</p>
-          <dl className="cor-ficha-cells">
-            {cells.map(([k, v]) => (
-              <div key={k}>
-                <dt>{k}</dt>
-                <dd className={v ? "" : "cor-muted"}>{v ? <Md>{v}</Md> : "Pendiente"}</dd>
-              </div>
-            ))}
-          </dl>
+          {cells.length > 0 && (
+            <dl className="cor-ficha-cells">
+              {cells.map(([k, v]) => (
+                <div key={k}>
+                  <dt>{k}</dt>
+                  <dd>
+                    <Md>{v!}</Md>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
         </div>
         {/* AUDIT-8: the PO's open decisions, each with its recommended option in force until he marks another. */}
         {(d.decisions?.length ?? 0) > 0 && (
