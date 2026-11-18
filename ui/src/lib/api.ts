@@ -541,7 +541,7 @@ export type DecisionEvidence = { verdict: string; kind: string; cite: string; pa
 export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string; title: string };
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 export type ReelItem = { key: string; title: string; label: string; kind: "nueva" | "cambio"; image_url: string };
-export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[] };
+export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[]; migrations?: string[]; migrate?: "auto" | "manual" | null };
 export type DecisionAction = "elegir" | "responder" | "hecho" | "aplazar" | "aceptar" | "fusionar" | "cambios" | "empezar" | "cambiar" | "cancelar" | "despues" | "aplicar" | "verificar";
 // PLA-I46-9/10: GET /api/projects/:slug/qa/:key (src/runner/qa.ts qaEvidence).
 export type QaState = "off" | "none" | "waiting" | "checking" | "reviewing" | "pass" | "fail" | "returned" | "error";

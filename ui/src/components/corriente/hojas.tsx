@@ -6,6 +6,7 @@
 //                   first) and the ship call's progress, result and refusal words (POST …/release/ship).
 //   Meta            the goal and its date (the goal routes /ceo's dialog uses).
 // Esc and Cancelar close; focus starts inside and returns where it was.
+import { migrationLine } from "@/lib/publicar";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Markdown from "react-markdown";
@@ -240,6 +241,11 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
         ))}
         {n > 4 && <li className="cor-cap">{`y ${n - 4} más`}</li>}
       </ul>
+      {!!r.migrations?.length && (
+        <p className="cor-text" data-publish-migrations={r.migrate ?? ""}>
+          {migrationLine(r.migrations, r.migrate ?? null, p.title)}
+        </p>
+      )}
       {!!r.reel?.length && (
         <div className="cor-reel" data-publish-reel={r.reel.length}>
           {r.reel.slice(0, 3).map((x) => (
@@ -268,7 +274,8 @@ export const Publicar = ({ p, release, first, firstTo, onClose }: { p: OrgProjec
       )}
       {done && (
         <p className="cor-state ok" role="status" data-publish-done>
-          {`✓ Publicado. ${n === 1 ? "1 cambio ya está" : `${n} cambios ya están`} en la versión principal (${done.merge_sha.slice(0, 7)}).`}{" "}
+          {`✓ Publicado. ${n === 1 ? "1 cambio ya está" : `${n} cambios ya están`} en la versión principal (${done.merge_sha.slice(0, 7)}).`}
+          {done.migrate === "auto" ? " Plania respalda y migra la base de la app ahora; si algo falla, te lo dice en el hilo." : done.migrate === "manual" ? " Falta migrar la base de la app." : ""}{" "}
           <a className="cor-inline" href={done.pr.url} target="_blank" rel="noreferrer">
             Ver en GitHub
           </a>

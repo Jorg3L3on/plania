@@ -29,6 +29,7 @@ import { resolveHumanAction } from "../mcp/blockers.js";
 import { writeTx } from "../mcp/tx.js";
 import { ToolError } from "../mcp/errors.js";
 import type { ReleasePlan } from "../mcp/release-plan.js";
+import { migrateMode } from "../mcp/release-ship.js";
 import { setCheck } from "../mcp/checks.js";
 import { headFor, resultShape } from "../mcp/evidence.js";
 import { answer } from "../mcp/questions.js";
@@ -77,7 +78,27 @@ export type DecisionLink = { kind: "doc" | "pr" | "ticket" | "idea"; ref: string
 export type DecisionChecks = { open: number; ci: "pending" | "success" | "failure" | "none" | null };
 // PLA-I39-1: who asked, so the screen hangs the decision under that teammate's window. Null: nobody on a team.
 export type DecisionAsker = { agent: string; role: string };
-export type DecisionRelease = { from: string; into: string; env: string; ahead: number | null; tickets: { key: string; title: string }[]; open_checks: number; before: number; reel?: ReelItem[] };
+// PLA-82 (F-32): present only when the release carries migrations, so a plain release keeps its shape.
+function releaseMigrations(p: Project, plan: ReleasePlan): Pick<DecisionRelease, "migrations" | "migrate"> {
+  const tags = plan.migrations ?? [];
+  const files = plan.migration_files ?? [];
+  const migrations = [...tags, ...files.map((f) => f.split("/").pop()!)];
+  return migrations.length ? { migrations, migrate: migrateMode(p, { migrations: tags, migration_files: files }) } : {};
+}
+
+export type DecisionRelease = {
+  from: string;
+  into: string;
+  env: string;
+  ahead: number | null;
+  tickets: { key: string; title: string }[];
+  open_checks: number;
+  before: number;
+  reel?: ReelItem[];
+  // PLA-82 (F-32): the migrations it carries and who runs them on the app's database.
+  migrations?: string[];
+  migrate?: "auto" | "manual" | null;
+};
 export type Decision = {
   id: string;
   project: string | null;
@@ -570,6 +591,7 @@ async function pasoRows(db: Db, all: Project[], inbox: Map<string, InboxItem[]>,
             ahead: plan.ahead,
             tickets: plan.tickets.map((t) => ({ key: t.key, title: t.title })),
             open_checks: plan.open_checks,
+            ...releaseMigrations(p, plan),
             before: plan.before.length,
             ...(await releaseReel(db, p.id, p.slug, plan.tickets).then((reel) => (reel.length ? { reel } : {}))),
           },

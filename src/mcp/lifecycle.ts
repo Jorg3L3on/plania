@@ -106,6 +106,8 @@ export function assertTransition(kind: string, from: string, to: string, ctx: Tr
   }
   if (ctx.human) return false;
   if (ctx.via === "system") {
+    // PLA-82 (F-34): the release rule closes an initiative whose steps are all closed (the children check holds).
+    if (kind === "initiative" && to === "Done" && INITIATIVE_DONE_FROM.includes(from)) return false;
     if (!(SYSTEM_MOVES[from] ?? []).includes(to)) throw new ToolError("INVALID_TRANSITION", { from, to, hint: "not a system move" });
     return false;
   }

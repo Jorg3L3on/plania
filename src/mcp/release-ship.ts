@@ -79,8 +79,19 @@ export function releaseBody(plan: ReleasePlan): string {
     ...plan.tickets.map((t) => `- ${t.key} ${t.title}${t.pr_url ? ` (${t.pr_url})` : ""}`),
   ];
   if (plan.migrations.length) lines.push("", `Migrations: ${plan.migrations.join(", ")}`);
+  if (plan.migration_files.length) lines.push("", `Migration files: ${plan.migration_files.join(", ")}`);
   return lines.join("\n");
 }
+
+/** PLA-82 (F-32): how a release's migrations reach the app's own database: auto (Plania runs them after a backup),
+ * manual (someone has to: the project does not say how) or null (the release adds none). */
+export function migrateMode(p: { settings: { capture?: { database?: unknown } } }, plan: Pick<ReleasePlan, "migrations" | "migration_files">): "auto" | "manual" | null {
+  if (!plan.migrations.length && !plan.migration_files.length) return null;
+  return p.settings.capture?.database ? "auto" : "manual";
+}
+
+// Test seam: the background migration.
+export const shipDeps: { migrar?: (db: Db, p: Awaited<ReturnType<typeof findProject>>, into: string, migrations: string[]) => Promise<unknown> } = {};
 
 export async function shipRelease(db: Db, slug: string, ctx: Ctx) {
   if (!ctx.human) throw new ToolError("HUMAN_ONLY", { hint: "only Jorge ships a release, from the screen" });
@@ -121,8 +132,16 @@ export async function shipRelease(db: Db, slug: string, ctx: Ctx) {
     tickets: plan.tickets.map((t) => t.key),
     migrations: plan.migrations,
   };
+  // PLA-82 (F-32): a release that adds migrations migrates the app's own local database after a backup, in the
+  // background (src/captures/publicado.ts); the sheet already said so.
+  const migrate = migrateMode(p, plan);
   await writeTx(db, p, ctx, async (_tx, emit) => {
-    await emit("release.merged", null, record);
+    await emit("release.merged", null, { ...record, migration_files: plan.migration_files, migrate });
   });
-  return { merged: true, ...record };
+  if (migrate === "auto") {
+    void import("../captures/publicado.js")
+      .then(({ migrarBaseDeLaApp }) => (shipDeps.migrar ?? migrarBaseDeLaApp)(db, p, plan.into.branch, [...plan.migrations, ...plan.migration_files]))
+      .catch((e) => console.log(`[release] ${p.slug}: migration not run: ${e instanceof Error ? e.message : String(e)}`));
+  }
+  return { merged: true, ...record, migration_files: plan.migration_files, migrate };
 }
