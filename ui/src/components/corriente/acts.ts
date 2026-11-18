@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ApiError, api, uploadPedidoImages, type Decision, type DecisionInput, type IdeaAnswerInput, type PedidoStop } from "@/lib/api";
+import { ApiError, api, uploadPedidoImages, type Decision, type DecisionInput, type IdeaAnswerInput, type IdeaDecisionInput, type PedidoStop } from "@/lib/api";
 
 export const SLEEPY = "No se pudo. Si la Mac está dormida, intenta al despertar.";
 
@@ -137,6 +137,24 @@ export function useCorrienteActs() {
         await api.ideaRespuesta(slug, key, input);
         void client.invalidateQueries({ queryKey: ["idea", slug, key] });
       }),
+    // AUDIT-8: his pick on one of the PO's decisions. The server's refusal is already in his words.
+    decision: (slug: string, key: string, input: IdeaDecisionInput) =>
+      run(
+        `pedido-${key}:decision`,
+        async () => {
+          try {
+            const r = await api.ideaDecision(slug, key, input);
+            void client.invalidateQueries({ queryKey: ["idea", slug, key] });
+            return r;
+          } catch (e) {
+            if (!(e instanceof ApiError) || e.status === 401 || typeof e.detail.hint !== "string") throw e;
+            toast.error(e.detail.hint);
+            void client.invalidateQueries({ queryKey: ["idea", slug, key] });
+            return null;
+          }
+        },
+        (r) => (!r ? null : r.changed ? "La idea vuelve al PO con tu respuesta." : "Quedó decidido. Nada se detiene."),
+      ),
     notePedido: (slug: string, key: string, text: string, files: File[]) =>
       run(`pedido-${key}:note`, async () => {
         await api.noteTask(slug, key, text);

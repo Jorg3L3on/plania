@@ -128,7 +128,14 @@ const UNDERSTOOD = /^\s*entend[ií]\s*[:：-]/i;
 const SCREEN_NOTE = /^De Compañía:\s*/;
 const BUILD_NOTE = /^Constrúyelo \(orden de Jorge/;
 // PLA-I61-4: the note an answer leaves for the stage owner; the answer's own line already tells it.
-const ANSWER_NOTE = /^Jorge (pide cambios en|pide la opción|dice que no es eso)/;
+// AUDIT-8: the same for the note his pick on a decision leaves (company-idea.ts decisionNote).
+const ANSWER_NOTE = /^Jorge (pide cambios en|pide la opción|dice que no es eso|decidió \(desde Compañía\)|confirmó \(desde Compañía\))/;
+// AUDIT-8: his pick on one of the PO's decisions (event idea.decision, written by company-idea.ts).
+const DECISION = "idea.decision";
+export function decisionLine(p: Record<string, unknown>): string {
+  const head = `«${String(p.label ?? "")}» en «${String(p.question ?? "")}»`;
+  return p.changed ? `Decidiste ${head} (se asumía «${String(p.was ?? "")}»).` : `Confirmaste ${head}.`;
+}
 const DROPPED = /^Descartada por Jorge desde Compañía(?::\s*([\s\S]+)|\.)$/;
 
 // PLA-I61-1: the runner writes as «plania-runner» with a session named after the seat (po-mianovia-idea1-…,
@@ -193,7 +200,8 @@ export async function trailOf(db: Db, t: Task): Promise<TrailItem[]> {
     else if (e.type === RESPUESTA) {
       const line = answerLine(p);
       if (line) push("veredicto", line, { stop: String(p.stop ?? "") });
-    } else if (e.type === "frames.attached") push("marcos", `Subió ${Number(p.count ?? 0)} ${Number(p.count) === 1 ? "marco" : "marcos"} del diseño.`, { stop: "diseno" });
+    } else if (e.type === DECISION) push("veredicto", decisionLine(p), { stop: "entendido" });
+    else if (e.type === "frames.attached") push("marcos", `Subió ${Number(p.count ?? 0)} ${Number(p.count) === 1 ? "marco" : "marcos"} del diseño.`, { stop: "diseno" });
     else if (e.type === DESPERTAR) push("despertar", "La despertaste.");
   }
   return out;

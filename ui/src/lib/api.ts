@@ -206,6 +206,9 @@ export const api = {
   ideaVisto: (slug: string, key: string, stop: PedidoStop) => request<{ key: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/visto`, { stop }),
   ideaRespuesta: (slug: string, key: string, input: IdeaAnswerInput) =>
     request<{ key: string; stage: string | null; wake: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/respuesta`, input),
+  // AUDIT-8: his pick on one of the PO's decisions (numbers as the screen shows them, from 1).
+  ideaDecision: (slug: string, key: string, input: IdeaDecisionInput) =>
+    request<{ key: string; stage: string | null; changed: boolean; wake: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/decision`, input),
   ideaDespertar: (slug: string, key: string) => request<{ key: string; wake: string }>("POST", `/company/projects/${encodeURIComponent(slug)}/ideas/${encodeURIComponent(key)}/despertar`),
   noteTask: (slug: string, key: string, text: string) => request<{ noted: true }>("POST", `/company/projects/${encodeURIComponent(slug)}/tasks/${encodeURIComponent(key)}/note`, { text }),
   resendRequest: (slug: string, key: string) => request<{ key: string; wake: "queued" | "busy" | "off" }>("POST", `/company/projects/${encodeURIComponent(slug)}/requests/${encodeURIComponent(key)}/resend`),
@@ -273,7 +276,13 @@ export type IdeaStop = {
   doc: { id: string; title: string; version: number; markdown: string } | null;
   seen: boolean;
   answer: IdeaAnswer | null;
+  // AUDIT-8: what the stage delivered as data; null when its doc was written by hand.
+  data?: Record<string, unknown> | null;
 };
+// AUDIT-8: a decision of the PO's. recommended and chosen are option numbers (from 1); chosen is the one in force.
+export type IdeaDecision = { n: number; question: string; options: string[]; recommended: number; why: string; state: "assumed" | "decided"; chosen: number; at: string | null };
+export type IdeaDecisionInput = { decision: number; option: number; question?: string; text?: string };
+export type IdeaPlanStep = { title: string; done_when: string; try_it: string; work_type: string };
 export type IdeaFrame = { id: string; frame: string; name: string; group: string | null; hace: string | null; porque: string | null; url: string; width: number | null; height: number | null };
 export type IdeaDetail = OrgPedido & {
   summary: string;
@@ -285,8 +294,11 @@ export type IdeaDetail = OrgPedido & {
   question_options: string[];
   stops: IdeaStop[];
   ficha: PedidoFicha;
-  research: { recommendation: string | null; options: { n: number; title: string; text: string }[]; unknown: string[] };
+  research: { recommendation: string | null; options: { n: number; title: string; text: string }[]; unknown: string[]; recommended?: number | null; learned?: string[] };
   plan_steps: string[];
+  // AUDIT-8: the plan and the PO's decisions as data (an idea whose docs were written by hand has neither).
+  plan?: { steps: IdeaPlanStep[]; risks: string[]; size: string | null } | null;
+  decisions?: IdeaDecision[];
   frames: IdeaFrame[];
   unseen: number;
   quiet_since: string | null;

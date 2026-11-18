@@ -2,7 +2,13 @@
 // repo reads the same version. Project-specific additions live in the project's rules (set_project).
 // Bump PROTOCOL_VERSION whenever the text changes meaning.
 
-export const PROTOCOL_VERSION = "2.22";
+export const PROTOCOL_VERSION = "2.23";
+
+// 2.23: deliver_stage (AUDIT-8). An idea's stage is delivered as data that the server checks for content (no filler,
+// an observable done_when, a filled out_of_scope, a try_it per step) and renders into the stage doc. A PO's open
+// questions on an idea go with it as decisions: closed, with a recommended option that applies unless the owner
+// changes it on his screen. Nothing waits on him. The text only names the tool (it stays under 900 words); the
+// fields and refusals are in deliver_stage's description and in docs/bot-protocol.md.
 
 // 2.22: finish carries a muestra (PLA-I52-1, El Probador). A delivery that changes the screen, on a project Plania
 // photographs, cannot reach the owner without the views it touched, three steps to try it and one sentence.
@@ -40,7 +46,7 @@ Work
 7. Evidence is a record: add_result with what ran, the commit and the counts; check_ns ticks the checks it proves. A check that will not be done: waive_check with the reason. The reason is the record at every status.
 8. A PO's options, or its plan for an order: propose. Need Jorge to decide? ask: the ticket waits in Needs Jorge and the question reaches his inbox; never only write "waiting on Jorge" in a field. A human_only question is answered on the owner's screen. When he is away he may tell actor agent plania-bot in his own chat; only that agent may call answer_delegated, for one named option, and only with delegated_by_jorge {message_id, quote}. The server cannot prove the caller is that bot or that the message exists: the quote, the audit, the Delegada badge, 10 an hour, one per question, and a screen kill switch (default on) are the controls. That tool cannot raise the limit or flip the switch. Any other agent, and the answer tool, is refused. Never forward an answer. Need him to do something? blocked_by human_action (a line that starts with "Jorge:" becomes one and warns).
 9. Started something that outlives the command (a dev server, a database copy, a container, a tunnel)? register_footprint with its teardown, and release_footprint once it is gone. Tests and builds are not registered. Never touch a live database for tests.
-10. Decisions go to add_decision (one line, pinned if it must be kept); specs and plans to attach_doc, never a plan file on one machine. Shared numbers (a migration): reserve_sequence. Shared things (a port, the production migrate step): lease_resource.
+10. Decisions go to add_decision (one line, pinned if it must be kept); specs and plans to attach_doc, never a plan file on one machine; idea stages: deliver_stage. Shared numbers (a migration): reserve_sequence. Shared things (a port, the production migrate step): lease_resource.
 
 Finish
 11. Commit, push, open the PR with "Plania: <KEY>" in its body, then finish {key, result, pr_url, branch, muestra}: the result and the move to In review land together or not at all. A screen change needs muestra {frase, vistas, pasos} (MUESTRA_REQUIRED). Every check must be done or waived (CHECKS_OPEN lists what is left) and the pass must name the branch head (EVIDENCE_STALE says which).

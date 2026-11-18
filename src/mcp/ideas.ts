@@ -8,6 +8,8 @@ import type { Q } from "./tx.js";
 // headings. Nothing else holds it: that step was removed in 2.17 (PLA-I18), and the old
 // questions stay on the ideas as read-only history. A step back is one stage and needs a note.
 // Skipping a stage is INVALID_STAGE_MOVE.
+// AUDIT-8: the doc is normally written by deliver_stage (src/mcp/stage-docs.ts), which takes the stage as data, checks
+// what it says and renders these same headings; a doc attached by hand with the headings moves the idea as before.
 
 export const STAGES = ["idea", "research", "design", "planning", "ready"] as const;
 export type Stage = (typeof STAGES)[number];
