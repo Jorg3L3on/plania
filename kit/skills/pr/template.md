@@ -17,7 +17,7 @@ say keeps its heading and says so («Sin migraciones ni cambios de datos»).
 |---|---|---|
 | `<comando de pruebas>` | <141 de 142, falla "…"> | <142 de 142> |
 | `<comando de tipos>` | <ok> | <ok> |
-| <Pantalla a 1280> | <captura o descripción> | <captura o descripción> |
+| <Pantalla a 1440> | <captura o descripción> | <captura o descripción> |
 | <Pantalla a 390> | <captura o descripción> | <captura o descripción> |
 
 Commit verificado: `<sha corto>`.

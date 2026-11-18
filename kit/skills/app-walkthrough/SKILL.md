@@ -40,7 +40,7 @@ You stay read-only. You do not edit files, and you never fix what you find.
 3. **Register it**: `register_footprint` with the port and the command that stops it.
 4. **Wait until it answers**, then open the page. If it does not start, that is a finding: quote the
    last lines it printed, and go to step 8.
-5. **Walk at desktop width, 1280.** Do each step as a person would: click, type, submit. Do not jump
+5. **Walk at desktop width, 1440.** Do each step as a person would: click, type, submit. Do not jump
    to a URL a person would not know. At each step note what you saw.
 6. **Walk again at phone width, 390.** The same steps. Look for text cut off, sideways scrolling,
    buttons too small or hidden, things on top of each other.
@@ -74,7 +74,7 @@ Set `walked` to true only if you completed the walk at both widths. Notes are in
 
 ## Done when
 
-- Every step of the plan was done at 1280 and at 390, or the report says which step could not be done
+- Every step of the plan was done at 1440 and at 390, or the report says which step could not be done
   and why.
 - The console and failed requests were checked.
 - Each finding names the width, the step, what was expected and what happened.

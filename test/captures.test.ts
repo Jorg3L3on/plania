@@ -169,14 +169,14 @@ describe("capture settings", () => {
 describe("capture run (fake browser)", () => {
   let firstRun: Json;
 
-  test("every page at 1280 and 390, tied to the ticket, with commit, branch and time; the panel pages with the test user", async () => {
+  test("every page at 1440 and 390, tied to the ticket, with commit, branch and time; the panel pages with the test user", async () => {
     const before = listing(checkout);
     firstRun = await runCapture(db, { project: "zigzag", checkout, task_key: "ZIG-01", actor }, deps());
     assert.equal(firstRun.ok, 6);
     assert.equal(firstRun.failed, 0);
     assert.equal(firstRun.commit, "c0ffee1234567890c0ffee1234567890c0ffee12");
     assert.equal(firstRun.branch, "jl/mia-i5-3");
-    assert.deepEqual(fake.shots.sort(), ["/panel/novias/n1@1280", "/panel/novias/n1@390", "/panel@1280", "/panel@390", "/registro/ejemplo@1280", "/registro/ejemplo@390"].sort());
+    assert.deepEqual(fake.shots.sort(), ["/panel/novias/n1@1440", "/panel/novias/n1@390", "/panel@1440", "/panel@390", "/registro/ejemplo@1440", "/registro/ejemplo@390"].sort());
     // A fresh password on the seed's test user, typed twice on stdin in the checkout, then used to log in.
     const pw = execCalls.find((c) => c.command.includes("panel:usuario"))!;
     assert.equal(pw.command, "npm run --silent panel:usuario -- contrasena asesora@example.com");
@@ -193,7 +193,7 @@ describe("capture run (fake browser)", () => {
     const rows = (await raw.query("select status, viewport, width, height, commit, branch, task_id is not null as tied, taken_at from capture_stills")).rows;
     assert.equal(rows.length, 6);
     assert.ok(rows.every((r) => r.status === "ok" && r.commit && r.branch === "jl/mia-i5-3" && r.tied && r.taken_at));
-    assert.deepEqual([...new Set(rows.map((r) => `${r.viewport}:${r.width}:${r.height}`))].sort(), ["desktop:1280:900", "phone:390:900"]);
+    assert.deepEqual([...new Set(rows.map((r) => `${r.viewport}:${r.width}:${r.height}`))].sort(), ["desktop:1440:900", "phone:390:900"]);
   });
 
   test("the read: each page with its desktop and phone still, and the PNG behind the screen session", async () => {
@@ -201,7 +201,7 @@ describe("capture run (fake browser)", () => {
     assert.equal(r.project, "zigzag");
     assert.equal(r.configured, true);
     assert.deepEqual(r.start, { command: "npm run dev -- --port {port}", port: 3999, url: "http://localhost:3999" });
-    assert.deepEqual(r.viewports, { desktop: { width: 1280, height: 800 }, phone: { width: 390, height: 844 } });
+    assert.deepEqual(r.viewports, { desktop: { width: 1440, height: 800 }, phone: { width: 390, height: 844 } });
     assert.deepEqual(
       r.pages.map((p: Json) => [p.key, p.label, p.session]),
       [
@@ -355,7 +355,7 @@ describe("capture run (real headless Chrome)", { skip: chrome ? false : "no Chro
     rmSync(secrets, { recursive: true, force: true });
   });
 
-  test("stills at 1280 and 390, the panel and the ficha through the login with the test user", { timeout: 120_000 }, async () => {
+  test("stills at 1440 and 390, the panel and the ficha through the login with the test user", { timeout: 120_000 }, async () => {
     const p = await findProject(db, "micasa");
     await setProject(
       db,
@@ -377,7 +377,7 @@ describe("capture run (real headless Chrome)", { skip: chrome ? false : "no Chro
     for (const row of rows) {
       const b = readFileSync(path.join(STORE, "micasa", row.file));
       assert.equal(b.readUInt32BE(0), 0x89504e47, "a PNG");
-      assert.equal(b.readUInt32BE(16), row.viewport === "desktop" ? 1280 : 780, `${row.page_key} ${row.viewport} width in device pixels`);
+      assert.equal(b.readUInt32BE(16), row.viewport === "desktop" ? 1440 : 780, `${row.page_key} ${row.viewport} width in device pixels`);
     }
     // The panel pages are not the login page: their stills differ from each other and from the form's.
     assert.equal(new Set(rows.filter((x) => x.viewport === "desktop").map((x) => x.file)).size, 3);

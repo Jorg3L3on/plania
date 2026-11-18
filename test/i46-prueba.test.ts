@@ -185,6 +185,16 @@ describe("Encenderla", () => {
     assert.equal((await read("zigzag")).prueba.phase, "off");
   });
 
+  test("PLA-110 (F-40): a copy El Probador starts (stills: false) goes live without the Ventana's stills", async () => {
+    await prueba.encender(db as never, "zigzag", { stills: false });
+    await until(() => children.length === 1);
+    upPorts.add(3000);
+    await until(async () => (await read("zigzag")).prueba.phase === "live");
+    assert.equal(captures.length, 0, "no Ventana stills: El Probador takes its own antes");
+    assert.equal((await post("zigzag", "apagar")).status, 200);
+    upPorts.delete(3000);
+  });
+
   test("a failed start shows Error with what it printed, and Reintentar starts it again", async () => {
     await post("zigzag", "encender");
     await until(() => children.length === 1);

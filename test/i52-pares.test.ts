@@ -511,8 +511,14 @@ describe("PLA-78: the muestra's datos", () => {
   test("rows that fail on the delivery's own database go back to Taller with the error; failing on Antes is fine", async () => {
     failOn = /_prueba$/;
     const ok = await withDatos("Columna nueva", DATOS);
+    execs = [];
     assert.equal((await pass(ok))?.state, "lista", "Antes may lack the branch's new table");
-    assert.equal(prueba.datosDe("zigzag", "sandbox"), null);
+    // PLA-110 (F-42): the one transaction failed on Antes, so each statement was tried on its own; what fits stays.
+    const each = execs.filter((e) => e.command.includes("ON_ERROR_STOP=0"));
+    assert.equal(each.length, 1);
+    assert.match(each[0]!.env!.PLANIA_COPY_URL!, /_prueba$/);
+    assert.equal(each[0]!.stdin, DATOS);
+    assert.equal(prueba.datosDe("zigzag", "sandbox"), prueba.hashDatos(DATOS));
     failOn = /_entrega$/;
     const bad = await withDatos("SQL roto", DATOS.replace("cita", "cita2"));
     const s = await pass(bad, { returnToTaller: false });

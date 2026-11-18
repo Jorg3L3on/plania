@@ -668,7 +668,7 @@ async function finalize(db: Db, lane: QaLane, p: Project, t: Task, report: (QaRe
     await add({
       kind: "visual",
       verdict: lane.capture.failed > 0 || lane.capture.ok === 0 ? "warn" : "pass",
-      cite: cut(`QA · ${lane.capture.ok} capturas a 1280 y 390${lane.capture.failed ? `, ${lane.capture.failed} fallaron` : ""}${lane.capture.error ? ` (${lane.capture.error})` : ""}`, 500),
+      cite: cut(`QA · ${lane.capture.ok} capturas a 1440 y 390${lane.capture.failed ? `, ${lane.capture.failed} fallaron` : ""}${lane.capture.error ? ` (${lane.capture.error})` : ""}`, 500),
       attachments: lane.capture.still_ids.slice(0, 24).map((id) => attachUrl(deps, p.slug, id)),
     });
   }
@@ -864,7 +864,7 @@ export async function qaBriefFor(db: Db, runId: string, cwd: string, deps: Pick<
               `- Pages behind the login use the test user ${cs!.session.user} (login at ${cs!.session.login_path}). Give it a fresh random password first with \`${cs!.session.password_command.replaceAll("{user}", cs!.session.user)}\` (it reads the new password twice on stdin). Never write that password to a file or to your report.`,
             ]
           : []),
-        `- Open ${appUrl} and go through what this ticket changes as a user would: the screens it touches, its Done when, every check-list item that shows on screen. Look at it 1280 and 390 wide when the change is visible.`,
+        `- Open ${appUrl} and go through what this ticket changes as a user would: the screens it touches, its Done when, every check-list item that shows on screen. Look at it 1440 and 390 wide when the change is visible.`,
         "- What you see is evidence for both verdicts: a screen or a flow that does not do what the ticket asked fails spec; an error in the console, a failed request or a crash fails code.",
         `- Stop the app before you end (the process you started; nothing left listening on ${port}) and report "walked": true. If it did not start or you could not walk it, report "walked": false and say why in the code notes: that alone is not a fail.`,
       ]
