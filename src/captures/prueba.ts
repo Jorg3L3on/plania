@@ -114,6 +114,8 @@ type Copy = {
   stills: boolean;
   // PLA-110 (F-40): when each start phase ended, for the log line once the copy answers.
   laps: string[];
+  // PLA-97: the earlier accepted steps' datos already loaded into this copy (hashes), so a retake loads none twice.
+  earlier: Set<string>;
 };
 
 let deps: PruebaDeps = {};
@@ -239,7 +241,7 @@ export async function encender(db: Db, slug: string, opts: { stills?: boolean } 
 // Error shows only once the process is stopped and its footprint released (a footprint still being written is
 // waited for first), so whoever reads «failed» never finds the copy still registered.
 function newCopy(slug: string, lane: Lane, ref: string, taskKey: string | null, phase: Phase, managed: boolean, port: number | null = null): Copy {
-  return { id: idOf(slug, lane), lane, ref, taskKey, slug, phase, managed, port, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null, dbEnv: null, datos: null, stills: true, laps: [] };
+  return { id: idOf(slug, lane), lane, ref, taskKey, slug, phase, managed, port, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null, dbEnv: null, datos: null, stills: true, laps: [], earlier: new Set() };
 }
 
 async function fail(db: Db, c: Copy, error: string): Promise<void> {
@@ -802,12 +804,26 @@ export function copyDatabase(env: Record<string, string> | null): { url: string;
 
 /** Loads a muestra's SQL into a live copy's own database, in one transaction. Never the app's own database: a copy
  * without settings.capture.database is refused. Loading the same datos twice is a no-op. */
-export async function cargarDatos(slug: string, lane: Lane, sql: string, opts: { bestEffort?: boolean } = {}): Promise<{ ok: true; skipped?: true; partial?: string } | { ok: false; error: string }> {
+export async function cargarDatos(slug: string, lane: Lane, sql: string, opts: { bestEffort?: boolean; earlier?: boolean } = {}): Promise<{ ok: true; skipped?: true; partial?: string } | { ok: false; error: string }> {
   const c = copies.get(idOf(slug, lane));
   if (!c || c.phase !== "live") return { ok: false, error: "la copia no está encendida" };
   const target = copyDatabase(c.dbEnv);
   if (!target) return { ok: false, error: "la copia no tiene base propia (settings.capture.database); los datos nunca van a la base de la app" };
   const hash = hashDatos(sql)!;
+  // PLA-97 (guided test PLA-86, F-20): an earlier accepted step's rows, after this delivery's own. Statement by
+  // statement, so rows the delivery already made are skipped; they never take the copy's own datos slot.
+  if (opts.earlier) {
+    if (c.earlier.has(hash) || c.datos === hash) return { ok: true, skipped: true };
+    const pgPath0 = [...PG_DIRS.filter((d) => existsSync(d)), checkoutEnv().PATH ?? ""].join(":");
+    await (deps.exec ?? shellExec)(`psql "$PLANIA_COPY_URL" -X -q -v ON_ERROR_STOP=0 -f -`, {
+      cwd: c.worktree ?? process.cwd(),
+      stdin: sql,
+      timeoutMs: 60_000,
+      env: checkoutEnv({ PATH: pgPath0, PLANIA_COPY_URL: target.url }),
+    });
+    c.earlier.add(hash);
+    return { ok: true };
+  }
   if (c.datos === hash) return { ok: true, skipped: true };
   if (c.datos) return { ok: false, error: "la copia ya tiene los datos de otra muestra" };
   const exec = deps.exec ?? shellExec;

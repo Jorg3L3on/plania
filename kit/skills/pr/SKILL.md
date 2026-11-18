@@ -79,6 +79,9 @@ view would find the data changed (PLA-107: a «ficha» view that pressed «Mover
 appointment, and four of six photos found nobody). To show a state after a save, such as a moved
 appointment and its history, seed that state in `datos` and open it with `path` or `follow`.
 
+In a step of an initiative, the rows of its earlier accepted steps are loaded after yours, statement
+by statement, skipping what yours already made (PLA-97). Seed only what this step needs.
+
 ## Done when
 
 - The pull request is open against `sandbox`, never main, and is not merged.
