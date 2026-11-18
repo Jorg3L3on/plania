@@ -105,6 +105,8 @@ export const api = {
   probadorTomar: (slug: string, key: string) => request<{ ok: true }>("POST", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}/tomar`, {}),
   preguntar: (slug: string, key: string, text: string) => request<{ id: string; wake: string }>("POST", `/projects/${encodeURIComponent(slug)}/probador/${encodeURIComponent(key)}/preguntar`, { text }),
   vivo: (slug: string) => request<{ vivo: VivoRead }>("POST", `/projects/${encodeURIComponent(slug)}/entrega/vivo`, {}),
+  // PLA-91: the copy's state while it comes up (the card polls it; it never refreshed before).
+  entregaEstado: (slug: string) => request<{ entrega: EntregaRead | null }>("GET", `/projects/${encodeURIComponent(slug)}/entrega`),
   entregaEncender: (slug: string, key: string) => request<{ entrega: EntregaRead }>("POST", `/projects/${encodeURIComponent(slug)}/entrega/encender`, { key }),
   team: () => request<TeamRoster>("GET", "/team"),
   comments: (slug: string, key: string) =>

@@ -135,6 +135,18 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
   const [vivo, setVivo] = useState<VivoRead | null>(null);
   const [opening, setOpening] = useState(false);
   useEffect(() => setLive(r?.entrega ?? null), [r?.entrega]);
+  // PLA-91 (guided test PLA-86, F-14): the copy was live in seconds but the card said «Encendiendo la copia…» until a
+  // reload. While it starts, the card asks every 2 s; it stops once the copy is live or failed.
+  useEffect(() => {
+    if (live?.phase !== "starting") return;
+    const t = setInterval(() => {
+      void api
+        .entregaEstado(p.slug)
+        .then((x) => x.entrega && setLive(x.entrega))
+        .catch(() => undefined);
+    }, 2000);
+    return () => clearInterval(t);
+  }, [live?.phase, p.slug]);
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!more) return;
@@ -347,6 +359,32 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
             )}
           </div>
         </div>
+        {/* PLA-91: the copy's state where it can be seen, not only inside «Más». */}
+        {!liveUrl && (starting || live?.phase === "starting") && (
+          <p className="cor-cap" role="status" data-copia="starting">
+            {W.encendiendo}
+          </p>
+        )}
+        {!liveUrl && !starting && live?.phase === "live" && (
+          <p className="cor-cap" role="status" data-copia="live">
+            La copia está lista.{" "}
+            <button type="button" className="cor-inline" onClick={() => void abrir()} disabled={opening} data-control="abrir-vivo-linea">
+              {opening ? "Entrando…" : W.vivo}
+            </button>
+          </p>
+        )}
+        {liveUrl && (
+          <p className="cor-cap" role="status" data-copia="abierta">
+            <a className="cor-inline" href={liveUrl} target="_blank" rel="noreferrer">
+              {W.vivo} ↗
+            </a>
+          </p>
+        )}
+        {live?.phase === "failed" && (
+          <p className="cor-cap" role="status" data-copia="failed">
+            <span className="cor-state bad">La copia no pudo encender.</span> {live.error ?? ""}
+          </p>
+        )}
         {vivo && (vivo.error || vivo.hint) && (
           <p className="cor-cap" role="status" data-vivo-note>
             {[vivo.error, vivo.hint].filter(Boolean).join(". ")}

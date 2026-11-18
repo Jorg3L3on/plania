@@ -67,6 +67,12 @@ describe("the helpers", () => {
     assert.equal(vivo.withSession(undefined, [{ name: "s", value: "1" }]), "s=1");
     assert.equal(vivo.localLocation("http://localhost:4100/panel?x=1", 4100), "/panel?x=1");
     assert.equal(vivo.localLocation("https://example.com/a", 4100), "https://example.com/a");
+    // PLA-91: the proxy's Origin and Referer become the copy's, so Server Actions accept form posts.
+    assert.equal(vivo.toCopyOrigin("http://localhost:58243", 58243, 3001), "http://localhost:3001");
+    assert.equal(vivo.toCopyOrigin("http://localhost:58243/panel/sucursales/x?y=1", 58243, 3001), "http://localhost:3001/panel/sucursales/x?y=1");
+    assert.equal(vivo.toCopyOrigin("http://mac.tail1234.ts.net:58243/panel", 58243, 3001), "http://localhost:3001/panel");
+    assert.equal(vivo.toCopyOrigin("https://example.com", 58243, 3001), "https://example.com", "another origin is left alone");
+    assert.equal(vivo.toCopyOrigin(undefined, 58243, 3001), undefined);
   });
 });
 
