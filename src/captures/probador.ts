@@ -50,6 +50,22 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const running = new Set<string>(); // project/key: one pass at a time per delivery
 
+// PLA-106 (guided test PLA-86, F-34): a project has one delivery copy, but passes were only kept apart per delivery.
+// Two deliveries landing together (MIA-40 and MIA-I10-5) used the copy at once: one rebuilt its database and loaded its
+// rows while the other was mid-pass, and the second load failed with a duplicate key. Passes of one project now wait
+// their turn on that project's lane; another project's never waits.
+const lanes = new Map<string, Promise<unknown>>();
+export function onLane<T>(slug: string, work: () => Promise<T>): Promise<T> {
+  const before = lanes.get(slug) ?? Promise.resolve();
+  const mine = before.catch(() => undefined).then(work);
+  const tail = mine.catch(() => undefined);
+  lanes.set(slug, tail);
+  void tail.then(() => {
+    if (lanes.get(slug) === tail) lanes.delete(slug);
+  });
+  return mine;
+}
+
 async function load(db: Db, slug: string, key: string): Promise<{ p: Project; t: Task } | null> {
   const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!p) return null;
@@ -73,7 +89,7 @@ export async function probar(db: Db, slug: string, key: string, deps: ProbadorDe
   if (running.has(id)) return null;
   running.add(id);
   try {
-    return await pass(db, slug, key, deps);
+    return await onLane(slug, () => pass(db, slug, key, deps));
   } catch (e) {
     // PLA-52: never left «tomando». An error of Plania's own is not Taller's to fix: the sweep tries once more, then
     // the card shows with the reason.
