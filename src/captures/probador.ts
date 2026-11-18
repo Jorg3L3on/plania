@@ -1,5 +1,5 @@
 // PLA-I52-3: antes y después. When a delivery with a muestra lands, Plania runs sandbox (antes) and the delivery's
-// copy (después) side by side, photographs every view of the muestra at 1280 and 390 on both, marks a path that did
+// copy (después) side by side, photographs every view of the muestra at 1440 and 390 on both, marks a path that did
 // not exist before as new, and boxes what changed. Only then is the delivery the owner's turn (probadorGate).
 // If no picture of the delivery can be taken, the ticket goes back to Taller with the reason; after the second
 // failure the card is raised anyway, with what Plania has and why the rest is missing. Nobody is shown a blind card.
@@ -118,6 +118,11 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   // PLA-52: a delivery with no branch cannot be photographed; the card shows with the reason instead of waiting forever.
   if (!branch) return setState(db, t, { state: "lista", attempts, error: "La entrega no tiene rama: no hay fotos", commit: null });
   await setState(db, t, { state: "tomando", attempts, error: null, commit: t.probador?.commit ?? null, for_head: deps.forHead ?? t.probador?.for_head ?? null });
+  // PLA-110 (guided test PLA-86, F-40): passes took 10–20 minutes and the log could not say where. Each phase's
+  // seconds go to the server log at the end, so a slow pass shows its own breakdown.
+  const clock = Date.now();
+  const lap: string[] = [];
+  const mark = (what: string) => lap.push(`${what} ${Math.round((Date.now() - clock) / 1000)}s`);
 
   // Both copies, then wait until each answers (or fails).
   const startSandbox = deps.encender ?? encender;
@@ -130,7 +135,7 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   if (!outside && sbDatos && sbDatos !== want) await apagar(db, slug).catch(() => null);
   const enDatos = datosDe(slug, "entrega");
   if (enDatos && enDatos !== want) await apagarEntrega(db, slug).catch(() => null);
-  if (!outside) await startSandbox(db, slug).catch(() => null);
+  if (!outside) await startSandbox(db, slug, { stills: false }).catch(() => null);
   try {
     await startEntrega(db, slug, { key: t.key, branch, head: deps.forHead ?? null });
   } catch (e) {
@@ -146,6 +151,7 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
     await sleep(deps.pollMs ?? POLL_MS);
   }
   const e = entregaRead(slug);
+  mark("copias");
   if (!e || e.phase !== "live" || !e.port) return failed(db, p, t, attempts, e?.error ?? "La copia de la entrega no arrancó a tiempo", deps);
 
   // PLA-78: the muestra's fake rows, in the delivery's database (a failure goes back to Taller: its SQL is wrong for
@@ -155,11 +161,13 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
     const d = await load(slug, "entrega", t.muestra.datos);
     if (!d.ok) return failed(db, p, t, attempts, `Los datos de la muestra no se cargaron: ${d.error}`, deps);
     if (!outside && pruebaOf(slug)?.phase === "live") {
-      const a = await load(slug, "sandbox", t.muestra.datos);
+      const a = await load(slug, "sandbox", t.muestra.datos, { bestEffort: true });
       if (!a.ok) console.log(`[probador] ${slug}/${t.key}: antes without the muestra's datos: ${a.error}`);
+      else if ("partial" in a && a.partial) console.log(`[probador] ${slug}/${t.key}: antes with the statements that fit sandbox (${a.partial})`);
     }
   }
 
+  mark("datos");
   const views = viewsOf(t.muestra);
   const capture = deps.capture ?? runCapture;
   const actor = ctx().actor;
@@ -172,6 +180,7 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
       (err) => (antesError = `Antes: ${short(err)}`),
     );
   } else antesError = "Sin antes: la copia de prueba no arrancó";
+  mark("antes");
   // Después: the delivery.
   let despues: CaptureSummary | null = null;
   try {
@@ -179,6 +188,8 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   } catch (err) {
     return failed(db, p, t, attempts, `No se pudo fotografiar la entrega: ${short(err)}`, deps);
   }
+  mark("después");
+  console.log(`[probador] ${slug}/${t.key}: ${lap.join(", ")}`);
   await markDiffs(db, p, t, despues.run_id);
   if (despues.ok === 0) {
     const why = despues.stills.find((x) => x.error)?.error ?? "ninguna vista salió";

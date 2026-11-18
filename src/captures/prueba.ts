@@ -108,6 +108,11 @@ type Copy = {
   // PLA-78: the hash of the muestra's datos loaded into this copy's database, so a retake does not load them twice
   // and another delivery gets a clean copy.
   datos: string | null;
+  // PLA-110 (F-40): the sandbox copy's own Ventana stills on start. El Probador takes its own «antes» photos, so the
+  // copy it starts goes live without them (they were minutes of every pass).
+  stills: boolean;
+  // PLA-110 (F-40): when each start phase ended, for the log line once the copy answers.
+  laps: string[];
 };
 
 let deps: PruebaDeps = {};
@@ -217,12 +222,13 @@ export function pruebaOf(slug: string): PruebaRead | null {
 
 // Starts the test copy, or returns the one already starting or running. The work goes on in the background;
 // the Ventana reads its phase (starting → capturing → live, or failed).
-export async function encender(db: Db, slug: string): Promise<PruebaRead> {
+export async function encender(db: Db, slug: string, opts: { stills?: boolean } = {}): Promise<PruebaRead> {
   const { p, s } = await settingsOf(db, slug);
   const had = copies.get(slug);
   if (had && had.phase !== "failed") return read(had);
   if (had) await apagar(db, slug); // Reintentar after a failed start: clean up first
   const c = newCopy(slug, "sandbox", BRANCH, null, "starting", true);
+  c.stills = opts.stills !== false;
   copies.set(c.id, c);
   hook();
   void start(db, c, p, s).catch((e) => fail(db, c, `No se pudo encender: ${short(e)}`));
@@ -232,7 +238,7 @@ export async function encender(db: Db, slug: string): Promise<PruebaRead> {
 // Error shows only once the process is stopped and its footprint released (a footprint still being written is
 // waited for first), so whoever reads «failed» never finds the copy still registered.
 function newCopy(slug: string, lane: Lane, ref: string, taskKey: string | null, phase: Phase, managed: boolean, port: number | null = null): Copy {
-  return { id: idOf(slug, lane), lane, ref, taskKey, slug, phase, managed, port, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null, dbEnv: null, datos: null };
+  return { id: idOf(slug, lane), lane, ref, taskKey, slug, phase, managed, port, pid: null, worktree: null, repo: null, command: null, commit: null, startedAt: now(), seenAt: now(), error: null, tail: [], stopping: false, registering: null, dbEnv: null, datos: null, stills: true, laps: [] };
 }
 
 async function fail(db: Db, c: Copy, error: string): Promise<void> {
@@ -245,6 +251,8 @@ async function fail(db: Db, c: Copy, error: string): Promise<void> {
 
 async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: CaptureSettings): Promise<void> {
   const g = git();
+  const t0 = now();
+  const lap = (what: string) => c.laps.push(`${what} ${Math.round((now() - t0) / 1000)}s`);
   const repo = repoPathOf(p.slug, p.settings, env());
   c.repo = repo;
   if (!existsSync(repo)) return fail(db, c, `No encuentro el repo de ${p.title} en ${repo}`);
@@ -280,6 +288,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
   if (!head || head !== want || detached !== "HEAD") return fail(db, c, `${what} no está en ${ref}`);
   if (copies.get(c.id) !== c || c.stopping) return;
 
+  lap("git");
   // PLA-38: the app's own env file (untracked, so not in a fresh worktree): its database and keys.
   const envFile = syncEnvFile(repo, wt, p.settings.maquinas);
 
@@ -299,6 +308,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
       writeFileSync(mark, hash);
     }
   }
+  lap("install");
   if (copies.get(c.id) !== c || c.stopping) return;
 
   // PLA-75: a delivery whose branch changes the database runs on its own copy of the app's database, migrated to
@@ -311,6 +321,7 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
     if (copies.get(c.id) !== c || c.stopping) return;
   }
 
+  lap("base");
   // PLA-52: one copy picks at a time, and holds its port before the next one looks: El Probador starts the test copy
   // and the delivery's copy together, and both took the same free port (the second one died at start).
   const picking = portLock.then(async () => {
@@ -377,8 +388,11 @@ async function start(db: Db, c: Copy, p: typeof projects.$inferSelect, s: Captur
     await new Promise((r) => setTimeout(r, deps.pollMs ?? POLL_MS));
   }
 
+  lap("responde");
+  console.log(`[prueba] ${c.slug} ${c.lane}: ${c.laps.join(", ")}`);
   // The delivery's copy is En vivo as soon as it answers; its stills are the Probador's (PLA-I52-3), not the Ventana's.
-  if (c.lane === "entrega") {
+  // PLA-110: so is a test copy El Probador started (it takes its own «antes»).
+  if (c.lane === "entrega" || !c.stills) {
     c.phase = "live";
     return;
   }
@@ -787,7 +801,7 @@ export function copyDatabase(env: Record<string, string> | null): { url: string;
 
 /** Loads a muestra's SQL into a live copy's own database, in one transaction. Never the app's own database: a copy
  * without settings.capture.database is refused. Loading the same datos twice is a no-op. */
-export async function cargarDatos(slug: string, lane: Lane, sql: string): Promise<{ ok: true; skipped?: true } | { ok: false; error: string }> {
+export async function cargarDatos(slug: string, lane: Lane, sql: string, opts: { bestEffort?: boolean } = {}): Promise<{ ok: true; skipped?: true; partial?: string } | { ok: false; error: string }> {
   const c = copies.get(idOf(slug, lane));
   if (!c || c.phase !== "live") return { ok: false, error: "la copia no está encendida" };
   const target = copyDatabase(c.dbEnv);
@@ -805,7 +819,19 @@ export async function cargarDatos(slug: string, lane: Lane, sql: string): Promis
   });
   if (r.code !== 0) {
     const line = (r.stderr || r.stdout).split("\n").map((l) => l.trim()).find((l) => /ERROR/.test(l)) ?? (r.stderr || r.stdout).trim().split("\n")[0] ?? `código ${r.code}`;
-    return { ok: false, error: line.replace(/^psql:[^:]*:\d+:\s*/, "").slice(0, 200) };
+    const error = line.replace(/^psql:[^:]*:\d+:\s*/, "").slice(0, 200);
+    if (!opts.bestEffort) return { ok: false, error };
+    // PLA-110 (guided test PLA-86, F-42): the «antes» copy runs the code before the change, so rows for the branch's
+    // new columns cannot go in. The one transaction rolled back; each statement is tried on its own, and whatever
+    // fits the old schema stays, so «antes» shows the same sample where it can.
+    await exec(`psql "$PLANIA_COPY_URL" -X -q -v ON_ERROR_STOP=0 -f -`, {
+      cwd: c.worktree ?? process.cwd(),
+      stdin: sql,
+      timeoutMs: 60_000,
+      env: checkoutEnv({ PATH: pgPath, PLANIA_COPY_URL: target.url }),
+    });
+    c.datos = hash;
+    return { ok: true, partial: error };
   }
   c.datos = hash;
   return { ok: true };

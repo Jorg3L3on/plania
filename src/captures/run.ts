@@ -1,5 +1,5 @@
 // PLA-I46-6: one capture run. Given a checkout whose app is already running (settings.capture.port), take a
-// still of each page at 1280 and at 390 with headless Chrome and keep them in Plania (src/captures/store.ts),
+// still of each page at 1440 and at 390 with headless Chrome and keep them in Plania (src/captures/store.ts),
 // tied to the ticket or delivery when there is one, with the commit and the time. Nothing is written to the
 // checkout. A page that fails gets an error row; its last good still stays and the read shows both.
 import { spawn } from "node:child_process";

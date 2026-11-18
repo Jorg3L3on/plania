@@ -5,7 +5,8 @@ import { z } from "zod";
 
 // The two widths every page is taken at (Jorge, 13 Nov 2026): desktop 1280, phone 390.
 export const VIEWPORTS = {
-  desktop: { width: 1280, height: 800, mobile: false, scale: 1 },
+  // PLA-110 (guided test PLA-86, F-28): the bar is 1440×800, the size Jorge reads Plania and the apps at.
+  desktop: { width: 1440, height: 800, mobile: false, scale: 1 },
   phone: { width: 390, height: 844, mobile: true, scale: 2 },
 } as const;
 export type ViewportName = keyof typeof VIEWPORTS;
