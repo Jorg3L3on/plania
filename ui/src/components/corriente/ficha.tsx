@@ -65,6 +65,16 @@ export const stuckOf = (p: Pick<OrgProject, "paused" | "team">, d: Pick<IdeaDeta
 /** When he said «Constrúyelo» (the newest one), from the trail. */
 export const orderedAt = (d: Pick<IdeaDetail, "trail">) => [...(d.trail ?? [])].reverse().find((t) => t.kind === "construir")?.at ?? null;
 
+// PLA-90: the Diseño preview box (CSS .cor-ficha-frame-big); the frame is fitted inside it whole, so a pin's
+// percentages are of the frame itself, not of the letterbox around it.
+const PREVIEW_W = 220;
+const PREVIEW_H = 124;
+export const fitIn = (w: number | null, h: number | null, boxW: number, boxH: number): { width: number; height: number } => {
+  const fw = w && w > 0 ? w : 16;
+  const fh = h && h > 0 ? h : 10;
+  const k = Math.min(boxW / fw, boxH / fh);
+  return { width: Math.round(fw * k), height: Math.round(fh * k) };
+};
 const initialUi = (d: IdeaDetail): Ui => ({ sel: selOf(d), sub: "entrega", frame: 0, pins: [], text: "", asking: false, pick: null, note: "", answer: "", drop: false, dec: {}, why: {}, grande: false });
 export type FichaLinks = { doc: (id: string) => string; paso: (key: string) => string; entrega: (d: Decision) => string; pedir: string };
 
@@ -475,6 +485,29 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
               {pinMarks}
             </div>
           </div>
+          {/* PLA-90 (PLA-86 F-11): a pin placed here is written here, not after closing the lightbox. */}
+          {pins.length > 0 && (
+            <ol className="cor-marcas cor-lightbox-notes" aria-label={`Notas en el marco ${f.frame}`}>
+              {pins.map((p) => (
+                <li key={p.n}>
+                  <b aria-hidden>{p.n}</b>
+                  <input
+                    className="cor-input"
+                    value={p.text}
+                    maxLength={600}
+                    placeholder="¿Qué cambiarías aquí?"
+                    aria-label={`Nota ${p.n}, marco ${p.frame}`}
+                    autoFocus={p.n === ui.pins.length && !p.text}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    onChange={(e) => set({ pins: ui.pins.map((x, j) => (j === p.n - 1 ? { ...x, text: e.target.value } : x)) })}
+                  />
+                  <Btn kind="quiet" small aria-label={`Quitar la nota ${p.n}`} onClick={() => set({ pins: ui.pins.filter((_, j) => j !== p.n - 1) })}>
+                    ×
+                  </Btn>
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
         </div>,
           document.body,
@@ -483,17 +516,19 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
         {eb(s, now, timeZone, `${d.frames.length} ${d.frames.length === 1 ? "marco" : "marcos"}`)}
       </Eyebrow>
       <div className="cor-ficha-frames">
-        <div
-          className="cor-ficha-frame-big"
-          role={canPin ? "button" : undefined}
-          tabIndex={canPin ? 0 : undefined}
-          aria-label={canPin ? `Marco ${f.frame}: toca un punto para dejar una nota ahí` : `Marco ${f.frame}`}
-          style={{ aspectRatio: f.width && f.height ? `${f.width} / ${f.height}` : "16 / 10" } as CSSProperties}
-          onClick={pinAt}
-          data-control="ficha-clavar"
-        >
-          <img src={f.url} alt={`Marco ${f.frame}: ${f.name}`} draggable={false} />
-          {pinMarks}
+        <div className="cor-ficha-frame-big">
+          <div
+            className="cor-ficha-frame-fit"
+            role={canPin ? "button" : undefined}
+            tabIndex={canPin ? 0 : undefined}
+            aria-label={canPin ? `Marco ${f.frame}: toca un punto para dejar una nota ahí` : `Marco ${f.frame}`}
+            style={fitIn(f.width, f.height, PREVIEW_W, PREVIEW_H)}
+            onClick={pinAt}
+            data-control="ficha-clavar"
+          >
+            <img src={f.url} alt={`Marco ${f.frame}: ${f.name}`} draggable={false} />
+            {pinMarks}
+          </div>
           <button
             type="button"
             className="cor-ficha-ampliar"
