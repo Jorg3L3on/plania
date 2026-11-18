@@ -98,7 +98,7 @@ import {
 } from "./process.js";
 import { StreamReader, parseStream, parseUsageText, totalOf, type PlanWindowReading } from "./stream.js";
 import { clearPacks, packLines, packsInDiff, packsOf, writePacks } from "./packs.js";
-import { branchFor, checkBase, defaultGit, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreePathFor, worktreeRoot, carefulGit, resetGitThrottleForTests, type GitFn } from "./worktree.js";
+import { branchFor, checkBase, defaultGit, ensureReadCopy, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreePathFor, worktreeRoot, carefulGit, resetGitThrottleForTests, type GitFn } from "./worktree.js";
 import { taskImagePaths } from "../pedidos/images.js";
 
 export type ReadyWork = {
@@ -1059,6 +1059,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   let cwd: string;
   let worktree: string | null = null;
   let branch: string | null = null;
+  let readCopy: { branch: string | null; commit: string | null; fallback?: string } | null = null;
   if (ctx.task) {
     const repo = repoPathOf(project.slug, project.settings, env);
     const wanted = ctx.taskRow?.branch?.trim() || branchFor(ctx.task.key);
@@ -1089,7 +1090,23 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
       }
     }
   } else if (consulta && existsSync(repoPathOf(project.slug, project.settings, env))) {
-    cwd = repoPathOf(project.slug, project.settings, env);
+    // PLA-66: a fresh read-only copy at origin/sandbox; the owner's checkout only if that copy cannot be made.
+    const repo = repoPathOf(project.slug, project.settings, env);
+    const copy = await withRepoLock(db, repo, () => ensureReadCopy({ repo, root, project: project.slug }, carefulGit(deps.git ?? defaultGit)));
+    if (copy.ok) {
+      cwd = copy.path;
+      readCopy = { branch: copy.branch, commit: copy.commit };
+      if (copy.created && deps.footprints !== false) {
+        await registerFootprint(
+          db,
+          { project: project.slug, kind: "worktree", locator: copy.path, purpose: `Read copy for Preguntar (${project.slug}), moved to origin/sandbox before each question`, teardown: `git -C ${repo} worktree remove --force ${copy.path}` },
+          { ...sysCtx("runner.worktree"), actor: { ...sysCtx("runner.worktree").actor, session_id: `runner-${ctx.agent.slug}` } },
+        ).catch(() => undefined);
+      }
+    } else {
+      cwd = repo;
+      readCopy = { branch: null, commit: null, fallback: copy.summary };
+    }
   } else {
     cwd = scratchPathFor(root, project.slug, ctx.agent.slug);
     mkdirSync(cwd, { recursive: true });
@@ -1154,7 +1171,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const goal = await projectGoal(db, project.id);
   const planiaSession = runSession(run.id);
   const prompt = consulta
-    ? consultaPrompt({ agent: ctx.agent.name, project: { slug: project.slug, title: project.title }, consulta, cwd, sessionId: planiaSession })
+    ? consultaPrompt({ agent: ctx.agent.name, project: { slug: project.slug, title: project.title }, consulta, cwd, sessionId: planiaSession, copy: readCopy })
     : qa?.prompt ?? userPrompt({
     agent: ctx.agent.name,
     role,

@@ -7,7 +7,7 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { ApiError, api, type MotorPatch, type OrgMember, type OrgProject } from "@/lib/api";
-import { seatName } from "@/lib/corriente";
+import { hrefOf, seatName } from "@/lib/corriente";
 import { caption, sayTo, startsLine } from "@/lib/edificio";
 import { MODELS, motorLine, type ModelId } from "@/lib/motores";
 import { linkHref } from "@/lib/org";
@@ -84,7 +84,13 @@ const LitCard = ({ p, m, now, acts, motorTo }: { p: OrgProject; m: OrgMember; no
         <div className="cor-lit-now">
           <span className={`cor-state ${live ? "live" : ""}`}>{live ? `Trabajando · ${mins(m.now?.since, now)} min` : m.state === "waiting_jorge" ? "Te espera" : "Libre"}</span>
           <span className="cor-ellipsis">
-            {m.now?.ticket && <Key>{m.now.ticket}</Key>} {m.now?.title ?? c.doing}
+            {/* PLA-67 (F-6): what a seat works on opens from here, an idea or a step. */}
+            {m.now?.ticket && (
+              <Link to={hrefOf({ slug: p.slug, ver: /-IDEA\d+$/.test(m.now.ticket) ? { kind: "idea", key: m.now.ticket } : { kind: "paso", key: m.now.ticket } })} data-control="abrir-trabajo">
+                <Key>{m.now.ticket}</Key>
+              </Link>
+            )}{" "}
+            {m.now?.title ?? c.doing}
           </span>
           {live && (
             <span className="cor-bar" aria-hidden>

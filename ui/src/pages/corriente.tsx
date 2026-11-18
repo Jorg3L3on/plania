@@ -464,7 +464,7 @@ export const CorrientePage = () => {
         />
       );
     if (at.view === "pedir")
-      return <Pedir projects={company.projects} initial={new URLSearchParams(location.search).get("p")} initialText={new URLSearchParams(location.search).get("texto")} disabled={paused} onAsk={ask} onPictures={refresh} asistenteTo={hrefOf({ view: "asistente" })} pedidosTo={(slug) => linkTo({ slug })} />;
+      return <Pedir projects={company.projects} initial={new URLSearchParams(location.search).get("p")} initialText={new URLSearchParams(location.search).get("texto")} initialQuestion={new URLSearchParams(location.search).get("pregunta")} disabled={paused} onAsk={ask} onPictures={refresh} asistenteTo={hrefOf({ view: "asistente" })} pedidosTo={(slug) => linkTo({ slug })} />;
     if (at.view === "asistente")
       return (
         <Asistente

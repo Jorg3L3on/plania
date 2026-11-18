@@ -8,6 +8,9 @@ import { ASK_MAX, MODES, type AskInput, type AskMode } from "@/lib/corriente";
 import { askedLine } from "@/lib/edificio";
 import { Btn, Label, Opt } from "./parts";
 
+// PLA-67: «Ver la respuesta» opens the question just asked, not the Pedir page in general.
+const withQuestion = (to: string, id: string | undefined): string => (id ? `${to}${to.includes("?") ? "&" : "?"}pregunta=${encodeURIComponent(id)}` : to);
+
 export const PedirBar = ({
   projects,
   initial,
@@ -44,7 +47,7 @@ export const PedirBar = ({
     setError(null);
     try {
       const r = await onAsk(project.slug, { text: text.trim().slice(0, ASK_MAX), mode });
-      setSaid(mode === "pregunta" ? { text: `Se lo preguntaste al PO de ${project.title}. Lee el código y contesta.`, to: pedirTo(project.slug) } : { text: askedLine(r, project.title), to: null });
+      setSaid(mode === "pregunta" ? { text: `Se lo preguntaste al PO de ${project.title}. Lee el código y contesta.`, to: withQuestion(pedirTo(project.slug), r.consulta) } : { text: askedLine(r, project.title), to: null });
       setText("");
       setMode("forma");
     } catch {
@@ -95,7 +98,7 @@ export const PedirBar = ({
         ))}
       </span>
       <Btn kind={primary ? "primary" : "secondary"} type="submit" disabled={disabled || held || !project || !text.trim() || sending} data-pedir-send>
-        {sending ? "Enviando…" : "Pedir"}
+        {sending ? "Enviando…" : mode === "pregunta" ? "Preguntar" : "Pedir"}
       </Btn>
       <span id="cor-pedir-line" className="sr-only">
         {line}
