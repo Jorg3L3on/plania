@@ -870,3 +870,26 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
   .cor .cor-bf-spark, .cor .cor-bf-gate, .cor .cor-bf-lt.arrive { animation: none; }
   .cor .cor-bf-pt, .cor .cor-bf-hp { display: none; }
 }
+/* PLA-I63-3: the card's insides. */
+.cor-bf-tx { overflow-wrap: anywhere; }
+.cor-bf-ev { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 14px; padding: 10px 0; border-top: 1px solid var(--cor-line); border-bottom: 1px solid var(--cor-line); font-size: 13px; }
+.cor-bf-ev > div { display: contents; }
+.cor-bf-ev dt { font-family: var(--cor-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--cor-muted); padding-top: 2px; }
+.cor-bf-ev dd { color: var(--cor-body); overflow-wrap: anywhere; }
+.cor-bf-links { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.cor-bf-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.cor-bf-you { display: flex; flex-direction: column; gap: 8px; margin-top: 2px; }
+.cor-bf-away { display: flex; gap: 4px; }
+.cor-bf-ask { display: flex; flex-direction: column; gap: 10px; }
+.cor-bf-ask.bad b { color: var(--cor-red); font-weight: 500; }
+.cor-bf-field { display: flex; flex-direction: column; gap: 6px; }
+.cor-bf-field .cor-textarea { min-height: 64px; resize: none; background: var(--cor-bg); }
+.cor-bf-cost { font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-muted); }
+.cor-bf-note { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--cor-body); }
+.cor-bf-note.amber { color: var(--cor-amber); }
+.cor-bf-stamp { display: flex; align-items: center; gap: 10px; font-family: var(--cor-mono); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--cor-green); }
+.cor-bf-stamp i { width: 9px; height: 9px; border-radius: 50%; background: var(--cor-green); box-shadow: 0 0 10px 2px rgba(110, 231, 160, 0.6); }
+.cor-bf-card kbd, .cor-bf-sub-in { font-family: var(--cor-mono); font-size: 10.5px; color: var(--cor-muted); font-weight: 400; }
+.cor-bf-card .cor-btn.primary kbd { color: #55555f; }
+.cor-bf-undo { display: flex; align-items: center; gap: 12px; color: var(--cor-body); min-width: 0; }
+.cor-bf-undo .cor-btn.link { font-family: var(--cor-sans); font-size: 13px; }

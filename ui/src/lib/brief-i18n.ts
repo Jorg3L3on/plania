@@ -946,3 +946,47 @@ export function dayLabel(localDate: string, language: BriefLanguage): string {
   const part = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(language, { timeZone: "UTC", ...o }).format(d);
   return `${part({ weekday: "short" })} · ${part({ month: "short", day: "numeric" })}`;
 }
+
+// ---- PLA-I63-3: the brief inside Compañía speaks La corriente's words. These override a few of the desk's words
+// (the old /brief keeps its own until I63-5 retires it): «Aprobar y pasar a prueba» → Aceptar, «Pedir cambios» →
+// Pedir ajuste, «Publicar a main» → Publicar, Ticket → Paso, PR en espera → Entrega.
+export type CorWords = {
+  verbs: Partial<Record<DeskAction, string>>;
+  stamps: Partial<Record<DeskAction, string>>;
+  kinds: Partial<Record<DeskKind, string>>;
+  ev: Partial<DeskLabels["ev"]>;
+  send: string;
+};
+export const COR_WORDS: Record<BriefLanguage, CorWords> = {
+  es: {
+    verbs: { accept_pr: "Aceptar", request_changes: "Pedir ajuste", publish: "Publicar" },
+    stamps: { accept_pr: "Aceptado", request_changes: "Devuelto" },
+    kinds: { ticket: "Paso", pr: "Entrega" },
+    ev: { ticket: "Paso" },
+    send: "Enviar nota",
+  },
+  en: {
+    verbs: { accept_pr: "Accept", request_changes: "Ask for a change", publish: "Publish" },
+    stamps: { accept_pr: "Accepted", request_changes: "Sent back" },
+    kinds: { ticket: "Step", pr: "Delivery" },
+    ev: { ticket: "Step" },
+    send: "Send note",
+  },
+};
+
+/** The brief's labels with La corriente's words laid over them. */
+export function corLabels(language: BriefLanguage): BriefLabels {
+  const t = BRIEF_LABELS[language];
+  const w = COR_WORDS[language];
+  return {
+    ...t,
+    d: {
+      ...t.d,
+      verbs: { ...t.d.verbs, ...w.verbs },
+      stamps: { ...t.d.stamps, ...w.stamps },
+      kinds: { ...t.d.kinds, ...w.kinds },
+      ev: { ...t.d.ev, ...w.ev },
+      send: w.send,
+    },
+  };
+}
