@@ -17,7 +17,7 @@ import { api, type Decision, type IdeaAnswerInput, type IdeaBuilt, type IdeaDeta
 import { cardActs, deliveryFor, ETAPA_WORD, type CardAct } from "@/lib/etapas";
 import { acceptWords } from "@/lib/evidencia";
 import type { CorrienteActs } from "./acts";
-import { Decisiones } from "./decisiones";
+import { Decisiones, forwardOf } from "./decisiones";
 import { Images } from "./images";
 import { Btn, Key, Label, Opt, ReadError, State, type StateTone } from "./parts";
 import { Corriente } from "./rio";
@@ -338,6 +338,7 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
             why={ui.why}
             open={isOpen(d)}
             busy={acts.busy === `pedido-${d.key}:decision`}
+            forward={forwardOf(d.stage)}
             onMark={(n, option) => set({ dec: { ...ui.dec, [n]: option } })}
             onWhy={(n, text) => set({ why: { ...ui.why, [n]: text } })}
             onSend={(input) => acts.decision(slug, d.key, input)}

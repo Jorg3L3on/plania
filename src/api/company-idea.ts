@@ -511,16 +511,25 @@ export type DecisionInput = { decision: number; option: number; question?: strin
 const sameText = (a: string, b: string) => a.replace(/\s+/g, " ").trim().toLowerCase() === b.replace(/\s+/g, " ").trim().toLowerCase();
 
 // The note the PO reads: what he picked, over what, and his words.
-export function decisionNote(question: string, label: string, was: string, changed: boolean, text?: string): string {
+// PLA-88: forward is the stage the idea sits on when it is past the idea stage: the decision is carried into that
+// stage instead of sending the idea back to the PO.
+export function decisionNote(question: string, label: string, was: string, changed: boolean, text?: string, forward?: string): string {
   const lines = [changed ? `Jorge decidió (desde Compañía) «${label}» en «${question}», en lugar de «${was}».` : `Jorge confirmó (desde Compañía) «${label}» en «${question}».`];
   if (text?.trim()) lines.push(`Sus palabras: «${text.trim()}»`);
-  lines.push(changed ? "Rehaz esta etapa con eso: entrégala otra vez con deliver_stage y vuelve a mover la idea cuando esté." : "Nada cambia: sigue con lo que asumiste.");
+  if (!changed) lines.push("Nada cambia: sigue con lo que asumiste.");
+  else if (forward)
+    lines.push(
+      `La idea sigue en ${STAGE_WORD[forward] ?? forward}; el doc «Idea» ya dice lo que decidió. Tenlo en cuenta en esta etapa: si cambia algo de lo que ya entregaste, entrégala otra vez con deliver_stage. Si su decisión deshace una etapa anterior, regrésala con una nota que diga por qué.`,
+    );
+  else lines.push("Rehaz esta etapa con eso: entrégala otra vez con deliver_stage y vuelve a mover la idea cuando esté.");
   return lines.join("\n");
 }
+const STAGE_WORD: Record<string, string> = { research: "Investigación", design: "Diseño", planning: "Plan", ready: "Lista" };
 
 // A pick is a change when it is not the option in force (the recommended one while assumed, his earlier pick after).
-// A change sends the idea back to the idea stage, whose owner asked the question, and wakes it; the stages after it
-// are redone when the idea reaches them again. The doc keeps its author and its time: the delivery is still the PO's,
+// On the idea stage a change wakes the PO to redo it. PLA-88: past it, the idea stays where it is and the owner of
+// that stage is woken with the note to carry the decision forward; sending it back to Idea threw away Research's
+// delivery and Artist's run for one line (guided test PLA-86, F-6). The doc keeps its author and its time: the delivery is still the PO's,
 // and the stop does not read as new.
 export async function ideaDecision(db: Db, slug: string, key: string, input: DecisionInput): Promise<{ key: string; stage: string | null; changed: boolean; decision: IdeaDecisionView; wake: "queued" | "busy" | "off" | "none" } | Refusal> {
   const found = await anyIdea(db, slug, key);
@@ -547,9 +556,12 @@ export async function ideaDecision(db: Db, slug: string, key: string, input: Dec
     await emit(DECISION, ref, { stop: "entendido", stage: "idea", n: input.decision, question: s.question, option: input.option, label, was, recommended: s.options[s.recommended], changed, ...(words ? { text: words } : {}) });
     const [doc] = await tx.select({ id: docs.id, markdown: docs.markdown }).from(docs).where(and(eq(docs.taskId, t.id), eq(docs.title, "Idea"))).limit(1);
     if (doc) await tx.update(docs).set({ markdown: rewriteDecisionLine(doc.markdown, input.decision, s, pick), version: sql`${docs.version} + 1` }).where(eq(docs.id, doc.id));
-    await emit("note", ref, { text: decisionNote(s.question, label, was, changed, words) });
+    const at = t.stage ?? "idea";
+    const forward = changed && at !== "idea" && STAGE_ORDER.includes(at) ? at : undefined;
+    await emit("note", ref, { text: decisionNote(s.question, label, was, changed, words, forward) });
     const decision = decisionView({ ...s, state: "decided", chosen: pick, at: new Date() }, input.decision - 1);
     if (!changed) return { key, stage: t.stage, changed, decision, wake: "none" as const };
+    if (forward) return { key, changed, decision, ...(await sendBack(db, tx, emit, p, t, forward, `Jorge cambió una decisión del PO: llévala a tu etapa (${STAGE_WORD[forward]}) según su nota`, DECISION)) };
     return { key, changed, decision, ...(await sendBack(db, tx, emit, p, t, "idea", "Jorge decidió otra cosa en una de tus preguntas: rehaz la etapa con su nota y entrégala con deliver_stage", DECISION)) };
   });
 }

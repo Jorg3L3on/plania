@@ -19,6 +19,10 @@ test("a decision says which option applies, what a change does, and what he deci
   assert.deepEqual(ideaMod.decisionWords(q({ state: "decided", chosen: 3 }), 3), { line: "Tú decidiste «Los dos». El PO recomendaba «WhatsApp».", act: null, label: "" });
   assert.equal(ideaMod.decisionWords(q({ state: "decided" }), 1).line, "Tú decidiste «WhatsApp».");
   assert.equal(ideaMod.decisionWords(q({ state: "decided", chosen: 3 }), 1).act, "change", "going back to the recommended one is a change too");
+  // PLA-88: past the idea stage the change goes to whoever has the idea, and it stays on its stop.
+  assert.equal(ideaMod.decisionWords(q(), 2, ideaMod.forwardOf("design")).line, "Si cambias a «Correo», se lo pasamos a Artist y la idea sigue en Diseño.");
+  assert.equal(ideaMod.decisionWords(q(), 2, ideaMod.forwardOf("planning")).line, "Si cambias a «Correo», se lo pasamos al PO y la idea sigue en Plan.");
+  assert.equal(ideaMod.forwardOf("idea"), null);
 });
 
 test("the recommended option comes chosen, with one line saying it applies unless he changes it", () => {
