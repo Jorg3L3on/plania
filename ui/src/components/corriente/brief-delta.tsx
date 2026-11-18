@@ -28,14 +28,14 @@ export function useStage(): [React.RefObject<HTMLDivElement | null>, { w: number
   return [ref, size];
 }
 
-function LightButton({ l, sel, settled, onPick, arrive }: { l: Light; sel: boolean; settled?: boolean; onPick: (id: string) => void; arrive?: boolean }) {
+function LightButton({ l, sel, settled, onPick, arrive, flow }: { l: Light; sel: boolean; settled?: boolean; onPick: (id: string) => void; arrive?: boolean; flow?: boolean }) {
   const label = `${settled ? "Resuelto" : WORD[l.kind]}: ${l.title}`;
   const off = settled ? 8 : l.kind === "idea" ? 14 : l.kind === "next" ? 12 : 16;
   return (
     <button
       type="button"
-      className={`cor-bf-lt${sel ? " sel" : ""}${settled ? " done" : ""}${arrive ? " arrive" : ""}`}
-      style={{ left: l.x - off, top: l.y }}
+      className={`cor-bf-lt${flow ? " flow" : ""}${sel ? " sel" : ""}${settled ? " done" : ""}${arrive ? " arrive" : ""}`}
+      style={flow ? undefined : { left: l.x - off, top: l.y }}
       aria-label={label}
       title={label}
       aria-pressed={sel}
@@ -203,6 +203,71 @@ export function BriefDelta({ delta, selected, onPick, inHand, arrived, quiet, st
           <LightButton key={l.id} l={l} sel={l.id === selected} settled onPick={onPick} arrive={l.id === arrived} />
         ))}
       </div>
+    </div>
+  );
+}
+
+// ---- I63-4: the phone (under 640px). No curves: one list per project with the same lights in a row, the card under
+// the stream of the chosen light, and Resuelto as a row at the end. The page scrolls, as the rest of Compañía there.
+export function BriefPhone({ delta, selected, onPick, card }: { delta: Delta; selected: string | null; onPick: (id: string) => void; card: React.ReactNode }) {
+  const c = delta.counts;
+  const inRiver = delta.river.some((l) => l.id === selected);
+  return (
+    <div className="cor-bf-phone" data-brief="delta" role="group" aria-label="El brief de hoy: un cauce por proyecto">
+      <p className="cor-bf-phone-bands">
+        <span>
+          IDEAS<b>{c.ideas}</b>
+        </span>
+        <span>
+          SIGUE<b>{c.next}</b>
+        </span>
+        <span className={c.toca ? "a" : undefined}>
+          TE TOCA<b>{c.toca}</b>
+        </span>
+      </p>
+      {delta.streams.map((s) => {
+        const mine = s.lights.some((l) => l.id === selected);
+        return (
+          <section key={s.slug} className="cor-bf-pstream" aria-label={`${s.name}: ${s.sub}`} data-stream={s.slug}>
+            <div className="cor-bf-phead">
+              {s.slug === CROSS ? <CrossMark className="cor-logo" /> : <Logo slug={s.slug} title={s.name} />}
+              <span className="cor-bf-who-t">
+                <span className="cor-bf-nm">{s.name}</span>
+                <span className={`cor-bf-sub${s.amber ? " a" : ""}`}>{s.sub}</span>
+              </span>
+            </div>
+            {s.lights.length > 0 && (
+              <div className={`cor-bf-prow${s.dam !== null ? " dam" : ""}`}>
+                {s.lights.map((l) => (
+                  <LightButton key={l.id} l={l} sel={l.id === selected} onPick={onPick} flow />
+                ))}
+                {s.more && (
+                  <button type="button" className="cor-bf-more flow" onClick={() => onPick(s.more!.first)} aria-label={`${s.more.n} más en ${s.name}`} data-more={s.slug}>
+                    +{s.more.n}
+                  </button>
+                )}
+              </div>
+            )}
+            {mine && <div className="cor-bf-pcard">{card}</div>}
+          </section>
+        );
+      })}
+      <section className="cor-bf-pstream river" aria-label={`Resuelto: ${c.done} de ${c.total}`} data-stream="resuelto">
+        <p className="cor-bf-band g flow" data-brief="resuelto">
+          RESUELTO<b>
+            {c.done} / {c.total}
+          </b>
+          {delta.riverMore > 0 && <span> · +{delta.riverMore}</span>}
+        </p>
+        {delta.river.length > 0 && (
+          <div className="cor-bf-prow">
+            {delta.river.map((l) => (
+              <LightButton key={l.id} l={l} sel={l.id === selected} settled onPick={onPick} flow />
+            ))}
+          </div>
+        )}
+        {(inRiver || !selected) && <div className="cor-bf-pcard">{card}</div>}
+      </section>
     </div>
   );
 }

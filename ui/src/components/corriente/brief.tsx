@@ -3,19 +3,21 @@
 // I63-1: the address, the page, the date line and headline, its tools (Generar ahora with the three passes, Días
 // anteriores, Ajustes) and the states with no brief on screen. I63-2: the delta (brief-delta.tsx), the light in hand,
 // J K and the arrows. I63-3: the card in hand (brief-card.tsx) with its evidence and every action, Enter L X Z, and
-// what was settled dropping into the river at once (with Deshacer on the card and in the footer).
+// what was settled dropping into the river at once (with Deshacer on the card and in the footer). I63-4: the states and
+// edges: a failed run (the brief stays, the reason and «Cómo arreglarlo»), a refresh that failed, a missing part, all
+// settled, and the phone (under 640px: no curves, a list per project with the card under the chosen light).
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { BriefSettingsSheet } from "@/components/brief/brief-settings";
 import { ApiError } from "@/lib/api";
 import { BRIEF_LABELS } from "@/lib/brief-i18n";
-import { type BriefHistoryRow, type BriefLanguage, type BriefPass, type BriefStateReply, type PlanIdeaProgress, planCost, runMinutes, useBriefAct, useBriefByDate, useBriefHistory, useBriefLatest, useBriefSettings, useBriefState, usePlanProgress, useRunBrief } from "@/lib/brief";
-import { keyCommand, stations, type CityCard, type Station } from "@/lib/brief-city";
-import { dayLine, deltaOf, firstLight, headlineOf, hopStream, kickOf, mergeLocal, nextAfter, noBriefHeadline, stepLight, type Delta, type Headline, type Light, type Local } from "@/lib/brief-delta";
+import { type BriefHistoryRow, type BriefLanguage, type BriefLastRun, type BriefPass, type BriefStateReply, type PlanIdeaProgress, planCost, runMinutes, useBriefAct, useBriefByDate, useBriefHistory, useBriefLatest, useBriefSettings, useBriefState, usePlanProgress, useRunBrief } from "@/lib/brief";
+import { keyCommand, missingPart, stations, type CityCard, type Station } from "@/lib/brief-city";
+import { dayLine, hhmm, deltaOf, firstLight, headlineOf, hopStream, kickOf, mergeLocal, nextAfter, noBriefHeadline, stepLight, type Delta, type Headline, type Light, type Local } from "@/lib/brief-delta";
 import { linkTo } from "@/lib/corriente";
 import { BriefCard, EmptyHand, stampOf, type CardKeys } from "./brief-card";
-import { BriefDelta, useStage } from "./brief-delta";
+import { BriefDelta, BriefPhone, useStage } from "./brief-delta";
 import { Btn } from "./parts";
 import { corLabels } from "@/lib/brief-i18n";
 
@@ -152,13 +154,15 @@ export type BriefViewProps = {
   footLeft?: ReactNode;
   footRight?: ReactNode;
   onRetry?: () => void;
+  /** Under 640px: the delta is a list and the card rides inside it. */
+  phone?: boolean;
 };
 
 export function BriefView(p: BriefViewProps) {
   return (
-    <div className="cor-bf" data-brief-state={p.state} aria-busy={p.state === "loading" || undefined}>
+    <div className={`cor-bf${p.phone ? " phone" : ""}`} data-brief-state={p.state} aria-busy={p.state === "loading" || undefined}>
       <div className="cor-bf-main">
-        {p.delta}
+        {!p.phone && p.delta}
         <div className="cor-bf-hero">
           <span className="cor-bf-kick" data-brief="kick">
             {p.live && <span className="cor-live" aria-hidden />}
@@ -171,15 +175,83 @@ export function BriefView(p: BriefViewProps) {
         </div>
         <div className="cor-bf-rt">
           {p.tools}
-          {p.card ?? <EmptyHand state={p.state} onRetry={p.onRetry} />}
+          {p.phone ? p.state !== "brief" && <EmptyHand state={p.state} onRetry={p.onRetry} /> : (p.card ?? <EmptyHand state={p.state} onRetry={p.onRetry} />)}
         </div>
+        {p.phone && p.delta}
       </div>
       <footer className="cor-bf-foot">
         <span className="cor-bf-foot-l">{p.footLeft ?? (p.state === "brief" ? "J K mover · ← → proyecto · Enter primera acción · L después · X no aplica · Z deshacer" : null)}</span>
-        <span className="cor-bf-foot-r">{p.footRight ?? (p.state === "brief" ? "pendientes e ideas completos · usa tu plan, $0" : "corre cada día a la hora de Ajustes · usa tu plan, $0")}</span>
+        {!p.footLeft || p.footRight ? <span className="cor-bf-foot-r">{p.footRight ?? (p.state === "brief" ? "pendientes e ideas completos · usa tu plan, $0" : "corre cada día a la hora de Ajustes · usa tu plan, $0")}</span> : null}
       </footer>
     </div>
   );
+}
+
+// ---- I63-4: the footer's notices (a failed run, a refresh that failed, a missing part)
+
+export type NoticeProps = { language: BriefLanguage; lastRun: BriefLastRun | null; refreshFailed: boolean; missing: ReturnType<typeof missingPart>; generatedAt: string | null; timeZone?: string; canRetry: boolean; onRetryRun: () => void; onRefresh: () => void; initialFix?: boolean };
+
+export function BriefNotice(p: NoticeProps) {
+  const c = corLabels(p.language).c;
+  const [fix, setFix] = useState(!!p.initialFix);
+  if (p.lastRun) {
+    const steps = p.lastRun.kind === "auth" ? c.fixAuth : c.fixOther;
+    const why = p.lastRun.kind === "auth" ? c.authReason : p.lastRun.reason;
+    return (
+      <div className="cor-bf-notice bad" role="status" data-brief="last-run">
+        <span className="cor-bf-notice-t" title={`${c.failedAt(hhmm(p.lastRun.ended_at, p.timeZone))} ${why}`}>
+          <b>{c.failedAt(hhmm(p.lastRun.ended_at, p.timeZone))}</b> {why} {p.generatedAt ? c.stillShowing(hhmm(p.generatedAt, p.timeZone)) : ""}
+        </span>
+        <span className="cor-bf-notice-b">
+          <Btn kind="link" small aria-expanded={fix} onClick={() => setFix(!fix)} data-brief="how-to-fix">
+            {fix ? c.hide : c.howToFix}
+          </Btn>
+          <Btn kind="link" small disabled={!p.canRetry} onClick={p.onRetryRun} data-brief="retry-run">
+            Reintentar
+          </Btn>
+        </span>
+        {fix && (
+          <ol className="cor-bf-fix" data-brief="fix-steps">
+            {steps.map((x) => (
+              <li key={x}>{x}</li>
+            ))}
+          </ol>
+        )}
+      </div>
+    );
+  }
+  if (p.refreshFailed)
+    return (
+      <div className="cor-bf-notice bad" role="status" data-brief="refresh-failed">
+        <span className="cor-bf-notice-t">
+          <b>No se pudo actualizar.</b> Sigues viendo lo último que llegó.
+        </span>
+        <Btn kind="link" small onClick={p.onRefresh} data-brief="refresh">
+          Reintentar
+        </Btn>
+      </div>
+    );
+  if (p.missing)
+    return (
+      <div className="cor-bf-notice" role="status" data-brief="missing">
+        <span className="cor-bf-notice-t">{c.partial[p.missing]}</span>
+      </div>
+    );
+  return null;
+}
+
+/** Under 640px the page is a phone (as the rest of Compañía). */
+export function useNarrow(): boolean {
+  const q = "(max-width: 639px)";
+  const [on, setOn] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.(q).matches);
+  useEffect(() => {
+    const m = window.matchMedia?.(q);
+    if (!m) return;
+    const f = () => setOn(m.matches);
+    m.addEventListener("change", f);
+    return () => m.removeEventListener("change", f);
+  }, []);
+  return on;
 }
 
 // ---- the container: the brief's hooks, as the old /brief page used them
@@ -259,13 +331,18 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
   const plans = useMemo(() => new Map<string, PlanIdeaProgress>((progress.data && progress.data.brief_id === briefId ? progress.data.ideas : []).map((x) => [x.code, x])), [progress.data, briefId]);
   const list = useMemo(() => (data ? stations(data, live_, { checks: shown?.checks ?? [], sentCodes, maxItems: settings.data?.settings.max_items_per_app }) : []), [data, live_, shown?.checks, sentCodes, settings.data?.settings.max_items_per_app]);
   const [stageRef, size] = useStage();
-  const delta = useMemo(() => deltaOf({ list, w: size.w, h: size.h, states: live_?.items, settled: settledOrder(live_) }), [list, size.w, size.h, live_]);
+  // The phone wraps its rows, so its labels follow the full stage's rule (not the phone's width).
+  const phone = useNarrow();
+  const w = phone ? 1440 : size.w;
+  const h = phone ? 650 : size.h;
+  const delta = useMemo(() => deltaOf({ list, w, h, states: live_?.items, settled: settledOrder(live_) }), [list, w, h, live_]);
   const [picked, setPicked] = useState<string | null>(null);
   const [arrived, setArrived] = useState<string | null>(null);
   const [last, setLast] = useState<string | null>(null);
   const cardKeys = useRef<CardKeys | null>(null);
   const all = useMemo(() => [...delta.streams.flatMap((x) => x.lights), ...delta.river], [delta]);
-  const selected = picked && all.some((l) => l.id === picked) ? picked : firstLight(delta);
+  const clear = delta.counts.total > 0 && delta.counts.done === delta.counts.total;
+  const selected = picked && all.some((l) => l.id === picked) ? picked : clear ? null : firstLight(delta);
   const light = all.find((l) => l.id === selected) ?? null;
 
   const t = corLabels(language);
@@ -338,7 +415,11 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
   const headline: Headline = data ? headlineOf({ total: delta.counts.total, open: delta.counts.total - delta.counts.done, blocked: delta.counts.blocked, needs: delta.counts.needs }, runAt) : noBriefHeadline(state === "brief" ? "loading" : state, runAt);
   const walk = useMemo(() => [...delta.streams.flatMap((x) => x.lights), ...delta.river].map((l) => l.id), [delta]);
   const streamOf = (l: Light | null): Station | undefined => (l ? list.find((st) => st.items.some((x) => x.id === l.id) || st.ideas.some((x) => x.id === l.id)) : undefined);
+  const allClear = delta.counts.total > 0 && delta.counts.done === delta.counts.total;
   const card = data ? (
+    allClear && !picked ? (
+      <EmptyHand state="brief" line={t.c.clearLine(delta.counts.done, runAt)} />
+    ) : (
     <BriefCard
       light={light}
       station={streamOf(light)}
@@ -359,7 +440,22 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
       keys={cardKeys}
       runAt={runAt}
     />
+    )
   ) : undefined;
+  const notice = data ? (
+    <BriefNotice
+      language={language}
+      lastRun={date ? null : (latest.data?.last_run ?? null)}
+      refreshFailed={!date && latest.isError && !!latest.data}
+      missing={missingPart(data)}
+      generatedAt={data.generatedAt}
+      timeZone={tz}
+      canRetry={enabled && !generating}
+      onRetryRun={() => generate()}
+      onRefresh={() => void latest.refetch()}
+    />
+  ) : null;
+  const hasNotice = !!data && (!!(!date && latest.data?.last_run) || (!date && latest.isError && !!latest.data) || !!missingPart(data));
   const lastUndo = !readOnly && last ? undoable.find((u) => u.id === last) : undefined;
   const footRight = lastUndo ? (
     <span className="cor-bf-undo" data-brief="last">
@@ -394,8 +490,20 @@ export function BriefPlace({ now, timeZone }: { now: number; timeZone: string })
         tools={tools}
         state={state}
         onRetry={() => void (date ? past.refetch() : latest.refetch())}
-        delta={data ? <BriefDelta delta={delta} selected={selected} onPick={setPicked} inHand={!!light?.card.open} arrived={arrived} stageRef={stageRef} /> : <div className="cor-bf-delta" ref={stageRef} aria-hidden />}
+        delta={
+          data ? (
+            phone ? (
+              <BriefPhone delta={delta} selected={selected} onPick={setPicked} card={card} />
+            ) : (
+              <BriefDelta delta={delta} selected={selected} onPick={setPicked} inHand={!!light?.card.open} arrived={arrived} stageRef={stageRef} />
+            )
+          ) : (
+            <div className="cor-bf-delta" ref={stageRef} aria-hidden />
+          )
+        }
         card={card}
+        phone={phone}
+        footLeft={hasNotice ? notice : undefined}
         footRight={footRight}
       />
     </>
