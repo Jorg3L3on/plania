@@ -4,7 +4,7 @@
 // step of the initiative that rejoins at Publicado. Nothing in it is decorative: the thickness is the number of
 // deliveries, each channel is a real step, its colour is that step's state.
 // Coordinates are logical: 1374 wide (the ficha in the sketch, PLA-IDEA27 pass 3); the component scales them.
-import type { EtapaId, IdeaDetail, PedidoState, PedidoStop } from "@/lib/api";
+import type { EtapaId, IdeaDetail, PedidoStop } from "@/lib/api";
 
 export const STOP_IDS: PedidoStop[] = ["buzon", "entendido", "investigacion", "diseno", "plan", "lista"];
 export const STOP_NAMES = ["Buzón", "Entendido", "Investigación", "Diseño", "Plan", "Lista"];
