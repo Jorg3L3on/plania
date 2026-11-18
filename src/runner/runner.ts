@@ -257,6 +257,20 @@ async function taskBranchInfo(db: Q, projectId: string, key: string): Promise<{ 
   return rows.rows[0] ?? { branch: null, base: null };
 }
 
+// PLA-89: Research and Artist are woken for an idea's stage (research, design). A wake queued for a stage the idea
+// has left (it moved on, or went back) ends without a run: on MIA-IDEA4 (guided test PLA-86) two such wakes would
+// have redone Research and Design after the idea had reached Plan. Returns the stage it is on now, or null to run.
+const STAGE_OF_ROLE: Partial<Record<RunnerRole, string>> = { research: "research", artist: "design" };
+export function stageMovedOn(role: RunnerRole | null, kind: string | null | undefined, stage: string | null | undefined): string | null {
+  const want = role ? STAGE_OF_ROLE[role] : undefined;
+  if (!want || kind !== "idea" || !stage) return null;
+  return stage === want ? null : stage;
+}
+async function ideaStageOf(db: Q, projectId: string, key: string): Promise<{ kind: string; stage: string | null } | null> {
+  const [t] = await db.select({ kind: tasks.kind, stage: tasks.stage }).from(tasks).where(and(eq(tasks.projectId, projectId), eq(tasks.key, key))).limit(1);
+  return t ?? null;
+}
+
 async function loadContext(db: Q, agent: Agent, task: ReadyWork | null): Promise<WakeContext> {
   const role = roleOf(agent);
   let project: Project | null = null;
@@ -597,6 +611,17 @@ export async function admit(db: Db, now: Date, deps: RunnerDeps = {}, opts: Admi
         result.outcomes.set(run.id, { kind: "ended", status: pre.kind === "fail" ? "fail" : "skipped", summary: pre.summary });
         result.dropped += 1;
         continue;
+      }
+      if (run.lane === "work" && run.taskKey && ctx.role && STAGE_OF_ROLE[ctx.role]) {
+        const t = await ideaStageOf(tx, run.projectId, run.taskKey);
+        const now_ = stageMovedOn(ctx.role, t?.kind, t?.stage);
+        if (now_) {
+          const summary = `skipped: the idea moved on (stage ${now_})`;
+          await endWithoutProcess(tx, run, "skipped", summary, now);
+          result.outcomes.set(run.id, { kind: "ended", status: "skipped", summary });
+          result.dropped += 1;
+          continue;
+        }
       }
       // The plan: a stopped (or unknown) plan ends the run as it always did; requeueHeld queues it again later.
       const view = planView(reading, settings.planGuardPct, now, settings.guardOverride || (mine && !!opts.pastGuard));
