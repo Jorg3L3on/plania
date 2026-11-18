@@ -86,7 +86,7 @@ export const Maquinas = ({ p, onPedir, focus, onFocus }: { p: OrgProject; onPedi
   const act = (key: string, what: string, call: () => Promise<unknown>, then?: (o: unknown) => void) => run.mutate({ key, what, call, then });
 
   if (read.isError && !r) return <ReadError what="las máquinas del proyecto" onRetry={() => void read.refetch()} />;
-  if (!r || !v) return <div className="cor-skel" style={{ height: 400 }} aria-busy="true" aria-label="Leyendo las máquinas" />;
+  if (!r || !v) return <div className="cor-skel" style={{ height: 400 }} role="status" aria-busy="true" aria-label="Leyendo las máquinas" />;
 
   const pages = captures.data?.pages ?? [];
   const pg = pages.find((x) => x.key === (page ?? r.pages[0]?.key)) ?? pages[0] ?? null;

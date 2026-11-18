@@ -1138,3 +1138,8 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
   .cor-bf-foot-l:not(:has(.cor-bf-notice)) { display: none; }
   .cor-bf-hand { margin-top: 0; }
 }
+/* PLA-63: an initiative that never was an idea: its idea stops are empty and quiet. */
+.cor-ficha-tab.none b { color: var(--cor-muted); font-weight: 400; }
+.cor-ficha-tab.none { cursor: default; }
+/* PLA-63: on a thread with no idea part, the moving light runs over the construction only. */
+.cor-hilo.born.flow::after { left: calc((100% - 26px) * 6 / 9.3 + 26px); }
