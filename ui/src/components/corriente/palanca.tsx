@@ -119,7 +119,8 @@ export const Palanca = ({ p, c, primary, acts, decisions, links, onFijar }: { p:
       case "detener":
         return btn("Detener", () => acts.stopRun(a.run), "detener", "Deteniendo…", "secondary");
       case "primero":
-        return btn("Hacer primero", () => acts.pickNext(p.slug, a.key), "hacer-primero", "…", "secondary");
+        // PLA-63: En fila can hold many rows; their «Hacer primero» stays quiet (no border) so the list is not a wall of buttons.
+        return btn("Hacer primero", () => acts.pickNext(p.slug, a.key), "hacer-primero", "…", "quiet");
       case "lista":
         return btn("Pasar a Lista", () => acts.aLista(p.slug, a.key), "pasar-a-lista", "Pasando…", "secondary");
     }

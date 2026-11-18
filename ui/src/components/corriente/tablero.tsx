@@ -146,7 +146,7 @@ export const Paso = ({ p, k, links, back, backLabel = "Tablero", acts, decisions
         {q.isError ? (
           <ReadError what="el paso" onRetry={() => void q.refetch()} />
         ) : !t ? (
-          <div className="cor-skel" style={{ height: 300 }} aria-busy="true" aria-label="Leyendo el paso" />
+          <div className="cor-skel" style={{ height: 300 }} role="status" aria-busy="true" aria-label="Leyendo el paso" />
         ) : (
           <>
             <section aria-label="Hecho cuando">

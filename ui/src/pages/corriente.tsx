@@ -405,7 +405,7 @@ export const CorrientePage = () => {
     if (at.view === "piezas") return <Piezas />;
     if (at.view === "brief") return <BriefPlace now={now} timeZone={timeZone} />;
     if (comp.isError && !company) return <ReadError what="la compañía" onRetry={() => void comp.refetch()} />;
-    if (!company) return <div className="cor-skel" style={{ margin: "22px 32px", flex: 1 }} aria-busy="true" aria-label="Cargando la compañía" />;
+    if (!company) return <div className="cor-skel" style={{ margin: "22px 32px", flex: 1 }} role="status" aria-busy="true" aria-label="Cargando la compañía" />;
     if (at.slug) {
       if (!project)
         return (

@@ -65,14 +65,18 @@ export type FichaLinks = { doc: (id: string) => string; paso: (key: string) => s
 
 // ---- the stops as tabs over the current
 
-type TabInfo = { sel: Sel; who: string; tone: "you" | "live" | "new" | "ok" | ""; gist: string | null; state: "done" | "here" | "todo" };
+/** About what the bar's two lines hold beside the answer buttons. */
+export const QUESTION_FITS = 110;
+
+type TabInfo = { sel: Sel; who: string; tone: "you" | "live" | "new" | "ok" | ""; gist: string | null; state: "done" | "here" | "todo" | "none" };
 function tabsOf(d: IdeaDetail, m: RioModel, stuck = false): TabInfo[] {
   const alone = d.kind === "initiative" && !d.stops.some((s) => s.delivered);
   const out: TabInfo[] = d.stops.map((s, i) => {
     const built = !!d.built;
     // Once built the stops are history: who delivered, no «sin ver».
-    const line = alone ? { text: "Sin entrega", tone: "" as const } : built ? { text: s.stop === "lista" ? "Tu sí" : s.stop === "buzon" ? "Tú" : whoName(s.by) || "—", tone: "" as const } : s.stop === "lista" && s.state === "here" && d.state === "valvula" ? (stuck ? { text: "Atorada", tone: "you" as const } : { text: "Pasando al tablero", tone: "live" as const }) : s.stop === "lista" && s.state === "here" && d.state === "quieta" ? { text: "Espera tu sí", tone: "you" as const } : s.state === "here" && d.state === "trabajando" ? { text: `${whoName(d.who) || "Alguien"} la trabaja`, tone: "live" as const } : stopLine(s, d);
-    return { sel: s.stop, who: line.text, tone: line.tone, gist: d.gist?.[s.stop] ?? null, state: i < m.here ? "done" : i === m.here ? "here" : "todo" };
+    // PLA-63: an initiative that never was an idea has no idea stops: empty, as its row in the list draws them.
+    const line = alone ? { text: "", tone: "" as const } : built ? { text: s.stop === "lista" ? "Tu sí" : s.stop === "buzon" ? "Tú" : whoName(s.by) || "—", tone: "" as const } : s.stop === "lista" && s.state === "here" && d.state === "valvula" ? (stuck ? { text: "Atorada", tone: "you" as const } : { text: "Pasando al tablero", tone: "live" as const }) : s.stop === "lista" && s.state === "here" && d.state === "quieta" ? { text: "Espera tu sí", tone: "you" as const } : s.state === "here" && d.state === "trabajando" ? { text: `${whoName(d.who) || "Alguien"} la trabaja`, tone: "live" as const } : stopLine(s, d);
+    return { sel: s.stop, who: line.text, tone: line.tone, gist: d.gist?.[s.stop] ?? null, state: alone ? "none" : i < m.here ? "done" : i === m.here ? "here" : "todo" };
   });
   const b = d.built;
   const you = m.chans.includes("you");
@@ -132,7 +136,7 @@ const Rio = ({ d, m, ui, set, stuck = false }: { d: IdeaDetail; m: RioModel; ui:
           >
             <b>{SEL_NAME[t.sel]}</b>
             <span className={`cor-ficha-who ${t.tone === "you" ? "amber" : t.tone === "live" || t.tone === "new" ? "live" : t.tone === "ok" ? "ok" : ""}`}>{t.who}</span>
-            {t.gist && t.state !== "todo" && <span className="cor-ficha-gist">{t.gist}</span>}
+            {t.gist && t.state !== "todo" && t.state !== "none" && <span className="cor-ficha-gist">{t.gist}</span>}
           </button>
         ))}
       </div>
@@ -850,7 +854,7 @@ export const Ficha = ({ p, k, now, timeZone, acts, decisions, links, onClose, ex
         </Btn>
       </section>
     );
-  if (!d || !ui) return <div className="cor-ficha cor-skel" data-ficha={k} aria-busy="true" aria-label="Leyendo la ficha" />;
+  if (!d || !ui) return <div className="cor-ficha cor-skel" data-ficha={k} role="status" aria-busy="true" aria-label="Leyendo la ficha" />;
   const m = rioOf(d);
   const you = m.front === "you";
   const busy = (a: string) => acts.busy === `pedido-${d.key}:${a}`;
@@ -870,8 +874,9 @@ export const Ficha = ({ p, k, now, timeZone, acts, decisions, links, onClose, ex
             )}
             {d.unseen > 0 && !d.built && <span className="cor-cap">{`· ${d.unseen} ${d.unseen === 1 ? "entrega sin ver" : "entregas sin ver"}`}</span>}
           </span>
+          {/* PLA-63: the header has the room for the whole name; the short one (first words) is for small places. */}
           <h2 className="cor-ellipsis" title={d.title}>
-            {d.short ?? d.summary ?? d.title}
+            {d.summary || d.title}
           </h2>
         </div>
         <Btn kind="quiet" small aria-pressed={ui.sub === "recorrido"} onClick={() => set({ sub: ui.sub === "recorrido" ? "entrega" : "recorrido" })} data-control="ficha-recorrido">
@@ -901,7 +906,8 @@ export const Ficha = ({ p, k, now, timeZone, acts, decisions, links, onClose, ex
       </div>
       <Rio d={d} m={m} ui={ui} set={set} stuck={stuckOf(p, d)} />
       <div className="cor-ficha-entrega" id={`ficha-panel-${d.key}`} role="tabpanel" aria-labelledby={`ficha-tab-${d.key}-${ui.sel}`} tabIndex={0} data-panel={ui.sub === "entrega" ? ui.sel : ui.sub}>
-        {d.question && isOpen(d) && ui.sub === "entrega" && (
+        {/* PLA-63: the bar below asks it (two lines); the panel repeats it only when it is too long for the bar. */}
+        {d.question && isOpen(d) && ui.sub === "entrega" && d.question.text.length > QUESTION_FITS && (
           <p className="cor-ficha-ask" data-pregunta-texto>
             <Label tone="amber">El PO pregunta</Label> {d.question.text}
           </p>
