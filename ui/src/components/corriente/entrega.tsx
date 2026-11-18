@@ -221,11 +221,24 @@ export const Entrega = ({ p, d, acts, back }: { p: OrgProject; d: Decision; acts
       setStarting(false);
     }
   };
+  // PLA-111 (guided test PLA-86, F-33): «Pruébala en vivo» took two clicks, the first only got the address. The tab
+  // opens inside the click (so the browser allows it) and goes to the copy once its address is known; where no tab
+  // can open, the link stays on the card as before.
   const abrir = async () => {
+    const tab = typeof window !== "undefined" ? window.open("about:blank", "_blank") : null;
     setOpening(true);
     try {
-      setVivo((await api.vivo(p.slug)).vivo);
+      const got = (await api.vivo(p.slug)).vivo;
+      setVivo(got);
+      const url = got.url && v ? got.url + v.path : null;
+      if (tab) {
+        if (url) {
+          tab.opener = null;
+          tab.location.href = url;
+        } else tab.close();
+      }
     } catch {
+      tab?.close();
       setVivo({ url: null, local_url: null, tailnet: false, signed_in: false, user: null, error: "No se pudo abrir la copia en vivo", hint: null });
     } finally {
       setOpening(false);

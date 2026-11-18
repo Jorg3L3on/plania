@@ -6,6 +6,7 @@
 // taken and the Ventana says «En vivo». The process is a registered footprint (port:N, teardown kill -TERM -<pgid>)
 // and stops when Jorge turns it off, when nobody has looked at the floor for IDLE_MS, or when Plania stops.
 // Everything here is in memory: one Plania server per Mac. Tests inject every outside call (setPruebaDeps).
+import { exitAfterDrain } from "../ops/shutdown.js";
 import { spawn as nodeSpawn, execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -658,8 +659,8 @@ function hook(): void {
   for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
     process.once(sig, () => {
       stopAll();
-      // Keep Node's default: a signal ends the server.
-      process.exit(sig === "SIGINT" ? 130 : 143);
+      // Keep Node's default: a signal ends the server; PLA-111: once the requests in flight have finished.
+      exitAfterDrain(sig === "SIGINT" ? 130 : 143);
     });
   }
 }

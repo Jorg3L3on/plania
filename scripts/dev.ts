@@ -16,6 +16,7 @@ import { withDb } from "../src/db/client.js";
 import { sweepOrphans } from "../src/runner/runner.js";
 import { gitState, readUiBuild, staleReason } from "../src/ui-build.js";
 import { reapOrphans } from "../src/captures/prueba.js";
+import { exitAfterDrain, setHttpServer } from "../src/ops/shutdown.js";
 
 const { values } = parseArgs({ options: { port: { type: "string", default: "3737" } }, strict: false });
 const port = Number(values.port);
@@ -80,7 +81,10 @@ server.get("*", (c) => {
   return c.html(readFileSync(indexPath, "utf8"));
 });
 
-serve({ fetch: server.fetch, port, hostname }, () => console.log(`plania on http://localhost:${port}`));
+const http = serve({ fetch: server.fetch, port, hostname }, () => console.log(`plania on http://localhost:${port}`));
+// PLA-111 (F-39): a restart lets the requests in flight finish before the process exits.
+setHttpServer(http as never);
+for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.once(sig, () => exitAfterDrain(sig === "SIGINT" ? 130 : 143));
 
 // Background jobs (lease warnings, legacy card archiving, later the pollers). PLANIA_JOBS=0 turns them off.
 if (process.env.PLANIA_JOBS !== "0") startJobs();
