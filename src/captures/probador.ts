@@ -13,7 +13,7 @@ import { setTask } from "../mcp/writes.js";
 import { enqueueWake } from "../runner/events.js";
 import { pngDiff, type DiffBox } from "./diff.js";
 import type { Muestra } from "./muestra.js";
-import { encender, encenderEntrega, entregaRead, pruebaInfo, pruebaOf, pruebaRead, BRANCH } from "./prueba.js";
+import { encender, encenderEntrega, entregaEnv, entregaRead, pruebaInfo, pruebaOf, pruebaRead, BRANCH } from "./prueba.js";
 import { runCapture, type CaptureInput, type CaptureSummary, type ViewPage } from "./run.js";
 import { imageUrl, readFile } from "./store.js";
 import { preguntasOf, type QA } from "./preguntas.js";
@@ -139,7 +139,7 @@ async function pass(db: Db, slug: string, key: string, deps: ProbadorDeps): Prom
   // Después: the delivery.
   let despues: CaptureSummary | null = null;
   try {
-    despues = await capture(db, { project: slug, checkout: e.worktree ?? "", base_url: `http://localhost:${e.port}`, branch, commit: e.commit ?? undefined, task_key: t.key, views, side: "despues", actor });
+    despues = await capture(db, { project: slug, checkout: e.worktree ?? "", base_url: `http://localhost:${e.port}`, branch, commit: e.commit ?? undefined, task_key: t.key, views, side: "despues", actor, env: entregaEnv(slug) });
   } catch (err) {
     return failed(db, p, t, attempts, `No se pudo fotografiar la entrega: ${short(err)}`, deps);
   }

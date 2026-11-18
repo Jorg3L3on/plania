@@ -11,7 +11,7 @@ import { eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { projects } from "../db/schema.js";
 import { ToolError } from "../mcp/errors.js";
-import { entregaRead } from "./prueba.js";
+import { entregaEnv, entregaRead } from "./prueba.js";
 import { sessionCookies } from "./run.js";
 import type { CaptureSettings } from "./settings.js";
 
@@ -155,7 +155,7 @@ export async function startVivo(db: Db, slug: string): Promise<VivoRead> {
   let error: string | null = null;
   if (settings.session) {
     try {
-      cookies = await (deps.signIn ?? sessionCookies)({ base_url: `http://localhost:${target.port}`, checkout: target.worktree ?? "", settings });
+      cookies = await (deps.signIn ?? sessionCookies)({ base_url: `http://localhost:${target.port}`, checkout: target.worktree ?? "", settings, env: entregaEnv(slug) });
       if (!cookies.length) error = "No se pudo entrar con el usuario de prueba";
     } catch (err) {
       error = err instanceof Error ? err.message.split("\n")[0]!.slice(0, 200) : String(err);
