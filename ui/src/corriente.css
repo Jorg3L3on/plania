@@ -431,39 +431,32 @@ button.cor-row { width: 100%; text-align: left; background: transparent; border-
 .cor-thread-trail { display: flex; flex-direction: column; gap: 4px; padding-left: 16px; list-style: disc; font-family: var(--cor-mono); font-size: 11px; color: var(--cor-muted); }
 
 .cor-pedidos { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; }
+.cor-pedidos > .cor-filas { flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; }
 .cor-pedidos-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--cor-line); }
 .cor-pedidos-head .cor-h3 { font-size: 22px; }
-.cor-ptable { display: flex; flex-direction: column; min-height: 0; }
-.cor-prow-head, .cor-plane { display: grid; grid-template-columns: minmax(260px, 2fr) repeat(6, minmax(0, 1fr)); align-items: center; }
-.cor-prow-head { height: 34px; border-bottom: 1px solid var(--cor-line); }
-.cor-prow-head > span:not(:first-child) { text-align: center; }
-.cor-prows { display: flex; flex-direction: column; min-height: 0; }
-.cor-prows[data-scroll] { max-height: 300px; overflow-y: auto; }
-.cor-plane { position: relative; min-height: 52px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
-a.cor-plane:hover { background: rgba(255, 255, 255, 0.025); }
-.cor-plane[aria-current="true"] { background: rgba(255, 180, 84, 0.04); box-shadow: inset 2px 0 0 var(--cor-amber); }
-.cor-plane-name { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 6px 16px; }
-.cor-plane-name b { font-size: 14.5px; font-weight: 500; }
-.cor-journey { grid-column: 2 / -1; position: relative; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); align-items: center; height: 100%; }
-.cor-journey::before { content: ""; position: absolute; left: calc(100% / 12); right: calc(100% / 12); top: 50%; height: 1px; background: rgba(139, 92, 246, 0.25); }
-.cor-jstop { position: relative; z-index: 1; display: grid; place-items: center; }
 .cor-ring { width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.28); background: var(--cor-bg); }
-.cor-plane.stale { grid-template-columns: minmax(260px, 2fr) 1fr; }
-.cor-stale-acts { display: flex; justify-content: flex-end; gap: 8px; padding-right: 8px; }
+.cor-stale-acts { display: flex; justify-content: flex-end; gap: 8px; }
+/* PLA-I65-5: one thing closed is one row (46px): short name and key, the current in small, what it needs, Abrir. */
+.cor-filas { display: flex; flex-direction: column; min-height: 0; }
+.cor-filas > li { min-width: 0; }
+.cor-fila { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr) minmax(200px, 300px) 60px; gap: 20px; align-items: center; width: 100%; min-height: 46px; padding: 0 20px; border-top: 1px solid var(--cor-line); color: var(--cor-body); }
+a.cor-fila:hover { background: rgba(255, 255, 255, 0.025); }
+.cor-fila-nm { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.cor-fila-nm b { font-size: 14.5px; font-weight: 500; color: var(--cor-text); }
+.cor-fila-nm .cor-key { flex: none; }
+.cor-fila-rio { display: block; min-width: 0; }
+.cor-fila > .cor-state { overflow: hidden; text-overflow: ellipsis; }
+.cor-fila-go { font-size: 13px; color: var(--cor-violet-3); text-align: right; }
+.cor-fila.stale { grid-template-columns: minmax(220px, 300px) minmax(0, 1fr) auto; }
+.cor-fila-open { padding: 8px 0; }
+.cor-fila-open > .cor-ficha { height: min(560px, calc(100svh - var(--cor-shell) - 240px)); min-height: 440px; }
+.cor-fila-open .cor-ficha-entrega { min-height: 110px; }
+.cor-tablero-ficha { margin-bottom: 14px; }
 .cor-last { display: flex; align-items: flex-start; gap: 16px; font-size: 13.5px; color: var(--cor-body); }
 .cor-last ul { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .cor-last li { display: flex; align-items: center; gap: 12px; min-height: 28px; }
 .cor-last > .cor-label { padding-top: 8px; }
 .cor-last .cor-btn.link { min-height: 32px; margin-top: -2px; }
-.cor-opened { display: flex; flex-wrap: wrap; gap: 28px; padding: 18px 22px; }
-.cor-opened.you { border-color: rgba(255, 180, 84, 0.4); background: linear-gradient(180deg, rgba(255, 180, 84, 0.05), transparent 70%), var(--cor-surface); }
-.cor-opened-main { flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-.cor-opened-side { flex: 0 0 300px; display: flex; flex-direction: column; gap: 10px; }
-.cor-opened-side > .cor-btn.primary, .cor-opened-side > .cor-btn.secondary { width: 100%; }
-.cor-stops-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
-.cor-stops-grid > div { display: flex; align-items: center; gap: 12px; min-height: 44px; border-top: 1px solid var(--cor-line); font-size: 13.5px; }
-.cor-stops-grid .cor-stops-name { width: 104px; flex: none; font-family: var(--cor-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--cor-muted); }
-.cor-stops-grid .cor-stops-val { flex: 1; }
 
 .cor-asist { display: flex; gap: 56px; padding: 18px 32px 20px; flex: 1; min-height: 0; }
 .cor-asist-main { flex: 1 1 auto; max-width: 860px; min-width: 0; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
@@ -574,11 +567,6 @@ a.cor-plane:hover { background: rgba(255, 255, 255, 0.025); }
 .cor-md table { border-collapse: collapse; font-size: 13px; } .cor-md td, .cor-md th { border: 1px solid var(--cor-line); padding: 4px 8px; }
 
 .cor-ideas { display: flex; flex-direction: column; gap: 8px; }
-.cor-prow-head.ideas, .cor-plane.idea { grid-template-columns: minmax(240px, 1.6fr) repeat(6, minmax(0, 0.55fr)) minmax(200px, 1.3fr) 150px; }
-.cor-prow-head.ideas > span:last-child { text-align: left; padding-left: 12px; }
-.cor-plane.idea .cor-journey { grid-column: 2 / span 6; }
-.cor-idea-who { padding: 0 12px; font-size: 13.5px; color: var(--cor-body); }
-.cor-plane.idea > .cor-btn { justify-self: end; margin-right: 8px; }
 .cor-ideas-list { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
 .cor-ideas-g { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 2px; }
 .cor-ideas-g .cor-label { color: var(--cor-text); }

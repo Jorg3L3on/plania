@@ -64,9 +64,11 @@ export function drawRio(g: CanvasRenderingContext2D, m: RioModel, size: RioSize,
   band(X0, FX0, "rgba(255,255,255,.055)");
   g.lineCap = "round";
   for (let k = 0; k < n; k++) {
+    // In the row size a dry delta keeps every other bed, so it reads as channels and not as a block.
+    if (small && n > 6 && k % 2 === 1 && m.chans[k] === "todo") continue;
     g.beginPath();
     for (let s = 0; s <= 1.0001; s += 0.025) g.lineTo(...cp(k, s));
-    g.strokeStyle = "rgba(255,255,255,.07)";
+    g.strokeStyle = small ? "rgba(255,255,255,.1)" : "rgba(255,255,255,.07)";
     g.lineWidth = small ? 1 : 2.5;
     g.stroke();
   }

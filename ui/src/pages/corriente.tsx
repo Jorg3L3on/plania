@@ -18,6 +18,7 @@ import { Board, Paso, type BoardLinks } from "@/components/corriente/tablero";
 import { Equipo } from "@/components/corriente/equipo";
 import { Idea } from "@/components/corriente/idea";
 import type { FichaLinks } from "@/components/corriente/ficha";
+import { FilaAbierta } from "@/components/corriente/fila";
 import { Disenos, Docs, Ideas, Prs } from "@/components/corriente/listas";
 import { Motores } from "@/components/corriente/motores";
 import { Maquinas } from "@/components/corriente/maquinas";
@@ -215,10 +216,20 @@ export const CorrientePage = () => {
     // PLA-I65-4: an initiative opens the one ficha; a step keeps its own view.
     const fichaLinks: FichaLinks = { doc: boardLinks.doc, paso: boardLinks.paso, entrega: boardLinks.entrega, pedir: pedirTo(p.slug) };
     if (at.ver?.kind === "paso") return <Paso p={p} k={at.ver.key} links={boardLinks} back={linkTo({ slug: p.slug, tab: "tablero" })} />;
-    if (at.ver?.kind === "iniciativa")
-      return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} decisions={decisions} links={fichaLinks} onClose={() => go({ slug: p.slug, tab: "tablero" })} />;
-    if (at.tab === "tablero")
-      return <Board p={p} decisions={decisions} acts={acts} links={boardLinks} now={now} chosenKey={new URLSearchParams(location.search).get("elegida")} onChoose={(k) => navigate(hrefOf({ slug: p.slug, tab: "tablero", extra: k ? { elegida: k } : {} }), { replace: true })} />;
+    // PLA-I65-5: an initiative opens the same ficha over the board; the grid by stations stays below it.
+    if (at.tab === "tablero" || at.ver?.kind === "iniciativa") {
+      const ini = at.ver?.kind === "iniciativa" ? at.ver.key : null;
+      return (
+        <>
+          {ini && (
+            <ul className="cor-filas cor-tablero-ficha">
+              <FilaAbierta key={ini} p={p} k={ini} now={now} timeZone={timeZone} acts={acts} decisions={decisions} links={fichaLinks} onClose={() => go({ slug: p.slug, tab: "tablero" }, true)} />
+            </ul>
+          )}
+          <Board p={p} decisions={decisions} acts={acts} links={boardLinks} now={now} quiet={!!ini} chosenKey={new URLSearchParams(location.search).get("elegida")} onChoose={(k) => navigate(hrefOf({ slug: p.slug, tab: "tablero", extra: k ? { elegida: k } : {} }), { replace: true })} />
+        </>
+      );
+    }
     if (at.tab === "equipo")
       return (
         <Equipo
@@ -233,8 +244,10 @@ export const CorrientePage = () => {
           motorDefault={company?.motor_default}
         />
       );
-    if (at.ver?.kind === "idea") return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} decisions={decisions} links={fichaLinks} onClose={() => go({ slug: p.slug, tab: at.tab === "ideas" ? "ideas" : at.tab })} />;
-    if (at.tab === "ideas") return <Ideas p={p} acts={acts} links={{ idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }), pedir: pedirTo(p.slug) }} />;
+    // PLA-I65-5: an idea opens in its row of Ideas (ver=idea keeps the tab); outside Ideas it opens alone.
+    if (at.ver?.kind === "idea" && at.tab !== "ideas") return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} decisions={decisions} links={fichaLinks} onClose={() => go({ slug: p.slug, tab: at.tab })} />;
+    if (at.tab === "ideas")
+      return <Ideas p={p} acts={acts} decisions={decisions} now={now} timeZone={timeZone} open={at.ver?.kind === "idea" ? at.ver.key : null} links={{ open: (key) => linkTo({ slug: p.slug, tab: "ideas", ver: key ? { kind: "idea", key } : null }), pedir: pedirTo(p.slug), ficha: fichaLinks }} />;
     if (at.tab === "diseno") return <Disenos p={p} links={{ idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }) }} />;
     if (at.tab === "prs")
       return <Prs p={p} decisions={decisions} open={at.ver?.kind === "pr" ? at.ver.n : null} links={{ pr: (n) => linkTo({ slug: p.slug, ver: { kind: "pr", n } }), paso: (key) => linkTo({ slug: p.slug, ver: { kind: "paso", key } }), entrega: (d) => linkTo({ slug: p.slug, ver: { kind: "entrega", id: d.id } }) }} />;
@@ -253,7 +266,7 @@ export const CorrientePage = () => {
             open: (key) => linkTo({ slug: p.slug, tab: "pedidos", ver: key ? { kind: "pedido", key } : null }),
             guardadas: linkTo({ slug: p.slug, ver: { kind: "guardadas" } }),
             pedir: pedirTo(p.slug),
-            idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }),
+            ficha: fichaLinks,
           }}
         />
       );

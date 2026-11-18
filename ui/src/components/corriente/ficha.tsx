@@ -788,13 +788,11 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
 export const Ficha = ({ p, k, now, timeZone, acts, decisions, links, onClose }: { p: OrgProject; k: string; now: number; timeZone?: string; acts: CorrienteActs; decisions: Decision[]; links: FichaLinks; onClose: () => void }) => {
   const q = useQuery({ queryKey: ["idea", p.slug, k], queryFn: () => api.idea(p.slug, k), refetchInterval: 15_000 });
   const d = q.data;
-  const [ui, setUi] = useState<Ui | null>(null);
-  const set = (x: Partial<Ui>) => setUi((u) => (u ? { ...u, ...x } : u));
+  const [state, setUi] = useState<Ui | null>(null);
+  // The first read decides where it opens; from then on the owner's clicks do.
+  const ui = state ?? (d ? initialUi(d) : null);
+  const set = (x: Partial<Ui>) => setUi((u) => (u ? { ...u, ...x } : d ? { ...initialUi(d), ...x } : u));
   const told = useRef(new Set<string>());
-  useEffect(() => {
-    if (d && !ui) setUi(initialUi(d));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [d?.key]);
   // When the PO creates the initiative while it is open, the ficha moves to Construcción.
   const builtKey = d?.built?.key ?? null;
   const prevBuilt = useRef<string | null>(builtKey);

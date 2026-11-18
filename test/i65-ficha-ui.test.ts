@@ -126,3 +126,136 @@ test("I65-2: the still frame is the same at any time (reduced motion shows the f
   rio.drawRio(r, geo.rioOf(at("plan")), "fila", 220, TOK, 0, null);
   assert.ok(r.ops.some((o: string) => o.startsWith("arc(")));
 });
+
+// ---- PLA-I65-3/4/5: the ficha and the rows, rendered on the server with a seeded read.
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+const fichaMod = await load("components/corriente/ficha.tsx");
+const filaMod = await load("components/corriente/fila.tsx");
+const h = React.createElement;
+const acts = new Proxy({ busy: null, decisions: { busy: null, decide: () => undefined } } as Json, { get: (t, k: string) => (k in t ? t[k] : () => undefined) });
+const proj: Json = { slug: "mianovia", title: "Mianovia", team: [], orders: [], next_first: null, tablero: { initiatives: [], loose: [], loose_done: 0 } };
+const links = { doc: (id: string) => `/doc/${id}`, paso: (k: string) => `/paso/${k}`, entrega: (d: Json) => `/e/${d.id}`, pedir: "/pedir" };
+function ficha(d: Json) {
+  const qc = new QueryClient();
+  qc.setQueryData(["idea", "mianovia", d.key], d);
+  return renderToStaticMarkup(h(QueryClientProvider, { client: qc }, h(MemoryRouter, null, h(fichaMod.Ficha, { p: proj, k: d.key, now: Date.parse("2026-11-17T22:00:00Z"), timeZone: "America/Mexico_City", acts, decisions: [], links, onClose: () => undefined }))));
+}
+const stopRow = (stop: string, i: number, here: number, over: Json = {}) => ({ stop, state: i < here ? "done" : i === here ? "here" : "todo", by: i === 0 ? "jorge" : "product-owner", at: "2026-11-17T21:00:00Z", delivered: i < here || (i === here && i < 5) || i === 0, doc: null, seen: true, answer: null, ...over });
+const detail = (stop: string, over: Json = {}): Json => {
+  const here = STOPS.indexOf(stop);
+  return {
+    key: "MIA-IDEA5",
+    title: "Si quieres manejar cuentas sin terminal",
+    short: "Cuentas sin terminal",
+    stop,
+    state: stop === "lista" ? "quieta" : "espera",
+    who: "product-owner",
+    images: 0,
+    understood: "Entendí: quieres una pantalla",
+    understood_text: "quieres una pantalla de usuarios",
+    question: null,
+    guardada: false,
+    at: "2026-11-17T21:00:00Z",
+    summary: "Cuentas sin terminal",
+    text: "Una pantalla de usuarios",
+    status: "Open",
+    stage: "planning",
+    promoted_to: null,
+    pedido: true,
+    question_options: [],
+    stops: STOPS.map((s, i) => stopRow(s, i, here)),
+    ficha: { problema: "Sin **lista**", tamano: "Chico", solucion: "Pantalla", riesgos: null, fuera: null },
+    research: { recommendation: "La opción 2", options: [{ n: 1, title: "Una página", text: "x" }, { n: 2, title: "Lista con acciones", text: "y" }], unknown: [] },
+    plan_steps: ["Ruta", "Lista", "Crear"],
+    frames: [{ id: "f1", frame: "1", name: "Lista", url: "/f1.png", width: 480, height: 300, hace: "Muestra", porque: "Ver" }],
+    unseen: 0,
+    quiet_since: null,
+    queued: null,
+    trail: [],
+    pictures: [],
+    kind: "idea",
+    gist: { buzon: "Una pantalla", entendido: "quieres una pantalla", investigacion: "Recomienda: Lista", diseno: "1 marco de Artist", plan: "3 pasos", lista: null },
+    built: null,
+    ...over,
+  };
+};
+const primaries = (out: string) => (out.match(/cor-btn primary/g) ?? []).length;
+
+test("I65-3: an idea at each stop opens the ficha on its delivery, with at most one white button and the stops as tabs", () => {
+  const panels: Record<string, RegExp> = { buzon: /«Una pantalla de usuarios»/, entendido: /quieres una pantalla de usuarios[\s\S]*<strong>lista<\/strong>/, investigacion: /Recomienda · opción 2[\s\S]*Lista con acciones/, diseno: /Marco 1: Lista/, plan: /data-pasos="3"/, lista: /Tres pasos esperan|3 pasos esperan/ };
+  for (const s of STOPS) {
+    const out = ficha(detail(s));
+    assert.match(out, new RegExp(`data-sel="${s}"`), s);
+    assert.match(out, panels[s]!, s);
+    assert.ok(primaries(out) <= 1, `${s}: ${primaries(out)} primaries`);
+    assert.equal((out.match(/role="tab"/g) ?? []).length, 8, "six stops, Construcción and Publicado");
+    assert.equal((out.match(/tabindex="0" class="cor-ficha-tab/g) ?? []).length, 1, "one tab in the Tab order (arrows move between them)");
+    assert.match(out, /role="tabpanel"/);
+    assert.match(out, /role="img" aria-label="Corriente: parada/);
+  }
+  assert.match(ficha(detail("lista")), /data-control="ficha-construir"[^>]*>Constrúyelo</);
+  assert.match(ficha(detail("entendido")), /data-control="ficha-ok"[^>]*>Así es</);
+  // A stop with nothing delivered says «Todavía no» and what unlocks it, never the doc's title.
+  const empty = ficha({ ...detail("entendido"), stops: STOPS.map((s, i) => stopRow(s, i, 1, i === 1 ? { delivered: false } : {})) });
+  assert.match(empty, /Todavía no[\s\S]*Entendido no ha empezado/);
+  // His question takes «Ahora» and shows whole in the panel.
+  const q = ficha({ ...detail("investigacion"), question: { id: "q1", text: "¿Un día antes o el mismo día? Una pregunta larga que no se corta." }, question_options: ["Un día antes", "El mismo día"] });
+  assert.match(q, /data-pregunta-texto[\s\S]*Una pregunta larga que no se corta/);
+  assert.match(q, /data-control="ficha-contestar"/);
+  assert.ok(primaries(q) <= 1);
+  // Saved: Restaurar is «Ahora»'s button.
+  assert.match(ficha({ ...detail("plan"), guardada: true }), /data-control="ficha-restaurar-ahora"[^>]*>Restaurar/);
+});
+
+test("I65-4: an initiative opens on Construcción with a channel per step; one with no idea opens too", () => {
+  const steps = [
+    { key: "MIA-I1-1", title: "Botón Cobrar", status: "Done", phase: 1, etapa: "hecho", pr: { number: 41, state: "merged", url: "u" } },
+    { key: "MIA-I1-2", title: "Recibo", status: "In review", phase: 2, etapa: "te_toca", pr: { number: 44, state: "open", url: "u" } },
+    { key: "MIA-I1-3", title: "Reembolso", status: "In progress", phase: 3, etapa: "construyendo", pr: null },
+  ];
+  const built = { key: "MIA-I1", title: "Cobro", status: "Active", version: 3, done: 1, total: 3, can_close: false, steps, prs: [{ number: 41, state: "merged", url: "u", key: "MIA-I1-1" }, { number: 44, state: "open", url: "u", key: "MIA-I1-2" }], published_at: null, evidence: [] };
+  const out = ficha({ ...detail("lista"), promoted_to: "MIA-I1", built });
+  assert.match(out, /data-ficha="MIA-I1"/);
+  assert.match(out, /data-sel="construccion"/);
+  assert.match(out, />Iniciativa</);
+  assert.match(out, /nació de[\s\S]*MIA-IDEA5/);
+  assert.match(out, /data-rio-dam="open"/);
+  assert.match(out, /Te toca<\/span>[\s\S]*Recibo/);
+  assert.match(out, /El paso 2, «Recibo», espera que lo aceptes/);
+  assert.match(out, /href="\/paso\/MIA-I1-2"/);
+  assert.ok(primaries(out) <= 1);
+  // The old stops still open their delivery.
+  assert.match(out, /data-control="ficha-parada-diseno"/);
+  const alone = ficha({ ...detail("lista"), key: "MIA-I3", kind: "initiative", pedido: false, stops: STOPS.map((s) => ({ ...stopRow(s, 0, 9), delivered: false })), built: { ...built, key: "MIA-I3", steps: [steps[0]], total: 1, done: 1 } });
+  assert.match(alone, /data-ficha="MIA-I3"/);
+  assert.match(alone, /Sin entrega/);
+  const pub = ficha({ ...detail("lista"), promoted_to: "MIA-I2", built: { ...built, key: "MIA-I2", steps: steps.map((s) => ({ ...s, status: "Released", etapa: "publicado" })), published_at: "2026-11-17T21:00:00Z", evidence: [{ key: "MIA-I2-3", kind: "test", cite: "38 de 38", commit: "4c1e9a2abc", env: "prod", at: "x" }] } });
+  assert.match(pub, /data-sel="publicado"/);
+  assert.match(pub, /38 de 38 · 4c1e9a2/);
+  assert.match(pub, /Pedir un ajuste/);
+});
+
+test("I65-5: a closed row is one link with the short name, the current in small and what it needs", () => {
+  const out = renderToStaticMarkup(h(MemoryRouter, null, h(filaMod.Fila, { name: "Cuentas sin terminal", k: "MIA-IDEA5", m: geo.rioOf(at("lista")), line: "Te espera · lista para construir", tone: "amber", open: false, to: "/x" })));
+  assert.match(out, /^<a[^>]*class="cor-fila"[^>]*aria-expanded="false"/);
+  assert.match(out, /Cuentas sin terminal[\s\S]*MIA-IDEA5[\s\S]*cor-rio-canvas fila[\s\S]*Te espera · lista para construir/);
+  // The old open panel and both copies of Journey are gone.
+  const files: string[] = [];
+  const walk = (d: string) => {
+    for (const f of readdirSync(d)) {
+      const p = `${d}/${f}`;
+      if (statSync(p).isDirectory()) walk(p);
+      else if (/\.(tsx?|css)$/.test(f)) files.push(p);
+    }
+  };
+  walk(new URL("../ui/src", import.meta.url).pathname);
+  for (const f of files) {
+    const src = readFileSync(f, "utf8");
+    assert.ok(!src.includes("cor-opened"), `${f} still has cor-opened`);
+    assert.ok(!src.includes("const Journey"), `${f} still has Journey`);
+    assert.ok(!/cor-rail\b|cor-railstop|cor-stops-grid/.test(src), `${f} still has the rail`);
+  }
+});

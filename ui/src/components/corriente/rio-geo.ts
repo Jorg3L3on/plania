@@ -4,7 +4,7 @@
 // step of the initiative that rejoins at Publicado. Nothing in it is decorative: the thickness is the number of
 // deliveries, each channel is a real step, its colour is that step's state.
 // Coordinates are logical: 1374 wide (the ficha in the sketch, PLA-IDEA27 pass 3); the component scales them.
-import type { EtapaId, IdeaDetail, PedidoStop } from "@/lib/api";
+import type { EtapaId, IdeaDetail, PedidoState, PedidoStop } from "@/lib/api";
 
 export const STOP_IDS: PedidoStop[] = ["buzon", "entendido", "investigacion", "diseno", "plan", "lista"];
 export const STOP_NAMES = ["Buzón", "Entendido", "Investigación", "Diseño", "Plan", "Lista"];
@@ -151,3 +151,10 @@ export function rioLabel(m: RioModel): string {
 
 /** Whether anything moves: work in progress somewhere (never on a quiet or published thing). */
 export const isAlive = (m: RioModel) => m.here !== 7 && (m.front !== "quiet" || m.dam === "wait" || m.chans.some((c) => c === "live" || c === "you"));
+
+/** A closed row's model, from what the lists carry: where it is and how; once built, its initiative's steps. */
+export function rioOfRow(x: { stop: PedidoStop; state: PedidoState; guardada: boolean }, init?: { steps: { status: string; etapa: EtapaId | null }[]; published: boolean } | null): RioModel {
+  const here = STOP_IDS.indexOf(x.stop);
+  const stops = STOP_IDS.map((stop, i) => ({ stop, delivered: i < here || (i === here && i < 5 && x.state !== "trabajando" && x.state !== "cola") || i === 0 }));
+  return rioOf({ stop: x.stop, state: x.state, guardada: x.guardada, stops: stops as never, promoted_to: null, question: null, built: init ? { steps: init.steps, published_at: init.published ? "1" : null } as never : null });
+}

@@ -617,6 +617,8 @@ export type FichaIdea = {
   // PLA-I61-3: older servers send neither.
   summary?: string;
   unseen?: number;
+  // PLA-I65-5.
+  promoted_to?: string | null;
 };
 export type FichaLienzo = { key: string; title: string; count: number; thumbs: string[]; unseen: number };
 export type FichaPr = { number: number; title: string; url: string; state: string; ci_state: string | null; task_key: string | null; merged_at: string | null; head_branch: string | null };
