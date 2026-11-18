@@ -12,7 +12,7 @@ import { ToolError } from "../mcp/errors.js";
 import { screenTz } from "../runner/limits.js";
 import { ideaWaits } from "../mcp/ideas.js";
 import { ideasWithFrames, unseenByIdea } from "./company-idea.js";
-import { factsOf, pedidoOf, type PedidoState, type PedidoStop } from "./company-pedidos.js";
+import { CONSTRUIR, factsOf, pedidoOf, type PedidoState, type PedidoStop } from "./company-pedidos.js";
 
 export const FICHA_LIMITS = { ideas: 30, prs: 20, docs: 30, designs: 20 } as const;
 // PLA-I64-6: Archivo reads every doc and PR (titles only), so the one opened is always the one clicked.
@@ -43,6 +43,8 @@ export type FichaIdea = {
   state: PedidoState | null;
   guardada: boolean;
   question: { id: string; text: string } | null;
+  // PLA-62: when he last said «Constrúyelo» (the valve's clock), null when he never did.
+  ordered_at: string | null;
 };
 // PLA-I61-2: an idea whose design lives in Plania (Artist's frames), for the Diseño tab.
 export type FichaLienzo = { key: string; title: string; count: number; thumbs: string[]; unseen: number };
@@ -108,6 +110,10 @@ export async function fichaRead(db: Db, slug: string, opts: { all?: boolean } = 
   const facts = looseTasks.length ? await factsOf(db, id, looseTasks) : null;
   const tube = new Map<string, Awaited<ReturnType<typeof pedidoOf>>>();
   for (const t of looseTasks) tube.set(t.key, await pedidoOf(db, id, t, facts!));
+  const orders = loose.length
+    ? await rows(db, sql`select task_id, max(created_at) as at from events where task_id in (${sql.join(loose.map((x) => sql`${x}::uuid`), sql`, `)}) and type = ${CONSTRUIR} group by task_id`)
+    : [];
+  const orderedAt = new Map(orders.map((o) => [String(o.task_id), iso(o.at)]));
   const promotedRows = await rows(db, sql`select key, promoted_to from tasks where project_id = ${id} and kind = 'idea' and promoted_to is not null order by key`);
   const ideas: FichaIdea[] = ideaRows.map((r) => {
     const mine = stageDocs.filter((d) => String(d.task_id) === String(r.id));
@@ -132,6 +138,7 @@ export async function fichaRead(db: Db, slug: string, opts: { all?: boolean } = 
       state: tube.get(String(r.key))?.state ?? null,
       guardada: tube.get(String(r.key))?.guardada ?? false,
       question: tube.get(String(r.key))?.question ?? null,
+      ordered_at: orderedAt.get(String(r.id)) ?? null,
     };
   });
 

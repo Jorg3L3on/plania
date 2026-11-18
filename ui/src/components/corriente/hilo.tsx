@@ -40,11 +40,21 @@ export const Hilo = ({ h, small }: { h: HiloT; small?: boolean }) => {
   );
 };
 
+/** PLA-62: the short names, when the thread is narrow (under 1360 px wide). */
+const SHORT: Partial<Record<(typeof PARADAS)[number], string>> = { entendido: "Entend.", investigacion: "Invest.", construccion: "Constr.", publicado: "Public." };
+
 /** The list's header: the nine stops' names over the threads. */
 export const HiloHead = () => (
   <span className="cor-hilo head" aria-hidden>
-    {PARADAS.map((p) => (
-      <span key={p}>{p === "valvula" ? "" : PARADA_NAME[p]}</span>
-    ))}
+    {PARADAS.map((p) =>
+      p === "valvula" ? (
+        <span key={p} />
+      ) : (
+        <span key={p}>
+          <span className="l">{PARADA_NAME[p]}</span>
+          <span className="s">{SHORT[p] ?? PARADA_NAME[p]}</span>
+        </span>
+      ),
+    )}
   </span>
 );

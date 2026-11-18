@@ -7,7 +7,7 @@
 // team note with pictures, the trail, «visto». An initiative adds Construcción (its steps, stage and PR, Aceptar on
 // the one that waits) and Publicado (when, and the evidence). Calls: GET …/ideas/:key (PLA-I65-1) and the
 // building's writes (acts.ts).
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -56,20 +56,26 @@ export function recommended(d: Pick<IdeaDetail, "research">): number | null {
   return d.research.options.some((o) => o.n === n) ? n : (d.research.options[0]?.n ?? null);
 }
 
-type Ui = { sel: Sel; sub: "entrega" | "recorrido" | "nota"; frame: number; pins: IdeaNote[]; text: string; asking: boolean; pick: number | null; note: string; answer: string; drop: boolean; dec: Record<number, number>; why: Record<number, string> };
 // dec: the option he has marked on each of the PO's decisions (by its number) before sending; why: his words for a change.
+type Ui = { sel: Sel; sub: "entrega" | "recorrido" | "nota"; frame: number; pins: IdeaNote[]; text: string; asking: boolean; pick: number | null; note: string; answer: string; drop: boolean; dec: Record<number, number>; why: Record<number, string> };
+/** PLA-62: «Constrúyelo» said and nobody is turning it into an initiative (no live run on it): stuck, as the list says. */
+export const stuckOf = (p: Pick<OrgProject, "paused" | "team">, d: Pick<IdeaDetail, "key" | "state">) =>
+  d.state === "valvula" && (p.paused || !p.team.some((m) => m.state === "running" && m.now?.ticket === d.key));
+/** When he said «Constrúyelo» (the newest one), from the trail. */
+export const orderedAt = (d: Pick<IdeaDetail, "trail">) => [...(d.trail ?? [])].reverse().find((t) => t.kind === "construir")?.at ?? null;
+
 const initialUi = (d: IdeaDetail): Ui => ({ sel: selOf(d), sub: "entrega", frame: 0, pins: [], text: "", asking: false, pick: null, note: "", answer: "", drop: false, dec: {}, why: {} });
 export type FichaLinks = { doc: (id: string) => string; paso: (key: string) => string; entrega: (d: Decision) => string; pedir: string };
 
 // ---- the stops as tabs over the current
 
 type TabInfo = { sel: Sel; who: string; tone: "you" | "live" | "new" | "ok" | ""; gist: string | null; state: "done" | "here" | "todo" };
-function tabsOf(d: IdeaDetail, m: RioModel): TabInfo[] {
+function tabsOf(d: IdeaDetail, m: RioModel, stuck = false): TabInfo[] {
   const alone = d.kind === "initiative" && !d.stops.some((s) => s.delivered);
   const out: TabInfo[] = d.stops.map((s, i) => {
     const built = !!d.built;
     // Once built the stops are history: who delivered, no «sin ver».
-    const line = alone ? { text: "Sin entrega", tone: "" as const } : built ? { text: s.stop === "lista" ? "Tu sí" : s.stop === "buzon" ? "Tú" : whoName(s.by) || "—", tone: "" as const } : s.stop === "lista" && s.state === "here" && d.state === "valvula" ? { text: "Pasando al tablero", tone: "live" as const } : s.stop === "lista" && s.state === "here" && d.state === "quieta" ? { text: "Espera tu sí", tone: "you" as const } : s.state === "here" && d.state === "trabajando" ? { text: `${whoName(d.who) || "Alguien"} la trabaja`, tone: "live" as const } : stopLine(s, d);
+    const line = alone ? { text: "Sin entrega", tone: "" as const } : built ? { text: s.stop === "lista" ? "Tu sí" : s.stop === "buzon" ? "Tú" : whoName(s.by) || "—", tone: "" as const } : s.stop === "lista" && s.state === "here" && d.state === "valvula" ? (stuck ? { text: "Atorada", tone: "you" as const } : { text: "Pasando al tablero", tone: "live" as const }) : s.stop === "lista" && s.state === "here" && d.state === "quieta" ? { text: "Espera tu sí", tone: "you" as const } : s.state === "here" && d.state === "trabajando" ? { text: `${whoName(d.who) || "Alguien"} la trabaja`, tone: "live" as const } : stopLine(s, d);
     return { sel: s.stop, who: line.text, tone: line.tone, gist: d.gist?.[s.stop] ?? null, state: i < m.here ? "done" : i === m.here ? "here" : "todo" };
   });
   const b = d.built;
@@ -91,8 +97,8 @@ const TAB_POS: Record<Sel, { left: number; width: number }> = {
   publicado: { left: PX - 46, width: 104 },
 };
 
-const Rio = ({ d, m, ui, set }: { d: IdeaDetail; m: RioModel; ui: Ui; set: (p: Partial<Ui>) => void }) => {
-  const tabs = tabsOf(d, m);
+const Rio = ({ d, m, ui, set, stuck = false }: { d: IdeaDetail; m: RioModel; ui: Ui; set: (p: Partial<Ui>) => void; stuck?: boolean }) => {
+  const tabs = tabsOf(d, m, stuck);
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const i = SEL_IDS.indexOf(ui.sel);
@@ -110,7 +116,7 @@ const Rio = ({ d, m, ui, set }: { d: IdeaDetail; m: RioModel; ui: Ui; set: (p: P
       {m.here <= 5 && <i className={`cor-ficha-mk ${m.front === "you" ? "you" : m.front === "live" ? "agent" : "grey"}`} style={{ left: pct(SX(m.here)) }} aria-hidden />}
       <div className={`cor-ficha-dam ${dam}`} style={{ left: pct(VX - 42), width: pct(84) }} aria-hidden>
         <b>Constrúyelo</b>
-        <span>{dam === "open" ? (d.kind === "initiative" && !d.stops.some((x) => x.delivered) ? "abierta" : "tu sí") : dam === "wait" ? (d.state === "valvula" ? "pasando…" : "falta tu sí") : "cerrada"}</span>
+        <span>{dam === "open" ? (d.kind === "initiative" && !d.stops.some((x) => x.delivered) ? "abierta" : "tu sí") : dam === "wait" ? (d.state === "valvula" ? (stuck ? "atorada" : "pasando…") : "falta tu sí") : "cerrada"}</span>
       </div>
       <div role="tablist" aria-label="Paradas" className="cor-ficha-tabs" onKeyDown={onKey}>
         {tabs.map((t, i) => (
@@ -534,16 +540,24 @@ const Nota = ({ d, ui, set, acts, slug }: { d: IdeaDetail; ui: Ui; set: (p: Part
 // ---- «Ahora»: one sentence and one white button
 
 type Tone = "you" | "live" | "calm";
-const Bar = ({ tone, label, children, side }: { tone: Tone; label: string; children: ReactNode; side?: ReactNode }) => (
-  <div className={`cor-ficha-ahora ${tone}`} data-ahora={tone} role="region" aria-label={`Ahora: ${label}`}>
-    <i className="cor-ficha-gl" aria-hidden />
-    <div className="cor-ficha-ahora-tx">
-      <Label tone={tone === "you" ? "amber" : tone === "live" ? "violet" : undefined}>{label}</Label>
-      <p>{children}</p>
+/** PLA-62: the lever the thing's row in the list offered (Pasar a Lista, Hacer primero, Detener, Reenviar): the ficha's
+ *  bar carries it too, before its own buttons, so opening a thing never loses what the row could do. */
+export const FichaExtra = createContext<ReactNode>(null);
+
+const Bar = ({ tone, label, children, side }: { tone: Tone; label: string; children: ReactNode; side?: ReactNode }) => {
+  const extra = useContext(FichaExtra);
+  return (
+    <div className={`cor-ficha-ahora ${tone}`} data-ahora={tone} role="region" aria-label={`Ahora: ${label}`}>
+      <i className="cor-ficha-gl" aria-hidden />
+      <div className="cor-ficha-ahora-tx">
+        <Label tone={tone === "you" ? "amber" : tone === "live" ? "violet" : undefined}>{label}</Label>
+        <p>{children}</p>
+      </div>
+      {extra}
+      {side}
     </div>
-    {side}
-  </div>
-);
+  );
+};
 
 const said = (s: IdeaStop) => {
   const a = s.answer!;
@@ -660,6 +674,14 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
       </Bar>
     );
   if (d.stop === "lista" && isOpen(d)) {
+    if (d.state === "valvula" && stuckOf(p, d)) {
+      const at = orderedAt(d);
+      return (
+        <Bar tone="you" label="Atorada" side={<Btn kind="primary" disabled={busy("despertar")} onClick={() => acts.despertar(p.slug, k)} data-control="ficha-despertar-valvula">{busy("despertar") ? "Despertando…" : "Despertar al PO"}</Btn>}>
+          {at ? `Dijiste «Constrúyelo» a las ${hm(at)}.` : "Dijiste «Constrúyelo»."} <span>Nadie la está subiendo al tablero: despierta al PO para que cree la iniciativa.</span>
+        </Bar>
+      );
+    }
     if (d.state === "valvula")
       return (
         <Bar tone="live" label="Pasando al tablero" side={<Btn kind="primary" disabled data-control="ficha-construir">Pasando al tablero…</Btn>}>
@@ -817,7 +839,7 @@ const Ahora = ({ p, d, m, ui, set, acts, decisions, links }: { p: OrgProject; d:
 
 // ---- the ficha
 
-export const Ficha = ({ p, k, now, timeZone, acts, decisions, links, onClose }: { p: OrgProject; k: string; now: number; timeZone?: string; acts: CorrienteActs; decisions: Decision[]; links: FichaLinks; onClose: () => void }) => {
+export const Ficha = ({ p, k, now, timeZone, acts, decisions, links, onClose, extra = null }: { p: OrgProject; k: string; now: number; timeZone?: string; acts: CorrienteActs; decisions: Decision[]; links: FichaLinks; onClose: () => void; extra?: ReactNode }) => {
   const q = useQuery({ queryKey: ["idea", p.slug, k], queryFn: () => api.idea(p.slug, k), refetchInterval: 15_000 });
   const d = q.data;
   const [state, setUi] = useState<Ui | null>(null);
@@ -909,7 +931,7 @@ export const Ficha = ({ p, k, now, timeZone, acts, decisions, links, onClose }: 
           Cerrar ✕
         </Btn>
       </div>
-      <Rio d={d} m={m} ui={ui} set={set} />
+      <Rio d={d} m={m} ui={ui} set={set} stuck={stuckOf(p, d)} />
       <div className="cor-ficha-entrega" id={`ficha-panel-${d.key}`} role="tabpanel" aria-labelledby={`ficha-tab-${d.key}-${ui.sel}`} tabIndex={0} data-panel={ui.sub === "entrega" ? ui.sel : ui.sub}>
         {d.question && isOpen(d) && ui.sub === "entrega" && (
           <p className="cor-ficha-ask" data-pregunta-texto>
@@ -918,7 +940,9 @@ export const Ficha = ({ p, k, now, timeZone, acts, decisions, links, onClose }: 
         )}
         {ui.sub === "recorrido" ? <Trail d={d} now={now} timeZone={timeZone} set={set} /> : ui.sub === "nota" ? <Nota d={d} ui={ui} set={set} acts={acts} slug={p.slug} /> : <Delivery d={d} m={m} ui={ui} set={set} links={links} now={now} timeZone={timeZone} acts={acts} slug={p.slug} />}
       </div>
-      <Ahora p={p} d={d} m={m} ui={ui} set={set} acts={acts} decisions={decisions} links={links} />
+      <FichaExtra.Provider value={extra}>
+        <Ahora p={p} d={d} m={m} ui={ui} set={set} acts={acts} decisions={decisions} links={links} />
+      </FichaExtra.Provider>
     </section>
   );
 };

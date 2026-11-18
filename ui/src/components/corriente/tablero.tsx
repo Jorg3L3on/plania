@@ -99,7 +99,9 @@ const InitiativeCard = ({ p, k, onCerrar, busy, links, here }: { p: OrgProject; 
 /** PLA-I64-7: what the board's card offered on a step (Hacer primero, Detener, Quitar, Aceptar), now in its view. */
 const PasoActs = ({ p, t, acts, decisions }: { p: OrgProject; t: ProjectTicket; acts: CorrienteActs; decisions: Decision[] }) => {
   const list = cardActs(t, { team: p.team, decisions, orders: p.orders, nextFirst: p.next_first });
-  if (!list.length) return null;
+  // PLA-62: a step that only sits in Backlog can be passed to Lista here too (the list's Quieto lever).
+  const lista = t.status === "Backlog" && t.etapa.etapa === "despues" && !(t.etapa.reason ?? "").startsWith("Espera a");
+  if (!list.length && !lista) return null;
   const go = (a: CardAct) =>
     a.kind === "primero" ? acts.pickNext(p.slug, a.key) : a.kind === "detener" ? acts.stopRun(a.runId) : a.kind === "quitar" ? acts.cancelOrder(p.slug, a.key) : acts.decisions.decide(a.decision, { action: a.action }, "paso-aceptar");
   const busy = (a: CardAct) => (a.kind === "aceptar" ? acts.decisions.busy?.id === a.decision.id : acts.busy === actBusyKey(a) || acts.busy === `stop-${a.kind === "detener" ? a.runId : ""}`);
@@ -110,6 +112,11 @@ const PasoActs = ({ p, t, acts, decisions }: { p: OrgProject; t: ProjectTicket; 
           {actLabel(a)}
         </Btn>
       ))}
+      {lista && (
+        <Btn kind="secondary" onClick={() => acts.aLista(p.slug, t.key)} disabled={acts.busy === `lista-${t.key}`} aria-label={`Pasar a Lista: ${t.title}`} data-control="paso-lista">
+          {acts.busy === `lista-${t.key}` ? "Pasando…" : "Pasar a Lista"}
+        </Btn>
+      )}
     </div>
   );
 };

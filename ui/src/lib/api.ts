@@ -643,6 +643,8 @@ export type FichaIdea = {
   state?: PedidoState | null;
   guardada?: boolean;
   question?: { id: string; text: string } | null;
+  // PLA-62: when he last said «Constrúyelo».
+  ordered_at?: string | null;
 };
 export type FichaLienzo = { key: string; title: string; count: number; thumbs: string[]; unseen: number };
 export type FichaPr = { number: number; title: string; url: string; state: string; ci_state: string | null; task_key: string | null; merged_at: string | null; head_branch: string | null };

@@ -123,3 +123,15 @@ test("I64-4: each lever keeps its busy state and refusal under today's call key"
   assert.equal(palanca.busyKey("mianovia", { kind: "reenviar", key: "MIA-9" }), "mianovia:request");
   assert.equal(palanca.busyKey("mianovia", { kind: "cerrar", key: "MIA-I2", version: 3 }), "cerrar-MIA-I2");
 });
+
+test("PLA-62 #1 #3: the ficha calls a valve with no live run stuck; the levers a ficha lacks are carried over", async () => {
+  const ficha = await load("components/corriente/ficha.tsx");
+  const palanca = await load("components/corriente/palanca.tsx");
+  const d = { key: "MIA-IDEA2", state: "valvula", trail: [{ at: "2026-11-17T08:53:00Z", who: "jorge", kind: "construir" }, { at: "2026-11-17T14:05:00Z", who: "po", kind: "doc" }] };
+  assert.equal(ficha.stuckOf({ paused: false, team: [] }, d), true);
+  assert.equal(ficha.stuckOf({ paused: false, team: [{ state: "running", now: { ticket: "MIA-IDEA2" } }] }, d), false, "a live run on it: still passing");
+  assert.equal(ficha.stuckOf({ paused: true, team: [{ state: "running", now: { ticket: "MIA-IDEA2" } }] }, d), true, "paused: nothing moves it");
+  assert.equal(ficha.stuckOf({ paused: false, team: [] }, { ...d, state: "quieta" }), false);
+  assert.equal(ficha.orderedAt(d), "2026-11-17T08:53:00Z");
+  assert.deepEqual([...palanca.CARRIED].sort(), ["detener", "lista", "primero", "reenviar"]);
+});
