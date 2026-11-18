@@ -82,14 +82,21 @@ export function useCorrienteActs() {
 
   // ---- quick calls: one key busy at a time; failures toast; the company is read again after.
   const [quick, setQuick] = useState<string | null>(null);
-  const run = (key: string, fn: () => Promise<unknown>, ok?: (r: any) => string | null) => {
+  // PLA-I64-4: the last refusal per call key, so a row can say it in place (the toast says it too).
+  const [failed, setFailed] = useState<Record<string, string>>({});
+  const run = (key: string, fn: () => Promise<unknown>, ok?: (r: any) => string | null, words: (e: unknown) => string = refusal) => {
     setQuick(key);
+    setFailed((f) => (f[key] ? { ...f, [key]: "" } : f));
     fn()
       .then((r) => {
         const said = ok?.(r);
         if (said) toast(said);
       })
-      .catch((e) => toast.error(refusal(e)))
+      .catch((e) => {
+        const w = words(e);
+        setFailed((f) => ({ ...f, [key]: w }));
+        toast.error(w);
+      })
       .finally(() => {
         setQuick(null);
         refresh();
@@ -100,6 +107,7 @@ export function useCorrienteActs() {
     refresh,
     decisions: { decide, withActed, busy, errors, prefill, setPrefill },
     busy: quick,
+    failed,
     stopRun: (id: string) => run(`stop-${id}`, () => api.stopRun(id)),
     resumeRun: (id: string) => run(`resume-${id}`, () => api.resumeRun(id)),
     start: (slug: string, agent: string, pastGuard = false) => run(`${slug}:start`, () => api.startTeammate(slug, agent, pastGuard), (r) => (r.started ? null : (START_WORDS[r.reason] ?? "No arrancó."))),
@@ -148,6 +156,30 @@ export function useCorrienteActs() {
       }),
     visto: (slug: string, key: string, stop: PedidoStop) => void api.ideaVisto(slug, key, stop).then(() => client.invalidateQueries({ queryKey: ["idea", slug, key] }), () => undefined),
     pause: (slug: string) => run(`${slug}:pause`, () => api.setProjectPaused(slug, true)),
+    // PLA-I64-4: Pasar a Lista (a step that only sits in Backlog goes to Ready, as Jorge would on the board) and
+    // Cerrar iniciativa from the list (the board's call, PLA-I56-2).
+    aLista: (slug: string, key: string) =>
+      run(
+        `lista-${key}`,
+        async () => {
+          const t = await api.task(slug, key);
+          await api.patchTask(slug, key, { status: "Ready", version: t.version });
+        },
+        () => "Pasó a Lista: arranca cuando le toque.",
+        (e) => (e instanceof ApiError && e.code === "INVALID_TRANSITION" ? "Ya no está en Backlog." : e instanceof ApiError && e.code === "STALE_VERSION" ? "Cambió mientras la veías: vuelve a intentarlo." : refusal(e)),
+      ),
+    cerrar: (slug: string, key: string, version: number) =>
+      run(
+        `cerrar-${key}`,
+        () => api.patchTask(slug, key, { status: "Done", version }),
+        () => "Iniciativa cerrada: ya está en Hecho.",
+        (e) =>
+          e instanceof ApiError && e.code === "INITIATIVE_CHILDREN_OPEN"
+            ? "Todavía no se puede cerrar: le quedan pasos abiertos."
+            : e instanceof ApiError && e.code === "STALE_VERSION"
+              ? "Cambió mientras la veías: vuelve a intentarlo."
+              : refusal(e),
+      ),
   };
 }
 export type CorrienteActs = ReturnType<typeof useCorrienteActs>;

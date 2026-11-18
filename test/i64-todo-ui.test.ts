@@ -71,3 +71,14 @@ test("I64-2: the small thread draws the nine stops, the valve and one segment pe
   for (const name of ["Buzón", "Entendido", "Investigación", "Diseño", "Plan", "Lista", "Construcción", "Publicado"]) assert.ok(head.includes(name), name);
   assert.match(head, /Nada te espera\. Nadie trabaja ahora\. Nada espera turno\. Nada está quieto\./);
 });
+
+test("I64-4: each lever keeps its busy state and refusal under today's call key", async () => {
+  const palanca = await load("components/corriente/palanca.tsx");
+  assert.equal(palanca.busyKey("mianovia", { kind: "despertar", key: "MIA-IDEA2" }), "pedido-MIA-IDEA2:despertar");
+  assert.equal(palanca.busyKey("mianovia", { kind: "construir", key: "MIA-IDEA3" }), "pedido-MIA-IDEA3:construir");
+  assert.equal(palanca.busyKey("mianovia", { kind: "detener", run: "r1" }), "stop-r1");
+  assert.equal(palanca.busyKey("mianovia", { kind: "primero", key: "MIA-1" }), "next-MIA-1");
+  assert.equal(palanca.busyKey("mianovia", { kind: "lista", key: "MIA-3" }), "lista-MIA-3");
+  assert.equal(palanca.busyKey("mianovia", { kind: "reenviar", key: "MIA-9" }), "mianovia:request");
+  assert.equal(palanca.busyKey("mianovia", { kind: "cerrar", key: "MIA-I2", version: 3 }), "cerrar-MIA-I2");
+});

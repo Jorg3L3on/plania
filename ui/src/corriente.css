@@ -855,3 +855,8 @@ a.cor-prrow:hover { background: rgba(255, 255, 255, 0.03); }
 @media (max-width: 900px) { .cor-cabeza { flex-direction: column; } .cor-pulso { align-items: flex-start; } }
 .cor-pmeta { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 0 1 auto; font-size: 13.5px; color: var(--cor-body); }
 .cor-pmeta-tx { max-width: 360px; }
+/* PLA-I64-4: the lever on a row. */
+.cor-palanca { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; max-width: 260px; }
+.cor-palanca-btns { display: flex; align-items: center; gap: 8px; }
+.cor-palanca .cor-state.bad { font-size: 12.5px; text-align: right; }
+.cor-palanca .cor-ajuste { width: 260px; }

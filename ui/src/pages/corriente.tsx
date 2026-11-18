@@ -29,6 +29,7 @@ import { Piezas } from "@/components/corriente/piezas";
 import { ProjectBar, Strip } from "@/components/corriente/strip";
 import { Stream, type StreamLinks } from "@/components/corriente/stream";
 import { Cabeza, Todo, type TodoLinks } from "@/components/corriente/todo";
+import { Palanca, type PalancaLinks } from "@/components/corriente/palanca";
 import { fraseOf } from "@/lib/cosas";
 import { nowLine } from "@/lib/edificio";
 import { rumboText } from "@/lib/v2";
@@ -234,6 +235,13 @@ export const CorrientePage = () => {
         hecha: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "iniciativa", key } }),
         hecho: linkTo({ slug: p.slug, tab: "tablero" }),
       };
+      const palancaLinks: PalancaLinks = {
+        entrega: (id) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "entrega", id } }),
+        tetoca: (id) => hrefOf({ view: "tetoca", extra: { decision: id } }),
+        idea: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "idea", key } }),
+        publicar: hojaHref("publicar", p.slug),
+        ahora: ahoraLinks(p.slug),
+      };
       return (
         <Todo
           p={p}
@@ -241,6 +249,7 @@ export const CorrientePage = () => {
           links={todoLinks}
           timeZone={timeZone}
           companyPaused={paused}
+          actOf={(c, cosas) => <Palanca p={p} c={c} primary={c.grupo === "toca" && cosas.grupos[0]?.cosas[0]?.key === c.key} acts={acts} decisions={decisions} links={palancaLinks} onFijar={(x) => openHoja("meta", x.slug)} />}
           top={(cosas) => <Cabeza slug={p.slug} f={fraseOf(p, cosas, nowLine(p, decisions, now, { companyPaused: paused, timeZone }), { now, companyPaused: paused, totals })} />}
         />
       );
