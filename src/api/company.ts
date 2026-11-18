@@ -16,6 +16,7 @@
 //   GET  /api/company/docs/:id             one role prompt doc (Prompt ↗); ?project=<slug>: any doc of that project (PLA-I47-1)
 //   GET  /api/company/projects/:slug/ficha La ficha's rows: ideas, PRs, docs, lienzos (PLA-I47-1)
 //   GET  /api/company/projects/:slug/pulso steps done per day, last 14 days (PLA-I64-3)
+//   GET  /api/company/projects/:slug/hecho what landed day by day, ?hasta=&dias= (PLA-I64-6); …/ficha?todo=1 every doc and PR
 // PLA-I30-6/7: POST /api/company/projects/:slug/ask {text}  and  POST /api/company/projects/:slug/wake
 // PLA-I54-3/4: GET /api/company/projects/:slug/pedidos/:key and POST …/pedidos/:key/{guardar,restaurar,descartar,construir}.
 // PLA-I36-11: deleting a project needs the owner's code ({code}). src/auth/owner-code.ts.
@@ -45,7 +46,7 @@ import { construirPedido, descartarPedido, guardarPedido, pedidoDetail, restaura
 import { ideaDespertar, ideaDetail, ideaRespuesta, ideaVisto } from "./company-idea.js";
 import { frameBytes } from "../pedidos/frames.js";
 import { promptDoc } from "./company-extra.js";
-import { fichaRead, projectDocRead, pulsoRead } from "./company-ficha.js";
+import { fichaRead, hechoRead, projectDocRead, pulsoRead } from "./company-ficha.js";
 import { addTeamMember, companyRead, projectRead } from "./company-org.js";
 import { setMotores } from "./company-motores.js";
 import { checkMotor } from "../mcp/team.js";
@@ -96,7 +97,7 @@ companyRoutes.get("/projects/:slug", async (c) => {
 // PLA-I47-1 (src/api/company-ficha.ts): what La ficha's tabs read (ideas, PRs, docs, lienzos).
 companyRoutes.get("/projects/:slug/ficha", async (c) => {
   try {
-    return c.json(await withDb((db) => fichaRead(db, c.req.param("slug"))));
+    return c.json(await withDb((db) => fichaRead(db, c.req.param("slug"), { all: c.req.query("todo") === "1" })));
   } catch (e) {
     return fail(c, e);
   }
@@ -107,6 +108,17 @@ companyRoutes.get("/projects/:slug/pulso", async (c) => {
   try {
     const days = Number(c.req.query("days") ?? 14);
     return c.json(await withDb((db) => pulsoRead(db, c.req.param("slug"), { days: Number.isFinite(days) ? days : 14 })));
+  } catch (e) {
+    return fail(c, e);
+  }
+});
+
+// PLA-I64-6: Hecho, day by day (?hasta=YYYY-MM-DD&dias=14).
+companyRoutes.get("/projects/:slug/hecho", async (c) => {
+  try {
+    const until = c.req.query("hasta");
+    const days = Number(c.req.query("dias") ?? 14);
+    return c.json(await withDb((db) => hechoRead(db, c.req.param("slug"), { until: until && /^\d{4}-\d{2}-\d{2}$/.test(until) ? until : undefined, days: Number.isFinite(days) ? days : 14 })));
   } catch (e) {
     return fail(c, e);
   }

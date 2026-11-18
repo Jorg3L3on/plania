@@ -15,6 +15,8 @@ import { ideasWithFrames, unseenByIdea } from "./company-idea.js";
 import { factsOf, pedidoOf, type PedidoState, type PedidoStop } from "./company-pedidos.js";
 
 export const FICHA_LIMITS = { ideas: 30, prs: 20, docs: 30, designs: 20 } as const;
+// PLA-I64-6: Archivo reads every doc and PR (titles only), so the one opened is always the one clicked.
+export const ARCHIVO_LIMITS = { ideas: 30, prs: 1000, docs: 2000, designs: 200 } as const;
 const STAGE_DOC_TITLES = ["Idea", "Research", "Design", "Plan"] as const;
 // A lienzo is a claude.ai artifact link (claude.ai/artifact/<id> or claude.ai/code/artifact/<uuid>).
 const ARTIFACT_URL = /https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9_-]+/g;
@@ -78,14 +80,15 @@ async function projectId(db: Db, slug: string): Promise<string> {
   return String(p.id);
 }
 
-export async function fichaRead(db: Db, slug: string): Promise<Ficha> {
+export async function fichaRead(db: Db, slug: string, opts: { all?: boolean } = {}): Promise<Ficha> {
   const id = await projectId(db, slug);
+  const L = opts.all ? ARCHIVO_LIMITS : FICHA_LIMITS;
 
   const ideaRows = await rows(
     db,
     sql`select t.id, t.key, t.title, t.summary, t.stage, t.updated_at, t.promoted_to, t.origin from tasks t
         where t.project_id = ${id} and t.kind = 'idea' and t.status = 'Open'
-        order by (t.promoted_to is not null), t.updated_at desc, t.key limit ${FICHA_LIMITS.ideas}`,
+        order by (t.promoted_to is not null), t.updated_at desc, t.key limit ${L.ideas}`,
   );
   const [ideaCount] = await rows(db, sql`select count(*)::int as n from tasks where project_id = ${id} and kind = 'idea' and status = 'Open'`);
   const ideaIds = ideaRows.map((r) => String(r.id));
@@ -137,7 +140,7 @@ export async function fichaRead(db: Db, slug: string): Promise<Ficha> {
     sql`select pr.number, pr.title, pr.url, pr.state, pr.ci_state, pr.merged_at, pr.head_branch, t.key as task_key
         from pull_requests pr left join tasks t on t.id = pr.task_id
         where pr.project_id = ${id}
-        order by coalesce(pr.gh_updated_at, pr.updated_at) desc, pr.number desc limit ${FICHA_LIMITS.prs}`,
+        order by coalesce(pr.gh_updated_at, pr.updated_at) desc, pr.number desc limit ${L.prs}`,
   );
   const [prCount] = await rows(db, sql`select count(*)::int as n from pull_requests where project_id = ${id}`);
   const prs: FichaPr[] = prRows.map((r) => ({
@@ -154,7 +157,7 @@ export async function fichaRead(db: Db, slug: string): Promise<Ficha> {
   const docRows = await rows(
     db,
     sql`select d.id, d.title, d.updated_at, t.key as task_key from docs d left join tasks t on t.id = d.task_id
-        where d.project_id = ${id} order by d.updated_at desc, d.title limit ${FICHA_LIMITS.docs}`,
+        where d.project_id = ${id} order by d.updated_at desc, d.title limit ${L.docs}`,
   );
   const [docCount] = await rows(db, sql`select count(*)::int as n from docs where project_id = ${id}`);
   const docs: FichaDoc[] = docRows.map((r) => ({
@@ -186,7 +189,7 @@ export async function fichaRead(db: Db, slug: string): Promise<Ficha> {
     ideas,
     prs,
     docs,
-    designs: allDesigns.slice(0, FICHA_LIMITS.designs),
+    designs: allDesigns.slice(0, L.designs),
     promoted: promotedRows.map((r) => ({ idea: String(r.key), initiative: String(r.promoted_to) })),
   };
 }
@@ -224,4 +227,75 @@ export async function pulsoRead(db: Db, slug: string, opts: { days?: number; tz?
   );
   const list = out.map((r) => ({ day: String(r.day), n: Number(r.n) }));
   return { days: list, total: list.reduce((a, d) => a + d.n, 0), tz };
+}
+
+// PLA-I64-6: Hecho, what landed day by day. A window of `days` days ending on `until` (default today, screen time
+// zone): the steps that landed each day (Merged, Released or Done; at most HECHO_TOP titles per day, the rest
+// counted), the initiatives closed that day with their step count and the idea they were, and whether anything
+// landed before the window (Ver antes).
+export const HECHO_TOP = 6;
+export type HechoDay = { day: string; n: number; steps: { key: string; title: string; parent: string | null }[]; more: number; initiatives: { key: string; title: string }[]; prs: number };
+export type Hecho = {
+  from: string;
+  to: string;
+  tz: string;
+  total: number;
+  days: HechoDay[];
+  initiatives: { key: string; title: string; done_at: string; steps: number; idea: string | null; origin: string | null }[];
+  before: string | null;
+};
+export async function hechoRead(db: Db, slug: string, opts: { until?: string; days?: number; tz?: string; now?: Date } = {}): Promise<Hecho> {
+  const id = await projectId(db, slug);
+  const tz = opts.tz ?? screenTz();
+  const days = Math.min(Math.max(opts.days ?? 14, 1), 60);
+  const now = opts.now ?? new Date();
+  const to = String((await rows(db, sql`select to_char(coalesce(${opts.until ?? null}::date, (${now}::timestamptz at time zone ${tz})::date), 'YYYY-MM-DD') as to`))[0]!.to);
+  const from = String((await rows(db, sql`select to_char(${to}::date - ${days - 1}::int, 'YYYY-MM-DD') as from`))[0]!.from);
+  const landed = sql`(coalesce(t.resolved_at, t.status_changed_at, t.updated_at) at time zone ${tz})::date`;
+  const steps = await rows(
+    db,
+    sql`select to_char(${landed}, 'YYYY-MM-DD') as day, t.key, t.title, p.key as parent
+        from tasks t left join tasks p on p.id = t.parent_id
+        where t.project_id = ${id} and t.kind = 'ticket' and t.status in ('Merged', 'Released', 'Done') and ${landed} between ${from}::date and ${to}::date
+        order by coalesce(t.resolved_at, t.status_changed_at, t.updated_at) desc, t.key`,
+  );
+  const inis = await rows(
+    db,
+    sql`select to_char(${landed}, 'YYYY-MM-DD') as day, t.key, t.title, coalesce(t.resolved_at, t.status_changed_at, t.updated_at) as at,
+          (select count(*)::int from tasks c where c.parent_id = t.id and c.kind = 'ticket' and c.status <> 'Won''t do') as steps,
+          (select i.key from tasks i where i.project_id = t.project_id and i.kind = 'idea' and i.promoted_to = t.key limit 1) as idea,
+          (select i.origin from tasks i where i.project_id = t.project_id and i.kind = 'idea' and i.promoted_to = t.key limit 1) as origin
+        from tasks t
+        where t.project_id = ${id} and t.kind = 'initiative' and t.status = 'Done' and ${landed} between ${from}::date and ${to}::date
+        order by at desc, t.key`,
+  );
+  const prs = await rows(
+    db,
+    sql`select to_char((merged_at at time zone ${tz})::date, 'YYYY-MM-DD') as day, count(*)::int as n from pull_requests
+        where project_id = ${id} and merged_at is not null and (merged_at at time zone ${tz})::date between ${from}::date and ${to}::date group by 1`,
+  );
+  const [prev] = await rows(
+    db,
+    sql`select to_char(max(${landed}), 'YYYY-MM-DD') as day from tasks t
+        where t.project_id = ${id} and t.kind = 'ticket' and t.status in ('Merged', 'Released', 'Done') and ${landed} < ${from}::date`,
+  );
+  const byDay = new Map<string, HechoDay>();
+  const dayOf = (d: string) => byDay.get(d) ?? (byDay.set(d, { day: d, n: 0, steps: [], more: 0, initiatives: [], prs: 0 }), byDay.get(d)!);
+  for (const r of steps) {
+    const d = dayOf(String(r.day));
+    d.n++;
+    if (d.steps.length < HECHO_TOP) d.steps.push({ key: String(r.key), title: String(r.title), parent: (r.parent as string | null) ?? null });
+    else d.more++;
+  }
+  for (const r of inis) dayOf(String(r.day)).initiatives.push({ key: String(r.key), title: String(r.title) });
+  for (const r of prs) dayOf(String(r.day)).prs = Number(r.n);
+  return {
+    from,
+    to,
+    tz,
+    total: steps.length,
+    days: [...byDay.values()].sort((a, b) => b.day.localeCompare(a.day)),
+    initiatives: inis.map((r) => ({ key: String(r.key), title: String(r.title), done_at: iso(r.at)!, steps: Number(r.steps), idea: (r.idea as string | null) ?? null, origin: (r.origin as string | null) ?? null })),
+    before: (prev?.day as string | null) ?? null,
+  };
 }

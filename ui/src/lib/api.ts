@@ -158,7 +158,9 @@ export const api = {
   company: () => request<OrgCompany>("GET", "/company"),
   // PLA-I39-2: the clock's read.
   companyProject: (slug: string) => request<OrgProjectDetail>("GET", `/company/projects/${encodeURIComponent(slug)}`),
-  companyFicha: (slug: string) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha`),
+  companyFicha: (slug: string, all = false) => request<OrgFicha>("GET", `/company/projects/${encodeURIComponent(slug)}/ficha${all ? "?todo=1" : ""}`),
+  // PLA-I64-6: what landed day by day (a window of 14 days ending on hasta).
+  hecho: (slug: string, hasta?: string | null) => request<Hecho>("GET", `/company/projects/${encodeURIComponent(slug)}/hecho${hasta ? `?hasta=${encodeURIComponent(hasta)}` : ""}`),
   // PLA-I64-3: steps done per day, last 14 days.
   pulso: (slug: string) => request<Pulso>("GET", `/company/projects/${encodeURIComponent(slug)}/pulso`),
   projectDoc: (slug: string, id: string) => request<ProjectDocBody>("GET", `/company/docs/${encodeURIComponent(id)}?project=${encodeURIComponent(slug)}`),
@@ -621,6 +623,8 @@ export type OrgFicha = {
   // PLA-I64-1: every idea that became an initiative.
   promoted?: { idea: string; initiative: string }[];
 };
+export type HechoDay = { day: string; n: number; steps: { key: string; title: string; parent: string | null }[]; more: number; initiatives: { key: string; title: string }[]; prs: number };
+export type Hecho = { from: string; to: string; tz: string; total: number; days: HechoDay[]; initiatives: { key: string; title: string; done_at: string; steps: number; idea: string | null; origin: string | null }[]; before: string | null };
 export type Pulso = { days: { day: string; n: number }[]; total: number; tz: string };
 export type ProjectDocBody = { id: string; title: string; version: number; markdown: string; task_key: string | null };
 

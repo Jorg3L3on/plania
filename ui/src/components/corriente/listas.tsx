@@ -17,8 +17,9 @@ import { Agent, Btn, Dot, Key, Label, ReadError, State, You } from "./parts";
 const STAGE_STOP: Record<string, PedidoStop> = { idea: "entendido", research: "investigacion", design: "diseno", planning: "plan", ready: "lista" };
 const dayOf = (iso: string | null) => (iso ? new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short" }).format(new Date(iso)).replace(".", "") : "");
 
-export function useFicha(slug: string) {
-  return useQuery({ queryKey: ["company-ficha", slug], queryFn: () => api.companyFicha(slug), staleTime: 15_000 });
+/** all: every doc and PR (PLA-I64-6), so the one opened is the one clicked even past the first 30 docs or 20 PRs. */
+export function useFicha(slug: string, all = false) {
+  return useQuery({ queryKey: ["company-ficha", slug, all ? "todo" : "rows"], queryFn: () => api.companyFicha(slug, all), staleTime: 15_000 });
 }
 
 type Row = { key: string; title: string; stop: PedidoStop; who: string; unseen: number; pedido: OrgPedido | null; group: "nuevo" | "avanza" | "lista" | "guardada" };
@@ -202,7 +203,7 @@ export const Disenos = ({ p, links }: { p: OrgProject; links: { idea: (key: stri
 };
 
 export const Prs = ({ p, decisions, open, links }: { p: OrgProject; decisions: Decision[]; open: number | null; links: { pr: (n: number) => string; paso: (key: string) => string; entrega: (d: Decision) => string } }) => {
-  const f = useFicha(p.slug);
+  const f = useFicha(p.slug, true);
   if (f.isError) return <ReadError what="los PRs" onRetry={() => void f.refetch()} />;
   if (!f.data) return <div className="cor-skel" style={{ height: 300 }} aria-busy="true" aria-label="Leyendo los PRs" />;
   const prs = f.data.prs;
@@ -311,7 +312,7 @@ export const Prs = ({ p, decisions, open, links }: { p: OrgProject; decisions: D
 };
 
 export const Docs = ({ p, open, links }: { p: OrgProject; open: string | null; links: { doc: (id: string) => string; iniciativa: (key: string) => string } }) => {
-  const f = useFicha(p.slug);
+  const f = useFicha(p.slug, true);
   const docs = f.data?.docs ?? [];
   const sel = docs.find((x) => x.id === open) ?? docs[0] ?? null;
   const body = useQuery({ queryKey: ["ficha-doc", p.slug, sel?.id], queryFn: () => api.projectDoc(p.slug, sel!.id), enabled: !!sel });

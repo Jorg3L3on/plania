@@ -30,6 +30,7 @@ import { ProjectBar, Strip } from "@/components/corriente/strip";
 import { Stream, type StreamLinks } from "@/components/corriente/stream";
 import { Cabeza, Todo, type TodoLinks } from "@/components/corriente/todo";
 import { Palanca, type PalancaLinks } from "@/components/corriente/palanca";
+import { Archivo, HechoView } from "@/components/corriente/archivo";
 import { fraseOf } from "@/lib/cosas";
 import { nowLine } from "@/lib/edificio";
 import { rumboText } from "@/lib/v2";
@@ -55,6 +56,8 @@ export function hojaOf(search: string): { kind: HojaKind; slug: string | null } 
 export function escFrom(at: At): Partial<At> {
   if (!at.slug) return { view: "corriente" };
   if (at.ver) return { slug: at.slug, tab: at.tab };
+  // PLA-I64-6: the doors of the list step back to the list.
+  if (at.tab === "archivo" || at.tab === "hecho") return { slug: at.slug, tab: "todo" };
   if (at.tab !== "ahora") return { slug: at.slug };
   return { view: "corriente" };
 }
@@ -233,7 +236,7 @@ export const CorrientePage = () => {
                   ? hojaHref("publicar", p.slug)
                   : hrefOf({ view: "tetoca", extra: { decision: c.decisions[0] ?? "" } }),
         hecha: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "iniciativa", key } }),
-        hecho: linkTo({ slug: p.slug, tab: "tablero" }),
+        hecho: linkTo({ slug: p.slug, tab: "hecho" }),
       };
       const palancaLinks: PalancaLinks = {
         entrega: (id) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "entrega", id } }),
@@ -278,6 +281,55 @@ export const CorrientePage = () => {
           motorTo={linkTo({ slug: p.slug, tab: "motores" })}
           sumarTo={linkTo({ slug: p.slug, ver: { kind: "sumar" } })}
           motorDefault={company?.motor_default}
+        />
+      );
+    // PLA-I64-6: the Archivo and Hecho doors; a doc or PR opened from Archivo shows today's detail and comes back.
+    if (at.tab === "archivo" && (at.ver?.kind === "doc" || at.ver?.kind === "pr")) {
+      const back = (
+        <Link to={linkTo({ slug: p.slug, tab: "archivo" })} className="cor-strip-back cor-door-back" data-control="volver-archivo">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M9.5 3.5 5 8l4.5 4.5" />
+          </svg>
+          Archivo
+        </Link>
+      );
+      const arch = { slug: p.slug, tab: "archivo" as const };
+      return (
+        <>
+          {back}
+          {at.ver.kind === "doc" ? (
+            <Docs p={p} open={at.ver.id} links={{ doc: (id) => linkTo({ ...arch, ver: { kind: "doc", id } }), iniciativa: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "iniciativa", key } }) }} />
+          ) : (
+            <Prs p={p} decisions={decisions} open={at.ver.n} links={{ pr: (n) => linkTo({ ...arch, ver: { kind: "pr", n } }), paso: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "paso", key } }), entrega: (d) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "entrega", id: d.id } }) }} />
+          )}
+        </>
+      );
+    }
+    if (at.tab === "archivo")
+      return (
+        <Archivo
+          p={p}
+          timeZone={timeZone}
+          links={{
+            doc: (id) => linkTo({ slug: p.slug, tab: "archivo", ver: { kind: "doc", id } }),
+            pr: (n) => linkTo({ slug: p.slug, tab: "archivo", ver: { kind: "pr", n } }),
+            idea: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "idea", key } }),
+            todo: linkTo({ slug: p.slug, tab: "todo" }),
+          }}
+        />
+      );
+    if (at.tab === "hecho")
+      return (
+        <HechoView
+          p={p}
+          timeZone={timeZone}
+          hasta={new URLSearchParams(location.search).get("hasta")}
+          links={{
+            iniciativa: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "iniciativa", key } }),
+            paso: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "paso", key } }),
+            antes: (hasta) => hrefOf({ slug: p.slug, tab: "hecho", extra: { hasta } }),
+            ahora: linkTo({ slug: p.slug, tab: "hecho" }),
+          }}
         />
       );
     if (at.ver?.kind === "idea")
@@ -352,10 +404,14 @@ export const CorrientePage = () => {
             slug={project.slug}
             title={project.title}
             tab={at.tab}
+            back={at.tab === "archivo" || at.tab === "hecho" ? { href: linkTo({ slug: project.slug, tab: "todo" }), label: `Todo ${project.title}` } : undefined}
             meta={at.tab === "todo" ? { text: [rumboText(project).goal ?? "Sin meta todavía", rumboText(project).date ?? (rumboText(project).goal ? "sin fecha" : null)].filter(Boolean).join(" · "), missing: rumboText(project).missing, href: hojaHref("meta", project.slug) } : undefined}
             end={
-              at.tab === "todo" ? (
+              at.tab === "todo" || at.tab === "archivo" || at.tab === "hecho" ? (
                 <span className="cor-pbar-end">
+                  <Link className="cor-door" to={linkTo({ slug: project.slug, tab: "archivo" })} aria-current={at.tab === "archivo" ? "page" : undefined} data-door="archivo">
+                    Archivo
+                  </Link>
                   {project.paused ? (
                     <Link className="cor-btn secondary" to={hojaHref("reanudar", project.slug)} data-control="reanudar">
                       {`Reanudar ${project.title}`}

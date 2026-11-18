@@ -39,7 +39,7 @@ export const Strip = ({ lanes, open, href, back, pedirTo }: { lanes: Lane[]; ope
 );
 
 export type BarMeta = { text: string; missing: boolean; href: string };
-export const ProjectBar = ({ slug, title, tab, href, counts, meta, end }: { slug: string; title: string; tab: Tab; href: (t: Tab) => string; counts?: Partial<Record<Tab, { n: number; amber?: boolean }>>; meta?: BarMeta; end?: ReactNode }) => {
+export const ProjectBar = ({ slug, title, tab, href, counts, meta, end, back }: { slug: string; title: string; tab: Tab; href: (t: Tab) => string; counts?: Partial<Record<Tab, { n: number; amber?: boolean }>>; meta?: BarMeta; end?: ReactNode; back?: { href: string; label: string } }) => {
   const one = (t: Tab) => {
     const c = counts?.[t];
     return (
@@ -55,6 +55,14 @@ export const ProjectBar = ({ slug, title, tab, href, counts, meta, end }: { slug
         <Logo slug={slug} title={title} size="md" />
         {title}
       </h1>
+      {back && (
+        <Link to={back.href} className="cor-btn link cor-pbar-back" data-control="volver-todo">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M9.5 3.5 5 8l4.5 4.5" />
+          </svg>
+          {back.label}
+        </Link>
+      )}
       {meta && (
         <div className="cor-pmeta" data-pmeta>
           <span className="cor-label">Meta</span>

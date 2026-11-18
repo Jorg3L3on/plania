@@ -80,3 +80,46 @@ test("I64-3 #2 el pulso: steps landed per day for 14 days match a control count"
   assert.equal(res.status, 200);
   assert.equal(((await res.json()) as any).days.length, 14);
 });
+
+test("I64-6 #1 #2 Archivo reads every doc and PR; docs without an owner are the project's own", async () => {
+  const ACT = '{"agent":"t","session_id":"s"}';
+  for (let i = 0; i < 34; i++) await raw.query(`insert into docs (project_id, task_id, title, markdown, actor, updated_at) values ($1, null, $2, 'x', $3::jsonb, now() - make_interval(hours => $4))`, [pid, `Doc ${i}`, ACT, i]);
+  for (let i = 1; i <= 23; i++)
+    await raw.query(`insert into pull_requests (project_id, repo, number, url, title, state, gh_updated_at) values ($1, 'demo/t', $2, $3, $4, 'merged', now() - make_interval(hours => $5))`, [pid, i, `https://x/${i}`, `PR ${i}`, 30 - i]);
+  const get = async (q: string) => (await (await app.request(`/api/company/projects/tienda/ficha${q}`, { headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } })).json()) as any;
+  const short = await get("");
+  const all = await get("?todo=1");
+  assert.equal(short.docs.length, 30);
+  assert.equal(short.prs.length, 20);
+  assert.equal(all.docs.length, 34);
+  assert.equal(all.prs.length, 23);
+  assert.ok(all.docs.some((d: any) => d.title === "Doc 33" && d.task_key === null), "the oldest doc is there, with no owner");
+  assert.ok(all.prs.some((x: any) => x.number === 1), "the oldest PR is there");
+  (globalThis as { React?: unknown }).React = await import("react");
+  const { docGroups } = (await import(new URL("../ui/src/components/corriente/archivo.tsx", import.meta.url).href)) as any;
+  const g = docGroups([...all.docs, { id: "z", title: "Spec", task_key: "TLU-I1", updated_at: "2026-11-01T00:00:00Z" }]);
+  assert.equal(g.own.length, 34);
+  assert.deepEqual(g.things.map((t: any) => t.key), ["TLU-I1"]);
+});
+
+test("I64-6 #3 Hecho: the last 14 days by day, closed initiatives with their idea, and a way back", async () => {
+  const { hechoRead } = await import("../src/api/company-ficha.js");
+  const { withDb } = await import("../src/db/client.js");
+  const now = new Date("2026-11-17T20:00:00Z");
+  const opts = { now, tz: "America/Mexico_City" };
+  await raw.query(`update tasks set resolved_at = '2026-11-12T18:00:00Z', status_changed_at = '2026-11-12T18:00:00Z' where key = 'TLU-I2'`);
+  const h = await withDb((db) => hechoRead(db, "tienda", opts));
+  assert.equal(h.from, "2026-11-04");
+  assert.equal(h.to, "2026-11-17");
+  assert.equal(h.total, 3);
+  assert.deepEqual(h.days.map((d) => [d.day, d.n]).filter(([, n]) => (n as number) > 0), [["2026-11-17", 2], ["2026-11-10", 1]]);
+  assert.deepEqual(h.initiatives.map((i) => [i.key, i.idea]), [["TLU-I9", null], ["TLU-I2", "TLU-IDEA2"]]);
+  assert.equal(h.before, "2026-11-01", "TLU-4 landed before the window");
+  const back = await withDb((db) => hechoRead(db, "tienda", { ...opts, until: h.before! }));
+  assert.equal(back.to, "2026-11-01");
+  assert.equal(back.from, "2026-10-19");
+  assert.equal(back.total, 1);
+  assert.equal(back.before, null);
+  const res = await app.request("/api/company/projects/tienda/hecho?hasta=2026-11-01", { headers: { Cookie: `${SESSION_COOKIE}=${createSession()}` } });
+  assert.equal(((await res.json()) as any).to, "2026-11-01");
+});
