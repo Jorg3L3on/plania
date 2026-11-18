@@ -1,4 +1,5 @@
 import { StreamableHTTPTransport } from "@hono/mcp";
+import { isRunSession } from "./runner/run-session.js";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { streamSSE } from "hono/streaming";
@@ -78,7 +79,10 @@ app.get("/mcp/events", async (c) => {
 app.post("/mcp", async (c) => {
   const { db, close } = makeDb();
   const auth = c.get("auth");
-  const server = createMcpServer(db, { scopes: auth.scopes, identity: auth.identity });
+  // PLA-82 (F-12): the runner names its run; only a well-formed run session on a token's identity is kept.
+  const run = c.req.header("x-plania-run");
+  const identity = auth.identity && run && isRunSession(run) ? { ...auth.identity, runSession: run } : auth.identity;
+  const server = createMcpServer(db, { scopes: auth.scopes, identity });
   const transport = new StreamableHTTPTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   try {
     await server.connect(transport);

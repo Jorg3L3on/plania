@@ -20,7 +20,7 @@ import { z } from "zod";
 import type { Identity } from "../auth/tokens.js";
 import type { Db } from "../db/client.js";
 import { projects, tasks, type PlanQuestion, type PoCheck, type ProposalCost, type ProposalData, type ThreadLink } from "../db/schema.js";
-import { agentOfActor } from "../runner/events.js";
+import { agentOfCtx } from "../runner/events.js";
 import { assertThreadAccess, checkLinks, messageView, postMessage, projectThread } from "../runner/threads.js";
 import { ToolError } from "./errors.js";
 import type { Ctx } from "./tx.js";
@@ -201,7 +201,7 @@ export async function propose(db: Db, input: ProposeInput, ctx: Ctx) {
   const [p] = await db.select().from(projects).where(eq(projects.slug, input.project)).limit(1);
   if (!p) throw new ToolError("PROJECT_NOT_FOUND", { project: input.project });
   const ref = { thread: await projectThread(db, p.id), project: p };
-  const { agent, role } = await assertThreadAccess(db, await agentOfActor(db, ctx.actor), ref);
+  const { agent, role } = await assertThreadAccess(db, await agentOfCtx(db, ctx), ref);
   if (role !== "product-owner" && role !== "asistente") throw new ToolError("THREAD_FORBIDDEN", { hint: "only the project's PO proposes" });
   let leg: string | null = input.kind === "plan" ? input.leg?.trim() || null : null;
   if (input.kind === "plan" && input.order) {

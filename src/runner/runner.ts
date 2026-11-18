@@ -1032,8 +1032,9 @@ export function claudeArgs(input: ClaudeArgsInput): string[] {
 // Plania only. The token stays in the child env; the file names the variable, never the value.
 // AUDIT-6: browser adds a second server for a QA run that walks through the app (settings.qa.browser).
 export type McpStdio = { command: string; args: string[] };
-export const mcpConfig = (url: string, browser: McpStdio | null = null) => ({
-  mcpServers: { plania: { type: "http", url, headers: { Authorization: "Bearer ${PLANIA_RUNNER_TOKEN}" } }, ...(browser ? { browser } : {}) },
+// PLA-82 (F-12): X-Plania-Run names the run, so its writes are its roster agent's even when it invents a session_id.
+export const mcpConfig = (url: string, browser: McpStdio | null = null, run: string | null = null) => ({
+  mcpServers: { plania: { type: "http", url, headers: { Authorization: "Bearer ${PLANIA_RUNNER_TOKEN}", ...(run ? { "X-Plania-Run": run } : {}) } }, ...(browser ? { browser } : {}) },
 });
 
 // The browser tools a QA walk-through uses: Playwright's MCP server, headless, with a profile it throws away.
@@ -1176,7 +1177,7 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
   const hooks = !readOnly && role === "taller" ? afterEditHooks(project.settings?.qa?.after_edit) : undefined;
   writeFileSync(settingsPath, JSON.stringify({ ...denySettings(consulta ? CONSULTA_DENY_RULES : role === "qa" || asks ? QA_DENY_RULES : []), ...(hooks ? { hooks } : {}) }), { mode: 0o600 });
   const mcpConfigPath = path.join(tmp, "mcp.json");
-  writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp", qa?.browser ? browserServer(env) : null)), { mode: 0o600 });
+  writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig(env.PLANIA_MCP_URL || "http://127.0.0.1:3737/mcp", qa?.browser ? browserServer(env) : null, runSession(run.id))), { mode: 0o600 });
 
   // PLA-I46-12: only this role's packs, written fresh (whatever an earlier run left is cleared first).
   // AUDIT-3: by default they go in a plugin in the run's temp folder, loaded with --plugin-dir, and the worktree is
