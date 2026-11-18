@@ -1,0 +1,71 @@
+---
+name: pr
+description: Writes the pull request for a delivery so a reviewer can judge it without opening the code, covering what changed, evidence from before and after, how risky the merge is and how to undo it. Use when Taller opens or updates a pull request, right before calling finish, or when an existing pull request body is only a title or a list of commits.
+---
+
+# PR
+
+The pull request is what a person reads before deciding to merge. They were not there when you built
+it. Tell them what changed, show that it works, and be honest about what could go wrong and how to
+take it back.
+
+## Plania tools
+
+- `get_task`: the ticket's key, scope and Done when, which the body answers to.
+- `finish`: takes the `pr_url` and `branch`. A code ticket without a pull request is
+  `TASK_MISSING_PR_URL`; work that truly has none passes `no_pr_reason`.
+
+## Rules with no exceptions
+
+- The base is the one your run prompt names for the workspace: `sandbox`. **Never main.**
+- You never merge a pull request, and you never force-push. Merging is the owner's.
+- The body carries the line `Plania: <KEY>`. Plania links the pull request to the ticket by it.
+- No secrets, tokens or personal data, in the text or in a screenshot.
+
+## Steps
+
+1. Commit and push your branch.
+2. Check whether the pull request already exists: `gh pr view`. Phases of one initiative share its
+   branch and its pull request. If it exists, update the body (`gh pr edit --body-file`); do not open a
+   second one.
+3. Otherwise `gh pr create --base <base> --title … --body-file …`.
+4. Write the body with the four sections below. The template is in [template.md](template.md).
+5. Pass the URL to `finish`.
+
+## The body
+
+**Qué cambió.** First one or two sentences on what is different for a person using the app. Then
+three to six lines on what changed in the code, grouped by behaviour. Not a list of files and not the
+commit log: the diff already shows those.
+
+**Evidencia, antes y después.** What you ran and what it showed, from this run, at the head commit.
+- Checks: each command with its counts.
+- A bug: the command that failed before the fix and passes now.
+- A screen change: what it looked like before and after, at desktop and at phone width.
+- What you did **not** verify, said plainly.
+
+**Riesgo de la mezcla.** Bajo, medio or alto, and why. Name what applies: a migration, a change to
+stored data, code that other parts share, a new environment variable or flag, a dependency added or
+upgraded. Say what else could break and how someone would notice.
+
+**Cómo deshacerlo.** What it takes to go back. Usually: revert the merge commit. Say when that is not
+enough: a migration that must be reversed first, data that was rewritten, a setting to switch off.
+
+## Language and title
+
+Match the repo: look at its last merged pull requests (`gh pr list --state merged --limit 5`). When
+there is no pattern, write in plain Spanish. The title is the outcome in a person's terms, with the
+ticket key: «MIC-12: compartir una lista por enlace».
+
+The `muestra` you pass to `finish` is for the owner and is always plain Spanish: `frase` is one
+sentence on what changes for the app's users, and `pasos` are three ways to try it.
+
+## Done when
+
+- The pull request is open against `sandbox`, never main, and is not merged.
+- The body has the four sections and the `Plania: <KEY>` line.
+- The evidence comes from this run at the head commit, and says what was not verified.
+- The risk names what applies, and the way back is concrete.
+- `finish` received the `pr_url`.
+
+Origin: seed skill from the audit of 2026-11-17 (AUDIT-4); no run on record yet. It prevents a pull request whose body is its title, so the person who merges has to read the whole diff to learn the risk, and finds out how to undo it only after something breaks.
