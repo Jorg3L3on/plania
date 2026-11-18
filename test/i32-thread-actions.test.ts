@@ -2,6 +2,7 @@
 // from the screen only. Throwaway DB; gh is faked through releaseGh.run, so no real gh ever runs.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { readFile } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type pg from "pg";
@@ -205,4 +206,33 @@ test("I32-4 #2: a runner's question lands in the thread with Responder; responde
   assert.equal(q.answer, "Plan Inicial");
   assert.ok(q.answered_at);
   assert.deepEqual((await messages()).find((x) => x.id === m.id)!.actions, []);
+});
+
+test("PLA-108: a PR that conflicts with sandbox is not merged; the delivery goes back to its Taller with the instruction and the owner is told in words", async () => {
+  const taller = (await raw.query(`select slug from agents where role_template = 'taller' and (project_id = (select id from projects where slug = 'micasa') or project_id is null) order by project_id nulls last limit 1`)).rows[0].slug as string;
+  const calls: string[][] = [];
+  releaseGh.run = async (args) => {
+    calls.push(args);
+    if (args[1] === "view" && args.includes("baseRefName,state,headRefOid,url")) return { ok: true, stdout: JSON.stringify({ baseRefName: "sandbox", state: "OPEN", headRefOid: "f".repeat(40), url: "https://github.com/example/micasa/pull/12" }), stderr: "" };
+    if (args[1] === "view" && args.includes("mergeable")) return { ok: true, stdout: JSON.stringify({ mergeable: "CONFLICTING" }), stderr: "" };
+    return { ok: false, stdout: "", stderr: "unexpected" };
+  };
+  await raw.query(`delete from agent_runs`);
+  const t = await reviewTicket("Mover una cita", "code", { pr: "https://github.com/example/micasa/pull/12", owner: taller });
+  const res = await act({ message_id: t.message, action: "fusionar" });
+  assert.equal(res.status, 409);
+  const body = (await res.json()) as { error: string; hint: string };
+  assert.equal(body.error, "MERGE_CONFLICT");
+  assert.match(body.hint, /volvió a Taller/);
+  assert.equal(calls.some((a) => a[1] === "merge"), false, "nothing merged");
+  assert.equal((await raw.query(`select status from tasks where key = $1`, [t.key])).rows[0].status, "Ready");
+  const note = (await raw.query(`select payload->>'text' as text from events where type = 'note' and task_key = $1 order by id desc limit 1`, [t.key])).rows[0].text as string;
+  assert.match(note, /choca con sandbox/);
+  const run = (await raw.query(`select r.reason from agent_runs r join agents a on a.id = r.agent_id where a.slug = $1 and r.task_key = $2`, [taller, t.key])).rows;
+  assert.equal(run.length, 1, "one run for Taller");
+  assert.match(run[0].reason, /Merge origin\/sandbox into the branch/);
+  // The screen's words for it.
+  for (const f of ["../ui/src/components/corriente/acts.ts", "../ui/src/components/compania/use-thread.ts"]) {
+    assert.match(await readFile(new URL(f, import.meta.url), "utf8"), /MERGE_CONFLICT: "Choca con lo último que aceptaste/);
+  }
 });

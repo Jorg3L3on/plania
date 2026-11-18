@@ -76,6 +76,11 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: Accep
       return record(db, msg, { action: "aceptar", at: new Date().toISOString(), result: { merged: true, already: true, pr: url, base: MERGE_BASE, sha: done.mergeCommit?.oid ?? null, ticket: t.key } });
     }
     if (view.state !== "OPEN") return refuse("PR_NOT_OPEN", `El PR #${number} está cerrado sin fusionar: pide cambios o abre otro.`, { state: view.state });
+    // PLA-108 (guided test PLA-86): MIA-I10-5 conflicted with sandbox after MIA-40 was accepted, and Aceptar only said
+    // «No se pudo fusionar: revisa el PR», a step the owner cannot take. A conflict goes back to Taller to bring the
+    // branch up to date, and the owner is told so.
+    const { mergeable } = JSON.parse(await gh("view", ["pr", "view", number!, "--repo", repo!, "--json", "mergeable"])) as { mergeable?: string };
+    if (mergeable === "CONFLICTING") return conflictBack(db, t, Number(number), by);
     await gh("merge", ["pr", "merge", number!, "--repo", repo!, "--merge", "--match-head-commit", view.headRefOid]);
     const after = JSON.parse(await gh("view", ["pr", "view", number!, "--repo", repo!, "--json", "mergeCommit,url"])) as { mergeCommit: { oid: string } | null; url: string };
     const sha = after.mergeCommit?.oid;
@@ -94,6 +99,20 @@ async function merge(db: Db, msg: ThreadMessage, t: Task, url: string, by: Accep
     if (e instanceof ToolError && e.code === "RELEASE_MERGE_FAILED") return refuse("MERGE_FAILED", "No se pudo fusionar el PR.", e.detail);
     throw e;
   }
+}
+
+// PLA-108: the delivery's PR conflicts with sandbox. The ticket goes back to Ready with a note saying why, and its owner
+// (Taller) gets one wake whose reason is the instruction; a wake already queued for it takes the reason too.
+export const CONFLICT_WAKE = `The PR conflicts with ${MERGE_BASE} (work accepted after this branch was cut). Merge origin/${MERGE_BASE} into the branch, resolve the conflict keeping both changes, run the tests, push and finish again with the same muestra.`;
+async function conflictBack(db: Db, t: Task, number: number, by: AcceptBy): Promise<ActionRefusal> {
+  const project = await projectOf(db, t);
+  const ctx = by === "auto" ? { actor: SYSTEM_ACTOR, system: true, tool: "auto.accept" } : { ...webCtx, tool: "screen.thread_merge" };
+  await setTask(db, { project: project.slug, key: t.key, status: "Ready", version: t.version, note: `El PR #${number} choca con ${MERGE_BASE}: vuelve a Taller para ponerlo al día con lo último aceptado.` } as never, ctx);
+  if (t.ownerAgent) {
+    const [owner] = await db.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
+    if (owner) await enqueueWake(db, { agent: owner, project, taskKey: t.key, reason: CONFLICT_WAKE, appendReason: true }).catch(() => undefined);
+  }
+  return refuse("MERGE_CONFLICT", "Choca con lo último que aceptaste: volvió a Taller para ponerla al día y te llega otra vez.", { key: t.key, pr: number });
 }
 
 // PLA-82 (F-31): the merge Plania just made is known now; the floor read «Publicar 4 cambios» with the step still

@@ -22,6 +22,7 @@ export const DECISION_REFUSAL: Record<string, string> = {
   CHECKS_OPEN: "El paso tiene checks abiertos.",
   NOT_IN_REVIEW: "Ya no está en revisión.",
   MERGE_FAILED: "No se pudo fusionar: revisa el PR.",
+  MERGE_CONFLICT: "Choca con lo último que aceptaste: volvió a Taller para ponerla al día y te llega otra vez.",
   BASE_NOT_SANDBOX: "El cambio no apunta a la copia de prueba.",
   OWNER_CODE: "Publicar se hace en Bandeja, con tu código.",
   INVALID_ACTION: "Eso no se puede hacer aquí. Recarga la página y vuelve a intentarlo.",
