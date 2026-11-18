@@ -7,6 +7,7 @@
 // team note with pictures, the trail, «visto». An initiative adds Construcción (its steps, stage and PR, Aceptar on
 // the one that waits) and Publicado (when, and the evidence). Calls: GET …/ideas/:key (PLA-I65-1) and the
 // building's writes (acts.ts).
+import { createPortal } from "react-dom";
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Markdown from "react-markdown";
@@ -427,7 +428,9 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
     <>
       {/* PLA-72 (F-14): the frame in the ficha is 124 px tall, too small to judge a design; Ampliar opens it large,
           one click deep, with the same pins and arrows between frames. */}
-      {ui.grande && (
+      {ui.grande &&
+        createPortal(
+        <div className="cor-portal">
         <div
           className="cor-lightbox"
           role="dialog"
@@ -464,7 +467,9 @@ const Delivery = ({ d, m, ui, set, links, now, timeZone, acts, slug }: { d: Idea
             </div>
           </div>
         </div>
-      )}
+        </div>,
+          document.body,
+        )}
       <Eyebrow links={links} doc={s.doc}>
         {eb(s, now, timeZone, `${d.frames.length} ${d.frames.length === 1 ? "marco" : "marcos"}`)}
       </Eyebrow>
