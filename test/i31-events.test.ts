@@ -563,8 +563,8 @@ const { writeTx, WEB_ACTOR } = await import("../src/mcp/tx.js");
 const MAX_TURNS = "fail: error_max_turns (41 turns, session 491bc14d)";
 
 // The ticket In progress, leased to the runner session of that run (run-<first 8 of its id>).
-async function leaseTo(key: string, runId: string, lease = "now() + interval '110 minutes'"): Promise<void> {
-  const owner = JSON.stringify({ agent: "plania-runner", session_id: `run-${runId.slice(0, 8)}`, machine: "test" });
+async function leaseTo(key: string, runId: string, lease = "now() + interval '110 minutes'", session = `run-${runId.slice(0, 8)}`): Promise<void> {
+  const owner = JSON.stringify({ agent: "plania-runner", session_id: session, machine: "test" });
   await raw.query(`update tasks set status = 'In progress', owner = $2::jsonb, claimed_at = now() - interval '9 minutes', lease_until = ${lease} where key = $1`, [key, owner]);
 }
 // A Taller run on the ticket that ended (fail by default) and still holds its lease.
@@ -581,6 +581,17 @@ async function endedRunHolding(key: string, status = "fail", summary = MAX_TURNS
 }
 const ticket = async (key: string) => (await raw.query(`select id, status, owner, lease_until, blocked_note from tasks where key = $1`, [key])).rows[0];
 const eventsOf = async (key: string, type: string) => (await raw.query(`select payload from events where task_key = $1 and type = $2 order by id`, [key, type])).rows.map((r) => r.payload);
+
+test("PLA-95: a run that wrote as run-<16 hex> (PLA-I60-1) is found too: its ticket is freed and retried", async () => {
+  await backlog("FR-N16");
+  const run = await endedRunHolding("FR-N16");
+  await leaseTo("FR-N16", run, "now() + interval '110 minutes'", `run-${run.replace(/-/g, "").slice(0, 16)}`);
+  assert.deepEqual(await sweepFailedRuns(db), { retried: 1, held: 0 });
+  const t = await ticket("FR-N16");
+  assert.deepEqual([t.status, t.owner], ["Ready", null]);
+  assert.match((await eventsOf("FR-N16", "claim.released"))[0].owner.session_id, /^run-[0-9a-f]{16}$/);
+  await raw.query(`delete from agent_runs`);
+});
 
 test("PLA-16 #1, #2: a failed run frees its ticket and the same agent is queued on it once; the second failure in a row goes to Jorge", async () => {
   assert.equal(failureWords(MAX_TURNS), "error_max_turns (41 turns)");
