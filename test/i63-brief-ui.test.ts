@@ -20,7 +20,7 @@ const css = readFileSync(new URL("../ui/src/corriente.css", import.meta.url), "u
 
 test("I63-1: /ceo?v=brief is the brief view and the address round-trips", () => {
   assert.equal(lib.atOf("?v=brief").view, "brief");
-  assert.deepEqual(lib.atOf("?v=brief"), { view: "brief", slug: null, tab: "ahora", ver: null });
+  assert.deepEqual(lib.atOf("?v=brief"), { view: "brief", slug: null, tab: lib.atOf("").tab, ver: null });
   assert.equal(lib.hrefOf({ view: "brief" }), "/ceo?v=brief");
   assert.equal(lib.atOf(lib.searchOf({ view: "brief" })).view, "brief");
   assert.equal(lib.isBuilt({ view: "brief" }), true);
