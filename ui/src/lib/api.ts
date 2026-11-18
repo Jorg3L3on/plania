@@ -252,6 +252,8 @@ export type ConsultaView = {
   started_at: string | null;
   answered_at: string | null;
   answer: ConsultaAnswer | null;
+  /** PLA-69: why a queued question waits, when the runner holds it. */
+  held?: string | null;
 };
 export type AskResult = { key: string; title: string; po: string; mode?: AskMode; consulta?: string; wake: "queued" | "busy" | "off"; woke: { woke: boolean; reason: string; ticket: string | null; summary: string } | null };
 // PLA-I54-1: one of the owner's ideas taking shape, a capsule in the floor's tube (src/api/company-pedidos.ts).
