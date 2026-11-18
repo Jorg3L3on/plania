@@ -1,11 +1,12 @@
 // PLA-I62-3: inside a project the stream shrinks to a strip on top (board B1): back to Corriente, one chip per project
 // with its mini stream (a tick per stage: lit when work waits there, white where an agent works, amber where something
 // waits on the owner), the open one marked, and Pedir (secondary). Under it, one row: the project's logo and name,
-// the seven work tabs and, on the right, Equipo, Motores and Máquinas.
-import type { CSSProperties, ReactNode } from "react";
+// PLA-I64-7: the doors (Archivo, Equipo, Máquinas) and Pausar or Reanudar; the seven work tabs are retired.
+import type { CSSProperties } from "react";
 import { Link } from "react-router";
-import { SIDE_TABS, TAB_NAME, WORK_TABS, type Tab } from "@/lib/corriente";
+import { DOORS, TAB_NAME, type Tab } from "@/lib/corriente";
 import { COLUMNS, type Lane } from "@/lib/corriente-stream";
+import { useFicha } from "./listas";
 import { Logo } from "./parts";
 
 export const Strip = ({ lanes, open, href, back, pedirTo }: { lanes: Lane[]; open: string; href: (slug: string) => string; back: string; pedirTo: string }) => (
@@ -39,16 +40,40 @@ export const Strip = ({ lanes, open, href, back, pedirTo }: { lanes: Lane[]; ope
 );
 
 export type BarMeta = { text: string; missing: boolean; href: string };
-export const ProjectBar = ({ slug, title, tab, href, counts, meta, end, back }: { slug: string; title: string; tab: Tab; href: (t: Tab) => string; counts?: Partial<Record<Tab, { n: number; amber?: boolean }>>; meta?: BarMeta; end?: ReactNode; back?: { href: string; label: string } }) => {
-  const one = (t: Tab) => {
-    const c = counts?.[t];
-    return (
-      <Link key={t} to={href(t)} className="cor-tab tall" aria-current={tab === t ? "page" : undefined} data-tab={t}>
-        {TAB_NAME[t]}
-        {c && c.n > 0 && <span className={`cor-count ${c.amber ? "amber" : ""}`}>{c.n}</span>}
-      </Link>
-    );
-  };
+
+/** Archivo's count beside its door («24 DOCS · 38 PRS»), from the ficha's counts. */
+const ArchivoCount = ({ slug }: { slug: string }) => {
+  const f = useFicha(slug);
+  if (!f.data) return null;
+  const { docs, prs } = f.data.counts;
+  return <span className="n">{docs + prs === 0 ? "VACÍO" : `${docs} ${docs === 1 ? "DOC" : "DOCS"} · ${prs} ${prs === 1 ? "PR" : "PRS"}`}</span>;
+};
+
+/** PLA-I64-7: the project's bar. Its name, its goal (or, behind a door, the way back to the list), then the doors
+ *  Archivo, Equipo (Motores opens from there) and Máquinas, and Pausar or Reanudar. */
+export const ProjectBar = ({
+  slug,
+  title,
+  tab,
+  href,
+  meta,
+  back,
+  team,
+  paused,
+  pauseHref,
+}: {
+  slug: string;
+  title: string;
+  tab: Tab;
+  href: (t: Tab) => string;
+  meta?: BarMeta;
+  back?: { href: string; label: string };
+  /** Equipo's word: «4 LIBRES», «2 TRABAJANDO», «EN PAUSA». */
+  team?: string;
+  paused: boolean;
+  pauseHref: string;
+}) => {
+  const on = (t: Tab) => tab === t || (t === "equipo" && tab === "motores");
   return (
     <div className="cor-pbar" data-pbar={slug}>
       <h1 className="cor-pname">
@@ -72,13 +97,24 @@ export const ProjectBar = ({ slug, title, tab, href, counts, meta, end, back }: 
           </Link>
         </div>
       )}
-      <nav className="cor-tabs" aria-label={`Trabajo de ${title}`}>
-        {WORK_TABS.map(one)}
+      <nav className="cor-doors" aria-label={`Puertas de ${title}`}>
+        {DOORS.map((t) => (
+          <Link key={t} to={href(t)} className="cor-door" aria-current={on(t) ? "page" : undefined} data-door={t} data-tab={t}>
+            {TAB_NAME[t]}
+            {t === "archivo" && <ArchivoCount slug={slug} />}
+            {t === "equipo" && team && <span className="n">{team}</span>}
+          </Link>
+        ))}
+        {paused ? (
+          <Link className="cor-btn secondary" to={pauseHref} data-control="reanudar">
+            {`Reanudar ${title}`}
+          </Link>
+        ) : (
+          <Link className="cor-door" to={pauseHref} data-control="pausar">
+            Pausar
+          </Link>
+        )}
       </nav>
-      <nav className="cor-tabs side" aria-label={`Equipo y máquinas de ${title}`}>
-        {SIDE_TABS.map(one)}
-      </nav>
-      {end}
     </div>
   );
 };

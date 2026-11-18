@@ -36,11 +36,45 @@ const project = (over: Record<string, unknown> = {}): any => ({
 });
 const links = { open: (c: any) => `/x/${c.key}`, hecha: (k: string) => `/h/${k}`, hecho: "/hecho" };
 
-test("I64-2: the preview address is a tab of its own; the old tabs are untouched", () => {
+test("I64-2/7: the list is the project's entry; t=todo still opens it", () => {
   assert.deepEqual(lib.atOf("?proyecto=filmia&t=todo"), { view: "corriente", slug: "filmia", tab: "todo", ver: null });
-  assert.equal(lib.searchOf({ slug: "filmia", tab: "todo", ver: { kind: "idea", key: "FIL-IDEA1" } }), "?proyecto=filmia&t=todo&ver=idea%3AFIL-IDEA1");
-  assert.ok(!lib.WORK_TABS.includes("todo"), "not in the bar until PLA-I64-7");
-  assert.equal(lib.atOf("?proyecto=filmia").tab, "ahora");
+  assert.deepEqual(lib.atOf("?proyecto=filmia"), { view: "corriente", slug: "filmia", tab: "todo", ver: null });
+  assert.equal(lib.searchOf({ slug: "filmia", tab: "todo", ver: { kind: "idea", key: "FIL-IDEA1" } }), "?proyecto=filmia&ver=idea%3AFIL-IDEA1");
+  assert.deepEqual([...lib.TABS], ["todo", "archivo", "hecho", "equipo", "motores", "maquinas"]);
+  assert.deepEqual([...lib.DOORS], ["archivo", "equipo", "maquinas"]);
+});
+
+test("I64-7 #2: every old address lands on its new place", () => {
+  const to = (q: string) => {
+    const a = lib.atOf(q);
+    return lib.searchOf(a);
+  };
+  const cases: [string, string][] = [
+    ["?proyecto=f&t=ahora", "?proyecto=f"],
+    ["?proyecto=f&t=pedidos", "?proyecto=f"],
+    ["?proyecto=f&t=tablero", "?proyecto=f"],
+    ["?proyecto=f&t=ideas", "?proyecto=f"],
+    ["?proyecto=f&t=diseno", "?proyecto=f&t=archivo"],
+    ["?proyecto=f&t=prs", "?proyecto=f&t=archivo"],
+    ["?proyecto=f&t=docs", "?proyecto=f&t=archivo"],
+    ["?proyecto=f&t=motores", "?proyecto=f&t=motores"],
+    ["?proyecto=f&t=equipo", "?proyecto=f&t=equipo"],
+    ["?proyecto=f&t=maquinas", "?proyecto=f&t=maquinas"],
+    ["?proyecto=f&t=ahora&ver=entrega:d1", "?proyecto=f&ver=entrega%3Ad1"],
+    ["?proyecto=f&t=pedidos&ver=pedido:F-IDEA2", "?proyecto=f&ver=idea%3AF-IDEA2"],
+    ["?proyecto=f&t=pedidos&ver=guardadas", "?proyecto=f"],
+    ["?proyecto=f&t=tablero&ver=paso:F-3", "?proyecto=f&ver=paso%3AF-3"],
+    ["?proyecto=f&t=tablero&ver=iniciativa:F-I1", "?proyecto=f&ver=iniciativa%3AF-I1"],
+    ["?proyecto=f&t=tablero&ver=sueltos", "?proyecto=f"],
+    ["?proyecto=f&t=ideas&ver=idea:F-IDEA1", "?proyecto=f&ver=idea%3AF-IDEA1"],
+    ["?proyecto=f&t=diseno&ver=lienzo:F-IDEA1", "?proyecto=f&ver=idea%3AF-IDEA1"],
+    ["?proyecto=f&t=prs&ver=pr:12", "?proyecto=f&t=archivo&ver=pr%3A12"],
+    ["?proyecto=f&t=docs&ver=doc:abc", "?proyecto=f&t=archivo&ver=doc%3Aabc"],
+    ["?proyecto=f&t=tablero&ver=pr:12", "?proyecto=f&t=archivo&ver=pr%3A12"],
+    ["?proyecto=f&t=equipo&ver=miembro:taller-f", "?proyecto=f&t=equipo&ver=miembro%3Ataller-f"],
+    ["?proyecto=f&ver=maq:base", "?proyecto=f&t=maquinas&ver=maq%3Abase"],
+  ];
+  for (const [from, want] of cases) assert.equal(to(from), want, from);
 });
 
 test("I64-2: groups in order, an empty group is one line, a long group folds and says how many more", () => {

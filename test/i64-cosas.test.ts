@@ -144,6 +144,7 @@ test("I64-1 #1 the server's move, Cerrar, a request nobody took, a stray questio
   const decisions = [delivery("d5", "MIC-5", "micasa"), { ...delivery("q1", "", "micasa"), ref: null, kind: "question", actions: ["responder"], title: "¿Qué dominio?", asker: { agent: "po", role: "product-owner" } }, { ...delivery("r1", "", "micasa"), ref: null, kind: "release", actions: [], title: "Publicar MiCasa" }];
   const c = cosasOf({ p, decisions, ficha: { ideas: [], promoted: [] } });
   assert.deepEqual(find(c, "MIC-I1").palanca, { kind: "jugada", action: p.next_move.accion, decision: "d5" });
+  assert.equal(c.grupos[0].cosas[0].key, "MIC-I1", "the server's move leads Te toca (one white button, the sentence's)");
   assert.deepEqual(find(c, "MIC-I2").palanca, { kind: "cerrar", key: "MIC-I2", version: 4 });
   assert.deepEqual(find(c, "MIC-9").palanca, { kind: "reenviar", key: "MIC-9" });
   assert.equal(find(c, "q1").tipo, "decision");
@@ -223,4 +224,16 @@ test("I64-3 #3 amber only when something is the owner's", () => {
   assert.equal(fraseOf(p, cosasOf({ p, decisions: [], ficha: f2 }), quiet, { now: NOW, totals: null }).toca, null);
   const withMove = fraseOf(p, cosasOf({ p, decisions: [], ficha }), { state: "you", say: "Despierta al PO.", why: "" }, { now: NOW, totals: null });
   assert.ok(withMove.toca);
+});
+
+test("I64-7: a server move that is no decision (start, plan, goal) is a Te toca row; an empty project gets none", () => {
+  const p = project("workia", {
+    next_move: { verbo: "arrancar", texto: "Que Taller empiece «Alta».", accion: { kind: "start", agent: "taller-workia", label: "Que empiece ya" }, origen: { kind: "hold", agent: "taller-workia", hold: "rest" } },
+    tablero: { initiatives: [ini("WRK-I1", [tk("WRK-1", "lista")])], loose: [], loose_done: 0, done_initiatives: [] },
+  });
+  const c = cosasOf({ p, decisions: [], ficha: { ideas: [], promoted: [] } });
+  assert.deepEqual(find(c, "jugada").palanca, { kind: "jugada", action: p.next_move.accion, decision: null });
+  assert.equal(c.grupos[0].cosas[0].key, "jugada");
+  const e = project("nueva", { next_move: { verbo: "planear", texto: "Pide el plan.", accion: { kind: "plan", text: "x", label: "Arma el plan" }, origen: { kind: "route", leg: "x" } } });
+  assert.equal(cosasOf({ p: e, decisions: [], ficha: { ideas: [], promoted: [] } }).abiertas, 0);
 });

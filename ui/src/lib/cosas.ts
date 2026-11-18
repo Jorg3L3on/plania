@@ -31,8 +31,8 @@ export const PARADA_NAME: Record<Parada, string> = {
 const IDEA_STOPS: readonly PedidoStop[] = ["buzon", "entendido", "investigacion", "diseno", "plan", "lista"];
 const STAGE_STOP: Record<string, PedidoStop> = { idea: "entendido", research: "investigacion", design: "diseno", planning: "plan", ready: "lista" };
 
-export type Tipo = "pedido" | "idea" | "iniciativa" | "suelto" | "decision" | "publicar";
-export const TIPO_NAME: Record<Tipo, string> = { pedido: "Pedido tuyo", idea: "Idea", iniciativa: "Iniciativa", suelto: "Paso suelto", decision: "Decisión", publicar: "Publicar" };
+export type Tipo = "pedido" | "idea" | "iniciativa" | "suelto" | "decision" | "publicar" | "jugada";
+export const TIPO_NAME: Record<Tipo, string> = { pedido: "Pedido tuyo", idea: "Idea", iniciativa: "Iniciativa", suelto: "Paso suelto", decision: "Decisión", publicar: "Publicar", jugada: "Tu jugada" };
 
 export const GRUPOS = ["toca", "mueve", "fila", "quieto", "hecho"] as const;
 export type Grupo = (typeof GRUPOS)[number];
@@ -93,8 +93,9 @@ export type Hecha = { key: string; title: string; idea_key: string | null; done_
 export type Cosas = {
   grupos: { grupo: Exclude<Grupo, "hecho">; cosas: Cosa[] }[];
   hecho: { iniciativas: Hecha[]; sueltos: number; ultimo_suelto: string | null };
-  /** Requests he put on the shelf (Guardar): out of the stream, counted only. */
+  /** Requests he put on the shelf (Guardar): out of the stream, listed apart (Restaurar is in the idea's Más). */
   guardadas: number;
+  guardadasList: { key: string; title: string }[];
   /** Open things in all (Hecho not counted). */
   abiertas: number;
 };
@@ -267,7 +268,9 @@ function ideaThing(i: { key: string; title: string; origin: string | null; stop:
   return { ...base, grupo: "quieto", hilo: hilo("quieto", "cerrada"), espera, cap: stopName.toUpperCase(), palanca: paused ? null : { kind: "despertar", key: i.key }, since: i.at };
 }
 
-const ORDER_TOCA = (a: Cosa, b: Cosa) => (a.since ?? "9").localeCompare(b.since ?? "9") || byKey(a.key, b.key);
+// Te toca: the row carrying the server's move first (it gets the screen's white button and matches the sentence),
+// then the longest waiting.
+const ORDER_TOCA = (a: Cosa, b: Cosa) => Number(b.palanca?.kind === "jugada") - Number(a.palanca?.kind === "jugada") || (a.since ?? "9").localeCompare(b.since ?? "9") || byKey(a.key, b.key);
 const ORDER_REST = (a: Cosa, b: Cosa) => (b.since ?? "").localeCompare(a.since ?? "") || byKey(a.key, b.key);
 
 export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInput): Cosas {
@@ -283,6 +286,7 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
   const ideas: FichaIdea[] = ficha ? ficha.ideas : [];
   const seen = new Set<string>();
   let guardadas = 0;
+  const guardadasList: { key: string; title: string }[] = [];
   // A promoted idea is its initiative: never a row of its own, even if the tube still lists it.
   for (const k of promoted.values()) seen.add(k);
   for (const i of ideas) {
@@ -291,6 +295,7 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
     const pd = pedidos.get(i.key);
     if (i.guardada || pd?.guardada) {
       guardadas++;
+      guardadasList.push({ key: i.key, title: i.summary || i.title });
       continue;
     }
     out.push(
@@ -313,6 +318,7 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
     if (seen.has(pd.key)) continue;
     if (pd.guardada) {
       guardadas++;
+      guardadasList.push({ key: pd.key, title: pd.title });
       continue;
     }
     out.push(ideaThing({ key: pd.key, title: pd.title, origin: "jorge", stop: pd.stop, state: pd.state, question: pd.question, waits: null, at: pd.at }, { p, paused, mine }));
@@ -395,9 +401,27 @@ export function cosasOf({ p, decisions, ficha, companyPaused = false }: CosasInp
       since: release.at,
     });
 
+  // The server's move when it is not a decision (start a teammate, plan, set the goal, a link): a Te toca row of its
+  // own. An empty project shows its own way in (Pedir, «Arma el plan»), so it gets none.
+  const mv = p.next_move;
+  if (mv && mv.origen.kind !== "decision" && out.length > 0)
+    out.push({
+      key: "jugada",
+      tipo: "jugada",
+      idea_key: null,
+      title: mv.texto,
+      grupo: "toca",
+      hilo: { idea: null, ideaTono: null, valvula: "abierta", tramos: [], publicado: false, at: "construccion" },
+      espera: { fijar: "Sin meta, el equipo no sabe qué va primero.", planear: "Lo que sigue no está planeado todavía.", arrancar: "Está listo y espera tu señal.", ver: "Míralo cuando puedas.", aceptar: "", publicar: "", responder: "" }[mv.verbo] ?? "",
+      cap: "Te toca",
+      palanca: { kind: "jugada", action: mv.accion, decision: null },
+      decisions: [],
+      since: null,
+    });
+
   const grupos = (["toca", "mueve", "fila", "quieto"] as const).map((g) => ({ grupo: g, cosas: out.filter((c) => c.grupo === g).sort(g === "toca" ? ORDER_TOCA : ORDER_REST) }));
   const iniciativas: Hecha[] = (board?.done_initiatives ?? []).map((d) => ({ key: d.key, title: d.title, idea_key: promoted.get(d.key) ?? null, done_at: d.done_at }));
-  return { grupos, hecho: { iniciativas, sueltos: board?.loose_done ?? 0, ultimo_suelto: board?.loose_done_title ?? null }, guardadas, abiertas: out.length };
+  return { grupos, hecho: { iniciativas, sueltos: board?.loose_done ?? 0, ultimo_suelto: board?.loose_done_title ?? null }, guardadas, guardadasList, abiertas: out.length };
 }
 
 // ---- PLA-I64-3: the sentence on top (LIB-0137), generated from the list and today's line (lib/edificio.ts nowLine,

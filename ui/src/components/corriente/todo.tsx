@@ -15,6 +15,7 @@ export type TodoLinks = {
   /** Where a row opens (today's view of the thing). */
   open: (c: Cosa) => string;
   hecha: (key: string) => string;
+  idea: (key: string) => string;
   /** Everything done (the Hecho door). */
   hecho: string;
 };
@@ -66,7 +67,7 @@ const Row = ({ c, links, act }: { c: Cosa; links: TodoLinks; act?: ReactNode }) 
       <Link to={links.open(c)} className="cor-cosa-nm" data-control="abrir-cosa">
         <span className="cor-cosa-ids">
           <Label tone={toca ? "amber" : undefined}>{TIPO_NAME[c.tipo]}</Label>
-          {c.tipo !== "publicar" && c.tipo !== "decision" && <span className="cor-key">{c.key}</span>}
+          {c.tipo !== "publicar" && c.tipo !== "decision" && c.tipo !== "jugada" && <span className="cor-key">{c.key}</span>}
         </span>
         <b className="cor-ellipsis">{c.title}</b>
       </Link>
@@ -245,6 +246,29 @@ export const TodoList = ({
           </ul>
         )}
       </section>
+      {cosas.guardadas > 0 && (
+        <section aria-label="Guardadas" data-guardadas={cosas.guardadas}>
+          <div className="cor-grp">
+            <h2 className="cor-label">{`Guardadas · ${cosas.guardadas}`}</h2>
+            <span className="cor-grp-tx">fuera de la corriente; se restauran desde su «Más»</span>
+            <button type="button" className="cor-btn link cor-grp-more" aria-expanded={open.has("guardadas" as Grupo)} onClick={() => toggle("guardadas" as Grupo)} data-control="ver-guardadas">
+              {open.has("guardadas" as Grupo) ? "Ver menos" : cosas.guardadas === 1 ? "Verla" : `Ver las ${cosas.guardadas}`}
+            </button>
+          </div>
+          {open.has("guardadas" as Grupo) && (
+            <ul>
+              {cosas.guardadasList.map((g) => (
+                <li key={g.key} className="cor-cosa sm" data-guardada={g.key}>
+                  <Link to={links.idea(g.key)} className="cor-cosa-nm row">
+                    <span className="cor-key">{g.key}</span>
+                    <b className="cor-ellipsis">{g.title}</b>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
     </div>
   );
 };
@@ -331,11 +355,14 @@ export const PulsoView = ({ pulso }: { pulso: Pulso | null }) => {
 
 export const usePulso = (slug: string) => useQuery({ queryKey: ["pulso", slug], queryFn: () => api.pulso(slug), staleTime: 60_000, refetchInterval: 120_000, retry: 1 });
 
-export const Cabeza = ({ f, slug }: { f: Frase; slug: string }) => {
+export const Cabeza = ({ f, slug, nudge }: { f: Frase; slug: string; nudge?: ReactNode }) => {
   const q = usePulso(slug);
   return (
     <div className="cor-cabeza" data-cabeza>
-      <FraseView f={f} />
+      <div className="cor-cabeza-l">
+        <FraseView f={f} />
+        {nudge && <div className="cor-nudge">{nudge}</div>}
+      </div>
       <PulsoView pulso={q.data ?? null} />
     </div>
   );

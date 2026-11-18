@@ -1,23 +1,23 @@
 // PLA-I62: La corriente, Compañía redesigned (PLA-IDEA25), served at /ceo (pages/ceo.tsx moves the building's old
 // addresses here first). Data and calls are the ones /ceo uses (GET /api/company, GET /api/projects and friends); only the
 // drawing is new. The address (lib/corriente.ts) says which screen shows.
-// Keys (inside a project, as on /ceo): ↑ ↓ change project; 1-7 the work tabs; M Máquinas and back; I Ahora; E Equipo;
-// Esc steps out (what a tab has open, then the tab, then the project back to the stream).
+// Keys (inside a project): ↑ ↓ change project; A Archivo, E Equipo, M Máquinas (and back to the list); Esc steps out
+// (what is open, then the door, then the project back to the stream). PLA-I64-7: the list is the project's entry and
+// 1-7 (the retired tabs) do nothing.
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { useCorrienteActs, SLEEPY } from "@/components/corriente/acts";
-import { Ahora, PLAN_ASK, type AhoraLinks } from "@/components/corriente/ahora";
+import { MoveButton, PLAN_ASK, type AhoraLinks } from "@/components/corriente/ahora";
 import { Entrega } from "@/components/corriente/entrega";
 import { TeToca } from "@/components/corriente/tetoca";
 import { Pedir } from "@/components/corriente/pedir";
-import { Pedidos } from "@/components/corriente/pedidos";
 import { Asistente } from "@/components/corriente/asistente";
-import { Board, Paso, type BoardLinks } from "@/components/corriente/tablero";
+import { Paso, type BoardLinks } from "@/components/corriente/tablero";
 import { Equipo } from "@/components/corriente/equipo";
 import { Idea } from "@/components/corriente/idea";
-import { Disenos, Docs, Ideas, Prs } from "@/components/corriente/listas";
+import { Docs, Prs } from "@/components/corriente/listas";
 import { Motores } from "@/components/corriente/motores";
 import { Maquinas } from "@/components/corriente/maquinas";
 import { DocHoja, Meta, NuevoProyecto, Pausar, Publicar, Reanudar, type HojaKind } from "@/components/corriente/hojas";
@@ -35,7 +35,7 @@ import { fraseOf } from "@/lib/cosas";
 import { nowLine } from "@/lib/edificio";
 import { rumboText } from "@/lib/v2";
 import { ApiError, api, type OrgProject } from "@/lib/api";
-import { WORK_TABS, atOf, hrefOf, isBuilt, legacyHref, linkTo, type AskInput, type At, type Tab } from "@/lib/corriente";
+import { OLD_TAB, atOf, hrefOf, isBuilt, legacyHref, linkTo, verParam, type AskInput, type At, type Tab } from "@/lib/corriente";
 import { CLOSED, headlineOf, lanesOf, projectOfKey, totalsOf } from "@/lib/corriente-stream";
 import { pending } from "@/lib/v2";
 import { useMinute } from "@/lib/use-minute";
@@ -56,9 +56,9 @@ export function hojaOf(search: string): { kind: HojaKind; slug: string | null } 
 export function escFrom(at: At): Partial<At> {
   if (!at.slug) return { view: "corriente" };
   if (at.ver) return { slug: at.slug, tab: at.tab };
-  // PLA-I64-6: the doors of the list step back to the list.
-  if (at.tab === "archivo" || at.tab === "hecho") return { slug: at.slug, tab: "todo" };
-  if (at.tab !== "ahora") return { slug: at.slug };
+  // A door steps back to the list (Motores to Equipo, where it opens from); the list back to the stream.
+  if (at.tab === "motores") return { slug: at.slug, tab: "equipo" };
+  if (at.tab !== "todo") return { slug: at.slug };
   return { view: "corriente" };
 }
 
@@ -123,6 +123,23 @@ export const CorrientePage = () => {
     else navigate(href);
   };
 
+  // PLA-I64-7: an old tab's address (t=ahora, pedidos, tablero, ideas, diseno, prs, docs; ver=pedido|lienzo|sueltos|
+  // guardadas) is rewritten in place to its new one, keeping the rest of the address (a sheet, a doc, hasta).
+  useEffect(() => {
+    if (!at.slug) return;
+    const q = new URLSearchParams(location.search);
+    const t = q.get("t");
+    const v = q.get("ver");
+    const oldVer = !!v && /^(pedido|lienzo|sueltos|guardadas)(:|$)/.test(v);
+    if (!(t && OLD_TAB[t]) && !oldVer && t !== "todo") return;
+    if (at.tab === "todo") q.delete("t");
+    else q.set("t", at.tab);
+    if (at.ver) q.set("ver", verParam(at.ver));
+    else q.delete("ver");
+    navigate(`${location.pathname}?${q.toString()}`, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
+
   // Keys, as on /ceo, unless the owner is typing or a dialog is open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -142,13 +159,9 @@ export const CorrientePage = () => {
         }
         return;
       }
-      if (e.key.length === 1 && "1234567".includes(e.key)) {
-        e.preventDefault();
-        go({ slug: at.slug, tab: WORK_TABS[Number(e.key) - 1]! });
-        return;
-      }
       const k = e.key.toLowerCase();
-      const to: Tab | null = k === "m" ? (at.tab === "maquinas" ? "ahora" : "maquinas") : k === "i" ? "ahora" : k === "e" ? (at.tab === "equipo" ? "ahora" : "equipo") : null;
+      const door: Tab | null = k === "a" ? "archivo" : k === "e" ? "equipo" : k === "m" ? "maquinas" : null;
+      const to: Tab | null = door ? (at.tab === door && !at.ver ? "todo" : door) : null;
       if (to) {
         e.preventDefault();
         go({ slug: at.slug, tab: to });
@@ -177,7 +190,7 @@ export const CorrientePage = () => {
     entrega: (d) => linkTo({ slug, ver: { kind: "entrega", id: d.id } }),
     tetoca: (d) => (isBuilt({ view: "tetoca" }) ? hrefOf({ view: "tetoca", extra: d ? { decision: d.id } : {} }) : d ? legacyHref({ slug, ver: { kind: "entrega", id: d.id } }) : legacyHref({ view: "tetoca" })),
     paso: (key) => linkTo({ slug, ver: { kind: "paso", key } }),
-    tablero: linkTo({ slug, tab: "tablero" }),
+    tablero: linkTo({ slug }),
     equipo: linkTo({ slug, tab: "equipo" }),
     miembro: (agent) => linkTo({ slug, ver: { kind: "miembro", agent } }),
     publicar: hojaHref("publicar", slug),
@@ -199,7 +212,6 @@ export const CorrientePage = () => {
     const totals = tickets ? { open: p.work.open, done: tickets.filter((t) => CLOSED.has(t.status) && t.status !== "Won't do" && t.status !== "Cancelled").length } : null;
     if (!isBuilt({ slug: p.slug, tab: at.tab, ver: at.ver })) return <NotYet what={at.ver ? "Esto" : `La pestaña ${at.tab}`} to={legacyHref(at)} />;
     // PLA-I64: opened from the list, a thing's view comes back to the list.
-    const fromTodo = at.tab === "todo";
     const todoHref = linkTo({ slug: p.slug, tab: "todo" });
     if (at.ver?.kind === "entrega") {
       const verId = at.ver.id;
@@ -209,20 +221,20 @@ export const CorrientePage = () => {
           <div className="cor-empty">
             <p className="cor-text">Esta entrega ya no espera tu decisión.</p>
             <Btn kind="secondary" onClick={() => go({ slug: p.slug })}>
-              Volver a Ahora
+              Volver a la lista
             </Btn>
           </div>
         );
-      return <Entrega p={p} d={d} acts={acts} back={fromTodo ? todoHref : linkTo({ slug: p.slug })} />;
+      return <Entrega p={p} d={d} acts={acts} back={todoHref} />;
     }
     const boardLinks: BoardLinks = {
       paso: (key) => linkTo({ slug: p.slug, ver: { kind: "paso", key } }),
       iniciativa: (key) => linkTo({ slug: p.slug, ver: { kind: "iniciativa", key } }),
       entrega: (d) => linkTo({ slug: p.slug, ver: { kind: "entrega", id: d.id } }),
-      sueltos: linkTo({ slug: p.slug, tab: "tablero" }),
+      sueltos: todoHref,
       doc: (id) => linkTo({ slug: p.slug, ver: { kind: "doc", id } }),
     };
-    if (at.ver?.kind === "paso" || at.ver?.kind === "iniciativa") return <Paso p={p} k={at.ver.key} links={fromTodo ? { ...boardLinks, paso: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "paso", key } }), iniciativa: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "iniciativa", key } }) } : boardLinks} back={fromTodo ? todoHref : linkTo({ slug: p.slug, tab: "tablero" })} backLabel={fromTodo ? `Todo ${p.title}` : undefined} />;
+    if (at.ver?.kind === "paso" || at.ver?.kind === "iniciativa") return <Paso p={p} k={at.ver.key} links={boardLinks} back={todoHref} backLabel={`Todo ${p.title}`} acts={acts} decisions={decisions} />;
     if (at.tab === "todo" && !at.ver) {
       const todoLinks: TodoLinks = {
         open: (c) =>
@@ -236,6 +248,7 @@ export const CorrientePage = () => {
                   ? hojaHref("publicar", p.slug)
                   : hrefOf({ view: "tetoca", extra: { decision: c.decisions[0] ?? "" } }),
         hecha: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "iniciativa", key } }),
+        idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }),
         hecho: linkTo({ slug: p.slug, tab: "hecho" }),
       };
       const palancaLinks: PalancaLinks = {
@@ -263,12 +276,23 @@ export const CorrientePage = () => {
               </Btn>
             ) : undefined
           }
-          top={(cosas) => <Cabeza slug={p.slug} f={fraseOf(p, cosas, nowLine(p, decisions, now, { companyPaused: paused, timeZone }), { now, companyPaused: paused, totals })} />}
+          top={(cosas) => {
+            const line = nowLine(p, decisions, now, { companyPaused: paused, timeZone });
+            const reason = p.light_reason && p.light !== "ok" && p.light !== "needs_jorge" ? p.light_reason : null;
+            // When nothing waits on him: the building's nudge (start a teammate, past the guard too) or the light's.
+            const nudge =
+              line.state !== "you" && line.action ? (
+                <MoveButton p={p} a={line.action} d={null} primary={false} acts={acts} links={ahoraLinks(p.slug)} onFijar={(x) => openHoja("meta", x.slug)} />
+              ) : line.state !== "you" && reason?.action && cosas.abiertas > 0 ? (
+                <Link className="cor-btn secondary" to={reason.action.href.startsWith("#") ? ahoraLinks(p.slug).hash(reason.action.href) : reason.action.href} data-light-action>
+                  {reason.action.label}
+                </Link>
+              ) : null;
+            return <Cabeza slug={p.slug} f={fraseOf(p, cosas, line, { now, companyPaused: paused, totals })} nudge={nudge} />;
+          }}
         />
       );
     }
-    if (at.tab === "tablero")
-      return <Board p={p} decisions={decisions} acts={acts} links={boardLinks} now={now} chosenKey={new URLSearchParams(location.search).get("elegida")} onChoose={(k) => navigate(hrefOf({ slug: p.slug, tab: "tablero", extra: k ? { elegida: k } : {} }), { replace: true })} />;
     if (at.tab === "equipo")
       return (
         <Equipo
@@ -333,30 +357,7 @@ export const CorrientePage = () => {
         />
       );
     if (at.ver?.kind === "idea")
-      return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} links={{ back: fromTodo ? todoHref : linkTo({ slug: p.slug, tab: "ideas" }), backLabel: fromTodo ? `Todo ${p.title}` : undefined, doc: (id) => linkTo({ slug: p.slug, ver: { kind: "doc", id } }), track: (key) => linkTo({ slug: p.slug, ver: { kind: "iniciativa", key } }) }} />;
-    if (at.tab === "ideas") return <Ideas p={p} acts={acts} links={{ idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }), pedir: pedirTo(p.slug) }} />;
-    if (at.tab === "diseno") return <Disenos p={p} links={{ idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }) }} />;
-    if (at.tab === "prs")
-      return <Prs p={p} decisions={decisions} open={at.ver?.kind === "pr" ? at.ver.n : null} links={{ pr: (n) => linkTo({ slug: p.slug, ver: { kind: "pr", n } }), paso: (key) => linkTo({ slug: p.slug, ver: { kind: "paso", key } }), entrega: (d) => linkTo({ slug: p.slug, ver: { kind: "entrega", id: d.id } }) }} />;
-    if (at.tab === "docs") return <Docs p={p} open={at.ver?.kind === "doc" ? at.ver.id : null} links={{ doc: (id) => linkTo({ slug: p.slug, ver: { kind: "doc", id } }), iniciativa: (key) => linkTo({ slug: p.slug, ver: { kind: "iniciativa", key } }) }} />;
-    if (at.tab === "pedidos")
-      return (
-        <Pedidos
-          p={p}
-          decisions={decisions}
-          now={now}
-          timeZone={timeZone}
-          open={at.ver?.kind === "pedido" ? at.ver.key : null}
-          guardadas={at.ver?.kind === "guardadas"}
-          acts={acts}
-          links={{
-            open: (key) => linkTo({ slug: p.slug, tab: "pedidos", ver: key ? { kind: "pedido", key } : null }),
-            guardadas: linkTo({ slug: p.slug, ver: { kind: "guardadas" } }),
-            pedir: pedirTo(p.slug),
-            idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }),
-          }}
-        />
-      );
+      return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} links={{ back: todoHref, backLabel: `Todo ${p.title}`, doc: (id) => linkTo({ slug: p.slug, ver: { kind: "doc", id } }), track: (key) => linkTo({ slug: p.slug, ver: { kind: "iniciativa", key } }) }} />;
     if (at.tab === "motores")
       return (
         <Motores
@@ -379,7 +380,6 @@ export const CorrientePage = () => {
           onPedir={(text) => navigate(hrefOf({ view: "pedir", extra: { p: p.slug, texto: text } }))}
         />
       );
-    if (at.tab === "ahora") return <Ahora p={p} decisions={decisions} now={now} timeZone={timeZone} companyPaused={paused} totals={totals} acts={acts} links={ahoraLinks(p.slug)} onFijar={(x) => openHoja("meta", x.slug)} />;
     return <NotYet what="Esto" to={legacyHref(at)} />;
   };
 
@@ -397,34 +397,22 @@ export const CorrientePage = () => {
             </Btn>
           </div>
         );
-      const mine = decisions.filter((d) => d.project === project.slug && pending(d)).length;
+      const r = rumboText(project);
+      const working = project.team.filter((m) => m.state === "running").length;
+      const team = paused || project.paused ? "EN PAUSA" : working ? `${working} ${working === 1 ? "TRABAJANDO" : "TRABAJANDO"}` : `${project.team.length} ${project.team.length === 1 ? "LIBRE" : "LIBRES"}`;
       return (
         <div className="cor-project" data-project={project.slug}>
           <ProjectBar
             slug={project.slug}
             title={project.title}
             tab={at.tab}
-            back={at.tab === "archivo" || at.tab === "hecho" ? { href: linkTo({ slug: project.slug, tab: "todo" }), label: `Todo ${project.title}` } : undefined}
-            meta={at.tab === "todo" ? { text: [rumboText(project).goal ?? "Sin meta todavía", rumboText(project).date ?? (rumboText(project).goal ? "sin fecha" : null)].filter(Boolean).join(" · "), missing: rumboText(project).missing, href: hojaHref("meta", project.slug) } : undefined}
-            end={
-              at.tab === "todo" || at.tab === "archivo" || at.tab === "hecho" ? (
-                <span className="cor-pbar-end">
-                  <Link className="cor-door" to={linkTo({ slug: project.slug, tab: "archivo" })} aria-current={at.tab === "archivo" ? "page" : undefined} data-door="archivo">
-                    Archivo
-                  </Link>
-                  {project.paused ? (
-                    <Link className="cor-btn secondary" to={hojaHref("reanudar", project.slug)} data-control="reanudar">
-                      {`Reanudar ${project.title}`}
-                    </Link>
-                  ) : (
-                    <Link className="cor-btn quiet" to={hojaHref("pausar", project.slug)} data-control="pausar">
-                      Pausar
-                    </Link>
-                  )}
-                </span>
-              ) : undefined
-            }
-            href={(t) => linkTo({ slug: project.slug, tab: t })} counts={{ ahora: { n: mine, amber: true }, pedidos: { n: (project.pedidos ?? []).filter((x) => !x.guardada && x.question).length, amber: true } }} />
+            back={at.tab !== "todo" ? { href: linkTo({ slug: project.slug }), label: `Todo ${project.title}` } : undefined}
+            meta={at.tab === "todo" && !at.ver ? { text: [r.goal ?? "Sin meta todavía", r.date ?? (r.goal ? "sin fecha" : null)].filter(Boolean).join(" · "), missing: r.missing, href: hojaHref("meta", project.slug) } : undefined}
+            team={team}
+            paused={project.paused}
+            pauseHref={hojaHref(project.paused ? "reanudar" : "pausar", project.slug)}
+            href={(t) => linkTo({ slug: project.slug, tab: t })}
+          />
           <div className="cor-pbody">{projectBody(project)}</div>
         </div>
       );
@@ -457,7 +445,7 @@ export const CorrientePage = () => {
         />
       );
     if (at.view === "pedir")
-      return <Pedir projects={company.projects} initial={new URLSearchParams(location.search).get("p")} initialText={new URLSearchParams(location.search).get("texto")} disabled={paused} onAsk={ask} onPictures={refresh} asistenteTo={hrefOf({ view: "asistente" })} pedidosTo={(slug) => linkTo({ slug, tab: "pedidos" })} />;
+      return <Pedir projects={company.projects} initial={new URLSearchParams(location.search).get("p")} initialText={new URLSearchParams(location.search).get("texto")} disabled={paused} onAsk={ask} onPictures={refresh} asistenteTo={hrefOf({ view: "asistente" })} pedidosTo={(slug) => linkTo({ slug })} />;
     if (at.view === "asistente")
       return (
         <Asistente

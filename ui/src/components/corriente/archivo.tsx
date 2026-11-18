@@ -9,7 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { api, type FichaDoc, type OrgProject } from "@/lib/api";
 import { useFicha } from "./listas";
-import { Btn, Label, ReadError } from "./parts";
+import { Btn, ReadError } from "./parts";
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
 const dayShort = (iso: string | null, timeZone?: string) => (iso ? new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone }).format(new Date(iso)).replace(".", "").toUpperCase() : "");
@@ -53,7 +53,12 @@ export const Archivo = ({ p, links, timeZone }: { p: OrgProject; links: ArchivoL
     <div className="cor-archivo" data-archivo={p.slug}>
       <header className="cor-door-head">
         <h2 className="cor-door-h">{`Archivo de ${p.title}`}</h2>
-        <p className="cor-text">Lo que se escribió, se dibujó y se fusionó. Cada papel vive dentro de su cosa; aquí están todos juntos.</p>
+        <p className="cor-text">
+          Lo que se escribió, se dibujó y se fusionó. Cada papel vive dentro de su cosa; aquí están todos juntos.{" "}
+          <a className="cor-inline" href={`/p/${encodeURIComponent(p.slug)}`} data-control="pagina">
+            Abrir la página del proyecto ↗
+          </a>
+        </p>
       </header>
       <div className="cor-archivo-cols">
         <section aria-label="Docs" data-archivo-docs={f.data.counts.docs}>
