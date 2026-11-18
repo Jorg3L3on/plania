@@ -10,7 +10,8 @@ export type View = (typeof VIEWS)[number];
 
 export const WORK_TABS = ["ahora", "pedidos", "tablero", "ideas", "diseno", "prs", "docs"] as const;
 export const SIDE_TABS = ["equipo", "motores", "maquinas"] as const;
-export const TABS = [...WORK_TABS, ...SIDE_TABS] as const;
+// PLA-I64: the project from the inside, one list (built at this preview address until PLA-I64-7 makes it the entry).
+export const TABS = [...WORK_TABS, ...SIDE_TABS, "todo"] as const;
 export type Tab = (typeof TABS)[number];
 export const TAB_NAME: Record<Tab, string> = {
   ahora: "Ahora",
@@ -23,6 +24,7 @@ export const TAB_NAME: Record<Tab, string> = {
   equipo: "Equipo",
   motores: "Motores",
   maquinas: "Máquinas",
+  todo: "Todo",
 };
 
 /** What a tab has open beside or over its list. */
@@ -234,7 +236,7 @@ export function clockLine(now: number, timeZone?: string): string {
 // ---- which parts La corriente draws already (each phase of PLA-I62 adds its own); the rest link to the building.
 export const BUILT: { views: View[]; tabs: Tab[]; vers: Ver["kind"][] } = {
   views: [...VIEWS],
-  tabs: ["ahora", "pedidos", "tablero", "equipo", "ideas", "diseno", "prs", "docs", "motores", "maquinas"],
+  tabs: ["ahora", "pedidos", "tablero", "equipo", "ideas", "diseno", "prs", "docs", "motores", "maquinas", "todo"],
   vers: ["entrega", "pedido", "guardadas", "paso", "iniciativa", "sueltos", "miembro", "sumar", "idea", "lienzo", "pr", "doc", "maq", "tabla"],
 };
 export function isBuilt(at: Partial<At>): boolean {

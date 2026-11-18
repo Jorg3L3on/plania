@@ -28,6 +28,7 @@ import { PedirBar } from "@/components/corriente/pedir-bar";
 import { Piezas } from "@/components/corriente/piezas";
 import { ProjectBar, Strip } from "@/components/corriente/strip";
 import { Stream, type StreamLinks } from "@/components/corriente/stream";
+import { Todo, type TodoLinks } from "@/components/corriente/todo";
 import { ApiError, api, type OrgProject } from "@/lib/api";
 import { WORK_TABS, atOf, hrefOf, isBuilt, legacyHref, linkTo, type AskInput, type At, type Tab } from "@/lib/corriente";
 import { CLOSED, headlineOf, lanesOf, projectOfKey, totalsOf } from "@/lib/corriente-stream";
@@ -190,6 +191,9 @@ export const CorrientePage = () => {
     const tickets = summary?.tasks.filter((t) => t.kind === "ticket");
     const totals = tickets ? { open: p.work.open, done: tickets.filter((t) => CLOSED.has(t.status) && t.status !== "Won't do" && t.status !== "Cancelled").length } : null;
     if (!isBuilt({ slug: p.slug, tab: at.tab, ver: at.ver })) return <NotYet what={at.ver ? "Esto" : `La pestaña ${at.tab}`} to={legacyHref(at)} />;
+    // PLA-I64: opened from the list, a thing's view comes back to the list.
+    const fromTodo = at.tab === "todo";
+    const todoHref = linkTo({ slug: p.slug, tab: "todo" });
     if (at.ver?.kind === "entrega") {
       const verId = at.ver.id;
       const d = decisions.find((x) => x.id === verId);
@@ -202,7 +206,7 @@ export const CorrientePage = () => {
             </Btn>
           </div>
         );
-      return <Entrega p={p} d={d} acts={acts} back={linkTo({ slug: p.slug })} />;
+      return <Entrega p={p} d={d} acts={acts} back={fromTodo ? todoHref : linkTo({ slug: p.slug })} />;
     }
     const boardLinks: BoardLinks = {
       paso: (key) => linkTo({ slug: p.slug, ver: { kind: "paso", key } }),
@@ -211,7 +215,24 @@ export const CorrientePage = () => {
       sueltos: linkTo({ slug: p.slug, tab: "tablero" }),
       doc: (id) => linkTo({ slug: p.slug, ver: { kind: "doc", id } }),
     };
-    if (at.ver?.kind === "paso" || at.ver?.kind === "iniciativa") return <Paso p={p} k={at.ver.key} links={boardLinks} back={linkTo({ slug: p.slug, tab: "tablero" })} />;
+    if (at.ver?.kind === "paso" || at.ver?.kind === "iniciativa") return <Paso p={p} k={at.ver.key} links={fromTodo ? { ...boardLinks, paso: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "paso", key } }), iniciativa: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "iniciativa", key } }) } : boardLinks} back={fromTodo ? todoHref : linkTo({ slug: p.slug, tab: "tablero" })} backLabel={fromTodo ? `Todo ${p.title}` : undefined} />;
+    if (at.tab === "todo" && !at.ver) {
+      const todoLinks: TodoLinks = {
+        open: (c) =>
+          c.tipo === "pedido" || c.tipo === "idea"
+            ? linkTo({ slug: p.slug, tab: "todo", ver: { kind: "idea", key: c.key } })
+            : c.tipo === "iniciativa"
+              ? linkTo({ slug: p.slug, tab: "todo", ver: { kind: "iniciativa", key: c.key } })
+              : c.tipo === "suelto"
+                ? linkTo({ slug: p.slug, tab: "todo", ver: { kind: "paso", key: c.key } })
+                : c.tipo === "publicar"
+                  ? hojaHref("publicar", p.slug)
+                  : hrefOf({ view: "tetoca", extra: { decision: c.decisions[0] ?? "" } }),
+        hecha: (key) => linkTo({ slug: p.slug, tab: "todo", ver: { kind: "iniciativa", key } }),
+        hecho: linkTo({ slug: p.slug, tab: "tablero" }),
+      };
+      return <Todo p={p} decisions={decisions} links={todoLinks} timeZone={timeZone} companyPaused={paused} />;
+    }
     if (at.tab === "tablero")
       return <Board p={p} decisions={decisions} acts={acts} links={boardLinks} now={now} chosenKey={new URLSearchParams(location.search).get("elegida")} onChoose={(k) => navigate(hrefOf({ slug: p.slug, tab: "tablero", extra: k ? { elegida: k } : {} }), { replace: true })} />;
     if (at.tab === "equipo")
@@ -229,7 +250,7 @@ export const CorrientePage = () => {
         />
       );
     if (at.ver?.kind === "idea")
-      return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} links={{ back: linkTo({ slug: p.slug, tab: "ideas" }), doc: (id) => linkTo({ slug: p.slug, ver: { kind: "doc", id } }), track: (key) => linkTo({ slug: p.slug, ver: { kind: "iniciativa", key } }) }} />;
+      return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} links={{ back: fromTodo ? todoHref : linkTo({ slug: p.slug, tab: "ideas" }), backLabel: fromTodo ? `Todo ${p.title}` : undefined, doc: (id) => linkTo({ slug: p.slug, ver: { kind: "doc", id } }), track: (key) => linkTo({ slug: p.slug, ver: { kind: "iniciativa", key } }) }} />;
     if (at.tab === "ideas") return <Ideas p={p} acts={acts} links={{ idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }), pedir: pedirTo(p.slug) }} />;
     if (at.tab === "diseno") return <Disenos p={p} links={{ idea: (key) => linkTo({ slug: p.slug, ver: { kind: "idea", key } }) }} />;
     if (at.tab === "prs")

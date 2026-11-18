@@ -62,7 +62,9 @@ export function stopLine(s: IdeaStop, d: Pick<IdeaDetail, "quiet_since" | "state
 type Ui = { stop: PedidoStop; sub: "entregas" | "recorrido"; frame: number; pins: IdeaNote[]; text: string; asking: boolean; pick: number | null; note: string; answer: string; drop: boolean; more: boolean };
 const initialUi = (d: Pick<IdeaDetail, "stops" | "stop">): Ui => ({ stop: firstStop(d), sub: "entregas", frame: 0, pins: [], text: "", asking: false, pick: null, note: "", answer: "", drop: false, more: false });
 
-type Links = { back: string; doc: (id: string) => string; track: (key: string) => string };
+type Links = {
+  /** PLA-I64: the back link's words (opened from the list: «Todo <proyecto>»). */
+  backLabel?: string; back: string; doc: (id: string) => string; track: (key: string) => string };
 
 const Delivery = ({ d, s, ui, set, links, now, timeZone, onDespertar, busy }: { d: IdeaDetail; s: IdeaStop; ui: Ui; set: (p: Partial<Ui>) => void; links: Links; now: number; timeZone?: string; onDespertar: () => void; busy: boolean }) => {
   const eyebrow = (extra?: string) => (
@@ -431,7 +433,7 @@ export const Idea = ({ p, k, now, timeZone, acts, links }: { p: OrgProject; k: s
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M9.5 3.5 5 8l4.5 4.5" />
           </svg>
-          Ideas
+          {links.backLabel ?? "Ideas"}
         </Link>
         <h2 className="cor-ellipsis" title={d.summary || d.title}>
           {d.summary || d.title}

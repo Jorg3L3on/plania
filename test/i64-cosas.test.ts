@@ -130,7 +130,7 @@ test("I64-1 #1 Filmia paused: seven deliveries in one initiative are yours; the 
   assert.equal(find(c, "FIL-I50").idea_key, "FIL-IDEA9");
   assert.equal(find(c, "FIL-I50").hilo.idea, 5, "born from an idea: the idea stops are behind it");
   assert.equal(find(c, "FIL-35").tipo, "suelto");
-  assert.equal(find(c, "FIL-35").espera, "«Paso FIL-35»: Las pruebas del PR corren. No te necesita.");
+  assert.equal(find(c, "FIL-35").espera, "Las pruebas del PR corren. No te necesita.");
   assert.equal(find(c, "FIL-I42").grupo, "quieto", "a paused project moves nothing, even with a run still marked live");
   assert.equal(c.grupos.find((g: any) => g.grupo === "mueve").cosas.length, 0);
 });

@@ -185,7 +185,13 @@ function ticketThing(
   const count = base.tipo === "iniciativa" ? `${ctx.done} de ${ctx.total}` : null;
   const cap = (word: string) => [count, word].filter(Boolean).join(" · ").toUpperCase();
   const since = (t: ProjectTicket | null) => t?.etapa.since ?? null;
-  const out = (grupo: Cosa["grupo"], espera: string, word: string, palanca: Palanca | null, s: string | null): Cosa => ({ ...base, grupo, hilo, espera, cap: cap(word), palanca, decisions: decisions.map((d) => d.id), since: s });
+  // A loose step is its own only step: its sentence does not repeat its title.
+  const own = (e: string) => {
+    if (base.tipo !== "suelto" || !e.startsWith(quote(base.title))) return e;
+    const rest = e.slice(quote(base.title).length).replace(/^(: | está )/, (m) => (m === ": " ? "" : "Está "));
+    return rest ? rest[0]!.toUpperCase() + rest.slice(1) : e;
+  };
+  const out = (grupo: Cosa["grupo"], espera: string, word: string, palanca: Palanca | null, s: string | null): Cosa => ({ ...base, grupo, hilo, espera: own(espera), cap: cap(word), palanca, decisions: decisions.map((d) => d.id), since: s });
 
   // Te toca: deliveries, another decision on one of its steps, Cerrar.
   const tocaT = ts.filter((t) => tonoOf(t, paused) === "toca");

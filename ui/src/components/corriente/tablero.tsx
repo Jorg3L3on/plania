@@ -289,7 +289,7 @@ const InitiativeCard = ({ p, k, onCerrar, busy, links, here }: { p: OrgProject; 
   );
 };
 
-export const Paso = ({ p, k, links, back }: { p: OrgProject; k: string; links: BoardLinks; back: string }) => {
+export const Paso = ({ p, k, links, back, backLabel = "Tablero" }: { p: OrgProject; k: string; links: BoardLinks; back: string; backLabel?: string }) => {
   const q = useQuery({ queryKey: ["task", p.slug, k], queryFn: () => api.task(p.slug, k) });
   const cerrar = useCerrar();
   const t = q.data;
@@ -304,7 +304,7 @@ export const Paso = ({ p, k, links, back }: { p: OrgProject; k: string; links: B
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M9.5 3.5 5 8l4.5 4.5" />
             </svg>
-            Tablero
+            {backLabel}
           </Link>
           <span className="cor-label violet">{t?.kind === "initiative" ? "Iniciativa" : "Paso"} ·</span>
           <Key>{k}</Key>
