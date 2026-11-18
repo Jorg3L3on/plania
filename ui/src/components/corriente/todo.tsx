@@ -98,6 +98,11 @@ const HechaRow = ({ h, links, timeZone }: { h: Hecha; links: TodoLinks; timeZone
   </li>
 );
 
+// PLA-98: whether the list should take its overflow off the room once more (see the effect in Todo).
+export const MAX_FIT_TRIES = 3;
+export const shouldRefit = (extra: number, tries: number, over: number, room: number | undefined): boolean =>
+  extra > 2 && tries < MAX_FIT_TRIES && (room === undefined || over < room);
+
 export const TodoList = ({
   p,
   cosas,
@@ -126,6 +131,7 @@ export const TodoList = ({
     if (!box || typeof ResizeObserver === "undefined") return;
     const read = () => {
       if (!ref.current) return;
+      tries.current = 0;
       setOver(0);
       const pad = parseFloat(getComputedStyle(box).paddingBottom) || 0;
       setRoom(box.getBoundingClientRect().bottom - pad - ref.current.getBoundingClientRect().top + box.scrollTop - 4);
@@ -140,12 +146,19 @@ export const TodoList = ({
   // PLA-62: rows wrap taller than the estimate on narrow screens; what still overflows after a render is taken off the
   // room once (until the box changes size), so the fold settles on what really fits. Opened groups may scroll.
   const [over, setOver] = useState(0);
+  // PLA-98 (guided test PLA-86): in a short window (a 303 px pane) the list overflows even folded to its least, so this
+  // took the overflow off again on every render until React stopped it («Maximum update depth exceeded») and the whole
+  // floor went blank. It now corrects at most MAX_FIT_TRIES times per box size, and never past the room itself; what
+  // still overflows then scrolls.
+  const tries = useRef(0);
   const shown = foldOf(cosas, open, room === undefined ? undefined : room - over);
   useLayoutEffect(() => {
     const box = ref.current?.closest(".cor-todo-scroll") as HTMLElement | null;
     if (!box || open.size > 0) return;
     const extra = box.scrollHeight - box.clientHeight;
-    if (extra > 2) setOver((o) => o + extra);
+    if (!shouldRefit(extra, tries.current, over, room)) return;
+    tries.current += 1;
+    setOver((o) => o + extra);
   });
   const toggle = (g: Grupo) => setOpen((s) => (s.has(g) ? new Set([...s].filter((x) => x !== g)) : new Set([...s, g])));
   // Empty groups share the line of the group after them (or one line of their own at the end).
