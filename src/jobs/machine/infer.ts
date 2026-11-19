@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Actor, Workspace } from "../../db/schema.js";
 import { liveOwner } from "../../mcp/queries.js";
 import { shq } from "./parse.js";
+import { installLanguage } from "../../language.js";
 
 // Who owns what the machine job sees, worked out from the Plania data (no agent call needed):
 //   process cwd → worktree (or the repo's main checkout) → branch → branches.owner_task_id → ticket → live claim → session
@@ -384,7 +385,10 @@ export function describeStale(details: Record<string, unknown>, now: Date): stri
   if (!reason) return null;
   const since = typeof details.stale_since === "string" ? new Date(details.stale_since) : null;
   if (!since || Number.isNaN(since.getTime())) return reason;
-  return `${reason} ${reason === "sin claim" ? "desde hace" : "hace"} ${spanAgo(now.getTime() - since.getTime())}`;
+  // PLA-I2-10: the stored reason stays as written; the time around it follows the install's language.
+  const span = spanAgo(now.getTime() - since.getTime());
+  if (installLanguage() === "en") return reason === "sin claim" ? `no claim for ${span}` : `${reason} ${span} ago`;
+  return `${reason} ${reason === "sin claim" ? "desde hace" : "hace"} ${span}`;
 }
 
 export function spanAgo(ms: number): string {

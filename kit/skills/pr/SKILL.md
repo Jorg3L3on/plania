@@ -61,10 +61,10 @@ added while the counter still said 0001). Say the migration under «Riesgo de la
 ## Language and title
 
 Match the repo: look at its last merged pull requests (`gh pr list --state merged --limit 5`). When
-there is no pattern, write in plain Spanish. The title is the outcome in a person's terms, with the
+there is no pattern, write in plain words in the owner's language. The title is the outcome in a person's terms, with the
 ticket key: «MIC-12: compartir una lista por enlace».
 
-The `muestra` you pass to `finish` is for the owner and is always plain Spanish: `frase` is one
+The `muestra` you pass to `finish` is for the owner and is always plain words in the owner's language: `frase` is one
 sentence on what changes for the app's users, and `pasos` are three ways to try it.
 
 When a view needs data the app's dev database lacks (an appointment today, a client at a given stage),

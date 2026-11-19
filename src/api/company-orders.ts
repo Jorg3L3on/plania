@@ -6,6 +6,7 @@
 // In review, or a run on it; who names the role), entendida (the PO wrote "Entendí: …" on it), sin_tomar (Ready
 // more than 24 h and no run ever took it; age in hours), else enviada. A Won't do order is cancelada.
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { isUnderstood, stripUnderstood } from "./understood.js";
 import type { Db } from "../db/client.js";
 import { agentRuns, agents, docs, events, projects, taskAliases, tasks, threadMessages, type Actor, type Project, type Task } from "../db/schema.js";
 import { agentOfActor } from "../runner/events.js";
@@ -22,7 +23,6 @@ export const ORDERS_MAX = 5;
 const UNTAKEN_HOURS = 24;
 const HOUR = 3_600_000;
 const DELIVERED = ["Done", "Merged", "Released"];
-const UNDERSTOOD = /^\s*entend[ií]\s*[:：-]\s*/i;
 
 export type OrderState = "enviada" | "entendida" | "en_curso" | "entregada" | "sin_tomar" | "cancelada";
 // PLA-I36-8: the request as one object with four stages: Lo entendí, Trabajando, Pruébalo, Listo.
@@ -58,7 +58,7 @@ export async function understoodOf(db: Db, t: Pick<Task, "id">): Promise<string 
     .limit(20);
   for (const r of rows) {
     const text = String((r.payload as { text?: unknown }).text ?? "");
-    if (UNDERSTOOD.test(text)) return oneLine(text.replace(UNDERSTOOD, ""), 160) || null;
+    if (isUnderstood(text)) return oneLine(stripUnderstood(text), 160) || null;
   }
   return null;
 }

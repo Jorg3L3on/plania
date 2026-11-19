@@ -116,6 +116,6 @@ export async function noteForAgent(db: Db, slug: string, key: string, text: stri
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
   const [t] = await db.select({ id: tasks.id }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.key, key))).limit(1);
   if (!t) return { error: "TASK_NOT_FOUND", status: 404, hint: "Ese ticket no está." };
-  await setTask(db, { project: slug, key, note: `De Compañía: ${text.trim()}` } as never, { ...webCtx, tool: "screen.run_note" });
+  await setTask(db, { project: slug, key, note: `De Compañía: ${text.trim()}`, note_kind: "screen", note_words: text.trim() } as never, { ...webCtx, tool: "screen.run_note" });
   return { noted: true };
 }

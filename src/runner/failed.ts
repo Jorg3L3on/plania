@@ -30,6 +30,7 @@ import { queueWake } from "./events.js";
 import { sessionsOf } from "./run-session.js";
 import { canStart, type RunnerDeps } from "./runner.js";
 import { OWNER_LINE_PREFIX } from "../owner.js";
+import { defineWords, say } from "../words.js";
 
 // Plania itself, as a plain writer: the system flag is for the pollers, whose moves stop at Merged and
 // Released (SYSTEM_MOVES in src/mcp/lifecycle.ts), and Ready → Blocked is an ordinary ticket move.
@@ -41,7 +42,7 @@ export const failureWords = (summary: string): string =>
     .replace(/^fail:\s*/i, "")
     .replace(/,?\s*session [0-9a-z-]+/gi, "")
     .replace(/\(\s*\)/g, "")
-    .trim() || "sin detalle";
+    .trim() || say(FAILED_WORDS).noDetail;
 
 type Held = { task_id: string; key: string; project_id: string; run_id: string; agent_id: string; summary: string } & Record<string, unknown>;
 
@@ -85,7 +86,7 @@ async function retry(db: Db, p: Project, agent: Agent, row: Held): Promise<boole
     if (out.kind !== "queued") return false;
     const u = await free(tx, emit, row, "run failed");
     if (!u) throw new Error(`PLA-16: ${row.key} changed hands inside the retry`);
-    await emit("note", u, { text: `La corrida de ${agent.name} terminó con error (${failureWords(row.summary)}). Plania liberó el ticket y lo reintenta una vez, en la misma sesión.` });
+    await emit("note", u, { text: say(FAILED_WORDS).retry(agent.name, failureWords(row.summary)) });
     return true;
   });
 }
@@ -101,7 +102,7 @@ async function hold(db: Db, p: Project, agent: Agent, row: Held): Promise<boolea
         key: row.key,
         status: "Blocked",
         version: freed.version,
-        note: `${OWNER_LINE_PREFIX} ${agent.name} falló dos veces seguidas en este paso (${failureWords(row.summary)}). Revisa qué lo detiene; cuando marques esto como hecho, lo retoma.`,
+        note: `${OWNER_LINE_PREFIX} ${say(FAILED_WORDS).twice(agent.name, failureWords(row.summary))}`,
       } as never,
       ctx(),
     );
@@ -152,10 +153,25 @@ export function limitOf(status: string, summary: string, stopReason: string | nu
   return null;
 }
 
-const STOPPED_WORDS: Record<string, [string, string]> = {
-  budget: ["se acabó el presupuesto semanal", "se retoma enseguida: ya no hay límite semanal"],
-  switch: ["el proyecto o la compañía se pusieron en pausa", "se retoma al reanudar"],
-};
+// PLA-I2-10: the notes in the install's language; the Spanish is unchanged.
+export const FAILED_WORDS = defineWords({
+  es: {
+    noDetail: "sin detalle",
+    retry: (agent: string, why: string) => `La corrida de ${agent} terminó con error (${why}). Plania liberó el ticket y lo reintenta una vez, en la misma sesión.`,
+    twice: (agent: string, why: string) => `${agent} falló dos veces seguidas en este paso (${why}). Revisa qué lo detiene; cuando marques esto como hecho, lo retoma.`,
+    stopped: { budget: ["se acabó el presupuesto semanal", "se retoma enseguida: ya no hay límite semanal"], switch: ["el proyecto o la compañía se pusieron en pausa", "se retoma al reanudar"] } as Record<string, [string, string]>,
+    resumable: "queda listo para retomarse",
+    stoppedNote: (agent: string, why: string, then: string) => `La corrida de ${agent} se detuvo: ${why}. Plania liberó el ticket; ${then}.`,
+  },
+  en: {
+    noDetail: "no detail",
+    retry: (agent: string, why: string) => `${agent}'s run ended with an error (${why}). Plania freed the ticket and retries it once, in the same session.`,
+    twice: (agent: string, why: string) => `${agent} failed twice in a row on this step (${why}). Check what stops it; when you mark this done, it picks it up again.`,
+    stopped: { budget: ["the weekly budget ran out", "it picks up again right away: there is no weekly limit any more"], switch: ["the project or the company was paused", "it picks up again on resume"] } as Record<string, [string, string]>,
+    resumable: "it is ready to pick up again",
+    stoppedNote: (agent: string, why: string, then: string) => `${agent}'s run stopped: ${why}. Plania freed the ticket; ${then}.`,
+  },
+});
 const REQUEUE_REASON: Record<Limit, string> = { budget: "budget open again", switch: "runs resumed", plan: "plan has room again", restart: "server restarted" };
 
 type Stopped = Held & { stop_reason: string | null };
@@ -173,12 +189,13 @@ export async function sweepStoppedRuns(db: Db): Promise<{ freed: number }> {
     const [agent] = await db.select().from(agents).where(eq(agents.id, row.agent_id)).limit(1);
     if (!p || !agent) continue;
     const limit = limitOf("stopped", row.summary, row.stop_reason);
-    const [why, then] = (limit && STOPPED_WORDS[limit]) ?? [row.stop_reason?.trim() || "sin detalle", "queda listo para retomarse"];
+    const w = say(FAILED_WORDS);
+    const [why, then] = (limit && w.stopped[limit]) ?? [row.stop_reason?.trim() || w.noDetail, w.resumable];
     freed += Number(
       await writeTx(db, p, ctx(), async (tx, emit) => {
         const u = await free(tx, emit, row, "run stopped");
         if (!u) return false;
-        await emit("note", u, { text: `La corrida de ${agent.name} se detuvo: ${why}. Plania liberó el ticket; ${then}.` });
+        await emit("note", u, { text: w.stoppedNote(agent.name, why, then) });
         return true;
       }),
     );

@@ -8,6 +8,9 @@
 // The trail is the idea's own event log, docs and questions: no new table (only F2's images have one).
 // An idea that was promoted (promoted_to set), dropped (Won't do) or done leaves the tube.
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { installLanguage } from "../language.js";
+import { ownerName } from "../owner.js";
+import { placeEn } from "./places.js";
 import type { Db } from "../db/client.js";
 import { agentRuns, docs, events, questions, taskImages, tasks, type Agent, type Task } from "../db/schema.js";
 import { findProject } from "../mcp/queries.js";
@@ -53,7 +56,10 @@ const STAGE_ROLE: Record<string, string> = { idea: "product-owner", research: "r
 export const stopOf = (stage: string | null, understood: boolean): PedidoStop => STAGE_STOP[stage ?? ""] ?? (understood ? "entendido" : "buzon");
 
 // What the PO reads on the idea (its scope). The PO's run prompt says it is an idea, not a ticket (runner.ts).
+// PLA-I2-10: the idea's scope in the install's language (the Spanish is unchanged). The owner's words are also the
+// idea's owner_words field (askedText reads it first).
 export function ideaScope(sentence: string, from = "Compañía"): string {
+  if (installLanguage() === "en") return ideaScopeEn(sentence, from);
   return [
     `Pedido ${ownerEs("de")} desde ${from} (Darle forma): "${sentence}"`,
     "",
@@ -64,6 +70,20 @@ export function ideaScope(sentence: string, from = "Compañía"): string {
     "3. Entrega tus etapas con `deliver_stage`: en idea, problem, who, why_now y decisions; en planning, steps (cada uno con done_when y try_it), risks y size. Plania revisa lo que dicen y escribe el doc; no lo escribas con attach_doc.",
     "4. Mueve la etapa (set_task stage) cuando esté entregada: idea → research → design → planning → ready. Research y Artist despiertan solos en sus etapas.",
     "5. Nunca crees tickets para Taller ni una iniciativa desde esta idea, y no pongas promoted_to: en Lista se queda quieta. Solo " + ownerEs() + " la manda construir con «Constrúyelo» en la pantalla; entonces Plania te despierta con esa orden.",
+  ].join("\n");
+}
+
+function ideaScopeEn(sentence: string, from: string): string {
+  const owner = ownerName("en");
+  return [
+    `Request from ${owner} via ${placeEn(from)} (Shape it): "${sentence}"`,
+    "",
+    `For the PO: this is an idea, not a ticket. ${ownerName("en", { capital: true })} follows it in the tube on their floor and shapes it with you.`,
+    "1. Write a note `Understood: …` on this idea (set_task note) with what you understood, in one line.",
+    `2. What is unclear goes as \`decisions\` in your delivery: a closed question, 2 to 4 options and the one you recommend. Your recommendation applies unless ${owner} changes it on the screen; nothing waits on it. Use \`ask\` only when you cannot recommend any option.`,
+    "3. Deliver your stages with `deliver_stage`: for idea, problem, who, why_now and decisions; for planning, steps (each with done_when and try_it), risks and size. Plania checks what they say and writes the doc; do not write it with attach_doc.",
+    "4. Move the stage (set_task stage) once it is delivered: idea → research → design → planning → ready. Research and Artist wake on their own at their stages.",
+    `5. Never create tickets for Taller or an initiative from this idea, and do not set promoted_to: at Ready it stays put. Only ${owner} sends it to be built with «Build it» on the screen; then Plania wakes you with that order.`,
   ].join("\n");
 }
 
@@ -79,7 +99,7 @@ export async function createPoIdea(db: Db, slug: string, po: Agent, text: string
   const p = await findProject(db, slug);
   const title = firstLine(sentence);
   return writeTx(db, p, { ...webCtx, tool: "company.ask" }, async (tx, emit) => {
-    const out = (await createTaskInTx(tx, emit, p, { project: slug, kind: "idea", title, scope: ideaScope(sentence, from), owner_agent: po.slug }, { ...webCtx, tool: "company.ask" })) as { key: string };
+    const out = (await createTaskInTx(tx, emit, p, { project: slug, kind: "idea", title, scope: ideaScope(sentence, from), owner_agent: po.slug, owner_words: sentence }, { ...webCtx, tool: "company.ask" })) as { key: string };
     // origin is a ticket field on create_task; on screen an idea the owner asked for carries it too (the tube's filter).
     const [t] = await tx.update(tasks).set({ origin: "owner" }).where(and(eq(tasks.projectId, p.id), eq(tasks.key, out.key))).returning({ id: tasks.id, key: tasks.key });
     if (!eventWakesEnabled()) return { key: out.key, title, wake: "off" as const };

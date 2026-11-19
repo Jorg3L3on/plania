@@ -44,7 +44,7 @@ A folder with a `SKILL.md`, in the format Claude reads natively.
   to them.
 
 Skills are written in English. Where the agent writes something the owner reads (a question, a plan,
-a thread line, a `muestra`), the skill says to write it in plain Spanish.
+a thread line, a `muestra`), the skill says to write it in plain words in the owner's language (each run is told which).
 
 Tool names are written bare (`finish`, `propose`). In a run they are Plania's MCP tools,
 `mcp__plania__<name>`.

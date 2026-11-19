@@ -10,6 +10,9 @@
 //   POST /api/company/projects/:slug/next {key}       Cambiar lo siguiente: that Ready ticket goes first.
 //   PUT  /api/company/projects/:slug/options {plan_approval?, preview_url?}
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { ownerName } from "../owner.js";
+import { defineWords, say } from "../words.js";
+import { placeEn } from "./places.js";
 import type { Db } from "../db/client.js";
 import { agentRuns, agents, projects, tasks, type Agent } from "../db/schema.js";
 import { loadReady, pickReady, wakeAgent, type HeartbeatDeps } from "../jobs/heartbeat.js";
@@ -58,6 +61,36 @@ export const firstLine = (text: string) => {
 
 export type OrderKind = "cambio" | "direccion" | "idea";
 const KIND_WORD: Record<OrderKind, string> = { cambio: "un cambio", direccion: "una dirección", idea: "una idea" };
+const KIND_WORD_EN: Record<OrderKind, string> = { cambio: "a change", direccion: "a direction", idea: "an idea" };
+
+// PLA-I2-10: the order's scope in the install's language; the Spanish is unchanged. The owner's words are also the
+// task's owner_words field, so nothing parses this line back (orderText reads the field).
+export const ORDER_WORDS = defineWords({
+  es: {
+    scope: (sentence: string, from: string, kind: OrderKind | null, approval: boolean) =>
+      [
+        `Pedido ${ownerEs("de")} desde ${from}${kind ? ` (${KIND_WORD[kind]})` : ""}: "${sentence}"`,
+        "",
+        "Para el PO: escribe el alcance real y los checks de este ticket antes de empezar, y una nota `Entendí: …` con lo que entendiste en una línea.",
+        approval
+          ? `Este proyecto aprueba planes: no crees tickets para Taller. Propón el plan con \`propose\` (kind plan, order: la clave de este ticket): lo que entendiste, los pasos con lo que significa hecho y el costo. Plania crea los tickets cuando alguien diga "Sí, empiecen".`
+          : "Si es trabajo de PO (docs, plan, ideas), hazlo aquí. Si hace falta código, propón el plan con `propose` (kind plan) o crea tickets Listos para Taller, y cierra este con lo que dejaste.",
+      ].join("\n"),
+    check: "El PO reescribió alcance y checks, y lo hizo o lo partió en tickets para Taller",
+  },
+  en: {
+    scope: (sentence: string, from: string, kind: OrderKind | null, approval: boolean) =>
+      [
+        `Request from ${ownerName("en")} via ${placeEn(from)}${kind ? ` (${KIND_WORD_EN[kind]})` : ""}: "${sentence}"`,
+        "",
+        "For the PO: write this ticket's real scope and checks before you start, and a note `Understood: …` with what you understood, in one line.",
+        approval
+          ? `This project approves plans: do not create tickets for Taller. Propose the plan with \`propose\` (kind plan, order: this ticket's key): what you understood, the steps with what done means, and the cost. Plania creates the tickets when someone says "Yes, go ahead".`
+          : "If it is PO work (docs, plan, ideas), do it here. If it needs code, propose the plan with `propose` (kind plan) or create Ready tickets for Taller, and close this one with what you left.",
+      ].join("\n"),
+    check: "The PO rewrote scope and checks, and did it or split it into tickets for Taller",
+  },
+});
 // PLA-I54-1: mode forma makes an idea for the PO to shape (company-pedidos.ts); ya is the Ready ticket plus the wake.
 export type AskMode = "forma" | "ya" | "pregunta";
 // PLA-I57-1: mode pregunta keeps a question (consulta) and creates no task: key is "" and consulta is its id.
@@ -86,15 +119,9 @@ export async function createPoTicket(
       work_type: "ops",
       priority: "P2",
       owner_agent: po.slug,
-      scope: [
-        `Pedido ${ownerEs("de")} desde ${from}${kind ? ` (${KIND_WORD[kind]})` : ""}: "${sentence}"`,
-        "",
-        "Para el PO: escribe el alcance real y los checks de este ticket antes de empezar, y una nota `Entendí: …` con lo que entendiste en una línea.",
-        approval
-          ? `Este proyecto aprueba planes: no crees tickets para Taller. Propón el plan con \`propose\` (kind plan, order: la clave de este ticket): lo que entendiste, los pasos con lo que significa hecho y el costo. Plania crea los tickets cuando alguien diga "Sí, empiecen".`
-          : "Si es trabajo de PO (docs, plan, ideas), hazlo aquí. Si hace falta código, propón el plan con `propose` (kind plan) o crea tickets Listos para Taller, y cierra este con lo que dejaste.",
-      ].join("\n"),
-      checks: ["El PO reescribió alcance y checks, y lo hizo o lo partió en tickets para Taller"],
+      owner_words: sentence,
+      scope: say(ORDER_WORDS).scope(sentence, from, kind, approval),
+      checks: [say(ORDER_WORDS).check],
     },
     { actor: WEB_ACTOR, human: true, tool: "company.ask" },
   )) as { key: string };

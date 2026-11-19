@@ -17,6 +17,69 @@ import { liveOwner, nextTask } from "./queries.js";
 import type { Q } from "./tx.js";
 import { QUIET_MIN } from "./watch.js";
 import { areasOverlap } from "./writes.js";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the reasons the screen shows, in the install's language; the Spanish is unchanged.
+export const READY_WORDS = defineWords({
+  es: {
+    ownerAbsent: (k: string) => `${k}: el dueño ya no está en la máquina.`,
+    dirty: (k: string) => `${k}: el worktree tiene cambios sin guardar.`,
+    dirtyUnknown: (k: string) => `${k}: no se sabe si el worktree está limpio.`,
+    resume: (k: string) => `${k}: se puede retomar.`,
+    reviewing: (k: string) => `${k}: en revisión con los checks en verde.`,
+    next: (k: string) => `Siguiente: ${k}.`,
+    noted: (k: string) => `${k}: hay un siguiente paso.`,
+    resumeAny: "Se puede retomar.",
+    noContext: "No hay contexto reciente para retomar.",
+    blocker: (k: string) => `${k}: tiene un blocker sin cumplir.`,
+    blocked: (k: string) => `${k}: está bloqueado.`,
+    ciFailed: (k: string) => `${k}: el PR falló los checks.`,
+    prPending: (k: string) => `${k}: un check del PR sigue pendiente.`,
+    prUnreadable: (k: string) => `${k}: no se puede leer el estado del PR.`,
+    deployAndBehind: (k: string) => `${k}: el deploy falló y el entorno va detrás de la rama.`,
+    deployFailed: (k: string) => `${k}: el deploy falló.`,
+    envBehind: (k: string) => `${k}: el entorno va detrás de la rama de integración.`,
+    envUnknown: (k: string) => `${k}: no se sabe si el entorno está al día.`,
+    overlap: (a: string, b: string) => `${a} y ${b} trabajan en las mismas áreas.`,
+    decision: (k: string) => `${k}: espera una decisión humana.`,
+    decisionElsewhere: (k: string) => `${k}: hay una decisión pendiente en otro ticket.`,
+    decisionInProject: "Hay una decisión pendiente en otro lugar del proyecto.",
+    leaseExpired: (k: string) => `${k}: la reserva de trabajo ya venció.`,
+    quiet: (k: string) => `${k}: el claim lleva callado.`,
+    headlineStale: "La nota del proyecto está vieja.",
+    noteStale: (k: string) => `${k}: la nota de estado está vieja.`,
+    noNext: "Hay movimiento reciente y ningún paso claro.",
+  },
+  en: {
+    ownerAbsent: (k: string) => `${k}: whoever holds it is no longer on the machine.`,
+    dirty: (k: string) => `${k}: the worktree has unsaved changes.`,
+    dirtyUnknown: (k: string) => `${k}: it is not known whether the worktree is clean.`,
+    resume: (k: string) => `${k}: can be picked up again.`,
+    reviewing: (k: string) => `${k}: in review with the checks green.`,
+    next: (k: string) => `Next: ${k}.`,
+    noted: (k: string) => `${k}: there is a next step.`,
+    resumeAny: "Can be picked up again.",
+    noContext: "No recent context to pick up.",
+    blocker: (k: string) => `${k}: has a blocker not yet met.`,
+    blocked: (k: string) => `${k}: is blocked.`,
+    ciFailed: (k: string) => `${k}: the PR failed its checks.`,
+    prPending: (k: string) => `${k}: a check on the PR is still pending.`,
+    prUnreadable: (k: string) => `${k}: the PR's state cannot be read.`,
+    deployAndBehind: (k: string) => `${k}: the deploy failed and the environment is behind the branch.`,
+    deployFailed: (k: string) => `${k}: the deploy failed.`,
+    envBehind: (k: string) => `${k}: the environment is behind the integration branch.`,
+    envUnknown: (k: string) => `${k}: it is not known whether the environment is up to date.`,
+    overlap: (a: string, b: string) => `${a} and ${b} work in the same areas.`,
+    decision: (k: string) => `${k}: waits on a human decision.`,
+    decisionElsewhere: (k: string) => `${k}: a decision is pending on another ticket.`,
+    decisionInProject: "A decision is pending elsewhere in the project.",
+    leaseExpired: (k: string) => `${k}: the work reservation has run out.`,
+    quiet: (k: string) => `${k}: the claim has gone quiet.`,
+    headlineStale: "The project's note is old.",
+    noteStale: (k: string) => `${k}: the state note is old.`,
+    noNext: "There is recent movement and no clear next step.",
+  },
+});
 
 // PLA-I17-1: whether it is safe to resume a project (Retomar), from rows the digest already reads.
 // Pure `readinessOf` decides; `loadReadiness` gathers one project's input. Read-only: no writes,
@@ -160,16 +223,17 @@ function quiet(t: ReadinessTicket, now: Date): boolean {
 
 /** Footprint of a claim: missing, old or gone is the owner absent; dirty is read only on a fresh worktree. */
 function footprintReasons(t: ReadinessTicket, now: Date): ReadinessReason[] {
-  const gone = reason("OWNER_ABSENT", "caution", t.key, `${t.key}: el dueño ya no está en la máquina.`);
+  const w = say(READY_WORDS);
+  const gone = reason("OWNER_ABSENT", "caution", t.key, w.ownerAbsent(t.key));
   const rows = t.footprint ?? [];
   const here = rows.filter((row) => present(row) && fresh(row, now));
   if (!here.length) return [gone];
   const trees = here.filter((row) => row.kind === "worktree");
   if (trees.some((row) => row.dirty === true)) {
-    return [reason("WORKTREE_DIRTY", "caution", t.key, `${t.key}: el worktree tiene cambios sin guardar.`)];
+    return [reason("WORKTREE_DIRTY", "caution", t.key, w.dirty(t.key))];
   }
   if (!trees.length || trees.some((row) => row.dirty !== false)) {
-    return [reason("DIRTY_UNKNOWN", "caution", t.key, `${t.key}: no se sabe si el worktree está limpio.`)];
+    return [reason("DIRTY_UNKNOWN", "caution", t.key, w.dirtyUnknown(t.key))];
   }
   return [];
 }
@@ -184,14 +248,15 @@ function sortReasons(list: ReadinessReason[]): ReadinessReason[] {
 }
 
 function readyLine(live: ReadinessTicket[], review: ReadinessTicket[], input: ReadinessInput): string {
+  const w = say(READY_WORDS);
   const claim = [...live].sort(byKey)[0];
-  if (claim) return `${claim.key}: se puede retomar.`;
+  if (claim) return w.resume(claim.key);
   const reviewing = [...review].sort(byKey)[0];
-  if (reviewing) return `${reviewing.key}: en revisión con los checks en verde.`;
-  if (input.nextClaimableKey) return `Siguiente: ${input.nextClaimableKey}.`;
+  if (reviewing) return w.reviewing(reviewing.key);
+  if (input.nextClaimableKey) return w.next(input.nextClaimableKey);
   const noted = input.initiatives.find((i) => i.nextAction.trim());
-  if (noted) return `${noted.key}: hay un siguiente paso.`;
-  return "Se puede retomar.";
+  if (noted) return w.noted(noted.key);
+  return w.resumeAny;
 }
 
 /**
@@ -200,6 +265,7 @@ function readyLine(live: ReadinessTicket[], review: ReadinessTicket[], input: Re
  * (missing commit or integration head) is caution, never ready.
  */
 export function readinessOf(input: ReadinessInput): Readiness {
+  const w = say(READY_WORDS);
   const now = input.now ?? new Date();
   const tickets = input.tickets.filter((t) => !CLOSED.includes(t.status));
   const live = tickets.filter((t) => t.leaseUntil !== null && t.leaseUntil > now);
@@ -210,7 +276,7 @@ export function readinessOf(input: ReadinessInput): Readiness {
   const hasTarget = live.length > 0 || expired.length > 0 || review.length > 0 || nextAction || !!input.nextClaimableKey;
 
   if (!hasTarget && !recent) {
-    const only = reason("NO_CONTEXT", "no_context", null, "No hay contexto reciente para retomar.");
+    const only = reason("NO_CONTEXT", "no_context", null, w.noContext);
     return { state: "no_context", reasons: [only], line: only.text };
   }
 
@@ -221,33 +287,33 @@ export function readinessOf(input: ReadinessInput): Readiness {
 
   for (const t of [...focus].sort(byKey)) {
     if (t.status === "Blocked" || t.unsatisfiedBlocker) {
-      const text = t.unsatisfiedBlocker ? `${t.key}: tiene un blocker sin cumplir.` : `${t.key}: está bloqueado.`;
+      const text = t.unsatisfiedBlocker ? w.blocker(t.key) : w.blocked(t.key);
       blocked.push(reason("BLOCKER_OPEN", "blocked", t.key, text));
     }
   }
 
   const prTargets = [...new Map([...focus, ...review].map((t) => [t.key, t])).values()].sort(byKey);
   for (const t of prTargets) {
-    if (t.pr?.ci === "failure") blocked.push(reason("CI_FAILURE", "blocked", t.key, `${t.key}: el PR falló los checks.`));
-    else if (t.pr?.ci === "pending") caution.push(reason("PR_PENDING", "caution", t.key, `${t.key}: un check del PR sigue pendiente.`));
+    if (t.pr?.ci === "failure") blocked.push(reason("CI_FAILURE", "blocked", t.key, w.ciFailed(t.key)));
+    else if (t.pr?.ci === "pending") caution.push(reason("PR_PENDING", "caution", t.key, w.prPending(t.key)));
     else if (t.pr?.ci === "unknown" || (t.status === "In review" && !t.pr)) {
-      caution.push(reason("PR_UNREADABLE", "caution", t.key, `${t.key}: no se puede leer el estado del PR.`));
+      caution.push(reason("PR_UNREADABLE", "caution", t.key, w.prUnreadable(t.key)));
     }
   }
 
   if (review.length && (input.deployFailed || input.envBehind)) {
     const text = (key: string) =>
       input.deployFailed && input.envBehind
-        ? `${key}: el deploy falló y el entorno va detrás de la rama.`
+        ? w.deployAndBehind(key)
         : input.deployFailed
-          ? `${key}: el deploy falló.`
-          : `${key}: el entorno va detrás de la rama de integración.`;
+          ? w.deployFailed(key)
+          : w.envBehind(key);
     for (const t of [...review].sort(byKey)) blocked.push(reason("DEPLOY_BLOCKED", "blocked", t.key, text(t.key)));
   }
 
   if (review.length && input.envUnknown) {
     for (const t of [...review].sort(byKey)) {
-      caution.push(reason("ENV_UNKNOWN", "caution", t.key, `${t.key}: no se sabe si el entorno está al día.`));
+      caution.push(reason("ENV_UNKNOWN", "caution", t.key, w.envUnknown(t.key)));
     }
   }
 
@@ -259,7 +325,7 @@ export function readinessOf(input: ReadinessInput): Readiness {
       const b = claimed[j]!;
       const hit = a.areas.some((area) => b.areas.some((other) => areasOverlap(area, other)));
       if (!hit) continue;
-      blocked.push(reason("AREAS_OVERLAP", "blocked", a.key, `${a.key} y ${b.key} trabajan en las mismas áreas.`));
+      blocked.push(reason("AREAS_OVERLAP", "blocked", a.key, w.overlap(a.key, b.key)));
       overlapped = true;
       break;
     }
@@ -271,29 +337,29 @@ export function readinessOf(input: ReadinessInput): Readiness {
     if (seenDecisions.has(id)) continue;
     seenDecisions.add(id);
     if (d.task_key && focusKeys.has(d.task_key)) {
-      blocked.push(reason("DECISION_PENDING", "blocked", d.task_key, `${d.task_key}: espera una decisión humana.`));
+      blocked.push(reason("DECISION_PENDING", "blocked", d.task_key, w.decision(d.task_key)));
     } else if (d.task_key) {
-      caution.push(reason("DECISION_ELSEWHERE", "caution", d.task_key, `${d.task_key}: hay una decisión pendiente en otro ticket.`));
+      caution.push(reason("DECISION_ELSEWHERE", "caution", d.task_key, w.decisionElsewhere(d.task_key)));
     } else {
-      caution.push(reason("DECISION_ELSEWHERE", "caution", null, "Hay una decisión pendiente en otro lugar del proyecto."));
+      caution.push(reason("DECISION_ELSEWHERE", "caution", null, w.decisionInProject));
     }
   }
 
   for (const t of [...expired].sort(byKey)) {
-    caution.push(reason("LEASE_EXPIRED", "caution", t.key, `${t.key}: la reserva de trabajo ya venció.`));
+    caution.push(reason("LEASE_EXPIRED", "caution", t.key, w.leaseExpired(t.key)));
   }
   for (const t of [...live, ...expired].sort(byKey)) caution.push(...footprintReasons(t, now));
   for (const t of [...live].sort(byKey)) {
-    if (quiet(t, now)) caution.push(reason("CLAIM_QUIET", "caution", t.key, `${t.key}: el claim lleva callado.`));
+    if (quiet(t, now)) caution.push(reason("CLAIM_QUIET", "caution", t.key, w.quiet(t.key)));
   }
 
-  if (input.headlineStale) caution.push(reason("NOTE_STALE", "caution", null, "La nota del proyecto está vieja."));
+  if (input.headlineStale) caution.push(reason("NOTE_STALE", "caution", null, w.headlineStale));
   for (const i of input.initiatives.filter((row) => row.stateNoteStale).sort(byKey)) {
-    caution.push(reason("NOTE_STALE", "caution", i.key, `${i.key}: la nota de estado está vieja.`));
+    caution.push(reason("NOTE_STALE", "caution", i.key, w.noteStale(i.key)));
   }
 
   if (!hasTarget && recent) {
-    caution.push(reason("NO_NEXT", "caution", null, "Hay movimiento reciente y ningún paso claro."));
+    caution.push(reason("NO_NEXT", "caution", null, w.noNext));
   }
 
   const reasons = sortReasons([...blocked, ...caution]);

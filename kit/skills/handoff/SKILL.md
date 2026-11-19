@@ -59,7 +59,7 @@ compartir».
 ## Who reads it
 
 The note is for an agent: write it in the language of the ticket, with exact identifiers. The line
-for the owner (`thread_post`) is plain Spanish, says what was done and what is needed from him, and
+for the owner (`thread_post`) is plain words in the owner's language, says what was done and what is needed from him, and
 carries links instead of keys in the sentence.
 
 ## Done when

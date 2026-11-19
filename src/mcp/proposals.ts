@@ -48,7 +48,10 @@ export const PLAN_MAX_STEPS = 4;
 export const PLAN_MAX_QUESTIONS = 3;
 export const CHECKLIST_SIZE = 3;
 // «Planea «<title>»: …» is how the floor's Que PO lo planee words an order (company-move.ts PLAN_LEG).
-export const legTitleOf = (text: string) => /Planea «([^»]+)»/.exec(text)?.[1]?.trim() ?? null;
+// PLA-I2-10: «Plan «<title>»» in English. A marker word and the title in «», read in both languages whatever the
+// install's (test/i2-10-server.test.ts lists it).
+export const LEG_MARK = /(?:Planea|Plan) «([^»]+)»/;
+export const legTitleOf = (text: string) => LEG_MARK.exec(text)?.[1]?.trim() ?? null;
 // A leg plan carries the questions and the check list; an order's plan (PLA-I36-8) does not.
 export const isLegPlan = (p: Pick<ProposalData, "kind" | "leg">) => p.kind === "plan" && !!p.leg;
 // The owner's edited list, as stored on each step.

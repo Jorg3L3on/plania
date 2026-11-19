@@ -19,6 +19,7 @@
 // an initiative no idea points at answers with empty stops and its `built`.
 // Nothing waits on an answer: without one the idea keeps going.
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { UNDERSTOOD_MARK, isUnderstood } from "./understood.js";
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { z } from "zod";
@@ -219,13 +220,13 @@ const oneLine = (s: string | null | undefined, n = 90) => {
 export function gistOf(d: Pick<IdeaDetail, "text" | "understood" | "understood_text" | "research" | "frames" | "plan_steps" | "ficha" | "stage" | "promoted_to" | "stops">): Record<PedidoStop, string | null> {
   const has = (s: PedidoStop) => d.stops.find((x) => x.stop === s)?.delivered ?? false;
   const rec = d.research.recommendation;
-  const n = rec ? Number(/opci[oó]n\s*(\d+)/i.exec(rec)?.[1] ?? NaN) : NaN;
+  const n = rec ? Number(/(?:opci[oó]n|option)\s*(\d+)/i.exec(rec)?.[1] ?? NaN) : NaN;
   const recOption = d.research.options.find((o) => o.n === n) ?? (rec ? null : (d.research.options[0] ?? null));
   const nf = d.frames.length;
   const size = oneLine(d.ficha.tamano, 40);
   return {
     buzon: oneLine(d.text, 80),
-    entendido: has("entendido") ? oneLine((d.understood_text ?? d.understood)?.replace(/^\s*entend[ií]\s*[:：-]\s*/i, "")) : null,
+    entendido: has("entendido") ? oneLine((d.understood_text ?? d.understood)?.replace(UNDERSTOOD_MARK, "")) : null,
     investigacion: has("investigacion") ? (recOption ? `Recomienda: ${recOption.title}` : oneLine(rec)) : null,
     diseno: has("diseno") && nf ? `${nf} ${nf === 1 ? "marco" : "marcos"} de Artist` : null,
     plan: has("plan") && d.plan_steps.length ? `${d.plan_steps.length} ${d.plan_steps.length === 1 ? "paso" : "pasos"}${size ? ` · ${size.replace(/\.$/, "").toLowerCase()}` : ""}` : null,
@@ -275,7 +276,7 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
   const stageData = deliveredOf(evs);
   const frames = await listFrames(db, slug, t.id, t.key);
   const framesAt = evs.findLast((e) => e.type === "frames.attached")?.at ?? null;
-  const understood = evs.find((e) => e.type === "note" && /^\s*entend[ií]\s*[:：-]/i.test(String((e.payload as { text?: string }).text ?? "")));
+  const understood = evs.find((e) => e.type === "note" && isUnderstood(String((e.payload as { text?: string }).text ?? "")));
   const cache = new Map<string, string>();
   const here = PEDIDO_STOPS.indexOf(base.stop);
   const stops: IdeaStop[] = [];
@@ -337,7 +338,7 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
   const out: Omit<IdeaDetail, "gist"> & { gist?: IdeaDetail["gist"] } = {
     ...base,
     summary: t.summary,
-    text: askedText(t.scope, t.title),
+    text: askedText(t.scope, t.title, t.ownerWords),
     status: t.status,
     stage: t.stage,
     promoted_to: t.promotedTo,
@@ -368,8 +369,8 @@ export async function ideaDetail(db: Db, slug: string, key: string, opts: { lite
     kind: init ? "initiative" : "idea",
     short: shortOf(t.summary, t.title),
     understood_text: ((): string | null => {
-      const last = evs.findLast((e) => e.type === "note" && /^\s*entend[ií]\s*[:：-]/i.test(String((e.payload as { text?: string }).text ?? "")));
-      const text = last ? String((last.payload as { text?: string }).text ?? "").replace(/^\s*entend[ií]\s*[:：-]\s*/i, "").trim() : "";
+      const last = evs.findLast((e) => e.type === "note" && isUnderstood(String((e.payload as { text?: string }).text ?? "")));
+      const text = last ? String((last.payload as { text?: string }).text ?? "").replace(UNDERSTOOD_MARK, "").trim() : "";
       return text || null;
     })(),
     built: promoted?.kind === "initiative" ? await builtOf(db, slug, promoted) : null,
@@ -489,7 +490,7 @@ export async function ideaRespuesta(db: Db, slug: string, key: string, input: An
   const text = answerNote(stop, { ...input, notes }, detail.frames);
   return writeTx(db, p, { ...webCtx, tool: "company.idea" }, async (tx, emit) => {
     await emit(RESPUESTA, ref, payload);
-    await emit("note", ref, { text });
+    await emit("note", ref, { text, kind: "answer" });
     return { key, ...(await sendBack(db, tx, emit, p, t, STOP_STAGE[stop], `${ownerEs(undefined, { capital: true })} respondió en ${STOP_WORD[stop]}: rehaz la etapa con su nota`, RESPUESTA)) };
   });
 }
@@ -564,7 +565,7 @@ export async function ideaDecision(db: Db, slug: string, key: string, input: Dec
     if (doc) await tx.update(docs).set({ markdown: rewriteDecisionLine(doc.markdown, input.decision, s, pick), version: sql`${docs.version} + 1` }).where(eq(docs.id, doc.id));
     const at = t.stage ?? "idea";
     const forward = changed && at !== "idea" && STAGE_ORDER.includes(at) ? at : undefined;
-    await emit("note", ref, { text: decisionNote(s.question, label, was, changed, words, forward) });
+    await emit("note", ref, { text: decisionNote(s.question, label, was, changed, words, forward), kind: "answer" });
     const decision = decisionView({ ...s, state: "decided", chosen: pick, at: new Date() }, input.decision - 1);
     if (!changed) return { key, stage: t.stage, changed, decision, wake: "none" as const };
     if (forward) return { key, changed, decision, ...(await sendBack(db, tx, emit, p, t, forward, `${ownerEs(undefined, { capital: true })} cambió una decisión del PO: llévala a tu etapa (${STAGE_WORD[forward]}) según su nota`, DECISION)) };

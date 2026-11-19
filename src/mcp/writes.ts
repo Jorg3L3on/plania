@@ -123,8 +123,17 @@ function checkOwner(t: Task, ctx: Ctx): void {
   }
 }
 
-async function addNote(emit: Emit, t: Task, note: string | undefined): Promise<void> {
-  if (note?.trim()) await emit("note", t, { text: note });
+// PLA-I2-10: the fields only the screen puts on a note (set_task from an agent never carries them).
+function screenNoteFields(input: { owner_changes?: string; note_kind?: string; note_words?: string }): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (input.owner_changes?.trim()) out.owner_changes = input.owner_changes.trim();
+  if (input.note_kind?.trim()) out.kind = input.note_kind.trim();
+  if (input.note_words !== undefined) out.words = input.note_words.trim();
+  return out;
+}
+
+async function addNote(emit: Emit, t: Task, note: string | undefined, extra: Record<string, unknown> = {}): Promise<void> {
+  if (note?.trim()) await emit("note", t, { text: note, ...extra });
 }
 
 // A field that belongs to the other kind (priority on an initiative, next_action on a ticket...).
@@ -182,6 +191,8 @@ export type CreateInput = {
   due_on?: string | null;
   owner_agent?: string | null;
   goal_id?: string | null;
+  /** PLA-I2-10: the screen only (ctx.human): the words the owner typed for an order, kept as a field (tasks.owner_words). */
+  owner_words?: string;
 };
 
 // 2.8: a due date is a calendar date, YYYY-MM-DD; null clears it.
@@ -276,6 +287,7 @@ export async function createTaskInTx(tx: Q, emit: Emit, p: Project, input: Creat
     status,
     areas: normalizeAreas(input.areas) ?? [],
     ownerAgent: input.owner_agent ? await requireAgentId(tx, input.owner_agent) : null,
+    ownerWords: ctx.human && input.owner_words?.trim() ? input.owner_words.trim() : null,
   };
   const goalId = kind === "initiative" && input.goal_id !== undefined ? await resolveInitiativeGoal(tx, p.id, input.goal_id) : null;
   const values: TaskInsert =
@@ -436,6 +448,13 @@ export type SetTaskInput = {
   state_note?: string;
   due_on?: string | null;
   no_pr_reason?: string;
+  /** PLA-I2-10: the screen only (ctx.human): the owner's request for changes, kept as a field on the note event
+   * (payload.owner_changes) so the runner finds it without reading the note's words. */
+  owner_changes?: string;
+  /** PLA-I2-10: the screen only (ctx.human): what kind of note the screen writes (screen, dropped, answer, build) and
+   * the owner's own words in it, as fields on the note event, so the trail never reads the note's sentence back. */
+  note_kind?: string;
+  note_words?: string;
   stage?: string;
   promoted_to?: string | null;
   owner_agent?: string | null;
@@ -489,6 +508,10 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, raw: SetTaskInp
     delegated_by_owner: _evidence,
     withdraw_blocker: _w,
     no_pr_reason: _r,
+    // PLA-I2-10: fields on the note, not on the task: a note alone stays an append.
+    owner_changes: _oc,
+    note_kind: _nk,
+    note_words: _nw,
     ...fields
   } = input;
   const legacyHint = typeof legacyApproval === "string" && legacyApproval.trim() ? LEGACY_APPROVAL_HINT : undefined;
@@ -709,7 +732,7 @@ export async function setTaskInTx(tx: Q, emit: Emit, p: Project, raw: SetTaskInp
   }
   if (input.status !== "Blocked" && input.note?.trim()) {
     changedNames.push("note");
-    await addNote(emit, u, input.note);
+    await addNote(emit, u, input.note, ctx.human ? screenNoteFields(input) : {});
   }
   // Blocked with blockers that already hold goes straight back to Ready.
   if (parsed.length || input.withdraw_blocker) changedNames.push("blocked_by");

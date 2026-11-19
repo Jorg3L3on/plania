@@ -56,7 +56,7 @@ run prompt names, then call `attach_frames` once with all of them, in the order 
 | `hace` | What the frame lets the person do |
 | `porque` | Why it is this way: the reason, tied to the job, the research or a decision |
 
-`hace` and `porque` are plain Spanish, up to 400 characters each. «Moderno», «limpio» and «intuitivo»
+`hace` and `porque` are plain words in the owner's language, up to 400 characters each. «Moderno», «limpio» and «intuitivo»
 are not reasons. A frame with nothing to say in `porque` probably should not exist.
 
 Keep the key frames of the discarded directions in the set. The owner should see what was considered
@@ -66,7 +66,7 @@ A path outside the canvases folder is `FRAME_INVALID`.
 
 ## The Design doc
 
-Plain Spanish under the English headings.
+Plain words in the owner's language under the English headings.
 
 - `Approach`: the chosen direction and why; then each discarded direction in one line with why not.
 - `Scope`: what the design covers, as things a person can do.

@@ -4,6 +4,13 @@
 // The type comes from the file's first bytes, never its name. 5 MB each, 6 per request. Errors are in Spanish:
 // the screen shows them as they come.
 import { createHash, randomUUID } from "node:crypto";
+import { defineWords, say } from "../words.js";
+
+// PLA-I2-10: the refusals the owner reads, in the install's language (Spanish unchanged).
+export const IMAGE_WORDS = defineWords({
+  es: { empty: "No llegó ninguna imagen.", type: "Solo se aceptan imágenes PNG, JPEG o WebP.", big: "La imagen pesa más de 5 MB.", many: (n: number) => `Un pedido admite hasta ${n} imágenes.`, task: "No encontré ese pedido.", image: "No encontré esa imagen." },
+  en: { empty: "No image arrived.", type: "Only PNG, JPEG or WebP images are accepted.", big: "The image is larger than 5 MB.", many: (n: number) => `A request takes up to ${n} images.`, task: "I could not find that request.", image: "I could not find that image." },
+});
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { and, asc, eq, sql } from "drizzle-orm";
@@ -27,12 +34,12 @@ export class ImageError extends Error {
 }
 
 export const imageErrors = {
-  empty: () => new ImageError("IMAGEN_VACIA", 400, "No llegó ninguna imagen."),
-  type: () => new ImageError("TIPO_NO_ADMITIDO", 415, "Solo se aceptan imágenes PNG, JPEG o WebP."),
-  big: () => new ImageError("IMAGEN_GRANDE", 413, "La imagen pesa más de 5 MB."),
-  many: () => new ImageError("DEMASIADAS_IMAGENES", 409, `Un pedido admite hasta ${MAX_IMAGES_PER_TASK} imágenes.`),
-  task: () => new ImageError("PEDIDO_NO_ENCONTRADO", 404, "No encontré ese pedido."),
-  image: () => new ImageError("IMAGEN_NO_ENCONTRADA", 404, "No encontré esa imagen."),
+  empty: () => new ImageError("IMAGEN_VACIA", 400, say(IMAGE_WORDS).empty),
+  type: () => new ImageError("TIPO_NO_ADMITIDO", 415, say(IMAGE_WORDS).type),
+  big: () => new ImageError("IMAGEN_GRANDE", 413, say(IMAGE_WORDS).big),
+  many: () => new ImageError("DEMASIADAS_IMAGENES", 409, say(IMAGE_WORDS).many(MAX_IMAGES_PER_TASK)),
+  task: () => new ImageError("PEDIDO_NO_ENCONTRADO", 404, say(IMAGE_WORDS).task),
+  image: () => new ImageError("IMAGEN_NO_ENCONTRADA", 404, say(IMAGE_WORDS).image),
 };
 
 // ---- What the bytes are
