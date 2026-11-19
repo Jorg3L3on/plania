@@ -12,6 +12,7 @@ import { ToolError } from "../mcp/errors.js";
 import { launchChrome, type BrowserPage, type LaunchBrowser } from "./chrome.js";
 import { baseUrl, VIEWPORT_NAMES, VIEWPORTS, type CapturePage, type CaptureSettings, type ViewportName } from "./settings.js";
 import { prune, recordStill } from "./store.js";
+import { runEnv } from "../runner/run-env.js";
 
 export type Exec = (
   command: string,
@@ -21,11 +22,11 @@ export type Exec = (
 // What a command run in the app's checkout inherits: the shell basics only. Plania's own environment
 // (DATABASE_URL, tokens, secrets) never reaches the app: its tools read their own .env.local, and Node's
 // --env-file does not override a variable that is already set.
-const CHECKOUT_ENV = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "TMPDIR", "TERM", "NVM_DIR", "NVM_BIN", "PNPM_HOME", "COREPACK_HOME"];
-export function checkoutEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const k of CHECKOUT_ENV) if (process.env[k] !== undefined) env[k] = process.env[k];
-  env.PATH = toolPath(process.env.PATH, process.execPath);
+// PLA-I2-13: the same allow-list as a run (src/runner/run-env.ts), without Claude's variables: an app needs no
+// Claude sign-in. extra (PORT, a test copy's own database URL) goes in as given.
+export function checkoutEnv(extra: Record<string, string> = {}, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env = runEnv(base, { claude: false });
+  env.PATH = toolPath(base.PATH, process.execPath);
   return { ...env, ...extra };
 }
 

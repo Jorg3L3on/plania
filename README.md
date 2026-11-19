@@ -13,31 +13,46 @@ sessions at once: leased claims, versioned writes, an event log with who did wha
 
 ## Setup
 
+Needs Node 22 or newer and Postgres 14 or newer, installed and running. Supported on macOS and Linux; on Windows,
+inside WSL.
+
 ```bash
 corepack enable pnpm
 pnpm install
-cp .env.example .env
+pnpm plania:install
 ```
 
-Fill `.env`:
+`pnpm plania:install` does the rest, the same from bash or PowerShell, and is safe to run again:
+
+1. Checks the machine. Anything to fix stops the install before anything is created.
+2. Creates the database `plania` on `localhost:5432`. `--database <name>` picks another name, `--url
+   postgres://user@host:port/<name>` another server or role. A database that already exists is used only when this
+   command made it (it carries the migration record) or when its name is given on the command line; one with tables
+   and no record is refused.
+3. Writes `.env` from `.env.example`: `DATABASE_URL`, and a generated `SESSION_SECRET` and `MCP_BEARER_TOKEN`
+   (clients use the token as `PLANIA_MCP_TOKEN`). A value already set is kept.
+4. Applies every migration and records each one (see Database).
+5. Builds the screen into `dist/ui` when it is not there. `--skip-screen` leaves it as it is.
+
+Then `pnpm start`. At start the server checks that the database is reachable and has no unapplied migration; when
+either fails it says so in one sentence and exits.
+
+The other settings in `.env` are optional:
 
 | Var | Value |
 |---|---|
-| `DATABASE_URL` | Postgres connection string (the local `plania` database) |
-| `MCP_BEARER_TOKEN` | Random token, e.g. `openssl rand -hex 32`. Clients use it as `PLANIA_MCP_TOKEN`. |
-| `SESSION_SECRET` | At least 32 bytes, e.g. `openssl rand -base64 48` |
-| `PLANIA_PASSWORD_HASH` | Output of `pnpm hash-password`. Quote it in `.env`. Never a plain password. |
-| `MCP_READ_TOKEN` | Optional. A second token for planning sessions: read tools only. |
-| `PLANIA_CI_TOKEN` | Optional. Token for `/hooks/*` only; it cannot use `/mcp`. |
-| `PLANIA_TZ` | Optional. Time zone the screen shows times in, and the nightly backup's clock. Default `America/Mexico_City`. |
-| `PLANIA_PG_BIN` | Optional. Directory of the `pg_dump` the backup uses. Default: Homebrew's for the server's major version. |
-| `PLANIA_BACKUP_DIR` | Optional. Where the nightly dumps go. Default `~/plania-backups`. |
+| `PLANIA_PASSWORD_HASH` | The screen's password, as the output of `pnpm hash-password`. Quote it in `.env`. Never a plain password. |
+| `MCP_READ_TOKEN` | A second token for planning sessions: read tools only. |
+| `PLANIA_CI_TOKEN` | Token for `/hooks/*` only; it cannot use `/mcp`. |
+| `PLANIA_TZ` | Time zone the screen shows times in, and the nightly backup's clock. Default `America/Mexico_City`. |
+| `PLANIA_PG_BIN` | Directory of the `pg_dump` the backup uses. Default: Homebrew's for the server's major version. |
+| `PLANIA_BACKUP_DIR` | Where the nightly dumps go. Default `~/plania-backups`. |
 
 ### A first project on a new install
 
 No SQL by hand and no `plania` project needed:
 
-1. Create an empty database, apply the migrations (see Database) and fill `.env` as above.
+1. Run `pnpm plania:install` (above).
 2. Check the role prompts. The four seats a project starts with (product owner, Research, Artist, Taller) each
    need one. They come with the repo in `kit/roles/<role>.md` (`product-owner.md`, `research.md`, `artist.md`,
    `taller.md`) once the owner has exported them from the live server with `pnpm kit:export` and committed them.
@@ -53,11 +68,24 @@ without one fails its first run with `no prompt doc`.
 
 ## Database
 
-Migrations are generated here (`pnpm db:generate`) and applied by Jorge, in order:
+Migrations are generated here (`pnpm db:generate`) and applied with `pnpm db:migrate`. It applies, in file-name
+order, every file not yet recorded in `plania_migrations` (name, checksum, applied at), each in its own transaction
+together with its record. It stops at the first failure and names the file; the database stays as it was before that
+file. A recorded file whose content changed is reported, never re-applied. The record is what makes this safe: most
+files before 0027 fail when run twice.
+
+`pnpm db:migrate` works on the database in `.env` only when it already carries the record. Any other database is
+named on the command line: `pnpm db:migrate --database <name>` bootstraps the record on an empty one.
+
+A database that already has the migrations and no record (one set up before the record existed) is marked once,
+without running anything, up to the last file applied to it:
 
 ```bash
-for f in drizzle/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done   # fresh database
+pnpm db:migrate --database <name> --baseline 0061_run_kit.sql
 ```
+
+That is the only way in for a database with tables and no record. Afterwards `pnpm db:migrate` applies only newer
+files.
 
 Then add your own projects. Each one comes with its team (product owner, Research, Artist, Taller), starts
 paused with plan approval on, and gets a key prefix from its slug unless `--prefix` names one:
@@ -178,6 +206,12 @@ Migration `0061_run_kit` adds `agent_runs.prompt_version`, `skills`, `skills_use
 
 Then, once, on the server: `pnpm kit:export` writes the live role prompts into `kit/roles/` (commit them), and `pnpm kit:status` should read `same` for every role. What changes for runs is in [The agents' kit](#the-agents-kit). Two things are on from the first run and can be turned off: a seat with no packs carries its role's default skills (`PLANIA_DEFAULT_KITS=0`), and a session that failed, was sent back by QA or grew long starts fresh instead of resuming (`PLANIA_RETRY_FRESH=0`). `finish` runs a project's checks only when it has a `settings.qa.verify` list.
 
+### Upgrading to the migration record
+
+From this version the server refuses to start on a database without the migration record. Once, before restarting,
+mark the live database up to the last file applied to it (today `0061_run_kit.sql`):
+`pnpm db:migrate --database plania --baseline 0061_run_kit.sql`. Later upgrades are `pnpm db:migrate`.
+
 ### GitHub token file
 
 No migration. `pnpm build`, then restart the service (`launchctl kickstart -k gui/$(id -u)/com.plania.server`).
@@ -187,6 +221,32 @@ The GitHub poller used to run `gh auth token`, which reads the login keychain th
 `gh auth token` runs only when `PLANIA_GH_FALLBACK=1`, detached in its own process group, with a 5 second timeout that kills the group. A token is cached for 10 minutes; a failure is not retried for an hour. That attempt, and the hour it is remembered, keeps the missing-file text and adds that `gh auth token` failed (`timeout`, `missing`, `exit`, or `empty`).
 
 Lanzar (`settings.release.mode` `merge`) uses the same helper (60 seconds) and sets `GH_TOKEN` from `~/.config/plania/github-release-token`, else `~/.config/plania/github-token`, plus `GH_PROMPT_DISABLED=1`. With no token and the fallback off it returns `RELEASE_MERGE_FAILED` (`step` `token`, `falta token: …`) and starts no process. A 403 from GitHub adds a hint that the token needs write access to contents and pull requests.
+
+### What a run receives
+
+No migration. Every process Plania starts for work (an agent run, a Preguntar run, the Morning brief, a QA command,
+a test copy, the capture browser) gets its environment from one allow-list, `src/runner/run-env.ts`:
+
+- system basics: `PATH`, `HOME`, user, shell, locale (`LANG`, `LC_*`), `TZ`, the temp dir, `XDG_*`, and the Windows
+  names for the same where WSL passes them;
+- what git, gh and Node need: `SSH_AUTH_SOCK`, `GH_CONFIG_DIR`, the proxy variables (`HTTPS_PROXY`, `NO_PROXY`, …)
+  and the CA variables (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, …);
+- Claude Code's own variables, untouched: `ANTHROPIC_*`, `CLAUDE_*` (including `CLAUDE_CODE_USE_BEDROCK`,
+  `_VERTEX`, `_FOUNDRY`), and the provider's credentials (`AWS_*`, `GOOGLE_APPLICATION_CREDENTIALS`) only while
+  that provider is switched on. App commands (QA, test copies) get none of these;
+- the run's own values: its token (`PLANIA_RUNNER_TOKEN`, or `PLANIA_BRIEF_TOKEN` for the brief), `PORT`, a test
+  copy's own database URL;
+- the names a project lists in `settings.runner.env` (for example `["STRIPE_TEST_KEY"]`), agent runs only.
+
+Never Plania's own: `DATABASE_URL`, `MCP_BEARER_TOKEN`, `MCP_READ_TOKEN`, `SESSION_SECRET`, `GITHUB_TOKEN`,
+`VERCEL_TOKEN`, the VAPID keys, or anything named `PLANIA_*`, even when a project names it. A test copy still
+reads its app's own env file: nothing that file sets is pre-set by Plania.
+
+Claude signs in the way you set it up (your plan's login, an API key, or a cloud provider); Plania does not choose
+and never reads Claude's credential files or keychain entry (`test/run-env.test.ts` scans `src/` for that).
+Motores says in one sentence which sign-in is in use. Before this change a run got the server's whole environment
+minus `ANTHROPIC_*`, which forced the plan's login; to keep that, set `PLANIA_STRIP_ANTHROPIC_ENV=1` (off by
+default).
 
 ## Human-only questions
 

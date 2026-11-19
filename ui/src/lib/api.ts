@@ -5,6 +5,7 @@ import type { Goal, GoalWrite } from "@/components/goals/model";
 import type { Usage, Company, CompanyPlan, CompanyProjectRow, CompanyRun, NewProjectResult, ProjectSheetData, RunBrief } from "@/lib/compania";
 import type { CapturesRead, PruebaRead } from "@/lib/ventana";
 import type { Listo } from "@/lib/listo";
+import type { MachineCheckReading } from "@/lib/falta";
 import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
@@ -78,6 +79,8 @@ export const api = {
   // PLA-06: mark delegated answers seen (they leave the Bandeja and the audit; the record stays).
   reviewDelegated: (ids: string[]) => request<{ reviewed: number }>("POST", "/delegated/reviewed", { ids }),
   machine: () => request<Machine>("GET", "/machine"),
+  // PLA-I2-12: what this machine lacks to run Plania; fresh checks again instead of the ten-minute reading.
+  machineCheck: (fresh = false) => request<MachineCheckReading>("GET", `/machine-check${fresh ? "?fresh=1" : ""}`),
   // PLA-I46-7/8: the Ventana a la app (stills of the test copy) and its clicks: Encenderla, Reintentar, Apagar.
   captures: (slug: string) => request<CapturesRead>("GET", `/projects/${encodeURIComponent(slug)}/captures`),
   prueba: (slug: string, act: "encender" | "tomar" | "apagar") =>
@@ -640,6 +643,8 @@ export type OrgCompany = {
   brief?: { lines: string[]; generated_at: string; link: string } | null;
   // PLA-I59-2: the company's default motor (null parts: the CLI's own default). Optional for older servers.
   motor_default?: { model: string | null; effort: string | null };
+  // PLA-I2-13: which sign-in Claude is using, one sentence from the server.
+  claude_sign_in?: string;
 };
 export type OrgTemplate = { slug: string; title: string };
 // PLA-I46-13: every role template and whether it can be added (free), is on the team (taken) or lacks its prompt doc.

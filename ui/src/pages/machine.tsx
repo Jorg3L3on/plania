@@ -363,6 +363,10 @@ export function MachinePage() {
           <h1 className="font-display text-4xl leading-[0.95] font-extrabold tracking-[-0.03em] sm:text-5xl">¿Qué hay corriendo?</h1>
           {machine.data && <p className="text-[15px] break-all text-muted-foreground">{machine.data.machine}</p>}
           {machine.data && <BackupLine backup={machine.data.backup} nowMs={nowMs} />}
+          {/* PLA-I2-12: the machine check, what this machine lacks to run Plania. */}
+          <Link to="/machine/falta" className="text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground">
+            ¿Qué le falta a esta máquina?
+          </Link>
         </div>
         {machine.data && <Totals machine={machine.data} />}
       </header>

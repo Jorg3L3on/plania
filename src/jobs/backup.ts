@@ -56,18 +56,23 @@ function localParts(now: Date, tz: string): { day: string; hour: number } {
 // PLANIA_PG_BIN (a directory or the binary itself), else Homebrew's pg_dump for the server's major
 // version (a newer pg_dump writes SET lines an older server rejects on restore), else Homebrew's default.
 async function findPgDump(db: Q): Promise<string> {
-  const env = process.env.PLANIA_PG_BIN;
-  if (env) return env.endsWith("pg_dump") ? env : path.join(env, "pg_dump");
   const major = await db
     .execute<{ v: string }>(sql`select current_setting('server_version_num') as v`)
     .then((r) => Math.floor(Number(r.rows[0]?.v ?? 0) / 10000))
     .catch(() => 0);
+  return pgDumpFor(major);
+}
+
+// PLA-I2-12: the same choice from a known server major, for the machine check (src/machine-check/).
+export function pgDumpFor(major: number, env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync): string {
+  const bin = env.PLANIA_PG_BIN;
+  if (bin) return bin.endsWith("pg_dump") ? bin : path.join(bin, "pg_dump");
   const candidates = [
-    ...(major ? [`/opt/homebrew/opt/postgresql@${major}/bin/pg_dump`, `/usr/local/opt/postgresql@${major}/bin/pg_dump`] : []),
+    ...(major ? [`/opt/homebrew/opt/postgresql@${major}/bin/pg_dump`, `/usr/local/opt/postgresql@${major}/bin/pg_dump`, `/usr/lib/postgresql/${major}/bin/pg_dump`] : []),
     "/opt/homebrew/bin/pg_dump",
     "/usr/local/bin/pg_dump",
   ];
-  return candidates.find((c) => existsSync(c)) ?? "pg_dump";
+  return candidates.find((c) => exists(c)) ?? "pg_dump";
 }
 
 export async function backupState(db: Q): Promise<BackupState> {

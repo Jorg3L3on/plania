@@ -44,6 +44,7 @@ import { plumbing } from "./company-org.js";
 import { threadRoutes } from "./threads.js";
 import { captureRoutes } from "./captures.js";
 import { maquinasRoutes, tableroRoutes } from "./maquinas.js";
+import { machineCheckRoutes } from "./machine-check.js";
 import { qaRoutes } from "./qa.js";
 import { briefApi } from "./brief.js";
 import { scoreboardRoutes } from "./scoreboard.js";
@@ -707,6 +708,8 @@ api.route("/projects", captureRoutes);
 // PLA-I48: Máquinas, the floor's second level, and the building's tablero (src/api/maquinas.ts).
 api.route("/projects", maquinasRoutes);
 api.route("/maquinas", tableroRoutes);
+// PLA-I2-12: what this machine lacks to run Plania (src/api/machine-check.ts).
+api.route("/machine-check", machineCheckRoutes());
 // PLA-I46-9: a delivery's QA evidence and the PO's check list (src/api/qa.ts).
 api.route("/projects", qaRoutes);
 // PLA-I41-6: the Morning brief (spec §7.3).

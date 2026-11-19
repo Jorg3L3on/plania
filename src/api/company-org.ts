@@ -6,6 +6,7 @@
 //   GET  /api/machine                   plumbing (merged into the machine inventory): week usage, plan guard, switches, runs, log
 // Tokens only, never money. Cookie-only routes (src/api/company.ts and the /api session for /api/machine).
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { claudeSignInLine } from "../runner/run-env.js";
 import type { Db } from "../db/client.js";
 import { agentRuns, agents, docs, events, projects, questions, taskBlockers, tasks, threadMessages, type Actor, type Agent, type Project, type RunnerSettings } from "../db/schema.js";
 import { hasUnsatisfiedBlocker } from "../mcp/blockers.js";
@@ -139,6 +140,9 @@ export type CompanyRead = {
   brief: { lines: string[]; generated_at: string; link: "/ceo?v=brief" } | null;
   // PLA-I59-2 (Motores): the company's default motor (null fields: the CLI's own default).
   motor_default: { model: string | null; effort: string | null };
+  // PLA-I2-13: which sign-in Claude is using (plan, key or a cloud provider), in one sentence, read from variable
+  // names only (src/runner/run-env.ts); Plania does not choose it.
+  claude_sign_in: string;
 };
 
 const ORDER = new Map<string, number>(TEAM_TEMPLATES.map((t, i) => [t, i]));
@@ -308,21 +312,21 @@ export async function lightOf(db: Db, p: Project, c: LightCtx): Promise<{ light:
   const open = `/p/${encodeURIComponent(p.slug)}`;
   if (c.paused) return { light: "paused", reason: null };
 
-  const jorge = (text: string): { light: Light; reason: LightReason } => ({ light: "needs_owner", reason: { text, action: TE_TOCA } });
+  const waitsOnOwner = (text: string): { light: Light; reason: LightReason } => ({ light: "needs_owner", reason: { text, action: TE_TOCA } });
   const [q] = await db.select({ id: questions.id }).from(questions).where(and(eq(questions.projectId, p.id), isNull(questions.answeredAt))).limit(1);
-  if (q) return jorge("El equipo te hizo una pregunta y espera tu respuesta.");
+  if (q) return waitsOnOwner("El equipo te hizo una pregunta y espera tu respuesta.");
   const [nj] = await db.select({ title: tasks.title }).from(tasks).where(and(eq(tasks.projectId, p.id), eq(tasks.status, "Needs owner"))).limit(1);
-  if (nj) return jorge(`${quote(nj.title)} espera tu decisión.`);
+  if (nj) return waitsOnOwner(`${quote(nj.title)} espera tu decisión.`);
   if (c.ceoId) {
     const [mine] = await db
       .select({ title: tasks.title })
       .from(tasks)
       .where(and(eq(tasks.projectId, p.id), eq(tasks.kind, "ticket"), eq(tasks.status, "Ready"), eq(tasks.ownerAgent, c.ceoId)))
       .limit(1);
-    if (mine) return jorge(`Lo siguiente es tuyo: ${quote(mine.title)}.`);
+    if (mine) return waitsOnOwner(`Lo siguiente es tuyo: ${quote(mine.title)}.`);
   }
   const step = c.inbox.find((i) => i.kind === "human_action");
-  if (step) return jorge(`Un paso es tuyo: ${quote(step.why, 100)}.`);
+  if (step) return waitsOnOwner(`Un paso es tuyo: ${quote(step.why, 100)}.`);
   const release = c.inbox.find((i) => i.kind === "release");
   if (release) {
     const n = (release.target as { tickets?: unknown[] } | undefined)?.tickets?.length ?? 0;
@@ -333,7 +337,7 @@ export async function lightOf(db: Db, p: Project, c: LightCtx): Promise<{ light:
     };
   }
   const recent = await db.select().from(threadMessages).where(and(eq(threadMessages.threadId, c.threadId), isNull(threadMessages.actionState))).orderBy(desc(threadMessages.at)).limit(30);
-  for (const m of recent) if ((await actionsFor(db, m, p.id)).length > 0) return jorge(DELIVERY_WAITS);
+  for (const m of recent) if ((await actionsFor(db, m, p.id)).length > 0) return waitsOnOwner(DELIVERY_WAITS);
 
   const failed = c.team.find((m) => m.state !== "running" && m.last?.status === "fail");
   if (failed) {
@@ -640,6 +644,7 @@ export async function companyRead(db: Db, now = new Date(), prof?: ReadProfile):
     inbox: countInbox(inbox),
     brief,
     motor_default: { model: settings.defaultModel, effort: settings.defaultEffort },
+    claude_sign_in: claudeSignInLine(process.env),
   };
 }
 

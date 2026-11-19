@@ -1,20 +1,20 @@
 // Shared setup: points the app at a throwaway plania_test_<hash> database and rebuilds it from the migrations.
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
 import { userInfo } from "node:os";
 import path from "node:path";
 import pg from "pg";
 import { resetPool } from "../src/db/client.js";
+import { migrate } from "../src/db/migrate.js";
 
 // PLANIA_TEST_PGUSER: the Postgres role the tests connect as, when it is not the OS user (a Windows machine whose
 // only role is postgres).
 export const PG_USER = encodeURIComponent(process.env.PLANIA_TEST_PGUSER || userInfo().username);
-const ADMIN_URL = `postgres://${PG_USER}@localhost:5432/postgres`;
+export const ADMIN_URL = `postgres://${PG_USER}@localhost:5432/postgres`;
 
 // One database per checkout: the suffix is a stable hash of this repo's absolute root,
 // so worktrees running `pnpm test` at the same time never drop each other's database.
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
-const TEST_DB = `plania_test_${createHash("sha256").update(REPO_ROOT).digest("hex").slice(0, 6)}`;
+export const TEST_DB = `plania_test_${createHash("sha256").update(REPO_ROOT).digest("hex").slice(0, 6)}`;
 
 // Guard: resetTestDb drops TEST_DB, so it must never be anything but a plania_test database.
 if (!/^plania_test_[0-9a-f]{6}$/.test(TEST_DB)) throw new Error(`refusing to use test database ${TEST_DB}`);
@@ -52,10 +52,8 @@ export async function resetTestDb(): Promise<pg.Client> {
 
   const raw = new pg.Client({ connectionString: TEST_DATABASE_URL });
   await raw.connect();
-  const dir = new URL("../drizzle/migrations/", import.meta.url);
-  for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
-    await raw.query(readFileSync(new URL(f, dir), "utf8"));
-  }
+  // PLA-I2-1: the same migrate as `pnpm db:migrate`, so every test database carries the migration record.
+  await migrate(raw, { named: true });
   await raw.query(
     "insert into projects (slug, title, key_prefix) values ('micasa','MiCasa','MIC'), ('workia','Workia','WRK'), ('filmia','Filmia','FIL'), ('zigzag','Zigzag','ZIG')",
   );

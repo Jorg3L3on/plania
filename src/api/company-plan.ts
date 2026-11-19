@@ -239,16 +239,16 @@ export async function readyOf(db: Db, p: Project, ceoId: string | null, activeKe
   const parentIds = [...new Set(open.map((t) => t.parentId).filter((x): x is string => !!x))];
   if (parentIds.length) for (const r of await db.select({ id: tasks.id, key: tasks.key }).from(tasks).where(inArray(tasks.id, parentIds))) parents.set(r.id, r.key);
   const inActive = (t: Task) => (activeKey && t.parentId && parents.get(t.parentId) === activeKey ? 0 : 1);
-  const jorge = (t: Task) => t.status === "Needs owner" || (!!ceoId && t.ownerAgent === ceoId);
+  const isOwners = (t: Task) => t.status === "Needs owner" || (!!ceoId && t.ownerAgent === ceoId);
   // PLA-I36-6: the ticket Jorge picked goes first after his own.
   const first = (t: Task) => (p.settings.next_first === t.key ? 0 : 1);
-  const sorted = [...open].sort((a, b) => Number(!jorge(a)) - Number(!jorge(b)) || first(a) - first(b) || inActive(a) - inActive(b) || PRIORITY(a.priority) - PRIORITY(b.priority) || (a.phase ?? 99) - (b.phase ?? 99) || byKey(a, b));
+  const sorted = [...open].sort((a, b) => Number(!isOwners(a)) - Number(!isOwners(b)) || first(a) - first(b) || inActive(a) - inActive(b) || PRIORITY(a.priority) - PRIORITY(b.priority) || (a.phase ?? 99) - (b.phase ?? 99) || byKey(a, b));
   const t = sorted[0]!;
-  const theirs = sorted.filter((x) => x.status === "Ready" && !jorge(x));
+  const theirs = sorted.filter((x) => x.status === "Ready" && !isOwners(x));
   const ready = theirs.slice(0, 5).map((x) => ({ key: x.key, title: x.title }));
   const queued = theirs.map((x) => ({ key: x.key, title: x.title, owner: x.ownerAgent ?? null, work_type: x.workType ?? "code" }));
-  let owner: NextOwner = jorge(t) ? "owner" : (t.workType ?? "code") === "code" ? "taller" : "po";
-  if (!jorge(t) && t.ownerAgent) {
+  let owner: NextOwner = isOwners(t) ? "owner" : (t.workType ?? "code") === "code" ? "taller" : "po";
+  if (!isOwners(t) && t.ownerAgent) {
     const [a] = await db.select().from(agents).where(eq(agents.id, t.ownerAgent)).limit(1);
     const role = a ? roleOf(a) : null;
     if (role) owner = role === "product-owner" ? "po" : role;

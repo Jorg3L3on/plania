@@ -59,10 +59,12 @@ class FakeChild extends EventEmitter {
   }
 }
 function fakes() {
-  const spawned: (FakeChild & { args: string[]; cwd: string; settings: string })[] = [];
+  const spawned: (FakeChild & { args: string[]; cwd: string; settings: string; env: NodeJS.ProcessEnv })[] = [];
   let n = 80_000;
   const deps = {
-    env: { HOME: scratch, PATH: "/usr/bin:/bin", PLANIA_RUNNER_TOKEN: "runner-token", PLANIA_PROMPTS_PROJECT: "micasa", CLAUDE_CODE_BIN: "/fake/bin/claude", PLANIA_EVENT_WAKES: "1" } as NodeJS.ProcessEnv,
+    env: { HOME: scratch, PATH: "/usr/bin:/bin", PLANIA_RUNNER_TOKEN: "runner-token", PLANIA_PROMPTS_PROJECT: "micasa", CLAUDE_CODE_BIN: "/fake/bin/claude", PLANIA_EVENT_WAKES: "1",
+      // PLA-I2-13: Plania's secrets (never passed) and the machine's Claude key (passed unchanged).
+      DATABASE_URL: "postgres://plania-secret", MCP_BEARER_TOKEN: "bearer-secret", SESSION_SECRET: "s", GITHUB_TOKEN: "g", VAPID_PRIVATE_KEY: "v", ANTHROPIC_API_KEY: "sk-ant-buyer" } as NodeJS.ProcessEnv,
     logDir: path.join(scratch, "logs"),
     tmpDir: path.join(scratch, "tmp"),
     worktreeRoot: path.join(scratch, "worktrees"),
@@ -75,10 +77,11 @@ function fakes() {
       if (args[0] === "rev-parse" && args[1] === "--short") return { code: 0, stdout: "92111e1\n", stderr: "" };
       return { code: 0, stdout: "", stderr: "" };
     },
-    spawn: (_bin: string, args: string[], opts: { cwd: string }) => {
-      const child = new FakeChild(++n) as FakeChild & { args: string[]; cwd: string; settings: string };
+    spawn: (_bin: string, args: string[], opts: { cwd: string; env: NodeJS.ProcessEnv }) => {
+      const child = new FakeChild(++n) as FakeChild & { args: string[]; cwd: string; settings: string; env: NodeJS.ProcessEnv };
       child.args = args;
       child.cwd = opts.cwd;
+      child.env = opts.env;
       child.settings = readFileSync(args[args.indexOf("--settings") + 1]!, "utf8");
       spawned.push(child);
       return child;
@@ -156,6 +159,10 @@ test("I57-1 #2 (PLA-66): the question's run is read-only, works in a fresh copy 
   assert.match(prompt, new RegExp(`answer_consulta \\{project: "micasa", id: "${out.consulta}"`));
   assert.ok(!prompt.includes("Plania first: open the ticket"), "not the ticket prompt");
   assert.ok(!child.args.includes("--resume"));
+  // PLA-I2-13 #1 #2: a Preguntar run gets the same allow-list: no Plania secret, Claude's key unchanged.
+  for (const k of ["DATABASE_URL", "MCP_BEARER_TOKEN", "SESSION_SECRET", "GITHUB_TOKEN", "VAPID_PRIVATE_KEY"]) assert.equal(child.env[k], undefined, k);
+  assert.equal(child.env.ANTHROPIC_API_KEY, "sk-ant-buyer");
+  assert.equal(child.env.PLANIA_RUNNER_TOKEN, "runner-token");
   child.finish([{ type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { file_path: path.join(copy, "src/app/page.tsx") } }, { type: "tool_use", name: "Grep", input: { pattern: "telefono" } }] } }]);
   await runner.waitForAllRuns();
   assert.equal(Number((await raw.query(`select count(*) from agent_sessions`)).rows[0].count), 0, "the PO's session is left alone");

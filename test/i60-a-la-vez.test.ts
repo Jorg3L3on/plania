@@ -380,7 +380,7 @@ const detachedDeps = (ms = 300) => {
     if (args[0] === "worktree" && args[1] === "add") mkdirSync(args[args[2] === "--no-track" ? 3 : 2]!, { recursive: true });
     return { code: 0, stdout: "", stderr: "" };
   };
-  const deps = { ...f.deps, git, spawn: undefined, detached: true, pollMs: 50, env: { ...f.deps.env, CLAUDE_CODE_BIN: FAKE, FAKE_MS: String(ms), PATH: process.env.PATH } };
+  const deps = { ...f.deps, git, spawn: undefined, detached: true, pollMs: 50, env: { ...f.deps.env, CLAUDE_CODE_BIN: FAKE, CLAUDE_FAKE_MS: String(ms), PATH: process.env.PATH } };
   return deps;
 };
 

@@ -12,8 +12,22 @@ Never write a role prompt by hand from memory, and never reconstruct one from wh
 do. A file that differs from what is live makes every run's `prompt_version` stamp a lie. If the
 server cannot be reached, the file stays missing until it can.
 
-There are no role prompts in this folder yet: the live docs exist only in the production database,
-and they have not been exported.
+All ten were exported from the live server (pull request 264) except `seguridad.md`, which had no
+live doc and was written for PLA-I2-20: the owner reads and approves it before it is deployed.
+
+## What any install has
+
+A role prompt runs on installs other than the first one, so it names only what every install has
+(`test/kit-roles.test.ts` checks it):
+
+- the project context, `Context: Glossary`, `Context: Commands` and `Context: Map`, which the runner
+  appends to a session's first prompt and the readiness list checks;
+- the idea stage docs (`Idea`, `Research`, `Design`, `Plan`) and the docs a role writes on its ticket;
+- skills in `kit/skills/` that `kits.json` gives that role. A doc's shape comes from the skill, not a
+  template elsewhere; anything optional, like a design library, is named only "when your kit carries
+  a skill for it".
+
+The start branch and the owner's language come from the run's prompt, never from this file.
 
 ## Changing one
 

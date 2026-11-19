@@ -396,6 +396,7 @@ export const CorrientePage = () => {
         <Motores
           p={p}
           def={company?.motor_default}
+          signIn={company?.claude_sign_in}
           planTo="/machine"
           onSave={async (save) => {
             const out = await api.saveMotores(save);

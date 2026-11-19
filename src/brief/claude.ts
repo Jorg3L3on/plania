@@ -133,13 +133,10 @@ export function briefArgs(input: BriefArgsInput): string[] {
   return args;
 }
 
-// Parent env minus ANTHROPIC_* (childEnv) and minus every other token or secret the server holds,
-// so the pass only ever sees its read token.
-const SECRET_KEY = /(TOKEN|SECRET|PASSWORD|OWNER_CODE|DATABASE_URL|_KEY)$/i;
+// PLA-I2-13: the shared allow-list (childEnv, src/runner/run-env.ts): no token or secret the server holds,
+// Claude's own sign-in untouched, and the pass's read token.
 export function briefChildEnv(base: NodeJS.ProcessEnv, token: string): NodeJS.ProcessEnv {
-  const kept: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(base)) if (!SECRET_KEY.test(key)) kept[key] = value;
-  return childEnv(kept, { PLANIA_BRIEF_TOKEN: token });
+  return childEnv(base, { PLANIA_BRIEF_TOKEN: token });
 }
 
 // Deletes Morning brief logs older than LOG_KEEP_DAYS. Returns how many went.
@@ -206,8 +203,9 @@ export type PassOutcome<T> =
   | { ok: true; data: T; attempts: number; turns: number; tokens: PassTokens; models: ModelTokens[]; logPath: string }
   | { ok: false; reason: PassFailure; summary: string; attempts: number; plan?: PlanView; logPath: string | null };
 
-/** Claude's own sign-in failures ("Failed to authenticate", "OAuth session expired", "Please run /login"). */
-export const SIGN_IN = /authenticat|oauth|\/login|log ?in|not signed in|credential|invalid api key|\b401\b/i;
+// PLA-I2-12: one sign-in test for the brief, the runner and the machine check.
+import { SIGN_IN } from "../runner/signed-out.js";
+export { SIGN_IN };
 
 /** One clipped line of a result's text with home paths and token-like strings taken out. */
 export function plainResultText(raw: unknown): string {

@@ -22,7 +22,8 @@ export type StartFailure = (typeof START_FAILURES)[number];
 
 // Failures of a run that did start: they are not the step's start-up problem. Claude's own result subtypes
 // ("fail: error_max_turns (…)") are written from a variable and are after-start too.
-export const AFTER_START_FAILURES = ["no result", "orphaned", "worker lost", "pack file in the diff"] as const;
+// PLA-I2-12: "signed out" is Claude Code signed out on this machine (src/runner/signed-out.ts).
+export const AFTER_START_FAILURES = ["no result", "signed out", "orphaned", "worker lost", "pack file in the diff"] as const;
 
 // "fail: no prompt doc (Prompt: QA)" → "no prompt doc"; "fail: base not allowed (branch main)" → "base not allowed".
 export const failReason = (summary: string): string | null => {

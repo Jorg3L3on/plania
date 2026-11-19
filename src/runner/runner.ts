@@ -6,6 +6,7 @@
 import { canvasesRoot } from "../pedidos/frames.js";
 import { resolveMotor } from "./motor.js";
 import { execFile } from "node:child_process";
+import { projectEnvNames } from "./run-env.js";
 import pg from "pg";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -98,11 +99,13 @@ import {
   type SpawnFn,
   type Supervised,
 } from "./process.js";
+import { isSignedOut } from "./signed-out.js";
 import { StreamReader, parseStream, parseUsageText, totalOf, type PlanWindowReading } from "./stream.js";
 import { clearPacks, packLines, packsInDiff, packsOf, writePacks } from "./packs.js";
 import { branchFor, checkBase, defaultGit, ensureReadCopy, ensureWorktree, removeWorktree, repoPathOf, scratchPathFor, worktreePathFor, worktreeRoot, carefulGit, resetGitThrottleForTests, type GitFn } from "./worktree.js";
 import { taskImagePaths } from "../pedidos/images.js";
 import { personalize } from "../owner.js";
+import { languageLine } from "./owner-language.js";
 
 export type ReadyWork = {
   project: string;
@@ -905,6 +908,7 @@ export function userPrompt(input: {
     company
       ? "Answer the owner in the company thread with thread_post (thread company); write in a project's thread when it is about that project. Never merge anything."
       : `End the run with one line in your project's thread (thread_post, thread ${input.project.slug}): what you did, with a link to it, and what you need.`,
+    languageLine(),
   );
   if (input.workspace) {
     lines.push(`Workspace: ${input.workspace.path}${input.workspace.branch ? ` on branch ${input.workspace.branch}` : ""}, base sandbox.`);
@@ -1287,7 +1291,8 @@ async function start(db: Db, run: AgentRun, ctx: WakeContext, deps: RunnerDeps):
     args,
     cwd,
     // AUDIT-1: finish may run the project's checks before it answers, so a Plania tool call may take minutes.
-    env: childEnv(env, { PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }),
+    // PLA-I2-13: an allow-list; the project's settings.runner.env names the extra variables its runs get.
+    env: childEnv(env, { PLANIA_RUNNER_TOKEN: token, ...(env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(30 * MINUTE) }) }, projectEnvNames(project.settings)),
     logPath,
     timeoutMs: deps.timeoutMs ?? settings.timeoutMinutes * MINUTE,
     graceMs: deps.graceMs ?? 30_000,
@@ -1387,13 +1392,18 @@ export async function finishRun(db: Db, input: FinishInput, deps: RunnerDeps = {
       tokens.cacheCreate += m.cacheCreate;
     }
     // A result with turns but no modelUsage spent tokens nobody can count: unknown, which blocks.
-    usageKnown = result.hasModelUsage || result.numTurns === 0;
+    // PLA-I2-12: a signed-out Claude spent nothing; its missing usage must not block the next run.
+    const signedOut = isSignedOut(result);
+    usageKnown = result.hasModelUsage || result.numTurns === 0 || signedOut;
     if (!usageKnown) tokens = reader.liveTokens;
     turns = result.numTurns;
     const sid = result.sessionId ? `, session ${result.sessionId.slice(0, 8)}` : "";
     if (stopped) {
       status = "stopped";
       summary = `stopped: ${stopped} (${result.subtype}, ${turns} turns${sid})`;
+    } else if (signedOut) {
+      status = "fail";
+      summary = `fail: signed out (${turns} turns${sid})`;
     } else if (result.isError || result.subtype !== "success") {
       status = "fail";
       summary = `fail: ${result.subtype} (${turns} turns${sid})`;
