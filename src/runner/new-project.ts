@@ -14,12 +14,16 @@ import { webCtx, writeTx, type Ctx } from "../mcp/tx.js";
 import { promptNote, rolePrompts } from "./prompts.js";
 import { checkRepoFolder, GITHUB_REPO, repoPathShapeOk, type RepoCheck, type RepoCheckCode, type RepoCheckDeps } from "./repo-check.js";
 import { CORE_TEMPLATES, RUNNER_CONFIG, ensureTeam, teamSlug } from "./team.js";
+import { ALLOWED_BASE } from "./worktree.js";
 
 const PROJECT_BODY = "Company project. The plan lives in Plania.";
 // NEWPROJ-8: the name and goal limits. The route's body schema uses them; the sheet's inputs keep their own copy
 // (ui/src/lib/nuevo-proyecto.ts) and test/newproj-8-sheet-details.test.ts checks the two agree.
 export const NEW_PROJECT_NAME_MAX = 40;
 export const NEW_PROJECT_GOAL_MAX = 280;
+
+// PLA-I2-6: the release step a new project with code starts with: the start branch into main, shipped from the screen.
+export const NEW_PROJECT_RELEASE = { from: ALLOWED_BASE, into: "main", env: "prod", mode: "merge" } as const satisfies NonNullable<ProjectSettings["release"]>;
 
 export type NewProject = { slug: string; key_prefix: string; paused: true; po: string; team: string[]; prompt_doc_id: string | null };
 // NEWPROJ-2: PROMPT_DOC_MISSING names the core seats with no prompt (no doc and no kit file), in team order.
@@ -131,6 +135,8 @@ export async function createProjectFromTemplate(db: Db, input: NewProjectInput, 
     plan_approval: true,
     ...(githubRepo ? { github: { repo: githubRepo } } : {}),
     ...(repoPath ? { local: { repo_path: repoPath } } : input.no_code ? { local: { no_code: true } } : {}),
+    // PLA-I2-6: a project with code ships from the screen (Lanzar), with no command to paste. Older projects keep theirs.
+    ...(input.no_code ? {} : { release: NEW_PROJECT_RELEASE }),
   };
   const [ceo] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, "ceo")).limit(1);
   const [created] = await db

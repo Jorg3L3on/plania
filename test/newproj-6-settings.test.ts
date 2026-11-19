@@ -149,7 +149,9 @@ test("NEWPROJ-6: only GitHub drops the folder, keeps the token's variable name, 
   assert.equal(db.settings.local, undefined);
   assert.deepEqual(db.settings.github, { repo: "o/recetario-2", token_env: "RECETARIO_GH_TOKEN" });
   s = (await res.json()) as SettingsRead;
-  assert.equal(JSON.stringify(s).includes("token_env"), false, "the read never carries a token field");
+  // PLA-I2-6: the token's variable NAME is an «Avanzado» field now (never a value); the code section carries none.
+  assert.equal(JSON.stringify(s.code).includes("token"), false, "the code section never carries a token field");
+  assert.equal(s.avanzado.find((f) => f.field === "github_token_env")?.value, "RECETARIO_GH_TOKEN");
   assert.equal((await put("/code", { version: s.version, no_code: true })).status, 200);
   db = await stored();
   assert.deepEqual(db.settings.local, { no_code: true });

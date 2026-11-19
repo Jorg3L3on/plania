@@ -5,10 +5,12 @@
 //   PUT  /api/company/projects/:slug/settings/release {version, release: {from, into, env, mode?} | null}  setProject
 //   PUT  /api/company/projects/:slug/settings/verify  {version, commands: string[]}  setProject (settings.qa.verify)
 //   PUT  /api/company/projects/:slug/settings/context/:doc {markdown, version?}  attachDoc (a stale version is refused)
-// The preview address and plan approval keep their route (PUT …/options, setProjectOptions). Token fields
-// (github.token_env, vercel) are not shown or taken here: an unknown key in a body is INVALID_BODY.
-// Still MCP-only (set_project): vercel, resources, quotas, branch_pattern, claim_from, release_target, release_on,
-// auto_done, the runner's areas, maquinas.
+//   PUT  /api/company/projects/:slug/settings/capture  {version, capture: {start_command, port, …, pages} | null}  setProject
+//   PUT  /api/company/projects/:slug/settings/advanced {version, field, value}  setProject (the «Avanzado» section)
+// The preview address and plan approval keep their route (PUT …/options, setProjectOptions, also through setProject).
+// PLA-I2-6: every key in src/mcp/settings-registry.ts has a control here, in Motores or on the floor. No field takes a
+// secret: a token is named by its variable (github_token_env, vercel.token_env) and a value shaped like a secret is
+// refused (SECRET_VALUE) before anything is written.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { and, eq, inArray, isNull } from "drizzle-orm";
@@ -16,6 +18,8 @@ import type { Db } from "../db/client.js";
 import { docs, type ProjectSettings } from "../db/schema.js";
 import { attachDoc } from "../mcp/docs.js";
 import { setProject } from "../mcp/project.js";
+import { ENV_NAME, looksSecret, stringsIn } from "../mcp/settings-registry.js";
+import { AVANZADO, avanzadoRead, captureForm, captureFrom, type AvanzadoField, type AvanzadoRead, type CaptureForm } from "./settings-avanzado.js";
 import { findProject } from "../mcp/queries.js";
 import { WEB_ACTOR, type Ctx } from "../mcp/tx.js";
 import { kitRoot } from "../runner/kit.js";
@@ -50,6 +54,9 @@ export type SettingsRead = {
   preview_url: string | null;
   plan_approval: boolean;
   context: { id: ContextDocId; title: string; doc_id: string | null; version: number | null; markdown: string; template: string }[];
+  // PLA-I2-6: how the app starts, as its form edits it, and the «Avanzado» fields.
+  capture: CaptureForm | null;
+  avanzado: AvanzadoRead[];
 };
 
 export async function settingsRead(db: Db, slug: string): Promise<SettingsRead> {
@@ -72,6 +79,8 @@ export async function settingsRead(db: Db, slug: string): Promise<SettingsRead> 
       const d = rows.find((r) => r.title === CONTEXT_TITLE[id]);
       return { id, title: CONTEXT_TITLE[id], doc_id: d?.id ?? null, version: d?.version ?? null, markdown: d?.markdown ?? "", template: contextTemplate(id, p.title) };
     }),
+    capture: captureForm(s.capture),
+    avanzado: avanzadoRead(s),
   };
 }
 
@@ -155,5 +164,71 @@ export async function setVerifyList(db: Db, slug: string, input: { version: numb
  * and a version that moved is STALE_VERSION. */
 export async function putContextDoc(db: Db, slug: string, id: ContextDocId, input: { markdown: string; version?: number }): Promise<SettingsRead> {
   await attachDoc(db, { project: slug, title: CONTEXT_TITLE[id], markdown: input.markdown, ...(input.version !== undefined ? { version: input.version } : {}) }, settingsCtx);
+  return settingsRead(db, slug);
+}
+
+/** PLA-I2-6: how the app starts; null takes it away (Máquinas can guess it again). Validated by set_project. */
+export async function setCapture(db: Db, slug: string, input: { version: number; capture: CaptureForm | null }): Promise<SettingsRead | SettingsRefusal> {
+  if (input.capture && stringsIn(input.capture).some(looksSecret)) return { error: "SECRET_VALUE", status: 400, field: "capture" };
+  const p = await findProject(db, slug);
+  const capture = input.capture ? captureFrom(input.capture, p.settings.capture) : null;
+  await setProject(db, { project: slug, version: input.version, settings: { capture } }, settingsCtx);
+  return settingsRead(db, slug);
+}
+
+/** PLA-I2-6: one «Avanzado» field; null puts the default back. A value shaped like a secret is refused before any
+ * write, and a token field takes a variable's name only. The values themselves are validated by set_project. */
+export async function setAdvanced(db: Db, slug: string, input: { version: number; field: AvanzadoField; value: unknown }): Promise<SettingsRead | SettingsRefusal> {
+  const { field, value } = input;
+  if (stringsIn(value).some(looksSecret)) return { error: "SECRET_VALUE", status: 400, field };
+  const p = await findProject(db, slug);
+  const s = p.settings;
+  const bad: SettingsRefusal = { error: "INVALID_BODY", status: 400, field };
+  const notName: SettingsRefusal = { error: "NOT_A_VARIABLE_NAME", status: 400, field };
+  const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+  let patch: Record<string, unknown>;
+  switch (field) {
+    case "branch_pattern":
+    case "release_target":
+      if (value !== null && (typeof value !== "string" || !value.trim())) return bad;
+      patch = { [field]: typeof value === "string" ? value.trim() : null };
+      break;
+    case "claim_from":
+    case "release_on":
+      if (value !== null && !AVANZADO[field].options!.includes(String(value))) return bad;
+      patch = { [field]: value };
+      break;
+    case "auto_done":
+      if (value !== null && typeof value !== "boolean") return bad;
+      patch = { auto_done: value };
+      break;
+    case "team":
+      if (value !== null && !Number.isInteger(value)) return bad;
+      patch = { team: value === null ? null : { ...(s.team ?? {}), idle_minutes: value } };
+      break;
+    case "github_token_env": {
+      if (value !== null && (typeof value !== "string" || !ENV_NAME.test(value))) return notName;
+      if (!s.github?.repo) return { ...bad, hint: "set the GitHub repository first" };
+      const { token_env: _old, ...github } = s.github;
+      patch = { github: value === null ? github : { ...github, token_env: value } };
+      break;
+    }
+    case "vercel":
+      if (value !== null && !isObj(value)) return bad;
+      if (isObj(value) && value.token_env !== undefined && (typeof value.token_env !== "string" || !ENV_NAME.test(value.token_env))) return notName;
+      patch = { vercel: value };
+      break;
+    case "resources":
+    case "quotas":
+    case "maquinas":
+      if (value !== null && !isObj(value)) return bad;
+      patch = { [field]: value };
+      break;
+    case "qa":
+      if (value !== null && (!isObj(value) || "verify" in value)) return bad;
+      patch = { qa: { ...(isObj(value) ? value : {}), verify: s.qa?.verify ?? [] } };
+      break;
+  }
+  await setProject(db, { project: slug, version: input.version, settings: patch }, settingsCtx);
   return settingsRead(db, slug);
 }

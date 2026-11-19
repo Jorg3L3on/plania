@@ -10,6 +10,7 @@ import type { ReleaseReading } from "@/lib/version";
 import type { FirstStartState } from "@/lib/primer-arranque";
 import type { LimitsPage } from "@/lib/limites";
 import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
+import type { ArranqueRead } from "@/lib/ajustes-avanzado";
 import type { BaseRead, LlavesRead, MaquinasRead, PruebasRead, RecorridoRead, RowsRead, SeedResult, TableroRead, TablesRead } from "@/lib/maquinas";
 import type { AgentToken, Digest, Inbox, Machine, Orden, ProgressItem, ProgressLog, ProgressRange, ProgressSummary, ProjectDetail, ProjectSummary, ShipResult, StreamSummary, TaskDetail, TaskRow } from "./types";
 
@@ -192,6 +193,9 @@ export const api = {
   ajustesPruebas: (slug: string, input: { version: number; commands: string[] }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/verify`, input),
   ajustesContexto: (slug: string, id: AjustesContextoId, input: { markdown: string; version?: number }) =>
     request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/context/${id}`, input),
+  // PLA-I2-6: how the app starts, and one «Avanzado» field.
+  ajustesArranque: (slug: string, input: { version: number; capture: ArranqueRead | null }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/capture`, input),
+  ajustesAvanzado: (slug: string, input: { version: number; field: string; value: unknown }) => request<Ajustes>("PUT", `/company/projects/${encodeURIComponent(slug)}/settings/advanced`, input),
   // PLA-I64-3: steps done per day, last 14 days.
   pulso: (slug: string) => request<Pulso>("GET", `/company/projects/${encodeURIComponent(slug)}/pulso`),
   projectDoc: (slug: string, id: string) => request<ProjectDocBody>("GET", `/company/docs/${encodeURIComponent(id)}?project=${encodeURIComponent(slug)}`),
@@ -218,7 +222,7 @@ export const api = {
   // NEWPROJ-7: Borrar proyecto, with the owner's code. Refusals: OWNER_CODE_UNSET 409, OWNER_CODE_REQUIRED / OWNER_CODE_INVALID 403.
   deleteProject: (slug: string, code: string) =>
     request<{ deleted: string; stopped: number; worktrees: number; agents: string[] }>("DELETE", `/company/projects/${encodeURIComponent(slug)}`, { code }),
-  setRunnerSettings: (input: { plan_guard_pct?: number; guard_override?: boolean }) => request<Company["settings"]>("PUT", "/company/settings", input),
+  setRunnerSettings: (input: { plan_guard_pct?: number; guard_override?: boolean; max_turns?: number; timeout_minutes?: number; cooldown_minutes?: number }) => request<Company["settings"]>("PUT", "/company/settings", input),
   // PLA-I36: steer a project from its card.
   // PLA-I40-2: Que empiece ya for one teammate.
   startTeammate: (slug: string, agent: string, pastGuard = false) =>

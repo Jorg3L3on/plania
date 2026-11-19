@@ -15,6 +15,7 @@ import { agentRuns, agents, projects, tasks, type Agent } from "../db/schema.js"
 import { loadReady, pickReady, wakeAgent, type HeartbeatDeps } from "../jobs/heartbeat.js";
 import { WEB_ACTOR } from "../mcp/tx.js";
 import { createTask } from "../mcp/writes.js";
+import { setProject } from "../mcp/project.js";
 import { createPoIdea } from "./company-pedidos.js";
 import { answerNote, askConsulta } from "../pedidos/consultas.js";
 import { eventWakesEnabled, queueWake } from "../runner/events.js";
@@ -161,15 +162,15 @@ export async function pickNext(db: Db, slug: string, key: string): Promise<{ nex
 export async function setProjectOptions(db: Db, slug: string, input: { plan_approval?: boolean; preview_url?: string | null; auto_accept?: boolean; auto_accept_invisible?: boolean }): Promise<{ plan_approval: boolean; preview_url: string | null; auto_accept: boolean; auto_accept_invisible: boolean } | { error: string; status: 404; hint: string }> {
   const [p] = await db.select().from(projects).where(eq(projects.slug, slug)).limit(1);
   if (!p) return { error: "PROJECT_NOT_FOUND", status: 404, hint: "no such project" };
-  const settings = { ...p.settings };
-  if (input.plan_approval !== undefined) settings.plan_approval = input.plan_approval;
-  if (input.preview_url !== undefined) {
-    if (input.preview_url) settings.preview_url = input.preview_url;
-    else delete settings.preview_url;
-  }
-  if (input.auto_accept !== undefined) settings.auto_accept = input.auto_accept;
-  if (input.auto_accept_invisible !== undefined) settings.auto_accept_invisible = input.auto_accept_invisible;
-  await db.update(projects).set({ settings, updatedAt: sql`now()` }).where(eq(projects.id, p.id));
+  // PLA-I2-6: written through set_project, so these keys are validated, logged and refreshed like the rest. The
+  // switches have no version on screen: they write over the version just read.
+  const patch: Record<string, unknown> = {};
+  if (input.plan_approval !== undefined) patch.plan_approval = input.plan_approval;
+  if (input.preview_url !== undefined) patch.preview_url = input.preview_url || null;
+  if (input.auto_accept !== undefined) patch.auto_accept = input.auto_accept;
+  if (input.auto_accept_invisible !== undefined) patch.auto_accept_invisible = input.auto_accept_invisible;
+  const out = Object.keys(patch).length ? await setProject(db, { project: slug, version: p.version, settings: patch }, { actor: WEB_ACTOR, human: true, tool: "screen.options" }) : null;
+  const settings = (out?.settings ?? p.settings) as typeof p.settings;
   return { plan_approval: !!settings.plan_approval, preview_url: settings.preview_url ?? null, auto_accept: !!settings.auto_accept, auto_accept_invisible: !!settings.auto_accept_invisible };
 }
 

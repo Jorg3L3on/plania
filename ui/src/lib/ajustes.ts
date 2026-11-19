@@ -2,6 +2,7 @@
 // src/api/project-settings.ts). Plain Spanish, pure, tested without a browser (test/newproj-6-settings.test.ts).
 // The server checks everything again; these only keep a button off while a field cannot be right.
 import type { CodigoOpcion } from "./nuevo-proyecto.js";
+import { avanzadoError, type ArranqueRead, type AvanzadoRead } from "./ajustes-avanzado.js";
 
 export type AjustesCodigo = { repo_path: string | null; github_repo: string | null; no_code: boolean };
 export type AjustesContextoId = "glossary" | "commands" | "map";
@@ -16,6 +17,9 @@ export type Ajustes = {
   preview_url: string | null;
   plan_approval: boolean;
   context: AjustesContexto[];
+  // PLA-I2-6: «Cómo arranca la app» and «Avanzado» (@/lib/ajustes-avanzado).
+  capture: ArranqueRead | null;
+  avanzado: AvanzadoRead[];
 };
 
 /** Which of the three code choices the saved settings are; null when none was said yet. */
@@ -103,6 +107,8 @@ export const GUARDADO = "Guardado.";
 /** The refusal line for any save in the view: the server's code and detail, or null when no answer came back. */
 export function ajustesError(code: string | null, detail: Record<string, unknown> = {}): string {
   const folder = typeof detail.path === "string" && detail.path ? `la carpeta ${detail.path}` : "esa carpeta";
+  const nuevo = avanzadoError(code, detail);
+  if (nuevo) return nuevo;
   switch (code) {
     case "REPO_FOLDER_MISSING":
       return `No se guardó: ${folder} no existe en esta Mac. Revisa la ruta.`;

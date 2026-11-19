@@ -38,13 +38,14 @@ export const PALABRAS: Record<string, Palabras> = {
     titulo: () => "La llave del equipo",
     nombre: () => "la llave del equipo",
     listo: () => "El equipo puede entrar a Plania.",
-    falta: () => "Falta PLANIA_RUNNER_TOKEN en el .env de Plania, así que ninguna corrida arranca. Agrégala y reinicia Plania.",
+    // PLA-I2-6: the token is made at first start (PLA-I2-2); nothing is pasted anywhere.
+    falta: () => "Plania todavía no tiene la llave con la que entra el equipo, así que ninguna corrida arranca. Se crea al terminar el primer arranque; si ya lo terminaste, reinicia Plania.",
   },
   claude_bin: {
     titulo: () => "Claude en esta Mac",
     nombre: () => "el programa claude",
     listo: () => "Plania encuentra el programa claude.",
-    falta: () => "Plania no encuentra el programa claude, así que ninguna corrida arranca. Instálalo, o pon su ruta en CLAUDE_CODE_BIN en el .env de Plania.",
+    falta: () => "Plania no encuentra el programa claude, así que ninguna corrida arranca. Instala Claude Code con su instalador: Plania lo encuentra solo en su lugar de siempre.",
   },
   code: {
     titulo: () => "El código",
@@ -103,6 +104,20 @@ export const PALABRAS: Record<string, Palabras> = {
 };
 
 export const tienePalabras = (id: string): boolean => id in PALABRAS;
+
+// PLA-I2-6: the Ajustes section where a missing item is set (#ajustes-<section>). Items with no control there (the
+// seats' prompts, the runner token, the claude program) have none.
+export const LISTO_AJUSTE: Record<string, "codigo" | "arranque" | "pruebas" | "contexto"> = {
+  code: "codigo",
+  github: "codigo",
+  capture: "arranque",
+  verify: "pruebas",
+  "context.glossary": "contexto",
+  "context.commands": "contexto",
+  "context.map": "contexto",
+};
+export const listoAjuste = (id: string): string | null => LISTO_AJUSTE[id] ?? null;
+export const LISTO_IR = "Arreglarlo en Ajustes";
 
 export type ListoLinea = { id: string; key: string; estado: ListoEstado; para: boolean; titulo: string; nombre: string; texto: string };
 

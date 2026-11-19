@@ -92,7 +92,7 @@ test("NEWPROJ-5 #2: every start-up failure has Spanish words: what happened and 
     assert.ok(w.por && w.arregla, r);
     assert.doesNotMatch(`${w.por} ${w.arregla}`.replace(/PLANIA_[A-Z_]+/g, ""), /sandbox|\bfail\b|worktree/i, `plain Spanish for "${r}"`);
   }
-  assert.equal(arranque.arranqueLine("fail: missing env PLANIA_RUNNER_TOKEN"), "No pudo arrancar: el servidor no tiene la llave con la que el equipo entra a Plania. Pon PLANIA_RUNNER_TOKEN en el archivo .env de Plania y reinicia el servidor.");
+  assert.equal(arranque.arranqueLine("fail: missing env PLANIA_RUNNER_TOKEN"), "No pudo arrancar: el servidor no tiene la llave con la que el equipo entra a Plania. La llave se crea al terminar el primer arranque de Plania. Si ya lo terminaste, reinicia Plania.");
   assert.match(arranque.arranqueLine("fail: no prompt doc (Prompt: Product owner)"), /^No pudo arrancar: faltan las instrucciones de este puesto\./);
   assert.match(arranque.arranqueLine("fail: base not allowed (branch main)"), /rama de origen/);
   assert.equal(arranque.arranqueLine("fail: error_max_turns (40 turns)"), null, "a run that started is not a start-up failure");
@@ -162,7 +162,7 @@ test("NEWPROJ-5 #3: the ask answers before the PO's run starts; the failed start
   assert.equal(mine.length, 1, `listed once: ${JSON.stringify(rows.map((x: Json) => [x.g, x.key, x.espera]))}`);
   assert.equal(mine[0].g, "toca");
   assert.match(mine[0].espera, /^No pudo arrancar: el servidor no tiene la llave/);
-  assert.match(mine[0].espera, /PLANIA_RUNNER_TOKEN en el archivo \.env/);
+  assert.match(mine[0].espera, /se crea al terminar el primer arranque/);
   assert.doesNotMatch(JSON.stringify(rows), /arranca sola|Está listo y espera tu señal/);
   if (mine[0].palanca) assert.equal(mine[0].palanca.action.label, RETRY);
 });

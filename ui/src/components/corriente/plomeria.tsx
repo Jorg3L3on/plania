@@ -17,6 +17,7 @@ import { AYUDA, EXPORT_ALL_URL, HELP_REPORT_URL } from "@/lib/ayuda";
 import { NOVEDADES, versionLine } from "@/lib/version";
 import { Btn, BtnLink, Key, Label, Switch } from "./parts";
 import { LIMITS_LINK, LIMITS_PATH } from "@/lib/limites";
+import { LimitesCorrida } from "./limites-corrida";
 
 export const weekParts = (plumbing: MachinePlumbing) => {
   const w = plumbing.usage.week;
@@ -261,6 +262,7 @@ export const Plomeria = ({ plumbing, inventory, onInventory, macLine }: { plumbi
             </span>
           </label>
         </section>
+        <LimitesCorrida settings={plumbing.settings} canEdit={canEdit} onSaved={refresh} />
         <section aria-label="Proyectos, agentes y app en tu Mac" data-block="proyectos">
           <div className="cor-side-head">
             <Label as="h2">Proyectos · agentes y app en tu Mac</Label>
