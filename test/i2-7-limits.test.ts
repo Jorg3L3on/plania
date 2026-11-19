@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { limitsInput, limitsRoutes } from "../src/api/limits.js";
 import { writeSettings } from "../src/db/install.js";
 import { OUTBOUND } from "../src/outbound.js";
-import { CONSULTA_DENY_RULES, DENY_GROUPS, DENY_RULES, PROTECTED_BRANCHES, QA_DENY_RULES, RUN_GROUP_IDS, deniedBy } from "../src/runner/deny.js";
+import { CONSULTA_DENY_RULES, DENY_GROUPS, DENY_RULES, PROTECTED_BRANCHES, QA_DENY_RULES, RUN_GROUP_IDS, deniedBy, selfRules } from "../src/runner/deny.js";
 import { newInstallSettings } from "../src/runner/isolation.js";
 import { claudeArgs, isolationOf } from "../src/runner/runner.js";
 import { checkBase } from "../src/runner/worktree.js";
@@ -24,7 +24,7 @@ const allText = (p: LimitsPage) => JSON.stringify(p);
 
 test("I2-7 #1: every deny group and every rule has plain words on the page", () => {
   const ids = DENY_GROUPS.map((g) => g.id);
-  assert.deepEqual(ids, ["protected-branches", "force-push", "pull-requests", "production", "plania-writes", "qa", "preguntar"]);
+  assert.deepEqual(ids, ["protected-branches", "force-push", "pull-requests", "production", "plania-writes", "qa", "preguntar", "plania-self"]); // PLA-I2-9 added plania-self
   for (const g of DENY_GROUPS) {
     assert.ok(GROUP_WORDS[g.id], `group ${g.id} has no words`);
     if (!RUN_GROUP_IDS.includes(g.id)) assert.ok(GROUP_WORDS[g.id]!.extra, `group ${g.id} says not when it applies`);
@@ -53,7 +53,8 @@ test("I2-7: one example per rule, refused by deniedBy()", () => {
   for (const g of DENY_GROUPS) {
     for (const r of g.rules) {
       assert.equal(deniedBy(r.example.tool, r.example.command, [r.rule]), r.rule, `${r.rule} does not refuse ${r.example.command ?? r.example.tool}`);
-      const lane = RUN_GROUP_IDS.includes(g.id) ? DENY_RULES : g.id === "qa" ? QA_DENY_RULES : CONSULTA_DENY_RULES;
+      // PLA-I2-9: plania-self rides on top of a run of the Plania project (selfRules).
+      const lane = RUN_GROUP_IDS.includes(g.id) ? DENY_RULES : g.id === "qa" ? QA_DENY_RULES : g.id === "plania-self" ? selfRules("plania") : CONSULTA_DENY_RULES;
       assert.notEqual(deniedBy(r.example.tool, r.example.command, lane), null, `${g.id}: ${r.example.command ?? r.example.tool}`);
     }
   }

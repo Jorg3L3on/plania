@@ -11,7 +11,7 @@
 /** The branch names no run may move or aim at. The runner's base check (worktree.ts) uses the same list. */
 export const PROTECTED_BRANCHES = ["main", "master", "production", "prod"] as const;
 
-export type DenyGroupId = "protected-branches" | "force-push" | "pull-requests" | "production" | "plania-writes" | "qa" | "preguntar";
+export type DenyGroupId = "protected-branches" | "force-push" | "pull-requests" | "production" | "plania-writes" | "qa" | "preguntar" | "plania-self";
 
 export type DenyRule = {
   /** The rule as Claude Code reads it: Bash(<glob>) or a tool name. */
@@ -26,6 +26,33 @@ export type DenyGroup = { id: DenyGroupId; rules: readonly DenyRule[] };
 const bash = (glob: string, does: string, example: string): DenyRule => ({ rule: `Bash(${glob})`, does, example: { tool: "Bash", command: example } });
 const tool = (name: string, does: string): DenyRule => ({ rule: name, does, example: { tool: name, command: null } });
 const perBranch = (f: (b: string) => DenyRule[]): DenyRule[] => PROTECTED_BRANCHES.flatMap(f);
+
+/** PLA-I2-9: a run of the Plania project itself (src/self/plania-self.ts isSelfProject) never reaches the live
+ * server's database by name, never applies a migration and never restarts the live server: the owner does both. `name` is the live database's
+ * name; the page of limits shows the rules for the default name, plania. The runner also refuses to start such a
+ * run when its environment or folder points at the live database (selfRunProblem). */
+export function selfDenyRules(name: string): DenyRule[] {
+  return [
+    bash(`*psql* ${name}`, "live-database", `psql ${name}`),
+    bash(`*psql* ${name} *`, "live-database", `psql ${name} -c 'select 1'`),
+    bash(`*psql*/${name}`, "live-database", `psql postgres://localhost:5432/${name}`),
+    bash(`*psql*/${name} *`, "live-database", `psql postgres://localhost/${name} -c 'select 1'`),
+    bash(`*psql*/${name}?*`, "live-database", `psql postgres://localhost/${name}?sslmode=disable`),
+    bash(`*psql*-d ${name}*`, "live-database", `psql -h localhost -d ${name}`),
+    bash(`*pg_dump*${name}*`, "live-database", `pg_dump ${name}`),
+    bash(`*DATABASE_URL=*/${name}`, "live-database", `export DATABASE_URL=postgres://localhost/${name}`),
+    bash(`*DATABASE_URL=*/${name} *`, "live-database", `DATABASE_URL=postgres://localhost/${name} pnpm dev`),
+    bash(`*DATABASE_URL=*/${name}?*`, "live-database", `DATABASE_URL=postgres://localhost/${name}?x=1 pnpm dev`),
+    bash("*db:migrate*", "apply-migrations", `pnpm db:migrate --database ${name}`),
+    bash("*src/db/migrate*", "apply-migrations", "pnpm exec tsx src/db/migrate.ts"),
+    bash("*drizzle-kit*migrate*", "apply-migrations", "pnpm exec drizzle-kit migrate"),
+    bash("*drizzle-kit*push*", "apply-migrations", "pnpm exec drizzle-kit push"),
+    // The live server changes only when the owner restarts it.
+    bash("*server:restart*", "restart-live", "pnpm server:restart --force"),
+    bash("*launchctl*com.plania.server*", "restart-live", "launchctl kickstart -k gui/501/com.plania.server"),
+    bash("*systemctl*plania*", "restart-live", "systemctl --user restart plania.service"),
+  ];
+}
 
 export const DENY_GROUPS: readonly DenyGroup[] = [
   // Never main, master, production or prod (PLA-I2-7: the same names as the base check; it was main only).
@@ -168,6 +195,8 @@ export const DENY_GROUPS: readonly DenyGroup[] = [
       tool("mcp__plania__attach_frames", "plan-writes"),
     ],
   },
+  // PLA-I2-9: on top of the others, when the project is Plania itself.
+  { id: "plania-self", rules: selfDenyRules("plania") },
 ];
 
 const rulesOf = (...ids: DenyGroupId[]): string[] => DENY_GROUPS.filter((g) => ids.includes(g.id)).flatMap((g) => g.rules.map((r) => r.rule));
@@ -190,6 +219,9 @@ export const QA_DENY_RULES: readonly string[] = rulesOf("qa");
 
 /** A Preguntar run, on top of DENY_RULES: QA's rules and its own. */
 export const CONSULTA_DENY_RULES: readonly string[] = rulesOf("qa", "preguntar");
+
+/** A run of the Plania project itself, on top of its lane's rules, for the live database's name. */
+export const selfRules = (liveName: string | null): string[] => selfDenyRules(liveName || "plania").map((r) => r.rule);
 
 export const denySettings = (extra: readonly string[] = []): DenySettings => ({ permissions: { deny: [...DENY_RULES, ...extra] } });
 

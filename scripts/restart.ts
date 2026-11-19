@@ -8,6 +8,8 @@ import { parseArgs } from "node:util";
 import { makeDb, resetPool } from "../src/db/client.js";
 import { inFlight } from "../src/ops/in-flight.js";
 import { detectSystem, restartCommand } from "../src/packaging/service.js";
+import { lastGoodFile, readLastGood, restartWithFallback } from "../src/ops/last-good.js";
+import { isPackage, readRelease, ROOT_DIR } from "../src/release.js";
 
 const { values } = parseArgs({ options: { check: { type: "boolean", default: false }, force: { type: "boolean", default: false } }, strict: true });
 const found = await inFlight(makeDb().db);
@@ -26,5 +28,31 @@ if (!restart) {
   console.log("Plania no corre como servicio en esta máquina: deténla y vuelve a encenderla con pnpm start.");
   process.exit(1);
 }
-execFileSync(restart.cmd, restart.args, { stdio: "inherit" });
-console.log("Plania reiniciado.");
+// PLA-I2-9: wait for the server to report what the folder holds; a commit that does not come up goes back to the
+// last one that did (recorded by scripts/dev.ts after a good start).
+const port = Number(process.env.PLANIA_PORT) || 3737;
+const git = (args: string[]) => execFileSync("git", args, { cwd: ROOT_DIR, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+const out = await restartWithFallback({
+  restart: () => execFileSync(restart.cmd, restart.args, { stdio: "inherit" }),
+  health: async () => {
+    const r = await fetch(`http://127.0.0.1:${port}/health/ui`, { signal: AbortSignal.timeout(3_000) }).catch(() => null);
+    if (!r?.ok) return null;
+    const b = (await r.json().catch(() => null)) as { version?: { version?: string; commit?: string | null } } | null;
+    return b ? { commit: b.version?.commit ?? null, version: b.version?.version ?? null } : null;
+  },
+  head: () => readRelease(ROOT_DIR).commit,
+  version: () => readRelease(ROOT_DIR).version,
+  packaged: isPackage(ROOT_DIR),
+  lastGood: () => readLastGood(lastGoodFile()),
+  checkout: (commit) => {
+    try {
+      git(["checkout", "--detach", commit]);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message.split("\n")[0]! : String(e) };
+    }
+  },
+  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+});
+for (const line of out.lines) console.log(line);
+process.exit(out.status === "up" ? 0 : 1);

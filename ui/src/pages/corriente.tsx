@@ -5,6 +5,7 @@
 // (what is open, then the door, then the project back to the stream). PLA-I64-7: the list is the project's entry and
 // 1-7 (the retired tabs) do nothing.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { MigracionesPropias } from "@/components/corriente/migraciones-propias";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -407,12 +408,16 @@ export const CorrientePage = () => {
       );
     if (at.tab === "maquinas")
       return (
-        <Maquinas
+        <>
+          {/* PLA-I2-9: only for Plania itself, only when an agent's migration waits. */}
+          <MigracionesPropias slug={p.slug} />
+          <Maquinas
           p={p}
           focus={at.ver?.kind === "maq" ? at.ver.what : at.ver?.kind === "tabla" ? `tabla:${at.ver.name}` : null}
           onFocus={(what) => navigate(linkTo({ slug: p.slug, tab: "maquinas", ver: what ? (what.startsWith("tabla:") ? { kind: "tabla", name: what.slice(6) } : { kind: "maq", what }) : null }), { replace: true })}
           onPedir={(text) => navigate(hrefOf({ view: "pedir", extra: { p: p.slug, texto: text } }))}
-        />
+          />
+        </>
       );
     // NEWPROJ-6: the project's settings.
     if (at.tab === "ajustes") return <Ajustes p={p} />;
