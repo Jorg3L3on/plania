@@ -87,6 +87,9 @@ export type NewProjectOptions = {
   // NEWPROJ-2: the sheet refuses when any core seat (PO, Research, Artist, Taller) has no prompt, looked up
   // the way the runner does (src/runner/prompts.ts); the script and the MCP tool create anyway.
   requirePromptDoc?: boolean;
+  // PLA-I2-6: the screen's sheet passes it: a project with code starts with NEW_PROJECT_RELEASE (ships from the screen).
+  // The script (pnpm project:add) and the MCP tool create_company_project leave it out: no release step, as before.
+  releaseFromScreen?: boolean;
   // NEWPROJ-3: when given, a repo_path is checked (exists, git, origin, start branch) before anything is created.
   // The sheet passes it; the script and the MCP tool do not.
   repoCheck?: RepoCheckDeps;
@@ -143,8 +146,9 @@ export async function createProjectFromTemplate(db: Db, input: NewProjectInput, 
     plan_approval: true,
     ...(githubRepo ? { github: { repo: githubRepo } } : {}),
     ...(repoPath ? { local: { repo_path: repoPath } } : input.no_code ? { local: { no_code: true } } : {}),
-    // PLA-I2-6: a project with code ships from the screen (Lanzar), with no command to paste. Older projects keep theirs.
-    ...(input.no_code ? {} : { release: NEW_PROJECT_RELEASE }),
+    // PLA-I2-6: a project made on the screen with code ships from the screen (Lanzar), with no command to paste. Older
+    // projects keep theirs; the script and the MCP tool add none.
+    ...(opts.releaseFromScreen && !input.no_code ? { release: NEW_PROJECT_RELEASE } : {}),
   };
   const [ceo] = await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, "ceo")).limit(1);
   const [created] = await db

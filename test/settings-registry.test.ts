@@ -28,7 +28,7 @@ const reg = await import("../src/mcp/settings-registry.js");
 const { advancedWithoutField, AVANZADO_FIELDS } = await import("../src/api/settings-avanzado.js");
 const { setProject } = await import("../src/mcp/project.js");
 const { READINESS_IDS } = await import("../src/runner/readiness.js");
-const { NEW_PROJECT_RELEASE } = await import("../src/runner/new-project.js");
+const { NEW_PROJECT_RELEASE, createProjectFromTemplate } = await import("../src/runner/new-project.js");
 const { withTable } = await import("../scripts/settings-table.js");
 const listo = await import("../ui/src/lib/listo.js");
 const av = await import("../ui/src/lib/ajustes-avanzado.js");
@@ -105,16 +105,49 @@ test("PLA-I2-6 check 2: every settings key the server writes outside set_project
   for (const [k, file] of found) assert.ok(keys.has(k), `${path.relative(ROOT, file)} writes settings.${k}, which is not in SETTING_KEYS`);
 });
 
-test("PLA-I2-6 check 2: set_project accepts the keys the screen writes, and still refuses an unknown one", async () => {
+// The owner's screen: the context the cookie-gated routes pass (src/api/project-settings.ts settingsCtx).
+const screen = { actor: { agent: "owner", session_id: "web", machine: "screen" }, human: true, tool: "screen.settings" } as never;
+
+test("PLA-I2-6 check 2: set_project from the screen accepts the keys the screen writes, and still refuses an unknown one", async () => {
   const p = await stored("huerto");
   const out = await setProject(
     db,
     { project: "huerto", version: p.version, settings: { plan_approval: false, preview_url: "https://huerto.example.com", auto_accept: true, auto_accept_invisible: true, runner: { max_concurrent: 2 }, team: { idle_minutes: 30 } } },
-    ctx,
+    screen,
   );
   assert.equal((out.settings as Record<string, unknown>).preview_url, "https://huerto.example.com");
-  await assert.rejects(setProject(db, { project: "huerto", version: out.version, settings: { colour: "red" } }, ctx), /INVALID_FILTER/);
-  await assert.rejects(setProject(db, { project: "huerto", version: out.version, settings: { preview_url: "huerto" } }, ctx), /INVALID_FILTER/);
+  await assert.rejects(setProject(db, { project: "huerto", version: out.version, settings: { colour: "red" } }, screen), /INVALID_FILTER/);
+  await assert.rejects(setProject(db, { project: "huerto", version: out.version, settings: { preview_url: "huerto" } }, screen), /INVALID_FILTER/);
+  await setProject(db, { project: "huerto", version: out.version, settings: { plan_approval: true, auto_accept: false, auto_accept_invisible: false, preview_url: null, runner: null } }, screen);
+});
+
+// A valid value for each owner-only key; the test fails when a key is marked owner-only without one here.
+const OWNER_ONLY_SAMPLE: Record<string, unknown> = {
+  preview_url: "https://huerto.example.com",
+  plan_approval: false,
+  auto_accept: true,
+  auto_accept_invisible: true,
+  runner: { max_concurrent: 4 },
+  next_first: "HUE-1",
+};
+
+test("PLA-I2-6: every owner-only key is refused from an agent (INVALID_FILTER, nothing written) and taken from the screen", async () => {
+  assert.deepEqual([...reg.OWNER_ONLY_KEYS].sort(), ["auto_accept", "auto_accept_invisible", "next_first", "plan_approval", "preview_url", "runner"]);
+  for (const k of reg.OWNER_ONLY_KEYS) {
+    assert.ok(k in OWNER_ONLY_SAMPLE, `a sample value for ${k}`);
+    const value = OWNER_ONLY_SAMPLE[k];
+    const before = await stored("huerto");
+    await assert.rejects(setProject(db, { project: "huerto", version: before.version, settings: { [k]: value } }, ctx), /INVALID_FILTER/, `${k} from an agent`);
+    // Clearing one is weakening it too (plan_approval null is off).
+    await assert.rejects(setProject(db, { project: "huerto", version: before.version, settings: { [k]: null } }, ctx), /INVALID_FILTER/, `${k}: null from an agent`);
+    assert.equal((await stored("huerto")).version, before.version, `${k}: nothing written`);
+    const out = await setProject(db, { project: "huerto", version: before.version, settings: { [k]: value } }, screen);
+    assert.deepEqual((out.settings as Record<string, unknown>)[k], value, `${k} from the screen`);
+  }
+  // Keys that are not owner-only stay open to agents.
+  const p = await stored("huerto");
+  await setProject(db, { project: "huerto", version: p.version, settings: { claim_from: "ready" } }, ctx);
+  for (const k of reg.OWNER_ONLY_KEYS) assert.ok(readFileSync(path.join(ROOT, "README.md"), "utf8").includes(`| \`${k}\` |`), `README lists ${k} as owner-only`);
 });
 
 test("PLA-I2-6 check 2: every key has a control and a sentence; every advanced key has a field, a reason, a Spanish default and a README row", () => {
@@ -182,6 +215,10 @@ test("PLA-I2-6 check 4: a new project with code ships from the screen (mode merg
   assert.deepEqual(cocina.settings.release, NEW_PROJECT_RELEASE);
   assert.equal(cocina.settings.release.mode, "merge");
   assert.equal((await stored("huerto")).settings.release, undefined);
+  // The script and the MCP tool create through the same function without the screen's flag: no release step.
+  const made = await createProjectFromTemplate(db, { name: "Granero", repo_path: "/Users/o/granero" }, { requirePromptDoc: false });
+  assert.ok(!("error" in made), JSON.stringify(made));
+  assert.equal((await stored("granero")).settings.release, undefined);
   const s = await read();
   assert.equal(s.release?.mode, "merge", "Ajustes shows it as shipping from Plania");
   const plan = await app.request(`/api/projects/${SLUG}/release`, { headers: jorge() });

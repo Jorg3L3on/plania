@@ -1038,8 +1038,9 @@ system themes. Times arrive as UTC and show in the browser's local time.
   and edits the three context docs (`Context: Glossary`, `Commands`, `Map`) from `kit/context/`. Writes go through
   `set_project` and `attach_doc` with the version on screen (`GET` / `PUT /api/company/projects/:slug/settings…`), so a
   concurrent change is refused, not overwritten. PLA-I2-6: it also edits how the app starts (`settings.capture`:
-  command, port, pages) and, in a closed «Avanzado» section, every advanced setting below. A new project with code
-  starts with a release step that ships from the screen (mode `merge`). No field takes a secret: a token is named by
+  command, port, pages) and, in a closed «Avanzado» section, every advanced setting below. A project with code made
+  on the screen starts with a release step that ships from the screen (mode `merge`); `pnpm project:add` and
+  `create_company_project` add none. No field takes a secret: a token is named by
   its variable (`github.token_env`, `vercel.token_env`), and a value shaped like a token is refused (`SECRET_VALUE`).
   Each missing item on the readiness list links to its section. Plomería's «Cada corrida» sets the company's
   `max_turns`, `timeout_minutes` and `cooldown_minutes`.
@@ -1048,10 +1049,24 @@ system themes. Times arrive as UTC and show in the browser's local time.
 
 One list, `src/mcp/settings-registry.ts`, holds every key of `projects.settings`: its default, whether it is basic or
 advanced, its control on screen and its plain sentence. `set_project` accepts exactly those keys, and the screen writes
-no other (`test/settings-registry.test.ts`). The advanced ones can be left alone; this table is generated from the list
-(`pnpm exec tsx scripts/settings-table.ts`):
+no other (`test/settings-registry.test.ts`). A few are owner-only: an agent setting them would weaken a control the owner
+keeps, so `set_project` from an agent refuses them and only the owner's screen writes them. These tables are generated
+from the list (`pnpm exec tsx scripts/settings-table.ts`):
 
 <!-- settings-advanced:start -->
+Only the owner's screen sets these; `set_project` from an agent refuses them (INVALID_FILTER):
+
+| Setting | Why an agent may not |
+|---|---|
+| `preview_url` | an agent could point the owner's preview link anywhere |
+| `plan_approval` | off, a PO's plan makes tickets without the owner's «Sí, empiecen» |
+| `auto_accept` | on, deliveries enter the test copy without the owner |
+| `auto_accept_invisible` | on, deliveries enter the test copy without the owner |
+| `runner` | it raises how many runs go at once and which server variables runs get |
+| `next_first` | it overrides the step the owner picked to go first |
+
+Advanced settings, which can be left alone:
+
 | Setting | Default | Why it can be left alone |
 |---|---|---|
 | `start_branch` | sandbox | The default works once the repository has that branch; «Crear la rama de trabajo» makes it. |
