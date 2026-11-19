@@ -1040,9 +1040,35 @@ system themes. Times arrive as UTC and show in the browser's local time.
   (`settings.release`), QA's verify list (one command per line), the preview address and plan approval, and creates
   and edits the three context docs (`Context: Glossary`, `Commands`, `Map`) from `kit/context/`. Writes go through
   `set_project` and `attach_doc` with the version on screen (`GET` / `PUT /api/company/projects/:slug/settings…`), so a
-  concurrent change is refused, not overwritten. Token fields are not on screen. Still MCP-only (`set_project`):
-  `vercel`, `resources`, `quotas`, `branch_pattern`, `claim_from`, `release_target`, `release_on`, `auto_done`,
-  `capture` beyond Máquinas' minimal one, `maquinas`, and the runner's areas.
+  concurrent change is refused, not overwritten. PLA-I2-6: it also edits how the app starts (`settings.capture`:
+  command, port, pages) and, in a closed «Avanzado» section, every advanced setting below. A new project with code
+  starts with a release step that ships from the screen (mode `merge`). No field takes a secret: a token is named by
+  its variable (`github.token_env`, `vercel.token_env`), and a value shaped like a token is refused (`SECRET_VALUE`).
+  Each missing item on the readiness list links to its section. Plomería's «Cada corrida» sets the company's
+  `max_turns`, `timeout_minutes` and `cooldown_minutes`.
+
+#### Project settings
+
+One list, `src/mcp/settings-registry.ts`, holds every key of `projects.settings`: its default, whether it is basic or
+advanced, its control on screen and its plain sentence. `set_project` accepts exactly those keys, and the screen writes
+no other (`test/settings-registry.test.ts`). The advanced ones can be left alone; this table is generated from the list
+(`pnpm exec tsx scripts/settings-table.ts`):
+
+<!-- settings-advanced:start -->
+| Setting | Default | Why it can be left alone |
+|---|---|---|
+| `start_branch` | sandbox | The default works once the repository has that branch; «Crear la rama de trabajo» makes it. |
+| `release_target` | prod | Only matters with more than one deploy target; prod fits a project with one. |
+| `release_on` | env with Vercel or a recorded commit, else branch | Plania picks it from what the project has; set it only when the guess is wrong. |
+| `auto_done` | on | On is what a new owner wants; off keeps every closing by hand. |
+| `branch_pattern` | none: any branch name | The runner already names its branches; a pattern only binds outside clients. |
+| `claim_from` | backlog | The PO decides what is Ready; the default suits a team the PO leads. |
+| `resources` | none: leases with the server's limits | Leases work without it; it only caps how long one may be held. |
+| `quotas` | none | Only for a project that calls an outside service with a daily cap. |
+| `vercel` | none: deploys are not read | Only for a project deployed on Vercel. |
+| `maquinas` | found in the repo: the env file, the migrate and seed scripts, the migrations folder | Plania finds them in package.json and the repo; set them only when it cannot. |
+| `team` | idle after 120 minutes | Two hours suits runs of any length the runner starts. |
+<!-- settings-advanced:end -->
 - **Live:** writes from agents, CI or the screen appear within a second. A ticket that changed column glides to
   its new place and glows briefly. The header shows "En vivo" while the event stream is connected. Animations
   stop under the system's reduced-motion setting.

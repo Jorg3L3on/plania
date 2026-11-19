@@ -10,6 +10,7 @@ import { parseMaquinasSettings } from "../maquinas/settings.js";
 import { parseLocalSettings } from "../runner/repo-check.js";
 import { startBranchProblem } from "../runner/start-branch.js";
 import { TEXT_LIMITS } from "./limits.js";
+import { ENV_NAME, SETTING_KEYS } from "./settings-registry.js";
 import { findProject } from "./queries.js";
 import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 
@@ -17,7 +18,6 @@ import { iso, writeTx, type Ctx, type Q } from "./tx.js";
 // additions to the protocol) and the headline (one line on where it stands, ≤ 280 chars).
 // Replaced with the version you read; rules_version moves with the rules, headline_version with the headline.
 
-const SETTING_KEYS = ["release_target", "release_on", "auto_done", "branch_pattern", "claim_from", "resources", "quotas", "github", "vercel", "release", "team", "capture", "qa", "maquinas", "local", "start_branch"] as const;
 
 // settings merge key by key; null removes one. Secrets never: integrations name env vars.
 function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>): ProjectSettings {
@@ -38,6 +38,22 @@ function mergeSettings(current: ProjectSettings, patch: Record<string, unknown>)
     }
   }
   if (next.release_target !== undefined && !/^[a-z][a-z0-9_-]{0,29}$/.test(String(next.release_target))) throw new ToolError("INVALID_FILTER", { field: "settings.release_target" });
+  // PLA-I2-6: the keys the screen writes, now in the one list (src/mcp/settings-registry.ts). Checked when sent, so
+  // an odd value stored before never blocks an unrelated save.
+  for (const k of ["plan_approval", "auto_accept", "auto_accept_invisible"] as const) {
+    if (patch[k] != null && typeof next[k] !== "boolean") throw new ToolError("INVALID_FILTER", { field: `settings.${k}`, allowed: [true, false] });
+  }
+  if (patch.preview_url != null) {
+    const u = String(next.preview_url);
+    if (typeof next.preview_url !== "string" || u.length > 300 || !/^https?:\/\/\S+$/.test(u)) throw new ToolError("INVALID_FILTER", { field: "settings.preview_url", hint: "an http or https address" });
+  }
+  if (patch.next_first != null && (typeof next.next_first !== "string" || !/^[A-Z][A-Z0-9]*-[A-Z0-9-]+$/.test(next.next_first))) throw new ToolError("INVALID_FILTER", { field: "settings.next_first", hint: "a ticket key" });
+  if (patch.runner != null && (typeof next.runner !== "object" || next.runner === null || Array.isArray(next.runner))) throw new ToolError("INVALID_FILTER", { field: "settings.runner" });
+  // PLA-I2-6: a token is named by its variable, never given: a value that is not a variable's name is refused.
+  for (const k of ["github", "vercel"] as const) {
+    const te = (patch[k] as { token_env?: unknown } | null | undefined)?.token_env;
+    if (te !== undefined && (typeof te !== "string" || !ENV_NAME.test(te))) throw new ToolError("INVALID_FILTER", { field: `settings.${k}.token_env`, hint: "the NAME of an environment variable (A-Z, 0-9, _), never the token" });
+  }
   if (next.release !== undefined) next.release = checkReleaseSettings(next.release);
   // PLA-I46-6: how Plania reaches the running app (src/captures/settings.ts).
   if (next.capture !== undefined) {

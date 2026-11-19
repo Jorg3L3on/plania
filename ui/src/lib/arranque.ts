@@ -8,7 +8,8 @@ export type ArranqueWords = { /** What happened, as a sentence. */ por: string; 
 export const ARRANQUE: Record<string, ArranqueWords> = {
   "missing env PLANIA_RUNNER_TOKEN": {
     por: "El servidor no tiene la llave con la que el equipo entra a Plania",
-    arregla: "Pon PLANIA_RUNNER_TOKEN en el archivo .env de Plania y reinicia el servidor.",
+    // PLA-I2-6: the token is made at first start (PLA-I2-2); nothing is pasted.
+    arregla: "La llave se crea al terminar el primer arranque de Plania. Si ya lo terminaste, reinicia Plania.",
   },
   "no prompt doc": {
     por: "Faltan las instrucciones de este puesto",
