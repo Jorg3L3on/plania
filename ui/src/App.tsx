@@ -3,6 +3,7 @@ import { CloudOffIcon } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 import { AppShell } from "@/components/app-shell";
+import { LanguageSync } from "@/components/language-sync";
 import { PlaniaMark } from "@/components/plania-mark";
 import { Button } from "@/components/ui/button";
 import { api, isUnauthorized } from "@/lib/api";
@@ -73,7 +74,10 @@ function ProjectRoute() {
 
 export function App() {
   return (
-    <Routes>
+    <>
+      {/* PLA-I2-10: the screen follows the install's language. */}
+      <LanguageSync />
+      <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/primer-arranque" element={<PrimerArranquePage />} />
       <Route path="/primer-arranque/falta" element={<PrimerArranqueFaltaPage />} />
@@ -104,6 +108,7 @@ export function App() {
         <Route path="/calidad" element={<CalidadPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
-    </Routes>
+      </Routes>
+    </>
   );
 }

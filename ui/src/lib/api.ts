@@ -9,6 +9,7 @@ import type { Preparacion } from "@/lib/preparar-codigo";
 import type { MachineCheckReading } from "@/lib/falta";
 import type { ReleaseReading } from "@/lib/version";
 import type { FirstStartState } from "@/lib/primer-arranque";
+import type { Language } from "@/lib/i18n";
 import type { GuiaRead } from "@/lib/primera-entrega";
 import type { LimitsPage } from "@/lib/limites";
 import type { Ajustes, AjustesContextoId } from "@/lib/ajustes";
@@ -94,7 +95,10 @@ export const api = {
   guia: () => request<GuiaRead>("GET", "/guia"),
   guiaEjemplo: () => request<{ slug: string }>("POST", "/guia/ejemplo"),
   firstStart: () => request<FirstStartState>("GET", "/first-start"),
-  finishFirstStart: (body: { code: string; name: string; password: string; time_zone: string; projects_root?: string; worktrees_root?: string }) => request<{ ok: true; home: string }>("POST", "/first-start", body),
+  // PLA-I2-10: the install's language; GET needs no session.
+  language: () => request<{ language: Language; chosen: boolean; languages: Language[] }>("GET", "/language"),
+  setLanguage: (language: Language) => request<{ language: Language }>("PUT", "/language", { language }),
+  finishFirstStart: (body: { code: string; name: string; password: string; time_zone: string; projects_root?: string; worktrees_root?: string; language?: Language }) => request<{ ok: true; home: string }>("POST", "/first-start", body),
   firstStartMachineCheck: (fresh = false) => request<MachineCheckReading>("GET", `/first-start/machine-check${fresh ? "?fresh=1" : ""}`),
   // PLA-I2-7: the page of limits, built from the real rules.
   limits: () => request<LimitsPage>("GET", "/limits"),

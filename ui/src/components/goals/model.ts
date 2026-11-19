@@ -1,4 +1,6 @@
 // Screen shape of a goal. Same fields list_goals returns. Progress is Done tickets over every linked ticket.
+import { getLanguage, words, type Language } from "@/lib/i18n";
+import { GOALS_WORDS } from "@/lib/goals-words";
 
 export type GoalStatus = "active" | "done" | "dropped";
 
@@ -27,12 +29,9 @@ export type GoalWrite = {
   target_on?: string | null;
 };
 
-export const GOAL_STATUS_LABEL: Record<GoalStatus, string> = {
-  active: "Activa",
-  done: "Hecha",
-  dropped: "Dejada",
-};
+// PLA-I2-10: in the screen's language (fixed for the life of the page).
+export const GOAL_STATUS_LABEL: Record<GoalStatus, string> = words(GOALS_WORDS).status;
 
 export const GOAL_STATUSES = ["active", "done", "dropped"] as const;
 
-export const progressText = (done: number, total: number) => `${done} de ${total} hechos`;
+export const progressText = (done: number, total: number, language: Language = getLanguage()) => words(GOALS_WORDS, language).progress(done, total);

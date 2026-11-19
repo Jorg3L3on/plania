@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { localTime } from "@/lib/time";
+import { words } from "@/lib/i18n";
+import { DELEGATION } from "@/lib/delegation-words";
 
 type CommentThreadProps = {
   slug: string;
@@ -9,6 +11,7 @@ type CommentThreadProps = {
 };
 
 export const CommentThread = ({ slug, taskKey }: CommentThreadProps) => {
+  const w = words(DELEGATION);
   const comments = useQuery({
     queryKey: ["comments", slug, taskKey],
     queryFn: () => api.comments(slug, taskKey),
@@ -16,16 +19,16 @@ export const CommentThread = ({ slug, taskKey }: CommentThreadProps) => {
 
   if (comments.isPending) return <Skeleton className="h-16 rounded-xl" aria-hidden />;
   if (comments.isError || !comments.data) {
-    return <p className="text-sm text-muted-foreground">No se pudieron cargar los comentarios.</p>;
+    return <p className="text-sm text-muted-foreground">{w.commentsFailed}</p>;
   }
 
   const rows = comments.data.comments;
 
   return (
-    <section className="grid gap-2" aria-label="Comentarios">
-      <h3 className="text-[11px] font-bold tracking-[0.14em] text-muted-foreground uppercase">Comentarios</h3>
+    <section className="grid gap-2" aria-label={w.comments}>
+      <h3 className="text-[11px] font-bold tracking-[0.14em] text-muted-foreground uppercase">{w.comments}</h3>
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Sin comentarios.</p>
+        <p className="text-sm text-muted-foreground">{w.noComments}</p>
       ) : (
         <ol className="grid gap-2">
           {rows.map((row) => (

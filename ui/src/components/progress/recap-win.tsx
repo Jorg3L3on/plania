@@ -1,23 +1,26 @@
 import { Link } from "react-router";
 import { ProjectChip, Shot } from "@/components/progress/recap-bits";
 import { formatDayLong } from "@/lib/progress";
+import { words } from "@/lib/i18n";
+import { PROGRESS_WORDS } from "@/lib/progress-words";
 import type { ProgressWin } from "@/lib/types";
 
 type Props = { win: ProgressWin };
 
 export const RecapWin = ({ win }: Props) => {
   const prs = win.prs.slice(0, 4).map((pr) => `#${pr.number}`).join(" · ");
-  const tickets = win.tickets === 1 ? "1 ticket" : `${win.tickets} tickets`;
-  const beforeAlt = `Antes: ${win.title}`;
-  const afterAlt = `Después: ${win.title}`;
+  const w = words(PROGRESS_WORDS);
+  const tickets = w.ticketCount(win.tickets);
+  const beforeAlt = w.beforeAlt(win.title);
+  const afterAlt = w.afterAlt(win.title);
   return (
     <article className="overflow-hidden rounded-[26px] border border-white/10 bg-[#0d0f14]">
       <div className="relative bg-[radial-gradient(80%_90%_at_50%_0%,#064e3b,#05070a_70%)] px-4 pt-4 pb-3">
-        <p className="text-[10px] font-black tracking-[0.18em] text-[#a7f3d0]">🏆 MAYOR LOGRO</p>
+        <p className="text-[10px] font-black tracking-[0.18em] text-[#a7f3d0]">{w.biggestWin}</p>
         {(win.images.before || win.images.after) && (
           <div className="mt-3 flex gap-2">
-            <Shot src={win.images.before} label="ANTES" tone="before" alt={beforeAlt} />
-            <Shot src={win.images.after} label="DESPUÉS" tone="after" alt={afterAlt} />
+            <Shot src={win.images.before} label={w.before} tone="before" alt={beforeAlt} />
+            <Shot src={win.images.after} label={w.after} tone="after" alt={afterAlt} />
           </div>
         )}
       </div>

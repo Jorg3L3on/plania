@@ -7,6 +7,8 @@ import type { Goal } from "@/components/goals/model";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { words } from "@/lib/i18n";
+import { GOALS_WORDS } from "@/lib/goals-words";
 
 function useGoalNames() {
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
@@ -25,7 +27,8 @@ function GoalList({
   compact?: boolean;
   onEdit: (goal: Goal) => void;
 }) {
-  if (goals.length === 0) return <p className="text-sm text-muted-foreground">Sin metas.</p>;
+  const w = words(GOALS_WORDS);
+  if (goals.length === 0) return <p className="text-sm text-muted-foreground">{w.none}</p>;
   return (
     <div className="grid grid-cols-1 gap-2.5">
       {goals.map((goal, index) => (
@@ -53,6 +56,7 @@ function GoalsBlock({
   companyOnly?: boolean;
   heading: "section" | "none";
 }) {
+  const w = words(GOALS_WORDS);
   const list = useQuery({
     queryKey: project ? ["goals", project] : ["goals"],
     queryFn: () => api.goals(project),
@@ -77,25 +81,25 @@ function GoalsBlock({
   };
 
   return (
-    <section className="grid gap-3" aria-label="Metas">
+    <section className="grid gap-3" aria-label={w.goals}>
       <div className="flex flex-wrap items-end justify-between gap-3">
         {heading === "section" ? (
           <div className="grid gap-1">
-            <h2 className="font-display text-2xl font-extrabold tracking-tight">Metas</h2>
-            <p className="text-xs text-muted-foreground">Meta de la empresa → meta del proyecto → iniciativa.</p>
+            <h2 className="font-display text-2xl font-extrabold tracking-tight">{w.goals}</h2>
+            <p className="text-xs text-muted-foreground">{w.ladder}</p>
           </div>
         ) : null}
         <div className="ml-auto flex items-center gap-2">
           {compact && (
             <Link to="/goals" className="inline-flex min-h-9 items-center text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
-              Ver metas
+              {w.seeGoals}
             </Link>
           )}
-          <Button type="button" onClick={handleCreate}>Nueva meta</Button>
+          <Button type="button" onClick={handleCreate}>{w.newGoal}</Button>
         </div>
       </div>
       {list.isError ? (
-        <p className="text-sm text-destructive">No se pudieron cargar las metas.</p>
+        <p className="text-sm text-destructive">{w.loadFailed}</p>
       ) : !list.data ? (
         <Skeleton className="h-28 rounded-[20px]" />
       ) : (

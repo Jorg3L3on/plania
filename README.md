@@ -999,6 +999,8 @@ The plan and the rules live in Plania: the server's `instructions` carry the pro
 
 ## Screen
 
+The screen speaks the install's language, Spanish or English, chosen at first start and changed in Plomería; the morning brief follows it. Where words live and how to add one: [docs/screen-words.md](docs/screen-words.md).
+
 `http://localhost:3737`, password login. React 19, Tailwind 4 and shadcn/ui. Dark ("Noche") by default, with light and
 system themes. Times arrive as UTC and show in the browser's local time.
 

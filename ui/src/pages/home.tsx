@@ -14,6 +14,8 @@ import { proximoOf } from "@/lib/due";
 import { api } from "@/lib/api";
 import { cityOf, looseInbox, waitingOf, workingCity } from "@/lib/city";
 import { envLine, flightsOf, headlineOf, liveServersOf, tileOf } from "@/lib/home";
+import { HOME_PAGE } from "@/lib/home-words";
+import { words } from "@/lib/i18n";
 
 // Re-render now and then so "hace 42 min" keeps moving without a refetch.
 function useNow(everyMs = 30_000) {
@@ -26,6 +28,7 @@ function useNow(everyMs = 30_000) {
 }
 
 export function HomePage() {
+  const w = words(HOME_PAGE);
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const inboxQuery = useQuery({ queryKey: ["inbox"], queryFn: () => api.inbox(), staleTime: 15_000 });
   // The city counts decisiones and pasos; Limpieza (things left on the machine) lives in the Máquina.
@@ -55,7 +58,7 @@ export function HomePage() {
 
   const names = (slug: string) => projects.data?.find((p) => p.slug === slug)?.title ?? slug;
 
-  if (projects.isError) return <p className="text-sm text-destructive">No se pudieron cargar los proyectos.</p>;
+  if (projects.isError) return <p className="text-sm text-destructive">{w.failed}</p>;
   if (!projects.data) {
     return (
       <div className="grid gap-6">

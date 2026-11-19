@@ -450,7 +450,9 @@ describe("ideas on Ahora", () => {
     const parts = readFileSync(new URL("../ui/src/components/plan/project-parts.tsx", import.meta.url), "utf8");
     assert.match(parts, /ideaFinished/);
     assert.match(parts, /useState\(false\)/);
-    assert.match(parts, /Mostrar terminadas \(\$\{finished\.length\}\)/);
+    // PLA-I2-10: the words live in lib/plan-words.ts.
+    assert.match(parts, /showFinished\(finished\.length\)/);
+    assert.match(readFileSync(new URL("../ui/src/lib/plan-words.ts", import.meta.url), "utf8"), /Mostrar terminadas \(\$\{n\}\)/);
     assert.equal(/localStorage|sessionStorage/.test(parts), false);
   });
 

@@ -3,6 +3,7 @@
 // where the agents' copies live and whether run isolation is on. Words in ui/src/lib/limites.ts.
 import { Hono } from "hono";
 import { limitsPage, type LimitsInput, type LimitsPage } from "../../ui/src/lib/limites.js";
+import { installLanguage } from "../language.js";
 import { OUTBOUND } from "../outbound.js";
 import { DENY_GROUPS, RUN_GROUP_IDS } from "../runner/deny.js";
 import { isolationOf } from "../runner/runner.js";
@@ -16,7 +17,8 @@ export const limitsInput = (env: NodeJS.ProcessEnv = process.env): LimitsInput =
   isolation: isolationOf(env),
 });
 
-export function limitsRoutes(read: () => LimitsPage = () => limitsPage(limitsInput())) {
+// PLA-I2-10: the page in the install's language.
+export function limitsRoutes(read: () => LimitsPage = () => limitsPage(limitsInput(), installLanguage())) {
   const routes = new Hono();
   routes.get("/", (c) => c.json(read()));
   return routes;

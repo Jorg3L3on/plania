@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { accentInk, projectAccent } from "@/components/plan/visuals";
 import { api } from "@/lib/api";
 import type { Digest, DigestHighlights } from "@/lib/types";
+import { getLanguage, words, type Language } from "@/lib/i18n";
+import { HOME_HOY } from "@/lib/home-pieces-words";
 
 const CURSOR_KEY = "plania.hoy.cursor";
 // needs_owner is what waits now, not what changed: after "Visto" only what started waiting later shows.
@@ -35,16 +37,17 @@ function writeNumber(key: string, v: number) {
 type Chip = { label: string; keys: string[] };
 
 // The highlights worth a chip, in the order the owner reads them.
-export function chipsOf(h: DigestHighlights): Chip[] {
-  const n = (k: string[], one: string, many: string): Chip | null => (k.length ? { label: `${k.length} ${k.length === 1 ? one : many}`, keys: k } : null);
-  const prs = (list: number[], one: string, many: string): Chip | null => (list.length ? { label: `${list.length} ${list.length === 1 ? one : many}`, keys: list.map((p) => `#${p}`) } : null);
+export function chipsOf(h: DigestHighlights, language: Language = getLanguage()): Chip[] {
+  const w = words(HOME_HOY, language);
+  const n = (k: string[], label: (n: number) => string): Chip | null => (k.length ? { label: label(k.length), keys: k } : null);
+  const prs = (list: number[], label: (n: number) => string): Chip | null => (list.length ? { label: label(list.length), keys: list.map((p) => `#${p}`) } : null);
   return [
-    n(h.done, "hecho", "hechos"),
-    n(h.to_review, "a revisar", "a revisar"),
-    prs(h.prs_merged, "PR fusionado", "PRs fusionados"),
-    prs(h.prs_opened, "PR abierto", "PRs abiertos"),
-    n(h.claims, "tomado", "tomados"),
-    n(h.blocked, "bloqueado", "bloqueados"),
+    n(h.done, w.done),
+    n(h.to_review, w.toReview),
+    prs(h.prs_merged, w.prsMerged),
+    prs(h.prs_opened, w.prsOpened),
+    n(h.claims, w.claims),
+    n(h.blocked, w.blocked),
   ].filter((c): c is Chip => c !== null);
 }
 
@@ -57,9 +60,10 @@ export function hoyIsEmpty(d: Digest, seenAt?: number, now = Date.now()): boolea
   return !waitingSince(d, seenAt, now).length && d.projects.every((p) => chipsOf(p.highlights).length === 0);
 }
 
-const sinceWord = (d: Digest) => (d.since_from === "default" ? "en las últimas 24 h" : "desde tu último Visto");
+const sinceWord = (d: Digest) => (d.since_from === "default" ? words(HOME_HOY).last24h : words(HOME_HOY).sinceSeen);
 
 export function Hoy({ names }: { names: (slug: string) => string }) {
+  const w = words(HOME_HOY);
   const queryClient = useQueryClient();
   const [cursor, setCursor] = useState(() => readNumber(CURSOR_KEY));
   const [seenAt, setSeenAt] = useState(() => readNumber(SEEN_AT_KEY));
@@ -85,10 +89,10 @@ export function Hoy({ names }: { names: (slug: string) => string }) {
     <section aria-labelledby="hoy-title" className="grid animate-rise grid-cols-1 gap-3 rounded-[20px] border bg-card/60 px-4 py-3.5 sm:px-5">
       <div className="flex items-baseline justify-between gap-3">
         <h2 id="hoy-title" className="font-display text-lg font-bold tracking-tight">
-          Hoy <span className="text-sm font-normal text-muted-foreground">{sinceWord(d)}</span>
+          {w.today} <span className="text-sm font-normal text-muted-foreground">{sinceWord(d)}</span>
         </h2>
         <Button variant="outline" size="sm" disabled={seen.isPending} onClick={() => seen.mutate(d.cursor)} className="shrink-0">
-          <CheckIcon aria-hidden /> Visto
+          <CheckIcon aria-hidden /> {w.seen}
         </Button>
       </div>
 
@@ -114,7 +118,7 @@ export function Hoy({ names }: { names: (slug: string) => string }) {
 
       {waiting.length > 0 && (
         <div className="grid grid-cols-1 gap-1.5">
-          <p className="text-xs font-semibold tracking-wide text-ink-owner uppercase">Te espera</p>
+          <p className="text-xs font-semibold tracking-wide text-ink-owner uppercase">{w.waitsOnYou}</p>
           <ul className="grid grid-cols-1 gap-1">
             {waiting.slice(0, 6).map((i, n) => (
               <li key={`${i.project}-${i.kind}-${i.key ?? n}-${n}`}>
@@ -130,7 +134,7 @@ export function Hoy({ names }: { names: (slug: string) => string }) {
           </ul>
           {waiting.length > 6 && (
             <Link to="/inbox" className="px-2 text-xs text-muted-foreground underline underline-offset-4">
-              y {waiting.length - 6} más en la Bandeja
+              {w.moreInInbox(waiting.length - 6)}
             </Link>
           )}
         </div>

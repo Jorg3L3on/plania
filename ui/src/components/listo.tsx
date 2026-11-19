@@ -6,6 +6,8 @@ import { Link } from "react-router";
 import { linkTo } from "@/lib/corriente";
 import { LISTO_IR, listoAjuste, listoGrupos, type Listo, type ListoLinea } from "@/lib/listo";
 import { cn } from "@/lib/utils";
+import { words } from "@/lib/i18n";
+import { TASK } from "@/lib/task-words";
 
 const DOT: Record<"cor" | "page", (l: ListoLinea) => string> = {
   cor: (l) => `cor-listo-dot ${l.estado === "missing" ? (l.para ? "bad" : "amber") : l.estado === "ready" ? "ok" : ""}`,
@@ -15,6 +17,7 @@ const DOT: Record<"cor" | "page", (l: ListoLinea) => string> = {
 export const ListoLista = ({ r, look, ajustes }: { r: Listo; look: "cor" | "page"; ajustes?: ReactNode }) => {
   const grupos = listoGrupos(r.items);
   const cor = look === "cor";
+  const w = words(TASK);
   return (
     <div className={cor ? "cor-listo" : "grid gap-4"} data-listo={r.blocking}>
       {grupos.map((g) => (
@@ -27,7 +30,7 @@ export const ListoLista = ({ r, look, ajustes }: { r: Listo; look: "cor" | "page
                 <span className={cor ? "cor-listo-body" : "grid min-w-0 gap-0.5"}>
                   <b className={cor ? undefined : "font-medium"}>
                     {l.titulo}
-                    {l.para && <span className={cor ? "cor-listo-para" : "ml-2 text-xs font-normal text-destructive"}>impide arrancar</span>}
+                    {l.para && <span className={cor ? "cor-listo-para" : "ml-2 text-xs font-normal text-destructive"}>{w.blocksStart}</span>}
                   </b>
                   <span className={cor ? undefined : "break-words text-muted-foreground"}>{l.texto}</span>
                   {/* PLA-I2-6: a missing item links to its control in the project's Ajustes. */}

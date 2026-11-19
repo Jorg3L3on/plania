@@ -12,6 +12,8 @@ import { api } from "@/lib/api";
 import { ASK_MAX, MODES, type AskMode } from "@/lib/corriente";
 import { askedLine } from "@/lib/edificio";
 import { cn } from "@/lib/utils";
+import { words } from "@/lib/i18n";
+import { PEDIR_HOME } from "@/lib/pedir-home-words";
 
 // The project Inicio's field asked for last, per device.
 const LAST_PROJECT = "plania.pedir.project";
@@ -40,6 +42,7 @@ function writeLast(slug: string) {
 /** Inicio's Pedir: the words, the project and how (Darle forma, Hacerlo ya, Preguntar), as in La corriente. */
 export function PedirHome({ projects }: { projects: { slug: string; title: string }[] }) {
   const queryClient = useQueryClient();
+  const w = words(PEDIR_HOME);
   const [text, setText] = useState("");
   const [mode, setMode] = useState<AskMode>("forma");
   const [sending, setSending] = useState(false);
@@ -57,11 +60,11 @@ export function PedirHome({ projects }: { projects: { slug: string; title: strin
   }, [text]);
 
   async function send() {
-    const words = text.trim();
-    if (!words || !slug || sending) return;
+    const said = text.trim();
+    if (!said || !slug || sending) return;
     setSending(true);
     try {
-      const r = await api.askProject(slug, { text: words, mode });
+      const r = await api.askProject(slug, { text: said, mode });
       toast(askedLine({ ...r, mode: r.mode ?? mode }, project?.title));
       setText("");
       setMode("forma");
@@ -69,7 +72,7 @@ export function PedirHome({ projects }: { projects: { slug: string; title: strin
       void queryClient.invalidateQueries({ queryKey: ["project", slug] });
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
     } catch {
-      toast.error("No se pudo enviar. Si la máquina está dormida, intenta al despertar.");
+      toast.error(w.sendFailed);
     } finally {
       setSending(false);
     }
@@ -92,23 +95,23 @@ export function PedirHome({ projects }: { projects: { slug: string; title: strin
   const near = text.length > ASK_MAX * 0.9;
   const line = MODES.find((m) => m.id === mode)?.line ?? "";
   return (
-    <form onSubmit={submit} className="grid animate-rise gap-2 rounded-[20px] border bg-card/60 p-2.5" aria-label="Pedir" data-pedir-home>
+    <form onSubmit={submit} className="grid animate-rise gap-2 rounded-[20px] border bg-card/60 p-2.5" aria-label={w.form} data-pedir-home>
       <div className="flex flex-wrap items-start gap-2 sm:flex-nowrap">
         <Textarea
           ref={field}
-          aria-label="Qué necesitas"
+          aria-label={w.whatYouNeed}
           aria-describedby="pedir-home-line"
           value={text}
           maxLength={ASK_MAX}
           rows={1}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKey}
-          placeholder="Pedir algo…"
+          placeholder={w.placeholder}
           className="min-h-11 basis-full resize-none py-2.5 text-base md:min-h-9 md:py-1.5 md:text-sm sm:basis-auto"
           enterKeyHint="send"
         />
         <select
-          aria-label="Proyecto"
+          aria-label={w.project}
           value={slug}
           onChange={(e) => {
             setPicked(e.target.value);
@@ -123,11 +126,11 @@ export function PedirHome({ projects }: { projects: { slug: string; title: strin
           ))}
         </select>
         <Button type="submit" disabled={!text.trim() || sending} className="h-11 shrink-0 px-4 md:h-9">
-          <SendIcon aria-hidden /> {sending ? "Enviando…" : mode === "pregunta" ? "Preguntar" : "Pedir"}
+          <SendIcon aria-hidden /> {sending ? w.sending : mode === "pregunta" ? w.ask : w.send}
         </Button>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-1 text-xs text-muted-foreground">
-        <span role="group" aria-label="Cómo" className="inline-flex rounded-lg border p-0.5">
+        <span role="group" aria-label={w.how} className="inline-flex rounded-lg border p-0.5">
           {MODES.map((m) => (
             <button
               key={m.id}

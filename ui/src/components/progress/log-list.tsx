@@ -2,7 +2,9 @@ import { Link } from "react-router";
 import { LogEntryCard } from "@/components/progress/log-entry";
 import { LogScrubber } from "@/components/progress/log-scrubber";
 import { ProjectChip } from "@/components/progress/recap-bits";
+import { words } from "@/lib/i18n";
 import { projectColor, typeChip } from "@/lib/progress";
+import { monthMark, PROGRESS_WORDS } from "@/lib/progress-words";
 import type { ProgressLog, ProgressLogEntry, ProgressProjectCount } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -26,16 +28,17 @@ type Props = {
 const CHIP_ORDER = ["bug", "code", "initiative", "pr", "idea", "ops", "research", "decision-needed", "debt"];
 
 export const LogList = ({ log, projects, today, project, type, q, month, loadingMore, onProject, onType, onSearch, onMonth, onMore, onClear }: Props) => {
+  const w = words(PROGRESS_WORDS);
   const total = log.days.reduce((sum, day) => sum + day.entries.length, 0);
   const types = CHIP_ORDER.filter((id) => (log.counts[id] ?? 0) > 0 || id === type);
   const handleSearch = (value: string) => onSearch(value);
   return (
-    <section id="bitacora" className="relative scroll-mt-16 pr-10" aria-label="Bitácora">
+    <section id="bitacora" className="relative scroll-mt-16 pr-10" aria-label={w.logLabel}>
       <header className="mb-3">
-        <h2 className="font-display text-2xl font-black tracking-tight">Lo que hice</h2>
+        <h2 className="font-display text-2xl font-black tracking-tight">{w.logTitle}</h2>
         <p className="text-[12px] font-semibold text-[#a1a1aa]">
           {log.from} – {log.to}
-          {total > 0 && ` · ${total} en esta vista`}
+          {total > 0 && w.inView(total)}
         </p>
       </header>
       <label className="mb-2.5 flex h-[42px] items-center gap-2 rounded-[14px] border border-white/10 bg-white/5 px-3.5 text-[13.5px] focus-within:border-[#ff7a2e88] focus-within:shadow-[0_0_0_4px_#ff7a2e22]">
@@ -43,19 +46,19 @@ export const LogList = ({ log, projects, today, project, type, q, month, loading
         <input
           value={q}
           onChange={(event) => handleSearch(event.target.value)}
-          placeholder='Buscar "login", un proyecto, #293…'
-          aria-label="Buscar en la bitácora"
+          placeholder={w.searchPlaceholder}
+          aria-label={w.searchLabel}
           className="min-w-0 flex-1 bg-transparent text-white outline-none placeholder:text-[#71717a]"
         />
         {q && (
-          <button type="button" aria-label="Borrar búsqueda" onClick={() => handleSearch("")} className="text-[#71717a]">
+          <button type="button" aria-label={w.clearSearch} onClick={() => handleSearch("")} className="text-[#71717a]">
             ✕
           </button>
         )}
       </label>
-      <div className="mb-1.5 flex gap-1.5 overflow-x-auto pb-1" role="toolbar" aria-label="Tipo">
+      <div className="mb-1.5 flex gap-1.5 overflow-x-auto pb-1" role="toolbar" aria-label={w.typeLabel}>
         <Filter on={!type} onClick={() => onType("")}>
-          Todo {log.counts.all ?? 0}
+          {w.all(log.counts.all ?? 0)}
         </Filter>
         {types.map((id) => (
           <Filter key={id} on={type === id} onClick={() => onType(type === id ? "" : id)}>
@@ -63,9 +66,9 @@ export const LogList = ({ log, projects, today, project, type, q, month, loading
           </Filter>
         ))}
       </div>
-      <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1" role="toolbar" aria-label="Proyecto">
+      <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1" role="toolbar" aria-label={w.projectLabel}>
         <Filter on={!project} onClick={() => onProject("")}>
-          {projects.length || "Todos"} proyectos
+          {w.projects(projects.length)}
         </Filter>
         {projects.map((item) => (
           <button key={item.slug} type="button" aria-pressed={project === item.slug} onClick={() => onProject(project === item.slug ? "" : item.slug)} className={cn(project === item.slug && "rounded-full ring-2 ring-white")}>
@@ -73,7 +76,7 @@ export const LogList = ({ log, projects, today, project, type, q, month, loading
           </button>
         ))}
       </div>
-      {q.trim() && <p className="mt-2 mb-1 text-[11px] font-extrabold tracking-[0.16em] text-[#8e8e98] uppercase">{total === 1 ? "1 resultado" : `${total} resultados`}</p>}
+      {q.trim() && <p className="mt-2 mb-1 text-[11px] font-extrabold tracking-[0.16em] text-[#8e8e98] uppercase">{w.results(total)}</p>}
       {log.days.length === 0 && <LogEmpty q={q} onClear={onClear} />}
       <div className="mt-2">
         {log.days.map((day) => (
@@ -82,7 +85,7 @@ export const LogList = ({ log, projects, today, project, type, q, month, loading
       </div>
       {log.next_cursor && (
         <button type="button" onClick={onMore} disabled={loadingMore} className="mt-3 w-full rounded-2xl border border-white/10 py-3 text-[13px] font-bold text-[#ffd2b8]">
-          {loadingMore ? "Cargando…" : "Días anteriores"}
+          {loadingMore ? w.loading : w.earlierDays}
         </button>
       )}
       <LogScrubber today={today} active={month} onJump={(next) => onMonth(next === month ? null : next)} />
@@ -91,8 +94,9 @@ export const LogList = ({ log, projects, today, project, type, q, month, loading
 };
 
 const DayBlock = ({ day, q }: { day: ProgressLog["days"][number]; q: string }) => {
+  const w = words(PROGRESS_WORDS);
   const [y, m, d] = day.date.split("-");
-  const month = ["", "ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"][Number(m)] ?? "";
+  const month = monthMark(Number(m)); // PLA-I2-10: from Intl, in the screen's language
   return (
     <div className="mb-4">
       <div className="mb-2.5 flex items-center gap-2.5">
@@ -103,8 +107,8 @@ const DayBlock = ({ day, q }: { day: ProgressLog["days"][number]; q: string }) =
         <div className="min-w-0">
           <h3 className="text-[16px] font-extrabold">{day.weekday}</h3>
           <p className="text-[12px] text-[#a1a1aa]">
-            {day.total === 1 ? "1 cosa" : `${day.total} cosas`}
-            {day.best && " · tu mejor día de la vista"}
+            {w.things(day.total)}
+            {day.best && w.bestDay}
           </p>
         </div>
         <div className="ml-auto flex h-1.5 w-16 overflow-hidden rounded-full" aria-hidden>
@@ -139,13 +143,16 @@ const Filter = ({ on, onClick, children }: { on: boolean; onClick: () => void; c
   </button>
 );
 
-const LogEmpty = ({ q, onClear }: { q: string; onClear: () => void }) => (
+const LogEmpty = ({ q, onClear }: { q: string; onClear: () => void }) => {
+  const w = words(PROGRESS_WORDS);
+  return (
   <div className="mt-3 rounded-[26px] border border-white/10 bg-gradient-to-b from-white/[0.06] to-transparent px-5 py-8 text-center">
     <p className="text-5xl" aria-hidden>🔭</p>
-    <h3 className="mt-2 font-display text-lg font-black">{q.trim() ? `Nada con «${q.trim()}»` : "Nada en este periodo"}</h3>
-    <p className="mt-1 text-[13px] text-[#a1a1aa]">Prueba otra palabra o quita filtros.</p>
+    <h3 className="mt-2 font-display text-lg font-black">{q.trim() ? w.nothingWith(q.trim()) : w.nothingInPeriod}</h3>
+    <p className="mt-1 text-[13px] text-[#a1a1aa]">{w.tryAnother}</p>
     <button type="button" onClick={onClear} className="mt-3 rounded-full border border-white/10 px-3 py-1.5 text-[12px] font-bold">
-      Quitar filtros
+      {w.clearFilters}
     </button>
   </div>
-);
+  );
+};

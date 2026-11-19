@@ -46,6 +46,8 @@ import { OLD_TAB, atOf, hrefOf, isBuilt, legacyHref, linkTo, verParam, type AskI
 import { doneOf, headlineOf, lanesOf, projectOfKey, totalsOf } from "@/lib/corriente-stream";
 import { pending } from "@/lib/v2";
 import { useMinute } from "@/lib/use-minute";
+import { words } from "@/lib/i18n";
+import { CORRIENTE_PAGE } from "@/lib/corriente-page-words";
 
 const typingIn = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || !!t.closest("[role=dialog]"));
 
@@ -75,6 +77,7 @@ const keepIt =
   <T,>(data: T): T => (keepRead(key, data), data);
 
 export const CorrientePage = () => {
+  const w = words(CORRIENTE_PAGE);
   const location = useLocation();
   const navigate = useNavigate();
   const client = useQueryClient();
@@ -100,7 +103,7 @@ export const CorrientePage = () => {
   const resume = useMutation({
     mutationFn: (slug: string) => api.setProjectPaused(slug, false),
     onMutate: (slug) => setResuming(slug),
-    onError: (e) => toast.error(e instanceof ApiError ? `No se pudo reanudar (${e.code}).` : SLEEPY),
+    onError: (e) => toast.error(e instanceof ApiError ? w.resumeFailed(e.code) : SLEEPY),
     onSettled: () => {
       setResuming(null);
       refresh();
@@ -108,7 +111,7 @@ export const CorrientePage = () => {
   });
   const resumeCompany = useMutation({
     mutationFn: () => api.setCompanyPaused(false),
-    onError: (e) => toast.error(e instanceof ApiError ? `No se pudo reanudar (${e.code}).` : SLEEPY),
+    onError: (e) => toast.error(e instanceof ApiError ? w.resumeFailed(e.code) : SLEEPY),
     onSettled: refresh,
   });
   const ask = async (slug: string, input: AskInput) => {
@@ -228,7 +231,7 @@ export const CorrientePage = () => {
   const projectBody = (p: OrgProject) => {
     const summary = summaries.data?.find((s) => s.slug === p.slug);
     const totals = summary ? { open: p.work.open, done: doneOf(summary) } : null;
-    if (!isBuilt({ slug: p.slug, tab: at.tab, ver: at.ver })) return <NotYet what={at.ver ? "Esto" : `La pestaña ${at.tab}`} to={legacyHref(at)} />;
+    if (!isBuilt({ slug: p.slug, tab: at.tab, ver: at.ver })) return <NotYet what={at.ver ? w.thisOne : w.theTab(at.tab)} to={legacyHref(at)} />;
     // PLA-I64: opened from the list, a thing's view comes back to the list.
     const todoHref = linkTo({ slug: p.slug, tab: "todo" });
     if (at.ver?.kind === "entrega") {
@@ -240,9 +243,9 @@ export const CorrientePage = () => {
       if (!d)
         return (
           <div className="cor-empty">
-            <p className="cor-text">Esta entrega ya no espera tu decisión.</p>
+            <p className="cor-text">{w.noLongerWaits}</p>
             <Btn kind="secondary" onClick={() => go({ slug: p.slug })}>
-              Volver a la lista
+              {w.backToList}
             </Btn>
           </div>
         );
@@ -270,7 +273,7 @@ export const CorrientePage = () => {
       ahora: ahoraLinks(p.slug),
     };
     if (at.ver?.kind === "idea" || at.ver?.kind === "iniciativa") return <Idea p={p} k={at.ver.key} now={now} timeZone={timeZone} acts={acts} decisions={decisions} links={fichaLinks} onClose={() => go({ slug: p.slug })} extra={carried(at.ver.key)} />;
-    if (at.ver?.kind === "paso") return <Paso p={p} k={at.ver.key} links={boardLinks} back={todoHref} backLabel={`Todo ${p.title}`} acts={acts} decisions={decisions} />;
+    if (at.ver?.kind === "paso") return <Paso p={p} k={at.ver.key} links={boardLinks} back={todoHref} backLabel={w.all(p.title)} acts={acts} decisions={decisions} />;
     if (at.tab === "todo" && !at.ver) {
       const todoLinks: TodoLinks = {
         open: (c) =>
@@ -308,7 +311,7 @@ export const CorrientePage = () => {
           plan={
             !p.paused && !paused && !(p.route && p.route.legs.length > 0) ? (
               <Btn kind="secondary" onClick={() => acts.plan(p.slug, PLAN_ASK)} disabled={acts.busy === `${p.slug}:plan`} data-control="planear">
-                {acts.busy === `${p.slug}:plan` ? "Pidiendo…" : "Arma el plan"}
+                {acts.busy === `${p.slug}:plan` ? w.asking : w.makePlan}
               </Btn>
             ) : undefined
           }
@@ -350,7 +353,7 @@ export const CorrientePage = () => {
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M9.5 3.5 5 8l4.5 4.5" />
           </svg>
-          Archivo
+          {w.archive}
         </Link>
       );
       const arch = { slug: p.slug, tab: "archivo" as const };
@@ -421,35 +424,35 @@ export const CorrientePage = () => {
       );
     // NEWPROJ-6: the project's settings.
     if (at.tab === "ajustes") return <Ajustes p={p} />;
-    return <NotYet what="Esto" to={legacyHref(at)} />;
+    return <NotYet what={w.thisOne} to={legacyHref(at)} />;
   };
 
   const body = () => {
     if (at.view === "piezas") return <Piezas />;
     if (at.view === "brief") return <BriefPlace now={now} timeZone={timeZone} />;
-    if (comp.isError && !company) return <ReadError what="la compañía" onRetry={() => void comp.refetch()} />;
-    if (!company) return <div className="cor-skel" style={{ margin: "22px 32px", flex: 1 }} role="status" aria-busy="true" aria-label="Cargando la compañía" />;
+    if (comp.isError && !company) return <ReadError what={w.theCompany} onRetry={() => void comp.refetch()} />;
+    if (!company) return <div className="cor-skel" style={{ margin: "22px 32px", flex: 1 }} role="status" aria-busy="true" aria-label={w.loadingCompany} />;
     if (at.slug) {
       if (!project)
         return (
           <div className="cor-empty">
-            <p className="cor-text">No hay un proyecto «{at.slug}» en la compañía.</p>
+            <p className="cor-text">{w.noProject(at.slug)}</p>
             <Btn kind="secondary" onClick={() => go({ view: "corriente" })}>
-              Volver a la corriente
+              {w.backToStream}
             </Btn>
           </div>
         );
       const r = rumboText(project);
       const working = project.team.filter((m) => m.state === "running").length;
-      const team = paused || project.paused ? "EN PAUSA" : working ? `${working} ${working === 1 ? "TRABAJANDO" : "TRABAJANDO"}` : `${project.team.length} ${project.team.length === 1 ? "LIBRE" : "LIBRES"}`;
+      const team = paused || project.paused ? w.teamPaused : working ? w.teamWorking(working) : w.teamFree(project.team.length);
       return (
         <div className="cor-project" data-project={project.slug}>
           <ProjectBar
             slug={project.slug}
             title={project.title}
             tab={at.tab}
-            back={at.tab !== "todo" ? { href: linkTo({ slug: project.slug }), label: `Todo ${project.title}` } : undefined}
-            meta={at.tab === "todo" && !at.ver ? { text: [r.goal ?? "Sin meta todavía", r.date ?? (r.goal ? "sin fecha" : null)].filter(Boolean).join(" · "), missing: r.missing, href: hojaHref("meta", project.slug) } : undefined}
+            back={at.tab !== "todo" ? { href: linkTo({ slug: project.slug }), label: w.all(project.title) } : undefined}
+            meta={at.tab === "todo" && !at.ver ? { text: [r.goal ?? w.noGoal, r.date ?? (r.goal ? w.noDate : null)].filter(Boolean).join(" · "), missing: r.missing, href: hojaHref("meta", project.slug) } : undefined}
             team={team}
             paused={project.paused}
             pauseHref={hojaHref(project.paused ? "reanudar" : "pausar", project.slug)}
@@ -505,7 +508,7 @@ export const CorrientePage = () => {
           }}
         />
       );
-    return <NotYet what="Esto" to={legacyHref(at)} />;
+    return <NotYet what={w.thisOne} to={legacyHref(at)} />;
   };
 
   return (
@@ -518,9 +521,9 @@ export const CorrientePage = () => {
       )}
       {paused && (
         <div className="cor-notice amber" role="status" data-banner="paused">
-          <span>La compañía está detenida: nada arranca.</span>
+          <span>{w.companyStopped}</span>
           <Btn kind="amber" small disabled={resumeCompany.isPending} onClick={() => resumeCompany.mutate()} data-control="reanudar-compania">
-            {resumeCompany.isPending ? "Reanudando…" : "Reanudar la compañía"}
+            {resumeCompany.isPending ? w.resuming : w.resumeCompany}
           </Btn>
         </div>
       )}

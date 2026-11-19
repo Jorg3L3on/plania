@@ -9,24 +9,28 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { words } from "@/lib/i18n";
+import { SHELL } from "@/lib/shell-words";
 
 // The three choices, shared by the header toggle and the phone menu.
 export function ThemeChoices() {
   const { theme = "system", setTheme } = useTheme();
+  const w = words(SHELL);
   return (
     <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
-      <DropdownMenuRadioItem value="light"><SunIcon /> Claro</DropdownMenuRadioItem>
-      <DropdownMenuRadioItem value="dark"><MoonIcon /> Oscuro</DropdownMenuRadioItem>
-      <DropdownMenuRadioItem value="system"><MonitorIcon /> Sistema</DropdownMenuRadioItem>
+      <DropdownMenuRadioItem value="light"><SunIcon /> {w.themeLight}</DropdownMenuRadioItem>
+      <DropdownMenuRadioItem value="dark"><MoonIcon /> {w.themeDark}</DropdownMenuRadioItem>
+      <DropdownMenuRadioItem value="system"><MonitorIcon /> {w.themeSystem}</DropdownMenuRadioItem>
     </DropdownMenuRadioGroup>
   );
 }
 
 export function ThemeToggle() {
+  const w = words(SHELL);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="Tema">
+        <Button variant="ghost" size="icon" aria-label={w.theme}>
           <SunIcon className="dark:hidden" />
           <MoonIcon className="hidden dark:block" />
         </Button>

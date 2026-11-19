@@ -13,13 +13,17 @@ import { claudeDryRun, claudeVersion, defaultExec, type ClaudeSignIn, type ExecF
 import { commandOf } from "../brief/claude.js";
 import { findChrome } from "../captures/chrome.js";
 import { pgDumpFor } from "../jobs/backup.js";
+import { installLanguage, type Language } from "../language.js";
 import {
   MACHINE_ITEMS,
   MIN_FREE_DISK_GB,
   MIN_MEMORY_GB,
   MIN_NODE_MAJOR,
   MIN_POSTGRES_MAJOR,
-  machineItem,
+  FALTA,
+  machineItem as itemIn,
+  type MachineDetail,
+  type MachineReason,
   type MachineItem,
   type MachineItemId,
 } from "../../ui/src/lib/falta.js";
@@ -39,6 +43,8 @@ export type MachineCheckDeps = {
   freeDisk?: (dir: string) => Promise<number | null>;
   totalMemory?: () => number;
   findChrome?: () => string | null;
+  /** PLA-I2-10: the words' language; the install's (src/language.ts) by default. */
+  language?: Language;
 };
 
 const GB = 1024 ** 3;
@@ -108,7 +114,7 @@ export async function ghState(exec: ExecFn = defaultExec, env: NodeJS.ProcessEnv
   return { state: "ok", version };
 }
 
-async function ghItem(exec: ExecFn, env: NodeJS.ProcessEnv): Promise<MachineItem> {
+async function ghItem(exec: ExecFn, env: NodeJS.ProcessEnv, machineItem: (id: MachineItemId, reason: MachineReason, d?: MachineDetail) => MachineItem): Promise<MachineItem> {
   const g = await ghState(exec, env);
   return machineItem("gh", g.state, g.version ? { version: g.version } : {});
 }
@@ -116,6 +122,9 @@ async function ghItem(exec: ExecFn, env: NodeJS.ProcessEnv): Promise<MachineItem
 export async function machineCheck(deps: MachineCheckDeps = {}): Promise<MachineItem[]> {
   const env = deps.env ?? process.env;
   const exec = deps.exec ?? defaultExec;
+  // PLA-I2-10: every item in the install's language.
+  const language = deps.language ?? installLanguage(env);
+  const machineItem = (id: MachineItemId, reason: MachineReason, d: MachineDetail = {}) => itemIn(id, reason, d, language);
   const items = new Map<MachineItemId, MachineItem>();
   const put = (item: MachineItem) => items.set(item.id, item);
 
@@ -144,7 +153,7 @@ export async function machineCheck(deps: MachineCheckDeps = {}): Promise<Machine
   // git, gh
   const git = await programVersion(exec, "git", env);
   put(machineItem("git", git ? "ok" : "absent", { version: git }));
-  put(await ghItem(exec, env));
+  put(await ghItem(exec, env, machineItem));
 
   // Claude Code and its session: the brief doctor's version reading and dry run.
   const cmd = commandOf(env);
@@ -181,15 +190,15 @@ export const blocking = (items: MachineItem[]): MachineItem[] => items.filter((i
  */
 export async function installGate(deps: MachineCheckDeps = {}): Promise<{ proceed: boolean; items: MachineItem[]; text: string }> {
   const items = await machineCheck(deps);
-  return { proceed: blocking(items).length === 0, items, text: formatMachineCheck(items) };
+  return { proceed: blocking(items).length === 0, items, text: formatMachineCheck(items, deps.language ?? installLanguage(deps.env)) };
 }
 
 /** One line per item, the fix under each one that has one. The text the install command and the CLI print. */
-export function formatMachineCheck(items: MachineItem[]): string {
+export function formatMachineCheck(items: MachineItem[], language: Language = installLanguage()): string {
   const mark = { ready: "✓", missing: "✗", optional: "·" } as const;
   return items
     .map((i) => {
-      const head = `${mark[i.state]} ${i.name}: ${i.sentence}${i.state === "optional" ? " (opcional)" : ""}`;
+      const head = `${mark[i.state]} ${i.name}: ${i.sentence}${i.state === "optional" ? FALTA[language].optionalMark : ""}`;
       return i.fix ? `${head}\n    ${i.fix}` : head;
     })
     .join("\n");

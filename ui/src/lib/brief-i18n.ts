@@ -259,6 +259,8 @@ export type SettingsLabels = {
   timezoneLabel: string;
   language: string;
   languages: { en: string; es: string };
+  // PLA-I2-10: the brief follows the install's language.
+  languageFollows: string;
   ownerName: string;
   ownerHint: (resolved: string) => string;
   content: string;
@@ -413,6 +415,7 @@ const en: BriefLabels = {
     timezoneLabel: "Zone label",
     language: "Language",
     languages: { en: "English", es: "Spanish" },
+    languageFollows: "Follows Plania's language, set in Plomería.",
     ownerName: "Owner name",
     ownerHint: (r) => `Blank uses the server default (now “${r}”).`,
     content: "Content",
@@ -721,6 +724,7 @@ const es: BriefLabels = {
     timezoneLabel: "Etiqueta de zona",
     language: "Idioma",
     languages: { en: "Inglés", es: "Español" },
+    languageFollows: "Sigue el idioma de Plania, que se cambia en Plomería.",
     ownerName: "Nombre del dueño",
     ownerHint: (r) => `Vacío usa el valor del servidor (ahora “${r}”).`,
     content: "Contenido",
@@ -966,7 +970,7 @@ export const COR_WORDS: Record<BriefLanguage, CorWords> = {
     send: "Enviar nota",
   },
   en: {
-    verbs: { accept_pr: "Accept", request_changes: "Ask for a change", publish: "Publish" },
+    verbs: { accept_pr: "Accept", request_changes: "Ask for changes", publish: "Publish" },
     stamps: { accept_pr: "Accepted", request_changes: "Sent back" },
     kinds: { ticket: "Step", pr: "Delivery" },
     ev: { ticket: "Step" },

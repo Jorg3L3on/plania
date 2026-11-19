@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { ProjectChip } from "@/components/progress/recap-bits";
+import { words } from "@/lib/i18n";
+import { PROGRESS_WORDS } from "@/lib/progress-words";
 import { isGif, projectColor, TYPE_MARK } from "@/lib/progress";
 import type { ProgressLogEntry } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -56,10 +58,11 @@ const Frame = ({ src, label, tone, alt }: { src: string; label: string; tone: "b
 };
 
 export const LogEntryCard = ({ entry, q }: Props) => {
+  const w = words(PROGRESS_WORDS);
   const color = projectColor(entry.project);
   const shots = [
-    entry.images.before ? { src: entry.images.before, label: "ANTES", tone: "before" as const } : null,
-    entry.images.after ? { src: entry.images.after, label: "DESPUÉS", tone: "after" as const } : null,
+    entry.images.before ? { src: entry.images.before, label: w.before, tone: "before" as const } : null,
+    entry.images.after ? { src: entry.images.after, label: w.after, tone: "after" as const } : null,
   ].filter((shot) => shot !== null);
   const showChange = entry.change.trim() && entry.change.trim() !== entry.summary.trim();
   return (
@@ -96,7 +99,7 @@ export const LogEntryCard = ({ entry, q }: Props) => {
       {entry.summary && <p className="mt-1 text-[13px] leading-snug text-[#a1a1aa]">{entry.summary}</p>}
       {showChange && (
         <p className="mt-2 rounded-r-[10px] border-l-2 bg-white/5 px-2.5 py-1.5 text-[12px] text-[#d4d4d8]" style={{ borderColor: color }}>
-          <b>Qué cambió: </b>
+          <b>{w.whatChanged}</b>
           {entry.change}
         </p>
       )}
@@ -112,7 +115,7 @@ export const LogEntryCard = ({ entry, q }: Props) => {
           <div className="flex items-center gap-2">
             <div className="h-2 flex-1 rounded-full" style={{ background: `linear-gradient(90deg, ${color}, ${color})`, boxShadow: `0 0 12px ${color}` }} />
             <b className="text-[12px]">
-              {entry.child_done}/{entry.child_total} tickets
+              {w.tickets(entry.child_done, entry.child_total)}
             </b>
           </div>
           <ul className="mt-1">

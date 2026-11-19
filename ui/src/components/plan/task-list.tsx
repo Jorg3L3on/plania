@@ -10,40 +10,43 @@ import { TaskRow } from "@/components/task-row";
 import { groupTasks, type TaskListFilters } from "@/lib/groups";
 import { PRIORITIES, TICKET_STATUSES } from "@/lib/types";
 import type { StagedTask as Task } from "@/lib/api";
+import { words } from "@/lib/i18n";
+import { PLAN } from "@/lib/plan-words";
 
 type Filters = TaskListFilters;
 
 export function TaskList({ slug, tasks, openKey, onOpen }: { slug: string; tasks: Task[]; openKey: string | null; onOpen: (key: string) => void }) {
   const [filters, setFilters] = useState<Filters>({ status: "all", priority: "all", showClosed: false });
   const { groups, loose } = useMemo(() => groupTasks(tasks, filters), [tasks, filters]);
+  const w = words(PLAN);
 
   return (
     <section className="grid gap-3">
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Select value={filters.status} onValueChange={(status) => setFilters((f) => ({ ...f, status }))}>
-          <SelectTrigger size="sm" className="w-40" aria-label="Filtrar por estado"><SelectValue /></SelectTrigger>
+          <SelectTrigger size="sm" className="w-40" aria-label={w.filterStatus}><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Todos los estados</SelectItem>
+            <SelectItem value="all">{w.allStatuses}</SelectItem>
             {TICKET_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={filters.priority} onValueChange={(priority) => setFilters((f) => ({ ...f, priority }))}>
-          <SelectTrigger size="sm" className="w-36" aria-label="Filtrar por prioridad"><SelectValue /></SelectTrigger>
+          <SelectTrigger size="sm" className="w-36" aria-label={w.filterPriority}><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Toda prioridad</SelectItem>
+            <SelectItem value="all">{w.allPriorities}</SelectItem>
             {PRIORITIES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
           </SelectContent>
         </Select>
         <div className="flex items-center gap-2 pl-1">
           <Switch id="show-closed" checked={filters.showClosed} onCheckedChange={(showClosed) => setFilters((f) => ({ ...f, showClosed }))} />
-          <Label htmlFor="show-closed" className="text-sm font-normal">Cerrados</Label>
+          <Label htmlFor="show-closed" className="text-sm font-normal">{w.closed}</Label>
         </div>
       </div>
 
       {groups.length === 0 && loose.length === 0 && (
         <Card>
           <CardContent className="py-6 text-center text-sm text-muted-foreground">
-            {filters.status !== "all" || filters.priority !== "all" ? "Nada coincide con los filtros." : "Nada abierto."}
+            {filters.status !== "all" || filters.priority !== "all" ? w.noMatch : w.nothingOpen}
           </CardContent>
         </Card>
       )}
@@ -57,7 +60,7 @@ export function TaskList({ slug, tasks, openKey, onOpen }: { slug: string; tasks
       ))}
       {loose.length > 0 && (
         <Card className="gap-0 divide-y py-0">
-          <div className="px-4 py-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">Sin iniciativa</div>
+          <div className="px-4 py-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">{w.noInitiative}</div>
           {loose.map((t) => (
             <TaskRow key={t.key} slug={slug} task={t} selected={openKey === t.key} onOpen={onOpen} controls={<TaskControls slug={slug} task={t} />} />
           ))}

@@ -10,11 +10,13 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { Dashboard, DashboardAgent, DashboardGoal, GoalHealth, QueueItem, QueueKind, ReadyTicket } from "@/components/dashboard/types";
 import { LOCALE } from "@/lib/locale";
+import { words } from "@/lib/i18n";
+import { CEO_V2 } from "@/lib/ceo-words";
 
 const panel = "rounded-2xl bg-card ring-1 ring-foreground/10";
 const heading = "font-display text-xl font-extrabold tracking-tight";
 const count = (n: number) => n.toLocaleString(LOCALE);
-const projectLabel = (slug: string | null) => (!slug ? "Empresa" : slug.charAt(0).toUpperCase() + slug.slice(1));
+const projectLabel = (slug: string | null) => (!slug ? words(CEO_V2).company : slug.charAt(0).toUpperCase() + slug.slice(1));
 const pillPrimary = "inline-flex min-h-10 items-center justify-center rounded-full bg-foreground px-4 text-sm font-semibold text-background hover:opacity-90 disabled:opacity-40";
 const pillGhost = "inline-flex min-h-10 items-center justify-center rounded-full px-4 text-sm ring-1 ring-foreground/15 hover:bg-muted disabled:opacity-40";
 
@@ -34,19 +36,20 @@ const useWide = () => {
 export const Kpis = ({ data }: { data: Dashboard }) => {
   const { shipped, previous_finished: previous, team, goals } = data;
   const company = goals.find((goal) => goal.project === null);
+  const w = words(CEO_V2);
   const delta = previous > 0 ? Math.round(((shipped.finished - previous) / previous) * 100) : null;
   const items = [
     {
       n: count(shipped.finished),
-      label: "salieron",
-      sub: delta === null ? "esta semana" : `${delta >= 0 ? "+" : "−"}${Math.abs(delta)} % vs semana pasada`,
+      label: w.shipped,
+      sub: delta === null ? w.thisWeek : w.vsLastWeek(delta >= 0 ? "+" : "−", Math.abs(delta)),
       tone: delta === null ? "" : delta >= 0 ? "text-ink-done" : "text-ink-blocked",
     },
-    { n: count(shipped.prs), label: "PRs fusionados", sub: "esta semana", tone: "" },
+    { n: count(shipped.prs), label: w.prsMerged, sub: w.thisWeek, tone: "" },
     company
-      ? { n: `${company.progress.done}/${company.progress.total}`, label: "meta de la compañía", sub: company.why, tone: "" }
-      : { n: "—", label: "meta de la compañía", sub: "sin metas", tone: "" },
-    { n: `${team.alive}/${team.total}`, label: "agentes activos", sub: `${team.stuck} atascados`, tone: "" },
+      ? { n: `${company.progress.done}/${company.progress.total}`, label: w.companyGoal, sub: company.why, tone: "" }
+      : { n: "—", label: w.companyGoal, sub: w.noGoals, tone: "" },
+    { n: `${team.alive}/${team.total}`, label: w.activeAgents, sub: w.stuck(team.stuck), tone: "" },
   ];
   return (
     <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -65,7 +68,7 @@ export const Kpis = ({ data }: { data: Dashboard }) => {
 
 // PLA-I30: Compañía titles it "Brief de hoy" and signs it as Asistente; the default stays for older callers.
 // PLA-I42-5: an optional link under the lines ("Ver el brief completo" → /ceo?v=brief).
-export const Brief = ({ lines, title = "Hoy te toca", sign, link }: { lines: string[]; title?: string; sign?: string; link?: { to: string; label: string } }) => (
+export const Brief = ({ lines, title = words(CEO_V2).briefTitle, sign, link }: { lines: string[]; title?: string; sign?: string; link?: { to: string; label: string } }) => (
   <section aria-labelledby="ceo-brief" className="grid gap-2.5 rounded-[22px] bg-gradient-to-b from-muted to-card p-4 ring-1 ring-foreground/10 sm:p-5">
     <div className="flex items-baseline justify-between gap-3">
       <h2 id="ceo-brief" className="text-[11px] font-bold tracking-[0.14em] text-muted-foreground uppercase">
@@ -74,7 +77,7 @@ export const Brief = ({ lines, title = "Hoy te toca", sign, link }: { lines: str
       {sign && <span className="text-xs text-muted-foreground">{sign}</span>}
     </div>
     {lines.length === 0 ? (
-      <p className="text-[15px] text-muted-foreground">Nada nuevo desde ayer.</p>
+      <p className="text-[15px] text-muted-foreground">{words(CEO_V2).nothingNew}</p>
     ) : (
       <ol className="grid list-decimal gap-2 pl-5 text-[15px] leading-snug">
         {lines.map((line) => (
@@ -98,7 +101,8 @@ export const Brief = ({ lines, title = "Hoy te toca", sign, link }: { lines: str
 
 // ---- Queue
 
-const KIND_LABEL: Record<QueueKind, string> = { decidir: "Decidir", merge: "Merge", atorado: "Atorado", paso: "Paso" };
+// PLA-I2-10: the kind labels are CEO_V2.kind.
+const kindLabel = (kind: QueueKind): string => words(CEO_V2).kind[kind];
 const KIND_TONE: Record<QueueKind, string> = {
   decidir: "bg-status-owner/20 text-ink-owner",
   merge: "bg-status-review/20 text-ink-review",
@@ -107,30 +111,31 @@ const KIND_TONE: Record<QueueKind, string> = {
 };
 const FILTERS: ("todo" | QueueKind)[] = ["todo", "decidir", "merge", "atorado", "paso"];
 
-const age = (days: number) => (days <= 0 ? "hoy" : days === 1 ? "1 día" : `${days} días`);
+const age = (days: number) => words(CEO_V2).age(days);
 
 const QueueAction = ({ item, onAssign }: { item: QueueItem; onAssign: (item: QueueItem) => void }) => {
+  const w = words(CEO_V2);
   if (item.action === "assign") {
     return (
       <button type="button" className={pillPrimary} onClick={() => onAssign(item)}>
-        Asignar
+        {w.assign}
       </button>
     );
   }
   if (item.action === "review") {
     return item.href ? (
       <a className={pillPrimary} href={item.href} target="_blank" rel="noreferrer">
-        Revisar
+        {w.review}
       </a>
     ) : (
       <Link className={pillPrimary} to={`/p/${item.project}`}>
-        Revisar
+        {w.review}
       </Link>
     );
   }
   return (
     <Link className={pillPrimary} to="/inbox">
-      Abrir
+      {w.open}
     </Link>
   );
 };
@@ -138,7 +143,7 @@ const QueueAction = ({ item, onAssign }: { item: QueueItem; onAssign: (item: Que
 export const Queue = ({
   items,
   onAssign,
-  title = "Te necesitan",
+  title = words(CEO_V2).needYou,
   note,
 }: {
   items: QueueItem[];
@@ -146,6 +151,7 @@ export const Queue = ({
   title?: string;
   note?: string;
 }) => {
+  const w = words(CEO_V2);
   const [filter, setFilter] = useState<"todo" | QueueKind>("todo");
   const counts = useMemo(() => {
     const out: Record<string, number> = { todo: items.length };
@@ -162,7 +168,7 @@ export const Queue = ({
           </h2>
           {note && <p className="text-xs text-muted-foreground">{note}</p>}
         </div>
-        <div role="tablist" aria-label="Filtrar" className="flex flex-wrap gap-1.5">
+        <div role="tablist" aria-label={w.filter} className="flex flex-wrap gap-1.5">
           {FILTERS.filter((kind) => kind === "todo" || counts[kind]).map((kind) => (
             <button
               key={kind}
@@ -175,19 +181,19 @@ export const Queue = ({
                 filter === kind ? "bg-foreground font-semibold text-background" : "ring-1 ring-foreground/15 hover:bg-muted",
               )}
             >
-              {kind === "todo" ? "Todo" : KIND_LABEL[kind]} {counts[kind] ?? 0}
+              {kind === "todo" ? w.all : kindLabel(kind)} {counts[kind] ?? 0}
             </button>
           ))}
         </div>
       </div>
       {shown.length === 0 ? (
-        <p className="px-4 py-6 text-sm text-muted-foreground">Nada te espera.</p>
+        <p className="px-4 py-6 text-sm text-muted-foreground">{w.nothingWaits}</p>
       ) : (
         <ul>
           {shown.map((item) => (
             <li key={item.id} className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3 last:border-0">
               <span className={cn("min-w-[76px] rounded-full px-2.5 py-0.5 text-center text-xs font-semibold", KIND_TONE[item.kind])}>
-                {KIND_LABEL[item.kind]}
+                {kindLabel(item.kind)}
               </span>
               <span className="grid min-w-0 flex-[1_1_220px] gap-0.5">
                 <span className="line-clamp-3 text-[15px] font-medium break-words" title={item.title}>
@@ -197,7 +203,7 @@ export const Queue = ({
                   {item.key && <span className="font-mono">{item.key}</span>}
                   {item.key ? " · " : ""}
                   {projectLabel(item.project)}
-                  {item.detail ? ` · ${item.detail}` : ""} · espera {age(item.age_days)}
+                  {item.detail ? ` · ${item.detail}` : ""}{w.waits(age(item.age_days))}
                 </span>
               </span>
               <QueueAction item={item} onAssign={onAssign} />
@@ -214,7 +220,7 @@ export const Queue = ({
 const agentLine = (agent: DashboardAgent) => {
   const word = STATUS_WORD[agent.status] ?? agent.status;
   if (agent.claim) return `${word} · ${agent.claim.key}`;
-  if (agent.ready > 0) return `${word} · ${agent.ready} ${agent.ready === 1 ? "listo suyo" : "listos suyos"}`;
+  if (agent.ready > 0) return `${word} · ${words(CEO_V2).readyOwn(agent.ready)}`;
   return word;
 };
 
@@ -225,15 +231,16 @@ export const Team = ({
   agents: DashboardAgent[];
   onAssign: (agent: DashboardAgent) => void;
 }) => {
+  const w = words(CEO_V2);
   const client = useQueryClient();
   const wake = useMutation({
     mutationFn: (slug: string) => api.wakeAgent(slug),
     onSuccess: (result, slug) => {
-      if (result.woke) toast.success(`${slug}: ${result.run?.summary ?? "despierto"}`);
-      else toast(result.detail ?? "No se pudo despertar", { description: "Se configura en PLA-08." });
+      if (result.woke) toast.success(`${slug}: ${result.run?.summary ?? w.awake}`);
+      else toast(result.detail ?? w.couldNotWake, { description: w.wakeSetup });
       void client.invalidateQueries({ queryKey: ["dashboard"] });
     },
-    onError: () => toast.error("No se pudo despertar"),
+    onError: () => toast.error(w.couldNotWake),
   });
   const people = agents.filter((agent) => agent.role !== "human");
   const alive = people.filter((agent) => agent.status === "alive").length;
@@ -241,10 +248,10 @@ export const Team = ({
     <section aria-labelledby="ceo-team" className={cn(panel, "overflow-hidden")}>
       <div className="flex items-baseline justify-between gap-3 border-b border-border px-4 py-3">
         <h2 id="ceo-team" className={heading}>
-          Equipo
+          {w.team}
         </h2>
         <span className="text-xs text-muted-foreground">
-          {alive} {alive === 1 ? "activo" : "activos"} · {people.length - alive} en espera
+          {w.activeCount(alive, people.length - alive)}
         </span>
       </div>
       <ul>
@@ -259,14 +266,14 @@ export const Team = ({
               type="button"
               className={cn(pillGhost, "min-h-9 px-3 text-xs")}
               disabled={!agent.can_wake || wake.isPending}
-              title={agent.can_wake ? "Despertar ahora" : (agent.wake_reason ?? undefined)}
-              aria-label={agent.can_wake ? `Despertar a ${agent.name}` : `Despertar a ${agent.name}: ${agent.wake_reason ?? "no disponible"}`}
+              title={agent.can_wake ? w.wakeNow : (agent.wake_reason ?? undefined)}
+              aria-label={agent.can_wake ? w.wakeWho(agent.name) : w.wakeWhoNot(agent.name, agent.wake_reason ?? w.notAvailable)}
               onClick={() => wake.mutate(agent.slug)}
             >
-              Despertar
+              {w.wake}
             </button>
             <button type="button" className={cn(pillGhost, "min-h-9 px-3 text-xs font-semibold")} onClick={() => onAssign(agent)}>
-              Asignar
+              {w.assign}
             </button>
           </li>
         ))}
@@ -277,15 +284,17 @@ export const Team = ({
 
 // ---- Goals
 
-const HEALTH: Record<GoalHealth, { word: string; chip: string; bar: string }> = {
-  on: { word: "En curso", chip: "bg-status-done/20 text-ink-done", bar: "bg-status-done" },
-  risk: { word: "En riesgo", chip: "bg-status-review/20 text-ink-review", bar: "bg-status-review" },
-  stop: { word: "Detenida", chip: "bg-status-blocked/20 text-ink-blocked", bar: "bg-status-blocked" },
-  none: { word: "Sin iniciativas", chip: "bg-muted text-muted-foreground", bar: "bg-status-idle" },
+// PLA-I2-10: the health words are CEO_V2.health.
+const HEALTH: Record<GoalHealth, { chip: string; bar: string }> = {
+  on: { chip: "bg-status-done/20 text-ink-done", bar: "bg-status-done" },
+  risk: { chip: "bg-status-review/20 text-ink-review", bar: "bg-status-review" },
+  stop: { chip: "bg-status-blocked/20 text-ink-blocked", bar: "bg-status-blocked" },
+  none: { chip: "bg-muted text-muted-foreground", bar: "bg-status-idle" },
 };
 const HEALTH_RANK: Record<GoalHealth, number> = { stop: 0, risk: 1, on: 2, none: 3 };
 
 export const Goals = ({ goals }: { goals: DashboardGoal[] }) => {
+  const w = words(CEO_V2);
   const company = goals.find((goal) => goal.project === null);
   const products = goals
     .filter((goal) => goal.project !== null)
@@ -294,15 +303,15 @@ export const Goals = ({ goals }: { goals: DashboardGoal[] }) => {
     <section aria-labelledby="ceo-goals" className={cn(panel, "grid gap-3 p-4")}>
       <div className="flex items-baseline justify-between gap-3">
         <h2 id="ceo-goals" className={heading}>
-          Metas
+          {w.goals}
         </h2>
         <Link to="/ceo#proyectos" className="text-[13px] text-muted-foreground hover:text-foreground">
-          {company ? `Compañía ${company.progress.done} de ${company.progress.total}` : "Abrir metas"}
+          {company ? w.companyOf(company.progress.done, company.progress.total) : w.openGoals}
         </Link>
       </div>
       {products.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Todavía no hay metas. <Link to="/ceo#proyectos" className="underline">Crea la primera</Link>.
+          {w.noGoalsYet} <Link to="/ceo#proyectos" className="underline">{w.createFirst}</Link>.
         </p>
       ) : (
         <ul className="grid gap-3">
@@ -315,7 +324,7 @@ export const Goals = ({ goals }: { goals: DashboardGoal[] }) => {
                   <span className="truncate text-sm font-semibold" title={goal.title}>
                     {projectLabel(goal.project)}
                   </span>
-                  <span className={cn("shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold", style.chip)}>{style.word}</span>
+                  <span className={cn("shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold", style.chip)}>{w.health[goal.health]}</span>
                 </div>
                 <div
                   className="h-1.5 overflow-hidden rounded-full bg-muted"
@@ -323,12 +332,12 @@ export const Goals = ({ goals }: { goals: DashboardGoal[] }) => {
                   aria-valuemin={0}
                   aria-valuemax={Math.max(goal.progress.total, 1)}
                   aria-valuenow={goal.progress.done}
-                  aria-label={`${projectLabel(goal.project)}: ${goal.progress.done} de ${goal.progress.total}`}
+                  aria-label={`${projectLabel(goal.project)}: ${w.of(goal.progress.done, goal.progress.total)}`}
                 >
                   <div className={cn("h-full rounded-full", style.bar)} style={{ width: `${width}%` }} />
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  {goal.progress.done} de {goal.progress.total} · {goal.why}
+                  {w.of(goal.progress.done, goal.progress.total)} · {goal.why}
                 </span>
               </li>
             );
@@ -342,6 +351,7 @@ export const Goals = ({ goals }: { goals: DashboardGoal[] }) => {
 // ---- Ritmo
 
 export const Ritmo = ({ data }: { data: Dashboard }) => {
+  const w = words(CEO_V2);
   const { trend } = data;
   const peak = Math.max(trend.target, ...trend.weeks.map((week) => week.total), 1);
   const targetPct = Math.round((trend.target / peak) * 100);
@@ -351,9 +361,9 @@ export const Ritmo = ({ data }: { data: Dashboard }) => {
     <section aria-labelledby="ceo-ritmo" className={cn(panel, "grid gap-4 p-4")}>
       <div className="flex items-baseline justify-between gap-3">
         <h2 id="ceo-ritmo" className={heading}>
-          Ritmo
+          {w.pace}
         </h2>
-        <span className="text-xs text-muted-foreground">tickets hechos por semana · meta {trend.target}</span>
+        <span className="text-xs text-muted-foreground">{w.paceHint(trend.target)}</span>
       </div>
       <div className="relative">
         <span
@@ -363,7 +373,7 @@ export const Ritmo = ({ data }: { data: Dashboard }) => {
         />
         <ol className="grid h-36 grid-cols-6 items-end gap-2">
           {trend.weeks.map((week, index) => (
-            <li key={week.from} className="grid h-full grid-rows-[auto_1fr_auto] justify-items-center gap-1" aria-label={`Semana del ${week.label}: ${week.total}`}>
+            <li key={week.from} className="grid h-full grid-rows-[auto_1fr_auto] justify-items-center gap-1" aria-label={w.weekOf(week.label, week.total)}>
               <span className="font-mono text-[11px] text-muted-foreground">{week.total}</span>
               <span className="flex w-full items-end">
                 <span
@@ -371,17 +381,17 @@ export const Ritmo = ({ data }: { data: Dashboard }) => {
                   style={{ height: `${Math.max(Math.round((week.total / peak) * 100), week.total > 0 ? 4 : 0)}%` }}
                 />
               </span>
-              <span className="text-[11px] text-muted-foreground">{index === last ? "esta" : week.label}</span>
+              <span className="text-[11px] text-muted-foreground">{index === last ? w.thisOne : week.label}</span>
             </li>
           ))}
         </ol>
       </div>
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          { n: trend.cycle_days === null ? "—" : `${String(trend.cycle_days).replace(".", ",")} d`, label: "mediana de creado a hecho" },
-          { n: count(trend.in_review), label: "en revisión" },
-          { n: count(trend.ready_unowned), label: "listos sin agente" },
-          { n: count(usage), label: "tokens reportados" },
+          { n: trend.cycle_days === null ? "—" : w.days(trend.cycle_days), label: w.median },
+          { n: count(trend.in_review), label: w.inReview },
+          { n: count(trend.ready_unowned), label: w.readyNoAgent },
+          { n: count(usage), label: w.tokensReported },
         ].map((stat) => (
           <div key={stat.label} className="grid gap-0.5">
             <dd className="font-display text-2xl font-extrabold tracking-tight tabular-nums">{stat.n}</dd>
@@ -406,6 +416,7 @@ export const AssignSheet = ({
   data: Dashboard;
   onClose: () => void;
 }) => {
+  const w = words(CEO_V2);
   const wide = useWide();
   const client = useQueryClient();
   const run = useMutation({
@@ -419,7 +430,7 @@ export const AssignSheet = ({
       void client.invalidateQueries({ queryKey: ["dashboard"] });
       onClose();
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo asignar"),
+    onError: (error) => toast.error(error instanceof Error ? error.message : w.couldNotAssign),
   });
   const agents = data.team.agents.filter((agent) => agent.role !== "human");
   const forInitiative = target?.kind === "initiative" ? data.ready_tickets.filter((ticket) => ticket.parent_key === target.item.key) : [];
@@ -429,20 +440,20 @@ export const AssignSheet = ({
       <SheetContent side={wide ? "right" : "bottom"} className="max-h-[85svh] overflow-y-auto bg-background sm:max-h-none sm:max-w-md">
         <SheetHeader className="pr-10">
           <SheetTitle className="font-display text-xl font-extrabold tracking-tight">
-            {target?.kind === "agent" ? `Asignar a ${target.agent.name}` : `Asignar ${target?.kind === "initiative" ? target.item.key : ""}`}
+            {target?.kind === "agent" ? w.assignTo(target.agent.name) : w.assignKey(target?.kind === "initiative" ? target.item.key : "")}
           </SheetTitle>
           <SheetDescription>
             {target?.kind === "agent"
-              ? "Elige un ticket listo. Queda como suyo; nadie se despierta solo."
+              ? w.pickTicket
               : forInitiative.length === 1
-                ? "Su ticket listo pasa al agente que elijas."
-                : `Sus ${forInitiative.length} tickets listos pasan al agente que elijas.`}
+                ? w.oneTicket
+                : w.manyTickets(forInitiative.length)}
           </SheetDescription>
         </SheetHeader>
         <ul className="grid gap-1.5 px-4 pb-6">
           {target?.kind === "agent" &&
             (forAgent.length === 0 ? (
-              <li className="text-sm text-muted-foreground">No hay tickets listos.</li>
+              <li className="text-sm text-muted-foreground">{w.noReady}</li>
             ) : (
               forAgent.map((ticket) => (
                 <li key={`${ticket.project}:${ticket.key}`}>
@@ -455,7 +466,7 @@ export const AssignSheet = ({
                     <span className="truncate text-sm">{ticket.title}</span>
                     <span className="text-xs text-muted-foreground">
                       <span className="font-mono">{ticket.key}</span> · {projectLabel(ticket.project)}
-                      {ticket.owner_agent ? ` · ahora de ${ticket.owner_agent}` : " · sin agente"}
+                      {ticket.owner_agent ? w.nowOf(ticket.owner_agent) : w.noAgent}
                     </span>
                   </button>
                 </li>
@@ -463,7 +474,7 @@ export const AssignSheet = ({
             ))}
           {target?.kind === "initiative" &&
             (forInitiative.length === 0 ? (
-              <li className="text-sm text-muted-foreground">No quedan tickets listos en esta iniciativa.</li>
+              <li className="text-sm text-muted-foreground">{w.noneLeft}</li>
             ) : (
               agents.map((agent) => (
                 <li key={agent.slug}>

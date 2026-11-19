@@ -1,18 +1,21 @@
 import { recapGlass, recapKicker } from "@/components/progress/recap-bits";
+import { words } from "@/lib/i18n";
+import { PROGRESS_WORDS } from "@/lib/progress-words";
 import type { ProgressSummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type Props = { streak: ProgressSummary["streak"] };
 
-const copyOf = (streak: ProgressSummary["streak"]): { title: string; line: string } => {
-  if (streak.current <= 0) return { title: "Sin racha", line: "Un día con algo cerrado la empieza." };
-  const title = streak.current === 1 ? "1 día" : `${streak.current} días seguidos`;
-  const line = streak.is_best ? "Tu mejor racha del año. ¡No la rompas!" : `Tu mejor del año: ${streak.best_year} días.`;
+const copyOf = (streak: ProgressSummary["streak"], w: (typeof PROGRESS_WORDS)["es"]): { title: string; line: string } => {
+  if (streak.current <= 0) return { title: w.noStreak, line: w.noStreakLine };
+  const title = w.streakDays(streak.current);
+  const line = streak.is_best ? w.bestStreak : w.bestOfYear(streak.best_year);
   return { title, line };
 };
 
 export const RecapStreak = ({ streak }: Props) => {
-  const copy = copyOf(streak);
+  const w = words(PROGRESS_WORDS);
+  const copy = copyOf(streak, w);
   const lit = streak.current > 0;
   return (
     <section className={`${recapGlass} px-4 py-4`}>
@@ -29,14 +32,14 @@ export const RecapStreak = ({ streak }: Props) => {
           <path d="M32 40c4 8 12 10 12 20a12 12 0 0 1-24 0c0-6 4-8 6-14 2 4 4 4 6-6z" fill="#fff4" />
         </svg>
         <div>
-          <p className={recapKicker}>Racha</p>
+          <p className={recapKicker}>{w.streak}</p>
           <h2 className="font-display text-[30px] leading-none font-black tracking-tight">{copy.title}</h2>
           <p className="mt-1 mb-2 text-[13px] text-[#a1a1aa]">{copy.line}</p>
-          <div className="flex gap-1.5" aria-label="Esta semana">
+          <div className="flex gap-1.5" aria-label={w.thisWeek}>
             {streak.week.map((day) => (
               <span
                 key={day.date}
-                aria-label={`${day.label} ${day.date}${day.active ? ", activo" : ""}`}
+                aria-label={`${day.label} ${day.date}${day.active ? w.active : ""}`}
                 className={cn(
                   "flex size-[30px] items-center justify-center rounded-[9px] text-[11px] font-black",
                   day.active

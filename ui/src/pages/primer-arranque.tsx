@@ -8,7 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PlaniaMark } from "@/components/plania-mark";
 import { ApiError, api } from "@/lib/api";
-import { DEFAULT_PROJECTS_ROOT, DEFAULT_WORKTREES_ROOT, WORDS, browserTimeZone, formProblem, refusalText, type FirstStartForm } from "@/lib/primer-arranque";
+import { DEFAULT_PROJECTS_ROOT, DEFAULT_WORKTREES_ROOT, FIRST_START, browserTimeZone, formProblem, refusalText, type FirstStartForm } from "@/lib/primer-arranque";
+import { LANGUAGES, LANGUAGE_NAMES, adoptLanguage, getLanguage, words, type Language } from "@/lib/i18n";
+import { LANGUAGE_WORDS } from "@/lib/language-words";
 import { FaltaPage } from "@/pages/falta";
 
 // PLA-I2-2: the first-start screen. Shown only while Plania has no owner (GET /api/first-start); once it is done,
@@ -32,7 +34,29 @@ function Field({ id, label, hint, ...input }: { id: string; label: string; hint?
   );
 }
 
+/** PLA-I2-10: the language comes first; choosing one reloads the screen in it (the form is still empty then). */
+function LanguageChoice() {
+  const w = words(LANGUAGE_WORDS);
+  const choose = (l: Language) => {
+    if (adoptLanguage(l)) window.location.reload();
+  };
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor="language">{w.firstStart}</Label>
+      <select id="language" className="h-9 rounded-md border bg-transparent px-3 text-sm" value={getLanguage()} onChange={(e) => choose(e.target.value as Language)}>
+        {LANGUAGES.map((l) => (
+          <option key={l} value={l}>
+            {LANGUAGE_NAMES[l]}
+          </option>
+        ))}
+      </select>
+      <p className="text-xs text-muted-foreground">{w.firstStartHint}</p>
+    </div>
+  );
+}
+
 export function PrimerArranquePage() {
+  const WORDS = words(FIRST_START);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const state = useQuery({ queryKey: ["first-start"], queryFn: () => api.firstStart() });
@@ -41,7 +65,7 @@ export function PrimerArranquePage() {
   const set = (k: keyof FirstStartForm) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const finish = useMutation({
-    mutationFn: () => api.finishFirstStart({ code: form.code, name: form.name, password: form.password, time_zone: form.time_zone, projects_root: form.projects_root, worktrees_root: form.worktrees_root }),
+    mutationFn: () => api.finishFirstStart({ code: form.code, name: form.name, password: form.password, time_zone: form.time_zone, projects_root: form.projects_root, worktrees_root: form.worktrees_root, language: getLanguage() }),
     // Removed, not invalidated: a refetched `open: false` would send this page to /login before navigate runs,
     // and the old UNAUTHORIZED session would do the same on the company page.
     onSuccess: () => {
@@ -85,6 +109,7 @@ export function PrimerArranquePage() {
             </Link>
           </div>
           <form onSubmit={submit} className="grid gap-4" noValidate>
+            <LanguageChoice />
             <Field id="code" label={WORDS.code} hint={WORDS.codeHint} autoComplete="one-time-code" autoFocus value={form.code} onChange={set("code")} />
             <Field id="name" label={WORDS.name} hint={WORDS.nameHint} autoComplete="name" value={form.name} onChange={set("name")} />
             <Field id="password" label={WORDS.password} hint={WORDS.passwordHint} type="password" autoComplete="new-password" value={form.password} onChange={set("password")} />
@@ -106,6 +131,7 @@ export function PrimerArranquePage() {
 
 /** The machine check before there is a session, with the way back to the form. */
 export function PrimerArranqueFaltaPage() {
+  const WORDS = words(FIRST_START);
   return (
     <div className="mx-auto grid max-w-3xl gap-6 px-4 py-8">
       <Link to="/primer-arranque" className="text-sm underline underline-offset-2">
