@@ -28,6 +28,7 @@ import { pgSearchPath } from "../lib/pg-bin.js";
 import { supported } from "../lib/system-support.js";
 import { isSelfProject, serverRoot } from "../self/plania-self.js";
 import { defaultSelfDbBuild, selfCopyDatabase, selfCopyEnvFile, type SelfDbBuild } from "../self/self-copy.js";
+import { processCommand } from "../lib/proc-command.js";
 
 export const BRANCH = "sandbox";
 export const IDLE_MS = 20 * 60_000; // nobody looked at the floor for this long: the copy stops
@@ -728,10 +729,8 @@ export async function reapOrphans(db: Db, cmdOf: (pid: number) => Promise<string
   return n;
 }
 
-const psCommand = (pid: number) =>
-  new Promise<string | null>((resolve) => {
-    execFile("ps", ["-o", "command=", "-p", String(pid)], { timeout: 5_000 }, (err, stdout) => resolve(err ? null : stdout.trim() || null));
-  });
+// PLA-I2-19: /proc on Linux, portable ps elsewhere.
+const psCommand = (pid: number) => processCommand(pid);
 
 // ---- PLA-75: the delivery copy's own database
 

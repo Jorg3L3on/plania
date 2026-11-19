@@ -2,7 +2,7 @@
 // «No disponible en este sistema» (ui/src/lib/sistema.ts) instead of failing. Porting them is PLA-I2-19.
 //   test_copy   the test copy and Máquinas' test run: /bin/sh and process groups (macOS, Linux; not native Windows)
 //   stills      the Ventana's stills, QA's captures and El Probador's pictures: Chrome or Chromium
-//   base_lever  Máquinas' base lever: `brew services`
+//   base_lever  Máquinas' base lever: `brew services`, or on Linux `systemctl --user` (PLA-I2-19)
 // Read once per process (the programs do not come and go while the server runs); tests replace the answer.
 import { existsSync } from "node:fs";
 import { findChrome } from "../captures/chrome.js";
@@ -25,8 +25,11 @@ export function missingFor(feature: SystemFeature, deps: SupportDeps = {}): stri
       return exists("/bin/sh") ? null : "/bin/sh";
     case "stills":
       return (deps.chrome ? deps.chrome() : findChrome(env, exists)) ? null : "Chrome or Chromium";
-    case "base_lever":
-      return findOnPath("brew", { ...env, PATH: commandPath(env.PATH ?? "") }, exists, platform) ? null : "brew";
+    case "base_lever": {
+      const has = (name: string) => !!findOnPath(name, { ...env, PATH: commandPath(env.PATH ?? "") }, exists, platform);
+      if (has("brew")) return null;
+      return platform === "linux" ? (has("systemctl") ? null : "brew or systemctl") : "brew";
+    }
   }
 }
 

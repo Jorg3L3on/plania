@@ -118,7 +118,7 @@ describe("collectors", () => {
   };
 
   test("today's listeners: postgres, next dev and plania itself are kept; ControlCenter, rapportd, Spotify and Dia are ignored", async () => {
-    const out = await collect.collectProcesses(fakeRun(), directory(), { selfPid: 999999, selfPorts: [3737] });
+    const out = await collect.collectProcesses(fakeRun(), directory(), { selfPid: 999999, selfPorts: [3737], platform: "darwin" });
     assert.deepEqual(out.ran, ["ports", "procs"]);
     const byLocator = Object.fromEntries(out.items.map((i) => [i.locator, i]));
     assert.deepEqual(
@@ -139,7 +139,7 @@ describe("collectors", () => {
     assert.deepEqual(await collect.collectDocker(fakeRun()), { ran: [], items: [] });
     const up = await collect.collectDocker(fakeRun({ docker: ok('{"ID":"abc","Names":"pg-scratch","Image":"postgres:17","State":"running","Status":"Up","Ports":"","CreatedAt":""}\n') }));
     assert.deepEqual([up.ran, up.items.map((i) => i.locator)], [["docker"], ["docker:pg-scratch"]]);
-    const noLsof = await collect.collectProcesses(fakeRun({ lsof: { ok: false, reason: "timeout", stdout: "" } }), directory(), { selfPid: 1, selfPorts: [] });
+    const noLsof = await collect.collectProcesses(fakeRun({ lsof: { ok: false, reason: "timeout", stdout: "" } }), directory(), { selfPid: 1, selfPorts: [], platform: "darwin" });
     assert.ok(!noLsof.ran.includes("ports") && noLsof.ran.includes("procs"));
     const r = await execRun("plania-no-such-binary", ["x"]);
     assert.deepEqual(r, { ok: false, reason: "missing", stdout: "" });
@@ -408,7 +408,7 @@ describe("a whole tick", () => {
       };
       const listDatabases = async (port: number) =>
         port === 5432 ? { version: "14.9", databases: [{ name: "zigzag", sizeBytes: 10 }, { name: "zigzag_zig_i1_scratch", sizeBytes: 20 }, { name: "xize", sizeBytes: 30 }] } : null;
-      const deps = { run, listDatabases, machine: "test-mac", projectsRoot: root, launchAgentsDir: path.join(root, "none"), selfPid: 1, selfPorts: [3737], state: { lastRun: {}, brewNames: [] } };
+      const deps = { run, listDatabases, machine: "test-mac", projectsRoot: root, launchAgentsDir: path.join(root, "none"), platform: "darwin" as const, systemdUserDir: path.join(root, "none"), selfPid: 1, selfPorts: [3737], state: { lastRun: {}, brewNames: [] } };
 
       const first = await runMachineTick(db, NOW0, deps);
       assert.equal(first.seen, 6); // worktree, server, db_server, 3 databases
