@@ -16,6 +16,8 @@
     "build": "tsc --noEmit && tsc -p ui && vite build",
     "test": "node --import tsx --test --test-concurrency=1 --test-force-exit --test-timeout=300000 test/*.test.ts",
     "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "plania:install": "tsx scripts/install.ts",
     "seed": "tsx --env-file=.env scripts/seed.ts",
     "project:add": "tsx --env-file=.env scripts/register-project.ts",
     "rekey": "tsx --env-file=.env scripts/rekey-v3.ts",
