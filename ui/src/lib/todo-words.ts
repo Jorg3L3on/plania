@@ -27,6 +27,9 @@ export const TODO_WORDS = defineWords({
     looseSteps: (n: number) => `${n} ${n === 1 ? "paso suelto" : "pasos sueltos"}`,
     nothingYet: "Todavía nada.",
     seeAllDone: "Ver todo lo hecho",
+    // PLA-I3-3: the counts above the list.
+    filterList: "Filtrar la lista",
+    doneAria: (n: number) => `Hecho: ${n}. Ver todo lo hecho`,
     saved: "Guardadas",
     savedLine: "fuera de la corriente; se restauran desde su «Más»",
     readWhat: "las ideas del proyecto",
@@ -59,6 +62,8 @@ export const TODO_WORDS = defineWords({
     looseSteps: (n: number) => `${n} ${n === 1 ? "loose step" : "loose steps"}`,
     nothingYet: "Nothing yet.",
     seeAllDone: "See everything done",
+    filterList: "Filter the list",
+    doneAria: (n: number) => `Done: ${n}. See everything done`,
     saved: "Saved",
     savedLine: "out of the current; restore them from their «More»",
     readWhat: "the project's ideas",

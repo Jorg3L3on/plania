@@ -190,24 +190,41 @@ const fakeActs = () => {
 };
 const ahoraLinks = { entrega: (d: { id: string }) => `/e/${d.id}`, tetoca: () => "/tt", paso: (k: string) => `/paso/${k}`, tablero: "/tablero", equipo: "/equipo", miembro: (a: string) => `/m/${a}`, publicar: "/pub", pagina: "/p/filmia", hash: () => "/hash" };
 
-test("I62-3, I64-7: Esc steps out one level at a time; the strip keeps the door; the bar has the doors, not the tabs", () => {
+test("I62-3, I64-7, I3-2: Esc steps out one level at a time; one bar: the switcher keeps the door, the doors, not the tabs", () => {
   assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia&t=tablero&ver=paso:FIL-1")), { slug: "filmia", tab: "todo" });
   assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia&t=archivo")), { slug: "filmia" });
   assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia&t=motores")), { slug: "filmia", tab: "equipo" });
   assert.deepEqual(page.escFrom(lib.atOf("?proyecto=filmia")), { view: "corriente" });
   assert.deepEqual(page.escFrom(lib.atOf("?v=tetoca")), { view: "corriente" });
   const lanes = [stream.laneOf(project("filmia", { team: [member("t", "taller", "running", { ticket: null })] }), undefined, [decision("d", "filmia", "deliverable")]), stream.laneOf(project("micasa"), undefined, [])];
-  const out = html(h(strip.Strip, { lanes, open: "filmia", href: (s: string) => `/c?proyecto=${s}&t=archivo`, back: "/c", pedirTo: "/pedir" }));
+  const base = { slug: "filmia", title: "Filmia", lanes, href: (t: string) => `/t/${t}`, projectHref: (s: string) => `/c?proyecto=${s}&t=archivo`, back: "/c", pedirTo: "/pedir", pauseHref: "/pausar" };
+  // PLA-I3-2: the strip's chips moved into the switcher's menu (open here), each with its mini stream.
+  const out = html(h(strip.ProjectBar, { ...base, tab: "archivo", paused: false, switcherOpen: true }));
   assert.match(out, /aria-current="page"[^>]*href="\/c\?proyecto=filmia&amp;t=archivo"|href="\/c\?proyecto=filmia&amp;t=archivo"[^>]*aria-current="page"/);
+  assert.match(out, /href="\/c\?proyecto=micasa&amp;t=archivo"/);
   assert.match(out, /class="t yo"/);
   assert.match(out, /class="t ag"/);
-  assert.match(out, /class="cor-btn secondary"[^>]*>Pedir</);
-  const bar = html(h(strip.ProjectBar, { slug: "filmia", title: "Filmia", tab: "motores", href: (t: string) => `/t/${t}`, team: "4 LIBRES", paused: false, pauseHref: "/pausar" }));
-  for (const t of ["Archivo", "Equipo", "Máquinas", "Pausar"]) assert.ok(bar.includes(`>${t}<`) || bar.includes(`>${t}<span`), t);
-  for (const t of ["Ahora", "Pedidos", "Tablero", "Ideas", "Diseño", "PRs", "Docs", "Motores"]) assert.ok(!bar.includes(`>${t}<`), `no ${t} tab`);
+  // PLA-I3-6: no Pedir in the bar; the bar at the foot is the only one.
+  assert.ok(!out.includes("data-pedir") && !/>Pedir</.test(out), "no Pedir in the bar");
+  assert.equal((out.match(/class="cor-topbar"/g) ?? []).length, 1, "one bar");
+  const bar = html(h(strip.ProjectBar, { ...base, tab: "motores", team: "4 LIBRES", paused: false }));
+  assert.ok(!bar.includes("data-switcher"), "the menu starts closed");
+  assert.match(bar, /aria-haspopup="menu" aria-expanded="false"/);
+  // PLA-I3-2: the strip on top is back: one chip per project, the open one marked, each a link to the same door.
+  assert.match(bar, /data-strip/);
+  assert.match(bar, /data-chip="micasa"/);
+  assert.match(bar, /href="\/c\?proyecto=micasa&amp;t=archivo"/);
+  assert.match(bar, /aria-current="page"[^>]*data-chip="filmia"/);
+  assert.ok(bar.indexOf("data-strip") < bar.indexOf('class="cor-topbar"'), "the strip sits above the bar");
+  for (const t of ["Todo", "Archivo", "Equipo", "Máquinas", "Ajustes", "Pausar"]) assert.ok(bar.includes(`>${t}<`) || bar.includes(`>${t}<span`), t);
+  for (const t of ["Ahora", "Pedidos", "Tablero", "Ideas", "Diseño", "PRs", "Docs", "Motores", "Borrar"]) assert.ok(!bar.includes(`>${t}<`), `no ${t} in the bar`);
   assert.match(bar, /aria-current="page"[^>]*>Equipo/, "Motores opens from Equipo");
-  const paused = html(h(strip.ProjectBar, { slug: "filmia", title: "Filmia", tab: "todo", href: (t: string) => `/t/${t}`, paused: true, pauseHref: "/reanudar" }));
-  assert.match(paused, /Reanudar Filmia/);
+  assert.match(bar, /data-estado="marcha"[^>]*>.*En marcha/);
+  // Paused, the bar shows the state only: no Reanudar, no Pausar.
+  const paused = html(h(strip.ProjectBar, { ...base, tab: "todo", paused: true }));
+  assert.match(paused, /data-estado="pausa"[^>]*>.*En pausa/);
+  assert.ok(!/Reanudar/.test(paused) && !paused.includes('data-control="pausar"'));
+  assert.match(paused, /aria-current="page"[^>]*>Todo/, "Todo is the current door by default");
 });
 
 // PLA-I64-7: Ahora is retired; its card and nudges live in the list (test/i64-*.test.ts).

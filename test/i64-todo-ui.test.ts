@@ -84,8 +84,9 @@ test("I64-2: groups in order, an empty group is one line, a long group folds and
   const out = html(h(todo.TodoList, { p, cosas, links, companyPaused: false, timeZone: "America/Mexico_City" }));
   const order = [...out.matchAll(/data-grupo="(\w+)"/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(order)], ["toca", "fila", "quieto", "hecho"]);
-  assert.match(out, /data-grupo-vacio="mueve"/, "Se mueve · 0 shares the next line");
-  assert.match(out, /Se mueve · 0/);
+  // PLA-I3-3: an empty group has no line of its own; its count says 0.
+  assert.doesNotMatch(out, /Se mueve · 0/);
+  assert.match(out, /aria-label="Se mueve: 0"/);
   assert.match(out, /Ver las otras \d+/);
   assert.match(out, /Pedido tuyo|Iniciativa/);
   assert.match(out, /Verla</, "a group folded whole with one row");
@@ -104,12 +105,14 @@ test("I64-2/5: the header names the stops; empty groups share a line; an empty p
   const done = project({ tablero: { initiatives: [], loose: [], loose_done: 2, done_initiatives: [] } });
   const head = html(h(todo.TodoList, { p: done, cosas: cosasLib.cosasOf({ p: done, decisions: [], ficha: { ideas: [], promoted: [] } }), links, companyPaused: false }));
   for (const name of ["Buzón", "Entendido", "Investigación", "Diseño", "Plan", "Lista", "Construcción", "Publicado"]) assert.ok(head.includes(name), name);
-  assert.match(head, /Nada te espera\. Nadie trabaja ahora\. Nada espera turno\. Nada está quieto\./);
+  // PLA-I3-3: no line for empty groups; the counts say 0 and Hecho counts the done steps.
+  assert.doesNotMatch(head, /Nada te espera/);
+  assert.match(head, /aria-label="Hecho: 2\. Ver todo lo hecho"/);
   const empty = project();
   const plan = h("button", { "data-control": "planear" }, "Arma el plan");
   const out = html(h(todo.TodoList, { p: empty, cosas: cosasLib.cosasOf({ p: empty, decisions: [], ficha: { ideas: [], promoted: [] } }), links, companyPaused: false, plan }));
   assert.match(out, /data-fantasma/);
-  assert.match(out, /Te toca · 0.*Se mueve · 0.*En fila · 0.*Quieto · 0.*Hecho · 0/);
+  assert.match(out, /aria-label="Todo: 0".*aria-label="Te toca: 0".*aria-label="Se mueve: 0".*aria-label="En fila: 0".*aria-label="Quieto: 0".*aria-label="Hecho: 0/);
   assert.match(out, /Arma el plan/);
 });
 

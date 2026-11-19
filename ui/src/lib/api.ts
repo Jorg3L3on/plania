@@ -528,11 +528,14 @@ export type AhoraItem = { key: string; title: string; initiative: string | null 
 // PLA-I53-6: zonas, what part of the app a ticket touches (from its areas); none when it has no areas.
 export type Zona = "pantalla" | "servidor" | "datos" | "docs";
 // NEWPROJ-5: arranque, when the step's newest run failed before it started (its summary, when). Optional for older servers.
-export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas?: Zona[]; arranque?: { summary: string; at: string | null } | null };
+// PLA-I3-1: tokens, what the runner measured: used is input + output (the figure to show), the prompt cache apart.
+// An initiative's rolls up its tickets, its own runs and the idea it was promoted from. Optional for older servers.
+export type Tokens = { used: number; cache_read: number; cache_write: number; runs: number };
+export type ProjectTicket = { key: string; title: string; status: string; phase: number | null; parent_key: string | null; etapa: Etapa; zonas?: Zona[]; arranque?: { summary: string; at: string | null } | null; tokens?: Tokens };
 export type DoneInitiative = { key: string; title: string; done_at: string | null };
 // PLA-I56-1: done counts landed tickets (Merged, Released, Done); closed only Done; can_close when every ticket is Done.
 // An older server sends none of the three (then landed counts as closed, and there is no Cerrar).
-export type OpenInitiative = { key: string; title: string; status: string; done: number; total: number; closed?: number; can_close?: boolean; version?: number; tickets: ProjectTicket[] };
+export type OpenInitiative = { key: string; title: string; status: string; done: number; total: number; closed?: number; can_close?: boolean; version?: number; tokens?: Tokens; tickets: ProjectTicket[] };
 // PLA-I53-2: GET /api/projects/:slug, with every ticket's stage and the board the floor reads.
 export type StagedTask = TaskRow & { etapa?: Etapa | null };
 export type ProjectRead = Omit<ProjectDetail, "tasks"> & { tasks: StagedTask[]; tablero?: Tablero; ahora?: AhoraItem[] };
