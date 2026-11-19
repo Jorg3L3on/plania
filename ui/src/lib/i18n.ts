@@ -47,6 +47,8 @@ function stored(): Language | null {
 }
 
 let current: Language = stored() ?? DEFAULT_LANGUAGE;
+// PLA-I2-10: the page says which language it is in (screen readers, the browser's translate offer).
+if (typeof document !== "undefined") document.documentElement.lang = current;
 
 /** The screen's language for this page load. */
 export const getLanguage = (): Language => current;

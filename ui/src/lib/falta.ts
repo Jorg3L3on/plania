@@ -107,7 +107,7 @@ export const FALTA = defineWords({
     failed: "No se pudo revisar la máquina.",
     again: "Revisar otra vez",
     optional: "opcional",
-    checkedAt: (time: string) => `Revisada a las ${time}.`,
+    checkedAt: (time: string) => `Revisada: ${time}`,
   },
   en: {
     names: {
@@ -168,7 +168,7 @@ export const FALTA = defineWords({
     failed: "The machine could not be checked.",
     again: "Check again",
     optional: "optional",
-    checkedAt: (time: string) => `Checked at ${time}.`,
+    checkedAt: (time: string) => `Checked: ${time}`,
   },
 });
 
